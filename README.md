@@ -1,8 +1,8 @@
-# RRIviz - Radio Astronomy Visibility Simulator
+# RRIvis - Radio Astronomy Visibility Simulator
 
 ## Overview
 
-RRIviz is a Python-based application for simulating and visualizing complex visibilities in radio astronomy. It's particularly focused on the Hydrogen Epoch of Reionization Array (HERA) and similar radio telescopes, but can be used with any antenna array configuration.
+RRIvis is a Python-based application for simulating and visualizing complex visibilities in radio astronomy. It's particularly focused on the Hydrogen Epoch of Reionization Array (HERA) and similar radio telescopes, but can be used with any antenna array configuration.
 
 The simulator calculates visibility data using antenna positions, baselines, sky models, and source catalogs. It supports various plotting libraries and offers options for both polarized and non-polarized visibility calculations.
 

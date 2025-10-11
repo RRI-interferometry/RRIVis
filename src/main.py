@@ -43,15 +43,9 @@ from plot import (
 
 
 """
-These are the default config values that will be used if the user does not
-provide a config file or the config file is missing some parameters.
+These are the default config values that will be used if the config file is missing some parameters.
 """
 DEFAULT_CONFIG = {
-    # If PYUVData telescope is used, then all the possible inputs will be
-    # used from the PYUVData telescope object. And if not present there,
-    # will be taken from the antenna, baseline, location,
-    # beams parameters.
-    # TODO: Add support for using Telescope objects and custom telescopes parameters.
     "telescope": {
         "telescope_type": {
             "use_PYUVData_telescope": False,
@@ -60,45 +54,37 @@ DEFAULT_CONFIG = {
         # Known telescope names: ATA, HERA, MWA, OVRO-LWA, PAPER, SMA, SZA
         "telescope_name": "Unknown",
         # Control which fields to import from pyuvdata Telescope when enabled
-        # If False, values from config/CLI are used instead.
+        # If False, values from config are used instead.
         "use_pyuvdata_location": False,
         "use_pyuvdata_antennas": False,
         "use_pyuvdata_diameters": False,
     },
     "antenna": {
         # User must provide an absolute path via --antenna-file or config.
-        "antenna_positions_file": None,
-        "all_antenna_diameter": "",
-        "use_different_diameters": False,
-        "diameters": {},
-        "fixed_hpbw": None,
-        # Antenna optical/mechanical type (e.g., parabolic, spherical, phased-array, dipole, other)
-        # By default a single type applies to all antennas. Optionally allow per-antenna overrides.
-        "physical_antenna_type": "",  # Alternative for aperture
+        "antenna_positions_file": None, # Absolute path of the antenna file (.txt or .csv)
         "use_different_antenna_types": False,
-        "types_per_antenna": {},  # {antenna_number: "parabolic"}
-        # Illumination taper of the aperture (affects beam sidelobes in advanced models)
-        # Common options: uniform, cosine, gaussian, taper10dB, taper20dB, custom
-        "illumination": "",  # Alternative for feed type
-        "use_different_illumination": False,
-        "illumination_per_antenna": {},  # {antenna_number: "uniform"}
+        "all_antenna_type": "", # Parabolic, Dipole etc...
+        "antenna_types": {}, # {antenna_number: antenna_type, ....}
+        "use_different_diameters": False,
+        "all_antenna_diameter": "",
+        "diameters": {},
+        "fixed_HPBW": None,
     },
     "feeds": {
-        # TODO: To be added later
         "use_polarized_feeds": False,
+        "polarization_type": "",
+        "use_different_polarization_type": False, 
+        "polarization_per_antenna": {},
         "use_different_feed_types": False,
-        "all_same_feed_type": "dual",
+        "all_feed_type": "",
         "feed_types_per_antenna": {},
     },
     "beams": {
-        # Either EBeam or PowerBeam
-        "use_different_beams_for_each_antenna": False,
-        "all_same_beam_type": "EBeam",
+        "use_different_beams": False,
+        "all_beam_type": "", # EBeam, Power Beam
         "beams_per_antenna": {},
-        # TODO: Add support for PYUVData analytic beams and other beam types and mixing beam types.
-        "use_different_beam_responses_for_each_antenna": False,
-        # TODO: Add support these options: analytic_beams(Gaussian, Airy, etc.), healpix_analytic_beams, PYUVData_analytic_beams, UVBeam, Beam_interface etc.
-        "all_same_beam_response": "GaussianHealpix",
+        "use_different_beam_responses": False,
+        "all_beam_response": "", # Gaussian etc..
         "beam_response_per_antenna": {},
     },
     "baseline": {
@@ -106,16 +92,16 @@ DEFAULT_CONFIG = {
         "use_crosscorrelations": True,
         "only_selective_baseline_length": False,
         "selective_baseline_lengths": [],
-        # TODO: Add support for inputting angle for the unit vector of the baseline for trimming!
+        "trim_by_angle_ranges": False,
+        # A list of [min_angle, max_angle] ranges in degrees.
+        # Azimuth convention: 0=North, 90=East, 180=South, 270=West.
+        # Ranges can wrap around 360/0 degrees (e.g., [350, 10]).
+        "selective_angle_ranges_deg": [],
     },
     "location": {
         "lat": "",
         "lon": "",
         "height": "",
-    },
-    "visibility": {
-        # TODO: Polarization support will be added later.
-        # TODO: Add support for faster visibility calculations.
     },
     "sky_model": {
         "test_sources": {
@@ -164,6 +150,8 @@ DEFAULT_CONFIG = {
             "flux_limit": 50,
             "nside": 32,
         },
+        # Sky model plotting options
+        "skymodel_frequency": 150,  # Frequency in MHz for sky model plots
     },
     "obs_time": {
         "time_interval": 1.0,
@@ -172,7 +160,7 @@ DEFAULT_CONFIG = {
         "total_duration_unit": "days",
         "start_time": "2025-01-01T00:00:00",
     },
-    "frequency": {
+    "obs_frequency": {
         "starting_frequency": 50.0,
         "frequency_interval": 1.0,
         "frequency_bandwidth": 100.0,
@@ -187,6 +175,7 @@ DEFAULT_CONFIG = {
         "output_file_format": "HDF5",
         "save_simulation_data": False,
         "plot_results_in_bokeh": True,
+        "plot_skymodel_every_hour": True,  # Enable sky model plots by default
         "save_log_data": False,
         # Angle unit for display output - must be specified by user
         # Valid values: "degrees" or "radians"
@@ -198,10 +187,6 @@ DEFAULT_CONFIG = {
         "use_different_simulator_for_cross_check": False,
         "name": "",
     },
-    # Sky model plotting options
-    "plot_skymodel_every_hour": True,  # Enable sky model plots by default
-    "skymodel_frequency": 150,  # Frequency in MHz for sky model plots
-    "fov_radius_deg": 10,  # Field of view radius in degrees for sky model plots
 }
 
 
@@ -1103,9 +1088,9 @@ def main():
     plotting_backend = config.get("plotting", "bokeh")
     # save_simulation_data_flag already determined above
     # Enable sky model plots by default unless explicitly disabled
-    plot_skymodel_every_hour = bool(config.get("plot_skymodel_every_hour", True))
-    skymodel_frequency = config.get("skymodel_frequency", 150)
-    fov_radius_deg = config.get("fov_radius_deg", 10)
+    plot_skymodel_every_hour = bool(config.get("output", {}).get("plot_skymodel_every_hour", True))
+    skymodel_frequency = config.get("sky_model", {}).get("skymodel_frequency", 150)
+    fov_radius_deg = config.get("antenna", {}).get("fov_radius_deg", 10)
 
     # Access antennas either from pyuvdata Telescope or from antenna file
     if antennas is None:
@@ -1260,7 +1245,7 @@ def main():
 
     # Check if the HPBW is fixed for all frequencies (configured in degrees).
     # Convert once to radians for internal use.
-    fixed_hpbw_deg = config["antenna"]["fixed_hpbw"]
+    fixed_hpbw_deg = config["antenna"].get("fixed_hpbw")
     fixed_hpbw_rad = (
         None if fixed_hpbw_deg is None else np.radians(float(fixed_hpbw_deg))
     )
@@ -1276,12 +1261,16 @@ def main():
     # Direct nested access to frequency parameters
     try:
         # Values are specified in the units given by frequency_unit
-        start_frequency = float(config["frequency"]["starting_frequency"])  # >= 0
-        frequency_interval = float(config["frequency"]["frequency_interval"])  # > 0
-        frequency_bandwidth = float(config["frequency"]["frequency_bandwidth"])  # > 0
-        frequency_unit = config["frequency"]["frequency_unit"]
+        start_frequency = float(config["obs_frequency"]["starting_frequency"])
+        frequency_interval = float(config["obs_frequency"]["frequency_interval"])
+        frequency_bandwidth = float(config["obs_frequency"]["frequency_bandwidth"])
+        frequency_unit = config["obs_frequency"]["frequency_unit"]
     except KeyError as e:
-        raise ValueError(f"Missing required configuration key: {e}")
+        raise ValueError(
+            f"Missing required configuration key: {e}. "
+            "Please ensure your configuration file has the 'obs_frequency' section "
+            "with 'starting_frequency', 'frequency_interval', 'frequency_bandwidth', and 'frequency_unit'."
+        )
 
     if frequency_unit not in unit_conversion:
         raise ValueError(
@@ -1363,21 +1352,21 @@ def main():
         )
 
     # Beams type and beams response for antennas
-    if config["beams"]["use_different_beams_for_each_antenna"]:
+    if config["beams"].get("use_different_beams"):
         beams_per_antenna = config["beams"]["beams_per_antenna"]
     else:
         # Map beam types using antenna numbers
         beams_per_antenna = {
-            ant["Number"]: config["beams"]["all_same_beam_type"]
+            ant["Number"]: config["beams"]["all_beam_type"]
             for ant in antennas.values()
         }
 
-    if config["beams"]["use_different_beam_responses_for_each_antenna"]:
+    if config["beams"]["use_different_beam_responses"]:
         beam_response_per_antenna = config["beams"]["beam_response_per_antenna"]
     else:
         # Map beam responses using antenna numbers
         beam_response_per_antenna = {
-            ant["Number"]: config["beams"]["all_same_beam_response"]
+            ant["Number"]: config["beams"]["all_beam_response"]
             for ant in antennas.values()
         }
 
@@ -1557,7 +1546,7 @@ def main():
             gleam_catalogue=sky_model_config["gleam"]["gleam_catalogue"],
             gsm_catalogue=sky_model_config["gsm_healpix"]["gsm_catalogue"],
             flux_limit=flux_limit,
-            frequency=config["frequency"]["starting_frequency"] * 1e6,
+            frequency=config["obs_frequency"]["starting_frequency"] * 1e6,
             nside=nside,
         )
     except Exception as e:
@@ -1571,7 +1560,7 @@ def main():
                 use_gleam_healpix=False,
                 use_gsm_gleam_healpix=False,
                 flux_limit=None,
-                frequency=config["frequency"]["starting_frequency"] * 1e6,
+                frequency=config["obs_frequency"]["starting_frequency"] * 1e6,
                 nside=None,
             )
         else:
