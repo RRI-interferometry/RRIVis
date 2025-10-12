@@ -1,6 +1,6 @@
 # src/plot.py
 
-from bokeh.plotting import figure, show
+from bokeh.plotting import figure
 from bokeh.palettes import Turbo256, Inferno256
 from bokeh.layouts import column
 from bokeh.models import (
@@ -12,13 +12,16 @@ from bokeh.models import (
     ColumnDataSource,
     LabelSet,
 )
-from bokeh.io import output_file, save
+from bokeh.io import save
 
 # Note: avoid Matplotlib here to keep plotting browser-native via Bokeh/Plotly
 import numpy as np
 import os
 from bokeh.resources import CDN
 from astropy.time import Time
+import tempfile
+import webbrowser
+from pathlib import Path
 
 
 def plot_visibility(
@@ -32,6 +35,7 @@ def plot_visibility(
     save_simulation_data=False,
     folder_path=None,
     angle_unit="radians",
+    open_in_browser=False,
 ):
     """
     Create plots of the modulus and phase of visibility versus time for each baseline.
@@ -45,6 +49,7 @@ def plot_visibility(
     total_seconds (float): Total duration of the observation in seconds.
     plotting (str): Plotting library to use ('matplotlib' or 'bokeh').
     angle_unit (str): Unit for displaying angles ('degrees' or 'radians').
+    open_in_browser (bool): Open the rendered HTML in the default browser.
 
     Returns:
     Figure object: The generated plot figure(s) based on the specified plotting library.
@@ -294,16 +299,15 @@ def plot_visibility(
         # Combine plots into a column
         plot_column = column(*plots)
 
-        # Save the entire column if required
-        if save_simulation_data and folder_path:
-            file_path = os.path.join(folder_path, "visibility-phase-lsts.html")
-            save(
-                plot_column,
-                filename=file_path,
-                resources=CDN,
-                title="Visibility/Phase Plots",
-            )
-            print(f"Saved visibility plots column to {file_path}")
+        _persist_bokeh_document(
+            plot_column,
+            filename="visibility-phase-lsts.html",
+            title="Visibility/Phase Plots",
+            save_flag=save_simulation_data,
+            folder_path=folder_path,
+            open_flag=open_in_browser,
+            save_message="Saved visibility plots column to",
+        )
 
         return plot_column
 
@@ -395,6 +399,7 @@ def plot_heatmaps(
     plotting="bokeh",
     save_simulation_data=False,
     folder_path=None,
+    open_in_browser=False,
 ):
     """
     Create heatmaps for visibility modulus and phase over time and frequency.
@@ -406,6 +411,7 @@ def plot_heatmaps(
     freqs (ndarray): Array of frequencies used in the observations.
     total_seconds (float): Total duration of the observation in seconds.
     plotting (str): Plotting library to use ('matplotlib' or 'bokeh').
+    open_in_browser (bool): Open the rendered HTML in the default browser.
 
     Returns:
     Figure object: The generated heatmap figure(s) based on the specified plotting library.
@@ -501,16 +507,15 @@ def plot_heatmaps(
         # Combine plots into a column
         plot_column = column(*plots, sizing_mode="stretch_both")
 
-        # Save the entire column if required
-        if save_simulation_data and folder_path:
-            file_path = os.path.join(folder_path, "heatmaps-freq-time.html")
-            save(
-                plot_column,
-                filename=file_path,
-                resources=CDN,
-                title="Visibility Heatmaps",
-            )
-            print(f"Saved heatmaps column to {file_path}")
+        _persist_bokeh_document(
+            plot_column,
+            filename="heatmaps-freq-time.html",
+            title="Visibility Heatmaps",
+            save_flag=save_simulation_data,
+            folder_path=folder_path,
+            open_flag=open_in_browser,
+            save_message="Saved heatmaps column to",
+        )
 
         return plot_column
 
@@ -563,6 +568,41 @@ def plot_heatmaps(
 
         # plt.tight_layout()
         # return fig2
+
+
+def _persist_bokeh_document(
+    doc,
+    filename,
+    title,
+    save_flag,
+    folder_path,
+    open_flag,
+    save_message=None,
+):
+    """
+    Save a Bokeh document when persistence or browser viewing is requested.
+    Returns the path if a file was written, else None.
+    """
+    needs_file = (save_flag and folder_path) or open_flag
+    target_path = None
+
+    if needs_file:
+        if save_flag and folder_path:
+            target_dir = folder_path
+        else:
+            target_dir = tempfile.mkdtemp(prefix="rrivis_")
+        target_path = os.path.join(target_dir, filename)
+
+        save(doc, filename=target_path, resources=CDN, title=title)
+
+        if save_flag and folder_path:
+            message = save_message or f"Saved {title} to"
+            print(f"{message} {target_path}")
+
+        if open_flag:
+            webbrowser.open(Path(target_path).resolve().as_uri())
+
+    return target_path
 
 
 def plot_antenna_layout(
@@ -638,28 +678,15 @@ def plot_antenna_layout(
         )
     )
 
-    # Save if requested
-    if save_simulation_data and folder_path:
-        file_path = os.path.join(folder_path, "antenna_layout.html")
-        save(p, filename=file_path, resources=CDN, title="Antenna Layout (2D)")
-        print(f"Saved antenna layout plot to {file_path}")
-
-    if open_in_browser:
-        # Set the page title for the browser tab
-        from bokeh.io import reset_output
-        import tempfile
-
-        if folder_path:
-            output_file_path = os.path.join(folder_path, "antenna_layout_2d.html")
-        else:
-            # Create a temporary directory for the output file
-            temp_dir = tempfile.mkdtemp(prefix="rrivis_")
-            output_file_path = os.path.join(temp_dir, "antenna_layout_2d.html")
-        output_file(output_file_path, title="Antenna Layout (2D)")
-        try:
-            show(p)
-        finally:
-            reset_output()
+    _persist_bokeh_document(
+        p,
+        filename="antenna_layout.html",
+        title="Antenna Layout (2D)",
+        save_flag=save_simulation_data,
+        folder_path=folder_path,
+        open_flag=open_in_browser,
+        save_message="Saved antenna layout plot to",
+    )
 
     return p
 
@@ -685,7 +712,6 @@ def plot_antenna_layout_3d_plotly(
     try:
         import plotly.graph_objects as go
         import plotly.io as pio
-        import tempfile
     except Exception as exc:
         print(
             f"Warning: Plotly not available for 3D antenna layout ({exc}); skipping 3D plot."
@@ -917,10 +943,7 @@ def plot_antenna_layout_3d_plotly(
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(centered)
         if open_in_browser:
-            import webbrowser
-            import pathlib
-
-            webbrowser.open(pathlib.Path(html_path).as_uri())
+            webbrowser.open(Path(html_path).resolve().as_uri())
         print(f"Saved antenna 3D layout (Plotly) to {html_path}")
         return html_path
     except Exception as exc:
@@ -937,6 +960,7 @@ def plot_modulus_vs_frequency(
     plotting="bokeh",
     save_simulation_data=False,
     folder_path=None,
+    open_in_browser=False,
 ):
     """
     Create plots of the modulus of visibility versus frequency at a specific time point.
@@ -948,6 +972,7 @@ def plot_modulus_vs_frequency(
     freqs (ndarray): Array of frequencies used in the observations.
     time_index (int): Index of the time point at which to plot the modulus.
     plotting (str): Plotting library to use ('matplotlib' or 'bokeh').
+    open_in_browser (bool): Open the rendered HTML in the default browser.
 
     Returns:
     Figure object: The generated plot figure(s) based on the specified plotting library.
@@ -1102,16 +1127,15 @@ def plot_modulus_vs_frequency(
 
         plot_column = column(*plots, sizing_mode="stretch_both")
 
-        # Save the entire column if required
-        if save_simulation_data and folder_path:
-            file_path = os.path.join(folder_path, "modulus-phase-freq.html")
-            save(
-                plot_column,
-                filename=file_path,
-                resources=CDN,
-                title="Visibility Modulus/Phase vs Frequency",
-            )
-            print(f"Saved Modulus vs Frequency column to {file_path}")
+        _persist_bokeh_document(
+            plot_column,
+            filename="modulus-phase-freq.html",
+            title="Visibility Modulus/Phase vs Frequency",
+            save_flag=save_simulation_data,
+            folder_path=folder_path,
+            open_flag=open_in_browser,
+            save_message="Saved Modulus vs Frequency column to",
+        )
 
         return plot_column
 

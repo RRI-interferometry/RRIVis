@@ -12,7 +12,6 @@ from pathlib import Path
 
 # Third-party imports
 import yaml
-from bokeh.io import show, reset_output, output_file
 import numpy as np
 from astropy.constants import c
 from astropy.time import TimeDelta
@@ -171,6 +170,7 @@ DEFAULT_CONFIG = {
     # CASA Measurement Set (MS)
     # UVFITS
     "output": {
+        "simulation_data_dir": "", 
         "output_file_name": "complex_visibility",
         "output_file_format": "HDF5",
         "save_simulation_data": False,
@@ -790,6 +790,9 @@ def main():
     save_simulation_data_flag = bool(
         config.get("output", {}).get("save_simulation_data", True)
     )
+    open_plots_in_browser = bool(
+        config.get("output", {}).get("plot_results_in_bokeh", True)
+    )
     simulation_folder_path = None
 
     if save_simulation_data_flag:
@@ -1085,7 +1088,7 @@ def main():
             )
 
     # Convenience flags/defaults
-    plotting_backend = config.get("plotting", "bokeh")
+    plotting_backend = config.get("output", {}).get("plotting", "bokeh")
     # save_simulation_data_flag already determined above
     # Enable sky model plots by default unless explicitly disabled
     plot_skymodel_every_hour = bool(config.get("output", {}).get("plot_skymodel_every_hour", True))
@@ -1231,7 +1234,7 @@ def main():
         plotting=plotting_backend,
         save_simulation_data=save_simulation_data_flag,
         folder_path=simulation_folder_path,
-        open_in_browser=config.get("output", {}).get("plot_results_in_bokeh", True),
+        open_in_browser=open_plots_in_browser,
     )
     _al_outdir2 = simulation_folder_path or tempfile.mkdtemp(prefix="rrivis_")
     from plot import plot_antenna_layout_3d_plotly as _plot3d
@@ -1240,7 +1243,7 @@ def main():
         antennas,
         save_simulation_data=True,
         folder_path=_al_outdir2,
-        open_in_browser=config.get("output", {}).get("plot_results_in_bokeh", True),
+        open_in_browser=open_plots_in_browser,
     )
 
     # Check if the HPBW is fixed for all frequencies (configured in degrees).
@@ -1686,7 +1689,7 @@ def main():
             gleam_sources=sources if use_gleam else None,
             save_simulation_data=save_simulation_data_flag,
             folder_path=simulation_folder_path,
-            open_in_browser=config.get("output", {}).get("plot_results_in_bokeh", True),
+            open_in_browser=open_plots_in_browser,
         )
     # Save computed data to an HDF5 file (derive name if not provided)
     output_file_name = config.get("output_file") or (
@@ -1770,6 +1773,7 @@ def main():
         save_simulation_data=save_simulation_data_flag,
         folder_path=simulation_folder_path,
         angle_unit=angle_unit,
+        open_in_browser=open_plots_in_browser,
     )
     fig2 = plot_heatmaps(
         moduli_over_time,
@@ -1781,6 +1785,7 @@ def main():
         plotting=plotting_backend,
         save_simulation_data=save_simulation_data_flag,
         folder_path=simulation_folder_path,
+        open_in_browser=open_plots_in_browser,
     )
     fig3 = plot_modulus_vs_frequency(
         moduli_over_time,
@@ -1791,39 +1796,10 @@ def main():
         plotting=plotting_backend,
         save_simulation_data=save_simulation_data_flag,
         folder_path=simulation_folder_path,
+        open_in_browser=open_plots_in_browser,
     )
 
-    # Display plots (optional)
-    if plotting_backend == "bokeh" and config.get("output", {}).get(
-        "plot_results_in_bokeh", True
-    ):
-        # Explicitly control Bokeh output files. If not saving, use a temp directory.
-        output_dir = simulation_folder_path or tempfile.mkdtemp(prefix="rrivis_")
-        try:
-            output_file(
-                os.path.join(output_dir, "show_visibility-phase-lsts.html"),
-                title="Visibility and Phase vs LST",
-            )
-            show(fig1)
-        finally:
-            reset_output()
-        try:
-            output_file(
-                os.path.join(output_dir, "show_modulus-phase-freq.html"),
-                title="Modulus and Phase vs Frequency",
-            )
-            show(fig3)
-        finally:
-            reset_output()
-        try:
-            output_file(
-                os.path.join(output_dir, "show_heatmaps-freq-time.html"),
-                title="Visibility Heatmaps",
-            )
-            show(fig2)
-        finally:
-            reset_output()
-    else:
+    if plotting_backend != "bokeh" and open_plots_in_browser:
         plt.show()
 
     # Ending section and final success message

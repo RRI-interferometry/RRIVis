@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from astropy.coordinates import AltAz, SkyCoord
 from astropy.time import TimeDelta
 import astropy.units as au
-from bokeh.plotting import figure, show
+from bokeh.plotting import figure
 from bokeh.models import (
     ColorBar,
     LogColorMapper,
@@ -13,11 +13,8 @@ from bokeh.models import (
     HoverTool,
     ColumnDataSource,
 )
-from bokeh.io import show
-from bokeh.io import output_file, save
 from bokeh.layouts import gridplot
-import os
-from bokeh.resources import CDN
+from plot import _persist_bokeh_document
 
 
 def diffused_sky_model(
@@ -248,27 +245,12 @@ def diffused_sky_model(
     # Arrange plots in two columns
     grid = gridplot(children=plots, ncols=2)
 
-    # Save the grid if required
-    if save_simulation_data and folder_path:
-        file_path = os.path.join(folder_path, "gsm_plots_grid.html")
-        output_file(file_path, title="Global Sky Model Plots")
-        save(grid, filename=file_path, resources=CDN, title="Global Sky Model Plots")
-        print(f"GSM plot grid saved to {file_path}")
-
-    # Show all plots in a single browser tab if requested
-    if open_in_browser:
-        # Set the page title for the browser tab when showing the grid
-        from bokeh.io import reset_output
-        import tempfile
-
-        if folder_path:
-            output_file_path = os.path.join(folder_path, "gsm_plots_grid.html")
-        else:
-            # Create a temporary directory for the output file
-            temp_dir = tempfile.mkdtemp(prefix="rrivis_")
-            output_file_path = os.path.join(temp_dir, "gsm_plots_grid.html")
-        output_file(output_file_path, title="Global Sky Model Plots")
-        try:
-            show(grid)
-        finally:
-            reset_output()
+    _persist_bokeh_document(
+        grid,
+        filename="gsm_plots_grid.html",
+        title="Global Sky Model Plots",
+        save_flag=save_simulation_data,
+        folder_path=folder_path,
+        open_flag=open_in_browser,
+        save_message="GSM plot grid saved to",
+    )
