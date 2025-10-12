@@ -48,7 +48,7 @@ DEFAULT_CONFIG = {
     "telescope": {
         "telescope_type": {
             "use_PYUVData_telescope": False,
-            "use_custom_telescope": False,
+            "use_custom_telescope": False, # TODO: Add support for adding and saving custom telescope so that you don't have to mention all your telescope config everytime. 
         },
         # Known telescope names: ATA, HERA, MWA, OVRO-LWA, PAPER, SMA, SZA
         "telescope_name": "Unknown",
@@ -79,6 +79,8 @@ DEFAULT_CONFIG = {
         "feed_types_per_antenna": {},
     },
     "beams": {
+        "use_beam_file": False, # TODO
+        "beam_file_path": "", # Absolute path to the the beam fits file. 
         "use_different_beams": False,
         "all_beam_type": "", # EBeam, Power Beam
         "beams_per_antenna": {},
@@ -91,6 +93,7 @@ DEFAULT_CONFIG = {
         "use_crosscorrelations": True,
         "only_selective_baseline_length": False,
         "selective_baseline_lengths": [],
+        "selective_baseline_tolerance_meters": 2.0,
         "trim_by_angle_ranges": False,
         # A list of [min_angle, max_angle] ranges in degrees.
         # Azimuth convention: 0=North, 90=East, 180=South, 270=West.
@@ -149,8 +152,6 @@ DEFAULT_CONFIG = {
             "flux_limit": 50,
             "nside": 32,
         },
-        # Sky model plotting options
-        "skymodel_frequency": 150,  # Frequency in MHz for sky model plots
     },
     "obs_time": {
         "time_interval": 1.0,
@@ -170,9 +171,9 @@ DEFAULT_CONFIG = {
     # CASA Measurement Set (MS)
     # UVFITS
     "output": {
-        "simulation_data_dir": "", 
+        "simulation_data_dir": "",
         "output_file_name": "complex_visibility",
-        "output_file_format": "HDF5",
+        "output_file_format": "HDF5", # TODO: Add other formats too
         "save_simulation_data": False,
         "plot_results_in_bokeh": True,
         "plot_skymodel_every_hour": True,  # Enable sky model plots by default
@@ -180,6 +181,8 @@ DEFAULT_CONFIG = {
         # Angle unit for display output - must be specified by user
         # Valid values: "degrees" or "radians"
         "angle_unit": "",
+        # Sky model plotting frequency in MHz
+        "skymodel_frequency": 150,
     },
     # Use different simulators for cross-checking the results
     # Available simulators: fftvis, matvis, pyuvsim, healvis
@@ -670,6 +673,79 @@ def _convert_angle_for_display(angle_radians, angle_unit):
     return angle_radians  # Already in radians
 
 
+def calculate_baseline_azimuth(ant1_num, ant2_num, antennas):
+    """
+    Calculate azimuth angle of baseline from ant1 to ant2.
+
+    Args:
+        ant1_num, ant2_num: Antenna numbers
+        antennas: Dict of antenna data with 'Position' tuples (e, n, u)
+
+    Returns:
+        float: Azimuth angle in degrees (0-360°, North=0°, clockwise)
+    """
+    # Handle auto-correlations (same antenna)
+    if ant1_num == ant2_num:
+        return 0.0  # Define auto-correlation azimuth as 0° (North)
+
+    # Get antenna positions
+    try:
+        pos1 = antennas[ant1_num]["Position"]
+        pos2 = antennas[ant2_num]["Position"]
+    except (KeyError, TypeError):
+        raise ValueError(f"Invalid antenna positions for baseline ({ant1_num}, {ant2_num})")
+
+    # Calculate baseline vector: from ant1 to ant2
+    east_component = pos2[0] - pos1[0]  # East difference
+    north_component = pos2[1] - pos1[1]  # North difference
+
+    # Handle zero-length baselines
+    if abs(east_component) < 1e-10 and abs(north_component) < 1e-10:
+        return 0.0  # Define zero-length baselines as North (0°)
+
+    # Calculate azimuth using atan2(east, north)
+    # atan2(y, x) where y=east, x=north gives angle from North, clockwise
+    azimuth_rad = np.arctan2(east_component, north_component)
+
+    # Convert to degrees and normalize to 0-360°
+    azimuth_deg = np.degrees(azimuth_rad)
+    if azimuth_deg < 0:
+        azimuth_deg += 360.0
+
+    return azimuth_deg
+
+
+def is_angle_in_range(angle_deg, angle_ranges):
+    """
+    Check if angle falls within any of the specified ranges.
+
+    Args:
+        angle_deg: Angle in degrees (0-360°)
+        angle_ranges: List of [min_angle, max_angle] ranges
+
+    Returns:
+        bool: True if angle is within any range
+    """
+    # Normalize input angle to 0-360°
+    angle_deg = angle_deg % 360.0
+
+    for min_angle, max_angle in angle_ranges:
+        # Normalize range boundaries to 0-360°
+        min_angle = min_angle % 360.0
+        max_angle = max_angle % 360.0
+
+        if min_angle <= max_angle:
+            # Normal range: [30°, 60°]
+            if min_angle <= angle_deg <= max_angle:
+                return True
+        else:
+            # Wrap-around range: [350°, 10°]
+            if angle_deg >= min_angle or angle_deg <= max_angle:
+                return True
+
+    return False
+
+
 def main():
     """
     Main function to run the Visibility Simulation.
@@ -788,7 +864,7 @@ def main():
 
     # Determine whether to save data and initialize folder path
     save_simulation_data_flag = bool(
-        config.get("output", {}).get("save_simulation_data", True)
+        config.get("output", {}).get("save_simulation_data", False)
     )
     open_plots_in_browser = bool(
         config.get("output", {}).get("plot_results_in_bokeh", True)
@@ -799,11 +875,16 @@ def main():
         simulation_folder_path = create_simulation_folder(config)
         if simulation_folder_path:
             save_yaml_config(config, simulation_folder_path)
-            log_file = setup_logging(simulation_folder_path)
-            print(f"Logging to {log_file}")
 
-            sys.stdout = LoggerWriter(logging.info)
-            sys.stderr = LoggerWriter(logging.error)
+            # Set up logging only if save_log_data is enabled
+            if save_log_data_flag:
+                log_file = setup_logging(simulation_folder_path)
+                print(f"Logging to {log_file}")
+
+                sys.stdout = LoggerWriter(logging.info)
+                sys.stderr = LoggerWriter(logging.error)
+            else:
+                print("Log data saving is disabled - only console output will be shown")
 
     section("STARTING SIMULATION")
 
@@ -1092,7 +1173,7 @@ def main():
     # save_simulation_data_flag already determined above
     # Enable sky model plots by default unless explicitly disabled
     plot_skymodel_every_hour = bool(config.get("output", {}).get("plot_skymodel_every_hour", True))
-    skymodel_frequency = config.get("sky_model", {}).get("skymodel_frequency", 150)
+    skymodel_frequency = config.get("output", {}).get("skymodel_frequency", 150)
     fov_radius_deg = config.get("antenna", {}).get("fov_radius_deg", 10)
 
     # Access antennas either from pyuvdata Telescope or from antenna file
@@ -1206,27 +1287,16 @@ def main():
     section("ANTENNA TYPES")
     ant_cfg = config.get("antenna", {})
     if ant_cfg.get("use_different_antenna_types", False):
-        types_map = ant_cfg.get("types_per_antenna", {}) or {}
+        types_map = ant_cfg.get("antenna_types", {}) or {}
         # Print per-antenna type if provided; otherwise report as unknown
         for ant in antennas.values():
             num = int(ant.get("Number", -1))
             atype = types_map.get(num, "unknown")
             print(f"{_c(f'Antenna {num}:', _BOLD + _CYAN)} type={atype}")
     else:
-        atype = ant_cfg.get("antenna_type", "unknown")
+        atype = ant_cfg.get("all_antenna_type", "unknown")
         print(f"{_c('Antenna type (all):', _BOLD + _CYAN)} {atype}")
 
-    # Antenna illumination reporting
-    section("ANTENNA ILLUMINATION")
-    if ant_cfg.get("use_different_illumination", False):
-        illum_map = ant_cfg.get("illumination_per_antenna", {}) or {}
-        for ant in antennas.values():
-            num = int(ant.get("Number", -1))
-            illum = illum_map.get(num, "uniform")
-            print(f"{_c(f'Antenna {num}:', _BOLD + _CYAN)} illumination={illum}")
-    else:
-        illum = ant_cfg.get("illumination", "uniform")
-        print(f"{_c('Illumination (all):', _BOLD + _CYAN)} {illum}")
     section("ANTENNA LAYOUT")
     print(_c("Antenna layout:", _BOLD + _CYAN), "see browser for interactive view.")
     plot_antenna_layout(
@@ -1399,7 +1469,7 @@ def main():
         use_crosscorrelations = config["baseline"]["use_crosscorrelations"]
         only_selective_baselines = config["baseline"]["only_selective_baseline_length"]
         selective_lengths = config["baseline"]["selective_baseline_lengths"]
-        tolerance = 2.0  # Tolerance for selective baseline lengths (in meters)
+        tolerance = config["baseline"]["selective_baseline_tolerance_meters"]
 
         # Iterate through the baselines and apply filters
         for (ant1, ant2), baseline_data in baselines.items():
@@ -1421,6 +1491,20 @@ def main():
                     for length in selective_lengths
                 ):
                     continue
+
+            # Angle-based filtering
+            if config['baseline'].get('trim_by_angle_ranges', False):
+                angle_ranges = config['baseline'].get('selective_angle_ranges_deg', [])
+                if angle_ranges:  # Only filter if angle ranges are specified
+                    # Calculate baseline azimuth angle from ant1 to ant2
+                    baseline_angle = calculate_baseline_azimuth(ant1, ant2, antennas)
+
+                    # Check if baseline angle is within any specified range
+                    if not is_angle_in_range(baseline_angle, angle_ranges):
+                        # For bidirectional filtering, also check opposite direction
+                        opposite_angle = (baseline_angle + 180.0) % 360.0
+                        if not is_angle_in_range(opposite_angle, angle_ranges):
+                            continue  # Baseline doesn't match angle criteria in either direction
 
             # Add the baseline to the trimmed dictionary if it passes all filters
             trimmed_baselines[(ant1, ant2)] = baseline_data
@@ -1518,6 +1602,7 @@ def main():
 
     flux_limit = None
     nside = None
+    num_sources = None
 
     # Load sources
     section("SKY MODEL LOADING")
@@ -1535,8 +1620,10 @@ def main():
     elif sky_model_config["test_sources_healpix"]["use_test_sources"]:
         flux_limit = sky_model_config["test_sources_healpix"]["flux_limit"]
         nside = sky_model_config["test_sources_healpix"]["nside"]
+        num_sources = sky_model_config["test_sources_healpix"]["num_sources"]
     else:
         flux_limit = sky_model_config["test_sources"]["flux_limit"]
+        num_sources = sky_model_config["test_sources"]["num_sources"]
 
     try:
         sources, spectral_indices = get_sources(
@@ -1551,6 +1638,7 @@ def main():
             flux_limit=flux_limit,
             frequency=config["obs_frequency"]["starting_frequency"] * 1e6,
             nside=nside,
+            num_sources=num_sources,
         )
     except Exception as e:
         if sky_model_config["gleam"]["use_gleam"]:
@@ -1565,6 +1653,7 @@ def main():
                 flux_limit=None,
                 frequency=config["obs_frequency"]["starting_frequency"] * 1e6,
                 nside=None,
+                num_sources=3,  # Default fallback to 3 test sources if not specified
             )
         else:
             raise
@@ -1686,7 +1775,7 @@ def main():
             total_seconds=total_duration_seconds,
             frequency=skymodel_frequency,
             fov_radius_deg=fov_radius_deg,
-            gleam_sources=sources if use_gleam else None,
+            discrete_sources=sources,  # Pass sources for all sky model types (test, GLEAM, GSM, etc.)
             save_simulation_data=save_simulation_data_flag,
             folder_path=simulation_folder_path,
             open_in_browser=open_plots_in_browser,

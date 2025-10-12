@@ -43,6 +43,7 @@ def get_sources(
     flux_limit=None,
     frequency=None,
     nside=None,
+    num_sources=None,
 ):
     """
     Returns either test sources, GLEAM catalog sources, or GSM2008 sources based on the arguments.
@@ -63,11 +64,13 @@ def get_sources(
     """
 
     if use_test_sources:
-        print("Using test sources...")
-        return test_sources
+        sources = generate_test_sources(num_sources)
+        print(f"Using {len(sources)} dynamic test sources...")
+        return sources, 0
     elif use_test_sources_healpix:
-        print("Using test sources in HEALPix format...")
-        return test_sources
+        sources = generate_test_sources(num_sources)
+        print(f"Using {len(sources)} dynamic test sources in HEALPix format...")
+        return sources, 0
     elif use_gleam:
         print(_c("Loading GLEAM catalog:", _BOLD + _CYAN))
         return load_gleam(flux_limit=flux_limit, gleam_catalogue=gleam_catalogue)
@@ -83,28 +86,54 @@ def get_sources(
             frequency=frequency, nside=nside, flux_limit=flux_limit
         )
     else:
-        print("Using test sources...")
-        return test_sources
+        sources = generate_test_sources(num_sources)
+        print(f"Using {len(sources)} dynamic test sources...")
+        return sources, 0
 
 
-# Test sources
-test_sources = [
-    {
-        "coords": SkyCoord(ra=0 * au.deg, dec=-30.72152777777791 * au.deg),
-        "flux": 2,
-        "spectral_index": -0.8,
-    },
-    {
-        "coords": SkyCoord(ra=120 * au.deg, dec=-30.72152777777791 * au.deg),
-        "flux": 4,
-        "spectral_index": -0.8,
-    },
-    {
-        "coords": SkyCoord(ra=240 * au.deg, dec=-30.72152777777791 * au.deg),
-        "flux": 6,
-        "spectral_index": -0.8,
-    },
-]
+def generate_test_sources(num_sources=3):
+    """
+    Generate test sources dynamically based on the specified number.
+
+    Parameters:
+    - num_sources (int): Number of test sources to generate. Defaults to 3.
+
+    Returns:
+    list: List of test sources with coordinates, flux, and spectral index.
+    """
+    if num_sources is None:
+        num_sources = 3  # Default fallback
+
+    sources = []
+
+    # If only 1 source, place it at zenith
+    if num_sources == 1:
+        sources.append({
+            "coords": SkyCoord(ra=0 * au.deg, dec=-30.72152777777791 * au.deg),
+            "flux": 4,
+            "spectral_index": -0.8,
+        })
+        return sources
+
+    # Generate sources distributed evenly in RA
+    for i in range(num_sources):
+        ra_deg = (360.0 / num_sources) * i  # Evenly distribute in RA
+        dec_deg = -30.72152777777791  # Fixed declination for all test sources
+
+        # Vary flux to create some diversity (2-8 Jy range)
+        flux = 2 + (6.0 * i / (num_sources - 1)) if num_sources > 1 else 4
+
+        sources.append({
+            "coords": SkyCoord(ra=ra_deg * au.deg, dec=dec_deg * au.deg),
+            "flux": flux,
+            "spectral_index": -0.8,  # Same spectral index for all test sources
+        })
+
+    return sources
+
+
+# Legacy test_sources variable for backward compatibility (now generated dynamically)
+test_sources = generate_test_sources()
 
 
 # Test sources in healpix

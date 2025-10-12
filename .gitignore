@@ -116,6 +116,10 @@ venv.bak
 # Rope project settings
 .ropeproject
 
+# Non useful files
+CLAUDE.md 
+.roomodes
+
 # mkdocs documentation
 /site
 
@@ -170,3 +174,4 @@ temp/
 
 # Bokeh HTML outputs
 *.html
+

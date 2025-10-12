@@ -23,7 +23,7 @@ def diffused_sky_model(
     total_seconds,
     frequency=76,
     fov_radius_deg=5,
-    gleam_sources=None,
+    discrete_sources=None,
     save_simulation_data=False,
     folder_path=None,
     open_in_browser=True,
@@ -38,7 +38,7 @@ def diffused_sky_model(
     - total_seconds (float): Total duration in seconds for plotting.
     - frequency (float): Frequency in MHz for the sky model.
     - fov_radius_deg (float): Radius of the field of view in degrees.
-    - gleam_sources (list): List of GLEAM sources to overlay on the plot.
+    - discrete_sources (list): List of discrete sources (test, GLEAM, etc.) to overlay on the plot.
     - save_simulation_data (bool): If True, saves the grid of plots to the specified folder.
     - folder_path (str): Folder path to save the grid of plots if save_simulation_data is True.
     """
@@ -196,14 +196,14 @@ def diffused_sky_model(
         p.xaxis.major_label_overrides = {tick: f"{tick}°" for tick in major_ticks_ra}
         p.yaxis.major_label_overrides = {tick: f"{tick}°" for tick in major_ticks_dec}
 
-        # Add GLEAM sources
-        if gleam_sources:
+        # Add discrete sources
+        if discrete_sources:
             source_data = {
                 "ra": [],
                 "dec": [],
                 "flux": [],
             }
-            for source in gleam_sources:
+            for source in discrete_sources:
                 ra = source["coords"].ra.deg
                 dec = source["coords"].dec.deg
                 flux = source["flux"]
