@@ -60,7 +60,8 @@ DEFAULT_CONFIG = {
     },
     "antenna": {
         # User must provide an absolute path via --antenna-file or config.
-        "antenna_positions_file": None, # Absolute path of the antenna file (.txt or .csv)
+        "antenna_positions_file": None, # Absolute path of the antenna file (.txt, .csv, .cfg, .ms, .fits, .metafits)
+        "antenna_file_format": "rrivis", # Format of antenna file: "rrivis" (RRIvis ENU format), "casa" (CASA .cfg files), "measurement_set" (MS format), "uvfits" (UVFITS format), "mwa" (MWA metafits), "pyuvdata" (numpy arrays)
         "use_different_antenna_types": False,
         "all_antenna_type": "", # Parabolic, Dipole etc...
         "antenna_types": {}, # {antenna_number: antenna_type, ....}
@@ -866,6 +867,9 @@ def main():
     save_simulation_data_flag = bool(
         config.get("output", {}).get("save_simulation_data", False)
     )
+    save_log_data_flag = bool(
+        config.get("output", {}).get("save_log_data", False)
+    )
     open_plots_in_browser = bool(
         config.get("output", {}).get("plot_results_in_bokeh", True)
     )
@@ -1186,7 +1190,7 @@ def main():
             )
         section("ANTENNA METADATA & POSITIONS")
         try:
-            antennas = read_antenna_positions(antenna_file)
+            antennas = read_antenna_positions(antenna_file, config["antenna"]["antenna_file_format"])
         except (FileNotFoundError, ValueError) as e:
             print(f"Error while reading antenna positions file: {e}")
             raise
