@@ -42,7 +42,7 @@ from plot import (
 
 
 """
-These are the default config values that will be used if the config file is missing some parameters.
+These are the default config values that will be used if the config file is missing parameters.
 """
 DEFAULT_CONFIG = {
     "telescope": {
@@ -63,7 +63,7 @@ DEFAULT_CONFIG = {
         "antenna_positions_file": None, # Absolute path of the antenna file (.txt, .csv, .cfg, .ms, .fits, .metafits)
         "antenna_file_format": "rrivis", # Format of antenna file: "rrivis" (RRIvis ENU format), "casa" (CASA .cfg files), "measurement_set" (MS format), "uvfits" (UVFITS format), "mwa" (MWA metafits), "pyuvdata" (numpy arrays)
         "use_different_antenna_types": False,
-        "all_antenna_type": "", # Parabolic, Dipole etc...
+        "all_antenna_type": "", # Parabolic, Dipole etc... 
         "antenna_types": {}, # {antenna_number: antenna_type, ....}
         "use_different_diameters": False,
         "all_antenna_diameter": "",
@@ -80,7 +80,7 @@ DEFAULT_CONFIG = {
         "feed_types_per_antenna": {},
     },
     "beams": {
-        "use_beam_file": False, # TODO
+        "use_beam_file": False, # TODO: later on
         "beam_file_path": "", # Absolute path to the the beam fits file. 
         "use_different_beams": False,
         "all_beam_type": "", # EBeam, Power Beam

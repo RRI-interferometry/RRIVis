@@ -119,7 +119,7 @@ venv.bak
 # Non useful files
 CLAUDE.md 
 .roomodes
-
+.claude
 # mkdocs documentation
 /site
 
