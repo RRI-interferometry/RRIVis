@@ -58,12 +58,12 @@ DEFAULT_CONFIG = {
         "use_pyuvdata_antennas": False,
         "use_pyuvdata_diameters": False,
     },
-    "antenna": {
+    "antenna_layout": {
         # User must provide an absolute path via --antenna-file or config.
         "antenna_positions_file": None, # Absolute path of the antenna file (.txt, .csv, .cfg, .ms, .fits, .metafits)
         "antenna_file_format": "rrivis", # Format of antenna file: "rrivis" (RRIvis ENU format), "casa" (CASA .cfg files), "measurement_set" (MS format), "uvfits" (UVFITS format), "mwa" (MWA metafits), "pyuvdata" (numpy arrays)
         "use_different_antenna_types": False,
-        "all_antenna_type": "", # Parabolic, Dipole etc... 
+        "all_antenna_type": "", # Parabolic, Dipole etc...
         "antenna_types": {}, # {antenna_number: antenna_type, ....}
         "use_different_diameters": False,
         "all_antenna_diameter": "",
@@ -89,7 +89,7 @@ DEFAULT_CONFIG = {
         "all_beam_response": "", # Gaussian etc..
         "beam_response_per_antenna": {},
     },
-    "baseline": {
+    "baseline_selection": {
         "use_autocorrelations": True,
         "use_crosscorrelations": True,
         "only_selective_baseline_length": False,
@@ -779,7 +779,7 @@ def main():
         dest="antenna_file",
         default=None,
         help=(
-            "Absolute path to antenna positions file (CSV/TXT). Overrides config antenna.antenna_positions_file."
+            "Absolute path to antenna positions file (CSV/TXT). Overrides config antenna_layout.antenna_positions_file."
         ),
     )
     args = parser.parse_args()
@@ -806,12 +806,12 @@ def main():
 
     # Determine antenna positions file path (if provided): CLI overrides config
     configured_ant_path = args.__dict__.get("antenna_file") or config.get(
-        "antenna", {}
+        "antenna_layout", {}
     ).get("antenna_positions_file")
     if configured_ant_path:
         configured_ant_path = os.path.abspath(os.path.expanduser(configured_ant_path))
         if not os.path.isabs(configured_ant_path):
-            raise ValueError("antenna.antenna_positions_file must be an absolute path.")
+            raise ValueError("antenna_layout.antenna_positions_file must be an absolute path.")
         if not os.path.exists(configured_ant_path):
             raise FileNotFoundError(
                 f"Antenna positions file not found: {configured_ant_path}"
@@ -1178,7 +1178,7 @@ def main():
     # Enable sky model plots by default unless explicitly disabled
     plot_skymodel_every_hour = bool(config.get("output", {}).get("plot_skymodel_every_hour", True))
     skymodel_frequency = config.get("output", {}).get("skymodel_frequency", 150)
-    fov_radius_deg = config.get("antenna", {}).get("fov_radius_deg", 10)
+    fov_radius_deg = config.get("antenna_layout", {}).get("fov_radius_deg", 10)
 
     # Access antennas either from pyuvdata Telescope or from antenna file
     if antennas is None:
@@ -1190,7 +1190,7 @@ def main():
             )
         section("ANTENNA METADATA & POSITIONS")
         try:
-            antennas = read_antenna_positions(antenna_file, config["antenna"]["antenna_file_format"])
+            antennas = read_antenna_positions(antenna_file, config["antenna_layout"]["antenna_file_format"])
         except (FileNotFoundError, ValueError) as e:
             print(f"Error while reading antenna positions file: {e}")
             raise
@@ -1211,9 +1211,9 @@ def main():
         # Note: antenna layout plots are generated once later after diameters validation
 
     # Assign antenna diameters with strict validation (no hidden defaults)
-    per_antenna_config = config["antenna"].get("use_different_diameters", False)
-    config_diameters_map = config["antenna"].get("diameters") or {}
-    config_global_diameter = config["antenna"].get("all_antenna_diameter")
+    per_antenna_config = config["antenna_layout"].get("use_different_diameters", False)
+    config_diameters_map = config["antenna_layout"].get("diameters") or {}
+    config_global_diameter = config["antenna_layout"].get("all_antenna_diameter")
 
     # If diameters came from pyuvdata (dict), use them regardless of per_antenna_config
     if isinstance(diameters_from_tel, dict) and diameters_from_tel:
@@ -1230,7 +1230,7 @@ def main():
                 f"{sorted(missing)}. Please provide diameters for all antennas."
             )
     elif per_antenna_config:
-        # Expect per-antenna diameters to be provided in file/header or config['antenna']['diameters']
+        # Expect per-antenna diameters to be provided in file/header or config['antenna_layout']['diameters']
         missing = []
         for ant in antennas.values():
             if "diameter" in ant and ant["diameter"] is not None:
@@ -1243,7 +1243,7 @@ def main():
         if missing:
             raise ValueError(
                 "use_different_diameters=True but diameters are missing for antenna numbers: "
-                f"{sorted(missing)}. Add per-antenna diameters in the file or in antenna.diameters."
+                f"{sorted(missing)}. Add per-antenna diameters in the file or in antenna_layout.diameters."
             )
     else:
         # Prefer scalar diameter from pyuvdata Telescope if provided
@@ -1253,7 +1253,7 @@ def main():
             # Require a user-provided scalar; empty or None is not allowed
             antenna_diameter = _parse_positive_float(
                 config_global_diameter,
-                "antenna.all_antenna_diameter",
+                "antenna_layout.all_antenna_diameter",
             )
         for ant in antennas.values():
             ant["diameter"] = antenna_diameter
@@ -1289,7 +1289,7 @@ def main():
 
     # Antenna types reporting
     section("ANTENNA TYPES")
-    ant_cfg = config.get("antenna", {})
+    ant_cfg = config.get("antenna_layout", {})
     if ant_cfg.get("use_different_antenna_types", False):
         types_map = ant_cfg.get("antenna_types", {}) or {}
         # Print per-antenna type if provided; otherwise report as unknown
@@ -1322,7 +1322,7 @@ def main():
 
     # Check if the HPBW is fixed for all frequencies (configured in degrees).
     # Convert once to radians for internal use.
-    fixed_hpbw_deg = config["antenna"].get("fixed_hpbw")
+    fixed_hpbw_deg = config["antenna_layout"].get("fixed_hpbw")
     fixed_hpbw_rad = (
         None if fixed_hpbw_deg is None else np.radians(float(fixed_hpbw_deg))
     )
@@ -1469,11 +1469,11 @@ def main():
         trimmed_baselines = {}
 
         # Extract baseline configuration
-        use_autocorrelations = config["baseline"]["use_autocorrelations"]
-        use_crosscorrelations = config["baseline"]["use_crosscorrelations"]
-        only_selective_baselines = config["baseline"]["only_selective_baseline_length"]
-        selective_lengths = config["baseline"]["selective_baseline_lengths"]
-        tolerance = config["baseline"]["selective_baseline_tolerance_meters"]
+        use_autocorrelations = config["baseline_selection"]["use_autocorrelations"]
+        use_crosscorrelations = config["baseline_selection"]["use_crosscorrelations"]
+        only_selective_baselines = config["baseline_selection"]["only_selective_baseline_length"]
+        selective_lengths = config["baseline_selection"]["selective_baseline_lengths"]
+        tolerance = config["baseline_selection"]["selective_baseline_tolerance_meters"]
 
         # Iterate through the baselines and apply filters
         for (ant1, ant2), baseline_data in baselines.items():
@@ -1497,8 +1497,8 @@ def main():
                     continue
 
             # Angle-based filtering
-            if config['baseline'].get('trim_by_angle_ranges', False):
-                angle_ranges = config['baseline'].get('selective_angle_ranges_deg', [])
+            if config['baseline_selection'].get('trim_by_angle_ranges', False):
+                angle_ranges = config['baseline_selection'].get('selective_angle_ranges_deg', [])
                 if angle_ranges:  # Only filter if angle ranges are specified
                     # Calculate baseline azimuth angle from ant1 to ant2
                     baseline_angle = calculate_baseline_azimuth(ant1, ant2, antennas)

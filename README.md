@@ -129,13 +129,13 @@ Key configuration parameters include:
   - `use_custom_telescope`: Boolean to use custom telescope configuration
 - `telescope_name`: Name of the telescope (e.g., "HERA")
 
-#### Antenna
+#### Antenna Layout
 - `antenna_positions_file`: Absolute path to antenna positions file
 - `all_antenna_diameter`: Default diameter for all antennas in meters
 - `use_different_diameters`: Boolean to use per-antenna diameters
 - `fixed_hpbw`: Optional fixed HPBW value in degrees for all antennas
 
-#### Baseline
+#### Baseline Selection
 - `use_autocorrelations`: Boolean to include auto-correlations
 - `use_crosscorrelations`: Boolean to include cross-correlations
 - `only_selective_baseline_length`: Boolean to filter baselines by length
@@ -225,12 +225,12 @@ telescope:
     use_PYUVData_telescope: False
     use_custom_telescope: True
   telescope_name: "HERA"
-antenna:
+antenna_layout:
   antenna_positions_file: "/absolute/path/to/antenna.txt"
   all_antenna_diameter: 14.0
   use_different_diameters: false
   fixed_hpbw: None
-baseline:
+baseline_selection:
   use_autocorrelations: True
   use_crosscorrelations: True
   only_selective_baseline_length: True
