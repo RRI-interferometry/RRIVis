@@ -23,6 +23,13 @@ import shutil
 from beams import (
     calculate_hpbw_radians,
     calculate_gaussian_beam_area_EBeam,
+    AntennaType,
+    BeamPatternType,
+    calculate_hpbw_for_antenna_type,
+    get_beam_pattern_function,
+    calculate_airy_beam_area,
+    calculate_cosine_beam_area,
+    calculate_exponential_beam_area,
 )
 from antenna import read_antenna_positions
 from baseline import generate_baselines
@@ -63,12 +70,18 @@ DEFAULT_CONFIG = {
         "antenna_positions_file": None, # Absolute path of the antenna file (.txt, .csv, .cfg, .ms, .fits, .metafits)
         "antenna_file_format": "rrivis", # Format of antenna file: "rrivis" (RRIvis ENU format), "casa" (CASA .cfg files), "measurement_set" (MS format), "uvfits" (UVFITS format), "mwa" (MWA metafits), "pyuvdata" (numpy arrays)
         "use_different_antenna_types": False,
-        "all_antenna_type": "", # Parabolic, Dipole etc...
-        "antenna_types": {}, # {antenna_number: antenna_type, ....}
+        # Available antenna types:
+        # Parabolic dishes: "parabolic_uniform", "parabolic_cosine", "parabolic_gaussian",
+        #                   "parabolic_10db_taper" (RECOMMENDED), "parabolic_20db_taper"
+        # Spherical reflectors: "spherical_uniform", "spherical_gaussian"
+        # Phased arrays: "phased_array"
+        # Dipoles: "dipole_short", "dipole_halfwave", "dipole_folded"
+        "all_antenna_type": "parabolic_10db_taper", # Default: 10dB edge taper (standard for most radio telescopes)
+        "antenna_types": {}, # {antenna_number: antenna_type, ....} - overrides all_antenna_type if use_different_antenna_types=True
         "use_different_diameters": False,
-        "all_antenna_diameter": "",
-        "diameters": {},
-        "fixed_HPBW": None,
+        "all_antenna_diameter": 14.0, # Default diameter in meters
+        "diameters": {}, # {antenna_number: diameter, ....} - overrides all_antenna_diameter if use_different_diameters=True
+        "fixed_HPBW": None, # Override calculated HPBW with fixed value in radians (for legacy/testing)
     },
     "feeds": {
         "use_polarized_feeds": False,
@@ -80,14 +93,22 @@ DEFAULT_CONFIG = {
         "feed_types_per_antenna": {},
     },
     "beams": {
-        "use_beam_file": False, # TODO: later on
-        "beam_file_path": "", # Absolute path to the the beam fits file. 
+        "use_beam_file": False, # TODO: later on - load beam from FITS file
+        "beam_file_path": "", # Absolute path to the beam FITS file
         "use_different_beams": False,
-        "all_beam_type": "", # EBeam, Power Beam
-        "beams_per_antenna": {},
+        "all_beam_type": "efield", # EBeam, Power Beam (future feature)
+        "beams_per_antenna": {}, # {antenna_number: beam_type, ....}
         "use_different_beam_responses": False,
-        "all_beam_response": "", # Gaussian etc..
-        "beam_response_per_antenna": {},
+        # Available beam response patterns:
+        # "gaussian" (RECOMMENDED) - Fast Gaussian approximation
+        # "airy" - Airy disk pattern (accurate for uniform illumination)
+        # "cosine" - Cosine-tapered pattern (Cassegrain/offset feeds)
+        # "exponential" - Exponential taper (feed horns)
+        "all_beam_response": "gaussian", # Default beam pattern model
+        "beam_response_per_antenna": {}, # {antenna_number: beam_response, ....}
+        # Advanced beam pattern parameters (optional)
+        "cosine_taper_exponent": 1.0, # For cosine pattern: 1.0=cosine, 2.0=cosine-squared
+        "exponential_taper_dB": 10.0, # For exponential pattern: edge taper in dB
     },
     "baseline_selection": {
         "use_autocorrelations": True,
@@ -1388,6 +1409,20 @@ def main():
     )
     print(f"{_c('Number of Frequency Channels:', _BOLD + _CYAN)} {len(frequencies)}")
 
+    # Set up antenna types for HPBW calculation
+    antenna_layout_cfg = config.get("antenna_layout", {})
+    use_different_antenna_types = antenna_layout_cfg.get("use_different_antenna_types", False)
+    all_antenna_type = antenna_layout_cfg.get("all_antenna_type", "parabolic_10db_taper")
+    antenna_types_map = antenna_layout_cfg.get("antenna_types", {})
+
+    # Set up beam response patterns for beam area calculation
+    beams_cfg = config.get("beams", {})
+    use_different_beam_responses = beams_cfg.get("use_different_beam_responses", False)
+    all_beam_response = beams_cfg.get("all_beam_response", "gaussian")
+    beam_response_per_antenna_cfg = beams_cfg.get("beam_response_per_antenna", {})
+    cosine_taper_exponent = beams_cfg.get("cosine_taper_exponent", 1.0)
+    exponential_taper_dB = beams_cfg.get("exponential_taper_dB", 10.0)
+
     # Loop through each antenna to calculate HPBW (radians) and beam areas
     hpbw_per_antenna = {}
     beam_area_per_antenna = {}
@@ -1396,20 +1431,66 @@ def main():
         antenna_number = ant["Number"]
         diameter = ant["diameter"]
 
+        # Determine antenna type for this antenna
+        if use_different_antenna_types:
+            antenna_type = antenna_types_map.get(antenna_number, all_antenna_type)
+        else:
+            antenna_type = all_antenna_type
+
         # Calculate HPBW (radians) for each frequency for this antenna
-        hpbw_values_radians = calculate_hpbw_radians(
-            frequencies_hz=frequencies,
-            dish_diameter=diameter,
-            fixed_hpbw_radians=fixed_hpbw_rad,
-        )
+        if fixed_hpbw_rad is not None:
+            # Use fixed HPBW if specified (legacy/testing mode)
+            hpbw_values_radians = np.full(len(frequencies), fixed_hpbw_rad, dtype=float)
+        else:
+            # Use antenna type-specific HPBW calculation
+            hpbw_values_radians = calculate_hpbw_for_antenna_type(
+                antenna_type=antenna_type,
+                frequencies_hz=frequencies,
+                diameter=diameter,
+            )
         hpbw_per_antenna[antenna_number] = hpbw_values_radians
 
-        # TODO: Currently only EBeam is used! Add support for Power Beams.
-        # TODO: Only Gaussian Beam Area is supported! Add support for other response types.
-        # Calculate the beam area for each frequency
-        beam_area = calculate_gaussian_beam_area_EBeam(
-            nside=512, theta_HPBW=hpbw_values_radians
-        )
+        # Determine beam response pattern for this antenna
+        if use_different_beam_responses:
+            beam_response = beam_response_per_antenna_cfg.get(antenna_number, all_beam_response)
+        else:
+            beam_response = all_beam_response
+
+        # Calculate the beam area for each frequency using the specified beam pattern
+        # Note: For simplicity, using the first frequency's HPBW value or handling as array
+        if beam_response == "gaussian":
+            beam_area = calculate_gaussian_beam_area_EBeam(
+                nside=512, theta_HPBW=hpbw_values_radians
+            )
+        elif beam_response == "airy":
+            # For Airy pattern, calculate beam area per frequency
+            beam_area = [
+                calculate_airy_beam_area(
+                    nside=512, wavelength=wavelengths[i].value, diameter=diameter
+                )
+                for i in range(len(frequencies))
+            ]
+        elif beam_response == "cosine":
+            beam_area = [
+                calculate_cosine_beam_area(
+                    nside=512, theta_HPBW=hpbw_values_radians[i], taper_exponent=cosine_taper_exponent
+                )
+                for i in range(len(frequencies))
+            ]
+        elif beam_response == "exponential":
+            beam_area = [
+                calculate_exponential_beam_area(
+                    nside=512, theta_HPBW=hpbw_values_radians[i], taper_dB=exponential_taper_dB
+                )
+                for i in range(len(frequencies))
+            ]
+        else:
+            # Default to Gaussian if unknown beam response
+            print(f"Warning: Unknown beam response '{beam_response}' for antenna {antenna_number}, defaulting to Gaussian.")
+            beam_area = calculate_gaussian_beam_area_EBeam(
+                nside=512, theta_HPBW=hpbw_values_radians
+            )
+
         beam_area_per_antenna[antenna_number] = beam_area
 
     # Debugging: Print HPBW and beam areas for each antenna
@@ -1716,6 +1797,23 @@ def main():
     # Calculate visibility based on the selected sky model
     visibility_function = calculate_visibility
 
+    # Build beam pattern configuration for visibility calculation
+    # This ensures beam patterns used in visibility match those used for beam area
+    beam_pattern_per_antenna_dict = {}
+    for ant in antennas.values():
+        antenna_number = ant["Number"]
+        if use_different_beam_responses:
+            beam_pattern_per_antenna_dict[antenna_number] = beam_response_per_antenna_cfg.get(
+                antenna_number, all_beam_response
+            )
+        else:
+            beam_pattern_per_antenna_dict[antenna_number] = all_beam_response
+
+    beam_pattern_params_dict = {
+        'cosine_taper_exponent': cosine_taper_exponent,
+        'exponential_taper_dB': exponential_taper_dB,
+    }
+
     # Initialize dictionaries to store complex visibility over time for each baseline
     visibilities = {key: [] for key in baselines.keys()}
 
@@ -1740,6 +1838,8 @@ def main():
             frequencies,
             hpbw_per_antenna,
             nside=nside,
+            beam_pattern_per_antenna=beam_pattern_per_antenna_dict,
+            beam_pattern_params=beam_pattern_params_dict,
         )
 
         # Append visibility data for each baseline

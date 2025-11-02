@@ -3,7 +3,13 @@
 import numpy as np
 from astropy.coordinates import AltAz, SkyCoord
 import astropy.units as au
-from beams import gaussian_A_theta_EBeam, convert_angle_for_display
+from beams import (
+    gaussian_A_theta_EBeam,
+    airy_disk_pattern,
+    cosine_tapered_pattern,
+    exponential_tapered_pattern,
+    convert_angle_for_display,
+)
 import healpy as hp
 
 ### Visibility Calculation Function ###
@@ -20,12 +26,14 @@ def calculate_visibility(
     freqs,
     hpbw_per_antenna,
     nside,
+    beam_pattern_per_antenna=None,
+    beam_pattern_params=None,
 ):
     """
     Optimized calculation of complex visibility for each baseline at different frequencies.
 
     Parameters:
-    antennas (dict): Dictionary of antenna positions.
+    antennas (dict): Dictionary of antenna positions and properties.
     baselines (dict): Dictionary of baselines between antennas.
     sources (list): List of source dictionaries containing 'coords', 'flux', and 'spectral_index'.
     location (EarthLocation): Observer's geographical location.
@@ -33,10 +41,47 @@ def calculate_visibility(
     wavelengths (Quantity): Wavelength array corresponding to the frequencies.
     freqs (ndarray): Frequency array in Hz.
     hpbw_per_antenna (dict): Maps antenna number -> array of HPBW values in radians per frequency.
+    nside (int): HEALPix nside parameter (for compatibility).
+    beam_pattern_per_antenna (dict, optional): Maps antenna number -> beam pattern type string.
+        Supported patterns: 'gaussian', 'airy', 'cosine', 'exponential'.
+        Defaults to 'gaussian' for all antennas if not provided.
+    beam_pattern_params (dict, optional): Additional parameters for beam patterns:
+        - 'cosine_taper_exponent': float (default 1.0) for cosine pattern
+        - 'exponential_taper_dB': float (default 10.0) for exponential pattern
 
     Returns:
     dict: Dictionary of visibilities for each baseline as arrays over frequencies.
     """
+    # Set defaults for beam pattern configuration
+    if beam_pattern_per_antenna is None:
+        beam_pattern_per_antenna = {}
+    if beam_pattern_params is None:
+        beam_pattern_params = {
+            'cosine_taper_exponent': 1.0,
+            'exponential_taper_dB': 10.0,
+        }
+
+    # Helper function to calculate beam pattern based on type
+    def _calculate_beam_pattern(antenna_num, theta, wavelength, hpbw):
+        """Calculate beam pattern for given antenna and parameters."""
+        pattern_type = beam_pattern_per_antenna.get(antenna_num, 'gaussian')
+
+        if pattern_type == 'airy':
+            # Airy pattern needs wavelength and diameter
+            diameter = antennas[antenna_num]['diameter']
+            return airy_disk_pattern(theta, wavelength, diameter)
+        elif pattern_type == 'cosine':
+            # Cosine-tapered pattern needs HPBW and taper exponent
+            taper_exp = beam_pattern_params.get('cosine_taper_exponent', 1.0)
+            return cosine_tapered_pattern(theta, hpbw, taper_exponent=taper_exp)
+        elif pattern_type == 'exponential':
+            # Exponential pattern needs HPBW and taper in dB
+            taper_db = beam_pattern_params.get('exponential_taper_dB', 10.0)
+            return exponential_tapered_pattern(theta, hpbw, taper_dB=taper_db)
+        else:
+            # Default to Gaussian (includes 'gaussian' and unknown types)
+            return gaussian_A_theta_EBeam(theta, hpbw)
+
     # Initialize visibilities dictionary with zeros for each baseline and frequency
     visibilities = {
         key: np.zeros(len(wavelengths), dtype=complex) for key in baselines.keys()
@@ -84,9 +129,14 @@ def calculate_visibility(
             hpbw_ant1_rad = hpbw_per_antenna[ant1][i]
             hpbw_ant2_rad = hpbw_per_antenna[ant2][i]
 
-            # Calculate beam patterns for both antennas
-            A_theta_ant1 = gaussian_A_theta_EBeam(theta, hpbw_ant1_rad)
-            A_theta_ant2 = gaussian_A_theta_EBeam(theta, hpbw_ant2_rad)
+            # Calculate beam patterns for both antennas using configured pattern types
+            # This supports gaussian, airy, cosine, and exponential patterns
+            A_theta_ant1 = _calculate_beam_pattern(
+                ant1, theta, wavelength.value, hpbw_ant1_rad
+            )
+            A_theta_ant2 = _calculate_beam_pattern(
+                ant2, theta, wavelength.value, hpbw_ant2_rad
+            )
 
             # For interferometry, multiply the beam patterns
             A_theta_combined = A_theta_ant1 * A_theta_ant2
