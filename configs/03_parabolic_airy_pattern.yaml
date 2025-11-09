@@ -1,0 +1,49 @@
+# Configuration: Parabolic Dishes with Airy Disk Beam Pattern
+# Uses accurate Airy disk diffraction pattern instead of Gaussian approximation
+# Characteristics:
+# - Airy pattern: A(θ) = [2*J₁(x)/x]² where J₁ is Bessel function
+# - More accurate for uniform illumination
+# - Includes realistic sidelobe structure
+# - First null at θ = 1.22 * λ/D
+# - First sidelobe at -17.6 dB
+# - Computationally more expensive than Gaussian
+
+antenna_layout:
+  antenna_positions_file: "/Volumes/Crucial X8/repos/RRIvis/antenna_layout_examples/example_rrivis_format.txt"
+  antenna_file_format: "rrivis"
+  use_different_antenna_types: false
+  all_antenna_type: "parabolic_uniform"  # Airy pattern works best with uniform
+  antenna_types: {}
+  use_different_diameters: false
+  all_antenna_diameter: 14.0
+
+beams:
+  all_beam_response: "airy"  # Accurate Airy disk pattern
+
+location:
+  lat: -30.72152777777791
+  lon: 21.428305555555557
+  height: 1073.0
+
+sky_model:
+  test_sources:
+    use_test_sources: true
+    num_sources: 10
+    flux_limit: 50
+
+obs_time:
+  start_time: "2025-01-15T00:00:00"
+  duration_seconds: 3600
+  time_step_seconds: 600
+
+obs_frequency:
+  starting_frequency: 100
+  frequency_interval: 10
+  frequency_bandwidth: 50
+  frequency_unit: "MHz"
+
+output:
+  save_simulation_data: true
+  save_log_data: false
+  plot_results_in_bokeh: true
+  angle_unit: "degrees"

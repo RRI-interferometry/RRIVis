@@ -236,23 +236,23 @@ Tile001MWA  4.0  m  +116.40.09.5  -26.32.48.3  -150.16  264.84  376.90
 from src.antenna import read_antenna_positions
 
 # RRIvis format
-antennas = read_antenna_positions("data/example_rrivis_format.txt", "rrivis")
+antennas = read_antenna_positions("antenna_layout_examples/example_rrivis_format.txt", "rrivis")
 
 # CASA format
-antennas = read_antenna_positions("data/example_casa_format.cfg", "casa")
+antennas = read_antenna_positions("antenna_layout_examples/example_casa_format.cfg", "casa")
 
 # PyUVData simple format
-antennas = read_antenna_positions("data/example_pyuvdata_format.txt", "pyuvdata")
+antennas = read_antenna_positions("antenna_layout_examples/example_pyuvdata_format.txt", "pyuvdata")
 
 # MWA format
-antennas = read_antenna_positions("data/example_mwa_metafits.txt", "mwa")
+antennas = read_antenna_positions("antenna_layout_examples/example_mwa_metafits.txt", "mwa")
 ```
 
 ### In Configuration File
 
 ```yaml
 antenna_layout:
-  antenna_positions_file: "/path/to/data/example_rrivis_format.txt"
+  antenna_positions_file: "/path/to/antenna_layout_examples/example_rrivis_format.txt"
   antenna_file_format: "rrivis"
   use_different_diameters: false
   all_antenna_diameter: 14.0

@@ -1,0 +1,49 @@
+# Configuration: Parabolic with Cosine-Tapered Beam Pattern
+# Models Cassegrain or offset-fed reflectors with cosine illumination
+# Characteristics:
+# - Cosine taper: A(θ) = cos^n(θ/θ_edge)
+# - ~81% aperture efficiency (for n=1)
+# - ~-23 dB first sidelobe
+# - Common in Cassegrain and offset feeds
+# - Good compromise between efficiency and sidelobes
+
+antenna_layout:
+  antenna_positions_file: "/Volumes/Crucial X8/repos/RRIvis/antenna_layout_examples/example_rrivis_format.txt"
+  antenna_file_format: "rrivis"
+  use_different_antenna_types: false
+  all_antenna_type: "parabolic_cosine"  # Cosine taper
+  antenna_types: {}
+  use_different_diameters: false
+  all_antenna_diameter: 14.0
+
+beams:
+  all_beam_response: "cosine"  # Cosine-tapered pattern
+  cosine_taper_exponent: 1.0  # Standard cosine (n=1)
+
+location:
+  lat: -30.72152777777791
+  lon: 21.428305555555557
+  height: 1073.0
+
+sky_model:
+  test_sources:
+    use_test_sources: true
+    num_sources: 10
+    flux_limit: 50
+
+obs_time:
+  start_time: "2025-01-15T00:00:00"
+  duration_seconds: 3600
+  time_step_seconds: 600
+
+obs_frequency:
+  starting_frequency: 100
+  frequency_interval: 10
+  frequency_bandwidth: 50
+  frequency_unit: "MHz"
+
+output:
+  save_simulation_data: true
+  save_log_data: false
+  plot_results_in_bokeh: true
+  angle_unit: "degrees"

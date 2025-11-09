@@ -768,9 +768,1364 @@ def is_angle_in_range(angle_deg, angle_ranges):
     return False
 
 
+def print_batch_summary(results):
+    """
+    Print a formatted summary table of batch simulation results.
+
+    Parameters:
+    -----------
+    results : list of dict
+        List of result dictionaries from run_simulation() calls
+        Each dict contains: success, config_name, duration_seconds, num_baselines, etc.
+    """
+    print("\n" + "="*90)
+    print(_c("BATCH SUMMARY", _BOLD + _CYAN))
+    print("="*90)
+
+    successes = sum(1 for r in results if r['success'])
+    failures = len(results) - successes
+    total_time = sum(r['duration_seconds'] for r in results)
+
+    print(f"\nTotal simulations: {len(results)}")
+    print(f"  {_c('✓ Succeeded:', _GREEN)} {successes}")
+    if failures > 0:
+        print(f"  {_c('✗ Failed:', _RED)} {failures}")
+    print(f"  Total duration: {total_time:.1f}s ({total_time/60:.1f} minutes)")
+
+    # Detailed table
+    print("\nDetailed Results:")
+    print("-" * 90)
+    header = f"{'#':<4} {'Config Name':<35} {'Status':<12} {'Time (s)':<10} {'Baselines':<10}"
+    print(header)
+    print("-" * 90)
+
+    for idx, r in enumerate(results, 1):
+        status = f"{_c('✓ SUCCESS', _GREEN)}" if r['success'] else f"{_c('✗ FAILED', _RED)}"
+        config_name = r['config_name'][:33]  # Truncate if too long
+        duration = f"{r['duration_seconds']:.1f}" if r.get('duration_seconds') else "N/A"
+        baselines = str(r.get('num_baselines', 'N/A'))
+
+        print(f"{idx:<4} {config_name:<35} {status:<12} {duration:<10} {baselines:<10}")
+
+        if not r['success'] and r.get('error_message'):
+            error_msg = r['error_message'][:75]  # Truncate long errors
+            print(f"     {_c('Error:', _RED)} {error_msg}")
+
+        if r.get('output_folder'):
+            folder = r['output_folder']
+            # Show relative path if possible
+            try:
+                import os
+                cwd = os.getcwd()
+                if folder.startswith(cwd):
+                    folder = os.path.relpath(folder, cwd)
+            except:
+                pass
+            print(f"     {_c('Output:', _DIM)} {folder}")
+
+    print("-" * 90)
+    print()
+
+
+def collect_config_files(args):
+    """
+    Determine which configuration files to process based on command-line arguments.
+
+    Supports three modes:
+    1. Multiple files via --configs
+    2. Directory scan via --config-dir
+    3. Single file via --config (backward compatible)
+    4. No arguments (use defaults)
+
+    Parameters:
+    -----------
+    args : argparse.Namespace
+        Parsed command-line arguments
+
+    Returns:
+    --------
+    list of str
+        List of absolute paths to configuration files, or empty list for defaults
+
+    Raises:
+    -------
+    FileNotFoundError
+        If specified config file(s) don't exist
+    NotADirectoryError
+        If --config-dir path is not a directory
+    ValueError
+        If directory contains no .yaml/.yml files
+    """
+    import glob
+
+    if args.configs:
+        # Option 1: Multiple files from CLI
+        config_files = []
+        for path in args.configs:
+            abs_path = os.path.abspath(os.path.expanduser(path))
+            if not os.path.exists(abs_path):
+                raise FileNotFoundError(f"Config file not found: {abs_path}")
+            config_files.append(abs_path)
+        return config_files
+
+    elif args.config_dir:
+        # Option 2: Scan directory for .yaml/.yml files
+        dir_path = os.path.abspath(os.path.expanduser(args.config_dir))
+        if not os.path.isdir(dir_path):
+            raise NotADirectoryError(f"Not a directory: {dir_path}")
+
+        # Find all .yaml and .yml files
+        yaml_files = glob.glob(os.path.join(dir_path, "*.yaml"))
+        yml_files = glob.glob(os.path.join(dir_path, "*.yml"))
+        all_files = yaml_files + yml_files
+
+        if not all_files:
+            raise ValueError(f"No .yaml/.yml files found in: {dir_path}")
+
+        # Sort alphabetically for deterministic order
+        all_files.sort()
+        return all_files
+
+    elif args.config:
+        # Option 3: Original single config (backward compatible)
+        abs_path = os.path.abspath(os.path.expanduser(args.config))
+        if not os.path.exists(abs_path):
+            raise FileNotFoundError(f"Config file not found: {abs_path}")
+        return [abs_path]
+
+    else:
+        # Option 4: No config provided - use defaults
+        return []  # Empty list signals "use DEFAULT_CONFIG"
+
+
+def run_simulation(config, simulation_name="simulation", batch_index=None):
+    """
+    Execute a single visibility simulation with the given configuration.
+
+    This function contains all the core simulation logic: antenna loading, baseline
+    generation, HPBW calculation, visibility calculation, plotting, and data saving.
+
+    Parameters:
+    -----------
+    config : dict
+        Complete merged configuration dictionary
+    simulation_name : str, optional
+        Name for this simulation (used in output folders and logs)
+        Default is "simulation"
+    batch_index : int or None, optional
+        Position in batch (1-based indexing) if running multiple simulations.
+        If None, this is a single standalone simulation.
+        Used for output folder naming: batch_01_name, batch_02_name, etc.
+
+    Returns:
+    --------
+    dict
+        Simulation results summary containing:
+        - 'success': bool - Whether simulation completed successfully
+        - 'config_name': str - Name of this simulation
+        - 'output_folder': str or None - Path to output folder
+        - 'duration_seconds': float - Total execution time
+        - 'num_baselines': int or None - Number of baselines computed
+        - 'num_time_steps': int or None - Number of time steps
+        - 'error_message': str or None - Error message if failed
+
+    Example:
+    --------
+    >>> config = load_config("my_config.yaml")[0]
+    >>> result = run_simulation(config, "test_run", batch_index=1)
+    >>> print(f"Success: {result['success']}, Duration: {result['duration_seconds']:.1f}s")
+    """
+    import time as time_module
+    start_time = time_module.time()
+
+    # Initialize result dict (will be updated throughout)
+    result = {
+        'success': False,
+        'config_name': simulation_name,
+        'output_folder': None,
+        'duration_seconds': 0.0,
+        'num_baselines': None,
+        'num_time_steps': None,
+        'error_message': None
+    }
+
+    try:
+        # Validate angle unit configuration
+        angle_unit = _validate_angle_unit(config)
+        
+        # Determine save flags
+        save_simulation_data_flag = bool(
+            config.get('output', {}).get('save_simulation_data', False)
+        )
+        save_log_data_flag = bool(
+            config.get('output', {}).get('save_log_data', False)
+        )
+        open_plots_in_browser = bool(
+            config.get('output', {}).get('plot_results_in_bokeh', True)
+        )
+        plotting_backend = config.get('output', {}).get('plotting_backend', 'bokeh')
+        
+        # Create simulation folder with batch naming support
+        simulation_folder_path = None
+        if save_simulation_data_flag:
+            # Modify create_simulation_folder temporarily for batch naming
+            if batch_index is not None:
+                # Store original subdir, then modify for batch
+                original_subdir = config.get('output', {}).get('simulation_subdir', 'RRIVis_simulation_data')
+                batch_name = f'batch_{batch_index:02d}_{simulation_name}'
+                config.setdefault('output', {})['simulation_subdir'] = original_subdir
+                # Will be used in folder name via create_simulation_folder
+            
+            simulation_folder_path = create_simulation_folder(config)
+            
+            if simulation_folder_path and batch_index is not None:
+                # Rename folder to include batch info
+                import os
+                parent_dir = os.path.dirname(simulation_folder_path)
+                folder_name = os.path.basename(simulation_folder_path)
+                # Insert batch info after 'RRIVis_'
+                if folder_name.startswith('RRIVis_'):
+                    new_folder_name = f'RRIVis_batch_{batch_index:02d}_{simulation_name}_{folder_name[7:]}'
+                    new_path = os.path.join(parent_dir, new_folder_name)
+                    os.rename(simulation_folder_path, new_path)
+                    simulation_folder_path = new_path
+            
+            if simulation_folder_path:
+                save_yaml_config(config, simulation_folder_path)
+                result['output_folder'] = simulation_folder_path
+                
+                if save_log_data_flag:
+                    log_file = setup_logging(simulation_folder_path)
+                    print(f'Logging to {log_file}')
+                    import sys
+                    sys.stdout = LoggerWriter(logging.info)
+                    sys.stderr = LoggerWriter(logging.error)
+        
+        # Get antenna file path from config
+        configured_ant_path = config.get('antenna_layout', {}).get('antenna_positions_file')
+        if configured_ant_path:
+            import os
+            configured_ant_path = os.path.abspath(os.path.expanduser(configured_ant_path))
+        
+        
+            section("STARTING SIMULATION")
+        
+            # Optionally load telescope metadata from pyuvdata and use available fields
+            antennas = None
+            used_from_tel = {}
+            diameters_from_tel = None  # None, scalar float, or dict{antenna_number: diameter}
+            if (
+                config.get("telescope", {})
+                .get("telescope_type", {})
+                .get("use_PYUVData_telescope", False)
+            ):
+                tel_name = config.get("telescope", {}).get("telescope_name")
+                if tel_name:
+                    try:
+                        from pyuvdata import Telescope as PyuvTelescope
+        
+                        tel = PyuvTelescope.from_known_telescopes(
+                            name=tel_name, run_check=False
+                        )
+                        # Attempt to fill missing params from known database without overwriting user values
+                        tel.update_params_from_known_telescopes(
+                            overwrite=False, run_check=False
+                        )
+        
+                        section("TELESCOPE (pyuvdata)")
+                        kv = lambda label, msg: print(f"{_c(label + ':', _BOLD + _CYAN)} {msg}")
+                        kv("Loaded known telescope", tel_name)
+                        use_tel_location = bool(
+                            config.get("telescope", {}).get("use_pyuvdata_location", False)
+                        )
+                        use_tel_antennas = bool(
+                            config.get("telescope", {}).get("use_pyuvdata_antennas", False)
+                        )
+                        use_tel_diameters = bool(
+                            config.get("telescope", {}).get("use_pyuvdata_diameters", False)
+                        )
+                        print(
+                            f"{_c('Options →', _BOLD + _CYAN)} use_pyuvdata_location={use_tel_location}, use_pyuvdata_antennas={use_tel_antennas}, use_pyuvdata_diameters={use_tel_diameters}"
+                        )
+        
+                        # Location
+                        if getattr(tel, "location", None) is not None and use_tel_location:
+                            try:
+                                geodetic = tel.location.to_geodetic()
+                                lat_deg = float(geodetic.lat.deg)
+                                lon_deg = float(geodetic.lon.deg)
+                                height_m = float(geodetic.height.to_value())
+                                used_from_tel["location"] = True
+                                # Override config location
+                                config.setdefault("location", {})
+                                config["location"]["lat"] = lat_deg
+                                config["location"]["lon"] = lon_deg
+                                config["location"]["height"] = height_m
+                                kv(
+                                    "Location",
+                                    f"from pyuvdata (lat={lat_deg}, lon={lon_deg}, h={height_m} m)",
+                                )
+                            except Exception:
+                                kv(
+                                    "Location",
+                                    "present on Telescope but could not convert to geodetic; keeping config/defaults.",
+                                )
+                                used_from_tel["location"] = False
+                        else:
+                            if getattr(tel, "location", None) is None:
+                                kv("Location", "not present; using config/defaults.")
+                            else:
+                                kv(
+                                    "Location",
+                                    "present on Telescope but not used (use_pyuvdata_location=False); using config/defaults.",
+                                )
+                            used_from_tel["location"] = False
+        
+                        # Helper: convert ITRF deltas to ENU at lat/lon
+                        def _ecef_deltas_to_enu(lat_rad, lon_rad, dxyz):
+                            slat, clat = np.sin(lat_rad), np.cos(lat_rad)
+                            slon, clon = np.sin(lon_rad), np.cos(lon_rad)
+                            x = dxyz[:, 0]
+                            y = dxyz[:, 1]
+                            z = dxyz[:, 2]
+                            e = -slon * x + clon * y
+                            n = -slat * clon * x - slat * slon * y + clat * z
+                            u = clat * clon * x + clat * slon * y + slat * z
+                            return np.vstack([e, n, u]).T
+        
+                        # Antenna positions, names, numbers
+                        antpos = getattr(tel, "antenna_positions", None)
+                        names = getattr(tel, "antenna_names", None)
+                        numbers = getattr(tel, "antenna_numbers", None)
+                        nants = getattr(tel, "Nants", None)
+                        if (
+                            antpos is not None
+                            and names is not None
+                            and numbers is not None
+                            and nants
+                            and use_tel_antennas
+                        ):
+                            try:
+                                dxyz = np.array(antpos, dtype=float)
+                                # Convert to ENU using the (possibly updated) config location
+                                lat_rad = np.deg2rad(config["location"]["lat"])
+                                lon_rad = np.deg2rad(config["location"]["lon"])
+                                enu = _ecef_deltas_to_enu(lat_rad, lon_rad, dxyz)
+                                # Build antennas dict in expected format
+                                antennas = {}
+                                for i in range(int(nants)):
+                                    name = names[i] if i < len(names) else str(numbers[i])
+                                    num = int(numbers[i])
+                                    e, n, u = map(float, enu[i])
+                                    antennas[i] = {
+                                        "Name": name,
+                                        "Number": num,
+                                        "BeamID": 0,
+                                        "Position": (e, n, u),
+                                    }
+                                used_from_tel["antenna_positions"] = True
+                                kv(
+                                    "Antenna positions",
+                                    f"from pyuvdata (converted ITRF→ENU), Nants={nants}",
+                                )
+                            except Exception as e:
+                                kv(
+                                    "Antenna positions",
+                                    f"present but could not be used ({e}); will fall back.",
+                                )
+                                used_from_tel["antenna_positions"] = False
+                        else:
+                            if antpos is None or names is None or numbers is None or not nants:
+                                kv(
+                                    "Antenna positions",
+                                    "not present; will fall back to antenna file.",
+                                )
+                            else:
+                                kv(
+                                    "Antenna positions",
+                                    "present on Telescope but not used (use_pyuvdata_antennas=False); will fall back to antenna file.",
+                                )
+                            used_from_tel["antenna_positions"] = False
+        
+                        # Antenna diameters
+                        diam = getattr(tel, "antenna_diameters", None)
+                        if use_tel_diameters and diam is not None:
+                            try:
+                                arr = np.array(diam)
+                                if arr.ndim == 0:
+                                    dval = float(arr)
+                                    diameters_from_tel = dval
+                                    kv("Antenna diameters", f"from pyuvdata (scalar {dval} m)")
+                                elif arr.ndim == 1:
+                                    tel_nums = list(
+                                        map(int, getattr(tel, "antenna_numbers", []))
+                                    )
+                                    if len(tel_nums) != len(arr):
+                                        kv(
+                                            "Antenna diameters",
+                                            "present but length mismatch vs antenna_numbers; not using.",
+                                        )
+                                    else:
+                                        diameters_from_tel = {
+                                            int(tel_nums[i]): float(arr[i])
+                                            for i in range(len(tel_nums))
+                                        }
+                                        # Print concise summary
+                                        vals = np.array(
+                                            list(diameters_from_tel.values()), dtype=float
+                                        )
+                                        vmin, vmax = float(vals.min()), float(vals.max())
+                                        nunique = int(len(set(np.round(vals, 6))))
+                                        if np.allclose(vmin, vmax):
+                                            kv(
+                                                "Antenna diameters",
+                                                f"uniform = {vmin} m across {len(vals)} antennas",
+                                            )
+                                        else:
+                                            print(
+                                                f"{_c('Antenna diameters:', _BOLD + _CYAN)} per-antenna ({len(vals)}); unique={nunique}, min={vmin} m, max={vmax} m"
+                                            )
+                                            # Show a small sample for transparency
+                                            sample = list(sorted(diameters_from_tel.items()))[
+                                                :10
+                                            ]
+                                            kv(
+                                                "Sample diameters (first 10)",
+                                                ", ".join(f"{k}:{v}" for k, v in sample),
+                                            )
+                                else:
+                                    kv(
+                                        "Antenna diameters",
+                                        "present but invalid shape; not using.",
+                                    )
+                            except Exception as e:
+                                kv(
+                                    "Antenna diameters",
+                                    f"present but could not parse ({e}); not using.",
+                                )
+                        else:
+                            if diam is None:
+                                kv(
+                                    "Antenna diameters",
+                                    "not present on Telescope; using config/user values.",
+                                )
+                            else:
+                                kv(
+                                    "Antenna diameters",
+                                    "present on Telescope but not used (use_pyuvdata_diameters=False). Using config/user values.",
+                                )
+        
+                        # Feeds
+                        nfeeds = getattr(tel, "Nfeeds", None)
+                        feed_array = getattr(tel, "feed_array", None)
+                        feed_angle = getattr(tel, "feed_angle", None)
+                        if nfeeds is not None:
+                            kv(
+                                "Feeds",
+                                f"Nfeeds={nfeeds} {'(feed_array available)' if feed_array is not None else ''}",
+                            )
+                        else:
+                            kv("Feeds", "not present; using config/defaults.")
+        
+                        # Mount type (concise summary)
+                        mtype = getattr(tel, "mount_type", None)
+                        if mtype is not None:
+                            try:
+                                if isinstance(mtype, (list, tuple, np.ndarray)):
+                                    # Flatten to strings
+                                    vals = [
+                                        str(v)
+                                        for v in (
+                                            mtype.tolist()
+                                            if hasattr(mtype, "tolist")
+                                            else mtype
+                                        )
+                                    ]
+                                    total = len(vals)
+                                    unique_vals = {}
+                                    for v in vals:
+                                        unique_vals[v] = unique_vals.get(v, 0) + 1
+                                    if len(unique_vals) == 1:
+                                        only = next(iter(unique_vals.keys()))
+                                        kv(
+                                            "Mount type",
+                                            f"uniform='{only}' across {total} antennas",
+                                        )
+                                    else:
+                                        # Show up to top 4 counts
+                                        top = sorted(
+                                            unique_vals.items(), key=lambda x: (-x[1], x[0])
+                                        )[:4]
+                                        summary = ", ".join(f"{k}:{c}" for k, c in top)
+                                        kv(
+                                            "Mount type",
+                                            f"per-antenna; unique={len(unique_vals)}; top={summary}",
+                                        )
+                                else:
+                                    kv("Mount type", f"'{mtype}'")
+                            except Exception:
+                                kv("Mount type", "present but could not summarize.")
+                        else:
+                            kv("Mount type", "not present.")
+        
+                        # Instrument and citation (simple reporting)
+                        instr = getattr(tel, "instrument", None)
+                        if instr is not None and str(instr).strip():
+                            kv("Instrument", str(instr))
+                        else:
+                            kv("Instrument", "not present.")
+        
+                        citation = getattr(tel, "citation", None)
+                        if citation is not None and str(citation).strip():
+                            kv("Citation", str(citation))
+                        else:
+                            kv("Citation", "not present.")
+        
+                    except Exception as e:
+                        print(
+                            f"Could not load pyuvdata Telescope for '{tel_name}': {e}. Will use config/antenna file."
+                        )
+                else:
+                    print(
+                        "use_PYUVData_telescope=True but telescope_name not provided; using config/antenna file."
+                    )
+        
+            # Convenience flags/defaults
+            plotting_backend = config.get("output", {}).get("plotting", "bokeh")
+            # save_simulation_data_flag already determined above
+            # Enable sky model plots by default unless explicitly disabled
+            plot_skymodel_every_hour = bool(config.get("output", {}).get("plot_skymodel_every_hour", True))
+            skymodel_frequency = config.get("output", {}).get("skymodel_frequency", 150)
+            fov_radius_deg = config.get("antenna_layout", {}).get("fov_radius_deg", 10)
+        
+            # Access antennas either from pyuvdata Telescope or from antenna file
+            if antennas is None:
+                # Fall back to antenna file
+                antenna_file = configured_ant_path
+                if not antenna_file:
+                    raise ValueError(
+                        "Antenna positions not available from pyuvdata and no antenna file provided."
+                    )
+                section("ANTENNA METADATA & POSITIONS")
+                try:
+                    antennas = read_antenna_positions(antenna_file, config["antenna_layout"]["antenna_file_format"])
+                except (FileNotFoundError, ValueError) as e:
+                    print(f"Error while reading antenna positions file: {e}")
+                    raise
+            else:
+                # We constructed antennas from Telescope; print a concise summary similar to file path reader
+                section("ANTENNA METADATA & POSITIONS")
+                print(_c("Antenna metadata and positions (from pyuvdata):", _BOLD + _CYAN))
+                for idx, data in antennas.items():
+                    print(f"{_c(f'Antenna {idx}:', _BOLD + _CYAN)} {data}")
+                total_memory_bytes = sys.getsizeof(antennas) + sum(
+                    sys.getsizeof(value) + sum(sys.getsizeof(v) for v in value.values())
+                    for value in antennas.values()
+                )
+                total_memory_mb = total_memory_bytes / (1024 * 1024)
+                print(
+                    f"{_c('Total memory used by antennas:', _BOLD + _CYAN)} {total_memory_mb:.4f} MB"
+                )
+                # Note: antenna layout plots are generated once later after diameters validation
+        
+            # Assign antenna diameters with strict validation (no hidden defaults)
+            per_antenna_config = config["antenna_layout"].get("use_different_diameters", False)
+            config_diameters_map = config["antenna_layout"].get("diameters") or {}
+            config_global_diameter = config["antenna_layout"].get("all_antenna_diameter")
+        
+            # If diameters came from pyuvdata (dict), use them regardless of per_antenna_config
+            if isinstance(diameters_from_tel, dict) and diameters_from_tel:
+                missing = []
+                for ant in antennas.values():
+                    num = int(ant["Number"])
+                    if num not in diameters_from_tel:
+                        missing.append(num)
+                    else:
+                        ant["diameter"] = float(diameters_from_tel[num])
+                if missing:
+                    raise ValueError(
+                        "pyuvdata diameters enabled but missing for some antenna numbers: "
+                        f"{sorted(missing)}. Please provide diameters for all antennas."
+                    )
+            elif per_antenna_config:
+                # Expect per-antenna diameters to be provided in file/header or config['antenna_layout']['diameters']
+                missing = []
+                for ant in antennas.values():
+                    if "diameter" in ant and ant["diameter"] is not None:
+                        continue
+                    num = int(ant["Number"])
+                    if num in config_diameters_map:
+                        ant["diameter"] = float(config_diameters_map[num])
+                    else:
+                        missing.append(num)
+                if missing:
+                    raise ValueError(
+                        "use_different_diameters=True but diameters are missing for antenna numbers: "
+                        f"{sorted(missing)}. Add per-antenna diameters in the file or in antenna_layout.diameters."
+                    )
+            else:
+                # Prefer scalar diameter from pyuvdata Telescope if provided
+                if isinstance(diameters_from_tel, (int, float)):
+                    antenna_diameter = float(diameters_from_tel)
+                else:
+                    # Require a user-provided scalar; empty or None is not allowed
+                    antenna_diameter = _parse_positive_float(
+                        config_global_diameter,
+                        "antenna_layout.all_antenna_diameter",
+                    )
+                for ant in antennas.values():
+                    ant["diameter"] = antenna_diameter
+        
+            # Validate antenna diameters before printing/using them
+            invalid = []
+            for ant in antennas.values():
+                d = ant.get("diameter")
+                if d is None:
+                    invalid.append((ant.get("Number", "?"), "missing"))
+                    continue
+                try:
+                    d_float = float(d)
+                except Exception:
+                    invalid.append((ant.get("Number", "?"), "not a number"))
+                    continue
+                if not np.isfinite(d_float) or d_float <= 0:
+                    invalid.append((ant.get("Number", "?"), f"invalid value {d_float}"))
+                else:
+                    ant["diameter"] = d_float
+        
+            if invalid:
+                details = ", ".join([f"{num}: {reason}" for num, reason in invalid])
+                raise ValueError(
+                    "Invalid antenna diameters detected. Ensure all diameters are positive, finite numbers. "
+                    f"Problems for antenna numbers → {details}"
+                )
+        
+            # Debug output
+            section("ANTENNA DIAMETERS")
+            for idx, data in antennas.items():
+                print(f"{_c(f'Antenna {idx}:', _BOLD + _CYAN)} {data}")
+        
+            # Antenna types reporting
+            section("ANTENNA TYPES")
+            ant_cfg = config.get("antenna_layout", {})
+            if ant_cfg.get("use_different_antenna_types", False):
+                types_map = ant_cfg.get("antenna_types", {}) or {}
+                # Print per-antenna type if provided; otherwise report as unknown
+                for ant in antennas.values():
+                    num = int(ant.get("Number", -1))
+                    atype = types_map.get(num, "unknown")
+                    print(f"{_c(f'Antenna {num}:', _BOLD + _CYAN)} type={atype}")
+            else:
+                atype = ant_cfg.get("all_antenna_type", "unknown")
+                print(f"{_c('Antenna type (all):', _BOLD + _CYAN)} {atype}")
+        
+            section("ANTENNA LAYOUT")
+            print(_c("Antenna layout:", _BOLD + _CYAN), "see browser for interactive view.")
+            plot_antenna_layout(
+                antennas,
+                plotting=plotting_backend,
+                save_simulation_data=save_simulation_data_flag,
+                folder_path=simulation_folder_path,
+                open_in_browser=open_plots_in_browser,
+            )
+            _al_outdir2 = simulation_folder_path or tempfile.mkdtemp(prefix="rrivis_")
+            from plot import plot_antenna_layout_3d_plotly as _plot3d
+        
+            _plot3d(
+                antennas,
+                save_simulation_data=True,
+                folder_path=_al_outdir2,
+                open_in_browser=open_plots_in_browser,
+            )
+        
+            # Check if the HPBW is fixed for all frequencies (configured in degrees).
+            # Convert once to radians for internal use.
+            fixed_hpbw_deg = config["antenna_layout"].get("fixed_hpbw")
+            fixed_hpbw_rad = (
+                None if fixed_hpbw_deg is None else np.radians(float(fixed_hpbw_deg))
+            )
+        
+            # Convert frequency inputs to Hz based on the unit
+            unit_conversion = {
+                "Hz": 1,
+                "kHz": 1e3,
+                "MHz": 1e6,
+                "GHz": 1e9,
+            }
+        
+            # Direct nested access to frequency parameters
+            try:
+                # Values are specified in the units given by frequency_unit
+                start_frequency = float(config["obs_frequency"]["starting_frequency"])
+                frequency_interval = float(config["obs_frequency"]["frequency_interval"])
+                frequency_bandwidth = float(config["obs_frequency"]["frequency_bandwidth"])
+                frequency_unit = config["obs_frequency"]["frequency_unit"]
+            except KeyError as e:
+                raise ValueError(
+                    f"Missing required configuration key: {e}. "
+                    "Please ensure your configuration file has the 'obs_frequency' section "
+                    "with 'starting_frequency', 'frequency_interval', 'frequency_bandwidth', and 'frequency_unit'."
+                )
+        
+            if frequency_unit not in unit_conversion:
+                raise ValueError(
+                    f"Invalid frequency unit: {frequency_unit}. Must be one of {list(unit_conversion.keys())}."
+                )
+        
+            # Validate
+            if start_frequency < 0:
+                raise ValueError("frequency.starting_frequency must be >= 0")
+            if frequency_interval <= 0:
+                raise ValueError("frequency.frequency_interval must be > 0")
+            if frequency_bandwidth <= 0:
+                raise ValueError("frequency.frequency_bandwidth must be > 0")
+        
+            # Convert start/interval/bandwidth to Hz based on unit
+            start_frequency_hz = start_frequency * unit_conversion[frequency_unit]
+            interval_hz = frequency_interval * unit_conversion[frequency_unit]
+            total_bandwidth_hz = frequency_bandwidth * unit_conversion[frequency_unit]
+        
+            # Compute the end frequency and the array of frequencies
+            end_frequency_hz = start_frequency_hz + total_bandwidth_hz
+            frequencies = np.arange(
+                start_frequency_hz, end_frequency_hz, interval_hz, dtype=float
+            )
+            wavelengths = c / frequencies
+        
+            # Debug output
+            section("FREQUENCY GRID")
+            print(f"{_c('Start Frequency:', _BOLD + _CYAN)} {start_frequency} {frequency_unit}")
+            print(
+                f"{_c('Frequency Interval:', _BOLD + _CYAN)} {frequency_interval} {frequency_unit}"
+            )
+            print(
+                f"{_c('Total Bandwidth:', _BOLD + _CYAN)} {frequency_bandwidth} {frequency_unit}"
+            )
+            print(
+                f"{_c('End Frequency:', _BOLD + _CYAN)} {end_frequency_hz / unit_conversion[frequency_unit]} {frequency_unit}"
+            )
+            print(f"{_c('Number of Frequency Channels:', _BOLD + _CYAN)} {len(frequencies)}")
+        
+            # Set up antenna types for HPBW calculation
+            antenna_layout_cfg = config.get("antenna_layout", {})
+            use_different_antenna_types = antenna_layout_cfg.get("use_different_antenna_types", False)
+            all_antenna_type = antenna_layout_cfg.get("all_antenna_type", "parabolic_10db_taper")
+            antenna_types_map = antenna_layout_cfg.get("antenna_types", {})
+        
+            # Set up beam response patterns for beam area calculation
+            beams_cfg = config.get("beams", {})
+            use_different_beam_responses = beams_cfg.get("use_different_beam_responses", False)
+            all_beam_response = beams_cfg.get("all_beam_response", "gaussian")
+            beam_response_per_antenna_cfg = beams_cfg.get("beam_response_per_antenna", {})
+            cosine_taper_exponent = beams_cfg.get("cosine_taper_exponent", 1.0)
+            exponential_taper_dB = beams_cfg.get("exponential_taper_dB", 10.0)
+        
+            # Loop through each antenna to calculate HPBW (radians) and beam areas
+            hpbw_per_antenna = {}
+            beam_area_per_antenna = {}
+        
+            for ant in antennas.values():
+                antenna_number = ant["Number"]
+                diameter = ant["diameter"]
+        
+                # Determine antenna type for this antenna
+                if use_different_antenna_types:
+                    antenna_type = antenna_types_map.get(antenna_number, all_antenna_type)
+                else:
+                    antenna_type = all_antenna_type
+        
+                # Calculate HPBW (radians) for each frequency for this antenna
+                if fixed_hpbw_rad is not None:
+                    # Use fixed HPBW if specified (legacy/testing mode)
+                    hpbw_values_radians = np.full(len(frequencies), fixed_hpbw_rad, dtype=float)
+                else:
+                    # Use antenna type-specific HPBW calculation
+                    hpbw_values_radians = calculate_hpbw_for_antenna_type(
+                        antenna_type=antenna_type,
+                        frequencies_hz=frequencies,
+                        diameter=diameter,
+                    )
+                hpbw_per_antenna[antenna_number] = hpbw_values_radians
+        
+                # Determine beam response pattern for this antenna
+                if use_different_beam_responses:
+                    beam_response = beam_response_per_antenna_cfg.get(antenna_number, all_beam_response)
+                else:
+                    beam_response = all_beam_response
+        
+                # Calculate the beam area for each frequency using the specified beam pattern
+                # Note: For simplicity, using the first frequency's HPBW value or handling as array
+                if beam_response == "gaussian":
+                    beam_area = calculate_gaussian_beam_area_EBeam(
+                        nside=512, theta_HPBW=hpbw_values_radians
+                    )
+                elif beam_response == "airy":
+                    # For Airy pattern, calculate beam area per frequency
+                    beam_area = [
+                        calculate_airy_beam_area(
+                            nside=512, wavelength=wavelengths[i].value, diameter=diameter
+                        )
+                        for i in range(len(frequencies))
+                    ]
+                elif beam_response == "cosine":
+                    beam_area = [
+                        calculate_cosine_beam_area(
+                            nside=512, theta_HPBW=hpbw_values_radians[i], taper_exponent=cosine_taper_exponent
+                        )
+                        for i in range(len(frequencies))
+                    ]
+                elif beam_response == "exponential":
+                    beam_area = [
+                        calculate_exponential_beam_area(
+                            nside=512, theta_HPBW=hpbw_values_radians[i], taper_dB=exponential_taper_dB
+                        )
+                        for i in range(len(frequencies))
+                    ]
+                else:
+                    # Default to Gaussian if unknown beam response
+                    print(f"Warning: Unknown beam response '{beam_response}' for antenna {antenna_number}, defaulting to Gaussian.")
+                    beam_area = calculate_gaussian_beam_area_EBeam(
+                        nside=512, theta_HPBW=hpbw_values_radians
+                    )
+        
+                beam_area_per_antenna[antenna_number] = beam_area
+        
+            # Debugging: Print HPBW and beam areas for each antenna
+            section("HPBW & BEAM AREAS PER ANTENNA")
+            for ant in antennas.values():
+                antenna_number = ant["Number"]
+                # Pretty print arrays with limited length and spacing
+                # Internally stored in radians; convert to degrees only for display
+                h_arr = np.degrees(np.asarray(hpbw_per_antenna[antenna_number]))
+                b_arr = np.asarray(beam_area_per_antenna[antenna_number], dtype=float)
+                np.set_printoptions(linewidth=120, threshold=12, edgeitems=3, suppress=True)
+                print(
+                    f"{_c(f'Antenna {antenna_number}:', _BOLD + _CYAN)} HPBW (degrees) = {np.array2string(h_arr, precision=3, separator=', ')}"
+                )
+                print(
+                    f"{_c(f'Antenna {antenna_number}:', _BOLD + _CYAN)} Beam Area (steradians) = {np.array2string(b_arr, precision=3, separator=', ')}"
+                )
+        
+            # Beams type and beams response for antennas
+            if config["beams"].get("use_different_beams"):
+                beams_per_antenna = config["beams"]["beams_per_antenna"]
+            else:
+                # Map beam types using antenna numbers
+                beams_per_antenna = {
+                    ant["Number"]: config["beams"]["all_beam_type"]
+                    for ant in antennas.values()
+                }
+        
+            if config["beams"]["use_different_beam_responses"]:
+                beam_response_per_antenna = config["beams"]["beam_response_per_antenna"]
+            else:
+                # Map beam responses using antenna numbers
+                beam_response_per_antenna = {
+                    ant["Number"]: config["beams"]["all_beam_response"]
+                    for ant in antennas.values()
+                }
+        
+            # Generate baselines from the antennas
+            section("GENERATING BASELINES")
+            try:
+                baselines = generate_baselines(
+                    antennas, beams_per_antenna, beam_response_per_antenna
+                )
+                print("Baselines generated successfully.")
+            except ValueError as ve:
+                print(f"ValueError: {ve}")
+                raise
+            except KeyError as ke:
+                print(f"KeyError: {ke}")
+                raise
+            except Exception as e:
+                print(f"An unexpected error occurred while generating baselines: {e}")
+                raise
+        
+            # Trim baselines based on baseline configuration
+            if baselines:
+                trimmed_baselines = {}
+        
+                # Extract baseline configuration
+                use_autocorrelations = config["baseline_selection"]["use_autocorrelations"]
+                use_crosscorrelations = config["baseline_selection"]["use_crosscorrelations"]
+                only_selective_baselines = config["baseline_selection"]["only_selective_baseline_length"]
+                selective_lengths = config["baseline_selection"]["selective_baseline_lengths"]
+                tolerance = config["baseline_selection"]["selective_baseline_tolerance_meters"]
+        
+                # Iterate through the baselines and apply filters
+                for (ant1, ant2), baseline_data in baselines.items():
+                    baseline_length = baseline_data["Length"]
+        
+                    # Filter out autocorrelations if disabled
+                    if not use_autocorrelations and ant1 == ant2:
+                        continue
+        
+                    # Filter out crosscorrelations if disabled
+                    if not use_crosscorrelations and ant1 != ant2:
+                        continue
+        
+                    # Filter for selective baseline lengths
+                    if only_selective_baselines:
+                        # Check if the baseline length is within the acceptable range of any selective length
+                        if not any(
+                            abs(baseline_length - length) <= tolerance
+                            for length in selective_lengths
+                        ):
+                            continue
+        
+                    # Angle-based filtering
+                    if config['baseline_selection'].get('trim_by_angle_ranges', False):
+                        angle_ranges = config['baseline_selection'].get('selective_angle_ranges_deg', [])
+                        if angle_ranges:  # Only filter if angle ranges are specified
+                            # Calculate baseline azimuth angle from ant1 to ant2
+                            baseline_angle = calculate_baseline_azimuth(ant1, ant2, antennas)
+        
+                            # Check if baseline angle is within any specified range
+                            if not is_angle_in_range(baseline_angle, angle_ranges):
+                                # For bidirectional filtering, also check opposite direction
+                                opposite_angle = (baseline_angle + 180.0) % 360.0
+                                if not is_angle_in_range(opposite_angle, angle_ranges):
+                                    continue  # Baseline doesn't match angle criteria in either direction
+        
+                    # Add the baseline to the trimmed dictionary if it passes all filters
+                    trimmed_baselines[(ant1, ant2)] = baseline_data
+        
+                # Check if the trimmed baselines are empty
+                if not trimmed_baselines:
+                    error_message = "No baselines match the specified criteria. Trimmed baselines are empty."
+                    print(error_message)
+                    raise ValueError(error_message)
+                else:
+                    # Debugging: Print trimmed baselines
+                    section("TRIMMED BASELINES")
+                    for key, value in trimmed_baselines.items():
+                        print(f"{_c(f'Baseline {key}:', _BOLD + _CYAN)} {value}")
+        
+                # Replace the original baselines with the trimmed version
+                baselines = trimmed_baselines
+            else:
+                print("No baselines to process!")
+        
+            # Get observation location and start time
+            section("OBSERVATION SETUP")
+            location, obstime_start = get_location_and_time(
+                config["location"]["lat"],
+                config["location"]["lon"],
+                config["location"]["height"],
+                config["obs_time"]["start_time"],
+            )
+        
+            # (pyuvdata Telescope integration handled earlier)
+        
+            # Ensure only one sky model is enabled
+            sky_model_config = config["sky_model"]
+        
+            enabled_sky_models = {
+                "test_sources": sky_model_config["test_sources"]["use_test_sources"],
+                "test_sources_healpix": sky_model_config["test_sources_healpix"][
+                    "use_test_sources"
+                ],
+                "gsm_healpix": sky_model_config["gsm_healpix"]["use_gsm"],
+                "gleam": sky_model_config["gleam"]["use_gleam"],
+                "gleam_healpix": sky_model_config["gleam_healpix"]["use_gleam"],
+                "gsm+gleam_healpix": sky_model_config["gsm+gleam_healpix"]["use_gsm_gleam"],
+            }
+        
+            # Count enabled sky models
+            enabled_count = sum(enabled_sky_models.values())
+        
+            if enabled_count > 1:
+                conflicting_models = [
+                    key for key, enabled in enabled_sky_models.items() if enabled
+                ]
+                raise ValueError(
+                    f"Conflicting sky models enabled: {', '.join(conflicting_models)}. Please enable only one sky model at a time."
+                )
+        
+            # Auto-select a sky model when none is enabled
+            if enabled_count == 0:
+                section("SKY MODEL SELECTION")
+                print(
+                    _c("No sky model enabled in config:", _BOLD + _CYAN),
+                    "attempting auto-selection...",
+                )
+                # simple connectivity check to VizieR host
+                import socket
+        
+                def _has_internet(host="vizier.cds.unistra.fr", port=443, timeout=3):
+                    try:
+                        with socket.create_connection((host, port), timeout=timeout):
+                            return True
+                    except Exception:
+                        return False
+        
+                if _has_internet():
+                    print(
+                        _c("Internet available →", _BOLD + _CYAN),
+                        "selecting GLEAM catalog sources.",
+                    )
+                    sky_model_config["gleam"]["use_gleam"] = True
+                else:
+                    print(
+                        _c("No internet detected →", _BOLD + _CYAN),
+                        "falling back to test sources.",
+                    )
+                    sky_model_config["test_sources"]["use_test_sources"] = True
+        
+            use_gleam = sky_model_config["gleam"]["use_gleam"]
+            use_gsm = sky_model_config["gsm_healpix"]["use_gsm"]
+            use_gleam_healpix = sky_model_config["gleam_healpix"]["use_gleam"]
+            use_gsm_gleam_healpix = sky_model_config["gsm+gleam_healpix"]["use_gsm_gleam"]
+            use_test_sources_healpix = sky_model_config["test_sources_healpix"][
+                "use_test_sources"
+            ]
+            use_test_sources = sky_model_config["test_sources"]["use_test_sources"]
+        
+            flux_limit = None
+            nside = None
+            num_sources = None
+        
+            # Load sources
+            section("SKY MODEL LOADING")
+            if sky_model_config["gleam"]["use_gleam"]:
+                flux_limit = sky_model_config["gleam"]["flux_limit"]
+            elif sky_model_config["gsm_healpix"]["use_gsm"]:
+                flux_limit = sky_model_config["gsm_healpix"]["flux_limit"]
+                nside = sky_model_config["gsm_healpix"]["nside"]
+            elif sky_model_config["gleam_healpix"]["use_gleam"]:
+                flux_limit = sky_model_config["gleam_healpix"]["flux_limit"]
+                nside = sky_model_config["gleam_healpix"]["nside"]
+            elif sky_model_config["gsm+gleam_healpix"]["use_gsm_gleam"]:
+                flux_limit = sky_model_config["gsm+gleam_healpix"]["flux_limit"]
+                nside = sky_model_config["gsm+gleam_healpix"]["nside"]
+            elif sky_model_config["test_sources_healpix"]["use_test_sources"]:
+                flux_limit = sky_model_config["test_sources_healpix"]["flux_limit"]
+                nside = sky_model_config["test_sources_healpix"]["nside"]
+                num_sources = sky_model_config["test_sources_healpix"]["num_sources"]
+            else:
+                flux_limit = sky_model_config["test_sources"]["flux_limit"]
+                num_sources = sky_model_config["test_sources"]["num_sources"]
+        
+            try:
+                sources, spectral_indices = get_sources(
+                    use_test_sources=use_test_sources,
+                    use_test_sources_healpix=use_test_sources_healpix,
+                    use_gleam=use_gleam,
+                    use_gsm=use_gsm,
+                    use_gleam_healpix=use_gleam_healpix,
+                    use_gsm_gleam_healpix=use_gsm_gleam_healpix,
+                    gleam_catalogue=sky_model_config["gleam"]["gleam_catalogue"],
+                    gsm_catalogue=sky_model_config["gsm_healpix"]["gsm_catalogue"],
+                    flux_limit=flux_limit,
+                    frequency=config["obs_frequency"]["starting_frequency"] * 1e6,
+                    nside=nside,
+                    num_sources=num_sources,
+                )
+            except Exception as e:
+                if sky_model_config["gleam"]["use_gleam"]:
+                    print(f"GLEAM loading failed ({e}); falling back to test sources.")
+                    sources, spectral_indices = get_sources(
+                        use_test_sources=True,
+                        use_test_sources_healpix=False,
+                        use_gleam=False,
+                        use_gsm=False,
+                        use_gleam_healpix=False,
+                        use_gsm_gleam_healpix=False,
+                        flux_limit=None,
+                        frequency=config["obs_frequency"]["starting_frequency"] * 1e6,
+                        nside=None,
+                        num_sources=3,  # Default fallback to 3 test sources if not specified
+                    )
+                else:
+                    raise
+        
+            # Convert time_interval to seconds (support legacy key time_interval_between_observation)
+            obs_cfg = config["obs_time"]
+            time_interval_value = obs_cfg.get("time_interval")
+            if time_interval_value is None:
+                time_interval_value = obs_cfg.get("time_interval_between_observation")
+            if time_interval_value is None:
+                raise ValueError(
+                    "Missing obs_time.time_interval (or time_interval_between_observation)"
+                )
+        
+            if obs_cfg["time_interval_unit"] == "hours":
+                time_interval_seconds = time_interval_value * 3600
+            elif obs_cfg["time_interval_unit"] == "seconds":
+                time_interval_seconds = time_interval_value
+            elif obs_cfg["time_interval_unit"] == "minutes":
+                time_interval_seconds = time_interval_value * 60
+            else:
+                raise ValueError(f"Invalid time_interval_unit: {obs_cfg['time_interval_unit']}")
+            print(f"Time Interval between each observation: {time_interval_seconds} seconds")
+        
+            # Convert total_duration to seconds
+            if obs_cfg["total_duration_unit"] == "days":
+                total_duration_seconds = obs_cfg["total_duration"] * 86400
+                print(
+                    f"Total duration of the simulation: {total_duration_seconds / 86400} days"
+                )
+            elif obs_cfg["total_duration_unit"] == "hours":
+                total_duration_seconds = obs_cfg["total_duration"] * 3600
+                print(
+                    f"Total duration of the simulation: {total_duration_seconds / 3600} hours"
+                )
+            elif obs_cfg["total_duration_unit"] == "seconds":
+                total_duration_seconds = obs_cfg["total_duration"]
+                print(f"Total duration of the simulation: {total_duration_seconds} seconds")
+            else:
+                raise ValueError(
+                    f"Invalid total_duration_unit: {obs_cfg['total_duration_unit']}"
+                )
+        
+            # Time points for simulation
+            time_points = np.arange(0, total_duration_seconds, time_interval_seconds)
+        
+            # Convert time points to MJD format
+            mjd_time_points = (obstime_start + TimeDelta(time_points, format="sec")).mjd
+        
+            # Initialize dictionaries to store modulus and phase over time for each baseline
+            moduli_over_time = {key: [] for key in baselines.keys()}
+            phases_over_time = {key: [] for key in baselines.keys()}
+        
+            start_time = time.time()
+        
+            # Calculate visibility based on the selected sky model
+            visibility_function = calculate_visibility
+        
+            # Build beam pattern configuration for visibility calculation
+            # This ensures beam patterns used in visibility match those used for beam area
+            beam_pattern_per_antenna_dict = {}
+            for ant in antennas.values():
+                antenna_number = ant["Number"]
+                if use_different_beam_responses:
+                    beam_pattern_per_antenna_dict[antenna_number] = beam_response_per_antenna_cfg.get(
+                        antenna_number, all_beam_response
+                    )
+                else:
+                    beam_pattern_per_antenna_dict[antenna_number] = all_beam_response
+        
+            beam_pattern_params_dict = {
+                'cosine_taper_exponent': cosine_taper_exponent,
+                'exponential_taper_dB': exponential_taper_dB,
+            }
+        
+            # Initialize dictionaries to store complex visibility over time for each baseline
+            visibilities = {key: [] for key in baselines.keys()}
+        
+            # Loop over time points to calculate visibility
+            section("SIMULATION PROGRESS")
+            total_steps = len(time_points)
+            # Adaptive progress cadence: print every step for small runs; otherwise ~10% increments
+            progress_interval = 1 if total_steps <= 50 else max(1, total_steps // 10)
+            for idx, current_time in enumerate(time_points):
+                # Update observation time
+                obstime = obstime_start + TimeDelta(current_time, format="sec")
+        
+                # Calculate visibility for current time
+                visibility_dict = visibility_function(
+                    antennas,
+                    baselines,
+                    sources,
+                    spectral_indices,
+                    location,
+                    obstime,
+                    wavelengths,
+                    frequencies,
+                    hpbw_per_antenna,
+                    nside=nside,
+                    beam_pattern_per_antenna=beam_pattern_per_antenna_dict,
+                    beam_pattern_params=beam_pattern_params_dict,
+                )
+        
+                # Append visibility data for each baseline
+                for key in baselines.keys():
+                    visibilities[key].append(visibility_dict[key])
+        
+                # # Calculate modulus and phase of visibility
+                moduli, phases = calculate_modulus_phase(visibility_dict)
+        
+                # # Append modulus and phase to the time series data
+                for key in baselines.keys():
+                    moduli_over_time[key].append(moduli[key])
+                    phases_over_time[key].append(phases[key])
+        
+                # Adaptive progress reporting
+                if (idx % progress_interval == 0) or (idx == total_steps - 1):
+                    elapsed_time = time.time() - start_time
+                    if idx > 0:
+                        time_per_step = elapsed_time / idx
+                        remaining_steps = total_steps - idx
+                        estimated_remaining_time = time_per_step * remaining_steps
+                        print(
+                            f"{_c('Time step', _BOLD + _CYAN)} {idx+1}/{total_steps}: "
+                            f"Estimated remaining time: {estimated_remaining_time:.2f} seconds"
+                        )
+                    else:
+                        print(
+                            f"{_c('Time step', _BOLD + _CYAN)} {idx+1}/{total_steps}: Time elapsed: {elapsed_time:.2f} seconds"
+                        )
+        
+            # Plot the gsm2008 map along with gleam sources
+            if plot_skymodel_every_hour:
+                section("SKY MAP PLOTS (GSM)")
+                diffused_sky_model(
+                    location=location,
+                    obstime_start=obstime_start,
+                    total_seconds=total_duration_seconds,
+                    frequency=skymodel_frequency,
+                    fov_radius_deg=fov_radius_deg,
+                    discrete_sources=sources,  # Pass sources for all sky model types (test, GLEAM, GSM, etc.)
+                    save_simulation_data=save_simulation_data_flag,
+                    folder_path=simulation_folder_path,
+                    open_in_browser=open_plots_in_browser,
+                )
+            # Save computed data to an HDF5 file (derive name if not provided)
+            output_file_name = config.get("output_file") or (
+                config.get("output", {}).get("output_file_name", "complex_visibility") + ".h5"
+            )
+            if save_simulation_data_flag and simulation_folder_path and output_file_name:
+                section("SAVING OUTPUTS")
+                output_file_path = os.path.join(simulation_folder_path, output_file_name)
+                with h5py.File(output_file_path, "w") as h5file:
+                    # Create a group for each baseline
+                    for key, vis in visibilities.items():
+                        baseline_group = h5file.create_group(
+                            f"baseline_{key}"
+                        )  # Create a group for the baseline
+        
+                        # Save complex visibility
+                        vis_array = np.stack(vis)  # Convert to 2D NumPy array
+                        baseline_group.create_dataset(
+                            "complex_visibility",
+                            data=vis_array.astype(np.complex128),
+                            dtype="complex128",
+                        )
+        
+                    # Save frequencies and time points
+                    h5file.create_dataset("frequencies", data=frequencies)
+                    h5file.create_dataset("time_points_mjd", data=mjd_time_points)
+        
+                    # Save metadata as attributes (optional)
+                    if "gleam_flux_limit" in config:
+                        h5file.attrs["gleam_flux_limit"] = config["gleam_flux_limit"]
+                    if "theta_HPBW" in config:
+                        h5file.attrs["theta_HPBW"] = config["theta_HPBW"]
+                    h5file.attrs["num_antennas"] = len(
+                        antennas
+                    )  # Calculated from the antennas list
+                    h5file.attrs["num_baselines"] = len(
+                        baselines
+                    )  # Calculated from the baselines dictionary
+                    h5file.attrs["location"] = str(location)
+        
+                print(f"Simulation data saved to {output_file_path}")
+            elif save_simulation_data_flag and not simulation_folder_path:
+                print(
+                    "Warning: save_simulation_data=True but simulation folder could not be created; skipping file save."
+                )
+        
+            # Calculate total memory usage for visibilities in MB
+            total_memory_mb = 0
+            for key in visibilities.keys():
+                # Convert the list of arrays for each baseline into a stacked 2D NumPy array
+                vis_array = np.stack(visibilities[key])  # Shape: (time_steps, frequencies)
+                total_memory_mb += vis_array.nbytes / (1024**2)  # Convert bytes to MB
+        
+            print(
+                f"{_c('Total memory used by visibility data:', _BOLD + _CYAN)} {total_memory_mb:.2f} MB"
+            )
+        
+            # After the loop, execute all the sky model plot functions
+            # if args.plot_skymodel_every_hour:
+            #     for i, plot_func in enumerate(sky_model_plots):
+            #         plt.figure()  # Create a new figure for each plot
+            #         plot_func()  # Generate each sky model plot
+        
+            # Convert lists to numpy arrays for plotting
+            for key in baselines.keys():
+                moduli_over_time[key] = np.array(moduli_over_time[key])
+                phases_over_time[key] = np.array(phases_over_time[key])
+        
+            # Convert time_points to desired units for plotting, e.g., hours
+            # time_points_hours = time_points / 3600  # Convert seconds to hours for plotting
+        
+            # Generate plots based on the selected plotting library
+            fig1 = plot_visibility(
+                moduli_over_time,
+                phases_over_time,
+                baselines,
+                mjd_time_points,  # MJD for plotting
+                frequencies,
+                total_duration_seconds,
+                plotting=plotting_backend,
+                save_simulation_data=save_simulation_data_flag,
+                folder_path=simulation_folder_path,
+                angle_unit=angle_unit,
+                open_in_browser=open_plots_in_browser,
+            )
+            fig2 = plot_heatmaps(
+                moduli_over_time,
+                phases_over_time,
+                baselines,
+                frequencies,
+                total_duration_seconds,
+                mjd_time_points,
+                plotting=plotting_backend,
+                save_simulation_data=save_simulation_data_flag,
+                folder_path=simulation_folder_path,
+                open_in_browser=open_plots_in_browser,
+            )
+            fig3 = plot_modulus_vs_frequency(
+                moduli_over_time,
+                phases_over_time,
+                baselines,
+                frequencies,
+                mjd_time_points,
+                plotting=plotting_backend,
+                save_simulation_data=save_simulation_data_flag,
+                folder_path=simulation_folder_path,
+                open_in_browser=open_plots_in_browser,
+            )
+        
+            if plotting_backend != "bokeh" and open_plots_in_browser:
+                plt.show()
+        
+            # Ending section and final success message
+            section("ENDING SIMULATION")
+            logger = logging.getLogger()
+            if hasattr(logger, "success"):
+                logger.success("Simulation completed successfully.")
+            else:
+                print("Simulation completed successfully.")
+            # Trailing spacing after end of output
+        
+        # Update result tracking
+        result['num_baselines'] = len(baselines) if 'baselines' in locals() else None
+        result['num_time_steps'] = len(time_points) if 'time_points' in locals() else None
+        
+        # This will be filled in the next step
+
+        pass  # Placeholder for now
+
+    except Exception as e:
+        # Capture any unexpected errors
+        result['error_message'] = str(e)
+        result['duration_seconds'] = time_module.time() - start_time
+        return result
+
+    # If we got here, simulation succeeded
+    result['success'] = True
+    result['duration_seconds'] = time_module.time() - start_time
+    return result
+
+
 def main():
     """
     Main function to run the Visibility Simulation.
+    Handles command-line arguments, configuration loading, and orchestrates
+    single or batch simulation execution.
     """
 
     # Parse CLI arguments
@@ -803,1207 +2158,160 @@ def main():
             "Absolute path to antenna positions file (CSV/TXT). Overrides config antenna_layout.antenna_positions_file."
         ),
     )
+    parser.add_argument(
+        "--configs",
+        nargs='+',
+        metavar='CONFIG',
+        default=None,
+        help=(
+            "Multiple configuration files (space-separated). "
+            "Simulations will be run sequentially. "
+            "Example: --configs config1.yaml config2.yaml config3.yaml"
+        ),
+    )
+    parser.add_argument(
+        "--config-dir",
+        metavar='DIR',
+        default=None,
+        help=(
+            "Directory containing .yaml/.yml configuration files. "
+            "All config files will be processed alphabetically and sequentially. "
+            "Example: --config-dir ./my_configs/"
+        ),
+    )
     args = parser.parse_args()
 
-    # Resolve configuration:
-    # - If --config is provided: require an absolute path and merge with defaults.
-    # - If not provided: use DEFAULT_CONFIG as-is (with internal defaults).
-    user_config_raw = {}
-    if args.config:
-        if not os.path.isabs(args.config):
-            raise ValueError(
-                "--config must be an absolute path; relative paths are not supported."
-            )
-        if not os.path.exists(args.config):
-            raise FileNotFoundError(f"Configuration file not found: {args.config}")
-        config, user_config_raw = load_config(args.config)
-    else:
-        config = DEFAULT_CONFIG.copy()
-
-    # CLI override for simulation data directory
-    if args.sim_data_dir:
-        sim_dir_abs = os.path.abspath(os.path.expanduser(args.sim_data_dir))
-        config.setdefault("output", {})["simulation_data_dir"] = sim_dir_abs
-
-    # Determine antenna positions file path (if provided): CLI overrides config
-    configured_ant_path = args.__dict__.get("antenna_file") or config.get(
-        "antenna_layout", {}
-    ).get("antenna_positions_file")
-    if configured_ant_path:
-        configured_ant_path = os.path.abspath(os.path.expanduser(configured_ant_path))
-        if not os.path.isabs(configured_ant_path):
-            raise ValueError("antenna_layout.antenna_positions_file must be an absolute path.")
-        if not os.path.exists(configured_ant_path):
-            raise FileNotFoundError(
-                f"Antenna positions file not found: {configured_ant_path}"
-            )
-
-    # Validate angle unit configuration
-    angle_unit = _validate_angle_unit(config)
-
-    # Print a clear configuration summary to console (add leading spacing)
-    print("")
-    print("")
-    section("CONFIGURATION")
-    if args.config:
-        print(
-            f"{_c('Config file:', _CYAN)} {args.config} {_c('(unspecified fields use in-code defaults)', _DIM)}"
-        )
-    else:
-        print(
-            f"{_c('Config file:', _CYAN)} none {_c('→ using in-code defaults', _DIM)}"
-        )
-    if configured_ant_path:
-        source_str = "CLI" if args.__dict__.get("antenna_file") else "config"
-        print(f"{_c(f'Antenna file ({source_str}):', _CYAN)} {configured_ant_path}")
-    else:
-        print(
-            f"{_c('Antenna file:', _CYAN)} (not provided; may use pyuvdata Telescope)"
+    # Validate mutual exclusivity of config arguments
+    config_args_provided = sum([
+        args.config is not None,
+        args.configs is not None,
+        args.config_dir is not None
+    ])
+    if config_args_provided > 1:
+        parser.error(
+            "Cannot use --config, --configs, and --config-dir together. "
+            "Please choose ONE config option."
         )
 
-    # Print a clear, readable breakdown of user-provided vs defaulted configuration
-    print("")
-    print(_c("User-provided overrides (from config.yaml):", _BOLD + _GREEN))
-    if user_config_raw:
-        print_colored_config(user_config_raw, base_indent=2)
-    else:
-        print(_indent("(none)", 2))
+    # Collect configuration files based on command-line arguments
+    config_files = collect_config_files(args)
 
-    defaults_active = _defaults_used(DEFAULT_CONFIG, user_config_raw)
-    print("")
-    print(_c("Defaults in effect (from in-code defaults):", _BOLD + _GREEN))
-    if defaults_active:
-        # Pretty-print nested defaults with level-based colors
-        print_colored_config(defaults_active, base_indent=2)
-    else:
-        print(_indent("(none)", 2))
+    # Determine if running in batch mode (multiple configs)
+    is_batch_mode = len(config_files) > 1
 
-    # Ensure console logging with SUCCESS level, even when not saving to disk
+    # Initialize results tracking
+    results = []
+
+    # Perform initial setup (logging, cleanup) once before batch
     init_console_logging()
-    # Visual separation between config dump and maintenance logs
-    print("")
     cleanup_old_temp_outputs(prefix="rrivis_", retention_seconds=300.0)
 
-    # Determine whether to save data and initialize folder path
-    save_simulation_data_flag = bool(
-        config.get("output", {}).get("save_simulation_data", False)
-    )
-    save_log_data_flag = bool(
-        config.get("output", {}).get("save_log_data", False)
-    )
-    open_plots_in_browser = bool(
-        config.get("output", {}).get("plot_results_in_bokeh", True)
-    )
-    simulation_folder_path = None
+    # Process each configuration
+    if not config_files:
+        # DEFAULT MODE: No config file provided, use DEFAULT_CONFIG
+        print("")
+        print("")
+        section("CONFIGURATION")
+        print(f"{_c('Config file:', _CYAN)} none {_c('→ using in-code defaults', _DIM)}")
+        print("")
 
-    if save_simulation_data_flag:
-        simulation_folder_path = create_simulation_folder(config)
-        if simulation_folder_path:
-            save_yaml_config(config, simulation_folder_path)
+        config = DEFAULT_CONFIG.copy()
 
-            # Set up logging only if save_log_data is enabled
-            if save_log_data_flag:
-                log_file = setup_logging(simulation_folder_path)
-                print(f"Logging to {log_file}")
+        # Apply CLI overrides
+        if args.sim_data_dir:
+            sim_dir_abs = os.path.abspath(os.path.expanduser(args.sim_data_dir))
+            config.setdefault("output", {})["simulation_data_dir"] = sim_dir_abs
+        if args.antenna_file:
+            config.setdefault("antenna_layout", {})["antenna_positions_file"] = \
+                os.path.abspath(os.path.expanduser(args.antenna_file))
 
-                sys.stdout = LoggerWriter(logging.info)
-                sys.stderr = LoggerWriter(logging.error)
+        # Run simulation
+        result = run_simulation(config, "default", None)
+        results.append(result)
+
+    else:
+        # SINGLE or BATCH MODE: Process each config file
+        for idx, config_file in enumerate(config_files, start=1):
+            config_name = os.path.splitext(os.path.basename(config_file))[0]
+
+            # Print batch header if multiple configs
+            if is_batch_mode:
+                print("\n" + "="*90)
+                print(f"{_c('BATCH SIMULATION', _BOLD + _CYAN)} {idx}/{len(config_files)}: {config_name}")
+                print(f"{_c('Config file:', _CYAN)} {config_file}")
+                print("="*90 + "\n")
             else:
-                print("Log data saving is disabled - only console output will be shown")
+                # Single config mode - show normal config header
+                print("")
+                print("")
+                section("CONFIGURATION")
+                print(f"{_c('Config file:', _CYAN)} {config_file} {_c('(unspecified fields use in-code defaults)', _DIM)}")
 
-    section("STARTING SIMULATION")
-
-    # Optionally load telescope metadata from pyuvdata and use available fields
-    antennas = None
-    used_from_tel = {}
-    diameters_from_tel = None  # None, scalar float, or dict{antenna_number: diameter}
-    if (
-        config.get("telescope", {})
-        .get("telescope_type", {})
-        .get("use_PYUVData_telescope", False)
-    ):
-        tel_name = config.get("telescope", {}).get("telescope_name")
-        if tel_name:
+            # Load configuration
             try:
-                from pyuvdata import Telescope as PyuvTelescope
-
-                tel = PyuvTelescope.from_known_telescopes(
-                    name=tel_name, run_check=False
-                )
-                # Attempt to fill missing params from known database without overwriting user values
-                tel.update_params_from_known_telescopes(
-                    overwrite=False, run_check=False
-                )
-
-                section("TELESCOPE (pyuvdata)")
-                kv = lambda label, msg: print(f"{_c(label + ':', _BOLD + _CYAN)} {msg}")
-                kv("Loaded known telescope", tel_name)
-                use_tel_location = bool(
-                    config.get("telescope", {}).get("use_pyuvdata_location", False)
-                )
-                use_tel_antennas = bool(
-                    config.get("telescope", {}).get("use_pyuvdata_antennas", False)
-                )
-                use_tel_diameters = bool(
-                    config.get("telescope", {}).get("use_pyuvdata_diameters", False)
-                )
-                print(
-                    f"{_c('Options →', _BOLD + _CYAN)} use_pyuvdata_location={use_tel_location}, use_pyuvdata_antennas={use_tel_antennas}, use_pyuvdata_diameters={use_tel_diameters}"
-                )
-
-                # Location
-                if getattr(tel, "location", None) is not None and use_tel_location:
-                    try:
-                        geodetic = tel.location.to_geodetic()
-                        lat_deg = float(geodetic.lat.deg)
-                        lon_deg = float(geodetic.lon.deg)
-                        height_m = float(geodetic.height.to_value())
-                        used_from_tel["location"] = True
-                        # Override config location
-                        config.setdefault("location", {})
-                        config["location"]["lat"] = lat_deg
-                        config["location"]["lon"] = lon_deg
-                        config["location"]["height"] = height_m
-                        kv(
-                            "Location",
-                            f"from pyuvdata (lat={lat_deg}, lon={lon_deg}, h={height_m} m)",
-                        )
-                    except Exception:
-                        kv(
-                            "Location",
-                            "present on Telescope but could not convert to geodetic; keeping config/defaults.",
-                        )
-                        used_from_tel["location"] = False
-                else:
-                    if getattr(tel, "location", None) is None:
-                        kv("Location", "not present; using config/defaults.")
-                    else:
-                        kv(
-                            "Location",
-                            "present on Telescope but not used (use_pyuvdata_location=False); using config/defaults.",
-                        )
-                    used_from_tel["location"] = False
-
-                # Helper: convert ITRF deltas to ENU at lat/lon
-                def _ecef_deltas_to_enu(lat_rad, lon_rad, dxyz):
-                    slat, clat = np.sin(lat_rad), np.cos(lat_rad)
-                    slon, clon = np.sin(lon_rad), np.cos(lon_rad)
-                    x = dxyz[:, 0]
-                    y = dxyz[:, 1]
-                    z = dxyz[:, 2]
-                    e = -slon * x + clon * y
-                    n = -slat * clon * x - slat * slon * y + clat * z
-                    u = clat * clon * x + clat * slon * y + slat * z
-                    return np.vstack([e, n, u]).T
-
-                # Antenna positions, names, numbers
-                antpos = getattr(tel, "antenna_positions", None)
-                names = getattr(tel, "antenna_names", None)
-                numbers = getattr(tel, "antenna_numbers", None)
-                nants = getattr(tel, "Nants", None)
-                if (
-                    antpos is not None
-                    and names is not None
-                    and numbers is not None
-                    and nants
-                    and use_tel_antennas
-                ):
-                    try:
-                        dxyz = np.array(antpos, dtype=float)
-                        # Convert to ENU using the (possibly updated) config location
-                        lat_rad = np.deg2rad(config["location"]["lat"])
-                        lon_rad = np.deg2rad(config["location"]["lon"])
-                        enu = _ecef_deltas_to_enu(lat_rad, lon_rad, dxyz)
-                        # Build antennas dict in expected format
-                        antennas = {}
-                        for i in range(int(nants)):
-                            name = names[i] if i < len(names) else str(numbers[i])
-                            num = int(numbers[i])
-                            e, n, u = map(float, enu[i])
-                            antennas[i] = {
-                                "Name": name,
-                                "Number": num,
-                                "BeamID": 0,
-                                "Position": (e, n, u),
-                            }
-                        used_from_tel["antenna_positions"] = True
-                        kv(
-                            "Antenna positions",
-                            f"from pyuvdata (converted ITRF→ENU), Nants={nants}",
-                        )
-                    except Exception as e:
-                        kv(
-                            "Antenna positions",
-                            f"present but could not be used ({e}); will fall back.",
-                        )
-                        used_from_tel["antenna_positions"] = False
-                else:
-                    if antpos is None or names is None or numbers is None or not nants:
-                        kv(
-                            "Antenna positions",
-                            "not present; will fall back to antenna file.",
-                        )
-                    else:
-                        kv(
-                            "Antenna positions",
-                            "present on Telescope but not used (use_pyuvdata_antennas=False); will fall back to antenna file.",
-                        )
-                    used_from_tel["antenna_positions"] = False
-
-                # Antenna diameters
-                diam = getattr(tel, "antenna_diameters", None)
-                if use_tel_diameters and diam is not None:
-                    try:
-                        arr = np.array(diam)
-                        if arr.ndim == 0:
-                            dval = float(arr)
-                            diameters_from_tel = dval
-                            kv("Antenna diameters", f"from pyuvdata (scalar {dval} m)")
-                        elif arr.ndim == 1:
-                            tel_nums = list(
-                                map(int, getattr(tel, "antenna_numbers", []))
-                            )
-                            if len(tel_nums) != len(arr):
-                                kv(
-                                    "Antenna diameters",
-                                    "present but length mismatch vs antenna_numbers; not using.",
-                                )
-                            else:
-                                diameters_from_tel = {
-                                    int(tel_nums[i]): float(arr[i])
-                                    for i in range(len(tel_nums))
-                                }
-                                # Print concise summary
-                                vals = np.array(
-                                    list(diameters_from_tel.values()), dtype=float
-                                )
-                                vmin, vmax = float(vals.min()), float(vals.max())
-                                nunique = int(len(set(np.round(vals, 6))))
-                                if np.allclose(vmin, vmax):
-                                    kv(
-                                        "Antenna diameters",
-                                        f"uniform = {vmin} m across {len(vals)} antennas",
-                                    )
-                                else:
-                                    print(
-                                        f"{_c('Antenna diameters:', _BOLD + _CYAN)} per-antenna ({len(vals)}); unique={nunique}, min={vmin} m, max={vmax} m"
-                                    )
-                                    # Show a small sample for transparency
-                                    sample = list(sorted(diameters_from_tel.items()))[
-                                        :10
-                                    ]
-                                    kv(
-                                        "Sample diameters (first 10)",
-                                        ", ".join(f"{k}:{v}" for k, v in sample),
-                                    )
-                        else:
-                            kv(
-                                "Antenna diameters",
-                                "present but invalid shape; not using.",
-                            )
-                    except Exception as e:
-                        kv(
-                            "Antenna diameters",
-                            f"present but could not parse ({e}); not using.",
-                        )
-                else:
-                    if diam is None:
-                        kv(
-                            "Antenna diameters",
-                            "not present on Telescope; using config/user values.",
-                        )
-                    else:
-                        kv(
-                            "Antenna diameters",
-                            "present on Telescope but not used (use_pyuvdata_diameters=False). Using config/user values.",
-                        )
-
-                # Feeds
-                nfeeds = getattr(tel, "Nfeeds", None)
-                feed_array = getattr(tel, "feed_array", None)
-                feed_angle = getattr(tel, "feed_angle", None)
-                if nfeeds is not None:
-                    kv(
-                        "Feeds",
-                        f"Nfeeds={nfeeds} {'(feed_array available)' if feed_array is not None else ''}",
-                    )
-                else:
-                    kv("Feeds", "not present; using config/defaults.")
-
-                # Mount type (concise summary)
-                mtype = getattr(tel, "mount_type", None)
-                if mtype is not None:
-                    try:
-                        if isinstance(mtype, (list, tuple, np.ndarray)):
-                            # Flatten to strings
-                            vals = [
-                                str(v)
-                                for v in (
-                                    mtype.tolist()
-                                    if hasattr(mtype, "tolist")
-                                    else mtype
-                                )
-                            ]
-                            total = len(vals)
-                            unique_vals = {}
-                            for v in vals:
-                                unique_vals[v] = unique_vals.get(v, 0) + 1
-                            if len(unique_vals) == 1:
-                                only = next(iter(unique_vals.keys()))
-                                kv(
-                                    "Mount type",
-                                    f"uniform='{only}' across {total} antennas",
-                                )
-                            else:
-                                # Show up to top 4 counts
-                                top = sorted(
-                                    unique_vals.items(), key=lambda x: (-x[1], x[0])
-                                )[:4]
-                                summary = ", ".join(f"{k}:{c}" for k, c in top)
-                                kv(
-                                    "Mount type",
-                                    f"per-antenna; unique={len(unique_vals)}; top={summary}",
-                                )
-                        else:
-                            kv("Mount type", f"'{mtype}'")
-                    except Exception:
-                        kv("Mount type", "present but could not summarize.")
-                else:
-                    kv("Mount type", "not present.")
-
-                # Instrument and citation (simple reporting)
-                instr = getattr(tel, "instrument", None)
-                if instr is not None and str(instr).strip():
-                    kv("Instrument", str(instr))
-                else:
-                    kv("Instrument", "not present.")
-
-                citation = getattr(tel, "citation", None)
-                if citation is not None and str(citation).strip():
-                    kv("Citation", str(citation))
-                else:
-                    kv("Citation", "not present.")
-
+                config, user_config_raw = load_config(config_file)
             except Exception as e:
-                print(
-                    f"Could not load pyuvdata Telescope for '{tel_name}': {e}. Will use config/antenna file."
-                )
-        else:
-            print(
-                "use_PYUVData_telescope=True but telescope_name not provided; using config/antenna file."
-            )
+                print(f"{_c('✗ Failed to load config:', _RED)} {e}")
+                results.append({
+                    'success': False,
+                    'config_name': config_name,
+                    'error_message': f"Config load failed: {e}",
+                    'duration_seconds': 0.0,
+                    'output_folder': None,
+                })
+                continue  # Skip to next config
 
-    # Convenience flags/defaults
-    plotting_backend = config.get("output", {}).get("plotting", "bokeh")
-    # save_simulation_data_flag already determined above
-    # Enable sky model plots by default unless explicitly disabled
-    plot_skymodel_every_hour = bool(config.get("output", {}).get("plot_skymodel_every_hour", True))
-    skymodel_frequency = config.get("output", {}).get("skymodel_frequency", 150)
-    fov_radius_deg = config.get("antenna_layout", {}).get("fov_radius_deg", 10)
+            # Apply CLI overrides (apply to ALL configs in batch)
+            if args.sim_data_dir:
+                sim_dir_abs = os.path.abspath(os.path.expanduser(args.sim_data_dir))
+                config.setdefault("output", {})["simulation_data_dir"] = sim_dir_abs
+            if args.antenna_file:
+                config.setdefault("antenna_layout", {})["antenna_positions_file"] = \
+                    os.path.abspath(os.path.expanduser(args.antenna_file))
 
-    # Access antennas either from pyuvdata Telescope or from antenna file
-    if antennas is None:
-        # Fall back to antenna file
-        antenna_file = configured_ant_path
-        if not antenna_file:
-            raise ValueError(
-                "Antenna positions not available from pyuvdata and no antenna file provided."
-            )
-        section("ANTENNA METADATA & POSITIONS")
-        try:
-            antennas = read_antenna_positions(antenna_file, config["antenna_layout"]["antenna_file_format"])
-        except (FileNotFoundError, ValueError) as e:
-            print(f"Error while reading antenna positions file: {e}")
-            raise
-    else:
-        # We constructed antennas from Telescope; print a concise summary similar to file path reader
-        section("ANTENNA METADATA & POSITIONS")
-        print(_c("Antenna metadata and positions (from pyuvdata):", _BOLD + _CYAN))
-        for idx, data in antennas.items():
-            print(f"{_c(f'Antenna {idx}:', _BOLD + _CYAN)} {data}")
-        total_memory_bytes = sys.getsizeof(antennas) + sum(
-            sys.getsizeof(value) + sum(sys.getsizeof(v) for v in value.values())
-            for value in antennas.values()
-        )
-        total_memory_mb = total_memory_bytes / (1024 * 1024)
-        print(
-            f"{_c('Total memory used by antennas:', _BOLD + _CYAN)} {total_memory_mb:.4f} MB"
-        )
-        # Note: antenna layout plots are generated once later after diameters validation
+            # Print config details for single mode only (too verbose for batch)
+            if not is_batch_mode:
+                print("")
+                print(_c("User-provided overrides (from config.yaml):", _BOLD + _GREEN))
+                if user_config_raw:
+                    print_colored_config(user_config_raw, base_indent=2)
+                else:
+                    print(_indent("(none)", 2))
 
-    # Assign antenna diameters with strict validation (no hidden defaults)
-    per_antenna_config = config["antenna_layout"].get("use_different_diameters", False)
-    config_diameters_map = config["antenna_layout"].get("diameters") or {}
-    config_global_diameter = config["antenna_layout"].get("all_antenna_diameter")
+                defaults_active = _defaults_used(DEFAULT_CONFIG, user_config_raw)
+                print("")
+                print(_c("Defaults in effect (from in-code defaults):", _BOLD + _GREEN))
+                if defaults_active:
+                    print_colored_config(defaults_active, base_indent=2)
+                else:
+                    print(_indent("(none)", 2))
+                print("")
 
-    # If diameters came from pyuvdata (dict), use them regardless of per_antenna_config
-    if isinstance(diameters_from_tel, dict) and diameters_from_tel:
-        missing = []
-        for ant in antennas.values():
-            num = int(ant["Number"])
-            if num not in diameters_from_tel:
-                missing.append(num)
+            # Run simulation
+            batch_idx = idx if is_batch_mode else None
+            result = run_simulation(config, config_name, batch_idx)
+            results.append(result)
+
+            # Print immediate result
+            if result['success']:
+                duration = result.get('duration_seconds', 0)
+                print(f"\n{_c('✓ Completed:', _GREEN)} {config_name} ({duration:.1f}s)")
+                if result.get('output_folder'):
+                    print(f"  {_c('Output:', _CYAN)} {result['output_folder']}")
             else:
-                ant["diameter"] = float(diameters_from_tel[num])
-        if missing:
-            raise ValueError(
-                "pyuvdata diameters enabled but missing for some antenna numbers: "
-                f"{sorted(missing)}. Please provide diameters for all antennas."
-            )
-    elif per_antenna_config:
-        # Expect per-antenna diameters to be provided in file/header or config['antenna_layout']['diameters']
-        missing = []
-        for ant in antennas.values():
-            if "diameter" in ant and ant["diameter"] is not None:
-                continue
-            num = int(ant["Number"])
-            if num in config_diameters_map:
-                ant["diameter"] = float(config_diameters_map[num])
-            else:
-                missing.append(num)
-        if missing:
-            raise ValueError(
-                "use_different_diameters=True but diameters are missing for antenna numbers: "
-                f"{sorted(missing)}. Add per-antenna diameters in the file or in antenna_layout.diameters."
-            )
-    else:
-        # Prefer scalar diameter from pyuvdata Telescope if provided
-        if isinstance(diameters_from_tel, (int, float)):
-            antenna_diameter = float(diameters_from_tel)
-        else:
-            # Require a user-provided scalar; empty or None is not allowed
-            antenna_diameter = _parse_positive_float(
-                config_global_diameter,
-                "antenna_layout.all_antenna_diameter",
-            )
-        for ant in antennas.values():
-            ant["diameter"] = antenna_diameter
+                print(f"\n{_c('✗ Failed:', _RED)} {config_name}")
+                if result.get('error_message'):
+                    print(f"  {_c('Error:', _RED)} {result['error_message']}")
+
+    # Print batch summary if multiple configs were processed
+    if is_batch_mode:
+        print_batch_summary(results)
+
+    # Exit with appropriate code
+    any_failed = any(not r['success'] for r in results)
+    if any_failed:
+        sys.exit(1)
 
-    # Validate antenna diameters before printing/using them
-    invalid = []
-    for ant in antennas.values():
-        d = ant.get("diameter")
-        if d is None:
-            invalid.append((ant.get("Number", "?"), "missing"))
-            continue
-        try:
-            d_float = float(d)
-        except Exception:
-            invalid.append((ant.get("Number", "?"), "not a number"))
-            continue
-        if not np.isfinite(d_float) or d_float <= 0:
-            invalid.append((ant.get("Number", "?"), f"invalid value {d_float}"))
-        else:
-            ant["diameter"] = d_float
-
-    if invalid:
-        details = ", ".join([f"{num}: {reason}" for num, reason in invalid])
-        raise ValueError(
-            "Invalid antenna diameters detected. Ensure all diameters are positive, finite numbers. "
-            f"Problems for antenna numbers → {details}"
-        )
-
-    # Debug output
-    section("ANTENNA DIAMETERS")
-    for idx, data in antennas.items():
-        print(f"{_c(f'Antenna {idx}:', _BOLD + _CYAN)} {data}")
-
-    # Antenna types reporting
-    section("ANTENNA TYPES")
-    ant_cfg = config.get("antenna_layout", {})
-    if ant_cfg.get("use_different_antenna_types", False):
-        types_map = ant_cfg.get("antenna_types", {}) or {}
-        # Print per-antenna type if provided; otherwise report as unknown
-        for ant in antennas.values():
-            num = int(ant.get("Number", -1))
-            atype = types_map.get(num, "unknown")
-            print(f"{_c(f'Antenna {num}:', _BOLD + _CYAN)} type={atype}")
-    else:
-        atype = ant_cfg.get("all_antenna_type", "unknown")
-        print(f"{_c('Antenna type (all):', _BOLD + _CYAN)} {atype}")
-
-    section("ANTENNA LAYOUT")
-    print(_c("Antenna layout:", _BOLD + _CYAN), "see browser for interactive view.")
-    plot_antenna_layout(
-        antennas,
-        plotting=plotting_backend,
-        save_simulation_data=save_simulation_data_flag,
-        folder_path=simulation_folder_path,
-        open_in_browser=open_plots_in_browser,
-    )
-    _al_outdir2 = simulation_folder_path or tempfile.mkdtemp(prefix="rrivis_")
-    from plot import plot_antenna_layout_3d_plotly as _plot3d
-
-    _plot3d(
-        antennas,
-        save_simulation_data=True,
-        folder_path=_al_outdir2,
-        open_in_browser=open_plots_in_browser,
-    )
-
-    # Check if the HPBW is fixed for all frequencies (configured in degrees).
-    # Convert once to radians for internal use.
-    fixed_hpbw_deg = config["antenna_layout"].get("fixed_hpbw")
-    fixed_hpbw_rad = (
-        None if fixed_hpbw_deg is None else np.radians(float(fixed_hpbw_deg))
-    )
-
-    # Convert frequency inputs to Hz based on the unit
-    unit_conversion = {
-        "Hz": 1,
-        "kHz": 1e3,
-        "MHz": 1e6,
-        "GHz": 1e9,
-    }
-
-    # Direct nested access to frequency parameters
-    try:
-        # Values are specified in the units given by frequency_unit
-        start_frequency = float(config["obs_frequency"]["starting_frequency"])
-        frequency_interval = float(config["obs_frequency"]["frequency_interval"])
-        frequency_bandwidth = float(config["obs_frequency"]["frequency_bandwidth"])
-        frequency_unit = config["obs_frequency"]["frequency_unit"]
-    except KeyError as e:
-        raise ValueError(
-            f"Missing required configuration key: {e}. "
-            "Please ensure your configuration file has the 'obs_frequency' section "
-            "with 'starting_frequency', 'frequency_interval', 'frequency_bandwidth', and 'frequency_unit'."
-        )
-
-    if frequency_unit not in unit_conversion:
-        raise ValueError(
-            f"Invalid frequency unit: {frequency_unit}. Must be one of {list(unit_conversion.keys())}."
-        )
-
-    # Validate
-    if start_frequency < 0:
-        raise ValueError("frequency.starting_frequency must be >= 0")
-    if frequency_interval <= 0:
-        raise ValueError("frequency.frequency_interval must be > 0")
-    if frequency_bandwidth <= 0:
-        raise ValueError("frequency.frequency_bandwidth must be > 0")
-
-    # Convert start/interval/bandwidth to Hz based on unit
-    start_frequency_hz = start_frequency * unit_conversion[frequency_unit]
-    interval_hz = frequency_interval * unit_conversion[frequency_unit]
-    total_bandwidth_hz = frequency_bandwidth * unit_conversion[frequency_unit]
-
-    # Compute the end frequency and the array of frequencies
-    end_frequency_hz = start_frequency_hz + total_bandwidth_hz
-    frequencies = np.arange(
-        start_frequency_hz, end_frequency_hz, interval_hz, dtype=float
-    )
-    wavelengths = c / frequencies
-
-    # Debug output
-    section("FREQUENCY GRID")
-    print(f"{_c('Start Frequency:', _BOLD + _CYAN)} {start_frequency} {frequency_unit}")
-    print(
-        f"{_c('Frequency Interval:', _BOLD + _CYAN)} {frequency_interval} {frequency_unit}"
-    )
-    print(
-        f"{_c('Total Bandwidth:', _BOLD + _CYAN)} {frequency_bandwidth} {frequency_unit}"
-    )
-    print(
-        f"{_c('End Frequency:', _BOLD + _CYAN)} {end_frequency_hz / unit_conversion[frequency_unit]} {frequency_unit}"
-    )
-    print(f"{_c('Number of Frequency Channels:', _BOLD + _CYAN)} {len(frequencies)}")
-
-    # Set up antenna types for HPBW calculation
-    antenna_layout_cfg = config.get("antenna_layout", {})
-    use_different_antenna_types = antenna_layout_cfg.get("use_different_antenna_types", False)
-    all_antenna_type = antenna_layout_cfg.get("all_antenna_type", "parabolic_10db_taper")
-    antenna_types_map = antenna_layout_cfg.get("antenna_types", {})
-
-    # Set up beam response patterns for beam area calculation
-    beams_cfg = config.get("beams", {})
-    use_different_beam_responses = beams_cfg.get("use_different_beam_responses", False)
-    all_beam_response = beams_cfg.get("all_beam_response", "gaussian")
-    beam_response_per_antenna_cfg = beams_cfg.get("beam_response_per_antenna", {})
-    cosine_taper_exponent = beams_cfg.get("cosine_taper_exponent", 1.0)
-    exponential_taper_dB = beams_cfg.get("exponential_taper_dB", 10.0)
-
-    # Loop through each antenna to calculate HPBW (radians) and beam areas
-    hpbw_per_antenna = {}
-    beam_area_per_antenna = {}
-
-    for ant in antennas.values():
-        antenna_number = ant["Number"]
-        diameter = ant["diameter"]
-
-        # Determine antenna type for this antenna
-        if use_different_antenna_types:
-            antenna_type = antenna_types_map.get(antenna_number, all_antenna_type)
-        else:
-            antenna_type = all_antenna_type
-
-        # Calculate HPBW (radians) for each frequency for this antenna
-        if fixed_hpbw_rad is not None:
-            # Use fixed HPBW if specified (legacy/testing mode)
-            hpbw_values_radians = np.full(len(frequencies), fixed_hpbw_rad, dtype=float)
-        else:
-            # Use antenna type-specific HPBW calculation
-            hpbw_values_radians = calculate_hpbw_for_antenna_type(
-                antenna_type=antenna_type,
-                frequencies_hz=frequencies,
-                diameter=diameter,
-            )
-        hpbw_per_antenna[antenna_number] = hpbw_values_radians
-
-        # Determine beam response pattern for this antenna
-        if use_different_beam_responses:
-            beam_response = beam_response_per_antenna_cfg.get(antenna_number, all_beam_response)
-        else:
-            beam_response = all_beam_response
-
-        # Calculate the beam area for each frequency using the specified beam pattern
-        # Note: For simplicity, using the first frequency's HPBW value or handling as array
-        if beam_response == "gaussian":
-            beam_area = calculate_gaussian_beam_area_EBeam(
-                nside=512, theta_HPBW=hpbw_values_radians
-            )
-        elif beam_response == "airy":
-            # For Airy pattern, calculate beam area per frequency
-            beam_area = [
-                calculate_airy_beam_area(
-                    nside=512, wavelength=wavelengths[i].value, diameter=diameter
-                )
-                for i in range(len(frequencies))
-            ]
-        elif beam_response == "cosine":
-            beam_area = [
-                calculate_cosine_beam_area(
-                    nside=512, theta_HPBW=hpbw_values_radians[i], taper_exponent=cosine_taper_exponent
-                )
-                for i in range(len(frequencies))
-            ]
-        elif beam_response == "exponential":
-            beam_area = [
-                calculate_exponential_beam_area(
-                    nside=512, theta_HPBW=hpbw_values_radians[i], taper_dB=exponential_taper_dB
-                )
-                for i in range(len(frequencies))
-            ]
-        else:
-            # Default to Gaussian if unknown beam response
-            print(f"Warning: Unknown beam response '{beam_response}' for antenna {antenna_number}, defaulting to Gaussian.")
-            beam_area = calculate_gaussian_beam_area_EBeam(
-                nside=512, theta_HPBW=hpbw_values_radians
-            )
-
-        beam_area_per_antenna[antenna_number] = beam_area
-
-    # Debugging: Print HPBW and beam areas for each antenna
-    section("HPBW & BEAM AREAS PER ANTENNA")
-    for ant in antennas.values():
-        antenna_number = ant["Number"]
-        # Pretty print arrays with limited length and spacing
-        # Internally stored in radians; convert to degrees only for display
-        h_arr = np.degrees(np.asarray(hpbw_per_antenna[antenna_number]))
-        b_arr = np.asarray(beam_area_per_antenna[antenna_number], dtype=float)
-        np.set_printoptions(linewidth=120, threshold=12, edgeitems=3, suppress=True)
-        print(
-            f"{_c(f'Antenna {antenna_number}:', _BOLD + _CYAN)} HPBW (degrees) = {np.array2string(h_arr, precision=3, separator=', ')}"
-        )
-        print(
-            f"{_c(f'Antenna {antenna_number}:', _BOLD + _CYAN)} Beam Area (steradians) = {np.array2string(b_arr, precision=3, separator=', ')}"
-        )
-
-    # Beams type and beams response for antennas
-    if config["beams"].get("use_different_beams"):
-        beams_per_antenna = config["beams"]["beams_per_antenna"]
-    else:
-        # Map beam types using antenna numbers
-        beams_per_antenna = {
-            ant["Number"]: config["beams"]["all_beam_type"]
-            for ant in antennas.values()
-        }
-
-    if config["beams"]["use_different_beam_responses"]:
-        beam_response_per_antenna = config["beams"]["beam_response_per_antenna"]
-    else:
-        # Map beam responses using antenna numbers
-        beam_response_per_antenna = {
-            ant["Number"]: config["beams"]["all_beam_response"]
-            for ant in antennas.values()
-        }
-
-    # Generate baselines from the antennas
-    section("GENERATING BASELINES")
-    try:
-        baselines = generate_baselines(
-            antennas, beams_per_antenna, beam_response_per_antenna
-        )
-        print("Baselines generated successfully.")
-    except ValueError as ve:
-        print(f"ValueError: {ve}")
-        raise
-    except KeyError as ke:
-        print(f"KeyError: {ke}")
-        raise
-    except Exception as e:
-        print(f"An unexpected error occurred while generating baselines: {e}")
-        raise
-
-    # Trim baselines based on baseline configuration
-    if baselines:
-        trimmed_baselines = {}
-
-        # Extract baseline configuration
-        use_autocorrelations = config["baseline_selection"]["use_autocorrelations"]
-        use_crosscorrelations = config["baseline_selection"]["use_crosscorrelations"]
-        only_selective_baselines = config["baseline_selection"]["only_selective_baseline_length"]
-        selective_lengths = config["baseline_selection"]["selective_baseline_lengths"]
-        tolerance = config["baseline_selection"]["selective_baseline_tolerance_meters"]
-
-        # Iterate through the baselines and apply filters
-        for (ant1, ant2), baseline_data in baselines.items():
-            baseline_length = baseline_data["Length"]
-
-            # Filter out autocorrelations if disabled
-            if not use_autocorrelations and ant1 == ant2:
-                continue
-
-            # Filter out crosscorrelations if disabled
-            if not use_crosscorrelations and ant1 != ant2:
-                continue
-
-            # Filter for selective baseline lengths
-            if only_selective_baselines:
-                # Check if the baseline length is within the acceptable range of any selective length
-                if not any(
-                    abs(baseline_length - length) <= tolerance
-                    for length in selective_lengths
-                ):
-                    continue
-
-            # Angle-based filtering
-            if config['baseline_selection'].get('trim_by_angle_ranges', False):
-                angle_ranges = config['baseline_selection'].get('selective_angle_ranges_deg', [])
-                if angle_ranges:  # Only filter if angle ranges are specified
-                    # Calculate baseline azimuth angle from ant1 to ant2
-                    baseline_angle = calculate_baseline_azimuth(ant1, ant2, antennas)
-
-                    # Check if baseline angle is within any specified range
-                    if not is_angle_in_range(baseline_angle, angle_ranges):
-                        # For bidirectional filtering, also check opposite direction
-                        opposite_angle = (baseline_angle + 180.0) % 360.0
-                        if not is_angle_in_range(opposite_angle, angle_ranges):
-                            continue  # Baseline doesn't match angle criteria in either direction
-
-            # Add the baseline to the trimmed dictionary if it passes all filters
-            trimmed_baselines[(ant1, ant2)] = baseline_data
-
-        # Check if the trimmed baselines are empty
-        if not trimmed_baselines:
-            error_message = "No baselines match the specified criteria. Trimmed baselines are empty."
-            print(error_message)
-            raise ValueError(error_message)
-        else:
-            # Debugging: Print trimmed baselines
-            section("TRIMMED BASELINES")
-            for key, value in trimmed_baselines.items():
-                print(f"{_c(f'Baseline {key}:', _BOLD + _CYAN)} {value}")
-
-        # Replace the original baselines with the trimmed version
-        baselines = trimmed_baselines
-    else:
-        print("No baselines to process!")
-
-    # Get observation location and start time
-    section("OBSERVATION SETUP")
-    location, obstime_start = get_location_and_time(
-        config["location"]["lat"],
-        config["location"]["lon"],
-        config["location"]["height"],
-        config["obs_time"]["start_time"],
-    )
-
-    # (pyuvdata Telescope integration handled earlier)
-
-    # Ensure only one sky model is enabled
-    sky_model_config = config["sky_model"]
-
-    enabled_sky_models = {
-        "test_sources": sky_model_config["test_sources"]["use_test_sources"],
-        "test_sources_healpix": sky_model_config["test_sources_healpix"][
-            "use_test_sources"
-        ],
-        "gsm_healpix": sky_model_config["gsm_healpix"]["use_gsm"],
-        "gleam": sky_model_config["gleam"]["use_gleam"],
-        "gleam_healpix": sky_model_config["gleam_healpix"]["use_gleam"],
-        "gsm+gleam_healpix": sky_model_config["gsm+gleam_healpix"]["use_gsm_gleam"],
-    }
-
-    # Count enabled sky models
-    enabled_count = sum(enabled_sky_models.values())
-
-    if enabled_count > 1:
-        conflicting_models = [
-            key for key, enabled in enabled_sky_models.items() if enabled
-        ]
-        raise ValueError(
-            f"Conflicting sky models enabled: {', '.join(conflicting_models)}. Please enable only one sky model at a time."
-        )
-
-    # Auto-select a sky model when none is enabled
-    if enabled_count == 0:
-        section("SKY MODEL SELECTION")
-        print(
-            _c("No sky model enabled in config:", _BOLD + _CYAN),
-            "attempting auto-selection...",
-        )
-        # simple connectivity check to VizieR host
-        import socket
-
-        def _has_internet(host="vizier.cds.unistra.fr", port=443, timeout=3):
-            try:
-                with socket.create_connection((host, port), timeout=timeout):
-                    return True
-            except Exception:
-                return False
-
-        if _has_internet():
-            print(
-                _c("Internet available →", _BOLD + _CYAN),
-                "selecting GLEAM catalog sources.",
-            )
-            sky_model_config["gleam"]["use_gleam"] = True
-        else:
-            print(
-                _c("No internet detected →", _BOLD + _CYAN),
-                "falling back to test sources.",
-            )
-            sky_model_config["test_sources"]["use_test_sources"] = True
-
-    use_gleam = sky_model_config["gleam"]["use_gleam"]
-    use_gsm = sky_model_config["gsm_healpix"]["use_gsm"]
-    use_gleam_healpix = sky_model_config["gleam_healpix"]["use_gleam"]
-    use_gsm_gleam_healpix = sky_model_config["gsm+gleam_healpix"]["use_gsm_gleam"]
-    use_test_sources_healpix = sky_model_config["test_sources_healpix"][
-        "use_test_sources"
-    ]
-    use_test_sources = sky_model_config["test_sources"]["use_test_sources"]
-
-    flux_limit = None
-    nside = None
-    num_sources = None
-
-    # Load sources
-    section("SKY MODEL LOADING")
-    if sky_model_config["gleam"]["use_gleam"]:
-        flux_limit = sky_model_config["gleam"]["flux_limit"]
-    elif sky_model_config["gsm_healpix"]["use_gsm"]:
-        flux_limit = sky_model_config["gsm_healpix"]["flux_limit"]
-        nside = sky_model_config["gsm_healpix"]["nside"]
-    elif sky_model_config["gleam_healpix"]["use_gleam"]:
-        flux_limit = sky_model_config["gleam_healpix"]["flux_limit"]
-        nside = sky_model_config["gleam_healpix"]["nside"]
-    elif sky_model_config["gsm+gleam_healpix"]["use_gsm_gleam"]:
-        flux_limit = sky_model_config["gsm+gleam_healpix"]["flux_limit"]
-        nside = sky_model_config["gsm+gleam_healpix"]["nside"]
-    elif sky_model_config["test_sources_healpix"]["use_test_sources"]:
-        flux_limit = sky_model_config["test_sources_healpix"]["flux_limit"]
-        nside = sky_model_config["test_sources_healpix"]["nside"]
-        num_sources = sky_model_config["test_sources_healpix"]["num_sources"]
-    else:
-        flux_limit = sky_model_config["test_sources"]["flux_limit"]
-        num_sources = sky_model_config["test_sources"]["num_sources"]
-
-    try:
-        sources, spectral_indices = get_sources(
-            use_test_sources=use_test_sources,
-            use_test_sources_healpix=use_test_sources_healpix,
-            use_gleam=use_gleam,
-            use_gsm=use_gsm,
-            use_gleam_healpix=use_gleam_healpix,
-            use_gsm_gleam_healpix=use_gsm_gleam_healpix,
-            gleam_catalogue=sky_model_config["gleam"]["gleam_catalogue"],
-            gsm_catalogue=sky_model_config["gsm_healpix"]["gsm_catalogue"],
-            flux_limit=flux_limit,
-            frequency=config["obs_frequency"]["starting_frequency"] * 1e6,
-            nside=nside,
-            num_sources=num_sources,
-        )
-    except Exception as e:
-        if sky_model_config["gleam"]["use_gleam"]:
-            print(f"GLEAM loading failed ({e}); falling back to test sources.")
-            sources, spectral_indices = get_sources(
-                use_test_sources=True,
-                use_test_sources_healpix=False,
-                use_gleam=False,
-                use_gsm=False,
-                use_gleam_healpix=False,
-                use_gsm_gleam_healpix=False,
-                flux_limit=None,
-                frequency=config["obs_frequency"]["starting_frequency"] * 1e6,
-                nside=None,
-                num_sources=3,  # Default fallback to 3 test sources if not specified
-            )
-        else:
-            raise
-
-    # Convert time_interval to seconds (support legacy key time_interval_between_observation)
-    obs_cfg = config["obs_time"]
-    time_interval_value = obs_cfg.get("time_interval")
-    if time_interval_value is None:
-        time_interval_value = obs_cfg.get("time_interval_between_observation")
-    if time_interval_value is None:
-        raise ValueError(
-            "Missing obs_time.time_interval (or time_interval_between_observation)"
-        )
-
-    if obs_cfg["time_interval_unit"] == "hours":
-        time_interval_seconds = time_interval_value * 3600
-    elif obs_cfg["time_interval_unit"] == "seconds":
-        time_interval_seconds = time_interval_value
-    elif obs_cfg["time_interval_unit"] == "minutes":
-        time_interval_seconds = time_interval_value * 60
-    else:
-        raise ValueError(f"Invalid time_interval_unit: {obs_cfg['time_interval_unit']}")
-    print(f"Time Interval between each observation: {time_interval_seconds} seconds")
-
-    # Convert total_duration to seconds
-    if obs_cfg["total_duration_unit"] == "days":
-        total_duration_seconds = obs_cfg["total_duration"] * 86400
-        print(
-            f"Total duration of the simulation: {total_duration_seconds / 86400} days"
-        )
-    elif obs_cfg["total_duration_unit"] == "hours":
-        total_duration_seconds = obs_cfg["total_duration"] * 3600
-        print(
-            f"Total duration of the simulation: {total_duration_seconds / 3600} hours"
-        )
-    elif obs_cfg["total_duration_unit"] == "seconds":
-        total_duration_seconds = obs_cfg["total_duration"]
-        print(f"Total duration of the simulation: {total_duration_seconds} seconds")
-    else:
-        raise ValueError(
-            f"Invalid total_duration_unit: {obs_cfg['total_duration_unit']}"
-        )
-
-    # Time points for simulation
-    time_points = np.arange(0, total_duration_seconds, time_interval_seconds)
-
-    # Convert time points to MJD format
-    mjd_time_points = (obstime_start + TimeDelta(time_points, format="sec")).mjd
-
-    # Initialize dictionaries to store modulus and phase over time for each baseline
-    moduli_over_time = {key: [] for key in baselines.keys()}
-    phases_over_time = {key: [] for key in baselines.keys()}
-
-    start_time = time.time()
-
-    # Calculate visibility based on the selected sky model
-    visibility_function = calculate_visibility
-
-    # Build beam pattern configuration for visibility calculation
-    # This ensures beam patterns used in visibility match those used for beam area
-    beam_pattern_per_antenna_dict = {}
-    for ant in antennas.values():
-        antenna_number = ant["Number"]
-        if use_different_beam_responses:
-            beam_pattern_per_antenna_dict[antenna_number] = beam_response_per_antenna_cfg.get(
-                antenna_number, all_beam_response
-            )
-        else:
-            beam_pattern_per_antenna_dict[antenna_number] = all_beam_response
-
-    beam_pattern_params_dict = {
-        'cosine_taper_exponent': cosine_taper_exponent,
-        'exponential_taper_dB': exponential_taper_dB,
-    }
-
-    # Initialize dictionaries to store complex visibility over time for each baseline
-    visibilities = {key: [] for key in baselines.keys()}
-
-    # Loop over time points to calculate visibility
-    section("SIMULATION PROGRESS")
-    total_steps = len(time_points)
-    # Adaptive progress cadence: print every step for small runs; otherwise ~10% increments
-    progress_interval = 1 if total_steps <= 50 else max(1, total_steps // 10)
-    for idx, current_time in enumerate(time_points):
-        # Update observation time
-        obstime = obstime_start + TimeDelta(current_time, format="sec")
-
-        # Calculate visibility for current time
-        visibility_dict = visibility_function(
-            antennas,
-            baselines,
-            sources,
-            spectral_indices,
-            location,
-            obstime,
-            wavelengths,
-            frequencies,
-            hpbw_per_antenna,
-            nside=nside,
-            beam_pattern_per_antenna=beam_pattern_per_antenna_dict,
-            beam_pattern_params=beam_pattern_params_dict,
-        )
-
-        # Append visibility data for each baseline
-        for key in baselines.keys():
-            visibilities[key].append(visibility_dict[key])
-
-        # # Calculate modulus and phase of visibility
-        moduli, phases = calculate_modulus_phase(visibility_dict)
-
-        # # Append modulus and phase to the time series data
-        for key in baselines.keys():
-            moduli_over_time[key].append(moduli[key])
-            phases_over_time[key].append(phases[key])
-
-        # Adaptive progress reporting
-        if (idx % progress_interval == 0) or (idx == total_steps - 1):
-            elapsed_time = time.time() - start_time
-            if idx > 0:
-                time_per_step = elapsed_time / idx
-                remaining_steps = total_steps - idx
-                estimated_remaining_time = time_per_step * remaining_steps
-                print(
-                    f"{_c('Time step', _BOLD + _CYAN)} {idx+1}/{total_steps}: "
-                    f"Estimated remaining time: {estimated_remaining_time:.2f} seconds"
-                )
-            else:
-                print(
-                    f"{_c('Time step', _BOLD + _CYAN)} {idx+1}/{total_steps}: Time elapsed: {elapsed_time:.2f} seconds"
-                )
-
-    # Plot the gsm2008 map along with gleam sources
-    if plot_skymodel_every_hour:
-        section("SKY MAP PLOTS (GSM)")
-        diffused_sky_model(
-            location=location,
-            obstime_start=obstime_start,
-            total_seconds=total_duration_seconds,
-            frequency=skymodel_frequency,
-            fov_radius_deg=fov_radius_deg,
-            discrete_sources=sources,  # Pass sources for all sky model types (test, GLEAM, GSM, etc.)
-            save_simulation_data=save_simulation_data_flag,
-            folder_path=simulation_folder_path,
-            open_in_browser=open_plots_in_browser,
-        )
-    # Save computed data to an HDF5 file (derive name if not provided)
-    output_file_name = config.get("output_file") or (
-        config.get("output", {}).get("output_file_name", "complex_visibility") + ".h5"
-    )
-    if save_simulation_data_flag and simulation_folder_path and output_file_name:
-        section("SAVING OUTPUTS")
-        output_file_path = os.path.join(simulation_folder_path, output_file_name)
-        with h5py.File(output_file_path, "w") as h5file:
-            # Create a group for each baseline
-            for key, vis in visibilities.items():
-                baseline_group = h5file.create_group(
-                    f"baseline_{key}"
-                )  # Create a group for the baseline
-
-                # Save complex visibility
-                vis_array = np.stack(vis)  # Convert to 2D NumPy array
-                baseline_group.create_dataset(
-                    "complex_visibility",
-                    data=vis_array.astype(np.complex128),
-                    dtype="complex128",
-                )
-
-            # Save frequencies and time points
-            h5file.create_dataset("frequencies", data=frequencies)
-            h5file.create_dataset("time_points_mjd", data=mjd_time_points)
-
-            # Save metadata as attributes (optional)
-            if "gleam_flux_limit" in config:
-                h5file.attrs["gleam_flux_limit"] = config["gleam_flux_limit"]
-            if "theta_HPBW" in config:
-                h5file.attrs["theta_HPBW"] = config["theta_HPBW"]
-            h5file.attrs["num_antennas"] = len(
-                antennas
-            )  # Calculated from the antennas list
-            h5file.attrs["num_baselines"] = len(
-                baselines
-            )  # Calculated from the baselines dictionary
-            h5file.attrs["location"] = str(location)
-
-        print(f"Simulation data saved to {output_file_path}")
-    elif save_simulation_data_flag and not simulation_folder_path:
-        print(
-            "Warning: save_simulation_data=True but simulation folder could not be created; skipping file save."
-        )
-
-    # Calculate total memory usage for visibilities in MB
-    total_memory_mb = 0
-    for key in visibilities.keys():
-        # Convert the list of arrays for each baseline into a stacked 2D NumPy array
-        vis_array = np.stack(visibilities[key])  # Shape: (time_steps, frequencies)
-        total_memory_mb += vis_array.nbytes / (1024**2)  # Convert bytes to MB
-
-    print(
-        f"{_c('Total memory used by visibility data:', _BOLD + _CYAN)} {total_memory_mb:.2f} MB"
-    )
-
-    # After the loop, execute all the sky model plot functions
-    # if args.plot_skymodel_every_hour:
-    #     for i, plot_func in enumerate(sky_model_plots):
-    #         plt.figure()  # Create a new figure for each plot
-    #         plot_func()  # Generate each sky model plot
-
-    # Convert lists to numpy arrays for plotting
-    for key in baselines.keys():
-        moduli_over_time[key] = np.array(moduli_over_time[key])
-        phases_over_time[key] = np.array(phases_over_time[key])
-
-    # Convert time_points to desired units for plotting, e.g., hours
-    # time_points_hours = time_points / 3600  # Convert seconds to hours for plotting
-
-    # Generate plots based on the selected plotting library
-    fig1 = plot_visibility(
-        moduli_over_time,
-        phases_over_time,
-        baselines,
-        mjd_time_points,  # MJD for plotting
-        frequencies,
-        total_duration_seconds,
-        plotting=plotting_backend,
-        save_simulation_data=save_simulation_data_flag,
-        folder_path=simulation_folder_path,
-        angle_unit=angle_unit,
-        open_in_browser=open_plots_in_browser,
-    )
-    fig2 = plot_heatmaps(
-        moduli_over_time,
-        phases_over_time,
-        baselines,
-        frequencies,
-        total_duration_seconds,
-        mjd_time_points,
-        plotting=plotting_backend,
-        save_simulation_data=save_simulation_data_flag,
-        folder_path=simulation_folder_path,
-        open_in_browser=open_plots_in_browser,
-    )
-    fig3 = plot_modulus_vs_frequency(
-        moduli_over_time,
-        phases_over_time,
-        baselines,
-        frequencies,
-        mjd_time_points,
-        plotting=plotting_backend,
-        save_simulation_data=save_simulation_data_flag,
-        folder_path=simulation_folder_path,
-        open_in_browser=open_plots_in_browser,
-    )
-
-    if plotting_backend != "bokeh" and open_plots_in_browser:
-        plt.show()
-
-    # Ending section and final success message
-    section("ENDING SIMULATION")
-    logger = logging.getLogger()
-    if hasattr(logger, "success"):
-        logger.success("Simulation completed successfully.")
-    else:
-        print("Simulation completed successfully.")
-    # Trailing spacing after end of output
-    print("")
     print("")
 
 

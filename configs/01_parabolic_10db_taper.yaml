@@ -1,0 +1,112 @@
+# Configuration: Parabolic Dishes with 10dB Edge Taper
+# This is the RECOMMENDED configuration for most radio telescope observations
+# Uses 10dB edge taper which provides excellent balance between:
+# - Aperture efficiency (~75%)
+# - Low sidelobes (~-30 dB)
+# - Realistic feed illumination
+
+telescope:
+  telescope_type:
+    use_PYUVData_telescope: false
+    use_custom_telescope: false
+  telescope_name: "HERA"
+  use_pyuvdata_location: false
+  use_pyuvdata_antennas: false
+  use_pyuvdata_diameters: false
+
+antenna_layout:
+  antenna_positions_file: "/Volumes/Crucial X8/repos/RRIvis/antenna_layout_examples/example_rrivis_format.txt"
+  antenna_file_format: "rrivis"
+  use_different_antenna_types: false
+  all_antenna_type: "parabolic_10db_taper"  # Standard for radio telescopes
+  antenna_types: {}
+  use_different_diameters: false
+  all_antenna_diameter: 14.0
+  diameters: {}
+  fixed_HPBW: null
+
+feeds:
+  use_polarized_feeds: false
+  polarization_type: ""
+  use_different_polarization_type: false
+  polarization_per_antenna: {}
+  use_different_feed_types: false
+  all_feed_type: ""
+  feed_types_per_antenna: {}
+
+beams:
+  use_beam_file: false
+  beam_file_path: ""
+  use_different_beams: false
+  all_beam_type: "efield"
+  beams_per_antenna: {}
+  use_different_beam_responses: false
+  all_beam_response: "gaussian"  # Fast Gaussian approximation
+  beam_response_per_antenna: {}
+  cosine_taper_exponent: 1.0
+  exponential_taper_dB: 10.0
+
+baseline_selection:
+  use_autocorrelations: true
+  use_crosscorrelations: true
+  only_selective_baseline_length: false
+  selective_baseline_lengths: []
+  selective_baseline_tolerance_meters: 2.0
+  trim_by_angle_ranges: false
+  selective_angle_ranges_deg: []
+
+location:
+  lat: -30.72152777777791
+  lon: 21.428305555555557
+  height: 1073.0
+
+sky_model:
+  test_sources:
+    use_test_sources: true
+    num_sources: 10
+    flux_limit: 50
+  test_sources_healpix:
+    use_test_sources: false
+    num_sources: 100
+    flux_limit: 50
+    nside: 32
+  gsm_healpix:
+    use_gsm: false
+    gsm_catalogue: "gsm2008"
+    flux_limit: 50
+    nside: 32
+  gleam:
+    use_gleam: false
+    gleam_catalogue: "VIII/105/catalog"
+    flux_limit: 50
+  gleam_healpix:
+    use_gleam: false
+    gleam_catalogue: "VIII/100/gleamegc"
+    flux_limit: 50
+    nside: 32
+  gsm+gleam_healpix:
+    use_gsm_gleam: false
+    gsm_catalogue: "gsm2008"
+    gleam_catalogue: "VIII/100/gleamegc"
+    flux_limit: 50
+    nside: 32
+
+obs_time:
+  start_time: "2025-01-15T00:00:00"
+  duration_seconds: 3600
+  time_step_seconds: 600
+
+obs_frequency:
+  starting_frequency: 100
+  frequency_interval: 10
+  frequency_bandwidth: 50
+  frequency_unit: "MHz"
+
+output:
+  save_simulation_data: true
+  save_log_data: false
+  plot_results_in_bokeh: true
+  plotting_backend: "bokeh"
+  angle_unit: "degrees"
+  simulation_data_dir: ""
+  simulation_subdir: "RRIVis_simulation_data"
