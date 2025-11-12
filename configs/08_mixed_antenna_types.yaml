@@ -28,6 +28,7 @@ beams:
     136: "gaussian"    # Antenna 136: Gaussian approximation
     140: "airy"        # Antenna 140: Airy disk pattern
     121: "cosine"      # Antenna 121: Cosine-tapered
+    123: "gaussian"    # Antenna 123: Gaussian for spherical reflector
   cosine_taper_exponent: 1.5  # For cosine pattern
 
 location:

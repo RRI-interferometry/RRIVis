@@ -121,7 +121,8 @@ def read_rrivis_format(file_path):
     header_idx = None
     diameter_col_idx = None
     for idx, line in enumerate(lines):
-        if line.strip():
+        # Skip empty lines and comment lines when looking for header
+        if line.strip() and not line.strip().startswith('#'):
             header_idx = idx
             header_tokens = line.strip().split()
             for j, tok in enumerate(header_tokens):
@@ -131,8 +132,8 @@ def read_rrivis_format(file_path):
             break
 
     for i, line in enumerate(lines):
-        # Skip the header line or empty lines
-        if i == header_idx or not line.strip():
+        # Skip the header line, empty lines, or comment lines
+        if i == header_idx or not line.strip() or line.strip().startswith('#'):
             continue
         parts = line.strip().split()
         if len(parts) < 6:
