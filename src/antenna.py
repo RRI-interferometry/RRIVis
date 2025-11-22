@@ -111,55 +111,80 @@ def read_rrivis_format(file_path):
     """
     Read RRIvis format antenna files.
 
-    Format: Name  Number  BeamID  E  N  U  [Diameter]
+    Format (BeamID is optional):
+    - With BeamID:    Name  Number  BeamID  E  N  U  [Diameter]
+    - Without BeamID: Name  Number  E  N  U  [Diameter]
+
+    Returns:
+    --------
+    dict: Antenna data with optional BeamID field
     """
     antennas = {}
     with open(file_path, "r") as f:
         lines = f.readlines()
 
-    # Detect header and optional Diameter column index
+    # Detect header and optional column indices
     header_idx = None
+    has_beamid_col = False
     diameter_col_idx = None
+
     for idx, line in enumerate(lines):
         # Skip empty lines and comment lines when looking for header
         if line.strip() and not line.strip().startswith('#'):
             header_idx = idx
             header_tokens = line.strip().split()
+
+            # Check for BeamID column
             for j, tok in enumerate(header_tokens):
+                if tok.lower() == "beamid":
+                    has_beamid_col = True
                 if tok.lower() == "diameter":
                     diameter_col_idx = j
-                    break
             break
+
+    # Determine expected minimum columns based on header
+    min_cols = 6 if has_beamid_col else 5  # With/without BeamID
 
     for i, line in enumerate(lines):
         # Skip the header line, empty lines, or comment lines
         if i == header_idx or not line.strip() or line.strip().startswith('#'):
             continue
         parts = line.strip().split()
-        if len(parts) < 6:
-            raise ValueError(f"Invalid antenna position in line {i+1}: {line}")
+        if len(parts) < min_cols:
+            raise ValueError(f"Invalid antenna position in line {i+1}: expected at least {min_cols} columns, got {len(parts)}")
 
         # Extract metadata and positions
         try:
             name = parts[0]
             number = int(parts[1])
-            beam_id = int(parts[2])
-            e, n, u = map(float, parts[3:6])
+
+            if has_beamid_col:
+                # Format: Name Number BeamID E N U [Diameter]
+                beam_id = parts[2]  # Store as string to support non-numeric IDs
+                e, n, u = map(float, parts[3:6])
+            else:
+                # Format: Name Number E N U [Diameter]
+                beam_id = None
+                e, n, u = map(float, parts[2:5])
+
             ant = {
                 "Name": name,
                 "Number": number,
-                "BeamID": beam_id,
+                "BeamID": beam_id,  # Can be string or None
                 "Position": (e, n, u),
             }
+
             # Optional diameter if header specified a Diameter column and value present
             if diameter_col_idx is not None and len(parts) > diameter_col_idx:
                 try:
                     ant["diameter"] = float(parts[diameter_col_idx])
                 except Exception:
                     pass
+
             antennas[number] = ant
-        except ValueError:
-            raise ValueError(f"Could not parse data in line {i+1}: {line}")
+
+        except ValueError as e:
+            raise ValueError(f"Could not parse data in line {i+1}: {line}. Error: {e}")
 
     return antennas
 
@@ -218,7 +243,7 @@ def read_casa_format(file_path):
                 ant = {
                     "Name": name,
                     "Number": ant_idx,
-                    "BeamID": 0,  # Default beam ID
+                    "BeamID": None,  # No beam ID info in CASA format
                     "Position": (e, n, u),
                 }
                 if diameter is not None:
@@ -256,7 +281,7 @@ def read_measurement_set(file_path):
             ant = {
                 "Name": name,
                 "Number": int(number),
-                "BeamID": 0,  # Default beam ID
+                "BeamID": None,  # No beam ID info in Measurement Set
                 "Position": tuple(pos),  # Already in ENU coordinates
             }
             if diam > 0:
@@ -293,7 +318,7 @@ def read_uvfits(file_path):
             ant = {
                 "Name": name,
                 "Number": int(number),
-                "BeamID": 0,  # Default beam ID
+                "BeamID": None,  # No beam ID info in UVFITS
                 "Position": tuple(pos),
             }
             if diam > 0:
@@ -354,7 +379,7 @@ def read_mwa_format(file_path):
                         ant = {
                             "Name": name,
                             "Number": ant_idx,
-                            "BeamID": 0,
+                            "BeamID": None,  # No beam ID info in MWA format
                             "Position": (east, north, elevation),
                         }
                         if diameter is not None:
@@ -393,7 +418,7 @@ def read_pyuvdata_format(file_path):
                         ant = {
                             "Name": f"ANT{ant_idx:03d}",
                             "Number": ant_idx,
-                            "BeamID": 0,
+                            "BeamID": None,  # No beam ID info in simple format
                             "Position": (x, y, z),
                         }
 
@@ -409,7 +434,74 @@ def read_pyuvdata_format(file_path):
     return antennas
 
 
-def read_antenna_positions(file_path, format_type="rrivis"):
+def format_antenna_data(antennas_dict):
+    """
+    Convert antenna dict to array format for BeamManager.
+
+    Parameters:
+    -----------
+    antennas_dict : dict
+        Dictionary with antenna numbers as keys and metadata dicts as values.
+        Format: {0: {"Name": "ant1", "Number": 0, "BeamID": "beam1", "Position": (e, n, u)}, ...}
+
+    Returns:
+    --------
+    dict with keys:
+        - "names": np.ndarray of antenna names
+        - "numbers": np.ndarray of antenna numbers
+        - "positions_m": np.ndarray of positions (N_ant, 3)
+        - "beam_ids": np.ndarray of beam IDs or None if no beam IDs present
+        - "diameters": np.ndarray of diameters or None if no diameters present
+    """
+    if not antennas_dict:
+        raise ValueError("Empty antenna dictionary provided")
+
+    # Sort by antenna number for consistent ordering
+    sorted_items = sorted(antennas_dict.items(), key=lambda x: x[0])
+
+    # Extract arrays
+    names = []
+    numbers = []
+    positions = []
+    beam_ids = []
+    diameters = []
+    has_beam_ids = False
+    has_diameters = False
+
+    for ant_num, ant_data in sorted_items:
+        names.append(ant_data["Name"])
+        numbers.append(ant_data["Number"])
+        positions.append(ant_data["Position"])
+
+        # Check for BeamID
+        beam_id = ant_data.get("BeamID")
+        if beam_id is not None:
+            has_beam_ids = True
+            beam_ids.append(str(beam_id))  # Convert to string for consistency
+        else:
+            beam_ids.append(None)
+
+        # Check for diameter
+        diameter = ant_data.get("diameter")
+        if diameter is not None:
+            has_diameters = True
+            diameters.append(diameter)
+        else:
+            diameters.append(None)
+
+    # Convert to numpy arrays
+    formatted_data = {
+        "names": np.array(names, dtype=str),
+        "numbers": np.array(numbers, dtype=int),
+        "positions_m": np.array(positions, dtype=float),
+        "beam_ids": np.array(beam_ids, dtype=str) if has_beam_ids else None,
+        "diameters": np.array(diameters, dtype=float) if has_diameters else None,
+    }
+
+    return formatted_data
+
+
+def read_antenna_positions(file_path, format_type="rrivis", return_format="dict"):
     """
     Reads antenna positions and metadata from various file formats.
 
@@ -425,10 +517,14 @@ def read_antenna_positions(file_path, format_type="rrivis"):
         - "uvfits" (UVFITS format)
         - "mwa" (MWA metafits)
         - "pyuvdata" (numpy arrays/simple text)
+    return_format : str, optional
+        Output format. Options:
+        - "dict" (default): Legacy dict format {ant_num: {"Name": ..., "Position": ...}}
+        - "arrays": Array format for BeamManager {"names": ndarray, "positions_m": ndarray, ...}
 
     Returns:
     --------
-    dict: Dictionary with antenna indices as keys and dictionaries of metadata and positions as values.
+    dict: Dictionary with antenna data in the specified format.
 
     Raises:
     -------
@@ -469,7 +565,7 @@ def read_antenna_positions(file_path, format_type="rrivis"):
         if not antennas:
             raise ValueError("No valid antenna data found in file.")
 
-        # Debug output
+        # Debug output (use dict format for printing)
         print("")
         print(_c("Antenna metadata and positions:", _BOLD + _CYAN))
         for idx, data in antennas.items():
@@ -485,7 +581,13 @@ def read_antenna_positions(file_path, format_type="rrivis"):
             f"{_c('Total memory used by antennas:', _BOLD + _CYAN)} {total_memory_mb:.4f} MB"
         )
 
-        return antennas
+        # Convert to requested format
+        if return_format == "arrays":
+            return format_antenna_data(antennas)
+        elif return_format == "dict":
+            return antennas
+        else:
+            raise ValueError(f"Invalid return_format: {return_format}. Use 'dict' or 'arrays'.")
 
     except Exception as e:
         raise ValueError(f"Failed to read antenna positions file '{file_path}' with format '{format_type}': {e}")

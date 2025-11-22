@@ -153,6 +153,7 @@ dmypy.json
 
 # Simulation outputs and data files
 simulation_data/
+data/
 *.h5
 *.fits
 *.npz

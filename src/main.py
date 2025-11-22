@@ -46,6 +46,7 @@ from plot import (
     plot_modulus_vs_frequency,
     plot_antenna_layout,
 )
+from src.beam_file import BeamManager
 
 
 """
@@ -93,11 +94,26 @@ DEFAULT_CONFIG = {
         "feed_types_per_antenna": {},
     },
     "beams": {
-        "use_beam_file": False, # TODO: later on - load beam from FITS file
-        "beam_file_path": "", # Absolute path to the beam FITS file
-        "use_different_beams": False,
-        "all_beam_type": "efield", # EBeam, Power Beam (future feature)
-        "beams_per_antenna": {}, # {antenna_number: beam_type, ....}
+        # Beam FITS file support (new feature!)
+        # Modes: "analytic" (no FITS), "shared" (one beam for all), "per_antenna" (different beams)
+        "beam_mode": "analytic",  # Options: "analytic", "shared", "per_antenna"
+
+        # For "shared" mode: single beam file for all antennas
+        "beam_file": None,  # Absolute path to beam FITS file
+
+        # For "per_antenna" mode: specify how to assign beams
+        # Options: "from_layout" (use BeamID column), "from_config" (use antenna_beam_map)
+        "beam_assignment": "from_layout",
+
+        # For "per_antenna" + "from_config": map antenna names to beam files
+        "antenna_beam_map": {},  # {"ant1": "/path/to/beam1.fits", "ant2": "/path/to/beam2.fits", ...}
+
+        # Beam file loading parameters
+        "beam_za_max_deg": 90.0,  # Maximum zenith angle to load from beam file (degrees)
+        "beam_za_buffer_deg": 5.0,  # ZA buffer for beam loading (degrees)
+        "beam_freq_buffer_hz": 1e6,  # Frequency buffer for beam loading (Hz)
+
+        # Legacy analytic beam settings (used when beam_mode="analytic" or as fallback)
         "use_different_beam_responses": False,
         # Available beam response patterns:
         # "gaussian" (RECOMMENDED) - Fast Gaussian approximation
@@ -1520,7 +1536,46 @@ def run_simulation(config, simulation_name="simulation", batch_index=None):
             beam_response_per_antenna_cfg = beams_cfg.get("beam_response_per_antenna", {})
             cosine_taper_exponent = beams_cfg.get("cosine_taper_exponent", 1.0)
             exponential_taper_dB = beams_cfg.get("exponential_taper_dB", 10.0)
-        
+
+            # Initialize BeamManager for beam FITS file support
+            beam_manager = None
+            beam_mode = beams_cfg.get("beam_mode", "analytic")
+
+            if beam_mode != "analytic":
+                section("BEAM FITS INITIALIZATION")
+                print(f"Beam mode: {beam_mode}")
+
+                # Load antenna data in arrays format for BeamManager
+                try:
+                    antenna_data_for_beams = read_antenna_positions(
+                        antenna_file,
+                        config["antenna_layout"]["antenna_file_format"],
+                        return_format="arrays"
+                    )
+                    print(f"Loaded antenna data for {len(antenna_data_for_beams['names'])} antennas")
+
+                    # Merge beam config with observation frequency for BeamManager
+                    beam_config = {
+                        "beams": beams_cfg,
+                        "observation": {
+                            "start_time": obs_cfg["start_time"],
+                            "duration_seconds": obs_cfg.get("total_duration", 1) * 3600,  # Convert to seconds
+                            "frequency_hz": freq_cfg["starting_frequency"] * 1e6,  # Convert MHz to Hz
+                            "bandwidth_hz": freq_cfg["frequency_bandwidth"] * 1e6,  # Convert MHz to Hz
+                        }
+                    }
+
+                    # Initialize BeamManager
+                    beam_manager = BeamManager(beam_config, antenna_data_for_beams)
+                    print(f"BeamManager initialized successfully with {len(beam_manager.beam_handlers)} beam handler(s)")
+
+                except Exception as e:
+                    print(f"Warning: Failed to initialize BeamManager: {e}")
+                    print("Falling back to analytic beams")
+                    beam_manager = None
+            else:
+                print("Using analytic beams (no beam FITS files)")
+
             # Loop through each antenna to calculate HPBW (radians) and beam areas
             hpbw_per_antenna = {}
             beam_area_per_antenna = {}
@@ -1929,13 +1984,12 @@ def run_simulation(config, simulation_name="simulation", batch_index=None):
                     antennas,
                     baselines,
                     sources,
-                    spectral_indices,
                     location,
                     obstime,
                     wavelengths,
                     frequencies,
                     hpbw_per_antenna,
-                    nside=nside,
+                    beam_manager=beam_manager,
                     beam_pattern_per_antenna=beam_pattern_per_antenna_dict,
                     beam_pattern_params=beam_pattern_params_dict,
                 )
