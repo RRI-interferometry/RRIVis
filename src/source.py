@@ -99,7 +99,8 @@ def generate_test_sources(num_sources=3):
     - num_sources (int): Number of test sources to generate. Defaults to 3.
 
     Returns:
-    list: List of test sources with coordinates, flux, and spectral index.
+    list: List of test sources with coordinates, flux, spectral index, and Stokes parameters.
+          All test sources are unpolarized (Q=U=V=0) by default.
     """
     if num_sources is None:
         num_sources = 3  # Default fallback
@@ -112,6 +113,9 @@ def generate_test_sources(num_sources=3):
             "coords": SkyCoord(ra=0 * au.deg, dec=-30.72152777777791 * au.deg),
             "flux": 4,
             "spectral_index": -0.8,
+            "stokes_q": 0.0,
+            "stokes_u": 0.0,
+            "stokes_v": 0.0,
         })
         return sources
 
@@ -127,6 +131,9 @@ def generate_test_sources(num_sources=3):
             "coords": SkyCoord(ra=ra_deg * au.deg, dec=dec_deg * au.deg),
             "flux": flux,
             "spectral_index": -0.8,  # Same spectral index for all test sources
+            "stokes_q": 0.0,  # Unpolarized
+            "stokes_u": 0.0,  # Unpolarized
+            "stokes_v": 0.0,  # Unpolarized
         })
 
     return sources
@@ -251,9 +258,15 @@ def load_gleam(flux_limit, gleam_catalogue):
             )
 
             # Append source dictionary to the list
-            sources.append(
-                {"coords": coords, "flux": flux, "spectral_index": spectral_index}
-            )
+            # Note: GLEAM does not include polarization, so Q=U=V=0 (unpolarized)
+            sources.append({
+                "coords": coords,
+                "flux": flux,
+                "spectral_index": spectral_index,
+                "stokes_q": 0.0,
+                "stokes_u": 0.0,
+                "stokes_v": 0.0,
+            })
 
     # Measure the memory size of the loaded GLEAM catalog
     gleam_size = asizeof.asizeof(sources)
@@ -339,11 +352,15 @@ def load_gsm2008(frequency=76e6, nside=32, flux_limit=1.0, beam_area=1.0):
     spectral_index = 0.0
 
     # Create source dictionaries
+    # Note: GSM does not include polarization, so Q=U=V=0 (unpolarized)
     sources = [
         {
             "coords": SkyCoord(ra=r * au.deg, dec=d * au.deg, frame="icrs"),
             "flux": f,
             "spectral_index": spectral_index,
+            "stokes_q": 0.0,
+            "stokes_u": 0.0,
+            "stokes_v": 0.0,
         }
         for r, d, f in zip(ra, dec, flux_density_jy)
     ]
@@ -389,9 +406,15 @@ def load_gleam_in_healpix(flux_limit=50, nside=32, ref_freq=76e6):
             coords = SkyCoord(ra=ra, dec=dec)
             spectral_index = row.get("alpha", 0.0)  # Default alpha = 0.0 if missing
 
-            sources.append(
-                {"coords": coords, "flux": flux, "spectral_index": spectral_index}
-            )
+            # Note: GLEAM does not include polarization, so Q=U=V=0 (unpolarized)
+            sources.append({
+                "coords": coords,
+                "flux": flux,
+                "spectral_index": spectral_index,
+                "stokes_q": 0.0,
+                "stokes_u": 0.0,
+                "stokes_v": 0.0,
+            })
 
     # Map each source to a HEALPix pixel
     for source in sources:

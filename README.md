@@ -36,15 +36,29 @@ RRIviz provides a complete pipeline for radio interferometry simulation and visu
 - Configurable flux limits and HEALPix resolution parameters
 
 ### Beam Modeling
-- Comprehensive beam pattern implementations:
+- **Beam FITS File Support** (NEW!):
+  - Load realistic beam patterns from pyuvdata UVBeam FITS files
+  - Full 2×2 Jones matrix support for polarized beams
+  - Three beam modes: shared (all antennas), per-antenna (from layout), per-antenna (from config)
+  - Automatic interpolation in zenith angle, azimuth, and frequency
+  - Correct azimuth convention handling (Astropy ↔ UVBeam)
+- Comprehensive analytic beam pattern implementations:
   - Gaussian beam patterns
   - Parabolic dish models with different illumination tapers (uniform, cosine, Gaussian, 10dB/20dB taper)
   - Spherical reflector models
   - Phased array and dipole models
 - HPBW (Half Power Beam Width) calculations for different antenna types
 - Beam solid angle calculations using HEALPix
+- Automatic fallback from beam FITS to analytic beams
 
 ### Visibility Calculation
+- **Full Polarization Support** (NEW!):
+  - Implements full Radio Interferometer Measurement Equation (RIME)
+  - 2×2 complex Jones matrices for antenna beams
+  - 2×2 coherency matrices for source polarization
+  - Outputs XX, XY, YX, YY correlations and Stokes I
+  - Africanus/Pauli convention for consistency with modern tools
+  - Energy-conserving half-power convention
 - Optimized method for visibility computation
 - Support for both point source and HEALPix-based sky models
 - Accounts for beam patterns and source spectral indices
@@ -391,11 +405,93 @@ Where:
 - `theta` is the zenith angle
 - `theta_HPBW` is the Half Power Beam Width in radians
 
+### Using Beam FITS Files
+
+RRIvis supports loading realistic antenna beam patterns from FITS files in the pyuvdata UVBeam format. This enables simulations with measured or simulated beam patterns including full polarization effects.
+
+#### Beam Modes
+
+Three beam modes are supported:
+
+1. **Analytic Mode** (default): Uses analytic beam patterns (Gaussian, Airy, etc.)
+   ```yaml
+   beams:
+     beam_mode: "analytic"
+     all_beam_response: "gaussian"
+   ```
+
+2. **Shared Mode**: All antennas use the same beam FITS file
+   ```yaml
+   beams:
+     beam_mode: "shared"
+     beam_file: "/path/to/beam.fits"
+     beam_za_max_deg: 90.0
+     beam_freq_buffer_hz: 1e6
+   ```
+
+3. **Per-Antenna Mode**: Different beams for different antennas
+
+   a. **From Layout File**: Uses BeamID column in antenna file
+   ```yaml
+   beams:
+     beam_mode: "per_antenna"
+     beam_assignment: "from_layout"
+   ```
+
+   Antenna file format with BeamID:
+   ```
+   Name    Number  BeamID      E    N    U
+   ANT001  0       beam_dish   0.0  0.0  0.0
+   ANT002  1       beam_dipole 10.0 0.0  0.0
+   ```
+
+   b. **From Config**: Explicit antenna-to-beam mapping
+   ```yaml
+   beams:
+     beam_mode: "per_antenna"
+     beam_assignment: "from_config"
+     antenna_beam_map:
+       "ANT001": "/path/to/beam1.fits"
+       "ANT002": "/path/to/beam2.fits"
+   ```
+
+#### Beam File Requirements
+
+- Format: pyuvdata UVBeam FITS files
+- Must contain E-field (not power) beam data
+- Should cover the observation's zenith angle range
+- Should cover the observation's frequency range
+- Coordinate system: AltAz with HEALPix or regular grid
+
+#### Configuration Parameters
+
+- `beam_za_max_deg`: Maximum zenith angle to load from beam file (default: 90.0°)
+- `beam_za_buffer_deg`: Buffer around observation ZA range (default: 5.0°)
+- `beam_freq_buffer_hz`: Buffer around observation frequencies (default: 1 MHz)
+
+#### Polarization Support
+
+When using beam FITS files, the simulator:
+- Loads full 2×2 Jones matrices E(θ,φ,ν) for each antenna
+- Converts source Stokes parameters (I, Q, U, V) to coherency matrices
+- Computes visibilities using the full RIME: V_ij = E_i @ C @ E_j^H
+- Returns correlation products: XX, XY, YX, YY, and total intensity I
+
+Sources without polarization data (GLEAM, GSM) default to Q=U=V=0 (unpolarized).
+
+#### Examples
+
+See the example configurations in `configs/`:
+- `09_shared_beam_fits.yaml`: Shared beam example with MWA
+- `10_per_antenna_layout.yaml`: Per-antenna beams from layout file
+- `11_per_antenna_config.yaml`: Per-antenna beams from config
+
 ### Visibility Calculation
 
 The visibility calculation accounts for:
 - Source positions and flux densities
-- Beam patterns for each antenna
+- Beam patterns for each antenna (analytic or from FITS files)
+- Full polarization through Jones matrices and coherency
 - Spectral indices of sources
 - Baseline vectors and geometric delays
 - Time and frequency variations
@@ -409,10 +505,19 @@ The visibility calculation accounts for:
 ├── pixi.lock                # Pixi lock file
 ├── pixi.toml               # Pixi project configuration
 ├── README.md               # Project documentation
+├── configs/                # Example configuration files
+│   ├── 01_parabolic_10db_taper.yaml
+│   ├── ...
+│   ├── 09_shared_beam_fits.yaml        # Shared beam FITS example
+│   ├── 10_per_antenna_layout.yaml      # Per-antenna from layout
+│   └── 11_per_antenna_config.yaml      # Per-antenna from config
+├── docs/                   # Documentation
+│   └── CONVENTIONS.md      # Polarization and coordinate conventions
 ├── src/                    # Source code
 │   ├── __init__.py         # Python package initialization
-│   ├── antenna.py         # Antenna position handling
+│   ├── antenna.py         # Antenna position handling + BeamID support
 │   ├── baseline.py        # Baseline generation
+│   ├── beam_file.py       # Beam FITS file handling (NEW)
 │   ├── beams.py           # Beam calculations and HPBW
 │   ├── fits.py            # FITS file handling
 │   ├── gsm_map.py         # GSM map integration
@@ -420,9 +525,10 @@ The visibility calculation accounts for:
 │   ├── main.py            # Entry point for the simulator
 │   ├── observation.py     # Observation location and time
 │   ├── plot.py            # Plotting functions
+│   ├── polarization.py    # Polarization utilities (NEW)
 │   ├── reading.py         # Reading data utilities
-│   ├── source.py          # Source modeling
-│   ├── visibility.py      # Visibility calculations
+│   ├── source.py          # Source modeling + Stokes parameters
+│   ├── visibility.py      # Visibility calculations with full RIME
 │   ├── visibility_results.json # Output data
 │   └── simulators/        # Simulator modules
 │       ├── fftvis.py      # FFT-based visibility simulator
@@ -431,9 +537,11 @@ The visibility calculation accounts for:
     ├── conftest.py        # Test configuration
     ├── test_antenna.py    # Antenna tests
     ├── test_baseline.py   # Baseline tests
+    ├── test_beam_file.py  # Beam FITS tests (NEW)
     ├── test_main.py       # Main module tests
     ├── test_observation.py # Observation tests
     ├── test_plot.py       # Plot tests
+    ├── test_polarization.py # Polarization tests (NEW)
     └── test_visibility.py # Visibility tests
 ```
 
@@ -518,12 +626,13 @@ The simulator generates several output files:
 
 ### Planned Features
 
-1. **Polarized Visibility Calculation**: Support for full Stokes polarimetry
-2. **Advanced Simulator Modules**: Implementation of FFT-based and matrix-based visibility simulators
-3. **Additional Sky Models**: Integration with more sky catalogs and models
-4. **Enhanced Visualization**: More interactive plotting options and 3D visualizations
-5. **Performance Optimization**: GPU acceleration and parallel processing
-6. **Web Interface**: Full web-based interface for configuration and visualization
+1. **Advanced Simulator Modules**: Implementation of FFT-based and matrix-based visibility simulators
+2. **Additional Sky Models**: Integration with more sky catalogs and polarized source catalogs
+3. **Enhanced Visualization**: Polarization-aware plotting (linear polarization vectors, fractional polarization maps)
+4. **Performance Optimization**: GPU acceleration for RIME calculations and parallel processing
+5. **Web Interface**: Full web-based interface for configuration and visualization
+6. **Ionospheric Effects**: Faraday rotation and TEC-based phase delays
+7. **Calibration Tools**: Beam calibration and direction-dependent gain calibration
 
 ### Contributing
 
