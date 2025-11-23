@@ -160,7 +160,11 @@ def read_rrivis_format(file_path):
 
             if has_beamid_col:
                 # Format: Name Number BeamID E N U [Diameter]
-                beam_id = parts[2]  # Store as string to support non-numeric IDs
+                # Try to convert BeamID to int, fallback to string for non-numeric IDs
+                try:
+                    beam_id = int(parts[2])
+                except ValueError:
+                    beam_id = parts[2]
                 e, n, u = map(float, parts[3:6])
             else:
                 # Format: Name Number E N U [Diameter]
@@ -334,64 +338,59 @@ def read_uvfits(file_path):
 
 def read_mwa_format(file_path):
     """
-    Read MWA metafits format antenna files.
+    Read MWA metafits FITS file format.
 
-    Format: coordinates (m) East North Elevation x y z
-    Tile011MWA 4.0 m +116.40.09.5 -26.32.48.3 -150.1601 264.8352 376.9023
+    MWA metafits files are FITS files containing antenna positions in ENU coordinates.
+    The TILEDATA table has 256 rows (2 per tile for X and Y polarization).
+    We deduplicate to get unique tile positions.
     """
+    try:
+        from astropy.io import fits
+    except ImportError:
+        raise ImportError("astropy is required to read MWA metafits FITS files. Install with: pip install astropy")
+
     antennas = {}
 
-    with open(file_path, "r") as f:
-        lines = f.readlines()
+    try:
+        # Open the FITS file
+        with fits.open(file_path) as hdul:
+            # Get the TILEDATA table
+            if 'TILEDATA' not in hdul:
+                raise ValueError("TILEDATA table not found in MWA metafits file")
 
-    # Look for coordinate header
-    coordsys = 'ENU'  # Default
-    for line in lines:
-        if 'coordinates' in line.lower() and 'east' in line.lower():
-            coordsys = 'ENU'
-            break
+            tile_table = hdul['TILEDATA'].data
 
-    ant_idx = 0
-    for line in lines:
-        if line.strip() and not line.startswith('#'):
-            parts = line.strip().split()
+            # Deduplicate tiles (each tile has 2 rows for X and Y polarization)
+            seen_tiles = {}
 
-            # Try to identify MWA format
-            if len(parts) >= 7 and any(coord in line.upper() for coord in ['EAST', 'NORTH', 'ELEVATION']):
-                try:
-                    # Skip to the coordinate values
-                    coord_start = 0
-                    for i, part in enumerate(parts):
-                        try:
-                            float(part)
-                            coord_start = i
-                            break
-                        except ValueError:
-                            continue
+            for row in tile_table:
+                tile_name = row['TileName'].strip()
+                antenna_num = int(row['Antenna'])
 
-                    if coord_start + 3 <= len(parts):
-                        east, north, elevation = map(float, parts[coord_start:coord_start+3])
-
-                        # Extract name and diameter if available
-                        name = parts[0] if parts[0] not in ['coordinates', 'm'] else f"Tile{ant_idx:03d}"
-                        diameter = None
-
-                        ant = {
-                            "Name": name,
-                            "Number": ant_idx,
-                            "BeamID": None,  # No beam ID info in MWA format
-                            "Position": (east, north, elevation),
-                        }
-                        if diameter is not None:
-                            ant["diameter"] = diameter
-
-                        antennas[ant_idx] = ant
-                        ant_idx += 1
-
-                except ValueError:
+                # Skip if we've already processed this tile
+                if tile_name in seen_tiles:
                     continue
 
-    return antennas
+                # Get ENU coordinates (note: metafits has East, North, Height)
+                east = float(row['East'])
+                north = float(row['North'])
+                height = float(row['Height'])
+
+                ant = {
+                    "Name": tile_name,
+                    "Number": antenna_num,
+                    "BeamID": None,  # MWA doesn't use BeamID in this context
+                    "Position": (east, north, height),
+                }
+
+                # Use antenna number as key for consistency with other formats
+                antennas[antenna_num] = ant
+                seen_tiles[tile_name] = antenna_num
+
+        return antennas
+
+    except Exception as e:
+        raise ValueError(f"Failed to read MWA metafits file: {e}")
 
 
 def read_pyuvdata_format(file_path):

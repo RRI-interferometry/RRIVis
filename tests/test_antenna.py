@@ -1,7 +1,7 @@
 # tests/test_antenna.py
 import unittest
 from unittest.mock import mock_open, patch
-from src.antenna import read_antenna_positions
+from antenna import read_antenna_positions
 
 
 class TestAntenna(unittest.TestCase):
