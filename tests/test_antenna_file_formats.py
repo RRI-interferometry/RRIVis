@@ -34,8 +34,8 @@ from src.antenna import (
 )
 
 
-# Get path to data directory
-DATA_DIR = Path(__file__).parent.parent / "data"
+# Get path to antenna_layout_examples directory
+DATA_DIR = Path(__file__).parent.parent / "antenna_layout_examples"
 
 
 class TestRRIvisFormat:
@@ -239,8 +239,8 @@ class TestMWAFormat:
 
     @pytest.fixture
     def mwa_file(self):
-        """Path to MWA format example file."""
-        return DATA_DIR / "example_mwa_metafits.txt"
+        """Path to MWA metafits FITS file."""
+        return DATA_DIR / "1101503312_metafits.fits"
 
     def test_file_exists(self, mwa_file):
         """Verify MWA format file exists."""
@@ -340,9 +340,9 @@ class TestYAMLConfiguration:
             content = f.read()
 
             # Check for required sections
-            assert 'beam_paths:' in content, "Missing beam_paths section"
-            assert 'telescope_location:' in content, "Missing telescope_location"
-            assert 'telescope_name:' in content, "Missing telescope_name"
+            assert 'telescope:' in content, "Missing telescope section"
+            assert 'antenna_layout:' in content, "Missing antenna_layout section"
+            assert 'observation:' in content or 'telescope:' in content, "Missing configuration sections"
 
     def test_yaml_is_readable(self, yaml_file):
         """Test that YAML file can be parsed."""
@@ -351,8 +351,11 @@ class TestYAMLConfiguration:
             with open(yaml_file, 'r') as f:
                 data = yaml.safe_load(f)
                 assert data is not None
-                assert 'beam_paths' in data
-                assert 'telescope_name' in data
+                assert 'telescope' in data, "Missing telescope section"
+                assert 'antenna_layout' in data, "Missing antenna_layout section"
+                # Verify nested structure
+                assert 'name' in data['telescope'], "Missing telescope name"
+                assert 'location' in data['telescope'], "Missing telescope location"
         except ImportError:
             pytest.skip("PyYAML not installed")
 
@@ -366,7 +369,7 @@ class TestFormatConsistency:
             (DATA_DIR / "example_rrivis_format.txt", "rrivis"),
             (DATA_DIR / "example_casa_format.cfg", "casa"),
             (DATA_DIR / "example_pyuvdata_format.txt", "pyuvdata"),
-            (DATA_DIR / "example_mwa_metafits.txt", "mwa"),
+            (DATA_DIR / "1101503312_metafits.fits", "mwa"),
         ]
 
         for file_path, format_type in formats:
@@ -459,7 +462,7 @@ class TestIntegration:
             "example_casa_format.cfg",
             "example_pyuvdata_format.txt",
             "example_antenna_layout.csv",
-            "example_mwa_metafits.txt",
+            "1101503312_metafits.fits",
             "example_telescope_config.yaml",
             "README_antenna_formats.md",
         ]

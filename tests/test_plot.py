@@ -1,6 +1,7 @@
 # tests/test_plot.py
 import numpy as np
-import matplotlib.pyplot as plt
+from astropy.time import Time
+from bokeh.layouts import LayoutDOM
 from src.plot import plot_visibility, plot_heatmaps
 
 
@@ -16,14 +17,15 @@ def test_plot_visibility():
         (1, 2): np.array([[0], [0]]),  # 2 rows to match time_points
     }
     baselines = {(0, 1): [14, 0, 0], (0, 2): [28, 0, 0], (1, 2): [14, 0, 0]}
-    time_points = [0, 1]  # 2 time points
-    freqs = [1e8, 2e8]
+    # Create MJD time points
+    mjd_time_points = Time("2023-01-01T00:00:00", scale="utc").mjd + np.array([0, 1/24])  # 0 and 1 hour
+    freqs = np.array([1e8, 2e8])
     total_seconds = 3600
 
     fig = plot_visibility(
-        moduli_over_time, phases_over_time, baselines, time_points, freqs, total_seconds
+        moduli_over_time, phases_over_time, baselines, mjd_time_points, freqs, total_seconds
     )
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, LayoutDOM)
 
 
 def test_plot_heatmaps():
@@ -38,10 +40,12 @@ def test_plot_heatmaps():
         (1, 2): np.array([[0], [0]]),
     }
     baselines = {(0, 1): [14, 0, 0], (0, 2): [28, 0, 0], (1, 2): [14, 0, 0]}
-    freqs = [1e8, 2e8]
+    freqs = np.array([1e8, 2e8])
+    # Create MJD time points
+    mjd_time_points = Time("2023-01-01T00:00:00", scale="utc").mjd + np.array([0, 1/24])  # 0 and 1 hour
     total_seconds = 3600
 
     fig = plot_heatmaps(
-        moduli_over_time, phases_over_time, baselines, freqs, total_seconds
+        moduli_over_time, phases_over_time, baselines, freqs, total_seconds, mjd_time_points
     )
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, LayoutDOM)

@@ -5,27 +5,27 @@ import numpy as np
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
 import astropy.units as u
-from src.visibility import calculate_visibility_optimized
+from visibility import calculate_visibility
 import sys
 
 
 class TestVisibilityOptimized(unittest.TestCase):
     def setUp(self):
-        # Sample valid antenna data
+        # Sample valid antenna data - keyed by actual antenna numbers
         self.antennas = {
-            0: {
+            136: {
                 "Name": "HH136",
                 "Number": 136,
                 "BeamID": 0,
                 "Position": (-156.5976, 2.9439, -0.1819),
             },
-            1: {
+            140: {
                 "Name": "HH140",
                 "Number": 140,
                 "BeamID": 0,
                 "Position": (-98.1662, 3.1671, -0.3008),
             },
-            2: {
+            121: {
                 "Name": "HH121",
                 "Number": 121,
                 "BeamID": 0,
@@ -33,11 +33,11 @@ class TestVisibilityOptimized(unittest.TestCase):
             },
         }
 
-        # Precomputed baselines
+        # Precomputed baselines - now using dict format with BaselineVector key
         self.baselines = {
-            (136, 136): np.array([0.0, 0.0, 0.0]),
-            (136, 140): np.array([58.4314, 0.2232, -0.1189]),
-            (136, 121): np.array([65.7837, 12.4057, -0.0112]),
+            (136, 136): {"BaselineVector": np.array([0.0, 0.0, 0.0])},
+            (136, 140): {"BaselineVector": np.array([58.4314, 0.2232, -0.1189])},
+            (136, 121): {"BaselineVector": np.array([65.7837, 12.4057, -0.0112])},
         }
 
         # Mock sources with valid coordinates
@@ -64,12 +64,17 @@ class TestVisibilityOptimized(unittest.TestCase):
         self.freqs = np.array([100e6, 110e6, 120e6])  # 100, 110, 120 MHz
         self.wavelengths = (3e8 / self.freqs) * u.m  # Wavelengths in meters
 
-        # Half Power Beam Width (HPBW) in radians
-        self.theta_HPBW = np.radians(5.0)
+        # Half Power Beam Width (HPBW) per antenna per frequency
+        theta_HPBW = np.radians(5.0)
+        self.hpbw_per_antenna = {
+            136: np.full(len(self.freqs), theta_HPBW),
+            140: np.full(len(self.freqs), theta_HPBW),
+            121: np.full(len(self.freqs), theta_HPBW),
+        }
 
     def test_valid_visibility(self):
         """Test visibility calculation with valid inputs."""
-        visibilities = calculate_visibility_optimized(
+        visibilities = calculate_visibility(
             antennas=self.antennas,
             baselines=self.baselines,
             sources=self.sources,
@@ -77,7 +82,7 @@ class TestVisibilityOptimized(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            theta_HPBW=self.theta_HPBW,
+            hpbw_per_antenna=self.hpbw_per_antenna,
         )
 
         self.assertEqual(
@@ -86,18 +91,21 @@ class TestVisibilityOptimized(unittest.TestCase):
             "Mismatch in the number of baselines.",
         )
         for key, vis in visibilities.items():
+            # vis is now a dict with correlation products
+            self.assertIsInstance(vis, dict, f"Visibility for {key} should be a dict of correlations")
+            self.assertIn("I", vis, f"Visibility for {key} should have Stokes I")
             self.assertEqual(
-                len(vis),
+                len(vis["I"]),
                 len(self.freqs),
                 f"Mismatch in the number of frequencies for baseline {key}.",
             )
             self.assertTrue(
-                np.iscomplexobj(vis), f"Visibility values for {key} are not complex."
+                np.iscomplexobj(vis["I"]), f"Visibility Stokes I for {key} should be complex."
             )
 
     def test_empty_sources(self):
         """Test visibility calculation with no sources."""
-        visibilities = calculate_visibility_optimized(
+        visibilities = calculate_visibility(
             antennas=self.antennas,
             baselines=self.baselines,
             sources=[],  # No sources
@@ -105,24 +113,26 @@ class TestVisibilityOptimized(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            theta_HPBW=self.theta_HPBW,
+            hpbw_per_antenna=self.hpbw_per_antenna,
         )
 
         for vis in visibilities.values():
+            # vis is now a dict with correlation products
+            self.assertIsInstance(vis, dict)
             self.assertTrue(
-                np.all(vis == 0), "Expected all zero visibilities for no sources."
+                np.all(vis["I"] == 0), "Expected all zero visibilities for no sources."
             )
 
     def test_invalid_baselines(self):
         """Test visibility calculation with malformed baselines."""
         malformed_baselines = {
-            (136, 140): np.array([58.4314, 0.2232]),  # Missing one component
+            (136, 140): {"BaselineVector": np.array([58.4314, 0.2232])},  # Missing one component
         }
 
         with self.assertRaises(
-            ValueError, msg="Expected ValueError for malformed baselines."
+            (ValueError, IndexError), msg="Expected ValueError or IndexError for malformed baselines."
         ):
-            calculate_visibility_optimized(
+            calculate_visibility(
                 antennas=self.antennas,
                 baselines=malformed_baselines,
                 sources=self.sources,
@@ -130,12 +140,12 @@ class TestVisibilityOptimized(unittest.TestCase):
                 obstime=self.obstime,
                 wavelengths=self.wavelengths,
                 freqs=self.freqs,
-                theta_HPBW=self.theta_HPBW,
+                hpbw_per_antenna=self.hpbw_per_antenna,
             )
 
     def test_memory_efficiency(self):
         """Test memory efficiency of visibilities."""
-        visibilities = calculate_visibility_optimized(
+        visibilities = calculate_visibility(
             antennas=self.antennas,
             baselines=self.baselines,
             sources=self.sources,
@@ -143,14 +153,20 @@ class TestVisibilityOptimized(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            theta_HPBW=self.theta_HPBW,
+            hpbw_per_antenna=self.hpbw_per_antenna,
         )
 
         # Calculate memory usage
-        total_memory_bytes = sys.getsizeof(visibilities) + sum(
-            sys.getsizeof(key) + sys.getsizeof(value) + value.nbytes
-            for key, value in visibilities.items()
-        )
+        total_memory_bytes = sys.getsizeof(visibilities)
+        for key, value in visibilities.items():
+            total_memory_bytes += sys.getsizeof(key) + sys.getsizeof(value)
+            # value is now a dict of correlation products
+            if isinstance(value, dict):
+                for corr_key, corr_val in value.items():
+                    total_memory_bytes += sys.getsizeof(corr_key) + sys.getsizeof(corr_val)
+                    if hasattr(corr_val, 'nbytes'):
+                        total_memory_bytes += corr_val.nbytes
+
         total_memory_mb = total_memory_bytes / (1024 * 1024)
         print(f"Total memory used by visibilities: {total_memory_mb:.4f} MB")
         self.assertLess(

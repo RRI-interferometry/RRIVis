@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
+import astropy.units as u
 
 from beam_file import (
     astropy_az_to_uvbeam_az,
@@ -114,7 +115,12 @@ class TestBeamFITSHandler:
                 "beam_file": "/mock/path/beam.fits",
                 "beam_za_max_deg": 90.0,
                 "beam_za_buffer_deg": 5.0,
-                "beam_freq_buffer_hz": 1e6
+                "beam_freq_buffer_mhz": 1.0,
+                "beam_freq_interp": "cubic"
+            },
+            "obs_frequency": {
+                "freq_min_MHz": 49.0,
+                "freq_max_MHz": 51.0
             },
             "observation": {
                 "start_time": "2024-01-01T00:00:00",
@@ -151,26 +157,42 @@ class TestBeamFITSHandler:
 
         return mock_beam
 
+    @pytest.fixture
+    def mock_logger(self):
+        """Mock logger for testing."""
+        return Mock()
+
+    @patch('os.path.exists')
     @patch('beam_file.UVBeam')
-    def test_initialization(self, mock_uvbeam_class, mock_config):
+    def test_initialization(self, mock_uvbeam_class, mock_exists, mock_config, mock_logger):
         """Test BeamFITSHandler initialization."""
-        handler = BeamFITSHandler(mock_config, "beam_001")
+        # Note: BeamFITSHandler signature is (beam_file_path, config, logger)
+        mock_exists.return_value = True
 
-        assert handler.beam_id == "beam_001"
-        assert handler.beam_file_path == Path("/mock/path/beam.fits")
-        assert not handler.is_loaded
+        # Setup mock UVBeam with required attributes
+        mock_beam = Mock()
+        mock_beam.beam_type = "efield"
+        mock_beam.pixel_coordinate_system = "az_za"
+        mock_uvbeam_class.return_value = mock_beam
 
+        handler = BeamFITSHandler("/mock/path/beam.fits", mock_config, mock_logger)
+
+        assert handler.beam_file_path == "/mock/path/beam.fits"
+        # Note: BeamFITSHandler loads immediately, no lazy loading for handler itself
+
+    @patch('os.path.exists')
     @patch('beam_file.UVBeam')
-    def test_load_beam_with_correct_units(self, mock_uvbeam_class, mock_config, mock_uvbeam):
+    def test_load_beam_with_correct_units(self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger):
         """
         CRITICAL TEST: Verify za_range is passed in DEGREES not radians.
 
         This was a critical bug in the original implementation.
         """
+        mock_exists.return_value = True
         mock_uvbeam_class.return_value = mock_uvbeam
 
-        handler = BeamFITSHandler(mock_config, "beam_001")
-        handler._load_beam()
+        # BeamFITSHandler calls _load_beam in __init__, so we need to patch before instantiation
+        handler = BeamFITSHandler("/mock/path/beam.fits", mock_config, mock_logger)
 
         # Check that read_beamfits was called
         mock_uvbeam.read_beamfits.assert_called_once()
@@ -187,8 +209,9 @@ class TestBeamFITSHandler:
         assert za_range[1] <= 180  # Can't be > 180° for zenith angle
         assert za_range[1] > 3.2   # If it were radians, max would be ~1.57
 
+    @patch('os.path.exists')
     @patch('beam_file.UVBeam')
-    def test_jones_matrix_ordering(self, mock_uvbeam_class, mock_config, mock_uvbeam):
+    def test_jones_matrix_ordering(self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger):
         """
         CRITICAL TEST: Verify Jones matrix has [feed, basis] ordering.
 
@@ -200,6 +223,7 @@ class TestBeamFITSHandler:
 
         This was a critical bug: original implementation had [basis, feed].
         """
+        mock_exists.return_value = True
         mock_uvbeam_class.return_value = mock_uvbeam
 
         # Mock the interpolation method
@@ -220,8 +244,7 @@ class TestBeamFITSHandler:
         mock_uvbeam.interp = mock_interp
         mock_uvbeam.check.return_value = True
 
-        handler = BeamFITSHandler(mock_config, "beam_001")
-        handler._load_beam()
+        handler = BeamFITSHandler("/mock/path/beam.fits", mock_config, mock_logger)
 
         # Get Jones matrix
         alt_rad = np.pi / 4  # 45° altitude
@@ -232,7 +255,8 @@ class TestBeamFITSHandler:
             alt_rad=alt_rad,
             az_rad=az_rad,
             freq_hz=freq_hz,
-            reuse_spline=False
+            location=None,
+            time=None
         )
 
         # Verify shape: (2, 2) = (Nfeeds, Nbasis)
@@ -249,11 +273,13 @@ class TestBeamFITSHandler:
         assert not np.allclose(jones, np.eye(2)), \
             "Jones matrix should not be identity - this suggests wrong ordering"
 
+    @patch('os.path.exists')
     @patch('beam_file.UVBeam')
-    def test_azimuth_conversion_applied(self, mock_uvbeam_class, mock_config, mock_uvbeam):
+    def test_azimuth_conversion_applied(self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger):
         """
         Test that azimuth conversion is applied when querying beam.
         """
+        mock_exists.return_value = True
         mock_uvbeam_class.return_value = mock_uvbeam
 
         # Track what azimuth values are passed to interp
@@ -272,8 +298,7 @@ class TestBeamFITSHandler:
         mock_uvbeam.interp = mock_interp
         mock_uvbeam.check.return_value = True
 
-        handler = BeamFITSHandler(mock_config, "beam_001")
-        handler._load_beam()
+        handler = BeamFITSHandler("/mock/path/beam.fits", mock_config, mock_logger)
 
         # Query with Astropy North (az=0)
         astropy_az_north = 0.0
@@ -281,7 +306,8 @@ class TestBeamFITSHandler:
             alt_rad=np.pi/4,
             az_rad=astropy_az_north,
             freq_hz=50e6,
-            reuse_spline=False
+            location=None,
+            time=None
         )
 
         # The azimuth passed to interp should be converted to UVBeam convention
@@ -292,9 +318,11 @@ class TestBeamFITSHandler:
         assert np.isclose(passed_az, expected_uvbeam_az, atol=1e-6), \
             f"Azimuth not converted: got {passed_az}, expected {expected_uvbeam_az}"
 
+    @patch('os.path.exists')
     @patch('beam_file.UVBeam')
-    def test_array_input(self, mock_uvbeam_class, mock_config, mock_uvbeam):
+    def test_array_input(self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger):
         """Test that handler can process arrays of coordinates."""
+        mock_exists.return_value = True
         mock_uvbeam_class.return_value = mock_uvbeam
 
         def mock_interp(az_array, za_array, freq_array, **kwargs):
@@ -305,70 +333,59 @@ class TestBeamFITSHandler:
         mock_uvbeam.interp = mock_interp
         mock_uvbeam.check.return_value = True
 
-        handler = BeamFITSHandler(mock_config, "beam_001")
-        handler._load_beam()
+        handler = BeamFITSHandler("/mock/path/beam.fits", mock_config, mock_logger)
 
         # Query with arrays
         n_sources = 10
         alt_rad = np.full(n_sources, np.pi/4)
         az_rad = np.linspace(0, 2*np.pi, n_sources)
-        freq_hz = np.full(n_sources, 50e6)
+        freq_hz = 50e6  # Scalar, not array
 
         jones = handler.get_jones_matrix(
             alt_rad=alt_rad,
             az_rad=az_rad,
             freq_hz=freq_hz,
-            reuse_spline=False
+            location=None,
+            time=None
         )
 
         # Should return (N_sources, 2, 2)
         assert jones.shape == (n_sources, 2, 2)
 
+    @patch('os.path.exists')
     @patch('beam_file.UVBeam')
-    def test_error_handling_missing_file(self, mock_uvbeam_class, mock_config):
+    def test_error_handling_missing_file(self, mock_uvbeam_class, mock_exists, mock_config, mock_logger):
         """Test error handling when beam file doesn't exist."""
-        mock_beam = Mock()
-        mock_beam.read_beamfits.side_effect = FileNotFoundError("File not found")
-        mock_uvbeam_class.return_value = mock_beam
-
-        handler = BeamFITSHandler(mock_config, "beam_001")
+        # First check will return False
+        mock_exists.return_value = False
 
         with pytest.raises(FileNotFoundError):
-            handler._load_beam()
+            handler = BeamFITSHandler("/nonexistent/beam.fits", mock_config, mock_logger)
 
+    @patch('os.path.exists')
     @patch('beam_file.UVBeam')
-    def test_lazy_loading(self, mock_uvbeam_class, mock_config, mock_uvbeam):
-        """Test that beam is loaded lazily on first get_jones_matrix call."""
+    def test_beam_loads_on_init(self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger):
+        """Test that beam is loaded during initialization (not lazy)."""
+        mock_exists.return_value = True
         mock_uvbeam_class.return_value = mock_uvbeam
         mock_uvbeam.interp.return_value = (
             np.ones((2, 1, 2, 1, 1), dtype=complex),
             np.ones(1, dtype=bool)
         )
-        mock_uvbeam.check.return_value = True
 
-        handler = BeamFITSHandler(mock_config, "beam_001")
+        # BeamFITSHandler loads beam in __init__
+        handler = BeamFITSHandler("/mock/path/beam.fits", mock_config, mock_logger)
 
-        # Should not be loaded initially
-        assert not handler.is_loaded
-        assert mock_uvbeam.read_beamfits.call_count == 0
-
-        # First call should trigger loading
-        handler.get_jones_matrix(
-            alt_rad=np.pi/4,
-            az_rad=0.0,
-            freq_hz=50e6,
-            reuse_spline=False
-        )
-
-        assert handler.is_loaded
+        # Should be loaded immediately
         assert mock_uvbeam.read_beamfits.call_count == 1
 
-        # Second call should not reload
+        # Subsequent calls should not reload
         handler.get_jones_matrix(
             alt_rad=np.pi/4,
             az_rad=0.0,
             freq_hz=50e6,
-            reuse_spline=False
+            location=None,
+            time=None
         )
 
         assert mock_uvbeam.read_beamfits.call_count == 1  # Still 1
@@ -387,7 +404,11 @@ class TestBeamManager:
         """Config for analytic beam mode (no beam files)."""
         return {
             "beams": {
-                "beam_mode": "analytic"
+                "use_beam_file": False
+            },
+            "obs_frequency": {
+                "freq_min_MHz": 49.0,
+                "freq_max_MHz": 51.0
             },
             "observation": {
                 "start_time": "2024-01-01T00:00:00",
@@ -402,8 +423,15 @@ class TestBeamManager:
         """Config for shared beam mode."""
         return {
             "beams": {
-                "beam_mode": "shared",
-                "beam_file": "/mock/beam.fits"
+                "use_beam_file": True,
+                "use_different_beams": False,
+                "beam_file_path": "/mock/beam.fits",
+                "beam_za_max_deg": 90.0,
+                "beam_freq_buffer_mhz": 1.0
+            },
+            "obs_frequency": {
+                "freq_min_MHz": 49.0,
+                "freq_max_MHz": 51.0
             },
             "observation": {
                 "start_time": "2024-01-01T00:00:00",
@@ -418,8 +446,18 @@ class TestBeamManager:
         """Config for per-antenna beams from layout file."""
         return {
             "beams": {
-                "beam_mode": "per_antenna",
-                "beam_assignment": "from_layout"
+                "use_beam_file": True,
+                "use_different_beams": True,
+                "beam_files": {
+                    "beam_A": "/mock/beam_A.fits",
+                    "beam_B": "/mock/beam_B.fits"
+                },
+                "beam_za_max_deg": 90.0,
+                "beam_freq_buffer_mhz": 1.0
+            },
+            "obs_frequency": {
+                "freq_min_MHz": 49.0,
+                "freq_max_MHz": 51.0
             },
             "observation": {
                 "start_time": "2024-01-01T00:00:00",
@@ -434,12 +472,22 @@ class TestBeamManager:
         """Config for per-antenna beams from config."""
         return {
             "beams": {
-                "beam_mode": "per_antenna",
-                "beam_assignment": "from_config",
-                "antenna_beam_map": {
-                    "ant1": "/mock/beam1.fits",
-                    "ant2": "/mock/beam2.fits"
-                }
+                "use_beam_file": True,
+                "use_different_beams": True,
+                "beam_files": {
+                    0: "/mock/beam1.fits",
+                    1: "/mock/beam2.fits"
+                },
+                "beams_per_antenna": {
+                    0: 0,
+                    1: 1
+                },
+                "beam_za_max_deg": 90.0,
+                "beam_freq_buffer_mhz": 1.0
+            },
+            "obs_frequency": {
+                "freq_min_MHz": 49.0,
+                "freq_max_MHz": 51.0
             },
             "observation": {
                 "start_time": "2024-01-01T00:00:00",
@@ -453,6 +501,7 @@ class TestBeamManager:
     def mock_antenna_data_no_beam_ids(self):
         """Antenna data WITHOUT beam_ids column."""
         return {
+            "antenna_numbers": [0, 1, 2],
             "names": np.array(["ant1", "ant2", "ant3"]),
             "positions_m": np.random.randn(3, 3),
             "beam_ids": None  # CRITICAL: None, not missing key
@@ -462,16 +511,17 @@ class TestBeamManager:
     def mock_antenna_data_with_beam_ids(self):
         """Antenna data WITH beam_ids column."""
         return {
+            "antenna_numbers": [0, 1, 2],
             "names": np.array(["ant1", "ant2", "ant3"]),
             "positions_m": np.random.randn(3, 3),
-            "beam_ids": np.array(["beam_A", "beam_B", "beam_A"])
+            "beam_ids": ["beam_A", "beam_B", "beam_A"]
         }
 
     def test_analytic_mode(self, mock_logger, mock_config_analytic, mock_antenna_data_no_beam_ids):
         """Test analytic mode - should not load any beams."""
         manager = BeamManager(mock_config_analytic, mock_antenna_data_no_beam_ids, mock_logger)
 
-        assert manager.beam_mode == "analytic"
+        assert manager.mode == "analytic"
         assert manager.beam_handlers == {}
 
     @patch('beam_file.BeamFITSHandler')
@@ -479,8 +529,8 @@ class TestBeamManager:
         """Test shared beam mode."""
         manager = BeamManager(mock_config_shared, mock_antenna_data_no_beam_ids, mock_logger)
 
-        assert manager.beam_mode == "shared"
-        assert "shared" in manager.beam_handlers
+        assert manager.mode == "shared"
+        assert 0 in manager.beam_handlers
         mock_handler_class.assert_called_once()
 
     @patch('beam_file.BeamFITSHandler')
@@ -494,16 +544,16 @@ class TestBeamManager:
         """Test per-antenna mode from layout WITH beam_ids."""
         manager = BeamManager(mock_config_per_antenna_layout, mock_antenna_data_with_beam_ids, mock_logger)
 
-        assert manager.beam_mode == "per_antenna"
+        assert manager.mode == "per_antenna"
 
         # Should create handlers for unique beam IDs
         unique_beam_ids = ["beam_A", "beam_B"]
         assert len(manager.beam_handlers) == len(unique_beam_ids)
 
-        # Should have antenna-to-beam mapping
-        assert manager.antenna_beam_map["ant1"] == "beam_A"
-        assert manager.antenna_beam_map["ant2"] == "beam_B"
-        assert manager.antenna_beam_map["ant3"] == "beam_A"
+        # Should have antenna-to-beam mapping (antenna_numbers are 0, 1, 2)
+        assert manager.antenna_to_beam[0] == "beam_A"
+        assert manager.antenna_to_beam[1] == "beam_B"
+        assert manager.antenna_to_beam[2] == "beam_A"
 
     def test_per_antenna_from_layout_without_beam_ids_raises_error(
         self,
@@ -517,7 +567,7 @@ class TestBeamManager:
         This was a critical bug: parse_rrivis_format always returns 'beam_ids' key
         but sets it to None when there's no BeamID column. We need to check for None.
         """
-        with pytest.raises(ValueError, match="beam_ids.*None.*missing"):
+        with pytest.raises(ValueError, match="use_different_beams=True but no beam assignments found"):
             BeamManager(mock_config_per_antenna_layout, mock_antenna_data_no_beam_ids, mock_logger)
 
     @patch('beam_file.BeamFITSHandler')
@@ -531,11 +581,11 @@ class TestBeamManager:
         """Test per-antenna mode from config."""
         manager = BeamManager(mock_config_per_antenna_config, mock_antenna_data_no_beam_ids, mock_logger)
 
-        assert manager.beam_mode == "per_antenna"
+        assert manager.mode == "per_antenna"
 
-        # Should have handlers for antennas in config
-        assert "ant1" in manager.antenna_beam_map
-        assert "ant2" in manager.antenna_beam_map
+        # Should have handlers for antennas in config (antenna_numbers are 0, 1, 2)
+        assert 0 in manager.antenna_to_beam
+        assert 1 in manager.antenna_to_beam
 
     @patch('beam_file.BeamFITSHandler')
     def test_get_jones_matrix_analytic_returns_none(
@@ -546,14 +596,18 @@ class TestBeamManager:
         mock_antenna_data_no_beam_ids
     ):
         """Test that analytic mode returns None for Jones matrices."""
+        from astropy.coordinates import EarthLocation
+        from astropy.time import Time
+
         manager = BeamManager(mock_config_analytic, mock_antenna_data_no_beam_ids, mock_logger)
 
         result = manager.get_jones_matrix(
-            antenna_name="ant1",
+            antenna_number=0,
             alt_rad=np.pi/4,
             az_rad=0.0,
             freq_hz=50e6,
-            reuse_spline=False
+            location=EarthLocation(lat=0*u.deg, lon=0*u.deg, height=0*u.m),
+            time=Time("2024-01-01T00:00:00")
         )
 
         assert result is None
@@ -567,6 +621,9 @@ class TestBeamManager:
         mock_antenna_data_no_beam_ids
     ):
         """Test getting Jones matrix in shared beam mode."""
+        from astropy.coordinates import EarthLocation
+        from astropy.time import Time
+
         # Setup mock handler
         mock_handler = Mock()
         mock_handler.get_jones_matrix.return_value = np.eye(2, dtype=complex)
@@ -574,14 +631,18 @@ class TestBeamManager:
 
         manager = BeamManager(mock_config_shared, mock_antenna_data_no_beam_ids, mock_logger)
 
-        # All antennas should use shared beam
-        for ant_name in ["ant1", "ant2", "ant3"]:
+        location = EarthLocation(lat=0*u.deg, lon=0*u.deg, height=0*u.m)
+        time = Time("2024-01-01T00:00:00")
+
+        # All antennas should use shared beam (antenna_numbers are 0, 1, 2)
+        for ant_num in [0, 1, 2]:
             result = manager.get_jones_matrix(
-                antenna_name=ant_name,
+                antenna_number=ant_num,
                 alt_rad=np.pi/4,
                 az_rad=0.0,
                 freq_hz=50e6,
-                reuse_spline=False
+                location=location,
+                time=time
             )
 
             assert result is not None
@@ -597,11 +658,14 @@ class TestBeamManager:
         mock_antenna_data_with_beam_ids
     ):
         """Test getting Jones matrix in per-antenna mode."""
+        from astropy.coordinates import EarthLocation
+        from astropy.time import Time
+
         # Setup mock handlers
-        def create_mock_handler(config, beam_id):
+        def create_mock_handler(beam_path, config, logger):
             mock = Mock()
-            # Different beams return different values
-            if beam_id == "beam_A":
+            # Different beams return different values based on path
+            if "beam_A" in beam_path:
                 mock.get_jones_matrix.return_value = np.eye(2, dtype=complex) * 1.0
             else:  # beam_B
                 mock.get_jones_matrix.return_value = np.eye(2, dtype=complex) * 0.5
@@ -611,32 +675,38 @@ class TestBeamManager:
 
         manager = BeamManager(mock_config_per_antenna_layout, mock_antenna_data_with_beam_ids, mock_logger)
 
-        # ant1 and ant3 should use beam_A
+        location = EarthLocation(lat=0*u.deg, lon=0*u.deg, height=0*u.m)
+        time = Time("2024-01-01T00:00:00")
+
+        # antenna 0 and antenna 2 should use beam_A
         result1 = manager.get_jones_matrix(
-            antenna_name="ant1",
+            antenna_number=0,
             alt_rad=np.pi/4,
             az_rad=0.0,
             freq_hz=50e6,
-            reuse_spline=False
+            location=location,
+            time=time
         )
         assert np.allclose(result1, np.eye(2) * 1.0)
 
         result3 = manager.get_jones_matrix(
-            antenna_name="ant3",
+            antenna_number=2,
             alt_rad=np.pi/4,
             az_rad=0.0,
             freq_hz=50e6,
-            reuse_spline=False
+            location=location,
+            time=time
         )
         assert np.allclose(result3, np.eye(2) * 1.0)
 
-        # ant2 should use beam_B
+        # antenna 1 should use beam_B
         result2 = manager.get_jones_matrix(
-            antenna_name="ant2",
+            antenna_number=1,
             alt_rad=np.pi/4,
             az_rad=0.0,
             freq_hz=50e6,
-            reuse_spline=False
+            location=location,
+            time=time
         )
         assert np.allclose(result2, np.eye(2) * 0.5)
 
@@ -647,16 +717,23 @@ class TestBeamManager:
         mock_antenna_data_no_beam_ids
     ):
         """Test that querying unknown antenna raises error."""
+        from astropy.coordinates import EarthLocation
+        from astropy.time import Time
+
         manager = BeamManager(mock_config_analytic, mock_antenna_data_no_beam_ids, mock_logger)
 
-        # Even in analytic mode, should validate antenna name
+        location = EarthLocation(lat=0*u.deg, lon=0*u.deg, height=0*u.m)
+        time = Time("2024-01-01T00:00:00")
+
+        # Even in analytic mode, should validate antenna number
         # (though it returns None, it should at least not crash)
         result = manager.get_jones_matrix(
-            antenna_name="unknown_antenna",
+            antenna_number=999,
             alt_rad=np.pi/4,
             az_rad=0.0,
             freq_hz=50e6,
-            reuse_spline=False
+            location=location,
+            time=time
         )
 
         # In analytic mode, should return None even for unknown antenna
@@ -682,11 +759,24 @@ class TestIntegration:
         2. Jones matrices have correct ordering
         3. Azimuth conversion is applied
         """
+        from astropy.coordinates import EarthLocation
+        from astropy.time import Time
+
         # Setup config
         config = {
             "beams": {
-                "beam_mode": "per_antenna",
-                "beam_assignment": "from_layout"
+                "use_beam_file": True,
+                "use_different_beams": True,
+                "beam_files": {
+                    "beam_A": "/mock/beam_A.fits",
+                    "beam_B": "/mock/beam_B.fits"
+                },
+                "beam_za_max_deg": 90.0,
+                "beam_freq_buffer_mhz": 1.0
+            },
+            "obs_frequency": {
+                "freq_min_MHz": 49.0,
+                "freq_max_MHz": 51.0
             },
             "observation": {
                 "start_time": "2024-01-01T00:00:00",
@@ -698,15 +788,16 @@ class TestIntegration:
 
         # Setup antenna data with beam IDs
         antenna_data = {
+            "antenna_numbers": [0, 1],
             "names": np.array(["ant1", "ant2"]),
             "positions_m": np.random.randn(2, 3),
-            "beam_ids": np.array(["beam_A", "beam_B"])
+            "beam_ids": ["beam_A", "beam_B"]
         }
 
         # Create mock handlers that return different Jones matrices
-        def create_mock_handler(cfg, beam_id):
+        def create_mock_handler(beam_path, cfg, logger):
             mock = Mock()
-            if beam_id == "beam_A":
+            if "beam_A" in beam_path:
                 # Beam A: stronger in X-pol
                 jones = np.array([
                     [1.0 + 0j, 0.1 + 0j],
@@ -732,9 +823,12 @@ class TestIntegration:
         az_rad = np.radians(45)
         freq_hz = 50e6
 
+        location = EarthLocation(lat=0*u.deg, lon=0*u.deg, height=0*u.m)
+        time = Time("2024-01-01T00:00:00")
+
         # Get Jones matrices
-        E1 = manager.get_jones_matrix("ant1", alt_rad, az_rad, freq_hz, False)
-        E2 = manager.get_jones_matrix("ant2", alt_rad, az_rad, freq_hz, False)
+        E1 = manager.get_jones_matrix(0, alt_rad, az_rad, freq_hz, location, time)
+        E2 = manager.get_jones_matrix(1, alt_rad, az_rad, freq_hz, location, time)
 
         # Verify shapes
         assert E1.shape == (2, 2)
