@@ -14,7 +14,7 @@ from bokeh.models import (
     ColumnDataSource,
 )
 from bokeh.layouts import gridplot
-from plot import _persist_bokeh_document
+from rrivis.visualization.bokeh_plots import _persist_bokeh_document
 
 
 def diffused_sky_model(

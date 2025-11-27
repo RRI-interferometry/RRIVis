@@ -1,4 +1,4 @@
-# src/visibility.py
+# rrivis/core/visibility.py
 """
 Visibility calculation using the Radio Interferometer Measurement Equation (RIME).
 
@@ -12,14 +12,14 @@ import astropy.units as au
 import logging
 
 # Import polarization utilities
-from src.polarization import (
+from rrivis.core.polarization import (
     stokes_to_coherency,
     apply_jones_matrices,
     visibility_to_correlations
 )
 
 # Import analytic beam patterns for fallback
-from beams import (
+from rrivis.core.beams import (
     gaussian_A_theta_EBeam,
     airy_disk_pattern,
     cosine_tapered_pattern,

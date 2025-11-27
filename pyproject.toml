@@ -1,0 +1,226 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rrivis"
+version = "0.2.0"
+description = "Radio Astronomy Visibility Simulator with GPU support"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Kartik Mandar", email = "mandarkartik@gmail.com"}
+]
+keywords = [
+    "radio-astronomy",
+    "interferometry",
+    "visibility",
+    "simulation",
+    "gpu",
+    "rime",
+    "hera",
+    "polarization"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "astropy>=5.0",
+    "scipy>=1.10",
+    "healpy>=1.16",
+    "h5py>=3.8",
+    "PyYAML>=6.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "astroquery>=0.4",
+    "pygdsm>=1.5",
+    "pyuvdata>=2.4",
+    "bokeh>=3.0",
+    "matplotlib>=3.7",
+    "plotly>=5.14",
+    "tqdm>=4.65",
+    "pympler>=1.0",
+]
+
+[project.optional-dependencies]
+# GPU support via JAX (all vendors)
+gpu = [
+    "jax>=0.4.20",
+    "jaxlib>=0.4.20",
+]
+
+# NVIDIA GPU (CUDA 12)
+gpu-cuda = [
+    "jax[cuda12]>=0.4.20",
+]
+
+# AMD GPU (ROCm)
+gpu-rocm = [
+    "jax[rocm]>=0.4.20",
+]
+
+# Google TPU
+tpu = [
+    "jax[tpu]>=0.4.20",
+]
+
+# Numba backend (production)
+numba = [
+    "numba>=0.58",
+    "dask[complete]>=2024.1.0",
+]
+
+# Measurement Set I/O
+ms = [
+    "dask-ms>=0.2.20",
+    "python-casacore>=3.5",
+    "xarray>=2023.1",
+]
+
+# Development dependencies
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "black>=23.0",
+    "ruff>=0.1",
+    "mypy>=1.7",
+    "ipython>=8.12",
+    "jupyter>=1.0",
+]
+
+# Documentation
+docs = [
+    "sphinx>=7.0",
+    "sphinx-rtd-theme>=2.0",
+    "myst-parser>=2.0",
+    "numpydoc>=1.6",
+]
+
+# All extras (development)
+all = [
+    "rrivis[gpu,numba,ms,dev,docs]",
+]
+
+[project.urls]
+Homepage = "https://github.com/kartikmandar/RRIvis"
+Documentation = "https://rrivis.readthedocs.io"
+Repository = "https://github.com/kartikmandar/RRIvis"
+Issues = "https://github.com/kartikmandar/RRIvis/issues"
+
+[project.scripts]
+rrivis = "rrivis.cli.main:main"
+rrivis-migrate = "rrivis.cli.migrate:cli_migrate"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+rrivis = ["py.typed"]
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ["py311", "py312"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+    | \.mypy_cache
+    | \.pytest_cache
+    | \.venv
+    | build
+    | dist
+)/
+'''
+
+# Ruff configuration
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # Line too long (handled by black)
+    "B008",  # Do not perform function calls in argument defaults
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["rrivis"]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "astropy.*",
+    "healpy.*",
+    "pyuvdata.*",
+    "astroquery.*",
+    "pygdsm.*",
+    "bokeh.*",
+    "plotly.*",
+]
+ignore_missing_imports = true
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src/rrivis"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

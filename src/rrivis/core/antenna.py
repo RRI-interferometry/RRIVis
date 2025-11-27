@@ -1,4 +1,4 @@
-# src/antenna.py
+# rrivis/core/antenna.py
 import sys
 import os
 import re

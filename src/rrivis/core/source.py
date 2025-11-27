@@ -1,4 +1,4 @@
-# src/source.py
+# rrivis/core/source.py
 
 from astropy.coordinates import SkyCoord
 import astropy.units as au

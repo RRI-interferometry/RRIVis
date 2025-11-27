@@ -1,4 +1,4 @@
-# beam_file.py
+# rrivis/core/beam_file.py
 """
 Beam FITS file handling using pyuvdata UVBeam.
 

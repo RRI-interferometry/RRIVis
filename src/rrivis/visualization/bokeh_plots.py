@@ -1,4 +1,4 @@
-# src/plot.py
+# rrivis/visualization/bokeh_plots.py
 
 from bokeh.plotting import figure
 from bokeh.palettes import Turbo256, Inferno256

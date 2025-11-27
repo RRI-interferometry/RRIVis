@@ -1,4 +1,4 @@
-# src/observation.py
+# rrivis/core/observation.py
 
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
