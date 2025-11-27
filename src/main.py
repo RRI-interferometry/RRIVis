@@ -1,4 +1,6 @@
 # src/main.py
+# DEPRECATED: This legacy entry point will be removed in v0.3.0
+# Use the new CLI instead: rrivis simulate config.yaml
 
 # Standard Library imports
 import os
@@ -8,7 +10,16 @@ from datetime import datetime, timezone
 import sys
 import logging
 import argparse
+import warnings
 from pathlib import Path
+
+# Show deprecation warning
+warnings.warn(
+    "src/main.py is deprecated and will be removed in v0.3.0. "
+    "Please use the new CLI: 'rrivis simulate config.yaml' or 'pixi run simulate config.yaml'",
+    DeprecationWarning,
+    stacklevel=1,
+)
 
 # Third-party imports
 import yaml
@@ -19,8 +30,8 @@ import matplotlib.pyplot as plt
 import h5py
 import shutil
 
-# Local module imports
-from beams import (
+# Local module imports - updated to use new package structure
+from rrivis.core.beams import (
     calculate_hpbw_radians,
     calculate_gaussian_beam_area_EBeam,
     AntennaType,
@@ -31,22 +42,22 @@ from beams import (
     calculate_cosine_beam_area,
     calculate_exponential_beam_area,
 )
-from antenna import read_antenna_positions
-from baseline import generate_baselines
-from source import get_sources
-from observation import get_location_and_time
-from visibility import (
+from rrivis.core.antenna import read_antenna_positions
+from rrivis.core.baseline import generate_baselines
+from rrivis.core.source import get_sources
+from rrivis.core.observation import get_location_and_time
+from rrivis.core.visibility import (
     calculate_visibility,
     calculate_modulus_phase,
 )
-from gsm_map import diffused_sky_model
-from plot import (
+from rrivis.visualization.gsm_plots import diffused_sky_model
+from rrivis.visualization.bokeh_plots import (
     plot_visibility,
     plot_heatmaps,
     plot_modulus_vs_frequency,
     plot_antenna_layout,
 )
-from src.beam_file import BeamManager
+from rrivis.core.beam_file import BeamManager
 
 
 """

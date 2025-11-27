@@ -1,4 +1,4 @@
-# polarization.py
+# rrivis/core/polarization.py
 """
 Polarization utilities for Jones matrices and coherency matrices.
 

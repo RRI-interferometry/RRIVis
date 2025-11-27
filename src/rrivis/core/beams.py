@@ -1,4 +1,4 @@
-# beams.py
+# rrivis/core/beams.py
 """
 Beam pattern and HPBW calculation functions for various antenna types.
 
