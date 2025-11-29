@@ -5,7 +5,7 @@ Tests different antenna file formats are properly loaded.
 
 import pytest
 from pathlib import Path
-from antenna import read_antenna_positions
+from rrivis.core.antenna import read_antenna_positions
 
 # Get the antenna_layout_examples directory
 DATA_DIR = Path(__file__).parent.parent / "antenna_layout_examples"

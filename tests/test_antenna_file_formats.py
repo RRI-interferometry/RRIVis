@@ -22,10 +22,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from src.antenna import (
+from rrivis.core.antenna import (
     read_antenna_positions,
     read_rrivis_format,
     read_casa_format,
@@ -485,7 +482,7 @@ class TestIntegration:
 
     def test_format_readers_imported_successfully(self):
         """Verify all format readers are imported and available."""
-        from src.antenna import (
+        from rrivis.core.antenna import (
             read_rrivis_format,
             read_casa_format,
             read_pyuvdata_format,

@@ -12,7 +12,7 @@ Validates:
 
 import numpy as np
 import pytest
-from polarization import (
+from rrivis.core.polarization import (
     stokes_to_coherency,
     coherency_to_stokes,
     apply_jones_matrices,

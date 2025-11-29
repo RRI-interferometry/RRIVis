@@ -1,7 +1,7 @@
 # test/test_baseline.py
 import unittest
 import numpy as np
-from baseline import generate_baselines
+from rrivis.core.baseline import generate_baselines
 
 
 class TestBaseline(unittest.TestCase):

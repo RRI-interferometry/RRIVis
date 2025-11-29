@@ -5,7 +5,7 @@ import numpy as np
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
 import astropy.units as u
-from visibility import calculate_visibility
+from rrivis.core.visibility import calculate_visibility
 import sys
 
 
