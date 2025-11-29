@@ -2,7 +2,7 @@
 import numpy as np
 from astropy.time import Time
 from bokeh.layouts import LayoutDOM
-from src.plot import plot_visibility, plot_heatmaps
+from rrivis.visualization.bokeh_plots import plot_visibility, plot_heatmaps
 
 
 def test_plot_visibility():

@@ -1,7 +1,7 @@
 # tests/test_observation.py
 
 import unittest
-from src.observation import get_location_and_time
+from rrivis.core.observation import get_location_and_time
 from astropy.time import Time
 import astropy.units as u
 
