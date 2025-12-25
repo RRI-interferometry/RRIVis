@@ -1,0 +1,42 @@
+/* Custom CSS for RRIvis documentation */
+
+/* Code block styling */
+.highlight {
+    border-radius: 4px;
+}
+
+/* Table styling */
+table.docutils {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+table.docutils td,
+table.docutils th {
+    padding: 8px 12px;
+}
+
+/* Admonition styling */
+.admonition {
+    border-radius: 4px;
+}
+
+/* API reference styling */
+dl.py.class > dt,
+dl.py.function > dt,
+dl.py.method > dt {
+    background: #f5f5f5;
+    padding: 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
+/* Parameter list styling */
+.field-list {
+    margin-top: 16px;
+}
+
+/* Math equation styling */
+.math {
+    font-size: 1.1em;
+}

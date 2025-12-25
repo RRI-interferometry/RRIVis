@@ -42,7 +42,12 @@ from rrivis.api.simulator import Simulator
 from rrivis.backends import get_backend, list_backends
 
 # Simulator selection
-from rrivis.simulator import get_simulator, list_simulators
+from rrivis.simulator import (
+    get_simulator,
+    list_simulators,
+    VisibilitySimulator,
+    RIMESimulator,
+)
 
 # Core functions (for advanced users)
 # Note: These imports may fail until import updates are complete
@@ -76,6 +81,8 @@ __all__ = [
     # Simulator selection
     "get_simulator",
     "list_simulators",
+    "VisibilitySimulator",
+    "RIMESimulator",
     # Core functions (when available)
     "calculate_visibility",
     "read_antenna_positions",
