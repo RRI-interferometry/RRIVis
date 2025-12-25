@@ -31,6 +31,17 @@ from rrivis.core.source import (
     load_gsm2008,
 )
 from rrivis.core.visibility import calculate_visibility
+from rrivis.core.precision import (
+    PrecisionConfig,
+    PrecisionLevel,
+    CoordinatePrecision,
+    JonesPrecision,
+    resolve_precision,
+    get_real_dtype,
+    get_complex_dtype,
+    FLOAT128_AVAILABLE,
+    COMPLEX256_AVAILABLE,
+)
 
 __all__ = [
     # Antenna
@@ -61,4 +72,14 @@ __all__ = [
     "load_gsm2008",
     # Visibility
     "calculate_visibility",
+    # Precision
+    "PrecisionConfig",
+    "PrecisionLevel",
+    "CoordinatePrecision",
+    "JonesPrecision",
+    "resolve_precision",
+    "get_real_dtype",
+    "get_complex_dtype",
+    "FLOAT128_AVAILABLE",
+    "COMPLEX256_AVAILABLE",
 ]

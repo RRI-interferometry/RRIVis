@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rrivis"
 version = "0.2.0"
-description = "Radio Astronomy Visibility Simulator with GPU support"
+description = "Radio interferometric Visibility Simulator"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "Kartik Mandar", email = "mandarkartik@gmail.com"}
+    {name = "Kartik Mandar", email = "kartik4321mandar@gmail.com"}
 ]
 keywords = [
     "radio-astronomy",
@@ -140,10 +140,22 @@ python_functions = ["test_*"]
 addopts = [
     "-v",
     "--tb=short",
+    "--doctest-modules",
+]
+doctest_optionflags = [
+    "NORMALIZE_WHITESPACE",
+    "IGNORE_EXCEPTION_DETAIL",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
+    "ignore:cannot collect test class.*SourcesConfig.*:pytest.PytestCollectionWarning",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "gpu: marks tests that require GPU (deselect with '-m \"not gpu\"')",
+    "integration: marks integration tests",
+    "performance: marks performance/benchmark tests",
 ]
 
 # Black configuration
@@ -224,3 +236,9 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
 ]
+fail_under = 70
+show_missing = true
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov"

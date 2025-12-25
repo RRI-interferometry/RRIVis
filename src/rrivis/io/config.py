@@ -1,6 +1,53 @@
-"""Pydantic-based configuration management for RRIvis.
+"""
+Pydantic-based configuration management for RRIvis.
 
-Provides type-safe configuration loading, validation, and serialization.
+This module provides type-safe configuration loading, validation, and
+serialization using Pydantic models. Configuration can be loaded from
+YAML files or created programmatically.
+
+Classes
+-------
+RRIvisConfig
+    Main configuration container with all simulation settings.
+TelescopeConfig
+    Telescope identification and pyuvdata integration settings.
+AntennaLayoutConfig
+    Antenna positions, diameters, and types.
+BeamsConfig
+    Beam pattern configuration (analytic or FITS).
+ObsFrequencyConfig
+    Observation frequency band settings.
+ObsTimeConfig
+    Observation timing settings.
+SkyModelConfig
+    Sky model selection (GLEAM, GSM, test sources).
+OutputConfig
+    Output file settings.
+
+Functions
+---------
+load_config
+    Load and validate configuration from YAML file.
+create_default_config
+    Create a default configuration template file.
+
+Examples
+--------
+Load configuration from file:
+
+>>> from rrivis.io.config import load_config
+>>> config = load_config("simulation.yaml")
+>>> print(config.telescope.telescope_name)
+'HERA'
+
+Create configuration programmatically:
+
+>>> from rrivis.io.config import RRIvisConfig, TelescopeConfig
+>>> config = RRIvisConfig(
+...     telescope=TelescopeConfig(telescope_name="MWA"),
+...     obs_frequency={"starting_frequency": 150.0},
+... )
+>>> config.to_yaml("output_config.yaml")
 """
 
 from pathlib import Path
@@ -123,13 +170,17 @@ class LocationConfig(BaseModel):
     height: Union[float, str] = Field("", description="Height (meters)")
 
 
-class TestSourcesConfig(BaseModel):
-    """Test sources configuration."""
+class SyntheticSourcesConfig(BaseModel):
+    """Synthetic/test sources configuration."""
 
     use_test_sources: bool = Field(False, description="Use test sources")
     num_sources: int = Field(100, ge=1, description="Number of test sources")
     flux_limit: float = Field(50.0, ge=0, description="Flux limit (Jy)")
     nside: int = Field(32, ge=1, description="HEALPix nside")
+
+
+# Alias for backward compatibility
+TestSourcesConfig = SyntheticSourcesConfig
 
 
 class GSMConfig(BaseModel):
@@ -153,8 +204,8 @@ class GLEAMConfig(BaseModel):
 class SkyModelConfig(BaseModel):
     """Sky model configuration."""
 
-    test_sources: TestSourcesConfig = Field(default_factory=TestSourcesConfig)
-    test_sources_healpix: TestSourcesConfig = Field(default_factory=TestSourcesConfig)
+    test_sources: SyntheticSourcesConfig = Field(default_factory=SyntheticSourcesConfig)
+    test_sources_healpix: SyntheticSourcesConfig = Field(default_factory=SyntheticSourcesConfig)
     gsm_healpix: GSMConfig = Field(default_factory=GSMConfig)
     gleam: GLEAMConfig = Field(default_factory=GLEAMConfig)
     gleam_healpix: GLEAMConfig = Field(default_factory=GLEAMConfig)
@@ -225,6 +276,137 @@ class SimulatorsConfig(BaseModel):
     name: str = Field("", description="Simulator name")
 
 
+class CoordinatePrecisionConfig(BaseModel):
+    """Precision settings for coordinate calculations."""
+
+    antenna_positions: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="Antenna position precision"
+    )
+    source_positions: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="Source coordinate precision"
+    )
+    direction_cosines: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="Direction cosine (l,m,n) precision"
+    )
+    uvw: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="Baseline UVW coordinate precision"
+    )
+
+
+class JonesPrecisionConfig(BaseModel):
+    """Precision settings for Jones matrix calculations."""
+
+    geometric_phase: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="K term (geometric delay) - CRITICAL"
+    )
+    beam: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="E term (primary beam)"
+    )
+    ionosphere: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="Z term (ionosphere)"
+    )
+    troposphere: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="T term (troposphere)"
+    )
+    parallactic: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="P term (parallactic angle)"
+    )
+    gain: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="G term (antenna gains)"
+    )
+    bandpass: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="B term (bandpass)"
+    )
+    polarization_leakage: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="D term (polarization leakage)"
+    )
+
+
+class PrecisionConfigSchema(BaseModel):
+    """Precision configuration for numerical computations.
+
+    Controls the precision of different computation stages. Using lower
+    precision (float32) can improve performance and reduce memory, while
+    higher precision (float128) improves accuracy for critical paths.
+
+    Presets can be specified using the `preset` field:
+    - "standard": float64 everywhere (default)
+    - "fast": float32 where safe, float64 for critical paths
+    - "precise": float128 for critical paths, float64 elsewhere
+    - "ultra": float128 everywhere (slow, NumPy only)
+
+    Or configure each component individually for granular control.
+    """
+
+    preset: Optional[Literal["standard", "fast", "precise", "ultra"]] = Field(
+        None, description="Use a precision preset (overrides other settings)"
+    )
+    default: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="Default precision level"
+    )
+    coordinates: CoordinatePrecisionConfig = Field(
+        default_factory=CoordinatePrecisionConfig,
+        description="Coordinate precision settings"
+    )
+    jones: JonesPrecisionConfig = Field(
+        default_factory=JonesPrecisionConfig,
+        description="Jones matrix precision settings"
+    )
+    accumulation: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="Visibility accumulation precision"
+    )
+    output: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="Output visibility precision"
+    )
+
+    def to_precision_config(self):
+        """Convert to rrivis.core.precision.PrecisionConfig.
+
+        Returns
+        -------
+        PrecisionConfig
+            The precision configuration object.
+        """
+        from rrivis.core.precision import (
+            PrecisionConfig,
+            CoordinatePrecision,
+            JonesPrecision,
+        )
+
+        # If preset is specified, use it
+        if self.preset:
+            presets = {
+                "standard": PrecisionConfig.standard,
+                "fast": PrecisionConfig.fast,
+                "precise": PrecisionConfig.precise,
+                "ultra": PrecisionConfig.ultra,
+            }
+            return presets[self.preset]()
+
+        # Otherwise build from individual settings
+        return PrecisionConfig(
+            default=self.default,
+            coordinates=CoordinatePrecision(
+                antenna_positions=self.coordinates.antenna_positions,
+                source_positions=self.coordinates.source_positions,
+                direction_cosines=self.coordinates.direction_cosines,
+                uvw=self.coordinates.uvw,
+            ),
+            jones=JonesPrecision(
+                geometric_phase=self.jones.geometric_phase,
+                beam=self.jones.beam,
+                ionosphere=self.jones.ionosphere,
+                troposphere=self.jones.troposphere,
+                parallactic=self.jones.parallactic,
+                gain=self.jones.gain,
+                bandpass=self.jones.bandpass,
+                polarization_leakage=self.jones.polarization_leakage,
+            ),
+            accumulation=self.accumulation,
+            output=self.output,
+        )
+
+
 class RRIvisConfig(BaseModel):
     """Main RRIvis configuration with validation.
 
@@ -250,6 +432,10 @@ class RRIvisConfig(BaseModel):
     obs_frequency: ObsFrequencyConfig = Field(default_factory=ObsFrequencyConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     simulators: SimulatorsConfig = Field(default_factory=SimulatorsConfig)
+    precision: Optional[PrecisionConfigSchema] = Field(
+        None,
+        description="Precision configuration for numerical computations"
+    )
 
     model_config = {
         "extra": "allow",  # Allow extra fields for forward compatibility
@@ -309,23 +495,64 @@ class RRIvisConfig(BaseModel):
 
 def load_config(config_path: Union[str, Path]) -> RRIvisConfig:
     """
-    Load and validate configuration from file.
+    Load and validate configuration from YAML file.
 
-    Args:
-        config_path: Path to YAML configuration file
+    Parameters
+    ----------
+    config_path : str or Path
+        Path to YAML configuration file.
 
-    Returns:
-        Validated RRIvisConfig instance
+    Returns
+    -------
+    RRIvisConfig
+        Validated configuration instance with all defaults filled in.
+
+    Raises
+    ------
+    FileNotFoundError
+        If configuration file does not exist.
+    ValueError
+        If configuration file contains invalid values.
+
+    Examples
+    --------
+    >>> config = load_config("simulation_config.yaml")
+    >>> print(config.telescope.telescope_name)
+    'HERA'
+    >>> print(config.obs_frequency.n_channels)
+    50
+
+    See Also
+    --------
+    create_default_config : Create a default configuration file.
+    RRIvisConfig : Main configuration class.
     """
     return RRIvisConfig.from_yaml(config_path)
 
 
 def create_default_config(output_path: Union[str, Path]) -> None:
     """
-    Create a default configuration file.
+    Create a default configuration file with all options documented.
 
-    Args:
-        output_path: Path to write default config
+    Parameters
+    ----------
+    output_path : str or Path
+        Path where the default configuration file will be written.
+
+    Examples
+    --------
+    >>> create_default_config("my_config.yaml")
+    >>> # Edit the file and load it
+    >>> config = load_config("my_config.yaml")
+
+    Notes
+    -----
+    The created file contains all configuration options with their
+    default values, making it a useful template for customization.
+
+    See Also
+    --------
+    load_config : Load configuration from file.
     """
     config = RRIvisConfig()
     config.to_yaml(output_path)
