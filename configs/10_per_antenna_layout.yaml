@@ -17,7 +17,7 @@ antenna_layout:
   # Example:
   #   ANT001  0  beam_dipole  0.0  0.0  0.0  4.0
   #   ANT002  1  beam_dish    10.0 0.0  0.0  14.0
-  antenna_positions_file: "/Volumes/Crucial X8/repos/RRIvis/antenna_layout_examples/example_with_beamids.txt"
+  antenna_positions_file: "antenna_layout_examples/example_rrivis_format.txt"
   antenna_file_format: "rrivis"
   use_different_antenna_types: false
   all_antenna_type: "parabolic_10db_taper"

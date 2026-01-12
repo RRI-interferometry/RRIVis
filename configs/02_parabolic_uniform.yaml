@@ -7,7 +7,7 @@
 # - Narrowest beam (k=1.02)
 
 antenna_layout:
-  antenna_positions_file: "/Volumes/Crucial X8/repos/RRIvis/antenna_layout_examples/example_casa_format.cfg"
+  antenna_positions_file: "antenna_layout_examples/example_casa_format.cfg"
   antenna_file_format: "casa"
   use_different_antenna_types: false
   all_antenna_type: "parabolic_uniform"  # Ideal uniform illumination
