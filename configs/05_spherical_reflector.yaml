@@ -7,7 +7,7 @@
 # - Used in: FAST (China), former Arecibo
 
 antenna_layout:
-  antenna_positions_file: "/Volumes/Crucial X8/repos/RRIvis/antenna_layout_examples/example_rrivis_format.txt"
+  antenna_positions_file: "antenna_layout_examples/example_rrivis_format.txt"
   antenna_file_format: "rrivis"
   use_different_antenna_types: false
   all_antenna_type: "spherical_gaussian"  # Spherical with Gaussian taper

@@ -8,7 +8,7 @@
 # - No diameter dependency for HPBW
 
 antenna_layout:
-  antenna_positions_file: "/Volumes/Crucial X8/repos/RRIvis/antenna_layout_examples/example_pyuvdata_format.txt"
+  antenna_positions_file: "antenna_layout_examples/example_pyuvdata_format.txt"
   antenna_file_format: "pyuvdata"
   use_different_antenna_types: false
   all_antenna_type: "dipole_short"  # Short dipole (L << λ)
