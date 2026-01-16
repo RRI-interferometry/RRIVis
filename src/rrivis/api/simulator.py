@@ -48,6 +48,16 @@ import astropy.units as u
 from astropy.constants import c as speed_of_light
 
 from rrivis.__about__ import __version__
+from rrivis.utils.logging import (
+    console,
+    print_header,
+    print_success,
+    print_table,
+    print_info,
+    print_warning,
+    get_progress,
+    status,
+)
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -155,6 +165,8 @@ class Simulator:
         self._antennas: Optional[Dict] = None
         self._baselines: Optional[Dict] = None
         self._sources: Optional[List] = None
+        self._sky_model = None  # SkyModel for healpix_map representation
+        self._sky_representation: str = "point_sources"  # Default sky representation
         self._location = None
         self._obstime = None
         self._frequencies_hz: Optional[np.ndarray] = None
@@ -190,8 +202,9 @@ class Simulator:
             config["antenna_layout"] = {
                 "antenna_positions_file": str(antenna_layout),
                 "antenna_file_format": "rrivis",
-                "all_antenna_type": "parabolic",
+                "all_antenna_type": "parabolic",  # Options: parabolic, spherical, phased_array, dipole
                 "all_antenna_diameter": 14.0,
+                "illumination_taper": "10db",  # Options: uniform, cosine, gaussian, 10db, 20db
             }
 
         if frequencies:
@@ -316,34 +329,36 @@ class Simulator:
         # Import core modules
         from rrivis.core.antenna import read_antenna_positions
         from rrivis.core.baseline import generate_baselines
-        from rrivis.core.source import get_sources
         from rrivis.core.observation import get_location_and_time
-        from rrivis.core.beams import calculate_hpbw_radians
+        from rrivis.core.beams import calculate_hpbw_for_antenna_type, AntennaType
         from rrivis.backends import get_backend
         from rrivis.simulator import get_simulator
 
-        logger.info("Setting up simulation...")
+        print_info("Setting up simulation...")
 
         # Initialize backend with precision
         self._backend = get_backend(self._backend_name, precision=self._precision)
-        logger.info(f"Using backend: {self._backend.name}")
+        logger.debug(f"Using backend: {self._backend.name}")
         if self._backend.precision:
-            logger.info(f"Precision: {self._backend.precision.default}")
+            logger.debug(f"Precision: {self._backend.precision.default}")
 
         # Initialize simulator
         self._simulator = get_simulator(self._simulator_name)
-        logger.info(f"Using simulator: {self._simulator.name} ({self._simulator.complexity})")
+        logger.debug(f"Using simulator: {self._simulator.name} ({self._simulator.complexity})")
 
         # Load antenna positions
         antenna_config = self.config.get("antenna_layout", {})
         antenna_file = antenna_config.get("antenna_positions_file")
 
         if antenna_file:
+            # Only show verbose output if logger is at DEBUG level
+            verbose = logger.isEnabledFor(logging.DEBUG)
             self._antennas = read_antenna_positions(
                 antenna_file,
                 format_type=antenna_config.get("antenna_file_format", "rrivis"),
+                verbose=verbose,
             )
-            logger.info(f"Loaded {len(self._antennas)} antennas from {antenna_file}")
+            logger.debug(f"Loaded {len(self._antennas)} antennas from {antenna_file}")
         else:
             raise ValueError("No antenna_positions_file specified in config")
 
@@ -366,8 +381,9 @@ class Simulator:
             self._antennas,
             beams_per_antenna,
             beam_response_per_antenna,
+            verbose=verbose,
         )
-        logger.info(f"Generated {len(self._baselines)} baselines")
+        logger.debug(f"Generated {len(self._baselines)} baselines")
 
         # Get location and observation time
         loc_config = self.config.get("location", {})
@@ -405,38 +421,154 @@ class Simulator:
         # Calculate wavelengths
         self._wavelengths = (speed_of_light / (self._frequencies_hz * u.Hz)).to(u.m)
 
-        logger.info(f"Frequencies: {len(self._frequencies_hz)} channels, "
-                    f"{self._frequencies_hz[0]/1e6:.1f} - {self._frequencies_hz[-1]/1e6:.1f} MHz")
+        logger.debug(f"Frequencies: {len(self._frequencies_hz)} channels, "
+                     f"{self._frequencies_hz[0]/1e6:.1f} - {self._frequencies_hz[-1]/1e6:.1f} MHz")
 
-        # Calculate HPBW per antenna
-        # calculate_hpbw_radians(frequencies_hz, dish_diameter) returns array of HPBW in radians
+        # Calculate HPBW per antenna using antenna-type-specific coefficients
+        # Map config antenna type strings to AntennaType constants
+        # This provides more accurate HPBW values based on illumination pattern
+        antenna_type_mapping = {
+            # Simple names map to standard 10dB taper (most common)
+            "parabolic": AntennaType.PARABOLIC_10DB,
+            "dish": AntennaType.PARABOLIC_10DB,
+            # Specific illumination patterns
+            "parabolic_uniform": AntennaType.PARABOLIC_UNIFORM,
+            "parabolic_cosine": AntennaType.PARABOLIC_COSINE,
+            "parabolic_gaussian": AntennaType.PARABOLIC_GAUSSIAN,
+            "parabolic_10db": AntennaType.PARABOLIC_10DB,
+            "parabolic_10db_taper": AntennaType.PARABOLIC_10DB,
+            "parabolic_20db": AntennaType.PARABOLIC_20DB,
+            "parabolic_20db_taper": AntennaType.PARABOLIC_20DB,
+            # Spherical reflectors (FAST, Arecibo)
+            "spherical": AntennaType.SPHERICAL_GAUSSIAN,
+            "spherical_uniform": AntennaType.SPHERICAL_UNIFORM,
+            "spherical_gaussian": AntennaType.SPHERICAL_GAUSSIAN,
+            # Phased arrays (MWA, LOFAR, SKA-Low)
+            "phased_array": AntennaType.PHASED_ARRAY,
+            "array": AntennaType.PHASED_ARRAY,
+            # Dipoles (HERA, MWA elements)
+            "dipole": AntennaType.DIPOLE_SHORT,
+            "dipole_short": AntennaType.DIPOLE_SHORT,
+            "dipole_halfwave": AntennaType.DIPOLE_HALFWAVE,
+            "dipole_folded": AntennaType.DIPOLE_FOLDED,
+        }
+
+        # Get the antenna type string from config (default: parabolic with 10dB taper)
+        config_antenna_type = antenna_config.get("all_antenna_type", "parabolic")
+        illumination_type = antenna_config.get("illumination_taper", None)
+
+        # If illumination_taper is specified, construct the full type name
+        if illumination_type and config_antenna_type in ["parabolic", "dish"]:
+            full_type = f"parabolic_{illumination_type}"
+            if full_type in antenna_type_mapping:
+                config_antenna_type = full_type
+
+        # Map to AntennaType constant
+        antenna_type_constant = antenna_type_mapping.get(
+            config_antenna_type.lower(),
+            AntennaType.PARABOLIC_10DB  # Default fallback
+        )
+
+        logger.debug(f"Using antenna type '{config_antenna_type}' -> {antenna_type_constant}")
+
         self._hpbw_per_antenna = {}
         for ant_id, ant_data in self._antennas.items():
             ant_num = ant_data["Number"]
             diameter = ant_data.get("diameter", antenna_diameter)
 
-            # Calculate HPBW for all frequencies at once
-            hpbw_array = calculate_hpbw_radians(self._frequencies_hz, diameter)
+            # Calculate HPBW for all frequencies using antenna-specific coefficients
+            hpbw_array = calculate_hpbw_for_antenna_type(
+                antenna_type_constant,
+                self._frequencies_hz,
+                diameter
+            )
             self._hpbw_per_antenna[ant_num] = hpbw_array
 
-        # Load sources
+        # Get visibility configuration
+        visibility_config = self.config.get("visibility", {})
+        calculation_type = visibility_config.get("calculation_type", "direct_sum")
+        sky_representation = visibility_config.get("sky_representation", "point_sources")
+
+        # Validate calculation type
+        if calculation_type == "spherical_harmonic":
+            raise NotImplementedError(
+                "Spherical harmonic (m-mode) visibility calculation is not yet implemented. "
+                "Use calculation_type='direct_sum' instead."
+            )
+
+        # Load sky model using unified SkyModel class
+        from rrivis.core.sky_model import SkyModel
+
         sky_config = self.config.get("sky_model", {})
         test_config = sky_config.get("test_sources", {})
         gleam_config = sky_config.get("gleam", {})
         gsm_config = sky_config.get("gsm_healpix", {})
+        mals_config = sky_config.get("mals", {})
 
-        self._sources, _ = get_sources(
-            use_test_sources=test_config.get("use_test_sources", False),
-            use_gleam=gleam_config.get("use_gleam", False),
-            use_gsm=gsm_config.get("use_gsm", False),
-            frequency=float(self._frequencies_hz[0]),
-            flux_limit=test_config.get("flux_limit", 50.0),
-            nside=gsm_config.get("nside", 32),
-            num_sources=test_config.get("num_sources", 100),
+        frequency = float(self._frequencies_hz[0])
+        nside = gsm_config.get("nside", 64)
+
+        # Collect all requested sky models
+        sky_models = []
+
+        if test_config.get("use_test_sources", False):
+            num_sources = test_config.get("num_sources", 100)
+            sky_models.append(SkyModel.from_test_sources(num_sources=num_sources))
+            logger.info(f"Loaded test sources: {num_sources} sources")
+
+        if gleam_config.get("use_gleam", False):
+            flux_limit = gleam_config.get("flux_limit", 1.0)
+            sky_models.append(SkyModel.from_gleam(flux_limit=flux_limit))
+
+        if mals_config.get("use_mals", False):
+            flux_limit = mals_config.get("flux_limit", 1.0)
+            release = mals_config.get("mals_release", "dr2")
+            sky_models.append(SkyModel.from_mals(flux_limit=flux_limit, release=release))
+
+        if gsm_config.get("use_gsm", False):
+            model_name = gsm_config.get("gsm_catalogue", "gsm2008")
+            sky_models.append(SkyModel.from_diffuse_sky(
+                model=model_name,
+                frequency=frequency,
+                nside=nside,
+                compute_spectral_index=True,
+            ))
+
+        # If no models selected, use test sources as fallback
+        if not sky_models:
+            num_sources = test_config.get("num_sources", 100)
+            sky_models.append(SkyModel.from_test_sources(num_sources=num_sources))
+            logger.info(f"No sky model selected, using {num_sources} test sources")
+
+        # Combine all models into one
+        if len(sky_models) == 1:
+            self._sky_model = sky_models[0]
+        else:
+            self._sky_model = SkyModel.combine(
+                sky_models,
+                representation=sky_representation,
+                nside=nside,
+                frequency=frequency
+            )
+
+        # Ensure sky model is in requested representation
+        self._sky_model.frequency = frequency
+        self._sky_model.get_for_visibility(
+            representation=sky_representation,
+            nside=nside,
+            frequency=frequency
         )
-        logger.info(f"Loaded {len(self._sources)} sources")
+
+        # Get point sources for RIME calculator (needed even in healpix mode for some calculations)
+        self._sources = self._sky_model.to_point_sources(frequency=frequency)
+
+        # Store the sky representation for use in run()
+        self._sky_representation = sky_representation
 
         self._is_setup = True
+        n_sky = self._sky_model.n_sources
+        sky_type = "pixels" if sky_representation == "healpix_map" else "sources"
+        print_success(f"Setup complete: {len(self._antennas)} antennas, {len(self._baselines)} baselines, {n_sky} {sky_type}")
         return self
 
     def run(
@@ -477,18 +609,29 @@ class Simulator:
             self.setup()
 
         if progress:
-            print(f"RRIvis Simulator v{self.version}")
-            print(f"  Backend: {self._backend.name}")
-            if self._backend.precision:
-                print(f"  Precision: {self._backend.precision.default}")
-            print(f"  Simulator: {self._simulator.name}")
-            print(f"  Complexity: {self._simulator.complexity}")
-            print(f"  Antennas: {len(self._antennas)}")
-            print(f"  Baselines: {len(self._baselines)}")
-            print(f"  Sources: {len(self._sources)}")
-            print(f"  Frequencies: {len(self._frequencies_hz)}")
+            # Print beautiful header panel
+            print_header(
+                f"RRIvis Simulator v{self.version}",
+                "Radio Interferometer Visibility Simulator"
+            )
 
-        logger.info("Running visibility simulation...")
+            # Print configuration table
+            n_sky = self._sky_model.n_sources if self._sky_model else len(self._sources)
+            sky_label = f"{n_sky} pixels (HEALPix)" if self._sky_representation == "healpix_map" else f"{n_sky} sources"
+            config_data = {
+                "Backend": self._backend.name,
+                "Precision": self._backend.precision.default if self._backend.precision else "standard",
+                "Simulator": f"{self._simulator.name} ({self._simulator.complexity})",
+                "Sky Mode": self._sky_representation,
+                "Antennas": len(self._antennas),
+                "Baselines": len(self._baselines),
+                "Sky Model": sky_label,
+                "Frequencies": f"{len(self._frequencies_hz)} channels",
+            }
+            print_table("Simulation Configuration", config_data)
+            console.print()  # Add spacing
+
+        print_info(f"Running visibility simulation ({self._sky_representation} mode)...")
 
         # Get beam pattern configuration
         beam_config = self.config.get("beams", {})
@@ -503,32 +646,77 @@ class Simulator:
             "exponential_taper_dB": beam_config.get("exponential_taper_dB", 10.0),
         }
 
-        # Calculate visibilities using the simulator
-        visibilities = self._simulator.calculate_visibilities(
-            antennas=self._antennas,
-            baselines=self._baselines,
-            sources=self._sources,
-            frequencies=self._frequencies_hz,
-            backend=self._backend,
-            # Required kwargs for RIME
-            location=self._location,
-            obstime=self._obstime,
-            wavelengths=self._wavelengths,
-            hpbw_per_antenna=self._hpbw_per_antenna,
-            # Optional kwargs
-            beam_manager=self._beam_manager,
-            beam_pattern_per_antenna=beam_pattern_per_antenna,
-            beam_pattern_params=beam_pattern_params,
-            return_correlations=True,
-        )
+        # Calculate visibilities based on sky representation
+        duration_seconds = self.config.get("obs_time", {}).get("duration_seconds", 1.0)
+        time_step_seconds = self.config.get("obs_time", {}).get("time_step_seconds", 1.0)
+
+        if self._sky_representation == "healpix_map" and self._sky_model is not None:
+            # Use direct HEALPix visibility calculation
+            from rrivis.core.visibility_healpix import calculate_visibility_healpix
+
+            healpix_result = calculate_visibility_healpix(
+                sky_model=self._sky_model,
+                antennas=self._antennas,
+                baselines=self._baselines,
+                location=self._location,
+                obstime=self._obstime,
+                wavelengths=self._wavelengths,
+                freqs=self._frequencies_hz,
+                duration_seconds=duration_seconds,
+                time_step_seconds=time_step_seconds,
+                hpbw_per_antenna=self._hpbw_per_antenna,
+                beam_manager=self._beam_manager,
+                backend=self._backend,
+                output_units="Jy",
+            )
+
+            # Convert healpix result format to match RIME format for compatibility
+            # healpix returns: {"visibilities": (n_baselines, n_times, n_freqs), ...}
+            # RIME returns: {(ant1, ant2): {"I": (n_times, n_freqs), ...}, ...}
+            visibilities = {}
+            baseline_keys = healpix_result["baseline_keys"]
+            vis_array = healpix_result["visibilities"]
+            for bl_idx, bl_key in enumerate(baseline_keys):
+                visibilities[bl_key] = {
+                    "I": vis_array[bl_idx],
+                    "XX": vis_array[bl_idx],  # For compatibility
+                    "YY": vis_array[bl_idx],
+                    "XY": np.zeros_like(vis_array[bl_idx]),
+                    "YX": np.zeros_like(vis_array[bl_idx]),
+                }
+
+        else:
+            # Use point source RIME calculation (original behavior)
+            visibilities = self._simulator.calculate_visibilities(
+                antennas=self._antennas,
+                baselines=self._baselines,
+                sources=self._sources,
+                frequencies=self._frequencies_hz,
+                backend=self._backend,
+                # Required kwargs for RIME
+                location=self._location,
+                obstime=self._obstime,
+                wavelengths=self._wavelengths,
+                hpbw_per_antenna=self._hpbw_per_antenna,
+                # Time-stepping parameters
+                duration_seconds=duration_seconds,
+                time_step_seconds=time_step_seconds,
+                # Optional kwargs
+                beam_manager=self._beam_manager,
+                beam_pattern_per_antenna=beam_pattern_per_antenna,
+                beam_pattern_params=beam_pattern_params,
+                return_correlations=True,
+            )
 
         # Compile results
+        n_sky = self._sky_model.n_sources if self._sky_model else len(self._sources)
         self._results = {
             "visibilities": visibilities,
             "frequencies": self._frequencies_hz,
             "baselines": self._baselines,
             "antennas": self._antennas,
             "sources": self._sources,
+            "sky_model": self._sky_model,
             "location": self._location,
             "obstime": self._obstime,
             "wavelengths": self._wavelengths,
@@ -537,18 +725,18 @@ class Simulator:
                 "backend": self._backend.name,
                 "precision": self._backend.precision.model_dump() if self._backend.precision else None,
                 "simulator": self._simulator.name,
+                "sky_representation": self._sky_representation,
                 "n_antennas": len(self._antennas),
                 "n_baselines": len(self._baselines),
-                "n_sources": len(self._sources),
+                "n_sky_elements": n_sky,
                 "n_frequencies": len(self._frequencies_hz),
                 "config": self.config,
             },
         }
 
         if progress:
-            print("Simulation complete!")
+            print_success("Simulation complete!")
 
-        logger.info("Simulation complete")
         return self._results
 
     def plot(
@@ -565,10 +753,11 @@ class Simulator:
         ----------
         plot_type : str, optional
             Type of plot to generate:
-            - "all": All available plots
-            - "antenna": Antenna layout only
-            - "visibility": Visibility amplitude/phase (requires multi-time data)
-            - "heatmap": Visibility heatmaps (requires multi-time data)
+            - "all": All available plots (default)
+            - "antenna": Antenna layout (2D and 3D)
+            - "visibility": Visibility amplitude/phase vs time
+            - "heatmap": Visibility frequency-time heatmaps
+            - "frequency": Visibility modulus/phase vs frequency
         output_dir : str or Path, optional
             Directory to save plots. If None, displays interactively.
         backend : str, optional
@@ -583,19 +772,23 @@ class Simulator:
 
         Notes
         -----
-        Currently only antenna layout plotting is fully supported for single-time
-        simulations. For visibility vs time plots, run multiple time steps.
+        Generated plots (when plot_type="all"):
+        - antenna_layout.html: 2D antenna positions (E vs N)
+        - antenna_layout_3d.html: 3D antenna positions (Plotly)
+        - visibility-phase-lsts.html: Visibility amp/phase vs time
+        - heatmaps-freq-time.html: Frequency-time heatmaps
+        - modulus-phase-freq.html: Visibility vs frequency
 
         Examples
         --------
         >>> sim.run()
         >>> sim.plot(plot_type="antenna")
-        >>> sim.plot(plot_type="antenna", output_dir="plots/")
+        >>> sim.plot(plot_type="all", output_dir="plots/")
         """
         if self._results is None:
             raise RuntimeError("No results to plot. Run simulation first with sim.run()")
 
-        logger.info(f"Generating {plot_type} plots with {backend}")
+        print_info(f"Generating {plot_type} plots with {backend}...")
 
         if output_dir:
             output_dir = Path(output_dir)
@@ -603,8 +796,15 @@ class Simulator:
 
         # Antenna layout plot
         if plot_type in ["antenna", "all"]:
-            from rrivis.visualization.bokeh_plots import plot_antenna_layout
+            from rrivis.visualization.bokeh_plots import (
+                plot_antenna_layout,
+                plot_antenna_layout_3d_plotly,
+                plot_visibility,
+                plot_heatmaps,
+                plot_modulus_vs_frequency,
+            )
 
+            # 2D antenna layout
             plot_antenna_layout(
                 self._antennas,
                 plotting=backend,
@@ -613,24 +813,93 @@ class Simulator:
                 open_in_browser=show,
             )
 
-        # Visibility time-series plots require multi-time data
-        if plot_type in ["visibility", "heatmap"]:
-            # Current single-time simulation doesn't have time-series data
-            # The visualization functions expect moduli_over_time and phases_over_time
-            # which require multiple time steps
-            logger.warning(
-                f"Plot type '{plot_type}' requires multi-time simulation data. "
-                "Current implementation runs single time step. "
-                "Use plot_type='antenna' for single-time results, or run "
-                "multiple time steps for time-series visualization."
-            )
-            print(
-                f"Warning: '{plot_type}' plots require multi-time simulation data.\n"
-                "Currently only 'antenna' layout plots are available for single-time runs."
+            # 3D antenna layout (Plotly)
+            plot_antenna_layout_3d_plotly(
+                self._antennas,
+                save_simulation_data=output_dir is not None,
+                folder_path=str(output_dir) if output_dir else None,
+                open_in_browser=show,
             )
 
+        # Visibility time-series plots require multi-time data
+        if plot_type in ["visibility", "heatmap", "all"]:
+            # Check if we have multi-time data
+            from rrivis.core.visibility import calculate_modulus_phase
+            moduli, phases = calculate_modulus_phase(self._results["visibilities"])
+
+            # Check if data has time dimension
+            first_baseline = list(moduli.keys())[0]
+            has_time_data = moduli[first_baseline].ndim == 2  # Shape (n_times, n_freq)
+
+            if has_time_data and moduli[first_baseline].shape[0] > 1:
+                # Multi-time data - generate time-series plots
+                logger.info(f"Generating {plot_type} plots with multi-time data")
+
+                # Generate time points array
+                time_config = self.config.get("obs_time", {})
+                duration_sec = time_config.get("duration_seconds", 1.0)
+                time_step_sec = time_config.get("time_step_seconds", 1.0)
+                n_times = max(1, int(duration_sec / time_step_sec))
+
+                if self._obstime:
+                    start_mjd = self._obstime.mjd
+                    time_points_mjd = np.array([
+                        start_mjd + (i * time_step_sec / 86400.0)
+                        for i in range(n_times)
+                    ])
+                else:
+                    time_points_mjd = np.linspace(0, duration_sec / 86400.0, n_times)
+
+                if plot_type in ["visibility", "all"]:
+                    plot_visibility(
+                        moduli_over_time=moduli,
+                        phases_over_time=phases,
+                        baselines=self._baselines,
+                        mjd_time_points=time_points_mjd,
+                        freqs=self._frequencies_hz,
+                        total_seconds=duration_sec,
+                        plotting=backend,
+                        save_simulation_data=True,
+                        folder_path=str(output_dir) if output_dir else None,
+                        open_in_browser=show,
+                    )
+
+                if plot_type in ["heatmap", "all"]:
+                    plot_heatmaps(
+                        moduli_over_time=moduli,
+                        phases_over_time=phases,
+                        baselines=self._baselines,
+                        freqs=self._frequencies_hz,
+                        total_seconds=duration_sec,
+                        mjd_time_points=time_points_mjd,
+                        plotting=backend,
+                        save_simulation_data=True,
+                        folder_path=str(output_dir) if output_dir else None,
+                        open_in_browser=show,
+                    )
+
+                if plot_type in ["frequency", "all"]:
+                    plot_modulus_vs_frequency(
+                        moduli_over_time=moduli,
+                        phases_over_time=phases,
+                        baselines=self._baselines,
+                        freqs=self._frequencies_hz,
+                        mjd_time_points=time_points_mjd,
+                        plotting=backend,
+                        save_simulation_data=True,
+                        folder_path=str(output_dir) if output_dir else None,
+                        open_in_browser=show,
+                    )
+            else:
+                # Single-time data
+                print_warning(
+                    f"Plot type '{plot_type}' requires multi-time data. "
+                    f"Current: {moduli[first_baseline].shape[0] if has_time_data else 1} time step(s). "
+                    "Use plot_type='antenna' for single-time results."
+                )
+
         if output_dir:
-            logger.info(f"Plots saved to {output_dir}")
+            print_success(f"Plots saved to {output_dir}")
 
     def save(
         self,
@@ -691,7 +960,7 @@ class Simulator:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Saving results to {output_dir}")
+        print_info(f"Saving results to {output_dir}...")
 
         if format.lower() == "hdf5":
             output_path = output_dir / "visibilities.h5"
@@ -701,21 +970,41 @@ class Simulator:
                     f"{output_path} already exists. Use overwrite=True to overwrite."
                 )
 
-            # Prepare time array (single time point for now)
-            time_mjd = np.array([self._obstime.mjd]) if self._obstime else np.array([0.0])
+            # Calculate time points for observation
+            time_config = self.config.get("obs_time", {})
+            duration_sec = time_config.get("duration_seconds", 1.0)
+            time_step_sec = time_config.get("time_step_seconds", 1.0)
+            n_times = max(1, int(duration_sec / time_step_sec))
 
-            # Convert visibility format from Dict[tuple, Dict] to Dict[tuple, list]
-            # The writer expects list of arrays for time stacking
-            # Our format is {(ant1, ant2): {"XX": array, "I": array, ...}}
-            # Convert to {(ant1, ant2): [array]} using Stokes I
+            # Generate time points in MJD
+            if self._obstime:
+                start_mjd = self._obstime.mjd
+                time_mjd = np.array([
+                    start_mjd + (i * time_step_sec / 86400.0)  # Convert seconds to days
+                    for i in range(n_times)
+                ])
+            else:
+                time_mjd = np.linspace(0, duration_sec / 86400.0, n_times)
+
+            # Convert visibility format for HDF5 writer
+            # Our format: {(ant1, ant2): {"I": (n_times, n_freq), ...}}
+            # Writer expects: {(ant1, ant2): [(n_freq,), (n_freq,), ...]}
+            # We need to split the time dimension into a list of arrays
             visibilities_for_writer = {}
             for bl_key, vis_dict in self._results["visibilities"].items():
-                # Use Stokes I visibility (or XX if I not available)
                 if isinstance(vis_dict, dict):
                     vis_array = vis_dict.get("I", vis_dict.get("XX", np.array([])))
-                    visibilities_for_writer[bl_key] = [vis_array]
+                    # Split (n_times, n_freq) into list of (n_freq,) arrays
+                    if vis_array.ndim == 2:
+                        visibilities_for_writer[bl_key] = [vis_array[i] for i in range(vis_array.shape[0])]
+                    else:
+                        visibilities_for_writer[bl_key] = [vis_array]
                 else:
-                    visibilities_for_writer[bl_key] = [vis_dict]
+                    vis_array = vis_dict
+                    if vis_array.ndim == 2:
+                        visibilities_for_writer[bl_key] = [vis_array[i] for i in range(vis_array.shape[0])]
+                    else:
+                        visibilities_for_writer[bl_key] = [vis_array]
 
             save_visibilities_hdf5(
                 output_path=output_path,
@@ -725,7 +1014,7 @@ class Simulator:
                 metadata=self._results["metadata"],
             )
 
-            logger.info(f"Saved HDF5 to {output_path}")
+            print_success(f"Saved HDF5 to {output_path}")
             return output_path
 
         elif format.lower() == "json":
@@ -748,7 +1037,7 @@ class Simulator:
             with open(output_path, "w") as f:
                 json.dump(json_data, f, indent=2, default=str)
 
-            logger.info(f"Saved JSON to {output_path}")
+            print_success(f"Saved JSON to {output_path}")
             return output_path
 
         elif format.lower() == "ms":
@@ -788,7 +1077,7 @@ class Simulator:
                 overwrite=overwrite,
             )
 
-            logger.info(f"Saved MS to {output_path}")
+            print_success(f"Saved MS to {output_path}")
             return output_path
 
         else:

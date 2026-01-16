@@ -1,28 +1,14 @@
 # rrivis/core/observation.py
+"""Observation location and time utilities."""
+
+import logging
 
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 import astropy.units as u
-import sys
 
 
-def _supports_color() -> bool:
-    try:
-        return hasattr(sys.__stdout__, "isatty") and sys.__stdout__.isatty()
-    except Exception:
-        return False
-
-
-_TTY = _supports_color()
-_RESET = "\033[0m"
-_BOLD = "\033[1m"
-_CYAN = "\033[36m"
-
-
-def _c(text: str, style: str) -> str:
-    if not _TTY:
-        return text
-    return f"{style}{text}{_RESET}"
+logger = logging.getLogger(__name__)
 
 
 def get_location_and_time(lat=None, lon=None, height=None, starttime=None):
@@ -86,10 +72,8 @@ def get_location_and_time(lat=None, lon=None, height=None, starttime=None):
     # Create EarthLocation object
     location = EarthLocation(lat=lat * u.deg, lon=lon * u.deg, height=height * u.m)
 
-    # Debug output
-    print(
-        f"{_c('Observation Location:', _BOLD + _CYAN)} Latitude={lat}, Longitude={lon}, Height={height} meters"
-    )
-    print(f"{_c('Observation Start Time:', _BOLD + _CYAN)} {obstime_start.isot}")
+    # Log observation parameters
+    logger.info(f"Observation Location: Latitude={lat}, Longitude={lon}, Height={height} meters")
+    logger.info(f"Observation Start Time: {obstime_start.isot}")
 
     return location, obstime_start

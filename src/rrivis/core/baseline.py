@@ -1,27 +1,16 @@
+# rrivis/core/baseline.py
+"""Baseline generation utilities for interferometric arrays."""
+
+import logging
 import sys
+
 import numpy as np
 
 
-def _supports_color() -> bool:
-    try:
-        return hasattr(sys.__stdout__, "isatty") and sys.__stdout__.isatty()
-    except Exception:
-        return False
+logger = logging.getLogger(__name__)
 
 
-_TTY = _supports_color()
-_RESET = "\033[0m"
-_BOLD = "\033[1m"
-_CYAN = "\033[36m"
-
-
-def _c(text: str, style: str) -> str:
-    if not _TTY:
-        return text
-    return f"{style}{text}{_RESET}"
-
-
-def generate_baselines(antennas, beams_per_antenna, beam_response_per_antenna):
+def generate_baselines(antennas, beams_per_antenna, beam_response_per_antenna, verbose=False):
     """
     Generate baselines based on antenna positions and metadata, using Numbers as keys.
     Includes detailed metadata for each baseline:
@@ -107,19 +96,17 @@ def generate_baselines(antennas, beams_per_antenna, beam_response_per_antenna):
     except Exception as e:
         raise ValueError(f"Error while generating baselines: {e}")
 
-    # Debug output
-    print("")
-    print(_c("Generated baselines:", _BOLD + _CYAN))
-    for key, value in baselines.items():
-        print(f"{_c(f'Baseline {key}:', _BOLD + _CYAN)} {value}")
+    # Debug output (only when verbose=True)
+    if verbose:
+        logger.debug("Generated baselines:")
+        for key, value in baselines.items():
+            logger.debug(f"Baseline {key}: {value}")
 
-    # Calculate total memory usage in MB
-    total_memory_bytes = sys.getsizeof(baselines) + sum(
-        sys.getsizeof(key) + sys.getsizeof(value) for key, value in baselines.items()
-    )
-    total_memory_mb = total_memory_bytes / (1024 * 1024)
-    print(
-        f"{_c('Total memory used by baselines:', _BOLD + _CYAN)} {total_memory_mb:.4f} MB"
-    )
+        # Calculate total memory usage in MB
+        total_memory_bytes = sys.getsizeof(baselines) + sum(
+            sys.getsizeof(key) + sys.getsizeof(value) for key, value in baselines.items()
+        )
+        total_memory_mb = total_memory_bytes / (1024 * 1024)
+        logger.debug(f"Total memory used by baselines: {total_memory_mb:.4f} MB")
 
     return baselines

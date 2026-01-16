@@ -62,11 +62,27 @@ def save_visibilities_hdf5(
         h5file.create_dataset("frequencies", data=frequencies)
         h5file.create_dataset("time_points_mjd", data=time_points_mjd)
 
-        # Save metadata as attributes
+        # Save metadata as attributes (flatten complex objects)
         if metadata:
             for key, value in metadata.items():
                 if value is not None:
-                    h5file.attrs[key] = value if not isinstance(value, str) else str(value)
+                    # Convert Pydantic models/dicts to JSON-serializable format
+                    if hasattr(value, 'model_dump'):
+                        value = value.model_dump()
+                    elif isinstance(value, dict):
+                        # Recursively convert nested values
+                        value = {k: (v.model_dump() if hasattr(v, 'model_dump') else v)
+                                for k, v in value.items()}
+                    # Try to save as string representation for complex types
+                    try:
+                        if isinstance(value, (str, int, float, bool)):
+                            h5file.attrs[key] = value
+                        elif isinstance(value, (list, np.ndarray)):
+                            h5file.attrs[key] = str(value)
+                        else:
+                            h5file.attrs[key] = str(value)
+                    except (TypeError, ValueError):
+                        pass
 
     return str(output_path)
 

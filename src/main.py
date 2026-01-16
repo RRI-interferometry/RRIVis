@@ -32,7 +32,6 @@ import shutil
 
 # Local module imports - updated to use new package structure
 from rrivis.core.beams import (
-    calculate_hpbw_radians,
     calculate_gaussian_beam_area_EBeam,
     AntennaType,
     BeamPatternType,

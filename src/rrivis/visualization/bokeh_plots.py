@@ -1,5 +1,6 @@
 # rrivis/visualization/bokeh_plots.py
 
+import logging
 from bokeh.plotting import figure
 from bokeh.palettes import Turbo256, Inferno256
 from bokeh.layouts import column
@@ -22,6 +23,9 @@ from astropy.time import Time
 import tempfile
 import webbrowser
 from pathlib import Path
+
+
+logger = logging.getLogger(__name__)
 
 
 def plot_visibility(
@@ -597,7 +601,7 @@ def _persist_bokeh_document(
 
         if save_flag and folder_path:
             message = save_message or f"Saved {title} to"
-            print(f"{message} {target_path}")
+            logger.info(f"{message} {target_path}")
 
         if open_flag:
             webbrowser.open(Path(target_path).resolve().as_uri())
@@ -713,9 +717,7 @@ def plot_antenna_layout_3d_plotly(
         import plotly.graph_objects as go
         import plotly.io as pio
     except Exception as exc:
-        print(
-            f"Warning: Plotly not available for 3D antenna layout ({exc}); skipping 3D plot."
-        )
+        logger.warning(f"Plotly not available for 3D antenna layout ({exc}); skipping 3D plot.")
         return None
 
     e, n, u, hover = [], [], [], []
@@ -944,10 +946,10 @@ def plot_antenna_layout_3d_plotly(
             f.write(centered)
         if open_in_browser:
             webbrowser.open(Path(html_path).resolve().as_uri())
-        print(f"Saved antenna 3D layout (Plotly) to {html_path}")
+        logger.info(f"Saved antenna 3D layout (Plotly) to {html_path}")
         return html_path
     except Exception as exc:
-        print(f"Warning: Failed to save 3D Plotly layout ({exc})")
+        logger.warning(f"Failed to save 3D Plotly layout ({exc})")
         return None
 
 
