@@ -15,6 +15,10 @@ location:
   lon: 21.43
   height: 1073.0
 
+visibility:
+  calculation_type: "direct_sum"
+  sky_representation: "point_sources"
+
 sky_model:
   test_sources:
     use_test_sources: true
@@ -22,6 +26,8 @@ sky_model:
 
 obs_time:
   start_time: "2025-01-15T00:00:00"
+  duration_seconds: 600
+  time_step_seconds: 60
 
 obs_frequency:
   starting_frequency: 100.0
@@ -31,7 +37,8 @@ obs_frequency:
 
 output:
   save_simulation_data: true
-  plot_results_in_bokeh: true
+  save_log_data: true
+  plot_results: true
+  open_plots_in_browser: false
   plotting_backend: "bokeh"
   simulation_data_dir: "output"
-  simulation_subdir: "dev-test"

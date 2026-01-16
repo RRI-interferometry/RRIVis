@@ -1,293 +1,613 @@
 # rrivis/core/antenna.py
-import sys
+"""
+Antenna position reading and coordinate conversion utilities.
+
+This module provides functionality for reading antenna positions from various
+file formats commonly used in radio astronomy, and converting between different
+coordinate systems. All positions are internally converted to ENU (East-North-Up)
+coordinates for consistency throughout RRIvis.
+
+Supported File Formats
+----------------------
+- **rrivis**: Native RRIvis text format with optional BeamID and diameter columns
+- **casa**: CASA configuration files (.cfg) used by ALMA, VLA, etc.
+- **measurement_set**: CASA Measurement Set format (requires pyuvdata)
+- **uvfits**: UVFITS format (requires pyuvdata)
+- **mwa**: MWA metafits FITS files with TILEDATA extension
+- **pyuvdata**: Simple x, y, z text format
+
+Coordinate Systems
+------------------
+- **ENU**: East-North-Up local tangent plane (default output)
+- **ITRF/XYZ**: Earth-Centered Earth-Fixed geocentric coordinates
+- **LOC**: Local tangent plane (treated as ENU-like)
+
+Output Data Structure
+---------------------
+Each antenna is represented as a dictionary with the following keys:
+
+- ``Name`` (str): Human-readable antenna identifier
+- ``Number`` (int): Numeric antenna index
+- ``BeamID`` (str, int, or None): Beam pattern identifier for per-antenna beams
+- ``Position`` (tuple): (East, North, Up) coordinates in meters
+- ``diameter`` (float, optional): Antenna diameter in meters
+
+Examples
+--------
+Basic usage with RRIvis format:
+
+>>> from rrivis.core.antenna import read_antenna_positions
+>>> antennas = read_antenna_positions("antennas.txt")
+>>> print(f"Loaded {len(antennas)} antennas")
+>>> print(antennas[0]["Position"])  # (E, N, U) in meters
+
+Reading CASA configuration file:
+
+>>> antennas = read_antenna_positions("alma.cfg", format_type="casa")
+
+Getting array format for BeamManager:
+
+>>> antennas = read_antenna_positions("antennas.txt", return_format="arrays")
+>>> print(antennas["positions_m"].shape)  # (N_antennas, 3)
+
+See Also
+--------
+rrivis.core.baseline : Baseline generation from antenna pairs
+rrivis.core.beams : Beam pattern calculations using antenna properties
+
+References
+----------
+.. [1] CASA Configuration File Format:
+       https://casaguides.nrao.edu/index.php/Antenna_Configurations
+.. [2] pyuvdata Documentation:
+       https://pyuvdata.readthedocs.io/
+.. [3] MWA Metafits Format:
+       https://wiki.mwatelescope.org/display/MP/MWA+metafits+file+format
+"""
+
+import logging
 import os
-import re
-import numpy as np
-from astropy.io import fits
-from astropy.table import Table
+import sys
 import warnings
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-# Try to import pyuvdata for MS and UVFITS support
+import numpy as np
+
+# =============================================================================
+# OPTIONAL DEPENDENCY IMPORTS
+# =============================================================================
+
+# pyuvdata is required for Measurement Set and UVFITS support
 try:
     from pyuvdata import UVData
     PYUVDATA_AVAILABLE = True
 except ImportError:
     PYUVDATA_AVAILABLE = False
-    warnings.warn("pyuvdata not available. MS and UVFITS format support disabled.")
+    warnings.warn(
+        "pyuvdata not available. Measurement Set and UVFITS format support disabled. "
+        "Install with: pip install pyuvdata"
+    )
 
-# Try to import astropy for coordinate conversions
+# astropy is required for coordinate conversions and FITS file handling
 try:
-    from astropy.coordinates import EarthLocation, AltAz, ICRS
+    from astropy.coordinates import EarthLocation
     from astropy import units as u
-    from astropy.time import Time
+    from astropy.io import fits
     ASTROPY_AVAILABLE = True
 except ImportError:
     ASTROPY_AVAILABLE = False
-    warnings.warn("astropy not fully available. Some coordinate conversions disabled.")
+    warnings.warn(
+        "astropy not fully available. Some coordinate conversions and MWA format disabled. "
+        "Install with: pip install astropy"
+    )
 
 
-def _supports_color() -> bool:
-    try:
-        return hasattr(sys.__stdout__, "isatty") and sys.__stdout__.isatty()
-    except Exception:
-        return False
+logger = logging.getLogger(__name__)
 
 
-_TTY = _supports_color()
-_RESET = "\033[0m"
-_BOLD = "\033[1m"
-_CYAN = "\033[36m"
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+# Default reference location for ITRF->ENU conversion (HERA site, South Africa)
+DEFAULT_REFERENCE_LOCATION = (-30.72152777777791, 21.428305555555557, 1073.0)
+
+# Supported file format identifiers
+SUPPORTED_FORMATS = ["rrivis", "casa", "measurement_set", "uvfits", "mwa", "pyuvdata"]
 
 
-def _c(text: str, style: str) -> str:
-    if not _TTY:
-        return text
-    return f"{style}{text}{_RESET}"
+# =============================================================================
+# COORDINATE CONVERSION UTILITIES
+# =============================================================================
 
-
-def _convert_coordinates_to_enu(positions, coordsys, reference_location=None):
+def _convert_coordinates_to_enu(
+    positions: np.ndarray,
+    coordsys: str,
+    reference_location: Optional[Tuple[float, float, float]] = None
+) -> np.ndarray:
     """
-    Convert various coordinate systems to ENU (East-North-Up).
+    Convert antenna positions from various coordinate systems to ENU.
 
-    Parameters:
-    -----------
-    positions : array-like
-        Antenna positions in the specified coordinate system
+    ENU (East-North-Up) is a local tangent plane coordinate system centered
+    at a reference location on Earth's surface. This is the standard coordinate
+    system used internally by RRIvis for all antenna position calculations.
+
+    Parameters
+    ----------
+    positions : np.ndarray
+        Antenna positions in the source coordinate system.
+        Shape: (N_antennas, 3) or (3,) for a single antenna.
     coordsys : str
-        Coordinate system: 'ENU', 'XYZ', 'ITRF', 'LOC', 'ENH'
-    reference_location : tuple, optional
-        Reference location (lat, lon, height) for coordinate conversions
+        Source coordinate system identifier. Supported values:
+        - 'ENU': Already in ENU, no conversion needed
+        - 'XYZ' or 'ITRF': Earth-Centered Earth-Fixed geocentric coordinates
+        - 'LOC': Local tangent plane (assumed ENU-like)
+    reference_location : tuple of float, optional
+        Reference location for coordinate transformation as (latitude, longitude, height)
+        where latitude and longitude are in degrees and height is in meters.
+        If None, defaults to HERA site coordinates.
 
-    Returns:
-    --------
+    Returns
+    -------
     np.ndarray
-        Positions converted to ENU coordinates in meters
+        Positions converted to ENU coordinates in meters.
+        Shape matches input shape.
+
+    Notes
+    -----
+    The ITRF to ENU transformation uses a rotation matrix derived from the
+    reference location's latitude and longitude:
+
+    .. math::
+
+        R = \\begin{bmatrix}
+            -\\sin(\\lambda) & \\cos(\\lambda) & 0 \\\\
+            -\\sin(\\phi)\\cos(\\lambda) & -\\sin(\\phi)\\sin(\\lambda) & \\cos(\\phi) \\\\
+            \\cos(\\phi)\\cos(\\lambda) & \\cos(\\phi)\\sin(\\lambda) & \\sin(\\phi)
+        \\end{bmatrix}
+
+    where :math:`\\phi` is latitude and :math:`\\lambda` is longitude.
+
+    Warnings
+    --------
+    If astropy is not available, ITRF coordinates are returned unchanged
+    with a warning.
+
+    Examples
+    --------
+    >>> positions_itrf = np.array([[5000000, 2000000, -3000000]])
+    >>> positions_enu = _convert_coordinates_to_enu(
+    ...     positions_itrf, 'ITRF', reference_location=(-30.7, 21.4, 1000.0)
+    ... )
     """
     positions = np.array(positions)
-    if coordsys.upper() == 'ENU':
+    coordsys_upper = coordsys.upper()
+
+    # ENU coordinates need no conversion
+    if coordsys_upper == 'ENU':
         return positions
-    elif coordsys.upper() in ['XYZ', 'ITRF']:
-        # Convert from ITRF/XYZ to ENU
+
+    # Handle ITRF/XYZ geocentric coordinates
+    if coordsys_upper in ['XYZ', 'ITRF']:
         if reference_location is None:
-            warnings.warn("No reference location provided for ITRF->ENU conversion")
-            # Default to HERA coordinates
-            reference_location = (-30.72152777777791, 21.428305555555557, 1073.0)
+            warnings.warn(
+                "No reference location provided for ITRF->ENU conversion. "
+                f"Using default HERA site: {DEFAULT_REFERENCE_LOCATION}"
+            )
+            reference_location = DEFAULT_REFERENCE_LOCATION
 
         lat, lon, height = reference_location
-        if ASTROPY_AVAILABLE:
-            # Use astropy for conversion
-            from astropy.coordinates import spherical_to_cartesian
 
-            # Create rotation matrix for ITRF to ENU conversion
-            lat_rad = np.radians(lat)
-            lon_rad = np.radians(lon)
-
-            # Rotation matrix from ITRF to ENU
-            R = np.array([
-                [-np.sin(lon_rad), np.cos(lon_rad), 0],
-                [-np.sin(lat_rad)*np.cos(lon_rad), -np.sin(lat_rad)*np.sin(lon_rad), np.cos(lat_rad)],
-                [np.cos(lat_rad)*np.cos(lon_rad), np.cos(lat_rad)*np.sin(lon_rad), np.sin(lat_rad)]
-            ])
-
-            # Subtract reference position and rotate
-            ref_xyz = spherical_to_cartesian(height + 6371000, np.pi/2 - lat_rad, lon_rad)[0]
-            enu_positions = []
-            for pos in positions:
-                rel_pos = pos - ref_xyz
-                enu = R @ rel_pos
-                enu_positions.append(enu)
-
-            return np.array(enu_positions)
-        else:
-            warnings.warn("astropy not available, returning original coordinates")
+        if not ASTROPY_AVAILABLE:
+            warnings.warn(
+                "astropy not available for ITRF->ENU conversion. "
+                "Returning original coordinates unchanged."
+            )
             return positions
-    else:
-        warnings.warn(f"Unknown coordinate system {coordsys}, returning original positions")
-        return positions
+
+        # Import here to avoid issues if astropy is partially available
+        from astropy.coordinates import spherical_to_cartesian
+
+        # Convert reference location to radians
+        lat_rad = np.radians(lat)
+        lon_rad = np.radians(lon)
+
+        # Build rotation matrix from ITRF to ENU
+        # This matrix rotates geocentric XYZ to local East-North-Up
+        sin_lat, cos_lat = np.sin(lat_rad), np.cos(lat_rad)
+        sin_lon, cos_lon = np.sin(lon_rad), np.cos(lon_rad)
+
+        rotation_matrix = np.array([
+            [-sin_lon, cos_lon, 0],
+            [-sin_lat * cos_lon, -sin_lat * sin_lon, cos_lat],
+            [cos_lat * cos_lon, cos_lat * sin_lon, sin_lat]
+        ])
+
+        # Calculate reference position in ITRF coordinates
+        # Using Earth radius + height for approximate geocentric distance
+        earth_radius = 6371000.0  # meters
+        ref_xyz = spherical_to_cartesian(
+            height + earth_radius,
+            np.pi / 2 - lat_rad,  # co-latitude
+            lon_rad
+        )[0]
+
+        # Convert each position: subtract reference, then rotate
+        enu_positions = []
+        for pos in np.atleast_2d(positions):
+            relative_pos = pos - ref_xyz
+            enu = rotation_matrix @ relative_pos
+            enu_positions.append(enu)
+
+        return np.array(enu_positions).squeeze()
+
+    # LOC and unknown coordinate systems: assume ENU-like
+    if coordsys_upper != 'LOC':
+        warnings.warn(
+            f"Unknown coordinate system '{coordsys}'. "
+            "Assuming positions are already in ENU-like coordinates."
+        )
+
+    return positions
 
 
-def read_rrivis_format(file_path):
+# =============================================================================
+# FORMAT-SPECIFIC READERS
+# =============================================================================
+
+def read_rrivis_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
     """
-    Read RRIvis format antenna files.
+    Read antenna positions from RRIvis native text format.
 
-    Format (BeamID is optional):
-    - With BeamID:    Name  Number  BeamID  E  N  U  [Diameter]
-    - Without BeamID: Name  Number  E  N  U  [Diameter]
+    The RRIvis format is a flexible whitespace-separated text format with
+    optional columns for BeamID and antenna diameter.
 
-    Returns:
+    Parameters
+    ----------
+    file_path : str or Path
+        Path to the antenna positions file.
+
+    Returns
+    -------
+    dict
+        Dictionary mapping antenna numbers to antenna data dictionaries.
+        Each antenna dict contains: Name, Number, BeamID, Position, and
+        optionally diameter.
+
+    Raises
+    ------
+    ValueError
+        If the file contains invalid data or has fewer columns than expected.
+
+    Notes
+    -----
+    **File Format:**
+
+    The file should have a header row followed by data rows. Comments starting
+    with '#' are ignored. Two column layouts are supported:
+
+    *Without BeamID (5+ columns):*
+
+    .. code-block:: text
+
+        Name  Number  E        N        U        [Diameter]
+        ANT0  0       100.5    -50.2    3.1      14.0
+        ANT1  1       200.3    -30.1    2.8
+
+    *With BeamID (6+ columns):*
+
+    .. code-block:: text
+
+        Name  Number  BeamID  E        N        U        [Diameter]
+        ANT0  0       beam_a  100.5    -50.2    3.1      14.0
+        ANT1  1       beam_b  200.3    -30.1    2.8
+
+    The presence of a 'BeamID' column is auto-detected from the header.
+    Diameter column is optional and extracted if present in header.
+
+    Examples
     --------
-    dict: Antenna data with optional BeamID field
+    >>> antennas = read_rrivis_format("antenna_layout.txt")
+    >>> print(antennas[0])
+    {'Name': 'ANT0', 'Number': 0, 'BeamID': None, 'Position': (100.5, -50.2, 3.1)}
     """
     antennas = {}
+
     with open(file_path, "r") as f:
         lines = f.readlines()
 
-    # Detect header and optional column indices
+    # --- Phase 1: Parse header to determine column layout ---
     header_idx = None
     has_beamid_col = False
     diameter_col_idx = None
 
     for idx, line in enumerate(lines):
-        # Skip empty lines and comment lines when looking for header
-        if line.strip() and not line.strip().startswith('#'):
+        stripped = line.strip()
+        # Skip empty lines and comments when looking for header
+        if stripped and not stripped.startswith('#'):
             header_idx = idx
-            header_tokens = line.strip().split()
+            header_tokens = stripped.split()
 
-            # Check for BeamID column
-            for j, tok in enumerate(header_tokens):
-                if tok.lower() == "beamid":
+            # Detect optional columns from header
+            for col_idx, token in enumerate(header_tokens):
+                token_lower = token.lower()
+                if token_lower == "beamid":
                     has_beamid_col = True
-                if tok.lower() == "diameter":
-                    diameter_col_idx = j
+                if token_lower == "diameter":
+                    diameter_col_idx = col_idx
             break
 
-    # Determine expected minimum columns based on header
-    min_cols = 6 if has_beamid_col else 5  # With/without BeamID
+    # Calculate minimum required columns based on detected format
+    # With BeamID: Name, Number, BeamID, E, N, U = 6 columns
+    # Without BeamID: Name, Number, E, N, U = 5 columns
+    min_cols = 6 if has_beamid_col else 5
 
-    for i, line in enumerate(lines):
-        # Skip the header line, empty lines, or comment lines
-        if i == header_idx or not line.strip() or line.strip().startswith('#'):
+    # --- Phase 2: Parse data rows ---
+    for line_num, line in enumerate(lines):
+        stripped = line.strip()
+
+        # Skip header row, empty lines, and comments
+        if line_num == header_idx or not stripped or stripped.startswith('#'):
             continue
-        parts = line.strip().split()
-        if len(parts) < min_cols:
-            raise ValueError(f"Invalid antenna position in line {i+1}: expected at least {min_cols} columns, got {len(parts)}")
 
-        # Extract metadata and positions
+        parts = stripped.split()
+
+        # Validate column count
+        if len(parts) < min_cols:
+            raise ValueError(
+                f"Invalid antenna position in line {line_num + 1}: "
+                f"expected at least {min_cols} columns, got {len(parts)}. "
+                f"Line content: '{stripped}'"
+            )
+
         try:
+            # Extract common fields
             name = parts[0]
             number = int(parts[1])
 
+            # Extract position and optional BeamID based on format
             if has_beamid_col:
                 # Format: Name Number BeamID E N U [Diameter]
-                # Try to convert BeamID to int, fallback to string for non-numeric IDs
+                beam_id_raw = parts[2]
+                # Try to convert BeamID to int, keep as string otherwise
                 try:
-                    beam_id = int(parts[2])
+                    beam_id = int(beam_id_raw)
                 except ValueError:
-                    beam_id = parts[2]
-                e, n, u = map(float, parts[3:6])
+                    beam_id = beam_id_raw
+                e, n, u = float(parts[3]), float(parts[4]), float(parts[5])
             else:
                 # Format: Name Number E N U [Diameter]
                 beam_id = None
-                e, n, u = map(float, parts[2:5])
+                e, n, u = float(parts[2]), float(parts[3]), float(parts[4])
 
+            # Build antenna dictionary
             ant = {
                 "Name": name,
                 "Number": number,
-                "BeamID": beam_id,  # Can be string or None
+                "BeamID": beam_id,
                 "Position": (e, n, u),
             }
 
-            # Optional diameter if header specified a Diameter column and value present
+            # Extract optional diameter if column exists and value is present
             if diameter_col_idx is not None and len(parts) > diameter_col_idx:
                 try:
                     ant["diameter"] = float(parts[diameter_col_idx])
-                except Exception:
-                    pass
+                except (ValueError, IndexError):
+                    pass  # Diameter is optional, skip if not parseable
 
             antennas[number] = ant
 
         except ValueError as e:
-            raise ValueError(f"Could not parse data in line {i+1}: {line}. Error: {e}")
+            raise ValueError(
+                f"Could not parse data in line {line_num + 1}: '{stripped}'. "
+                f"Error: {e}"
+            )
 
     return antennas
 
 
-def read_casa_format(file_path):
+def read_casa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
     """
-    Read CASA .cfg format antenna files.
+    Read antenna positions from CASA configuration files (.cfg).
 
-    Format:
-    #observatory=ALMA
-    #COFA=-67.75,-23.02
-    #coordsys=LOC (local tangent plane)
-    # x             y               z             diam  station  ant
-    -5.850273514   -125.9985379    -1.590364043   12.   A058     DA41
+    CASA configuration files are used by ALMA, VLA, and other observatories
+    to define antenna array layouts. The format includes header comments
+    with metadata and whitespace-separated position data.
+
+    Parameters
+    ----------
+    file_path : str or Path
+        Path to the CASA configuration file.
+
+    Returns
+    -------
+    dict
+        Dictionary mapping antenna numbers to antenna data dictionaries.
+
+    Notes
+    -----
+    **File Format:**
+
+    .. code-block:: text
+
+        #observatory=ALMA
+        #COFA=-67.75,-23.02
+        #coordsys=LOC
+        # x             y               z             diam  station  ant
+        -5.850273514   -125.9985379    -1.590364043   12.   A058     DA41
+        10.123456      200.789012      0.5            12.   A059     DA42
+
+    **Header Comments:**
+
+    - ``#observatory=``: Observatory name (informational)
+    - ``#COFA=``: Center of array coordinates (not currently used)
+    - ``#coordsys=``: Coordinate system (LOC, ENU, or XYZ)
+
+    **Data Columns:**
+
+    1. X/East coordinate (meters)
+    2. Y/North coordinate (meters)
+    3. Z/Up coordinate (meters)
+    4. Diameter (meters, optional)
+    5. Station name (optional)
+    6. Antenna name (optional)
+
+    Examples
+    --------
+    >>> antennas = read_casa_format("alma.cfg")
+    >>> print(f"Loaded {len(antennas)} antennas")
     """
     antennas = {}
 
-    # Parse header information
-    coordsys = 'LOC'  # Default
     with open(file_path, "r") as f:
         lines = f.readlines()
 
-    # Extract coordinate system from header
+    # --- Parse header for coordinate system ---
+    coordsys = 'LOC'  # Default to local tangent plane
+
     for line in lines:
         if line.startswith('#coordsys='):
-            coordsys_str = line.split('=')[1].strip()
+            coordsys_str = line.split('=')[1].strip().upper()
             if 'LOC' in coordsys_str or 'ENU' in coordsys_str:
                 coordsys = 'ENU'
             elif 'XYZ' in coordsys_str:
                 coordsys = 'XYZ'
-            else:
-                coordsys = 'LOC'  # Default to local
+            # Otherwise keep default 'LOC'
 
-    # Parse antenna data
+    # --- Parse antenna data rows ---
     ant_idx = 0
+
     for line in lines:
-        if line.startswith('#') or not line.strip():
+        stripped = line.strip()
+
+        # Skip comments and empty lines
+        if stripped.startswith('#') or not stripped:
             continue
 
-        parts = line.strip().split()
-        if len(parts) >= 3:
-            try:
-                x, y, z = map(float, parts[:3])
-                diameter = float(parts[3]) if len(parts) > 3 and parts[3].replace('.', '').isdigit() else None
-                station = parts[4] if len(parts) > 4 else f"A{ant_idx:03d}"
-                name = parts[5] if len(parts) > 5 else station
+        parts = stripped.split()
 
-                # Convert to ENU if needed
-                if coordsys == 'ENU':
-                    e, n, u = x, y, z
-                else:
-                    # For other coordinate systems, we'd need more complex conversion
-                    # For now, assume LOC coordinates are ENU-like
-                    e, n, u = x, y, z
+        # Need at least x, y, z coordinates
+        if len(parts) < 3:
+            continue
 
-                ant = {
-                    "Name": name,
-                    "Number": ant_idx,
-                    "BeamID": None,  # No beam ID info in CASA format
-                    "Position": (e, n, u),
-                }
-                if diameter is not None:
-                    ant["diameter"] = diameter
+        try:
+            # Parse coordinates
+            x, y, z = float(parts[0]), float(parts[1]), float(parts[2])
 
-                antennas[ant_idx] = ant
-                ant_idx += 1
+            # Parse optional diameter (column 4)
+            # Check if it looks like a number (handles "12." format)
+            diameter = None
+            if len(parts) > 3:
+                diameter_str = parts[3].replace('.', '', 1)
+                if diameter_str.replace('-', '').isdigit():
+                    diameter = float(parts[3])
 
-            except ValueError:
-                continue  # Skip lines that can't be parsed
+            # Parse optional station and antenna names
+            station = parts[4] if len(parts) > 4 else f"A{ant_idx:03d}"
+            name = parts[5] if len(parts) > 5 else station
+
+            # Convert coordinates to ENU
+            # For LOC/ENU coordinate systems, positions are already usable
+            if coordsys in ['ENU', 'LOC']:
+                e, n, u = x, y, z
+            else:
+                # For XYZ/ITRF, would need proper conversion
+                # Currently treating as ENU-like (may need enhancement)
+                e, n, u = x, y, z
+
+            # Build antenna dictionary
+            ant = {
+                "Name": name,
+                "Number": ant_idx,
+                "BeamID": None,  # CASA format doesn't include beam IDs
+                "Position": (e, n, u),
+            }
+
+            if diameter is not None:
+                ant["diameter"] = diameter
+
+            antennas[ant_idx] = ant
+            ant_idx += 1
+
+        except ValueError:
+            # Skip lines that can't be parsed as antenna data
+            continue
 
     return antennas
 
 
-def read_measurement_set(file_path):
+def read_measurement_set(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
     """
-    Read antenna positions from CASA Measurement Set files.
+    Read antenna positions from a CASA Measurement Set.
 
-    Requires pyuvdata to be available.
+    Measurement Sets are the standard data format for radio interferometry
+    observations. This function extracts antenna metadata from the ANTENNA
+    subtable using pyuvdata.
+
+    Parameters
+    ----------
+    file_path : str or Path
+        Path to the Measurement Set directory (typically ending in .ms).
+
+    Returns
+    -------
+    dict
+        Dictionary mapping antenna numbers to antenna data dictionaries.
+
+    Raises
+    ------
+    ImportError
+        If pyuvdata is not installed.
+    ValueError
+        If the Measurement Set cannot be read or contains no antenna data.
+
+    Notes
+    -----
+    This function requires pyuvdata to be installed. Install with:
+
+    .. code-block:: bash
+
+        pip install pyuvdata
+
+    The antenna positions are extracted from the UVData object's
+    ``antenna_positions`` attribute, which provides positions in ENU
+    coordinates relative to the array center.
+
+    Examples
+    --------
+    >>> antennas = read_measurement_set("observation.ms")
+    >>> print(antennas[0]["Name"])
+    'DA41'
     """
     if not PYUVDATA_AVAILABLE:
-        raise ImportError("pyuvdata is required for Measurement Set support. Install with: pip install pyuvdata")
+        raise ImportError(
+            "pyuvdata is required for Measurement Set support. "
+            "Install with: pip install pyuvdata"
+        )
 
     try:
+        # Read the Measurement Set using pyuvdata
         uv = UVData()
         uv.read(file_path)
 
         antennas = {}
+
+        # Extract antenna metadata arrays
         ant_names = uv.antenna_names
         ant_numbers = uv.antenna_numbers
-        ant_positions = uv.antenna_positions  # in ENU coordinates relative to array center
-        antenna_diameters = uv.antenna_diameter
+        ant_positions = uv.antenna_positions  # ENU relative to array center
+        ant_diameters = uv.antenna_diameters if hasattr(uv, 'antenna_diameters') else [0] * len(ant_names)
 
-        for i, (name, number, pos, diam) in enumerate(zip(ant_names, ant_numbers, ant_positions, antenna_diameters)):
+        # Build antenna dictionaries
+        for name, number, pos, diam in zip(ant_names, ant_numbers, ant_positions, ant_diameters):
             ant = {
-                "Name": name,
+                "Name": str(name),
                 "Number": int(number),
-                "BeamID": None,  # No beam ID info in Measurement Set
-                "Position": tuple(pos),  # Already in ENU coordinates
+                "BeamID": None,  # MS format doesn't include beam IDs
+                "Position": tuple(pos),
             }
+
             if diam > 0:
                 ant["diameter"] = float(diam)
 
@@ -299,32 +619,75 @@ def read_measurement_set(file_path):
         raise ValueError(f"Failed to read Measurement Set '{file_path}': {e}")
 
 
-def read_uvfits(file_path):
+def read_uvfits(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
     """
-    Read antenna positions from UVFITS files.
+    Read antenna positions from a UVFITS file.
 
-    Requires pyuvdata to be available.
+    UVFITS is a FITS-based format for storing visibility data and metadata.
+    This function extracts antenna information from the AN (antenna) table
+    using pyuvdata.
+
+    Parameters
+    ----------
+    file_path : str or Path
+        Path to the UVFITS file.
+
+    Returns
+    -------
+    dict
+        Dictionary mapping antenna numbers to antenna data dictionaries.
+
+    Raises
+    ------
+    ImportError
+        If pyuvdata is not installed.
+    ValueError
+        If the UVFITS file cannot be read or contains no antenna data.
+
+    Notes
+    -----
+    This function requires pyuvdata to be installed. Install with:
+
+    .. code-block:: bash
+
+        pip install pyuvdata
+
+    See Also
+    --------
+    read_measurement_set : Similar function for CASA MS format.
+
+    Examples
+    --------
+    >>> antennas = read_uvfits("observation.uvfits")
     """
     if not PYUVDATA_AVAILABLE:
-        raise ImportError("pyuvdata is required for UVFITS support. Install with: pip install pyuvdata")
+        raise ImportError(
+            "pyuvdata is required for UVFITS support. "
+            "Install with: pip install pyuvdata"
+        )
 
     try:
+        # Read the UVFITS file using pyuvdata
         uv = UVData()
         uv.read(file_path)
 
         antennas = {}
+
+        # Extract antenna metadata
         ant_names = uv.antenna_names
         ant_numbers = uv.antenna_numbers
-        ant_positions = uv.antenna_positions  # in ENU coordinates
-        antenna_diameters = uv.antenna_diameter
+        ant_positions = uv.antenna_positions
+        ant_diameters = uv.antenna_diameters if hasattr(uv, 'antenna_diameters') else [0] * len(ant_names)
 
-        for i, (name, number, pos, diam) in enumerate(zip(ant_names, ant_numbers, ant_positions, antenna_diameters)):
+        # Build antenna dictionaries
+        for name, number, pos, diam in zip(ant_names, ant_numbers, ant_positions, ant_diameters):
             ant = {
-                "Name": name,
+                "Name": str(name),
                 "Number": int(number),
-                "BeamID": None,  # No beam ID info in UVFITS
+                "BeamID": None,
                 "Position": tuple(pos),
             }
+
             if diam > 0:
                 ant["diameter"] = float(diam)
 
@@ -336,42 +699,80 @@ def read_uvfits(file_path):
         raise ValueError(f"Failed to read UVFITS file '{file_path}': {e}")
 
 
-def read_mwa_format(file_path):
+def read_mwa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
     """
-    Read MWA metafits FITS file format.
+    Read antenna positions from an MWA metafits file.
 
-    MWA metafits files are FITS files containing antenna positions in ENU coordinates.
-    The TILEDATA table has 256 rows (2 per tile for X and Y polarization).
-    We deduplicate to get unique tile positions.
+    MWA (Murchison Widefield Array) metafits files are FITS files containing
+    observation metadata including tile (antenna) positions in the TILEDATA
+    extension.
+
+    Parameters
+    ----------
+    file_path : str or Path
+        Path to the MWA metafits FITS file.
+
+    Returns
+    -------
+    dict
+        Dictionary mapping antenna numbers to antenna data dictionaries.
+
+    Raises
+    ------
+    ImportError
+        If astropy is not installed.
+    ValueError
+        If the file is not a valid MWA metafits file or lacks TILEDATA.
+
+    Notes
+    -----
+    MWA metafits files contain 256 rows in the TILEDATA table (2 per tile
+    for X and Y polarization). This function deduplicates to return 128
+    unique tile positions.
+
+    The TILEDATA columns used are:
+
+    - ``TileName``: Tile identifier string
+    - ``Antenna``: Numeric antenna/tile index
+    - ``East``, ``North``, ``Height``: ENU coordinates in meters
+
+    Examples
+    --------
+    >>> antennas = read_mwa_format("1234567890_metafits.fits")
+    >>> print(f"Loaded {len(antennas)} MWA tiles")
+    Loaded 128 MWA tiles
     """
-    try:
-        from astropy.io import fits
-    except ImportError:
-        raise ImportError("astropy is required to read MWA metafits FITS files. Install with: pip install astropy")
+    if not ASTROPY_AVAILABLE:
+        raise ImportError(
+            "astropy is required to read MWA metafits FITS files. "
+            "Install with: pip install astropy"
+        )
 
     antennas = {}
 
     try:
-        # Open the FITS file
         with fits.open(file_path) as hdul:
-            # Get the TILEDATA table
+            # Verify TILEDATA extension exists
             if 'TILEDATA' not in hdul:
-                raise ValueError("TILEDATA table not found in MWA metafits file")
+                raise ValueError(
+                    f"TILEDATA extension not found in '{file_path}'. "
+                    "This may not be a valid MWA metafits file."
+                )
 
             tile_table = hdul['TILEDATA'].data
 
-            # Deduplicate tiles (each tile has 2 rows for X and Y polarization)
+            # Track processed tiles to handle X/Y polarization deduplication
             seen_tiles = {}
 
             for row in tile_table:
                 tile_name = row['TileName'].strip()
                 antenna_num = int(row['Antenna'])
 
-                # Skip if we've already processed this tile
+                # Skip duplicate entries (X and Y polarization rows)
                 if tile_name in seen_tiles:
                     continue
 
-                # Get ENU coordinates (note: metafits has East, North, Height)
+                # Extract ENU coordinates
                 east = float(row['East'])
                 north = float(row['North'])
                 height = float(row['Height'])
@@ -379,78 +780,154 @@ def read_mwa_format(file_path):
                 ant = {
                     "Name": tile_name,
                     "Number": antenna_num,
-                    "BeamID": None,  # MWA doesn't use BeamID in this context
+                    "BeamID": None,  # MWA uses separate beam models
                     "Position": (east, north, height),
                 }
 
-                # Use antenna number as key for consistency with other formats
                 antennas[antenna_num] = ant
                 seen_tiles[tile_name] = antenna_num
 
         return antennas
 
+    except KeyError as e:
+        raise ValueError(f"Missing required column in TILEDATA: {e}")
     except Exception as e:
-        raise ValueError(f"Failed to read MWA metafits file: {e}")
+        raise ValueError(f"Failed to read MWA metafits file '{file_path}': {e}")
 
 
-def read_pyuvdata_format(file_path):
+def read_pyuvdata_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
     """
-    Read antenna positions from numpy array format or simple coordinate files.
+    Read antenna positions from a simple text coordinate file.
 
-    Expected format: Simple text file with x y z coordinates per line
+    This format supports basic x, y, z coordinate files with one antenna
+    per line. It's useful for quick testing or custom antenna layouts.
+
+    Parameters
+    ----------
+    file_path : str or Path
+        Path to the coordinate file.
+
+    Returns
+    -------
+    dict
+        Dictionary mapping antenna numbers to antenna data dictionaries.
+        Antenna names are auto-generated as ANT000, ANT001, etc.
+
+    Notes
+    -----
+    **File Format:**
+
+    Simple whitespace-separated x, y, z coordinates, one per line.
+    Lines starting with '#' are treated as comments and ignored.
+
+    .. code-block:: text
+
+        # Optional comment
+        100.5  -50.2  3.1
+        200.3  -30.1  2.8
+        150.0   10.5  4.2
+
+    Additional columns beyond the first three are ignored.
+
+    Examples
+    --------
+    >>> antennas = read_pyuvdata_format("positions.txt")
+    >>> print(antennas[0]["Name"])
+    'ANT000'
     """
     antennas = {}
 
     try:
-        # Try to read as simple text file first
         with open(file_path, "r") as f:
             lines = f.readlines()
 
         ant_idx = 0
+
         for line in lines:
-            if line.strip() and not line.startswith('#'):
-                parts = line.strip().split()
-                if len(parts) >= 3:
-                    try:
-                        x, y, z = map(float, parts[:3])
+            stripped = line.strip()
 
-                        ant = {
-                            "Name": f"ANT{ant_idx:03d}",
-                            "Number": ant_idx,
-                            "BeamID": None,  # No beam ID info in simple format
-                            "Position": (x, y, z),
-                        }
+            # Skip empty lines and comments
+            if not stripped or stripped.startswith('#'):
+                continue
 
-                        antennas[ant_idx] = ant
-                        ant_idx += 1
+            parts = stripped.split()
 
-                    except ValueError:
-                        continue
+            # Need at least x, y, z coordinates
+            if len(parts) >= 3:
+                try:
+                    x, y, z = float(parts[0]), float(parts[1]), float(parts[2])
+
+                    ant = {
+                        "Name": f"ANT{ant_idx:03d}",
+                        "Number": ant_idx,
+                        "BeamID": None,
+                        "Position": (x, y, z),
+                    }
+
+                    antennas[ant_idx] = ant
+                    ant_idx += 1
+
+                except ValueError:
+                    # Skip lines with non-numeric data
+                    continue
 
     except Exception as e:
-        raise ValueError(f"Failed to read pyuvdata format file '{file_path}': {e}")
+        raise ValueError(f"Failed to read coordinate file '{file_path}': {e}")
 
     return antennas
 
 
-def format_antenna_data(antennas_dict):
+# =============================================================================
+# DATA FORMAT CONVERSION
+# =============================================================================
+
+def format_antenna_data(antennas_dict: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Convert antenna dict to array format for BeamManager.
+    Convert antenna dictionary to NumPy array format.
 
-    Parameters:
-    -----------
+    This function transforms the dictionary-based antenna representation
+    into a format with NumPy arrays, which is more efficient for numerical
+    operations and required by components like BeamManager.
+
+    Parameters
+    ----------
     antennas_dict : dict
-        Dictionary with antenna numbers as keys and metadata dicts as values.
-        Format: {0: {"Name": "ant1", "Number": 0, "BeamID": "beam1", "Position": (e, n, u)}, ...}
+        Dictionary mapping antenna numbers to antenna metadata dictionaries.
+        Each antenna dict must contain: Name, Number, Position.
+        Optional keys: BeamID, diameter.
 
-    Returns:
+    Returns
+    -------
+    dict
+        Dictionary with NumPy arrays:
+
+        - ``names`` (ndarray of str): Antenna name strings, shape (N_ant,)
+        - ``numbers`` (ndarray of int): Antenna numbers, shape (N_ant,)
+        - ``positions_m`` (ndarray of float): ENU positions, shape (N_ant, 3)
+        - ``beam_ids`` (ndarray of str or None): Beam IDs if any antenna has one
+        - ``diameters`` (ndarray of float or None): Diameters if any antenna has one
+
+    Raises
+    ------
+    ValueError
+        If the input dictionary is empty.
+
+    Notes
+    -----
+    The output arrays are sorted by antenna number for consistent ordering.
+    This is important for baseline indexing and correlation with other data.
+
+    If any antenna has a BeamID or diameter, the corresponding array is
+    created for all antennas (with None values where not specified).
+
+    Examples
     --------
-    dict with keys:
-        - "names": np.ndarray of antenna names
-        - "numbers": np.ndarray of antenna numbers
-        - "positions_m": np.ndarray of positions (N_ant, 3)
-        - "beam_ids": np.ndarray of beam IDs or None if no beam IDs present
-        - "diameters": np.ndarray of diameters or None if no diameters present
+    >>> antennas = read_antenna_positions("layout.txt")
+    >>> arrays = format_antenna_data(antennas)
+    >>> print(arrays["positions_m"].shape)
+    (64, 3)
+    >>> print(arrays["names"][:3])
+    ['ANT000' 'ANT001' 'ANT002']
     """
     if not antennas_dict:
         raise ValueError("Empty antenna dictionary provided")
@@ -458,29 +935,32 @@ def format_antenna_data(antennas_dict):
     # Sort by antenna number for consistent ordering
     sorted_items = sorted(antennas_dict.items(), key=lambda x: x[0])
 
-    # Extract arrays
+    # Initialize collection lists
     names = []
     numbers = []
     positions = []
     beam_ids = []
     diameters = []
+
+    # Track which optional fields are present
     has_beam_ids = False
     has_diameters = False
 
+    # Extract data from each antenna
     for ant_num, ant_data in sorted_items:
         names.append(ant_data["Name"])
         numbers.append(ant_data["Number"])
         positions.append(ant_data["Position"])
 
-        # Check for BeamID
+        # Handle optional BeamID
         beam_id = ant_data.get("BeamID")
         if beam_id is not None:
             has_beam_ids = True
-            beam_ids.append(str(beam_id))  # Convert to string for consistency
+            beam_ids.append(str(beam_id))
         else:
             beam_ids.append(None)
 
-        # Check for diameter
+        # Handle optional diameter
         diameter = ant_data.get("diameter")
         if diameter is not None:
             has_diameters = True
@@ -488,114 +968,168 @@ def format_antenna_data(antennas_dict):
         else:
             diameters.append(None)
 
-    # Convert to numpy arrays
+    # Convert to NumPy arrays
     formatted_data = {
         "names": np.array(names, dtype=str),
         "numbers": np.array(numbers, dtype=int),
         "positions_m": np.array(positions, dtype=float),
-        "beam_ids": np.array(beam_ids, dtype=str) if has_beam_ids else None,
+        "beam_ids": np.array(beam_ids, dtype=object) if has_beam_ids else None,
         "diameters": np.array(diameters, dtype=float) if has_diameters else None,
     }
 
     return formatted_data
 
 
-def read_antenna_positions(file_path, format_type="rrivis", return_format="dict"):
+# =============================================================================
+# MAIN PUBLIC API
+# =============================================================================
+
+def read_antenna_positions(
+    file_path: Union[str, Path],
+    format_type: str = "rrivis",
+    return_format: str = "dict",
+    verbose: bool = False
+) -> Union[Dict[int, Dict[str, Any]], Dict[str, Any]]:
     """
-    Reads antenna positions and metadata from various file formats.
+    Read antenna positions from various file formats.
 
-    Parameters:
-    -----------
-    file_path : str
-        Path to the antenna position file.
-    format_type : str
-        Format of the antenna file. Options:
-        - "rrivis" (RRIvis ENU format)
-        - "casa" (CASA .cfg files)
-        - "measurement_set" (MS format)
-        - "uvfits" (UVFITS format)
-        - "mwa" (MWA metafits)
-        - "pyuvdata" (numpy arrays/simple text)
-    return_format : str, optional
-        Output format. Options:
-        - "dict" (default): Legacy dict format {ant_num: {"Name": ..., "Position": ...}}
-        - "arrays": Array format for BeamManager {"names": ndarray, "positions_m": ndarray, ...}
+    This is the main entry point for loading antenna layout data into RRIvis.
+    It supports multiple file formats and can return data in either dictionary
+    or array format.
 
-    Returns:
-    --------
-    dict: Dictionary with antenna data in the specified format.
+    Parameters
+    ----------
+    file_path : str or Path
+        Path to the antenna positions file.
+    format_type : str, default="rrivis"
+        File format identifier. Supported values:
 
-    Raises:
+        - ``"rrivis"``: Native RRIvis text format (default)
+        - ``"casa"``: CASA configuration files (.cfg)
+        - ``"measurement_set"``: CASA Measurement Set (.ms)
+        - ``"uvfits"``: UVFITS format
+        - ``"mwa"``: MWA metafits FITS files
+        - ``"pyuvdata"``: Simple x, y, z text format
+
+    return_format : str, default="dict"
+        Output format:
+
+        - ``"dict"``: Dictionary mapping antenna numbers to metadata dicts
+        - ``"arrays"``: NumPy arrays suitable for BeamManager
+
+    verbose : bool, default=False
+        If True, log debug information about loaded antennas and memory usage.
+
+    Returns
     -------
-    ValueError: If the file is empty, has invalid data, or the file format is incorrect.
-    FileNotFoundError: If the file path does not exist.
-    ImportError: If required dependencies are missing for specific formats.
-    """
+    dict
+        Antenna data in the requested format.
 
-    # Check if file path is provided
+        If ``return_format="dict"``:
+            ``{ant_num: {"Name": str, "Number": int, "BeamID": any,
+            "Position": tuple, "diameter": float}, ...}``
+
+        If ``return_format="arrays"``:
+            ``{"names": ndarray, "numbers": ndarray, "positions_m": ndarray,
+            "beam_ids": ndarray or None, "diameters": ndarray or None}``
+
+    Raises
+    ------
+    ValueError
+        If the file is empty, contains invalid data, or format is unsupported.
+    FileNotFoundError
+        If the specified file does not exist.
+    ImportError
+        If required dependencies are missing for the specified format.
+
+    See Also
+    --------
+    read_rrivis_format : Details on RRIvis format
+    read_casa_format : Details on CASA format
+    read_measurement_set : Details on MS format
+    format_antenna_data : Convert dict to array format
+
+    Examples
+    --------
+    Load antennas from RRIvis format (default):
+
+    >>> antennas = read_antenna_positions("antennas.txt")
+    >>> print(f"Loaded {len(antennas)} antennas")
+    >>> print(antennas[0]["Position"])
+
+    Load from CASA configuration:
+
+    >>> antennas = read_antenna_positions("alma.cfg", format_type="casa")
+
+    Get array format for numerical operations:
+
+    >>> arrays = read_antenna_positions("antennas.txt", return_format="arrays")
+    >>> positions = arrays["positions_m"]  # Shape: (N_ant, 3)
+
+    Load from Measurement Set:
+
+    >>> antennas = read_antenna_positions("obs.ms", format_type="measurement_set")
+    """
+    # --- Input validation ---
     if not file_path:
         raise ValueError("Antenna positions file path is not provided.")
 
-    # Check if file exists
-    if not os.path.exists(file_path):
+    file_path = Path(file_path)
+    if not file_path.exists():
         raise FileNotFoundError(f"The file '{file_path}' does not exist.")
 
-    # Determine file extension for automatic format detection if needed
-    file_ext = Path(file_path).suffix.lower()
+    format_lower = format_type.lower()
+    if format_lower not in SUPPORTED_FORMATS:
+        raise ValueError(
+            f"Unsupported antenna file format: '{format_type}'. "
+            f"Supported formats: {', '.join(SUPPORTED_FORMATS)}"
+        )
 
-    # Parse based on format type
+    # --- Dispatch to format-specific reader ---
+    format_readers = {
+        "rrivis": read_rrivis_format,
+        "casa": read_casa_format,
+        "measurement_set": read_measurement_set,
+        "uvfits": read_uvfits,
+        "mwa": read_mwa_format,
+        "pyuvdata": read_pyuvdata_format,
+    }
+
     try:
-        if format_type.lower() == "rrivis":
-            antennas = read_rrivis_format(file_path)
-        elif format_type.lower() == "casa":
-            antennas = read_casa_format(file_path)
-        elif format_type.lower() == "measurement_set":
-            antennas = read_measurement_set(file_path)
-        elif format_type.lower() == "uvfits":
-            antennas = read_uvfits(file_path)
-        elif format_type.lower() == "mwa":
-            antennas = read_mwa_format(file_path)
-        elif format_type.lower() == "pyuvdata":
-            antennas = read_pyuvdata_format(file_path)
-        else:
-            raise ValueError(f"Unsupported antenna file format: {format_type}. "
-                           f"Supported formats: rrivis, casa, measurement_set, uvfits, mwa, pyuvdata")
+        antennas = format_readers[format_lower](file_path)
 
         if not antennas:
             raise ValueError("No valid antenna data found in file.")
 
-        # Debug output (use dict format for printing)
-        print("")
-        print(_c("Antenna metadata and positions:", _BOLD + _CYAN))
-        for idx, data in antennas.items():
-            print(f"{_c(f'Antenna {idx}:', _BOLD + _CYAN)} {data}")
+        # --- Optional verbose logging ---
+        if verbose:
+            logger.debug(f"Loaded {len(antennas)} antennas from '{file_path}'")
+            for idx, data in antennas.items():
+                logger.debug(f"  Antenna {idx}: {data['Name']} at {data['Position']}")
 
-        # Calculate total memory usage in MB
-        total_memory_bytes = sys.getsizeof(antennas) + sum(
-            sys.getsizeof(value) + sum(sys.getsizeof(v) for v in value.values())
-            for value in antennas.values()
-        )
-        total_memory_mb = total_memory_bytes / (1024 * 1024)
-        print(
-            f"{_c('Total memory used by antennas:', _BOLD + _CYAN)} {total_memory_mb:.4f} MB"
-        )
+            # Calculate approximate memory usage
+            total_bytes = sys.getsizeof(antennas)
+            for value in antennas.values():
+                total_bytes += sys.getsizeof(value)
+                total_bytes += sum(sys.getsizeof(v) for v in value.values())
+            logger.debug(f"  Memory usage: {total_bytes / 1024:.2f} KB")
 
-        # Convert to requested format
+        # --- Convert to requested output format ---
         if return_format == "arrays":
             return format_antenna_data(antennas)
         elif return_format == "dict":
             return antennas
         else:
-            raise ValueError(f"Invalid return_format: {return_format}. Use 'dict' or 'arrays'.")
+            raise ValueError(
+                f"Invalid return_format: '{return_format}'. "
+                "Use 'dict' or 'arrays'."
+            )
 
+    except (ImportError, ValueError, FileNotFoundError):
+        # Re-raise these specific exceptions without wrapping
+        raise
     except Exception as e:
-        raise ValueError(f"Failed to read antenna positions file '{file_path}' with format '{format_type}': {e}")
-
-
-# Backward compatibility function
-def read_antenna_positions_legacy(file_path):
-    """
-    Legacy function for backward compatibility.
-    Uses the original RRIvis format.
-    """
-    return read_antenna_positions(file_path, "rrivis")
+        raise ValueError(
+            f"Failed to read antenna positions from '{file_path}' "
+            f"with format '{format_type}': {e}"
+        )

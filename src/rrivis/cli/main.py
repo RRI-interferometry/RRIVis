@@ -4,6 +4,7 @@ Provides the main entry point for running simulations from the command line.
 """
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 from typing import Optional
@@ -211,10 +212,62 @@ def run_config_mode(args: argparse.Namespace) -> int:
         if args.sim_data_dir:
             config.output.simulation_data_dir = args.sim_data_dir
 
+        # Handle output based on config settings
+        output_config = config.output
+
+        # Determine output directory early (before simulation)
+        sim_data_dir = output_config.simulation_data_dir or "output"
+        sim_subdir = output_config.simulation_subdir
+
+        # Auto-generate subdirectory name if not specified
+        if not sim_subdir:
+            sim_subdir = config.generate_output_subdir()
+            logger.info(f"Auto-generated output subdirectory: {sim_subdir}")
+
+        output_dir = Path(sim_data_dir) / sim_subdir
+
+        # Set up file logging if save_log_data is enabled
+        if output_config.save_log_data:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            log_file = output_dir / "simulation.log"
+            setup_logging(
+                level=logging.DEBUG if args.verbose >= 2 else logging.INFO,
+                log_file=str(log_file),
+            )
+            logger.info(f"Logging to file: {log_file}")
+
         # Run simulation
         from rrivis.api.simulator import Simulator
         sim = Simulator(config=config.to_dict())
         results = sim.run()
+
+        # Save simulation data if requested
+        if output_config.save_simulation_data:
+            try:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                sim.save(output_dir, format="hdf5")
+                logger.info(f"Results saved to: {output_dir}")
+
+                # Save the config used for this simulation
+                from rrivis.io.writers import save_config_yaml
+                config_path = output_dir / "config.yaml"
+                save_config_yaml(config.to_dict(), config_path)
+                logger.info(f"Config saved to: {config_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save results: {e}")
+
+        # Generate plots if requested
+        if output_config.plot_results:
+            try:
+                sim.plot(
+                    plot_type="all",
+                    output_dir=output_dir,
+                    backend=output_config.plotting_backend or "bokeh",
+                    show=output_config.open_plots_in_browser
+                )
+                logger.info(f"Plots saved to: {output_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to generate plots: {e}")
 
         logger.info("Simulation completed successfully")
         return 0

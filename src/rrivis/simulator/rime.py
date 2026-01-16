@@ -251,6 +251,10 @@ class RIMESimulator(VisibilitySimulator):
         use_jones_chain = kwargs.get("use_jones_chain", False)
         jones_config = kwargs.get("jones_config", None)
 
+        # Extract time-stepping parameters (required)
+        duration_seconds = kwargs.get("duration_seconds", 1.0)
+        time_step_seconds = kwargs.get("time_step_seconds", 1.0)
+
         # Delegate to core implementation
         return calculate_visibility(
             antennas=antennas,
@@ -261,6 +265,8 @@ class RIMESimulator(VisibilitySimulator):
             wavelengths=wavelengths,
             freqs=frequencies,
             hpbw_per_antenna=hpbw_per_antenna,
+            duration_seconds=duration_seconds,
+            time_step_seconds=time_step_seconds,
             beam_manager=beam_manager,
             beam_pattern_per_antenna=beam_pattern_per_antenna,
             beam_pattern_params=beam_pattern_params,

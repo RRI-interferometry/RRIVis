@@ -52,6 +52,7 @@ Create configuration programmatically:
 
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
+from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, model_validator
 import yaml
 
@@ -201,6 +202,22 @@ class GLEAMConfig(BaseModel):
     nside: int = Field(32, ge=1, description="HEALPix nside")
 
 
+class MALSConfig(BaseModel):
+    """MALS (MeerKAT Absorption Line Survey) configuration.
+
+    MALS provides L-band (900-1670 MHz) radio continuum catalogs:
+    - DR1: 495,325 sources at 1-1.4 GHz (J/ApJS/270/33)
+    - DR2: 971,980 sources wideband (J/A+A/690/A163) - largest MeerKAT catalog
+    - DR3: 3,640 HI 21-cm absorption features (J/A+A/698/A120)
+    """
+
+    use_mals: bool = Field(False, description="Use MALS catalog")
+    mals_release: Literal["dr1", "dr2", "dr3"] = Field(
+        "dr2", description="MALS data release (dr1, dr2, dr3)"
+    )
+    flux_limit: float = Field(1.0, ge=0, description="Flux limit in mJy")
+
+
 class SkyModelConfig(BaseModel):
     """Sky model configuration."""
 
@@ -209,21 +226,20 @@ class SkyModelConfig(BaseModel):
     gsm_healpix: GSMConfig = Field(default_factory=GSMConfig)
     gleam: GLEAMConfig = Field(default_factory=GLEAMConfig)
     gleam_healpix: GLEAMConfig = Field(default_factory=GLEAMConfig)
+    mals: MALSConfig = Field(default_factory=MALSConfig)
 
 
 class ObsTimeConfig(BaseModel):
     """Observation time configuration."""
 
-    time_interval: float = Field(1.0, gt=0, description="Time interval")
-    time_interval_unit: Literal["seconds", "minutes", "hours", "days"] = Field(
-        "hours", description="Time interval unit"
-    )
-    total_duration: float = Field(1.0, gt=0, description="Total duration")
-    total_duration_unit: Literal["seconds", "minutes", "hours", "days"] = Field(
-        "days", description="Duration unit"
-    )
     start_time: str = Field(
-        "2025-01-01T00:00:00", description="Start time (ISO format)"
+        ..., description="Start time (ISO format)"
+    )
+    duration_seconds: float = Field(
+        ..., gt=0, description="Total observation duration in seconds"
+    )
+    time_step_seconds: float = Field(
+        ..., gt=0, description="Time step between samples in seconds"
     )
 
 
@@ -253,12 +269,15 @@ class OutputConfig(BaseModel):
     """Output configuration."""
 
     simulation_data_dir: str = Field("", description="Output directory")
+    simulation_subdir: str = Field("", description="Output subdirectory name")
     output_file_name: str = Field("complex_visibility", description="Output filename")
     output_file_format: Literal["HDF5", "JSON", "MS", "UVFITS"] = Field(
         "HDF5", description="Output format"
     )
     save_simulation_data: bool = Field(False, description="Save simulation data")
-    plot_results_in_bokeh: bool = Field(True, description="Plot with Bokeh")
+    plot_results: bool = Field(True, description="Generate visualization plots")
+    open_plots_in_browser: bool = Field(True, description="Open plots in browser (set False to save only)")
+    plotting_backend: str = Field("bokeh", description="Plotting backend (bokeh/matplotlib)")
     plot_skymodel_every_hour: bool = Field(True, description="Plot sky model")
     save_log_data: bool = Field(False, description="Save log data")
     angle_unit: Literal["degrees", "radians", ""] = Field(
@@ -274,6 +293,48 @@ class SimulatorsConfig(BaseModel):
         False, description="Use alternative simulator"
     )
     name: str = Field("", description="Simulator name")
+
+
+class VisibilityConfig(BaseModel):
+    """Visibility calculation configuration.
+
+    Controls how visibilities are computed from the sky model.
+
+    Attributes
+    ----------
+    calculation_type : str
+        The algorithm used for visibility calculation:
+        - "direct_sum": Direct summation over sources/pixels (RIME-based)
+        - "spherical_harmonic": m-mode formalism (NOT YET IMPLEMENTED)
+
+    sky_representation : str
+        How the sky model is represented during calculation:
+        - "point_sources": Discrete sources with (RA, Dec, flux)
+          Best for: catalogs (GLEAM, MALS), sparse bright sources
+        - "healpix_map": HEALPix brightness temperature map
+          Best for: diffuse emission (GSM, LFSM, Haslam)
+          More efficient for large-scale structure, works in T_b units
+
+    Notes
+    -----
+    Both "point_sources" and "healpix_map" use direct summation:
+        V = Σ S_i × exp(-2πi b·ŝ/λ)  (point sources)
+        V = Σ T_p × Ω_p × exp(-2πi b·ŝ/λ)  (healpix)
+
+    The difference is in sky representation, not the algorithm.
+    True spherical harmonic visibility (m-mode) would use:
+        V_m = Σ_lm B_lm × a_lm
+    This is planned for future implementation.
+    """
+
+    calculation_type: Literal["direct_sum", "spherical_harmonic"] = Field(
+        "direct_sum",
+        description="Visibility calculation algorithm: 'direct_sum' (implemented) or 'spherical_harmonic' (future)"
+    )
+    sky_representation: Literal["point_sources", "healpix_map"] = Field(
+        "point_sources",
+        description="Sky model representation: 'point_sources' or 'healpix_map'"
+    )
 
 
 class CoordinatePrecisionConfig(BaseModel):
@@ -432,6 +493,10 @@ class RRIvisConfig(BaseModel):
     obs_frequency: ObsFrequencyConfig = Field(default_factory=ObsFrequencyConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     simulators: SimulatorsConfig = Field(default_factory=SimulatorsConfig)
+    visibility: VisibilityConfig = Field(
+        default_factory=VisibilityConfig,
+        description="Visibility calculation settings"
+    )
     precision: Optional[PrecisionConfigSchema] = Field(
         None,
         description="Precision configuration for numerical computations"
@@ -491,6 +556,46 @@ class RRIvisConfig(BaseModel):
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
         return self.model_dump()
+
+    def generate_output_subdir(self) -> str:
+        """Generate output subdirectory name from config parameters.
+
+        Creates a descriptive, deterministic directory name based on
+        simulation parameters plus the current runtime date.
+
+        Format:
+            {telescope}_{freq_start}-{freq_end}{unit}_{n_channels}ch_{duration}s_SimTime{DDMMYYYY}
+
+        Returns
+        -------
+        str
+            Generated subdirectory name.
+
+        Examples
+        --------
+        >>> config = load_config("config.yaml")
+        >>> config.generate_output_subdir()
+        'HERA_100-120MHz_21ch_600s_SimTime15012026'
+        """
+        # Get config parameters
+        telescope = self.telescope.telescope_name.replace(" ", "_")
+        freq_start = int(self.obs_frequency.starting_frequency)
+        freq_end = int(
+            self.obs_frequency.starting_frequency +
+            self.obs_frequency.frequency_bandwidth
+        )
+        freq_unit = self.obs_frequency.frequency_unit
+        n_channels = self.obs_frequency.n_channels
+        duration = int(self.obs_time.duration_seconds)
+
+        # Get current UTC date and time in DD-MM-YYYY_HH-MM-SS format
+        from datetime import timezone
+        runtime_utc = datetime.now(timezone.utc).strftime("%d-%m-%Y_%H-%M-%S")
+
+        return (
+            f"{telescope}_{freq_start}-{freq_end}{freq_unit}_"
+            f"{n_channels}ch_{duration}s_SimTimeUTC{runtime_utc}"
+        )
 
 
 def load_config(config_path: Union[str, Path]) -> RRIvisConfig:

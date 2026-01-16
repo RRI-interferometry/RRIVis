@@ -10,10 +10,10 @@ from rrivis.core.baseline import generate_baselines
 from rrivis.core.beams import (
     gaussian_A_theta_EBeam,
     airy_disk_pattern,
-    calculate_hpbw,
     calculate_gaussian_beam_area_EBeam,
     calculate_airy_beam_area,
-    calculate_hpbw_radians,
+    calculate_hpbw_for_antenna_type,
+    get_hpbw_function,
     AntennaType,
     BeamPatternType,
 )
@@ -24,13 +24,16 @@ from rrivis.core.polarization import (
     apply_jones_matrices,
     visibility_to_correlations,
 )
-from rrivis.core.source import (
-    get_sources,
-    generate_test_sources,
-    load_gleam,
-    load_gsm2008,
+from rrivis.core.sky_model import (
+    SkyModel,
+    K_BOLTZMANN,
+    C_LIGHT,
+    GLEAM_CATALOGS,
+    MALS_CATALOGS,
+    DIFFUSE_MODELS,
 )
 from rrivis.core.visibility import calculate_visibility
+from rrivis.core.visibility_healpix import calculate_visibility_healpix
 from rrivis.core.precision import (
     PrecisionConfig,
     PrecisionLevel,
@@ -51,10 +54,10 @@ __all__ = [
     # Beams
     "gaussian_A_theta_EBeam",
     "airy_disk_pattern",
-    "calculate_hpbw",
     "calculate_gaussian_beam_area_EBeam",
     "calculate_airy_beam_area",
-    "calculate_hpbw_radians",
+    "calculate_hpbw_for_antenna_type",
+    "get_hpbw_function",
     "AntennaType",
     "BeamPatternType",
     # Beam file
@@ -65,13 +68,16 @@ __all__ = [
     "stokes_to_coherency",
     "apply_jones_matrices",
     "visibility_to_correlations",
-    # Source
-    "get_sources",
-    "generate_test_sources",
-    "load_gleam",
-    "load_gsm2008",
+    # Sky Model (unified)
+    "SkyModel",
+    "K_BOLTZMANN",
+    "C_LIGHT",
+    "GLEAM_CATALOGS",
+    "MALS_CATALOGS",
+    "DIFFUSE_MODELS",
     # Visibility
     "calculate_visibility",
+    "calculate_visibility_healpix",
     # Precision
     "PrecisionConfig",
     "PrecisionLevel",
