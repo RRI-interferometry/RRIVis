@@ -54,3 +54,14 @@ jupyter = ">=1.1.1,<2"
 [pypi-dependencies]
 pygdsm = "*"
 rrivis = { path = ".", editable = true }
+
+# Optional extended catalog support
+# Install with: pixi install -e catalogs
+# Note: ULSA requires manual install:
+#   pip install git+https://github.com/Yanping-Cong/ULSA.git
+[feature.catalogs.pypi-dependencies]
+pyradiosky = "*"
+pysm3 = "*"
+
+[environments]
+catalogs = { features = ["catalogs"], solve-group = "default" }

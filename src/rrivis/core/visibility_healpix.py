@@ -97,24 +97,25 @@ def calculate_visibility_healpix(
         - baselines: Baseline info
         - metadata: Additional information
     """
-    if sky_model.mode != "healpix":
-        raise ValueError("sky_model must be in HEALPix mode. Use calculate_visibility() for point sources.")
+    if sky_model.mode != "healpix_multifreq":
+        raise ValueError(
+            "sky_model must be in healpix_multifreq mode. "
+            "Call to_healpix_for_observation() first (for point-source catalogs) "
+            "or use from_diffuse_sky(frequencies=...) (for diffuse models)."
+        )
 
     # Get backend
     if backend is None:
         backend = get_backend("numpy")
 
-    # Get HEALPix data
-    temp_map, nside, spec_idx_map = sky_model.get_healpix_data()
-    npix = len(temp_map)
+    # Get multi-frequency map metadata
+    _, nside, _ = sky_model.get_multifreq_maps()
+    npix = hp.nside2npix(nside)
     omega_pixel = sky_model.pixel_solid_angle
     pixel_coords = sky_model.pixel_coords
 
     logger.info(f"HEALPix visibility calculation: nside={nside}, {npix} pixels")
     logger.info(f"Pixel solid angle: {omega_pixel:.6f} sr ({np.degrees(np.sqrt(omega_pixel)):.3f}°)")
-
-    # Reference frequency for spectral scaling
-    reference_freq = sky_model.frequency if sky_model.frequency else freqs[0]
 
     # Setup time steps
     n_times = int(np.ceil(duration_seconds / time_step_seconds))
@@ -132,12 +133,6 @@ def calculate_visibility_healpix(
 
     # Initialize output array
     visibilities = np.zeros((n_baselines, n_times, n_freqs), dtype=np.complex128)
-
-    # Pre-compute spectral indices (default to 0 if not available)
-    if spec_idx_map is not None:
-        spectral_indices = spec_idx_map
-    else:
-        spectral_indices = np.zeros(npix)
 
     logger.info(f"Computing visibilities: {n_times} times × {n_freqs} freqs × {n_baselines} baselines")
 
@@ -159,11 +154,9 @@ def calculate_visibility_healpix(
 
         n_visible = np.sum(above_horizon)
 
-        # Get visible pixel data
+        # Get visible pixel indices and geometry
         az_vis = az_rad[above_horizon]
         alt_vis = alt_rad[above_horizon]
-        temp_vis = temp_map[above_horizon]
-        spec_idx_vis = spectral_indices[above_horizon]
 
         # Compute direction cosines (l, m, n) in local ENU frame
         # l = East, m = North, n = Up (zenith)
@@ -180,10 +173,9 @@ def calculate_visibility_healpix(
         for freq_idx, (wavelength, freq) in enumerate(zip(wavelengths, freqs)):
             wavelength_m = wavelength.to(u.m).value
 
-            # Scale temperature by spectral index (T ∝ ν^β, where β = α - 2)
-            # Since we store flux spectral index α, temperature index β = α - 2
-            beta = spec_idx_vis - 2.0
-            temp_scaled = temp_vis * (freq / reference_freq) ** beta
+            # Look up the pre-computed native map for this frequency channel
+            full_temp_map = sky_model.get_map_at_frequency(freq)
+            temp_vis = full_temp_map[above_horizon]
 
             # Convert to output units before baseline loop
             # (Planck conversion is nonlinear in T, so must be per-pixel)
@@ -191,13 +183,20 @@ def calculate_visibility_healpix(
                 conversion = getattr(sky_model, 'brightness_conversion', 'planck')
                 if conversion == "rayleigh-jeans":
                     rj_factor = (2 * K_BOLTZMANN * freq**2 / C_LIGHT**2) * omega_pixel * 1e26
-                    signal = temp_scaled * rj_factor
+                    signal = temp_vis * rj_factor
                 else:
-                    signal = brightness_temp_to_flux_density(
-                        temp_scaled, freq, omega_pixel, method="planck"
-                    )
+                    # Handle zero-temperature pixels gracefully
+                    pos = temp_vis > 0
+                    signal = np.zeros(len(temp_vis))
+                    if np.any(pos):
+                        signal[pos] = brightness_temp_to_flux_density(
+                            temp_vis[pos].astype(np.float64),
+                            freq,
+                            omega_pixel,
+                            method="planck",
+                        )
             else:
-                signal = temp_scaled * omega_pixel
+                signal = temp_vis * omega_pixel
 
             # Compute visibility for each baseline
             # V = Σ signal × exp(-2πi (ul + vm + w(n-1)))
@@ -236,7 +235,7 @@ def calculate_visibility_healpix(
             "nside": nside,
             "n_pixels": npix,
             "pixel_solid_angle_sr": omega_pixel,
-            "reference_freq_hz": reference_freq,
+            "n_frequencies": n_freqs,
         }
     }
 
