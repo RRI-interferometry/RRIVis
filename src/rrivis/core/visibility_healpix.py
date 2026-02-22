@@ -28,7 +28,7 @@ from astropy.time import TimeDelta
 import astropy.units as u
 
 from rrivis.backends import get_backend, ArrayBackend
-from rrivis.core.sky_model import SkyModel, K_BOLTZMANN, C_LIGHT
+from rrivis.core.sky_model import SkyModel, K_BOLTZMANN, C_LIGHT, brightness_temp_to_flux_density
 
 
 logger = logging.getLogger(__name__)
@@ -185,27 +185,38 @@ def calculate_visibility_healpix(
             beta = spec_idx_vis - 2.0
             temp_scaled = temp_vis * (freq / reference_freq) ** beta
 
+            # Convert to output units before baseline loop
+            # (Planck conversion is nonlinear in T, so must be per-pixel)
+            if output_units == "Jy":
+                conversion = getattr(sky_model, 'brightness_conversion', 'planck')
+                if conversion == "rayleigh-jeans":
+                    rj_factor = (2 * K_BOLTZMANN * freq**2 / C_LIGHT**2) * omega_pixel * 1e26
+                    signal = temp_scaled * rj_factor
+                else:
+                    signal = brightness_temp_to_flux_density(
+                        temp_scaled, freq, omega_pixel, method="planck"
+                    )
+            else:
+                signal = temp_scaled * omega_pixel
+
             # Compute visibility for each baseline
-            # V = Σ T × exp(-2πi (b·ŝ) / λ)
+            # V = Σ signal × exp(-2πi (ul + vm + w(n-1)))
+            # Using w(n-1) formulation per Smirnov 2011 RIME
             for bl_idx, (bl_key, bl_vec) in enumerate(zip(baseline_keys, baseline_vectors)):
-                # Geometric delay: b · ŝ / λ (in wavelengths)
-                # bl_vec is in meters, ŝ is unit direction vector
-                delay = np.dot(direction_vectors, bl_vec) / wavelength_m
+                # Baseline in wavelengths
+                u, v, w = bl_vec / wavelength_m
+
+                # Geometric delay with w(n-1) correction
+                # This ensures zero phase at phase center (l=0, m=0, n=1)
+                delay = u * l + v * m + w * (n - 1.0)
 
                 # Phase factor
                 phase = np.exp(-2j * np.pi * delay)
 
                 # Sum over all visible pixels
-                # This gives visibility in K (temperature units)
-                vis_temp = np.sum(temp_scaled * phase)
+                vis = np.sum(signal * phase)
 
-                visibilities[bl_idx, time_idx, freq_idx] = vis_temp
-
-            # Convert to output units
-            if output_units == "Jy":
-                # Apply Rayleigh-Jeans factor: S = (2kTν²/c²) × Ω × 10^26
-                rj_factor = (2 * K_BOLTZMANN * (freq ** 2) / (C_LIGHT ** 2)) * omega_pixel * 1e26
-                visibilities[:, time_idx, freq_idx] *= rj_factor
+                visibilities[bl_idx, time_idx, freq_idx] = vis
 
         if time_idx % 10 == 0 or time_idx == n_times - 1:
             logger.debug(f"Time step {time_idx + 1}/{n_times}: {n_visible} pixels visible")

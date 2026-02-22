@@ -339,7 +339,6 @@ class RIMESimulator(VisibilitySimulator):
             + beam_arrays
             + jones_working
         )
-
         total_bytes = output_bytes + working_bytes
 
         def format_bytes(b: int) -> str:

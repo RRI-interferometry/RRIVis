@@ -8,7 +8,7 @@ from pathlib import Path
 from rrivis.core.antenna import read_antenna_positions
 
 # Get the antenna_layout_examples directory
-DATA_DIR = Path(__file__).parent.parent / "antenna_layout_examples"
+DATA_DIR = Path(__file__).parent.parent.parent.parent / "antenna_layout_examples"
 
 
 @pytest.mark.parametrize("format_name,filename,min_expected", [

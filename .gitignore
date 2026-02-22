@@ -156,6 +156,7 @@ simulation_data/
 data/
 *.h5
 *.fits
+!antenna_layout_examples/1101503312_metafits.fits
 *.npz
 *.npy
 

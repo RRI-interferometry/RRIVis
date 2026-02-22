@@ -298,8 +298,10 @@ def calculate_visibility(
                     )
 
                     # Calculate geometric phase term
+                    # Using w(n-1) formulation per Smirnov 2011 RIME
+                    # This ensures zero phase at the phase center (l=0, m=0, n=1)
                     u, v, w = np.array(baseline["BaselineVector"]) / wavelength.value
-                    b_dot_s = u * l_np + v * m_np + w * n_np
+                    b_dot_s = u * l_np + v * m_np + w * (n_np - 1.0)
                     phase = np.exp(-2j * np.pi * b_dot_s)
 
                     # Apply RIME for each source and sum
@@ -852,8 +854,9 @@ def calculate_visibility_with_healpix_and_alpha(
     # Loop over frequencies
     for i, (wavelength, freq) in enumerate(zip(wavelengths, freqs)):
         for (ant1, ant2), baseline in baselines.items():
+            # Using w(n-1) formulation per Smirnov 2011 RIME
             u, v, w = np.array(baseline["BaselineVector"]) / wavelength.value
-            b_dot_s = u * l + v * m + w * n
+            b_dot_s = u * l + v * m + w * (n - 1.0)
             phase = np.exp(-2j * np.pi * b_dot_s)
 
             visibility = np.sum(extrapolated_fluxes[i] * A_theta * phase)

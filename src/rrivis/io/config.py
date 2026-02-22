@@ -233,13 +233,13 @@ class ObsTimeConfig(BaseModel):
     """Observation time configuration."""
 
     start_time: str = Field(
-        ..., description="Start time (ISO format)"
+        "2023-01-01T00:00:00", description="Start time (ISO format)"
     )
     duration_seconds: float = Field(
-        ..., gt=0, description="Total observation duration in seconds"
+        3600.0, gt=0, description="Total observation duration in seconds"
     )
     time_step_seconds: float = Field(
-        ..., gt=0, description="Time step between samples in seconds"
+        60.0, gt=0, description="Time step between samples in seconds"
     )
 
 

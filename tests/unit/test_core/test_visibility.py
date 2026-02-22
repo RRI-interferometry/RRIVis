@@ -83,6 +83,8 @@ class TestVisibilityOptimized(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
         )
 
         self.assertEqual(
@@ -95,7 +97,7 @@ class TestVisibilityOptimized(unittest.TestCase):
             self.assertIsInstance(vis, dict, f"Visibility for {key} should be a dict of correlations")
             self.assertIn("I", vis, f"Visibility for {key} should have Stokes I")
             self.assertEqual(
-                len(vis["I"]),
+                vis["I"].shape[-1],
                 len(self.freqs),
                 f"Mismatch in the number of frequencies for baseline {key}.",
             )
@@ -114,6 +116,8 @@ class TestVisibilityOptimized(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
         )
 
         for vis in visibilities.values():
@@ -141,6 +145,8 @@ class TestVisibilityOptimized(unittest.TestCase):
                 wavelengths=self.wavelengths,
                 freqs=self.freqs,
                 hpbw_per_antenna=self.hpbw_per_antenna,
+                duration_seconds=60.0,
+                time_step_seconds=60.0,
             )
 
     def test_memory_efficiency(self):
@@ -154,6 +160,8 @@ class TestVisibilityOptimized(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
         )
 
         # Calculate memory usage
@@ -225,6 +233,8 @@ class TestBackendIntegration(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             backend=None,  # Default NumPy backend
         )
         self.assertIn((0, 1), vis)
@@ -244,6 +254,8 @@ class TestBackendIntegration(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             backend=backend,
         )
         self.assertIn((0, 1), vis)
@@ -262,6 +274,8 @@ class TestBackendIntegration(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             backend=None,
         )
 
@@ -275,6 +289,8 @@ class TestBackendIntegration(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             backend=backend,
         )
 
@@ -333,6 +349,8 @@ class TestJonesChainIntegration(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=True,
         )
         self.assertIn((0, 1), vis)
@@ -355,6 +373,8 @@ class TestJonesChainIntegration(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=True,
             jones_config=jones_config,
         )
@@ -375,6 +395,8 @@ class TestJonesChainIntegration(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=True,
             jones_config=jones_config,
         )
@@ -395,6 +417,8 @@ class TestJonesChainIntegration(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=True,
             jones_config=jones_config,
         )
@@ -412,6 +436,8 @@ class TestJonesChainIntegration(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=False,
         )
 
@@ -425,6 +451,8 @@ class TestJonesChainIntegration(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=True,
             jones_config={},  # No extra effects
         )

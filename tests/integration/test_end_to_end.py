@@ -42,6 +42,8 @@ class TestBasicVisibilityCalculation:
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
             hpbw_per_antenna=sample_hpbw_simple,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
         )
 
         # Verify output structure
@@ -52,7 +54,7 @@ class TestBasicVisibilityCalculation:
         for baseline, vis_data in visibilities.items():
             assert isinstance(vis_data, dict)
             assert "I" in vis_data
-            assert len(vis_data["I"]) == len(sample_frequencies_multiple)
+            assert vis_data["I"].shape[-1] == len(sample_frequencies_multiple)
             assert np.iscomplexobj(vis_data["I"])
 
     def test_visibility_with_multiple_sources(
@@ -78,6 +80,8 @@ class TestBasicVisibilityCalculation:
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
             hpbw_per_antenna=sample_hpbw_simple,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
         )
 
         # With multiple sources, visibilities should be non-zero (unless all below horizon)
@@ -108,6 +112,8 @@ class TestBasicVisibilityCalculation:
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
             hpbw_per_antenna=sample_hpbw_simple,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=True,
         )
 
@@ -145,6 +151,8 @@ class TestBackendIntegration:
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
             hpbw_per_antenna=sample_hpbw_simple,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             backend=numpy_backend,
         )
 
@@ -183,6 +191,8 @@ class TestJonesChainIntegration:
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
             hpbw_per_antenna=sample_hpbw_simple,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=True,
             jones_config=jones_config,
         )
@@ -216,6 +226,8 @@ class TestJonesChainIntegration:
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
             hpbw_per_antenna=sample_hpbw_simple,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=True,
             jones_config=jones_config,
         )
@@ -251,6 +263,8 @@ class TestOutputFormats:
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
             hpbw_per_antenna=sample_hpbw_simple,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
         )
 
         # Try to save to HDF5
@@ -312,6 +326,8 @@ class TestPolarizationWorkflow:
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
             hpbw_per_antenna=sample_hpbw_simple,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=True,
         )
 
@@ -348,6 +364,8 @@ class TestLegacyVsJonesChain:
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
             hpbw_per_antenna=sample_hpbw_simple,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=False,
         )
 
@@ -361,6 +379,8 @@ class TestLegacyVsJonesChain:
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
             hpbw_per_antenna=sample_hpbw_simple,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
             use_jones_chain=True,
             jones_config={},  # No extra effects
         )
