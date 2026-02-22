@@ -1,0 +1,2 @@
+antenna_layout_examples/1101503312_metafits.fits filter=lfs diff=lfs merge=lfs -text
+notebooks/*.ipynb filter=lfs diff=lfs merge=lfs -text

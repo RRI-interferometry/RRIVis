@@ -6,9 +6,9 @@ import warnings
 
 
 def test_main_execution():
-    """Test that the legacy main.py can be imported with deprecation warning."""
-    # Note: src/main.py is deprecated and will be removed in v0.3.0
-    # This test verifies it still works during the transition period
+    """Test that the legacy main.py cannot be imported (rrivis.core.source removed)."""
+    # Note: src/main.py is deprecated and depends on rrivis.core.source
+    # which was removed during the v0.2.0 refactoring.
     import sys
     import os
 
@@ -17,10 +17,7 @@ def test_main_execution():
     sys.path.insert(0, src_path)
 
     try:
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
+        with pytest.raises((ImportError, ModuleNotFoundError)):
             import main
-            # Check that deprecation warning was raised
-            assert any("deprecated" in str(warning.message).lower() for warning in w)
     finally:
         sys.path.remove(src_path)

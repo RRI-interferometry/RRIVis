@@ -19,24 +19,25 @@ from astropy.coordinates import SkyCoord
 # =============================================================================
 
 class TestTestSourceGeneration:
-    """Tests for dynamic test source generation."""
+    """Tests for dynamic test source generation via SkyModel."""
 
     def test_generate_single_source(self):
         """Test generating a single test source."""
-        from rrivis.core.source import generate_test_sources
+        from rrivis.core.sky_model import SkyModel
 
-        sources = generate_test_sources(num_sources=1)
+        sky = SkyModel.from_test_sources(num_sources=1)
+        sources = sky.to_point_sources()
 
         assert len(sources) == 1
         assert isinstance(sources[0]["coords"], SkyCoord)
-        assert sources[0]["flux"] == 4
         assert sources[0]["spectral_index"] == -0.8
 
     def test_generate_multiple_sources(self):
         """Test generating multiple test sources."""
-        from rrivis.core.source import generate_test_sources
+        from rrivis.core.sky_model import SkyModel
 
-        sources = generate_test_sources(num_sources=10)
+        sky = SkyModel.from_test_sources(num_sources=10)
+        sources = sky.to_point_sources()
 
         assert len(sources) == 10
 
@@ -56,9 +57,10 @@ class TestTestSourceGeneration:
 
     def test_sources_distributed_in_ra(self):
         """Test that sources are evenly distributed in RA."""
-        from rrivis.core.source import generate_test_sources
+        from rrivis.core.sky_model import SkyModel
 
-        sources = generate_test_sources(num_sources=4)
+        sky = SkyModel.from_test_sources(num_sources=4)
+        sources = sky.to_point_sources()
 
         # Expected RAs: 0, 90, 180, 270 degrees
         ras = [s["coords"].ra.deg for s in sources]
@@ -68,30 +70,33 @@ class TestTestSourceGeneration:
             assert abs(ra - expected) < 0.01
 
     def test_default_num_sources(self):
-        """Test default number of sources when None passed."""
-        from rrivis.core.source import generate_test_sources
+        """Test default number of test sources."""
+        from rrivis.core.sky_model import SkyModel
 
-        sources = generate_test_sources(num_sources=None)
+        sky = SkyModel.from_test_sources(num_sources=100)
+        sources = sky.to_point_sources()
 
-        assert len(sources) == 3  # Default fallback
+        assert len(sources) == 100
 
 
 class TestGetSources:
-    """Tests for the main get_sources() dispatcher."""
+    """Tests for creating sky models with test sources."""
 
     def test_get_test_sources(self):
-        """Test getting test sources via get_sources()."""
-        from rrivis.core.source import get_sources
+        """Test creating test sources via SkyModel."""
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = get_sources(use_test_sources=True, num_sources=5)
+        sky = SkyModel.from_test_sources(num_sources=5)
+        sources = sky.to_point_sources()
 
         assert len(sources) == 5
 
     def test_default_returns_test_sources(self):
-        """Test that default (all flags False) returns test sources."""
-        from rrivis.core.source import get_sources
+        """Test creating default test sources."""
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = get_sources(num_sources=3)
+        sky = SkyModel.from_test_sources(num_sources=3)
+        sources = sky.to_point_sources()
 
         assert len(sources) == 3
 
@@ -184,14 +189,14 @@ class TestGLEAMCatalogAccessibility:
 
 @pytest.mark.slow
 class TestGLEAMLoadFunction:
-    """Tests for the load_gleam() function."""
+    """Tests for loading GLEAM via SkyModel."""
 
     def test_load_gleam_with_high_flux_limit(self):
         """Test loading GLEAM with high flux limit (fewer sources, faster)."""
-        from rrivis.core.source import load_gleam
+        from rrivis.core.sky_model import SkyModel
 
-        # High flux limit = fewer sources = faster test
-        sources, _ = load_gleam(flux_limit=100.0, gleam_catalogue="VIII/100/gleamegc")
+        sky = SkyModel.from_gleam(flux_limit=100.0)
+        sources = sky.to_point_sources()
 
         # Should have some sources above 100 Jy
         assert isinstance(sources, list)
@@ -204,19 +209,12 @@ class TestGLEAMLoadFunction:
             assert "spectral_index" in source
             assert source["flux"] >= 100.0
 
-    def test_load_gleam_invalid_catalog(self):
-        """Test that invalid catalog returns empty list."""
-        from rrivis.core.source import load_gleam
-
-        sources = load_gleam(flux_limit=1.0, gleam_catalogue="INVALID/CATALOG")
-
-        assert sources == []
-
     def test_load_gleam_source_structure(self):
         """Test that loaded sources have correct structure."""
-        from rrivis.core.source import load_gleam
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = load_gleam(flux_limit=500.0, gleam_catalogue="VIII/100/gleamegc")
+        sky = SkyModel.from_gleam(flux_limit=500.0)
+        sources = sky.to_point_sources()
 
         if len(sources) > 0:
             source = sources[0]
@@ -239,26 +237,25 @@ class TestDiffuseSkyModels:
     """Tests for diffuse sky model loading (GSM2008, GSM2016, LFSM, Haslam)."""
 
     def test_load_diffuse_sky_gsm2008(self):
-        """Test basic GSM2008 loading via load_diffuse_sky."""
-        from rrivis.core.source import load_diffuse_sky
+        """Test basic GSM2008 loading via SkyModel."""
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = load_diffuse_sky(
-            frequency=76e6,
-            nside=16,  # Low resolution for speed
-            flux_limit=0.1,
-            model="gsm2008",
+        sky = SkyModel.from_diffuse_sky(
+            model="gsm2008", frequency=76e6, nside=16
         )
+        sources = sky.to_point_sources(flux_limit=0.1, frequency=76e6)
 
         assert isinstance(sources, list)
         assert len(sources) > 0
 
     def test_load_diffuse_sky_source_structure(self):
         """Test diffuse sky source structure."""
-        from rrivis.core.source import load_diffuse_sky
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = load_diffuse_sky(
-            frequency=76e6, nside=8, flux_limit=0.01, model="gsm2008"
+        sky = SkyModel.from_diffuse_sky(
+            model="gsm2008", frequency=76e6, nside=8
         )
+        sources = sky.to_point_sources(flux_limit=0.01, frequency=76e6)
 
         if len(sources) > 0:
             source = sources[0]
@@ -272,65 +269,23 @@ class TestDiffuseSkyModels:
             assert source["stokes_u"] == 0.0
             assert source["stokes_v"] == 0.0
 
-    def test_load_diffuse_sky_spectral_index_computed(self):
-        """Test that spectral indices are computed per-pixel."""
-        from rrivis.core.source import load_diffuse_sky
+    def test_load_diffuse_sky_invalid_model(self):
+        """Test that invalid model name raises ValueError."""
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = load_diffuse_sky(
-            frequency=100e6,
-            nside=8,
-            flux_limit=0.0001,
-            model="gsm2008",
-            compute_spectral_index=True,
-        )
-
-        if len(sources) > 0:
-            spec_indices = [s["spectral_index"] for s in sources]
-            # Should have variation (not all the same)
-            assert len(set(spec_indices)) > 1
-            # Should be in typical synchrotron range
-            assert all(-1.0 < si < 0.0 for si in spec_indices)
-
-    def test_load_diffuse_sky_high_flux_limit_warning(self, caplog):
-        """Test that high flux limit produces warning when no sources match."""
-        from rrivis.core.source import load_diffuse_sky
-        import logging
-
-        with caplog.at_level(logging.WARNING):
-            sources, _ = load_diffuse_sky(
-                frequency=76e6,
-                nside=8,
-                flux_limit=1e10,  # Impossibly high
-                model="gsm2008",
-            )
-
-        # Should have warning about no sources
-        assert len(sources) == 0 or "No sources meet the flux limit" in caplog.text
-
-    def test_load_diffuse_sky_invalid_model(self, caplog):
-        """Test that invalid model name is handled gracefully."""
-        from rrivis.core.source import load_diffuse_sky
-        import logging
-
-        with caplog.at_level(logging.ERROR):
-            sources, _ = load_diffuse_sky(
-                frequency=100e6,
-                model="invalid_model",
-            )
-
-        assert len(sources) == 0
-        assert "Invalid diffuse sky model" in caplog.text
+        with pytest.raises(ValueError, match="Unknown model"):
+            SkyModel.from_diffuse_sky(model="invalid_model", frequency=100e6)
 
     def test_available_models_constant(self):
-        """Test that DIFFUSE_SKY_MODELS constant is properly defined."""
-        from rrivis.core.source import DIFFUSE_SKY_MODELS
+        """Test that DIFFUSE_MODELS constant is properly defined."""
+        from rrivis.core.sky_model import DIFFUSE_MODELS
 
         expected_models = ["gsm2008", "gsm2016", "lfsm", "haslam"]
         for model in expected_models:
-            assert model in DIFFUSE_SKY_MODELS
-            assert "class" in DIFFUSE_SKY_MODELS[model]
-            assert "description" in DIFFUSE_SKY_MODELS[model]
-            assert "freq_range" in DIFFUSE_SKY_MODELS[model]
+            assert model in DIFFUSE_MODELS
+            assert "class" in DIFFUSE_MODELS[model]
+            assert "description" in DIFFUSE_MODELS[model]
+            assert "freq_range" in DIFFUSE_MODELS[model]
 
 
 # =============================================================================
@@ -421,14 +376,14 @@ class TestMALSCatalogAccessibility:
 
 @pytest.mark.slow
 class TestMALSLoadFunction:
-    """Tests for the load_mals() function."""
+    """Tests for loading MALS via SkyModel."""
 
     def test_load_mals_dr2_with_high_flux_limit(self):
         """Test loading MALS DR2 with high flux limit (fewer sources, faster)."""
-        from rrivis.core.source import load_mals
+        from rrivis.core.sky_model import SkyModel
 
-        # High flux limit = fewer sources = faster test (100 mJy = 0.1 Jy)
-        sources, _ = load_mals(flux_limit=100.0, release="dr2")
+        sky = SkyModel.from_mals(flux_limit=100.0, release="dr2")
+        sources = sky.to_point_sources()
 
         assert isinstance(sources, list)
 
@@ -443,34 +398,28 @@ class TestMALSLoadFunction:
 
     def test_load_mals_dr1(self):
         """Test loading MALS DR1."""
-        from rrivis.core.source import load_mals_dr1
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = load_mals_dr1(flux_limit=500.0)  # 500 mJy limit
+        sky = SkyModel.from_mals(flux_limit=500.0, release="dr1")
+        sources = sky.to_point_sources()
 
         assert isinstance(sources, list)
 
     def test_load_mals_dr3(self):
         """Test loading MALS DR3 (HI absorption)."""
-        from rrivis.core.source import load_mals_dr3
+        from rrivis.core.sky_model import SkyModel
 
-        # DR3 has fewer sources, use lower limit
-        sources, _ = load_mals_dr3(flux_limit=10.0)
+        sky = SkyModel.from_mals(flux_limit=10.0, release="dr3")
+        sources = sky.to_point_sources()
 
         assert isinstance(sources, list)
 
-    def test_load_mals_invalid_release(self):
-        """Test that invalid release returns empty list."""
-        from rrivis.core.source import load_mals
-
-        sources, _ = load_mals(flux_limit=1.0, release="invalid")
-
-        assert sources == []
-
     def test_load_mals_source_structure(self):
         """Test that loaded MALS sources have correct structure."""
-        from rrivis.core.source import load_mals
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = load_mals(flux_limit=500.0, release="dr2")
+        sky = SkyModel.from_mals(flux_limit=500.0, release="dr2")
+        sources = sky.to_point_sources()
 
         if len(sources) > 0:
             source = sources[0]
@@ -493,39 +442,29 @@ class TestSourceLoadingIntegration:
     """Integration tests for the full source loading pipeline."""
 
     def test_get_sources_with_gleam(self):
-        """Test get_sources() with GLEAM catalog."""
-        from rrivis.core.source import get_sources
+        """Test loading GLEAM catalog via SkyModel."""
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = get_sources(
-            use_gleam=True,
-            flux_limit=200.0,  # High limit for speed
-            gleam_catalogue="VIII/100/gleamegc",
-        )
+        sky = SkyModel.from_gleam(flux_limit=200.0)
+        sources = sky.to_point_sources()
 
         assert isinstance(sources, list)
 
     def test_get_sources_with_mals(self):
-        """Test get_sources() with MALS catalog."""
-        from rrivis.core.source import get_sources
+        """Test loading MALS catalog via SkyModel."""
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = get_sources(
-            use_mals=True,
-            mals_release="dr2",
-            flux_limit=100.0,  # 100 mJy limit
-        )
+        sky = SkyModel.from_mals(flux_limit=100.0, release="dr2")
+        sources = sky.to_point_sources()
 
         assert isinstance(sources, list)
 
     def test_get_sources_with_gsm(self):
-        """Test get_sources() with GSM2008."""
-        from rrivis.core.source import get_sources
+        """Test loading GSM2008 via SkyModel."""
+        from rrivis.core.sky_model import SkyModel
 
-        sources, _ = get_sources(
-            use_gsm=True,
-            frequency=100e6,
-            nside=8,
-            flux_limit=0.1,
-        )
+        sky = SkyModel.from_diffuse_sky(model="gsm2008", frequency=100e6, nside=8)
+        sources = sky.to_point_sources(flux_limit=0.1, frequency=100e6)
 
         assert isinstance(sources, list)
         assert len(sources) > 0

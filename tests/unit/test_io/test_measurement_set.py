@@ -44,11 +44,18 @@ def sample_visibilities():
 
     for ant1 in range(3):
         for ant2 in range(ant1, 3):
-            # Create complex visibility data
-            vis_xx = np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
-            vis_yy = np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
-            vis_xy = np.random.randn(n_freqs) * 0.1 + 1j * np.random.randn(n_freqs) * 0.1
-            vis_yx = np.random.randn(n_freqs) * 0.1 + 1j * np.random.randn(n_freqs) * 0.1
+            if ant1 == ant2:
+                # Auto-correlations must be real-valued (pyuvdata validation)
+                vis_xx = np.random.randn(n_freqs).astype(complex)
+                vis_yy = np.random.randn(n_freqs).astype(complex)
+                vis_xy = (np.random.randn(n_freqs) * 0.1).astype(complex)
+                vis_yx = (np.random.randn(n_freqs) * 0.1).astype(complex)
+            else:
+                # Cross-correlations are complex
+                vis_xx = np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
+                vis_yy = np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
+                vis_xy = np.random.randn(n_freqs) * 0.1 + 1j * np.random.randn(n_freqs) * 0.1
+                vis_yx = np.random.randn(n_freqs) * 0.1 + 1j * np.random.randn(n_freqs) * 0.1
 
             visibilities[(ant1, ant2)] = {
                 "XX": vis_xx,
@@ -399,7 +406,11 @@ class TestMSRoundTrip:
 
         for ant1 in range(3):
             for ant2 in range(ant1, 3):
-                vis_i = np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
+                if ant1 == ant2:
+                    # Auto-correlations must be real-valued
+                    vis_i = np.random.randn(n_freqs).astype(complex)
+                else:
+                    vis_i = np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
                 visibilities[(ant1, ant2)] = {"I": vis_i}
 
         output_path = temp_dir / "test_stokes.ms"

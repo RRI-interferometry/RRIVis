@@ -48,6 +48,8 @@ myst-parser = ">=4.0.1,<5"
 numpydoc = ">=1.10.0,<2"
 python-casacore = ">=3.7.1,<4"
 rich = ">=14.2.0,<15"
+nbconvert = ">=7.17.0,<8"
+jupyter = ">=1.1.1,<2"
 
 [pypi-dependencies]
 pygdsm = "*"

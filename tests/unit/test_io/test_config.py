@@ -210,21 +210,38 @@ class TestObsTimeConfig:
     def test_default_values(self):
         """Test default time configuration."""
         config = ObsTimeConfig()
-        assert config.time_interval == 1.0
-        assert config.time_interval_unit == "hours"
-        assert config.total_duration == 1.0
-        assert config.total_duration_unit == "days"
+        assert config.start_time == "2023-01-01T00:00:00"
+        assert config.duration_seconds == 3600.0
+        assert config.time_step_seconds == 60.0
 
-    def test_valid_time_units(self):
-        """Test valid time units."""
-        for unit in ["seconds", "minutes", "hours", "days"]:
-            config = ObsTimeConfig(time_interval_unit=unit)
-            assert config.time_interval_unit == unit
+    def test_custom_values(self):
+        """Test custom time configuration."""
+        config = ObsTimeConfig(
+            start_time="2023-06-21T12:00:00",
+            duration_seconds=7200.0,
+            time_step_seconds=30.0,
+        )
+        assert config.start_time == "2023-06-21T12:00:00"
+        assert config.duration_seconds == 7200.0
+        assert config.time_step_seconds == 30.0
 
-    def test_invalid_time_unit(self):
-        """Test invalid time unit raises error."""
+    def test_positive_duration_required(self):
+        """Test that duration must be positive."""
         with pytest.raises(ValidationError):
-            ObsTimeConfig(time_interval_unit="weeks")
+            ObsTimeConfig(
+                start_time="2023-06-21T12:00:00",
+                duration_seconds=-1.0,
+                time_step_seconds=60.0,
+            )
+
+    def test_positive_time_step_required(self):
+        """Test that time step must be positive."""
+        with pytest.raises(ValidationError):
+            ObsTimeConfig(
+                start_time="2023-06-21T12:00:00",
+                duration_seconds=3600.0,
+                time_step_seconds=-1.0,
+            )
 
 
 # =============================================================================

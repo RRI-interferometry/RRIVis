@@ -417,7 +417,7 @@ def write_ms(
         warnings.warn(f"UVData validation warning: {e}")
 
     # Write to MS format
-    uvd.write_ms(str(output_path), clobber=overwrite)
+    uvd.write_ms(str(output_path), clobber=overwrite, force_phase=True)
 
     return output_path
 

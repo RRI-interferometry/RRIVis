@@ -32,7 +32,7 @@ from rrivis.core.antenna import (
 
 
 # Get path to antenna_layout_examples directory
-DATA_DIR = Path(__file__).parent.parent / "antenna_layout_examples"
+DATA_DIR = Path(__file__).parent.parent.parent.parent / "antenna_layout_examples"
 
 
 class TestRRIvisFormat:

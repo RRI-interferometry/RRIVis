@@ -416,6 +416,8 @@ location:
 
 obs_time:
   start_time: "2023-06-21T12:00:00"
+  duration_seconds: 3600
+  time_step_seconds: 60
 
 sky_model:
   test_sources:
