@@ -50,11 +50,12 @@ Create configuration programmatically:
 >>> config.to_yaml("output_config.yaml")
 """
 
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
-from datetime import datetime
-from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Any, Literal
+
 import yaml
+from pydantic import BaseModel, Field
 
 
 class TelescopeConfig(BaseModel):
@@ -70,7 +71,7 @@ class TelescopeConfig(BaseModel):
 class AntennaLayoutConfig(BaseModel):
     """Antenna layout configuration."""
 
-    antenna_positions_file: Optional[str] = Field(
+    antenna_positions_file: str | None = Field(
         None, description="Path to antenna positions file"
     )
     antenna_file_format: Literal[
@@ -83,7 +84,7 @@ class AntennaLayoutConfig(BaseModel):
     use_different_antenna_types: bool = Field(
         False, description="Use per-antenna types"
     )
-    antenna_types: Dict[str, str] = Field(
+    antenna_types: dict[str, str] = Field(
         default_factory=dict, description="Per-antenna type mapping"
     )
     all_antenna_diameter: float = Field(
@@ -92,10 +93,10 @@ class AntennaLayoutConfig(BaseModel):
     use_different_diameters: bool = Field(
         False, description="Use per-antenna diameters"
     )
-    diameters: Dict[str, float] = Field(
+    diameters: dict[str, float] = Field(
         default_factory=dict, description="Per-antenna diameter mapping"
     )
-    fixed_HPBW: Optional[float] = Field(
+    fixed_HPBW: float | None = Field(
         None, description="Fixed HPBW override (radians)"
     )
 
@@ -108,10 +109,10 @@ class FeedsConfig(BaseModel):
     use_different_polarization_type: bool = Field(
         False, description="Per-antenna polarization"
     )
-    polarization_per_antenna: Dict[str, str] = Field(default_factory=dict)
+    polarization_per_antenna: dict[str, str] = Field(default_factory=dict)
     use_different_feed_types: bool = Field(False, description="Per-antenna feed types")
     all_feed_type: str = Field("", description="Default feed type")
-    feed_types_per_antenna: Dict[str, str] = Field(default_factory=dict)
+    feed_types_per_antenna: dict[str, str] = Field(default_factory=dict)
 
 
 class BeamsConfig(BaseModel):
@@ -120,11 +121,11 @@ class BeamsConfig(BaseModel):
     beam_mode: Literal["analytic", "shared", "per_antenna"] = Field(
         "analytic", description="Beam mode"
     )
-    beam_file: Optional[str] = Field(None, description="Beam FITS file path")
+    beam_file: str | None = Field(None, description="Beam FITS file path")
     beam_assignment: Literal["from_layout", "from_config"] = Field(
         "from_layout", description="Beam assignment method"
     )
-    antenna_beam_map: Dict[str, str] = Field(
+    antenna_beam_map: dict[str, str] = Field(
         default_factory=dict, description="Antenna to beam file mapping"
     )
     beam_za_max_deg: float = Field(
@@ -138,7 +139,7 @@ class BeamsConfig(BaseModel):
     all_beam_response: Literal["gaussian", "airy", "cosine", "exponential"] = Field(
         "gaussian", description="Default beam response pattern"
     )
-    beam_response_per_antenna: Dict[str, str] = Field(default_factory=dict)
+    beam_response_per_antenna: dict[str, str] = Field(default_factory=dict)
     cosine_taper_exponent: float = Field(1.0, ge=0, description="Cosine taper exponent")
     exponential_taper_dB: float = Field(10.0, ge=0, description="Exponential taper (dB)")
 
@@ -151,14 +152,14 @@ class BaselineSelectionConfig(BaseModel):
     only_selective_baseline_length: bool = Field(
         False, description="Filter by baseline length"
     )
-    selective_baseline_lengths: List[float] = Field(
+    selective_baseline_lengths: list[float] = Field(
         default_factory=list, description="Selected baseline lengths"
     )
     selective_baseline_tolerance_meters: float = Field(
         2.0, ge=0, description="Baseline length tolerance (m)"
     )
     trim_by_angle_ranges: bool = Field(False, description="Filter by angle")
-    selective_angle_ranges_deg: List[List[float]] = Field(
+    selective_angle_ranges_deg: list[list[float]] = Field(
         default_factory=list, description="Angle ranges [min, max] in degrees"
     )
 
@@ -166,9 +167,9 @@ class BaselineSelectionConfig(BaseModel):
 class LocationConfig(BaseModel):
     """Observatory location configuration."""
 
-    lat: Union[float, str] = Field("", description="Latitude (degrees)")
-    lon: Union[float, str] = Field("", description="Longitude (degrees)")
-    height: Union[float, str] = Field("", description="Height (meters)")
+    lat: float | str = Field("", description="Latitude (degrees)")
+    lon: float | str = Field("", description="Longitude (degrees)")
+    height: float | str = Field("", description="Height (meters)")
 
 
 class SyntheticSourcesConfig(BaseModel):
@@ -218,15 +219,149 @@ class MALSConfig(BaseModel):
     flux_limit: float = Field(1.0, ge=0, description="Flux limit in mJy")
 
 
+class VLSSrConfig(BaseModel):
+    """VLSSr (73.8 MHz) catalog configuration."""
+
+    use_vlssr: bool = Field(False, description="Use VLSSr catalog")
+    flux_limit: float = Field(1.0, ge=0, description="Flux limit in Jy")
+
+
+class TGSSConfig(BaseModel):
+    """TGSS ADR1 (150 MHz) catalog configuration."""
+
+    use_tgss: bool = Field(False, description="Use TGSS ADR1 catalog")
+    flux_limit: float = Field(0.1, ge=0, description="Flux limit in Jy")
+
+
+class WENSSConfig(BaseModel):
+    """WENSS (325 MHz) catalog configuration."""
+
+    use_wenss: bool = Field(False, description="Use WENSS catalog")
+    flux_limit: float = Field(0.05, ge=0, description="Flux limit in Jy")
+
+
+class SUMSSConfig(BaseModel):
+    """SUMSS (843 MHz) catalog configuration."""
+
+    use_sumss: bool = Field(False, description="Use SUMSS catalog")
+    flux_limit: float = Field(0.008, ge=0, description="Flux limit in Jy")
+
+
+class NVSSConfig(BaseModel):
+    """NVSS (1400 MHz) catalog configuration."""
+
+    use_nvss: bool = Field(False, description="Use NVSS catalog")
+    flux_limit: float = Field(0.0025, ge=0, description="Flux limit in Jy")
+
+
+class FIRSTConfig(BaseModel):
+    """FIRST (1400 MHz) catalog configuration."""
+
+    use_first: bool = Field(False, description="Use FIRST catalog")
+    flux_limit: float = Field(0.001, ge=0, description="Flux limit in Jy")
+
+
+class LoTSSConfig(BaseModel):
+    """LoTSS (144 MHz) catalog configuration."""
+
+    use_lotss: bool = Field(False, description="Use LoTSS catalog")
+    lotss_release: Literal["dr1", "dr2"] = Field("dr2", description="LoTSS data release")
+    flux_limit: float = Field(0.001, ge=0, description="Flux limit in Jy")
+
+
+class AT20GConfig(BaseModel):
+    """AT20G (20 GHz) catalog configuration."""
+
+    use_at20g: bool = Field(False, description="Use AT20G catalog")
+    flux_limit: float = Field(0.04, ge=0, description="Flux limit in Jy")
+
+
+class ThreeCConfig(BaseModel):
+    """3CR (178 MHz) catalog configuration."""
+
+    use_3c: bool = Field(False, description="Use 3CR catalog")
+    flux_limit: float = Field(1.0, ge=0, description="Flux limit in Jy")
+
+
+class GB6Config(BaseModel):
+    """GB6 (4850 MHz) catalog configuration."""
+
+    use_gb6: bool = Field(False, description="Use GB6 catalog")
+    flux_limit: float = Field(0.018, ge=0, description="Flux limit in Jy")
+
+
+class RACSConfig(BaseModel):
+    """RACS (887.5 / 1367.5 / 1655.5 MHz) catalog configuration via CASDA TAP."""
+
+    use_racs: bool = Field(False, description="Use RACS catalog")
+    racs_band: Literal["low", "mid", "high"] = Field(
+        "low", description="RACS band: low (887.5 MHz), mid (1367.5 MHz), high (1655.5 MHz)"
+    )
+    flux_limit: float = Field(1.0, ge=0, description="Flux limit in Jy")
+    max_rows: int = Field(1_000_000, ge=1, description="Maximum rows to retrieve via TAP")
+
+
+class PySM3Config(BaseModel):
+    """PySM3 diffuse sky model configuration."""
+
+    use_pysm3: bool = Field(False, description="Use PySM3 diffuse model")
+    components: str | list[str] = Field(
+        "s1",
+        description="PySM3 preset string(s), e.g. 's1' or ['s1', 'd1', 'f1']"
+    )
+    nside: int = Field(64, ge=1, description="HEALPix NSIDE resolution")
+    # Frequencies are taken from the obs_frequency section of the config
+
+
+class ULSAConfig(BaseModel):
+    """ULSA ultra-low-frequency diffuse model configuration."""
+
+    use_ulsa: bool = Field(False, description="Use ULSA diffuse model")
+    nside: int = Field(64, ge=1, description="HEALPix NSIDE resolution")
+    # Frequencies are taken from the obs_frequency section of the config
+
+
+class PyRadioSkyConfig(BaseModel):
+    """Local sky model file loader via pyradiosky."""
+
+    use_pyradiosky: bool = Field(False, description="Load sky model from local file via pyradiosky")
+    filename: str = Field("", description="Path to sky model file (SkyH5, VOTable, text, FHD)")
+    filetype: str | None = Field(
+        None, description="File format (skyh5, votable, text, fhd). Inferred if None."
+    )
+    flux_limit: float = Field(0.0, ge=0, description="Minimum Stokes I flux in Jy")
+    reference_frequency_hz: float | None = Field(
+        None, description="Reference frequency for Stokes I extraction (Hz). Uses first channel if None."
+    )
+
+
 class SkyModelConfig(BaseModel):
     """Sky model configuration."""
 
+    # --- Existing models (unchanged) ---
     test_sources: SyntheticSourcesConfig = Field(default_factory=SyntheticSourcesConfig)
     test_sources_healpix: SyntheticSourcesConfig = Field(default_factory=SyntheticSourcesConfig)
     gsm_healpix: GSMConfig = Field(default_factory=GSMConfig)
     gleam: GLEAMConfig = Field(default_factory=GLEAMConfig)
     gleam_healpix: GLEAMConfig = Field(default_factory=GLEAMConfig)
     mals: MALSConfig = Field(default_factory=MALSConfig)
+    # --- New point-source catalogs ---
+    vlssr: VLSSrConfig = Field(default_factory=VLSSrConfig)
+    tgss: TGSSConfig = Field(default_factory=TGSSConfig)
+    wenss: WENSSConfig = Field(default_factory=WENSSConfig)
+    sumss: SUMSSConfig = Field(default_factory=SUMSSConfig)
+    nvss: NVSSConfig = Field(default_factory=NVSSConfig)
+    first: FIRSTConfig = Field(default_factory=FIRSTConfig)
+    lotss: LoTSSConfig = Field(default_factory=LoTSSConfig)
+    at20g: AT20GConfig = Field(default_factory=AT20GConfig)
+    three_c: ThreeCConfig = Field(default_factory=ThreeCConfig)
+    gb6: GB6Config = Field(default_factory=GB6Config)
+    racs: RACSConfig = Field(default_factory=RACSConfig)
+    # --- New diffuse models ---
+    pysm3: PySM3Config = Field(default_factory=PySM3Config)
+    ulsa: ULSAConfig = Field(default_factory=ULSAConfig)
+    # --- Local file loader ---
+    pyradiosky: PyRadioSkyConfig = Field(default_factory=PyRadioSkyConfig)
 
 
 class ObsTimeConfig(BaseModel):
@@ -399,7 +534,7 @@ class PrecisionConfigSchema(BaseModel):
     Or configure each component individually for granular control.
     """
 
-    preset: Optional[Literal["standard", "fast", "precise", "ultra"]] = Field(
+    preset: Literal["standard", "fast", "precise", "ultra"] | None = Field(
         None, description="Use a precision preset (overrides other settings)"
     )
     default: Literal["float32", "float64", "float128"] = Field(
@@ -429,9 +564,9 @@ class PrecisionConfigSchema(BaseModel):
             The precision configuration object.
         """
         from rrivis.core.precision import (
-            PrecisionConfig,
             CoordinatePrecision,
             JonesPrecision,
+            PrecisionConfig,
         )
 
         # If preset is specified, use it
@@ -497,7 +632,7 @@ class RRIvisConfig(BaseModel):
         default_factory=VisibilityConfig,
         description="Visibility calculation settings"
     )
-    precision: Optional[PrecisionConfigSchema] = Field(
+    precision: PrecisionConfigSchema | None = Field(
         None,
         description="Precision configuration for numerical computations"
     )
@@ -508,7 +643,7 @@ class RRIvisConfig(BaseModel):
     }
 
     @classmethod
-    def from_yaml(cls, yaml_path: Union[str, Path]) -> "RRIvisConfig":
+    def from_yaml(cls, yaml_path: str | Path) -> "RRIvisConfig":
         """
         Load configuration from YAML file with validation.
 
@@ -526,7 +661,7 @@ class RRIvisConfig(BaseModel):
         if not yaml_path.exists():
             raise FileNotFoundError(f"Configuration file not found: {yaml_path}")
 
-        with open(yaml_path, "r") as f:
+        with open(yaml_path) as f:
             data = yaml.safe_load(f) or {}
 
         try:
@@ -537,7 +672,7 @@ class RRIvisConfig(BaseModel):
                 f"See documentation for valid config format."
             )
 
-    def to_yaml(self, output_path: Union[str, Path]) -> None:
+    def to_yaml(self, output_path: str | Path) -> None:
         """
         Export configuration to YAML file.
 
@@ -553,7 +688,7 @@ class RRIvisConfig(BaseModel):
                 sort_keys=False,
             )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""
         return self.model_dump()
 
@@ -589,8 +724,7 @@ class RRIvisConfig(BaseModel):
         duration = int(self.obs_time.duration_seconds)
 
         # Get current UTC date and time in DD-MM-YYYY_HH-MM-SS format
-        from datetime import timezone
-        runtime_utc = datetime.now(timezone.utc).strftime("%d-%m-%Y_%H-%M-%S")
+        runtime_utc = datetime.now(UTC).strftime("%d-%m-%Y_%H-%M-%S")
 
         return (
             f"{telescope}_{freq_start}-{freq_end}{freq_unit}_"
@@ -598,7 +732,7 @@ class RRIvisConfig(BaseModel):
         )
 
 
-def load_config(config_path: Union[str, Path]) -> RRIvisConfig:
+def load_config(config_path: str | Path) -> RRIvisConfig:
     """
     Load and validate configuration from YAML file.
 
@@ -635,7 +769,7 @@ def load_config(config_path: Union[str, Path]) -> RRIvisConfig:
     return RRIvisConfig.from_yaml(config_path)
 
 
-def create_default_config(output_path: Union[str, Path]) -> None:
+def create_default_config(output_path: str | Path) -> None:
     """
     Create a default configuration file with all options documented.
 

@@ -39,24 +39,22 @@ Examples
 ... )
 """
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 import logging
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional, Union
 
-import numpy as np
 import astropy.units as u
+import numpy as np
 from astropy.constants import c as speed_of_light
 
 from rrivis.__about__ import __version__
 from rrivis.utils.logging import (
     console,
     print_header,
+    print_info,
     print_success,
     print_table,
-    print_info,
     print_warning,
-    get_progress,
-    status,
 )
 
 if TYPE_CHECKING:
@@ -142,19 +140,19 @@ class Simulator:
 
     def __init__(
         self,
-        antenna_layout: Optional[Union[str, Path]] = None,
-        frequencies: Optional[List[float]] = None,
-        sky_model: Optional[str] = None,
-        location: Optional[Dict[str, float]] = None,
-        start_time: Optional[str] = None,
+        antenna_layout: str | Path | None = None,
+        frequencies: list[float] | None = None,
+        sky_model: str | None = None,
+        location: dict[str, float] | None = None,
+        start_time: str | None = None,
         backend: str = "auto",
-        precision: Optional[Union["PrecisionConfig", str]] = None,
+        precision: Union["PrecisionConfig", str] | None = None,
         simulator: str = "rime",
-        config: Optional[Dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ):
         """Initialize the Simulator."""
         self.version = __version__
-        self._results: Optional[Dict[str, Any]] = None
+        self._results: dict[str, Any] | None = None
         self._backend_name = backend
         self._precision = precision
         self._simulator_name = simulator
@@ -162,16 +160,16 @@ class Simulator:
         self._simulator = None
 
         # Internal state (populated by setup())
-        self._antennas: Optional[Dict] = None
-        self._baselines: Optional[Dict] = None
-        self._sources: Optional[List] = None
+        self._antennas: dict | None = None
+        self._baselines: dict | None = None
+        self._sources: list | None = None
         self._sky_model = None  # SkyModel for healpix_map representation
         self._sky_representation: str = "point_sources"  # Default sky representation
         self._location = None
         self._obstime = None
-        self._frequencies_hz: Optional[np.ndarray] = None
+        self._frequencies_hz: np.ndarray | None = None
         self._wavelengths = None
-        self._hpbw_per_antenna: Optional[Dict] = None
+        self._hpbw_per_antenna: dict | None = None
         self._beam_manager = None
         self._is_setup = False
 
@@ -189,14 +187,14 @@ class Simulator:
 
     def _build_config(
         self,
-        antenna_layout: Optional[Union[str, Path]] = None,
-        frequencies: Optional[List[float]] = None,
-        sky_model: Optional[str] = None,
-        location: Optional[Dict[str, float]] = None,
-        start_time: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        antenna_layout: str | Path | None = None,
+        frequencies: list[float] | None = None,
+        sky_model: str | None = None,
+        location: dict[str, float] | None = None,
+        start_time: str | None = None,
+    ) -> dict[str, Any]:
         """Build configuration dictionary from arguments."""
-        config: Dict[str, Any] = {}
+        config: dict[str, Any] = {}
 
         if antenna_layout:
             config["antenna_layout"] = {
@@ -232,7 +230,7 @@ class Simulator:
         return config
 
     @classmethod
-    def from_config(cls, config_path: Union[str, Path]) -> "Simulator":
+    def from_config(cls, config_path: str | Path) -> "Simulator":
         """
         Create a Simulator from a YAML configuration file.
 
@@ -274,22 +272,22 @@ class Simulator:
         return cls(config=config_dict, precision=precision)
 
     @property
-    def results(self) -> Optional[Dict[str, Any]]:
+    def results(self) -> dict[str, Any] | None:
         """Get simulation results (None if not yet run)."""
         return self._results
 
     @property
-    def antennas(self) -> Optional[Dict]:
+    def antennas(self) -> dict | None:
         """Get loaded antenna dictionary."""
         return self._antennas
 
     @property
-    def baselines(self) -> Optional[Dict]:
+    def baselines(self) -> dict | None:
         """Get generated baselines dictionary."""
         return self._baselines
 
     @property
-    def sources(self) -> Optional[List]:
+    def sources(self) -> list | None:
         """Get loaded sources list."""
         return self._sources
 
@@ -327,11 +325,11 @@ class Simulator:
             return self
 
         # Import core modules
+        from rrivis.backends import get_backend
         from rrivis.core.antenna import read_antenna_positions
         from rrivis.core.baseline import generate_baselines
+        from rrivis.core.beams import AntennaType, calculate_hpbw_for_antenna_type
         from rrivis.core.observation import get_location_and_time
-        from rrivis.core.beams import calculate_hpbw_for_antenna_type, AntennaType
-        from rrivis.backends import get_backend
         from rrivis.simulator import get_simulator
 
         print_info("Setting up simulation...")
@@ -527,12 +525,115 @@ class Simulator:
 
         if gsm_config.get("use_gsm", False):
             model_name = gsm_config.get("gsm_catalogue", "gsm2008")
+            obs_freq_config = self.config.get("obs_frequency", {})
             sky_models.append(SkyModel.from_diffuse_sky(
                 model=model_name,
-                frequency=frequency,
                 nside=nside,
-                compute_spectral_index=True,
+                obs_frequency_config=obs_freq_config,
+                include_cmb=gsm_config.get("include_cmb", False),
             ))
+
+        # --- New point-source catalogs ---
+        vlssr_config = sky_config.get("vlssr", {})
+        if vlssr_config.get("use_vlssr", False):
+            sky_models.append(SkyModel.from_vlssr(
+                flux_limit=vlssr_config.get("flux_limit", 1.0),
+            ))
+
+        tgss_config = sky_config.get("tgss", {})
+        if tgss_config.get("use_tgss", False):
+            sky_models.append(SkyModel.from_tgss(
+                flux_limit=tgss_config.get("flux_limit", 0.1),
+            ))
+
+        wenss_config = sky_config.get("wenss", {})
+        if wenss_config.get("use_wenss", False):
+            sky_models.append(SkyModel.from_wenss(
+                flux_limit=wenss_config.get("flux_limit", 0.05),
+            ))
+
+        sumss_config = sky_config.get("sumss", {})
+        if sumss_config.get("use_sumss", False):
+            sky_models.append(SkyModel.from_sumss(
+                flux_limit=sumss_config.get("flux_limit", 0.008),
+            ))
+
+        nvss_config = sky_config.get("nvss", {})
+        if nvss_config.get("use_nvss", False):
+            sky_models.append(SkyModel.from_nvss(
+                flux_limit=nvss_config.get("flux_limit", 0.0025),
+            ))
+
+        first_config = sky_config.get("first", {})
+        if first_config.get("use_first", False):
+            sky_models.append(SkyModel.from_first(
+                flux_limit=first_config.get("flux_limit", 0.001),
+            ))
+
+        lotss_config = sky_config.get("lotss", {})
+        if lotss_config.get("use_lotss", False):
+            sky_models.append(SkyModel.from_lotss(
+                release=lotss_config.get("lotss_release", "dr2"),
+                flux_limit=lotss_config.get("flux_limit", 0.001),
+            ))
+
+        at20g_config = sky_config.get("at20g", {})
+        if at20g_config.get("use_at20g", False):
+            sky_models.append(SkyModel.from_at20g(
+                flux_limit=at20g_config.get("flux_limit", 0.04),
+            ))
+
+        three_c_config = sky_config.get("three_c", {})
+        if three_c_config.get("use_3c", False):
+            sky_models.append(SkyModel.from_3c(
+                flux_limit=three_c_config.get("flux_limit", 1.0),
+            ))
+
+        gb6_config = sky_config.get("gb6", {})
+        if gb6_config.get("use_gb6", False):
+            sky_models.append(SkyModel.from_gb6(
+                flux_limit=gb6_config.get("flux_limit", 0.018),
+            ))
+
+        racs_config = sky_config.get("racs", {})
+        if racs_config.get("use_racs", False):
+            sky_models.append(SkyModel.from_racs(
+                band=racs_config.get("racs_band", "low"),
+                flux_limit=racs_config.get("flux_limit", 1.0),
+                max_rows=racs_config.get("max_rows", 1_000_000),
+            ))
+
+        # --- New diffuse models ---
+        pysm3_config = sky_config.get("pysm3", {})
+        if pysm3_config.get("use_pysm3", False):
+            obs_freq_config = self.config.get("obs_frequency", {})
+            sky_models.append(SkyModel.from_pysm3(
+                components=pysm3_config.get("components", "s1"),
+                nside=pysm3_config.get("nside", 64),
+                obs_frequency_config=obs_freq_config,
+            ))
+
+        ulsa_config = sky_config.get("ulsa", {})
+        if ulsa_config.get("use_ulsa", False):
+            obs_freq_config = self.config.get("obs_frequency", {})
+            sky_models.append(SkyModel.from_ulsa(
+                nside=ulsa_config.get("nside", 64),
+                obs_frequency_config=obs_freq_config,
+            ))
+
+        # --- Local file loader via pyradiosky ---
+        pyradiosky_config = sky_config.get("pyradiosky", {})
+        if pyradiosky_config.get("use_pyradiosky", False):
+            filename = pyradiosky_config.get("filename", "")
+            if filename:
+                sky_models.append(SkyModel.from_pyradiosky_file(
+                    filename=filename,
+                    filetype=pyradiosky_config.get("filetype"),
+                    flux_limit=pyradiosky_config.get("flux_limit", 0.0),
+                    reference_frequency_hz=pyradiosky_config.get("reference_frequency_hz"),
+                ))
+            else:
+                logger.warning("pyradiosky enabled but no filename specified; skipping.")
 
         # If no models selected, use test sources as fallback
         if not sky_models:
@@ -548,7 +649,8 @@ class Simulator:
                 sky_models,
                 representation=sky_representation,
                 nside=nside,
-                frequency=frequency
+                frequency=frequency,
+                obs_frequency_config=self.config.get("obs_frequency", {}),
             )
 
         # Ensure sky model is in requested representation
@@ -574,8 +676,8 @@ class Simulator:
     def run(
         self,
         progress: bool = True,
-        n_workers: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        n_workers: int | None = None,
+    ) -> dict[str, Any]:
         """
         Run the visibility simulation.
 
@@ -742,7 +844,7 @@ class Simulator:
     def plot(
         self,
         plot_type: str = "all",
-        output_dir: Optional[Union[str, Path]] = None,
+        output_dir: str | Path | None = None,
         backend: str = "bokeh",
         show: bool = True,
     ) -> None:
@@ -799,9 +901,9 @@ class Simulator:
             from rrivis.visualization.bokeh_plots import (
                 plot_antenna_layout,
                 plot_antenna_layout_3d_plotly,
-                plot_visibility,
                 plot_heatmaps,
                 plot_modulus_vs_frequency,
+                plot_visibility,
             )
 
             # 2D antenna layout
@@ -903,10 +1005,10 @@ class Simulator:
 
     def save(
         self,
-        output_dir: Union[str, Path],
+        output_dir: str | Path,
         format: str = "hdf5",
         overwrite: bool = False,
-        telescope_name: Optional[str] = None,
+        telescope_name: str | None = None,
     ) -> Path:
         """
         Save simulation results to disk.
@@ -1041,7 +1143,7 @@ class Simulator:
             return output_path
 
         elif format.lower() == "ms":
-            from rrivis.io import write_ms, MS_AVAILABLE
+            from rrivis.io import MS_AVAILABLE, write_ms
 
             if not MS_AVAILABLE:
                 raise ImportError(
@@ -1085,7 +1187,7 @@ class Simulator:
                 f"Unknown format: {format}. Supported: 'hdf5', 'json', 'ms'"
             )
 
-    def get_memory_estimate(self) -> Dict[str, Any]:
+    def get_memory_estimate(self) -> dict[str, Any]:
         """
         Estimate memory requirements for the simulation.
 
