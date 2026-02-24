@@ -497,6 +497,12 @@ class Simulator:
         # Load sky model using unified SkyModel class
         from rrivis.core.sky_model import SkyModel
 
+        # Extract precision config to pass to SkyModel factory methods
+        from rrivis.core.precision import PrecisionConfig
+        _precision = self._backend.precision if self._backend else PrecisionConfig.standard()
+        if _precision is None:
+            _precision = PrecisionConfig.standard()
+
         sky_config = self.config.get("sky_model", {})
         test_config = sky_config.get("test_sources", {})
         gleam_config = sky_config.get("gleam", {})
@@ -511,17 +517,17 @@ class Simulator:
 
         if test_config.get("use_test_sources", False):
             num_sources = test_config.get("num_sources", 100)
-            sky_models.append(SkyModel.from_test_sources(num_sources=num_sources))
+            sky_models.append(SkyModel.from_test_sources(num_sources=num_sources, precision=_precision))
             logger.info(f"Loaded test sources: {num_sources} sources")
 
         if gleam_config.get("use_gleam", False):
             flux_limit = gleam_config.get("flux_limit", 1.0)
-            sky_models.append(SkyModel.from_gleam(flux_limit=flux_limit))
+            sky_models.append(SkyModel.from_gleam(flux_limit=flux_limit, precision=_precision))
 
         if mals_config.get("use_mals", False):
             flux_limit = mals_config.get("flux_limit", 1.0)
             release = mals_config.get("mals_release", "dr2")
-            sky_models.append(SkyModel.from_mals(flux_limit=flux_limit, release=release))
+            sky_models.append(SkyModel.from_mals(flux_limit=flux_limit, release=release, precision=_precision))
 
         if gsm_config.get("use_gsm", False):
             model_name = gsm_config.get("gsm_catalogue", "gsm2008")
@@ -531,6 +537,7 @@ class Simulator:
                 nside=nside,
                 obs_frequency_config=obs_freq_config,
                 include_cmb=gsm_config.get("include_cmb", False),
+                precision=_precision,
             ))
 
         # --- New point-source catalogs ---
@@ -538,36 +545,42 @@ class Simulator:
         if vlssr_config.get("use_vlssr", False):
             sky_models.append(SkyModel.from_vlssr(
                 flux_limit=vlssr_config.get("flux_limit", 1.0),
+                precision=_precision,
             ))
 
         tgss_config = sky_config.get("tgss", {})
         if tgss_config.get("use_tgss", False):
             sky_models.append(SkyModel.from_tgss(
                 flux_limit=tgss_config.get("flux_limit", 0.1),
+                precision=_precision,
             ))
 
         wenss_config = sky_config.get("wenss", {})
         if wenss_config.get("use_wenss", False):
             sky_models.append(SkyModel.from_wenss(
                 flux_limit=wenss_config.get("flux_limit", 0.05),
+                precision=_precision,
             ))
 
         sumss_config = sky_config.get("sumss", {})
         if sumss_config.get("use_sumss", False):
             sky_models.append(SkyModel.from_sumss(
                 flux_limit=sumss_config.get("flux_limit", 0.008),
+                precision=_precision,
             ))
 
         nvss_config = sky_config.get("nvss", {})
         if nvss_config.get("use_nvss", False):
             sky_models.append(SkyModel.from_nvss(
                 flux_limit=nvss_config.get("flux_limit", 0.0025),
+                precision=_precision,
             ))
 
         first_config = sky_config.get("first", {})
         if first_config.get("use_first", False):
             sky_models.append(SkyModel.from_first(
                 flux_limit=first_config.get("flux_limit", 0.001),
+                precision=_precision,
             ))
 
         lotss_config = sky_config.get("lotss", {})
@@ -575,24 +588,28 @@ class Simulator:
             sky_models.append(SkyModel.from_lotss(
                 release=lotss_config.get("lotss_release", "dr2"),
                 flux_limit=lotss_config.get("flux_limit", 0.001),
+                precision=_precision,
             ))
 
         at20g_config = sky_config.get("at20g", {})
         if at20g_config.get("use_at20g", False):
             sky_models.append(SkyModel.from_at20g(
                 flux_limit=at20g_config.get("flux_limit", 0.04),
+                precision=_precision,
             ))
 
         three_c_config = sky_config.get("three_c", {})
         if three_c_config.get("use_3c", False):
             sky_models.append(SkyModel.from_3c(
                 flux_limit=three_c_config.get("flux_limit", 1.0),
+                precision=_precision,
             ))
 
         gb6_config = sky_config.get("gb6", {})
         if gb6_config.get("use_gb6", False):
             sky_models.append(SkyModel.from_gb6(
                 flux_limit=gb6_config.get("flux_limit", 0.018),
+                precision=_precision,
             ))
 
         racs_config = sky_config.get("racs", {})
@@ -601,6 +618,7 @@ class Simulator:
                 band=racs_config.get("racs_band", "low"),
                 flux_limit=racs_config.get("flux_limit", 1.0),
                 max_rows=racs_config.get("max_rows", 1_000_000),
+                precision=_precision,
             ))
 
         # --- New diffuse models ---
@@ -611,6 +629,7 @@ class Simulator:
                 components=pysm3_config.get("components", "s1"),
                 nside=pysm3_config.get("nside", 64),
                 obs_frequency_config=obs_freq_config,
+                precision=_precision,
             ))
 
         ulsa_config = sky_config.get("ulsa", {})
@@ -619,6 +638,7 @@ class Simulator:
             sky_models.append(SkyModel.from_ulsa(
                 nside=ulsa_config.get("nside", 64),
                 obs_frequency_config=obs_freq_config,
+                precision=_precision,
             ))
 
         # --- Local file loader via pyradiosky ---
@@ -626,11 +646,14 @@ class Simulator:
         if pyradiosky_config.get("use_pyradiosky", False):
             filename = pyradiosky_config.get("filename", "")
             if filename:
+                obs_freq_config = self.config.get("obs_frequency", {})
                 sky_models.append(SkyModel.from_pyradiosky_file(
                     filename=filename,
                     filetype=pyradiosky_config.get("filetype"),
                     flux_limit=pyradiosky_config.get("flux_limit", 0.0),
                     reference_frequency_hz=pyradiosky_config.get("reference_frequency_hz"),
+                    precision=_precision,
+                    obs_frequency_config=obs_freq_config,
                 ))
             else:
                 logger.warning("pyradiosky enabled but no filename specified; skipping.")
@@ -638,7 +661,7 @@ class Simulator:
         # If no models selected, use test sources as fallback
         if not sky_models:
             num_sources = test_config.get("num_sources", 100)
-            sky_models.append(SkyModel.from_test_sources(num_sources=num_sources))
+            sky_models.append(SkyModel.from_test_sources(num_sources=num_sources, precision=_precision))
             logger.info(f"No sky model selected, using {num_sources} test sources")
 
         # Combine all models into one
@@ -651,6 +674,7 @@ class Simulator:
                 nside=nside,
                 frequency=frequency,
                 obs_frequency_config=self.config.get("obs_frequency", {}),
+                precision=_precision,
             )
 
         # Ensure sky model is in requested representation
