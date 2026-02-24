@@ -12,11 +12,12 @@ Test categories
 """
 
 import sys
-import types
 
+import healpy as hp
 import numpy as np
 import pytest
 
+from rrivis.core.precision import PrecisionConfig
 from rrivis.core.sky_model import (
     CASDA_TAP_URL,
     RACS_CATALOGS,
@@ -270,6 +271,7 @@ class TestImportErrors:
         with pytest.raises(ImportError, match="pysm3"):
             SkyModel.from_pysm3(
                 frequencies=np.linspace(100e6, 110e6, 2),
+                precision=PrecisionConfig.standard(),
             )
 
     def test_from_ulsa_raises_import_error_without_ulsa(self, monkeypatch):
@@ -277,6 +279,7 @@ class TestImportErrors:
         with pytest.raises(ImportError, match="ulsa"):
             SkyModel.from_ulsa(
                 frequencies=np.linspace(10e6, 20e6, 2),
+                precision=PrecisionConfig.standard(),
             )
 
     def test_from_pyradiosky_file_raises_import_error_without_pyradiosky(self, monkeypatch, tmp_path):
@@ -285,7 +288,7 @@ class TestImportErrors:
         fake_file.touch()
         monkeypatch.setitem(sys.modules, "pyradiosky", None)
         with pytest.raises(ImportError, match="pyradiosky"):
-            SkyModel.from_pyradiosky_file(str(fake_file))
+            SkyModel.from_pyradiosky_file(str(fake_file), precision=PrecisionConfig.standard())
 
 
 class TestFileNotFound:
@@ -295,7 +298,7 @@ class TestFileNotFound:
         # pyradiosky must be importable for this test to reach the file check
         pytest.importorskip("pyradiosky")
         with pytest.raises(FileNotFoundError):
-            SkyModel.from_pyradiosky_file("nonexistent_totally_fake_file.skyh5")
+            SkyModel.from_pyradiosky_file("nonexistent_totally_fake_file.skyh5", precision=PrecisionConfig.standard())
 
 
 class TestInvalidArguments:
@@ -303,46 +306,43 @@ class TestInvalidArguments:
 
     def test_racs_invalid_band_raises(self):
         with pytest.raises(ValueError, match="ultra"):
-            SkyModel.from_racs(band="ultra")
+            SkyModel.from_racs(band="ultra", precision=PrecisionConfig.standard())
 
     def test_lotss_invalid_release_raises(self):
         with pytest.raises(ValueError, match="dr99"):
-            SkyModel.from_lotss(release="dr99")
+            SkyModel.from_lotss(release="dr99", precision=PrecisionConfig.standard())
 
     def test_unknown_vizier_catalog_key_raises(self):
         with pytest.raises(ValueError, match="unknown_catalog"):
-            SkyModel._load_from_vizier_catalog("unknown_catalog")
+            SkyModel._load_from_vizier_catalog("unknown_catalog", precision=PrecisionConfig.standard())
 
     def test_from_pysm3_requires_frequencies(self):
         pytest.importorskip("pysm3")
         with pytest.raises(ValueError, match="frequencies"):
-            SkyModel.from_pysm3()  # no frequencies, no obs_frequency_config
+            SkyModel.from_pysm3(precision=PrecisionConfig.standard())  # no frequencies, no obs_frequency_config
 
     def test_from_ulsa_requires_frequencies(self):
         pytest.importorskip("ulsa")
         with pytest.raises(ValueError, match="frequencies"):
-            SkyModel.from_ulsa()  # no frequencies, no obs_frequency_config
+            SkyModel.from_ulsa(precision=PrecisionConfig.standard())  # no frequencies, no obs_frequency_config
 
-    def test_from_pyradiosky_rejects_healpix_component(self, tmp_path, monkeypatch):
-        """Verify ValueError when pyradiosky file has HEALPix component type."""
+    def test_from_pyradiosky_rejects_unknown_component(self, tmp_path, monkeypatch):
+        """Verify ValueError for unknown component_type (not point or healpix)."""
         pytest.importorskip("pyradiosky")
+        from rrivis.core import sky_model as sm_module
 
-        # Build a minimal mock SkyModel with component_type='healpix'
         class MockSky:
-            component_type = "healpix"
+            component_type = "unknown"
             def read(self, filename, filetype=None):
                 pass
 
         fake_file = tmp_path / "test.skyh5"
         fake_file.touch()
 
-        # Patch the pyradiosky import inside sky_model module
-        mock_module = types.ModuleType("pyradiosky")
-        mock_module.SkyModel = MockSky
-        monkeypatch.setitem(sys.modules, "pyradiosky", mock_module)
+        monkeypatch.setattr(sm_module, "PyRadioSkyModel", MockSky)
 
-        with pytest.raises(ValueError, match="point"):
-            SkyModel.from_pyradiosky_file(str(fake_file))
+        with pytest.raises(ValueError, match="Unsupported component_type"):
+            SkyModel.from_pyradiosky_file(str(fake_file), precision=PrecisionConfig.standard())
 
 
 # =============================================================================
@@ -360,13 +360,13 @@ class TestPySM3:
     def test_from_pysm3_mode_is_healpix_multifreq(self):
         self._ensure_pysm3()
         freqs = np.linspace(100e6, 102e6, 3)
-        sky = SkyModel.from_pysm3(components="s1", nside=16, frequencies=freqs)
+        sky = SkyModel.from_pysm3(components="s1", nside=16, frequencies=freqs, precision=PrecisionConfig.standard())
         assert sky.mode == "healpix_multifreq"
 
     def test_from_pysm3_one_map_per_freq(self):
         self._ensure_pysm3()
         freqs = np.linspace(100e6, 102e6, 3)
-        sky = SkyModel.from_pysm3(components="s1", nside=16, frequencies=freqs)
+        sky = SkyModel.from_pysm3(components="s1", nside=16, frequencies=freqs, precision=PrecisionConfig.standard())
         maps, nside, obs_freqs = sky.get_multifreq_maps()
         assert len(maps) == len(freqs)
         assert obs_freqs is not None
@@ -376,7 +376,7 @@ class TestPySM3:
         import healpy as hp
         nside = 16
         freqs = np.linspace(100e6, 101e6, 2)
-        sky = SkyModel.from_pysm3(components="s1", nside=nside, frequencies=freqs)
+        sky = SkyModel.from_pysm3(components="s1", nside=nside, frequencies=freqs, precision=PrecisionConfig.standard())
         maps, _, _ = sky.get_multifreq_maps()
         expected_npix = hp.nside2npix(nside)
         for freq, t_map in maps.items():
@@ -388,7 +388,7 @@ class TestPySM3:
     def test_from_pysm3_raises_without_frequencies(self):
         self._ensure_pysm3()
         with pytest.raises(ValueError, match="frequencies"):
-            SkyModel.from_pysm3(components="s1", nside=16)
+            SkyModel.from_pysm3(components="s1", nside=16, precision=PrecisionConfig.standard())
 
     def test_from_pysm3_with_obs_frequency_config(self):
         self._ensure_pysm3()
@@ -398,14 +398,14 @@ class TestPySM3:
             "frequency_bandwidth": 3.0,
             "frequency_unit": "MHz",
         }
-        sky = SkyModel.from_pysm3(components="s1", nside=16, obs_frequency_config=config)
+        sky = SkyModel.from_pysm3(components="s1", nside=16, obs_frequency_config=config, precision=PrecisionConfig.standard())
         assert sky.mode == "healpix_multifreq"
         assert sky.n_frequencies == 3
 
     def test_from_pysm3_multi_component(self):
         self._ensure_pysm3()
         freqs = np.array([100e6, 101e6])
-        sky = SkyModel.from_pysm3(components=["s1", "f1"], nside=16, frequencies=freqs)
+        sky = SkyModel.from_pysm3(components=["s1", "f1"], nside=16, frequencies=freqs, precision=PrecisionConfig.standard())
         assert sky.mode == "healpix_multifreq"
         assert "pysm3:" in (sky.model_name or "")
 
@@ -420,20 +420,20 @@ class TestULSA:
     def test_from_ulsa_mode_is_healpix_multifreq(self):
         self._ensure_ulsa()
         freqs = np.linspace(10e6, 12e6, 3)
-        sky = SkyModel.from_ulsa(nside=16, frequencies=freqs)
+        sky = SkyModel.from_ulsa(nside=16, frequencies=freqs, precision=PrecisionConfig.standard())
         assert sky.mode == "healpix_multifreq"
 
     def test_from_ulsa_one_map_per_freq(self):
         self._ensure_ulsa()
         freqs = np.linspace(10e6, 12e6, 3)
-        sky = SkyModel.from_ulsa(nside=16, frequencies=freqs)
+        sky = SkyModel.from_ulsa(nside=16, frequencies=freqs, precision=PrecisionConfig.standard())
         maps, _, _ = sky.get_multifreq_maps()
         assert len(maps) == len(freqs)
 
     def test_from_ulsa_raises_without_frequencies(self):
         self._ensure_ulsa()
         with pytest.raises(ValueError, match="frequencies"):
-            SkyModel.from_ulsa(nside=16)
+            SkyModel.from_ulsa(nside=16, precision=PrecisionConfig.standard())
 
 
 class TestPyRadioSkyFile:
@@ -458,7 +458,7 @@ class TestPyRadioSkyFile:
         skyh5_path = tmp_path / "test.skyh5"
         sky.write(str(skyh5_path))
 
-        loaded = SkyModel.from_pyradiosky_file(str(skyh5_path))
+        loaded = SkyModel.from_pyradiosky_file(str(skyh5_path), precision=PrecisionConfig.standard())
         assert loaded.mode == "point_sources"
         sources = loaded.to_point_sources()
         assert len(sources) == 3
@@ -482,7 +482,7 @@ class TestPyRadioSkyFile:
         skyh5_path = tmp_path / "test2.skyh5"
         sky.write(str(skyh5_path))
 
-        loaded = SkyModel.from_pyradiosky_file(str(skyh5_path), flux_limit=1.0)
+        loaded = SkyModel.from_pyradiosky_file(str(skyh5_path), flux_limit=1.0, precision=PrecisionConfig.standard())
         sources = loaded.to_point_sources()
         assert len(sources) == 2
         for src in sources:
@@ -509,11 +509,277 @@ class TestPyRadioSkyFile:
         skyh5_path = tmp_path / "test3.skyh5"
         sky.write(str(skyh5_path))
 
-        loaded = SkyModel.from_pyradiosky_file(str(skyh5_path), flux_limit=1.0)
+        loaded = SkyModel.from_pyradiosky_file(str(skyh5_path), flux_limit=1.0, precision=PrecisionConfig.standard())
         sources = loaded.to_point_sources()
         # Only sources with flux >= 1.0 Jy: 2.0 and 5.0
         assert len(sources) == 2
         assert all(s["flux"] >= 1.0 for s in sources)
+
+
+class TestPyRadioSkyHEALPix:
+    """pyradiosky HEALPix file loader tests — skipped if pyradiosky not installed."""
+
+    @staticmethod
+    def _make_healpix_skyh5(
+        tmp_path,
+        nside=8,
+        freqs_hz=None,
+        spectral_type="full",
+        stokes_unit=None,
+        hpx_order="ring",
+        n_pixels=None,
+        frame="icrs",
+    ):
+        """Helper to create a pyradiosky HEALPix SkyH5 file on disk."""
+        import astropy.units as au
+        from pyradiosky import SkyModel as PSky
+
+        if freqs_hz is None:
+            freqs_hz = np.array([100e6, 110e6, 120e6])
+        freqs_hz = np.asarray(freqs_hz)
+
+        npix = hp.nside2npix(nside)
+        if n_pixels is None:
+            n_pixels = npix
+
+        n_freq = len(freqs_hz)
+
+        # Generate simple temperature data: T = 100*(freq/freq0)^-2.5
+        stokes_data = np.zeros((4, n_freq, n_pixels), dtype=np.float64)
+        for i, freq in enumerate(freqs_hz):
+            stokes_data[0, i, :] = 100.0 * (freq / freqs_hz[0]) ** (-2.5)
+            # Add small variation per pixel
+            stokes_data[0, i, :] += np.arange(n_pixels, dtype=np.float64) * 0.001
+
+        if stokes_unit is None:
+            stokes_unit = au.K
+        stokes = stokes_data * stokes_unit
+
+        hpx_inds = np.arange(n_pixels)
+
+        kwargs = {
+            "nside": nside,
+            "hpx_order": hpx_order,
+            "hpx_inds": hpx_inds,
+            "frame": frame,
+            "stokes": stokes,
+            "freq_array": freqs_hz * au.Hz,
+            "spectral_type": spectral_type,
+            "component_type": "healpix",
+        }
+
+        psky = PSky(**kwargs)
+        skyh5_path = tmp_path / "healpix_test.skyh5"
+        psky.write_skyh5(str(skyh5_path))
+        return str(skyh5_path)
+
+    def test_healpix_full_sky_loads_as_multifreq(self, tmp_path):
+        """Full-sky ICRS file loads as healpix_multifreq mode."""
+        pytest.importorskip("pyradiosky")
+
+        nside = 8
+        freqs = np.array([100e6, 110e6, 120e6])
+        path = self._make_healpix_skyh5(tmp_path, nside=nside, freqs_hz=freqs)
+
+        sky = SkyModel.from_pyradiosky_file(
+            path, frequencies=freqs, precision=PrecisionConfig.standard()
+        )
+        assert sky.mode == "healpix_multifreq"
+        maps, loaded_nside, obs_freqs = sky.get_multifreq_maps()
+        assert loaded_nside == nside
+        assert len(maps) == len(freqs)
+        assert obs_freqs is not None
+
+    def test_healpix_uses_file_frequencies(self, tmp_path):
+        """spectral_type='full' with no explicit freqs uses file's freq_array."""
+        pytest.importorskip("pyradiosky")
+
+        freqs = np.array([100e6, 150e6])
+        path = self._make_healpix_skyh5(tmp_path, freqs_hz=freqs, spectral_type="full")
+
+        sky = SkyModel.from_pyradiosky_file(
+            path, precision=PrecisionConfig.standard()
+        )
+        assert sky.mode == "healpix_multifreq"
+        maps, _, obs_freqs = sky.get_multifreq_maps()
+        assert len(maps) == 2
+        np.testing.assert_allclose(obs_freqs, freqs, rtol=1e-6)
+
+    def test_healpix_spectral_index_requires_frequencies(self, tmp_path):
+        """spectral_type='spectral_index' without explicit freqs raises ValueError."""
+        pytest.importorskip("pyradiosky")
+        import astropy.units as au
+        from pyradiosky import SkyModel as PSky
+
+        nside = 4
+        npix = hp.nside2npix(nside)
+
+        stokes = np.ones((4, 1, npix), dtype=np.float64) * au.K
+        psky = PSky(
+            nside=nside,
+            hpx_order="ring",
+            hpx_inds=np.arange(npix),
+            frame="icrs",
+            stokes=stokes,
+            reference_frequency=np.full(npix, 100e6) * au.Hz,
+            spectral_type="spectral_index",
+            spectral_index=np.full(npix, -2.5),
+            component_type="healpix",
+        )
+        path = tmp_path / "si_test.skyh5"
+        psky.write_skyh5(str(path))
+
+        with pytest.raises(ValueError, match="frequencies"):
+            SkyModel.from_pyradiosky_file(
+                str(path), precision=PrecisionConfig.standard()
+            )
+
+    def test_healpix_flat_requires_frequencies(self, tmp_path):
+        """spectral_type='flat' without explicit freqs raises ValueError."""
+        pytest.importorskip("pyradiosky")
+        import astropy.units as au
+        from pyradiosky import SkyModel as PSky
+
+        nside = 4
+        npix = hp.nside2npix(nside)
+
+        stokes = np.ones((4, 1, npix), dtype=np.float64) * au.K
+        psky = PSky(
+            nside=nside,
+            hpx_order="ring",
+            hpx_inds=np.arange(npix),
+            frame="icrs",
+            stokes=stokes,
+            spectral_type="flat",
+            component_type="healpix",
+        )
+        path = tmp_path / "flat_test.skyh5"
+        psky.write_skyh5(str(path))
+
+        with pytest.raises(ValueError, match="frequencies"):
+            SkyModel.from_pyradiosky_file(
+                str(path), precision=PrecisionConfig.standard()
+            )
+
+    def test_healpix_with_explicit_frequencies(self, tmp_path):
+        """Passing frequencies= selects a subset of file frequencies."""
+        pytest.importorskip("pyradiosky")
+
+        file_freqs = np.array([100e6, 110e6, 120e6])
+        path = self._make_healpix_skyh5(tmp_path, freqs_hz=file_freqs)
+
+        # Select a subset of the file's frequencies
+        explicit_freqs = np.array([100e6, 120e6])
+        sky = SkyModel.from_pyradiosky_file(
+            path, frequencies=explicit_freqs, precision=PrecisionConfig.standard()
+        )
+        maps, _, obs_freqs = sky.get_multifreq_maps()
+        assert len(maps) == 2
+        np.testing.assert_allclose(obs_freqs, explicit_freqs, rtol=1e-6)
+
+    def test_healpix_with_obs_frequency_config(self, tmp_path):
+        """Passing obs_frequency_config= works for HEALPix files."""
+        pytest.importorskip("pyradiosky")
+
+        # File has frequencies matching the config output
+        file_freqs = np.array([100e6, 110e6, 120e6])
+        path = self._make_healpix_skyh5(tmp_path, freqs_hz=file_freqs)
+
+        config = {
+            "starting_frequency": 100.0,
+            "frequency_interval": 10.0,
+            "frequency_bandwidth": 20.0,
+            "frequency_unit": "MHz",
+        }
+        sky = SkyModel.from_pyradiosky_file(
+            path, obs_frequency_config=config, precision=PrecisionConfig.standard()
+        )
+        assert sky.mode == "healpix_multifreq"
+        maps, _, _ = sky.get_multifreq_maps()
+        assert len(maps) == 2  # 100 MHz and 110 MHz
+
+    def test_healpix_sparse_map_zero_fills(self, tmp_path):
+        """Partial-sky file has zeros for missing pixels."""
+        pytest.importorskip("pyradiosky")
+
+        nside = 8
+        npix = hp.nside2npix(nside)
+        n_partial = npix // 4  # Only 25% of pixels
+        freqs = np.array([100e6])
+
+        path = self._make_healpix_skyh5(
+            tmp_path, nside=nside, freqs_hz=freqs, n_pixels=n_partial,
+        )
+
+        sky = SkyModel.from_pyradiosky_file(
+            path, frequencies=freqs, precision=PrecisionConfig.standard()
+        )
+        maps, _, _ = sky.get_multifreq_maps()
+        the_map = list(maps.values())[0]
+        assert len(the_map) == npix
+        # Non-specified pixels should be zero
+        assert np.sum(the_map[n_partial:] == 0.0) > 0
+
+    def test_healpix_jy_sr_converted_to_kelvin(self, tmp_path):
+        """Stokes in Jy/sr are converted to Kelvin."""
+        pytest.importorskip("pyradiosky")
+        import astropy.units as au
+
+        nside = 4
+        freqs = np.array([100e6])
+        path = self._make_healpix_skyh5(
+            tmp_path, nside=nside, freqs_hz=freqs, stokes_unit=au.Jy / au.sr,
+        )
+
+        sky = SkyModel.from_pyradiosky_file(
+            path, frequencies=freqs, precision=PrecisionConfig.standard()
+        )
+        assert sky.mode == "healpix_multifreq"
+        maps, _, _ = sky.get_multifreq_maps()
+        # Maps should be in Kelvin (converted from Jy/sr)
+        the_map = list(maps.values())[0]
+        assert len(the_map) == hp.nside2npix(nside)
+        # Values should be finite and non-negative
+        assert np.all(np.isfinite(the_map))
+
+    def test_healpix_map_structure(self, tmp_path):
+        """Maps are dict[float, ndarray] with npix == 12*nside^2."""
+        pytest.importorskip("pyradiosky")
+
+        nside = 8
+        freqs = np.array([100e6, 120e6])
+        path = self._make_healpix_skyh5(tmp_path, nside=nside, freqs_hz=freqs)
+
+        sky = SkyModel.from_pyradiosky_file(
+            path, frequencies=freqs, precision=PrecisionConfig.standard()
+        )
+        maps, loaded_nside, _ = sky.get_multifreq_maps()
+        expected_npix = hp.nside2npix(nside)
+        assert isinstance(maps, dict)
+        for freq_key, t_map in maps.items():
+            assert isinstance(freq_key, float)
+            assert isinstance(t_map, np.ndarray)
+            assert len(t_map) == expected_npix
+
+    def test_healpix_nested_ordering(self, tmp_path):
+        """hpx_order='nested' is correctly converted to ring ordering."""
+        pytest.importorskip("pyradiosky")
+
+        nside = 8
+        freqs = np.array([100e6])
+        path = self._make_healpix_skyh5(
+            tmp_path, nside=nside, freqs_hz=freqs, hpx_order="nested",
+        )
+
+        sky = SkyModel.from_pyradiosky_file(
+            path, frequencies=freqs, precision=PrecisionConfig.standard()
+        )
+        assert sky.mode == "healpix_multifreq"
+        maps, _, _ = sky.get_multifreq_maps()
+        the_map = list(maps.values())[0]
+        assert len(the_map) == hp.nside2npix(nside)
+        # Verify the map has been reordered (not all-zeros, has variance)
+        assert np.std(the_map) > 0
 
 
 # =============================================================================
@@ -524,12 +790,12 @@ class TestPyRadioSkyFile:
 @pytest.mark.slow
 class TestNetworkVLSSr:
     def test_load_returns_sky_model(self):
-        sky = SkyModel.from_vlssr(flux_limit=100.0)
+        sky = SkyModel.from_vlssr(flux_limit=100.0, precision=PrecisionConfig.standard())
         assert isinstance(sky, SkyModel)
         assert sky.mode == "point_sources"
 
     def test_source_structure(self):
-        sky = SkyModel.from_vlssr(flux_limit=100.0)
+        sky = SkyModel.from_vlssr(flux_limit=100.0, precision=PrecisionConfig.standard())
         sources = sky.to_point_sources()
         if sources:
             src = sources[0]
@@ -542,13 +808,13 @@ class TestNetworkVLSSr:
 @pytest.mark.slow
 class TestNetworkTGSS:
     def test_load_returns_sky_model(self):
-        sky = SkyModel.from_tgss(flux_limit=10.0)  # 10 Jy → few bright sources
+        sky = SkyModel.from_tgss(flux_limit=10.0, precision=PrecisionConfig.standard())  # 10 Jy → few bright sources
         assert isinstance(sky, SkyModel)
 
     def test_flux_in_jy(self):
         """Verify mJy→Jy conversion: loaded sources should meet flux_limit in Jy."""
         flux_limit_jy = 10.0
-        sky = SkyModel.from_tgss(flux_limit=flux_limit_jy)
+        sky = SkyModel.from_tgss(flux_limit=flux_limit_jy, precision=PrecisionConfig.standard())
         sources = sky.to_point_sources()
         for src in sources:
             assert src["flux"] >= flux_limit_jy
@@ -557,12 +823,12 @@ class TestNetworkTGSS:
 @pytest.mark.slow
 class TestNetworkNVSS:
     def test_load_returns_sky_model(self):
-        sky = SkyModel.from_nvss(flux_limit=10.0)  # high limit for speed
+        sky = SkyModel.from_nvss(flux_limit=10.0, precision=PrecisionConfig.standard())  # high limit for speed
         assert isinstance(sky, SkyModel)
         assert sky.mode == "point_sources"
 
     def test_source_structure(self):
-        sky = SkyModel.from_nvss(flux_limit=10.0)
+        sky = SkyModel.from_nvss(flux_limit=10.0, precision=PrecisionConfig.standard())
         sources = sky.to_point_sources()
         if sources:
             src = sources[0]
@@ -573,11 +839,11 @@ class TestNetworkNVSS:
 @pytest.mark.slow
 class TestNetworkAT20G:
     def test_load_returns_sky_model(self):
-        sky = SkyModel.from_at20g(flux_limit=0.5)
+        sky = SkyModel.from_at20g(flux_limit=0.5, precision=PrecisionConfig.standard())
         assert isinstance(sky, SkyModel)
 
     def test_spectral_index_finite(self):
-        sky = SkyModel.from_at20g(flux_limit=0.5)
+        sky = SkyModel.from_at20g(flux_limit=0.5, precision=PrecisionConfig.standard())
         sources = sky.to_point_sources()
         for src in sources:
             assert np.isfinite(src["spectral_index"]), (
@@ -588,12 +854,12 @@ class TestNetworkAT20G:
 @pytest.mark.slow
 class TestNetwork3C:
     def test_load_returns_sky_model(self):
-        sky = SkyModel.from_3c(flux_limit=1.0)
+        sky = SkyModel.from_3c(flux_limit=1.0, precision=PrecisionConfig.standard())
         assert isinstance(sky, SkyModel)
 
     def test_icrs_coords(self):
         """Verify FK4→ICRS conversion produces valid ICRS coordinates."""
-        sky = SkyModel.from_3c(flux_limit=1.0)
+        sky = SkyModel.from_3c(flux_limit=1.0, precision=PrecisionConfig.standard())
         sources = sky.to_point_sources()
         for src in sources:
             coords = src["coords"]
@@ -607,24 +873,24 @@ class TestNetwork3C:
 @pytest.mark.slow
 class TestNetworkLoTSS:
     def test_dr1_load(self):
-        sky = SkyModel.from_lotss(release="dr1", flux_limit=10.0)
+        sky = SkyModel.from_lotss(release="dr1", flux_limit=10.0, precision=PrecisionConfig.standard())
         assert isinstance(sky, SkyModel)
 
     def test_dr2_load(self):
-        sky = SkyModel.from_lotss(release="dr2", flux_limit=10.0)
+        sky = SkyModel.from_lotss(release="dr2", flux_limit=10.0, precision=PrecisionConfig.standard())
         assert isinstance(sky, SkyModel)
 
 
 @pytest.mark.slow
 class TestNetworkRACS:
     def test_low_band(self):
-        sky = SkyModel.from_racs(band="low", flux_limit=1.0, max_rows=1000)
+        sky = SkyModel.from_racs(band="low", flux_limit=1.0, max_rows=1000, precision=PrecisionConfig.standard())
         assert isinstance(sky, SkyModel)
 
     def test_mid_band(self):
-        sky = SkyModel.from_racs(band="mid", flux_limit=1.0, max_rows=1000)
+        sky = SkyModel.from_racs(band="mid", flux_limit=1.0, max_rows=1000, precision=PrecisionConfig.standard())
         assert isinstance(sky, SkyModel)
 
     def test_high_band(self):
-        sky = SkyModel.from_racs(band="high", flux_limit=1.0, max_rows=1000)
+        sky = SkyModel.from_racs(band="high", flux_limit=1.0, max_rows=1000, precision=PrecisionConfig.standard())
         assert isinstance(sky, SkyModel)

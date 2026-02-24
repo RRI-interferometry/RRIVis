@@ -2,48 +2,118 @@
 """
 Unified Sky Model for RRIVis.
 
-This module provides a unified `SkyModel` class that can represent sky brightness
-in two formats:
+This module provides a unified ``SkyModel`` class that can represent sky
+brightness in two formats:
 
-1. **Point Sources**: List of discrete sources with (RA, Dec, flux, spectral_index)
-2. **Multi-frequency HEALPix Maps**: One T_b map per observation channel
+1. **Point Sources**: Discrete sources with (RA, Dec, flux, spectral_index).
+   Stored internally as columnar NumPy arrays for vectorised operations.
+2. **Multi-frequency HEALPix Maps**: One brightness-temperature map per
+   observation channel, stored as ``{freq_hz: T_b_array}``.
 
-Diffuse models (GSM, LFSM, Haslam) are generated natively per-frequency using
-pygdsm's full PCA spectral model — no single-reference-frequency approximation.
+Supported point-source catalogs (loaded from VizieR / CASDA TAP):
 
-Point-source catalogs (GLEAM, MALS, test) can be converted to multi-frequency
-HEALPix maps via ``to_healpix_for_observation()``.
+- GLEAM (76 MHz), GLEAM-X, G4Jy — ``from_gleam()``
+- MALS DR1 / DR2 / DR3 (1–1.4 GHz) — ``from_mals()``
+- VLSSr (73.8 MHz) — ``from_vlssr()``
+- TGSS ADR1 (150 MHz) — ``from_tgss()``
+- WENSS (325 MHz) — ``from_wenss()``
+- SUMSS (843 MHz) — ``from_sumss()``
+- NVSS (1.4 GHz) — ``from_nvss()``
+- FIRST (1.4 GHz) — ``from_first()``
+- LoTSS DR1 / DR2 (144 MHz) — ``from_lotss()``
+- AT20G (20 GHz) — ``from_at20g()``
+- 3CR (178 MHz, B1950→ICRS) — ``from_3c()``
+- GB6 (4.85 GHz) — ``from_gb6()``
+- RACS Low / Mid / High (887–1656 MHz, via CASDA TAP) — ``from_racs()``
+- pyradiosky files (SkyH5, VOTable, text, FHD) — ``from_pyradiosky_file()``
+- Synthetic test sources — ``from_test_sources()``
+- User-supplied list of dicts — ``from_point_sources()``
+
+Supported diffuse / HEALPix sky models:
+
+- GSM2008 (10 MHz – 100 GHz, pygdsm) — ``from_diffuse_sky("gsm2008")``
+- GSM2016 (10 MHz – 5 THz, pygdsm) — ``from_diffuse_sky("gsm2016")``
+- LFSM (10 – 408 MHz, pygdsm) — ``from_diffuse_sky("lfsm")``
+- Haslam 408 MHz (pygdsm) — ``from_diffuse_sky("haslam")``
+- PySM3 presets (synchrotron, dust, free-free, …) — ``from_pysm3()``
+- ULSA ultra-low-frequency (<100 MHz) — ``from_ulsa()``
+
+Diffuse models are generated natively per-frequency using each library's full
+spectral model — no single-reference-frequency power-law approximation.
+
+Point-source catalogs can be converted to multi-frequency HEALPix maps via
+``to_healpix_for_observation()``, and HEALPix maps can be decomposed back
+to point sources via ``to_point_sources()``.
 
 Examples
 --------
->>> # Load GLEAM as point sources (native format)
+Load a point-source catalog:
+
 >>> sky = SkyModel.from_gleam(flux_limit=1.0)
 >>> sources = sky.to_point_sources()
 
->>> # Load GLEAM as multi-freq HEALPix (convert for visibility calculation)
->>> sky = SkyModel.from_gleam(flux_limit=1.0)
+>>> sky = SkyModel.from_nvss(flux_limit=0.01)
+
+Convert point sources to multi-frequency HEALPix for visibility simulation:
+
 >>> config = {"starting_frequency": 100.0, "frequency_interval": 1.0,
 ...           "frequency_bandwidth": 20.0, "frequency_unit": "MHz"}
+>>> sky = SkyModel.from_gleam(flux_limit=1.0)
 >>> sky.to_healpix_for_observation(nside=64, obs_frequency_config=config)
 
->>> # Load GSM as multi-freq HEALPix (native multi-freq generation)
+Load diffuse models directly as multi-frequency HEALPix:
+
 >>> freqs = np.linspace(100e6, 120e6, 20)
 >>> sky = SkyModel.from_diffuse_sky(model="gsm2008", nside=32, frequencies=freqs)
 
->>> # Combine multiple sky models
->>> combined = SkyModel.combine([gleam_sky, gsm_sky],
-...                             representation="healpix_map",
-...                             obs_frequency_config=config)
+>>> sky = SkyModel.from_pysm3(components=["s1", "d1"], nside=64, frequencies=freqs)
+
+Load from a local pyradiosky file:
+
+>>> sky = SkyModel.from_pyradiosky_file("catalog.skyh5", flux_limit=0.5)
+
+Load RACS via CASDA TAP:
+
+>>> sky = SkyModel.from_racs(band="low", flux_limit=0.01)
+
+Combine multiple sky models:
+
+>>> combined = SkyModel.combine(
+...     [gleam_sky, gsm_sky],
+...     representation="healpix_map",
+...     obs_frequency_config=config,
+... )
 
 References
 ----------
+Point-source catalogs:
+
 - GLEAM: Hurley-Walker et al. (2017), MNRAS, 464, 1146
 - MALS DR1: Deka et al. (2024), ApJS, 270, 33
 - MALS DR2: Wagenveld et al. (2024), A&A, 690, A163
+- VLSS: Cohen et al. (2007), AJ, 134, 1245
+- VLSSr: Lane et al. (2014), MNRAS, 440, 327
+- TGSS ADR1: Intema et al. (2017), A&A, 598, A78
+- WENSS: Rengelink et al. (1997), A&AS, 124, 259
+- SUMSS: Mauch et al. (2003), MNRAS, 342, 1117
+- NVSS: Condon et al. (1998), AJ, 115, 1693
+- FIRST: White et al. (1997), ApJ, 475, 479
+- LoTSS DR1: Shimwell et al. (2019), A&A, 622, A1
+- LoTSS DR2: Shimwell et al. (2022), A&A, 659, A1
+- AT20G: Murphy et al. (2010), MNRAS, 402, 2403
+- 3CR: Edge et al. (1959), MmRAS, 68, 37
+- GB6: Gregory et al. (1996), ApJS, 103, 427
+- RACS: McConnell et al. (2020), PASA, 37, e048
+
+Diffuse sky models:
+
 - GSM2008: de Oliveira-Costa et al. (2008), MNRAS, 388, 247
 - GSM2016: Zheng et al. (2016), MNRAS, 464, 3486
 - LFSM: Dowell et al. (2017), MNRAS, 469, 4537
 - Haslam: Remazeilles et al. (2015), MNRAS, 451, 4311
+- PySM3: Thorne et al. (2017), MNRAS, 469, 2821;
+  Zonca et al. (2021), JOSS, 6, 3783
+- ULSA: Cong et al. (2021), ApJ, 914, 128
 """
 
 import logging
@@ -55,8 +125,13 @@ from typing import Any
 import astropy.units as u
 import healpy as hp
 import numpy as np
+import pysm3
+import pysm3.units as pysm3_u
 from astropy.coordinates import SkyCoord
+from astroquery.utils.tap.core import TapPlus
+from astroquery.vizier import Vizier
 from healpy.rotator import Rotator
+from pyradiosky import SkyModel as PyRadioSkyModel
 from pygdsm import (
     GlobalSkyModel,
     GlobalSkyModel16,
@@ -178,8 +253,6 @@ GLEAM_CATALOGS = {
     "VIII/110/catalog": "GLEAM-X DR1 (78,967 rows)",
     "VIII/105/catalog": "G4Jy catalog (1,960 rows)",
 }
-
-# MALS catalog metadata
 MALS_CATALOGS = {
     "dr1": {
         "vizier_id": "J/ApJS/270/33",
@@ -213,8 +286,6 @@ MALS_CATALOGS = {
         "coords_sexagesimal": True,
     },
 }
-
-# Diffuse sky models
 DIFFUSE_MODELS = {
     "gsm2008": {
         "class": GlobalSkyModel,
@@ -463,32 +534,39 @@ class SkyModel:
     between them on demand. This allows uniform treatment of all sky models
     (catalogs, diffuse emission, test sources) regardless of their native format.
 
+    Columnar point-source arrays are ``(N_sources,)`` float64. ``None`` means
+    not populated; ``len == 0`` means loaded but no sources passed the filter.
+
     Attributes
     ----------
-    _ra_rad, _dec_rad : np.ndarray (N_sources,) float64, optional
+    _ra_rad, _dec_rad : np.ndarray, optional
         Right ascension and declination in radians.
-    _flux_ref : np.ndarray (N_sources,) float64, optional
+    _flux_ref : np.ndarray, optional
         Reference flux density in Jy.
-    _alpha : np.ndarray (N_sources,) float64, optional
+    _alpha : np.ndarray, optional
         Spectral index for power-law extrapolation.
-    _stokes_q, _stokes_u, _stokes_v : np.ndarray (N_sources,) float64, optional
+    _stokes_q, _stokes_u, _stokes_v : np.ndarray, optional
         Stokes polarization parameters.
-    _healpix_maps : Dict[float, np.ndarray], optional
-        Multi-frequency HEALPix brightness temperature maps (freq_hz → T_b map).
+    _healpix_maps : dict[float, np.ndarray], optional
+        Multi-frequency HEALPix brightness temperature maps (freq_hz -> T_b).
         One map per observation channel; generated natively by pygdsm for
         diffuse models, or via spectral extrapolation for point source catalogs.
     _healpix_nside : int, optional
         HEALPix NSIDE parameter.
     _native_format : str
-        Original format: "point_sources" or "healpix"
+        Original format: ``"point_sources"`` or ``"healpix"``.
     frequency : float, optional
         Reference frequency in Hz (first channel for multi-freq maps).
     model_name : str, optional
         Name of the sky model.
+    brightness_conversion : str
+        Conversion method for T_b / Jy: ``"planck"`` or ``"rayleigh-jeans"``.
+    _point_sources_frequency : float, optional
+        Frequency used when columnar arrays were populated from a HEALPix map.
+        Only meaningful when ``_native_format == "healpix"``; used to
+        invalidate the cache when a different frequency is requested.
     """
 
-    # ---- Columnar point-source storage (N_sources,) float64 arrays ----
-    # None = not populated; len==0 = loaded but no sources passed filter
     _ra_rad:   np.ndarray | None = field(default=None, repr=False)
     _dec_rad:  np.ndarray | None = field(default=None, repr=False)
     _flux_ref: np.ndarray | None = field(default=None, repr=False)
@@ -497,22 +575,88 @@ class SkyModel:
     _stokes_u: np.ndarray | None = field(default=None, repr=False)
     _stokes_v: np.ndarray | None = field(default=None, repr=False)
 
-    # Multi-frequency HEALPix maps (freq_hz -> T_b map)
     _healpix_maps: dict[float, np.ndarray] | None = None
     _observation_frequencies: np.ndarray | None = None
     _healpix_nside: int | None = None
 
-    # Track native format
     _native_format: str = "point_sources"
 
-    # Metadata
     frequency: float | None = None
     model_name: str | None = None
-    brightness_conversion: str = "planck"  # "planck" or "rayleigh-jeans"
+    brightness_conversion: str = "planck"
 
-    # Tracks which frequency was used when columnar arrays were populated from HEALPix.
-    # Only meaningful when _native_format == "healpix".
     _point_sources_frequency: float | None = field(default=None, repr=False)
+
+    _precision: Any = field(default=None, repr=False)
+
+    # =========================================================================
+    # Precision Helpers
+    # =========================================================================
+
+    def _validate_precision(self) -> None:
+        """Raise ValueError if _precision is not set."""
+        if self._precision is None:
+            raise ValueError(
+                "SkyModel requires a PrecisionConfig. Pass precision=PrecisionConfig.standard() "
+                "(or .fast(), .precise(), .ultra()) to the factory method. "
+                "Example: SkyModel.from_test_sources(num_sources=100, "
+                "precision=PrecisionConfig.standard())"
+            )
+
+    def _source_dtype(self) -> np.dtype:
+        """Get dtype for source position arrays (RA/Dec)."""
+        self._validate_precision()
+        return self._precision.sky_model.get_dtype("source_positions")
+
+    def _flux_dtype(self) -> np.dtype:
+        """Get dtype for flux and Stokes arrays."""
+        self._validate_precision()
+        return self._precision.sky_model.get_dtype("flux")
+
+    def _alpha_dtype(self) -> np.dtype:
+        """Get dtype for spectral index arrays."""
+        self._validate_precision()
+        return self._precision.sky_model.get_dtype("spectral_index")
+
+    def _healpix_dtype(self) -> np.dtype:
+        """Get dtype for HEALPix brightness temperature maps."""
+        self._validate_precision()
+        return self._precision.sky_model.get_dtype("healpix_maps")
+
+    def _ensure_dtypes(self) -> None:
+        """Cast internal arrays to precision-appropriate dtypes.
+
+        Intermediate calculations (e.g. flux accumulation via ``np.bincount``)
+        remain at float64 for numerical correctness; only the final stored
+        arrays are cast here.
+
+        Raises
+        ------
+        ValueError
+            If ``_precision`` is None.
+        """
+        self._validate_precision()
+
+        src_dt = self._source_dtype()
+        flux_dt = self._flux_dtype()
+        alpha_dt = self._alpha_dtype()
+        hp_dt = self._healpix_dtype()
+
+        if self._ra_rad is not None:
+            self._ra_rad = self._ra_rad.astype(src_dt, copy=False)
+            self._dec_rad = self._dec_rad.astype(src_dt, copy=False)
+        if self._flux_ref is not None:
+            self._flux_ref = self._flux_ref.astype(flux_dt, copy=False)
+        if self._alpha is not None:
+            self._alpha = self._alpha.astype(alpha_dt, copy=False)
+        if self._stokes_q is not None:
+            self._stokes_q = self._stokes_q.astype(flux_dt, copy=False)
+            self._stokes_u = self._stokes_u.astype(flux_dt, copy=False)
+            self._stokes_v = self._stokes_v.astype(flux_dt, copy=False)
+        if self._healpix_maps is not None:
+            self._healpix_maps = {
+                f: m.astype(hp_dt, copy=False) for f, m in self._healpix_maps.items()
+            }
 
     # =========================================================================
     # Properties
@@ -596,7 +740,6 @@ class SkyModel:
         bandwidth = obs_frequency_config["frequency_bandwidth"]
         unit = obs_frequency_config.get("frequency_unit", "MHz")
 
-        # Convert to Hz
         unit_factors = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}
         if unit not in unit_factors:
             raise ValueError(
@@ -609,7 +752,6 @@ class SkyModel:
         interval_hz = interval * unit_factor
         bandwidth_hz = bandwidth * unit_factor
 
-        # Generate frequency array
         n_channels = int(bandwidth_hz / interval_hz)
         if n_channels <= 0:
             raise ValueError(
@@ -786,7 +928,6 @@ class SkyModel:
                 method=self.brightness_conversion,
             )
 
-        # Store all positive-flux pixels (caller applies flux_limit via mask)
         valid_idx = np.where(flux_jy > 0)[0]
         if len(valid_idx) == 0:
             logger.warning("No pixels with positive flux in HEALPix map")
@@ -867,26 +1008,21 @@ class SkyModel:
         n_sources = len(self._ra_rad)
         n_freq = len(frequencies)
 
-        # Log memory estimate
         mem_info = self.estimate_healpix_memory(nside, n_freq, np.float32)
         logger.info(
             f"Creating {n_freq} HEALPix maps (nside={nside}): "
             f"~{mem_info['total_mb']:.1f} MB"
         )
 
-        # Vectorized pixel indices — computed once, reused for all frequencies
         ipix = hp.ang2pix(nside, np.pi / 2 - self._dec_rad, self._ra_rad)
 
         temp_maps: dict[float, np.ndarray] = {}
         for freq in frequencies:
-            # Extrapolate fluxes vectorially: S(ν) = S_ref × (ν/ν_ref)^α
-            scale = (float(freq) / ref_frequency) ** self._alpha   # (N_s,)
-            flux_f = self._flux_ref * scale                          # (N_s,)
+            scale = (float(freq) / ref_frequency) ** self._alpha
+            flux_f = self._flux_ref * scale
 
-            # Accumulate flux per pixel using bincount (no Python loop)
-            flux_map = np.bincount(ipix, weights=flux_f, minlength=npix)  # (npix,)
+            flux_map = np.bincount(ipix, weights=flux_f, minlength=npix)
 
-            # Convert accumulated Jy → brightness temperature
             temp_out = np.zeros(npix, dtype=np.float32)
             occupied = flux_map > 0
             if np.any(occupied):
@@ -967,10 +1103,8 @@ class SkyModel:
                 "Load sources first using from_gleam(), from_mals(), etc."
             )
 
-        # Parse frequency configuration
         frequencies = self._parse_frequency_config(obs_frequency_config)
 
-        # Convert to multi-frequency maps
         self._healpix_maps = self._point_sources_to_healpix_multifreq(
             nside, frequencies, ref_frequency
         )
@@ -1014,16 +1148,13 @@ class SkyModel:
                 "Use to_healpix_for_observation() first."
             )
 
-        # Check for exact match
         if frequency in self._healpix_maps:
             return self._healpix_maps[frequency]
 
-        # Find nearest frequency
         available_freqs = np.array(list(self._healpix_maps.keys()))
         idx = np.argmin(np.abs(available_freqs - frequency))
         nearest_freq = available_freqs[idx]
 
-        # Warn if not exact match
         freq_diff_mhz = abs(frequency - nearest_freq) / 1e6
         if freq_diff_mhz > 0.001:  # More than 1 kHz difference
             logger.warning(
@@ -1153,6 +1284,7 @@ class SkyModel:
         dec_deg: float = -30.72,
         spectral_index: float = -0.8,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Generate synthetic test sources.
@@ -1169,6 +1301,8 @@ class SkyModel:
             Declination for all sources (degrees).
         spectral_index : float, default=-0.8
             Spectral index for all sources.
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes. If None, uses float64.
 
         Returns
         -------
@@ -1187,7 +1321,7 @@ class SkyModel:
 
         logger.info(f"Generated {n} test sources")
 
-        return cls(
+        sky = cls(
             _ra_rad=np.deg2rad(ra_deg_arr),
             _dec_rad=np.deg2rad(dec_deg_arr),
             _flux_ref=flux_arr.astype(np.float64),
@@ -1198,7 +1332,10 @@ class SkyModel:
             _native_format="point_sources",
             model_name="test_sources",
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
+        sky._ensure_dtypes()
+        return sky
 
     @classmethod
     def from_gleam(
@@ -1206,6 +1343,7 @@ class SkyModel:
         flux_limit: float = 1.0,
         catalog: str = "VIII/100/gleamegc",
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load GLEAM catalog from VizieR.
@@ -1216,14 +1354,14 @@ class SkyModel:
             Minimum flux density in Jy.
         catalog : str, default="VIII/100/gleamegc"
             VizieR catalog ID.
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes. If None, uses float64.
 
         Returns
         -------
         SkyModel
             Sky model with GLEAM sources.
         """
-        from astroquery.vizier import Vizier
-
         _empty = cls(
             _ra_rad=np.zeros(0, dtype=np.float64),
             _dec_rad=np.zeros(0, dtype=np.float64),
@@ -1234,6 +1372,7 @@ class SkyModel:
             _stokes_v=np.zeros(0, dtype=np.float64),
             model_name="gleam",
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
 
         if catalog not in GLEAM_CATALOGS:
@@ -1251,12 +1390,10 @@ class SkyModel:
 
         logger.info(f"Downloaded {len(catalog_data)} sources, processing...")
 
-        # Extract arrays from astropy table
         flux_raw = np.array(catalog_data["Fp076"], dtype=np.float64)
         ra_raw   = np.array(catalog_data["RAJ2000"], dtype=np.float64)
         dec_raw  = np.array(catalog_data["DEJ2000"], dtype=np.float64)
 
-        # NaN/flux filter mask
         valid = (
             np.isfinite(flux_raw) & np.isfinite(ra_raw) & np.isfinite(dec_raw)
             & (flux_raw >= flux_limit)
@@ -1271,7 +1408,6 @@ class SkyModel:
         dec_rad  = np.deg2rad(dec_raw[valid])
         n        = int(valid.sum())
 
-        # Spectral index — use 0.0 as default where missing/masked
         if "alpha" in catalog_data.colnames:
             alpha_raw = np.array(catalog_data["alpha"], dtype=float)
             alpha = np.where(np.isfinite(alpha_raw[valid]), alpha_raw[valid], 0.0)
@@ -1280,7 +1416,7 @@ class SkyModel:
 
         logger.info(f"GLEAM loaded: {n} sources (flux >= {flux_limit} Jy)")
 
-        return cls(
+        sky = cls(
             _ra_rad=ra_rad,
             _dec_rad=dec_rad,
             _flux_ref=flux_ref,
@@ -1291,7 +1427,10 @@ class SkyModel:
             _native_format="point_sources",
             model_name="gleam",
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
+        sky._ensure_dtypes()
+        return sky
 
     @classmethod
     def from_mals(
@@ -1299,6 +1438,7 @@ class SkyModel:
         flux_limit: float = 1.0,
         release: str = "dr2",
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load MALS catalog from VizieR.
@@ -1309,14 +1449,14 @@ class SkyModel:
             Minimum flux density in mJy.
         release : str, default="dr2"
             Data release: "dr1", "dr2", or "dr3".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes. If None, uses float64.
 
         Returns
         -------
         SkyModel
             Sky model with MALS sources.
         """
-        from astroquery.vizier import Vizier
-
         release = release.lower()
 
         def _empty(name):
@@ -1330,6 +1470,7 @@ class SkyModel:
                 _stokes_v=np.zeros(0, dtype=np.float64),
                 model_name=name,
                 brightness_conversion=brightness_conversion,
+                _precision=precision,
             )
 
         if release not in MALS_CATALOGS:
@@ -1360,13 +1501,11 @@ class SkyModel:
 
         is_sexagesimal = info.get("coords_sexagesimal", False)
 
-        # Extract flux
         flux_raw_mjy = np.array(
             [float(row[info["flux_col"]]) if not np.ma.is_masked(row[info["flux_col"]]) else np.nan
              for row in catalog],
             dtype=np.float64
         )
-        # Flux filter mask (mJy)
         flux_valid = np.isfinite(flux_raw_mjy) & (flux_raw_mjy >= flux_limit)
 
         if not np.any(flux_valid):
@@ -1375,7 +1514,6 @@ class SkyModel:
 
         flux_jy = flux_raw_mjy[flux_valid] / 1000.0
 
-        # Parse coordinates
         if is_sexagesimal:
             ra_strs  = [str(row[info["ra_col"]])  for i, row in enumerate(catalog) if flux_valid[i]]
             dec_strs = [str(row[info["dec_col"]]) for i, row in enumerate(catalog) if flux_valid[i]]
@@ -1394,7 +1532,6 @@ class SkyModel:
 
         n = len(flux_jy)
 
-        # Spectral index
         if info["spindex_col"] and info["spindex_col"] in catalog.colnames:
             spindex_raw = []
             rows = list(catalog)
@@ -1412,7 +1549,7 @@ class SkyModel:
 
         logger.info(f"MALS {release.upper()} loaded: {n} sources (flux >= {flux_limit} mJy)")
 
-        return cls(
+        sky = cls(
             _ra_rad=ra_rad,
             _dec_rad=dec_rad,
             _flux_ref=flux_jy,
@@ -1423,7 +1560,10 @@ class SkyModel:
             _native_format="point_sources",
             model_name=f"mals_{release}",
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
+        sky._ensure_dtypes()
+        return sky
 
     @classmethod
     def from_diffuse_sky(
@@ -1434,6 +1574,7 @@ class SkyModel:
         obs_frequency_config: dict[str, Any] | None = None,
         include_cmb: bool = False,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load a diffuse sky model (GSM, LFSM, Haslam) as multi-frequency HEALPix maps.
@@ -1494,7 +1635,6 @@ class SkyModel:
                 "frequencies=np.linspace(100e6, 120e6, 20))"
             )
 
-        # Resolve frequencies array
         if frequencies is None:
             frequencies = cls._parse_frequency_config(obs_frequency_config)
         frequencies = np.asarray(frequencies, dtype=np.float64)
@@ -1508,15 +1648,12 @@ class SkyModel:
             f"({frequencies[0]/1e6:.1f}–{frequencies[-1]/1e6:.1f} MHz), nside={nside}"
         )
 
-        # Initialize pygdsm model once
         init_kwargs = info["init_kwargs"].copy()
         init_kwargs["include_cmb"] = include_cmb
         sky = model_class(**init_kwargs)
 
-        # Initialize Galactic → Equatorial rotator once
         rot = Rotator(coord=["G", "C"])
 
-        # Generate one native map per frequency
         healpix_maps: dict[float, np.ndarray] = {}
         for freq in frequencies:
             temp_map = sky.generate(freq)
@@ -1530,7 +1667,7 @@ class SkyModel:
             f"{model.upper()} loaded: {hp.nside2npix(nside)} pixels × {n_freq} frequencies"
         )
 
-        return cls(
+        sky = cls(
             _healpix_maps=healpix_maps,
             _healpix_nside=nside,
             _observation_frequencies=frequencies,
@@ -1538,7 +1675,10 @@ class SkyModel:
             frequency=float(frequencies[0]),
             model_name=model,
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
+        sky._ensure_dtypes()
+        return sky
 
     @classmethod
     def _load_from_vizier_catalog(
@@ -1546,6 +1686,7 @@ class SkyModel:
         catalog_key: str,
         flux_limit: float = 1.0,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load a point-source catalog from VizieR using unified metadata.
@@ -1573,8 +1714,6 @@ class SkyModel:
         ValueError
             If ``catalog_key`` is not in ``VIZIER_POINT_CATALOGS``.
         """
-        from astroquery.vizier import Vizier
-
         if catalog_key not in VIZIER_POINT_CATALOGS:
             raise ValueError(
                 f"Unknown VizieR catalog key '{catalog_key}'. "
@@ -1592,6 +1731,7 @@ class SkyModel:
                 _stokes_v=np.zeros(0, dtype=np.float64),
                 model_name=catalog_key,
                 brightness_conversion=brightness_conversion,
+                _precision=precision,
             )
 
         info = VIZIER_POINT_CATALOGS[catalog_key]
@@ -1630,7 +1770,6 @@ class SkyModel:
         flux_unit      = info.get("flux_unit", "Jy")
         spindex_from_cols = info.get("spindex_from_cols")
 
-        # --- Extract and filter flux ---
         flux_col = info["flux_col"]
         flux_raw_list = []
         for row in catalog:
@@ -1647,7 +1786,6 @@ class SkyModel:
             logger.info(f"{catalog_key.upper()}: no sources above flux limit {flux_limit} Jy")
             return _empty()
 
-        # --- Parse coordinates ---
         if is_sexagesimal:
             ra_strs  = [str(row[info["ra_col"]])  for i, row in enumerate(catalog) if flux_valid[i]]
             dec_strs = [str(row[info["dec_col"]]) for i, row in enumerate(catalog) if flux_valid[i]]
@@ -1675,7 +1813,6 @@ class SkyModel:
                     continue
                 ra_list.append(float(ra_val))
                 dec_list.append(float(dec_val))
-            # Combined valid mask
             combined_valid = flux_valid & coord_ok
             sc = SkyCoord(
                 ra=np.array(ra_list, dtype=np.float64)[combined_valid] * u.deg,
@@ -1684,7 +1821,6 @@ class SkyModel:
             )
             flux_valid = combined_valid  # update mask
 
-        # Convert to ICRS
         if coord_frame != "icrs":
             sc = sc.icrs
 
@@ -1693,7 +1829,6 @@ class SkyModel:
         flux_jy = flux_jy_raw[flux_valid]
         n = len(flux_jy)
 
-        # --- Derive spectral index ---
         rows_list = list(catalog)
         valid_indices = np.where(flux_valid)[0]
         default_spindex = info["default_spindex"]
@@ -1724,7 +1859,7 @@ class SkyModel:
 
         logger.info(f"{catalog_key.upper()} loaded: {n:,} sources (flux >= {flux_limit} Jy)")
 
-        return cls(
+        sky = cls(
             _ra_rad=ra_rad,
             _dec_rad=dec_rad,
             _flux_ref=flux_jy,
@@ -1735,13 +1870,17 @@ class SkyModel:
             _native_format="point_sources",
             model_name=catalog_key,
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
+        sky._ensure_dtypes()
+        return sky
 
     @classmethod
     def from_vlssr(
         cls,
         flux_limit: float = 1.0,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the VLSSr catalog from VizieR (73.8 MHz, ~92,964 sources).
@@ -1755,18 +1894,21 @@ class SkyModel:
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("vlssr", flux_limit, brightness_conversion)
+        return cls._load_from_vizier_catalog("vlssr", flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_tgss(
         cls,
         flux_limit: float = 0.1,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the TGSS ADR1 catalog from VizieR (150 MHz, ~623,604 sources).
@@ -1781,18 +1923,21 @@ class SkyModel:
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("tgss", flux_limit, brightness_conversion)
+        return cls._load_from_vizier_catalog("tgss", flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_wenss(
         cls,
         flux_limit: float = 0.05,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the WENSS catalog from VizieR (325 MHz, ~229,000 sources).
@@ -1806,18 +1951,21 @@ class SkyModel:
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("wenss", flux_limit, brightness_conversion)
+        return cls._load_from_vizier_catalog("wenss", flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_sumss(
         cls,
         flux_limit: float = 0.008,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the SUMSS catalog from VizieR (843 MHz, ~210,412 sources).
@@ -1831,18 +1979,21 @@ class SkyModel:
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("sumss", flux_limit, brightness_conversion)
+        return cls._load_from_vizier_catalog("sumss", flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_nvss(
         cls,
         flux_limit: float = 0.0025,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the NVSS catalog from VizieR (1400 MHz, ~1.8M sources).
@@ -1857,18 +2008,21 @@ class SkyModel:
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("nvss", flux_limit, brightness_conversion)
+        return cls._load_from_vizier_catalog("nvss", flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_first(
         cls,
         flux_limit: float = 0.001,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the FIRST catalog from VizieR (1400 MHz, ~946,432 sources).
@@ -1882,12 +2036,14 @@ class SkyModel:
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("first", flux_limit, brightness_conversion)
+        return cls._load_from_vizier_catalog("first", flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_lotss(
@@ -1895,6 +2051,7 @@ class SkyModel:
         release: str = "dr2",
         flux_limit: float = 0.001,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the LoTSS catalog from VizieR (144 MHz, DR1: ~325k, DR2: ~4.4M sources).
@@ -1910,6 +2067,8 @@ class SkyModel:
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
@@ -1926,13 +2085,14 @@ class SkyModel:
                 f"Unknown LoTSS release '{release}'. "
                 f"Available: 'dr1', 'dr2'."
             )
-        return cls._load_from_vizier_catalog(key, flux_limit, brightness_conversion)
+        return cls._load_from_vizier_catalog(key, flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_at20g(
         cls,
         flux_limit: float = 0.04,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the AT20G catalog from VizieR (20 GHz, ~5,890 sources).
@@ -1947,18 +2107,21 @@ class SkyModel:
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("at20g", flux_limit, brightness_conversion)
+        return cls._load_from_vizier_catalog("at20g", flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_3c(
         cls,
         flux_limit: float = 1.0,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the 3CR catalog from VizieR (178 MHz, ~471 sources).
@@ -1973,18 +2136,21 @@ class SkyModel:
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("3c", flux_limit, brightness_conversion)
+        return cls._load_from_vizier_catalog("3c", flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_gb6(
         cls,
         flux_limit: float = 0.018,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the GB6 catalog from VizieR (4850 MHz, ~75,162 sources).
@@ -1998,12 +2164,14 @@ class SkyModel:
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("gb6", flux_limit, brightness_conversion)
+        return cls._load_from_vizier_catalog("gb6", flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_racs(
@@ -2012,6 +2180,7 @@ class SkyModel:
         flux_limit: float = 1.0,
         max_rows: int = 1_000_000,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load a RACS catalog via CASDA TAP (887.5 / 1367.5 / 1655.5 MHz).
@@ -2057,8 +2226,6 @@ class SkyModel:
         logger.info(f"Fetching {info['description']} via CASDA TAP")
 
         try:
-            from astroquery.utils.tap.core import TapPlus
-
             tap = TapPlus(url=CASDA_TAP_URL)
             adql = (
                 f"SELECT TOP {max_rows} "
@@ -2081,11 +2248,11 @@ class SkyModel:
                 _stokes_v=np.zeros(0, dtype=np.float64),
                 model_name=model_name,
                 brightness_conversion=brightness_conversion,
+                _precision=precision,
             )
 
         freq_hz = info["freq_mhz"] * 1e6
 
-        # Build columnar arrays from TAP result
         ra_list, dec_list, flux_list = [], [], []
         for row in result:
             try:
@@ -2123,9 +2290,10 @@ class SkyModel:
                 _stokes_v=np.zeros(0, dtype=np.float64),
                 model_name=model_name,
                 brightness_conversion=brightness_conversion,
+                _precision=precision,
             )
 
-        return cls(
+        sky = cls(
             _ra_rad=np.deg2rad(np.array(ra_list, dtype=np.float64)),
             _dec_rad=np.deg2rad(np.array(dec_list, dtype=np.float64)),
             _flux_ref=np.array(flux_list, dtype=np.float64),
@@ -2137,7 +2305,10 @@ class SkyModel:
             model_name=model_name,
             frequency=freq_hz,
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
+        sky._ensure_dtypes()
+        return sky
 
     @classmethod
     def from_pyradiosky_file(
@@ -2147,12 +2318,21 @@ class SkyModel:
         flux_limit: float = 0.0,
         reference_frequency_hz: float | None = None,
         brightness_conversion: str = "planck",
+        precision: Any = None,
+        frequencies: np.ndarray | None = None,
+        obs_frequency_config: dict[str, Any] | None = None,
     ) -> "SkyModel":
         """
         Load a local sky model file via pyradiosky.
 
         Supports SkyH5, VOTable, text, and FHD formats (as handled by
-        pyradiosky). Only ``component_type='point'`` is currently supported.
+        pyradiosky). Both ``component_type='point'`` and
+        ``component_type='healpix'`` are supported.
+
+        For HEALPix files, observation frequencies can be provided explicitly
+        via ``frequencies`` or ``obs_frequency_config``. If the file has
+        ``spectral_type='full'`` or ``'subband'`` and no explicit frequencies
+        are given, the file's own frequency array is used.
 
         Parameters
         ----------
@@ -2163,11 +2343,20 @@ class SkyModel:
             If None, pyradiosky infers from the file extension.
         flux_limit : float, default=0.0
             Minimum Stokes I flux in Jy at the reference frequency.
+            Only used for point-source files.
         reference_frequency_hz : float, optional
             Reference frequency for Stokes I extraction (Hz).
             If None, uses the first frequency channel in the file.
+            Only used for point-source files.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        frequencies : np.ndarray, optional
+            Array of observation frequencies in Hz for HEALPix files.
+            Takes precedence over ``obs_frequency_config``.
+        obs_frequency_config : dict, optional
+            Frequency configuration dict (keys: starting_frequency,
+            frequency_interval, frequency_bandwidth, frequency_unit).
+            Used for HEALPix files when ``frequencies`` is None.
 
         Returns
         -------
@@ -2175,35 +2364,30 @@ class SkyModel:
 
         Raises
         ------
-        ImportError
-            If ``pyradiosky`` is not installed.
         FileNotFoundError
             If ``filename`` does not exist.
         ValueError
-            If the file contains HEALPix (not point-source) components.
+            If the file has an unsupported ``component_type``, or if a
+            HEALPix file with ``spectral_type='spectral_index'`` or
+            ``'flat'`` is loaded without explicit frequencies.
         """
-        try:
-            from pyradiosky import SkyModel as PyRadioSkyModel
-        except ImportError as err:
-            raise ImportError(
-                "pyradiosky is required for from_pyradiosky_file(). "
-                "Install it with: pip install pyradiosky"
-            ) from err
-
         if not os.path.exists(filename):
             raise FileNotFoundError(f"Sky model file not found: {filename}")
 
         sky = PyRadioSkyModel()
         sky.read(filename, filetype=filetype)
 
-        if sky.component_type != "point":
+        if sky.component_type == "healpix":
+            return cls._load_pyradiosky_healpix(
+                sky, filename, frequencies, obs_frequency_config,
+                brightness_conversion, precision,
+            )
+        elif sky.component_type != "point":
             raise ValueError(
-                f"from_pyradiosky_file() only supports 'point' component_type, "
-                f"but got '{sky.component_type}'. "
-                "HEALPix components via pyradiosky are not yet supported."
+                f"Unsupported component_type: '{sky.component_type}'. "
+                "Only 'point' and 'healpix' are supported."
             )
 
-        # Determine reference frequency and channel index
         ref_freq_hz = reference_frequency_hz
         if ref_freq_hz is None:
             if sky.freq_array is not None and len(sky.freq_array) > 0:
@@ -2214,13 +2398,11 @@ class SkyModel:
                     "Provide reference_frequency_hz explicitly."
                 )
 
-        # Find nearest channel to reference frequency
         if sky.freq_array is not None and len(sky.freq_array) > 1:
             ref_chan_idx = int(np.argmin(np.abs(np.array(sky.freq_array) - ref_freq_hz)))
         else:
             ref_chan_idx = 0
 
-        # Extract Stokes I at reference frequency channel
         # stokes shape: (4, Nfreqs, Ncomponents) or (4, 1, Ncomponents)
         stokes = sky.stokes
         stokes_i_ref = np.array(stokes[0, ref_chan_idx, :], dtype=np.float64)
@@ -2230,7 +2412,6 @@ class SkyModel:
         stokes_u = np.array(stokes[2, ref_chan_idx, :], dtype=np.float64) if n_stokes > 2 else np.zeros_like(stokes_i_ref)
         stokes_v = np.array(stokes[3, ref_chan_idx, :], dtype=np.float64) if n_stokes > 3 else np.zeros_like(stokes_i_ref)
 
-        # Extract spectral indices
         if sky.spectral_type == "spectral_index":
             spectral_indices = np.asarray(sky.spectral_index, dtype=np.float64)
         elif sky.spectral_type == "flat":
@@ -2252,11 +2433,9 @@ class SkyModel:
             else:
                 spectral_indices = np.zeros(sky.Ncomponents, dtype=np.float64)
 
-        # Extract coordinate arrays
         ra_arr = np.array(sky.ra.rad if hasattr(sky.ra, "rad") else sky.ra, dtype=np.float64)
         dec_arr = np.array(sky.dec.rad if hasattr(sky.dec, "rad") else sky.dec, dtype=np.float64)
 
-        # Apply flux limit and validity mask
         valid = np.isfinite(stokes_i_ref) & (stokes_i_ref >= flux_limit)
         n = int(valid.sum())
 
@@ -2276,9 +2455,10 @@ class SkyModel:
                 model_name=model_name,
                 frequency=ref_freq_hz,
                 brightness_conversion=brightness_conversion,
+                _precision=precision,
             )
 
-        return cls(
+        sky = cls(
             _ra_rad=ra_arr[valid],
             _dec_rad=dec_arr[valid],
             _flux_ref=stokes_i_ref[valid],
@@ -2290,7 +2470,151 @@ class SkyModel:
             model_name=model_name,
             frequency=ref_freq_hz,
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
+        sky._ensure_dtypes()
+        return sky
+
+    @classmethod
+    def _load_pyradiosky_healpix(
+        cls,
+        psky: Any,
+        filename: str,
+        frequencies: np.ndarray | None,
+        obs_frequency_config: dict[str, Any] | None,
+        brightness_conversion: str,
+        precision: Any,
+    ) -> "SkyModel":
+        """
+        Load a pyradiosky HEALPix sky model as multi-frequency HEALPix maps.
+
+        This is called internally by ``from_pyradiosky_file()`` when the file
+        has ``component_type='healpix'``.
+
+        Parameters
+        ----------
+        psky : pyradiosky.SkyModel
+            Already-read pyradiosky SkyModel with ``component_type='healpix'``.
+        filename : str
+            Original file path (for logging and model_name).
+        frequencies : np.ndarray or None
+            Explicit observation frequencies in Hz.
+        obs_frequency_config : dict or None
+            Frequency configuration dict.
+        brightness_conversion : str
+            Conversion method: "planck" or "rayleigh-jeans".
+        precision : Any
+            Precision configuration.
+
+        Returns
+        -------
+        SkyModel
+            Sky model in healpix_multifreq mode.
+
+        Raises
+        ------
+        ValueError
+            If frequencies cannot be determined.
+        """
+        # --- Determine observation frequencies ---
+        if frequencies is not None:
+            obs_freqs = np.asarray(frequencies, dtype=np.float64)
+        elif obs_frequency_config is not None:
+            obs_freqs = cls._parse_frequency_config(obs_frequency_config)
+        elif (
+            psky.spectral_type in ("full", "subband")
+            and psky.freq_array is not None
+            and len(psky.freq_array) > 0
+        ):
+            obs_freqs = np.asarray(psky.freq_array.to(u.Hz).value, dtype=np.float64)
+        else:
+            raise ValueError(
+                f"Cannot determine observation frequencies for HEALPix file "
+                f"with spectral_type='{psky.spectral_type}'. "
+                "Provide 'frequencies' or 'obs_frequency_config' explicitly."
+            )
+
+        n_freq = len(obs_freqs)
+        nside = psky.nside
+
+        logger.info(
+            f"Loading pyradiosky HEALPix file: {n_freq} frequencies "
+            f"({obs_freqs[0]/1e6:.1f}–{obs_freqs[-1]/1e6:.1f} MHz), "
+            f"nside={nside}, from {filename}"
+        )
+
+        # --- Evaluate stokes at observation frequencies ---
+        psky_eval = psky.at_frequencies(obs_freqs * u.Hz, inplace=False)
+
+        # --- Convert units to Kelvin if needed ---
+        if psky_eval.stokes.unit.is_equivalent(u.Jy / u.sr):
+            psky_eval.jansky_to_kelvin()
+
+        # --- Determine coordinate frame and pixel handling ---
+        is_galactic = False
+        if hasattr(psky_eval, "frame") and psky_eval.frame is not None:
+            frame_name = str(psky_eval.frame).lower()
+            if "galactic" in frame_name:
+                is_galactic = True
+
+        rot = Rotator(coord=["G", "C"]) if is_galactic else None
+
+        # Check for nested ordering
+        is_nested = False
+        if hasattr(psky_eval, "hpx_order") and psky_eval.hpx_order is not None:
+            if psky_eval.hpx_order.lower() == "nested":
+                is_nested = True
+
+        # Check for sparse map (partial sky)
+        hpx_inds = None
+        if hasattr(psky_eval, "hpx_inds") and psky_eval.hpx_inds is not None:
+            hpx_inds = np.asarray(psky_eval.hpx_inds)
+
+        npix = hp.nside2npix(nside)
+
+        # --- Extract Stokes I and build full-sky maps ---
+        # psky_eval.stokes shape: (4, Nfreqs, Ncomponents)
+        stokes_data = np.asarray(psky_eval.stokes.value)
+
+        healpix_maps: dict[float, np.ndarray] = {}
+        for i_freq in range(n_freq):
+            stokes_i = stokes_data[0, i_freq, :]
+
+            if hpx_inds is not None:
+                # Sparse map: fill only specified pixels
+                full_map = np.zeros(npix, dtype=np.float64)
+                pixel_indices = hpx_inds
+                if is_nested:
+                    pixel_indices = hp.nest2ring(nside, pixel_indices)
+                full_map[pixel_indices] = stokes_i
+            else:
+                # Full-sky map
+                full_map = np.array(stokes_i, dtype=np.float64)
+                if is_nested:
+                    full_map = hp.reorder(full_map, n2r=True)
+
+            if rot is not None:
+                full_map = rot.rotate_map_pixel(full_map)
+
+            healpix_maps[float(obs_freqs[i_freq])] = full_map.astype(np.float32)
+
+        model_name = f"pyradiosky:{os.path.basename(filename)}"
+        logger.info(
+            f"pyradiosky HEALPix loaded: {npix} pixels × {n_freq} frequencies"
+        )
+
+        sky_model = cls(
+            _healpix_maps=healpix_maps,
+            _healpix_nside=nside,
+            _observation_frequencies=obs_freqs,
+            _native_format="healpix",
+            frequency=float(obs_freqs[0]),
+            model_name=model_name,
+            brightness_conversion=brightness_conversion,
+            _precision=precision,
+        )
+        sky_model._ensure_dtypes()
+        return sky_model
 
     @classmethod
     def from_pysm3(
@@ -2300,6 +2624,7 @@ class SkyModel:
         frequencies: np.ndarray | None = None,
         obs_frequency_config: dict[str, Any] | None = None,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load a PySM3 diffuse sky model as multi-frequency HEALPix maps.
@@ -2331,20 +2656,9 @@ class SkyModel:
 
         Raises
         ------
-        ImportError
-            If ``pysm3`` is not installed.
         ValueError
             If neither ``frequencies`` nor ``obs_frequency_config`` is provided.
         """
-        try:
-            import pysm3
-            import pysm3.units as pysm3_u
-        except ImportError as err:
-            raise ImportError(
-                "pysm3 is required for from_pysm3(). "
-                "Install it with: pip install pysm3"
-            ) from err
-
         if frequencies is None and obs_frequency_config is None:
             raise ValueError(
                 "Either 'frequencies' or 'obs_frequency_config' must be provided. "
@@ -2356,7 +2670,6 @@ class SkyModel:
             frequencies = cls._parse_frequency_config(obs_frequency_config)
         frequencies = np.asarray(frequencies, dtype=np.float64)
 
-        # Normalize components to list
         components_list = [components] if isinstance(components, str) else list(components)
         n_freq = len(frequencies)
 
@@ -2365,13 +2678,11 @@ class SkyModel:
             f"({frequencies[0]/1e6:.1f}–{frequencies[-1]/1e6:.1f} MHz), nside={nside}"
         )
 
-        # Initialize PySM3 sky and Galactic→Equatorial rotator once
         sky = pysm3.Sky(nside=nside, preset_strings=components_list)
         rot = Rotator(coord=["G", "C"])
 
         healpix_maps: dict[float, np.ndarray] = {}
         for freq in frequencies:
-            # Get emission in K_CMB, convert to K_RJ (brightness temperature)
             emission = sky.get_emission(freq * pysm3_u.Hz)
             emission_krj = emission.to(
                 pysm3_u.K_RJ,
@@ -2379,12 +2690,10 @@ class SkyModel:
             )
             temp_map = np.array(emission_krj[0])  # Stokes I
 
-            # Resize to requested nside if needed
             current_nside = hp.get_nside(temp_map)
             if current_nside != nside:
                 temp_map = hp.ud_grade(temp_map, nside_out=nside)
 
-            # Rotate Galactic → Equatorial
             temp_map = rot.rotate_map_pixel(temp_map)
             healpix_maps[float(freq)] = temp_map.astype(np.float32)
 
@@ -2393,7 +2702,7 @@ class SkyModel:
             f"PySM3 {components_list} loaded: {hp.nside2npix(nside)} pixels × {n_freq} frequencies"
         )
 
-        return cls(
+        sky = cls(
             _healpix_maps=healpix_maps,
             _healpix_nside=nside,
             _observation_frequencies=frequencies,
@@ -2401,7 +2710,10 @@ class SkyModel:
             frequency=float(frequencies[0]),
             model_name=model_name,
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
+        sky._ensure_dtypes()
+        return sky
 
     @classmethod
     def from_ulsa(
@@ -2410,6 +2722,7 @@ class SkyModel:
         frequencies: np.ndarray | None = None,
         obs_frequency_config: dict[str, Any] | None = None,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Load the ULSA ultra-low-frequency sky model as multi-frequency HEALPix maps.
@@ -2438,15 +2751,15 @@ class SkyModel:
         Raises
         ------
         ImportError
-            If ``ulsa`` is not installed.
+            If ``ULSA`` is not installed.
         ValueError
             If neither ``frequencies`` nor ``obs_frequency_config`` is provided.
         """
         try:
-            import ulsa
+            import ULSA as ulsa
         except ImportError as err:
             raise ImportError(
-                "ulsa is required for from_ulsa(). "
+                "ULSA is required for from_ulsa(). "
                 "Install it with: "
                 "pip install git+https://github.com/Yanping-Cong/ULSA.git"
             ) from err
@@ -2484,11 +2797,9 @@ class SkyModel:
                     npix = hp.nside2npix(nside)
                     temp_map = np.zeros(npix, dtype=np.float32)
 
-            # Resize if needed
             if len(temp_map) != hp.nside2npix(nside):
                 temp_map = hp.ud_grade(temp_map, nside_out=nside)
 
-            # Rotate Galactic → Equatorial
             temp_map = rot.rotate_map_pixel(temp_map)
             healpix_maps[float(freq)] = temp_map.astype(np.float32)
 
@@ -2496,7 +2807,7 @@ class SkyModel:
             f"ULSA loaded: {hp.nside2npix(nside)} pixels × {n_freq} frequencies"
         )
 
-        return cls(
+        sky = cls(
             _healpix_maps=healpix_maps,
             _healpix_nside=nside,
             _observation_frequencies=frequencies,
@@ -2504,7 +2815,10 @@ class SkyModel:
             frequency=float(frequencies[0]),
             model_name="ulsa",
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
+        sky._ensure_dtypes()
+        return sky
 
     @classmethod
     def from_point_sources(
@@ -2512,6 +2826,7 @@ class SkyModel:
         sources: list[dict[str, Any]],
         model_name: str = "custom",
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Create SkyModel from existing point source list.
@@ -2525,6 +2840,8 @@ class SkyModel:
             Name for the model.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
 
         Returns
         -------
@@ -2543,6 +2860,7 @@ class SkyModel:
                 _native_format="point_sources",
                 model_name=model_name,
                 brightness_conversion=brightness_conversion,
+                _precision=precision,
             )
 
         ra_rad  = np.array([s["coords"].ra.rad  for s in sources], dtype=np.float64)
@@ -2553,7 +2871,7 @@ class SkyModel:
         stokes_u = np.array([s.get("stokes_u", 0.0)            for s in sources], dtype=np.float64)
         stokes_v = np.array([s.get("stokes_v", 0.0)            for s in sources], dtype=np.float64)
 
-        return cls(
+        sky = cls(
             _ra_rad=ra_rad,
             _dec_rad=dec_rad,
             _flux_ref=flux_ref,
@@ -2564,7 +2882,10 @@ class SkyModel:
             _native_format="point_sources",
             model_name=model_name,
             brightness_conversion=brightness_conversion,
+            _precision=precision,
         )
+        sky._ensure_dtypes()
+        return sky
 
     # =========================================================================
     # Combination
@@ -2580,6 +2901,7 @@ class SkyModel:
         obs_frequency_config: dict[str, Any] | None = None,
         ref_frequency: float = 76e6,
         brightness_conversion: str = "planck",
+        precision: Any = None,
     ) -> "SkyModel":
         """
         Combine multiple sky models into one.
@@ -2674,9 +2996,9 @@ class SkyModel:
                 _stokes_v=np.zeros(0, dtype=np.float64),
                 model_name="combined_empty",
                 brightness_conversion=brightness_conversion,
+                _precision=precision,
             )
 
-        # Check for potential double-counting
         has_catalog = any(m.mode == "point_sources" and m._has_point_sources()
                          for m in models)
         has_diffuse = any(m.mode == "healpix_multifreq" for m in models)
@@ -2691,7 +3013,6 @@ class SkyModel:
                 stacklevel=2
             )
 
-        # Get frequency from first model if not specified
         freq = frequency
         if freq is None:
             for m in models:
@@ -2699,16 +3020,15 @@ class SkyModel:
                     freq = m.frequency
                     break
 
-        # Check if any model is already in healpix_multifreq mode
         has_healpix_multifreq = any(m.mode == "healpix_multifreq" for m in models)
 
-        # ======================================================================
+        # ==================================================================
         # HEALPIX_MAP REPRESENTATION WITH MULTIFREQ MODELS
-        # Combine maps element-wise in Jy space (not T_b space), per frequency.
-        # T_b addition is nonlinear under Planck: T_b(I1+I2) ≠ T_b(I1)+T_b(I2)
-        # ======================================================================
+        # Combine maps element-wise in Jy space (not T_b space), per
+        # frequency. T_b addition is nonlinear under Planck:
+        # T_b(I1+I2) != T_b(I1) + T_b(I2)
+        # ==================================================================
         if representation == "healpix_map" and has_healpix_multifreq:
-            # Get reference nside and frequencies from first healpix_multifreq model
             ref_model = next(m for m in models if m.mode == "healpix_multifreq")
             _, ref_nside, ref_freqs = ref_model.get_multifreq_maps()
 
@@ -2740,7 +3060,6 @@ class SkyModel:
             npix = hp.nside2npix(ref_nside)
             omega_pixel = 4 * np.pi / npix
 
-            # Pre-compute pixel indices for all point-source models once (outside freq loop)
             ps_models_data = []
             for m in models:
                 if m.mode == "point_sources" and m._has_point_sources():
@@ -2753,7 +3072,6 @@ class SkyModel:
 
                 for m in models:
                     if m.mode == "healpix_multifreq":
-                        # Convert T_b map → Jy (only positive-temperature pixels)
                         t_map = m.get_map_at_frequency(freq_hz).astype(np.float64)
                         pos = t_map > 0
                         if np.any(pos):
@@ -2762,13 +3080,11 @@ class SkyModel:
                                 method=brightness_conversion,
                             )
 
-                # Vectorized point-source accumulation (pre-computed ipix)
                 for ipix_m, flux_ref_m, alpha_m in ps_models_data:
                     scale = (float(freq_hz) / ref_frequency) ** alpha_m
                     flux_at_f = flux_ref_m * scale
                     combined_flux += np.bincount(ipix_m, weights=flux_at_f, minlength=npix)
 
-                # Convert combined Jy map → T_b (only positive-flux pixels)
                 combined_T_b = np.zeros(npix, dtype=np.float64)
                 pos_flux = combined_flux > 0
                 if np.any(pos_flux):
@@ -2783,7 +3099,7 @@ class SkyModel:
                 f"({len(ref_freqs)} channels, nside={ref_nside})"
             )
 
-            return cls(
+            sky = cls(
                 _healpix_maps=combined_maps,
                 _healpix_nside=ref_nside,
                 _observation_frequencies=ref_freqs,
@@ -2791,12 +3107,14 @@ class SkyModel:
                 frequency=float(ref_freqs[0]) if len(ref_freqs) > 0 else freq,
                 model_name="combined",
                 brightness_conversion=brightness_conversion,
+                _precision=precision,
             )
+            sky._ensure_dtypes()
+            return sky
 
-        # ======================================================================
+        # ==================================================================
         # ALL OTHER CASES: Concatenate as point sources first
-        # (healpix_multifreq.to_point_sources() picks the first-freq map)
-        # ======================================================================
+        # ==================================================================
         all_sources = []
         for m in models:
             sources = m.to_point_sources(frequency=freq)
@@ -2808,10 +3126,10 @@ class SkyModel:
             all_sources,
             model_name="combined",
             brightness_conversion=brightness_conversion,
+            precision=precision,
         )
         combined.frequency = freq
 
-        # Convert to multi-frequency HEALPix if requested
         if representation == "healpix_map":
             if obs_frequency_config is None:
                 raise ValueError(
@@ -2829,10 +3147,18 @@ class SkyModel:
         return combined
 
     # =========================================================================
-    # String representation
+    # String Representation
     # =========================================================================
 
     def __repr__(self) -> str:
+        """Return a human-readable summary of the sky model.
+
+        Returns
+        -------
+        str
+            Summary string including native format, model name, mode,
+            and either source count or HEALPix parameters.
+        """
         if self._healpix_maps is not None:
             freqs = self._observation_frequencies
             freq_range = (
