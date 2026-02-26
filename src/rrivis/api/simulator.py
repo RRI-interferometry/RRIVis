@@ -537,6 +537,8 @@ class Simulator:
                 nside=nside,
                 obs_frequency_config=obs_freq_config,
                 include_cmb=gsm_config.get("include_cmb", False),
+                basemap=gsm_config.get("basemap"),
+                interpolation=gsm_config.get("interpolation"),
                 precision=_precision,
             ))
 

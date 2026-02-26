@@ -186,12 +186,25 @@ TestSourcesConfig = SyntheticSourcesConfig
 
 
 class GSMConfig(BaseModel):
-    """GSM configuration."""
+    """GSM configuration.
+
+    Parameters specific to GSM2008 (basemap, interpolation) are ignored
+    when gsm_catalogue is not "gsm2008".
+    """
 
     use_gsm: bool = Field(False, description="Use GSM")
-    gsm_catalogue: str = Field("gsm2008", description="GSM catalogue")
+    gsm_catalogue: str = Field("gsm2008", description="GSM catalogue (gsm2008, gsm2016, lfsm, haslam)")
     flux_limit: float = Field(50.0, ge=0, description="Flux limit (Jy)")
     nside: int = Field(32, ge=1, description="HEALPix nside")
+    include_cmb: bool = Field(False, description="Include CMB contribution (2.725 K)")
+    basemap: str | None = Field(
+        None,
+        description="GSM2008 basemap: 'haslam' (1deg), 'wmap' (2deg), '5deg'. Only for gsm2008.",
+    )
+    interpolation: str | None = Field(
+        None,
+        description="GSM2008 interpolation: 'pchip' or 'cubic'. Only for gsm2008.",
+    )
 
 
 class GLEAMConfig(BaseModel):
@@ -518,6 +531,23 @@ class JonesPrecisionConfig(BaseModel):
     )
 
 
+class SkyModelPrecisionConfig(BaseModel):
+    """Precision settings for sky model data storage."""
+
+    source_positions: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="RA/Dec precision — phase-critical"
+    )
+    flux: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="Flux density and Stokes parameter precision"
+    )
+    spectral_index: Literal["float32", "float64", "float128"] = Field(
+        "float64", description="Power-law spectral index precision"
+    )
+    healpix_maps: Literal["float32", "float64", "float128"] = Field(
+        "float32", description="HEALPix brightness temperature map precision"
+    )
+
+
 class PrecisionConfigSchema(BaseModel):
     """Precision configuration for numerical computations.
 
@@ -548,6 +578,10 @@ class PrecisionConfigSchema(BaseModel):
         default_factory=JonesPrecisionConfig,
         description="Jones matrix precision settings"
     )
+    sky_model: SkyModelPrecisionConfig = Field(
+        default_factory=SkyModelPrecisionConfig,
+        description="Sky model data precision settings"
+    )
     accumulation: Literal["float32", "float64", "float128"] = Field(
         "float64", description="Visibility accumulation precision"
     )
@@ -567,6 +601,7 @@ class PrecisionConfigSchema(BaseModel):
             CoordinatePrecision,
             JonesPrecision,
             PrecisionConfig,
+            SkyModelPrecision,
         )
 
         # If preset is specified, use it
@@ -597,6 +632,12 @@ class PrecisionConfigSchema(BaseModel):
                 gain=self.jones.gain,
                 bandpass=self.jones.bandpass,
                 polarization_leakage=self.jones.polarization_leakage,
+            ),
+            sky_model=SkyModelPrecision(
+                source_positions=self.sky_model.source_positions,
+                flux=self.sky_model.flux,
+                spectral_index=self.sky_model.spectral_index,
+                healpix_maps=self.sky_model.healpix_maps,
             ),
             accumulation=self.accumulation,
             output=self.output,

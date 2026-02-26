@@ -333,6 +333,74 @@ class JonesPrecision(BaseModel):
 
 
 # =============================================================================
+# Sky Model Precision Configuration
+# =============================================================================
+
+class SkyModelPrecision(BaseModel):
+    """Precision settings for sky model data storage.
+
+    Controls the numerical precision of arrays stored inside ``SkyModel``.
+    Source positions (RA/Dec) are phase-critical and default to float64.
+    HEALPix brightness temperature maps default to float32 (adequate for
+    ~4-digit sky temperatures).
+
+    Attributes
+    ----------
+    source_positions : str
+        Precision for RA/Dec arrays — feeds into phase calculations.
+    flux : str
+        Precision for flux density and Stokes parameters.
+    spectral_index : str
+        Precision for power-law spectral index arrays.
+    healpix_maps : str
+        Precision for HEALPix brightness temperature maps.
+    """
+
+    source_positions: PrecisionLevel = Field(
+        default="float64",
+        description="RA/Dec precision — phase-critical"
+    )
+    flux: PrecisionLevel = Field(
+        default="float64",
+        description="Flux density and Stokes parameter precision"
+    )
+    spectral_index: PrecisionLevel = Field(
+        default="float64",
+        description="Power-law spectral index precision"
+    )
+    healpix_maps: PrecisionLevel = Field(
+        default="float32",
+        description="HEALPix brightness temperature map precision"
+    )
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def validate_precision(cls, v: Any) -> str:
+        if isinstance(v, str) and v in VALID_PRECISIONS:
+            return v
+        raise ValueError(f"Invalid precision: {v}. Must be one of {VALID_PRECISIONS}")
+
+    def get_dtype(self, component: str, backend: str = "numpy") -> Any:
+        """Get real dtype for a specific sky model component.
+
+        Parameters
+        ----------
+        component : str
+            Component name: "source_positions", "flux", "spectral_index",
+            or "healpix_maps".
+        backend : str
+            Backend name for compatibility checking.
+
+        Returns
+        -------
+        dtype
+            NumPy dtype.
+        """
+        precision = getattr(self, component)
+        return get_real_dtype(precision, backend)
+
+
+# =============================================================================
 # Main Precision Configuration
 # =============================================================================
 
@@ -384,6 +452,10 @@ class PrecisionConfig(BaseModel):
     output: PrecisionLevel = Field(
         default="float64",
         description="Output visibility precision"
+    )
+    sky_model: SkyModelPrecision = Field(
+        default_factory=SkyModelPrecision,
+        description="Sky model data precision settings"
     )
 
     model_config = {
@@ -457,6 +529,12 @@ class PrecisionConfig(BaseModel):
                 bandpass="float32",
                 polarization_leakage="float32",
             ),
+            sky_model=SkyModelPrecision(
+                source_positions="float32",
+                flux="float32",
+                spectral_index="float32",
+                healpix_maps="float32",
+            ),
             accumulation="float64",  # Prevent rounding errors in sums
             output="float32",
         )
@@ -492,6 +570,12 @@ class PrecisionConfig(BaseModel):
                 gain="float64",
                 bandpass="float64",
                 polarization_leakage="float64",
+            ),
+            sky_model=SkyModelPrecision(
+                source_positions="float64",
+                flux="float64",
+                spectral_index="float64",
+                healpix_maps="float64",
             ),
             accumulation="float128",  # Maximum precision for sums
             output="float64",
@@ -529,6 +613,12 @@ class PrecisionConfig(BaseModel):
                 bandpass="float128",
                 polarization_leakage="float128",
             ),
+            sky_model=SkyModelPrecision(
+                source_positions="float128",
+                flux="float128",
+                spectral_index="float128",
+                healpix_maps="float64",
+            ),
             accumulation="float128",
             output="float128",
         )
@@ -561,7 +651,7 @@ class PrecisionConfig(BaseModel):
         data = self.model_dump()
 
         for key, value in kwargs.items():
-            if key in ("coordinates", "jones") and isinstance(value, dict):
+            if key in ("coordinates", "jones", "sky_model") and isinstance(value, dict):
                 # Merge nested dicts
                 data[key].update(value)
             else:
@@ -595,6 +685,8 @@ class PrecisionConfig(BaseModel):
             return self.coordinates.get_dtype(sub_component, backend)
         elif component == "jones" and sub_component:
             return self.jones.get_real_dtype(sub_component, backend)
+        elif component == "sky_model" and sub_component:
+            return self.sky_model.get_dtype(sub_component, backend)
         elif component in ("accumulation", "output", "default"):
             precision = getattr(self, component)
             return get_real_dtype(precision, backend)
@@ -704,6 +796,10 @@ class PrecisionConfig(BaseModel):
                 if getattr(self.jones, field) == "float128":
                     float128_fields.append(f"jones.{field}")
 
+            for field in self.sky_model.model_fields:
+                if getattr(self.sky_model, field) == "float128":
+                    float128_fields.append(f"sky_model.{field}")
+
             if float128_fields:
                 warnings_list.append(
                     f"float128 not supported on {backend_name} backend. "
@@ -801,6 +897,7 @@ __all__ = [
     # Config classes
     "CoordinatePrecision",
     "JonesPrecision",
+    "SkyModelPrecision",
     "PrecisionConfig",
     # Helper functions
     "resolve_precision",

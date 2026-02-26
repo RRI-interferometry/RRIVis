@@ -24,6 +24,7 @@ from rrivis.core.polarization import (
     apply_jones_matrices,
     visibility_to_correlations,
 )
+from pygdsm import GSMObserver08
 from rrivis.core.sky_model import (
     SkyModel,
     K_BOLTZMANN,
@@ -31,8 +32,7 @@ from rrivis.core.sky_model import (
     H_PLANCK,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
-    GLEAM_CATALOGS,
-    MALS_CATALOGS,
+    VIZIER_POINT_CATALOGS,
     DIFFUSE_MODELS,
 )
 from rrivis.core.visibility import calculate_visibility
@@ -73,13 +73,13 @@ __all__ = [
     "visibility_to_correlations",
     # Sky Model (unified)
     "SkyModel",
+    "GSMObserver08",
     "K_BOLTZMANN",
     "C_LIGHT",
     "H_PLANCK",
     "brightness_temp_to_flux_density",
     "flux_density_to_brightness_temp",
-    "GLEAM_CATALOGS",
-    "MALS_CATALOGS",
+    "VIZIER_POINT_CATALOGS",
     "DIFFUSE_MODELS",
     # Visibility
     "calculate_visibility",

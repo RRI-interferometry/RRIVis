@@ -69,6 +69,11 @@ class TestVizierCatalogMetadata:
         expected = {
             "vlssr", "tgss", "wenss", "sumss", "nvss", "first",
             "lotss_dr1", "lotss_dr2", "at20g", "3c", "gb6",
+            # GLEAM family
+            "gleam_egc", "gleam_x_dr1", "gleam_x_dr2",
+            "gleam_gal", "gleam_sgp", "g4jy",
+            # MALS family
+            "mals_dr1", "mals_dr2", "mals_dr3",
         }
         assert expected.issubset(set(VIZIER_POINT_CATALOGS.keys()))
 
@@ -105,9 +110,10 @@ class TestVizierCatalogMetadata:
         assert VIZIER_POINT_CATALOGS["3c"]["coord_frame"] == "fk4"
         assert VIZIER_POINT_CATALOGS["3c"]["coords_sexagesimal"] is True
 
-    def test_lotss_has_spindex_col(self):
+    def test_lotss_spindex_col(self):
+        # LoTSS VizieR default output does not include a spectral index column
         for release in ("lotss_dr1", "lotss_dr2"):
-            assert VIZIER_POINT_CATALOGS[release]["spindex_col"] == "SpI"
+            assert VIZIER_POINT_CATALOGS[release]["spindex_col"] is None
 
 
 class TestRacsCatalogMetadata:
