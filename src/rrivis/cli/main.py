@@ -3,6 +3,38 @@
 Provides the main entry point for running simulations from the command line.
 """
 
+# TODO: Future enhancements for v0.3.0+
+# =====================================
+# The following features were present in the legacy src/main.py (v0.1.x)
+# and should be implemented in the new modular CLI/API:
+#
+# 1. Batch Simulation Support
+#    - Run multiple simulations in sequence with automatic naming
+#    - batch_index parameter for output folder organization
+#    - Summary reporting across all batches
+#
+# 3. File-Based Logging
+#    - Log all console output to simulation folder
+#    - Custom stdout/stderr redirection during simulation
+#    - Automatic temp folder cleanup of old simulations
+#
+# 5. Smart Output Folder Management
+#    - Base path selection: Explicit → XDG_DOWNLOAD_DIR → ~/Downloads
+#    - Timestamp-based folder organization (YYYY-MM-DD_HH-MM-SS)
+#    - Auto-save YAML config to simulation folder for reproducibility
+#
+# 6. PyUVData Telescope Integration
+#    - Load known telescope metadata from pyuvdata.Telescope
+#    - Auto-populate location, antennas, diameters, mount types, feeds
+#    - Per-field control flags (use_pyuvdata_location, use_pyuvdata_antennas, etc.)
+#
+# 7. Advanced Baseline Filtering
+#    - Filter by baseline length with tolerance
+#    - Filter by azimuth angle ranges
+#    - Toggle autocorrelations/crosscorrelations
+#
+# See LEGACY_CODE.md in project memory for detailed feature descriptions.
+
 import argparse
 import logging
 import sys
