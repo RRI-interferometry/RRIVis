@@ -40,7 +40,7 @@ from rrivis.core.polarization import (
 )
 
 # Import analytic beam patterns for fallback
-from rrivis.core.beams import (
+from rrivis.core.jones.beam import (
     gaussian_A_theta_EBeam,
     airy_disk_pattern,
     cosine_tapered_pattern,
@@ -880,5 +880,5 @@ def convert_phase_for_display(phase_radians, angle_unit):
     --------
     Phase value(s) in the specified unit
     """
-    from beams import convert_angle_for_display
+    from rrivis.core.jones.beam.analytic import convert_angle_for_display
     return convert_angle_for_display(phase_radians, angle_unit)

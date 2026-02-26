@@ -28,7 +28,7 @@ from astropy.time import TimeDelta
 import astropy.units as u
 
 from rrivis.backends import get_backend, ArrayBackend
-from rrivis.core.sky_model import SkyModel, K_BOLTZMANN, C_LIGHT, brightness_temp_to_flux_density
+from rrivis.core.sky import SkyModel, K_BOLTZMANN, C_LIGHT, brightness_temp_to_flux_density
 
 
 logger = logging.getLogger(__name__)

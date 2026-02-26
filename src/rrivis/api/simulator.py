@@ -328,7 +328,7 @@ class Simulator:
         from rrivis.backends import get_backend
         from rrivis.core.antenna import read_antenna_positions
         from rrivis.core.baseline import generate_baselines
-        from rrivis.core.beams import AntennaType, calculate_hpbw_for_antenna_type
+        from rrivis.core.jones.beam import AntennaType, calculate_hpbw_for_antenna_type
         from rrivis.core.observation import get_location_and_time
         from rrivis.simulator import get_simulator
 
@@ -495,7 +495,7 @@ class Simulator:
             )
 
         # Load sky model using unified SkyModel class
-        from rrivis.core.sky_model import SkyModel
+        from rrivis.core.sky import SkyModel
 
         # Extract precision config to pass to SkyModel factory methods
         from rrivis.core.precision import PrecisionConfig

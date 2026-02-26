@@ -76,7 +76,7 @@ Gaussian Beam
 
 .. code-block:: python
 
-   from rrivis.core.beams import gaussian_beam
+   from rrivis.core.beam import gaussian_beam
 
    # Beam response at zenith angle theta
    response = gaussian_beam(theta, fwhm_rad)
@@ -150,7 +150,7 @@ Loading Beam Files
 
 .. code-block:: python
 
-   from rrivis.core.beam_file import load_beam
+   from rrivis.core.beam import load_beam
 
    beam = load_beam(
        "beam.fits",
@@ -194,7 +194,7 @@ Calculate beam solid angle using HEALPix:
 
 .. code-block:: python
 
-   from rrivis.core.beams import beam_solid_angle
+   from rrivis.core.beam import beam_solid_angle
 
    omega = beam_solid_angle(beam_pattern, nside=256)
    print(f"Beam solid angle: {omega} sr")

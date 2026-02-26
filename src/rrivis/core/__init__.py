@@ -7,7 +7,7 @@ beam patterns, source models, and the RIME visibility calculation.
 
 from rrivis.core.antenna import read_antenna_positions
 from rrivis.core.baseline import generate_baselines
-from rrivis.core.beams import (
+from rrivis.core.jones.beam import (
     gaussian_A_theta_EBeam,
     airy_disk_pattern,
     calculate_gaussian_beam_area_EBeam,
@@ -16,8 +16,8 @@ from rrivis.core.beams import (
     get_hpbw_function,
     AntennaType,
     BeamPatternType,
+    BeamManager,
 )
-from rrivis.core.beam_file import BeamManager
 from rrivis.core.observation import get_location_and_time
 from rrivis.core.polarization import (
     stokes_to_coherency,
@@ -25,7 +25,7 @@ from rrivis.core.polarization import (
     visibility_to_correlations,
 )
 from pygdsm import GSMObserver08
-from rrivis.core.sky_model import (
+from rrivis.core.sky import (
     SkyModel,
     K_BOLTZMANN,
     C_LIGHT,

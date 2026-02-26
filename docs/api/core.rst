@@ -33,10 +33,18 @@ Baseline
    :undoc-members:
    :show-inheritance:
 
-Beams
------
+Beams (Analytic)
+----------------
 
-.. automodule:: rrivis.core.beams
+.. automodule:: rrivis.core.jones.beam.analytic
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Beams (FITS)
+------------
+
+.. automodule:: rrivis.core.jones.beam.fits
    :members:
    :undoc-members:
    :show-inheritance:

@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 import astropy.units as u
 
-from rrivis.core.beam_file import (
+from rrivis.core.jones.beam.fits import (
     astropy_az_to_uvbeam_az,
     BeamFITSHandler,
     BeamManager
@@ -163,7 +163,7 @@ class TestBeamFITSHandler:
         return Mock()
 
     @patch('os.path.exists')
-    @patch('rrivis.core.beam_file.UVBeam')
+    @patch('rrivis.core.jones.beam.fits.UVBeam')
     def test_initialization(self, mock_uvbeam_class, mock_exists, mock_config, mock_logger):
         """Test BeamFITSHandler initialization."""
         # Note: BeamFITSHandler signature is (beam_file_path, config, logger)
@@ -181,7 +181,7 @@ class TestBeamFITSHandler:
         # Note: BeamFITSHandler loads immediately, no lazy loading for handler itself
 
     @patch('os.path.exists')
-    @patch('rrivis.core.beam_file.UVBeam')
+    @patch('rrivis.core.jones.beam.fits.UVBeam')
     def test_load_beam_with_correct_units(self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger):
         """
         CRITICAL TEST: Verify za_range is passed in DEGREES not radians.
@@ -210,7 +210,7 @@ class TestBeamFITSHandler:
         assert za_range[1] > 3.2   # If it were radians, max would be ~1.57
 
     @patch('os.path.exists')
-    @patch('rrivis.core.beam_file.UVBeam')
+    @patch('rrivis.core.jones.beam.fits.UVBeam')
     def test_jones_matrix_ordering(self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger):
         """
         CRITICAL TEST: Verify Jones matrix has [feed, basis] ordering.
@@ -274,7 +274,7 @@ class TestBeamFITSHandler:
             "Jones matrix should not be identity - this suggests wrong ordering"
 
     @patch('os.path.exists')
-    @patch('rrivis.core.beam_file.UVBeam')
+    @patch('rrivis.core.jones.beam.fits.UVBeam')
     def test_azimuth_conversion_applied(self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger):
         """
         Test that azimuth conversion is applied when querying beam.
@@ -319,7 +319,7 @@ class TestBeamFITSHandler:
             f"Azimuth not converted: got {passed_az}, expected {expected_uvbeam_az}"
 
     @patch('os.path.exists')
-    @patch('rrivis.core.beam_file.UVBeam')
+    @patch('rrivis.core.jones.beam.fits.UVBeam')
     def test_array_input(self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger):
         """Test that handler can process arrays of coordinates."""
         mock_exists.return_value = True
@@ -353,7 +353,7 @@ class TestBeamFITSHandler:
         assert jones.shape == (n_sources, 2, 2)
 
     @patch('os.path.exists')
-    @patch('rrivis.core.beam_file.UVBeam')
+    @patch('rrivis.core.jones.beam.fits.UVBeam')
     def test_error_handling_missing_file(self, mock_uvbeam_class, mock_exists, mock_config, mock_logger):
         """Test error handling when beam file doesn't exist."""
         # First check will return False
@@ -363,7 +363,7 @@ class TestBeamFITSHandler:
             handler = BeamFITSHandler("/nonexistent/beam.fits", mock_config, mock_logger)
 
     @patch('os.path.exists')
-    @patch('rrivis.core.beam_file.UVBeam')
+    @patch('rrivis.core.jones.beam.fits.UVBeam')
     def test_beam_loads_on_init(self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger):
         """Test that beam is loaded during initialization (not lazy)."""
         mock_exists.return_value = True
@@ -524,7 +524,7 @@ class TestBeamManager:
         assert manager.mode == "analytic"
         assert manager.beam_handlers == {}
 
-    @patch('rrivis.core.beam_file.BeamFITSHandler')
+    @patch('rrivis.core.jones.beam.fits.BeamFITSHandler')
     def test_shared_mode(self, mock_handler_class, mock_logger, mock_config_shared, mock_antenna_data_no_beam_ids):
         """Test shared beam mode."""
         manager = BeamManager(mock_config_shared, mock_antenna_data_no_beam_ids, mock_logger)
@@ -533,7 +533,7 @@ class TestBeamManager:
         assert 0 in manager.beam_handlers
         mock_handler_class.assert_called_once()
 
-    @patch('rrivis.core.beam_file.BeamFITSHandler')
+    @patch('rrivis.core.jones.beam.fits.BeamFITSHandler')
     def test_per_antenna_from_layout_with_beam_ids(
         self,
         mock_handler_class,
@@ -570,7 +570,7 @@ class TestBeamManager:
         with pytest.raises(ValueError, match="use_different_beams=True but no beam assignments found"):
             BeamManager(mock_config_per_antenna_layout, mock_antenna_data_no_beam_ids, mock_logger)
 
-    @patch('rrivis.core.beam_file.BeamFITSHandler')
+    @patch('rrivis.core.jones.beam.fits.BeamFITSHandler')
     def test_per_antenna_from_config(
         self,
         mock_handler_class,
@@ -587,7 +587,7 @@ class TestBeamManager:
         assert 0 in manager.antenna_to_beam
         assert 1 in manager.antenna_to_beam
 
-    @patch('rrivis.core.beam_file.BeamFITSHandler')
+    @patch('rrivis.core.jones.beam.fits.BeamFITSHandler')
     def test_get_jones_matrix_analytic_returns_none(
         self,
         mock_handler_class,
@@ -612,7 +612,7 @@ class TestBeamManager:
 
         assert result is None
 
-    @patch('rrivis.core.beam_file.BeamFITSHandler')
+    @patch('rrivis.core.jones.beam.fits.BeamFITSHandler')
     def test_get_jones_matrix_shared_mode(
         self,
         mock_handler_class,
@@ -649,7 +649,7 @@ class TestBeamManager:
             assert result.shape == (2, 2)
             mock_handler.get_jones_matrix.assert_called()
 
-    @patch('rrivis.core.beam_file.BeamFITSHandler')
+    @patch('rrivis.core.jones.beam.fits.BeamFITSHandler')
     def test_get_jones_matrix_per_antenna_mode(
         self,
         mock_handler_class,
@@ -748,8 +748,8 @@ class TestIntegration:
         """Mock logger for testing."""
         return Mock()
 
-    @patch('rrivis.core.beam_file.UVBeam')
-    @patch('rrivis.core.beam_file.BeamFITSHandler')
+    @patch('rrivis.core.jones.beam.fits.UVBeam')
+    @patch('rrivis.core.jones.beam.fits.BeamFITSHandler')
     def test_realistic_rime_workflow(self, mock_handler_class, mock_uvbeam_class, mock_logger):
         """
         Test a realistic workflow simulating RIME calculation.
