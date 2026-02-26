@@ -23,7 +23,7 @@ import astropy.units as u
 import healpy as hp
 from astropy.coordinates import SkyCoord
 
-from rrivis.core.sky_model import (
+from rrivis.core.sky import (
     SkyModel,
     K_BOLTZMANN,
     C_LIGHT,

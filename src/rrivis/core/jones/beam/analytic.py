@@ -53,7 +53,7 @@ Examples
 --------
 Calculate HPBW for a 14m dish at 150 MHz:
 
->>> from rrivis.core.beams import calculate_hpbw_for_antenna_type, AntennaType
+>>> from rrivis.core.jones.beam import calculate_hpbw_for_antenna_type, AntennaType
 >>> import numpy as np
 >>> freq_hz = 150e6  # 150 MHz
 >>> diameter = 14.0  # meters
@@ -65,7 +65,7 @@ HPBW: 9.43 degrees
 
 Calculate beam response at various angles:
 
->>> from rrivis.core.beams import gaussian_A_theta_EBeam
+>>> from rrivis.core.jones.beam import gaussian_A_theta_EBeam
 >>> theta = np.linspace(0, 0.3, 100)  # radians
 >>> response = gaussian_A_theta_EBeam(theta, theta_HPBW=0.1)
 >>> response[0]  # On-axis response
@@ -126,7 +126,7 @@ class AntennaType:
 
     Examples
     --------
-    >>> from rrivis.core.beams import AntennaType, get_hpbw_function
+    >>> from rrivis.core.jones.beam import AntennaType, get_hpbw_function
     >>> hpbw_func = get_hpbw_function(AntennaType.PARABOLIC_10DB)
     >>> hpbw_radians = hpbw_func(150e6, 14.0)  # 150 MHz, 14m dish
 
@@ -911,7 +911,7 @@ def calculate_hpbw_for_antenna_type(antenna_type, frequencies_hz, diameter):
 
     Examples
     --------
-    >>> from rrivis.core.beams import AntennaType, calculate_hpbw_for_antenna_type
+    >>> from rrivis.core.jones.beam import AntennaType, calculate_hpbw_for_antenna_type
     >>> import numpy as np
 
     >>> # Single frequency

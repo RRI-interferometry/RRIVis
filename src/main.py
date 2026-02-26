@@ -31,7 +31,7 @@ import h5py
 import shutil
 
 # Local module imports - updated to use new package structure
-from rrivis.core.beams import (
+from rrivis.core.jones.beam import (
     calculate_gaussian_beam_area_EBeam,
     AntennaType,
     BeamPatternType,
@@ -56,7 +56,7 @@ from rrivis.visualization.bokeh_plots import (
     plot_modulus_vs_frequency,
     plot_antenna_layout,
 )
-from rrivis.core.beam_file import BeamManager
+from rrivis.core.jones.beam import BeamManager
 
 
 """

@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky_model import (
+from rrivis.core.sky import (
     CASDA_TAP_URL,
     RACS_CATALOGS,
     VIZIER_POINT_CATALOGS,
@@ -335,7 +335,7 @@ class TestInvalidArguments:
     def test_from_pyradiosky_rejects_unknown_component(self, tmp_path, monkeypatch):
         """Verify ValueError for unknown component_type (not point or healpix)."""
         pytest.importorskip("pyradiosky")
-        from rrivis.core import sky_model as sm_module
+        from rrivis.core.sky import _loaders_pyradiosky as sm_module
 
         class MockSky:
             component_type = "unknown"
