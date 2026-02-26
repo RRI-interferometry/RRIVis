@@ -135,6 +135,7 @@ from pyradiosky import SkyModel as PyRadioSkyModel
 from pygdsm import (
     GlobalSkyModel,
     GlobalSkyModel16,
+    GSMObserver08,
     HaslamSkyModel,
     LowFrequencySkyModel,
 )
@@ -241,81 +242,62 @@ def flux_density_to_brightness_temp(
 
 
 # =============================================================================
-# Catalog Metadata
+# Catalog Metadata (VizieR, CASDA, etc.)
 # =============================================================================
 
-# Available GLEAM catalogs in VizieR
-GLEAM_CATALOGS = {
-    "VIII/100/gleamegc": "GLEAM EGC catalog, version 2 (307,455 rows)",
-    "VIII/113/catalog2": "GLEAM-X DR2 (624,866 rows)",
-    "VIII/102/gleamgal": "GLEAM Galactic plane (22,037 rows)",
-    "VIII/109/gleamsgp": "GLEAM SGP region (108,851 rows)",
-    "VIII/110/catalog": "GLEAM-X DR1 (78,967 rows)",
-    "VIII/105/catalog": "G4Jy catalog (1,960 rows)",
-}
-MALS_CATALOGS = {
-    "dr1": {
-        "vizier_id": "J/ApJS/270/33",
-        "table": "catalog",
-        "description": "MALS DR1: Stokes I at 1-1.4 GHz (495,325 sources)",
-        "ra_col": "RAJ2000",
-        "dec_col": "DEJ2000",
-        "flux_col": "Flux",
-        "spindex_col": "SpMALS",
-        "freq_mhz": 1200,
-    },
-    "dr2": {
-        "vizier_id": "J/A+A/690/A163",
-        "table": "all",
-        "description": "MALS DR2: Wideband continuum (971,980 sources)",
-        "ra_col": "RAJ2000",
-        "dec_col": "DEJ2000",
-        "flux_col": "FluxTot",
-        "spindex_col": "SpIndex",
-        "freq_mhz": 1284,
-    },
-    "dr3": {
-        "vizier_id": "J/A+A/698/A120",
-        "table": "catalog",
-        "description": "MALS DR3: HI 21-cm absorption (3,640 features)",
-        "ra_col": "RAJ2000",
-        "dec_col": "DEJ2000",
-        "flux_col": "PeakFlux",
-        "spindex_col": None,
-        "freq_mhz": 1420,
-        "coords_sexagesimal": True,
-    },
-}
 DIFFUSE_MODELS = {
     "gsm2008": {
         "class": GlobalSkyModel,
-        "description": "Global Sky Model 2008 (10 MHz - 100 GHz)",
-        "freq_range": (10e6, 100e9),
-        "init_kwargs": {"freq_unit": "Hz"},
+        "description": (
+            "Global Sky Model 2008 (de Oliveira-Costa et al., MNRAS 388, 247, 2008). "
+            "https://ui.adsabs.harvard.edu/abs/2008MNRAS.388..247D/abstract "
+            "PCA-based all-sky model of diffuse Galactic radio emission from 10 MHz to "
+            "94 GHz. Derived from 11 total-power radio surveys (10, 22, 45, 408 MHz; "
+            "1.42, 2.326 GHz; WMAP 23, 33, 41, 61, 94 GHz). Uses 3 principal components "
+            "fitted to the correlation matrix (not covariance), capturing 99.7% of "
+            "variance (80% + 19% + 0.6%). Frequency interpolation via cubic spline of "
+            "log(sigma) and component spectra vs log(nu). Native resolution nside=512 "
+            "(HEALPix RING), output in antenna/brightness temperature (K). "
+            "Accuracy ~1-10% depending on frequency and sky region. "
+            "Via pygdsm (telegraphic/pygdsm). "
+            "pygdsm constructor params: "
+            "freq_unit ('Hz'/'MHz'/'GHz'), "
+            "basemap ('haslam'=1deg locked to 408MHz [recommended <1GHz], "
+            "'wmap'=2deg locked to 23GHz [recommended for CMB freqs], "
+            "'5deg'=native 5.1deg PCA resolution), "
+            "interpolation ('pchip'=monotone no-overshoot [pygdsm default], "
+            "'cubic'=cubic spline [closer to paper, can overshoot]), "
+            "include_cmb (bool, adds 2.725K). "
+            "Note: pygdsm pchip/cubic interpolation differs from original Fortran "
+            "gsm.f (Numerical Recipes licensed), outputs may vary by a few percent."
+        ),
+        "freq_range": (10e6, 94e9),
+        "init_kwargs": {
+            "freq_unit": "Hz",
+            "basemap": "haslam",
+            "interpolation": "pchip",
+            "include_cmb": False,
+        },
     },
     "gsm2016": {
         "class": GlobalSkyModel16,
         "description": "Global Sky Model 2016 (10 MHz - 5 THz)",
         "freq_range": (10e6, 5e12),
-        "init_kwargs": {"freq_unit": "Hz", "data_unit": "TRJ"},
+        "init_kwargs": {"freq_unit": "Hz", "data_unit": "TRJ", "include_cmb": False},
     },
     "lfsm": {
         "class": LowFrequencySkyModel,
         "description": "Low Frequency Sky Model (10 - 408 MHz)",
         "freq_range": (10e6, 408e6),
-        "init_kwargs": {"freq_unit": "Hz"},
+        "init_kwargs": {"freq_unit": "Hz", "include_cmb": False},
     },
     "haslam": {
         "class": HaslamSkyModel,
         "description": "Haslam 408 MHz map with spectral scaling",
         "freq_range": (10e6, 100e9),
-        "init_kwargs": {"freq_unit": "Hz", "spectral_index": -2.6},
+        "init_kwargs": {"freq_unit": "Hz", "spectral_index": -2.6, "include_cmb": False},
     },
 }
-
-# =============================================================================
-# Extended Catalog Metadata (VizieR, CASDA, etc.)
-# =============================================================================
 
 # CASDA TAP endpoint for RACS catalogs
 CASDA_TAP_URL = "https://casda.csiro.au/casda_vo_tools/tap"
@@ -331,12 +313,12 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "description": "VLSSr: VLA Low-Frequency Sky Survey redux (73.8 MHz, ~92,964 sources)",
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
-        "flux_col": "S74",
+        "flux_col": "Sp",
         "flux_unit": "Jy",
         "spindex_col": None,
         "default_spindex": -0.7,
         "freq_mhz": 73.8,
-        "coords_sexagesimal": False,
+        "coords_sexagesimal": True,
         "coord_frame": "icrs",
     },
     "tgss": {
@@ -345,7 +327,7 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "description": "TGSS ADR1: GMRT 150 MHz All-Sky Radio Survey (150 MHz, ~623,604 sources)",
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
-        "flux_col": "Total_flux",
+        "flux_col": "Stotal",
         "flux_unit": "mJy",
         "spindex_col": None,
         "default_spindex": -0.7,
@@ -415,9 +397,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "description": "LoTSS DR1: LOFAR Two-metre Sky Survey DR1 (144 MHz, ~325,000 sources)",
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
-        "flux_col": "Total_flux",
+        "flux_col": "Sint",
         "flux_unit": "mJy",
-        "spindex_col": "SpI",
+        "spindex_col": None,
         "default_spindex": -0.7,
         "freq_mhz": 144.0,
         "coords_sexagesimal": False,
@@ -429,16 +411,16 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "description": "LoTSS DR2: LOFAR Two-metre Sky Survey DR2 (144 MHz, ~4.4M sources)",
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
-        "flux_col": "Total_flux",
+        "flux_col": "SpeakTot",
         "flux_unit": "mJy",
-        "spindex_col": "SpI",
+        "spindex_col": None,
         "default_spindex": -0.7,
         "freq_mhz": 144.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
     },
     "at20g": {
-        "vizier_id": "VIII/83",
+        "vizier_id": "J/MNRAS/402/2403",
         "table": None,
         "description": "AT20G: Australia Telescope 20 GHz Survey (20,000 MHz, ~5,890 sources)",
         "ra_col": "RAJ2000",
@@ -450,21 +432,21 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 20000.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
-        # Two-frequency spectral index: α = log(S4.8/S8.6) / log(4.8e9/8.6e9)
+        # Two-frequency spectral index: α = log(S5/S8) / log(4.8e9/8.6e9)
         "spindex_from_cols": {
-            "s_low": "S4.8",
-            "s_high": "S8.6",
+            "s_low": "S5",
+            "s_high": "S8",
             "freq_low_hz": 4.8e9,
             "freq_high_hz": 8.6e9,
         },
     },
     "3c": {
         "vizier_id": "VIII/1",
-        "table": None,
+        "table": "3cr",
         "description": "3CR: Third Cambridge Catalogue (178 MHz, ~471 sources, B1950 coords)",
         "ra_col": "RA1950",
         "dec_col": "DE1950",
-        "flux_col": "S178",
+        "flux_col": "S178MHz",
         "flux_unit": "Jy",
         "spindex_col": None,
         "default_spindex": -0.7,
@@ -478,12 +460,140 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "description": "GB6: Green Bank 6 cm Radio Source Catalog (4850 MHz, ~75,162 sources)",
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
-        "flux_col": "S4.85",
+        "flux_col": "Flux",
         "flux_unit": "mJy",
         "spindex_col": None,
         "default_spindex": -0.7,
         "freq_mhz": 4850.0,
         "coords_sexagesimal": False,
+        "coord_frame": "icrs",
+    },
+    # --- GLEAM family ---
+    "gleam_egc": {
+        "vizier_id": "VIII/100/gleamegc",
+        "table": None,
+        "description": "GLEAM EGC catalog, version 2 (307,455 sources, 76 MHz)",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "flux_col": "Fp076",
+        "flux_unit": "Jy",
+        "spindex_col": "alpha",
+        "default_spindex": 0.0,
+        "freq_mhz": 76.0,
+        "coords_sexagesimal": False,
+        "coord_frame": "icrs",
+    },
+    "gleam_x_dr1": {
+        "vizier_id": "VIII/110/catalog",
+        "table": None,
+        "description": "GLEAM-X DR1 (78,967 sources, 72-231 MHz)",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "flux_col": "Fp076",
+        "flux_unit": "Jy",
+        "spindex_col": "alpha-SP",
+        "default_spindex": 0.0,
+        "freq_mhz": 76.0,
+        "coords_sexagesimal": False,
+        "coord_frame": "icrs",
+    },
+    "gleam_x_dr2": {
+        "vizier_id": "VIII/113/catalog2",
+        "table": None,
+        "description": "GLEAM-X DR2 (624,866 sources, 72-231 MHz)",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "flux_col": "Fp076",
+        "flux_unit": "Jy",
+        "spindex_col": "alpha-SP",
+        "default_spindex": 0.0,
+        "freq_mhz": 76.0,
+        "coords_sexagesimal": False,
+        "coord_frame": "icrs",
+    },
+    "gleam_gal": {
+        "vizier_id": "VIII/102/gleamgal",
+        "table": None,
+        "description": "GLEAM Galactic plane (22,037 sources, 72-231 MHz)",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "flux_col": "Fp076",
+        "flux_unit": "Jy",
+        "spindex_col": "alpha",
+        "default_spindex": 0.0,
+        "freq_mhz": 76.0,
+        "coords_sexagesimal": False,
+        "coord_frame": "icrs",
+    },
+    "gleam_sgp": {
+        "vizier_id": "VIII/109/gleamsgp",
+        "table": None,
+        "description": "GLEAM SGP region (108,851 sources, 200 MHz fitted)",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "flux_col": "Fintfin200",
+        "flux_unit": "Jy",
+        "spindex_col": "alpha",
+        "default_spindex": 0.0,
+        "freq_mhz": 200.0,
+        "coords_sexagesimal": False,
+        "coord_frame": "icrs",
+    },
+    "g4jy": {
+        "vizier_id": "VIII/105/catalog",
+        "table": None,
+        "description": "G4Jy catalog: GLEAM bright sources >4 Jy (1,960 sources)",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "flux_col": "Fintwide",
+        "flux_unit": "Jy",
+        "spindex_col": "alphaG4Jy",
+        "default_spindex": 0.0,
+        "freq_mhz": 200.0,
+        "coords_sexagesimal": False,
+        "coord_frame": "icrs",
+    },
+    # --- MALS family ---
+    "mals_dr1": {
+        "vizier_id": "J/ApJS/270/33",
+        "table": "catalog",
+        "description": "MALS DR1: Stokes I at 1-1.4 GHz (495,325 sources)",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "flux_col": "Flux",
+        "flux_unit": "mJy",
+        "spindex_col": "SpMALS",
+        "default_spindex": 0.0,
+        "freq_mhz": 1200.0,
+        "coords_sexagesimal": False,
+        "coord_frame": "icrs",
+    },
+    "mals_dr2": {
+        "vizier_id": "J/A+A/690/A163",
+        "table": "all",
+        "description": "MALS DR2: Wideband continuum (971,980 sources)",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "flux_col": "FluxTot",
+        "flux_unit": "mJy",
+        "spindex_col": "SpIndex",
+        "default_spindex": 0.0,
+        "freq_mhz": 1284.0,
+        "coords_sexagesimal": False,
+        "coord_frame": "icrs",
+    },
+    "mals_dr3": {
+        "vizier_id": "J/A+A/698/A120",
+        "table": "catalog",
+        "description": "MALS DR3: HI 21-cm absorption (3,640 features)",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "flux_col": "PeakFlux",
+        "flux_unit": "mJy",
+        "spindex_col": None,
+        "default_spindex": 0.0,
+        "freq_mhz": 1420.0,
+        "coords_sexagesimal": True,
         "coord_frame": "icrs",
     },
 }
@@ -589,6 +699,8 @@ class SkyModel:
 
     _precision: Any = field(default=None, repr=False)
 
+    _pygdsm_instance: Any = field(default=None, repr=False)
+
     # =========================================================================
     # Precision Helpers
     # =========================================================================
@@ -658,6 +770,27 @@ class SkyModel:
                 f: m.astype(hp_dt, copy=False) for f, m in self._healpix_maps.items()
             }
 
+    @classmethod
+    def _empty_sky(
+        cls,
+        model_name: str,
+        brightness_conversion: str = "planck",
+        precision: Any = None,
+    ) -> "SkyModel":
+        """Return an empty point-source SkyModel (zero-length arrays)."""
+        return cls(
+            _ra_rad=np.zeros(0, dtype=np.float64),
+            _dec_rad=np.zeros(0, dtype=np.float64),
+            _flux_ref=np.zeros(0, dtype=np.float64),
+            _alpha=np.zeros(0, dtype=np.float64),
+            _stokes_q=np.zeros(0, dtype=np.float64),
+            _stokes_u=np.zeros(0, dtype=np.float64),
+            _stokes_v=np.zeros(0, dtype=np.float64),
+            model_name=model_name,
+            brightness_conversion=brightness_conversion,
+            _precision=precision,
+        )
+
     # =========================================================================
     # Properties
     # =========================================================================
@@ -685,6 +818,29 @@ class SkyModel:
     def native_format(self) -> str:
         """Return the native/original format of this sky model."""
         return self._native_format
+
+    @property
+    def pygdsm_model(self) -> Any:
+        """Return the retained pygdsm model instance, or None.
+
+        Only populated when ``retain_pygdsm_instance=True`` was passed to
+        ``from_diffuse_sky()``. The returned object is the raw pygdsm model
+        (e.g. ``GlobalSkyModel``, ``GlobalSkyModel16``, etc.) and exposes
+        methods like ``generate()``, ``view()``, ``write_fits()``, and
+        attributes like ``generated_map_data``, ``basemap``, ``nside``.
+
+        .. warning::
+
+            Mutating the returned instance (e.g. calling ``generate()`` at a
+            new frequency) does **not** update the SkyModel's stored HEALPix
+            maps. The instance is provided for read-only / standalone use.
+
+        Returns
+        -------
+        object or None
+            The pygdsm model instance, or None if not retained.
+        """
+        return self._pygdsm_instance
 
     @property
     def n_sources(self) -> int:
@@ -1341,7 +1497,7 @@ class SkyModel:
     def from_gleam(
         cls,
         flux_limit: float = 1.0,
-        catalog: str = "VIII/100/gleamegc",
+        catalog: str = "gleam_egc",
         brightness_conversion: str = "planck",
         precision: Any = None,
     ) -> "SkyModel":
@@ -1352,8 +1508,13 @@ class SkyModel:
         ----------
         flux_limit : float, default=1.0
             Minimum flux density in Jy.
-        catalog : str, default="VIII/100/gleamegc"
-            VizieR catalog ID.
+        catalog : str, default="gleam_egc"
+            Catalog key in ``VIZIER_POINT_CATALOGS``. Available GLEAM
+            catalogs: ``"gleam_egc"``, ``"gleam_x_dr1"``, ``"gleam_x_dr2"``,
+            ``"gleam_gal"``, ``"gleam_sgp"``, ``"g4jy"``.
+
+            Legacy VizieR IDs (e.g. ``"VIII/100/gleamegc"``) are also
+            accepted for backward compatibility.
         precision : PrecisionConfig, optional
             Precision configuration for array dtypes. If None, uses float64.
 
@@ -1362,75 +1523,24 @@ class SkyModel:
         SkyModel
             Sky model with GLEAM sources.
         """
-        _empty = cls(
-            _ra_rad=np.zeros(0, dtype=np.float64),
-            _dec_rad=np.zeros(0, dtype=np.float64),
-            _flux_ref=np.zeros(0, dtype=np.float64),
-            _alpha=np.zeros(0, dtype=np.float64),
-            _stokes_q=np.zeros(0, dtype=np.float64),
-            _stokes_u=np.zeros(0, dtype=np.float64),
-            _stokes_v=np.zeros(0, dtype=np.float64),
-            model_name="gleam",
-            brightness_conversion=brightness_conversion,
-            _precision=precision,
+        # Backward compat: accept old VizieR IDs
+        _LEGACY_GLEAM_IDS = {
+            "VIII/100/gleamegc": "gleam_egc",
+            "VIII/113/catalog2": "gleam_x_dr2",
+            "VIII/102/gleamgal": "gleam_gal",
+            "VIII/109/gleamsgp": "gleam_sgp",
+            "VIII/110/catalog": "gleam_x_dr1",
+            "VIII/105/catalog": "g4jy",
+        }
+        key = _LEGACY_GLEAM_IDS.get(catalog, catalog)
+        _gleam_keys = sorted(
+            k for k in VIZIER_POINT_CATALOGS if k.startswith("gleam") or k == "g4jy"
         )
-
-        if catalog not in GLEAM_CATALOGS:
-            logger.warning(f"Unknown catalog {catalog}. Available: {list(GLEAM_CATALOGS.keys())}")
-
-        Vizier.ROW_LIMIT = -1
-        logger.info(f"Fetching GLEAM catalog: {catalog}")
-        logger.info("Downloading from VizieR...")
-
-        try:
-            catalog_data = Vizier.get_catalogs(catalog)[0]
-        except Exception as e:
-            logger.error(f"Failed to fetch GLEAM: {e}")
-            return _empty
-
-        logger.info(f"Downloaded {len(catalog_data)} sources, processing...")
-
-        flux_raw = np.array(catalog_data["Fp076"], dtype=np.float64)
-        ra_raw   = np.array(catalog_data["RAJ2000"], dtype=np.float64)
-        dec_raw  = np.array(catalog_data["DEJ2000"], dtype=np.float64)
-
-        valid = (
-            np.isfinite(flux_raw) & np.isfinite(ra_raw) & np.isfinite(dec_raw)
-            & (flux_raw >= flux_limit)
-        )
-
-        if not np.any(valid):
-            logger.info(f"GLEAM: no sources above flux limit {flux_limit} Jy")
-            return _empty
-
-        flux_ref = flux_raw[valid]
-        ra_rad   = np.deg2rad(ra_raw[valid])
-        dec_rad  = np.deg2rad(dec_raw[valid])
-        n        = int(valid.sum())
-
-        if "alpha" in catalog_data.colnames:
-            alpha_raw = np.array(catalog_data["alpha"], dtype=float)
-            alpha = np.where(np.isfinite(alpha_raw[valid]), alpha_raw[valid], 0.0)
-        else:
-            alpha = np.zeros(n, dtype=np.float64)
-
-        logger.info(f"GLEAM loaded: {n} sources (flux >= {flux_limit} Jy)")
-
-        sky = cls(
-            _ra_rad=ra_rad,
-            _dec_rad=dec_rad,
-            _flux_ref=flux_ref,
-            _alpha=alpha,
-            _stokes_q=np.zeros(n, dtype=np.float64),
-            _stokes_u=np.zeros(n, dtype=np.float64),
-            _stokes_v=np.zeros(n, dtype=np.float64),
-            _native_format="point_sources",
-            model_name="gleam",
-            brightness_conversion=brightness_conversion,
-            _precision=precision,
-        )
-        sky._ensure_dtypes()
-        return sky
+        if key not in VIZIER_POINT_CATALOGS:
+            raise ValueError(
+                f"Unknown GLEAM catalog '{catalog}'. Available: {_gleam_keys}"
+            )
+        return cls._load_from_vizier_catalog(key, flux_limit, brightness_conversion, precision)
 
     @classmethod
     def from_mals(
@@ -1446,7 +1556,8 @@ class SkyModel:
         Parameters
         ----------
         flux_limit : float, default=1.0
-            Minimum flux density in mJy.
+            Minimum flux density in Jy. The catalog stores flux in mJy;
+            unit conversion is handled internally by the generic loader.
         release : str, default="dr2"
             Data release: "dr1", "dr2", or "dr3".
         precision : PrecisionConfig, optional
@@ -1457,113 +1568,84 @@ class SkyModel:
         SkyModel
             Sky model with MALS sources.
         """
-        release = release.lower()
-
-        def _empty(name):
-            return cls(
-                _ra_rad=np.zeros(0, dtype=np.float64),
-                _dec_rad=np.zeros(0, dtype=np.float64),
-                _flux_ref=np.zeros(0, dtype=np.float64),
-                _alpha=np.zeros(0, dtype=np.float64),
-                _stokes_q=np.zeros(0, dtype=np.float64),
-                _stokes_u=np.zeros(0, dtype=np.float64),
-                _stokes_v=np.zeros(0, dtype=np.float64),
-                model_name=name,
-                brightness_conversion=brightness_conversion,
-                _precision=precision,
+        key = f"mals_{release.lower()}"
+        if key not in VIZIER_POINT_CATALOGS:
+            raise ValueError(
+                f"Unknown MALS release '{release}'. Available: 'dr1', 'dr2', 'dr3'."
             )
+        return cls._load_from_vizier_catalog(key, flux_limit, brightness_conversion, precision)
 
-        if release not in MALS_CATALOGS:
-            logger.error(f"Invalid MALS release. Available: {list(MALS_CATALOGS.keys())}")
-            return _empty(f"mals_{release}")
+    @staticmethod
+    def list_diffuse_models() -> dict[str, str]:
+        """List available diffuse sky models with their descriptions.
 
-        info = MALS_CATALOGS[release]
-        Vizier.ROW_LIMIT = -1
-        logger.info(f"Fetching {info['description']}")
-        logger.info("Downloading from VizieR...")
+        Returns
+        -------
+        dict[str, str]
+            Mapping of model name to description string.
 
-        try:
-            tables = Vizier.get_catalogs(info["vizier_id"])
-            if not tables:
-                raise ValueError("No tables returned")
-            catalog = None
-            for t in tables:
-                if info["table"] in t.meta.get("name", ""):
-                    catalog = t
-                    break
-            if catalog is None:
-                catalog = tables[0]
-        except Exception as e:
-            logger.error(f"Failed to fetch MALS: {e}")
-            return _empty(f"mals_{release}")
+        Examples
+        --------
+        >>> for name, desc in SkyModel.list_diffuse_models().items():
+        ...     print(f"{name}: {desc[:80]}...")
+        """
+        return {name: info["description"] for name, info in DIFFUSE_MODELS.items()}
 
-        logger.info(f"Downloaded {len(catalog)} sources, processing...")
+    @staticmethod
+    def list_point_catalogs() -> dict[str, str]:
+        """List available VizieR point-source catalogs with their descriptions.
 
-        is_sexagesimal = info.get("coords_sexagesimal", False)
+        Returns
+        -------
+        dict[str, str]
+            Mapping of catalog key to description string.
 
-        flux_raw_mjy = np.array(
-            [float(row[info["flux_col"]]) if not np.ma.is_masked(row[info["flux_col"]]) else np.nan
-             for row in catalog],
-            dtype=np.float64
-        )
-        flux_valid = np.isfinite(flux_raw_mjy) & (flux_raw_mjy >= flux_limit)
+        Examples
+        --------
+        >>> for name, desc in SkyModel.list_point_catalogs().items():
+        ...     print(f"{name}: {desc[:80]}...")
+        """
+        return {name: info["description"] for name, info in VIZIER_POINT_CATALOGS.items()}
 
-        if not np.any(flux_valid):
-            logger.info(f"MALS {release.upper()}: no sources above flux limit {flux_limit} mJy")
-            return _empty(f"mals_{release}")
+    @staticmethod
+    def list_racs_catalogs() -> dict[str, str]:
+        """List available RACS (Rapid ASKAP Continuum Survey) bands with their descriptions.
 
-        flux_jy = flux_raw_mjy[flux_valid] / 1000.0
+        Returns
+        -------
+        dict[str, str]
+            Mapping of band name to description string.
 
-        if is_sexagesimal:
-            ra_strs  = [str(row[info["ra_col"]])  for i, row in enumerate(catalog) if flux_valid[i]]
-            dec_strs = [str(row[info["dec_col"]]) for i, row in enumerate(catalog) if flux_valid[i]]
-            coords_bulk = SkyCoord(ra_strs, dec_strs, unit=(u.hourangle, u.deg), frame="icrs")
-            ra_rad  = coords_bulk.ra.rad
-            dec_rad = coords_bulk.dec.rad
-        else:
-            ra_raw  = np.array([float(row[info["ra_col"]])  for row in catalog], dtype=np.float64)
-            dec_raw = np.array([float(row[info["dec_col"]]) for row in catalog], dtype=np.float64)
-            coord_valid = flux_valid & np.isfinite(ra_raw) & np.isfinite(dec_raw)
-            # Re-filter flux_jy with coord_valid
-            flux_jy = flux_raw_mjy[coord_valid] / 1000.0
-            ra_rad  = np.deg2rad(ra_raw[coord_valid])
-            dec_rad = np.deg2rad(dec_raw[coord_valid])
-            flux_valid = coord_valid  # update for spectral index extraction
+        Examples
+        --------
+        >>> for name, desc in SkyModel.list_racs_catalogs().items():
+        ...     print(f"{name}: {desc}")
+        """
+        return {name: info["description"] for name, info in RACS_CATALOGS.items()}
 
-        n = len(flux_jy)
+    @staticmethod
+    def list_all_models() -> dict[str, dict[str, str]]:
+        """List all available sky models and catalogs with their descriptions.
 
-        if info["spindex_col"] and info["spindex_col"] in catalog.colnames:
-            spindex_raw = []
-            rows = list(catalog)
-            for i, row in enumerate(rows):
-                if not flux_valid[i]:
-                    continue
-                val = row[info["spindex_col"]]
-                if not np.ma.is_masked(val) and np.isfinite(float(val)):
-                    spindex_raw.append(float(val))
-                else:
-                    spindex_raw.append(0.0)
-            alpha = np.array(spindex_raw, dtype=np.float64)
-        else:
-            alpha = np.zeros(n, dtype=np.float64)
+        Returns
+        -------
+        dict[str, dict[str, str]]
+            Nested mapping: category → {name: description}.
+            Categories: "diffuse", "point_catalogs", "racs".
 
-        logger.info(f"MALS {release.upper()} loaded: {n} sources (flux >= {flux_limit} mJy)")
-
-        sky = cls(
-            _ra_rad=ra_rad,
-            _dec_rad=dec_rad,
-            _flux_ref=flux_jy,
-            _alpha=alpha,
-            _stokes_q=np.zeros(n, dtype=np.float64),
-            _stokes_u=np.zeros(n, dtype=np.float64),
-            _stokes_v=np.zeros(n, dtype=np.float64),
-            _native_format="point_sources",
-            model_name=f"mals_{release}",
-            brightness_conversion=brightness_conversion,
-            _precision=precision,
-        )
-        sky._ensure_dtypes()
-        return sky
+        Examples
+        --------
+        >>> all_models = SkyModel.list_all_models()
+        >>> for category, models in all_models.items():
+        ...     print(f"\\n=== {category} ===")
+        ...     for name, desc in models.items():
+        ...         print(f"  {name}: {desc[:80]}...")
+        """
+        return {
+            "diffuse": SkyModel.list_diffuse_models(),
+            "point_catalogs": SkyModel.list_point_catalogs(),
+            "racs": SkyModel.list_racs_catalogs(),
+        }
 
     @classmethod
     def from_diffuse_sky(
@@ -1572,7 +1654,10 @@ class SkyModel:
         nside: int = 32,
         frequencies: np.ndarray | None = None,
         obs_frequency_config: dict[str, Any] | None = None,
-        include_cmb: bool = False,
+        include_cmb: bool | None = None,
+        basemap: str | None = None,
+        interpolation: str | None = None,
+        retain_pygdsm_instance: bool = False,
         brightness_conversion: str = "planck",
         precision: Any = None,
     ) -> "SkyModel":
@@ -1596,8 +1681,26 @@ class SkyModel:
             Frequency configuration dict (keys: starting_frequency,
             frequency_interval, frequency_bandwidth, frequency_unit).
             Used when ``frequencies`` is None.
-        include_cmb : bool, default=False
-            Include CMB contribution in the sky model.
+        include_cmb : bool or None, default=None
+            Include CMB contribution in the sky model. If None, uses the
+            default from the model's ``init_kwargs`` (False for all models).
+        basemap : str or None, default=None
+            GSM2008-only: resolution basemap to use for PCA reconstruction.
+            ``"haslam"`` (1 deg, best <1 GHz), ``"wmap"`` (2 deg, best for
+            CMB frequencies), or ``"5deg"`` (native 5.1 deg PCA resolution).
+            Raises ``ValueError`` if set for non-GSM2008 models.
+            When None, uses the default from ``DIFFUSE_MODELS`` (``"haslam"``).
+        interpolation : str or None, default=None
+            GSM2008-only: frequency interpolation method.
+            ``"pchip"`` (monotone, no overshoot) or ``"cubic"`` (cubic spline,
+            closer to the original paper but can overshoot).
+            Raises ``ValueError`` if set for non-GSM2008 models.
+            When None, uses the default from ``DIFFUSE_MODELS`` (``"pchip"``).
+        retain_pygdsm_instance : bool, default=False
+            If True, keep the pygdsm model object on the returned SkyModel
+            (accessible via the ``pygdsm_model`` property). This adds ~63 MB
+            of memory overhead for GSM2008. When False (default), the pygdsm
+            instance is discarded after map generation.
         brightness_conversion : str, default="planck"
             Conversion method for T_b → Jy: "planck" (exact) or "rayleigh-jeans".
 
@@ -1610,7 +1713,8 @@ class SkyModel:
         ------
         ValueError
             If neither ``frequencies`` nor ``obs_frequency_config`` is provided,
-            or if the model name is unknown.
+            if the model name is unknown, or if ``basemap``/``interpolation``
+            are set for a non-GSM2008 model.
 
         Examples
         --------
@@ -1618,6 +1722,11 @@ class SkyModel:
         >>> sky = SkyModel.from_diffuse_sky(model="gsm2008", nside=32, frequencies=freqs)
         >>> sky.mode
         'healpix_multifreq'
+
+        >>> sky = SkyModel.from_diffuse_sky(
+        ...     model="gsm2008", nside=32, frequencies=freqs,
+        ...     basemap="wmap", interpolation="cubic",
+        ... )
 
         >>> config = {"starting_frequency": 100.0, "frequency_interval": 1.0,
         ...           "frequency_bandwidth": 20.0, "frequency_unit": "MHz"}
@@ -1627,6 +1736,17 @@ class SkyModel:
         model = model.lower()
         if model not in DIFFUSE_MODELS:
             raise ValueError(f"Unknown model '{model}'. Available: {list(DIFFUSE_MODELS.keys())}")
+
+        if basemap is not None and model != "gsm2008":
+            raise ValueError(
+                f"'basemap' is only supported for gsm2008, not '{model}'. "
+                f"Remove the basemap parameter or use model='gsm2008'."
+            )
+        if interpolation is not None and model != "gsm2008":
+            raise ValueError(
+                f"'interpolation' is only supported for gsm2008, not '{model}'. "
+                f"Remove the interpolation parameter or use model='gsm2008'."
+            )
 
         if frequencies is None and obs_frequency_config is None:
             raise ValueError(
@@ -1647,16 +1767,22 @@ class SkyModel:
             f"Loading {model.upper()}: {n_freq} frequencies "
             f"({frequencies[0]/1e6:.1f}–{frequencies[-1]/1e6:.1f} MHz), nside={nside}"
         )
+        logger.info(f"Model info: {info['description']}")
 
         init_kwargs = info["init_kwargs"].copy()
-        init_kwargs["include_cmb"] = include_cmb
-        sky = model_class(**init_kwargs)
+        if include_cmb is not None:
+            init_kwargs["include_cmb"] = include_cmb
+        if basemap is not None:
+            init_kwargs["basemap"] = basemap
+        if interpolation is not None:
+            init_kwargs["interpolation"] = interpolation
+        pygdsm_instance = model_class(**init_kwargs)
 
         rot = Rotator(coord=["G", "C"])
 
         healpix_maps: dict[float, np.ndarray] = {}
         for freq in frequencies:
-            temp_map = sky.generate(freq)
+            temp_map = pygdsm_instance.generate(freq)
             current_nside = hp.get_nside(temp_map)
             if current_nside != nside:
                 temp_map = hp.ud_grade(temp_map, nside_out=nside)
@@ -1667,7 +1793,7 @@ class SkyModel:
             f"{model.upper()} loaded: {hp.nside2npix(nside)} pixels × {n_freq} frequencies"
         )
 
-        sky = cls(
+        result = cls(
             _healpix_maps=healpix_maps,
             _healpix_nside=nside,
             _observation_frequencies=frequencies,
@@ -1676,9 +1802,57 @@ class SkyModel:
             model_name=model,
             brightness_conversion=brightness_conversion,
             _precision=precision,
+            _pygdsm_instance=pygdsm_instance if retain_pygdsm_instance else None,
         )
-        sky._ensure_dtypes()
-        return sky
+        result._ensure_dtypes()
+        return result
+
+    @staticmethod
+    def create_gsm_observer(
+        basemap: str = "haslam",
+        interpolation: str = "pchip",
+        include_cmb: bool = False,
+    ) -> "GSMObserver08":
+        """Create a ``GSMObserver08`` with configurable GSM2008 parameters.
+
+        The returned observer can be used to generate simulated sky views for
+        a specific location, time, and frequency using the ``pygdsm``
+        observation framework.
+
+        Parameters
+        ----------
+        basemap : str, default="haslam"
+            Resolution basemap: ``"haslam"`` (1 deg), ``"wmap"`` (2 deg),
+            or ``"5deg"`` (native 5.1 deg PCA resolution).
+        interpolation : str, default="pchip"
+            Frequency interpolation: ``"pchip"`` (monotone, no overshoot)
+            or ``"cubic"`` (cubic spline).
+        include_cmb : bool, default=False
+            Include CMB contribution (2.725 K).
+
+        Returns
+        -------
+        GSMObserver08
+            A pygdsm observer ready for ``.generate()`` after setting
+            location and time via ``.lat``, ``.lon``, ``.date``.
+
+        Examples
+        --------
+        >>> obs = SkyModel.create_gsm_observer(basemap="wmap")
+        >>> obs.lat = "-30.72"
+        >>> obs.lon = "21.43"
+        >>> obs.date = "2025-01-15T00:00:00"
+        >>> obs.generate(150e6)
+        """
+        gsm = GlobalSkyModel(
+            freq_unit="Hz",
+            basemap=basemap,
+            interpolation=interpolation,
+            include_cmb=include_cmb,
+        )
+        observer = GSMObserver08()
+        observer.gsm = gsm
+        return observer
 
     @classmethod
     def _load_from_vizier_catalog(
@@ -1721,26 +1895,15 @@ class SkyModel:
             )
 
         def _empty():
-            return cls(
-                _ra_rad=np.zeros(0, dtype=np.float64),
-                _dec_rad=np.zeros(0, dtype=np.float64),
-                _flux_ref=np.zeros(0, dtype=np.float64),
-                _alpha=np.zeros(0, dtype=np.float64),
-                _stokes_q=np.zeros(0, dtype=np.float64),
-                _stokes_u=np.zeros(0, dtype=np.float64),
-                _stokes_v=np.zeros(0, dtype=np.float64),
-                model_name=catalog_key,
-                brightness_conversion=brightness_conversion,
-                _precision=precision,
-            )
+            return cls._empty_sky(catalog_key, brightness_conversion, precision)
 
         info = VIZIER_POINT_CATALOGS[catalog_key]
-        Vizier.ROW_LIMIT = -1
         logger.info(f"Fetching {info['description']}")
         logger.info("Downloading from VizieR...")
 
         try:
-            tables = Vizier.get_catalogs(info["vizier_id"])
+            v = Vizier(columns=["**"], row_limit=-1)
+            tables = v.get_catalogs(info["vizier_id"])
             if not tables:
                 raise ValueError("No tables returned from VizieR")
             catalog = None
@@ -1769,6 +1932,20 @@ class SkyModel:
         coord_frame    = info.get("coord_frame", "icrs")
         flux_unit      = info.get("flux_unit", "Jy")
         spindex_from_cols = info.get("spindex_from_cols")
+
+        # Auto-detect sexagesimal coordinates: if the first valid RA value is a
+        # string that can't be parsed as a float, treat coords as sexagesimal.
+        # This handles VizieR returning sexagesimal strings when columns=["**"].
+        if not is_sexagesimal and len(catalog) > 0:
+            sample_ra = catalog[0][info["ra_col"]]
+            if isinstance(sample_ra, (str, np.str_)):
+                try:
+                    float(sample_ra)
+                except ValueError:
+                    is_sexagesimal = True
+                    logger.debug(
+                        f"{catalog_key}: auto-detected sexagesimal coordinates"
+                    )
 
         flux_col = info["flux_col"]
         flux_raw_list = []
@@ -2238,18 +2415,7 @@ class SkyModel:
 
         except Exception as e:
             logger.error(f"Failed to fetch RACS-{band}: {e}")
-            return cls(
-                _ra_rad=np.zeros(0, dtype=np.float64),
-                _dec_rad=np.zeros(0, dtype=np.float64),
-                _flux_ref=np.zeros(0, dtype=np.float64),
-                _alpha=np.zeros(0, dtype=np.float64),
-                _stokes_q=np.zeros(0, dtype=np.float64),
-                _stokes_u=np.zeros(0, dtype=np.float64),
-                _stokes_v=np.zeros(0, dtype=np.float64),
-                model_name=model_name,
-                brightness_conversion=brightness_conversion,
-                _precision=precision,
-            )
+            return cls._empty_sky(model_name, brightness_conversion, precision)
 
         freq_hz = info["freq_mhz"] * 1e6
 
@@ -2280,18 +2446,7 @@ class SkyModel:
         )
 
         if n == 0:
-            return cls(
-                _ra_rad=np.zeros(0, dtype=np.float64),
-                _dec_rad=np.zeros(0, dtype=np.float64),
-                _flux_ref=np.zeros(0, dtype=np.float64),
-                _alpha=np.zeros(0, dtype=np.float64),
-                _stokes_q=np.zeros(0, dtype=np.float64),
-                _stokes_u=np.zeros(0, dtype=np.float64),
-                _stokes_v=np.zeros(0, dtype=np.float64),
-                model_name=model_name,
-                brightness_conversion=brightness_conversion,
-                _precision=precision,
-            )
+            return cls._empty_sky(model_name, brightness_conversion, precision)
 
         sky = cls(
             _ra_rad=np.deg2rad(np.array(ra_list, dtype=np.float64)),
@@ -2443,20 +2598,9 @@ class SkyModel:
         logger.info(f"pyradiosky file loaded: {n:,} sources from {filename}")
 
         if n == 0:
-            return cls(
-                _ra_rad=np.zeros(0, dtype=np.float64),
-                _dec_rad=np.zeros(0, dtype=np.float64),
-                _flux_ref=np.zeros(0, dtype=np.float64),
-                _alpha=np.zeros(0, dtype=np.float64),
-                _stokes_q=np.zeros(0, dtype=np.float64),
-                _stokes_u=np.zeros(0, dtype=np.float64),
-                _stokes_v=np.zeros(0, dtype=np.float64),
-                _native_format="point_sources",
-                model_name=model_name,
-                frequency=ref_freq_hz,
-                brightness_conversion=brightness_conversion,
-                _precision=precision,
-            )
+            empty = cls._empty_sky(model_name, brightness_conversion, precision)
+            empty.frequency = ref_freq_hz
+            return empty
 
         sky = cls(
             _ra_rad=ra_arr[valid],

@@ -17,6 +17,7 @@ from rrivis.core.precision import (
     PrecisionLevel,
     CoordinatePrecision,
     JonesPrecision,
+    SkyModelPrecision,
     resolve_precision,
     get_real_dtype,
     get_complex_dtype,
@@ -214,6 +215,47 @@ class TestJonesPrecision:
         assert config.get_real_dtype("beam") == np.float32
 
 
+class TestSkyModelPrecision:
+    """Tests for SkyModelPrecision sub-model."""
+
+    def test_default_values(self):
+        """Test default sky model precision values."""
+        config = SkyModelPrecision()
+        assert config.source_positions == "float64"
+        assert config.flux == "float64"
+        assert config.spectral_index == "float64"
+        assert config.healpix_maps == "float32"
+
+    def test_custom_values(self):
+        """Test custom sky model precision values."""
+        config = SkyModelPrecision(
+            source_positions="float32",
+            healpix_maps="float64",
+        )
+        assert config.source_positions == "float32"
+        assert config.healpix_maps == "float64"
+        assert config.flux == "float64"  # default
+
+    def test_invalid_precision_raises(self):
+        """Test that invalid precision raises error."""
+        with pytest.raises(ValueError, match="Invalid precision"):
+            SkyModelPrecision(source_positions="float16")
+
+    def test_get_dtype(self):
+        """Test dtype retrieval for sky model components."""
+        config = SkyModelPrecision(source_positions="float32", flux="float64")
+        assert config.get_dtype("source_positions") == np.float32
+        assert config.get_dtype("flux") == np.float64
+        assert config.get_dtype("healpix_maps") == np.float32
+
+    def test_all_fields_present(self):
+        """Test all 4 sky model precision fields are present."""
+        config = SkyModelPrecision()
+        fields = ["source_positions", "flux", "spectral_index", "healpix_maps"]
+        for f in fields:
+            assert hasattr(config, f)
+
+
 class TestPrecisionConfig:
     """Tests for main PrecisionConfig class."""
 
@@ -225,6 +267,7 @@ class TestPrecisionConfig:
         assert config.output == "float64"
         assert isinstance(config.coordinates, CoordinatePrecision)
         assert isinstance(config.jones, JonesPrecision)
+        assert isinstance(config.sky_model, SkyModelPrecision)
 
     def test_custom_default(self):
         """Test custom default precision."""
@@ -255,6 +298,11 @@ class TestPrecisionPresets:
         assert config.default == "float64"
         assert config.accumulation == "float64"
         assert config.output == "float64"
+        # Sky model: float64 for arrays, float32 for HEALPix (defaults)
+        assert config.sky_model.source_positions == "float64"
+        assert config.sky_model.flux == "float64"
+        assert config.sky_model.spectral_index == "float64"
+        assert config.sky_model.healpix_maps == "float32"
 
     def test_fast_preset(self):
         """Test fast (mixed) preset."""
@@ -267,6 +315,11 @@ class TestPrecisionPresets:
         # Non-critical use float32
         assert config.jones.beam == "float32"
         assert config.output == "float32"
+        # Sky model: all float32
+        assert config.sky_model.source_positions == "float32"
+        assert config.sky_model.flux == "float32"
+        assert config.sky_model.spectral_index == "float32"
+        assert config.sky_model.healpix_maps == "float32"
 
     def test_precise_preset(self):
         """Test precise preset."""
@@ -278,6 +331,11 @@ class TestPrecisionPresets:
         assert config.accumulation == "float128"
         # Output stays float64
         assert config.output == "float64"
+        # Sky model: all float64 including HEALPix
+        assert config.sky_model.source_positions == "float64"
+        assert config.sky_model.flux == "float64"
+        assert config.sky_model.spectral_index == "float64"
+        assert config.sky_model.healpix_maps == "float64"
 
     def test_ultra_preset(self):
         """Test ultra (all float128) preset."""
@@ -287,6 +345,11 @@ class TestPrecisionPresets:
         assert config.output == "float128"
         assert config.jones.geometric_phase == "float128"
         assert config.jones.beam == "float128"
+        # Sky model: float128 for arrays, float64 for HEALPix
+        assert config.sky_model.source_positions == "float128"
+        assert config.sky_model.flux == "float128"
+        assert config.sky_model.spectral_index == "float128"
+        assert config.sky_model.healpix_maps == "float64"
 
 
 class TestPrecisionConfigHelpers:
@@ -315,6 +378,15 @@ class TestPrecisionConfigHelpers:
         )
         assert config.get_real_dtype("coordinates", "antenna_positions") == np.float32
         assert config.get_real_dtype("accumulation") == np.float64
+
+    def test_get_real_dtype_sky_model(self):
+        """Test get_real_dtype for sky_model components."""
+        config = PrecisionConfig(
+            sky_model=SkyModelPrecision(source_positions="float32", healpix_maps="float64"),
+        )
+        assert config.get_real_dtype("sky_model", "source_positions") == np.float32
+        assert config.get_real_dtype("sky_model", "healpix_maps") == np.float64
+        assert config.get_real_dtype("sky_model", "flux") == np.float64  # default
 
     def test_get_complex_dtype(self):
         """Test get_complex_dtype method."""
