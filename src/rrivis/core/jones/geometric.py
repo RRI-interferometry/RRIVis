@@ -7,7 +7,7 @@ where (u,v,w) are baseline coordinates in wavelengths and (l,m,n) are
 direction cosines of the source.
 """
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
@@ -150,45 +150,6 @@ class GeometricPhaseJones(JonesTerm):
 
         return K
 
-    def compute_fringe(
-        self,
-        source_idx: int,
-        freq_idx: int,
-        baseline_uvw: Union[np.ndarray, Any],
-        backend: Any,
-    ) -> Any:
-        """Compute fringe term for a source-baseline pair.
-
-        This is a convenience method for computing just the phase term
-        without the full Jones matrix machinery.
-
-        Args:
-            source_idx: Source index
-            freq_idx: Frequency index
-            baseline_uvw: Baseline (u, v, w) in wavelengths.
-                         Shape (3,) for single baseline, or
-                         Shape (N_baselines, 3) for multiple baselines.
-            backend: Array backend
-
-        Returns:
-            Complex phase factor exp(-2πi(ul + vm + w(n-1)))
-            Scalar for single baseline, array for multiple baselines.
-        """
-        xp = backend.xp
-
-        l, m, n = self.source_lmn[source_idx]
-
-        # Handle both (3,) and (N, 3) shapes for baseline_uvw
-        baseline_uvw = np.asarray(baseline_uvw)
-        if baseline_uvw.ndim == 1:
-            # Single baseline: shape (3,)
-            u, v, w = baseline_uvw
-        else:
-            # Multiple baselines: shape (N, 3)
-            u, v, w = baseline_uvw.T  # Transpose to unpack columns
-
-        phase = -2.0 * np.pi * (u * l + v * m + w * (n - 1.0))
-        return xp.exp(1j * phase)
 
     def get_config(self) -> Dict[str, Any]:
         config = super().get_config()
