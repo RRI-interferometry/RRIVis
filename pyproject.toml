@@ -122,7 +122,6 @@ Issues = "https://github.com/kartikmandar/RRIvis/issues"
 
 [project.scripts]
 rrivis = "rrivis.cli.main:main"
-rrivis-migrate = "rrivis.cli.migrate:cli_migrate"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
