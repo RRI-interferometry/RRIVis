@@ -121,12 +121,66 @@ from .troposphere import (
     TroposphereJones,
     SaastamoinenTroposphereJones,
     TurbulentTroposphereJones,
+    TroposphericOpacityJones,
+)
+
+# F term: Faraday rotation
+from .faraday import (
+    FaradayRotationJones,
+    DifferentialFaradayJones,
+)
+
+# W term: Non-coplanar phase correction
+from .wterm import (
+    WPhaseJones,
+    WProjectionJones,
+    WidefieldPolarimetricJones,
+)
+
+# C + H terms: Receptor configuration and basis transforms
+from .receptor import (
+    ReceptorConfigJones,
+    BasisTransformJones,
+)
+
+# Ee / a / dE terms: Element beam, array factor, differential beam
+from .element_beam import (
+    ElementBeamJones,
+    ArrayFactorJones,
+    DifferentialBeamJones,
+)
+
+# K_delay / cable / fringefit: Delay, reflections, VLBI calibration
+from .delay import (
+    DelayJones,
+    CableReflectionJones,
+    FringeFitJones,
+)
+
+# X / KCROSS / DF terms: Cross-hand effects and frequency-dependent leakage
+from .crosshand import (
+    CrosshandPhaseJones,
+    CrosshandDelayJones,
+    FrequencyDependentLeakageJones,
+)
+
+# M_pq / Q_spq: Baseline-based terms (NOT per-antenna, use JonesBaselineTerm)
+from .baseline_errors import (
+    JonesBaselineTerm,
+    BaselineMultiplicativeJones,
+    SmearingFactorJones,
+)
+
+# G term extensions: Elevation gain
+from .gain import (
+    ElevationGainJones,
 )
 
 __all__ = [
     # Base classes
     "JonesTerm",
     "JonesChain",
+    "JonesBaselineTerm",
     # K term
     "GeometricPhaseJones",
     # E term
@@ -135,6 +189,7 @@ __all__ = [
     # G term
     "GainJones",
     "TimeVariableGainJones",
+    "ElevationGainJones",
     # B term
     "BandpassJones",
     "PolynomialBandpassJones",
@@ -157,4 +212,30 @@ __all__ = [
     "TroposphereJones",
     "SaastamoinenTroposphereJones",
     "TurbulentTroposphereJones",
+    "TroposphericOpacityJones",
+    # F term
+    "FaradayRotationJones",
+    "DifferentialFaradayJones",
+    # W term
+    "WPhaseJones",
+    "WProjectionJones",
+    "WidefieldPolarimetricJones",
+    # C + H terms
+    "ReceptorConfigJones",
+    "BasisTransformJones",
+    # Ee / a / dE terms
+    "ElementBeamJones",
+    "ArrayFactorJones",
+    "DifferentialBeamJones",
+    # Kd / Rc / ff terms
+    "DelayJones",
+    "CableReflectionJones",
+    "FringeFitJones",
+    # X / Kx / DF terms
+    "CrosshandPhaseJones",
+    "CrosshandDelayJones",
+    "FrequencyDependentLeakageJones",
+    # M / Q terms (baseline-dependent)
+    "BaselineMultiplicativeJones",
+    "SmearingFactorJones",
 ]

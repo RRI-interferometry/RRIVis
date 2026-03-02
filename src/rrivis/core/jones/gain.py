@@ -71,3 +71,23 @@ class TimeVariableGainJones(GainJones):
     ):
         """Initialize time-variable gains (stub)."""
         super().__init__(n_antennas=n_antennas)
+
+
+class ElevationGainJones(GainJones):
+    """Stub: Elevation-dependent antenna gain (GAINCURVE). TODO: implement properly.
+
+    Antenna gain is often a polynomial function of elevation angle:
+        g(el) = c₀ + c₁·el + c₂·el² + ...
+
+    This term applies antenna-specific gain curves.
+    """
+
+    def __init__(
+        self,
+        n_antennas: int = 1,
+        gain_curve_coeffs: Optional[np.ndarray] = None,
+        **kwargs
+    ):
+        """Initialize elevation gain Jones term (stub)."""
+        super().__init__(n_antennas=n_antennas)
+        self.gain_curve_coeffs = np.asarray(gain_curve_coeffs) if gain_curve_coeffs is not None else np.array([])
