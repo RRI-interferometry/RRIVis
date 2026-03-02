@@ -18,21 +18,45 @@ class JonesTerm(ABC):
 
     The order matters because matrix multiplication is non-commutative.
 
-    Standard Jones terms (Smirnov 2011):
-    - K: Geometric phase delay
-    - Z: Ionosphere (Faraday rotation)
-    - T: Troposphere (atmospheric delay)
-    - E: Primary beam (antenna pattern)
-    - P: Parallactic angle (feed rotation)
-    - D: Polarization leakage
-    - G: Complex gains
-    - B: Bandpass
+    Core Jones terms (Smirnov 2011), sky → correlator:
+    - K  (GeometricPhaseJones)      : Geometric phase delay (DDE, scalar, unitary)
+    - Z  (IonosphereJones, ...)     : Ionospheric Faraday rotation + TEC phase (DDE)
+    - T  (TroposphereJones, ...)    : Tropospheric delay / opacity (DDE)
+    - E  (BeamJones, ...)           : Primary beam voltage pattern (DDE)
+    - P  (ParallacticAngleJones, ...): Parallactic angle / feed rotation (DIE)
+    - D  (PolarizationLeakageJones, ...): Polarization leakage D-terms (DIE)
+    - G  (GainJones, ...)           : Complex electronic gains (DIE, diagonal)
+    - B  (BandpassJones, ...)       : Frequency-dependent bandpass (DIE, diagonal)
+
+    Extended terms beyond the core 8:
+    - F  (FaradayRotationJones, DifferentialFaradayJones)
+         : Faraday rotation from magnetised ISM; φ = RM·λ² (DDE, unitary)
+    - W  (WPhaseJones, WProjectionJones)
+         : Non-coplanar baseline w-phase correction (DDE, scalar, unitary)
+    - Txy (WidefieldPolarimetricJones)
+         : Wide-field polarimetric projection for non-coplanar arrays (DDE)
+    - C  (ReceptorConfigJones)      : Feed receptor configuration (linear/circular) (DIE, unitary)
+    - H  (BasisTransformJones)      : Polarization basis transformation (DIE, unitary)
+    - Ee (ElementBeamJones)         : Single-element beam pattern (DDE)
+    - a  (ArrayFactorJones)         : Phased-array factor / mutual coupling (DDE, scalar)
+    - dE (DifferentialBeamJones)    : Per-antenna differential beam residuals (DDE)
+    - Kd (DelayJones)               : Instrumental delay offset; exp(-2πi·ν·τ) (DIE, diagonal)
+    - Rc (CableReflectionJones)     : RF cable reflection errors (DIE, diagonal)
+    - ff (FringeFitJones)           : VLBI fringe-fitting delay/rate correction (DIE, diagonal)
+    - X  (CrosshandPhaseJones)      : Static cross-hand phase offset (DIE, diagonal)
+    - Kx (CrosshandDelayJones)      : Time-varying cross-hand delay (DIE, diagonal)
+    - DF (FrequencyDependentLeakageJones): Frequency-dependent D-terms (DIE)
+    - GAINCURVE (ElevationGainJones): Elevation-dependent gain curve polynomial (DIE, diagonal)
+
+    Baseline-dependent terms (NOT subclasses of JonesTerm, use JonesBaselineTerm):
+    - M  (BaselineMultiplicativeJones): Per-baseline closure errors (Hadamard product)
+    - Q  (SmearingFactorJones)       : Time/bandwidth smearing decorrelation (Hadamard product, DDE)
 
     Example:
         >>> class MyJonesTerm(JonesTerm):
         ...     @property
         ...     def name(self) -> str:
-        ...         return "X"
+        ...         return "My"
         ...
         ...     @property
         ...     def is_direction_dependent(self) -> bool:
@@ -40,26 +64,30 @@ class JonesTerm(ABC):
         ...
         ...     def compute_jones(self, antenna_idx, source_idx, freq_idx,
         ...                       time_idx, backend, **kwargs):
-        ...         return backend.eye(2, dtype=complex)
+        ...         return backend.xp.eye(2, dtype=complex)
     """
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """Short name identifier (e.g., 'K', 'E', 'G', 'B', 'Z', 'T', 'P', 'D').
+        """Short name identifier for this term.
 
-        Standard names follow Smirnov (2011) convention.
+        Core names follow Smirnov (2011): 'K', 'Z', 'T', 'E', 'P', 'D', 'G', 'B'.
+        Extended names: 'F', 'W', 'Txy', 'C', 'H', 'Ee', 'a', 'dE',
+                        'Kd', 'Rc', 'ff', 'X', 'Kx', 'DF', 'GAINCURVE'.
+        Baseline names (JonesBaselineTerm): 'M', 'Q'.
         """
         pass
 
     @property
     @abstractmethod
     def is_direction_dependent(self) -> bool:
-        """True if effect varies across the sky (DDE).
+        """True if effect varies across the sky (DDE), False for DIE.
 
-        Direction-dependent effects (DDE):
-        - True: Beam (E), Ionosphere (Z), Troposphere (T), Phase (K)
-        - False: Gains (G), Bandpass (B), Leakage (D), Parallactic (P)
+        Direction-dependent (DDE, True):
+            K, Z, T, E, F, W, Txy, Ee, a, dE, Q
+        Direction-independent (DIE, False):
+            G, B, D, P, C, H, Kd, Rc, ff, X, Kx, DF, GAINCURVE, M
         """
         pass
 
@@ -78,9 +106,8 @@ class JonesTerm(ABC):
     def is_time_dependent(self) -> bool:
         """True if effect varies with time.
 
-        Time-dependent effects:
-        - True: Gains (G), Parallactic (P), Ionosphere (Z)
-        - False: Bandpass (B), Leakage (D) [typically]
+        Time-dependent (True): G, P, Z, T, F, Kx, ff (fringe rate)
+        Typically static (False): B, D, K, C, H, X, Kd, Rc, DF
 
         Default: False (override if time-variable)
         """
@@ -90,9 +117,10 @@ class JonesTerm(ABC):
     def is_frequency_dependent(self) -> bool:
         """True if effect varies with frequency.
 
-        Frequency-dependent effects:
-        - True: Bandpass (B), Ionosphere (Z), Phase (K), Beam (E)
-        - False: Some constant gains (G)
+        Frequency-dependent (True):
+            B, K, E, Z, T, F, W, Ee, a, dE, Kd, Rc, ff, Kx, DF
+        Frequency-independent (False):
+            G (constant gains), P, D, C, H, X, GAINCURVE
 
         Default: True (most effects are chromatic)
         """
@@ -132,14 +160,10 @@ class JonesTerm(ABC):
     def is_diagonal(self) -> bool:
         """True if Jones matrix is always diagonal (optimization hint).
 
-        Diagonal matrices commute with each other and can be
-        combined more efficiently.
+        Diagonal matrices can be combined more efficiently.
 
-        Diagonal Jones terms:
-        - Gains (G), Bandpass (B), simple Troposphere (T)
-
-        Non-diagonal:
-        - Beam (E), Ionosphere (Z), Parallactic (P), Leakage (D)
+        Diagonal: G, B, T (simple delay), Kd, Rc, ff, X, Kx, GAINCURVE
+        Non-diagonal: E, Z, P, D, F, W, Txy, C, H, Ee, a, dE, DF
 
         Default: False
         """
@@ -148,11 +172,10 @@ class JonesTerm(ABC):
     def is_scalar(self) -> bool:
         """True if Jones matrix is scalar (proportional to identity).
 
-        Scalar matrices commute with everything and simplify
-        the matrix chain significantly.
+        Scalar matrices commute with everything and simplify the chain.
 
-        Scalar Jones terms:
-        - Geometric phase (K) for unpolarized sources
+        Scalar: K, W (w-phase), a (array factor)
+        Non-scalar: all others
 
         Default: False
         """
@@ -161,13 +184,10 @@ class JonesTerm(ABC):
     def is_unitary(self) -> bool:
         """True if Jones matrix is unitary (J @ J^H = I).
 
-        Unitary matrices preserve power and are energy-conserving.
+        Unitary matrices preserve power (pure rotation/phase).
 
-        Unitary Jones terms:
-        - Parallactic (P), Ionosphere (Z), Geometric phase (K)
-
-        Non-unitary:
-        - Gains (G), Beam (E), Leakage (D)
+        Unitary: K, W, F, P, Z (Faraday rotation), C, H
+        Non-unitary: G (amplitude errors), E (beam attenuation), D, B, T
 
         Default: False
         """

@@ -12,6 +12,7 @@ from rrivis.core.jones import (
     # Base
     JonesTerm,
     JonesChain,
+    JonesBaselineTerm,
     # K term
     GeometricPhaseJones,
     # E term
@@ -20,6 +21,7 @@ from rrivis.core.jones import (
     # G term
     GainJones,
     TimeVariableGainJones,
+    ElevationGainJones,
     # B term
     BandpassJones,
     PolynomialBandpassJones,
@@ -35,6 +37,32 @@ from rrivis.core.jones import (
     # T term
     TroposphereJones,
     SaastamoinenTroposphereJones,
+    TroposphericOpacityJones,
+    # F term
+    FaradayRotationJones,
+    DifferentialFaradayJones,
+    # W term
+    WPhaseJones,
+    WProjectionJones,
+    WidefieldPolarimetricJones,
+    # C + H terms
+    ReceptorConfigJones,
+    BasisTransformJones,
+    # Ee / a / dE terms
+    ElementBeamJones,
+    ArrayFactorJones,
+    DifferentialBeamJones,
+    # Kd / Rc / ff terms
+    DelayJones,
+    CableReflectionJones,
+    FringeFitJones,
+    # X / Kx / DF terms
+    CrosshandPhaseJones,
+    CrosshandDelayJones,
+    FrequencyDependentLeakageJones,
+    # M / Q terms (baseline-dependent)
+    BaselineMultiplicativeJones,
+    SmearingFactorJones,
 )
 
 
@@ -465,6 +493,344 @@ class TestTroposphereJones:
         # Stub has basic attributes but no zenith_delay array
         assert t_jones.n_antennas == 4
         assert t_jones.n_sources == 1
+
+
+class TestTroposphericOpacityJones:
+    """Tests for tropospheric opacity term."""
+
+    def test_opacity_returns_identity(self, numpy_backend, frequencies):
+        """Tropospheric opacity stub should return identity."""
+        t_jones = TroposphericOpacityJones(
+            n_antennas=4,
+            frequencies=frequencies,
+            zenith_opacity=np.array([0.05, 0.06, 0.04, 0.07])
+        )
+
+        jones = t_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        # Stub always returns identity
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+        np.testing.assert_almost_equal(jones[1, 1], 1.0)
+
+    def test_opacity_parameters_accepted(self, numpy_backend, frequencies):
+        """Test that opacity accepts all parameters without error."""
+        t_jones = TroposphericOpacityJones(
+            n_antennas=8,
+            frequencies=frequencies,
+            zenith_opacity=np.linspace(0.05, 0.1, 8)
+        )
+
+        jones = t_jones.compute_jones(0, 5, 0, 0, numpy_backend)
+
+        # Should return identity
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+
+class TestFaradayRotationJones:
+    """Tests for F term (Faraday rotation)."""
+
+    def test_faraday_returns_identity(self, numpy_backend, frequencies):
+        """Faraday rotation stub should return identity."""
+        f_jones = FaradayRotationJones(
+            rotation_measure=100.0,
+            frequencies=frequencies
+        )
+
+        jones = f_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        # Stub always returns identity
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+        np.testing.assert_almost_equal(jones[1, 1], 1.0)
+
+    def test_faraday_parameters_accepted(self, numpy_backend, frequencies):
+        """Test that Faraday accepts all parameters without error."""
+        f_jones = FaradayRotationJones(
+            rotation_measure=50.0,
+            frequencies=frequencies
+        )
+
+        jones = f_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        assert jones.shape == (2, 2)
+
+    def test_differential_faraday_stub(self, numpy_backend, frequencies):
+        """Test differential Faraday stub."""
+        f_jones = DifferentialFaradayJones(
+            n_antennas=4,
+            n_sources=2,
+            frequencies=frequencies
+        )
+
+        assert f_jones.n_antennas == 4
+        assert f_jones.n_sources == 2
+
+
+class TestWTermJones:
+    """Tests for W term (non-coplanar baseline corrections)."""
+
+    def test_wphase_returns_identity(self, numpy_backend):
+        """W-phase stub should return identity."""
+        w_jones = WPhaseJones(
+            source_lmn=np.array([[0.1, 0.0, np.sqrt(1 - 0.1**2)]]),
+            wavelengths=np.array([1.5])
+        )
+
+        jones = w_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        # Stub always returns identity
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_wprojection_parameters_accepted(self, numpy_backend):
+        """Test that W-projection accepts all parameters without error."""
+        w_jones = WProjectionJones(
+            n_antennas=4,
+            source_lmn=np.array([[0.0, 0.0, 1.0]]),
+            wavelengths=np.array([3.0])
+        )
+
+        jones = w_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        assert w_jones.n_antennas == 4
+
+    def test_widefield_polarimetric_stub(self, numpy_backend):
+        """Test wide-field polarimetric term."""
+        w_jones = WidefieldPolarimetricJones(
+            source_lmn=np.array([[0.05, 0.03, np.sqrt(1 - 0.05**2 - 0.03**2)]])
+        )
+
+        jones = w_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+
+class TestReceptorConfigJones:
+    """Tests for C term (receptor configuration)."""
+
+    def test_linear_receptor_identity(self, numpy_backend):
+        """Linear receptor should return identity."""
+        c_jones = ReceptorConfigJones(feed_type="linear")
+
+        jones = c_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_circular_receptor(self, numpy_backend):
+        """Circular receptor stub should return identity."""
+        c_jones = ReceptorConfigJones(feed_type="circular")
+
+        jones = c_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_basis_transform_stub(self, numpy_backend):
+        """Test basis transformation term."""
+        h_jones = BasisTransformJones(
+            from_basis="linear",
+            to_basis="circular"
+        )
+
+        jones = h_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+
+class TestElementBeamJones:
+    """Tests for element beam and array factor terms."""
+
+    def test_element_beam_returns_identity(self, numpy_backend, frequencies):
+        """Element beam stub should return identity."""
+        ee_jones = ElementBeamJones(
+            n_antennas=4,
+            frequencies=frequencies
+        )
+
+        jones = ee_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_array_factor_scalar(self, numpy_backend, frequencies):
+        """Array factor stub should return identity."""
+        a_jones = ArrayFactorJones(
+            n_antennas=4,
+            n_elements=16,
+            frequencies=frequencies
+        )
+
+        jones = a_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_differential_beam_stub(self, numpy_backend, frequencies):
+        """Test differential beam stub."""
+        de_jones = DifferentialBeamJones(
+            n_antennas=4,
+            n_sources=2,
+            frequencies=frequencies
+        )
+
+        jones = de_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+
+class TestDelayJones:
+    """Tests for delay-related terms."""
+
+    def test_electronic_delay_returns_identity(self, numpy_backend, frequencies):
+        """Electronic delay stub should return identity."""
+        kd_jones = DelayJones(
+            n_antennas=4,
+            delays=np.array([0.0, 1e-9, 2e-9, 3e-9]),
+            frequencies=frequencies
+        )
+
+        jones = kd_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_cable_reflection_stub(self, numpy_backend, frequencies):
+        """Test cable reflection term."""
+        rc_jones = CableReflectionJones(
+            n_antennas=4,
+            reflection_coeff=0.05,
+            cable_delay=1e-8,
+            frequencies=frequencies
+        )
+
+        jones = rc_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_fringe_fitting_stub(self, numpy_backend, frequencies):
+        """Test VLBI fringe-fitting term."""
+        ff_jones = FringeFitJones(
+            n_antennas=4,
+            delays=np.array([0.0, 1e-9, 2e-9, 3e-9]),
+            rates=np.array([0.0, 1e-6, 2e-6, 3e-6]),
+            phases=np.array([0.0, np.pi/4, np.pi/2, 3*np.pi/4]),
+            frequencies=frequencies,
+            times=np.array([58000.0])
+        )
+
+        jones = ff_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+
+class TestCrosshandJones:
+    """Tests for cross-hand effects."""
+
+    def test_crosshand_phase_returns_identity(self, numpy_backend):
+        """Cross-hand phase stub should return identity."""
+        x_jones = CrosshandPhaseJones(phase_offset=np.pi/4)
+
+        jones = x_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_crosshand_delay_stub(self, numpy_backend, frequencies):
+        """Test cross-hand delay term."""
+        kx_jones = CrosshandDelayJones(
+            delay=1e-9,
+            frequencies=frequencies
+        )
+
+        jones = kx_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_frequency_dependent_leakage_stub(self, numpy_backend, frequencies):
+        """Test frequency-dependent leakage term."""
+        df_jones = FrequencyDependentLeakageJones(
+            n_antennas=4,
+            frequencies=frequencies,
+            d_terms=np.array([0.05, 0.06, 0.04, 0.07])
+        )
+
+        jones = df_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+
+class TestBaselineTerms:
+    """Tests for baseline-dependent Jones terms."""
+
+    def test_jones_baseline_abstract_class(self):
+        """JonesBaselineTerm cannot be instantiated directly."""
+        with pytest.raises(TypeError):
+            JonesBaselineTerm()
+
+    def test_baseline_multiplicative_returns_identity(self, numpy_backend):
+        """Baseline multiplicative error stub should return identity."""
+        m_jones = BaselineMultiplicativeJones()
+
+        result = m_jones.compute_baseline_term(
+            antenna_p=0,
+            antenna_q=1,
+            source_idx=0,
+            freq_idx=0,
+            time_idx=0,
+            backend=numpy_backend
+        )
+
+        # Stub always returns identity
+        np.testing.assert_almost_equal(result[0, 0], 1.0)
+        np.testing.assert_almost_equal(result[1, 1], 1.0)
+
+    def test_smearing_factor_returns_identity(self, numpy_backend):
+        """Smearing factor stub should return identity."""
+        q_jones = SmearingFactorJones(
+            time_smearing=True,
+            bandwidth_smearing=True
+        )
+
+        result = q_jones.compute_baseline_term(
+            antenna_p=0,
+            antenna_q=1,
+            source_idx=0,
+            freq_idx=0,
+            time_idx=0,
+            backend=numpy_backend
+        )
+
+        np.testing.assert_almost_equal(result[0, 0], 1.0)
+
+    def test_baseline_terms_not_jones_terms(self):
+        """Baseline terms should NOT be subclasses of JonesTerm."""
+        assert not issubclass(BaselineMultiplicativeJones, JonesTerm)
+        assert not issubclass(SmearingFactorJones, JonesTerm)
+
+    def test_baseline_terms_are_baseline_terms(self):
+        """Baseline terms should be subclasses of JonesBaselineTerm."""
+        assert issubclass(BaselineMultiplicativeJones, JonesBaselineTerm)
+        assert issubclass(SmearingFactorJones, JonesBaselineTerm)
+
+
+class TestElevationGainJones:
+    """Tests for elevation-dependent gain term."""
+
+    def test_elevation_gain_returns_identity(self, numpy_backend):
+        """Elevation gain stub should return identity."""
+        eg_jones = ElevationGainJones(
+            n_antennas=4,
+            gain_curve_coeffs=np.array([1.0, 0.5, 0.1])
+        )
+
+        jones = eg_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_elevation_gain_is_gain_subclass(self):
+        """Elevation gain should be a GainJones subclass."""
+        assert issubclass(ElevationGainJones, GainJones)
+
+    def test_elevation_gain_inherits_properties(self, numpy_backend):
+        """Elevation gain should inherit G term properties."""
+        eg_jones = ElevationGainJones(n_antennas=4)
+
+        assert eg_jones.name == "G"
+        assert not eg_jones.is_direction_dependent
+        assert eg_jones.is_diagonal()
 
 
 class TestJonesChain:

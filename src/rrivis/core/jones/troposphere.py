@@ -81,3 +81,24 @@ class TurbulentTroposphereJones(TroposphereJones):
         **kwargs
     ):
         super().__init__(**kwargs)
+
+
+class TroposphericOpacityJones(TroposphereJones):
+    """Stub: Tropospheric opacity correction (TOPAC). TODO: implement properly.
+
+    The opacity term corrects for atmospheric absorption:
+        J_opacity = exp(-τ / sin(el)) * I
+
+    where τ is the zenith opacity and el is the source elevation.
+    """
+
+    def __init__(
+        self,
+        n_antennas: int = 1,
+        frequencies: Optional[np.ndarray] = None,
+        zenith_opacity: Optional[np.ndarray] = None,
+        **kwargs
+    ):
+        """Initialize tropospheric opacity Jones term (stub)."""
+        super().__init__(n_antennas=n_antennas, frequencies=frequencies)
+        self.zenith_opacity = np.asarray(zenith_opacity) if zenith_opacity is not None else np.array([])

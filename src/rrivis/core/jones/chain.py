@@ -11,26 +11,38 @@ from rrivis.core.jones.base import JonesTerm
 
 
 class JonesChain:
-    """Manages the ordered chain of Jones matrices.
+    """Manages the ordered chain of per-antenna Jones matrices.
 
     The Jones chain represents the multiplicative sequence of instrumental
-    and propagation effects applied to the signal:
+    and propagation effects applied to the signal, sky → correlator:
 
-        J_total = B @ G @ D @ P @ E @ T @ Z @ K
+        J_total = B @ G @ D @ P @ E @ T @ Z @ K   (core 8 terms)
 
-    Applied from sky -> correlator (rightmost applied first to incoming signal).
+    Extended terms can be inserted at any position, e.g.:
+
+        J_total = B @ G @ GAINCURVE @ X @ DF @ D @ P @ C @ E @ Ee @ a @ dE
+                  @ F @ T @ Z @ W @ K @ Kd @ Rc
+
+    Terms are stored left-to-right and iterated in reverse so that the
+    rightmost (sky-side) term is applied first to the incoming signal.
+
+    Notes:
+        Only ``JonesTerm`` subclasses may be added here.  Baseline-dependent
+        terms (``JonesBaselineTerm`` — currently M and Q) operate on
+        visibilities via Hadamard multiplication and must be applied
+        separately *after* ``compute_baseline_visibility``.
 
     Example:
         >>> from rrivis.backends import get_backend
         >>> backend = get_backend("numpy")
         >>> chain = JonesChain(backend)
         >>>
-        >>> # Add Jones terms
-        >>> chain.add_term(GeometricPhaseJones(...))
-        >>> chain.add_term(BeamJones(...))
-        >>> chain.add_term(GainJones(...))
+        >>> # Add Jones terms (sky → correlator order, rightmost first)
+        >>> chain.add_term(GeometricPhaseJones(...))   # K
+        >>> chain.add_term(BeamJones(...))             # E
+        >>> chain.add_term(GainJones(...))             # G
         >>>
-        >>> # Compute total Jones matrix
+        >>> # Compute total Jones matrix for antenna 0, source 5
         >>> J = chain.compute_antenna_jones(
         ...     antenna_idx=0, source_idx=5,
         ...     freq_idx=10, time_idx=0
@@ -51,18 +63,22 @@ class JonesChain:
         term: JonesTerm,
         position: str = "append"
     ) -> None:
-        """Add Jones term to chain.
+        """Add a per-antenna Jones term to the chain.
 
         Args:
-            term: JonesTerm instance to add
-            position: Where to add term:
-                - "append": Add to end (default)
-                - "prepend": Add to beginning
-                - int: Insert at specific index
+            term: JonesTerm instance to add.  Must be a subclass of
+                ``JonesTerm``.  ``JonesBaselineTerm`` instances (M, Q)
+                cannot be added here — they must be applied separately
+                via Hadamard multiplication on the finished visibility.
+            position: Where to insert the term:
+                - "append"  : Add to end / correlator side (default)
+                - "prepend" : Add to beginning / sky side
+                - int       : Insert at specific index
 
         Example:
-            >>> chain.add_term(gain_jones)  # Add to end
-            >>> chain.add_term(beam_jones, position="prepend")
+            >>> chain.add_term(gain_jones)                    # append (correlator side)
+            >>> chain.add_term(geometric_jones, position="prepend")  # sky side
+            >>> chain.add_term(faraday_jones, position=2)     # at index 2
         """
         if position == "append":
             self.terms.append(term)
@@ -80,7 +96,8 @@ class JonesChain:
         """Remove Jones term by name.
 
         Args:
-            name: Name of term to remove (e.g., 'K', 'E', 'G')
+            name: Short name of term to remove (e.g., 'K', 'E', 'G', 'F',
+                  'Kd', 'ff', 'X', 'DF', 'GAINCURVE', etc.)
 
         Returns:
             True if term was found and removed, False otherwise
@@ -95,7 +112,8 @@ class JonesChain:
         """Get Jones term by name.
 
         Args:
-            name: Name of term (e.g., 'K', 'E', 'G')
+            name: Short name of term (e.g., 'K', 'E', 'G', 'F',
+                  'Kd', 'ff', 'X', 'DF', 'GAINCURVE', etc.)
 
         Returns:
             JonesTerm instance if found, None otherwise
@@ -185,7 +203,16 @@ class JonesChain:
     ) -> Any:
         """Compute visibility contribution from one source for one baseline.
 
-        Implements: V_pq = J_p @ C @ J_q^H
+        Implements the per-antenna RIME:
+
+            V_pq = J_p @ C @ J_q^H
+
+        Note:
+            This method only applies ``JonesTerm`` (per-antenna) effects.
+            Baseline-dependent corrections (M, Q from ``JonesBaselineTerm``)
+            must be applied *after* this call via Hadamard multiplication:
+
+                V_pq = M_pq ⊙ Q_spq ⊙ (J_p @ C @ J_q^H)
 
         Args:
             antenna_p: First antenna index
@@ -193,8 +220,9 @@ class JonesChain:
             source_idx: Source index
             freq_idx: Frequency index
             time_idx: Time index
-            coherency_matrix: Source coherency matrix (2x2)
-            **kwargs: Additional parameters
+            coherency_matrix: Source coherency matrix (2x2 complex)
+            **kwargs: Additional parameters forwarded to each term's
+                      ``compute_jones`` (e.g., ``baseline_uvw`` for the K term)
 
         Returns:
             Complex 2x2 visibility matrix
