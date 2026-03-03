@@ -1,0 +1,155 @@
+telescope:
+  telescope_name: Unknown
+  use_pyuvdata_telescope: false
+  use_pyuvdata_location: false
+  use_pyuvdata_antennas: false
+  use_pyuvdata_diameters: false
+antenna_layout:
+  antenna_positions_file: antenna_layout_examples/hera_5.txt
+  antenna_file_format: rrivis
+  all_antenna_type: parabolic_10db_taper
+  use_different_antenna_types: false
+  antenna_types: {}
+  all_antenna_diameter: 14.0
+  use_different_diameters: false
+  diameters: {}
+feeds:
+  use_polarized_feeds: false
+  polarization_type: ''
+  use_different_polarization_type: false
+  polarization_per_antenna: {}
+  use_different_feed_types: false
+  all_feed_type: ''
+  feed_types_per_antenna: {}
+beams:
+  beam_mode: analytic
+  beam_assignment: from_layout
+  antenna_beam_map: {}
+  beam_za_max_deg: 90.0
+  beam_za_buffer_deg: 5.0
+  beam_freq_buffer_hz: 1000000.0
+  use_different_beam_responses: false
+  all_beam_response: gaussian
+  beam_response_per_antenna: {}
+  cosine_taper_exponent: 1.0
+  exponential_taper_dB: 10.0
+baseline_selection:
+  use_autocorrelations: true
+  use_crosscorrelations: true
+  only_selective_baseline_length: false
+  selective_baseline_lengths: []
+  selective_baseline_tolerance_meters: 2.0
+  trim_by_angle_ranges: false
+  selective_angle_ranges_deg: []
+location:
+  lat: -30.72152
+  lon: 21.42830
+  height: 1073.0
+sky_model:
+  test_sources:
+    use_test_sources: false
+    num_sources: 100
+    flux_limit: 50.0
+    nside: 32
+  test_sources_healpix:
+    use_test_sources: false
+    num_sources: 100
+    flux_limit: 50.0
+    nside: 32
+  gsm_healpix:
+    use_gsm: false
+    gsm_catalogue: gsm2008
+    flux_limit: 50.0
+    nside: 32
+    include_cmb: false
+  gleam:
+    use_gleam: false
+    gleam_catalogue: VIII/105/catalog
+    flux_limit: 50.0
+    nside: 32
+  gleam_healpix:
+    use_gleam: false
+    gleam_catalogue: VIII/105/catalog
+    flux_limit: 50.0
+    nside: 32
+  mals:
+    use_mals: false
+    mals_release: dr2
+    flux_limit: 1.0
+  vlssr:
+    use_vlssr: false
+    flux_limit: 1.0
+  tgss:
+    use_tgss: false
+    flux_limit: 0.1
+  wenss:
+    use_wenss: false
+    flux_limit: 0.05
+  sumss:
+    use_sumss: false
+    flux_limit: 0.008
+  nvss:
+    use_nvss: false
+    flux_limit: 0.0025
+  first:
+    use_first: false
+    flux_limit: 0.001
+  lotss:
+    use_lotss: false
+    lotss_release: dr2
+    flux_limit: 0.001
+  at20g:
+    use_at20g: false
+    flux_limit: 0.04
+  three_c:
+    use_3c: false
+    flux_limit: 1.0
+  gb6:
+    use_gb6: false
+    flux_limit: 0.018
+  racs:
+    use_racs: false
+    racs_band: low
+    flux_limit: 1.0
+    max_rows: 1000000
+  pysm3:
+    use_pysm3: false
+    components: s1
+    nside: 64
+  ulsa:
+    use_ulsa: false
+    nside: 64
+  pyradiosky:
+    use_pyradiosky: false
+    filename: ''
+    flux_limit: 0.0
+obs_time:
+  start_time: '2023-01-01T00:00:00'
+  duration_seconds: 3600.0
+  time_step_seconds: 60.0
+obs_frequency:
+  starting_frequency: 50.0
+  frequency_interval: 2.0
+  frequency_bandwidth: 100.0
+  frequency_unit: MHz
+output:
+  simulation_data_dir: ''
+  simulation_subdir: ''
+  output_file_name: complex_visibility
+  output_file_format: HDF5
+  save_simulation_data: true
+  plot_results: true
+  open_plots_in_browser: false
+  plotting_backend: bokeh
+  plot_skymodel_every_hour: true
+  save_log_data: true
+  angle_unit: ''
+  skymodel_frequency: 150.0
+compute:
+  backend: numpy
+simulators:
+  use_different_simulator_for_cross_check: false
+  name: ''
+visibility:
+  calculation_type: direct_sum
+  sky_representation: point_sources

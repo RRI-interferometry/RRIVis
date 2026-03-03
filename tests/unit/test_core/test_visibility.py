@@ -466,5 +466,356 @@ class TestJonesChainIntegration(unittest.TestCase):
             self.assertIn("I", vis_chain[key])
 
 
+class TestVectorizedCoherency(unittest.TestCase):
+    """Test that vectorized stokes_to_coherency matches per-source loop."""
+
+    def test_vectorized_coherency_matches_loop(self):
+        """Vectorized coherency should match per-source list comprehension."""
+        from rrivis.core.polarization import stokes_to_coherency
+
+        I = np.array([1.0, 5.0, 10.0])
+        Q = np.array([0.1, 0.5, 1.0])
+        U = np.array([0.0, 0.2, -0.3])
+        V = np.array([0.0, 0.0, 0.5])
+
+        # Vectorized
+        C_vec = stokes_to_coherency(I, Q, U, V)
+
+        # Per-source loop
+        C_loop = np.array([
+            stokes_to_coherency(Ii, Qi, Ui, Vi)
+            for Ii, Qi, Ui, Vi in zip(I, Q, U, V)
+        ])
+
+        np.testing.assert_array_almost_equal(C_vec, C_loop, decimal=14)
+
+
+class TestStokesIFastPath(unittest.TestCase):
+    """Test Stokes-I-only fast path matches full polarization path."""
+
+    def setUp(self):
+        self.antennas = {
+            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+        }
+        self.baselines = {
+            (0, 1): {"BaselineVector": np.array([100.0, 0.0, 0.0])},
+        }
+        # Unpolarized sources (Q=U=V=0)
+        self.sources = [
+            {
+                "coords": SkyCoord(ra=0.0 * u.deg, dec=45.0 * u.deg, frame="icrs"),
+                "flux": 1.0,
+                "spectral_index": -0.7,
+                "stokes_q": 0.0,
+                "stokes_u": 0.0,
+                "stokes_v": 0.0,
+            },
+            {
+                "coords": SkyCoord(ra=30.0 * u.deg, dec=60.0 * u.deg, frame="icrs"),
+                "flux": 2.0,
+                "spectral_index": -0.5,
+                "stokes_q": 0.0,
+                "stokes_u": 0.0,
+                "stokes_v": 0.0,
+            },
+        ]
+        self.location = EarthLocation(lat=45.0 * u.deg, lon=0.0 * u.deg, height=0 * u.m)
+        self.obstime = Time("2023-06-21T12:00:00", scale="utc")
+        self.freqs = np.array([150e6])
+        self.wavelengths = (3e8 / self.freqs) * u.m
+        theta_HPBW = np.radians(10.0)
+        self.hpbw_per_antenna = {
+            0: np.array([theta_HPBW]),
+            1: np.array([theta_HPBW]),
+        }
+
+    def test_unpolarized_matches_polarized(self):
+        """Stokes-I fast path should match full path when Q=U=V=0."""
+        # With Q=U=V=0, the fast path triggers internally
+        vis_unpol = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+        )
+
+        # Now add tiny polarization to force full path
+        sources_pol = []
+        for s in self.sources:
+            sp = dict(s)
+            sp["stokes_q"] = 1e-30  # Tiny but nonzero
+            sources_pol.append(sp)
+
+        vis_pol = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=sources_pol,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+        )
+
+        # Should be nearly identical
+        for key in vis_unpol:
+            np.testing.assert_array_almost_equal(
+                vis_unpol[key]["I"], vis_pol[key]["I"], decimal=8,
+                err_msg=f"Stokes I mismatch for baseline {key}"
+            )
+
+
+class TestUniformBeam(unittest.TestCase):
+    """Test uniform beam type."""
+
+    def setUp(self):
+        self.antennas = {
+            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+        }
+        self.baselines = {
+            (0, 1): {"BaselineVector": np.array([100.0, 0.0, 0.0])},
+        }
+        self.sources = [
+            {
+                "coords": SkyCoord(ra=0.0 * u.deg, dec=45.0 * u.deg, frame="icrs"),
+                "flux": 10.0,
+                "spectral_index": 0.0,  # No spectral scaling
+            },
+        ]
+        self.location = EarthLocation(lat=45.0 * u.deg, lon=0.0 * u.deg, height=0 * u.m)
+        self.obstime = Time("2023-06-21T12:00:00", scale="utc")
+        self.freqs = np.array([76e6])  # At reference freq
+        self.wavelengths = (3e8 / self.freqs) * u.m
+        theta_HPBW = np.radians(10.0)
+        self.hpbw_per_antenna = {
+            0: np.array([theta_HPBW]),
+            1: np.array([theta_HPBW]),
+        }
+
+    def test_uniform_beam_gives_expected_result(self):
+        """Uniform beam should not attenuate sources."""
+        vis_uniform = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            beam_pattern_per_antenna={0: 'uniform', 1: 'uniform'},
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+        )
+        vis_gauss = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            beam_pattern_per_antenna={0: 'gaussian', 1: 'gaussian'},
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+        )
+
+        # Uniform beam: |V_I| >= |V_gauss_I| (no attenuation)
+        for key in vis_uniform:
+            amp_uniform = np.abs(vis_uniform[key]["I"])
+            amp_gauss = np.abs(vis_gauss[key]["I"])
+            # Uniform should give at least as much signal as Gaussian
+            self.assertTrue(
+                np.all(amp_uniform >= amp_gauss * 0.99),
+                f"Uniform beam should not attenuate below Gaussian for baseline {key}"
+            )
+
+
+class TestBeamCaching(unittest.TestCase):
+    """Test that per-antenna beam caching gives correct results."""
+
+    def setUp(self):
+        # 3 antennas, but baselines share antennas -> caching should kick in
+        self.antennas = {
+            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+            2: {"Name": "Ant2", "Number": 2, "BeamID": 0, "Position": (0.0, 100.0, 0.0)},
+        }
+        self.baselines = {
+            (0, 1): {"BaselineVector": np.array([100.0, 0.0, 0.0])},
+            (0, 2): {"BaselineVector": np.array([0.0, 100.0, 0.0])},
+            (1, 2): {"BaselineVector": np.array([-100.0, 100.0, 0.0])},
+        }
+        self.sources = [
+            {
+                "coords": SkyCoord(ra=0.0 * u.deg, dec=45.0 * u.deg, frame="icrs"),
+                "flux": 1.0,
+                "spectral_index": -0.7,
+            },
+        ]
+        self.location = EarthLocation(lat=45.0 * u.deg, lon=0.0 * u.deg, height=0 * u.m)
+        self.obstime = Time("2023-06-21T12:00:00", scale="utc")
+        self.freqs = np.array([150e6])
+        self.wavelengths = (3e8 / self.freqs) * u.m
+        theta_HPBW = np.radians(10.0)
+        self.hpbw_per_antenna = {
+            0: np.array([theta_HPBW]),
+            1: np.array([theta_HPBW]),
+            2: np.array([theta_HPBW]),
+        }
+
+    def test_cached_results_valid(self):
+        """With beam caching, all baselines should produce valid results."""
+        vis = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+        )
+
+        for key in self.baselines:
+            self.assertIn(key, vis)
+            self.assertIn("I", vis[key])
+            # All values should be finite
+            self.assertTrue(np.all(np.isfinite(vis[key]["I"])),
+                          f"Non-finite visibility for baseline {key}")
+
+
+class TestJonesChainEquivalence(unittest.TestCase):
+    """Test legacy vs JonesChain equivalence for E-term-only case."""
+
+    def setUp(self):
+        self.antennas = {
+            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+        }
+        self.baselines = {
+            (0, 1): {"BaselineVector": np.array([100.0, 0.0, 0.0])},
+        }
+        self.sources = [
+            {
+                "coords": SkyCoord(ra=0.0 * u.deg, dec=45.0 * u.deg, frame="icrs"),
+                "flux": 5.0,
+                "spectral_index": -0.7,
+            },
+            {
+                "coords": SkyCoord(ra=30.0 * u.deg, dec=60.0 * u.deg, frame="icrs"),
+                "flux": 3.0,
+                "spectral_index": -0.5,
+            },
+        ]
+        self.location = EarthLocation(lat=45.0 * u.deg, lon=0.0 * u.deg, height=0 * u.m)
+        self.obstime = Time("2023-06-21T12:00:00", scale="utc")
+        self.freqs = np.array([150e6])
+        self.wavelengths = (3e8 / self.freqs) * u.m
+        theta_HPBW = np.radians(10.0)
+        self.hpbw_per_antenna = {
+            0: np.array([theta_HPBW]),
+            1: np.array([theta_HPBW]),
+        }
+
+    def test_legacy_vs_chain_stokes_I_close(self):
+        """Legacy and JonesChain paths should give very similar Stokes I."""
+        vis_legacy = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+            use_jones_chain=False,
+        )
+
+        vis_chain = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+            use_jones_chain=True,
+            jones_config={},
+        )
+
+        for key in vis_legacy:
+            np.testing.assert_array_almost_equal(
+                vis_legacy[key]["I"],
+                vis_chain[key]["I"],
+                decimal=10,
+                err_msg=f"Legacy vs JonesChain Stokes I mismatch for {key}",
+            )
+
+    def test_chain_with_all_stubs_matches_legacy(self):
+        """JonesChain with all stub terms enabled should match legacy."""
+        jones_config = {
+            "G": {"enabled": True, "sigma": 0.0},
+            "B": {"enabled": True},
+            "D": {"enabled": True},
+        }
+
+        vis_chain = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+            use_jones_chain=True,
+            jones_config=jones_config,
+        )
+
+        vis_legacy = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+            use_jones_chain=False,
+        )
+
+        # Stubs all return identity, so results should match
+        for key in vis_legacy:
+            np.testing.assert_array_almost_equal(
+                vis_legacy[key]["I"],
+                vis_chain[key]["I"],
+                decimal=10,
+                err_msg=f"Stubs should not alter visibility for {key}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

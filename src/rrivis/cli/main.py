@@ -52,8 +52,8 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run with config file (v0.1.x compatible)
-  rrivis config.yaml
+  # Run with config file
+  rrivis --config config.yaml
 
   # Run with CLI arguments
   rrivis simulate --antenna-layout HERA65.csv --frequencies 100,150,200
@@ -74,19 +74,11 @@ For more information, see https://github.com/kartikmandar/RRIvis
     # Subcommands
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # Config file mode (default, backward compatible)
-    parser.add_argument(
-        "config",
-        nargs="?",
-        type=str,
-        help="Path to YAML configuration file",
-    )
-
     parser.add_argument(
         "--config",
         dest="config_flag",
         type=str,
-        help="Path to YAML configuration file (alternative syntax)",
+        help="Path to YAML configuration file",
     )
 
     parser.add_argument(
@@ -199,7 +191,7 @@ For more information, see https://github.com/kartikmandar/RRIvis
 
 def run_config_mode(args: argparse.Namespace) -> int:
     """Run simulation using configuration file (v0.1.x compatible)."""
-    from rrivis.utils.logging import setup_logging, get_logger
+    from rrivis.utils.logging import setup_logging, get_logger, print_info, print_success, console
 
     # Setup logging based on verbosity
     import logging
@@ -216,7 +208,7 @@ def run_config_mode(args: argparse.Namespace) -> int:
     logger = get_logger("rrivis.cli")
 
     # Determine config file path
-    config_path = args.config or args.config_flag
+    config_path = args.config_flag
 
     if not config_path:
         logger.error("No configuration file specified")
@@ -230,7 +222,7 @@ def run_config_mode(args: argparse.Namespace) -> int:
         logger.error(f"Configuration file not found: {config_path}")
         return 1
 
-    logger.info(f"Loading configuration from: {config_path}")
+    print_info(f"Loading configuration from: {config_path}")
 
     try:
         # Load and validate config
@@ -254,11 +246,12 @@ def run_config_mode(args: argparse.Namespace) -> int:
         # Auto-generate subdirectory name if not specified
         if not sim_subdir:
             sim_subdir = config.generate_output_subdir()
-            logger.info(f"Auto-generated output subdirectory: {sim_subdir}")
+            logger.debug(f"Auto-generated output subdirectory: {sim_subdir}")
 
         output_dir = Path(sim_data_dir) / sim_subdir
 
         # Set up file logging if save_log_data is enabled
+        log_file: Path | None = None
         if output_config.save_log_data:
             output_dir.mkdir(parents=True, exist_ok=True)
             log_file = output_dir / "simulation.log"
@@ -266,42 +259,67 @@ def run_config_mode(args: argparse.Namespace) -> int:
                 level=logging.DEBUG if args.verbose >= 2 else logging.INFO,
                 log_file=str(log_file),
             )
-            logger.info(f"Logging to file: {log_file}")
+            print_info(f"Logging to: {log_file}")
 
-        # Run simulation
+        # Run simulation — CLI --backend flag overrides config compute.backend
+        backend = args.backend if args.backend != "auto" else config.compute.backend
         from rrivis.api.simulator import Simulator
-        sim = Simulator(config=config.to_dict())
-        results = sim.run()
+        sim = Simulator(config=config.to_dict(), backend=backend)
+        sim.run()
+
+        saved_files: list[Path] = []
+        if log_file is not None:
+            saved_files.append(log_file)
+        any_output = output_config.save_simulation_data or output_config.plot_results
+
+        # Always save the config for reproducibility whenever any output is written
+        if any_output:
+            try:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                from rrivis.io.writers import save_config_yaml
+                saved_config_path = output_dir / "config.yaml"
+                save_config_yaml(config.to_dict(), saved_config_path)
+                saved_files.append(saved_config_path)
+                logger.debug(f"Config saved to: {saved_config_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save config: {e}")
 
         # Save simulation data if requested
         if output_config.save_simulation_data:
             try:
                 output_dir.mkdir(parents=True, exist_ok=True)
-                sim.save(output_dir, format="hdf5")
-                logger.info(f"Results saved to: {output_dir}")
-
-                # Save the config used for this simulation
-                from rrivis.io.writers import save_config_yaml
-                config_path = output_dir / "config.yaml"
-                save_config_yaml(config.to_dict(), config_path)
-                logger.info(f"Config saved to: {config_path}")
+                data_path = sim.save(output_dir, format="hdf5")
+                if data_path:
+                    saved_files.append(data_path)
             except Exception as e:
                 logger.warning(f"Failed to save results: {e}")
 
         # Generate plots if requested
         if output_config.plot_results:
             try:
-                sim.plot(
+                plot_paths = sim.plot(
                     plot_type="all",
                     output_dir=output_dir,
                     backend=output_config.plotting_backend or "bokeh",
                     show=output_config.open_plots_in_browser
                 )
-                logger.info(f"Plots saved to: {output_dir}")
+                if plot_paths:
+                    saved_files.extend(plot_paths)
             except Exception as e:
                 logger.warning(f"Failed to generate plots: {e}")
 
-        logger.info("Simulation completed successfully")
+        # Final output summary panel
+        if saved_files:
+            from rich.panel import Panel
+            from rich.table import Table
+            table = Table(show_header=False, box=None, padding=(0, 1))
+            table.add_column("", style="dim")
+            table.add_column("", style="cyan")
+            for f in saved_files:
+                table.add_row("→", str(f))
+            console.print(Panel(table, title="[bold]Output Files[/bold]", border_style="green"))
+
+        print_success("Done.")
         return 0
 
     except Exception as e:
@@ -406,7 +424,7 @@ def main(argv: Optional[list] = None) -> int:
         return run_validate_mode(args)
     else:
         # Default: config file mode (backward compatible)
-        if args.config or args.config_flag:
+        if args.config_flag:
             return run_config_mode(args)
         else:
             parser.print_help()

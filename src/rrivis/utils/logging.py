@@ -111,22 +111,22 @@ def print_header(title: str, subtitle: Optional[str] = None) -> None:
 
 def print_success(message: str) -> None:
     """Print a success message with checkmark."""
-    console.print(f"[success]✓[/success] {message}")
+    console.print(f"[success]✓[/success] {message}", highlight=False)
 
 
 def print_error(message: str) -> None:
     """Print an error message with X mark."""
-    console.print(f"[error]✗[/error] {message}")
+    console.print(f"[error]✗[/error] {message}", highlight=False)
 
 
 def print_warning(message: str) -> None:
     """Print a warning message."""
-    console.print(f"[warning]⚠[/warning] {message}")
+    console.print(f"[warning]⚠[/warning] {message}", highlight=False)
 
 
 def print_info(message: str) -> None:
     """Print an info message."""
-    console.print(f"[info]ℹ[/info] {message}")
+    console.print(f"[info]ℹ[/info] {message}", highlight=False)
 
 
 def print_table(title: str, data: dict, title_style: str = "bold cyan") -> None:

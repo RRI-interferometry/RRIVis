@@ -873,7 +873,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
 
         dec_deg_arr = np.full(n, dec_deg)
 
-        logger.info(f"Generated {n} test sources")
+        logger.debug(f"Generated {n} test sources")
 
         sky = cls(
             _ra_rad=np.deg2rad(ra_deg_arr),

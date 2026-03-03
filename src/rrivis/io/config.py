@@ -410,7 +410,7 @@ class ObsFrequencyConfig(BaseModel):
     @property
     def n_channels(self) -> int:
         """Calculate number of frequency channels."""
-        return max(1, int(self.frequency_bandwidth / self.frequency_interval))
+        return max(1, int(self.frequency_bandwidth / self.frequency_interval) + 1)
 
 
 class OutputConfig(BaseModel):
@@ -644,6 +644,15 @@ class PrecisionConfigSchema(BaseModel):
         )
 
 
+class ComputeConfig(BaseModel):
+    """Compute backend configuration."""
+
+    backend: str = Field(
+        "auto",
+        description="Computation backend: 'auto', 'numpy', 'numba', 'jax'",
+    )
+
+
 class RRIvisConfig(BaseModel):
     """Main RRIvis configuration with validation.
 
@@ -673,6 +682,7 @@ class RRIvisConfig(BaseModel):
         default_factory=VisibilityConfig,
         description="Visibility calculation settings"
     )
+    compute: ComputeConfig = Field(default_factory=ComputeConfig)
     precision: PrecisionConfigSchema | None = Field(
         None,
         description="Precision configuration for numerical computations"
@@ -737,10 +747,10 @@ class RRIvisConfig(BaseModel):
         """Generate output subdirectory name from config parameters.
 
         Creates a descriptive, deterministic directory name based on
-        simulation parameters plus the current runtime date.
+        simulation parameters.
 
         Format:
-            {telescope}_{freq_start}-{freq_end}{unit}_{n_channels}ch_{duration}s_SimTime{DDMMYYYY}
+            {telescope}_{freq_start}-{freq_end}{unit}_{n_channels}channels_{obs_start}_to_{obs_end}_{n_times}chunks
 
         Returns
         -------
@@ -751,9 +761,13 @@ class RRIvisConfig(BaseModel):
         --------
         >>> config = load_config("config.yaml")
         >>> config.generate_output_subdir()
-        'HERA_100-120MHz_21ch_600s_SimTime15012026'
+        'HERA_100-120MHz_21channels_2025-01-15T00-00-00_to_2025-01-15T00-10-00_60chunks'
         """
-        # Get config parameters
+        from datetime import timedelta
+
+        from astropy.time import Time as AstropyTime
+
+        # Frequency parameters
         telescope = self.telescope.telescope_name.replace(" ", "_")
         freq_start = int(self.obs_frequency.starting_frequency)
         freq_end = int(
@@ -762,14 +776,22 @@ class RRIvisConfig(BaseModel):
         )
         freq_unit = self.obs_frequency.frequency_unit
         n_channels = self.obs_frequency.n_channels
-        duration = int(self.obs_time.duration_seconds)
 
-        # Get current UTC date and time in DD-MM-YYYY_HH-MM-SS format
-        runtime_utc = datetime.now(UTC).strftime("%d-%m-%Y_%H-%M-%S")
+        # Time parameters
+        duration = int(self.obs_time.duration_seconds)
+        obs_start_dt = AstropyTime(self.obs_time.start_time).to_datetime()
+        obs_end_dt = obs_start_dt + timedelta(seconds=duration)
+
+        def _fmt(dt: datetime) -> str:
+            return dt.strftime("%Y-%m-%dT%H-%M-%S")
+
+        obs_start = _fmt(obs_start_dt)
+        obs_end = _fmt(obs_end_dt)
+        n_times = max(1, int(duration / self.obs_time.time_step_seconds))
 
         return (
             f"{telescope}_{freq_start}-{freq_end}{freq_unit}_"
-            f"{n_channels}ch_{duration}s_SimTimeUTC{runtime_utc}"
+            f"{n_channels}channels_{obs_start}_to_{obs_end}_{n_times}chunks"
         )
 
 

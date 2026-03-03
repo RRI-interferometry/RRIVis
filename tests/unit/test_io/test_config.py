@@ -172,13 +172,17 @@ class TestObsFrequencyConfig:
         assert config.frequency_unit == "MHz"
 
     def test_n_channels_property(self):
-        """Test frequency channel count calculation."""
+        """Test frequency channel count calculation.
+
+        n_channels = int(bandwidth / interval) + 1, matching np.linspace
+        which includes both endpoints. bw=10, interval=1 → 11 channels.
+        """
         config = ObsFrequencyConfig(
             starting_frequency=100.0,
             frequency_interval=1.0,
             frequency_bandwidth=10.0,
         )
-        assert config.n_channels == 10
+        assert config.n_channels == 11
 
     def test_valid_frequency_units(self):
         """Test valid frequency units."""

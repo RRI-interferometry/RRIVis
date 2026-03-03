@@ -40,6 +40,7 @@ Examples
 """
 
 import logging
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 
@@ -518,7 +519,7 @@ class Simulator:
         if test_config.get("use_test_sources", False):
             num_sources = test_config.get("num_sources", 100)
             sky_models.append(SkyModel.from_test_sources(num_sources=num_sources, precision=_precision))
-            logger.info(f"Loaded test sources: {num_sources} sources")
+            logger.debug(f"Loaded test sources: {num_sources} sources")
 
         if gleam_config.get("use_gleam", False):
             flux_limit = gleam_config.get("flux_limit", 1.0)
@@ -664,7 +665,10 @@ class Simulator:
         if not sky_models:
             num_sources = test_config.get("num_sources", 100)
             sky_models.append(SkyModel.from_test_sources(num_sources=num_sources, precision=_precision))
-            logger.info(f"No sky model selected, using {num_sources} test sources")
+            print_info(
+                f"No sky model enabled in config — using {num_sources} "
+                f"auto-generated test sources as fallback"
+            )
 
         # Combine all models into one
         if len(sky_models) == 1:
@@ -732,18 +736,23 @@ class Simulator:
         >>> print(results.keys())
         dict_keys(['visibilities', 'baselines', 'frequencies', ...])
         """
-        # Set up if not already done
-        if not self._is_setup:
-            self.setup()
+        t_start = time.perf_counter()
 
         if progress:
-            # Print beautiful header panel
+            # Print beautiful header panel FIRST, before setup
             print_header(
                 f"RRIvis Simulator v{self.version}",
                 "Radio Interferometer Visibility Simulator"
             )
 
-            # Print configuration table
+        # Set up if not already done
+        if not self._is_setup:
+            self.setup()
+
+        t_setup = time.perf_counter() - t_start
+
+        if progress:
+            # Print configuration table (after setup, needs backend/sky_model info)
             n_sky = self._sky_model.n_sources if self._sky_model else len(self._sources)
             sky_label = f"{n_sky} pixels (HEALPix)" if self._sky_representation == "healpix_map" else f"{n_sky} sources"
             config_data = {
@@ -836,6 +845,8 @@ class Simulator:
                 return_correlations=True,
             )
 
+        t_total = time.perf_counter() - t_start
+
         # Compile results
         n_sky = self._sky_model.n_sources if self._sky_model else len(self._sources)
         self._results = {
@@ -848,6 +859,7 @@ class Simulator:
             "location": self._location,
             "obstime": self._obstime,
             "wavelengths": self._wavelengths,
+            "timing": {"total": t_total, "setup": t_setup},
             "metadata": {
                 "version": self.version,
                 "backend": self._backend.name,
@@ -863,7 +875,7 @@ class Simulator:
         }
 
         if progress:
-            print_success("Simulation complete!")
+            print_success(f"Simulation complete! ({t_total:.1f}s total, setup {t_setup:.1f}s)")
 
         return self._results
 
@@ -873,7 +885,7 @@ class Simulator:
         output_dir: str | Path | None = None,
         backend: str = "bokeh",
         show: bool = True,
-    ) -> None:
+    ) -> list[Path]:
         """
         Generate visualization plots.
 
@@ -922,6 +934,11 @@ class Simulator:
             output_dir = Path(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Snapshot of HTML files already in output_dir before plotting (to detect new ones)
+        html_before: set[Path] = set()
+        if output_dir:
+            html_before = set(output_dir.glob("*.html"))
+
         # Antenna layout plot
         if plot_type in ["antenna", "all"]:
             from rrivis.visualization.bokeh_plots import (
@@ -961,7 +978,7 @@ class Simulator:
 
             if has_time_data and moduli[first_baseline].shape[0] > 1:
                 # Multi-time data - generate time-series plots
-                logger.info(f"Generating {plot_type} plots with multi-time data")
+                logger.debug(f"Generating {plot_type} plots with multi-time data")
 
                 # Generate time points array
                 time_config = self.config.get("obs_time", {})
@@ -1026,8 +1043,13 @@ class Simulator:
                     "Use plot_type='antenna' for single-time results."
                 )
 
+        # Collect newly written HTML files
+        saved_paths: list[Path] = []
         if output_dir:
-            print_success(f"Plots saved to {output_dir}")
+            html_after = set(output_dir.glob("*.html"))
+            saved_paths = sorted(html_after - html_before)
+
+        return saved_paths
 
     def save(
         self,
@@ -1088,7 +1110,7 @@ class Simulator:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        print_info(f"Saving results to {output_dir}...")
+        logger.debug(f"Saving results to {output_dir}...")
 
         if format.lower() == "hdf5":
             output_path = output_dir / "visibilities.h5"
@@ -1142,7 +1164,7 @@ class Simulator:
                 metadata=self._results["metadata"],
             )
 
-            print_success(f"Saved HDF5 to {output_path}")
+            logger.debug(f"Saved HDF5 to {output_path}")
             return output_path
 
         elif format.lower() == "json":
@@ -1165,7 +1187,7 @@ class Simulator:
             with open(output_path, "w") as f:
                 json.dump(json_data, f, indent=2, default=str)
 
-            print_success(f"Saved JSON to {output_path}")
+            logger.debug(f"Saved JSON to {output_path}")
             return output_path
 
         elif format.lower() == "ms":
@@ -1205,7 +1227,7 @@ class Simulator:
                 overwrite=overwrite,
             )
 
-            print_success(f"Saved MS to {output_path}")
+            logger.debug(f"Saved MS to {output_path}")
             return output_path
 
         else:

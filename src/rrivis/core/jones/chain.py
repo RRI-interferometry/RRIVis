@@ -191,6 +191,64 @@ class JonesChain:
 
         return J_total
 
+    def compute_antenna_jones_all_sources(
+        self,
+        antenna_idx: int,
+        n_sources: int,
+        freq_idx: int,
+        time_idx: int,
+        **kwargs,
+    ) -> Any:
+        """Compute total Jones matrix for one antenna, all sources.
+
+        Multiplies all terms in the chain for all sources at once:
+            J_total[s] = J_n[s] @ J_{n-1}[s] @ ... @ J_1[s]
+
+        For direction-independent terms, the single (2, 2) matrix is
+        broadcast across all sources.
+
+        Args:
+            antenna_idx: Antenna index
+            n_sources: Number of sources
+            freq_idx: Frequency channel index
+            time_idx: Time sample index
+            **kwargs: Additional parameters passed to each term
+
+        Returns:
+            Complex array of shape (n_sources, 2, 2)
+        """
+        xp = self.backend.xp
+
+        # Start with batch identity: (n_sources, 2, 2)
+        J_total = xp.zeros((n_sources, 2, 2), dtype=np.complex128)
+        J_total[:, 0, 0] = 1.0
+        J_total[:, 1, 1] = 1.0
+
+        if not self.terms:
+            return J_total
+
+        # Apply terms in reverse order (rightmost applied first)
+        for term in reversed(self.terms):
+            if term.is_direction_dependent:
+                J_term = term.compute_jones_all_sources(
+                    antenna_idx, n_sources, freq_idx, time_idx,
+                    self.backend, **kwargs,
+                )
+            else:
+                # Direction-independent: compute once and broadcast
+                J_single = term.compute_jones(
+                    antenna_idx, None, freq_idx, time_idx,
+                    self.backend, **kwargs,
+                )
+                J_term = xp.broadcast_to(
+                    J_single[np.newaxis], (n_sources, 2, 2)
+                ).copy()
+
+            # Batched matmul: J_total = J_term @ J_total
+            J_total = J_term @ J_total
+
+        return J_total
+
     def compute_baseline_visibility(
         self,
         antenna_p: int,
