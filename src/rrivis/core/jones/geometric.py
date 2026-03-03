@@ -151,6 +151,49 @@ class GeometricPhaseJones(JonesTerm):
         return K
 
 
+    def compute_jones_all_sources(
+        self,
+        antenna_idx: int,
+        n_sources: int,
+        freq_idx: int,
+        time_idx: int,
+        backend: Any,
+        **kwargs,
+    ) -> Any:
+        """Compute geometric phase Jones for all sources at once.
+
+        Returns (n_sources, 2, 2) diagonal matrices with phase on diagonal.
+        """
+        xp = backend.xp
+        baseline_uvw = kwargs.get('baseline_uvw')
+
+        if baseline_uvw is None:
+            # No baseline info: return batch identity
+            result = xp.zeros((n_sources, 2, 2), dtype=np.complex128)
+            result[:, 0, 0] = 1.0
+            result[:, 1, 1] = 1.0
+            return result
+
+        # Vectorized phase for all sources
+        lmn = self.source_lmn[:n_sources]  # (n_sources, 3)
+        baseline_uvw = np.asarray(baseline_uvw)
+        if baseline_uvw.ndim == 1:
+            u, v, w = baseline_uvw
+        else:
+            u, v, w = baseline_uvw.T
+
+        # Phase: -2π(u*l + v*m + w*(n-1))
+        phase = -2.0 * np.pi * (
+            u * lmn[:, 0] + v * lmn[:, 1] + w * (lmn[:, 2] - 1.0)
+        )
+        phase_term = xp.exp(1j * phase)  # (n_sources,)
+
+        # Scalar matrix: phase * I for each source
+        result = xp.zeros((n_sources, 2, 2), dtype=np.complex128)
+        result[:, 0, 0] = phase_term
+        result[:, 1, 1] = phase_term
+        return result
+
     def get_config(self) -> Dict[str, Any]:
         config = super().get_config()
         config.update({

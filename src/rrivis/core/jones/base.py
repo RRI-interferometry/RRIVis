@@ -7,6 +7,8 @@ Terms combine multiplicatively: J_total = J_n @ J_{n-1} @ ... @ J_1
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
+import numpy as np
+
 
 class JonesTerm(ABC):
     """Abstract base class for Jones matrix terms.
@@ -192,6 +194,39 @@ class JonesTerm(ABC):
         Default: False
         """
         return False
+
+    def compute_jones_all_sources(
+        self,
+        antenna_idx: int,
+        n_sources: int,
+        freq_idx: int,
+        time_idx: int,
+        backend: Any,
+        **kwargs,
+    ) -> Any:
+        """Compute Jones matrices for all sources at once.
+
+        Default implementation: loops over sources calling compute_jones().
+        Subclasses should override for true vectorization.
+
+        Args:
+            antenna_idx: Antenna index (0 to N_ant-1)
+            n_sources: Number of sources
+            freq_idx: Frequency channel index
+            time_idx: Time sample index
+            backend: ArrayBackend instance
+            **kwargs: Effect-specific parameters
+
+        Returns:
+            Complex array of shape (n_sources, 2, 2)
+        """
+        xp = backend.xp
+        result = xp.zeros((n_sources, 2, 2), dtype=np.complex128)
+        for s in range(n_sources):
+            result[s] = self.compute_jones(
+                antenna_idx, s, freq_idx, time_idx, backend, **kwargs
+            )
+        return result
 
     def get_config(self) -> Dict[str, Any]:
         """Get configuration dictionary for this Jones term.

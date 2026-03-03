@@ -219,7 +219,7 @@ class BeamFITSHandler:
                 "  TODO: Implement full basis rotation for arbitrary orientations"
             )
 
-    def get_jones_matrix(self, alt_rad, az_rad, freq_hz, location=None, time=None):
+    def get_jones_matrix(self, alt_rad, az_rad, freq_hz, location=None, time=None, check_domain=True):
         """
         Get 2×2 Jones matrix at given position(s).
 
@@ -296,13 +296,16 @@ class BeamFITSHandler:
         # interp_basis_vector: basis vector info (not used in Phase 1)
 
         try:
-            interp_data, interp_basis_vector = self.beam.interp(
+            interp_kwargs = dict(
                 az_array=np.atleast_1d(az_uvbeam),
                 za_array=np.atleast_1d(za_rad if self.beam.pixel_coordinate_system == "az_za" else theta),
                 freq_array=np.atleast_1d(freq_hz),
                 freq_interp_kind=self.freq_interp_kind,
                 reuse_spline=True,  # Performance optimization
             )
+            if not check_domain:
+                interp_kwargs["check_azza_domain"] = False
+            interp_data, interp_basis_vector = self.beam.interp(**interp_kwargs)
 
         except Exception as e:
             self.logger.error(f"Beam interpolation failed: {e}")
@@ -530,7 +533,8 @@ class BeamManager:
         self.logger.info(f"Loaded {len(self.beam_handlers)} unique beams")
 
     def get_jones_matrix(
-        self, antenna_number, alt_rad, az_rad, freq_hz, location, time
+        self, antenna_number, alt_rad, az_rad, freq_hz, location, time,
+        check_domain=True,
     ):
         """
         Get Jones matrix for specific antenna at given position.
@@ -547,6 +551,10 @@ class BeamManager:
             Observatory location
         time : Time
             Observation time
+        check_domain : bool, optional
+            If True (default), validate that coordinates are within the
+            beam's domain. Set False for known full-sky beams to skip
+            validation overhead.
 
         Returns
         -------
@@ -563,7 +571,8 @@ class BeamManager:
 
         # Get Jones matrix from appropriate beam
         jones = self.beam_handlers[beam_id].get_jones_matrix(
-            alt_rad, az_rad, freq_hz, location, time
+            alt_rad, az_rad, freq_hz, location, time,
+            check_domain=check_domain,
         )
 
         return jones

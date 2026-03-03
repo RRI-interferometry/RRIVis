@@ -977,6 +977,202 @@ class TestJonesMatrixProperties:
         np.testing.assert_almost_equal(jones_h[0, 0], np.conj(jones[0, 0]))
 
 
+class TestComputeJonesAllSources:
+    """Tests for vectorized compute_jones_all_sources."""
+
+    def test_gain_all_sources_matches_loop(self, numpy_backend):
+        """Default loop fallback should produce correct (n_sources, 2, 2) output."""
+        g = GainJones(n_antennas=4)
+        n_sources = 5
+
+        result = g.compute_jones_all_sources(0, n_sources, 0, 0, numpy_backend)
+
+        assert result.shape == (n_sources, 2, 2)
+        # Stubs return identity for each source
+        for s in range(n_sources):
+            np.testing.assert_almost_equal(result[s, 0, 0], 1.0)
+            np.testing.assert_almost_equal(result[s, 1, 1], 1.0)
+            np.testing.assert_almost_equal(result[s, 0, 1], 0.0)
+
+    def test_geometric_all_sources_vectorized(self, numpy_backend, wavelengths):
+        """GeometricPhaseJones vectorized override should match per-source loop."""
+        source_lmn = np.array([
+            [0.0, 0.0, 1.0],
+            [0.1, 0.0, np.sqrt(1 - 0.1**2)],
+            [0.05, 0.05, np.sqrt(1 - 0.05**2 - 0.05**2)],
+        ])
+        k = GeometricPhaseJones(source_lmn, wavelengths)
+        baseline_uvw = np.array([100.0, 50.0, 10.0])
+
+        # Vectorized
+        result_vec = k.compute_jones_all_sources(
+            0, 3, 0, 0, numpy_backend, baseline_uvw=baseline_uvw
+        )
+
+        # Per-source loop
+        result_loop = np.zeros((3, 2, 2), dtype=np.complex128)
+        for s in range(3):
+            result_loop[s] = k.compute_jones(
+                0, s, 0, 0, numpy_backend, baseline_uvw=baseline_uvw
+            )
+
+        np.testing.assert_array_almost_equal(result_vec, result_loop, decimal=12)
+
+    def test_geometric_all_sources_no_baseline(self, numpy_backend, wavelengths):
+        """K-term without baseline_uvw returns batch identity."""
+        source_lmn = np.array([[0.1, 0.0, np.sqrt(1 - 0.1**2)]])
+        k = GeometricPhaseJones(source_lmn, wavelengths)
+
+        result = k.compute_jones_all_sources(0, 1, 0, 0, numpy_backend)
+
+        assert result.shape == (1, 2, 2)
+        np.testing.assert_almost_equal(result[0, 0, 0], 1.0)
+        np.testing.assert_almost_equal(result[0, 1, 1], 1.0)
+
+    def test_analytic_beam_all_sources_vectorized(self, numpy_backend, frequencies):
+        """AnalyticBeamJones vectorized override should match per-source."""
+        source_altaz = np.array([
+            [np.pi / 2, 0.0],       # Zenith
+            [np.deg2rad(85), 0.0],   # 5 deg off
+            [np.deg2rad(70), 0.0],   # 20 deg off
+        ])
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(10.0),
+            beam_type="gaussian",
+        )
+
+        # Vectorized
+        result_vec = beam.compute_jones_all_sources(
+            0, 3, 0, 0, numpy_backend
+        )
+
+        # Per-source loop
+        result_loop = np.zeros((3, 2, 2), dtype=np.complex128)
+        for s in range(3):
+            result_loop[s] = beam.compute_jones(0, s, 0, 0, numpy_backend)
+
+        assert result_vec.shape == (3, 2, 2)
+        np.testing.assert_array_almost_equal(result_vec, result_loop, decimal=10)
+
+    def test_uniform_beam_all_sources(self, numpy_backend, frequencies):
+        """Uniform beam should return identity for all sources."""
+        source_altaz = np.array([
+            [np.deg2rad(45), 0.0],
+            [np.deg2rad(30), np.pi / 4],
+            [np.deg2rad(80), np.pi],
+        ])
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(10.0),
+            beam_type="uniform",
+        )
+
+        result = beam.compute_jones_all_sources(0, 3, 0, 0, numpy_backend)
+
+        assert result.shape == (3, 2, 2)
+        for s in range(3):
+            np.testing.assert_almost_equal(result[s, 0, 0], 1.0)
+            np.testing.assert_almost_equal(result[s, 1, 1], 1.0)
+
+
+class TestComputeAntennaJonesAllSources:
+    """Tests for JonesChain.compute_antenna_jones_all_sources."""
+
+    def test_empty_chain_returns_identity(self, numpy_backend):
+        """Empty chain should return batch identity."""
+        chain = JonesChain(numpy_backend)
+        result = chain.compute_antenna_jones_all_sources(0, 5, 0, 0)
+
+        assert result.shape == (5, 2, 2)
+        for s in range(5):
+            np.testing.assert_almost_equal(result[s, 0, 0], 1.0)
+            np.testing.assert_almost_equal(result[s, 1, 1], 1.0)
+            np.testing.assert_almost_equal(result[s, 0, 1], 0.0)
+
+    def test_single_di_term(self, numpy_backend):
+        """Chain with single DI term should broadcast correctly."""
+        g = GainJones(n_antennas=4)
+        chain = JonesChain(numpy_backend)
+        chain.add_term(g)
+
+        result = chain.compute_antenna_jones_all_sources(0, 3, 0, 0)
+
+        assert result.shape == (3, 2, 2)
+        # Stub returns identity
+        for s in range(3):
+            np.testing.assert_almost_equal(result[s, 0, 0], 1.0)
+
+    def test_dd_and_di_terms(self, numpy_backend, frequencies):
+        """Chain with DDE and DIE terms should combine correctly."""
+        source_altaz = np.array([
+            [np.pi / 2, 0.0],
+            [np.deg2rad(80), 0.0],
+        ])
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(10.0),
+            beam_type="gaussian",
+        )
+        g = GainJones(n_antennas=4)
+
+        chain = JonesChain(numpy_backend)
+        chain.add_term(beam)
+        chain.add_term(g)
+
+        result = chain.compute_antenna_jones_all_sources(0, 2, 0, 0)
+
+        assert result.shape == (2, 2, 2)
+        # Zenith source should have ~unity beam
+        np.testing.assert_almost_equal(np.abs(result[0, 0, 0]), 1.0, decimal=5)
+        # Off-axis source should have reduced beam
+        assert np.abs(result[1, 0, 0]) < 1.0
+
+    def test_matches_per_source_loop(self, numpy_backend, frequencies, wavelengths):
+        """Vectorized chain should match per-source compute_antenna_jones."""
+        source_lmn = np.array([
+            [0.0, 0.0, 1.0],
+            [0.1, 0.0, np.sqrt(1 - 0.1**2)],
+        ])
+        source_altaz = np.array([
+            [np.pi / 2, 0.0],
+            [np.deg2rad(84), 0.0],
+        ])
+
+        k = GeometricPhaseJones(source_lmn, wavelengths)
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(20.0),
+            beam_type="gaussian",
+        )
+        g = GainJones(n_antennas=4)
+
+        chain = JonesChain(numpy_backend)
+        chain.add_term(k)
+        chain.add_term(beam)
+        chain.add_term(g)
+
+        baseline_uvw = np.array([100.0, 50.0, 10.0])
+
+        # Vectorized
+        result_vec = chain.compute_antenna_jones_all_sources(
+            0, 2, 0, 0, baseline_uvw=baseline_uvw
+        )
+
+        # Per-source loop
+        result_loop = np.zeros((2, 2, 2), dtype=np.complex128)
+        for s in range(2):
+            result_loop[s] = chain.compute_antenna_jones(
+                0, s, 0, 0, baseline_uvw=baseline_uvw
+            )
+
+        np.testing.assert_array_almost_equal(result_vec, result_loop, decimal=10)
+
+
 class TestIntegration:
     """Integration tests for complete visibility calculation."""
 

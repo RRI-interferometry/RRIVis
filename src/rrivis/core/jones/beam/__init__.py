@@ -218,16 +218,22 @@ class AnalyticBeamJones(BeamJones):
 
         super().__init__(beam_model, source_altaz, frequencies)
 
-    def _compute_analytic_beam(self, zenith_angle: float) -> np.ndarray:
+    def _compute_analytic_beam(self, zenith_angle) -> np.ndarray:
         """Compute analytic beam pattern using functions from ``analytic.py``.
 
         Args:
-            zenith_angle: Angle from zenith in radians
+            zenith_angle: Angle from zenith in radians (scalar or array)
 
         Returns:
-            2x2 diagonal Jones matrix
+            2x2 diagonal Jones matrix (2, 2) for scalar,
+            or (n_sources, 2, 2) for array input
         """
-        if self.beam_type == "gaussian":
+        # Detect scalar input before pattern functions may wrap it
+        input_is_scalar = np.ndim(zenith_angle) == 0
+
+        if self.beam_type == "uniform":
+            amplitude = np.ones_like(np.asarray(zenith_angle, dtype=float))
+        elif self.beam_type == "gaussian":
             amplitude = gaussian_A_theta_EBeam(zenith_angle, self.hpbw_radians)
         elif self.beam_type == "airy":
             if self.wavelength is not None and self.diameter is not None:
@@ -236,11 +242,12 @@ class AnalyticBeamJones(BeamJones):
                 )
             else:
                 # Fallback approximation when wavelength/diameter not provided
-                if np.abs(zenith_angle) < 1e-10:
-                    amplitude = 1.0
-                else:
-                    x = 2 * np.pi * zenith_angle / self.hpbw_radians
-                    amplitude = (2 * np.sinc(x / np.pi)) ** 2
+                za = np.asarray(zenith_angle, dtype=float)
+                amplitude = np.where(
+                    np.abs(za) < 1e-10,
+                    1.0,
+                    (2 * np.sinc(2 * np.pi * za / (self.hpbw_radians * np.pi))) ** 2,
+                )
         elif self.beam_type == "cosine":
             amplitude = cosine_tapered_pattern(
                 zenith_angle, self.hpbw_radians,
@@ -252,16 +259,46 @@ class AnalyticBeamJones(BeamJones):
                 taper_dB=self.taper_dB,
             )
         else:
-            amplitude = 1.0
+            amplitude = np.ones_like(np.asarray(zenith_angle, dtype=float))
 
-        # Ensure scalar for 2x2 matrix construction
-        amplitude = float(amplitude)
+        amplitude = np.asarray(amplitude).ravel()
 
-        # Diagonal beam (no cross-pol)
-        return np.array([
-            [amplitude, 0],
-            [0, amplitude],
-        ], dtype=np.complex128)
+        if input_is_scalar:
+            # Scalar: return (2, 2)
+            a = float(amplitude[0]) if amplitude.size > 0 else 1.0
+            return np.array([
+                [a, 0],
+                [0, a],
+            ], dtype=np.complex128)
+        else:
+            # Array: return (n_sources, 2, 2)
+            n = amplitude.shape[0]
+            jones = np.zeros((n, 2, 2), dtype=np.complex128)
+            jones[:, 0, 0] = amplitude
+            jones[:, 1, 1] = amplitude
+            return jones
+
+    def compute_jones_all_sources(
+        self,
+        antenna_idx: int,
+        n_sources: int,
+        freq_idx: int,
+        time_idx: int,
+        backend: Any,
+        **kwargs,
+    ) -> Any:
+        """Compute analytic beam Jones for all sources at once.
+
+        Returns (n_sources, 2, 2) diagonal matrices.
+        """
+        # Get all zenith angles at once
+        alts = self.source_altaz[:n_sources, 0]
+        zenith_angles = np.pi / 2 - alts
+
+        # _compute_analytic_beam now handles arrays
+        return backend.asarray(
+            self._compute_analytic_beam(zenith_angles), dtype=np.complex128,
+        )
 
     def is_diagonal(self) -> bool:
         return True  # Analytic beams are diagonal

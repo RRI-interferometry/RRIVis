@@ -73,7 +73,7 @@ def get_location_and_time(lat=None, lon=None, height=None, starttime=None):
     location = EarthLocation(lat=lat * u.deg, lon=lon * u.deg, height=height * u.m)
 
     # Log observation parameters
-    logger.info(f"Observation Location: Latitude={lat}, Longitude={lon}, Height={height} meters")
-    logger.info(f"Observation Start Time: {obstime_start.isot}")
+    logger.debug(f"Observation Location: Latitude={lat}, Longitude={lon}, Height={height} meters")
+    logger.debug(f"Observation Start Time: {obstime_start.isot}")
 
     return location, obstime_start

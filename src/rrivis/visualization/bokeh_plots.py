@@ -601,7 +601,7 @@ def _persist_bokeh_document(
 
         if save_flag and folder_path:
             message = save_message or f"Saved {title} to"
-            logger.info(f"{message} {target_path}")
+            logger.debug(f"{message} {target_path}")
 
         if open_flag:
             webbrowser.open(Path(target_path).resolve().as_uri())
@@ -946,7 +946,7 @@ def plot_antenna_layout_3d_plotly(
             f.write(centered)
         if open_in_browser:
             webbrowser.open(Path(html_path).resolve().as_uri())
-        logger.info(f"Saved antenna 3D layout (Plotly) to {html_path}")
+        logger.debug(f"Saved antenna 3D layout (Plotly) to {html_path}")
         return html_path
     except Exception as exc:
         logger.warning(f"Failed to save 3D Plotly layout ({exc})")
