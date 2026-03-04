@@ -748,6 +748,177 @@ class RRIvisConfig(BaseModel):
         """Convert configuration to dictionary."""
         return self.model_dump()
 
+    def validate(self) -> list[str]:
+        """Collect all configuration errors upfront.
+
+        Returns a list of human-readable error messages. An empty list means
+        the configuration is valid and simulation can proceed.
+
+        Returns
+        -------
+        list[str]
+            Error messages, one per problem found.
+        """
+        errors: list[str] = []
+        al = self.antenna_layout
+        ot = self.obs_time
+        of = self.obs_frequency
+        loc = self.location
+
+        # --- Antenna layout ---
+        if not al.antenna_positions_file:
+            errors.append(
+                "antenna_layout.antenna_positions_file: required but not set. "
+                "Set to your antenna positions file path."
+            )
+        elif not Path(al.antenna_positions_file).exists():
+            errors.append(
+                f"antenna_layout.antenna_positions_file: file not found: "
+                f"'{al.antenna_positions_file}'"
+            )
+        if not al.antenna_file_format:
+            errors.append(
+                "antenna_layout.antenna_file_format: required but not set. "
+                "E.g. 'rrivis', 'casa', 'uvfits'."
+            )
+        if al.all_antenna_diameter is None:
+            errors.append(
+                "antenna_layout.all_antenna_diameter: required but not set. "
+                "E.g. 14.0 (meters)."
+            )
+        elif al.all_antenna_diameter <= 0:
+            errors.append(
+                f"antenna_layout.all_antenna_diameter: must be > 0, "
+                f"got {al.all_antenna_diameter}."
+            )
+
+        # --- Observation time ---
+        if ot.start_time is None:
+            errors.append(
+                "obs_time.start_time: required but not set. "
+                "E.g. '2025-01-01T00:00:00'."
+            )
+        else:
+            try:
+                from astropy.time import Time as _ATime
+                _ATime(ot.start_time)
+            except Exception:
+                errors.append(
+                    f"obs_time.start_time: invalid ISO format '{ot.start_time}'. "
+                    "E.g. '2025-01-01T00:00:00'."
+                )
+        if ot.duration_seconds is None:
+            errors.append(
+                "obs_time.duration_seconds: required but not set. "
+                "E.g. 3600.0 (seconds)."
+            )
+        elif ot.duration_seconds <= 0:
+            errors.append(
+                f"obs_time.duration_seconds: must be > 0, got {ot.duration_seconds}."
+            )
+        if ot.time_step_seconds is None:
+            errors.append(
+                "obs_time.time_step_seconds: required but not set. "
+                "E.g. 60.0 (seconds)."
+            )
+        elif ot.time_step_seconds <= 0:
+            errors.append(
+                f"obs_time.time_step_seconds: must be > 0, got {ot.time_step_seconds}."
+            )
+        if (
+            ot.duration_seconds is not None
+            and ot.time_step_seconds is not None
+            and ot.duration_seconds > 0
+            and ot.time_step_seconds > 0
+            and ot.time_step_seconds > ot.duration_seconds
+        ):
+            errors.append(
+                "obs_time.time_step_seconds must be <= duration_seconds."
+            )
+
+        # --- Observation frequency ---
+        if of.starting_frequency is None:
+            errors.append(
+                "obs_frequency.starting_frequency: required but not set. "
+                "E.g. 50.0 (MHz)."
+            )
+        elif of.starting_frequency <= 0:
+            errors.append(
+                f"obs_frequency.starting_frequency: must be > 0, "
+                f"got {of.starting_frequency}."
+            )
+        if of.frequency_interval is None:
+            errors.append(
+                "obs_frequency.frequency_interval: required but not set. "
+                "E.g. 1.0 (MHz)."
+            )
+        elif of.frequency_interval <= 0:
+            errors.append(
+                f"obs_frequency.frequency_interval: must be > 0, "
+                f"got {of.frequency_interval}."
+            )
+        if of.frequency_bandwidth is None:
+            errors.append(
+                "obs_frequency.frequency_bandwidth: required but not set. "
+                "E.g. 100.0 (MHz)."
+            )
+        elif of.frequency_bandwidth <= 0:
+            errors.append(
+                f"obs_frequency.frequency_bandwidth: must be > 0, "
+                f"got {of.frequency_bandwidth}."
+            )
+        if (
+            of.frequency_interval is not None
+            and of.frequency_bandwidth is not None
+            and of.frequency_interval > 0
+            and of.frequency_bandwidth > 0
+            and of.frequency_interval >= of.frequency_bandwidth
+        ):
+            errors.append(
+                "obs_frequency.frequency_interval must be < frequency_bandwidth."
+            )
+
+        # --- Location range checks (only if value is provided) ---
+        def _as_float(v: float | str) -> float | None:
+            if v == "":
+                return None
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        lat = _as_float(loc.lat)
+        lon = _as_float(loc.lon)
+        height = _as_float(loc.height)
+        if lat is not None and not (-90 <= lat <= 90):
+            errors.append(f"location.lat: must be in [-90, 90], got {lat}.")
+        if lon is not None and not (-180 <= lon <= 180):
+            errors.append(f"location.lon: must be in [-180, 180], got {lon}.")
+        if height is not None and height < 0:
+            errors.append(f"location.height: must be >= 0, got {height}.")
+
+        # --- Beam cross-field ---
+        beams = self.beams
+        if beams.beam_mode == "analytic" and beams.all_beam_response is None:
+            errors.append(
+                "beams.all_beam_response: required when beam_mode='analytic'. "
+                "E.g. 'gaussian'."
+            )
+
+        # --- pyradiosky file ---
+        if self.sky_model.pyradiosky.use_pyradiosky:
+            fname = self.sky_model.pyradiosky.filename
+            if not fname:
+                errors.append(
+                    "sky_model.pyradiosky.filename: required when use_pyradiosky=true."
+                )
+            elif not Path(fname).exists():
+                errors.append(
+                    f"sky_model.pyradiosky.filename: file not found: '{fname}'."
+                )
+
+        return errors
+
     def generate_output_subdir(self) -> str:
         """Generate output subdirectory name from config parameters.
 
