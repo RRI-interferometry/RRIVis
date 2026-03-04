@@ -24,6 +24,7 @@ from rrivis.io.config import (
     GLEAMConfig,
     GSMConfig,
     OutputConfig,
+    VisibilityConfig,
     load_config,
     create_default_config,
 )
@@ -304,7 +305,7 @@ class TestOutputConfig:
     def test_default_values(self):
         """Test default output configuration."""
         config = OutputConfig()
-        assert config.output_file_format == "HDF5"
+        assert config.output_file_format is None
         assert config.save_simulation_data is False
 
     def test_valid_output_formats(self):
@@ -470,7 +471,7 @@ telescope:
         """Blank config should report all 9 required-field errors."""
         config = RRIvisConfig()
         errors = config.validate()
-        assert len(errors) == 9
+        assert len(errors) == 10
         assert any("antenna_positions_file" in e for e in errors)
         assert any("antenna_file_format" in e for e in errors)
         assert any("all_antenna_diameter" in e for e in errors)
@@ -480,6 +481,7 @@ telescope:
         assert any("starting_frequency" in e for e in errors)
         assert any("frequency_interval" in e for e in errors)
         assert any("frequency_bandwidth" in e for e in errors)
+        assert any("sky_representation" in e for e in errors)
 
     def test_validate_valid_config_returns_empty(self, tmp_path):
         """Fully populated config should return no errors."""
@@ -501,6 +503,7 @@ telescope:
                 frequency_interval=1.0,
                 frequency_bandwidth=50.0,
             ),
+            visibility=VisibilityConfig(sky_representation="point_sources"),
         )
         assert config.validate() == []
 
@@ -522,6 +525,7 @@ telescope:
                 frequency_interval=1.0,
                 frequency_bandwidth=50.0,
             ),
+            visibility=VisibilityConfig(sky_representation="point_sources"),
         )
         errors = config.validate()
         assert len(errors) == 1

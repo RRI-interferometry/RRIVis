@@ -486,7 +486,7 @@ class Simulator:
         # Get visibility configuration
         visibility_config = self.config.get("visibility", {})
         calculation_type = visibility_config.get("calculation_type", "direct_sum")
-        sky_representation = visibility_config.get("sky_representation", "point_sources")
+        sky_representation = visibility_config.get("sky_representation")
 
         # Validate calculation type
         if calculation_type == "spherical_harmonic":
@@ -1059,6 +1059,7 @@ class Simulator:
         format: str = "hdf5",
         overwrite: bool = False,
         telescope_name: str | None = None,
+        filename: str | None = None,
     ) -> Path:
         """
         Save simulation results to disk.
@@ -1073,6 +1074,9 @@ class Simulator:
             Overwrite existing files (default: False).
         telescope_name : str, optional
             Telescope name for MS metadata (default: from config or "RRIvis").
+        filename : str, optional
+            Output filename stem (without extension). Defaults to
+            output_file_name from config, or "visibilities" if not set.
 
         Returns
         -------
@@ -1115,7 +1119,12 @@ class Simulator:
         logger.debug(f"Saving results to {output_dir}...")
 
         if format.lower() == "hdf5":
-            output_path = output_dir / "visibilities.h5"
+            stem = (
+                filename
+                or self.config.get("output", {}).get("output_file_name")
+                or "visibilities"
+            )
+            output_path = output_dir / f"{stem}.h5"
 
             if output_path.exists() and not overwrite:
                 raise FileExistsError(
@@ -1172,7 +1181,12 @@ class Simulator:
         elif format.lower() == "json":
             import json
 
-            output_path = output_dir / "visibilities.json"
+            stem = (
+                filename
+                or self.config.get("output", {}).get("output_file_name")
+                or "visibilities"
+            )
+            output_path = output_dir / f"{stem}.json"
 
             if output_path.exists() and not overwrite:
                 raise FileExistsError(
@@ -1202,7 +1216,12 @@ class Simulator:
                     "Or: pip install python-casacore"
                 )
 
-            output_path = output_dir / "simulation.ms"
+            stem = (
+                filename
+                or self.config.get("output", {}).get("output_file_name")
+                or "simulation"
+            )
+            output_path = output_dir / f"{stem}.ms"
 
             # Get telescope name from config or parameter
             if telescope_name is None:

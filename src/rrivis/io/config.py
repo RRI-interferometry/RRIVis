@@ -420,9 +420,9 @@ class OutputConfig(BaseModel):
 
     simulation_data_dir: str = Field("", description="Output directory")
     simulation_subdir: str = Field("", description="Output subdirectory name")
-    output_file_name: str = Field("complex_visibility", description="Output filename")
-    output_file_format: Literal["HDF5", "JSON", "MS", "UVFITS"] = Field(
-        "HDF5", description="Output format"
+    output_file_name: str = Field("visibilities", description="Output filename")
+    output_file_format: Literal["HDF5", "JSON", "MS", "UVFITS"] | None = Field(
+        None, description="Output format (default: HDF5)"
     )
     save_simulation_data: bool = Field(False, description="Save simulation data")
     overwrite_output: bool = Field(False, description="Overwrite existing output files")
@@ -436,7 +436,7 @@ class OutputConfig(BaseModel):
     angle_unit: Literal["degrees", "radians", ""] = Field(
         "", description="Angle display unit"
     )
-    skymodel_frequency: float = Field(150.0, gt=0, description="Sky model plot frequency")
+    skymodel_frequency: float | None = Field(None, description="Sky model plot frequency")
 
 
 class SimulatorsConfig(BaseModel):
@@ -484,8 +484,8 @@ class VisibilityConfig(BaseModel):
         "direct_sum",
         description="Visibility calculation algorithm: 'direct_sum' (implemented) or 'spherical_harmonic' (future)"
     )
-    sky_representation: Literal["point_sources", "healpix_map"] = Field(
-        "point_sources",
+    sky_representation: Literal["point_sources", "healpix_map"] | None = Field(
+        None,
         description="Sky model representation: 'point_sources' or 'healpix_map'"
     )
 
@@ -653,7 +653,7 @@ class ComputeConfig(BaseModel):
     """Compute backend configuration."""
 
     backend: str = Field(
-        "auto",
+        "numpy",
         description="Computation backend: 'auto', 'numpy', 'numba', 'jax'",
     )
 
@@ -903,6 +903,13 @@ class RRIvisConfig(BaseModel):
             errors.append(
                 "beams.all_beam_response: required when beam_mode='analytic'. "
                 "E.g. 'gaussian'."
+            )
+
+        # --- Visibility sky representation ---
+        if self.visibility.sky_representation is None:
+            errors.append(
+                "visibility.sky_representation: required but not set. "
+                "Choose 'point_sources' (catalogs) or 'healpix_map' (diffuse emission)."
             )
 
         # --- pyradiosky file ---
