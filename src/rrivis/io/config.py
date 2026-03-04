@@ -76,9 +76,9 @@ class AntennaLayoutConfig(BaseModel):
     )
     antenna_file_format: Literal[
         "rrivis", "casa", "measurement_set", "uvfits", "mwa", "pyuvdata"
-    ] = Field("rrivis", description="Antenna file format")
-    all_antenna_type: str = Field(
-        "parabolic_10db_taper",
+    ] | None = Field(None, description="Antenna file format")
+    all_antenna_type: str | None = Field(
+        None,
         description="Default antenna type for all antennas",
     )
     use_different_antenna_types: bool = Field(
@@ -87,8 +87,8 @@ class AntennaLayoutConfig(BaseModel):
     antenna_types: dict[str, str] = Field(
         default_factory=dict, description="Per-antenna type mapping"
     )
-    all_antenna_diameter: float = Field(
-        14.0, gt=0, description="Default antenna diameter (meters)"
+    all_antenna_diameter: float | None = Field(
+        None, description="Default antenna diameter (meters)"
     )
     use_different_diameters: bool = Field(
         False, description="Use per-antenna diameters"
@@ -118,36 +118,36 @@ class FeedsConfig(BaseModel):
 class BeamsConfig(BaseModel):
     """Beam configuration."""
 
-    beam_mode: Literal["analytic", "shared", "per_antenna"] = Field(
-        "analytic", description="Beam mode"
+    beam_mode: Literal["analytic", "shared", "per_antenna"] | None = Field(
+        None, description="Beam mode"
     )
     beam_file: str | None = Field(None, description="Beam FITS file path")
-    beam_assignment: Literal["from_layout", "from_config"] = Field(
-        "from_layout", description="Beam assignment method"
+    beam_assignment: Literal["from_layout", "from_config"] | None = Field(
+        None, description="Beam assignment method"
     )
     antenna_beam_map: dict[str, str] = Field(
         default_factory=dict, description="Antenna to beam file mapping"
     )
-    beam_za_max_deg: float = Field(
-        90.0, ge=0, le=180, description="Max zenith angle (degrees)"
+    beam_za_max_deg: float | None = Field(
+        None, description="Max zenith angle (degrees)"
     )
-    beam_za_buffer_deg: float = Field(5.0, ge=0, description="ZA buffer (degrees)")
-    beam_freq_buffer_hz: float = Field(1e6, ge=0, description="Frequency buffer (Hz)")
+    beam_za_buffer_deg: float | None = Field(None, description="ZA buffer (degrees)")
+    beam_freq_buffer_hz: float | None = Field(None, description="Frequency buffer (Hz)")
     use_different_beam_responses: bool = Field(
         False, description="Per-antenna beam responses"
     )
-    all_beam_response: Literal["gaussian", "airy", "cosine", "exponential"] = Field(
-        "gaussian", description="Default beam response pattern"
+    all_beam_response: Literal["gaussian", "airy", "cosine", "exponential"] | None = Field(
+        None, description="Default beam response pattern"
     )
     beam_response_per_antenna: dict[str, str] = Field(default_factory=dict)
-    cosine_taper_exponent: float = Field(1.0, ge=0, description="Cosine taper exponent")
-    exponential_taper_dB: float = Field(10.0, ge=0, description="Exponential taper (dB)")
+    cosine_taper_exponent: float | None = Field(None, description="Cosine taper exponent")
+    exponential_taper_dB: float | None = Field(None, description="Exponential taper (dB)")
 
 
 class BaselineSelectionConfig(BaseModel):
     """Baseline selection configuration."""
 
-    use_autocorrelations: bool = Field(True, description="Include autocorrelations")
+    use_autocorrelations: bool = Field(False, description="Include autocorrelations")
     use_crosscorrelations: bool = Field(True, description="Include crosscorrelations")
     only_selective_baseline_length: bool = Field(
         False, description="Filter by baseline length"
@@ -156,7 +156,7 @@ class BaselineSelectionConfig(BaseModel):
         default_factory=list, description="Selected baseline lengths"
     )
     selective_baseline_tolerance_meters: float = Field(
-        2.0, ge=0, description="Baseline length tolerance (m)"
+        0.5, ge=0, description="Baseline length tolerance (m)"
     )
     trim_by_angle_ranges: bool = Field(False, description="Filter by angle")
     selective_angle_ranges_deg: list[list[float]] = Field(
@@ -380,28 +380,28 @@ class SkyModelConfig(BaseModel):
 class ObsTimeConfig(BaseModel):
     """Observation time configuration."""
 
-    start_time: str = Field(
-        "2023-01-01T00:00:00", description="Start time (ISO format)"
+    start_time: str | None = Field(
+        None, description="Start time (ISO format)"
     )
-    duration_seconds: float = Field(
-        3600.0, gt=0, description="Total observation duration in seconds"
+    duration_seconds: float | None = Field(
+        None, description="Total observation duration in seconds"
     )
-    time_step_seconds: float = Field(
-        60.0, gt=0, description="Time step between samples in seconds"
+    time_step_seconds: float | None = Field(
+        None, description="Time step between samples in seconds"
     )
 
 
 class ObsFrequencyConfig(BaseModel):
     """Observation frequency configuration."""
 
-    starting_frequency: float = Field(
-        50.0, gt=0, description="Starting frequency"
+    starting_frequency: float | None = Field(
+        None, description="Starting frequency"
     )
-    frequency_interval: float = Field(
-        1.0, gt=0, description="Frequency interval"
+    frequency_interval: float | None = Field(
+        None, description="Frequency interval"
     )
-    frequency_bandwidth: float = Field(
-        100.0, gt=0, description="Frequency bandwidth"
+    frequency_bandwidth: float | None = Field(
+        None, description="Frequency bandwidth"
     )
     frequency_unit: Literal["Hz", "kHz", "MHz", "GHz"] = Field(
         "MHz", description="Frequency unit"
@@ -410,6 +410,8 @@ class ObsFrequencyConfig(BaseModel):
     @property
     def n_channels(self) -> int:
         """Calculate number of frequency channels."""
+        if self.frequency_bandwidth is None or self.frequency_interval is None:
+            return 0
         return max(1, int(self.frequency_bandwidth / self.frequency_interval) + 1)
 
 
@@ -426,10 +428,10 @@ class OutputConfig(BaseModel):
     overwrite_output: bool = Field(False, description="Overwrite existing output files")
     skip_overwrite_confirmation: bool = Field(False, description="Skip the interactive confirmation prompt when overwrite_output is true")
     prompt_for_output_suffix: bool = Field(False, description="When output folder already exists, ask user for a suffix to append and create a fresh folder instead of overwriting")
-    plot_results: bool = Field(True, description="Generate visualization plots")
-    open_plots_in_browser: bool = Field(True, description="Open plots in browser (set False to save only)")
+    plot_results: bool = Field(False, description="Generate visualization plots")
+    open_plots_in_browser: bool = Field(False, description="Open plots in browser (set False to save only)")
     plotting_backend: str = Field("bokeh", description="Plotting backend (bokeh/matplotlib)")
-    plot_skymodel_every_hour: bool = Field(True, description="Plot sky model")
+    plot_skymodel_every_hour: bool = Field(False, description="Plot sky model")
     save_log_data: bool = Field(False, description="Save log data")
     angle_unit: Literal["degrees", "radians", ""] = Field(
         "", description="Angle display unit"
@@ -860,4 +862,11 @@ def create_default_config(output_path: str | Path) -> None:
     load_config : Load configuration from file.
     """
     config = RRIvisConfig()
-    config.to_yaml(output_path)
+    output_path = Path(output_path)
+    with open(output_path, "w") as f:
+        yaml.dump(
+            config.model_dump(),  # include all fields, including nulls
+            f,
+            default_flow_style=False,
+            sort_keys=True,  # alphabetical order
+        )
