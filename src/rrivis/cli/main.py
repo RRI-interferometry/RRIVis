@@ -356,7 +356,7 @@ def run_config_mode(args: argparse.Namespace) -> int:
                 output_dir.mkdir(parents=True, exist_ok=True)
                 data_path = sim.save(
                     output_dir,
-                    format="hdf5",
+                    format=(output_config.output_file_format or "HDF5").lower(),
                     overwrite=do_overwrite,
                 )
                 if data_path:
