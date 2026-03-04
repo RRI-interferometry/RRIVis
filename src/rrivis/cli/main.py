@@ -226,13 +226,55 @@ def run_config_mode(args: argparse.Namespace) -> int:
 
     try:
         # Load and validate config
-        from rrivis.io.config import load_config
-        config = load_config(config_path)
+        from rrivis.io.config import load_config, RRIvisConfig
+        from rich.panel import Panel
+        from pydantic import ValidationError as _PydanticError
+
+        schema_errors: list[str] = []
+        config = None
+        try:
+            config = load_config(config_path)
+        except _PydanticError as pyd_err:
+            # Pydantic rejected one or more field values — extract all of them
+            import yaml as _yaml
+            for err in pyd_err.errors():
+                loc = " -> ".join(str(p) for p in err["loc"])
+                schema_errors.append(f"{loc}: {err['msg']}")
+            # Strip the invalid fields from raw data and build a partial config
+            # so we can also run validate() and show all errors together
+            try:
+                with open(config_path) as _f:
+                    raw_data = _yaml.safe_load(_f) or {}
+                raw_data = RRIvisConfig._preprocess_yaml_data(
+                    raw_data, config_path.resolve().parent
+                )
+                for err in pyd_err.errors():
+                    d = raw_data
+                    for key in err["loc"][:-1]:
+                        if isinstance(key, str) and isinstance(d, dict) and key in d:
+                            d = d[key]
+                        else:
+                            break
+                    last = err["loc"][-1]
+                    if isinstance(d, dict) and last in d:
+                        del d[last]
+                config = RRIvisConfig(**raw_data)
+            except Exception:
+                pass
+        except ValueError as e:
+            console.print()
+            console.print(Panel(
+                f"  {e}",
+                title="[bold red]Config invalid[/bold red]",
+                border_style="red",
+            ))
+            console.print("  Fix the above in your config file and re-run.\n")
+            return 1
 
         # Pre-flight: collect ALL config errors before doing any work
-        errors = config.validate()
+        validate_errors: list[str] = config.validate() if config is not None else []
+        errors = schema_errors + validate_errors
         if errors:
-            from rich.panel import Panel
             console.print()
             lines = "\n".join(
                 f"  [bold red][{i}][/bold red]  {e}"

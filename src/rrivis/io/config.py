@@ -698,6 +698,41 @@ class RRIvisConfig(BaseModel):
         "validate_assignment": True,  # Validate on attribute assignment
     }
 
+    @staticmethod
+    def _preprocess_yaml_data(data: dict, yaml_dir: Path) -> dict:
+        """Resolve relative paths and coerce YAML-parsed types to expected Python types.
+
+        Parameters
+        ----------
+        data : dict
+            Raw dictionary from yaml.safe_load.
+        yaml_dir : Path
+            Resolved directory of the YAML file, used to resolve relative paths.
+
+        Returns
+        -------
+        dict
+            Mutated data dict ready for Pydantic construction.
+        """
+        from datetime import datetime as _datetime
+
+        # YAML parses unquoted ISO timestamps (e.g. 2025-01-01T00:00:00) as datetime
+        # objects. Convert them back to ISO strings so Pydantic's str field accepts them.
+        obs_time = data.get("obs_time")
+        if isinstance(obs_time, dict):
+            start = obs_time.get("start_time")
+            if isinstance(start, _datetime):
+                obs_time["start_time"] = start.isoformat()
+
+        # Resolve antenna_positions_file relative to the YAML file's directory
+        antenna_file = (data.get("antenna_layout") or {}).get("antenna_positions_file")
+        if antenna_file and not Path(antenna_file).is_absolute():
+            data.setdefault("antenna_layout", {})["antenna_positions_file"] = str(
+                yaml_dir / antenna_file
+            )
+
+        return data
+
     @classmethod
     def from_yaml(cls, yaml_path: str | Path) -> "RRIvisConfig":
         """
@@ -717,16 +752,20 @@ class RRIvisConfig(BaseModel):
         if not yaml_path.exists():
             raise FileNotFoundError(f"Configuration file not found: {yaml_path}")
 
+        yaml_dir = yaml_path.parent.resolve()
+
         with open(yaml_path) as f:
             data = yaml.safe_load(f) or {}
 
+        data = cls._preprocess_yaml_data(data, yaml_dir)
+
+        from pydantic import ValidationError
         try:
             return cls(**data)
+        except ValidationError:
+            raise  # Let CLI handle structured field errors
         except Exception as e:
-            raise ValueError(
-                f"Invalid configuration in {yaml_path}:\n{e}\n\n"
-                f"See documentation for valid config format."
-            )
+            raise ValueError(f"Invalid configuration in {yaml_path}:\n{e}")
 
     def to_yaml(self, output_path: str | Path) -> None:
         """
@@ -780,6 +819,11 @@ class RRIvisConfig(BaseModel):
             errors.append(
                 "antenna_layout.antenna_file_format: required but not set. "
                 "E.g. 'rrivis', 'casa', 'uvfits'."
+            )
+        if not al.use_different_antenna_types and al.all_antenna_type is None:
+            errors.append(
+                "antenna_layout.all_antenna_type: required but not set. "
+                "E.g. 'parabolic', 'dipole', 'phased_array'."
             )
         if al.all_antenna_diameter is None:
             errors.append(

@@ -452,8 +452,13 @@ class Simulator:
             "dipole_folded": AntennaType.DIPOLE_FOLDED,
         }
 
-        # Get the antenna type string from config (default: parabolic with 10dB taper)
-        config_antenna_type = antenna_config.get("all_antenna_type", "parabolic")
+        # Get the antenna type string from config
+        config_antenna_type = antenna_config.get("all_antenna_type")
+        if config_antenna_type is None:
+            raise ValueError(
+                "antenna_layout.all_antenna_type is required but not set. "
+                "E.g. 'parabolic', 'dipole', 'phased_array'."
+            )
         illumination_type = antenna_config.get("illumination_taper", None)
 
         # If illumination_taper is specified, construct the full type name
@@ -875,7 +880,7 @@ class Simulator:
         }
 
         if progress:
-            print_success(f"Simulation complete! ({t_total:.1f}s total, setup {t_setup:.1f}s)")
+            print_success(f"Simulation complete! ({t_total:.3f}s total, setup {t_setup:.3f}s)")
 
         return self._results
 
