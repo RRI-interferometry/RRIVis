@@ -63,11 +63,11 @@ class TestAntennaLayoutConfig:
     """Test AntennaLayoutConfig validation."""
 
     def test_default_values(self):
-        """Test default antenna layout configuration."""
+        """Test default antenna layout configuration (all optional fields default to None)."""
         config = AntennaLayoutConfig()
         assert config.antenna_positions_file is None
-        assert config.antenna_file_format == "rrivis"
-        assert config.all_antenna_diameter == 14.0
+        assert config.antenna_file_format is None
+        assert config.all_antenna_diameter is None
 
     def test_valid_file_formats(self):
         """Test valid antenna file formats."""
@@ -81,12 +81,18 @@ class TestAntennaLayoutConfig:
             AntennaLayoutConfig(antenna_file_format="invalid_format")
 
     def test_diameter_validation(self):
-        """Test antenna diameter must be positive."""
-        with pytest.raises(ValidationError):
-            AntennaLayoutConfig(all_antenna_diameter=-1.0)
+        """Test antenna diameter validation via validate()."""
+        config = RRIvisConfig(
+            antenna_layout=AntennaLayoutConfig(all_antenna_diameter=-1.0)
+        )
+        errors = config.validate()
+        assert any("all_antenna_diameter" in e and "must be > 0" in e for e in errors)
 
-        with pytest.raises(ValidationError):
-            AntennaLayoutConfig(all_antenna_diameter=0)
+        config2 = RRIvisConfig(
+            antenna_layout=AntennaLayoutConfig(all_antenna_diameter=0)
+        )
+        errors2 = config2.validate()
+        assert any("all_antenna_diameter" in e and "must be > 0" in e for e in errors2)
 
 
 # =============================================================================
@@ -97,11 +103,11 @@ class TestBeamsConfig:
     """Test BeamsConfig validation."""
 
     def test_default_values(self):
-        """Test default beam configuration."""
+        """Test default beam configuration (optional fields default to None)."""
         config = BeamsConfig()
-        assert config.beam_mode == "analytic"
-        assert config.all_beam_response == "gaussian"
-        assert config.beam_za_max_deg == 90.0
+        assert config.beam_mode is None
+        assert config.all_beam_response is None
+        assert config.beam_za_max_deg is None
 
     def test_valid_beam_modes(self):
         """Test valid beam modes."""
@@ -115,18 +121,10 @@ class TestBeamsConfig:
             config = BeamsConfig(all_beam_response=response)
             assert config.all_beam_response == response
 
-    def test_zenith_angle_validation(self):
-        """Test zenith angle bounds."""
-        # Valid range
+    def test_zenith_angle_set(self):
+        """Test zenith angle can be set."""
         config = BeamsConfig(beam_za_max_deg=45.0)
         assert config.beam_za_max_deg == 45.0
-
-        # Out of bounds
-        with pytest.raises(ValidationError):
-            BeamsConfig(beam_za_max_deg=-10.0)
-
-        with pytest.raises(ValidationError):
-            BeamsConfig(beam_za_max_deg=200.0)
 
 
 # =============================================================================
@@ -164,11 +162,11 @@ class TestObsFrequencyConfig:
     """Test ObsFrequencyConfig validation."""
 
     def test_default_values(self):
-        """Test default frequency configuration."""
+        """Test default frequency configuration (numeric fields default to None)."""
         config = ObsFrequencyConfig()
-        assert config.starting_frequency == 50.0
-        assert config.frequency_interval == 1.0
-        assert config.frequency_bandwidth == 100.0
+        assert config.starting_frequency is None
+        assert config.frequency_interval is None
+        assert config.frequency_bandwidth is None
         assert config.frequency_unit == "MHz"
 
     def test_n_channels_property(self):
@@ -196,12 +194,26 @@ class TestObsFrequencyConfig:
             ObsFrequencyConfig(frequency_unit="THz")
 
     def test_positive_frequencies(self):
-        """Test frequencies must be positive."""
-        with pytest.raises(ValidationError):
-            ObsFrequencyConfig(starting_frequency=-100.0)
+        """Test frequency validation via validate()."""
+        config = RRIvisConfig(
+            obs_frequency=ObsFrequencyConfig(
+                starting_frequency=-100.0,
+                frequency_interval=1.0,
+                frequency_bandwidth=10.0,
+            )
+        )
+        errors = config.validate()
+        assert any("starting_frequency" in e and "must be > 0" in e for e in errors)
 
-        with pytest.raises(ValidationError):
-            ObsFrequencyConfig(frequency_interval=0)
+        config2 = RRIvisConfig(
+            obs_frequency=ObsFrequencyConfig(
+                starting_frequency=100.0,
+                frequency_interval=0,
+                frequency_bandwidth=10.0,
+            )
+        )
+        errors2 = config2.validate()
+        assert any("frequency_interval" in e and "must be > 0" in e for e in errors2)
 
 
 # =============================================================================
@@ -212,11 +224,11 @@ class TestObsTimeConfig:
     """Test ObsTimeConfig validation."""
 
     def test_default_values(self):
-        """Test default time configuration."""
+        """Test default time configuration (fields default to None)."""
         config = ObsTimeConfig()
-        assert config.start_time == "2023-01-01T00:00:00"
-        assert config.duration_seconds == 3600.0
-        assert config.time_step_seconds == 60.0
+        assert config.start_time is None
+        assert config.duration_seconds is None
+        assert config.time_step_seconds is None
 
     def test_custom_values(self):
         """Test custom time configuration."""
@@ -230,22 +242,28 @@ class TestObsTimeConfig:
         assert config.time_step_seconds == 30.0
 
     def test_positive_duration_required(self):
-        """Test that duration must be positive."""
-        with pytest.raises(ValidationError):
-            ObsTimeConfig(
+        """Test that negative duration is caught by validate()."""
+        config = RRIvisConfig(
+            obs_time=ObsTimeConfig(
                 start_time="2023-06-21T12:00:00",
                 duration_seconds=-1.0,
                 time_step_seconds=60.0,
             )
+        )
+        errors = config.validate()
+        assert any("duration_seconds" in e and "must be > 0" in e for e in errors)
 
     def test_positive_time_step_required(self):
-        """Test that time step must be positive."""
-        with pytest.raises(ValidationError):
-            ObsTimeConfig(
+        """Test that negative time step is caught by validate()."""
+        config = RRIvisConfig(
+            obs_time=ObsTimeConfig(
                 start_time="2023-06-21T12:00:00",
                 duration_seconds=3600.0,
                 time_step_seconds=-1.0,
             )
+        )
+        errors = config.validate()
+        assert any("time_step_seconds" in e and "must be > 0" in e for e in errors)
 
 
 # =============================================================================
@@ -304,11 +322,11 @@ class TestRRIvisConfig:
     """Test main RRIvisConfig model."""
 
     def test_default_config(self):
-        """Test creating default configuration."""
+        """Test creating default configuration (optional fields are None)."""
         config = RRIvisConfig()
         assert config.telescope.telescope_name == "Unknown"
-        assert config.antenna_layout.all_antenna_diameter == 14.0
-        assert config.beams.beam_mode == "analytic"
+        assert config.antenna_layout.all_antenna_diameter is None
+        assert config.beams.beam_mode is None
         assert config.obs_frequency.frequency_unit == "MHz"
 
     def test_to_dict(self):
@@ -445,8 +463,193 @@ telescope:
 
         config = RRIvisConfig.from_yaml(config_path)
         assert config.telescope.telescope_name == "SKA"
-        # Other sections should have defaults
-        assert config.antenna_layout.all_antenna_diameter == 14.0
+        # Other sections should have defaults (None for optional fields)
+        assert config.antenna_layout.all_antenna_diameter is None
+
+    def test_validate_blank_config_returns_all_required_errors(self):
+        """Blank config should report all 9 required-field errors."""
+        config = RRIvisConfig()
+        errors = config.validate()
+        assert len(errors) == 9
+        assert any("antenna_positions_file" in e for e in errors)
+        assert any("antenna_file_format" in e for e in errors)
+        assert any("all_antenna_diameter" in e for e in errors)
+        assert any("obs_time.start_time" in e for e in errors)
+        assert any("duration_seconds" in e for e in errors)
+        assert any("time_step_seconds" in e for e in errors)
+        assert any("starting_frequency" in e for e in errors)
+        assert any("frequency_interval" in e for e in errors)
+        assert any("frequency_bandwidth" in e for e in errors)
+
+    def test_validate_valid_config_returns_empty(self, tmp_path):
+        """Fully populated config should return no errors."""
+        antenna_file = tmp_path / "antennas.txt"
+        antenna_file.write_text("0 0 0\n")
+        config = RRIvisConfig(
+            antenna_layout=AntennaLayoutConfig(
+                antenna_positions_file=str(antenna_file),
+                antenna_file_format="rrivis",
+                all_antenna_diameter=14.0,
+            ),
+            obs_time=ObsTimeConfig(
+                start_time="2025-01-01T00:00:00",
+                duration_seconds=3600.0,
+                time_step_seconds=60.0,
+            ),
+            obs_frequency=ObsFrequencyConfig(
+                starting_frequency=100.0,
+                frequency_interval=1.0,
+                frequency_bandwidth=50.0,
+            ),
+        )
+        assert config.validate() == []
+
+    def test_validate_missing_file(self, tmp_path):
+        """Non-existent antenna file should be reported."""
+        config = RRIvisConfig(
+            antenna_layout=AntennaLayoutConfig(
+                antenna_positions_file="/no/such/file.txt",
+                antenna_file_format="rrivis",
+                all_antenna_diameter=14.0,
+            ),
+            obs_time=ObsTimeConfig(
+                start_time="2025-01-01T00:00:00",
+                duration_seconds=3600.0,
+                time_step_seconds=60.0,
+            ),
+            obs_frequency=ObsFrequencyConfig(
+                starting_frequency=100.0,
+                frequency_interval=1.0,
+                frequency_bandwidth=50.0,
+            ),
+        )
+        errors = config.validate()
+        assert len(errors) == 1
+        assert "file not found" in errors[0]
+
+    def test_validate_cross_field_freq_interval(self, tmp_path):
+        """frequency_interval >= frequency_bandwidth should be caught."""
+        antenna_file = tmp_path / "antennas.txt"
+        antenna_file.write_text("0 0 0\n")
+        config = RRIvisConfig(
+            antenna_layout=AntennaLayoutConfig(
+                antenna_positions_file=str(antenna_file),
+                antenna_file_format="rrivis",
+                all_antenna_diameter=14.0,
+            ),
+            obs_time=ObsTimeConfig(
+                start_time="2025-01-01T00:00:00",
+                duration_seconds=3600.0,
+                time_step_seconds=60.0,
+            ),
+            obs_frequency=ObsFrequencyConfig(
+                starting_frequency=100.0,
+                frequency_interval=50.0,
+                frequency_bandwidth=10.0,
+            ),
+        )
+        errors = config.validate()
+        assert any("frequency_interval must be <" in e for e in errors)
+
+    def test_validate_location_out_of_range(self, tmp_path):
+        """Out-of-range lat/lon/height should be reported."""
+        antenna_file = tmp_path / "antennas.txt"
+        antenna_file.write_text("0 0 0\n")
+        config = RRIvisConfig(
+            antenna_layout=AntennaLayoutConfig(
+                antenna_positions_file=str(antenna_file),
+                antenna_file_format="rrivis",
+                all_antenna_diameter=14.0,
+            ),
+            obs_time=ObsTimeConfig(
+                start_time="2025-01-01T00:00:00",
+                duration_seconds=3600.0,
+                time_step_seconds=60.0,
+            ),
+            obs_frequency=ObsFrequencyConfig(
+                starting_frequency=100.0,
+                frequency_interval=1.0,
+                frequency_bandwidth=50.0,
+            ),
+            location=LocationConfig(lat=200.0, lon=-200.0, height=-5.0),
+        )
+        errors = config.validate()
+        assert any("location.lat" in e for e in errors)
+        assert any("location.lon" in e for e in errors)
+        assert any("location.height" in e for e in errors)
+
+    def test_validate_analytic_beam_missing_response(self, tmp_path):
+        """beam_mode=analytic with no all_beam_response should be an error."""
+        antenna_file = tmp_path / "antennas.txt"
+        antenna_file.write_text("0 0 0\n")
+        config = RRIvisConfig(
+            antenna_layout=AntennaLayoutConfig(
+                antenna_positions_file=str(antenna_file),
+                antenna_file_format="rrivis",
+                all_antenna_diameter=14.0,
+            ),
+            obs_time=ObsTimeConfig(
+                start_time="2025-01-01T00:00:00",
+                duration_seconds=3600.0,
+                time_step_seconds=60.0,
+            ),
+            obs_frequency=ObsFrequencyConfig(
+                starting_frequency=100.0,
+                frequency_interval=1.0,
+                frequency_bandwidth=50.0,
+            ),
+            beams=BeamsConfig(beam_mode="analytic", all_beam_response=None),
+        )
+        errors = config.validate()
+        assert any("all_beam_response" in e for e in errors)
+
+    def test_validate_invalid_start_time(self, tmp_path):
+        """Garbage start_time string should be reported."""
+        antenna_file = tmp_path / "antennas.txt"
+        antenna_file.write_text("0 0 0\n")
+        config = RRIvisConfig(
+            antenna_layout=AntennaLayoutConfig(
+                antenna_positions_file=str(antenna_file),
+                antenna_file_format="rrivis",
+                all_antenna_diameter=14.0,
+            ),
+            obs_time=ObsTimeConfig(
+                start_time="not-a-date",
+                duration_seconds=3600.0,
+                time_step_seconds=60.0,
+            ),
+            obs_frequency=ObsFrequencyConfig(
+                starting_frequency=100.0,
+                frequency_interval=1.0,
+                frequency_bandwidth=50.0,
+            ),
+        )
+        errors = config.validate()
+        assert any("invalid ISO format" in e for e in errors)
+
+    def test_validate_time_step_gt_duration(self, tmp_path):
+        """time_step > duration cross-field check."""
+        antenna_file = tmp_path / "antennas.txt"
+        antenna_file.write_text("0 0 0\n")
+        config = RRIvisConfig(
+            antenna_layout=AntennaLayoutConfig(
+                antenna_positions_file=str(antenna_file),
+                antenna_file_format="rrivis",
+                all_antenna_diameter=14.0,
+            ),
+            obs_time=ObsTimeConfig(
+                start_time="2025-01-01T00:00:00",
+                duration_seconds=60.0,
+                time_step_seconds=3600.0,
+            ),
+            obs_frequency=ObsFrequencyConfig(
+                starting_frequency=100.0,
+                frequency_interval=1.0,
+                frequency_bandwidth=50.0,
+            ),
+        )
+        errors = config.validate()
+        assert any("time_step_seconds must be <=" in e for e in errors)
 
     def test_roundtrip_serialization(self, tmp_path):
         """Test config survives YAML roundtrip."""

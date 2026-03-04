@@ -229,6 +229,23 @@ def run_config_mode(args: argparse.Namespace) -> int:
         from rrivis.io.config import load_config
         config = load_config(config_path)
 
+        # Pre-flight: collect ALL config errors before doing any work
+        errors = config.validate()
+        if errors:
+            from rich.panel import Panel
+            console.print()
+            lines = "\n".join(
+                f"  [bold red][{i}][/bold red]  {e}"
+                for i, e in enumerate(errors, 1)
+            )
+            console.print(Panel(
+                lines,
+                title=f"[bold red]Config invalid \u2014 {len(errors)} error(s) found[/bold red]",
+                border_style="red",
+            ))
+            console.print("  Fix the above in your config file and re-run.\n")
+            return 1
+
         # Apply CLI overrides
         if args.antenna_file:
             config.antenna_layout.antenna_positions_file = args.antenna_file
