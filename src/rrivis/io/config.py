@@ -423,6 +423,9 @@ class OutputConfig(BaseModel):
         "HDF5", description="Output format"
     )
     save_simulation_data: bool = Field(False, description="Save simulation data")
+    overwrite_output: bool = Field(False, description="Overwrite existing output files")
+    skip_overwrite_confirmation: bool = Field(False, description="Skip the interactive confirmation prompt when overwrite_output is true")
+    prompt_for_output_suffix: bool = Field(False, description="When output folder already exists, ask user for a suffix to append and create a fresh folder instead of overwriting")
     plot_results: bool = Field(True, description="Generate visualization plots")
     open_plots_in_browser: bool = Field(True, description="Open plots in browser (set False to save only)")
     plotting_backend: str = Field("bokeh", description="Plotting backend (bokeh/matplotlib)")

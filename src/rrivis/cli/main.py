@@ -191,7 +191,7 @@ For more information, see https://github.com/kartikmandar/RRIvis
 
 def run_config_mode(args: argparse.Namespace) -> int:
     """Run simulation using configuration file (v0.1.x compatible)."""
-    from rrivis.utils.logging import setup_logging, get_logger, print_info, print_success, console
+    from rrivis.utils.logging import setup_logging, get_logger, print_info, print_success, print_warning, console
 
     # Setup logging based on verbosity
     import logging
@@ -250,6 +250,56 @@ def run_config_mode(args: argparse.Namespace) -> int:
 
         output_dir = Path(sim_data_dir) / sim_subdir
 
+        # Handle output folder conflict: prompt whenever the folder already exists
+        any_output = output_config.save_simulation_data or output_config.plot_results
+        do_overwrite = False  # resolved below based on config + user input
+        if any_output and output_dir.exists() and sorted(output_dir.iterdir()):
+            existing_files = sorted(output_dir.iterdir())
+            if output_config.skip_overwrite_confirmation and not output_config.overwrite_output:
+                print_warning(
+                    "Conflicting config: overwrite_output is false but skip_overwrite_confirmation is true. "
+                    "Aborting to avoid accidental data loss."
+                )
+                console.print(
+                    "  To overwrite silently:       set [bold]overwrite_output: true[/bold] and [bold]skip_overwrite_confirmation: true[/bold]"
+                )
+                console.print(
+                    "  To get the confirmation prompt: set [bold]overwrite_output: true[/bold] and [bold]skip_overwrite_confirmation: false[/bold]"
+                )
+                return 0
+            elif output_config.skip_overwrite_confirmation:
+                do_overwrite = True
+                print_warning("Output folder exists (confirmation skipped). All existing files will be overwritten.")
+            else:
+                print_warning(f"Output folder already exists: {output_dir}")
+                console.print("  Existing files:")
+                for f in existing_files:
+                    console.print(f"    [dim]→[/dim]  [cyan]{f.name}[/cyan]")
+                console.print("\n  [bold][y][/bold] Overwrite existing files")
+                console.print("  [bold][n][/bold] Abort")
+                console.print("  [bold][s][/bold] Save to a new folder with a suffix\n")
+                try:
+                    answer = input("Enter choice [y/n/s]: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    answer = "n"
+                if answer in ("s", "suffix"):
+                    try:
+                        suffix = input("Enter suffix to append to folder name: ").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        suffix = ""
+                    if not suffix:
+                        print_warning("No suffix entered. Aborted.")
+                        return 0
+                    sim_subdir = f"{sim_subdir}_{suffix}"
+                    output_dir = Path(sim_data_dir) / sim_subdir
+                    print_info(f"Saving to new folder: {output_dir}")
+                elif answer in ("y", "yes"):
+                    do_overwrite = True
+                    print_info("Proceeding — all existing files in the output directory will be overwritten.")
+                else:
+                    print_warning("Aborted. No files were modified.")
+                    return 0
+
         # Set up file logging if save_log_data is enabled
         log_file: Path | None = None
         if output_config.save_log_data:
@@ -270,7 +320,6 @@ def run_config_mode(args: argparse.Namespace) -> int:
         saved_files: list[Path] = []
         if log_file is not None:
             saved_files.append(log_file)
-        any_output = output_config.save_simulation_data or output_config.plot_results
 
         # Always save the config for reproducibility whenever any output is written
         if any_output:
@@ -288,7 +337,11 @@ def run_config_mode(args: argparse.Namespace) -> int:
         if output_config.save_simulation_data:
             try:
                 output_dir.mkdir(parents=True, exist_ok=True)
-                data_path = sim.save(output_dir, format="hdf5")
+                data_path = sim.save(
+                    output_dir,
+                    format="hdf5",
+                    overwrite=do_overwrite,
+                )
                 if data_path:
                     saved_files.append(data_path)
             except Exception as e:
@@ -301,7 +354,8 @@ def run_config_mode(args: argparse.Namespace) -> int:
                     plot_type="all",
                     output_dir=output_dir,
                     backend=output_config.plotting_backend or "bokeh",
-                    show=output_config.open_plots_in_browser
+                    show=output_config.open_plots_in_browser,
+                    overwrite=output_config.overwrite_output,
                 )
                 if plot_paths:
                     saved_files.extend(plot_paths)

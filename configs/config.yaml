@@ -138,6 +138,8 @@ output:
   output_file_name: complex_visibility
   output_file_format: HDF5
   save_simulation_data: true
+  overwrite_output: false
+  skip_overwrite_confirmation: true
   plot_results: true
   open_plots_in_browser: false
   plotting_backend: bokeh
