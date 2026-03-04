@@ -885,6 +885,7 @@ class Simulator:
         output_dir: str | Path | None = None,
         backend: str = "bokeh",
         show: bool = True,
+        overwrite: bool = False,
     ) -> list[Path]:
         """
         Generate visualization plots.
@@ -934,9 +935,10 @@ class Simulator:
             output_dir = Path(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Snapshot of HTML files already in output_dir before plotting (to detect new ones)
+        # Snapshot of HTML files already in output_dir before plotting (to detect new ones).
+        # If overwrite=True, skip the snapshot so all post-plot HTML files are returned.
         html_before: set[Path] = set()
-        if output_dir:
+        if output_dir and not overwrite:
             html_before = set(output_dir.glob("*.html"))
 
         # Antenna layout plot
