@@ -14,7 +14,7 @@ Where:
     - ^H: Hermitian conjugate
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -142,13 +142,13 @@ class RIMESimulator(VisibilitySimulator):
 
     def calculate_visibilities(
         self,
-        antennas: Dict[Any, Dict],
-        baselines: Dict[Tuple[Any, Any], Dict],
-        sources: List[Dict],
+        antennas: dict[Any, dict],
+        baselines: dict[tuple[Any, Any], dict],
+        sources: list[dict],
         frequencies: np.ndarray,
         backend: Any,
-        **kwargs
-    ) -> Dict[Tuple[Any, Any], Dict]:
+        **kwargs,
+    ) -> dict[tuple[Any, Any], dict]:
         """
         Calculate visibilities using direct RIME summation.
 
@@ -281,7 +281,7 @@ class RIMESimulator(VisibilitySimulator):
         n_frequencies: int,
         n_times: int = 1,
         polarized: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Estimate memory requirements for RIME simulation.
 
@@ -315,7 +315,9 @@ class RIMESimulator(VisibilitySimulator):
         pol_factor = 4 if polarized else 1
 
         # Output: baselines × freq × time × polarization
-        output_bytes = n_baselines * n_frequencies * n_times * pol_factor * bytes_per_complex
+        output_bytes = (
+            n_baselines * n_frequencies * n_times * pol_factor * bytes_per_complex
+        )
 
         # Working memory for RIME:
         # - Source flux arrays: n_src × n_freq × complex
@@ -339,7 +341,7 @@ class RIMESimulator(VisibilitySimulator):
         total_bytes = output_bytes + working_bytes
 
         def format_bytes(b: int) -> str:
-            for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            for unit in ["B", "KB", "MB", "GB", "TB"]:
                 if b < 1024:
                     return f"{b:.1f} {unit}"
                 b /= 1024
@@ -377,5 +379,5 @@ class RIMESimulator(VisibilitySimulator):
                 "source_arrays": format_bytes(source_arrays),
                 "direction_cosines": format_bytes(direction_cosines),
                 "beam_patterns": format_bytes(beam_arrays),
-            }
+            },
         }

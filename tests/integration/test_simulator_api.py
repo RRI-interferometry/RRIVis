@@ -6,10 +6,9 @@ These tests verify the Simulator class provides a clean, user-friendly
 interface for running visibility simulations.
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
-import tempfile
+
+import pytest
 import yaml
 
 

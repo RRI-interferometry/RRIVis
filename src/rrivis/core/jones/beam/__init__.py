@@ -17,37 +17,39 @@ Examples
 >>> from rrivis.core.jones.beam.fits import BeamFITSHandler
 """
 
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
 
 # Re-export analytic beam patterns
 from rrivis.core.jones.beam.analytic import (
+    BEAM_PATTERN_FUNCTIONS,
+    HPBW_FUNCTIONS,
     AntennaType,
     BeamPatternType,
-    HPBW_FUNCTIONS,
-    BEAM_PATTERN_FUNCTIONS,
-    gaussian_A_theta_EBeam,
     airy_disk_pattern,
-    cosine_tapered_pattern,
-    exponential_tapered_pattern,
-    calculate_gaussian_beam_area_EBeam,
     calculate_airy_beam_area,
+    calculate_beam_pattern,
     calculate_cosine_beam_area,
     calculate_exponential_beam_area,
+    calculate_gaussian_beam_area_EBeam,
     calculate_hpbw_for_antenna_type,
-    get_hpbw_function,
-    get_beam_pattern_function,
-    calculate_beam_pattern,
     convert_angle_for_display,
+    cosine_tapered_pattern,
+    exponential_tapered_pattern,
+    gaussian_A_theta_EBeam,
+    get_beam_pattern_function,
+    get_hpbw_function,
 )
 
 # Re-export FITS beam handling
 from rrivis.core.jones.beam.fits import (
-    astropy_az_to_uvbeam_az,
     BeamFITSHandler,
     BeamManager,
+    astropy_az_to_uvbeam_az,
 )
 
 
@@ -109,11 +111,11 @@ class BeamJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute primary beam Jones matrix.
 
@@ -142,21 +144,23 @@ class BeamJones(JonesTerm):
             azimuth=az,
             frequency=frequency,
             time_idx=time_idx,
-            **kwargs
+            **kwargs,
         )
 
         # Convert to backend array
         return backend.asarray(E, dtype=np.complex128)
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         config = super().get_config()
-        config.update({
-            "n_sources": len(self.source_altaz),
-            "n_frequencies": len(self.frequencies),
-            "beam_model": self.beam_model.__name__
-            if hasattr(self.beam_model, '__name__')
-            else str(type(self.beam_model)),
-        })
+        config.update(
+            {
+                "n_sources": len(self.source_altaz),
+                "n_frequencies": len(self.frequencies),
+                "beam_model": self.beam_model.__name__
+                if hasattr(self.beam_model, "__name__")
+                else str(type(self.beam_model)),
+            }
+        )
         return config
 
 
@@ -188,8 +192,8 @@ class AnalyticBeamJones(BeamJones):
         frequencies: np.ndarray,
         hpbw_radians: float,
         beam_type: str = "gaussian",
-        wavelength: Optional[float] = None,
-        diameter: Optional[float] = None,
+        wavelength: float | None = None,
+        diameter: float | None = None,
         taper_exponent: float = 1.0,
         taper_dB: float = 10.0,
     ):
@@ -250,12 +254,14 @@ class AnalyticBeamJones(BeamJones):
                 )
         elif self.beam_type == "cosine":
             amplitude = cosine_tapered_pattern(
-                zenith_angle, self.hpbw_radians,
+                zenith_angle,
+                self.hpbw_radians,
                 taper_exponent=self.taper_exponent,
             )
         elif self.beam_type == "exponential":
             amplitude = exponential_tapered_pattern(
-                zenith_angle, self.hpbw_radians,
+                zenith_angle,
+                self.hpbw_radians,
                 taper_dB=self.taper_dB,
             )
         else:
@@ -266,10 +272,13 @@ class AnalyticBeamJones(BeamJones):
         if input_is_scalar:
             # Scalar: return (2, 2)
             a = float(amplitude[0]) if amplitude.size > 0 else 1.0
-            return np.array([
-                [a, 0],
-                [0, a],
-            ], dtype=np.complex128)
+            return np.array(
+                [
+                    [a, 0],
+                    [0, a],
+                ],
+                dtype=np.complex128,
+            )
         else:
             # Array: return (n_sources, 2, 2)
             n = amplitude.shape[0]
@@ -297,18 +306,21 @@ class AnalyticBeamJones(BeamJones):
 
         # _compute_analytic_beam now handles arrays
         return backend.asarray(
-            self._compute_analytic_beam(zenith_angles), dtype=np.complex128,
+            self._compute_analytic_beam(zenith_angles),
+            dtype=np.complex128,
         )
 
     def is_diagonal(self) -> bool:
         return True  # Analytic beams are diagonal
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         config = super().get_config()
-        config.update({
-            "hpbw_radians": self.hpbw_radians,
-            "beam_type": self.beam_type,
-        })
+        config.update(
+            {
+                "hpbw_radians": self.hpbw_radians,
+                "beam_type": self.beam_type,
+            }
+        )
         if self.wavelength is not None:
             config["wavelength"] = self.wavelength
         if self.diameter is not None:
@@ -410,7 +422,7 @@ class FITSBeamJones(BeamJones):
     def is_diagonal(self) -> bool:
         return False  # FITS beams can have cross-pol
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         config = super().get_config()
         config["beam_source"] = "fits"
         return config

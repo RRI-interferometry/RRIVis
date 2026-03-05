@@ -17,24 +17,20 @@ These tests verify:
 - Model combining (healpix_multifreq + healpix_multifreq, mixed)
 """
 
-import pytest
-import numpy as np
 import astropy.units as u
 import healpy as hp
+import numpy as np
+import pytest
 from astropy.coordinates import SkyCoord
 
+from rrivis.core.precision import PrecisionConfig
 from rrivis.core.sky import (
+    DIFFUSE_MODELS,
+    VIZIER_POINT_CATALOGS,
     SkyModel,
-    K_BOLTZMANN,
-    C_LIGHT,
-    H_PLANCK,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
-    VIZIER_POINT_CATALOGS,
-    DIFFUSE_MODELS,
 )
-from rrivis.core.precision import PrecisionConfig
-
 
 # =============================================================================
 # CONSTANTS
@@ -52,6 +48,7 @@ MALS_CATALOG_KEYS = sorted(k for k in VIZIER_POINT_CATALOGS if k.startswith("mal
 # =============================================================================
 # FIXTURES
 # =============================================================================
+
 
 @pytest.fixture
 def vizier_client():
@@ -73,7 +70,7 @@ def simple_obs_frequency_config():
         "starting_frequency": 100.0,
         "frequency_interval": 1.0,
         "frequency_bandwidth": 20.0,
-        "frequency_unit": "MHz"
+        "frequency_unit": "MHz",
     }
 
 
@@ -84,22 +81,26 @@ def wideband_obs_frequency_config():
         "starting_frequency": 50.0,
         "frequency_interval": 1.0,
         "frequency_bandwidth": 100.0,
-        "frequency_unit": "MHz"
+        "frequency_unit": "MHz",
     }
 
 
 @pytest.fixture
 def single_source_sky_model():
     """SkyModel with a single 1 Jy source at RA=0, Dec=0."""
-    sources = [{
-        "coords": SkyCoord(ra=0.0 * u.deg, dec=0.0 * u.deg, frame="icrs"),
-        "flux": 1.0,  # 1 Jy at 76 MHz
-        "spectral_index": -0.7,
-        "stokes_q": 0.0,
-        "stokes_u": 0.0,
-        "stokes_v": 0.0,
-    }]
-    return SkyModel.from_point_sources(sources, model_name="test_single", precision=PrecisionConfig.standard())
+    sources = [
+        {
+            "coords": SkyCoord(ra=0.0 * u.deg, dec=0.0 * u.deg, frame="icrs"),
+            "flux": 1.0,  # 1 Jy at 76 MHz
+            "spectral_index": -0.7,
+            "stokes_q": 0.0,
+            "stokes_u": 0.0,
+            "stokes_v": 0.0,
+        }
+    ]
+    return SkyModel.from_point_sources(
+        sources, model_name="test_single", precision=PrecisionConfig.standard()
+    )
 
 
 @pytest.fixture
@@ -131,7 +132,9 @@ def multi_source_sky_model():
             "stokes_v": 0.0,
         },
     ]
-    return SkyModel.from_point_sources(sources, model_name="test_multi", precision=PrecisionConfig.standard())
+    return SkyModel.from_point_sources(
+        sources, model_name="test_multi", precision=PrecisionConfig.standard()
+    )
 
 
 @pytest.fixture
@@ -156,19 +159,28 @@ def same_pixel_sources_sky_model():
             "stokes_v": 0.0,
         },
     ]
-    return SkyModel.from_point_sources(sources, model_name="test_same_pixel", precision=PrecisionConfig.standard())
+    return SkyModel.from_point_sources(
+        sources, model_name="test_same_pixel", precision=PrecisionConfig.standard()
+    )
 
 
 # =============================================================================
 # TEST SOURCE GENERATION
 # =============================================================================
 
+
 class TestTestSourceGeneration:
     """Tests for dynamic test source generation via SkyModel."""
 
     def test_generate_single_source(self):
         """Test generating a single test source."""
-        sky = SkyModel.from_test_sources(num_sources=1, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_test_sources(
+            num_sources=1,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=PrecisionConfig.standard(),
+        )
         sources = sky.to_point_sources()
 
         assert len(sources) == 1
@@ -177,7 +189,13 @@ class TestTestSourceGeneration:
 
     def test_generate_multiple_sources(self):
         """Test generating multiple test sources."""
-        sky = SkyModel.from_test_sources(num_sources=10, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_test_sources(
+            num_sources=10,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=PrecisionConfig.standard(),
+        )
         sources = sky.to_point_sources()
 
         assert len(sources) == 10
@@ -198,19 +216,31 @@ class TestTestSourceGeneration:
 
     def test_sources_distributed_in_ra(self):
         """Test that sources are evenly distributed in RA."""
-        sky = SkyModel.from_test_sources(num_sources=4, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_test_sources(
+            num_sources=4,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=PrecisionConfig.standard(),
+        )
         sources = sky.to_point_sources()
 
         # Expected RAs: 0, 90, 180, 270 degrees
         ras = [s["coords"].ra.deg for s in sources]
         expected_ras = [0.0, 90.0, 180.0, 270.0]
 
-        for ra, expected in zip(sorted(ras), expected_ras):
+        for ra, expected in zip(sorted(ras), expected_ras, strict=False):
             assert abs(ra - expected) < 0.01
 
     def test_default_num_sources(self):
         """Test default number of test sources."""
-        sky = SkyModel.from_test_sources(num_sources=100, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_test_sources(
+            num_sources=100,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=PrecisionConfig.standard(),
+        )
         sources = sky.to_point_sources()
 
         assert len(sources) == 100
@@ -221,14 +251,26 @@ class TestGetSources:
 
     def test_get_test_sources(self):
         """Test creating test sources via SkyModel."""
-        sky = SkyModel.from_test_sources(num_sources=5, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_test_sources(
+            num_sources=5,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=PrecisionConfig.standard(),
+        )
         sources = sky.to_point_sources()
 
         assert len(sources) == 5
 
     def test_default_returns_test_sources(self):
         """Test creating default test sources."""
-        sky = SkyModel.from_test_sources(num_sources=3, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_test_sources(
+            num_sources=3,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=PrecisionConfig.standard(),
+        )
         sources = sky.to_point_sources()
 
         assert len(sources) == 3
@@ -237,6 +279,7 @@ class TestGetSources:
 # =============================================================================
 # SOURCE VALIDATION
 # =============================================================================
+
 
 class TestSourceValidation:
     """Tests for source data validation."""
@@ -264,6 +307,7 @@ class TestSourceValidation:
 # =============================================================================
 # GLEAM CATALOG TESTS (Network Required)
 # =============================================================================
+
 
 @pytest.mark.slow
 class TestGLEAMCatalogAccessibility:
@@ -330,7 +374,9 @@ class TestGLEAMLoadFunction:
 
     def test_load_gleam_with_high_flux_limit(self):
         """Test loading GLEAM with high flux limit (fewer sources, faster)."""
-        sky = SkyModel.from_gleam(flux_limit=100.0, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_gleam(
+            flux_limit=100.0, precision=PrecisionConfig.standard()
+        )
         sources = sky.to_point_sources()
 
         # Should have some sources above 100 Jy
@@ -346,7 +392,9 @@ class TestGLEAMLoadFunction:
 
     def test_load_gleam_source_structure(self):
         """Test that loaded sources have correct structure."""
-        sky = SkyModel.from_gleam(flux_limit=500.0, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_gleam(
+            flux_limit=500.0, precision=PrecisionConfig.standard()
+        )
         sources = sky.to_point_sources()
 
         if len(sources) > 0:
@@ -364,6 +412,7 @@ class TestGLEAMLoadFunction:
 # =============================================================================
 # MALS CATALOG TESTS (Network Required)
 # =============================================================================
+
 
 @pytest.mark.slow
 class TestMALSCatalogAccessibility:
@@ -419,7 +468,9 @@ class TestMALSLoadFunction:
 
     def test_load_mals_dr2_with_high_flux_limit(self):
         """Test loading MALS DR2 with high flux limit (fewer sources, faster)."""
-        sky = SkyModel.from_mals(flux_limit=0.1, release="dr2", precision=PrecisionConfig.standard())
+        sky = SkyModel.from_mals(
+            flux_limit=0.1, release="dr2", precision=PrecisionConfig.standard()
+        )
         sources = sky.to_point_sources()
 
         assert isinstance(sources, list)
@@ -435,21 +486,27 @@ class TestMALSLoadFunction:
 
     def test_load_mals_dr1(self):
         """Test loading MALS DR1."""
-        sky = SkyModel.from_mals(flux_limit=0.5, release="dr1", precision=PrecisionConfig.standard())
+        sky = SkyModel.from_mals(
+            flux_limit=0.5, release="dr1", precision=PrecisionConfig.standard()
+        )
         sources = sky.to_point_sources()
 
         assert isinstance(sources, list)
 
     def test_load_mals_dr3(self):
         """Test loading MALS DR3 (HI absorption)."""
-        sky = SkyModel.from_mals(flux_limit=0.01, release="dr3", precision=PrecisionConfig.standard())
+        sky = SkyModel.from_mals(
+            flux_limit=0.01, release="dr3", precision=PrecisionConfig.standard()
+        )
         sources = sky.to_point_sources()
 
         assert isinstance(sources, list)
 
     def test_load_mals_source_structure(self):
         """Test that loaded MALS sources have correct structure."""
-        sky = SkyModel.from_mals(flux_limit=0.5, release="dr2", precision=PrecisionConfig.standard())
+        sky = SkyModel.from_mals(
+            flux_limit=0.5, release="dr2", precision=PrecisionConfig.standard()
+        )
         sources = sky.to_point_sources()
 
         if len(sources) > 0:
@@ -468,6 +525,7 @@ class TestMALSLoadFunction:
 # DIFFUSE SKY MODEL TESTS (GSM2008, GSM2016, LFSM, HASLAM)
 # =============================================================================
 
+
 @pytest.mark.slow
 class TestDiffuseSkyModels:
     """Tests for diffuse sky model loading (GSM2008, GSM2016, LFSM, Haslam)."""
@@ -475,8 +533,10 @@ class TestDiffuseSkyModels:
     def test_load_diffuse_sky_gsm2008(self):
         """Test basic GSM2008 loading via SkyModel (multi-frequency)."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=16, frequencies=np.array([76e6]),
-            precision=PrecisionConfig.standard()
+            model="gsm2008",
+            nside=16,
+            frequencies=np.array([76e6]),
+            precision=PrecisionConfig.standard(),
         )
 
         # Verify the model is in healpix_multifreq mode
@@ -490,8 +550,10 @@ class TestDiffuseSkyModels:
     def test_load_diffuse_sky_source_structure(self):
         """Test diffuse sky source structure (multi-frequency)."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=8, frequencies=np.array([76e6]),
-            precision=PrecisionConfig.standard()
+            model="gsm2008",
+            nside=8,
+            frequencies=np.array([76e6]),
+            precision=PrecisionConfig.standard(),
         )
         sources = sky.to_point_sources(flux_limit=0.01, frequency=76e6)
 
@@ -510,7 +572,11 @@ class TestDiffuseSkyModels:
     def test_load_diffuse_sky_invalid_model(self):
         """Test that invalid model name raises ValueError."""
         with pytest.raises(ValueError, match="Unknown model"):
-            SkyModel.from_diffuse_sky(model="invalid_model", frequencies=np.array([100e6]), precision=PrecisionConfig.standard())
+            SkyModel.from_diffuse_sky(
+                model="invalid_model",
+                frequencies=np.array([100e6]),
+                precision=PrecisionConfig.standard(),
+            )
 
     def test_available_models_constant(self):
         """Test that DIFFUSE_MODELS constant is properly defined."""
@@ -526,20 +592,25 @@ class TestDiffuseSkyModels:
 # CATALOG + SOURCE LOADING INTEGRATION TESTS
 # =============================================================================
 
+
 @pytest.mark.slow
 class TestSourceLoadingIntegration:
     """Integration tests for the full source loading pipeline."""
 
     def test_get_sources_with_gleam(self):
         """Test loading GLEAM catalog via SkyModel."""
-        sky = SkyModel.from_gleam(flux_limit=200.0, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_gleam(
+            flux_limit=200.0, precision=PrecisionConfig.standard()
+        )
         sources = sky.to_point_sources()
 
         assert isinstance(sources, list)
 
     def test_get_sources_with_mals(self):
         """Test loading MALS catalog via SkyModel."""
-        sky = SkyModel.from_mals(flux_limit=100.0, release="dr2", precision=PrecisionConfig.standard())
+        sky = SkyModel.from_mals(
+            flux_limit=100.0, release="dr2", precision=PrecisionConfig.standard()
+        )
         sources = sky.to_point_sources()
 
         assert isinstance(sources, list)
@@ -547,8 +618,10 @@ class TestSourceLoadingIntegration:
     def test_get_sources_with_gsm(self):
         """Test loading GSM2008 via SkyModel (multi-frequency)."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=8, frequencies=np.array([100e6]),
-            precision=PrecisionConfig.standard()
+            model="gsm2008",
+            nside=8,
+            frequencies=np.array([100e6]),
+            precision=PrecisionConfig.standard(),
         )
         sources = sky.to_point_sources(flux_limit=0.1, frequency=100e6)
 
@@ -559,6 +632,7 @@ class TestSourceLoadingIntegration:
 # =============================================================================
 # TEST _parse_frequency_config()
 # =============================================================================
+
 
 class TestParseFrequencyConfig:
     """Tests for the _parse_frequency_config() static method."""
@@ -578,7 +652,7 @@ class TestParseFrequencyConfig:
             "starting_frequency": 100e6,
             "frequency_interval": 1e6,
             "frequency_bandwidth": 10e6,
-            "frequency_unit": "Hz"
+            "frequency_unit": "Hz",
         }
         freqs = SkyModel._parse_frequency_config(config)
 
@@ -592,7 +666,7 @@ class TestParseFrequencyConfig:
             "starting_frequency": 100000.0,
             "frequency_interval": 1000.0,
             "frequency_bandwidth": 10000.0,
-            "frequency_unit": "kHz"
+            "frequency_unit": "kHz",
         }
         freqs = SkyModel._parse_frequency_config(config)
 
@@ -606,7 +680,7 @@ class TestParseFrequencyConfig:
             "starting_frequency": 1.0,
             "frequency_interval": 0.1,
             "frequency_bandwidth": 0.5,
-            "frequency_unit": "GHz"
+            "frequency_unit": "GHz",
         }
         freqs = SkyModel._parse_frequency_config(config)
 
@@ -632,7 +706,7 @@ class TestParseFrequencyConfig:
             "starting_frequency": 100.0,
             "frequency_interval": 1.0,
             "frequency_bandwidth": 10.0,
-            "frequency_unit": "invalid_unit"
+            "frequency_unit": "invalid_unit",
         }
         with pytest.raises(ValueError, match="Unknown frequency unit"):
             SkyModel._parse_frequency_config(config)
@@ -643,7 +717,7 @@ class TestParseFrequencyConfig:
             "starting_frequency": 100.0,
             "frequency_interval": 1.0,
             "frequency_bandwidth": 0.0,
-            "frequency_unit": "MHz"
+            "frequency_unit": "MHz",
         }
         with pytest.raises(ValueError, match="Invalid frequency config"):
             SkyModel._parse_frequency_config(config)
@@ -654,7 +728,7 @@ class TestParseFrequencyConfig:
             "starting_frequency": 100.0,
             "frequency_interval": 10.0,
             "frequency_bandwidth": 5.0,
-            "frequency_unit": "MHz"
+            "frequency_unit": "MHz",
         }
         with pytest.raises(ValueError, match="Invalid frequency config"):
             SkyModel._parse_frequency_config(config)
@@ -663,6 +737,7 @@ class TestParseFrequencyConfig:
 # =============================================================================
 # TEST estimate_healpix_memory()
 # =============================================================================
+
 
 class TestEstimateHealpixMemory:
     """Tests for the estimate_healpix_memory() static method."""
@@ -696,8 +771,12 @@ class TestEstimateHealpixMemory:
 
     def test_float64_dtype(self):
         """Test memory calculation with float64 dtype."""
-        info_f32 = SkyModel.estimate_healpix_memory(nside=64, n_frequencies=10, dtype=np.float32)
-        info_f64 = SkyModel.estimate_healpix_memory(nside=64, n_frequencies=10, dtype=np.float64)
+        info_f32 = SkyModel.estimate_healpix_memory(
+            nside=64, n_frequencies=10, dtype=np.float32
+        )
+        info_f64 = SkyModel.estimate_healpix_memory(
+            nside=64, n_frequencies=10, dtype=np.float64
+        )
 
         assert info_f64["total_bytes"] == 2 * info_f32["total_bytes"]
         assert info_f64["dtype"] == "float64"
@@ -720,6 +799,7 @@ class TestEstimateHealpixMemory:
 # =============================================================================
 # TEST _point_sources_to_healpix_multifreq()
 # =============================================================================
+
 
 class TestPointSourcesToHealpixMultifreq:
     """Tests for the _point_sources_to_healpix_multifreq() method."""
@@ -744,7 +824,7 @@ class TestPointSourcesToHealpixMultifreq:
         )
 
         expected_npix = hp.nside2npix(nside)
-        for freq, map_data in maps.items():
+        for _freq, map_data in maps.items():
             assert map_data.shape == (expected_npix,)
 
     def test_map_dtype_is_float32(self, single_source_sky_model):
@@ -758,9 +838,13 @@ class TestPointSourcesToHealpixMultifreq:
 
     def test_empty_sources_returns_zero_maps(self):
         """Test that empty source list returns zero maps."""
-        sky = SkyModel.from_point_sources([], model_name="empty", precision=PrecisionConfig.standard())
+        sky = SkyModel.from_point_sources(
+            [], model_name="empty", precision=PrecisionConfig.standard()
+        )
         frequencies = np.array([100e6, 110e6])
-        maps = sky._point_sources_to_healpix_multifreq(nside=32, frequencies=frequencies)
+        maps = sky._point_sources_to_healpix_multifreq(
+            nside=32, frequencies=frequencies
+        )
 
         assert len(maps) == 2
         assert np.all(maps[100e6] == 0)
@@ -801,10 +885,13 @@ class TestPointSourcesToHealpixMultifreq:
 # TEST SPECTRAL EXTRAPOLATION
 # =============================================================================
 
+
 class TestSpectralExtrapolation:
     """Tests for correct spectral index extrapolation."""
 
-    def test_flux_decreases_with_frequency_for_negative_alpha(self, single_source_sky_model):
+    def test_flux_decreases_with_frequency_for_negative_alpha(
+        self, single_source_sky_model
+    ):
         """Test that flux decreases with frequency for negative spectral index."""
         frequencies = np.array([76e6, 100e6, 150e6])  # Reference is 76 MHz
         nside = 32
@@ -822,15 +909,19 @@ class TestSpectralExtrapolation:
     def test_spectral_index_extrapolation_formula(self):
         """Test that spectral extrapolation follows S(ν) = S_ref × (ν/ν_ref)^α."""
         # Create source with known flux and spectral index
-        sources = [{
-            "coords": SkyCoord(ra=0.0 * u.deg, dec=0.0 * u.deg, frame="icrs"),
-            "flux": 1.0,  # 1 Jy at reference frequency
-            "spectral_index": -1.0,  # Easy to calculate
-            "stokes_q": 0.0,
-            "stokes_u": 0.0,
-            "stokes_v": 0.0,
-        }]
-        sky = SkyModel.from_point_sources(sources, model_name="test", precision=PrecisionConfig.standard())
+        sources = [
+            {
+                "coords": SkyCoord(ra=0.0 * u.deg, dec=0.0 * u.deg, frame="icrs"),
+                "flux": 1.0,  # 1 Jy at reference frequency
+                "spectral_index": -1.0,  # Easy to calculate
+                "stokes_q": 0.0,
+                "stokes_u": 0.0,
+                "stokes_v": 0.0,
+            }
+        ]
+        sky = SkyModel.from_point_sources(
+            sources, model_name="test", precision=PrecisionConfig.standard()
+        )
 
         ref_freq = 100e6
         test_freq = 200e6  # Double the reference
@@ -847,15 +938,23 @@ class TestSpectralExtrapolation:
         omega_pixel = 4 * np.pi / npix
 
         occupied_ref = maps[ref_freq] > 0
-        flux_ref = np.sum(brightness_temp_to_flux_density(
-            maps[ref_freq][occupied_ref], ref_freq, omega_pixel,
-            method=sky.brightness_conversion,
-        ))
+        flux_ref = np.sum(
+            brightness_temp_to_flux_density(
+                maps[ref_freq][occupied_ref],
+                ref_freq,
+                omega_pixel,
+                method=sky.brightness_conversion,
+            )
+        )
         occupied_test = maps[test_freq] > 0
-        flux_test = np.sum(brightness_temp_to_flux_density(
-            maps[test_freq][occupied_test], test_freq, omega_pixel,
-            method=sky.brightness_conversion,
-        ))
+        flux_test = np.sum(
+            brightness_temp_to_flux_density(
+                maps[test_freq][occupied_test],
+                test_freq,
+                omega_pixel,
+                method=sky.brightness_conversion,
+            )
+        )
 
         # S(200MHz) / S(100MHz) = (200/100)^(-1) = 0.5
         expected_ratio = 0.5
@@ -863,7 +962,9 @@ class TestSpectralExtrapolation:
 
         assert np.isclose(actual_ratio, expected_ratio, rtol=1e-4)
 
-    def test_different_spectral_indices_give_different_ratios(self, multi_source_sky_model):
+    def test_different_spectral_indices_give_different_ratios(
+        self, multi_source_sky_model
+    ):
         """Test that sources with different spectral indices evolve differently."""
         frequencies = np.array([76e6, 150e6])
         nside = 64  # Higher resolution to separate sources
@@ -889,6 +990,7 @@ class TestSpectralExtrapolation:
 # TEST FLUX CONSERVATION
 # =============================================================================
 
+
 class TestFluxConservation:
     """Tests for flux conservation in the conversion."""
 
@@ -909,12 +1011,15 @@ class TestFluxConservation:
         occupied = maps[freq] > 0
         total_flux_jy = np.sum(
             brightness_temp_to_flux_density(
-                maps[freq][occupied], freq, omega_pixel, method=sky.brightness_conversion
+                maps[freq][occupied],
+                freq,
+                omega_pixel,
+                method=sky.brightness_conversion,
             )
         )
 
         # Expected flux at 100 MHz from 1 Jy at 76 MHz with alpha=-0.7
-        expected_flux = 1.0 * (freq / 76e6)**(-0.7)
+        expected_flux = 1.0 * (freq / 76e6) ** (-0.7)
 
         assert np.isclose(total_flux_jy, expected_flux, rtol=1e-5)
 
@@ -936,7 +1041,10 @@ class TestFluxConservation:
         occupied = maps[freq] > 0
         total_flux_jy = np.sum(
             brightness_temp_to_flux_density(
-                maps[freq][occupied], freq, omega_pixel, method=sky.brightness_conversion
+                maps[freq][occupied],
+                freq,
+                omega_pixel,
+                method=sky.brightness_conversion,
             )
         )
 
@@ -945,9 +1053,9 @@ class TestFluxConservation:
         # Source 2: 1 Jy × (100/76)^(-1.5)
         # Source 3: 0.5 Jy × (100/76)^(-0.5)
         expected_flux = (
-            2.0 * (freq / ref_freq)**(-0.7) +
-            1.0 * (freq / ref_freq)**(-1.5) +
-            0.5 * (freq / ref_freq)**(-0.5)
+            2.0 * (freq / ref_freq) ** (-0.7)
+            + 1.0 * (freq / ref_freq) ** (-1.5)
+            + 0.5 * (freq / ref_freq) ** (-0.5)
         )
 
         assert np.isclose(total_flux_jy, expected_flux, rtol=1e-4)
@@ -956,6 +1064,7 @@ class TestFluxConservation:
 # =============================================================================
 # TEST SOURCES IN SAME PIXEL
 # =============================================================================
+
 
 class TestSamePixelSources:
     """Tests for handling multiple sources in the same pixel."""
@@ -982,7 +1091,10 @@ class TestSamePixelSources:
         occupied = maps[freq] > 0
         total_flux_jy = np.sum(
             brightness_temp_to_flux_density(
-                maps[freq][occupied], freq, omega_pixel, method=sky.brightness_conversion
+                maps[freq][occupied],
+                freq,
+                omega_pixel,
+                method=sky.brightness_conversion,
             )
         )
 
@@ -997,16 +1109,22 @@ class TestSamePixelSources:
                 "coords": SkyCoord(ra=0.0 * u.deg, dec=0.0 * u.deg, frame="icrs"),
                 "flux": 1.0,
                 "spectral_index": -0.5,  # Flat
-                "stokes_q": 0.0, "stokes_u": 0.0, "stokes_v": 0.0,
+                "stokes_q": 0.0,
+                "stokes_u": 0.0,
+                "stokes_v": 0.0,
             },
             {
                 "coords": SkyCoord(ra=0.1 * u.deg, dec=0.1 * u.deg, frame="icrs"),
                 "flux": 1.0,
                 "spectral_index": -1.5,  # Steep
-                "stokes_q": 0.0, "stokes_u": 0.0, "stokes_v": 0.0,
+                "stokes_q": 0.0,
+                "stokes_u": 0.0,
+                "stokes_v": 0.0,
             },
         ]
-        sky = SkyModel.from_point_sources(sources, model_name="test", precision=PrecisionConfig.standard())
+        sky = SkyModel.from_point_sources(
+            sources, model_name="test", precision=PrecisionConfig.standard()
+        )
 
         ref_freq = 76e6
         test_freqs = np.array([76e6, 150e6])
@@ -1030,15 +1148,18 @@ class TestSamePixelSources:
         occ_150 = maps[150e6] > 0
         flux_150 = np.sum(
             brightness_temp_to_flux_density(
-                maps[150e6][occ_150], 150e6, omega_pixel, method=sky.brightness_conversion
+                maps[150e6][occ_150],
+                150e6,
+                omega_pixel,
+                method=sky.brightness_conversion,
             )
         )
 
         # Expected: each source extrapolated independently, then summed
         expected_76 = 1.0 + 1.0  # Both at reference frequency
         expected_150 = (
-            1.0 * (150e6 / 76e6)**(-0.5) +  # Flat source
-            1.0 * (150e6 / 76e6)**(-1.5)     # Steep source
+            1.0 * (150e6 / 76e6) ** (-0.5)  # Flat source
+            + 1.0 * (150e6 / 76e6) ** (-1.5)  # Steep source
         )
 
         # Tolerance accounts for float32 map storage with nonlinear Planck round-trip
@@ -1050,10 +1171,13 @@ class TestSamePixelSources:
 # TEST to_healpix_for_observation()
 # =============================================================================
 
+
 class TestToHealpixForObservation:
     """Tests for the to_healpix_for_observation() public method."""
 
-    def test_basic_conversion(self, single_source_sky_model, simple_obs_frequency_config):
+    def test_basic_conversion(
+        self, single_source_sky_model, simple_obs_frequency_config
+    ):
         """Test basic conversion workflow."""
         sky = single_source_sky_model.to_healpix_for_observation(
             nside=32, obs_frequency_config=simple_obs_frequency_config
@@ -1074,20 +1198,24 @@ class TestToHealpixForObservation:
 
     def test_raises_error_for_empty_sources(self, simple_obs_frequency_config):
         """Test that method raises error when no sources available."""
-        sky = SkyModel.from_point_sources([], model_name="empty", precision=PrecisionConfig.standard())
+        sky = SkyModel.from_point_sources(
+            [], model_name="empty", precision=PrecisionConfig.standard()
+        )
 
         with pytest.raises(ValueError, match="No point sources available"):
             sky.to_healpix_for_observation(
                 nside=32, obs_frequency_config=simple_obs_frequency_config
             )
 
-    def test_custom_reference_frequency(self, single_source_sky_model, simple_obs_frequency_config):
+    def test_custom_reference_frequency(
+        self, single_source_sky_model, simple_obs_frequency_config
+    ):
         """Test using custom reference frequency."""
         # Should not raise
         sky = single_source_sky_model.to_healpix_for_observation(
             nside=32,
             obs_frequency_config=simple_obs_frequency_config,
-            ref_frequency=100e6  # Different from default 76 MHz
+            ref_frequency=100e6,  # Different from default 76 MHz
         )
 
         assert sky._healpix_maps is not None
@@ -1097,10 +1225,13 @@ class TestToHealpixForObservation:
 # TEST get_map_at_frequency()
 # =============================================================================
 
+
 class TestGetMapAtFrequency:
     """Tests for the get_map_at_frequency() method."""
 
-    def test_exact_frequency_match(self, single_source_sky_model, simple_obs_frequency_config):
+    def test_exact_frequency_match(
+        self, single_source_sky_model, simple_obs_frequency_config
+    ):
         """Test getting map at exact frequency."""
         sky = single_source_sky_model.to_healpix_for_observation(
             nside=32, obs_frequency_config=simple_obs_frequency_config
@@ -1111,7 +1242,9 @@ class TestGetMapAtFrequency:
         assert isinstance(map_100mhz, np.ndarray)
         assert map_100mhz.shape == (hp.nside2npix(32),)
 
-    def test_nearest_frequency_fallback(self, single_source_sky_model, simple_obs_frequency_config):
+    def test_nearest_frequency_fallback(
+        self, single_source_sky_model, simple_obs_frequency_config
+    ):
         """Test that nearest frequency is used when exact match not found."""
         sky = single_source_sky_model.to_healpix_for_observation(
             nside=32, obs_frequency_config=simple_obs_frequency_config
@@ -1132,10 +1265,13 @@ class TestGetMapAtFrequency:
 # TEST get_multifreq_maps()
 # =============================================================================
 
+
 class TestGetMultifreqMaps:
     """Tests for the get_multifreq_maps() method."""
 
-    def test_returns_correct_structure(self, single_source_sky_model, simple_obs_frequency_config):
+    def test_returns_correct_structure(
+        self, single_source_sky_model, simple_obs_frequency_config
+    ):
         """Test that method returns correct structure."""
         sky = single_source_sky_model.to_healpix_for_observation(
             nside=32, obs_frequency_config=simple_obs_frequency_config
@@ -1158,6 +1294,7 @@ class TestGetMultifreqMaps:
 # TEST PROPERTIES
 # =============================================================================
 
+
 class TestMultifreqProperties:
     """Tests for multi-frequency related properties."""
 
@@ -1165,7 +1302,9 @@ class TestMultifreqProperties:
         """Test mode property for point sources."""
         assert single_source_sky_model.mode == "point_sources"
 
-    def test_mode_healpix_multifreq(self, single_source_sky_model, simple_obs_frequency_config):
+    def test_mode_healpix_multifreq(
+        self, single_source_sky_model, simple_obs_frequency_config
+    ):
         """Test mode property after conversion to multi-freq HEALPix."""
         single_source_sky_model.to_healpix_for_observation(
             nside=32, obs_frequency_config=simple_obs_frequency_config
@@ -1177,7 +1316,9 @@ class TestMultifreqProperties:
         """Test has_multifreq_maps property when no maps."""
         assert single_source_sky_model.has_multifreq_maps is False
 
-    def test_has_multifreq_maps_true(self, single_source_sky_model, simple_obs_frequency_config):
+    def test_has_multifreq_maps_true(
+        self, single_source_sky_model, simple_obs_frequency_config
+    ):
         """Test has_multifreq_maps property after conversion."""
         single_source_sky_model.to_healpix_for_observation(
             nside=32, obs_frequency_config=simple_obs_frequency_config
@@ -1189,7 +1330,9 @@ class TestMultifreqProperties:
         """Test n_frequencies property when no maps."""
         assert single_source_sky_model.n_frequencies == 0
 
-    def test_n_frequencies_after_conversion(self, single_source_sky_model, simple_obs_frequency_config):
+    def test_n_frequencies_after_conversion(
+        self, single_source_sky_model, simple_obs_frequency_config
+    ):
         """Test n_frequencies property after conversion."""
         single_source_sky_model.to_healpix_for_observation(
             nside=32, obs_frequency_config=simple_obs_frequency_config
@@ -1202,10 +1345,13 @@ class TestMultifreqProperties:
 # TEST __repr__
 # =============================================================================
 
+
 class TestRepr:
     """Tests for __repr__ method with multi-frequency maps."""
 
-    def test_repr_multifreq_mode(self, single_source_sky_model, simple_obs_frequency_config):
+    def test_repr_multifreq_mode(
+        self, single_source_sky_model, simple_obs_frequency_config
+    ):
         """Test __repr__ in multi-frequency mode."""
         single_source_sky_model.to_healpix_for_observation(
             nside=32, obs_frequency_config=simple_obs_frequency_config
@@ -1223,6 +1369,7 @@ class TestRepr:
 # =============================================================================
 # MULTI-FREQUENCY INTEGRATION TESTS
 # =============================================================================
+
 
 class TestMultifreqIntegration:
     """Integration tests for multi-frequency functionality."""
@@ -1254,7 +1401,9 @@ class TestMultifreqIntegration:
         # Check repr
         assert "healpix_multifreq" in repr(sky)
 
-    def test_wideband_observation(self, multi_source_sky_model, wideband_obs_frequency_config):
+    def test_wideband_observation(
+        self, multi_source_sky_model, wideband_obs_frequency_config
+    ):
         """Test with wideband observation (100 channels)."""
         sky = multi_source_sky_model.to_healpix_for_observation(
             nside=32, obs_frequency_config=wideband_obs_frequency_config
@@ -1271,12 +1420,15 @@ class TestMultifreqIntegration:
 # TEST PLANCK VS RAYLEIGH-JEANS CONVERSION
 # =============================================================================
 
+
 class TestPlanckVsRayleighJeans:
     """Tests for Planck-exact vs Rayleigh-Jeans brightness conversion."""
 
     def test_planck_default(self):
         """Verify SkyModel defaults to Planck conversion."""
-        sky = SkyModel.from_point_sources([], model_name="test", precision=PrecisionConfig.standard())
+        sky = SkyModel.from_point_sources(
+            [], model_name="test", precision=PrecisionConfig.standard()
+        )
         assert sky.brightness_conversion == "planck"
 
     def test_planck_rj_agree_high_temp(self):
@@ -1286,7 +1438,9 @@ class TestPlanckVsRayleighJeans:
         omega = 1e-4  # arbitrary solid angle
 
         flux_planck = brightness_temp_to_flux_density(T, freq, omega, method="planck")
-        flux_rj = brightness_temp_to_flux_density(T, freq, omega, method="rayleigh-jeans")
+        flux_rj = brightness_temp_to_flux_density(
+            T, freq, omega, method="rayleigh-jeans"
+        )
 
         assert np.isclose(flux_planck, flux_rj, rtol=1e-5)
 
@@ -1297,7 +1451,9 @@ class TestPlanckVsRayleighJeans:
         omega = 1e-4
 
         flux_planck = brightness_temp_to_flux_density(T, freq, omega, method="planck")
-        flux_rj = brightness_temp_to_flux_density(T, freq, omega, method="rayleigh-jeans")
+        flux_rj = brightness_temp_to_flux_density(
+            T, freq, omega, method="rayleigh-jeans"
+        )
 
         assert flux_planck[0] < flux_rj[0]
 
@@ -1308,7 +1464,9 @@ class TestPlanckVsRayleighJeans:
         omega = 1e-4
 
         flux = brightness_temp_to_flux_density(T_original, freq, omega, method="planck")
-        T_recovered = flux_density_to_brightness_temp(flux, freq, omega, method="planck")
+        T_recovered = flux_density_to_brightness_temp(
+            flux, freq, omega, method="planck"
+        )
 
         assert np.allclose(T_recovered, T_original, rtol=1e-10)
 
@@ -1318,16 +1476,22 @@ class TestPlanckVsRayleighJeans:
         freq = 150e6
         omega = 1e-4
 
-        flux = brightness_temp_to_flux_density(T_original, freq, omega, method="rayleigh-jeans")
-        T_recovered = flux_density_to_brightness_temp(flux, freq, omega, method="rayleigh-jeans")
+        flux = brightness_temp_to_flux_density(
+            T_original, freq, omega, method="rayleigh-jeans"
+        )
+        T_recovered = flux_density_to_brightness_temp(
+            flux, freq, omega, method="rayleigh-jeans"
+        )
 
         assert np.allclose(T_recovered, T_original, rtol=1e-10)
 
     def test_rj_fallback(self):
         """SkyModel with brightness_conversion='rayleigh-jeans' uses RJ."""
         sky = SkyModel.from_point_sources(
-            [], model_name="test", brightness_conversion="rayleigh-jeans",
-            precision=PrecisionConfig.standard()
+            [],
+            model_name="test",
+            brightness_conversion="rayleigh-jeans",
+            precision=PrecisionConfig.standard(),
         )
         assert sky.brightness_conversion == "rayleigh-jeans"
 
@@ -1372,6 +1536,7 @@ class TestPlanckVsRayleighJeans:
 # DIFFUSE MODEL NATIVE MULTI-FREQUENCY TESTS
 # =============================================================================
 
+
 @pytest.mark.slow
 class TestDiffuseNativeMultifreq:
     """Tests for from_diffuse_sky() with native per-frequency generation."""
@@ -1379,14 +1544,24 @@ class TestDiffuseNativeMultifreq:
     def test_mode_is_healpix_multifreq(self):
         """from_diffuse_sky() must return a healpix_multifreq model."""
         freqs = np.array([100e6, 120e6])
-        sky = SkyModel.from_diffuse_sky(model="gsm2008", nside=16, frequencies=freqs, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=16,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
 
         assert sky.mode == "healpix_multifreq"
 
     def test_one_map_per_frequency(self):
         """from_diffuse_sky() generates exactly one T_b map per channel."""
         freqs = np.array([80e6, 100e6, 120e6])
-        sky = SkyModel.from_diffuse_sky(model="gsm2008", nside=8, frequencies=freqs, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=8,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
 
         maps, nside, obs_freqs = sky.get_multifreq_maps()
 
@@ -1399,7 +1574,12 @@ class TestDiffuseNativeMultifreq:
         """Maps are generated at the requested nside."""
         freqs = np.array([100e6])
         nside = 16
-        sky = SkyModel.from_diffuse_sky(model="gsm2008", nside=nside, frequencies=freqs, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=nside,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
 
         _, got_nside, _ = sky.get_multifreq_maps()
         assert got_nside == nside
@@ -1408,7 +1588,12 @@ class TestDiffuseNativeMultifreq:
     def test_maps_have_positive_temperatures(self):
         """All diffuse model pixels should have positive brightness temperature."""
         freqs = np.array([100e6])
-        sky = SkyModel.from_diffuse_sky(model="gsm2008", nside=8, frequencies=freqs, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=8,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
 
         t_map = sky.get_map_at_frequency(100e6)
         assert np.all(t_map > 0), "GSM map must have positive T_b everywhere"
@@ -1416,7 +1601,12 @@ class TestDiffuseNativeMultifreq:
     def test_maps_differ_across_frequencies(self):
         """Maps at different frequencies must not be identical (no trivial scaling)."""
         freqs = np.array([80e6, 120e6])
-        sky = SkyModel.from_diffuse_sky(model="gsm2008", nside=8, frequencies=freqs, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=8,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
 
         map_80 = sky.get_map_at_frequency(80e6)
         map_120 = sky.get_map_at_frequency(120e6)
@@ -1435,20 +1625,34 @@ class TestDiffuseNativeMultifreq:
             "frequency_bandwidth": 20.0,
             "frequency_unit": "MHz",
         }
-        sky = SkyModel.from_diffuse_sky(model="gsm2008", nside=8, obs_frequency_config=config, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=8,
+            obs_frequency_config=config,
+            precision=PrecisionConfig.standard(),
+        )
 
         assert sky.mode == "healpix_multifreq"
         assert sky.n_frequencies == 2  # 100 MHz and 110 MHz
 
     def test_raises_without_frequencies(self):
         """from_diffuse_sky() raises if neither frequencies nor config given."""
-        with pytest.raises(ValueError, match="Either 'frequencies' or 'obs_frequency_config'"):
-            SkyModel.from_diffuse_sky(model="gsm2008", nside=8, precision=PrecisionConfig.standard())
+        with pytest.raises(
+            ValueError, match="Either 'frequencies' or 'obs_frequency_config'"
+        ):
+            SkyModel.from_diffuse_sky(
+                model="gsm2008", nside=8, precision=PrecisionConfig.standard()
+            )
 
     def test_to_point_sources_from_diffuse(self):
         """Diffuse model can be converted to point sources at a specific frequency."""
         freqs = np.array([100e6])
-        sky = SkyModel.from_diffuse_sky(model="gsm2008", nside=8, frequencies=freqs, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=8,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
 
         sources = sky.to_point_sources(flux_limit=0.01, frequency=100e6)
 
@@ -1463,6 +1667,7 @@ class TestDiffuseNativeMultifreq:
 # COMBINE HEALPIX_MULTIFREQ + HEALPIX_MULTIFREQ TESTS
 # =============================================================================
 
+
 @pytest.mark.slow
 class TestCombineHealpixMultifreq:
     """Tests for combining two healpix_multifreq models."""
@@ -1470,20 +1675,38 @@ class TestCombineHealpixMultifreq:
     def test_combined_mode_is_healpix_multifreq(self):
         """Combining two healpix_multifreq models yields a healpix_multifreq model."""
         freqs = np.array([100e6, 110e6])
-        sky1 = SkyModel.from_diffuse_sky(model="gsm2008", nside=8, frequencies=freqs, precision=PrecisionConfig.standard())
-        sky2 = SkyModel.from_diffuse_sky(model="gsm2008", nside=8, frequencies=freqs, precision=PrecisionConfig.standard())
-
-        combined = SkyModel.combine(
-            [sky1, sky2], representation="healpix_map"
+        sky1 = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=8,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
         )
+        sky2 = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=8,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
+
+        combined = SkyModel.combine([sky1, sky2], representation="healpix_map")
 
         assert combined.mode == "healpix_multifreq"
 
     def test_combined_maps_brighter_than_inputs(self):
         """Sum of two identical diffuse maps must be brighter (in flux) than one."""
         freqs = np.array([100e6])
-        sky1 = SkyModel.from_diffuse_sky(model="gsm2008", nside=8, frequencies=freqs, precision=PrecisionConfig.standard())
-        sky2 = SkyModel.from_diffuse_sky(model="gsm2008", nside=8, frequencies=freqs, precision=PrecisionConfig.standard())
+        sky1 = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=8,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
+        sky2 = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=8,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
 
         combined = SkyModel.combine([sky1, sky2], representation="healpix_map")
 
@@ -1511,8 +1734,18 @@ class TestCombineHealpixMultifreq:
         """Combined model inherits nside and frequencies from input models."""
         nside = 8
         freqs = np.array([100e6, 110e6])
-        sky1 = SkyModel.from_diffuse_sky(model="gsm2008", nside=nside, frequencies=freqs, precision=PrecisionConfig.standard())
-        sky2 = SkyModel.from_diffuse_sky(model="gsm2008", nside=nside, frequencies=freqs, precision=PrecisionConfig.standard())
+        sky1 = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=nside,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
+        sky2 = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=nside,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
 
         combined = SkyModel.combine([sky1, sky2], representation="healpix_map")
 
@@ -1527,19 +1760,23 @@ class TestCombineHealpixMultifreq:
 # COMBINE MIXED (POINT SOURCES + HEALPIX_MULTIFREQ) TESTS
 # =============================================================================
 
+
 @pytest.mark.slow
 class TestCombineMixed:
     """Tests for combining point source models with healpix_multifreq models."""
 
-    def test_point_plus_diffuse_yields_healpix_multifreq(
-        self, single_source_sky_model
-    ):
+    def test_point_plus_diffuse_yields_healpix_multifreq(self, single_source_sky_model):
         """
         Combining a point source model with a healpix_multifreq model
         produces a healpix_multifreq combined model.
         """
         freqs = np.array([100e6, 110e6])
-        diffuse = SkyModel.from_diffuse_sky(model="gsm2008", nside=16, frequencies=freqs, precision=PrecisionConfig.standard())
+        diffuse = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=16,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
 
         with pytest.warns(UserWarning, match="double-counting"):
             combined = SkyModel.combine(
@@ -1555,7 +1792,12 @@ class TestCombineMixed:
         Adding a point source to a diffuse model increases total flux.
         """
         freqs = np.array([100e6])
-        diffuse = SkyModel.from_diffuse_sky(model="gsm2008", nside=16, frequencies=freqs, precision=PrecisionConfig.standard())
+        diffuse = SkyModel.from_diffuse_sky(
+            model="gsm2008",
+            nside=16,
+            frequencies=freqs,
+            precision=PrecisionConfig.standard(),
+        )
 
         with pytest.warns(UserWarning):
             combined = SkyModel.combine(
@@ -1588,19 +1830,32 @@ class TestCombineMixed:
 # PRECISION-AWARE SKYMODEL TESTS
 # =============================================================================
 
+
 class TestSkyModelPrecision:
     """Tests for PrecisionConfig integration with SkyModel."""
 
     def test_precision_none_raises_error(self):
         """Test that precision=None raises ValueError."""
         with pytest.raises(ValueError, match="PrecisionConfig"):
-            SkyModel.from_test_sources(num_sources=10)
+            SkyModel.from_test_sources(
+                num_sources=10,
+                flux_range=(2.0, 8.0),
+                dec_deg=-30.72,
+                spectral_index=-0.8,
+            )
 
     def test_precision_standard_uses_float64(self):
         """Test standard preset produces float64 arrays."""
         from rrivis.core.precision import PrecisionConfig
+
         precision = PrecisionConfig.standard()
-        sky = SkyModel.from_test_sources(num_sources=10, precision=precision)
+        sky = SkyModel.from_test_sources(
+            num_sources=10,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=precision,
+        )
         assert sky._ra_rad.dtype == np.float64
         assert sky._dec_rad.dtype == np.float64
         assert sky._flux_ref.dtype == np.float64
@@ -1609,8 +1864,15 @@ class TestSkyModelPrecision:
     def test_precision_fast_uses_float32(self):
         """Test fast preset produces float32 arrays."""
         from rrivis.core.precision import PrecisionConfig
+
         precision = PrecisionConfig.fast()
-        sky = SkyModel.from_test_sources(num_sources=10, precision=precision)
+        sky = SkyModel.from_test_sources(
+            num_sources=10,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=precision,
+        )
         assert sky._ra_rad.dtype == np.float32
         assert sky._dec_rad.dtype == np.float32
         assert sky._flux_ref.dtype == np.float32
@@ -1620,20 +1882,39 @@ class TestSkyModelPrecision:
     def test_precision_stored_on_model(self):
         """Test precision config is stored on the SkyModel instance."""
         from rrivis.core.precision import PrecisionConfig
+
         precision = PrecisionConfig.fast()
-        sky = SkyModel.from_test_sources(num_sources=5, precision=precision)
+        sky = SkyModel.from_test_sources(
+            num_sources=5,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=precision,
+        )
         assert sky._precision is precision
 
     def test_precision_none_raises_on_factory(self):
         """Test that factory methods raise when precision is None."""
         with pytest.raises(ValueError, match="PrecisionConfig"):
-            SkyModel.from_test_sources(num_sources=5)
+            SkyModel.from_test_sources(
+                num_sources=5,
+                flux_range=(2.0, 8.0),
+                dec_deg=-30.72,
+                spectral_index=-0.8,
+            )
 
     def test_ensure_dtypes_idempotent(self):
         """Test calling _ensure_dtypes() twice gives same result."""
         from rrivis.core.precision import PrecisionConfig
+
         precision = PrecisionConfig.fast()
-        sky = SkyModel.from_test_sources(num_sources=10, precision=precision)
+        sky = SkyModel.from_test_sources(
+            num_sources=10,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=precision,
+        )
         # Already called once during construction; call again
         sky._ensure_dtypes()
         assert sky._ra_rad.dtype == np.float32
@@ -1642,7 +1923,14 @@ class TestSkyModelPrecision:
     def test_ensure_dtypes_raises_without_precision(self):
         """Test _ensure_dtypes() raises when precision is None."""
         from rrivis.core.precision import PrecisionConfig
-        sky = SkyModel.from_test_sources(num_sources=10, precision=PrecisionConfig.standard())
+
+        sky = SkyModel.from_test_sources(
+            num_sources=10,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=PrecisionConfig.standard(),
+        )
         sky._precision = None
         with pytest.raises(ValueError, match="PrecisionConfig"):
             sky._ensure_dtypes()
@@ -1650,6 +1938,7 @@ class TestSkyModelPrecision:
     def test_from_point_sources_with_precision(self):
         """Test from_point_sources respects precision."""
         from rrivis.core.precision import PrecisionConfig
+
         precision = PrecisionConfig.fast()
         coord = SkyCoord(ra=10 * u.deg, dec=-30 * u.deg, frame="icrs")
         sources = [{"coords": coord, "flux": 5.0, "spectral_index": -0.8}]
@@ -1661,9 +1950,22 @@ class TestSkyModelPrecision:
     def test_combine_propagates_precision(self):
         """Test combine() propagates precision to combined model."""
         from rrivis.core.precision import PrecisionConfig
+
         precision = PrecisionConfig.fast()
-        sky1 = SkyModel.from_test_sources(num_sources=5, precision=precision)
-        sky2 = SkyModel.from_test_sources(num_sources=5, precision=precision)
+        sky1 = SkyModel.from_test_sources(
+            num_sources=5,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=precision,
+        )
+        sky2 = SkyModel.from_test_sources(
+            num_sources=5,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=precision,
+        )
         combined = SkyModel.combine([sky1, sky2], precision=precision)
         assert combined._precision is precision
         assert combined._ra_rad.dtype == np.float32
@@ -1672,8 +1974,15 @@ class TestSkyModelPrecision:
     def test_dtype_helpers_with_precision(self):
         """Test _source_dtype/_flux_dtype/_alpha_dtype/_healpix_dtype helpers."""
         from rrivis.core.precision import PrecisionConfig
+
         precision = PrecisionConfig.fast()
-        sky = SkyModel.from_test_sources(num_sources=5, precision=precision)
+        sky = SkyModel.from_test_sources(
+            num_sources=5,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=precision,
+        )
         assert sky._source_dtype() == np.float32
         assert sky._flux_dtype() == np.float32
         assert sky._alpha_dtype() == np.float32
@@ -1682,7 +1991,14 @@ class TestSkyModelPrecision:
     def test_dtype_helpers_raise_without_precision(self):
         """Test dtype helpers raise ValueError when precision is None."""
         from rrivis.core.precision import PrecisionConfig
-        sky = SkyModel.from_test_sources(num_sources=5, precision=PrecisionConfig.standard())
+
+        sky = SkyModel.from_test_sources(
+            num_sources=5,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=PrecisionConfig.standard(),
+        )
         sky._precision = None
         with pytest.raises(ValueError, match="PrecisionConfig"):
             sky._source_dtype()
@@ -1696,20 +2012,40 @@ class TestSkyModelPrecision:
     def test_precise_preset_healpix_maps_float64(self):
         """Test precise preset uses float64 for HEALPix maps."""
         from rrivis.core.precision import PrecisionConfig
+
         precision = PrecisionConfig.precise()
-        sky = SkyModel.from_test_sources(num_sources=5, precision=precision)
+        sky = SkyModel.from_test_sources(
+            num_sources=5,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=precision,
+        )
         assert sky._healpix_dtype() == np.float64
 
     def test_values_preserved_after_cast(self):
         """Test source values are numerically preserved after dtype cast."""
         from rrivis.core.precision import PrecisionConfig
+
         # Create with standard precision as reference
-        sky_ref = SkyModel.from_test_sources(num_sources=10, precision=PrecisionConfig.standard())
+        sky_ref = SkyModel.from_test_sources(
+            num_sources=10,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=PrecisionConfig.standard(),
+        )
         ra_ref = sky_ref._ra_rad.copy()
         flux_ref = sky_ref._flux_ref.copy()
 
         # Create same with standard precision again
-        sky = SkyModel.from_test_sources(num_sources=10, precision=PrecisionConfig.standard())
+        sky = SkyModel.from_test_sources(
+            num_sources=10,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=PrecisionConfig.standard(),
+        )
         np.testing.assert_array_equal(sky._ra_rad, ra_ref)
         np.testing.assert_array_equal(sky._flux_ref, flux_ref)
 
@@ -1717,6 +2053,7 @@ class TestSkyModelPrecision:
 # =============================================================================
 # GSM2008 PARAMETERS
 # =============================================================================
+
 
 class TestGSM2008Parameters:
     """Tests for GSM2008 basemap/interpolation parameter passthrough."""
@@ -1729,8 +2066,11 @@ class TestGSM2008Parameters:
     def test_basemap_haslam(self):
         """basemap='haslam' produces a valid healpix_multifreq SkyModel."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            basemap="haslam", precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            basemap="haslam",
+            precision=self._PRECISION,
         )
         assert sky.mode == "healpix_multifreq"
         assert sky.n_sources == hp.nside2npix(self._NSIDE)
@@ -1739,8 +2079,11 @@ class TestGSM2008Parameters:
     def test_basemap_wmap(self):
         """basemap='wmap' produces a valid healpix_multifreq SkyModel."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            basemap="wmap", precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            basemap="wmap",
+            precision=self._PRECISION,
         )
         assert sky.mode == "healpix_multifreq"
 
@@ -1748,8 +2091,11 @@ class TestGSM2008Parameters:
     def test_basemap_5deg(self):
         """basemap='5deg' produces a valid healpix_multifreq SkyModel."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            basemap="5deg", precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            basemap="5deg",
+            precision=self._PRECISION,
         )
         assert sky.mode == "healpix_multifreq"
 
@@ -1757,8 +2103,11 @@ class TestGSM2008Parameters:
     def test_interpolation_cubic(self):
         """interpolation='cubic' produces a valid SkyModel."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            interpolation="cubic", precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            interpolation="cubic",
+            precision=self._PRECISION,
         )
         assert sky.mode == "healpix_multifreq"
 
@@ -1766,8 +2115,11 @@ class TestGSM2008Parameters:
     def test_interpolation_pchip(self):
         """interpolation='pchip' produces a valid SkyModel."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            interpolation="pchip", precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            interpolation="pchip",
+            precision=self._PRECISION,
         )
         assert sky.mode == "healpix_multifreq"
 
@@ -1776,8 +2128,11 @@ class TestGSM2008Parameters:
         for model_name in ("gsm2016", "lfsm", "haslam"):
             with pytest.raises(ValueError, match="only supported for gsm2008"):
                 SkyModel.from_diffuse_sky(
-                    model=model_name, nside=self._NSIDE, frequencies=self._FREQ,
-                    basemap="haslam", precision=self._PRECISION,
+                    model=model_name,
+                    nside=self._NSIDE,
+                    frequencies=self._FREQ,
+                    basemap="haslam",
+                    precision=self._PRECISION,
                 )
 
     def test_interpolation_rejected_for_non_gsm2008(self):
@@ -1785,16 +2140,23 @@ class TestGSM2008Parameters:
         for model_name in ("gsm2016", "lfsm", "haslam"):
             with pytest.raises(ValueError, match="only supported for gsm2008"):
                 SkyModel.from_diffuse_sky(
-                    model=model_name, nside=self._NSIDE, frequencies=self._FREQ,
-                    interpolation="pchip", precision=self._PRECISION,
+                    model=model_name,
+                    nside=self._NSIDE,
+                    frequencies=self._FREQ,
+                    interpolation="pchip",
+                    precision=self._PRECISION,
                 )
 
     @pytest.mark.slow
     def test_none_defaults(self):
         """basemap=None and interpolation=None use DIFFUSE_MODELS defaults."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            basemap=None, interpolation=None, precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            basemap=None,
+            interpolation=None,
+            precision=self._PRECISION,
         )
         assert sky.mode == "healpix_multifreq"
 
@@ -1802,12 +2164,18 @@ class TestGSM2008Parameters:
     def test_different_basemaps_different_maps(self):
         """haslam vs 5deg basemaps produce different maps at same frequency."""
         sky_haslam = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            basemap="haslam", precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            basemap="haslam",
+            precision=self._PRECISION,
         )
         sky_5deg = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            basemap="5deg", precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            basemap="5deg",
+            precision=self._PRECISION,
         )
         map_haslam = sky_haslam.get_map_at_frequency(self._FREQ[0])
         map_5deg = sky_5deg.get_map_at_frequency(self._FREQ[0])
@@ -1820,6 +2188,7 @@ class TestGSM2008Parameters:
 # PYGDSM INSTANCE ACCESS
 # =============================================================================
 
+
 class TestPygdsmInstanceAccess:
     """Tests for retain_pygdsm_instance / pygdsm_model property."""
 
@@ -1831,7 +2200,9 @@ class TestPygdsmInstanceAccess:
     def test_pygdsm_model_none_by_default(self):
         """pygdsm_model is None when retain_pygdsm_instance is not set."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
             precision=self._PRECISION,
         )
         assert sky.pygdsm_model is None
@@ -1840,23 +2211,35 @@ class TestPygdsmInstanceAccess:
     def test_pygdsm_model_available_when_retained(self):
         """pygdsm_model is not None when retain_pygdsm_instance=True."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            retain_pygdsm_instance=True, precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            retain_pygdsm_instance=True,
+            precision=self._PRECISION,
         )
         assert sky.pygdsm_model is not None
         assert sky.pygdsm_model.name == "GSM2008"
 
     def test_pygdsm_model_none_for_point_sources(self):
         """pygdsm_model is None for point-source SkyModels."""
-        sky = SkyModel.from_test_sources(num_sources=5, precision=self._PRECISION)
+        sky = SkyModel.from_test_sources(
+            num_sources=5,
+            flux_range=(2.0, 8.0),
+            dec_deg=-30.72,
+            spectral_index=-0.8,
+            precision=self._PRECISION,
+        )
         assert sky.pygdsm_model is None
 
     @pytest.mark.slow
     def test_pygdsm_model_has_generated_data(self):
         """Retained instance has generated_map_data from the last generate() call."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            retain_pygdsm_instance=True, precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            retain_pygdsm_instance=True,
+            precision=self._PRECISION,
         )
         assert sky.pygdsm_model.generated_map_data is not None
 
@@ -1864,8 +2247,11 @@ class TestPygdsmInstanceAccess:
     def test_pygdsm_model_nside_attribute(self):
         """Retained instance has the native nside (512 for GSM2008)."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            retain_pygdsm_instance=True, precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            retain_pygdsm_instance=True,
+            precision=self._PRECISION,
         )
         assert sky.pygdsm_model.nside == 512
 
@@ -1873,8 +2259,11 @@ class TestPygdsmInstanceAccess:
     def test_set_basemap_via_instance(self):
         """User can call set_basemap() on the retained instance."""
         sky = SkyModel.from_diffuse_sky(
-            model="gsm2008", nside=self._NSIDE, frequencies=self._FREQ,
-            retain_pygdsm_instance=True, precision=self._PRECISION,
+            model="gsm2008",
+            nside=self._NSIDE,
+            frequencies=self._FREQ,
+            retain_pygdsm_instance=True,
+            precision=self._PRECISION,
         )
         # set_basemap is a method on GlobalSkyModel; verify it exists
         assert hasattr(sky.pygdsm_model, "set_basemap")
@@ -1884,6 +2273,7 @@ class TestPygdsmInstanceAccess:
 # CREATE GSM OBSERVER
 # =============================================================================
 
+
 class TestCreateGSMObserver:
     """Tests for SkyModel.create_gsm_observer() convenience method."""
 
@@ -1891,6 +2281,7 @@ class TestCreateGSMObserver:
     def test_creates_observer(self):
         """create_gsm_observer returns a GSMObserver08 instance."""
         from pygdsm import GSMObserver08
+
         obs = SkyModel.create_gsm_observer()
         assert isinstance(obs, GSMObserver08)
 

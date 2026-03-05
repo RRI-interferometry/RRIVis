@@ -27,7 +27,10 @@ sky_model:
   test_sources:
     use_test_sources: true
     num_sources: 10
-    flux_limit: 50
+    flux_min: 2.0
+    flux_max: 8.0
+    dec_deg: -30.72
+    spectral_index: -0.8
 
 obs_time:
   start_time: "2025-01-15T00:00:00"

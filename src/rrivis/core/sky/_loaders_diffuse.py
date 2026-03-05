@@ -105,23 +105,35 @@ class _DiffuseLoadersMixin:
         Examples
         --------
         >>> freqs = np.linspace(100e6, 120e6, 20)
-        >>> sky = SkyModel.from_diffuse_sky(model="gsm2008", nside=32, frequencies=freqs)
+        >>> sky = SkyModel.from_diffuse_sky(
+        ...     model="gsm2008", nside=32, frequencies=freqs
+        ... )
         >>> sky.mode
         'healpix_multifreq'
 
         >>> sky = SkyModel.from_diffuse_sky(
-        ...     model="gsm2008", nside=32, frequencies=freqs,
-        ...     basemap="wmap", interpolation="cubic",
+        ...     model="gsm2008",
+        ...     nside=32,
+        ...     frequencies=freqs,
+        ...     basemap="wmap",
+        ...     interpolation="cubic",
         ... )
 
-        >>> config = {"starting_frequency": 100.0, "frequency_interval": 1.0,
-        ...           "frequency_bandwidth": 20.0, "frequency_unit": "MHz"}
-        >>> sky = SkyModel.from_diffuse_sky(model="lfsm", nside=64,
-        ...                                obs_frequency_config=config)
+        >>> config = {
+        ...     "starting_frequency": 100.0,
+        ...     "frequency_interval": 1.0,
+        ...     "frequency_bandwidth": 20.0,
+        ...     "frequency_unit": "MHz",
+        ... }
+        >>> sky = SkyModel.from_diffuse_sky(
+        ...     model="lfsm", nside=64, obs_frequency_config=config
+        ... )
         """
         model = model.lower()
         if model not in DIFFUSE_MODELS:
-            raise ValueError(f"Unknown model '{model}'. Available: {list(DIFFUSE_MODELS.keys())}")
+            raise ValueError(
+                f"Unknown model '{model}'. Available: {list(DIFFUSE_MODELS.keys())}"
+            )
 
         if basemap is not None and model != "gsm2008":
             raise ValueError(
@@ -151,7 +163,7 @@ class _DiffuseLoadersMixin:
 
         logger.info(
             f"Loading {model.upper()}: {n_freq} frequencies "
-            f"({frequencies[0]/1e6:.1f}\u2013{frequencies[-1]/1e6:.1f} MHz), nside={nside}"
+            f"({frequencies[0] / 1e6:.1f}\u2013{frequencies[-1] / 1e6:.1f} MHz), nside={nside}"
         )
         logger.info(f"Model info: {info['description']}")
 
@@ -297,12 +309,14 @@ class _DiffuseLoadersMixin:
             frequencies = cls._parse_frequency_config(obs_frequency_config)
         frequencies = np.asarray(frequencies, dtype=np.float64)
 
-        components_list = [components] if isinstance(components, str) else list(components)
+        components_list = (
+            [components] if isinstance(components, str) else list(components)
+        )
         n_freq = len(frequencies)
 
         logger.info(
             f"Loading PySM3 components {components_list}: {n_freq} frequencies "
-            f"({frequencies[0]/1e6:.1f}\u2013{frequencies[-1]/1e6:.1f} MHz), nside={nside}"
+            f"({frequencies[0] / 1e6:.1f}\u2013{frequencies[-1] / 1e6:.1f} MHz), nside={nside}"
         )
 
         sky = pysm3.Sky(nside=nside, preset_strings=components_list)
@@ -404,7 +418,7 @@ class _DiffuseLoadersMixin:
         n_freq = len(frequencies)
         logger.info(
             f"Loading ULSA: {n_freq} frequencies "
-            f"({frequencies[0]/1e6:.3f}\u2013{frequencies[-1]/1e6:.3f} MHz), nside={nside}"
+            f"({frequencies[0] / 1e6:.3f}\u2013{frequencies[-1] / 1e6:.3f} MHz), nside={nside}"
         )
 
         rot = Rotator(coord=["G", "C"])

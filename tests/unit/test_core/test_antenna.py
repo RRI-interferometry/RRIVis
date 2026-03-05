@@ -7,7 +7,7 @@ avoiding the need for complex mocking of file system operations.
 """
 
 import pytest
-from pathlib import Path
+
 from rrivis.core.antenna import read_antenna_positions
 
 
@@ -55,7 +55,9 @@ HH121      121        0   -90.8139    -9.4618    -0.1707
             },
         }
 
-        assert antennas == expected, "Parsed antenna data does not match expected values"
+        assert antennas == expected, (
+            "Parsed antenna data does not match expected values"
+        )
 
     def test_read_rrivis_default_format(self, rrivis_file):
         """Test that default format is 'rrivis'."""

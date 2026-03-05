@@ -4,22 +4,22 @@ Provides consistent logging configuration with rich console output.
 """
 
 import logging
-import sys
-from typing import Optional
 
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.theme import Theme
 
 # Custom theme for RRIvis
-RRIVIS_THEME = Theme({
-    "info": "cyan",
-    "warning": "yellow",
-    "error": "bold red",
-    "success": "bold green",
-    "highlight": "bold magenta",
-    "dim": "dim white",
-})
+RRIVIS_THEME = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "bold red",
+        "success": "bold green",
+        "highlight": "bold magenta",
+        "dim": "dim white",
+    }
+)
 
 # Global console instance
 console = Console(theme=RRIVIS_THEME)
@@ -27,8 +27,8 @@ console = Console(theme=RRIVIS_THEME)
 
 def setup_logging(
     level: int = logging.INFO,
-    log_file: Optional[str] = None,
-    format_string: Optional[str] = None,
+    log_file: str | None = None,
+    format_string: str | None = None,
     rich_tracebacks: bool = True,
 ) -> logging.Logger:
     """
@@ -97,7 +97,8 @@ logger = get_logger("rrivis")
 # Rich Console Utilities
 # =============================================================================
 
-def print_header(title: str, subtitle: Optional[str] = None) -> None:
+
+def print_header(title: str, subtitle: str | None = None) -> None:
     """Print a styled header panel."""
     from rich.panel import Panel
     from rich.text import Text
@@ -157,11 +158,11 @@ def get_progress(**kwargs):
         Progress context manager
     """
     from rich.progress import (
+        BarColumn,
         Progress,
         SpinnerColumn,
-        TextColumn,
-        BarColumn,
         TaskProgressColumn,
+        TextColumn,
         TimeRemainingColumn,
     )
 

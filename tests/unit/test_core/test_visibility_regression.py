@@ -11,14 +11,14 @@ The expected values were computed and verified against:
 3. Previous validated RRIvis outputs
 """
 
-import pytest
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose
-
 
 # =============================================================================
 # Known-Good Test Cases
 # =============================================================================
+
 
 class TestSingleSourceVisibility:
     """Test visibility for single point source cases."""
@@ -38,8 +38,11 @@ class TestSingleSourceVisibility:
         expected_visibility = flux * np.exp(1j * expected_phase)
 
         # Compute using formula
-        phase = -2 * np.pi / wavelength * (
-            uvw[0] * lmn[0] + uvw[1] * lmn[1] + uvw[2] * (lmn[2] - 1)
+        phase = (
+            -2
+            * np.pi
+            / wavelength
+            * (uvw[0] * lmn[0] + uvw[1] * lmn[1] + uvw[2] * (lmn[2] - 1))
         )
         computed_visibility = flux * np.exp(1j * phase)
 
@@ -57,8 +60,11 @@ class TestSingleSourceVisibility:
         wavelength = 2.0
 
         # Phase = -2π/λ * (u*0 + v*0 + w*(1-1)) = 0
-        phase = -2 * np.pi / wavelength * (
-            uvw[0] * lmn[0] + uvw[1] * lmn[1] + uvw[2] * (lmn[2] - 1)
+        phase = (
+            -2
+            * np.pi
+            / wavelength
+            * (uvw[0] * lmn[0] + uvw[1] * lmn[1] + uvw[2] * (lmn[2] - 1))
         )
 
         assert_allclose(phase, 0.0, atol=1e-10)
@@ -73,21 +79,21 @@ class TestSingleSourceVisibility:
 
         wavelength = 2.0
         u = 0.5  # meters (λ/4)
-        l = 1.0  # direction cosine
+        dir_l = 1.0  # direction cosine
 
-        uvw = np.array([u, 0.0, 0.0])
-        lmn = np.array([l, 0.0, np.sqrt(1 - l**2)])  # Ensure n = sqrt(1-l²-m²)
+        np.array([u, 0.0, 0.0])
+        np.array([dir_l, 0.0, np.sqrt(1 - dir_l**2)])  # Ensure n = sqrt(1-l²-m²)
         flux = 1.0
 
         # For small l, n ≈ 1, so (n-1) ≈ 0
         # Phase ≈ -2π/λ * u*l = -2π/2 * 0.5*1 = -π/2
-        expected_phase = -2 * np.pi / wavelength * u * l
+        expected_phase = -2 * np.pi / wavelength * u * dir_l
 
         # Computed visibility
         visibility = flux * np.exp(1j * expected_phase)
 
         # Should have -90° phase (or equivalently, imaginary part = -flux)
-        assert_allclose(np.angle(visibility), -np.pi/2, rtol=1e-5)
+        assert_allclose(np.angle(visibility), -np.pi / 2, rtol=1e-5)
 
     def test_half_wavelength_offset(self):
         """Source offset by half wavelength should give 180° phase."""
@@ -95,13 +101,13 @@ class TestSingleSourceVisibility:
 
         wavelength = 2.0
         u = 1.0  # meters (λ/2)
-        l = 1.0  # direction cosine
+        dir_l = 1.0  # direction cosine
 
-        uvw = np.array([u, 0.0, 0.0])
-        lmn = np.array([l, 0.0, 0.0])  # Simplified
+        np.array([u, 0.0, 0.0])
+        np.array([dir_l, 0.0, 0.0])  # Simplified
         flux = 1.0
 
-        expected_phase = -2 * np.pi / wavelength * u * l  # = -π
+        expected_phase = -2 * np.pi / wavelength * u * dir_l  # = -π
         visibility = flux * np.exp(1j * expected_phase)
 
         # Should have 180° phase (real part = -flux)
@@ -119,17 +125,17 @@ class TestMultipleSourcesVisibility:
 
         wavelength = 2.0
         u = 0.5
-        l = 0.1
+        dir_l = 0.1
         flux = 1.0
 
-        uvw = np.array([u, 0.0, 0.0])
+        np.array([u, 0.0, 0.0])
 
         # Source 1 at +l
-        phase1 = -2 * np.pi / wavelength * u * l
+        phase1 = -2 * np.pi / wavelength * u * dir_l
         vis1 = flux * np.exp(1j * phase1)
 
         # Source 2 at -l
-        phase2 = -2 * np.pi / wavelength * u * (-l)
+        phase2 = -2 * np.pi / wavelength * u * (-dir_l)
         vis2 = flux * np.exp(1j * phase2)
 
         # Total visibility
@@ -156,11 +162,12 @@ class TestMultipleSourcesVisibility:
         # Compute individual visibilities
         individual_vis = []
         for i in range(n_sources):
-            n_coord = np.sqrt(1 - l_coords[i]**2 - m_coords[i]**2)
-            phase = -2 * np.pi / wavelength * (
-                uvw[0] * l_coords[i] +
-                uvw[1] * m_coords[i] +
-                uvw[2] * (n_coord - 1)
+            n_coord = np.sqrt(1 - l_coords[i] ** 2 - m_coords[i] ** 2)
+            phase = (
+                -2
+                * np.pi
+                / wavelength
+                * (uvw[0] * l_coords[i] + uvw[1] * m_coords[i] + uvw[2] * (n_coord - 1))
             )
             individual_vis.append(fluxes[i] * np.exp(1j * phase))
 
@@ -169,10 +176,11 @@ class TestMultipleSourcesVisibility:
 
         # Compute all at once (vectorized)
         n_coords = np.sqrt(1 - l_coords**2 - m_coords**2)
-        phases = -2 * np.pi / wavelength * (
-            uvw[0] * l_coords +
-            uvw[1] * m_coords +
-            uvw[2] * (n_coords - 1)
+        phases = (
+            -2
+            * np.pi
+            / wavelength
+            * (uvw[0] * l_coords + uvw[1] * m_coords + uvw[2] * (n_coords - 1))
         )
         total_vectorized = np.sum(fluxes * np.exp(1j * phases))
 
@@ -200,18 +208,20 @@ class TestBaselineSymmetry:
         n_coords = np.sqrt(1 - l_coords**2 - m_coords**2)
 
         # Compute visibility for (u,v,w)
-        phases_pos = -2 * np.pi / wavelength * (
-            uvw[0] * l_coords +
-            uvw[1] * m_coords +
-            uvw[2] * (n_coords - 1)
+        phases_pos = (
+            -2
+            * np.pi
+            / wavelength
+            * (uvw[0] * l_coords + uvw[1] * m_coords + uvw[2] * (n_coords - 1))
         )
         vis_positive = np.sum(fluxes * np.exp(1j * phases_pos))
 
         # Compute visibility for (-u,-v,-w)
-        phases_neg = -2 * np.pi / wavelength * (
-            (-uvw[0]) * l_coords +
-            (-uvw[1]) * m_coords +
-            (-uvw[2]) * (n_coords - 1)
+        phases_neg = (
+            -2
+            * np.pi
+            / wavelength
+            * ((-uvw[0]) * l_coords + (-uvw[1]) * m_coords + (-uvw[2]) * (n_coords - 1))
         )
         vis_negative = np.sum(fluxes * np.exp(1j * phases_neg))
 
@@ -226,7 +236,6 @@ class TestFrequencyScaling:
         """Phase should scale inversely with wavelength."""
         uvw = np.array([100.0, 0.0, 0.0])
         lmn = np.array([0.1, 0.0, np.sqrt(1 - 0.1**2)])
-        flux = 1.0
 
         wavelength1 = 2.0
         wavelength2 = 1.0  # Half wavelength = double frequency
@@ -251,8 +260,11 @@ class TestKnownGoodValues:
         wavelength = 2.1
 
         # Phase = -2π/λ * (u*l + v*m + w*(n-1))
-        phase = -2 * np.pi / wavelength * (
-            uvw[0] * lmn[0] + uvw[1] * lmn[1] + uvw[2] * (lmn[2] - 1)
+        phase = (
+            -2
+            * np.pi
+            / wavelength
+            * (uvw[0] * lmn[0] + uvw[1] * lmn[1] + uvw[2] * (lmn[2] - 1))
         )
         computed_visibility = flux * np.exp(1j * phase)
 
@@ -261,8 +273,11 @@ class TestKnownGoodValues:
         #       = -2π/2.1 * (2.5 + 0.9 + 5*(-0.0017))
         #       = -2π/2.1 * (3.3915)
         #       ≈ -10.147 radians
-        expected_phase = -2 * np.pi / wavelength * (
-            uvw[0] * lmn[0] + uvw[1] * lmn[1] + uvw[2] * (lmn[2] - 1)
+        expected_phase = (
+            -2
+            * np.pi
+            / wavelength
+            * (uvw[0] * lmn[0] + uvw[1] * lmn[1] + uvw[2] * (lmn[2] - 1))
         )
         expected_visibility = flux * np.exp(1j * expected_phase)
 
@@ -280,11 +295,13 @@ class TestKnownGoodValues:
         wavelength = 2.0
 
         # Fixed test data
-        uvw = np.array([
-            [100.0, 0.0, 0.0],
-            [0.0, 100.0, 0.0],
-            [70.7, 70.7, 0.0],
-        ])
+        uvw = np.array(
+            [
+                [100.0, 0.0, 0.0],
+                [0.0, 100.0, 0.0],
+                [70.7, 70.7, 0.0],
+            ]
+        )
 
         # Single source at phase center
         lmn = np.array([0.0, 0.0, 1.0])
@@ -292,8 +309,11 @@ class TestKnownGoodValues:
 
         # All baselines should see flux = 10 for source at phase center
         for i in range(n_baselines):
-            phase = -2 * np.pi / wavelength * (
-                uvw[i, 0] * lmn[0] + uvw[i, 1] * lmn[1] + uvw[i, 2] * (lmn[2] - 1)
+            phase = (
+                -2
+                * np.pi
+                / wavelength
+                * (uvw[i, 0] * lmn[0] + uvw[i, 1] * lmn[1] + uvw[i, 2] * (lmn[2] - 1))
             )
             vis = flux * np.exp(1j * phase)
 
@@ -310,12 +330,14 @@ class TestPolarizationRegression:
         # Coherency matrix: [[I+Q, U+iV], [U-iV, I-Q]] = [[I, 0], [0, I]]
 
         flux = 10.0
-        I, Q, U, V = flux, 0.0, 0.0, 0.0
+        stokes_I, stokes_Q, stokes_U, stokes_V = flux, 0.0, 0.0, 0.0
 
-        coherency = np.array([
-            [I + Q, U + 1j*V],
-            [U - 1j*V, I - Q]
-        ])
+        coherency = np.array(
+            [
+                [stokes_I + stokes_Q, stokes_U + 1j * stokes_V],
+                [stokes_U - 1j * stokes_V, stokes_I - stokes_Q],
+            ]
+        )
 
         # Should be diagonal with equal values
         assert_allclose(coherency[0, 0], flux, rtol=1e-10)
@@ -326,22 +348,25 @@ class TestPolarizationRegression:
     def test_fully_polarized_q(self):
         """Fully Q-polarized source coherency matrix."""
         # Q=I means fully linearly polarized
-        I, Q = 10.0, 10.0
-        U, V = 0.0, 0.0
+        stokes_I, stokes_Q = 10.0, 10.0
+        stokes_U, stokes_V = 0.0, 0.0
 
-        coherency = np.array([
-            [I + Q, U + 1j*V],
-            [U - 1j*V, I - Q]
-        ])
+        coherency = np.array(
+            [
+                [stokes_I + stokes_Q, stokes_U + 1j * stokes_V],
+                [stokes_U - 1j * stokes_V, stokes_I - stokes_Q],
+            ]
+        )
 
         # XX should be 2I, YY should be 0
-        assert_allclose(coherency[0, 0], 2*I, rtol=1e-10)
+        assert_allclose(coherency[0, 0], 2 * stokes_I, rtol=1e-10)
         assert_allclose(coherency[1, 1], 0.0, atol=1e-10)
 
 
 # =============================================================================
 # Integration with compute_visibility Functions
 # =============================================================================
+
 
 class TestComputeVisibilityRegression:
     """Regression tests for the actual compute_visibility functions."""
@@ -367,8 +392,11 @@ class TestComputeVisibilityRegression:
         lmn = np.array([0.001, 0.001, np.sqrt(1 - 0.001**2 - 0.001**2)])
         flux = 1.0
 
-        phase = -2 * np.pi / wavelength * (
-            uvw[0] * lmn[0] + uvw[1] * lmn[1] + uvw[2] * (lmn[2] - 1)
+        phase = (
+            -2
+            * np.pi
+            / wavelength
+            * (uvw[0] * lmn[0] + uvw[1] * lmn[1] + uvw[2] * (lmn[2] - 1))
         )
         vis = flux * np.exp(1j * phase)
 

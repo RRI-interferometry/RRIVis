@@ -14,8 +14,9 @@ With precision control:
     >>> backend = get_backend("numpy", precision=PrecisionConfig.precise())
 """
 
-from typing import Any, Dict, Optional, Tuple, Union, TYPE_CHECKING
 import platform
+from typing import TYPE_CHECKING, Any, Union
+
 import numpy as np
 
 from rrivis.backends.base import ArrayBackend
@@ -49,7 +50,7 @@ class NumPyBackend(ArrayBackend):
 
     def __init__(
         self,
-        precision: Optional[Union["PrecisionConfig", str]] = None,
+        precision: Union["PrecisionConfig", str] | None = None,
     ):
         """Initialize NumPy backend.
 
@@ -66,6 +67,7 @@ class NumPyBackend(ArrayBackend):
         # Resolve and set precision
         if precision is not None:
             from rrivis.core.precision import resolve_precision
+
             self.precision = resolve_precision(precision)
 
     @property
@@ -86,11 +88,7 @@ class NumPyBackend(ArrayBackend):
     # Array Creation and Conversion
     # =========================================================================
 
-    def asarray(
-        self,
-        arr: Any,
-        dtype: Optional[Any] = None
-    ) -> np.ndarray:
+    def asarray(self, arr: Any, dtype: Any | None = None) -> np.ndarray:
         """Convert to NumPy array.
 
         Args:
@@ -191,7 +189,7 @@ class NumPyBackend(ArrayBackend):
         """
         del arr
 
-    def memory_info(self) -> Dict[str, Any]:
+    def memory_info(self) -> dict[str, Any]:
         """Get system memory information.
 
         Returns:
@@ -199,6 +197,7 @@ class NumPyBackend(ArrayBackend):
         """
         try:
             import psutil
+
             mem = psutil.virtual_memory()
             return {
                 "total_bytes": mem.total,
@@ -214,7 +213,7 @@ class NumPyBackend(ArrayBackend):
                 "available_bytes": None,
             }
 
-    def get_device_info(self) -> Dict[str, Any]:
+    def get_device_info(self) -> dict[str, Any]:
         """Get CPU and system information.
 
         Returns:
@@ -233,6 +232,7 @@ class NumPyBackend(ArrayBackend):
         # Try to get more detailed CPU info
         try:
             import psutil
+
             info["cores_physical"] = psutil.cpu_count(logical=False)
             info["cores_logical"] = psutil.cpu_count(logical=True)
             info["memory_total_gb"] = round(
@@ -261,7 +261,7 @@ class NumPyBackend(ArrayBackend):
         """
         return np.einsum(subscripts, *operands)
 
-    def broadcast_arrays(self, *args: Any) -> Tuple[np.ndarray, ...]:
+    def broadcast_arrays(self, *args: Any) -> tuple[np.ndarray, ...]:
         """Broadcast arrays to common shape.
 
         Args:

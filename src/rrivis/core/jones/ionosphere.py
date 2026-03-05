@@ -4,7 +4,8 @@ Ionosphere Jones term (Z) for ionospheric propagation effects.
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from .base import JonesTerm
@@ -29,13 +30,15 @@ class IonosphereJones(JonesTerm):
 
     def __init__(
         self,
-        tec: Optional[np.ndarray] = None,
-        frequencies: Optional[np.ndarray] = None,
+        tec: np.ndarray | None = None,
+        frequencies: np.ndarray | None = None,
         include_faraday: bool = True,
         include_delay: bool = True,
-        **kwargs
+        **kwargs,
     ):
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
         self.include_faraday = include_faraday
         self.include_delay = include_delay
 
@@ -54,7 +57,7 @@ class IonosphereJones(JonesTerm):
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute ionospheric Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -65,11 +68,7 @@ class TurbulentIonosphereJones(IonosphereJones):
     """Stub: Turbulent ionosphere model. TODO: implement properly."""
 
     def __init__(
-        self,
-        n_antennas: int,
-        n_sources: int,
-        frequencies: np.ndarray,
-        **kwargs
+        self, n_antennas: int, n_sources: int, frequencies: np.ndarray, **kwargs
     ):
         super().__init__(frequencies=frequencies)
         self.n_antennas = n_antennas
@@ -79,8 +78,5 @@ class TurbulentIonosphereJones(IonosphereJones):
 class GPSIonosphereJones(IonosphereJones):
     """Stub: GPS-based ionosphere model. TODO: implement properly."""
 
-    def __init__(
-        self,
-        **kwargs
-    ):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)

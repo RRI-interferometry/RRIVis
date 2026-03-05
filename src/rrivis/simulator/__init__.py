@@ -63,15 +63,12 @@ rrivis.core.visibility : Core visibility calculation
 rrivis.core.jones : Jones matrix framework
 """
 
-from typing import Dict, List, Type
-
 from rrivis.simulator.base import VisibilitySimulator
 from rrivis.simulator.rime import RIMESimulator
 
-
 # Registry of available simulators
 # Maps simulator name -> simulator class
-_SIMULATORS: Dict[str, Type[VisibilitySimulator]] = {
+_SIMULATORS: dict[str, type[VisibilitySimulator]] = {
     "rime": RIMESimulator,
 }
 
@@ -143,7 +140,7 @@ def get_simulator(name: str = "rime") -> VisibilitySimulator:
     return _SIMULATORS[name]()
 
 
-def list_simulators() -> Dict[str, str]:
+def list_simulators() -> dict[str, str]:
     """
     List all available simulators with their descriptions.
 
@@ -176,7 +173,7 @@ def list_simulators() -> Dict[str, str]:
     return {name: cls().description for name, cls in _SIMULATORS.items()}
 
 
-def get_simulator_names() -> List[str]:
+def get_simulator_names() -> list[str]:
     """
     Get list of available simulator names.
 

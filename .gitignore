@@ -117,10 +117,11 @@ venv.bak
 .ropeproject
 
 # Non useful files
-CLAUDE.md 
+CLAUDE.md
 .roomodes
 .claude
 RRIvis.md
+project.md
 
 # mkdocs documentation
 /site

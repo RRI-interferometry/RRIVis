@@ -1,29 +1,28 @@
 # rrivis/visualization/bokeh_plots.py
 
 import logging
-from bokeh.plotting import figure
-from bokeh.palettes import Turbo256, Inferno256
-from bokeh.layouts import column
-from bokeh.models import (
-    DatetimeTicker,
-    HoverTool,
-    Legend,
-    ColorBar,
-    LinearColorMapper,
-    ColumnDataSource,
-    LabelSet,
-)
-from bokeh.io import save
-
-# Note: avoid Matplotlib here to keep plotting browser-native via Bokeh/Plotly
-import numpy as np
 import os
-from bokeh.resources import CDN
-from astropy.time import Time
 import tempfile
 import webbrowser
 from pathlib import Path
 
+# Note: avoid Matplotlib here to keep plotting browser-native via Bokeh/Plotly
+import numpy as np
+from astropy.time import Time
+from bokeh.io import save
+from bokeh.layouts import column
+from bokeh.models import (
+    ColorBar,
+    ColumnDataSource,
+    DatetimeTicker,
+    HoverTool,
+    LabelSet,
+    Legend,
+    LinearColorMapper,
+)
+from bokeh.palettes import Inferno256, Turbo256
+from bokeh.plotting import figure
+from bokeh.resources import CDN
 
 logger = logging.getLogger(__name__)
 
@@ -644,7 +643,9 @@ def plot_antenna_layout(
         e_list.append(float(e))
         n_list.append(float(n))
 
-    source = ColumnDataSource(dict(E=e_list, N=n_list, Number=numbers, Name=names))
+    source = ColumnDataSource(
+        {"E": e_list, "N": n_list, "Number": numbers, "Name": names}
+    )
 
     p = figure(
         width=800,
@@ -717,11 +718,12 @@ def plot_antenna_layout_3d_plotly(
         import plotly.graph_objects as go
         import plotly.io as pio
     except Exception as exc:
-        logger.warning(f"Plotly not available for 3D antenna layout ({exc}); skipping 3D plot.")
+        logger.warning(
+            f"Plotly not available for 3D antenna layout ({exc}); skipping 3D plot."
+        )
         return None
 
     e, n, u, hover = [], [], [], []
-    scale_z = 1.0  # no vertical exaggeration
     for ant in antennas.values():
         ee, nn, uu = ant.get("Position", (0.0, 0.0, 0.0))
         e.append(float(ee))
@@ -735,7 +737,7 @@ def plot_antenna_layout_3d_plotly(
     labels = [str(ant.get("Number", "?")) for ant in antennas.values()]
     fig = go.Figure()
     # Compute symmetric, equal ranges around origin for all axes
-    u_scaled = [val for val in u]
+    u_scaled = list(u)
     max_abs = 1.0
     if e or n or u_scaled:
         max_abs = max(
@@ -753,13 +755,28 @@ def plot_antenna_layout_3d_plotly(
 
     fig.update_layout(
         title="Antenna Layout (3D: E, N, U)",
-        scene=dict(
-            xaxis=dict(title="E (m)", range=xr, zeroline=True, showgrid=True),
-            yaxis=dict(title="N (m)", range=yr, zeroline=True, showgrid=True),
-            zaxis=dict(title="U (m)", range=zr, zeroline=True, showgrid=True),
-            aspectmode="cube",
-        ),
-        margin=dict(l=20, r=20, b=20, t=40),
+        scene={
+            "xaxis": {
+                "title": "E (m)",
+                "range": xr,
+                "zeroline": True,
+                "showgrid": True,
+            },
+            "yaxis": {
+                "title": "N (m)",
+                "range": yr,
+                "zeroline": True,
+                "showgrid": True,
+            },
+            "zaxis": {
+                "title": "U (m)",
+                "range": zr,
+                "zeroline": True,
+                "showgrid": True,
+            },
+            "aspectmode": "cube",
+        },
+        margin={"l": 20, "r": 20, "b": 20, "t": 40},
     )
 
     # Add origin and axis markers/labels (+E/-E, +N/-N, +U/-U)
@@ -770,7 +787,7 @@ def plot_antenna_layout_3d_plotly(
                 y=[0, 0],
                 z=[0, 0],
                 mode="lines",
-                line=dict(color="red", width=4),
+                line={"color": "red", "width": 4},
                 hoverinfo="skip",
                 showlegend=False,
             )
@@ -781,7 +798,7 @@ def plot_antenna_layout_3d_plotly(
                 y=[yr[0], yr[1]],
                 z=[0, 0],
                 mode="lines",
-                line=dict(color="green", width=4),
+                line={"color": "green", "width": 4},
                 hoverinfo="skip",
                 showlegend=False,
             )
@@ -792,7 +809,7 @@ def plot_antenna_layout_3d_plotly(
                 y=[0, 0],
                 z=[zr[0], zr[1]],
                 mode="lines",
-                line=dict(color="blue", width=4),
+                line={"color": "blue", "width": 4},
                 hoverinfo="skip",
                 showlegend=False,
             )
@@ -804,7 +821,7 @@ def plot_antenna_layout_3d_plotly(
                 y=[0, 0],
                 z=[0, 0],
                 mode="markers+text",
-                marker=dict(size=3, color="red"),
+                marker={"size": 3, "color": "red"},
                 text=["+E", "-E"],
                 textposition="top center",
                 hoverinfo="skip",
@@ -817,7 +834,7 @@ def plot_antenna_layout_3d_plotly(
                 y=[yr[1], yr[0]],
                 z=[0, 0],
                 mode="markers+text",
-                marker=dict(size=3, color="green"),
+                marker={"size": 3, "color": "green"},
                 text=["+N", "-N"],
                 textposition="top center",
                 hoverinfo="skip",
@@ -830,7 +847,7 @@ def plot_antenna_layout_3d_plotly(
                 y=[0, 0],
                 z=[zr[1], zr[0]],
                 mode="markers+text",
-                marker=dict(size=3, color="blue"),
+                marker={"size": 3, "color": "blue"},
                 text=["+U", "-U"],
                 textposition="top center",
                 hoverinfo="skip",
@@ -844,7 +861,7 @@ def plot_antenna_layout_3d_plotly(
                 y=[0],
                 z=[0],
                 mode="markers+text",
-                marker=dict(size=4, color="black"),
+                marker={"size": 4, "color": "black"},
                 text=["Origin"],
                 textposition="bottom center",
                 hoverinfo="skip",
@@ -866,7 +883,7 @@ def plot_antenna_layout_3d_plotly(
         batch_x: list = []
         batch_y: list = []
         batch_z: list = []
-        for xi, yi, zi, di in zip(e, n, u, diameters):
+        for xi, yi, zi, di in zip(e, n, u, diameters, strict=False):
             if di is None or not np.isfinite(di) or di <= 0:
                 continue
             r = di / 2.0
@@ -889,7 +906,7 @@ def plot_antenna_layout_3d_plotly(
                     y=batch_y,
                     z=batch_z,
                     mode="lines",
-                    line=dict(color="#1f2a44", width=3),  # darker lines
+                    line={"color": "#1f2a44", "width": 3},  # darker lines
                     hoverinfo="skip",
                     showlegend=False,
                 )
@@ -904,12 +921,16 @@ def plot_antenna_layout_3d_plotly(
             y=n,
             z=u_scaled,
             mode="markers+text",
-            marker=dict(
-                size=4, opacity=0.85, color=u, colorscale="Viridis", showscale=False
-            ),
+            marker={
+                "size": 4,
+                "opacity": 0.85,
+                "color": u,
+                "colorscale": "Viridis",
+                "showscale": False,
+            },
             text=labels,
             textposition="top center",
-            textfont=dict(size=8, color="#222"),
+            textfont={"size": 8, "color": "#222"},
             hovertemplate="Ant %{text}<br>E=%{x:.2f} m<br>N=%{y:.2f} m<br>U=%{z:.2f} m<extra></extra>",
             showlegend=False,
         )

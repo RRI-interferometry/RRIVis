@@ -4,11 +4,12 @@ Provides validation functions for configuration and input data.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
+
 import numpy as np
 
 
-def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
+def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     """
     Validate a configuration dictionary.
 
@@ -49,8 +50,8 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def validate_antenna_positions(
-    positions: Union[Dict, np.ndarray],
-    n_antennas: Optional[int] = None,
+    positions: dict | np.ndarray,
+    n_antennas: int | None = None,
 ) -> bool:
     """
     Validate antenna position data.
@@ -74,19 +75,23 @@ def validate_antenna_positions(
                 continue
             required = {"E", "N", "U"}
             if not required.issubset(pos.keys()):
-                raise ValueError(f"Antenna {name} missing coordinates: {required - set(pos.keys())}")
+                raise ValueError(
+                    f"Antenna {name} missing coordinates: {required - set(pos.keys())}"
+                )
 
     elif isinstance(positions, np.ndarray):
         if positions.ndim != 2 or positions.shape[1] < 3:
             raise ValueError(f"Expected (N, 3+) array, got shape {positions.shape}")
         if n_antennas is not None and positions.shape[0] != n_antennas:
-            raise ValueError(f"Expected {n_antennas} antennas, got {positions.shape[0]}")
+            raise ValueError(
+                f"Expected {n_antennas} antennas, got {positions.shape[0]}"
+            )
 
     return True
 
 
 def validate_frequencies(
-    frequencies: Union[List[float], np.ndarray],
+    frequencies: list[float] | np.ndarray,
     min_freq: float = 1.0,
     max_freq: float = 1000.0,
 ) -> bool:

@@ -2,7 +2,8 @@
 import numpy as np
 from astropy.time import Time
 from bokeh.layouts import LayoutDOM
-from rrivis.visualization.bokeh_plots import plot_visibility, plot_heatmaps
+
+from rrivis.visualization.bokeh_plots import plot_heatmaps, plot_visibility
 
 
 def test_plot_visibility():
@@ -18,12 +19,19 @@ def test_plot_visibility():
     }
     baselines = {(0, 1): [14, 0, 0], (0, 2): [28, 0, 0], (1, 2): [14, 0, 0]}
     # Create MJD time points
-    mjd_time_points = Time("2023-01-01T00:00:00", scale="utc").mjd + np.array([0, 1/24])  # 0 and 1 hour
+    mjd_time_points = Time("2023-01-01T00:00:00", scale="utc").mjd + np.array(
+        [0, 1 / 24]
+    )  # 0 and 1 hour
     freqs = np.array([1e8, 2e8])
     total_seconds = 3600
 
     fig = plot_visibility(
-        moduli_over_time, phases_over_time, baselines, mjd_time_points, freqs, total_seconds
+        moduli_over_time,
+        phases_over_time,
+        baselines,
+        mjd_time_points,
+        freqs,
+        total_seconds,
     )
     assert isinstance(fig, LayoutDOM)
 
@@ -42,10 +50,17 @@ def test_plot_heatmaps():
     baselines = {(0, 1): [14, 0, 0], (0, 2): [28, 0, 0], (1, 2): [14, 0, 0]}
     freqs = np.array([1e8, 2e8])
     # Create MJD time points
-    mjd_time_points = Time("2023-01-01T00:00:00", scale="utc").mjd + np.array([0, 1/24])  # 0 and 1 hour
+    mjd_time_points = Time("2023-01-01T00:00:00", scale="utc").mjd + np.array(
+        [0, 1 / 24]
+    )  # 0 and 1 hour
     total_seconds = 3600
 
     fig = plot_heatmaps(
-        moduli_over_time, phases_over_time, baselines, freqs, total_seconds, mjd_time_points
+        moduli_over_time,
+        phases_over_time,
+        baselines,
+        freqs,
+        total_seconds,
+        mjd_time_points,
     )
     assert isinstance(fig, LayoutDOM)

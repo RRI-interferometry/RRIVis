@@ -6,13 +6,8 @@ These tests verify complete simulation workflows from configuration
 to output, ensuring all components work together correctly.
 """
 
-import pytest
 import numpy as np
-from pathlib import Path
-
-from astropy.coordinates import EarthLocation, SkyCoord
-from astropy.time import Time
-import astropy.units as u
+import pytest
 
 
 @pytest.mark.integration
@@ -51,7 +46,7 @@ class TestBasicVisibilityCalculation:
         assert len(visibilities) == len(sample_baselines_simple)
 
         # Verify each visibility is a dict with polarization products
-        for baseline, vis_data in visibilities.items():
+        for _baseline, vis_data in visibilities.items():
             assert isinstance(vis_data, dict)
             assert "I" in vis_data
             assert vis_data["I"].shape[-1] == len(sample_frequencies_multiple)
@@ -241,16 +236,16 @@ class TestPolarizationWorkflow:
         from rrivis.core.polarization import stokes_to_coherency
 
         # Unpolarized source (Stokes I only)
-        I, Q, U, V = 10.0, 0.0, 0.0, 0.0
-        coherency = stokes_to_coherency(I, Q, U, V)
+        stokes_I, stokes_Q, stokes_U, stokes_V = 10.0, 0.0, 0.0, 0.0
+        coherency = stokes_to_coherency(stokes_I, stokes_Q, stokes_U, stokes_V)
 
         # Check it's a 2x2 complex matrix
         assert coherency.shape == (2, 2)
         assert np.iscomplexobj(coherency)
 
-        # For unpolarized: diagonal should be I/2
-        assert np.isclose(coherency[0, 0].real, I / 2, rtol=1e-5)
-        assert np.isclose(coherency[1, 1].real, I / 2, rtol=1e-5)
+        # For unpolarized: diagonal should be stokes_I/2
+        assert np.isclose(coherency[0, 0].real, stokes_I / 2, rtol=1e-5)
+        assert np.isclose(coherency[1, 1].real, stokes_I / 2, rtol=1e-5)
 
     def test_full_polarization_visibility(
         self,

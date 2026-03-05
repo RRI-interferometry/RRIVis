@@ -8,7 +8,8 @@ Frequency-dependent leakage (DF) models leakage that varies with frequency.
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
@@ -25,11 +26,7 @@ class CrosshandPhaseJones(JonesTerm):
         Additional parameters (ignored)
     """
 
-    def __init__(
-        self,
-        phase_offset: float = 0.0,
-        **kwargs
-    ):
+    def __init__(self, phase_offset: float = 0.0, **kwargs):
         """Initialize cross-hand phase Jones term (stub)."""
         self.phase_offset = phase_offset
 
@@ -47,11 +44,11 @@ class CrosshandPhaseJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute cross-hand phase Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -72,14 +69,13 @@ class CrosshandDelayJones(JonesTerm):
     """
 
     def __init__(
-        self,
-        delay: float = 0.0,
-        frequencies: Optional[np.ndarray] = None,
-        **kwargs
+        self, delay: float = 0.0, frequencies: np.ndarray | None = None, **kwargs
     ):
         """Initialize cross-hand delay Jones term (stub)."""
         self.delay = delay
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
 
     @property
     def name(self) -> str:
@@ -99,11 +95,11 @@ class CrosshandDelayJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute cross-hand delay Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -128,13 +124,15 @@ class FrequencyDependentLeakageJones(JonesTerm):
     def __init__(
         self,
         n_antennas: int = 1,
-        frequencies: Optional[np.ndarray] = None,
-        d_terms: Optional[np.ndarray] = None,
-        **kwargs
+        frequencies: np.ndarray | None = None,
+        d_terms: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize frequency-dependent leakage Jones term (stub)."""
         self.n_antennas = n_antennas
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
         self.d_terms = np.asarray(d_terms) if d_terms is not None else np.array([])
 
     @property
@@ -152,11 +150,11 @@ class FrequencyDependentLeakageJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute frequency-dependent leakage Jones matrix (stub returns identity)."""
         xp = backend.xp

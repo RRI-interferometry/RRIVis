@@ -16,20 +16,18 @@ These tests verify:
 5. Metadata preservation
 """
 
-import os
-import sys
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 from rrivis.core.antenna import (
     read_antenna_positions,
-    read_rrivis_format,
     read_casa_format,
-    read_pyuvdata_format,
     read_mwa_format,
+    read_pyuvdata_format,
+    read_rrivis_format,
 )
-
 
 # Get path to antenna_layout_examples directory
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "antenna_layout_examples"
@@ -60,18 +58,25 @@ class TestRRIvisFormat:
 
         # Check each antenna has required fields
         for ant_num, ant_data in antennas.items():
-            assert isinstance(ant_num, int), f"Antenna number should be int, got {type(ant_num)}"
-            assert isinstance(ant_data, dict), f"Antenna data should be dict, got {type(ant_data)}"
+            assert isinstance(ant_num, int), (
+                f"Antenna number should be int, got {type(ant_num)}"
+            )
+            assert isinstance(ant_data, dict), (
+                f"Antenna data should be dict, got {type(ant_data)}"
+            )
 
             # Check required keys
             required_keys = {"Name", "Number", "BeamID", "Position"}
-            assert required_keys.issubset(ant_data.keys()), \
+            assert required_keys.issubset(ant_data.keys()), (
                 f"Missing required keys. Expected {required_keys}, got {ant_data.keys()}"
+            )
 
             # Validate position is tuple of 3 floats
             assert isinstance(ant_data["Position"], tuple)
             assert len(ant_data["Position"]) == 3
-            assert all(isinstance(coord, (int, float)) for coord in ant_data["Position"])
+            assert all(
+                isinstance(coord, (int, float)) for coord in ant_data["Position"]
+            )
 
     def test_rrivis_coordinates_reasonable(self, rrivis_file):
         """Verify antenna coordinates are in reasonable range."""
@@ -81,9 +86,15 @@ class TestRRIvisFormat:
             e, n, u = ant_data["Position"]
 
             # For HERA compact array, coordinates should be within ±100m
-            assert abs(e) < 200, f"East coordinate {e}m outside reasonable range for antenna {ant_num}"
-            assert abs(n) < 200, f"North coordinate {n}m outside reasonable range for antenna {ant_num}"
-            assert abs(u) < 50, f"Up coordinate {u}m outside reasonable range for antenna {ant_num}"
+            assert abs(e) < 200, (
+                f"East coordinate {e}m outside reasonable range for antenna {ant_num}"
+            )
+            assert abs(n) < 200, (
+                f"North coordinate {n}m outside reasonable range for antenna {ant_num}"
+            )
+            assert abs(u) < 50, (
+                f"Up coordinate {u}m outside reasonable range for antenna {ant_num}"
+            )
 
     def test_rrivis_diameter_extraction(self, rrivis_file):
         """Verify diameter is correctly extracted from RRIvis format."""
@@ -104,7 +115,9 @@ class TestRRIvisFormat:
         antennas = read_antenna_positions(str(rrivis_file), "rrivis")
 
         # Example file should have at least 10 antennas
-        assert len(antennas) >= 10, f"Expected at least 10 antennas, got {len(antennas)}"
+        assert len(antennas) >= 10, (
+            f"Expected at least 10 antennas, got {len(antennas)}"
+        )
 
 
 class TestCASAFormat:
@@ -131,7 +144,7 @@ class TestCASAFormat:
         antennas = read_antenna_positions(str(casa_file), "casa")
 
         # CASA format auto-generates antenna numbers starting at 0
-        for ant_num, ant_data in antennas.items():
+        for _ant_num, ant_data in antennas.items():
             assert "Name" in ant_data
             assert "Position" in ant_data
             assert "BeamID" in ant_data
@@ -167,7 +180,9 @@ class TestCASAFormat:
     def test_casa_antenna_count(self, casa_file):
         """Verify antenna count in CASA format."""
         antennas = read_antenna_positions(str(casa_file), "casa")
-        assert len(antennas) >= 10, f"Expected at least 10 antennas, got {len(antennas)}"
+        assert len(antennas) >= 10, (
+            f"Expected at least 10 antennas, got {len(antennas)}"
+        )
 
 
 class TestPyUVDataFormat:
@@ -180,7 +195,9 @@ class TestPyUVDataFormat:
 
     def test_file_exists(self, pyuvdata_file):
         """Verify PyUVData format file exists."""
-        assert pyuvdata_file.exists(), f"PyUVData format file not found: {pyuvdata_file}"
+        assert pyuvdata_file.exists(), (
+            f"PyUVData format file not found: {pyuvdata_file}"
+        )
 
     def test_can_read_pyuvdata_format(self, pyuvdata_file):
         """Test reading PyUVData format file."""
@@ -193,7 +210,7 @@ class TestPyUVDataFormat:
         """Verify antenna data structure for PyUVData format."""
         antennas = read_antenna_positions(str(pyuvdata_file), "pyuvdata")
 
-        for ant_num, ant_data in antennas.items():
+        for _ant_num, ant_data in antennas.items():
             # PyUVData format auto-generates antenna names
             assert "Name" in ant_data
             assert "Number" in ant_data
@@ -223,7 +240,9 @@ class TestPyUVDataFormat:
         # Auto-generated names should be ANT###
         for ant_data in antennas.values():
             name = ant_data["Name"]
-            assert name.startswith("ANT"), f"Auto-generated name should start with ANT, got {name}"
+            assert name.startswith("ANT"), (
+                f"Auto-generated name should start with ANT, got {name}"
+            )
 
     def test_pyuvdata_antenna_count(self, pyuvdata_file):
         """Verify antenna count in PyUVData format."""
@@ -254,7 +273,7 @@ class TestMWAFormat:
         """Verify antenna data structure for MWA format."""
         antennas = read_antenna_positions(str(mwa_file), "mwa")
 
-        for ant_num, ant_data in antennas.items():
+        for _ant_num, ant_data in antennas.items():
             assert "Name" in ant_data
             assert "Position" in ant_data
             assert "BeamID" in ant_data
@@ -309,14 +328,14 @@ class TestCSVFormat:
         # CSV can be read as pyuvdata format (simple coordinates)
         # This tests that the file is valid
         assert csv_file.exists()
-        with open(csv_file, 'r') as f:
+        with open(csv_file) as f:
             lines = f.readlines()
             assert len(lines) > 1, "CSV file should have header + data rows"
 
             # Check header
-            header = lines[0].strip().split(',')
-            assert 'Name' in header or 'name' in header
-            assert 'E' in header or 'N' in header or 'U' in header
+            header = lines[0].strip().split(",")
+            assert "Name" in header or "name" in header
+            assert "E" in header or "N" in header or "U" in header
 
 
 class TestYAMLConfiguration:
@@ -333,26 +352,29 @@ class TestYAMLConfiguration:
 
     def test_yaml_content_structure(self, yaml_file):
         """Verify YAML file has proper structure."""
-        with open(yaml_file, 'r') as f:
+        with open(yaml_file) as f:
             content = f.read()
 
             # Check for required sections
-            assert 'telescope:' in content, "Missing telescope section"
-            assert 'antenna_layout:' in content, "Missing antenna_layout section"
-            assert 'observation:' in content or 'telescope:' in content, "Missing configuration sections"
+            assert "telescope:" in content, "Missing telescope section"
+            assert "antenna_layout:" in content, "Missing antenna_layout section"
+            assert "observation:" in content or "telescope:" in content, (
+                "Missing configuration sections"
+            )
 
     def test_yaml_is_readable(self, yaml_file):
         """Test that YAML file can be parsed."""
         try:
             import yaml
-            with open(yaml_file, 'r') as f:
+
+            with open(yaml_file) as f:
                 data = yaml.safe_load(f)
                 assert data is not None
-                assert 'telescope' in data, "Missing telescope section"
-                assert 'antenna_layout' in data, "Missing antenna_layout section"
+                assert "telescope" in data, "Missing telescope section"
+                assert "antenna_layout" in data, "Missing antenna_layout section"
                 # Verify nested structure
-                assert 'name' in data['telescope'], "Missing telescope name"
-                assert 'location' in data['telescope'], "Missing telescope location"
+                assert "name" in data["telescope"], "Missing telescope name"
+                assert "location" in data["telescope"], "Missing telescope location"
         except ImportError:
             pytest.skip("PyYAML not installed")
 
@@ -392,14 +414,16 @@ class TestFormatConsistency:
 
             antennas = read_antenna_positions(str(file_path), format_type)
 
-            for ant_num, ant_data in antennas.items():
+            for _ant_num, ant_data in antennas.items():
                 # All formats should have these minimal fields
                 assert "Position" in ant_data, f"Missing Position in {format_type}"
                 assert "Name" in ant_data, f"Missing Name in {format_type}"
-                assert isinstance(ant_data["Position"], tuple), \
+                assert isinstance(ant_data["Position"], tuple), (
                     f"Position should be tuple in {format_type}"
-                assert len(ant_data["Position"]) == 3, \
+                )
+                assert len(ant_data["Position"]) == 3, (
                     f"Position should have 3 coordinates in {format_type}"
+                )
 
     def test_position_coordinate_types(self):
         """Verify all coordinate values are numeric."""
@@ -415,14 +439,17 @@ class TestFormatConsistency:
 
             antennas = read_antenna_positions(str(file_path), format_type)
 
-            for ant_num, ant_data in antennas.items():
+            for _ant_num, ant_data in antennas.items():
                 e, n, u = ant_data["Position"]
-                assert isinstance(e, (int, float)), \
+                assert isinstance(e, (int, float)), (
                     f"Coordinate should be numeric in {format_type}"
-                assert isinstance(n, (int, float)), \
+                )
+                assert isinstance(n, (int, float)), (
                     f"Coordinate should be numeric in {format_type}"
-                assert isinstance(u, (int, float)), \
+                )
+                assert isinstance(u, (int, float)), (
                     f"Coordinate should be numeric in {format_type}"
+                )
 
 
 class TestErrorHandling:
@@ -473,7 +500,7 @@ class TestIntegration:
         readme_file = DATA_DIR / "README_antenna_formats.md"
         assert readme_file.exists()
 
-        with open(readme_file, 'r') as f:
+        with open(readme_file) as f:
             content = f.read()
             assert len(content) > 100, "README file too short"
             assert "Supported Formats" in content
@@ -482,12 +509,6 @@ class TestIntegration:
 
     def test_format_readers_imported_successfully(self):
         """Verify all format readers are imported and available."""
-        from rrivis.core.antenna import (
-            read_rrivis_format,
-            read_casa_format,
-            read_pyuvdata_format,
-            read_mwa_format,
-        )
 
         # Verify all readers are callable
         assert callable(read_rrivis_format)

@@ -9,12 +9,11 @@ This module provides:
 - Pytest markers for categorizing tests
 """
 
-import sys
 import os
-from pathlib import Path
+import sys
 
-import pytest
 import numpy as np
+import pytest
 
 # Add src/ directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
@@ -24,6 +23,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src"
 # PYTEST MARKERS
 # =============================================================================
 
+
 def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line(
@@ -32,12 +32,8 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "gpu: marks tests that require GPU (deselect with '-m \"not gpu\"')"
     )
-    config.addinivalue_line(
-        "markers", "integration: marks integration tests"
-    )
-    config.addinivalue_line(
-        "markers", "performance: marks performance/benchmark tests"
-    )
+    config.addinivalue_line("markers", "integration: marks integration tests")
+    config.addinivalue_line("markers", "performance: marks performance/benchmark tests")
 
 
 def pytest_runtest_logreport(report):
@@ -54,6 +50,7 @@ def pytest_runtest_logreport(report):
 # =============================================================================
 # ANTENNA FIXTURES
 # =============================================================================
+
 
 @pytest.fixture
 def sample_antennas_simple():
@@ -124,6 +121,7 @@ def sample_antennas_large():
 # BASELINE FIXTURES
 # =============================================================================
 
+
 @pytest.fixture
 def sample_baselines_simple(sample_antennas_simple):
     """Baselines for simple 2-antenna layout."""
@@ -147,11 +145,12 @@ def sample_baselines_three(sample_antennas_three):
 # SOURCE FIXTURES
 # =============================================================================
 
+
 @pytest.fixture
 def sample_sources_single():
     """Single bright source for basic tests."""
-    from astropy.coordinates import SkyCoord
     import astropy.units as u
+    from astropy.coordinates import SkyCoord
 
     return [
         {
@@ -165,8 +164,8 @@ def sample_sources_single():
 @pytest.fixture
 def sample_sources_multiple():
     """Multiple sources for comprehensive tests."""
-    from astropy.coordinates import SkyCoord
     import astropy.units as u
+    from astropy.coordinates import SkyCoord
 
     return [
         {
@@ -190,8 +189,8 @@ def sample_sources_multiple():
 @pytest.fixture
 def sample_sources_polarized():
     """Polarized sources with Stokes Q, U, V."""
-    from astropy.coordinates import SkyCoord
     import astropy.units as u
+    from astropy.coordinates import SkyCoord
 
     return [
         {
@@ -209,30 +208,23 @@ def sample_sources_polarized():
 # LOCATION AND TIME FIXTURES
 # =============================================================================
 
+
 @pytest.fixture
 def sample_location():
     """Sample observatory location (MWA-like)."""
-    from astropy.coordinates import EarthLocation
     import astropy.units as u
+    from astropy.coordinates import EarthLocation
 
-    return EarthLocation(
-        lat=-26.7033 * u.deg,
-        lon=116.6708 * u.deg,
-        height=377.0 * u.m
-    )
+    return EarthLocation(lat=-26.7033 * u.deg, lon=116.6708 * u.deg, height=377.0 * u.m)
 
 
 @pytest.fixture
 def sample_location_northern():
     """Northern hemisphere location for testing."""
-    from astropy.coordinates import EarthLocation
     import astropy.units as u
+    from astropy.coordinates import EarthLocation
 
-    return EarthLocation(
-        lat=45.0 * u.deg,
-        lon=-93.0 * u.deg,
-        height=300.0 * u.m
-    )
+    return EarthLocation(lat=45.0 * u.deg, lon=-93.0 * u.deg, height=300.0 * u.m)
 
 
 @pytest.fixture
@@ -254,6 +246,7 @@ def sample_obstime_midnight():
 # =============================================================================
 # FREQUENCY FIXTURES
 # =============================================================================
+
 
 @pytest.fixture
 def sample_frequencies_single():
@@ -285,6 +278,7 @@ def sample_wavelengths(sample_frequencies_multiple):
 # HPBW FIXTURES
 # =============================================================================
 
+
 @pytest.fixture
 def sample_hpbw_simple(sample_antennas_simple, sample_frequencies_multiple):
     """HPBW per antenna for simple layout."""
@@ -310,10 +304,12 @@ def sample_hpbw_three(sample_antennas_three, sample_frequencies_multiple):
 # BACKEND FIXTURES
 # =============================================================================
 
+
 @pytest.fixture
 def numpy_backend():
     """NumPy backend (always available)."""
     from rrivis.backends import get_backend
+
     return get_backend("numpy")
 
 
@@ -321,6 +317,7 @@ def numpy_backend():
 def auto_backend():
     """Auto-detected best backend."""
     from rrivis.backends import get_backend
+
     return get_backend("auto")
 
 
@@ -344,16 +341,19 @@ def all_available_backends(request):
 # SIMULATOR FIXTURES
 # =============================================================================
 
+
 @pytest.fixture
 def rime_simulator():
     """RIME simulator instance."""
     from rrivis.simulator import get_simulator
+
     return get_simulator("rime")
 
 
 # =============================================================================
 # COMPLETE SIMULATION SETUP FIXTURES
 # =============================================================================
+
 
 @pytest.fixture
 def complete_simulation_setup(
@@ -384,6 +384,7 @@ def complete_simulation_setup(
 # =============================================================================
 # TEMPORARY DIRECTORY FIXTURES
 # =============================================================================
+
 
 @pytest.fixture
 def temp_output_dir(tmp_path):

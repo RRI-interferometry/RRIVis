@@ -10,25 +10,26 @@ NEW in v0.2.0: Backend abstraction for CPU/GPU/TPU acceleration and
 JonesChain integration for complete instrumental forward modeling.
 """
 
-from typing import Any, Dict, List, Optional
+import logging
+from typing import Any
+
 import numpy as np
 from astropy.coordinates import AltAz, SkyCoord
 from astropy.time import TimeDelta
-import logging
 
 # Import backend abstraction
-from rrivis.backends import get_backend, ArrayBackend
+from rrivis.backends import ArrayBackend, get_backend
 
 # Import Jones matrix framework
 from rrivis.core.jones import (
-    JonesChain,
     AnalyticBeamJones,
+    BandpassJones,
     FITSBeamJones,
     GainJones,
-    BandpassJones,
-    PolarizationLeakageJones,
-    ParallacticAngleJones,
     IonosphereJones,
+    JonesChain,
+    ParallacticAngleJones,
+    PolarizationLeakageJones,
     TroposphereJones,
 )
 
@@ -38,28 +39,27 @@ from rrivis.core.polarization import (
     visibility_to_correlations,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
 def calculate_visibility(
-    antennas: Dict,
-    baselines: Dict,
-    sources: List,
+    antennas: dict,
+    baselines: dict,
+    sources: list,
     location: Any,
     obstime: Any,
     wavelengths: Any,
     freqs: Any,
-    hpbw_per_antenna: Dict,
+    hpbw_per_antenna: dict,
     duration_seconds: float,
     time_step_seconds: float,
-    beam_manager: Optional[Any] = None,
-    beam_pattern_per_antenna: Optional[Dict] = None,
-    beam_pattern_params: Optional[Dict] = None,
+    beam_manager: Any | None = None,
+    beam_pattern_per_antenna: dict | None = None,
+    beam_pattern_params: dict | None = None,
     return_correlations: bool = True,
-    backend: Optional[ArrayBackend] = None,
-    jones_config: Optional[Dict[str, Any]] = None,
-) -> Dict:
+    backend: ArrayBackend | None = None,
+    jones_config: dict[str, Any] | None = None,
+) -> dict:
     """
     Calculate complex visibility using full polarization (RIME).
 
@@ -140,10 +140,10 @@ def calculate_visibility(
     >>> vis = calculate_visibility(
     ...     ...,
     ...     jones_config={
-    ...         'G': {'enabled': True, 'sigma': 0.02},
-    ...         'B': {'enabled': True},
-    ...         'Z': {'enabled': True, 'tec': 1e16},
-    ...     }
+    ...         "G": {"enabled": True, "sigma": 0.02},
+    ...         "B": {"enabled": True},
+    ...         "Z": {"enabled": True, "tec": 1e16},
+    ...     },
     ... )
     """
     # Set defaults for beam pattern configuration
@@ -151,8 +151,8 @@ def calculate_visibility(
         beam_pattern_per_antenna = {}
     if beam_pattern_params is None:
         beam_pattern_params = {
-            'cosine_taper_exponent': 1.0,
-            'exponential_taper_dB': 10.0,
+            "cosine_taper_exponent": 1.0,
+            "exponential_taper_dB": 10.0,
         }
     if jones_config is None:
         jones_config = {}
@@ -174,15 +174,20 @@ def calculate_visibility(
     # Initialize visibilities dictionary with time dimension
     # Each baseline gets a (N_times, N_freq, 2, 2) array for visibility matrices
     visibilities_matrices = {
-        key: xp.zeros((n_times, n_freq, 2, 2), dtype=complex) for key in baselines.keys()
+        key: xp.zeros((n_times, n_freq, 2, 2), dtype=complex)
+        for key in baselines.keys()
     }
 
     # Handle empty source list
     if not sources:
         if return_correlations:
-            return {key: _extract_correlations(backend.to_numpy(val))
-                    for key, val in visibilities_matrices.items()}
-        return {key: backend.to_numpy(val) for key, val in visibilities_matrices.items()}
+            return {
+                key: _extract_correlations(backend.to_numpy(val))
+                for key, val in visibilities_matrices.items()
+            }
+        return {
+            key: backend.to_numpy(val) for key, val in visibilities_matrices.items()
+        }
 
     # Convert source list to arrays (these are time-invariant)
     source_coords = SkyCoord([s["coords"] for s in sources])
@@ -197,10 +202,14 @@ def calculate_visibility(
     # ===========================================================================
     for time_idx in range(n_times):
         # Update observation time for this step
-        current_obstime = obstime + TimeDelta(time_step_seconds * time_idx, format='sec')
+        current_obstime = obstime + TimeDelta(
+            time_step_seconds * time_idx, format="sec"
+        )
 
         # Transform source coordinates to AltAz frame (changes with time!)
-        altaz = source_coords.transform_to(AltAz(obstime=current_obstime, location=location))
+        altaz = source_coords.transform_to(
+            AltAz(obstime=current_obstime, location=location)
+        )
         az_rad = altaz.az.rad
         alt_rad = altaz.alt.rad
 
@@ -229,15 +238,27 @@ def calculate_visibility(
         # Build antenna index mapping
         ant_keys = list(antennas.keys())
 
-        for freq_idx, (wavelength, freq) in enumerate(zip(wavelengths, freqs)):
+        for freq_idx, (wavelength, freq) in enumerate(
+            zip(wavelengths, freqs, strict=False)
+        ):
             # Scale source fluxes by spectral index
-            I_scaled = source_stokes_I_t * (freq / reference_freq) ** source_spectral_indices_t
-            Q_scaled = source_stokes_Q_t * (freq / reference_freq) ** source_spectral_indices_t
-            U_scaled = source_stokes_U_t * (freq / reference_freq) ** source_spectral_indices_t
-            V_scaled = source_stokes_V_t * (freq / reference_freq) ** source_spectral_indices_t
+            I_scaled = (
+                source_stokes_I_t * (freq / reference_freq) ** source_spectral_indices_t
+            )
+            Q_scaled = (
+                source_stokes_Q_t * (freq / reference_freq) ** source_spectral_indices_t
+            )
+            U_scaled = (
+                source_stokes_U_t * (freq / reference_freq) ** source_spectral_indices_t
+            )
+            V_scaled = (
+                source_stokes_V_t * (freq / reference_freq) ** source_spectral_indices_t
+            )
 
             # Coherency matrices: (n_sources, 2, 2)
-            coherency_matrices = stokes_to_coherency(I_scaled, Q_scaled, U_scaled, V_scaled)
+            coherency_matrices = stokes_to_coherency(
+                I_scaled, Q_scaled, U_scaled, V_scaled
+            )
 
             is_unpolarized = (
                 np.all(Q_scaled == 0)
@@ -247,10 +268,19 @@ def calculate_visibility(
 
             # Build JonesChain (without K — K is applied separately)
             chain = _build_jones_chain(
-                backend, jones_config, antennas, ant_keys,
-                hpbw_per_antenna, beam_pattern_per_antenna,
-                alt_rad_t, az_rad_t, freq, freq_idx, n_sources,
-                location, time_idx,
+                backend,
+                jones_config,
+                antennas,
+                ant_keys,
+                hpbw_per_antenna,
+                beam_pattern_per_antenna,
+                alt_rad_t,
+                az_rad_t,
+                freq,
+                freq_idx,
+                n_sources,
+                location,
+                time_idx,
                 beam_manager=beam_manager,
                 beam_pattern_params=beam_pattern_params,
                 wavelength_value=wavelength.value,
@@ -258,9 +288,7 @@ def calculate_visibility(
 
             # Per-antenna Jones cache: compute chain once per antenna
             jones_antenna_cache = {}
-            for ant_num in set(
-                a for pair in baselines.keys() for a in pair
-            ):
+            for ant_num in {a for pair in baselines.keys() for a in pair}:
                 ant_idx = ant_keys.index(ant_num)
                 jones_antenna_cache[ant_num] = chain.compute_antenna_jones_all_sources(
                     antenna_idx=ant_idx,
@@ -291,7 +319,9 @@ def calculate_visibility(
                     V_all = V_all * phase[:, np.newaxis, np.newaxis]
 
                 visibility_matrix = V_all.sum(axis=0)
-                visibilities_matrices[(ant1, ant2)][time_idx, freq_idx] = visibility_matrix
+                visibilities_matrices[(ant1, ant2)][time_idx, freq_idx] = (
+                    visibility_matrix
+                )
 
     # Convert backend arrays to numpy for output
     result_matrices = {
@@ -302,7 +332,9 @@ def calculate_visibility(
     if return_correlations:
         visibilities_correlations = {}
         for baseline_key, vis_matrix_array in result_matrices.items():
-            visibilities_correlations[baseline_key] = _extract_correlations(vis_matrix_array)
+            visibilities_correlations[baseline_key] = _extract_correlations(
+                vis_matrix_array
+            )
         return visibilities_correlations
 
     return result_matrices
@@ -374,21 +406,21 @@ def _build_jones_chain(
     chain = JonesChain(backend)
 
     # Z term: Ionosphere (optional)
-    z_config = jones_config.get('Z', {})
-    if z_config.get('enabled', False):
-        tec = z_config.get('tec', 1e16)
+    z_config = jones_config.get("Z", {})
+    if z_config.get("enabled", False):
+        tec = z_config.get("tec", 1e16)
         tec_array = np.full(n_antennas, tec)
         z_jones = IonosphereJones(
             tec=tec_array,
             frequencies=np.array([freq]),
-            include_faraday=z_config.get('include_faraday', True),
-            include_delay=z_config.get('include_delay', True),
+            include_faraday=z_config.get("include_faraday", True),
+            include_delay=z_config.get("include_delay", True),
         )
         chain.add_term(z_jones)
 
     # T term: Troposphere (optional)
-    t_config = jones_config.get('T', {})
-    if t_config.get('enabled', False):
+    t_config = jones_config.get("T", {})
+    if t_config.get("enabled", False):
         t_jones = TroposphereJones(
             n_antennas=n_antennas,
             frequencies=np.array([freq]),
@@ -398,7 +430,10 @@ def _build_jones_chain(
 
     # E term: Primary beam (always enabled)
     # Use FITS beam if beam_manager is available and not in analytic mode
-    if beam_manager is not None and getattr(beam_manager, 'mode', 'analytic') != 'analytic':
+    if (
+        beam_manager is not None
+        and getattr(beam_manager, "mode", "analytic") != "analytic"
+    ):
         e_jones = FITSBeamJones(
             beam_manager=beam_manager,
             source_altaz=np.column_stack([alt_rad, az_rad]),
@@ -407,57 +442,67 @@ def _build_jones_chain(
     else:
         first_ant = ant_keys[0]
         hpbw_rad = hpbw_per_antenna.get(first_ant, np.array([0.1]))[freq_idx]
-        beam_type = beam_pattern_per_antenna.get(first_ant, 'gaussian') if beam_pattern_per_antenna else 'gaussian'
+        beam_type = (
+            beam_pattern_per_antenna.get(first_ant, "gaussian")
+            if beam_pattern_per_antenna
+            else "gaussian"
+        )
         e_jones = AnalyticBeamJones(
             source_altaz=np.column_stack([alt_rad, az_rad]),
             frequencies=np.array([freq]),
             hpbw_radians=hpbw_rad,
             beam_type=beam_type,
-            wavelength=wavelength_value if beam_type == 'airy' else None,
-            diameter=antennas.get(first_ant, {}).get('diameter', 12.0) if beam_type == 'airy' else None,
-            taper_exponent=beam_pattern_params.get('cosine_taper_exponent', 1.0) if beam_pattern_params else 1.0,
-            taper_dB=beam_pattern_params.get('exponential_taper_dB', 10.0) if beam_pattern_params else 10.0,
+            wavelength=wavelength_value if beam_type == "airy" else None,
+            diameter=antennas.get(first_ant, {}).get("diameter", 12.0)
+            if beam_type == "airy"
+            else None,
+            taper_exponent=beam_pattern_params.get("cosine_taper_exponent", 1.0)
+            if beam_pattern_params
+            else 1.0,
+            taper_dB=beam_pattern_params.get("exponential_taper_dB", 10.0)
+            if beam_pattern_params
+            else 10.0,
         )
     chain.add_term(e_jones)
 
     # P term: Parallactic angle (optional)
-    p_config = jones_config.get('P', {})
-    if p_config.get('enabled', False):
+    p_config = jones_config.get("P", {})
+    if p_config.get("enabled", False):
         ant_latitudes = np.full(n_antennas, location.lat.rad)
         source_positions = np.column_stack([az_rad, alt_rad])
         p_jones = ParallacticAngleJones(
             antenna_latitudes=ant_latitudes,
             source_positions=source_positions,
             times=np.array([0.0]),
-            mount_type=p_config.get('mount_type', 'altaz'),
+            mount_type=p_config.get("mount_type", "altaz"),
         )
         chain.add_term(p_jones)
 
     # D term: Polarization leakage (optional)
-    d_config = jones_config.get('D', {})
-    if d_config.get('enabled', False):
+    d_config = jones_config.get("D", {})
+    if d_config.get("enabled", False):
         d_jones = PolarizationLeakageJones(
             n_antennas=n_antennas,
-            d_terms=d_config.get('d_terms'),
+            d_terms=d_config.get("d_terms"),
         )
         chain.add_term(d_jones)
 
     # G term: Electronic gains (optional)
-    g_config = jones_config.get('G', {})
-    if g_config.get('enabled', False):
+    g_config = jones_config.get("G", {})
+    if g_config.get("enabled", False):
         g_jones = GainJones(
             n_antennas=n_antennas,
-            gain_sigma=g_config.get('sigma', 0.0),
+            gain_sigma=g_config.get("sigma", 0.0),
         )
         chain.add_term(g_jones)
 
     # B term: Bandpass (optional)
-    b_config = jones_config.get('B', {})
-    if b_config.get('enabled', False):
+    b_config = jones_config.get("B", {})
+    if b_config.get("enabled", False):
         b_jones = BandpassJones(
             n_antennas=n_antennas,
             frequencies=np.array([freq]),
-            bandpass_gains=b_config.get('bandpass_gains'),
+            bandpass_gains=b_config.get("bandpass_gains"),
         )
         chain.add_term(b_jones)
 
@@ -533,4 +578,5 @@ def convert_phase_for_display(phase_radians, angle_unit):
     Phase value(s) in the specified unit
     """
     from rrivis.core.jones.beam.analytic import convert_angle_for_display
+
     return convert_angle_for_display(phase_radians, angle_unit)

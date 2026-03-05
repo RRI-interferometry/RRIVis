@@ -1,6 +1,7 @@
-from astropy.io import fits
-import os
 import argparse
+import os
+
+from astropy.io import fits
 
 
 def main():

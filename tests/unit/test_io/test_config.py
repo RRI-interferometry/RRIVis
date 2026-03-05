@@ -8,31 +8,28 @@ validation, serialization, and deserialization.
 
 import pytest
 import yaml
-from pathlib import Path
 from pydantic import ValidationError
 
 from rrivis.io.config import (
-    RRIvisConfig,
-    TelescopeConfig,
     AntennaLayoutConfig,
     BeamsConfig,
     LocationConfig,
     ObsFrequencyConfig,
     ObsTimeConfig,
-    SkyModelConfig,
-    TestSourcesConfig,
-    GLEAMConfig,
-    GSMConfig,
     OutputConfig,
+    RRIvisConfig,
+    SkyModelConfig,
+    TelescopeConfig,
+    TestSourcesConfig,
     VisibilityConfig,
-    load_config,
     create_default_config,
+    load_config,
 )
-
 
 # =============================================================================
 # TelescopeConfig Tests
 # =============================================================================
+
 
 class TestTelescopeConfig:
     """Test TelescopeConfig validation."""
@@ -59,6 +56,7 @@ class TestTelescopeConfig:
 # =============================================================================
 # AntennaLayoutConfig Tests
 # =============================================================================
+
 
 class TestAntennaLayoutConfig:
     """Test AntennaLayoutConfig validation."""
@@ -100,6 +98,7 @@ class TestAntennaLayoutConfig:
 # BeamsConfig Tests
 # =============================================================================
 
+
 class TestBeamsConfig:
     """Test BeamsConfig validation."""
 
@@ -132,6 +131,7 @@ class TestBeamsConfig:
 # LocationConfig Tests
 # =============================================================================
 
+
 class TestLocationConfig:
     """Test LocationConfig validation."""
 
@@ -158,6 +158,7 @@ class TestLocationConfig:
 # =============================================================================
 # ObsFrequencyConfig Tests
 # =============================================================================
+
 
 class TestObsFrequencyConfig:
     """Test ObsFrequencyConfig validation."""
@@ -221,6 +222,7 @@ class TestObsFrequencyConfig:
 # ObsTimeConfig Tests
 # =============================================================================
 
+
 class TestObsTimeConfig:
     """Test ObsTimeConfig validation."""
 
@@ -271,6 +273,7 @@ class TestObsTimeConfig:
 # SkyModelConfig Tests
 # =============================================================================
 
+
 class TestSkyModelConfig:
     """Test SkyModelConfig validation."""
 
@@ -287,17 +290,21 @@ class TestSkyModelConfig:
             test_sources=TestSourcesConfig(
                 use_test_sources=True,
                 num_sources=500,
-                flux_limit=100.0,
+                flux_min=2.0,
+                flux_max=100.0,
+                dec_deg=-30.72,
+                spectral_index=-0.8,
             )
         )
         assert config.test_sources.use_test_sources is True
         assert config.test_sources.num_sources == 500
-        assert config.test_sources.flux_limit == 100.0
+        assert config.test_sources.flux_max == 100.0
 
 
 # =============================================================================
 # OutputConfig Tests
 # =============================================================================
+
 
 class TestOutputConfig:
     """Test OutputConfig validation."""
@@ -318,6 +325,7 @@ class TestOutputConfig:
 # =============================================================================
 # RRIvisConfig Tests
 # =============================================================================
+
 
 class TestRRIvisConfig:
     """Test main RRIvisConfig model."""
@@ -411,6 +419,7 @@ future_feature:
 # Utility Function Tests
 # =============================================================================
 
+
 class TestConfigUtilities:
     """Test configuration utility functions."""
 
@@ -442,6 +451,7 @@ telescope:
 # Validation Edge Cases
 # =============================================================================
 
+
 class TestValidationEdgeCases:
     """Test edge cases and boundary conditions."""
 
@@ -468,12 +478,13 @@ telescope:
         assert config.antenna_layout.all_antenna_diameter is None
 
     def test_validate_blank_config_returns_all_required_errors(self):
-        """Blank config should report all 9 required-field errors."""
+        """Blank config should report all required-field errors."""
         config = RRIvisConfig()
         errors = config.validate()
-        assert len(errors) == 10
+        assert len(errors) == 11
         assert any("antenna_positions_file" in e for e in errors)
         assert any("antenna_file_format" in e for e in errors)
+        assert any("all_antenna_type" in e for e in errors)
         assert any("all_antenna_diameter" in e for e in errors)
         assert any("obs_time.start_time" in e for e in errors)
         assert any("duration_seconds" in e for e in errors)
@@ -491,6 +502,7 @@ telescope:
             antenna_layout=AntennaLayoutConfig(
                 antenna_positions_file=str(antenna_file),
                 antenna_file_format="rrivis",
+                all_antenna_type="parabolic",
                 all_antenna_diameter=14.0,
             ),
             obs_time=ObsTimeConfig(
@@ -513,6 +525,7 @@ telescope:
             antenna_layout=AntennaLayoutConfig(
                 antenna_positions_file="/no/such/file.txt",
                 antenna_file_format="rrivis",
+                all_antenna_type="parabolic",
                 all_antenna_diameter=14.0,
             ),
             obs_time=ObsTimeConfig(

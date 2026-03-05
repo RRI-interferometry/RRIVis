@@ -16,10 +16,10 @@ This module re-exports those functions for cleaner I/O organization.
 # Re-export antenna reading functions from core module
 from rrivis.core.antenna import (
     read_antenna_positions,
-    read_rrivis_format,
     read_casa_format,
-    read_pyuvdata_format,
     read_mwa_format,
+    read_pyuvdata_format,
+    read_rrivis_format,
 )
 
 __all__ = [

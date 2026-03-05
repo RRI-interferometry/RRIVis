@@ -8,13 +8,12 @@ and frequency channels.
 Run with: pytest tests/performance/benchmark_large_simulations.py -v -m "performance"
 """
 
-import pytest
-import numpy as np
 import time
-from typing import Dict, Any, List
+
+import numpy as np
+import pytest
 
 from rrivis.backends import get_backend, list_backends
-
 
 # =============================================================================
 # Scaling Parameters
@@ -29,7 +28,8 @@ FREQUENCY_CHANNELS = [1, 10, 100]  # Single, few, many channels
 # Benchmark Utilities
 # =============================================================================
 
-def generate_test_array(n_antennas: int) -> Dict:
+
+def generate_test_array(n_antennas: int) -> dict:
     """Generate a test antenna array layout."""
     np.random.seed(42)
     antennas = {}
@@ -55,7 +55,7 @@ def generate_test_array(n_antennas: int) -> Dict:
     return antennas
 
 
-def generate_test_baselines(antennas: Dict) -> Dict:
+def generate_test_baselines(antennas: dict) -> dict:
     """Generate baselines from antenna dictionary."""
     baselines = {}
     antenna_list = list(antennas.keys())
@@ -77,7 +77,7 @@ def generate_test_baselines(antennas: Dict) -> Dict:
     return baselines
 
 
-def generate_test_sources(n_sources: int) -> List[Dict]:
+def generate_test_sources(n_sources: int) -> list[dict]:
     """Generate test source catalog."""
     np.random.seed(42)
     sources = []
@@ -88,18 +88,20 @@ def generate_test_sources(n_sources: int) -> List[Dict]:
         dec = np.random.uniform(-60, -30)
         flux = np.random.uniform(0.1, 100.0)  # Jy
 
-        sources.append({
-            "Name": f"Source{i}",
-            "RA": ra,
-            "Dec": dec,
-            "FluxDensity": flux,
-            "SpectralIndex": -0.7,
-        })
+        sources.append(
+            {
+                "Name": f"Source{i}",
+                "RA": ra,
+                "Dec": dec,
+                "FluxDensity": flux,
+                "SpectralIndex": -0.7,
+            }
+        )
 
     return sources
 
 
-def benchmark_function(func, n_runs: int = 3, warmup: int = 1) -> Dict[str, float]:
+def benchmark_function(func, n_runs: int = 3, warmup: int = 1) -> dict[str, float]:
     """Benchmark a function with warmup and multiple runs."""
     # Warmup
     for _ in range(warmup):
@@ -114,17 +116,18 @@ def benchmark_function(func, n_runs: int = 3, warmup: int = 1) -> Dict[str, floa
         times.append(elapsed)
 
     return {
-        'mean': np.mean(times),
-        'std': np.std(times),
-        'min': np.min(times),
-        'max': np.max(times),
-        'n_runs': n_runs,
+        "mean": np.mean(times),
+        "std": np.std(times),
+        "min": np.min(times),
+        "max": np.max(times),
+        "n_runs": n_runs,
     }
 
 
 # =============================================================================
 # Antenna Array Scaling Tests
 # =============================================================================
+
 
 @pytest.mark.performance
 class TestAntennaScaling:
@@ -137,22 +140,24 @@ class TestAntennaScaling:
         for n_antennas in ANTENNA_COUNTS:
             antennas = generate_test_array(n_antennas)
 
-            def run():
+            def run(antennas=antennas):
                 return generate_test_baselines(antennas)
 
             stats = benchmark_function(run, n_runs=5)
             n_baselines = n_antennas * (n_antennas + 1) // 2
             results[n_antennas] = {
-                'time_ms': stats['mean'] * 1000,
-                'n_baselines': n_baselines,
-                'time_per_baseline_us': stats['mean'] * 1e6 / n_baselines,
+                "time_ms": stats["mean"] * 1000,
+                "n_baselines": n_baselines,
+                "time_per_baseline_us": stats["mean"] * 1e6 / n_baselines,
             }
 
         print("\n=== Baseline Generation Scaling ===")
         for n_ant, data in results.items():
-            print(f"{n_ant} antennas: {data['n_baselines']} baselines, "
-                  f"{data['time_ms']:.3f} ms "
-                  f"({data['time_per_baseline_us']:.2f} us/baseline)")
+            print(
+                f"{n_ant} antennas: {data['n_baselines']} baselines, "
+                f"{data['time_ms']:.3f} ms "
+                f"({data['time_per_baseline_us']:.2f} us/baseline)"
+            )
 
         # Verify scaling is roughly O(n^2)
         assert len(results) > 0
@@ -171,21 +176,24 @@ class TestAntennaScaling:
             nbytes = vis_array.nbytes
 
             results[n_antennas] = {
-                'n_baselines': n_baselines,
-                'memory_mb': nbytes / (1024 * 1024),
+                "n_baselines": n_baselines,
+                "memory_mb": nbytes / (1024 * 1024),
             }
 
         print("\n=== Visibility Array Memory Scaling ===")
         for n_ant, data in results.items():
-            print(f"{n_ant} antennas ({data['n_baselines']} baselines): "
-                  f"{data['memory_mb']:.2f} MB")
+            print(
+                f"{n_ant} antennas ({data['n_baselines']} baselines): "
+                f"{data['memory_mb']:.2f} MB"
+            )
 
-        assert results[64]['memory_mb'] > results[4]['memory_mb']
+        assert results[64]["memory_mb"] > results[4]["memory_mb"]
 
 
 # =============================================================================
 # Source Count Scaling Tests
 # =============================================================================
+
 
 @pytest.mark.performance
 class TestSourceScaling:
@@ -193,9 +201,8 @@ class TestSourceScaling:
 
     def test_source_loop_scaling(self):
         """Test source summation scaling."""
-        backend = get_backend('numpy')
+        get_backend("numpy")
         n_baselines = 100
-        n_freqs = 10
 
         results = {}
 
@@ -207,23 +214,25 @@ class TestSourceScaling:
             flux = np.random.rand(n_sources) * 10
             wavelength = 2.0
 
-            def run():
+            def run(wavelength=wavelength, uvw=uvw, lmn=lmn, flux=flux):
                 # Vectorized visibility calculation
-                phases = -2 * np.pi / wavelength * np.einsum('ik,jk->ij', uvw, lmn)
+                phases = -2 * np.pi / wavelength * np.einsum("ik,jk->ij", uvw, lmn)
                 phasors = np.exp(1j * phases)
                 vis = np.sum(phasors * flux, axis=1)
                 return vis
 
             stats = benchmark_function(run, n_runs=5)
             results[n_sources] = {
-                'time_ms': stats['mean'] * 1000,
-                'time_per_source_us': stats['mean'] * 1e6 / n_sources,
+                "time_ms": stats["mean"] * 1000,
+                "time_per_source_us": stats["mean"] * 1e6 / n_sources,
             }
 
         print("\n=== Source Loop Scaling ===")
         for n_src, data in results.items():
-            print(f"{n_src} sources: {data['time_ms']:.3f} ms "
-                  f"({data['time_per_source_us']:.2f} us/source)")
+            print(
+                f"{n_src} sources: {data['time_ms']:.3f} ms "
+                f"({data['time_per_source_us']:.2f} us/source)"
+            )
 
         # Should scale roughly linearly with source count
         assert len(results) > 0
@@ -233,13 +242,14 @@ class TestSourceScaling:
 # Frequency Channel Scaling Tests
 # =============================================================================
 
+
 @pytest.mark.performance
 class TestFrequencyScaling:
     """Test performance scaling with number of frequency channels."""
 
     def test_frequency_loop_scaling(self):
         """Test frequency channel scaling."""
-        backend = get_backend('numpy')
+        get_backend("numpy")
         n_baselines = 100
         n_sources = 50
 
@@ -253,24 +263,33 @@ class TestFrequencyScaling:
             flux = np.random.rand(n_sources, n_freqs) * 10
             wavelengths = np.linspace(1.5, 3.0, n_freqs)
 
-            def run():
+            def run(
+                n_baselines=n_baselines,
+                n_freqs=n_freqs,
+                wavelengths=wavelengths,
+                uvw=uvw,
+                lmn=lmn,
+                flux=flux,
+            ):
                 vis = np.zeros((n_baselines, n_freqs), dtype=np.complex128)
                 for f_idx, wavelength in enumerate(wavelengths):
-                    phases = -2 * np.pi / wavelength * np.einsum('ik,jk->ij', uvw, lmn)
+                    phases = -2 * np.pi / wavelength * np.einsum("ik,jk->ij", uvw, lmn)
                     phasors = np.exp(1j * phases)
                     vis[:, f_idx] = np.sum(phasors * flux[:, f_idx], axis=1)
                 return vis
 
             stats = benchmark_function(run, n_runs=3)
             results[n_freqs] = {
-                'time_ms': stats['mean'] * 1000,
-                'time_per_channel_ms': stats['mean'] * 1000 / n_freqs,
+                "time_ms": stats["mean"] * 1000,
+                "time_per_channel_ms": stats["mean"] * 1000 / n_freqs,
             }
 
         print("\n=== Frequency Channel Scaling ===")
         for n_freq, data in results.items():
-            print(f"{n_freq} channels: {data['time_ms']:.3f} ms "
-                  f"({data['time_per_channel_ms']:.3f} ms/channel)")
+            print(
+                f"{n_freq} channels: {data['time_ms']:.3f} ms "
+                f"({data['time_per_channel_ms']:.3f} ms/channel)"
+            )
 
         # Should scale linearly with frequency count
         assert len(results) > 0
@@ -279,6 +298,7 @@ class TestFrequencyScaling:
 # =============================================================================
 # Full Simulation Scaling Tests
 # =============================================================================
+
 
 @pytest.mark.performance
 @pytest.mark.slow
@@ -301,10 +321,10 @@ class TestFullSimulationScaling:
             # Simplified visibility calculation
             vis = {}
             for bl_key, bl_data in baselines.items():
-                uvw = bl_data["BaselineVector"]
+                bl_data["BaselineVector"]
                 bl_vis = np.zeros(n_freqs, dtype=np.complex128)
 
-                for f_idx, wavelength in enumerate(wavelengths):
+                for f_idx, _wavelength in enumerate(wavelengths):
                     for src in sources[:10]:  # Limit sources for speed
                         phase = np.random.uniform(0, 2 * np.pi)
                         bl_vis[f_idx] += src["FluxDensity"] * np.exp(1j * phase)
@@ -315,9 +335,9 @@ class TestFullSimulationScaling:
         stats = benchmark_function(run_simulation, n_runs=3)
 
         print(f"\n=== Small Array (4 antennas, {n_baselines} baselines) ===")
-        print(f"Time: {stats['mean']*1000:.2f} ± {stats['std']*1000:.2f} ms")
+        print(f"Time: {stats['mean'] * 1000:.2f} ± {stats['std'] * 1000:.2f} ms")
 
-        assert stats['mean'] > 0
+        assert stats["mean"] > 0
 
     def test_medium_array_simulation(self):
         """Benchmark medium array simulation (16 antennas)."""
@@ -333,10 +353,10 @@ class TestFullSimulationScaling:
 
         def run_simulation():
             vis = {}
-            for bl_key, bl_data in baselines.items():
+            for bl_key, _bl_data in baselines.items():
                 bl_vis = np.zeros(n_freqs, dtype=np.complex128)
 
-                for f_idx, wavelength in enumerate(wavelengths):
+                for f_idx, _wavelength in enumerate(wavelengths):
                     for src in sources[:10]:
                         phase = np.random.uniform(0, 2 * np.pi)
                         bl_vis[f_idx] += src["FluxDensity"] * np.exp(1j * phase)
@@ -347,14 +367,15 @@ class TestFullSimulationScaling:
         stats = benchmark_function(run_simulation, n_runs=3)
 
         print(f"\n=== Medium Array (16 antennas, {n_baselines} baselines) ===")
-        print(f"Time: {stats['mean']*1000:.2f} ± {stats['std']*1000:.2f} ms")
+        print(f"Time: {stats['mean'] * 1000:.2f} ± {stats['std'] * 1000:.2f} ms")
 
-        assert stats['mean'] > 0
+        assert stats["mean"] > 0
 
 
 # =============================================================================
 # Memory Profiling Tests
 # =============================================================================
+
 
 @pytest.mark.performance
 class TestMemoryProfiling:
@@ -392,18 +413,20 @@ class TestMemoryProfiling:
             total_bytes = vis_bytes + src_bytes + ant_bytes + phase_bytes
 
             results[(n_ant, n_src, n_freq)] = {
-                'vis_mb': vis_bytes / 1e6,
-                'phase_mb': phase_bytes / 1e6,
-                'total_mb': total_bytes / 1e6,
+                "vis_mb": vis_bytes / 1e6,
+                "phase_mb": phase_bytes / 1e6,
+                "total_mb": total_bytes / 1e6,
             }
 
         print("\n=== Memory Estimation ===")
         for key, data in results.items():
             n_ant, n_src, n_freq = key
-            print(f"{n_ant} ant, {n_src} src, {n_freq} freq: "
-                  f"vis={data['vis_mb']:.1f}MB, "
-                  f"phase={data['phase_mb']:.1f}MB, "
-                  f"total={data['total_mb']:.1f}MB")
+            print(
+                f"{n_ant} ant, {n_src} src, {n_freq} freq: "
+                f"vis={data['vis_mb']:.1f}MB, "
+                f"phase={data['phase_mb']:.1f}MB, "
+                f"total={data['total_mb']:.1f}MB"
+            )
 
         assert len(results) > 0
 
@@ -411,6 +434,7 @@ class TestMemoryProfiling:
 # =============================================================================
 # Backend Comparison for Large Scale
 # =============================================================================
+
 
 @pytest.mark.performance
 class TestBackendLargeScale:
@@ -426,16 +450,16 @@ class TestBackendLargeScale:
 
         results = {}
 
-        for backend_name in ['numpy']:
+        for backend_name in ["numpy"]:
             backends = list_backends()
-            if backend_name not in ['numpy'] and not backends.get(backend_name, False):
+            if backend_name not in ["numpy"] and not backends.get(backend_name, False):
                 continue
 
             backend = get_backend(backend_name)
             A_be = backend.asarray(A)
             B_be = backend.asarray(B)
 
-            def run():
+            def run(backend=backend, A_be=A_be, B_be=B_be):
                 result = backend.matmul(A_be, B_be)
                 backend.to_numpy(result)
                 return result
@@ -445,7 +469,7 @@ class TestBackendLargeScale:
 
         print("\n=== Large Matmul Comparison (500x500 complex) ===")
         for name, stats in results.items():
-            gflops = (2 * n**3) / (stats['mean'] * 1e9)
-            print(f"{name}: {stats['mean']*1000:.2f} ms ({gflops:.1f} GFLOPS)")
+            gflops = (2 * n**3) / (stats["mean"] * 1e9)
+            print(f"{name}: {stats['mean'] * 1000:.2f} ms ({gflops:.1f} GFLOPS)")
 
         assert len(results) > 0

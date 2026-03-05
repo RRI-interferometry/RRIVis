@@ -1,13 +1,14 @@
 # tests/test_observation.py
 
 import unittest
-from rrivis.core.observation import get_location_and_time
-from astropy.time import Time
+
 import astropy.units as u
+from astropy.time import Time
+
+from rrivis.core.observation import get_location_and_time
 
 
 class TestObservation(unittest.TestCase):
-
     def test_default_location(self):
         """Test default HERA location and current UTC time."""
         location, obstime = get_location_and_time()

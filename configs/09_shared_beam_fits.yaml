@@ -68,12 +68,18 @@ sky_model:
   test_sources:
     use_test_sources: true
     num_sources: 5
-    flux_limit: 50
+    flux_min: 2.0
+    flux_max: 8.0
+    dec_deg: -30.72
+    spectral_index: -0.8
   test_sources_healpix:
     use_test_sources: false
     num_sources: 100
-    flux_limit: 50
-    nside: 32
+    flux_min: 2.0
+    flux_max: 8.0
+    dec_deg: -30.72
+    spectral_index: -0.8
+    nside: 64
   gsm_healpix:
     use_gsm: false
     gsm_catalogue: "gsm2008"

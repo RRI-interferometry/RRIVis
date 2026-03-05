@@ -26,7 +26,8 @@ Note: Numba does not support float128/complex256. Precision configurations
 requesting float128 will automatically fall back to float64 with a warning.
 """
 
-from typing import Any, Dict, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Union
+
 import numpy as np
 
 from rrivis.backends.base import ArrayBackend, BackendNotAvailableError
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
 try:
     import numba
     from numba import jit, prange
+
     NUMBA_AVAILABLE = True
 except ImportError:
     numba = None
@@ -47,6 +49,7 @@ except ImportError:
 
 try:
     from numba import cuda
+
     CUDA_AVAILABLE = cuda.is_available() if NUMBA_AVAILABLE else False
 except (ImportError, Exception):
     cuda = None
@@ -56,6 +59,7 @@ try:
     import dask
     import dask.array as da
     from dask.distributed import Client, LocalCluster
+
     DASK_AVAILABLE = True
 except ImportError:
     dask = None
@@ -98,11 +102,11 @@ class NumbaBackend(ArrayBackend):
     def __init__(
         self,
         mode: str = "cpu",
-        n_workers: Optional[int] = None,
+        n_workers: int | None = None,
         threads_per_worker: int = 1,
-        scheduler_address: Optional[str] = None,
+        scheduler_address: str | None = None,
         use_dask_arrays: bool = False,
-        precision: Optional[Union["PrecisionConfig", str]] = None,
+        precision: Union["PrecisionConfig", str] | None = None,
     ):
         """Initialize Numba + Dask backend.
 
@@ -132,8 +136,7 @@ class NumbaBackend(ArrayBackend):
         """
         if not NUMBA_AVAILABLE:
             raise BackendNotAvailableError(
-                "Numba not available. Install with:\n"
-                "  pip install numba dask[complete]"
+                "Numba not available. Install with:\n  pip install numba dask[complete]"
             )
 
         self.mode = mode
@@ -153,8 +156,7 @@ class NumbaBackend(ArrayBackend):
         elif mode == "distributed":
             if not DASK_AVAILABLE:
                 raise BackendNotAvailableError(
-                    "Dask not available. Install with:\n"
-                    "  pip install dask[complete]"
+                    "Dask not available. Install with:\n  pip install dask[complete]"
                 )
 
             if scheduler_address:
@@ -182,6 +184,7 @@ class NumbaBackend(ArrayBackend):
         # Resolve and set precision (with float128 fallback warning)
         if precision is not None:
             from rrivis.core.precision import resolve_precision
+
             self.precision = resolve_precision(precision)
 
     @property
@@ -207,11 +210,7 @@ class NumbaBackend(ArrayBackend):
     # Array Creation and Conversion
     # =========================================================================
 
-    def asarray(
-        self,
-        arr: Any,
-        dtype: Optional[Any] = None
-    ) -> Any:
+    def asarray(self, arr: Any, dtype: Any | None = None) -> Any:
         """Convert to array (optionally Dask array).
 
         Args:
@@ -329,7 +328,7 @@ class NumbaBackend(ArrayBackend):
             pass
         del arr
 
-    def memory_info(self) -> Dict[str, Any]:
+    def memory_info(self) -> dict[str, Any]:
         """Get memory information.
 
         Returns:
@@ -342,13 +341,16 @@ class NumbaBackend(ArrayBackend):
 
         try:
             import psutil
+
             mem = psutil.virtual_memory()
-            info.update({
-                "total_bytes": mem.total,
-                "available_bytes": mem.available,
-                "used_bytes": mem.used,
-                "percent_used": mem.percent,
-            })
+            info.update(
+                {
+                    "total_bytes": mem.total,
+                    "available_bytes": mem.available,
+                    "used_bytes": mem.used,
+                    "percent_used": mem.percent,
+                }
+            )
         except ImportError:
             info["note"] = "Install psutil for detailed memory info"
 
@@ -362,7 +364,7 @@ class NumbaBackend(ArrayBackend):
 
         return info
 
-    def get_device_info(self) -> Dict[str, Any]:
+    def get_device_info(self) -> dict[str, Any]:
         """Get device information.
 
         Returns:
@@ -378,13 +380,15 @@ class NumbaBackend(ArrayBackend):
         }
 
         if self.mode == "gpu" and self.gpu_device:
-            info.update({
-                "device": "GPU",
-                "gpu_name": self.gpu_device.name.decode()
-                if hasattr(self.gpu_device.name, 'decode')
-                else str(self.gpu_device.name),
-                "compute_capability": self.gpu_device.compute_capability,
-            })
+            info.update(
+                {
+                    "device": "GPU",
+                    "gpu_name": self.gpu_device.name.decode()
+                    if hasattr(self.gpu_device.name, "decode")
+                    else str(self.gpu_device.name),
+                    "compute_capability": self.gpu_device.compute_capability,
+                }
+            )
             try:
                 info["gpu_memory_total_gb"] = round(
                     self.gpu_device.total_memory / (1024**3), 2
@@ -395,6 +399,7 @@ class NumbaBackend(ArrayBackend):
             info["device"] = "CPU"
             try:
                 import psutil
+
                 info["cores_physical"] = psutil.cpu_count(logical=False)
                 info["cores_logical"] = psutil.cpu_count(logical=True)
             except ImportError:

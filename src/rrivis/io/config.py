@@ -50,7 +50,7 @@ Create configuration programmatically:
 >>> config.to_yaml("output_config.yaml")
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -61,11 +61,19 @@ from pydantic import BaseModel, Field
 class TelescopeConfig(BaseModel):
     """Telescope configuration."""
 
-    telescope_name: str = Field("Unknown", description="Telescope name (e.g., HERA, MWA)")
-    use_pyuvdata_telescope: bool = Field(False, description="Load telescope from pyuvdata")
+    telescope_name: str = Field(
+        "Unknown", description="Telescope name (e.g., HERA, MWA)"
+    )
+    use_pyuvdata_telescope: bool = Field(
+        False, description="Load telescope from pyuvdata"
+    )
     use_pyuvdata_location: bool = Field(False, description="Use pyuvdata location")
-    use_pyuvdata_antennas: bool = Field(False, description="Use pyuvdata antenna positions")
-    use_pyuvdata_diameters: bool = Field(False, description="Use pyuvdata antenna diameters")
+    use_pyuvdata_antennas: bool = Field(
+        False, description="Use pyuvdata antenna positions"
+    )
+    use_pyuvdata_diameters: bool = Field(
+        False, description="Use pyuvdata antenna diameters"
+    )
 
 
 class AntennaLayoutConfig(BaseModel):
@@ -74,9 +82,9 @@ class AntennaLayoutConfig(BaseModel):
     antenna_positions_file: str | None = Field(
         None, description="Path to antenna positions file"
     )
-    antenna_file_format: Literal[
-        "rrivis", "casa", "measurement_set", "uvfits", "mwa", "pyuvdata"
-    ] | None = Field(None, description="Antenna file format")
+    antenna_file_format: (
+        Literal["rrivis", "casa", "measurement_set", "uvfits", "mwa", "pyuvdata"] | None
+    ) = Field(None, description="Antenna file format")
     all_antenna_type: str | None = Field(
         None,
         description="Default antenna type for all antennas",
@@ -96,9 +104,7 @@ class AntennaLayoutConfig(BaseModel):
     diameters: dict[str, float] = Field(
         default_factory=dict, description="Per-antenna diameter mapping"
     )
-    fixed_HPBW: float | None = Field(
-        None, description="Fixed HPBW override (radians)"
-    )
+    fixed_HPBW: float | None = Field(None, description="Fixed HPBW override (radians)")
 
 
 class FeedsConfig(BaseModel):
@@ -136,12 +142,16 @@ class BeamsConfig(BaseModel):
     use_different_beam_responses: bool = Field(
         False, description="Per-antenna beam responses"
     )
-    all_beam_response: Literal["gaussian", "airy", "cosine", "exponential"] | None = Field(
-        None, description="Default beam response pattern"
+    all_beam_response: Literal["gaussian", "airy", "cosine", "exponential"] | None = (
+        Field(None, description="Default beam response pattern")
     )
     beam_response_per_antenna: dict[str, str] = Field(default_factory=dict)
-    cosine_taper_exponent: float | None = Field(None, description="Cosine taper exponent")
-    exponential_taper_dB: float | None = Field(None, description="Exponential taper (dB)")
+    cosine_taper_exponent: float | None = Field(
+        None, description="Cosine taper exponent"
+    )
+    exponential_taper_dB: float | None = Field(
+        None, description="Exponential taper (dB)"
+    )
 
 
 class BaselineSelectionConfig(BaseModel):
@@ -177,8 +187,32 @@ class SyntheticSourcesConfig(BaseModel):
 
     use_test_sources: bool = Field(False, description="Use test sources")
     num_sources: int = Field(100, ge=1, description="Number of test sources")
-    flux_limit: float = Field(50.0, ge=0, description="Flux limit (Jy)")
-    nside: int = Field(32, ge=1, description="HEALPix nside")
+    flux_min: float | None = Field(None, ge=0, description="Minimum flux in Jy")
+    flux_max: float | None = Field(None, ge=0, description="Maximum flux in Jy")
+    dec_deg: float | None = Field(
+        None, description="Declination for all sources (degrees)"
+    )
+    spectral_index: float | None = Field(
+        None, description="Spectral index for all sources"
+    )
+
+
+class SyntheticSourcesHEALPixConfig(BaseModel):
+    """Synthetic/test sources HEALPix configuration."""
+
+    use_test_sources: bool = Field(
+        False, description="Use test sources in HEALPix mode"
+    )
+    num_sources: int = Field(100, ge=1, description="Number of test sources")
+    flux_min: float | None = Field(None, ge=0, description="Minimum flux in Jy")
+    flux_max: float | None = Field(None, ge=0, description="Maximum flux in Jy")
+    dec_deg: float | None = Field(
+        None, description="Declination for all sources (degrees)"
+    )
+    spectral_index: float | None = Field(
+        None, description="Spectral index for all sources"
+    )
+    nside: int = Field(64, ge=1, description="HEALPix NSIDE parameter")
 
 
 # Alias for backward compatibility
@@ -193,7 +227,9 @@ class GSMConfig(BaseModel):
     """
 
     use_gsm: bool = Field(False, description="Use GSM")
-    gsm_catalogue: str = Field("gsm2008", description="GSM catalogue (gsm2008, gsm2016, lfsm, haslam)")
+    gsm_catalogue: str = Field(
+        "gsm2008", description="GSM catalogue (gsm2008, gsm2016, lfsm, haslam)"
+    )
     flux_limit: float = Field(50.0, ge=0, description="Flux limit (Jy)")
     nside: int = Field(32, ge=1, description="HEALPix nside")
     include_cmb: bool = Field(False, description="Include CMB contribution (2.725 K)")
@@ -278,7 +314,9 @@ class LoTSSConfig(BaseModel):
     """LoTSS (144 MHz) catalog configuration."""
 
     use_lotss: bool = Field(False, description="Use LoTSS catalog")
-    lotss_release: Literal["dr1", "dr2"] = Field("dr2", description="LoTSS data release")
+    lotss_release: Literal["dr1", "dr2"] = Field(
+        "dr2", description="LoTSS data release"
+    )
     flux_limit: float = Field(0.001, ge=0, description="Flux limit in Jy")
 
 
@@ -308,10 +346,13 @@ class RACSConfig(BaseModel):
 
     use_racs: bool = Field(False, description="Use RACS catalog")
     racs_band: Literal["low", "mid", "high"] = Field(
-        "low", description="RACS band: low (887.5 MHz), mid (1367.5 MHz), high (1655.5 MHz)"
+        "low",
+        description="RACS band: low (887.5 MHz), mid (1367.5 MHz), high (1655.5 MHz)",
     )
     flux_limit: float = Field(1.0, ge=0, description="Flux limit in Jy")
-    max_rows: int = Field(1_000_000, ge=1, description="Maximum rows to retrieve via TAP")
+    max_rows: int = Field(
+        1_000_000, ge=1, description="Maximum rows to retrieve via TAP"
+    )
 
 
 class PySM3Config(BaseModel):
@@ -319,8 +360,7 @@ class PySM3Config(BaseModel):
 
     use_pysm3: bool = Field(False, description="Use PySM3 diffuse model")
     components: str | list[str] = Field(
-        "s1",
-        description="PySM3 preset string(s), e.g. 's1' or ['s1', 'd1', 'f1']"
+        "s1", description="PySM3 preset string(s), e.g. 's1' or ['s1', 'd1', 'f1']"
     )
     nside: int = Field(64, ge=1, description="HEALPix NSIDE resolution")
     # Frequencies are taken from the obs_frequency section of the config
@@ -337,14 +377,19 @@ class ULSAConfig(BaseModel):
 class PyRadioSkyConfig(BaseModel):
     """Local sky model file loader via pyradiosky."""
 
-    use_pyradiosky: bool = Field(False, description="Load sky model from local file via pyradiosky")
-    filename: str = Field("", description="Path to sky model file (SkyH5, VOTable, text, FHD)")
+    use_pyradiosky: bool = Field(
+        False, description="Load sky model from local file via pyradiosky"
+    )
+    filename: str = Field(
+        "", description="Path to sky model file (SkyH5, VOTable, text, FHD)"
+    )
     filetype: str | None = Field(
         None, description="File format (skyh5, votable, text, fhd). Inferred if None."
     )
     flux_limit: float = Field(0.0, ge=0, description="Minimum Stokes I flux in Jy")
     reference_frequency_hz: float | None = Field(
-        None, description="Reference frequency for Stokes I extraction (Hz). Uses first channel if None."
+        None,
+        description="Reference frequency for Stokes I extraction (Hz). Uses first channel if None.",
     )
 
 
@@ -353,7 +398,9 @@ class SkyModelConfig(BaseModel):
 
     # --- Existing models (unchanged) ---
     test_sources: SyntheticSourcesConfig = Field(default_factory=SyntheticSourcesConfig)
-    test_sources_healpix: SyntheticSourcesConfig = Field(default_factory=SyntheticSourcesConfig)
+    test_sources_healpix: SyntheticSourcesHEALPixConfig = Field(
+        default_factory=SyntheticSourcesHEALPixConfig
+    )
     gsm_healpix: GSMConfig = Field(default_factory=GSMConfig)
     gleam: GLEAMConfig = Field(default_factory=GLEAMConfig)
     gleam_healpix: GLEAMConfig = Field(default_factory=GLEAMConfig)
@@ -380,9 +427,7 @@ class SkyModelConfig(BaseModel):
 class ObsTimeConfig(BaseModel):
     """Observation time configuration."""
 
-    start_time: str | None = Field(
-        None, description="Start time (ISO format)"
-    )
+    start_time: str | None = Field(None, description="Start time (ISO format)")
     duration_seconds: float | None = Field(
         None, description="Total observation duration in seconds"
     )
@@ -394,15 +439,9 @@ class ObsTimeConfig(BaseModel):
 class ObsFrequencyConfig(BaseModel):
     """Observation frequency configuration."""
 
-    starting_frequency: float | None = Field(
-        None, description="Starting frequency"
-    )
-    frequency_interval: float | None = Field(
-        None, description="Frequency interval"
-    )
-    frequency_bandwidth: float | None = Field(
-        None, description="Frequency bandwidth"
-    )
+    starting_frequency: float | None = Field(None, description="Starting frequency")
+    frequency_interval: float | None = Field(None, description="Frequency interval")
+    frequency_bandwidth: float | None = Field(None, description="Frequency bandwidth")
     frequency_unit: Literal["Hz", "kHz", "MHz", "GHz"] = Field(
         "MHz", description="Frequency unit"
     )
@@ -426,17 +465,29 @@ class OutputConfig(BaseModel):
     )
     save_simulation_data: bool = Field(False, description="Save simulation data")
     overwrite_output: bool = Field(False, description="Overwrite existing output files")
-    skip_overwrite_confirmation: bool = Field(False, description="Skip the interactive confirmation prompt when overwrite_output is true")
-    prompt_for_output_suffix: bool = Field(False, description="When output folder already exists, ask user for a suffix to append and create a fresh folder instead of overwriting")
+    skip_overwrite_confirmation: bool = Field(
+        False,
+        description="Skip the interactive confirmation prompt when overwrite_output is true",
+    )
+    prompt_for_output_suffix: bool = Field(
+        False,
+        description="When output folder already exists, ask user for a suffix to append and create a fresh folder instead of overwriting",
+    )
     plot_results: bool = Field(False, description="Generate visualization plots")
-    open_plots_in_browser: bool = Field(False, description="Open plots in browser (set False to save only)")
-    plotting_backend: str = Field("bokeh", description="Plotting backend (bokeh/matplotlib)")
+    open_plots_in_browser: bool = Field(
+        False, description="Open plots in browser (set False to save only)"
+    )
+    plotting_backend: str = Field(
+        "bokeh", description="Plotting backend (bokeh/matplotlib)"
+    )
     plot_skymodel_every_hour: bool = Field(False, description="Plot sky model")
     save_log_data: bool = Field(False, description="Save log data")
     angle_unit: Literal["degrees", "radians", ""] = Field(
         "", description="Angle display unit"
     )
-    skymodel_frequency: float | None = Field(None, description="Sky model plot frequency")
+    skymodel_frequency: float | None = Field(
+        None, description="Sky model plot frequency"
+    )
 
 
 class SimulatorsConfig(BaseModel):
@@ -482,11 +533,10 @@ class VisibilityConfig(BaseModel):
 
     calculation_type: Literal["direct_sum", "spherical_harmonic"] = Field(
         "direct_sum",
-        description="Visibility calculation algorithm: 'direct_sum' (implemented) or 'spherical_harmonic' (future)"
+        description="Visibility calculation algorithm: 'direct_sum' (implemented) or 'spherical_harmonic' (future)",
     )
     sky_representation: Literal["point_sources", "healpix_map"] | None = Field(
-        None,
-        description="Sky model representation: 'point_sources' or 'healpix_map'"
+        None, description="Sky model representation: 'point_sources' or 'healpix_map'"
     )
 
 
@@ -577,15 +627,15 @@ class PrecisionConfigSchema(BaseModel):
     )
     coordinates: CoordinatePrecisionConfig = Field(
         default_factory=CoordinatePrecisionConfig,
-        description="Coordinate precision settings"
+        description="Coordinate precision settings",
     )
     jones: JonesPrecisionConfig = Field(
         default_factory=JonesPrecisionConfig,
-        description="Jones matrix precision settings"
+        description="Jones matrix precision settings",
     )
     sky_model: SkyModelPrecisionConfig = Field(
         default_factory=SkyModelPrecisionConfig,
-        description="Sky model data precision settings"
+        description="Sky model data precision settings",
     )
     accumulation: Literal["float32", "float64", "float128"] = Field(
         "float64", description="Visibility accumulation precision"
@@ -684,13 +734,11 @@ class RRIvisConfig(BaseModel):
     output: OutputConfig = Field(default_factory=OutputConfig)
     simulators: SimulatorsConfig = Field(default_factory=SimulatorsConfig)
     visibility: VisibilityConfig = Field(
-        default_factory=VisibilityConfig,
-        description="Visibility calculation settings"
+        default_factory=VisibilityConfig, description="Visibility calculation settings"
     )
     compute: ComputeConfig = Field(default_factory=ComputeConfig)
     precision: PrecisionConfigSchema | None = Field(
-        None,
-        description="Precision configuration for numerical computations"
+        None, description="Precision configuration for numerical computations"
     )
 
     model_config = {
@@ -760,12 +808,13 @@ class RRIvisConfig(BaseModel):
         data = cls._preprocess_yaml_data(data, yaml_dir)
 
         from pydantic import ValidationError
+
         try:
             return cls(**data)
         except ValidationError:
             raise  # Let CLI handle structured field errors
         except Exception as e:
-            raise ValueError(f"Invalid configuration in {yaml_path}:\n{e}")
+            raise ValueError(f"Invalid configuration in {yaml_path}:\n{e}") from e
 
     def to_yaml(self, output_path: str | Path) -> None:
         """
@@ -839,12 +888,12 @@ class RRIvisConfig(BaseModel):
         # --- Observation time ---
         if ot.start_time is None:
             errors.append(
-                "obs_time.start_time: required but not set. "
-                "E.g. '2025-01-01T00:00:00'."
+                "obs_time.start_time: required but not set. E.g. '2025-01-01T00:00:00'."
             )
         else:
             try:
                 from astropy.time import Time as _ATime
+
                 _ATime(ot.start_time)
             except Exception:
                 errors.append(
@@ -862,8 +911,7 @@ class RRIvisConfig(BaseModel):
             )
         if ot.time_step_seconds is None:
             errors.append(
-                "obs_time.time_step_seconds: required but not set. "
-                "E.g. 60.0 (seconds)."
+                "obs_time.time_step_seconds: required but not set. E.g. 60.0 (seconds)."
             )
         elif ot.time_step_seconds <= 0:
             errors.append(
@@ -876,9 +924,7 @@ class RRIvisConfig(BaseModel):
             and ot.time_step_seconds > 0
             and ot.time_step_seconds > ot.duration_seconds
         ):
-            errors.append(
-                "obs_time.time_step_seconds must be <= duration_seconds."
-            )
+            errors.append("obs_time.time_step_seconds must be <= duration_seconds.")
 
         # --- Observation frequency ---
         if of.starting_frequency is None:
@@ -998,8 +1044,8 @@ class RRIvisConfig(BaseModel):
         telescope = self.telescope.telescope_name.replace(" ", "_")
         freq_start = int(self.obs_frequency.starting_frequency)
         freq_end = int(
-            self.obs_frequency.starting_frequency +
-            self.obs_frequency.frequency_bandwidth
+            self.obs_frequency.starting_frequency
+            + self.obs_frequency.frequency_bandwidth
         )
         freq_unit = self.obs_frequency.frequency_unit
         n_channels = self.obs_frequency.n_channels

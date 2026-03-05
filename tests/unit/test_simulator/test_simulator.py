@@ -9,10 +9,10 @@ Tests cover:
 - High-level Simulator API
 """
 
-import pytest
+from unittest.mock import Mock
+
 import numpy as np
-from typing import Dict, Any, Tuple, List
-from unittest.mock import Mock, patch, MagicMock
+import pytest
 
 
 class TestVisibilitySimulatorABC:
@@ -84,7 +84,7 @@ class TestVisibilitySimulatorABC:
             def description(self) -> str:
                 return "Test simulator"
 
-            def calculate_visibilities(self, *args, **kwargs) -> Dict:
+            def calculate_visibilities(self, *args, **kwargs) -> dict:
                 return {}
 
         sim = TestSimulator()
@@ -104,7 +104,7 @@ class TestVisibilitySimulatorABC:
             def description(self) -> str:
                 return "test"
 
-            def calculate_visibilities(self, *args, **kwargs) -> Dict:
+            def calculate_visibilities(self, *args, **kwargs) -> dict:
                 return {}
 
         sim = TestSimulator()
@@ -123,7 +123,7 @@ class TestVisibilitySimulatorABC:
             def description(self) -> str:
                 return "test"
 
-            def calculate_visibilities(self, *args, **kwargs) -> Dict:
+            def calculate_visibilities(self, *args, **kwargs) -> dict:
                 return {}
 
         sim = TestSimulator()
@@ -142,7 +142,7 @@ class TestVisibilitySimulatorABC:
             def description(self) -> str:
                 return "test"
 
-            def calculate_visibilities(self, *args, **kwargs) -> Dict:
+            def calculate_visibilities(self, *args, **kwargs) -> dict:
                 return {}
 
         sim = TestSimulator()
@@ -166,7 +166,7 @@ class TestVisibilitySimulatorValidation:
             def description(self) -> str:
                 return "test"
 
-            def calculate_visibilities(self, *args, **kwargs) -> Dict:
+            def calculate_visibilities(self, *args, **kwargs) -> dict:
                 return {}
 
         return TestSimulator()
@@ -255,7 +255,7 @@ class TestVisibilitySimulatorMemoryEstimate:
             def description(self) -> str:
                 return "test"
 
-            def calculate_visibilities(self, *args, **kwargs) -> Dict:
+            def calculate_visibilities(self, *args, **kwargs) -> dict:
                 return {}
 
         return TestSimulator()
@@ -624,7 +624,6 @@ output:
     @pytest.mark.skip(reason="Integration test - requires full setup")
     def test_simulator_full_run(self, sample_config):
         """Test full simulation run with sample config."""
-        from rrivis.api.simulator import Simulator
 
         # This would require actual antenna data, so we skip it
         # In a real test, we'd need to set up the full environment

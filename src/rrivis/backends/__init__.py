@@ -31,7 +31,7 @@ With precision control:
     >>> backend = get_backend("numpy", precision=PrecisionConfig.precise())
 """
 
-from typing import Dict, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 from rrivis.backends.base import ArrayBackend, BackendNotAvailableError
 from rrivis.backends.numpy_backend import NumPyBackend
@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 # Try to import optional backends
 try:
     from rrivis.backends.jax_backend import JAXBackend, is_jax_available
+
     JAX_AVAILABLE = is_jax_available()
 except ImportError:
     JAXBackend = None
@@ -50,13 +51,15 @@ except ImportError:
     def is_jax_available():
         return False
 
+
 try:
     from rrivis.backends.numba_backend import (
         NumbaBackend,
-        is_numba_available,
         is_cuda_available,
         is_dask_available,
+        is_numba_available,
     )
+
     NUMBA_AVAILABLE = is_numba_available()
 except ImportError:
     NumbaBackend = None
@@ -73,9 +76,7 @@ except ImportError:
 
 
 def get_backend(
-    name: str = "auto",
-    precision: Optional[Union["PrecisionConfig", str]] = None,
-    **kwargs
+    name: str = "auto", precision: Union["PrecisionConfig", str] | None = None, **kwargs
 ) -> ArrayBackend:
     """Get computation backend.
 
@@ -143,6 +144,7 @@ def get_backend(
         if JAX_AVAILABLE:
             try:
                 import jax
+
                 # Check for GPU or TPU
                 if jax.devices("tpu"):
                     return JAXBackend(device="tpu", precision=precision)
@@ -222,12 +224,10 @@ def get_backend(
 
     else:
         available = ["auto", "numpy", "cpu", "numba", "jax", "gpu", "tpu"]
-        raise ValueError(
-            f"Unknown backend '{name}'. Available: {available}"
-        )
+        raise ValueError(f"Unknown backend '{name}'. Available: {available}")
 
 
-def list_backends() -> Dict[str, bool]:
+def list_backends() -> dict[str, bool]:
     """List available backends.
 
     Returns:
@@ -250,6 +250,7 @@ def list_backends() -> Dict[str, bool]:
     if JAX_AVAILABLE:
         try:
             import jax
+
             backends["jax_gpu"] = len(jax.devices("gpu")) > 0
             backends["jax_tpu"] = len(jax.devices("tpu")) > 0
         except Exception:
@@ -262,7 +263,7 @@ def list_backends() -> Dict[str, bool]:
     return backends
 
 
-def get_backend_info() -> Dict[str, Dict]:
+def get_backend_info() -> dict[str, dict]:
     """Get detailed information about all available backends.
 
     Returns:
@@ -270,7 +271,7 @@ def get_backend_info() -> Dict[str, Dict]:
 
     Examples:
         >>> info = get_backend_info()
-        >>> print(info['numpy']['device'])
+        >>> print(info["numpy"]["device"])
         'CPU'
     """
     info = {}

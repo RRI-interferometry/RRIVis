@@ -23,12 +23,10 @@ References:
 - Carozzi & Woan 2009: Generalized measurement equation
 """
 
+import os
+
 import numpy as np
 from pyuvdata import UVBeam
-from astropy.coordinates import SkyCoord, AltAz, EarthLocation
-from astropy.time import Time
-import astropy.units as u
-import os
 
 
 def astropy_az_to_uvbeam_az(astropy_az_rad):
@@ -60,7 +58,7 @@ def astropy_az_to_uvbeam_az(astropy_az_rad):
     1.5707963...  # π/2
 
     >>> # East in Astropy (90°) → East in UVBeam (0°)
-    >>> astropy_az_to_uvbeam_az(np.pi/2)
+    >>> astropy_az_to_uvbeam_az(np.pi / 2)
     0.0
 
     >>> # South in Astropy (180°) → West in UVBeam (270°)
@@ -160,10 +158,12 @@ class BeamFITSHandler:
 
         self.logger.info(f"Loading beam from: {self.beam_file_path}")
         self.logger.info(
-            f"  Frequency range: {freq_min/1e6:.1f} - {freq_max/1e6:.1f} MHz "
-            f"(buffer: {freq_buffer/1e6:.1f} MHz)"
+            f"  Frequency range: {freq_min / 1e6:.1f} - {freq_max / 1e6:.1f} MHz "
+            f"(buffer: {freq_buffer / 1e6:.1f} MHz)"
         )
-        self.logger.info(f"  Zenith angle limit: {za_max_deg:.1f}° (DEGREES for UVBeam)")
+        self.logger.info(
+            f"  Zenith angle limit: {za_max_deg:.1f}° (DEGREES for UVBeam)"
+        )
 
         try:
             # CRITICAL: za_range expects DEGREES, not radians!
@@ -176,7 +176,9 @@ class BeamFITSHandler:
 
             self.logger.info("  Loaded successfully")
             self.logger.info(f"  Beam type: {self.beam.beam_type}")
-            self.logger.info(f"  Coordinate system: {self.beam.pixel_coordinate_system}")
+            self.logger.info(
+                f"  Coordinate system: {self.beam.pixel_coordinate_system}"
+            )
             self.logger.info(f"  Frequencies: {self.beam.Nfreqs}")
             self.logger.info(f"  Basis vectors: {self.beam.Naxes_vec}")
 
@@ -219,7 +221,9 @@ class BeamFITSHandler:
                 "  TODO: Implement full basis rotation for arbitrary orientations"
             )
 
-    def get_jones_matrix(self, alt_rad, az_rad, freq_hz, location=None, time=None, check_domain=True):
+    def get_jones_matrix(
+        self, alt_rad, az_rad, freq_hz, location=None, time=None, check_domain=True
+    ):
         """
         Get 2×2 Jones matrix at given position(s).
 
@@ -260,16 +264,14 @@ class BeamFITSHandler:
 
         Examples
         --------
-        >>> handler = BeamFITSHandler('beam.beamfits', config, logger)
+        >>> handler = BeamFITSHandler("beam.beamfits", config, logger)
         >>> # Single source
-        >>> jones = handler.get_jones_matrix(
-        ...     alt_rad=0.5, az_rad=0.0, freq_hz=150e6
-        ... )
+        >>> jones = handler.get_jones_matrix(alt_rad=0.5, az_rad=0.0, freq_hz=150e6)
         >>> jones.shape  # → (2, 2)
 
         >>> # Multiple sources (vectorized)
         >>> alts = np.array([0.3, 0.5, 0.7])
-        >>> azs = np.array([0.0, np.pi/4, np.pi/2])
+        >>> azs = np.array([0.0, np.pi / 4, np.pi / 2])
         >>> jones_all = handler.get_jones_matrix(alts, azs, 150e6)
         >>> jones_all.shape  # → (3, 2, 2)
         """
@@ -280,15 +282,10 @@ class BeamFITSHandler:
         # Convert alt/az to beam coordinates
         if self.beam.pixel_coordinate_system == "az_za":
             za_rad = np.pi / 2 - alt_rad
-            axis1_array = az_uvbeam  # Use converted azimuth
-            axis2_array = za_rad
 
         elif self.beam.pixel_coordinate_system == "healpix":
             theta = np.pi / 2 - alt_rad
-            phi = az_uvbeam  # Use converted azimuth
             # For HEALPix, interp uses theta/phi directly
-            axis1_array = az_uvbeam
-            axis2_array = theta
 
         # Interpolate beam
         # UVBeam.interp returns:
@@ -296,13 +293,15 @@ class BeamFITSHandler:
         # interp_basis_vector: basis vector info (not used in Phase 1)
 
         try:
-            interp_kwargs = dict(
-                az_array=np.atleast_1d(az_uvbeam),
-                za_array=np.atleast_1d(za_rad if self.beam.pixel_coordinate_system == "az_za" else theta),
-                freq_array=np.atleast_1d(freq_hz),
-                freq_interp_kind=self.freq_interp_kind,
-                reuse_spline=True,  # Performance optimization
-            )
+            interp_kwargs = {
+                "az_array": np.atleast_1d(az_uvbeam),
+                "za_array": np.atleast_1d(
+                    za_rad if self.beam.pixel_coordinate_system == "az_za" else theta
+                ),
+                "freq_array": np.atleast_1d(freq_hz),
+                "freq_interp_kind": self.freq_interp_kind,
+                "reuse_spline": True,  # Performance optimization
+            }
             if not check_domain:
                 interp_kwargs["check_azza_domain"] = False
             interp_data, interp_basis_vector = self.beam.interp(**interp_kwargs)
@@ -473,9 +472,7 @@ class BeamManager:
         beam_files = self.config["beams"].get("beam_files", {})
 
         if not beam_files:
-            raise ValueError(
-                "Beam IDs in layout but no beam_files mapping in config!"
-            )
+            raise ValueError("Beam IDs in layout but no beam_files mapping in config!")
 
         # Get unique beam IDs from antenna data
         beam_ids = set(self.antenna_data["beam_ids"])
@@ -495,7 +492,9 @@ class BeamManager:
 
         # Map antennas to beams
         for ant_num, beam_id in zip(
-            self.antenna_data["antenna_numbers"], self.antenna_data["beam_ids"]
+            self.antenna_data["antenna_numbers"],
+            self.antenna_data["beam_ids"],
+            strict=False,
         ):
             self.antenna_to_beam[ant_num] = beam_id
 
@@ -511,9 +510,7 @@ class BeamManager:
 
         for beam_id in unique_beam_ids:
             if beam_id not in beam_files:
-                raise ValueError(
-                    f"Beam ID {beam_id} referenced but not in beam_files!"
-                )
+                raise ValueError(f"Beam ID {beam_id} referenced but not in beam_files!")
 
             beam_path = beam_files[beam_id]
             self.logger.info(f"Loading beam {beam_id}: {beam_path}")
@@ -533,7 +530,13 @@ class BeamManager:
         self.logger.info(f"Loaded {len(self.beam_handlers)} unique beams")
 
     def get_jones_matrix(
-        self, antenna_number, alt_rad, az_rad, freq_hz, location, time,
+        self,
+        antenna_number,
+        alt_rad,
+        az_rad,
+        freq_hz,
+        location,
+        time,
         check_domain=True,
     ):
         """
@@ -571,7 +574,11 @@ class BeamManager:
 
         # Get Jones matrix from appropriate beam
         jones = self.beam_handlers[beam_id].get_jones_matrix(
-            alt_rad, az_rad, freq_hz, location, time,
+            alt_rad,
+            az_rad,
+            freq_hz,
+            location,
+            time,
             check_domain=check_domain,
         )
 

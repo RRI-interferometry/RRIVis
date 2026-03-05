@@ -10,7 +10,6 @@ from pygdsm import (
     LowFrequencySkyModel,
 )
 
-
 # =============================================================================
 # Diffuse sky model metadata (pygdsm)
 # =============================================================================
@@ -65,7 +64,11 @@ DIFFUSE_MODELS = {
         "class": HaslamSkyModel,
         "description": "Haslam 408 MHz map with spectral scaling",
         "freq_range": (10e6, 100e9),
-        "init_kwargs": {"freq_unit": "Hz", "spectral_index": -2.6, "include_cmb": False},
+        "init_kwargs": {
+            "freq_unit": "Hz",
+            "spectral_index": -2.6,
+            "include_cmb": False,
+        },
     },
 }
 

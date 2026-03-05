@@ -6,21 +6,20 @@ This module provides functions for writing simulation results to various formats
 - YAML for configuration files
 """
 
-import os
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Any
 
-import numpy as np
 import h5py
+import numpy as np
 import yaml
 
 
 def save_visibilities_hdf5(
-    output_path: Union[str, Path],
-    visibilities: Dict[tuple, list],
+    output_path: str | Path,
+    visibilities: dict[tuple, list],
     frequencies: np.ndarray,
     time_points_mjd: np.ndarray,
-    metadata: Optional[Dict[str, Any]] = None,
+    metadata: dict[str, Any] | None = None,
 ) -> str:
     """Save visibility data to HDF5 format.
 
@@ -67,12 +66,14 @@ def save_visibilities_hdf5(
             for key, value in metadata.items():
                 if value is not None:
                     # Convert Pydantic models/dicts to JSON-serializable format
-                    if hasattr(value, 'model_dump'):
+                    if hasattr(value, "model_dump"):
                         value = value.model_dump()
                     elif isinstance(value, dict):
                         # Recursively convert nested values
-                        value = {k: (v.model_dump() if hasattr(v, 'model_dump') else v)
-                                for k, v in value.items()}
+                        value = {
+                            k: (v.model_dump() if hasattr(v, "model_dump") else v)
+                            for k, v in value.items()
+                        }
                     # Try to save as string representation for complex types
                     try:
                         if isinstance(value, (str, int, float, bool)):
@@ -88,8 +89,8 @@ def save_visibilities_hdf5(
 
 
 def save_config_yaml(
-    config: Dict[str, Any],
-    output_path: Union[str, Path],
+    config: dict[str, Any],
+    output_path: str | Path,
 ) -> str:
     """Save configuration to YAML format with proper formatting.
 
@@ -117,14 +118,16 @@ def save_config_yaml(
             super().write_line_break(data)
 
     with open(output_path, "w") as f:
-        yaml.dump(config, f, Dumper=FormattedDumper, default_flow_style=False, sort_keys=True)
+        yaml.dump(
+            config, f, Dumper=FormattedDumper, default_flow_style=False, sort_keys=True
+        )
 
     return str(output_path)
 
 
 def load_visibilities_hdf5(
-    input_path: Union[str, Path],
-) -> Dict[str, Any]:
+    input_path: str | Path,
+) -> dict[str, Any]:
     """Load visibility data from HDF5 format.
 
     Parameters
@@ -144,10 +147,10 @@ def load_visibilities_hdf5(
     input_path = Path(input_path)
 
     result = {
-        'visibilities': {},
-        'frequencies': None,
-        'time_points_mjd': None,
-        'metadata': {},
+        "visibilities": {},
+        "frequencies": None,
+        "time_points_mjd": None,
+        "metadata": {},
     }
 
     with h5py.File(input_path, "r") as h5file:
@@ -163,16 +166,16 @@ def load_visibilities_hdf5(
                     parts = baseline_str.split("_")
                     baseline = (int(parts[0]), int(parts[1]))
 
-                result['visibilities'][baseline] = h5file[key]["complex_visibility"][:]
+                result["visibilities"][baseline] = h5file[key]["complex_visibility"][:]
 
         # Load frequencies and time points
         if "frequencies" in h5file:
-            result['frequencies'] = h5file["frequencies"][:]
+            result["frequencies"] = h5file["frequencies"][:]
         if "time_points_mjd" in h5file:
-            result['time_points_mjd'] = h5file["time_points_mjd"][:]
+            result["time_points_mjd"] = h5file["time_points_mjd"][:]
 
         # Load metadata attributes
         for attr_name, attr_value in h5file.attrs.items():
-            result['metadata'][attr_name] = attr_value
+            result["metadata"][attr_name] = attr_value
 
     return result

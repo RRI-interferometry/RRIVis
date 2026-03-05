@@ -46,7 +46,7 @@ References:
 import numpy as np
 
 
-def stokes_to_coherency(I, Q=0, U=0, V=0):
+def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0):
     """
     Convert Stokes parameters to 2×2 coherency matrix.
 
@@ -60,17 +60,14 @@ def stokes_to_coherency(I, Q=0, U=0, V=0):
 
     Parameters
     ----------
-    I : float or array
+    stokes_I : float or array
         Total intensity (Stokes I) in Jy. Required, must be ≥ 0.
-    Q : float or array, optional
+    stokes_Q : float or array, optional
         Linear polarization (Stokes Q) in Jy. Default 0 (unpolarized).
-        Range: -I to +I
-    U : float or array, optional
+    stokes_U : float or array, optional
         Linear polarization at 45° (Stokes U) in Jy. Default 0.
-        Range: -I to +I
-    V : float or array, optional
+    stokes_V : float or array, optional
         Circular polarization (Stokes V) in Jy. Default 0.
-        Range: -I to +I (positive = left-circular for Africanus)
         Note: Sign convention matches Africanus, opposite of Smirnov 2011.
 
     Returns
@@ -89,42 +86,44 @@ def stokes_to_coherency(I, Q=0, U=0, V=0):
     Broadcasting:
     - All inputs broadcast to common shape
     - Output adds (2, 2) dimensions at end
-    - Example: I.shape=(100,) → C.shape=(100, 2, 2)
+    - Example: stokes_I.shape=(100,) → C.shape=(100, 2, 2)
 
     Examples
     --------
     >>> # Unpolarized 1 Jy source
-    >>> C = stokes_to_coherency(I=1.0)
+    >>> C = stokes_to_coherency(stokes_I=1.0)
     >>> # Check energy conservation
-    >>> np.allclose(C[0,0] + C[1,1], 1.0)  # → True
+    >>> np.allclose(C[0, 0] + C[1, 1], 1.0)  # → True
 
     >>> # Fully Q-polarized
-    >>> C = stokes_to_coherency(I=10.0, Q=10.0)  # All in X feed
-    >>> C[0,0], C[1,1]  # → (10.0, 0.0)
+    >>> C = stokes_to_coherency(stokes_I=10.0, stokes_Q=10.0)  # All in X feed
+    >>> C[0, 0], C[1, 1]  # → (10.0, 0.0)
 
     >>> # Circular polarization
-    >>> C = stokes_to_coherency(I=5.0, V=2.0)
-    >>> C[0,1].imag  # → -1.0 (Africanus: U-iV → -iV)
+    >>> C = stokes_to_coherency(stokes_I=5.0, stokes_V=2.0)
+    >>> C[0, 1].imag  # → -1.0 (Africanus: U-iV → -iV)
     """
     # Convert to arrays for consistent handling
-    I = np.asarray(I, dtype=float)
-    Q = np.asarray(Q, dtype=float)
-    U = np.asarray(U, dtype=float)
-    V = np.asarray(V, dtype=float)
+    stokes_I = np.asarray(stokes_I, dtype=float)
+    stokes_Q = np.asarray(stokes_Q, dtype=float)
+    stokes_U = np.asarray(stokes_U, dtype=float)
+    stokes_V = np.asarray(stokes_V, dtype=float)
 
     # Broadcast to common shape
-    I, Q, U, V = np.broadcast_arrays(I, Q, U, V)
+    stokes_I, stokes_Q, stokes_U, stokes_V = np.broadcast_arrays(
+        stokes_I, stokes_Q, stokes_U, stokes_V
+    )
 
     # Initialize coherency matrix
     # Shape: (..., 2, 2) for array inputs, (2, 2) for scalars
-    shape = I.shape + (2, 2)
+    shape = stokes_I.shape + (2, 2)
     coherency = np.zeros(shape, dtype=complex)
 
     # Fill coherency matrix with Africanus/half-power convention
-    coherency[..., 0, 0] = I + Q  # XX: (I+Q) before normalization
-    coherency[..., 0, 1] = U - 1j * V  # XY: U - iV (Africanus)
-    coherency[..., 1, 0] = U + 1j * V  # YX: U + iV (conjugate)
-    coherency[..., 1, 1] = I - Q  # YY: (I-Q) before normalization
+    coherency[..., 0, 0] = stokes_I + stokes_Q  # XX: (I+Q) before normalization
+    coherency[..., 0, 1] = stokes_U - 1j * stokes_V  # XY: U - iV (Africanus)
+    coherency[..., 1, 0] = stokes_U + 1j * stokes_V  # YX: U + iV (conjugate)
+    coherency[..., 1, 1] = stokes_I - stokes_Q  # YY: (I-Q) before normalization
 
     # Normalize: Divide by 2 for density matrix / half-power convention
     # CRITICAL: This ensures Tr(C) = I, not 2I (energy conservation)
@@ -177,7 +176,7 @@ def apply_jones_matrices(jones_i, coherency, jones_j):
     Best practice: Explicitly reshape/broadcast before calling:
     >>> # Vectorize over sources
     >>> jones_i_all = jones_i[..., None, :, :]  # (Ntime, 1, 2, 2)
-    >>> coherency_all = coherency[None, ...]    # (1, Nsources, 2, 2)
+    >>> coherency_all = coherency[None, ...]  # (1, Nsources, 2, 2)
     >>> # Now broadcasts to (Ntime, Nsources, 2, 2)
 
     Notes
@@ -189,16 +188,16 @@ def apply_jones_matrices(jones_i, coherency, jones_j):
     Examples
     --------
     >>> # Single source, single baseline
-    >>> jones_i = np.array([[1.0+0j, 0.05], [0.03, 0.95]])
+    >>> jones_i = np.array([[1.0 + 0j, 0.05], [0.03, 0.95]])
     >>> jones_j = np.array([[0.98, 0.02], [0.01, 0.99]])
-    >>> C = stokes_to_coherency(I=10.0)
+    >>> C = stokes_to_coherency(stokes_I=10.0)
     >>> vis = apply_jones_matrices(jones_i, C, jones_j)
     >>> vis.shape  # → (2, 2)
 
     >>> # Multiple sources (vectorized)
     >>> Nsrc = 100
     >>> jones_i_all = np.tile(jones_i, (Nsrc, 1, 1))  # (100, 2, 2)
-    >>> C_all = stokes_to_coherency(I=np.ones(Nsrc))  # (100, 2, 2)
+    >>> C_all = stokes_to_coherency(stokes_I=np.ones(Nsrc))  # (100, 2, 2)
     >>> jones_j_all = np.tile(jones_j, (Nsrc, 1, 1))
     >>> vis_all = apply_jones_matrices(jones_i_all, C_all, jones_j_all)
     >>> vis_all.shape  # → (100, 2, 2)
@@ -256,21 +255,21 @@ def visibility_to_correlations(vis_matrix):
     Examples
     --------
     >>> # Perfect 10 Jy unpolarized source, ideal instrument
-    >>> C = stokes_to_coherency(I=10.0)
+    >>> C = stokes_to_coherency(stokes_I=10.0)
     >>> J = np.eye(2)  # Ideal Jones matrix
     >>> vis = apply_jones_matrices(J, C, J)
     >>> corr = visibility_to_correlations(vis)
-    >>> corr['XX']  # → 5.0 (half the flux)
-    >>> corr['YY']  # → 5.0 (other half)
-    >>> corr['I']   # → 10.0 (total intensity recovered!)
+    >>> corr["XX"]  # → 5.0 (half the flux)
+    >>> corr["YY"]  # → 5.0 (other half)
+    >>> corr["I"]  # → 10.0 (total intensity recovered!)
 
     >>> # Fully Q-polarized
-    >>> C = stokes_to_coherency(I=10.0, Q=10.0)
+    >>> C = stokes_to_coherency(stokes_I=10.0, stokes_Q=10.0)
     >>> vis = apply_jones_matrices(J, C, J)
     >>> corr = visibility_to_correlations(vis)
-    >>> corr['XX']  # → 10.0 (all in X)
-    >>> corr['YY']  # → 0.0 (none in Y)
-    >>> corr['I']   # → 10.0 ✓
+    >>> corr["XX"]  # → 10.0 (all in X)
+    >>> corr["YY"]  # → 0.0 (none in Y)
+    >>> corr["I"]  # → 10.0 ✓
     """
     # Extract elements from visibility matrix
     correlations = {
@@ -312,7 +311,7 @@ def stokes_I_only_visibility(jones_i, jones_j, intensity):
     due to instrumental polarization leakage (off-diagonal Jones terms).
 
     This is equivalent to:
-    >>> C = stokes_to_coherency(I=intensity, Q=0, U=0, V=0)
+    >>> C = stokes_to_coherency(stokes_I=intensity, stokes_Q=0, stokes_U=0, stokes_V=0)
     >>> vis = apply_jones_matrices(jones_i, C, jones_j)
 
     Examples
@@ -320,7 +319,7 @@ def stokes_I_only_visibility(jones_i, jones_j, intensity):
     >>> J_i = np.array([[0.95, 0.05], [0.02, 0.98]])  # Leaky beam
     >>> J_j = np.eye(2)  # Ideal
     >>> vis = stokes_I_only_visibility(J_i, J_j, intensity=10.0)
-    >>> vis[0,1]  # Non-zero! Leakage creates cross-pol
+    >>> vis[0, 1]  # Non-zero! Leakage creates cross-pol
     """
     jones_j_H = np.conj(np.swapaxes(jones_j, -2, -1))
     visibility = (intensity / 2.0) * (jones_i @ jones_j_H)
@@ -341,15 +340,17 @@ def coherency_to_stokes(coherency):
 
     Returns
     -------
-    I, Q, U, V : float or array
+    stokes_I, stokes_Q, stokes_U, stokes_V : float or array
         Stokes parameters in Jy
 
     Notes
     -----
     Round-trip property (up to numerical precision):
-    >>> C = stokes_to_coherency(I, Q, U, V)
+    >>> C = stokes_to_coherency(stokes_I, stokes_Q, stokes_U, stokes_V)
     >>> I2, Q2, U2, V2 = coherency_to_stokes(C)
-    >>> np.allclose([I,Q,U,V], [I2,Q2,U2,V2])  # → True
+    >>> np.allclose(
+    ...     [stokes_I, stokes_Q, stokes_U, stokes_V], [I2, Q2, U2, V2]
+    ... )  # → True
 
     With half-power convention C = [[I+Q, U-iV], [U+iV, I-Q]] / 2:
     - I: C[0,0] + C[1,1] = (I+Q)/2 + (I-Q)/2 = I (no factor needed!)
@@ -362,28 +363,28 @@ def coherency_to_stokes(coherency):
 
     Examples
     --------
-    >>> I, Q, U, V = 10.0, 2.0, -1.0, 0.5
-    >>> C = stokes_to_coherency(I, Q, U, V)
+    >>> sI, sQ, sU, sV = 10.0, 2.0, -1.0, 0.5
+    >>> C = stokes_to_coherency(sI, sQ, sU, sV)
     >>> I2, Q2, U2, V2 = coherency_to_stokes(C)
-    >>> np.allclose([I, Q, U, V], [I2, Q2, U2, V2])
+    >>> np.allclose([sI, sQ, sU, sV], [I2, Q2, U2, V2])
     True
     """
     # Key insight: The /2 in coherency causes cancellation when adding/subtracting diagonals
     # Sum of halved parts = whole (no factor of 2 needed for I, Q, U)
 
-    # I = Tr(C) = (I+Q)/2 + (I-Q)/2 = I
-    I = coherency[..., 0, 0].real + coherency[..., 1, 1].real
+    # stokes_I = Tr(C) = (I+Q)/2 + (I-Q)/2 = I
+    stokes_I = coherency[..., 0, 0].real + coherency[..., 1, 1].real
 
-    # Q = (I+Q)/2 - (I-Q)/2 = Q
-    Q = coherency[..., 0, 0].real - coherency[..., 1, 1].real
+    # stokes_Q = (I+Q)/2 - (I-Q)/2 = Q
+    stokes_Q = coherency[..., 0, 0].real - coherency[..., 1, 1].real
 
-    # U = (U-iV)/2 + (U+iV)/2 = U (taking real part)
-    U = coherency[..., 0, 1].real + coherency[..., 1, 0].real
+    # stokes_U = (U-iV)/2 + (U+iV)/2 = U (taking real part)
+    stokes_U = coherency[..., 0, 1].real + coherency[..., 1, 0].real
 
-    # V: Im(C[1,0]) = Im((U+iV)/2) = V/2, so multiply by 2
-    V = 2 * coherency[..., 1, 0].imag
+    # stokes_V: Im(C[1,0]) = Im((U+iV)/2) = V/2, so multiply by 2
+    stokes_V = 2 * coherency[..., 1, 0].imag
 
-    return I, Q, U, V
+    return stokes_I, stokes_Q, stokes_U, stokes_V
 
 
 def jones_matrix_power(jones):
@@ -412,7 +413,7 @@ def jones_matrix_power(jones):
 
     Examples
     --------
-    >>> J = np.array([[0.9+0.1j, 0.05], [0.03, 0.95-0.05j]])
+    >>> J = np.array([[0.9 + 0.1j, 0.05], [0.03, 0.95 - 0.05j]])
     >>> px, py = jones_matrix_power(J)
     >>> px  # Power in X: |0.9+0.1j|² + |0.05|² ≈ 0.8225
     """

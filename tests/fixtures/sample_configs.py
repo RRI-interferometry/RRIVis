@@ -6,11 +6,12 @@ These fixtures can be used to generate test configuration files.
 """
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
+
 import yaml
 
 
-def get_minimal_config() -> Dict[str, Any]:
+def get_minimal_config() -> dict[str, Any]:
     """
     Minimal valid configuration for basic tests.
 
@@ -55,7 +56,7 @@ def get_minimal_config() -> Dict[str, Any]:
     }
 
 
-def get_full_config() -> Dict[str, Any]:
+def get_full_config() -> dict[str, Any]:
     """
     Full configuration with all options specified.
 
@@ -127,7 +128,7 @@ def get_full_config() -> Dict[str, Any]:
     }
 
 
-def get_jones_enabled_config() -> Dict[str, Any]:
+def get_jones_enabled_config() -> dict[str, Any]:
     """
     Configuration with Jones matrix effects enabled.
 
@@ -151,7 +152,7 @@ def get_jones_enabled_config() -> Dict[str, Any]:
     return config
 
 
-def get_gleam_config() -> Dict[str, Any]:
+def get_gleam_config() -> dict[str, Any]:
     """
     Configuration for GLEAM catalog sky model.
 
@@ -173,7 +174,7 @@ def get_gleam_config() -> Dict[str, Any]:
     return config
 
 
-def get_gsm_config() -> Dict[str, Any]:
+def get_gsm_config() -> dict[str, Any]:
     """
     Configuration for Global Sky Model (GSM).
 
@@ -195,7 +196,7 @@ def get_gsm_config() -> Dict[str, Any]:
     return config
 
 
-def get_gpu_config() -> Dict[str, Any]:
+def get_gpu_config() -> dict[str, Any]:
     """
     Configuration for GPU-accelerated computation.
 
@@ -213,7 +214,7 @@ def get_gpu_config() -> Dict[str, Any]:
     return config
 
 
-def get_numba_config() -> Dict[str, Any]:
+def get_numba_config() -> dict[str, Any]:
     """
     Configuration for Numba backend.
 
@@ -227,7 +228,7 @@ def get_numba_config() -> Dict[str, Any]:
     return config
 
 
-def write_config_to_file(config: Dict[str, Any], path: Path) -> Path:
+def write_config_to_file(config: dict[str, Any], path: Path) -> Path:
     """
     Write a configuration dictionary to a YAML file.
 
@@ -246,7 +247,7 @@ def write_config_to_file(config: Dict[str, Any], path: Path) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     return path
@@ -278,13 +279,15 @@ def create_test_antenna_file(path: Path, antennas: dict = None) -> Path:
             2: {"Name": "Ant2", "Position": (50.0, 86.6, 0.0)},
         }
 
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         f.write("# name number beamid east north up\n")
         for ant_num, ant_data in antennas.items():
             pos = ant_data["Position"]
             name = ant_data.get("Name", f"Ant{ant_num}")
             beam_id = ant_data.get("BeamID", 0)
-            f.write(f"{name} {ant_num} {beam_id} {pos[0]:.4f} {pos[1]:.4f} {pos[2]:.4f}\n")
+            f.write(
+                f"{name} {ant_num} {beam_id} {pos[0]:.4f} {pos[1]:.4f} {pos[2]:.4f}\n"
+            )
 
     return path
 

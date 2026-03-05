@@ -17,14 +17,13 @@ import healpy as hp
 import numpy as np
 from astropy.coordinates import SkyCoord
 
-from .catalogs import DIFFUSE_MODELS, RACS_CATALOGS, VIZIER_POINT_CATALOGS
+from ._loaders_diffuse import _DiffuseLoadersMixin
+from ._loaders_pyradiosky import _PyradioskyMixin
+from ._loaders_vizier import _VizierLoadersMixin
 from .constants import (
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
 )
-from ._loaders_diffuse import _DiffuseLoadersMixin
-from ._loaders_pyradiosky import _PyradioskyMixin
-from ._loaders_vizier import _VizierLoadersMixin
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +31,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # SkyModel Class
 # =============================================================================
+
 
 @dataclass
 class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
@@ -75,10 +75,10 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         invalidate the cache when a different frequency is requested.
     """
 
-    _ra_rad:   np.ndarray | None = field(default=None, repr=False)
-    _dec_rad:  np.ndarray | None = field(default=None, repr=False)
+    _ra_rad: np.ndarray | None = field(default=None, repr=False)
+    _dec_rad: np.ndarray | None = field(default=None, repr=False)
     _flux_ref: np.ndarray | None = field(default=None, repr=False)
-    _alpha:    np.ndarray | None = field(default=None, repr=False)
+    _alpha: np.ndarray | None = field(default=None, repr=False)
     _stokes_q: np.ndarray | None = field(default=None, repr=False)
     _stokes_u: np.ndarray | None = field(default=None, repr=False)
     _stokes_v: np.ndarray | None = field(default=None, repr=False)
@@ -109,8 +109,8 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             raise ValueError(
                 "SkyModel requires a PrecisionConfig. Pass precision=PrecisionConfig.standard() "
                 "(or .fast(), .precise(), .ultra()) to the factory method. "
-                "Example: SkyModel.from_test_sources(num_sources=100, "
-                "precision=PrecisionConfig.standard())"
+                "Example: SkyModel.from_test_sources(num_sources=100, flux_range=(2.0, 8.0), "
+                "dec_deg=-30.72, spectral_index=-0.8, precision=PrecisionConfig.standard())"
             )
 
     def _source_dtype(self) -> np.dtype:
@@ -281,7 +281,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         ...     "starting_frequency": 100.0,
         ...     "frequency_interval": 1.0,
         ...     "frequency_bandwidth": 20.0,
-        ...     "frequency_unit": "MHz"
+        ...     "frequency_unit": "MHz",
         ... }
         >>> freqs = SkyModel._parse_frequency_config(config)
         >>> len(freqs)  # 20 channels
@@ -314,8 +314,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             )
 
         frequencies = np.array(
-            [start_hz + i * interval_hz for i in range(n_channels)],
-            dtype=np.float64
+            [start_hz + i * interval_hz for i in range(n_channels)], dtype=np.float64
         )
 
         logger.debug(
@@ -327,9 +326,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
 
     @staticmethod
     def estimate_healpix_memory(
-        nside: int,
-        n_frequencies: int,
-        dtype: type = np.float32
+        nside: int, n_frequencies: int, dtype: type = np.float32
     ) -> dict[str, Any]:
         """
         Estimate memory usage for multi-frequency HEALPix maps.
@@ -385,9 +382,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
     # =========================================================================
 
     def to_point_sources(
-        self,
-        flux_limit: float = 0.0,
-        frequency: float | None = None
+        self, flux_limit: float = 0.0, frequency: float | None = None
     ) -> list[dict[str, Any]]:
         """
         Get sky model as point sources.
@@ -418,15 +413,15 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             n = int(mask.sum())
             if n == 0:
                 return []
-            ra_deg  = np.rad2deg(self._ra_rad[mask])
+            ra_deg = np.rad2deg(self._ra_rad[mask])
             dec_deg = np.rad2deg(self._dec_rad[mask])
             # Bulk SkyCoord construction -- much faster than per-row
             coords = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame="icrs")
-            flux_m  = self._flux_ref[mask]
+            flux_m = self._flux_ref[mask]
             alpha_m = self._alpha[mask]
-            sq_m    = self._stokes_q[mask]
-            su_m    = self._stokes_u[mask]
-            sv_m    = self._stokes_v[mask]
+            sq_m = self._stokes_q[mask]
+            su_m = self._stokes_u[mask]
+            sv_m = self._stokes_v[mask]
             return [
                 {
                     "coords": coords[i],
@@ -485,29 +480,27 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         valid_idx = np.where(flux_jy > 0)[0]
         if len(valid_idx) == 0:
             logger.warning("No pixels with positive flux in HEALPix map")
-            self._ra_rad   = np.zeros(0, dtype=np.float64)
-            self._dec_rad  = np.zeros(0, dtype=np.float64)
+            self._ra_rad = np.zeros(0, dtype=np.float64)
+            self._dec_rad = np.zeros(0, dtype=np.float64)
             self._flux_ref = np.zeros(0, dtype=np.float64)
-            self._alpha    = np.zeros(0, dtype=np.float64)
+            self._alpha = np.zeros(0, dtype=np.float64)
             self._stokes_q = np.zeros(0, dtype=np.float64)
             self._stokes_u = np.zeros(0, dtype=np.float64)
             self._stokes_v = np.zeros(0, dtype=np.float64)
             return
 
         theta, phi = hp.pix2ang(nside, valid_idx)
-        self._ra_rad   = phi                       # phi = RA in radians
-        self._dec_rad  = np.pi / 2 - theta         # colatitude -> declination
+        self._ra_rad = phi  # phi = RA in radians
+        self._dec_rad = np.pi / 2 - theta  # colatitude -> declination
         self._flux_ref = flux_jy[valid_idx]
         n = len(valid_idx)
-        self._alpha    = np.zeros(n, dtype=np.float64)  # no per-pixel alpha in HEALPix
+        self._alpha = np.zeros(n, dtype=np.float64)  # no per-pixel alpha in HEALPix
         self._stokes_q = np.zeros(n, dtype=np.float64)
         self._stokes_u = np.zeros(n, dtype=np.float64)
         self._stokes_v = np.zeros(n, dtype=np.float64)
 
     def to_healpix(
-        self,
-        nside: int = 64,
-        frequency: float | None = None
+        self, nside: int = 64, frequency: float | None = None
     ) -> tuple[np.ndarray, int, np.ndarray | None]:
         """
         .. deprecated::
@@ -528,10 +521,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         )
 
     def _point_sources_to_healpix_multifreq(
-        self,
-        nside: int,
-        frequencies: np.ndarray,
-        ref_frequency: float = 76e6
+        self, nside: int, frequencies: np.ndarray, ref_frequency: float = 76e6
     ) -> dict[float, np.ndarray]:
         """
         Convert point sources to multi-frequency HEALPix brightness temperature maps.
@@ -555,7 +545,9 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         """
         if not self._has_point_sources():
             npix = hp.nside2npix(nside)
-            return {float(freq): np.zeros(npix, dtype=np.float32) for freq in frequencies}
+            return {
+                float(freq): np.zeros(npix, dtype=np.float32) for freq in frequencies
+            }
 
         npix = hp.nside2npix(nside)
         omega_pixel = 4 * np.pi / npix
@@ -581,14 +573,16 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             occupied = flux_map > 0
             if np.any(occupied):
                 temp_out[occupied] = flux_density_to_brightness_temp(
-                    flux_map[occupied], float(freq), omega_pixel,
+                    flux_map[occupied],
+                    float(freq),
+                    omega_pixel,
                     method=self.brightness_conversion,
                 ).astype(np.float32)
             temp_maps[float(freq)] = temp_out
 
         logger.info(
             f"Converted {n_sources} point sources to {n_freq} HEALPix maps "
-            f"({frequencies[0]/1e6:.1f}-{frequencies[-1]/1e6:.1f} MHz)"
+            f"({frequencies[0] / 1e6:.1f}-{frequencies[-1] / 1e6:.1f} MHz)"
         )
 
         return temp_maps
@@ -597,7 +591,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         self,
         nside: int,
         obs_frequency_config: dict[str, Any],
-        ref_frequency: float = 76e6
+        ref_frequency: float = 76e6,
     ) -> "SkyModel":
         """
         Convert point sources to multi-frequency HEALPix maps for observation.
@@ -646,7 +640,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         ...     "starting_frequency": 100.0,
         ...     "frequency_interval": 1.0,
         ...     "frequency_bandwidth": 20.0,
-        ...     "frequency_unit": "MHz"
+        ...     "frequency_unit": "MHz",
         ... }
         >>> sky.to_healpix_for_observation(nside=64, obs_frequency_config=config)
         >>> sky.get_map_at_frequency(100e6)  # Get map at 100 MHz
@@ -712,8 +706,8 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         freq_diff_mhz = abs(frequency - nearest_freq) / 1e6
         if freq_diff_mhz > 0.001:  # More than 1 kHz difference
             logger.warning(
-                f"Exact frequency {frequency/1e6:.3f} MHz not found. "
-                f"Using nearest: {nearest_freq/1e6:.3f} MHz "
+                f"Exact frequency {frequency / 1e6:.3f} MHz not found. "
+                f"Using nearest: {nearest_freq / 1e6:.3f} MHz "
                 f"(diff: {freq_diff_mhz:.3f} MHz)"
             )
 
@@ -741,7 +735,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         --------
         >>> maps, nside, freqs = sky.get_multifreq_maps()
         >>> for freq in freqs:
-        ...     print(f"{freq/1e6:.1f} MHz: max T_b = {maps[freq].max():.2f} K")
+        ...     print(f"{freq / 1e6:.1f} MHz: max T_b = {maps[freq].max():.2f} K")
         """
         if self._healpix_maps is None:
             raise ValueError(
@@ -749,18 +743,14 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                 "Use to_healpix_for_observation() first."
             )
 
-        return (
-            self._healpix_maps,
-            self._healpix_nside,
-            self._observation_frequencies
-        )
+        return (self._healpix_maps, self._healpix_nside, self._observation_frequencies)
 
     def get_for_visibility(
         self,
         representation: str,
         nside: int = 64,
         flux_limit: float = 0.0,
-        frequency: float | None = None
+        frequency: float | None = None,
     ) -> "SkyModel":
         """
         Ensure sky model is in the requested representation.
@@ -802,10 +792,10 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                 and freq is not None
                 and self._point_sources_frequency != freq
             ):
-                self._ra_rad   = None
-                self._dec_rad  = None
+                self._ra_rad = None
+                self._dec_rad = None
                 self._flux_ref = None
-                self._alpha    = None
+                self._alpha = None
                 self._stokes_q = None
                 self._stokes_u = None
                 self._stokes_v = None
@@ -834,9 +824,9 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
     def from_test_sources(
         cls,
         num_sources: int = 100,
-        flux_range: tuple[float, float] = (2.0, 8.0),
-        dec_deg: float = -30.72,
-        spectral_index: float = -0.8,
+        flux_range: tuple[float, float] | None = None,
+        dec_deg: float | None = None,
+        spectral_index: float | None = None,
         brightness_conversion: str = "planck",
         precision: Any = None,
     ) -> "SkyModel":
@@ -849,12 +839,12 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         ----------
         num_sources : int, default=100
             Number of sources to generate.
-        flux_range : tuple, default=(2.0, 8.0)
-            (min_flux, max_flux) in Jy.
-        dec_deg : float, default=-30.72
-            Declination for all sources (degrees).
-        spectral_index : float, default=-0.8
-            Spectral index for all sources.
+        flux_range : tuple of float, optional
+            (min_flux, max_flux) in Jy. Must be provided.
+        dec_deg : float, optional
+            Declination for all sources (degrees). Must be provided.
+        spectral_index : float, optional
+            Spectral index for all sources. Must be provided.
         precision : PrecisionConfig, optional
             Precision configuration for array dtypes. If None, uses float64.
 
@@ -862,14 +852,33 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         -------
         SkyModel
             Sky model with test sources.
+
+        Raises
+        ------
+        ValueError
+            If dec_deg, flux_range, or spectral_index is not provided.
         """
+        errors = []
+        if dec_deg is None:
+            errors.append("dec_deg is required for test sources")
+        if flux_range is None:
+            errors.append(
+                "flux_range (flux_min, flux_max) is required for test sources"
+            )
+        if spectral_index is None:
+            errors.append("spectral_index is required for test sources")
+        if errors:
+            raise ValueError(
+                "Missing required test source parameters:\n  - " + "\n  - ".join(errors)
+            )
+
         n = num_sources
         if n == 1:
             ra_deg_arr = np.array([0.0])
-            flux_arr   = np.array([(flux_range[0] + flux_range[1]) / 2])
+            flux_arr = np.array([(flux_range[0] + flux_range[1]) / 2])
         else:
             ra_deg_arr = np.array([(360.0 / n) * i for i in range(n)])
-            flux_arr   = np.linspace(flux_range[0], flux_range[1], n)
+            flux_arr = np.linspace(flux_range[0], flux_range[1], n)
 
         dec_deg_arr = np.full(n, dec_deg)
 
@@ -934,13 +943,15 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                 _precision=precision,
             )
 
-        ra_rad  = np.array([s["coords"].ra.rad  for s in sources], dtype=np.float64)
+        ra_rad = np.array([s["coords"].ra.rad for s in sources], dtype=np.float64)
         dec_rad = np.array([s["coords"].dec.rad for s in sources], dtype=np.float64)
-        flux_ref = np.array([s["flux"]                         for s in sources], dtype=np.float64)
-        alpha    = np.array([s.get("spectral_index", -0.7)     for s in sources], dtype=np.float64)
-        stokes_q = np.array([s.get("stokes_q", 0.0)            for s in sources], dtype=np.float64)
-        stokes_u = np.array([s.get("stokes_u", 0.0)            for s in sources], dtype=np.float64)
-        stokes_v = np.array([s.get("stokes_v", 0.0)            for s in sources], dtype=np.float64)
+        flux_ref = np.array([s["flux"] for s in sources], dtype=np.float64)
+        alpha = np.array(
+            [s.get("spectral_index", -0.7) for s in sources], dtype=np.float64
+        )
+        stokes_q = np.array([s.get("stokes_q", 0.0) for s in sources], dtype=np.float64)
+        stokes_u = np.array([s.get("stokes_u", 0.0) for s in sources], dtype=np.float64)
+        stokes_v = np.array([s.get("stokes_v", 0.0) for s in sources], dtype=np.float64)
 
         sky = cls(
             _ra_rad=ra_rad,
@@ -1067,7 +1078,12 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         --------
         >>> # Combine as point sources (default)
         >>> gleam = SkyModel.from_gleam(flux_limit=1.0)
-        >>> test = SkyModel.from_test_sources(num_sources=10)
+        >>> test = SkyModel.from_test_sources(
+        ...     num_sources=10,
+        ...     flux_range=(2.0, 8.0),
+        ...     dec_deg=-30.72,
+        ...     spectral_index=-0.8,
+        ... )
         >>> combined = SkyModel.combine([gleam, test])
 
         >>> # Combine and convert to multi-frequency HEALPix
@@ -1075,13 +1091,13 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         ...     "starting_frequency": 100.0,
         ...     "frequency_interval": 1.0,
         ...     "frequency_bandwidth": 20.0,
-        ...     "frequency_unit": "MHz"
+        ...     "frequency_unit": "MHz",
         ... }
         >>> combined = SkyModel.combine(
         ...     [gleam, test],
         ...     representation="healpix_map",
         ...     nside=64,
-        ...     obs_frequency_config=obs_config
+        ...     obs_frequency_config=obs_config,
         ... )
         """
         if not models:
@@ -1098,8 +1114,9 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                 _precision=precision,
             )
 
-        has_catalog = any(m.mode == "point_sources" and m._has_point_sources()
-                         for m in models)
+        has_catalog = any(
+            m.mode == "point_sources" and m._has_point_sources() for m in models
+        )
         has_diffuse = any(m.mode == "healpix_multifreq" for m in models)
 
         if has_catalog and has_diffuse:
@@ -1109,7 +1126,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                 "integrated emission from bright sources. Consider using only one model type "
                 "or implementing source subtraction for accurate results.",
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
 
         freq = frequency
@@ -1150,9 +1167,9 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                     raise ValueError(
                         f"Cannot combine HEALPix models with different frequency grids: "
                         f"reference has {len(ref_freqs)} channels "
-                        f"({ref_freqs[0]/1e6:.3f}\u2013{ref_freqs[-1]/1e6:.3f} MHz), "
+                        f"({ref_freqs[0] / 1e6:.3f}\u2013{ref_freqs[-1] / 1e6:.3f} MHz), "
                         f"model '{m.model_name}' has {len(m_freqs)} channels "
-                        f"({m_freqs[0]/1e6:.3f}\u2013{m_freqs[-1]/1e6:.3f} MHz). "
+                        f"({m_freqs[0] / 1e6:.3f}\u2013{m_freqs[-1] / 1e6:.3f} MHz). "
                         f"All models must share the same observation frequency grid."
                     )
 
@@ -1175,20 +1192,26 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                         pos = t_map > 0
                         if np.any(pos):
                             combined_flux[pos] += brightness_temp_to_flux_density(
-                                t_map[pos], freq_hz, omega_pixel,
+                                t_map[pos],
+                                freq_hz,
+                                omega_pixel,
                                 method=brightness_conversion,
                             )
 
                 for ipix_m, flux_ref_m, alpha_m in ps_models_data:
                     scale = (float(freq_hz) / ref_frequency) ** alpha_m
                     flux_at_f = flux_ref_m * scale
-                    combined_flux += np.bincount(ipix_m, weights=flux_at_f, minlength=npix)
+                    combined_flux += np.bincount(
+                        ipix_m, weights=flux_at_f, minlength=npix
+                    )
 
                 combined_T_b = np.zeros(npix, dtype=np.float64)
                 pos_flux = combined_flux > 0
                 if np.any(pos_flux):
                     combined_T_b[pos_flux] = flux_density_to_brightness_temp(
-                        combined_flux[pos_flux], freq_hz, omega_pixel,
+                        combined_flux[pos_flux],
+                        freq_hz,
+                        omega_pixel,
                         method=brightness_conversion,
                     )
                 combined_maps[freq_hz] = combined_T_b.astype(np.float32)
@@ -1261,10 +1284,13 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         if self._healpix_maps is not None:
             freqs = self._observation_frequencies
             freq_range = (
-                f"{freqs[0]/1e6:.1f}-{freqs[-1]/1e6:.1f}"
-                if len(freqs) > 1 else f"{freqs[0]/1e6:.1f}"
+                f"{freqs[0] / 1e6:.1f}-{freqs[-1] / 1e6:.1f}"
+                if len(freqs) > 1
+                else f"{freqs[0] / 1e6:.1f}"
             )
-            mem_info = self.estimate_healpix_memory(self._healpix_nside, len(freqs), np.float32)
+            mem_info = self.estimate_healpix_memory(
+                self._healpix_nside, len(freqs), np.float32
+            )
             return (
                 f"SkyModel(native='{self._native_format}', model='{self.model_name}', "
                 f"mode='healpix_multifreq', nside={self._healpix_nside}, "

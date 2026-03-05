@@ -45,55 +45,51 @@ References
 
 from __future__ import annotations
 
+import importlib.util
 import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
+from astropy.coordinates import EarthLocation
+from astropy.time import Time
 
 # Check for pyuvdata availability
 try:
-    from pyuvdata import UVData, Telescope
+    from pyuvdata import Telescope, UVData
+
     PYUVDATA_AVAILABLE = True
 except ImportError:
     PYUVDATA_AVAILABLE = False
     warnings.warn(
         "pyuvdata not available. Install with: pip install pyuvdata\n"
-        "MS I/O functionality will be disabled."
+        "MS I/O functionality will be disabled.",
+        stacklevel=2,
     )
 
 # Check for python-casacore availability
-try:
-    import casacore.tables
-    CASACORE_AVAILABLE = True
-except ImportError:
-    CASACORE_AVAILABLE = False
-    if PYUVDATA_AVAILABLE:
-        warnings.warn(
-            "python-casacore not available. Install with: pip install python-casacore\n"
-            "MS format support will be disabled."
-        )
+CASACORE_AVAILABLE = importlib.util.find_spec("casacore.tables") is not None
+if not CASACORE_AVAILABLE and PYUVDATA_AVAILABLE:
+    warnings.warn(
+        "python-casacore not available. Install with: pip install python-casacore\n"
+        "MS format support will be disabled.",
+        stacklevel=2,
+    )
 
 # Check for dask-ms availability (optional)
 try:
-    from daskms import xds_from_ms, xds_to_table, Dataset
-    import dask.array as da
+    from daskms import xds_from_ms
+
     DASKMS_AVAILABLE = True
 except ImportError:
     DASKMS_AVAILABLE = False
-
-# Astropy imports (required)
-from astropy.coordinates import EarthLocation
-from astropy.time import Time
-from astropy import units as u
 
 
 def _check_ms_dependencies():
     """Check that MS dependencies are available."""
     if not PYUVDATA_AVAILABLE:
         raise ImportError(
-            "pyuvdata is required for MS I/O. Install with:\n"
-            "  pip install pyuvdata"
+            "pyuvdata is required for MS I/O. Install with:\n  pip install pyuvdata"
         )
     if not CASACORE_AVAILABLE:
         raise ImportError(
@@ -105,19 +101,19 @@ def _check_ms_dependencies():
 
 
 def write_ms(
-    output_path: Union[str, Path],
-    visibilities: Dict[Tuple[int, int], Union[Dict[str, np.ndarray], np.ndarray]],
+    output_path: str | Path,
+    visibilities: dict[tuple[int, int], dict[str, np.ndarray] | np.ndarray],
     frequencies: np.ndarray,
-    antennas: Dict[str, Dict[str, Any]],
-    baselines: Dict[Tuple[int, int], Dict[str, Any]],
+    antennas: dict[str, dict[str, Any]],
+    baselines: dict[tuple[int, int], dict[str, Any]],
     location: EarthLocation,
     obstime: Time,
     telescope_name: str = "RRIvis",
     instrument_name: str = "RRIvis Simulator",
-    polarizations: Optional[List[str]] = None,
+    polarizations: list[str] | None = None,
     phase_center_ra: float = 0.0,
     phase_center_dec: float = -30.0,
-    channel_width: Optional[float] = None,
+    channel_width: float | None = None,
     integration_time: float = 1.0,
     overwrite: bool = False,
 ) -> Path:
@@ -214,13 +210,13 @@ def write_ms(
 
     if output_path.exists() and not overwrite:
         raise FileExistsError(
-            f"MS already exists: {output_path}\n"
-            "Use overwrite=True to replace it."
+            f"MS already exists: {output_path}\nUse overwrite=True to replace it."
         )
 
     # Remove existing MS if overwriting
     if output_path.exists() and overwrite:
         import shutil
+
         shutil.rmtree(output_path)
 
     # Parse antenna information
@@ -229,7 +225,9 @@ def write_ms(
     antenna_diameters = []
 
     # Sort by antenna number to ensure consistent ordering
-    sorted_ant_keys = sorted(antennas.keys(), key=lambda k: antennas[k].get("Number", 0))
+    sorted_ant_keys = sorted(
+        antennas.keys(), key=lambda k: antennas[k].get("Number", 0)
+    )
 
     for ant_key in sorted_ant_keys:
         ant_data = antennas[ant_key]
@@ -241,7 +239,7 @@ def write_ms(
         antenna_names.append(f"ANT{ant_num:03d}")
         antenna_diameters.append(diameter)
 
-    n_antennas = len(antenna_positions)
+    len(antenna_positions)
 
     # Determine polarizations from visibility data
     sample_vis = next(iter(visibilities.values()))
@@ -306,8 +304,8 @@ def write_ms(
 
     # Fill arrays
     blt_idx = 0
-    for t_idx, time_jd in enumerate(times):
-        for bl_idx, (ant1, ant2) in enumerate(baseline_list):
+    for _t_idx, time_jd in enumerate(times):
+        for _bl_idx, (ant1, ant2) in enumerate(baseline_list):
             ant_1_array[blt_idx] = ant1
             ant_2_array[blt_idx] = ant2
             time_array[blt_idx] = time_jd
@@ -336,14 +334,18 @@ def write_ms(
                                 data_array[blt_idx, :, p_idx] = vis_values
                             else:
                                 # Handle shape mismatch
-                                data_array[blt_idx, :, p_idx] = np.resize(vis_values, n_freqs)
+                                data_array[blt_idx, :, p_idx] = np.resize(
+                                    vis_values, n_freqs
+                                )
                         elif pol == "XX" and "I" in vis_data:
                             # Convert Stokes I to XX (approximate)
                             vis_values = vis_data["I"]
                             if np.isscalar(vis_values):
                                 data_array[blt_idx, :, p_idx] = vis_values / 2
                             else:
-                                data_array[blt_idx, :, p_idx] = np.resize(vis_values, n_freqs) / 2
+                                data_array[blt_idx, :, p_idx] = (
+                                    np.resize(vis_values, n_freqs) / 2
+                                )
                 else:
                     # Single array - assume first polarization
                     if np.isscalar(vis_data):
@@ -359,11 +361,13 @@ def write_ms(
     lon = location.lon.rad
 
     # Rotation matrix from ENU to ECEF
-    R_enu_to_ecef = np.array([
-        [-np.sin(lon), -np.sin(lat) * np.cos(lon), np.cos(lat) * np.cos(lon)],
-        [np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat) * np.sin(lon)],
-        [0, np.cos(lat), np.sin(lat)]
-    ])
+    R_enu_to_ecef = np.array(
+        [
+            [-np.sin(lon), -np.sin(lat) * np.cos(lon), np.cos(lat) * np.cos(lon)],
+            [np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat) * np.sin(lon)],
+            [0, np.cos(lat), np.sin(lat)],
+        ]
+    )
 
     # Convert antenna positions from ENU to ECEF (relative to array center)
     antenna_positions_ecef = {}
@@ -414,7 +418,7 @@ def write_ms(
     try:
         uvd.check()
     except Exception as e:
-        warnings.warn(f"UVData validation warning: {e}")
+        warnings.warn(f"UVData validation warning: {e}", stacklevel=2)
 
     # Write to MS format
     uvd.write_ms(str(output_path), clobber=overwrite, force_phase=True)
@@ -423,10 +427,10 @@ def write_ms(
 
 
 def read_ms(
-    input_path: Union[str, Path],
+    input_path: str | Path,
     data_column: str = "DATA",
     include_flags: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Read visibility data from CASA Measurement Set format.
 
     Parameters
@@ -519,10 +523,10 @@ def read_ms(
 
 
 def read_ms_dask(
-    input_path: Union[str, Path],
-    columns: Optional[List[str]] = None,
-    chunks: Optional[Dict[str, int]] = None,
-) -> List[Any]:
+    input_path: str | Path,
+    columns: list[str] | None = None,
+    chunks: dict[str, int] | None = None,
+) -> list[Any]:
     """Read MS using dask-ms for large datasets.
 
     This function uses dask-ms to read MS files lazily, which is more
@@ -568,8 +572,7 @@ def read_ms_dask(
     """
     if not DASKMS_AVAILABLE:
         raise ImportError(
-            "dask-ms is required for lazy reading. Install with:\n"
-            "  pip install dask-ms"
+            "dask-ms is required for lazy reading. Install with:\n  pip install dask-ms"
         )
 
     input_path = Path(input_path)
@@ -589,7 +592,7 @@ def read_ms_dask(
     return list(datasets)
 
 
-def ms_info(input_path: Union[str, Path]) -> Dict[str, Any]:
+def ms_info(input_path: str | Path) -> dict[str, Any]:
     """Get summary information about a Measurement Set.
 
     Parameters
@@ -648,8 +651,12 @@ def ms_info(input_path: Union[str, Path]) -> Dict[str, Any]:
         "telescope_name": uvd.telescope.name,
         "antenna_names": uvd.telescope.antenna_names,
         "polarizations": uvd.get_pols(),
-        "channel_width": uvd.channel_width[0] if uvd.channel_width is not None else None,
-        "integration_time": uvd.integration_time[0] if uvd.integration_time is not None else None,
+        "channel_width": uvd.channel_width[0]
+        if uvd.channel_width is not None
+        else None,
+        "integration_time": uvd.integration_time[0]
+        if uvd.integration_time is not None
+        else None,
     }
 
     return info

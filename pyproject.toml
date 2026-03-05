@@ -160,26 +160,13 @@ markers = [
     "performance: marks performance/benchmark tests",
 ]
 
-# Black configuration
-[tool.black]
-line-length = 88
-target-version = ["py311", "py312"]
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-    | \.mypy_cache
-    | \.pytest_cache
-    | \.venv
-    | build
-    | dist
-)/
-'''
-
-# Ruff configuration
+# Ruff configuration (linter + formatter)
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+
+[tool.ruff.format]
+docstring-code-format = true
 
 [tool.ruff.lint]
 select = [
@@ -192,7 +179,7 @@ select = [
     "UP",  # pyupgrade
 ]
 ignore = [
-    "E501",  # Line too long (handled by black)
+    "E501",  # Line too long (handled by formatter)
     "B008",  # Do not perform function calls in argument defaults
 ]
 

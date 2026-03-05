@@ -211,13 +211,27 @@ class Simulator:
             config["obs_frequency"] = {
                 "starting_frequency": float(np.min(freq_array)),
                 "frequency_bandwidth": float(np.max(freq_array) - np.min(freq_array)),
-                "frequency_interval": float(np.mean(np.diff(freq_array))) if len(freq_array) > 1 else 1.0,
+                "frequency_interval": float(np.mean(np.diff(freq_array)))
+                if len(freq_array) > 1
+                else 1.0,
                 "frequency_unit": "MHz",
             }
 
         if sky_model:
+            test_sources_config = {
+                "use_test_sources": sky_model in ["test", "test_sources"]
+            }
+            if test_sources_config["use_test_sources"]:
+                test_sources_config.update(
+                    {
+                        "flux_min": 2.0,
+                        "flux_max": 8.0,
+                        "dec_deg": -30.72,
+                        "spectral_index": -0.8,
+                    }
+                )
             config["sky_model"] = {
-                "test_sources": {"use_test_sources": sky_model in ["test", "test_sources"]},
+                "test_sources": test_sources_config,
                 "gleam": {"use_gleam": sky_model == "gleam"},
                 "gsm_healpix": {"use_gsm": sky_model == "gsm"},
             }
@@ -343,7 +357,9 @@ class Simulator:
 
         # Initialize simulator
         self._simulator = get_simulator(self._simulator_name)
-        logger.debug(f"Using simulator: {self._simulator.name} ({self._simulator.complexity})")
+        logger.debug(
+            f"Using simulator: {self._simulator.name} ({self._simulator.complexity})"
+        )
 
         # Load antenna positions
         antenna_config = self.config.get("antenna_layout", {})
@@ -373,7 +389,9 @@ class Simulator:
         for ant_id in self._antennas:
             self._antennas[ant_id]["diameter"] = antenna_diameter
             beams_per_antenna[self._antennas[ant_id]["Number"]] = antenna_type
-            beam_response_per_antenna[self._antennas[ant_id]["Number"]] = all_beam_response
+            beam_response_per_antenna[self._antennas[ant_id]["Number"]] = (
+                all_beam_response
+            )
 
         # Generate baselines
         self._baselines = generate_baselines(
@@ -412,16 +430,16 @@ class Simulator:
 
         n_channels = max(1, int(bandwidth / interval)) + 1
         self._frequencies_hz = np.linspace(
-            start_freq * multiplier,
-            (start_freq + bandwidth) * multiplier,
-            n_channels
+            start_freq * multiplier, (start_freq + bandwidth) * multiplier, n_channels
         )
 
         # Calculate wavelengths
         self._wavelengths = (speed_of_light / (self._frequencies_hz * u.Hz)).to(u.m)
 
-        logger.debug(f"Frequencies: {len(self._frequencies_hz)} channels, "
-                     f"{self._frequencies_hz[0]/1e6:.1f} - {self._frequencies_hz[-1]/1e6:.1f} MHz")
+        logger.debug(
+            f"Frequencies: {len(self._frequencies_hz)} channels, "
+            f"{self._frequencies_hz[0] / 1e6:.1f} - {self._frequencies_hz[-1] / 1e6:.1f} MHz"
+        )
 
         # Calculate HPBW per antenna using antenna-type-specific coefficients
         # Map config antenna type strings to AntennaType constants
@@ -470,21 +488,21 @@ class Simulator:
         # Map to AntennaType constant
         antenna_type_constant = antenna_type_mapping.get(
             config_antenna_type.lower(),
-            AntennaType.PARABOLIC_10DB  # Default fallback
+            AntennaType.PARABOLIC_10DB,  # Default fallback
         )
 
-        logger.debug(f"Using antenna type '{config_antenna_type}' -> {antenna_type_constant}")
+        logger.debug(
+            f"Using antenna type '{config_antenna_type}' -> {antenna_type_constant}"
+        )
 
         self._hpbw_per_antenna = {}
-        for ant_id, ant_data in self._antennas.items():
+        for _ant_id, ant_data in self._antennas.items():
             ant_num = ant_data["Number"]
             diameter = ant_data.get("diameter", antenna_diameter)
 
             # Calculate HPBW for all frequencies using antenna-specific coefficients
             hpbw_array = calculate_hpbw_for_antenna_type(
-                antenna_type_constant,
-                self._frequencies_hz,
-                diameter
+                antenna_type_constant, self._frequencies_hz, diameter
             )
             self._hpbw_per_antenna[ant_num] = hpbw_array
 
@@ -501,16 +519,19 @@ class Simulator:
             )
 
         # Load sky model using unified SkyModel class
-        from rrivis.core.sky import SkyModel
-
         # Extract precision config to pass to SkyModel factory methods
         from rrivis.core.precision import PrecisionConfig
-        _precision = self._backend.precision if self._backend else PrecisionConfig.standard()
+        from rrivis.core.sky import SkyModel
+
+        _precision = (
+            self._backend.precision if self._backend else PrecisionConfig.standard()
+        )
         if _precision is None:
             _precision = PrecisionConfig.standard()
 
         sky_config = self.config.get("sky_model", {})
         test_config = sky_config.get("test_sources", {})
+        test_healpix_config = sky_config.get("test_sources_healpix", {})
         gleam_config = sky_config.get("gleam", {})
         gsm_config = sky_config.get("gsm_healpix", {})
         mals_config = sky_config.get("mals", {})
@@ -523,131 +544,207 @@ class Simulator:
 
         if test_config.get("use_test_sources", False):
             num_sources = test_config.get("num_sources", 100)
-            sky_models.append(SkyModel.from_test_sources(num_sources=num_sources, precision=_precision))
+            flux_min = test_config.get("flux_min")
+            flux_max = test_config.get("flux_max")
+            flux_range = (
+                (flux_min, flux_max)
+                if flux_min is not None and flux_max is not None
+                else None
+            )
+            sky_models.append(
+                SkyModel.from_test_sources(
+                    num_sources=num_sources,
+                    flux_range=flux_range,
+                    dec_deg=test_config.get("dec_deg"),
+                    spectral_index=test_config.get("spectral_index"),
+                    precision=_precision,
+                )
+            )
             logger.debug(f"Loaded test sources: {num_sources} sources")
+
+        if test_healpix_config.get("use_test_sources", False):
+            num_sources = test_healpix_config.get("num_sources", 100)
+            flux_min = test_healpix_config.get("flux_min")
+            flux_max = test_healpix_config.get("flux_max")
+            flux_range = (
+                (flux_min, flux_max)
+                if flux_min is not None and flux_max is not None
+                else None
+            )
+            hp_nside = test_healpix_config.get("nside", 64)
+            sky = SkyModel.from_test_sources(
+                num_sources=num_sources,
+                flux_range=flux_range,
+                dec_deg=test_healpix_config.get("dec_deg"),
+                spectral_index=test_healpix_config.get("spectral_index"),
+                precision=_precision,
+            )
+            obs_freq_config = self.config.get("obs_frequency", {})
+            sky.to_healpix_for_observation(
+                nside=hp_nside,
+                obs_frequency_config=obs_freq_config,
+            )
+            sky_models.append(sky)
+            logger.debug(
+                f"Loaded test sources (HEALPix): {num_sources} sources, nside={hp_nside}"
+            )
 
         if gleam_config.get("use_gleam", False):
             flux_limit = gleam_config.get("flux_limit", 1.0)
-            sky_models.append(SkyModel.from_gleam(flux_limit=flux_limit, precision=_precision))
+            sky_models.append(
+                SkyModel.from_gleam(flux_limit=flux_limit, precision=_precision)
+            )
 
         if mals_config.get("use_mals", False):
             flux_limit = mals_config.get("flux_limit", 1.0)
             release = mals_config.get("mals_release", "dr2")
-            sky_models.append(SkyModel.from_mals(flux_limit=flux_limit, release=release, precision=_precision))
+            sky_models.append(
+                SkyModel.from_mals(
+                    flux_limit=flux_limit, release=release, precision=_precision
+                )
+            )
 
         if gsm_config.get("use_gsm", False):
             model_name = gsm_config.get("gsm_catalogue", "gsm2008")
             obs_freq_config = self.config.get("obs_frequency", {})
-            sky_models.append(SkyModel.from_diffuse_sky(
-                model=model_name,
-                nside=nside,
-                obs_frequency_config=obs_freq_config,
-                include_cmb=gsm_config.get("include_cmb", False),
-                basemap=gsm_config.get("basemap"),
-                interpolation=gsm_config.get("interpolation"),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_diffuse_sky(
+                    model=model_name,
+                    nside=nside,
+                    obs_frequency_config=obs_freq_config,
+                    include_cmb=gsm_config.get("include_cmb", False),
+                    basemap=gsm_config.get("basemap"),
+                    interpolation=gsm_config.get("interpolation"),
+                    precision=_precision,
+                )
+            )
 
         # --- New point-source catalogs ---
         vlssr_config = sky_config.get("vlssr", {})
         if vlssr_config.get("use_vlssr", False):
-            sky_models.append(SkyModel.from_vlssr(
-                flux_limit=vlssr_config.get("flux_limit", 1.0),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_vlssr(
+                    flux_limit=vlssr_config.get("flux_limit", 1.0),
+                    precision=_precision,
+                )
+            )
 
         tgss_config = sky_config.get("tgss", {})
         if tgss_config.get("use_tgss", False):
-            sky_models.append(SkyModel.from_tgss(
-                flux_limit=tgss_config.get("flux_limit", 0.1),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_tgss(
+                    flux_limit=tgss_config.get("flux_limit", 0.1),
+                    precision=_precision,
+                )
+            )
 
         wenss_config = sky_config.get("wenss", {})
         if wenss_config.get("use_wenss", False):
-            sky_models.append(SkyModel.from_wenss(
-                flux_limit=wenss_config.get("flux_limit", 0.05),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_wenss(
+                    flux_limit=wenss_config.get("flux_limit", 0.05),
+                    precision=_precision,
+                )
+            )
 
         sumss_config = sky_config.get("sumss", {})
         if sumss_config.get("use_sumss", False):
-            sky_models.append(SkyModel.from_sumss(
-                flux_limit=sumss_config.get("flux_limit", 0.008),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_sumss(
+                    flux_limit=sumss_config.get("flux_limit", 0.008),
+                    precision=_precision,
+                )
+            )
 
         nvss_config = sky_config.get("nvss", {})
         if nvss_config.get("use_nvss", False):
-            sky_models.append(SkyModel.from_nvss(
-                flux_limit=nvss_config.get("flux_limit", 0.0025),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_nvss(
+                    flux_limit=nvss_config.get("flux_limit", 0.0025),
+                    precision=_precision,
+                )
+            )
 
         first_config = sky_config.get("first", {})
         if first_config.get("use_first", False):
-            sky_models.append(SkyModel.from_first(
-                flux_limit=first_config.get("flux_limit", 0.001),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_first(
+                    flux_limit=first_config.get("flux_limit", 0.001),
+                    precision=_precision,
+                )
+            )
 
         lotss_config = sky_config.get("lotss", {})
         if lotss_config.get("use_lotss", False):
-            sky_models.append(SkyModel.from_lotss(
-                release=lotss_config.get("lotss_release", "dr2"),
-                flux_limit=lotss_config.get("flux_limit", 0.001),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_lotss(
+                    release=lotss_config.get("lotss_release", "dr2"),
+                    flux_limit=lotss_config.get("flux_limit", 0.001),
+                    precision=_precision,
+                )
+            )
 
         at20g_config = sky_config.get("at20g", {})
         if at20g_config.get("use_at20g", False):
-            sky_models.append(SkyModel.from_at20g(
-                flux_limit=at20g_config.get("flux_limit", 0.04),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_at20g(
+                    flux_limit=at20g_config.get("flux_limit", 0.04),
+                    precision=_precision,
+                )
+            )
 
         three_c_config = sky_config.get("three_c", {})
         if three_c_config.get("use_3c", False):
-            sky_models.append(SkyModel.from_3c(
-                flux_limit=three_c_config.get("flux_limit", 1.0),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_3c(
+                    flux_limit=three_c_config.get("flux_limit", 1.0),
+                    precision=_precision,
+                )
+            )
 
         gb6_config = sky_config.get("gb6", {})
         if gb6_config.get("use_gb6", False):
-            sky_models.append(SkyModel.from_gb6(
-                flux_limit=gb6_config.get("flux_limit", 0.018),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_gb6(
+                    flux_limit=gb6_config.get("flux_limit", 0.018),
+                    precision=_precision,
+                )
+            )
 
         racs_config = sky_config.get("racs", {})
         if racs_config.get("use_racs", False):
-            sky_models.append(SkyModel.from_racs(
-                band=racs_config.get("racs_band", "low"),
-                flux_limit=racs_config.get("flux_limit", 1.0),
-                max_rows=racs_config.get("max_rows", 1_000_000),
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_racs(
+                    band=racs_config.get("racs_band", "low"),
+                    flux_limit=racs_config.get("flux_limit", 1.0),
+                    max_rows=racs_config.get("max_rows", 1_000_000),
+                    precision=_precision,
+                )
+            )
 
         # --- New diffuse models ---
         pysm3_config = sky_config.get("pysm3", {})
         if pysm3_config.get("use_pysm3", False):
             obs_freq_config = self.config.get("obs_frequency", {})
-            sky_models.append(SkyModel.from_pysm3(
-                components=pysm3_config.get("components", "s1"),
-                nside=pysm3_config.get("nside", 64),
-                obs_frequency_config=obs_freq_config,
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_pysm3(
+                    components=pysm3_config.get("components", "s1"),
+                    nside=pysm3_config.get("nside", 64),
+                    obs_frequency_config=obs_freq_config,
+                    precision=_precision,
+                )
+            )
 
         ulsa_config = sky_config.get("ulsa", {})
         if ulsa_config.get("use_ulsa", False):
             obs_freq_config = self.config.get("obs_frequency", {})
-            sky_models.append(SkyModel.from_ulsa(
-                nside=ulsa_config.get("nside", 64),
-                obs_frequency_config=obs_freq_config,
-                precision=_precision,
-            ))
+            sky_models.append(
+                SkyModel.from_ulsa(
+                    nside=ulsa_config.get("nside", 64),
+                    obs_frequency_config=obs_freq_config,
+                    precision=_precision,
+                )
+            )
 
         # --- Local file loader via pyradiosky ---
         pyradiosky_config = sky_config.get("pyradiosky", {})
@@ -655,24 +752,29 @@ class Simulator:
             filename = pyradiosky_config.get("filename", "")
             if filename:
                 obs_freq_config = self.config.get("obs_frequency", {})
-                sky_models.append(SkyModel.from_pyradiosky_file(
-                    filename=filename,
-                    filetype=pyradiosky_config.get("filetype"),
-                    flux_limit=pyradiosky_config.get("flux_limit", 0.0),
-                    reference_frequency_hz=pyradiosky_config.get("reference_frequency_hz"),
-                    precision=_precision,
-                    obs_frequency_config=obs_freq_config,
-                ))
+                sky_models.append(
+                    SkyModel.from_pyradiosky_file(
+                        filename=filename,
+                        filetype=pyradiosky_config.get("filetype"),
+                        flux_limit=pyradiosky_config.get("flux_limit", 0.0),
+                        reference_frequency_hz=pyradiosky_config.get(
+                            "reference_frequency_hz"
+                        ),
+                        precision=_precision,
+                        obs_frequency_config=obs_freq_config,
+                    )
+                )
             else:
-                logger.warning("pyradiosky enabled but no filename specified; skipping.")
+                logger.warning(
+                    "pyradiosky enabled but no filename specified; skipping."
+                )
 
-        # If no models selected, use test sources as fallback
+        # If no models selected, raise an error
         if not sky_models:
-            num_sources = test_config.get("num_sources", 100)
-            sky_models.append(SkyModel.from_test_sources(num_sources=num_sources, precision=_precision))
-            print_info(
-                f"No sky model enabled in config — using {num_sources} "
-                f"auto-generated test sources as fallback"
+            raise ValueError(
+                "No sky model enabled in configuration. "
+                "Enable at least one sky model (e.g., test_sources, gleam, gsm_healpix, etc.) "
+                "in the sky_model section of your config."
             )
 
         # Combine all models into one
@@ -691,9 +793,7 @@ class Simulator:
         # Ensure sky model is in requested representation
         self._sky_model.frequency = frequency
         self._sky_model.get_for_visibility(
-            representation=sky_representation,
-            nside=nside,
-            frequency=frequency
+            representation=sky_representation, nside=nside, frequency=frequency
         )
 
         # Get point sources for RIME calculator (needed even in healpix mode for some calculations)
@@ -705,7 +805,9 @@ class Simulator:
         self._is_setup = True
         n_sky = self._sky_model.n_sources
         sky_type = "pixels" if sky_representation == "healpix_map" else "sources"
-        print_success(f"Setup complete: {len(self._antennas)} antennas, {len(self._baselines)} baselines, {n_sky} {sky_type}")
+        print_success(
+            f"Setup complete: {len(self._antennas)} antennas, {len(self._baselines)} baselines, {n_sky} {sky_type}"
+        )
         return self
 
     def run(
@@ -747,7 +849,7 @@ class Simulator:
             # Print beautiful header panel FIRST, before setup
             print_header(
                 f"RRIvis Simulator v{self.version}",
-                "Radio Interferometer Visibility Simulator"
+                "Radio Interferometer Visibility Simulator",
             )
 
         # Set up if not already done
@@ -759,10 +861,16 @@ class Simulator:
         if progress:
             # Print configuration table (after setup, needs backend/sky_model info)
             n_sky = self._sky_model.n_sources if self._sky_model else len(self._sources)
-            sky_label = f"{n_sky} pixels (HEALPix)" if self._sky_representation == "healpix_map" else f"{n_sky} sources"
+            sky_label = (
+                f"{n_sky} pixels (HEALPix)"
+                if self._sky_representation == "healpix_map"
+                else f"{n_sky} sources"
+            )
             config_data = {
                 "Backend": self._backend.name,
-                "Precision": self._backend.precision.default if self._backend.precision else "standard",
+                "Precision": self._backend.precision.default
+                if self._backend.precision
+                else "standard",
                 "Simulator": f"{self._simulator.name} ({self._simulator.complexity})",
                 "Sky Mode": self._sky_representation,
                 "Antennas": len(self._antennas),
@@ -773,12 +881,14 @@ class Simulator:
             print_table("Simulation Configuration", config_data)
             console.print()  # Add spacing
 
-        print_info(f"Running visibility simulation ({self._sky_representation} mode)...")
+        print_info(
+            f"Running visibility simulation ({self._sky_representation} mode)..."
+        )
 
         # Get beam pattern configuration
         beam_config = self.config.get("beams", {})
         beam_pattern_per_antenna = {}
-        for ant_id, ant_data in self._antennas.items():
+        for _ant_id, ant_data in self._antennas.items():
             beam_pattern_per_antenna[ant_data["Number"]] = beam_config.get(
                 "all_beam_response", "gaussian"
             )
@@ -790,7 +900,9 @@ class Simulator:
 
         # Calculate visibilities based on sky representation
         duration_seconds = self.config.get("obs_time", {}).get("duration_seconds", 1.0)
-        time_step_seconds = self.config.get("obs_time", {}).get("time_step_seconds", 1.0)
+        time_step_seconds = self.config.get("obs_time", {}).get(
+            "time_step_seconds", 1.0
+        )
 
         if self._sky_representation == "healpix_map" and self._sky_model is not None:
             # Use direct HEALPix visibility calculation
@@ -868,7 +980,9 @@ class Simulator:
             "metadata": {
                 "version": self.version,
                 "backend": self._backend.name,
-                "precision": self._backend.precision.model_dump() if self._backend.precision else None,
+                "precision": self._backend.precision.model_dump()
+                if self._backend.precision
+                else None,
                 "simulator": self._simulator.name,
                 "sky_representation": self._sky_representation,
                 "n_antennas": len(self._antennas),
@@ -880,7 +994,9 @@ class Simulator:
         }
 
         if progress:
-            print_success(f"Simulation complete! ({t_total:.3f}s total, setup {t_setup:.3f}s)")
+            print_success(
+                f"Simulation complete! ({t_total:.3f}s total, setup {t_setup:.3f}s)"
+            )
 
         return self._results
 
@@ -932,7 +1048,9 @@ class Simulator:
         >>> sim.plot(plot_type="all", output_dir="plots/")
         """
         if self._results is None:
-            raise RuntimeError("No results to plot. Run simulation first with sim.run()")
+            raise RuntimeError(
+                "No results to plot. Run simulation first with sim.run()"
+            )
 
         print_info(f"Generating {plot_type} plots with {backend}...")
 
@@ -977,6 +1095,7 @@ class Simulator:
         if plot_type in ["visibility", "heatmap", "all"]:
             # Check if we have multi-time data
             from rrivis.core.visibility import calculate_modulus_phase
+
             moduli, phases = calculate_modulus_phase(self._results["visibilities"])
 
             # Check if data has time dimension
@@ -995,10 +1114,12 @@ class Simulator:
 
                 if self._obstime:
                     start_mjd = self._obstime.mjd
-                    time_points_mjd = np.array([
-                        start_mjd + (i * time_step_sec / 86400.0)
-                        for i in range(n_times)
-                    ])
+                    time_points_mjd = np.array(
+                        [
+                            start_mjd + (i * time_step_sec / 86400.0)
+                            for i in range(n_times)
+                        ]
+                    )
                 else:
                     time_points_mjd = np.linspace(0, duration_sec / 86400.0, n_times)
 
@@ -1114,7 +1235,9 @@ class Simulator:
         - WSClean: ``wsclean -name image output/simulation.ms``
         """
         if self._results is None:
-            raise RuntimeError("No results to save. Run simulation first with sim.run()")
+            raise RuntimeError(
+                "No results to save. Run simulation first with sim.run()"
+            )
 
         from rrivis.io.writers import save_visibilities_hdf5
 
@@ -1145,10 +1268,13 @@ class Simulator:
             # Generate time points in MJD
             if self._obstime:
                 start_mjd = self._obstime.mjd
-                time_mjd = np.array([
-                    start_mjd + (i * time_step_sec / 86400.0)  # Convert seconds to days
-                    for i in range(n_times)
-                ])
+                time_mjd = np.array(
+                    [
+                        start_mjd
+                        + (i * time_step_sec / 86400.0)  # Convert seconds to days
+                        for i in range(n_times)
+                    ]
+                )
             else:
                 time_mjd = np.linspace(0, duration_sec / 86400.0, n_times)
 
@@ -1162,13 +1288,17 @@ class Simulator:
                     vis_array = vis_dict.get("I", vis_dict.get("XX", np.array([])))
                     # Split (n_times, n_freq) into list of (n_freq,) arrays
                     if vis_array.ndim == 2:
-                        visibilities_for_writer[bl_key] = [vis_array[i] for i in range(vis_array.shape[0])]
+                        visibilities_for_writer[bl_key] = [
+                            vis_array[i] for i in range(vis_array.shape[0])
+                        ]
                     else:
                         visibilities_for_writer[bl_key] = [vis_array]
                 else:
                     vis_array = vis_dict
                     if vis_array.ndim == 2:
-                        visibilities_for_writer[bl_key] = [vis_array[i] for i in range(vis_array.shape[0])]
+                        visibilities_for_writer[bl_key] = [
+                            vis_array[i] for i in range(vis_array.shape[0])
+                        ]
                     else:
                         visibilities_for_writer[bl_key] = [vis_array]
 
@@ -1301,15 +1431,17 @@ class Simulator:
 
             # Adjust byte estimates
             if "total_bytes" in estimate:
-                estimate["total_bytes"] = int(estimate["total_bytes"] * precision_factor)
+                estimate["total_bytes"] = int(
+                    estimate["total_bytes"] * precision_factor
+                )
                 # Update human-readable string
                 total_bytes = estimate["total_bytes"]
                 if total_bytes > 1e9:
-                    estimate["total_human"] = f"{total_bytes/1e9:.1f} GB"
+                    estimate["total_human"] = f"{total_bytes / 1e9:.1f} GB"
                 elif total_bytes > 1e6:
-                    estimate["total_human"] = f"{total_bytes/1e6:.1f} MB"
+                    estimate["total_human"] = f"{total_bytes / 1e6:.1f} MB"
                 else:
-                    estimate["total_human"] = f"{total_bytes/1e3:.1f} KB"
+                    estimate["total_human"] = f"{total_bytes / 1e3:.1f} KB"
         else:
             estimate["precision_factor"] = 1.0
 

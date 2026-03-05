@@ -14,7 +14,8 @@ Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 
@@ -49,11 +50,11 @@ class JonesBaselineTerm(ABC):
         self,
         antenna_p: int,
         antenna_q: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute 2x2 multiplicative correction for baseline V_pq.
 
@@ -101,11 +102,11 @@ class BaselineMultiplicativeJones(JonesBaselineTerm):
         self,
         antenna_p: int,
         antenna_q: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute baseline multiplicative error (stub returns identity)."""
         xp = backend.xp
@@ -130,10 +131,7 @@ class SmearingFactorJones(JonesBaselineTerm):
     """
 
     def __init__(
-        self,
-        time_smearing: bool = True,
-        bandwidth_smearing: bool = True,
-        **kwargs
+        self, time_smearing: bool = True, bandwidth_smearing: bool = True, **kwargs
     ):
         """Initialize smearing factor Jones term (stub)."""
         self.time_smearing = time_smearing
@@ -151,11 +149,11 @@ class SmearingFactorJones(JonesBaselineTerm):
         self,
         antenna_p: int,
         antenna_q: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute smearing decorrelation (stub returns identity)."""
         xp = backend.xp

@@ -1,10 +1,7 @@
 # rrivis/core/sky/constants.py
 """Physical constants and unit-conversion helpers for sky models."""
 
-import warnings
-
 import numpy as np
-
 
 # =============================================================================
 # Physical Constants
@@ -43,7 +40,11 @@ def brightness_temp_to_flux_density(
     temperature = np.asarray(temperature, dtype=np.float64)
     if method == "rayleigh-jeans":
         # S = (2 k_B T ν²/c²) × Ω / 1e-26
-        return (2 * K_BOLTZMANN * temperature * frequency**2 / C_LIGHT**2) * solid_angle / 1e-26
+        return (
+            (2 * K_BOLTZMANN * temperature * frequency**2 / C_LIGHT**2)
+            * solid_angle
+            / 1e-26
+        )
 
     # Planck-exact: S = (2hν³/c²) / expm1(hν/kT) × Ω / 1e-26
     if np.any(temperature <= 0):
@@ -87,7 +88,12 @@ def flux_density_to_brightness_temp(
     flux_jy = np.asarray(flux_jy, dtype=np.float64)
     if method == "rayleigh-jeans":
         # T = S c² / (2 k_B ν² Ω) × 1e-26
-        return flux_jy * C_LIGHT**2 / (2 * K_BOLTZMANN * frequency**2 * solid_angle) * 1e-26
+        return (
+            flux_jy
+            * C_LIGHT**2
+            / (2 * K_BOLTZMANN * frequency**2 * solid_angle)
+            * 1e-26
+        )
 
     # Planck-exact: T = hν / (k ln(1 + 2hν³/(c² I_ν)))
     # where I_ν = S × 1e-26 / Ω
