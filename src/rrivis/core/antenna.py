@@ -66,11 +66,10 @@ References
 """
 
 import logging
-import os
 import sys
 import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
@@ -81,25 +80,27 @@ import numpy as np
 # pyuvdata is required for Measurement Set and UVFITS support
 try:
     from pyuvdata import UVData
+
     PYUVDATA_AVAILABLE = True
 except ImportError:
     PYUVDATA_AVAILABLE = False
     warnings.warn(
         "pyuvdata not available. Measurement Set and UVFITS format support disabled. "
-        "Install with: pip install pyuvdata"
+        "Install with: pip install pyuvdata",
+        stacklevel=2,
     )
 
 # astropy is required for coordinate conversions and FITS file handling
 try:
-    from astropy.coordinates import EarthLocation
-    from astropy import units as u
     from astropy.io import fits
+
     ASTROPY_AVAILABLE = True
 except ImportError:
     ASTROPY_AVAILABLE = False
     warnings.warn(
         "astropy not fully available. Some coordinate conversions and MWA format disabled. "
-        "Install with: pip install astropy"
+        "Install with: pip install astropy",
+        stacklevel=2,
     )
 
 
@@ -121,10 +122,11 @@ SUPPORTED_FORMATS = ["rrivis", "casa", "measurement_set", "uvfits", "mwa", "pyuv
 # COORDINATE CONVERSION UTILITIES
 # =============================================================================
 
+
 def _convert_coordinates_to_enu(
     positions: np.ndarray,
     coordsys: str,
-    reference_location: Optional[Tuple[float, float, float]] = None
+    reference_location: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
     """
     Convert antenna positions from various coordinate systems to ENU.
@@ -185,15 +187,16 @@ def _convert_coordinates_to_enu(
     coordsys_upper = coordsys.upper()
 
     # ENU coordinates need no conversion
-    if coordsys_upper == 'ENU':
+    if coordsys_upper == "ENU":
         return positions
 
     # Handle ITRF/XYZ geocentric coordinates
-    if coordsys_upper in ['XYZ', 'ITRF']:
+    if coordsys_upper in ["XYZ", "ITRF"]:
         if reference_location is None:
             warnings.warn(
                 "No reference location provided for ITRF->ENU conversion. "
-                f"Using default HERA site: {DEFAULT_REFERENCE_LOCATION}"
+                f"Using default HERA site: {DEFAULT_REFERENCE_LOCATION}",
+                stacklevel=2,
             )
             reference_location = DEFAULT_REFERENCE_LOCATION
 
@@ -202,7 +205,8 @@ def _convert_coordinates_to_enu(
         if not ASTROPY_AVAILABLE:
             warnings.warn(
                 "astropy not available for ITRF->ENU conversion. "
-                "Returning original coordinates unchanged."
+                "Returning original coordinates unchanged.",
+                stacklevel=2,
             )
             return positions
 
@@ -218,11 +222,13 @@ def _convert_coordinates_to_enu(
         sin_lat, cos_lat = np.sin(lat_rad), np.cos(lat_rad)
         sin_lon, cos_lon = np.sin(lon_rad), np.cos(lon_rad)
 
-        rotation_matrix = np.array([
-            [-sin_lon, cos_lon, 0],
-            [-sin_lat * cos_lon, -sin_lat * sin_lon, cos_lat],
-            [cos_lat * cos_lon, cos_lat * sin_lon, sin_lat]
-        ])
+        rotation_matrix = np.array(
+            [
+                [-sin_lon, cos_lon, 0],
+                [-sin_lat * cos_lon, -sin_lat * sin_lon, cos_lat],
+                [cos_lat * cos_lon, cos_lat * sin_lon, sin_lat],
+            ]
+        )
 
         # Calculate reference position in ITRF coordinates
         # Using Earth radius + height for approximate geocentric distance
@@ -230,7 +236,7 @@ def _convert_coordinates_to_enu(
         ref_xyz = spherical_to_cartesian(
             height + earth_radius,
             np.pi / 2 - lat_rad,  # co-latitude
-            lon_rad
+            lon_rad,
         )[0]
 
         # Convert each position: subtract reference, then rotate
@@ -243,10 +249,11 @@ def _convert_coordinates_to_enu(
         return np.array(enu_positions).squeeze()
 
     # LOC and unknown coordinate systems: assume ENU-like
-    if coordsys_upper != 'LOC':
+    if coordsys_upper != "LOC":
         warnings.warn(
             f"Unknown coordinate system '{coordsys}'. "
-            "Assuming positions are already in ENU-like coordinates."
+            "Assuming positions are already in ENU-like coordinates.",
+            stacklevel=2,
         )
 
     return positions
@@ -256,7 +263,8 @@ def _convert_coordinates_to_enu(
 # FORMAT-SPECIFIC READERS
 # =============================================================================
 
-def read_rrivis_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
+
+def read_rrivis_format(file_path: str | Path) -> dict[int, dict[str, Any]]:
     """
     Read antenna positions from RRIvis native text format.
 
@@ -314,7 +322,7 @@ def read_rrivis_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]
     """
     antennas = {}
 
-    with open(file_path, "r") as f:
+    with open(file_path) as f:
         lines = f.readlines()
 
     # --- Phase 1: Parse header to determine column layout ---
@@ -325,7 +333,7 @@ def read_rrivis_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]
     for idx, line in enumerate(lines):
         stripped = line.strip()
         # Skip empty lines and comments when looking for header
-        if stripped and not stripped.startswith('#'):
+        if stripped and not stripped.startswith("#"):
             header_idx = idx
             header_tokens = stripped.split()
 
@@ -348,7 +356,7 @@ def read_rrivis_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]
         stripped = line.strip()
 
         # Skip header row, empty lines, and comments
-        if line_num == header_idx or not stripped or stripped.startswith('#'):
+        if line_num == header_idx or not stripped or stripped.startswith("#"):
             continue
 
         parts = stripped.split()
@@ -400,14 +408,13 @@ def read_rrivis_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]
 
         except ValueError as e:
             raise ValueError(
-                f"Could not parse data in line {line_num + 1}: '{stripped}'. "
-                f"Error: {e}"
-            )
+                f"Could not parse data in line {line_num + 1}: '{stripped}'. Error: {e}"
+            ) from e
 
     return antennas
 
 
-def read_casa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
+def read_casa_format(file_path: str | Path) -> dict[int, dict[str, Any]]:
     """
     Read antenna positions from CASA configuration files (.cfg).
 
@@ -460,19 +467,19 @@ def read_casa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
     """
     antennas = {}
 
-    with open(file_path, "r") as f:
+    with open(file_path) as f:
         lines = f.readlines()
 
     # --- Parse header for coordinate system ---
-    coordsys = 'LOC'  # Default to local tangent plane
+    coordsys = "LOC"  # Default to local tangent plane
 
     for line in lines:
-        if line.startswith('#coordsys='):
-            coordsys_str = line.split('=')[1].strip().upper()
-            if 'LOC' in coordsys_str or 'ENU' in coordsys_str:
-                coordsys = 'ENU'
-            elif 'XYZ' in coordsys_str:
-                coordsys = 'XYZ'
+        if line.startswith("#coordsys="):
+            coordsys_str = line.split("=")[1].strip().upper()
+            if "LOC" in coordsys_str or "ENU" in coordsys_str:
+                coordsys = "ENU"
+            elif "XYZ" in coordsys_str:
+                coordsys = "XYZ"
             # Otherwise keep default 'LOC'
 
     # --- Parse antenna data rows ---
@@ -482,7 +489,7 @@ def read_casa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
         stripped = line.strip()
 
         # Skip comments and empty lines
-        if stripped.startswith('#') or not stripped:
+        if stripped.startswith("#") or not stripped:
             continue
 
         parts = stripped.split()
@@ -499,8 +506,8 @@ def read_casa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
             # Check if it looks like a number (handles "12." format)
             diameter = None
             if len(parts) > 3:
-                diameter_str = parts[3].replace('.', '', 1)
-                if diameter_str.replace('-', '').isdigit():
+                diameter_str = parts[3].replace(".", "", 1)
+                if diameter_str.replace("-", "").isdigit():
                     diameter = float(parts[3])
 
             # Parse optional station and antenna names
@@ -509,7 +516,7 @@ def read_casa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
 
             # Convert coordinates to ENU
             # For LOC/ENU coordinate systems, positions are already usable
-            if coordsys in ['ENU', 'LOC']:
+            if coordsys in ["ENU", "LOC"]:
                 e, n, u = x, y, z
             else:
                 # For XYZ/ITRF, would need proper conversion
@@ -537,7 +544,7 @@ def read_casa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
     return antennas
 
 
-def read_measurement_set(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
+def read_measurement_set(file_path: str | Path) -> dict[int, dict[str, Any]]:
     """
     Read antenna positions from a CASA Measurement Set.
 
@@ -597,10 +604,16 @@ def read_measurement_set(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any
         ant_names = uv.antenna_names
         ant_numbers = uv.antenna_numbers
         ant_positions = uv.antenna_positions  # ENU relative to array center
-        ant_diameters = uv.antenna_diameters if hasattr(uv, 'antenna_diameters') else [0] * len(ant_names)
+        ant_diameters = (
+            uv.antenna_diameters
+            if hasattr(uv, "antenna_diameters")
+            else [0] * len(ant_names)
+        )
 
         # Build antenna dictionaries
-        for name, number, pos, diam in zip(ant_names, ant_numbers, ant_positions, ant_diameters):
+        for name, number, pos, diam in zip(
+            ant_names, ant_numbers, ant_positions, ant_diameters, strict=False
+        ):
             ant = {
                 "Name": str(name),
                 "Number": int(number),
@@ -616,10 +629,10 @@ def read_measurement_set(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any
         return antennas
 
     except Exception as e:
-        raise ValueError(f"Failed to read Measurement Set '{file_path}': {e}")
+        raise ValueError(f"Failed to read Measurement Set '{file_path}': {e}") from e
 
 
-def read_uvfits(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
+def read_uvfits(file_path: str | Path) -> dict[int, dict[str, Any]]:
     """
     Read antenna positions from a UVFITS file.
 
@@ -677,10 +690,16 @@ def read_uvfits(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
         ant_names = uv.antenna_names
         ant_numbers = uv.antenna_numbers
         ant_positions = uv.antenna_positions
-        ant_diameters = uv.antenna_diameters if hasattr(uv, 'antenna_diameters') else [0] * len(ant_names)
+        ant_diameters = (
+            uv.antenna_diameters
+            if hasattr(uv, "antenna_diameters")
+            else [0] * len(ant_names)
+        )
 
         # Build antenna dictionaries
-        for name, number, pos, diam in zip(ant_names, ant_numbers, ant_positions, ant_diameters):
+        for name, number, pos, diam in zip(
+            ant_names, ant_numbers, ant_positions, ant_diameters, strict=False
+        ):
             ant = {
                 "Name": str(name),
                 "Number": int(number),
@@ -696,10 +715,10 @@ def read_uvfits(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
         return antennas
 
     except Exception as e:
-        raise ValueError(f"Failed to read UVFITS file '{file_path}': {e}")
+        raise ValueError(f"Failed to read UVFITS file '{file_path}': {e}") from e
 
 
-def read_mwa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
+def read_mwa_format(file_path: str | Path) -> dict[int, dict[str, Any]]:
     """
     Read antenna positions from an MWA metafits file.
 
@@ -753,29 +772,29 @@ def read_mwa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
     try:
         with fits.open(file_path) as hdul:
             # Verify TILEDATA extension exists
-            if 'TILEDATA' not in hdul:
+            if "TILEDATA" not in hdul:
                 raise ValueError(
                     f"TILEDATA extension not found in '{file_path}'. "
                     "This may not be a valid MWA metafits file."
                 )
 
-            tile_table = hdul['TILEDATA'].data
+            tile_table = hdul["TILEDATA"].data
 
             # Track processed tiles to handle X/Y polarization deduplication
             seen_tiles = {}
 
             for row in tile_table:
-                tile_name = row['TileName'].strip()
-                antenna_num = int(row['Antenna'])
+                tile_name = row["TileName"].strip()
+                antenna_num = int(row["Antenna"])
 
                 # Skip duplicate entries (X and Y polarization rows)
                 if tile_name in seen_tiles:
                     continue
 
                 # Extract ENU coordinates
-                east = float(row['East'])
-                north = float(row['North'])
-                height = float(row['Height'])
+                east = float(row["East"])
+                north = float(row["North"])
+                height = float(row["Height"])
 
                 ant = {
                     "Name": tile_name,
@@ -790,12 +809,12 @@ def read_mwa_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
         return antennas
 
     except KeyError as e:
-        raise ValueError(f"Missing required column in TILEDATA: {e}")
+        raise ValueError(f"Missing required column in TILEDATA: {e}") from e
     except Exception as e:
-        raise ValueError(f"Failed to read MWA metafits file '{file_path}': {e}")
+        raise ValueError(f"Failed to read MWA metafits file '{file_path}': {e}") from e
 
 
-def read_pyuvdata_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any]]:
+def read_pyuvdata_format(file_path: str | Path) -> dict[int, dict[str, Any]]:
     """
     Read antenna positions from a simple text coordinate file.
 
@@ -838,7 +857,7 @@ def read_pyuvdata_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any
     antennas = {}
 
     try:
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             lines = f.readlines()
 
         ant_idx = 0
@@ -847,7 +866,7 @@ def read_pyuvdata_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any
             stripped = line.strip()
 
             # Skip empty lines and comments
-            if not stripped or stripped.startswith('#'):
+            if not stripped or stripped.startswith("#"):
                 continue
 
             parts = stripped.split()
@@ -872,7 +891,7 @@ def read_pyuvdata_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any
                     continue
 
     except Exception as e:
-        raise ValueError(f"Failed to read coordinate file '{file_path}': {e}")
+        raise ValueError(f"Failed to read coordinate file '{file_path}': {e}") from e
 
     return antennas
 
@@ -881,7 +900,8 @@ def read_pyuvdata_format(file_path: Union[str, Path]) -> Dict[int, Dict[str, Any
 # DATA FORMAT CONVERSION
 # =============================================================================
 
-def format_antenna_data(antennas_dict: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
+
+def format_antenna_data(antennas_dict: dict[int, dict[str, Any]]) -> dict[str, Any]:
     """
     Convert antenna dictionary to NumPy array format.
 
@@ -947,7 +967,7 @@ def format_antenna_data(antennas_dict: Dict[int, Dict[str, Any]]) -> Dict[str, A
     has_diameters = False
 
     # Extract data from each antenna
-    for ant_num, ant_data in sorted_items:
+    for _ant_num, ant_data in sorted_items:
         names.append(ant_data["Name"])
         numbers.append(ant_data["Number"])
         positions.append(ant_data["Position"])
@@ -984,12 +1004,13 @@ def format_antenna_data(antennas_dict: Dict[int, Dict[str, Any]]) -> Dict[str, A
 # MAIN PUBLIC API
 # =============================================================================
 
+
 def read_antenna_positions(
-    file_path: Union[str, Path],
+    file_path: str | Path,
     format_type: str = "rrivis",
     return_format: str = "dict",
-    verbose: bool = False
-) -> Union[Dict[int, Dict[str, Any]], Dict[str, Any]]:
+    verbose: bool = False,
+) -> dict[int, dict[str, Any]] | dict[str, Any]:
     """
     Read antenna positions from various file formats.
 
@@ -1121,8 +1142,7 @@ def read_antenna_positions(
             return antennas
         else:
             raise ValueError(
-                f"Invalid return_format: '{return_format}'. "
-                "Use 'dict' or 'arrays'."
+                f"Invalid return_format: '{return_format}'. Use 'dict' or 'arrays'."
             )
 
     except (ImportError, ValueError, FileNotFoundError):
@@ -1132,4 +1152,4 @@ def read_antenna_positions(
         raise ValueError(
             f"Failed to read antenna positions from '{file_path}' "
             f"with format '{format_type}': {e}"
-        )
+        ) from e

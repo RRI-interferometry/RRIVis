@@ -3,7 +3,8 @@
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
+
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
@@ -23,8 +24,8 @@ class GainJones(JonesTerm):
         self,
         n_antennas: int = 1,
         gain_sigma: float = 0.0,
-        gains: Optional[np.ndarray] = None,
-        seed: Optional[int] = None,
+        gains: np.ndarray | None = None,
+        seed: int | None = None,
     ):
         """Initialize gain Jones term (stub)."""
         self.n_antennas = n_antennas
@@ -49,11 +50,11 @@ class GainJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute gain Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -63,12 +64,7 @@ class GainJones(JonesTerm):
 class TimeVariableGainJones(GainJones):
     """Stub: Gains that vary smoothly with time. TODO: implement properly."""
 
-    def __init__(
-        self,
-        n_antennas: int,
-        n_times: int,
-        **kwargs
-    ):
+    def __init__(self, n_antennas: int, n_times: int, **kwargs):
         """Initialize time-variable gains (stub)."""
         super().__init__(n_antennas=n_antennas)
 
@@ -83,11 +79,12 @@ class ElevationGainJones(GainJones):
     """
 
     def __init__(
-        self,
-        n_antennas: int = 1,
-        gain_curve_coeffs: Optional[np.ndarray] = None,
-        **kwargs
+        self, n_antennas: int = 1, gain_curve_coeffs: np.ndarray | None = None, **kwargs
     ):
         """Initialize elevation gain Jones term (stub)."""
         super().__init__(n_antennas=n_antennas)
-        self.gain_curve_coeffs = np.asarray(gain_curve_coeffs) if gain_curve_coeffs is not None else np.array([])
+        self.gain_curve_coeffs = (
+            np.asarray(gain_curve_coeffs)
+            if gain_curve_coeffs is not None
+            else np.array([])
+        )

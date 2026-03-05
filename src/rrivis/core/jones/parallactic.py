@@ -4,7 +4,8 @@ Parallactic Angle Jones term (P) for feed rotation.
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from .base import JonesTerm
@@ -33,7 +34,7 @@ class ParallacticAngleJones(JonesTerm):
         source_positions: np.ndarray,
         times: np.ndarray,
         mount_type: str = "altaz",
-        feed_angle_offset: Optional[np.ndarray] = None,
+        feed_angle_offset: np.ndarray | None = None,
     ):
         self.antenna_latitudes = np.asarray(antenna_latitudes)
         self.n_antennas = len(self.antenna_latitudes)
@@ -60,7 +61,7 @@ class ParallacticAngleJones(JonesTerm):
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute parallactic angle rotation matrix (stub returns identity)."""
         xp = backend.xp
@@ -70,11 +71,7 @@ class ParallacticAngleJones(JonesTerm):
 class FieldRotationJones(ParallacticAngleJones):
     """Stub: Extended parallactic angle including field rotation effects. TODO: implement properly."""
 
-    def __init__(
-        self,
-        antenna_latitudes: np.ndarray,
-        **kwargs
-    ):
+    def __init__(self, antenna_latitudes: np.ndarray, **kwargs):
         super().__init__(antenna_latitudes, np.array([[0.0, 0.0]]), np.array([0.0]))
 
 
@@ -87,5 +84,5 @@ class VLBIFeedRotationJones(ParallacticAngleJones):
         source_positions: np.ndarray,
         times: np.ndarray,
     ):
-        latitudes = np.array([a.get('latitude', 0.0) for a in antenna_info])
+        latitudes = np.array([a.get("latitude", 0.0) for a in antenna_info])
         super().__init__(latitudes, source_positions, times)

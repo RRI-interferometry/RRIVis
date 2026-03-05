@@ -4,7 +4,8 @@ Troposphere Jones term (T) for atmospheric propagation effects.
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from .base import JonesTerm
@@ -28,12 +29,14 @@ class TroposphereJones(JonesTerm):
     def __init__(
         self,
         n_antennas: int = 1,
-        frequencies: Optional[np.ndarray] = None,
-        elevations: Optional[np.ndarray] = None,
-        **kwargs
+        frequencies: np.ndarray | None = None,
+        elevations: np.ndarray | None = None,
+        **kwargs,
     ):
         self.n_antennas = n_antennas
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
         self.elevations = elevations
 
     @property
@@ -51,7 +54,7 @@ class TroposphereJones(JonesTerm):
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute troposphere Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -66,8 +69,8 @@ class SaastamoinenTroposphereJones(TroposphereJones):
         n_antennas: int,
         n_sources: int,
         frequencies: np.ndarray,
-        antenna_heights: Optional[np.ndarray] = None,
-        **kwargs
+        antenna_heights: np.ndarray | None = None,
+        **kwargs,
     ):
         super().__init__(n_antennas=n_antennas, frequencies=frequencies)
         self.n_sources = n_sources
@@ -76,10 +79,7 @@ class SaastamoinenTroposphereJones(TroposphereJones):
 class TurbulentTroposphereJones(TroposphereJones):
     """Stub: Turbulent troposphere model. TODO: implement properly."""
 
-    def __init__(
-        self,
-        **kwargs
-    ):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
 
@@ -95,10 +95,12 @@ class TroposphericOpacityJones(TroposphereJones):
     def __init__(
         self,
         n_antennas: int = 1,
-        frequencies: Optional[np.ndarray] = None,
-        zenith_opacity: Optional[np.ndarray] = None,
-        **kwargs
+        frequencies: np.ndarray | None = None,
+        zenith_opacity: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize tropospheric opacity Jones term (stub)."""
         super().__init__(n_antennas=n_antennas, frequencies=frequencies)
-        self.zenith_opacity = np.asarray(zenith_opacity) if zenith_opacity is not None else np.array([])
+        self.zenith_opacity = (
+            np.asarray(zenith_opacity) if zenith_opacity is not None else np.array([])
+        )

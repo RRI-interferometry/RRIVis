@@ -72,10 +72,11 @@ Calculate beam response at various angles:
 1.0
 """
 
-import numpy as np
 from math import pi
-from scipy.special import j1  # First-order Bessel function for Airy pattern
+
 import healpy as hp
+import numpy as np
+from scipy.special import j1  # First-order Bessel function for Airy pattern
 
 # =============================================================================
 # PHYSICAL CONSTANTS
@@ -88,6 +89,7 @@ _C = 299_792_458.0
 # =============================================================================
 # ANTENNA TYPE CONSTANTS
 # =============================================================================
+
 
 class AntennaType:
     """
@@ -138,26 +140,26 @@ class AntennaType:
 
     # Parabolic dish antennas - various illumination tapers
     # Trade-off: taper reduces efficiency but suppresses sidelobes
-    PARABOLIC_UNIFORM = "parabolic_uniform"      # k=1.02, 100% eff, -17.6 dB SL
-    PARABOLIC_COSINE = "parabolic_cosine"        # k=1.10, ~81% eff, -23 dB SL
-    PARABOLIC_GAUSSIAN = "parabolic_gaussian"    # k=1.18, ~75% eff, -40 dB SL
-    PARABOLIC_10DB = "parabolic_10db_taper"      # k=1.15, ~75% eff, -30 dB SL
-    PARABOLIC_20DB = "parabolic_20db_taper"      # k=1.25, ~62% eff, -42 dB SL
+    PARABOLIC_UNIFORM = "parabolic_uniform"  # k=1.02, 100% eff, -17.6 dB SL
+    PARABOLIC_COSINE = "parabolic_cosine"  # k=1.10, ~81% eff, -23 dB SL
+    PARABOLIC_GAUSSIAN = "parabolic_gaussian"  # k=1.18, ~75% eff, -40 dB SL
+    PARABOLIC_10DB = "parabolic_10db_taper"  # k=1.15, ~75% eff, -30 dB SL
+    PARABOLIC_20DB = "parabolic_20db_taper"  # k=1.25, ~62% eff, -42 dB SL
 
     # Spherical reflector antennas (FAST, former Arecibo)
     # Broader beams due to spherical aberration
-    SPHERICAL_UNIFORM = "spherical_uniform"      # k=1.05
-    SPHERICAL_GAUSSIAN = "spherical_gaussian"    # k=1.20
+    SPHERICAL_UNIFORM = "spherical_uniform"  # k=1.05
+    SPHERICAL_GAUSSIAN = "spherical_gaussian"  # k=1.20
 
     # Phased array antennas (MWA tiles, LOFAR stations, SKA-Low)
     # D_eff = array extent, electronic beamforming
-    PHASED_ARRAY = "phased_array"                # k=1.10
+    PHASED_ARRAY = "phased_array"  # k=1.10
 
     # Dipole antennas (HERA, MWA elements, LOFAR LBA)
     # Frequency-independent HPBW (no aperture)
-    DIPOLE_SHORT = "dipole_short"                # 90 deg constant
-    DIPOLE_HALFWAVE = "dipole_halfwave"          # 78 deg E-plane
-    DIPOLE_FOLDED = "dipole_folded"              # 78 deg, higher Z
+    DIPOLE_SHORT = "dipole_short"  # 90 deg constant
+    DIPOLE_HALFWAVE = "dipole_halfwave"  # 78 deg E-plane
+    DIPOLE_FOLDED = "dipole_folded"  # 78 deg, higher Z
 
 
 # =============================================================================
@@ -223,6 +225,7 @@ def _lambda_over_D(frequencies_hz, diameter, k):
 # Parabolic reflectors are the most common antenna type in radio astronomy.
 # The feed illumination pattern determines the aperture efficiency and
 # sidelobe levels. Stronger taper = wider beam, lower sidelobes.
+
 
 def hpbw_parabolic_uniform(frequencies_hz, dish_diameter):
     """
@@ -878,10 +881,9 @@ def get_hpbw_function(antenna_type):
     HPBW_FUNCTIONS : The underlying registry dictionary.
     """
     if antenna_type not in HPBW_FUNCTIONS:
-        available = ', '.join(sorted(HPBW_FUNCTIONS.keys()))
+        available = ", ".join(sorted(HPBW_FUNCTIONS.keys()))
         raise ValueError(
-            f"Unknown antenna type: '{antenna_type}'. "
-            f"Available types: {available}"
+            f"Unknown antenna type: '{antenna_type}'. Available types: {available}"
         )
     return HPBW_FUNCTIONS[antenna_type]
 
@@ -915,19 +917,15 @@ def calculate_hpbw_for_antenna_type(antenna_type, frequencies_hz, diameter):
     >>> import numpy as np
 
     >>> # Single frequency
-    >>> hpbw = calculate_hpbw_for_antenna_type(
-    ...     AntennaType.PARABOLIC_10DB, 150e6, 14.0
-    ... )
+    >>> hpbw = calculate_hpbw_for_antenna_type(AntennaType.PARABOLIC_10DB, 150e6, 14.0)
     >>> print(f"HPBW at 150 MHz: {np.degrees(hpbw)[0]:.2f} degrees")
     HPBW at 150 MHz: 9.43 degrees
 
     >>> # Multiple frequencies
     >>> freqs = np.array([100e6, 150e6, 200e6])
-    >>> hpbw = calculate_hpbw_for_antenna_type(
-    ...     AntennaType.PARABOLIC_10DB, freqs, 14.0
-    ... )
+    >>> hpbw = calculate_hpbw_for_antenna_type(AntennaType.PARABOLIC_10DB, freqs, 14.0)
     >>> for f, h in zip(freqs, hpbw):
-    ...     print(f"{f/1e6:.0f} MHz: {np.degrees(h):.2f} deg")
+    ...     print(f"{f / 1e6:.0f} MHz: {np.degrees(h):.2f} deg")
     100 MHz: 14.14 deg
     150 MHz: 9.43 deg
     200 MHz: 7.07 deg
@@ -1029,11 +1027,11 @@ def airy_disk_pattern(theta, wavelength, diameter):
 
     # Handle x=0 case (on-axis) where J1(x)/x -> 0.5 by L'Hopital's rule
     # lim_{x->0} J1(x)/x = 0.5, so [2 * J1(x)/x]^2 -> 1.0
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide="ignore", invalid="ignore"):
         result = np.where(
             np.abs(x) < 1e-10,
             1.0,  # On-axis value (avoids 0/0)
-            (2 * j1(x) / x) ** 2  # Standard Airy formula
+            (2 * j1(x) / x) ** 2,  # Standard Airy formula
         )
 
     return result
@@ -1101,7 +1099,7 @@ def cosine_tapered_pattern(theta, theta_HPBW, taper_exponent=1.0):
     result = np.where(
         np.abs(theta) < theta_edge,
         np.cos(np.pi / 2 * theta / theta_edge) ** taper_exponent,
-        0.0  # Hard cutoff outside beam edge
+        0.0,  # Hard cutoff outside beam edge
     )
 
     return result
@@ -1139,7 +1137,7 @@ def exponential_tapered_pattern(theta, theta_HPBW, taper_dB=10.0):
 
     where::
 
-        alpha = ln(2) / theta_HPBW^2
+        alpha = ln(2) / theta_HPBW ^ 2
 
     This ensures A(theta_HPBW) = 0.5 = -3 dB (half-power definition).
 
@@ -1274,7 +1272,7 @@ def calculate_gaussian_beam_area_EBeam(nside, theta_HPBW):
     -----
     **Calculation method**::
 
-        Omega_beam = sum_pixels [A(theta_pixel) * delta_Omega_pixel]
+        Omega_beam = sum_pixels[A(theta_pixel) * delta_Omega_pixel]
 
     where A(theta) is the Gaussian beam pattern and delta_Omega_pixel is
     the solid angle of each HEALPix pixel (constant for a given nside).
@@ -1299,7 +1297,9 @@ def calculate_gaussian_beam_area_EBeam(nside, theta_HPBW):
 
     >>> # Multiple frequencies with different HPBWs
     >>> hpbw_array = np.array([0.05, 0.1, 0.15])  # radians
-    >>> beam_areas = calculate_gaussian_beam_area_EBeam(nside=128, theta_HPBW=hpbw_array)
+    >>> beam_areas = calculate_gaussian_beam_area_EBeam(
+    ...     nside=128, theta_HPBW=hpbw_array
+    ... )
     >>> for h, a in zip(hpbw_array, beam_areas):
     ...     print(f"HPBW={np.degrees(h):.1f} deg: {a:.4f} sr")
 
@@ -1485,9 +1485,9 @@ class BeamPatternType:
     calculate_beam_pattern : Calculate pattern with unified interface.
     """
 
-    GAUSSIAN = "gaussian"        # Simple Gaussian, fastest computation
-    AIRY = "airy"               # Airy disk, includes sidelobes
-    COSINE = "cosine"           # Cosine taper, hard edge cutoff
+    GAUSSIAN = "gaussian"  # Simple Gaussian, fastest computation
+    AIRY = "airy"  # Airy disk, includes sidelobes
+    COSINE = "cosine"  # Cosine taper, hard edge cutoff
     EXPONENTIAL = "exponential"  # Exponential/Gaussian-like taper
 
 
@@ -1541,10 +1541,9 @@ def get_beam_pattern_function(pattern_type):
     BeamPatternType : Available pattern types.
     """
     if pattern_type not in BEAM_PATTERN_FUNCTIONS:
-        available = ', '.join(sorted(BEAM_PATTERN_FUNCTIONS.keys()))
+        available = ", ".join(sorted(BEAM_PATTERN_FUNCTIONS.keys()))
         raise ValueError(
-            f"Unknown beam pattern type: '{pattern_type}'. "
-            f"Available types: {available}"
+            f"Unknown beam pattern type: '{pattern_type}'. Available types: {available}"
         )
     return BEAM_PATTERN_FUNCTIONS[pattern_type]
 
@@ -1595,15 +1594,15 @@ def calculate_beam_pattern(pattern_type, theta, **kwargs):
     >>> theta = np.linspace(0, 0.2, 100)  # radians
 
     >>> # Gaussian pattern
-    >>> response = calculate_beam_pattern('gaussian', theta, theta_HPBW=0.1)
+    >>> response = calculate_beam_pattern("gaussian", theta, theta_HPBW=0.1)
 
     >>> # Airy disk pattern
-    >>> response = calculate_beam_pattern('airy', theta,
-    ...                                    wavelength=2.0, diameter=14.0)
+    >>> response = calculate_beam_pattern("airy", theta, wavelength=2.0, diameter=14.0)
 
     >>> # Cosine pattern with custom exponent
-    >>> response = calculate_beam_pattern('cosine', theta,
-    ...                                    theta_HPBW=0.1, taper_exponent=2.0)
+    >>> response = calculate_beam_pattern(
+    ...     "cosine", theta, theta_HPBW=0.1, taper_exponent=2.0
+    ... )
 
     See Also
     --------

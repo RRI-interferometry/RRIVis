@@ -9,60 +9,59 @@ import pytest
 
 from rrivis.backends import get_backend
 from rrivis.core.jones import (
-    # Base
-    JonesTerm,
-    JonesChain,
-    JonesBaselineTerm,
-    # K term
-    GeometricPhaseJones,
-    # E term
-    BeamJones,
     AnalyticBeamJones,
-    # G term
-    GainJones,
-    TimeVariableGainJones,
-    ElevationGainJones,
+    ArrayFactorJones,
     # B term
     BandpassJones,
-    PolynomialBandpassJones,
-    RFIFlaggedBandpassJones,
-    # D term
-    PolarizationLeakageJones,
-    IXRLeakageJones,
-    # P term
-    ParallacticAngleJones,
-    # Z term
-    IonosphereJones,
-    TurbulentIonosphereJones,
-    # T term
-    TroposphereJones,
-    SaastamoinenTroposphereJones,
-    TroposphericOpacityJones,
+    # M / Q terms (baseline-dependent)
+    BaselineMultiplicativeJones,
+    BasisTransformJones,
+    # E term
+    CableReflectionJones,
+    CrosshandDelayJones,
+    # X / Kx / DF terms
+    CrosshandPhaseJones,
+    # Kd / Rc / ff terms
+    DelayJones,
+    DifferentialBeamJones,
+    DifferentialFaradayJones,
+    # Ee / a / dE terms
+    ElementBeamJones,
+    ElevationGainJones,
     # F term
     FaradayRotationJones,
-    DifferentialFaradayJones,
+    FrequencyDependentLeakageJones,
+    FringeFitJones,
+    # G term
+    GainJones,
+    # K term
+    GeometricPhaseJones,
+    # Z term
+    IonosphereJones,
+    IXRLeakageJones,
+    JonesBaselineTerm,
+    JonesChain,
+    # Base
+    JonesTerm,
+    # P term
+    ParallacticAngleJones,
+    # D term
+    PolarizationLeakageJones,
+    PolynomialBandpassJones,
+    # C + H terms
+    ReceptorConfigJones,
+    RFIFlaggedBandpassJones,
+    SaastamoinenTroposphereJones,
+    SmearingFactorJones,
+    TimeVariableGainJones,
+    # T term
+    TroposphereJones,
+    TroposphericOpacityJones,
+    TurbulentIonosphereJones,
+    WidefieldPolarimetricJones,
     # W term
     WPhaseJones,
     WProjectionJones,
-    WidefieldPolarimetricJones,
-    # C + H terms
-    ReceptorConfigJones,
-    BasisTransformJones,
-    # Ee / a / dE terms
-    ElementBeamJones,
-    ArrayFactorJones,
-    DifferentialBeamJones,
-    # Kd / Rc / ff terms
-    DelayJones,
-    CableReflectionJones,
-    FringeFitJones,
-    # X / Kx / DF terms
-    CrosshandPhaseJones,
-    CrosshandDelayJones,
-    FrequencyDependentLeakageJones,
-    # M / Q terms (baseline-dependent)
-    BaselineMultiplicativeJones,
-    SmearingFactorJones,
 )
 
 
@@ -122,7 +121,7 @@ class TestGeometricPhaseJones:
         k_jones = GeometricPhaseJones(source_lmn, wavelengths)
 
         # Stub no longer has compute_fringe helper
-        assert not hasattr(k_jones, 'compute_fringe')
+        assert not hasattr(k_jones, "compute_fringe")
 
     def test_jones_is_identity_times_scalar(self, numpy_backend, wavelengths):
         """K-Jones should be scalar * identity."""
@@ -130,7 +129,9 @@ class TestGeometricPhaseJones:
         k_jones = GeometricPhaseJones(source_lmn, wavelengths)
 
         baseline_uvw = np.array([100.0, 50.0, 10.0])
-        jones = k_jones.compute_jones(0, 0, 0, 0, numpy_backend, baseline_uvw=baseline_uvw)
+        jones = k_jones.compute_jones(
+            0, 0, 0, 0, numpy_backend, baseline_uvw=baseline_uvw
+        )
 
         # Should be 2x2 diagonal with same value
         assert jones.shape == (2, 2)
@@ -145,12 +146,12 @@ class TestAnalyticBeamJones:
     def test_gaussian_beam_at_center(self, numpy_backend, frequencies):
         """Gaussian beam should be unity at center."""
         # Source at zenith (alt=90deg, az=0)
-        source_altaz = np.array([[np.pi/2, 0.0]])
+        source_altaz = np.array([[np.pi / 2, 0.0]])
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
             hpbw_radians=np.deg2rad(10.0),
-            beam_type="gaussian"
+            beam_type="gaussian",
         )
 
         jones = beam.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -168,7 +169,7 @@ class TestAnalyticBeamJones:
             source_altaz=source_altaz,
             frequencies=frequencies,
             hpbw_radians=hpbw,
-            beam_type="gaussian"
+            beam_type="gaussian",
         )
 
         jones = beam.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -179,12 +180,12 @@ class TestAnalyticBeamJones:
 
     def test_airy_beam(self, numpy_backend, frequencies):
         """Test Airy beam model."""
-        source_altaz = np.array([[np.pi/2, 0.0]])  # zenith
+        source_altaz = np.array([[np.pi / 2, 0.0]])  # zenith
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
             hpbw_radians=np.deg2rad(1.0),
-            beam_type="airy"
+            beam_type="airy",
         )
 
         jones = beam.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -193,12 +194,12 @@ class TestAnalyticBeamJones:
 
     def test_cosine_beam(self, numpy_backend, frequencies):
         """Test cosine beam model."""
-        source_altaz = np.array([[np.pi/2, 0.0]])  # zenith
+        source_altaz = np.array([[np.pi / 2, 0.0]])  # zenith
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
             hpbw_radians=np.deg2rad(60.0),
-            beam_type="cosine"
+            beam_type="cosine",
         )
 
         jones = beam.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -244,11 +245,7 @@ class TestGainJones:
     def test_time_variable_gains_stub(self, numpy_backend):
         """Test that time-varying gains stub returns identity at all times."""
         g_jones = TimeVariableGainJones(
-            n_antennas=4,
-            n_times=100,
-            amp_sigma=0.02,
-            phase_sigma=0.05,
-            seed=42
+            n_antennas=4, n_times=100, amp_sigma=0.02, phase_sigma=0.05, seed=42
         )
 
         # Stub always returns identity regardless of time
@@ -284,7 +281,9 @@ class TestBandpassJones:
         bandpass[:, :, 0, 0] = 0.9  # Slightly less than unity
         bandpass[:, :, 1, 1] = 0.8
 
-        b_jones = BandpassJones(n_antennas=n_antennas, frequencies=frequencies, bandpass_gains=bandpass)
+        b_jones = BandpassJones(
+            n_antennas=n_antennas, frequencies=frequencies, bandpass_gains=bandpass
+        )
 
         jones = b_jones.compute_jones(0, 0, 5, 0, numpy_backend)
 
@@ -297,14 +296,12 @@ class TestBandpassJones:
         b_jones = RFIFlaggedBandpassJones(n_antennas=4, frequencies=frequencies)
 
         # Stub does not have flag_channel() method
-        assert not hasattr(b_jones, 'flag_channel')
+        assert not hasattr(b_jones, "flag_channel")
 
     def test_polynomial_bandpass(self, numpy_backend, frequencies):
         """Test polynomial bandpass model."""
         b_jones = PolynomialBandpassJones(
-            n_antennas=4,
-            frequencies=frequencies,
-            poly_order=2
+            n_antennas=4, frequencies=frequencies, poly_order=2
         )
 
         # Default should be unity (constant term = 1)
@@ -328,10 +325,13 @@ class TestPolarizationLeakageJones:
 
     def test_custom_d_terms_ignored_stub(self, numpy_backend):
         """Test that custom D-terms are ignored in stub (always returns identity)."""
-        d_terms = np.array([
-            [0.05 + 0.02j, 0.03 - 0.01j],
-            [0.04 + 0.01j, 0.02 - 0.02j],
-        ], dtype=np.complex128)
+        d_terms = np.array(
+            [
+                [0.05 + 0.02j, 0.03 - 0.01j],
+                [0.04 + 0.01j, 0.02 - 0.02j],
+            ],
+            dtype=np.complex128,
+        )
 
         d_jones = PolarizationLeakageJones(n_antennas=2, d_terms=d_terms)
 
@@ -367,7 +367,7 @@ class TestParallacticAngleJones:
             antenna_latitudes=latitudes,
             source_positions=sources,
             times=times,
-            mount_type="equatorial"
+            mount_type="equatorial",
         )
 
         jones = p_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -388,7 +388,7 @@ class TestParallacticAngleJones:
             antenna_latitudes=latitudes,
             source_positions=sources,
             times=times,
-            mount_type="altaz"
+            mount_type="altaz",
         )
 
         jones = p_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -396,7 +396,7 @@ class TestParallacticAngleJones:
         # Check rotation matrix properties
         # |cos|^2 + |sin|^2 = 1
         np.testing.assert_almost_equal(
-            np.abs(jones[0, 0])**2 + np.abs(jones[0, 1])**2, 1.0
+            np.abs(jones[0, 0]) ** 2 + np.abs(jones[0, 1]) ** 2, 1.0
         )
 
         # Determinant should be 1 (pure rotation)
@@ -409,10 +409,7 @@ class TestIonosphereJones:
 
     def test_ionosphere_returns_identity(self, numpy_backend, frequencies):
         """Ionosphere stub should return identity."""
-        z_jones = IonosphereJones(
-            tec=np.array([1e16]),
-            frequencies=frequencies
-        )
+        z_jones = IonosphereJones(tec=np.array([1e16]), frequencies=frequencies)
 
         jones = z_jones.compute_jones(0, 0, 0, 0, numpy_backend)
 
@@ -438,11 +435,7 @@ class TestIonosphereJones:
     def test_turbulent_ionosphere_stub(self, numpy_backend, frequencies):
         """Test turbulent ionosphere stub."""
         z_jones = TurbulentIonosphereJones(
-            n_antennas=4,
-            n_sources=1,
-            frequencies=frequencies,
-            mean_tec=10.0,
-            seed=42
+            n_antennas=4, n_sources=1, frequencies=frequencies, mean_tec=10.0, seed=42
         )
 
         # Stub has n_antennas and n_sources but no tec_values array
@@ -458,7 +451,7 @@ class TestTroposphereJones:
         t_jones = TroposphereJones(
             n_antennas=4,
             frequencies=frequencies,
-            elevations=np.array([np.deg2rad(45.0)])
+            elevations=np.array([np.deg2rad(45.0)]),
         )
 
         jones = t_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -473,7 +466,7 @@ class TestTroposphereJones:
         t_jones = TroposphereJones(
             n_antennas=4,
             frequencies=frequencies,
-            elevations=np.array([np.deg2rad(45.0), np.deg2rad(30.0)])
+            elevations=np.array([np.deg2rad(45.0), np.deg2rad(30.0)]),
         )
 
         jones = t_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -503,7 +496,7 @@ class TestTroposphericOpacityJones:
         t_jones = TroposphericOpacityJones(
             n_antennas=4,
             frequencies=frequencies,
-            zenith_opacity=np.array([0.05, 0.06, 0.04, 0.07])
+            zenith_opacity=np.array([0.05, 0.06, 0.04, 0.07]),
         )
 
         jones = t_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -517,7 +510,7 @@ class TestTroposphericOpacityJones:
         t_jones = TroposphericOpacityJones(
             n_antennas=8,
             frequencies=frequencies,
-            zenith_opacity=np.linspace(0.05, 0.1, 8)
+            zenith_opacity=np.linspace(0.05, 0.1, 8),
         )
 
         jones = t_jones.compute_jones(0, 5, 0, 0, numpy_backend)
@@ -531,10 +524,7 @@ class TestFaradayRotationJones:
 
     def test_faraday_returns_identity(self, numpy_backend, frequencies):
         """Faraday rotation stub should return identity."""
-        f_jones = FaradayRotationJones(
-            rotation_measure=100.0,
-            frequencies=frequencies
-        )
+        f_jones = FaradayRotationJones(rotation_measure=100.0, frequencies=frequencies)
 
         jones = f_jones.compute_jones(0, 0, 0, 0, numpy_backend)
 
@@ -544,10 +534,7 @@ class TestFaradayRotationJones:
 
     def test_faraday_parameters_accepted(self, numpy_backend, frequencies):
         """Test that Faraday accepts all parameters without error."""
-        f_jones = FaradayRotationJones(
-            rotation_measure=50.0,
-            frequencies=frequencies
-        )
+        f_jones = FaradayRotationJones(rotation_measure=50.0, frequencies=frequencies)
 
         jones = f_jones.compute_jones(0, 0, 0, 0, numpy_backend)
 
@@ -556,9 +543,7 @@ class TestFaradayRotationJones:
     def test_differential_faraday_stub(self, numpy_backend, frequencies):
         """Test differential Faraday stub."""
         f_jones = DifferentialFaradayJones(
-            n_antennas=4,
-            n_sources=2,
-            frequencies=frequencies
+            n_antennas=4, n_sources=2, frequencies=frequencies
         )
 
         assert f_jones.n_antennas == 4
@@ -572,7 +557,7 @@ class TestWTermJones:
         """W-phase stub should return identity."""
         w_jones = WPhaseJones(
             source_lmn=np.array([[0.1, 0.0, np.sqrt(1 - 0.1**2)]]),
-            wavelengths=np.array([1.5])
+            wavelengths=np.array([1.5]),
         )
 
         jones = w_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -585,10 +570,10 @@ class TestWTermJones:
         w_jones = WProjectionJones(
             n_antennas=4,
             source_lmn=np.array([[0.0, 0.0, 1.0]]),
-            wavelengths=np.array([3.0])
+            wavelengths=np.array([3.0]),
         )
 
-        jones = w_jones.compute_jones(0, 0, 0, 0, numpy_backend)
+        w_jones.compute_jones(0, 0, 0, 0, numpy_backend)
 
         assert w_jones.n_antennas == 4
 
@@ -624,10 +609,7 @@ class TestReceptorConfigJones:
 
     def test_basis_transform_stub(self, numpy_backend):
         """Test basis transformation term."""
-        h_jones = BasisTransformJones(
-            from_basis="linear",
-            to_basis="circular"
-        )
+        h_jones = BasisTransformJones(from_basis="linear", to_basis="circular")
 
         jones = h_jones.compute_jones(0, 0, 0, 0, numpy_backend)
 
@@ -639,10 +621,7 @@ class TestElementBeamJones:
 
     def test_element_beam_returns_identity(self, numpy_backend, frequencies):
         """Element beam stub should return identity."""
-        ee_jones = ElementBeamJones(
-            n_antennas=4,
-            frequencies=frequencies
-        )
+        ee_jones = ElementBeamJones(n_antennas=4, frequencies=frequencies)
 
         jones = ee_jones.compute_jones(0, 0, 0, 0, numpy_backend)
 
@@ -650,11 +629,7 @@ class TestElementBeamJones:
 
     def test_array_factor_scalar(self, numpy_backend, frequencies):
         """Array factor stub should return identity."""
-        a_jones = ArrayFactorJones(
-            n_antennas=4,
-            n_elements=16,
-            frequencies=frequencies
-        )
+        a_jones = ArrayFactorJones(n_antennas=4, n_elements=16, frequencies=frequencies)
 
         jones = a_jones.compute_jones(0, 0, 0, 0, numpy_backend)
 
@@ -663,9 +638,7 @@ class TestElementBeamJones:
     def test_differential_beam_stub(self, numpy_backend, frequencies):
         """Test differential beam stub."""
         de_jones = DifferentialBeamJones(
-            n_antennas=4,
-            n_sources=2,
-            frequencies=frequencies
+            n_antennas=4, n_sources=2, frequencies=frequencies
         )
 
         jones = de_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -681,7 +654,7 @@ class TestDelayJones:
         kd_jones = DelayJones(
             n_antennas=4,
             delays=np.array([0.0, 1e-9, 2e-9, 3e-9]),
-            frequencies=frequencies
+            frequencies=frequencies,
         )
 
         jones = kd_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -694,7 +667,7 @@ class TestDelayJones:
             n_antennas=4,
             reflection_coeff=0.05,
             cable_delay=1e-8,
-            frequencies=frequencies
+            frequencies=frequencies,
         )
 
         jones = rc_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -707,9 +680,9 @@ class TestDelayJones:
             n_antennas=4,
             delays=np.array([0.0, 1e-9, 2e-9, 3e-9]),
             rates=np.array([0.0, 1e-6, 2e-6, 3e-6]),
-            phases=np.array([0.0, np.pi/4, np.pi/2, 3*np.pi/4]),
+            phases=np.array([0.0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]),
             frequencies=frequencies,
-            times=np.array([58000.0])
+            times=np.array([58000.0]),
         )
 
         jones = ff_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -722,7 +695,7 @@ class TestCrosshandJones:
 
     def test_crosshand_phase_returns_identity(self, numpy_backend):
         """Cross-hand phase stub should return identity."""
-        x_jones = CrosshandPhaseJones(phase_offset=np.pi/4)
+        x_jones = CrosshandPhaseJones(phase_offset=np.pi / 4)
 
         jones = x_jones.compute_jones(0, 0, 0, 0, numpy_backend)
 
@@ -730,10 +703,7 @@ class TestCrosshandJones:
 
     def test_crosshand_delay_stub(self, numpy_backend, frequencies):
         """Test cross-hand delay term."""
-        kx_jones = CrosshandDelayJones(
-            delay=1e-9,
-            frequencies=frequencies
-        )
+        kx_jones = CrosshandDelayJones(delay=1e-9, frequencies=frequencies)
 
         jones = kx_jones.compute_jones(0, 0, 0, 0, numpy_backend)
 
@@ -744,7 +714,7 @@ class TestCrosshandJones:
         df_jones = FrequencyDependentLeakageJones(
             n_antennas=4,
             frequencies=frequencies,
-            d_terms=np.array([0.05, 0.06, 0.04, 0.07])
+            d_terms=np.array([0.05, 0.06, 0.04, 0.07]),
         )
 
         jones = df_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -770,7 +740,7 @@ class TestBaselineTerms:
             source_idx=0,
             freq_idx=0,
             time_idx=0,
-            backend=numpy_backend
+            backend=numpy_backend,
         )
 
         # Stub always returns identity
@@ -779,10 +749,7 @@ class TestBaselineTerms:
 
     def test_smearing_factor_returns_identity(self, numpy_backend):
         """Smearing factor stub should return identity."""
-        q_jones = SmearingFactorJones(
-            time_smearing=True,
-            bandwidth_smearing=True
-        )
+        q_jones = SmearingFactorJones(time_smearing=True, bandwidth_smearing=True)
 
         result = q_jones.compute_baseline_term(
             antenna_p=0,
@@ -790,7 +757,7 @@ class TestBaselineTerms:
             source_idx=0,
             freq_idx=0,
             time_idx=0,
-            backend=numpy_backend
+            backend=numpy_backend,
         )
 
         np.testing.assert_almost_equal(result[0, 0], 1.0)
@@ -812,8 +779,7 @@ class TestElevationGainJones:
     def test_elevation_gain_returns_identity(self, numpy_backend):
         """Elevation gain stub should return identity."""
         eg_jones = ElevationGainJones(
-            n_antennas=4,
-            gain_curve_coeffs=np.array([1.0, 0.5, 0.1])
+            n_antennas=4, gain_curve_coeffs=np.array([1.0, 0.5, 0.1])
         )
 
         jones = eg_jones.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -873,8 +839,7 @@ class TestJonesChain:
 
         # Chain should combine all terms
         jones = chain.compute_antenna_jones(
-            0, 0, 0, 0,
-            baseline_uvw=np.array([100.0, 0.0, 0.0])
+            0, 0, 0, 0, baseline_uvw=np.array([100.0, 0.0, 0.0])
         )
 
         # Stubs all return identity, so result should be identity
@@ -894,10 +859,13 @@ class TestJonesChain:
         coherency = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.complex128)
 
         vis = chain.compute_baseline_visibility(
-            antenna_p=0, antenna_q=1,
-            source_idx=0, freq_idx=0, time_idx=0,
+            antenna_p=0,
+            antenna_q=1,
+            source_idx=0,
+            freq_idx=0,
+            time_idx=0,
             coherency_matrix=coherency,
-            baseline_uvw=np.array([100.0, 0.0, 0.0])
+            baseline_uvw=np.array([100.0, 0.0, 0.0]),
         )
 
         # Result should be 2x2 visibility matrix
@@ -911,12 +879,12 @@ class TestJonesChain:
         g_jones = GainJones(n_antennas=4)
         assert not g_jones.is_direction_dependent
 
-        source_altaz = np.array([[np.pi/2, 0.0]])
+        source_altaz = np.array([[np.pi / 2, 0.0]])
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
             hpbw_radians=np.deg2rad(10.0),
-            beam_type="gaussian"
+            beam_type="gaussian",
         )
         assert beam.is_direction_dependent
 
@@ -996,11 +964,13 @@ class TestComputeJonesAllSources:
 
     def test_geometric_all_sources_vectorized(self, numpy_backend, wavelengths):
         """GeometricPhaseJones vectorized override should match per-source loop."""
-        source_lmn = np.array([
-            [0.0, 0.0, 1.0],
-            [0.1, 0.0, np.sqrt(1 - 0.1**2)],
-            [0.05, 0.05, np.sqrt(1 - 0.05**2 - 0.05**2)],
-        ])
+        source_lmn = np.array(
+            [
+                [0.0, 0.0, 1.0],
+                [0.1, 0.0, np.sqrt(1 - 0.1**2)],
+                [0.05, 0.05, np.sqrt(1 - 0.05**2 - 0.05**2)],
+            ]
+        )
         k = GeometricPhaseJones(source_lmn, wavelengths)
         baseline_uvw = np.array([100.0, 50.0, 10.0])
 
@@ -1031,11 +1001,13 @@ class TestComputeJonesAllSources:
 
     def test_analytic_beam_all_sources_vectorized(self, numpy_backend, frequencies):
         """AnalyticBeamJones vectorized override should match per-source."""
-        source_altaz = np.array([
-            [np.pi / 2, 0.0],       # Zenith
-            [np.deg2rad(85), 0.0],   # 5 deg off
-            [np.deg2rad(70), 0.0],   # 20 deg off
-        ])
+        source_altaz = np.array(
+            [
+                [np.pi / 2, 0.0],  # Zenith
+                [np.deg2rad(85), 0.0],  # 5 deg off
+                [np.deg2rad(70), 0.0],  # 20 deg off
+            ]
+        )
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
@@ -1044,9 +1016,7 @@ class TestComputeJonesAllSources:
         )
 
         # Vectorized
-        result_vec = beam.compute_jones_all_sources(
-            0, 3, 0, 0, numpy_backend
-        )
+        result_vec = beam.compute_jones_all_sources(0, 3, 0, 0, numpy_backend)
 
         # Per-source loop
         result_loop = np.zeros((3, 2, 2), dtype=np.complex128)
@@ -1058,11 +1028,13 @@ class TestComputeJonesAllSources:
 
     def test_uniform_beam_all_sources(self, numpy_backend, frequencies):
         """Uniform beam should return identity for all sources."""
-        source_altaz = np.array([
-            [np.deg2rad(45), 0.0],
-            [np.deg2rad(30), np.pi / 4],
-            [np.deg2rad(80), np.pi],
-        ])
+        source_altaz = np.array(
+            [
+                [np.deg2rad(45), 0.0],
+                [np.deg2rad(30), np.pi / 4],
+                [np.deg2rad(80), np.pi],
+            ]
+        )
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
@@ -1107,10 +1079,12 @@ class TestComputeAntennaJonesAllSources:
 
     def test_dd_and_di_terms(self, numpy_backend, frequencies):
         """Chain with DDE and DIE terms should combine correctly."""
-        source_altaz = np.array([
-            [np.pi / 2, 0.0],
-            [np.deg2rad(80), 0.0],
-        ])
+        source_altaz = np.array(
+            [
+                [np.pi / 2, 0.0],
+                [np.deg2rad(80), 0.0],
+            ]
+        )
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
@@ -1133,14 +1107,18 @@ class TestComputeAntennaJonesAllSources:
 
     def test_matches_per_source_loop(self, numpy_backend, frequencies, wavelengths):
         """Vectorized chain should match per-source compute_antenna_jones."""
-        source_lmn = np.array([
-            [0.0, 0.0, 1.0],
-            [0.1, 0.0, np.sqrt(1 - 0.1**2)],
-        ])
-        source_altaz = np.array([
-            [np.pi / 2, 0.0],
-            [np.deg2rad(84), 0.0],
-        ])
+        source_lmn = np.array(
+            [
+                [0.0, 0.0, 1.0],
+                [0.1, 0.0, np.sqrt(1 - 0.1**2)],
+            ]
+        )
+        source_altaz = np.array(
+            [
+                [np.pi / 2, 0.0],
+                [np.deg2rad(84), 0.0],
+            ]
+        )
 
         k = GeometricPhaseJones(source_lmn, wavelengths)
         beam = AnalyticBeamJones(
@@ -1182,16 +1160,20 @@ class TestIntegration:
         n_sources = 2
 
         # Create sources
-        source_lmn = np.array([
-            [0.0, 0.0, 1.0],  # Zenith
-            [0.1, 0.05, np.sqrt(1 - 0.1**2 - 0.05**2)]  # Off-axis
-        ])
+        source_lmn = np.array(
+            [
+                [0.0, 0.0, 1.0],  # Zenith
+                [0.1, 0.05, np.sqrt(1 - 0.1**2 - 0.05**2)],  # Off-axis
+            ]
+        )
 
         # Source altaz for beam
-        source_altaz = np.array([
-            [np.pi/2, 0.0],  # Zenith
-            [np.deg2rad(84), 0.0]  # Off-axis
-        ])
+        source_altaz = np.array(
+            [
+                [np.pi / 2, 0.0],  # Zenith
+                [np.deg2rad(84), 0.0],  # Off-axis
+            ]
+        )
 
         # Create Jones terms
         k_jones = GeometricPhaseJones(source_lmn, wavelengths)
@@ -1200,7 +1182,7 @@ class TestIntegration:
             source_altaz=source_altaz,
             frequencies=frequencies,
             hpbw_radians=np.deg2rad(20.0),
-            beam_type="gaussian"
+            beam_type="gaussian",
         )
 
         g_jones = GainJones(n_antennas=n_antennas)
@@ -1221,10 +1203,13 @@ class TestIntegration:
         # Both sources should contribute
         for src in range(n_sources):
             vis = chain.compute_baseline_visibility(
-                antenna_p=0, antenna_q=1,
-                source_idx=src, freq_idx=0, time_idx=0,
+                antenna_p=0,
+                antenna_q=1,
+                source_idx=src,
+                freq_idx=0,
+                time_idx=0,
                 coherency_matrix=coherency,
-                baseline_uvw=baseline_uvw
+                baseline_uvw=baseline_uvw,
             )
 
             assert vis.shape == (2, 2)

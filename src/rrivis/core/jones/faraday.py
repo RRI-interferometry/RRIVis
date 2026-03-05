@@ -8,7 +8,8 @@ The rotation angle is proportional to RM·λ²:
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
@@ -29,13 +30,15 @@ class FaradayRotationJones(JonesTerm):
 
     def __init__(
         self,
-        rotation_measure: Optional[float] = None,
-        frequencies: Optional[np.ndarray] = None,
-        **kwargs
+        rotation_measure: float | None = None,
+        frequencies: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize Faraday rotation Jones term (stub)."""
         self.rotation_measure = rotation_measure
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
 
     @property
     def name(self) -> str:
@@ -51,11 +54,11 @@ class FaradayRotationJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute Faraday rotation Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -69,8 +72,8 @@ class DifferentialFaradayJones(FaradayRotationJones):
         self,
         n_antennas: int,
         n_sources: int,
-        frequencies: Optional[np.ndarray] = None,
-        **kwargs
+        frequencies: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize differential Faraday rotation Jones term (stub)."""
         super().__init__(frequencies=frequencies)

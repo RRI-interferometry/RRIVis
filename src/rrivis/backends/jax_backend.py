@@ -23,7 +23,8 @@ Note: JAX does not support float128/complex256. Precision configurations
 requesting float128 will automatically fall back to float64 with a warning.
 """
 
-from typing import Any, Dict, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Union
+
 import numpy as np
 
 from rrivis.backends.base import ArrayBackend, BackendNotAvailableError
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 try:
     import jax
     import jax.numpy as jnp
+
     JAX_AVAILABLE = True
 except ImportError:
     jax = None
@@ -71,7 +73,7 @@ class JAXBackend(ArrayBackend):
     def __init__(
         self,
         device: str = "gpu",
-        precision: Optional[Union["PrecisionConfig", str]] = None,
+        precision: Union["PrecisionConfig", str] | None = None,
     ):
         """Initialize JAX backend.
 
@@ -117,21 +119,20 @@ class JAXBackend(ArrayBackend):
                 try:
                     self.devices = jax.devices("cpu")
                     self._device_type = "cpu"
-                except RuntimeError:
+                except RuntimeError as e:
                     raise BackendNotAvailableError(
                         f"No {device} devices available and CPU fallback failed."
-                    )
+                    ) from e
 
         if self.devices:
             self.device = self.devices[0]
         else:
-            raise BackendNotAvailableError(
-                f"No devices available for JAX backend."
-            )
+            raise BackendNotAvailableError("No devices available for JAX backend.")
 
         # Resolve and set precision (with float128 fallback warning)
         if precision is not None:
             from rrivis.core.precision import resolve_precision
+
             self.precision = resolve_precision(precision)
 
     @property
@@ -157,11 +158,7 @@ class JAXBackend(ArrayBackend):
     # Array Creation and Conversion
     # =========================================================================
 
-    def asarray(
-        self,
-        arr: Any,
-        dtype: Optional[Any] = None
-    ) -> Any:
+    def asarray(self, arr: Any, dtype: Any | None = None) -> Any:
         """Convert to JAX array on target device.
 
         Args:
@@ -266,7 +263,7 @@ class JAXBackend(ArrayBackend):
         """
         del arr
 
-    def memory_info(self) -> Dict[str, Any]:
+    def memory_info(self) -> dict[str, Any]:
         """Get device memory information.
 
         Returns:
@@ -288,7 +285,7 @@ class JAXBackend(ArrayBackend):
 
         return info
 
-    def get_device_info(self) -> Dict[str, Any]:
+    def get_device_info(self) -> dict[str, Any]:
         """Get detailed device information.
 
         Returns:

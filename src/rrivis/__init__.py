@@ -27,12 +27,12 @@ For more information, see https://github.com/kartikmandar/RRIvis
 """
 
 from rrivis.__about__ import (
-    __version__,
-    __version_info__,
     __author__,
+    __description__,
     __email__,
     __license__,
-    __description__,
+    __version__,
+    __version_info__,
 )
 
 # High-level API
@@ -43,10 +43,10 @@ from rrivis.backends import get_backend, list_backends
 
 # Simulator selection
 from rrivis.simulator import (
+    RIMESimulator,
+    VisibilitySimulator,
     get_simulator,
     list_simulators,
-    VisibilitySimulator,
-    RIMESimulator,
 )
 
 # Core functions (for advanced users)
@@ -55,9 +55,10 @@ from rrivis.simulator import (
 try:
     from rrivis.core import (
         calculate_visibility,
-        read_antenna_positions,
         generate_baselines,
+        read_antenna_positions,
     )
+
     _CORE_AVAILABLE = True
 except ImportError:
     _CORE_AVAILABLE = False

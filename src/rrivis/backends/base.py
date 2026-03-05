@@ -10,7 +10,8 @@ Supported backends:
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Tuple, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
+
 import numpy as np
 
 if TYPE_CHECKING:
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
 
 class BackendNotAvailableError(Exception):
     """Raised when a requested backend is not available on this system."""
+
     pass
 
 
@@ -67,7 +69,8 @@ class ArrayBackend(ABC):
             warnings_list = value.validate_for_backend(self.backend_type)
             for warning in warnings_list:
                 import warnings as warn_module
-                warn_module.warn(warning, UserWarning)
+
+                warn_module.warn(warning, UserWarning, stacklevel=2)
 
     @property
     def backend_type(self) -> str:
@@ -77,8 +80,8 @@ class ArrayBackend(ABC):
 
     def get_real_dtype(
         self,
-        component: Optional[str] = None,
-        sub_component: Optional[str] = None,
+        component: str | None = None,
+        sub_component: str | None = None,
     ) -> Any:
         """Get real dtype based on precision config.
 
@@ -97,17 +100,14 @@ class ArrayBackend(ABC):
         if self._precision is None:
             return np.float64
 
-        from rrivis.core.precision import get_real_dtype
         return self._precision.get_real_dtype(
-            component or "default",
-            sub_component,
-            self.backend_type
+            component or "default", sub_component, self.backend_type
         )
 
     def get_complex_dtype(
         self,
-        component: Optional[str] = None,
-        sub_component: Optional[str] = None,
+        component: str | None = None,
+        sub_component: str | None = None,
     ) -> Any:
         """Get complex dtype based on precision config.
 
@@ -127,9 +127,7 @@ class ArrayBackend(ABC):
             return np.complex128
 
         return self._precision.get_complex_dtype(
-            component or "default",
-            sub_component,
-            self.backend_type
+            component or "default", sub_component, self.backend_type
         )
 
     @property
@@ -182,11 +180,7 @@ class ArrayBackend(ABC):
     # =========================================================================
 
     @abstractmethod
-    def asarray(
-        self,
-        arr: Any,
-        dtype: Optional[Any] = None
-    ) -> Any:
+    def asarray(self, arr: Any, dtype: Any | None = None) -> Any:
         """Convert input to backend array.
 
         Args:
@@ -212,11 +206,7 @@ class ArrayBackend(ABC):
         """
         pass
 
-    def zeros(
-        self,
-        shape: Tuple[int, ...],
-        dtype: Optional[Any] = None
-    ) -> Any:
+    def zeros(self, shape: tuple[int, ...], dtype: Any | None = None) -> Any:
         """Create array of zeros.
 
         Args:
@@ -230,11 +220,7 @@ class ArrayBackend(ABC):
             dtype = self.default_real_dtype
         return self.xp.zeros(shape, dtype=dtype)
 
-    def zeros_complex(
-        self,
-        shape: Tuple[int, ...],
-        dtype: Optional[Any] = None
-    ) -> Any:
+    def zeros_complex(self, shape: tuple[int, ...], dtype: Any | None = None) -> Any:
         """Create complex array of zeros.
 
         Args:
@@ -248,11 +234,7 @@ class ArrayBackend(ABC):
             dtype = self.default_complex_dtype
         return self.xp.zeros(shape, dtype=dtype)
 
-    def ones(
-        self,
-        shape: Tuple[int, ...],
-        dtype: Optional[Any] = None
-    ) -> Any:
+    def ones(self, shape: tuple[int, ...], dtype: Any | None = None) -> Any:
         """Create array of ones.
 
         Args:
@@ -266,11 +248,7 @@ class ArrayBackend(ABC):
             dtype = self.default_real_dtype
         return self.xp.ones(shape, dtype=dtype)
 
-    def eye(
-        self,
-        n: int,
-        dtype: Optional[Any] = None
-    ) -> Any:
+    def eye(self, n: int, dtype: Any | None = None) -> Any:
         """Create identity matrix.
 
         Args:
@@ -284,11 +262,7 @@ class ArrayBackend(ABC):
             dtype = self.default_real_dtype
         return self.xp.eye(n, dtype=dtype)
 
-    def eye_complex(
-        self,
-        n: int,
-        dtype: Optional[Any] = None
-    ) -> Any:
+    def eye_complex(self, n: int, dtype: Any | None = None) -> Any:
         """Create complex identity matrix (useful for Jones matrices).
 
         Args:
@@ -400,7 +374,7 @@ class ArrayBackend(ABC):
         """
         return self.xp.abs(x)
 
-    def sum(self, x: Any, axis: Optional[int] = None) -> Any:
+    def sum(self, x: Any, axis: int | None = None) -> Any:
         """Sum of array elements.
 
         Args:
@@ -470,7 +444,7 @@ class ArrayBackend(ABC):
         pass
 
     @abstractmethod
-    def memory_info(self) -> Dict[str, Any]:
+    def memory_info(self) -> dict[str, Any]:
         """Get memory usage statistics.
 
         Returns:
@@ -483,7 +457,7 @@ class ArrayBackend(ABC):
         pass
 
     @abstractmethod
-    def get_device_info(self) -> Dict[str, Any]:
+    def get_device_info(self) -> dict[str, Any]:
         """Get device information.
 
         Returns:
@@ -503,9 +477,9 @@ class ArrayBackend(ABC):
         """Wait for all pending operations to complete.
 
         Important for GPU/TPU backends where operations are asynchronous.
-        CPU backends can implement as no-op.
+        CPU backends can implement as no-op (default).
         """
-        pass  # Default no-op for CPU backends
+        return
 
     # =========================================================================
     # Backend Info
@@ -515,7 +489,7 @@ class ArrayBackend(ABC):
         """String representation."""
         return f"{self.__class__.__name__}(name='{self.name}')"
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Get backend configuration.
 
         Returns:

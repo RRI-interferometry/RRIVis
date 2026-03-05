@@ -11,7 +11,8 @@ transformations for polarimetric imaging.
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
@@ -32,13 +33,17 @@ class WPhaseJones(JonesTerm):
 
     def __init__(
         self,
-        source_lmn: Optional[np.ndarray] = None,
-        wavelengths: Optional[np.ndarray] = None,
-        **kwargs
+        source_lmn: np.ndarray | None = None,
+        wavelengths: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize W-phase Jones term (stub)."""
-        self.source_lmn = np.asarray(source_lmn) if source_lmn is not None else np.array([])
-        self.wavelengths = np.asarray(wavelengths) if wavelengths is not None else np.array([])
+        self.source_lmn = (
+            np.asarray(source_lmn) if source_lmn is not None else np.array([])
+        )
+        self.wavelengths = (
+            np.asarray(wavelengths) if wavelengths is not None else np.array([])
+        )
 
     @property
     def name(self) -> str:
@@ -57,11 +62,11 @@ class WPhaseJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute W-phase Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -74,9 +79,9 @@ class WProjectionJones(WPhaseJones):
     def __init__(
         self,
         n_antennas: int,
-        source_lmn: Optional[np.ndarray] = None,
-        wavelengths: Optional[np.ndarray] = None,
-        **kwargs
+        source_lmn: np.ndarray | None = None,
+        wavelengths: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize W-projection Jones term (stub)."""
         super().__init__(source_lmn=source_lmn, wavelengths=wavelengths)
@@ -94,13 +99,11 @@ class WidefieldPolarimetricJones(JonesTerm):
         Additional parameters (ignored)
     """
 
-    def __init__(
-        self,
-        source_lmn: Optional[np.ndarray] = None,
-        **kwargs
-    ):
+    def __init__(self, source_lmn: np.ndarray | None = None, **kwargs):
         """Initialize wide-field polarimetric Jones term (stub)."""
-        self.source_lmn = np.asarray(source_lmn) if source_lmn is not None else np.array([])
+        self.source_lmn = (
+            np.asarray(source_lmn) if source_lmn is not None else np.array([])
+        )
 
     @property
     def name(self) -> str:
@@ -113,11 +116,11 @@ class WidefieldPolarimetricJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute wide-field polarimetric Jones matrix (stub returns identity)."""
         xp = backend.xp

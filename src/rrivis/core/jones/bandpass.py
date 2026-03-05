@@ -4,7 +4,8 @@ Bandpass Jones term (B) for frequency-dependent instrumental response.
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from .base import JonesTerm
@@ -27,7 +28,7 @@ class BandpassJones(JonesTerm):
         self,
         n_antennas: int,
         frequencies: np.ndarray,
-        bandpass_gains: Optional[np.ndarray] = None
+        bandpass_gains: np.ndarray | None = None,
     ):
         self.n_antennas = n_antennas
         self.frequencies = np.asarray(frequencies)
@@ -47,7 +48,7 @@ class BandpassJones(JonesTerm):
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute bandpass Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -57,34 +58,19 @@ class BandpassJones(JonesTerm):
 class PolynomialBandpassJones(BandpassJones):
     """Stub: Bandpass model using polynomial representation. TODO: implement properly."""
 
-    def __init__(
-        self,
-        n_antennas: int,
-        frequencies: np.ndarray,
-        **kwargs
-    ):
+    def __init__(self, n_antennas: int, frequencies: np.ndarray, **kwargs):
         super().__init__(n_antennas, frequencies)
 
 
 class SplineBandpassJones(BandpassJones):
     """Stub: Bandpass model using cubic spline interpolation. TODO: implement properly."""
 
-    def __init__(
-        self,
-        n_antennas: int,
-        frequencies: np.ndarray,
-        **kwargs
-    ):
+    def __init__(self, n_antennas: int, frequencies: np.ndarray, **kwargs):
         super().__init__(n_antennas, frequencies)
 
 
 class RFIFlaggedBandpassJones(BandpassJones):
     """Stub: Bandpass with RFI flagging support. TODO: implement properly."""
 
-    def __init__(
-        self,
-        n_antennas: int,
-        frequencies: np.ndarray,
-        **kwargs
-    ):
+    def __init__(self, n_antennas: int, frequencies: np.ndarray, **kwargs):
         super().__init__(n_antennas, frequencies)

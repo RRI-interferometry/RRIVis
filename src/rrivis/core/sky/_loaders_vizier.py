@@ -93,8 +93,8 @@ class _VizierLoadersMixin:
             )
 
         is_sexagesimal = info.get("coords_sexagesimal", False)
-        coord_frame    = info.get("coord_frame", "icrs")
-        flux_unit      = info.get("flux_unit", "Jy")
+        coord_frame = info.get("coord_frame", "icrs")
+        flux_unit = info.get("flux_unit", "Jy")
         spindex_from_cols = info.get("spindex_from_cols")
 
         # Auto-detect sexagesimal coordinates: if the first valid RA value is a
@@ -124,13 +124,25 @@ class _VizierLoadersMixin:
         flux_valid = np.isfinite(flux_jy_raw) & (flux_jy_raw >= flux_limit)
 
         if not np.any(flux_valid):
-            logger.info(f"{catalog_key.upper()}: no sources above flux limit {flux_limit} Jy")
+            logger.info(
+                f"{catalog_key.upper()}: no sources above flux limit {flux_limit} Jy"
+            )
             return _empty()
 
         if is_sexagesimal:
-            ra_strs  = [str(row[info["ra_col"]])  for i, row in enumerate(catalog) if flux_valid[i]]
-            dec_strs = [str(row[info["dec_col"]]) for i, row in enumerate(catalog) if flux_valid[i]]
-            sc = SkyCoord(ra_strs, dec_strs, unit=(u.hourangle, u.deg), frame=coord_frame)
+            ra_strs = [
+                str(row[info["ra_col"]])
+                for i, row in enumerate(catalog)
+                if flux_valid[i]
+            ]
+            dec_strs = [
+                str(row[info["dec_col"]])
+                for i, row in enumerate(catalog)
+                if flux_valid[i]
+            ]
+            sc = SkyCoord(
+                ra_strs, dec_strs, unit=(u.hourangle, u.deg), frame=coord_frame
+            )
         else:
             ra_list, dec_list = [], []
             coord_ok = np.ones(n_rows, dtype=bool)
@@ -140,7 +152,7 @@ class _VizierLoadersMixin:
                     ra_list.append(0.0)
                     dec_list.append(0.0)
                     continue
-                ra_val  = row[info["ra_col"]]
+                ra_val = row[info["ra_col"]]
                 dec_val = row[info["dec_col"]]
                 if np.ma.is_masked(ra_val) or np.ma.is_masked(dec_val):
                     coord_ok[i] = False
@@ -165,7 +177,7 @@ class _VizierLoadersMixin:
         if coord_frame != "icrs":
             sc = sc.icrs
 
-        ra_rad  = sc.ra.rad
+        ra_rad = sc.ra.rad
         dec_rad = sc.dec.rad
         flux_jy = flux_jy_raw[flux_valid]
         n = len(flux_jy)
@@ -177,20 +189,26 @@ class _VizierLoadersMixin:
 
         if spindex_from_cols is not None:
             # Two-frequency log-slope (e.g. AT20G)
-            s_low_col  = spindex_from_cols["s_low"]
+            s_low_col = spindex_from_cols["s_low"]
             s_high_col = spindex_from_cols["s_high"]
-            freq_low   = spindex_from_cols["freq_low_hz"]
-            freq_high  = spindex_from_cols["freq_high_hz"]
+            freq_low = spindex_from_cols["freq_low_hz"]
+            freq_high = spindex_from_cols["freq_high_hz"]
             if s_low_col in catalog.colnames and s_high_col in catalog.colnames:
                 for j, i in enumerate(valid_indices):
                     row = rows_list[i]
-                    sl = row[s_low_col]; sh = row[s_high_col]
+                    sl = row[s_low_col]
+                    sh = row[s_high_col]
                     if (
-                        not np.ma.is_masked(sl) and not np.ma.is_masked(sh)
-                        and np.isfinite(float(sl)) and np.isfinite(float(sh))
-                        and float(sl) > 0 and float(sh) > 0
+                        not np.ma.is_masked(sl)
+                        and not np.ma.is_masked(sh)
+                        and np.isfinite(float(sl))
+                        and np.isfinite(float(sh))
+                        and float(sl) > 0
+                        and float(sh) > 0
                     ):
-                        alpha_arr[j] = np.log(float(sl) / float(sh)) / np.log(freq_low / freq_high)
+                        alpha_arr[j] = np.log(float(sl) / float(sh)) / np.log(
+                            freq_low / freq_high
+                        )
         elif info.get("spindex_col") and info["spindex_col"] in catalog.colnames:
             for j, i in enumerate(valid_indices):
                 row = rows_list[i]
@@ -198,7 +216,9 @@ class _VizierLoadersMixin:
                 if not np.ma.is_masked(val) and np.isfinite(float(val)):
                     alpha_arr[j] = float(val)
 
-        logger.info(f"{catalog_key.upper()} loaded: {n:,} sources (flux >= {flux_limit} Jy)")
+        logger.info(
+            f"{catalog_key.upper()} loaded: {n:,} sources (flux >= {flux_limit} Jy)"
+        )
 
         sky = cls(
             _ra_rad=ra_rad,
@@ -267,7 +287,9 @@ class _VizierLoadersMixin:
             raise ValueError(
                 f"Unknown GLEAM catalog '{catalog}'. Available: {_gleam_keys}"
             )
-        return cls._load_from_vizier_catalog(key, flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            key, flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_mals(
@@ -300,7 +322,9 @@ class _VizierLoadersMixin:
             raise ValueError(
                 f"Unknown MALS release '{release}'. Available: 'dr1', 'dr2', 'dr3'."
             )
-        return cls._load_from_vizier_catalog(key, flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            key, flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_vlssr(
@@ -328,7 +352,9 @@ class _VizierLoadersMixin:
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("vlssr", flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            "vlssr", flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_tgss(
@@ -357,7 +383,9 @@ class _VizierLoadersMixin:
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("tgss", flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            "tgss", flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_wenss(
@@ -385,7 +413,9 @@ class _VizierLoadersMixin:
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("wenss", flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            "wenss", flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_sumss(
@@ -413,7 +443,9 @@ class _VizierLoadersMixin:
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("sumss", flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            "sumss", flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_nvss(
@@ -442,7 +474,9 @@ class _VizierLoadersMixin:
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("nvss", flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            "nvss", flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_first(
@@ -470,7 +504,9 @@ class _VizierLoadersMixin:
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("first", flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            "first", flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_lotss(
@@ -509,10 +545,11 @@ class _VizierLoadersMixin:
         key = f"lotss_{release.lower()}"
         if key not in VIZIER_POINT_CATALOGS:
             raise ValueError(
-                f"Unknown LoTSS release '{release}'. "
-                f"Available: 'dr1', 'dr2'."
+                f"Unknown LoTSS release '{release}'. Available: 'dr1', 'dr2'."
             )
-        return cls._load_from_vizier_catalog(key, flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            key, flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_at20g(
@@ -541,7 +578,9 @@ class _VizierLoadersMixin:
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("at20g", flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            "at20g", flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_3c(
@@ -570,7 +609,9 @@ class _VizierLoadersMixin:
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("3c", flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            "3c", flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_gb6(
@@ -598,7 +639,9 @@ class _VizierLoadersMixin:
         -------
         SkyModel
         """
-        return cls._load_from_vizier_catalog("gb6", flux_limit, brightness_conversion, precision)
+        return cls._load_from_vizier_catalog(
+            "gb6", flux_limit, brightness_conversion, precision
+        )
 
     @classmethod
     def from_racs(
@@ -642,8 +685,7 @@ class _VizierLoadersMixin:
         band = band.lower()
         if band not in RACS_CATALOGS:
             raise ValueError(
-                f"Unknown RACS band '{band}'. "
-                f"Available: {sorted(RACS_CATALOGS.keys())}"
+                f"Unknown RACS band '{band}'. Available: {sorted(RACS_CATALOGS.keys())}"
             )
 
         info = RACS_CATALOGS[band]
@@ -678,7 +720,7 @@ class _VizierLoadersMixin:
                 flux_jy = float(flux_mjy) * 1e-3
                 if flux_jy < flux_limit:
                     continue
-                ra_val  = row[info["ra_col"]]
+                ra_val = row[info["ra_col"]]
                 dec_val = row[info["dec_col"]]
                 if np.ma.is_masked(ra_val) or np.ma.is_masked(dec_val):
                     continue
@@ -733,7 +775,9 @@ class _VizierLoadersMixin:
         >>> for name, desc in SkyModel.list_point_catalogs().items():
         ...     print(f"{name}: {desc[:80]}...")
         """
-        return {name: info["description"] for name, info in VIZIER_POINT_CATALOGS.items()}
+        return {
+            name: info["description"] for name, info in VIZIER_POINT_CATALOGS.items()
+        }
 
     @staticmethod
     def list_racs_catalogs() -> dict[str, str]:

@@ -4,26 +4,26 @@ These tests verify the MS reading and writing capabilities.
 Tests are skipped if python-casacore is not installed.
 """
 
-import pytest
-import numpy as np
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 
+import numpy as np
+import pytest
+from astropy import units as u
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
-from astropy import units as u
-
 
 # Check for MS dependencies
 try:
     from rrivis.io.measurement_set import (
-        write_ms,
-        read_ms,
-        ms_info,
-        PYUVDATA_AVAILABLE,
         CASACORE_AVAILABLE,
+        PYUVDATA_AVAILABLE,
+        ms_info,
+        read_ms,
+        write_ms,
     )
+
     MS_AVAILABLE = PYUVDATA_AVAILABLE and CASACORE_AVAILABLE
 except ImportError:
     MS_AVAILABLE = False
@@ -31,7 +31,7 @@ except ImportError:
 # Skip all tests in this module if MS dependencies not available
 pytestmark = pytest.mark.skipif(
     not MS_AVAILABLE,
-    reason="python-casacore not available. Install with: pip install python-casacore"
+    reason="python-casacore not available. Install with: pip install python-casacore",
 )
 
 
@@ -54,8 +54,12 @@ def sample_visibilities():
                 # Cross-correlations are complex
                 vis_xx = np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
                 vis_yy = np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
-                vis_xy = np.random.randn(n_freqs) * 0.1 + 1j * np.random.randn(n_freqs) * 0.1
-                vis_yx = np.random.randn(n_freqs) * 0.1 + 1j * np.random.randn(n_freqs) * 0.1
+                vis_xy = (
+                    np.random.randn(n_freqs) * 0.1 + 1j * np.random.randn(n_freqs) * 0.1
+                )
+                vis_yx = (
+                    np.random.randn(n_freqs) * 0.1 + 1j * np.random.randn(n_freqs) * 0.1
+                )
 
             visibilities[(ant1, ant2)] = {
                 "XX": vis_xx,

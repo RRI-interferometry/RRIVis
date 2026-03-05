@@ -5,7 +5,7 @@ Terms combine multiplicatively: J_total = J_n @ J_{n-1} @ ... @ J_1
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 
@@ -64,8 +64,9 @@ class JonesTerm(ABC):
         ...     def is_direction_dependent(self) -> bool:
         ...         return False
         ...
-        ...     def compute_jones(self, antenna_idx, source_idx, freq_idx,
-        ...                       time_idx, backend, **kwargs):
+        ...     def compute_jones(
+        ...         self, antenna_idx, source_idx, freq_idx, time_idx, backend, **kwargs
+        ...     ):
         ...         return backend.xp.eye(2, dtype=complex)
     """
 
@@ -132,11 +133,11 @@ class JonesTerm(ABC):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute 2x2 Jones matrix for this effect.
 
@@ -228,7 +229,7 @@ class JonesTerm(ABC):
             )
         return result
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Get configuration dictionary for this Jones term.
 
         Used for serialization, logging, and reproducibility.

@@ -1,12 +1,14 @@
 # tests/test_visibility.py
 
+import sys
 import unittest
+
+import astropy.units as u
 import numpy as np
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
-import astropy.units as u
+
 from rrivis.core.visibility import calculate_visibility
-import sys
 
 
 class TestVisibilityOptimized(unittest.TestCase):
@@ -94,7 +96,9 @@ class TestVisibilityOptimized(unittest.TestCase):
         )
         for key, vis in visibilities.items():
             # vis is now a dict with correlation products
-            self.assertIsInstance(vis, dict, f"Visibility for {key} should be a dict of correlations")
+            self.assertIsInstance(
+                vis, dict, f"Visibility for {key} should be a dict of correlations"
+            )
             self.assertIn("I", vis, f"Visibility for {key} should have Stokes I")
             self.assertEqual(
                 vis["I"].shape[-1],
@@ -102,7 +106,8 @@ class TestVisibilityOptimized(unittest.TestCase):
                 f"Mismatch in the number of frequencies for baseline {key}.",
             )
             self.assertTrue(
-                np.iscomplexobj(vis["I"]), f"Visibility Stokes I for {key} should be complex."
+                np.iscomplexobj(vis["I"]),
+                f"Visibility Stokes I for {key} should be complex.",
             )
 
     def test_empty_sources(self):
@@ -130,11 +135,14 @@ class TestVisibilityOptimized(unittest.TestCase):
     def test_invalid_baselines(self):
         """Test visibility calculation with malformed baselines."""
         malformed_baselines = {
-            (136, 140): {"BaselineVector": np.array([58.4314, 0.2232])},  # Missing one component
+            (136, 140): {
+                "BaselineVector": np.array([58.4314, 0.2232])
+            },  # Missing one component
         }
 
         with self.assertRaises(
-            (ValueError, IndexError), msg="Expected ValueError or IndexError for malformed baselines."
+            (ValueError, IndexError),
+            msg="Expected ValueError or IndexError for malformed baselines.",
         ):
             calculate_visibility(
                 antennas=self.antennas,
@@ -171,8 +179,10 @@ class TestVisibilityOptimized(unittest.TestCase):
             # value is now a dict of correlation products
             if isinstance(value, dict):
                 for corr_key, corr_val in value.items():
-                    total_memory_bytes += sys.getsizeof(corr_key) + sys.getsizeof(corr_val)
-                    if hasattr(corr_val, 'nbytes'):
+                    total_memory_bytes += sys.getsizeof(corr_key) + sys.getsizeof(
+                        corr_val
+                    )
+                    if hasattr(corr_val, "nbytes"):
                         total_memory_bytes += corr_val.nbytes
 
         total_memory_mb = total_memory_bytes / (1024 * 1024)
@@ -190,7 +200,12 @@ class TestBackendIntegration(unittest.TestCase):
         # Sample antenna data
         self.antennas = {
             0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
-            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+            1: {
+                "Name": "Ant1",
+                "Number": 1,
+                "BeamID": 0,
+                "Position": (100.0, 0.0, 0.0),
+            },
         }
 
         # Baselines
@@ -311,7 +326,12 @@ class TestJonesChainIntegration(unittest.TestCase):
         """Set up test fixtures."""
         self.antennas = {
             0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
-            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+            1: {
+                "Name": "Ant1",
+                "Number": 1,
+                "BeamID": 0,
+                "Position": (100.0, 0.0, 0.0),
+            },
         }
 
         self.baselines = {
@@ -358,7 +378,10 @@ class TestJonesChainIntegration(unittest.TestCase):
     def test_with_gains(self):
         """Test visibility with gains enabled."""
         jones_config = {
-            "G": {"enabled": True, "sigma": 0.0},  # No perturbation for deterministic test
+            "G": {
+                "enabled": True,
+                "sigma": 0.0,
+            },  # No perturbation for deterministic test
         }
 
         vis = calculate_visibility(
@@ -426,19 +449,23 @@ class TestVectorizedCoherency(unittest.TestCase):
         """Vectorized coherency should match per-source list comprehension."""
         from rrivis.core.polarization import stokes_to_coherency
 
-        I = np.array([1.0, 5.0, 10.0])
-        Q = np.array([0.1, 0.5, 1.0])
-        U = np.array([0.0, 0.2, -0.3])
-        V = np.array([0.0, 0.0, 0.5])
+        stokes_I = np.array([1.0, 5.0, 10.0])
+        stokes_Q = np.array([0.1, 0.5, 1.0])
+        stokes_U = np.array([0.0, 0.2, -0.3])
+        stokes_V = np.array([0.0, 0.0, 0.5])
 
         # Vectorized
-        C_vec = stokes_to_coherency(I, Q, U, V)
+        C_vec = stokes_to_coherency(stokes_I, stokes_Q, stokes_U, stokes_V)
 
         # Per-source loop
-        C_loop = np.array([
-            stokes_to_coherency(Ii, Qi, Ui, Vi)
-            for Ii, Qi, Ui, Vi in zip(I, Q, U, V)
-        ])
+        C_loop = np.array(
+            [
+                stokes_to_coherency(Ii, Qi, Ui, Vi)
+                for Ii, Qi, Ui, Vi in zip(
+                    stokes_I, stokes_Q, stokes_U, stokes_V, strict=False
+                )
+            ]
+        )
 
         np.testing.assert_array_almost_equal(C_vec, C_loop, decimal=14)
 
@@ -449,7 +476,12 @@ class TestStokesIFastPath(unittest.TestCase):
     def setUp(self):
         self.antennas = {
             0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
-            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+            1: {
+                "Name": "Ant1",
+                "Number": 1,
+                "BeamID": 0,
+                "Position": (100.0, 0.0, 0.0),
+            },
         }
         self.baselines = {
             (0, 1): {"BaselineVector": np.array([100.0, 0.0, 0.0])},
@@ -522,8 +554,10 @@ class TestStokesIFastPath(unittest.TestCase):
         # Should be nearly identical
         for key in vis_unpol:
             np.testing.assert_array_almost_equal(
-                vis_unpol[key]["I"], vis_pol[key]["I"], decimal=8,
-                err_msg=f"Stokes I mismatch for baseline {key}"
+                vis_unpol[key]["I"],
+                vis_pol[key]["I"],
+                decimal=8,
+                err_msg=f"Stokes I mismatch for baseline {key}",
             )
 
 
@@ -533,7 +567,12 @@ class TestUniformBeam(unittest.TestCase):
     def setUp(self):
         self.antennas = {
             0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
-            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+            1: {
+                "Name": "Ant1",
+                "Number": 1,
+                "BeamID": 0,
+                "Position": (100.0, 0.0, 0.0),
+            },
         }
         self.baselines = {
             (0, 1): {"BaselineVector": np.array([100.0, 0.0, 0.0])},
@@ -566,7 +605,7 @@ class TestUniformBeam(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
-            beam_pattern_per_antenna={0: 'uniform', 1: 'uniform'},
+            beam_pattern_per_antenna={0: "uniform", 1: "uniform"},
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -579,7 +618,7 @@ class TestUniformBeam(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
-            beam_pattern_per_antenna={0: 'gaussian', 1: 'gaussian'},
+            beam_pattern_per_antenna={0: "gaussian", 1: "gaussian"},
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -591,7 +630,7 @@ class TestUniformBeam(unittest.TestCase):
             # Uniform should give at least as much signal as Gaussian
             self.assertTrue(
                 np.all(amp_uniform >= amp_gauss * 0.99),
-                f"Uniform beam should not attenuate below Gaussian for baseline {key}"
+                f"Uniform beam should not attenuate below Gaussian for baseline {key}",
             )
 
 
@@ -602,8 +641,18 @@ class TestBeamCaching(unittest.TestCase):
         # 3 antennas, but baselines share antennas -> caching should kick in
         self.antennas = {
             0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
-            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
-            2: {"Name": "Ant2", "Number": 2, "BeamID": 0, "Position": (0.0, 100.0, 0.0)},
+            1: {
+                "Name": "Ant1",
+                "Number": 1,
+                "BeamID": 0,
+                "Position": (100.0, 0.0, 0.0),
+            },
+            2: {
+                "Name": "Ant2",
+                "Number": 2,
+                "BeamID": 0,
+                "Position": (0.0, 100.0, 0.0),
+            },
         }
         self.baselines = {
             (0, 1): {"BaselineVector": np.array([100.0, 0.0, 0.0])},
@@ -647,8 +696,10 @@ class TestBeamCaching(unittest.TestCase):
             self.assertIn(key, vis)
             self.assertIn("I", vis[key])
             # All values should be finite
-            self.assertTrue(np.all(np.isfinite(vis[key]["I"])),
-                          f"Non-finite visibility for baseline {key}")
+            self.assertTrue(
+                np.all(np.isfinite(vis[key]["I"])),
+                f"Non-finite visibility for baseline {key}",
+            )
 
 
 class TestIdentityJonesTerms(unittest.TestCase):
@@ -657,7 +708,12 @@ class TestIdentityJonesTerms(unittest.TestCase):
     def setUp(self):
         self.antennas = {
             0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
-            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+            1: {
+                "Name": "Ant1",
+                "Number": 1,
+                "BeamID": 0,
+                "Position": (100.0, 0.0, 0.0),
+            },
         }
         self.baselines = {
             (0, 1): {"BaselineVector": np.array([100.0, 0.0, 0.0])},
@@ -755,7 +811,12 @@ class TestFITSBeamJones(unittest.TestCase):
     def setUp(self):
         self.antennas = {
             0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
-            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+            1: {
+                "Name": "Ant1",
+                "Number": 1,
+                "BeamID": 0,
+                "Position": (100.0, 0.0, 0.0),
+            },
         }
         self.baselines = {
             (0, 1): {"BaselineVector": np.array([100.0, 0.0, 0.0])},
@@ -779,17 +840,26 @@ class TestFITSBeamJones(unittest.TestCase):
 
     def _make_mock_beam_manager(self, return_value):
         """Create a mock BeamManager that returns a fixed value."""
+
         class MockBeamManager:
             mode = "shared"
 
-            def get_jones_matrix(self, antenna_number, alt_rad, az_rad,
-                                 freq_hz, location, time, check_domain=True):
+            def get_jones_matrix(
+                self,
+                antenna_number,
+                alt_rad,
+                az_rad,
+                freq_hz,
+                location,
+                time,
+                check_domain=True,
+            ):
                 return return_value
+
         return MockBeamManager()
 
     def test_identity_fits_beam(self):
         """FITS beam returning identity should match analytic uniform beam."""
-        n_sources = 1  # Will be determined at runtime
         identity = np.array([[[1.0, 0.0], [0.0, 1.0]]], dtype=np.complex128)
 
         mock_bm = self._make_mock_beam_manager(identity)
@@ -804,7 +874,7 @@ class TestFITSBeamJones(unittest.TestCase):
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
             beam_manager=mock_bm,
-            beam_pattern_per_antenna={0: 'uniform', 1: 'uniform'},
+            beam_pattern_per_antenna={0: "uniform", 1: "uniform"},
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -818,7 +888,7 @@ class TestFITSBeamJones(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
-            beam_pattern_per_antenna={0: 'uniform', 1: 'uniform'},
+            beam_pattern_per_antenna={0: "uniform", 1: "uniform"},
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -857,8 +927,8 @@ class TestFITSBeamJones(unittest.TestCase):
 
     def test_fits_beam_shape_propagation(self):
         """FITS beam returning (n_sources, 2, 2) should work correctly."""
-        from rrivis.core.jones.beam import FITSBeamJones
         from rrivis.backends import get_backend
+        from rrivis.core.jones.beam import FITSBeamJones
 
         backend = get_backend("numpy")
 
@@ -866,8 +936,16 @@ class TestFITSBeamJones(unittest.TestCase):
         class ScaledBeamManager:
             mode = "shared"
 
-            def get_jones_matrix(self, antenna_number, alt_rad, az_rad,
-                                 freq_hz, location, time, check_domain=True):
+            def get_jones_matrix(
+                self,
+                antenna_number,
+                alt_rad,
+                az_rad,
+                freq_hz,
+                location,
+                time,
+                check_domain=True,
+            ):
                 n = len(np.atleast_1d(alt_rad))
                 result = np.zeros((n, 2, 2), dtype=np.complex128)
                 result[:, 0, 0] = 0.5
@@ -880,7 +958,11 @@ class TestFITSBeamJones(unittest.TestCase):
 
         fits_jones = FITSBeamJones(bm, source_altaz, freqs_arr)
         result = fits_jones.compute_jones_all_sources(
-            antenna_idx=0, n_sources=2, freq_idx=0, time_idx=0, backend=backend,
+            antenna_idx=0,
+            n_sources=2,
+            freq_idx=0,
+            time_idx=0,
+            backend=backend,
         )
 
         self.assertEqual(result.shape, (2, 2, 2))

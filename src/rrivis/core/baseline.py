@@ -6,11 +6,12 @@ import sys
 
 import numpy as np
 
-
 logger = logging.getLogger(__name__)
 
 
-def generate_baselines(antennas, beams_per_antenna, beam_response_per_antenna, verbose=False):
+def generate_baselines(
+    antennas, beams_per_antenna, beam_response_per_antenna, verbose=False
+):
     """
     Generate baselines based on antenna positions and metadata, using Numbers as keys.
     Includes detailed metadata for each baseline:
@@ -56,9 +57,9 @@ def generate_baselines(antennas, beams_per_antenna, beam_response_per_antenna, v
             for ant in antennas.values()
         }
     except KeyError as e:
-        raise KeyError(f"Missing required key in antenna metadata: {e}")
+        raise KeyError(f"Missing required key in antenna metadata: {e}") from e
     except (ValueError, TypeError) as e:
-        raise TypeError(f"Invalid position data in antenna metadata: {e}")
+        raise TypeError(f"Invalid position data in antenna metadata: {e}") from e
 
     # Ensure antenna_metadata is not empty
     if not antenna_metadata:
@@ -94,7 +95,7 @@ def generate_baselines(antennas, beams_per_antenna, beam_response_per_antenna, v
                     "A1A2": beamresponse_info,
                 }
     except Exception as e:
-        raise ValueError(f"Error while generating baselines: {e}")
+        raise ValueError(f"Error while generating baselines: {e}") from e
 
     # Debug output (only when verbose=True)
     if verbose:
@@ -104,7 +105,8 @@ def generate_baselines(antennas, beams_per_antenna, beam_response_per_antenna, v
 
         # Calculate total memory usage in MB
         total_memory_bytes = sys.getsizeof(baselines) + sum(
-            sys.getsizeof(key) + sys.getsizeof(value) for key, value in baselines.items()
+            sys.getsizeof(key) + sys.getsizeof(value)
+            for key, value in baselines.items()
         )
         total_memory_mb = total_memory_bytes / (1024 * 1024)
         logger.debug(f"Total memory used by baselines: {total_memory_mb:.4f} MB")

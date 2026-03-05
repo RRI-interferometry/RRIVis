@@ -10,7 +10,8 @@ corrections adjust delays and rates for VLBI applications.
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
@@ -34,14 +35,16 @@ class DelayJones(JonesTerm):
     def __init__(
         self,
         n_antennas: int = 1,
-        delays: Optional[np.ndarray] = None,
-        frequencies: Optional[np.ndarray] = None,
-        **kwargs
+        delays: np.ndarray | None = None,
+        frequencies: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize delay Jones term (stub)."""
         self.n_antennas = n_antennas
         self.delays = np.asarray(delays) if delays is not None else np.array([])
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
 
     @property
     def name(self) -> str:
@@ -61,11 +64,11 @@ class DelayJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute delay Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -92,16 +95,18 @@ class CableReflectionJones(JonesTerm):
     def __init__(
         self,
         n_antennas: int = 1,
-        reflection_coeff: Optional[float] = None,
-        cable_delay: Optional[float] = None,
-        frequencies: Optional[np.ndarray] = None,
-        **kwargs
+        reflection_coeff: float | None = None,
+        cable_delay: float | None = None,
+        frequencies: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize cable reflection Jones term (stub)."""
         self.n_antennas = n_antennas
         self.reflection_coeff = reflection_coeff
         self.cable_delay = cable_delay
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
 
     @property
     def name(self) -> str:
@@ -121,11 +126,11 @@ class CableReflectionJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute cable reflection Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -156,19 +161,21 @@ class FringeFitJones(JonesTerm):
     def __init__(
         self,
         n_antennas: int = 1,
-        delays: Optional[np.ndarray] = None,
-        rates: Optional[np.ndarray] = None,
-        phases: Optional[np.ndarray] = None,
-        frequencies: Optional[np.ndarray] = None,
-        times: Optional[np.ndarray] = None,
-        **kwargs
+        delays: np.ndarray | None = None,
+        rates: np.ndarray | None = None,
+        phases: np.ndarray | None = None,
+        frequencies: np.ndarray | None = None,
+        times: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize fringe-fitting Jones term (stub)."""
         self.n_antennas = n_antennas
         self.delays = np.asarray(delays) if delays is not None else np.array([])
         self.rates = np.asarray(rates) if rates is not None else np.array([])
         self.phases = np.asarray(phases) if phases is not None else np.array([])
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
         self.times = np.asarray(times) if times is not None else np.array([])
 
     @property
@@ -193,11 +200,11 @@ class FringeFitJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute fringe-fitting Jones matrix (stub returns identity)."""
         xp = backend.xp

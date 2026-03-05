@@ -8,7 +8,8 @@ errors between antennas.
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
@@ -32,14 +33,20 @@ class ElementBeamJones(JonesTerm):
     def __init__(
         self,
         n_antennas: int = 1,
-        source_positions: Optional[np.ndarray] = None,
-        frequencies: Optional[np.ndarray] = None,
-        **kwargs
+        source_positions: np.ndarray | None = None,
+        frequencies: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize element beam Jones term (stub)."""
         self.n_antennas = n_antennas
-        self.source_positions = np.asarray(source_positions) if source_positions is not None else np.array([])
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.source_positions = (
+            np.asarray(source_positions)
+            if source_positions is not None
+            else np.array([])
+        )
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
 
     @property
     def name(self) -> str:
@@ -52,11 +59,11 @@ class ElementBeamJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute element beam Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -82,13 +89,15 @@ class ArrayFactorJones(JonesTerm):
         self,
         n_antennas: int = 1,
         n_elements: int = 1,
-        frequencies: Optional[np.ndarray] = None,
-        **kwargs
+        frequencies: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize array factor Jones term (stub)."""
         self.n_antennas = n_antennas
         self.n_elements = n_elements
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
 
     @property
     def name(self) -> str:
@@ -104,11 +113,11 @@ class ArrayFactorJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute array factor Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -134,13 +143,15 @@ class DifferentialBeamJones(JonesTerm):
         self,
         n_antennas: int = 1,
         n_sources: int = 1,
-        frequencies: Optional[np.ndarray] = None,
-        **kwargs
+        frequencies: np.ndarray | None = None,
+        **kwargs,
     ):
         """Initialize differential beam Jones term (stub)."""
         self.n_antennas = n_antennas
         self.n_sources = n_sources
-        self.frequencies = np.asarray(frequencies) if frequencies is not None else np.array([])
+        self.frequencies = (
+            np.asarray(frequencies) if frequencies is not None else np.array([])
+        )
 
     @property
     def name(self) -> str:
@@ -153,11 +164,11 @@ class DifferentialBeamJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute differential beam Jones matrix (stub returns identity)."""
         xp = backend.xp

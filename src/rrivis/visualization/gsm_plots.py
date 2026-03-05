@@ -1,19 +1,20 @@
-import pygdsm
+import astropy.units as au
 import healpy as hp
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import pygdsm
 from astropy.coordinates import AltAz, SkyCoord
 from astropy.time import TimeDelta
-import astropy.units as au
-from bokeh.plotting import figure
+from bokeh.layouts import gridplot
 from bokeh.models import (
     ColorBar,
-    LogColorMapper,
+    ColumnDataSource,
     FixedTicker,
     HoverTool,
-    ColumnDataSource,
+    LogColorMapper,
 )
-from bokeh.layouts import gridplot
+from bokeh.plotting import figure
+
 from rrivis.visualization.bokeh_plots import _persist_bokeh_document
 
 
@@ -96,14 +97,14 @@ def diffused_sky_model(
 
     # Generate the x, y grid
     n_y, n_x = projected_map.shape  # Dimensions of the projected map
-    x = np.linspace(-180, 180, n_x)
-    y = np.linspace(-90, 90, n_y)
+    np.linspace(-180, 180, n_x)
+    np.linspace(-90, 90, n_y)
 
     # Define the time points (one per hour)
     time_points = np.arange(0, total_seconds, 3600)  # Every hour up to total_seconds
 
     # Iterate through each time point
-    for idx, current_time in enumerate(time_points):
+    for _idx, current_time in enumerate(time_points):
         # Update observation time
         obstime = obstime_start + TimeDelta(current_time, format="sec")
 

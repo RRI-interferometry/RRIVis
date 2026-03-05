@@ -7,17 +7,17 @@ Tests cover:
 - Mathematical operations correctness
 """
 
-import pytest
 import numpy as np
-from numpy.testing import assert_array_almost_equal, assert_allclose
+import pytest
+from numpy.testing import assert_allclose, assert_array_almost_equal
 
 from rrivis.backends import (
-    get_backend,
-    list_backends,
-    get_backend_info,
     ArrayBackend,
     BackendNotAvailableError,
     NumPyBackend,
+    get_backend,
+    get_backend_info,
+    list_backends,
 )
 
 
@@ -143,16 +143,16 @@ class TestNumPyBackend:
 
     def test_sin(self, backend):
         """Sine function should be correct."""
-        arr = backend.asarray([0, np.pi/2, np.pi])
+        arr = backend.asarray([0, np.pi / 2, np.pi])
         result = backend.sin(arr)
-        expected = np.sin([0, np.pi/2, np.pi])
+        expected = np.sin([0, np.pi / 2, np.pi])
         assert_array_almost_equal(result, expected)
 
     def test_cos(self, backend):
         """Cosine function should be correct."""
-        arr = backend.asarray([0, np.pi/2, np.pi])
+        arr = backend.asarray([0, np.pi / 2, np.pi])
         result = backend.cos(arr)
-        expected = np.cos([0, np.pi/2, np.pi])
+        expected = np.cos([0, np.pi / 2, np.pi])
         assert_array_almost_equal(result, expected)
 
     def test_sqrt(self, backend):
@@ -199,46 +199,46 @@ class TestNumPyBackend:
 
     def test_conjugate_transpose_2d(self, backend):
         """2D conjugate transpose should be correct."""
-        a = backend.asarray([[1+1j, 2+2j], [3+3j, 4+4j]])
+        a = backend.asarray([[1 + 1j, 2 + 2j], [3 + 3j, 4 + 4j]])
         result = backend.conjugate_transpose(a)
-        expected = np.array([[1-1j, 3-3j], [2-2j, 4-4j]])
+        expected = np.array([[1 - 1j, 3 - 3j], [2 - 2j, 4 - 4j]])
         assert_array_almost_equal(result, expected)
 
     def test_conjugate_transpose_batched(self, backend):
         """Batched conjugate transpose should be correct."""
-        a = backend.asarray([[[1+1j, 2], [3, 4-1j]]])  # (1, 2, 2)
+        a = backend.asarray([[[1 + 1j, 2], [3, 4 - 1j]]])  # (1, 2, 2)
         result = backend.conjugate_transpose(a)
         assert result.shape == (1, 2, 2)
-        expected = np.array([[[1-1j, 3], [2, 4+1j]]])
+        expected = np.array([[[1 - 1j, 3], [2, 4 + 1j]]])
         assert_array_almost_equal(result, expected)
 
     def test_conj(self, backend):
         """Complex conjugate should be correct."""
-        arr = backend.asarray([1+2j, 3-4j, 5+0j])
+        arr = backend.asarray([1 + 2j, 3 - 4j, 5 + 0j])
         result = backend.conj(arr)
-        expected = np.array([1-2j, 3+4j, 5+0j])
+        expected = np.array([1 - 2j, 3 + 4j, 5 + 0j])
         assert_array_almost_equal(result, expected)
 
     # === Complex Number Tests ===
 
     def test_complex_multiply(self, backend):
         """Complex multiplication should be correct."""
-        a = backend.asarray([1+2j, 3+4j])
-        b = backend.asarray([5+6j, 7+8j])
+        a = backend.asarray([1 + 2j, 3 + 4j])
+        b = backend.asarray([5 + 6j, 7 + 8j])
         result = backend.complex_multiply(a, b)
-        expected = np.array([(1+2j)*(5+6j), (3+4j)*(7+8j)])
+        expected = np.array([(1 + 2j) * (5 + 6j), (3 + 4j) * (7 + 8j)])
         assert_array_almost_equal(result, expected)
 
     def test_real(self, backend):
         """Real part extraction should be correct."""
-        arr = backend.asarray([1+2j, 3-4j])
+        arr = backend.asarray([1 + 2j, 3 - 4j])
         result = backend.real(arr)
         expected = np.array([1, 3])
         assert_array_almost_equal(result, expected)
 
     def test_imag(self, backend):
         """Imaginary part extraction should be correct."""
-        arr = backend.asarray([1+2j, 3-4j])
+        arr = backend.asarray([1 + 2j, 3 - 4j])
         result = backend.imag(arr)
         expected = np.array([2, -4])
         assert_array_almost_equal(result, expected)
@@ -270,12 +270,12 @@ class TestNumPyBackend:
         u, v, w = 100.0, 50.0, 10.0
 
         # Source direction cosines
-        l = xp.array([0.0, 0.1, -0.1])
-        m = xp.array([0.0, 0.0, 0.1])
-        n = xp.sqrt(1 - l**2 - m**2)
+        dir_l = xp.array([0.0, 0.1, -0.1])
+        dir_m = xp.array([0.0, 0.0, 0.1])
+        dir_n = xp.sqrt(1 - dir_l**2 - dir_m**2)
 
         # Phase calculation
-        phase = -2 * xp.pi * (u * l + v * m + w * (n - 1))
+        phase = -2 * xp.pi * (u * dir_l + v * dir_m + w * (dir_n - 1))
         fringe = backend.exp(1j * phase)
 
         assert fringe.shape == (3,)

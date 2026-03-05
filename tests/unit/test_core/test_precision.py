@@ -8,25 +8,23 @@ Tests for rrivis.core.precision including:
 - Precision-aware backends
 """
 
-import pytest
 import numpy as np
-import warnings
+import pytest
 
+from rrivis.backends import NumPyBackend, get_backend
 from rrivis.core.precision import (
-    PrecisionConfig,
-    PrecisionLevel,
+    COMPLEX256_AVAILABLE,
+    FLOAT128_AVAILABLE,
+    VALID_PRECISIONS,
     CoordinatePrecision,
     JonesPrecision,
+    PrecisionConfig,
     SkyModelPrecision,
-    resolve_precision,
-    get_real_dtype,
     get_complex_dtype,
     get_dtype_size,
-    FLOAT128_AVAILABLE,
-    COMPLEX256_AVAILABLE,
-    VALID_PRECISIONS,
+    get_real_dtype,
+    resolve_precision,
 )
-from rrivis.backends import get_backend, NumPyBackend
 
 
 class TestPrecisionLevel:
@@ -182,12 +180,12 @@ class TestJonesPrecision:
         config = JonesPrecision()
         terms = [
             "geometric_phase",  # K
-            "beam",             # E
-            "ionosphere",       # Z
-            "troposphere",      # T
-            "parallactic",      # P
-            "gain",             # G
-            "bandpass",         # B
+            "beam",  # E
+            "ionosphere",  # Z
+            "troposphere",  # T
+            "parallactic",  # P
+            "gain",  # G
+            "bandpass",  # B
             "polarization_leakage",  # D
         ]
         for term in terms:
@@ -382,7 +380,9 @@ class TestPrecisionConfigHelpers:
     def test_get_real_dtype_sky_model(self):
         """Test get_real_dtype for sky_model components."""
         config = PrecisionConfig(
-            sky_model=SkyModelPrecision(source_positions="float32", healpix_maps="float64"),
+            sky_model=SkyModelPrecision(
+                source_positions="float32", healpix_maps="float64"
+            ),
         )
         assert config.get_real_dtype("sky_model", "source_positions") == np.float32
         assert config.get_real_dtype("sky_model", "healpix_maps") == np.float64

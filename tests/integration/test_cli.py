@@ -5,10 +5,11 @@ CLI integration tests for RRIvis.
 These tests verify command-line interface functionality.
 """
 
-import pytest
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 @pytest.mark.integration
@@ -35,13 +36,18 @@ class TestCLIBasic:
         )
 
         # Should either succeed or print version
-        assert result.returncode == 0 or "0.2.0" in result.stdout or "0.2.0" in result.stderr
+        assert (
+            result.returncode == 0
+            or "0.2.0" in result.stdout
+            or "0.2.0" in result.stderr
+        )
 
     def test_cli_entry_point_exists(self):
         """Test that the rrivis CLI entry point is available."""
         # Try to import the main CLI module
         try:
             from rrivis.cli.main import main
+
             assert callable(main)
         except ImportError as e:
             pytest.fail(f"Could not import CLI main: {e}")
@@ -63,6 +69,7 @@ class TestCLIWithConfig:
 
         # Update config to use correct path
         import yaml
+
         config_path = Path(temp_config_file)
         config_data = yaml.safe_load(config_path.read_text())
         config_data["antenna_layout"]["antenna_positions_file"] = str(antenna_file)
@@ -92,12 +99,15 @@ class TestCLIMigrate:
 
         # May fail if migrate module doesn't exist yet, which is acceptable
         if result.returncode == 0:
-            assert "migrate" in result.stdout.lower() or "config" in result.stdout.lower()
+            assert (
+                "migrate" in result.stdout.lower() or "config" in result.stdout.lower()
+            )
 
     def test_migrate_module_importable(self):
         """Test that migrate module can be imported."""
         try:
             from rrivis.cli.migrate import cli_migrate
+
             # Just verify it exists and is callable
             assert callable(cli_migrate) or cli_migrate is None
         except (ImportError, AttributeError):
@@ -141,7 +151,11 @@ class TestCLIErrorHandling:
 
         # Should fail with non-zero exit code
         # (or handle gracefully with error message)
-        assert result.returncode != 0 or "error" in result.stderr.lower() or "not found" in result.stderr.lower()
+        assert (
+            result.returncode != 0
+            or "error" in result.stderr.lower()
+            or "not found" in result.stderr.lower()
+        )
 
     def test_invalid_yaml_syntax(self, tmp_path):
         """Test error handling for malformed YAML."""
@@ -155,4 +169,6 @@ class TestCLIErrorHandling:
         )
 
         # Should fail or show error
-        assert result.returncode != 0 or "error" in (result.stderr + result.stdout).lower()
+        assert (
+            result.returncode != 0 or "error" in (result.stderr + result.stdout).lower()
+        )

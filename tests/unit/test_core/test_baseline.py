@@ -1,11 +1,12 @@
 # test/test_baseline.py
 import unittest
+
 import numpy as np
+
 from rrivis.core.baseline import generate_baselines
 
 
 class TestBaseline(unittest.TestCase):
-
     def setUp(self):
         self.valid_antennas = {
             0: {

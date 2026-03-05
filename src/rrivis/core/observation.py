@@ -3,10 +3,9 @@
 
 import logging
 
+import astropy.units as u
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
-import astropy.units as u
-
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +72,9 @@ def get_location_and_time(lat=None, lon=None, height=None, starttime=None):
     location = EarthLocation(lat=lat * u.deg, lon=lon * u.deg, height=height * u.m)
 
     # Log observation parameters
-    logger.debug(f"Observation Location: Latitude={lat}, Longitude={lon}, Height={height} meters")
+    logger.debug(
+        f"Observation Location: Latitude={lat}, Longitude={lon}, Height={height} meters"
+    )
     logger.debug(f"Observation Start Time: {obstime_start.isot}")
 
     return location, obstime_start

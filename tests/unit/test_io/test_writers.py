@@ -5,22 +5,23 @@ Unit tests for I/O writers (HDF5, YAML).
 Tests the save and load functions for visibility data and configurations.
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
-import yaml
+
 import h5py
+import numpy as np
+import pytest
+import yaml
 
 from rrivis.io.writers import (
-    save_visibilities_hdf5,
-    save_config_yaml,
     load_visibilities_hdf5,
+    save_config_yaml,
+    save_visibilities_hdf5,
 )
-
 
 # =============================================================================
 # Test Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def sample_visibilities():
@@ -30,9 +31,18 @@ def sample_visibilities():
     n_freqs = 10
 
     visibilities = {
-        (0, 0): [np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs) for _ in range(n_times)],
-        (0, 1): [np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs) for _ in range(n_times)],
-        (1, 1): [np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs) for _ in range(n_times)],
+        (0, 0): [
+            np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
+            for _ in range(n_times)
+        ],
+        (0, 1): [
+            np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
+            for _ in range(n_times)
+        ],
+        (1, 1): [
+            np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
+            for _ in range(n_times)
+        ],
     }
 
     return visibilities
@@ -85,10 +95,13 @@ def sample_config():
 # HDF5 Writer Tests
 # =============================================================================
 
+
 class TestSaveVisibilitiesHDF5:
     """Test save_visibilities_hdf5 function."""
 
-    def test_creates_file(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_creates_file(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test that HDF5 file is created."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -102,7 +115,9 @@ class TestSaveVisibilitiesHDF5:
         assert Path(result).exists()
         assert output_path.exists()
 
-    def test_creates_parent_directories(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_creates_parent_directories(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test that parent directories are created."""
         output_path = tmp_path / "subdir" / "nested" / "test_vis.h5"
 
@@ -115,7 +130,9 @@ class TestSaveVisibilitiesHDF5:
 
         assert output_path.exists()
 
-    def test_stores_baselines(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_stores_baselines(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test that baseline groups are created."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -130,7 +147,9 @@ class TestSaveVisibilitiesHDF5:
             baseline_groups = [k for k in h5file.keys() if k.startswith("baseline_")]
             assert len(baseline_groups) == 3
 
-    def test_stores_visibility_data(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_stores_visibility_data(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test that visibility data is stored correctly."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -148,7 +167,9 @@ class TestSaveVisibilitiesHDF5:
                     vis_data = h5file[key]["complex_visibility"][:]
                     assert vis_data.dtype == np.complex128
 
-    def test_stores_frequencies(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_stores_frequencies(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test that frequencies are stored."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -163,7 +184,9 @@ class TestSaveVisibilitiesHDF5:
             assert "frequencies" in h5file
             np.testing.assert_allclose(h5file["frequencies"][:], sample_frequencies)
 
-    def test_stores_time_points(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_stores_time_points(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test that time points are stored."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -178,7 +201,14 @@ class TestSaveVisibilitiesHDF5:
             assert "time_points_mjd" in h5file
             np.testing.assert_allclose(h5file["time_points_mjd"][:], sample_time_points)
 
-    def test_stores_metadata(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points, sample_metadata):
+    def test_stores_metadata(
+        self,
+        tmp_path,
+        sample_visibilities,
+        sample_frequencies,
+        sample_time_points,
+        sample_metadata,
+    ):
         """Test that metadata is stored as attributes."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -195,7 +225,9 @@ class TestSaveVisibilitiesHDF5:
                 assert key in h5file.attrs
                 assert h5file.attrs[key] == value
 
-    def test_handles_empty_metadata(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_handles_empty_metadata(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test handling of None metadata."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -215,10 +247,13 @@ class TestSaveVisibilitiesHDF5:
 # HDF5 Reader Tests
 # =============================================================================
 
+
 class TestLoadVisibilitiesHDF5:
     """Test load_visibilities_hdf5 function."""
 
-    def test_loads_visibilities(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_loads_visibilities(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test loading visibility data."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -234,7 +269,9 @@ class TestLoadVisibilitiesHDF5:
         assert "visibilities" in result
         assert len(result["visibilities"]) == len(sample_visibilities)
 
-    def test_loads_frequencies(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_loads_frequencies(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test loading frequency data."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -250,7 +287,9 @@ class TestLoadVisibilitiesHDF5:
         assert "frequencies" in result
         np.testing.assert_allclose(result["frequencies"], sample_frequencies)
 
-    def test_loads_time_points(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_loads_time_points(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test loading time points."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -266,7 +305,14 @@ class TestLoadVisibilitiesHDF5:
         assert "time_points_mjd" in result
         np.testing.assert_allclose(result["time_points_mjd"], sample_time_points)
 
-    def test_loads_metadata(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points, sample_metadata):
+    def test_loads_metadata(
+        self,
+        tmp_path,
+        sample_visibilities,
+        sample_frequencies,
+        sample_time_points,
+        sample_metadata,
+    ):
         """Test loading metadata."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -284,7 +330,9 @@ class TestLoadVisibilitiesHDF5:
         for key in sample_metadata:
             assert key in result["metadata"]
 
-    def test_roundtrip_visibility_data(self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points):
+    def test_roundtrip_visibility_data(
+        self, tmp_path, sample_visibilities, sample_frequencies, sample_time_points
+    ):
         """Test that visibility data survives save/load roundtrip."""
         output_path = tmp_path / "test_vis.h5"
 
@@ -307,6 +355,7 @@ class TestLoadVisibilitiesHDF5:
 # =============================================================================
 # YAML Writer Tests
 # =============================================================================
+
 
 class TestSaveConfigYAML:
     """Test save_config_yaml function."""
@@ -350,9 +399,18 @@ class TestSaveConfigYAML:
             loaded = yaml.safe_load(f)
 
         # Deep comparison
-        assert loaded["telescope"]["telescope_name"] == sample_config["telescope"]["telescope_name"]
-        assert loaded["antenna_layout"]["all_antenna_diameter"] == sample_config["antenna_layout"]["all_antenna_diameter"]
-        assert loaded["obs_frequency"]["starting_frequency"] == sample_config["obs_frequency"]["starting_frequency"]
+        assert (
+            loaded["telescope"]["telescope_name"]
+            == sample_config["telescope"]["telescope_name"]
+        )
+        assert (
+            loaded["antenna_layout"]["all_antenna_diameter"]
+            == sample_config["antenna_layout"]["all_antenna_diameter"]
+        )
+        assert (
+            loaded["obs_frequency"]["starting_frequency"]
+            == sample_config["obs_frequency"]["starting_frequency"]
+        )
 
     def test_handles_nested_config(self, tmp_path):
         """Test handling of deeply nested configurations."""
@@ -380,6 +438,7 @@ class TestSaveConfigYAML:
 # =============================================================================
 # Edge Cases and Error Handling
 # =============================================================================
+
 
 class TestEdgeCases:
     """Test edge cases and error handling."""
@@ -426,7 +485,7 @@ class TestEdgeCases:
 
         large_vis = {}
         for i in range(n_baselines):
-            large_vis[(i, i+1)] = [
+            large_vis[(i, i + 1)] = [
                 np.random.randn(n_freqs) + 1j * np.random.randn(n_freqs)
                 for _ in range(n_times)
             ]

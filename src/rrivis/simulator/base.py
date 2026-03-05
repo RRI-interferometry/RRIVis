@@ -9,7 +9,7 @@ algorithms based on problem characteristics (source count, array density, etc.).
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -41,7 +41,7 @@ class VisibilitySimulator(ABC):
     ...     sources=sources,
     ...     frequencies=freqs,
     ...     backend=backend,
-    ...     **kwargs
+    ...     **kwargs,
     ... )
     """
 
@@ -114,13 +114,13 @@ class VisibilitySimulator(ABC):
     @abstractmethod
     def calculate_visibilities(
         self,
-        antennas: Dict[Any, Dict],
-        baselines: Dict[Tuple[Any, Any], Dict],
-        sources: List[Dict],
+        antennas: dict[Any, dict],
+        baselines: dict[tuple[Any, Any], dict],
+        sources: list[dict],
         frequencies: np.ndarray,
         backend: Any,
-        **kwargs
-    ) -> Dict[Tuple[Any, Any], Dict]:
+        **kwargs,
+    ) -> dict[tuple[Any, Any], dict]:
         """
         Calculate visibilities for all baselines.
 
@@ -220,12 +220,12 @@ class VisibilitySimulator(ABC):
 
     def validate_inputs(
         self,
-        antennas: Dict[Any, Dict],
-        baselines: Dict[Tuple[Any, Any], Dict],
-        sources: List[Dict],
+        antennas: dict[Any, dict],
+        baselines: dict[tuple[Any, Any], dict],
+        sources: list[dict],
         frequencies: np.ndarray,
-        **kwargs
-    ) -> Tuple[bool, List[str]]:
+        **kwargs,
+    ) -> tuple[bool, list[str]]:
         """
         Validate inputs before computation.
 
@@ -311,7 +311,7 @@ class VisibilitySimulator(ABC):
         n_frequencies: int,
         n_times: int = 1,
         polarized: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Estimate memory requirements for the simulation.
 
@@ -349,8 +349,7 @@ class VisibilitySimulator(ABC):
         --------
         >>> sim = get_simulator("rime")
         >>> mem = sim.get_memory_estimate(
-        ...     n_antennas=350, n_baselines=61425,
-        ...     n_sources=10000, n_frequencies=1024
+        ...     n_antennas=350, n_baselines=61425, n_sources=10000, n_frequencies=1024
         ... )
         >>> print(f"Estimated memory: {mem['total_human']}")
         Estimated memory: 4.8 GB
@@ -362,7 +361,9 @@ class VisibilitySimulator(ABC):
         pol_factor = 4 if polarized else 1
 
         # Output visibilities: n_baselines × n_freq × n_times × pol_factor
-        output_bytes = n_baselines * n_frequencies * n_times * pol_factor * bytes_per_complex
+        output_bytes = (
+            n_baselines * n_frequencies * n_times * pol_factor * bytes_per_complex
+        )
 
         # Working memory estimate (varies by algorithm)
         # Default: assume we need source arrays, beam patterns, intermediate results
@@ -370,14 +371,17 @@ class VisibilitySimulator(ABC):
         working_bytes = (
             n_sources * n_frequencies * bytes_per_complex * 2  # Source flux arrays
             + n_antennas * n_frequencies * pol_factor * bytes_per_complex  # Beam arrays
-            + n_baselines * n_frequencies * pol_factor * bytes_per_complex  # Intermediate
+            + n_baselines
+            * n_frequencies
+            * pol_factor
+            * bytes_per_complex  # Intermediate
         )
 
         total_bytes = output_bytes + working_bytes
 
         # Human-readable formatting
         def format_bytes(b: int) -> str:
-            for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            for unit in ["B", "KB", "MB", "GB", "TB"]:
                 if b < 1024:
                     return f"{b:.1f} {unit}"
                 b /= 1024
@@ -386,7 +390,9 @@ class VisibilitySimulator(ABC):
         # Warning thresholds
         warning = None
         if total_bytes > 16 * 1024**3:  # > 16 GB
-            warning = "Very high memory usage. Consider reducing sources or frequencies."
+            warning = (
+                "Very high memory usage. Consider reducing sources or frequencies."
+            )
         elif total_bytes > 4 * 1024**3:  # > 4 GB
             warning = "High memory usage. Ensure sufficient RAM available."
 
@@ -405,7 +411,7 @@ class VisibilitySimulator(ABC):
                 "n_frequencies": n_frequencies,
                 "n_times": n_times,
                 "polarized": polarized,
-            }
+            },
         }
 
     def __repr__(self) -> str:

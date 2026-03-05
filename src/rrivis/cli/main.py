@@ -39,9 +39,8 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
-from rrivis.__about__ import __version__, __description__
+from rrivis.__about__ import __description__, __version__
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -101,14 +100,16 @@ For more information, see https://github.com/kartikmandar/RRIvis
     )
 
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="count",
         default=0,
         help="Increase verbosity (use -vv for debug)",
     )
 
     parser.add_argument(
-        "--quiet", "-q",
+        "--quiet",
+        "-q",
         action="store_true",
         help="Suppress non-error output",
     )
@@ -168,7 +169,8 @@ For more information, see https://github.com/kartikmandar/RRIvis
     )
 
     init_parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=str,
         default="config.yaml",
         help="Output config file path (default: config.yaml)",
@@ -191,10 +193,16 @@ For more information, see https://github.com/kartikmandar/RRIvis
 
 def run_config_mode(args: argparse.Namespace) -> int:
     """Run simulation using configuration file (v0.1.x compatible)."""
-    from rrivis.utils.logging import setup_logging, get_logger, print_info, print_success, print_warning, console
+    from rrivis.utils.logging import (
+        console,
+        get_logger,
+        print_info,
+        print_success,
+        print_warning,
+        setup_logging,
+    )
 
     # Setup logging based on verbosity
-    import logging
     if args.quiet:
         level = logging.ERROR
     elif args.verbose >= 2:
@@ -214,7 +222,9 @@ def run_config_mode(args: argparse.Namespace) -> int:
         logger.error("No configuration file specified")
         logger.info("Usage: rrivis config.yaml")
         logger.info("       rrivis --config config.yaml")
-        logger.info("       rrivis simulate --antenna-layout file.csv --frequencies 100,200")
+        logger.info(
+            "       rrivis simulate --antenna-layout file.csv --frequencies 100,200"
+        )
         return 1
 
     config_path = Path(config_path)
@@ -226,9 +236,10 @@ def run_config_mode(args: argparse.Namespace) -> int:
 
     try:
         # Load and validate config
-        from rrivis.io.config import load_config, RRIvisConfig
-        from rich.panel import Panel
         from pydantic import ValidationError as _PydanticError
+        from rich.panel import Panel
+
+        from rrivis.io.config import RRIvisConfig, load_config
 
         schema_errors: list[str] = []
         config = None
@@ -237,6 +248,7 @@ def run_config_mode(args: argparse.Namespace) -> int:
         except _PydanticError as pyd_err:
             # Pydantic rejected one or more field values — extract all of them
             import yaml as _yaml
+
             for err in pyd_err.errors():
                 loc = " -> ".join(str(p) for p in err["loc"])
                 schema_errors.append(f"{loc}: {err['msg']}")
@@ -263,11 +275,13 @@ def run_config_mode(args: argparse.Namespace) -> int:
                 pass
         except ValueError as e:
             console.print()
-            console.print(Panel(
-                f"  {e}",
-                title="[bold red]Config invalid[/bold red]",
-                border_style="red",
-            ))
+            console.print(
+                Panel(
+                    f"  {e}",
+                    title="[bold red]Config invalid[/bold red]",
+                    border_style="red",
+                )
+            )
             console.print("  Fix the above in your config file and re-run.\n")
             return 1
 
@@ -277,14 +291,15 @@ def run_config_mode(args: argparse.Namespace) -> int:
         if errors:
             console.print()
             lines = "\n".join(
-                f"  [bold red][{i}][/bold red]  {e}"
-                for i, e in enumerate(errors, 1)
+                f"  [bold red][{i}][/bold red]  {e}" for i, e in enumerate(errors, 1)
             )
-            console.print(Panel(
-                lines,
-                title=f"[bold red]Config invalid \u2014 {len(errors)} error(s) found[/bold red]",
-                border_style="red",
-            ))
+            console.print(
+                Panel(
+                    lines,
+                    title=f"[bold red]Config invalid \u2014 {len(errors)} error(s) found[/bold red]",
+                    border_style="red",
+                )
+            )
             console.print("  Fix the above in your config file and re-run.\n")
             return 1
 
@@ -314,7 +329,10 @@ def run_config_mode(args: argparse.Namespace) -> int:
         do_overwrite = False  # resolved below based on config + user input
         if any_output and output_dir.exists() and sorted(output_dir.iterdir()):
             existing_files = sorted(output_dir.iterdir())
-            if output_config.skip_overwrite_confirmation and not output_config.overwrite_output:
+            if (
+                output_config.skip_overwrite_confirmation
+                and not output_config.overwrite_output
+            ):
                 print_warning(
                     "Conflicting config: overwrite_output is false but skip_overwrite_confirmation is true. "
                     "Aborting to avoid accidental data loss."
@@ -328,7 +346,9 @@ def run_config_mode(args: argparse.Namespace) -> int:
                 return 0
             elif output_config.skip_overwrite_confirmation:
                 do_overwrite = True
-                print_warning("Output folder exists (confirmation skipped). All existing files will be overwritten.")
+                print_warning(
+                    "Output folder exists (confirmation skipped). All existing files will be overwritten."
+                )
             else:
                 print_warning(f"Output folder already exists: {output_dir}")
                 console.print("  Existing files:")
@@ -343,7 +363,9 @@ def run_config_mode(args: argparse.Namespace) -> int:
                     answer = "n"
                 if answer in ("s", "suffix"):
                     try:
-                        suffix = input("Enter suffix to append to folder name: ").strip()
+                        suffix = input(
+                            "Enter suffix to append to folder name: "
+                        ).strip()
                     except (EOFError, KeyboardInterrupt):
                         suffix = ""
                     if not suffix:
@@ -354,7 +376,9 @@ def run_config_mode(args: argparse.Namespace) -> int:
                     print_info(f"Saving to new folder: {output_dir}")
                 elif answer in ("y", "yes"):
                     do_overwrite = True
-                    print_info("Proceeding — all existing files in the output directory will be overwritten.")
+                    print_info(
+                        "Proceeding — all existing files in the output directory will be overwritten."
+                    )
                 else:
                     print_warning("Aborted. No files were modified.")
                     return 0
@@ -373,6 +397,7 @@ def run_config_mode(args: argparse.Namespace) -> int:
         # Run simulation — CLI --backend flag overrides config compute.backend
         backend = args.backend if args.backend != "auto" else config.compute.backend
         from rrivis.api.simulator import Simulator
+
         sim = Simulator(config=config.to_dict(), backend=backend)
         sim.run()
 
@@ -385,6 +410,7 @@ def run_config_mode(args: argparse.Namespace) -> int:
             try:
                 output_dir.mkdir(parents=True, exist_ok=True)
                 from rrivis.io.writers import save_config_yaml
+
                 saved_config_path = output_dir / "config.yaml"
                 save_config_yaml(config.to_dict(), saved_config_path)
                 saved_files.append(saved_config_path)
@@ -425,12 +451,15 @@ def run_config_mode(args: argparse.Namespace) -> int:
         if saved_files:
             from rich.panel import Panel
             from rich.table import Table
+
             table = Table(show_header=False, box=None, padding=(0, 1))
             table.add_column("", style="dim")
             table.add_column("", style="cyan")
             for f in saved_files:
                 table.add_row("→", str(f))
-            console.print(Panel(table, title="[bold]Output Files[/bold]", border_style="green"))
+            console.print(
+                Panel(table, title="[bold]Output Files[/bold]", border_style="green")
+            )
 
         print_success("Done.")
         return 0
@@ -439,13 +468,14 @@ def run_config_mode(args: argparse.Namespace) -> int:
         logger.error(f"Simulation failed: {e}")
         if args.verbose >= 2:
             import traceback
+
             traceback.print_exc()
         return 1
 
 
 def run_simulate_mode(args: argparse.Namespace) -> int:
     """Run simulation using CLI arguments (new mode)."""
-    from rrivis.utils.logging import setup_logging, get_logger
+    from rrivis.utils.logging import get_logger, setup_logging
 
     setup_logging()
     logger = get_logger("rrivis.cli")
@@ -472,7 +502,7 @@ def run_simulate_mode(args: argparse.Namespace) -> int:
             backend=args.backend,
         )
 
-        results = sim.run()
+        sim.run()
         sim.save(args.output, format=args.format)
 
         logger.info(f"Results saved to: {args.output}")
@@ -514,16 +544,18 @@ def run_validate_mode(args: argparse.Namespace) -> int:
         print(f"Configuration is valid: {config_path}")
         print(f"  Telescope: {config.telescope.telescope_name}")
         print(f"  Antenna file: {config.antenna_layout.antenna_positions_file}")
-        print(f"  Frequency range: {config.obs_frequency.starting_frequency} - "
-              f"{config.obs_frequency.starting_frequency + config.obs_frequency.frequency_bandwidth} "
-              f"{config.obs_frequency.frequency_unit}")
+        print(
+            f"  Frequency range: {config.obs_frequency.starting_frequency} - "
+            f"{config.obs_frequency.starting_frequency + config.obs_frequency.frequency_bandwidth} "
+            f"{config.obs_frequency.frequency_unit}"
+        )
         return 0
     except Exception as e:
         print(f"Configuration is INVALID: {e}")
         return 1
 
 
-def main(argv: Optional[list] = None) -> int:
+def main(argv: list | None = None) -> int:
     """Main entry point for the CLI."""
     parser = create_parser()
     args = parser.parse_args(argv)

@@ -86,8 +86,12 @@ class _PyradioskyMixin:
 
         if sky.component_type == "healpix":
             return cls._load_pyradiosky_healpix(
-                sky, filename, frequencies, obs_frequency_config,
-                brightness_conversion, precision,
+                sky,
+                filename,
+                frequencies,
+                obs_frequency_config,
+                brightness_conversion,
+                precision,
             )
         elif sky.component_type != "point":
             raise ValueError(
@@ -106,7 +110,9 @@ class _PyradioskyMixin:
                 )
 
         if sky.freq_array is not None and len(sky.freq_array) > 1:
-            ref_chan_idx = int(np.argmin(np.abs(np.array(sky.freq_array) - ref_freq_hz)))
+            ref_chan_idx = int(
+                np.argmin(np.abs(np.array(sky.freq_array) - ref_freq_hz))
+            )
         else:
             ref_chan_idx = 0
 
@@ -115,9 +121,21 @@ class _PyradioskyMixin:
         stokes_i_ref = np.array(stokes[0, ref_chan_idx, :], dtype=np.float64)
 
         n_stokes = stokes.shape[0]
-        stokes_q = np.array(stokes[1, ref_chan_idx, :], dtype=np.float64) if n_stokes > 1 else np.zeros_like(stokes_i_ref)
-        stokes_u = np.array(stokes[2, ref_chan_idx, :], dtype=np.float64) if n_stokes > 2 else np.zeros_like(stokes_i_ref)
-        stokes_v = np.array(stokes[3, ref_chan_idx, :], dtype=np.float64) if n_stokes > 3 else np.zeros_like(stokes_i_ref)
+        stokes_q = (
+            np.array(stokes[1, ref_chan_idx, :], dtype=np.float64)
+            if n_stokes > 1
+            else np.zeros_like(stokes_i_ref)
+        )
+        stokes_u = (
+            np.array(stokes[2, ref_chan_idx, :], dtype=np.float64)
+            if n_stokes > 2
+            else np.zeros_like(stokes_i_ref)
+        )
+        stokes_v = (
+            np.array(stokes[3, ref_chan_idx, :], dtype=np.float64)
+            if n_stokes > 3
+            else np.zeros_like(stokes_i_ref)
+        )
 
         if sky.spectral_type == "spectral_index":
             spectral_indices = np.asarray(sky.spectral_index, dtype=np.float64)
@@ -133,15 +151,18 @@ class _PyradioskyMixin:
                 spectral_indices = np.zeros(sky.Ncomponents, dtype=np.float64)
                 valid = (s_first > 0) & (s_last > 0)
                 if np.any(valid):
-                    spectral_indices[valid] = (
-                        np.log(s_first[valid] / s_last[valid])
-                        / np.log(freq_first / freq_last)
-                    )
+                    spectral_indices[valid] = np.log(
+                        s_first[valid] / s_last[valid]
+                    ) / np.log(freq_first / freq_last)
             else:
                 spectral_indices = np.zeros(sky.Ncomponents, dtype=np.float64)
 
-        ra_arr = np.array(sky.ra.rad if hasattr(sky.ra, "rad") else sky.ra, dtype=np.float64)
-        dec_arr = np.array(sky.dec.rad if hasattr(sky.dec, "rad") else sky.dec, dtype=np.float64)
+        ra_arr = np.array(
+            sky.ra.rad if hasattr(sky.ra, "rad") else sky.ra, dtype=np.float64
+        )
+        dec_arr = np.array(
+            sky.dec.rad if hasattr(sky.dec, "rad") else sky.dec, dtype=np.float64
+        )
 
         valid = np.isfinite(stokes_i_ref) & (stokes_i_ref >= flux_limit)
         n = int(valid.sum())
@@ -235,7 +256,7 @@ class _PyradioskyMixin:
 
         logger.info(
             f"Loading pyradiosky HEALPix file: {n_freq} frequencies "
-            f"({obs_freqs[0]/1e6:.1f}\u2013{obs_freqs[-1]/1e6:.1f} MHz), "
+            f"({obs_freqs[0] / 1e6:.1f}\u2013{obs_freqs[-1] / 1e6:.1f} MHz), "
             f"nside={nside}, from {filename}"
         )
 

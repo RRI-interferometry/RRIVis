@@ -60,121 +60,120 @@ Examples
 >>> # Compute visibility for a baseline
 >>> coherency = np.array([[1, 0], [0, 1]], dtype=complex)  # Unpolarized
 >>> vis = chain.compute_baseline_visibility(
-...     antenna_p=0, antenna_q=1,
-...     source_idx=0, freq_idx=0, time_idx=0,
+...     antenna_p=0,
+...     antenna_q=1,
+...     source_idx=0,
+...     freq_idx=0,
+...     time_idx=0,
 ...     coherency_matrix=coherency,
-...     baseline_uvw=uvw
+...     baseline_uvw=uvw,
 ... )
 """
 
 # Base classes
-from .base import JonesTerm
-from .chain import JonesChain
-
-# K term: Geometric phase
-from .geometric import GeometricPhaseJones
-
-# E term: Primary beam
-from .beam import (
-    BeamJones,
-    AnalyticBeamJones,
-    FITSBeamJones,
-)
-
-# G term: Electronic gains
-from .gain import (
-    GainJones,
-    TimeVariableGainJones,
-)
-
 # B term: Bandpass
 from .bandpass import (
     BandpassJones,
     PolynomialBandpassJones,
-    SplineBandpassJones,
     RFIFlaggedBandpassJones,
+    SplineBandpassJones,
+)
+from .base import JonesTerm
+
+# M_pq / Q_spq: Baseline-based terms (NOT per-antenna, use JonesBaselineTerm)
+from .baseline_errors import (
+    BaselineMultiplicativeJones,
+    JonesBaselineTerm,
+    SmearingFactorJones,
 )
 
-# D term: Polarization leakage
-from .polarization_leakage import (
-    PolarizationLeakageJones,
-    IXRLeakageJones,
-    MuellerLeakageJones,
-    BeamSquintLeakageJones,
+# E term: Primary beam
+from .beam import (
+    AnalyticBeamJones,
+    BeamJones,
+    FITSBeamJones,
 )
+from .chain import JonesChain
 
-# P term: Parallactic angle
-from .parallactic import (
-    ParallacticAngleJones,
-    FieldRotationJones,
-    VLBIFeedRotationJones,
-)
-
-# Z term: Ionosphere
-from .ionosphere import (
-    IonosphereJones,
-    TurbulentIonosphereJones,
-    GPSIonosphereJones,
-)
-
-# T term: Troposphere
-from .troposphere import (
-    TroposphereJones,
-    SaastamoinenTroposphereJones,
-    TurbulentTroposphereJones,
-    TroposphericOpacityJones,
-)
-
-# F term: Faraday rotation
-from .faraday import (
-    FaradayRotationJones,
-    DifferentialFaradayJones,
-)
-
-# W term: Non-coplanar phase correction
-from .wterm import (
-    WPhaseJones,
-    WProjectionJones,
-    WidefieldPolarimetricJones,
-)
-
-# C + H terms: Receptor configuration and basis transforms
-from .receptor import (
-    ReceptorConfigJones,
-    BasisTransformJones,
-)
-
-# Ee / a / dE terms: Element beam, array factor, differential beam
-from .element_beam import (
-    ElementBeamJones,
-    ArrayFactorJones,
-    DifferentialBeamJones,
+# X / KCROSS / DF terms: Cross-hand effects and frequency-dependent leakage
+from .crosshand import (
+    CrosshandDelayJones,
+    CrosshandPhaseJones,
+    FrequencyDependentLeakageJones,
 )
 
 # K_delay / cable / fringefit: Delay, reflections, VLBI calibration
 from .delay import (
-    DelayJones,
     CableReflectionJones,
+    DelayJones,
     FringeFitJones,
 )
 
-# X / KCROSS / DF terms: Cross-hand effects and frequency-dependent leakage
-from .crosshand import (
-    CrosshandPhaseJones,
-    CrosshandDelayJones,
-    FrequencyDependentLeakageJones,
+# Ee / a / dE terms: Element beam, array factor, differential beam
+from .element_beam import (
+    ArrayFactorJones,
+    DifferentialBeamJones,
+    ElementBeamJones,
 )
 
-# M_pq / Q_spq: Baseline-based terms (NOT per-antenna, use JonesBaselineTerm)
-from .baseline_errors import (
-    JonesBaselineTerm,
-    BaselineMultiplicativeJones,
-    SmearingFactorJones,
+# F term: Faraday rotation
+from .faraday import (
+    DifferentialFaradayJones,
+    FaradayRotationJones,
 )
 
+# G term: Electronic gains
 # G term extensions: Elevation gain
 from .gain import (
     ElevationGainJones,
+    GainJones,
+    TimeVariableGainJones,
+)
+
+# K term: Geometric phase
+from .geometric import GeometricPhaseJones
+
+# Z term: Ionosphere
+from .ionosphere import (
+    GPSIonosphereJones,
+    IonosphereJones,
+    TurbulentIonosphereJones,
+)
+
+# P term: Parallactic angle
+from .parallactic import (
+    FieldRotationJones,
+    ParallacticAngleJones,
+    VLBIFeedRotationJones,
+)
+
+# D term: Polarization leakage
+from .polarization_leakage import (
+    BeamSquintLeakageJones,
+    IXRLeakageJones,
+    MuellerLeakageJones,
+    PolarizationLeakageJones,
+)
+
+# C + H terms: Receptor configuration and basis transforms
+from .receptor import (
+    BasisTransformJones,
+    ReceptorConfigJones,
+)
+
+# T term: Troposphere
+from .troposphere import (
+    SaastamoinenTroposphereJones,
+    TroposphereJones,
+    TroposphericOpacityJones,
+    TurbulentTroposphereJones,
+)
+
+# W term: Non-coplanar phase correction
+from .wterm import (
+    WidefieldPolarimetricJones,
+    WPhaseJones,
+    WProjectionJones,
 )
 
 __all__ = [

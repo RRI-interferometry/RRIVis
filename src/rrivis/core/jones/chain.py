@@ -4,7 +4,8 @@ The JonesChain class manages the ordered chain of Jones matrices and provides
 methods to compute the total Jones matrix and baseline visibilities.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
@@ -38,14 +39,13 @@ class JonesChain:
         >>> chain = JonesChain(backend)
         >>>
         >>> # Add Jones terms (sky → correlator order, rightmost first)
-        >>> chain.add_term(GeometricPhaseJones(...))   # K
-        >>> chain.add_term(BeamJones(...))             # E
-        >>> chain.add_term(GainJones(...))             # G
+        >>> chain.add_term(GeometricPhaseJones(...))  # K
+        >>> chain.add_term(BeamJones(...))  # E
+        >>> chain.add_term(GainJones(...))  # G
         >>>
         >>> # Compute total Jones matrix for antenna 0, source 5
         >>> J = chain.compute_antenna_jones(
-        ...     antenna_idx=0, source_idx=5,
-        ...     freq_idx=10, time_idx=0
+        ...     antenna_idx=0, source_idx=5, freq_idx=10, time_idx=0
         ... )
     """
 
@@ -56,13 +56,9 @@ class JonesChain:
             backend: ArrayBackend instance for device placement
         """
         self.backend = backend
-        self.terms: List[JonesTerm] = []
+        self.terms: list[JonesTerm] = []
 
-    def add_term(
-        self,
-        term: JonesTerm,
-        position: str = "append"
-    ) -> None:
+    def add_term(self, term: JonesTerm, position: str = "append") -> None:
         """Add a per-antenna Jones term to the chain.
 
         Args:
@@ -76,9 +72,9 @@ class JonesChain:
                 - int       : Insert at specific index
 
         Example:
-            >>> chain.add_term(gain_jones)                    # append (correlator side)
+            >>> chain.add_term(gain_jones)  # append (correlator side)
             >>> chain.add_term(geometric_jones, position="prepend")  # sky side
-            >>> chain.add_term(faraday_jones, position=2)     # at index 2
+            >>> chain.add_term(faraday_jones, position=2)  # at index 2
         """
         if position == "append":
             self.terms.append(term)
@@ -108,7 +104,7 @@ class JonesChain:
                 return True
         return False
 
-    def get_term(self, name: str) -> Optional[JonesTerm]:
+    def get_term(self, name: str) -> JonesTerm | None:
         """Get Jones term by name.
 
         Args:
@@ -137,10 +133,10 @@ class JonesChain:
     def compute_antenna_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute total Jones matrix for one antenna-source pair.
 
@@ -176,14 +172,12 @@ class JonesChain:
                         f"but source_idx is None"
                     )
                 J_term = term.compute_jones(
-                    antenna_idx, source_idx, freq_idx, time_idx,
-                    self.backend, **kwargs
+                    antenna_idx, source_idx, freq_idx, time_idx, self.backend, **kwargs
                 )
             else:
                 # Direction-independent: source index not needed
                 J_term = term.compute_jones(
-                    antenna_idx, None, freq_idx, time_idx,
-                    self.backend, **kwargs
+                    antenna_idx, None, freq_idx, time_idx, self.backend, **kwargs
                 )
 
             # Multiply: J_total = J_term @ J_total
@@ -231,18 +225,24 @@ class JonesChain:
         for term in reversed(self.terms):
             if term.is_direction_dependent:
                 J_term = term.compute_jones_all_sources(
-                    antenna_idx, n_sources, freq_idx, time_idx,
-                    self.backend, **kwargs,
+                    antenna_idx,
+                    n_sources,
+                    freq_idx,
+                    time_idx,
+                    self.backend,
+                    **kwargs,
                 )
             else:
                 # Direction-independent: compute once and broadcast
                 J_single = term.compute_jones(
-                    antenna_idx, None, freq_idx, time_idx,
-                    self.backend, **kwargs,
+                    antenna_idx,
+                    None,
+                    freq_idx,
+                    time_idx,
+                    self.backend,
+                    **kwargs,
                 )
-                J_term = xp.broadcast_to(
-                    J_single[np.newaxis], (n_sources, 2, 2)
-                ).copy()
+                J_term = xp.broadcast_to(J_single[np.newaxis], (n_sources, 2, 2)).copy()
 
             # Batched matmul: J_total = J_term @ J_total
             J_total = J_term @ J_total
@@ -257,7 +257,7 @@ class JonesChain:
         freq_idx: int,
         time_idx: int,
         coherency_matrix: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute visibility contribution from one source for one baseline.
 
@@ -300,7 +300,7 @@ class JonesChain:
 
         return V
 
-    def get_enabled_effects(self) -> Dict[str, Dict[str, Any]]:
+    def get_enabled_effects(self) -> dict[str, dict[str, Any]]:
         """Get list of enabled Jones effects with metadata.
 
         Returns:
@@ -317,7 +317,7 @@ class JonesChain:
             for term in self.terms
         }
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Get full chain configuration.
 
         Returns:

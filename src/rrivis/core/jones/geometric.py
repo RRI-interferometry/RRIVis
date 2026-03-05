@@ -7,7 +7,8 @@ where (u,v,w) are baseline coordinates in wavelengths and (l,m,n) are
 direction cosines of the source.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
+
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
@@ -56,10 +57,10 @@ class GeometricPhaseJones(JonesTerm):
 
         if source_lmn.shape[1] == 2:
             # Only (l, m) provided - calculate n = sqrt(1 - l² - m²)
-            l = source_lmn[:, 0]
-            m = source_lmn[:, 1]
-            n = np.sqrt(1 - l**2 - m**2)
-            self.source_lmn = np.column_stack([l, m, n])
+            dir_l = source_lmn[:, 0]
+            dir_m = source_lmn[:, 1]
+            dir_n = np.sqrt(1 - dir_l**2 - dir_m**2)
+            self.source_lmn = np.column_stack([dir_l, dir_m, dir_n])
         elif source_lmn.shape[1] == 3:
             self.source_lmn = source_lmn
         else:
@@ -89,11 +90,11 @@ class GeometricPhaseJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute geometric phase Jones matrix.
 
@@ -120,14 +121,14 @@ class GeometricPhaseJones(JonesTerm):
         xp = backend.xp
 
         # Check if baseline UVW is provided for full phase calculation
-        baseline_uvw = kwargs.get('baseline_uvw')
+        baseline_uvw = kwargs.get("baseline_uvw")
 
         if baseline_uvw is None:
             # Return identity - phase applied at visibility level
             return xp.eye(2, dtype=np.complex128)
 
         # Get source direction cosines
-        l, m, n = self.source_lmn[source_idx]
+        dir_l, dir_m, dir_n = self.source_lmn[source_idx]
 
         # Get baseline coordinates - handle both (3,) and (N, 3) shapes
         baseline_uvw = np.asarray(baseline_uvw)
@@ -140,7 +141,7 @@ class GeometricPhaseJones(JonesTerm):
 
         # Compute phase: -2π(ul + vm + w(n-1))
         # Note: baseline_uvw should already be in wavelengths
-        phase = -2.0 * np.pi * (u * l + v * m + w * (n - 1.0))
+        phase = -2.0 * np.pi * (u * dir_l + v * dir_m + w * (dir_n - 1.0))
 
         # Geometric phase term
         phase_term = xp.exp(1j * phase)
@@ -149,7 +150,6 @@ class GeometricPhaseJones(JonesTerm):
         K = phase_term * xp.eye(2, dtype=np.complex128)
 
         return K
-
 
     def compute_jones_all_sources(
         self,
@@ -165,7 +165,7 @@ class GeometricPhaseJones(JonesTerm):
         Returns (n_sources, 2, 2) diagonal matrices with phase on diagonal.
         """
         xp = backend.xp
-        baseline_uvw = kwargs.get('baseline_uvw')
+        baseline_uvw = kwargs.get("baseline_uvw")
 
         if baseline_uvw is None:
             # No baseline info: return batch identity
@@ -183,9 +183,7 @@ class GeometricPhaseJones(JonesTerm):
             u, v, w = baseline_uvw.T
 
         # Phase: -2π(u*l + v*m + w*(n-1))
-        phase = -2.0 * np.pi * (
-            u * lmn[:, 0] + v * lmn[:, 1] + w * (lmn[:, 2] - 1.0)
-        )
+        phase = -2.0 * np.pi * (u * lmn[:, 0] + v * lmn[:, 1] + w * (lmn[:, 2] - 1.0))
         phase_term = xp.exp(1j * phase)  # (n_sources,)
 
         # Scalar matrix: phase * I for each source
@@ -194,10 +192,12 @@ class GeometricPhaseJones(JonesTerm):
         result[:, 1, 1] = phase_term
         return result
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         config = super().get_config()
-        config.update({
-            "n_sources": len(self.source_lmn),
-            "n_frequencies": len(self.wavelengths),
-        })
+        config.update(
+            {
+                "n_sources": len(self.source_lmn),
+                "n_frequencies": len(self.wavelengths),
+            }
+        )
         return config

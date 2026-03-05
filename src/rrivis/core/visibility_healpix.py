@@ -18,37 +18,41 @@ References
 - pyuvsim: https://github.com/RadioAstronomySoftwareGroup/pyuvsim
 """
 
-from typing import Any, Dict, Optional, Tuple, Union
 import logging
+from typing import Any
 
-import numpy as np
-import healpy as hp
-from astropy.coordinates import AltAz, SkyCoord
-from astropy.time import TimeDelta
 import astropy.units as u
+import healpy as hp
+import numpy as np
+from astropy.coordinates import AltAz
+from astropy.time import TimeDelta
 
-from rrivis.backends import get_backend, ArrayBackend
-from rrivis.core.sky import SkyModel, K_BOLTZMANN, C_LIGHT, brightness_temp_to_flux_density
-
+from rrivis.backends import ArrayBackend, get_backend
+from rrivis.core.sky import (
+    C_LIGHT,
+    K_BOLTZMANN,
+    SkyModel,
+    brightness_temp_to_flux_density,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def calculate_visibility_healpix(
     sky_model: SkyModel,
-    antennas: Dict,
-    baselines: Dict,
+    antennas: dict,
+    baselines: dict,
     location: Any,
     obstime: Any,
     wavelengths: Any,
     freqs: Any,
     duration_seconds: float,
     time_step_seconds: float,
-    hpbw_per_antenna: Optional[Dict] = None,
-    beam_manager: Optional[Any] = None,
-    backend: Optional[ArrayBackend] = None,
+    hpbw_per_antenna: dict | None = None,
+    beam_manager: Any | None = None,
+    backend: ArrayBackend | None = None,
     output_units: str = "Jy",
-) -> Dict:
+) -> dict:
     """
     Calculate visibility directly from HEALPix brightness temperature map.
 
@@ -115,7 +119,9 @@ def calculate_visibility_healpix(
     pixel_coords = sky_model.pixel_coords
 
     logger.info(f"HEALPix visibility calculation: nside={nside}, {npix} pixels")
-    logger.info(f"Pixel solid angle: {omega_pixel:.6f} sr ({np.degrees(np.sqrt(omega_pixel)):.3f}°)")
+    logger.info(
+        f"Pixel solid angle: {omega_pixel:.6f} sr ({np.degrees(np.sqrt(omega_pixel)):.3f}°)"
+    )
 
     # Setup time steps
     n_times = int(np.ceil(duration_seconds / time_step_seconds))
@@ -127,23 +133,29 @@ def calculate_visibility_healpix(
     n_freqs = len(freqs)
 
     # Pre-compute baseline vectors in local ENU
-    baseline_vectors = np.array([
-        baselines[bl]["BaselineVector"] for bl in baseline_keys
-    ])
+    baseline_vectors = np.array(
+        [baselines[bl]["BaselineVector"] for bl in baseline_keys]
+    )
 
     # Initialize output array
     visibilities = np.zeros((n_baselines, n_times, n_freqs), dtype=np.complex128)
 
-    logger.info(f"Computing visibilities: {n_times} times × {n_freqs} freqs × {n_baselines} baselines")
+    logger.info(
+        f"Computing visibilities: {n_times} times × {n_freqs} freqs × {n_baselines} baselines"
+    )
 
     # ==========================================================================
     # TIME LOOP
     # ==========================================================================
     for time_idx in range(n_times):
-        current_obstime = obstime + TimeDelta(time_step_seconds * time_idx, format='sec')
+        current_obstime = obstime + TimeDelta(
+            time_step_seconds * time_idx, format="sec"
+        )
 
         # Transform pixel coordinates to AltAz
-        altaz = pixel_coords.transform_to(AltAz(obstime=current_obstime, location=location))
+        altaz = pixel_coords.transform_to(
+            AltAz(obstime=current_obstime, location=location)
+        )
         az_rad = altaz.az.rad
         alt_rad = altaz.alt.rad
 
@@ -158,19 +170,21 @@ def calculate_visibility_healpix(
         az_vis = az_rad[above_horizon]
         alt_vis = alt_rad[above_horizon]
 
-        # Compute direction cosines (l, m, n) in local ENU frame
-        # l = East, m = North, n = Up (zenith)
-        l = np.cos(alt_vis) * np.sin(az_vis)
-        m = np.cos(alt_vis) * np.cos(az_vis)
-        n = np.sin(alt_vis)
+        # Compute direction cosines (dir_l, dir_m, dir_n) in local ENU frame
+        # dir_l = East, dir_m = North, dir_n = Up (zenith)
+        dir_l = np.cos(alt_vis) * np.sin(az_vis)
+        dir_m = np.cos(alt_vis) * np.cos(az_vis)
+        dir_n = np.sin(alt_vis)
 
         # Stack direction cosines for vectorized computation
-        direction_vectors = np.column_stack([l, m, n])  # (n_visible, 3)
+        np.column_stack([dir_l, dir_m, dir_n])  # (n_visible, 3)
 
         # ======================================================================
         # FREQUENCY LOOP
         # ======================================================================
-        for freq_idx, (wavelength, freq) in enumerate(zip(wavelengths, freqs)):
+        for freq_idx, (wavelength, freq) in enumerate(
+            zip(wavelengths, freqs, strict=False)
+        ):
             wavelength_m = wavelength.to(u.m).value
 
             # Look up the pre-computed native map for this frequency channel
@@ -180,9 +194,11 @@ def calculate_visibility_healpix(
             # Convert to output units before baseline loop
             # (Planck conversion is nonlinear in T, so must be per-pixel)
             if output_units == "Jy":
-                conversion = getattr(sky_model, 'brightness_conversion', 'planck')
+                conversion = getattr(sky_model, "brightness_conversion", "planck")
                 if conversion == "rayleigh-jeans":
-                    rj_factor = (2 * K_BOLTZMANN * freq**2 / C_LIGHT**2) * omega_pixel * 1e26
+                    rj_factor = (
+                        (2 * K_BOLTZMANN * freq**2 / C_LIGHT**2) * omega_pixel * 1e26
+                    )
                     signal = temp_vis * rj_factor
                 else:
                     # Handle zero-temperature pixels gracefully
@@ -201,13 +217,15 @@ def calculate_visibility_healpix(
             # Compute visibility for each baseline
             # V = Σ signal × exp(-2πi (ul + vm + w(n-1)))
             # Using w(n-1) formulation per Smirnov 2011 RIME
-            for bl_idx, (bl_key, bl_vec) in enumerate(zip(baseline_keys, baseline_vectors)):
+            for bl_idx, (_bl_key, bl_vec) in enumerate(
+                zip(baseline_keys, baseline_vectors, strict=False)
+            ):
                 # Baseline in wavelengths
-                u, v, w = bl_vec / wavelength_m
+                bl_u, bl_v, bl_w = bl_vec / wavelength_m
 
                 # Geometric delay with w(n-1) correction
                 # This ensures zero phase at phase center (l=0, m=0, n=1)
-                delay = u * l + v * m + w * (n - 1.0)
+                delay = bl_u * dir_l + bl_v * dir_m + bl_w * (dir_n - 1.0)
 
                 # Phase factor
                 phase = np.exp(-2j * np.pi * delay)
@@ -218,7 +236,9 @@ def calculate_visibility_healpix(
                 visibilities[bl_idx, time_idx, freq_idx] = vis
 
         if time_idx % 10 == 0 or time_idx == n_times - 1:
-            logger.debug(f"Time step {time_idx + 1}/{n_times}: {n_visible} pixels visible")
+            logger.debug(
+                f"Time step {time_idx + 1}/{n_times}: {n_visible} pixels visible"
+            )
 
     # Prepare output
     result = {
@@ -236,10 +256,12 @@ def calculate_visibility_healpix(
             "n_pixels": npix,
             "pixel_solid_angle_sr": omega_pixel,
             "n_frequencies": n_freqs,
-        }
+        },
     }
 
-    logger.info(f"HEALPix visibility calculation complete. Output units: {output_units}")
+    logger.info(
+        f"HEALPix visibility calculation complete. Output units: {output_units}"
+    )
 
     return result
 
@@ -262,4 +284,4 @@ def rayleigh_jeans_factor(frequency: float, solid_angle: float) -> float:
     float
         Conversion factor (multiply temperature by this to get Jy).
     """
-    return (2 * K_BOLTZMANN * (frequency ** 2) / (C_LIGHT ** 2)) * solid_angle * 1e26
+    return (2 * K_BOLTZMANN * (frequency**2) / (C_LIGHT**2)) * solid_angle * 1e26

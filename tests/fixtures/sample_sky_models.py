@@ -17,8 +17,8 @@ def get_single_bright_source():
     list
         List with single source dictionary.
     """
-    from astropy.coordinates import SkyCoord
     import astropy.units as u
+    from astropy.coordinates import SkyCoord
 
     return [
         {
@@ -38,8 +38,8 @@ def get_multiple_unpolarized_sources():
     list
         List of source dictionaries.
     """
-    from astropy.coordinates import SkyCoord
     import astropy.units as u
+    from astropy.coordinates import SkyCoord
 
     return [
         {
@@ -74,8 +74,8 @@ def get_polarized_sources():
     list
         List of source dictionaries with polarization info.
     """
-    from astropy.coordinates import SkyCoord
     import astropy.units as u
+    from astropy.coordinates import SkyCoord
 
     return [
         {
@@ -128,8 +128,8 @@ def get_random_sources(n_sources=100, flux_min=0.1, flux_max=10.0, seed=42):
     list
         List of source dictionaries.
     """
-    from astropy.coordinates import SkyCoord
     import astropy.units as u
+    from astropy.coordinates import SkyCoord
 
     np.random.seed(seed)
     sources = []
@@ -145,16 +145,20 @@ def get_random_sources(n_sources=100, flux_min=0.1, flux_max=10.0, seed=42):
         # Random spectral index (typical range)
         spectral_index = np.random.uniform(-1.0, -0.5)
 
-        sources.append({
-            "coords": SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame="icrs"),
-            "flux": flux,
-            "spectral_index": spectral_index,
-        })
+        sources.append(
+            {
+                "coords": SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame="icrs"),
+                "flux": flux,
+                "spectral_index": spectral_index,
+            }
+        )
 
     return sources
 
 
-def get_grid_sources(n_ra=5, n_dec=5, flux=1.0, ra_center=0.0, dec_center=45.0, spacing=5.0):
+def get_grid_sources(
+    n_ra=5, n_dec=5, flux=1.0, ra_center=0.0, dec_center=45.0, spacing=5.0
+):
     """
     Regular grid of sources for testing.
 
@@ -178,25 +182,29 @@ def get_grid_sources(n_ra=5, n_dec=5, flux=1.0, ra_center=0.0, dec_center=45.0, 
     list
         List of source dictionaries.
     """
-    from astropy.coordinates import SkyCoord
     import astropy.units as u
+    from astropy.coordinates import SkyCoord
 
     sources = []
 
     ra_offsets = np.linspace(-(n_ra - 1) / 2 * spacing, (n_ra - 1) / 2 * spacing, n_ra)
-    dec_offsets = np.linspace(-(n_dec - 1) / 2 * spacing, (n_dec - 1) / 2 * spacing, n_dec)
+    dec_offsets = np.linspace(
+        -(n_dec - 1) / 2 * spacing, (n_dec - 1) / 2 * spacing, n_dec
+    )
 
     for ra_off in ra_offsets:
         for dec_off in dec_offsets:
-            sources.append({
-                "coords": SkyCoord(
-                    ra=(ra_center + ra_off) * u.deg,
-                    dec=(dec_center + dec_off) * u.deg,
-                    frame="icrs"
-                ),
-                "flux": flux,
-                "spectral_index": -0.7,
-            })
+            sources.append(
+                {
+                    "coords": SkyCoord(
+                        ra=(ra_center + ra_off) * u.deg,
+                        dec=(dec_center + dec_off) * u.deg,
+                        frame="icrs",
+                    ),
+                    "flux": flux,
+                    "spectral_index": -0.7,
+                }
+            )
 
     return sources
 
@@ -212,8 +220,8 @@ def get_point_source_at_phase_center():
     list
         List with single source at phase center.
     """
-    from astropy.coordinates import SkyCoord
     import astropy.units as u
+    from astropy.coordinates import SkyCoord
 
     return [
         {
@@ -235,8 +243,8 @@ def get_two_point_sources_symmetric():
     list
         List with two symmetric sources.
     """
-    from astropy.coordinates import SkyCoord
     import astropy.units as u
+    from astropy.coordinates import SkyCoord
 
     return [
         {

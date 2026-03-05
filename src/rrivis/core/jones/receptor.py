@@ -10,7 +10,8 @@ The H term is a generic basis transformation between polarization bases.
 Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
@@ -27,11 +28,7 @@ class ReceptorConfigJones(JonesTerm):
         Additional parameters (ignored)
     """
 
-    def __init__(
-        self,
-        feed_type: str = "linear",
-        **kwargs
-    ):
+    def __init__(self, feed_type: str = "linear", **kwargs):
         """Initialize receptor configuration Jones term (stub)."""
         self.feed_type = feed_type
 
@@ -49,11 +46,11 @@ class ReceptorConfigJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute receptor configuration Jones matrix (stub returns identity)."""
         xp = backend.xp
@@ -74,10 +71,7 @@ class BasisTransformJones(JonesTerm):
     """
 
     def __init__(
-        self,
-        from_basis: str = "linear",
-        to_basis: str = "circular",
-        **kwargs
+        self, from_basis: str = "linear", to_basis: str = "circular", **kwargs
     ):
         """Initialize basis transform Jones term (stub)."""
         self.from_basis = from_basis
@@ -97,11 +91,11 @@ class BasisTransformJones(JonesTerm):
     def compute_jones(
         self,
         antenna_idx: int,
-        source_idx: Optional[int],
+        source_idx: int | None,
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Compute basis transform Jones matrix (stub returns identity)."""
         xp = backend.xp

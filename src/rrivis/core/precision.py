@@ -21,8 +21,8 @@ Using presets:
 
 >>> from rrivis.core.precision import PrecisionConfig
 >>> precision = PrecisionConfig.standard()  # All float64
->>> precision = PrecisionConfig.fast()      # float32 where safe
->>> precision = PrecisionConfig.precise()   # float128 for critical paths
+>>> precision = PrecisionConfig.fast()  # float32 where safe
+>>> precision = PrecisionConfig.precise()  # float128 for critical paths
 
 Granular control:
 
@@ -30,7 +30,7 @@ Granular control:
 ...     default="float64",
 ...     jones=JonesPrecision(
 ...         geometric_phase="float128",  # Critical for phase
-...         beam="float32",              # Less sensitive
+...         beam="float32",  # Less sensitive
 ...     ),
 ... )
 
@@ -44,11 +44,10 @@ In Simulator:
 from __future__ import annotations
 
 import warnings
-from typing import Any, Dict, Literal, Optional, Union, Type
+from typing import Any, Literal
 
 import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
-
 
 # =============================================================================
 # Precision Level Type
@@ -63,6 +62,7 @@ VALID_PRECISIONS = {"float32", "float64", "float128"}
 # =============================================================================
 # Platform-specific dtype detection
 # =============================================================================
+
 
 def _check_float128_support() -> bool:
     """Check if float128 is available on this platform."""
@@ -93,6 +93,7 @@ COMPLEX256_AVAILABLE = _check_complex256_support()
 # Dtype Mapping
 # =============================================================================
 
+
 def get_real_dtype(precision: PrecisionLevel, backend: str = "numpy") -> Any:
     """Get the real (non-complex) dtype for a precision level.
 
@@ -122,14 +123,15 @@ def get_real_dtype(precision: PrecisionLevel, backend: str = "numpy") -> Any:
             warnings.warn(
                 f"float128 not supported on {backend} backend. "
                 "Falling back to float64.",
-                UserWarning
+                UserWarning,
+                stacklevel=2,
             )
             return np.float64
         if not FLOAT128_AVAILABLE:
             warnings.warn(
-                "float128 not available on this platform. "
-                "Falling back to float64.",
-                UserWarning
+                "float128 not available on this platform. Falling back to float64.",
+                UserWarning,
+                stacklevel=2,
             )
             return np.float64
         return np.float128
@@ -161,14 +163,16 @@ def get_complex_dtype(precision: PrecisionLevel, backend: str = "numpy") -> Any:
             warnings.warn(
                 f"complex256 not supported on {backend} backend. "
                 "Falling back to complex128.",
-                UserWarning
+                UserWarning,
+                stacklevel=2,
             )
             return np.complex128
         if not COMPLEX256_AVAILABLE:
             warnings.warn(
                 "complex256 not available on this platform. "
                 "Falling back to complex128.",
-                UserWarning
+                UserWarning,
+                stacklevel=2,
             )
             return np.complex128
         return np.complex256
@@ -192,7 +196,7 @@ def get_dtype_size(precision: PrecisionLevel, complex_type: bool = False) -> int
         Size in bytes
     """
     sizes = {
-        "float32": (4, 8),    # real, complex
+        "float32": (4, 8),  # real, complex
         "float64": (8, 16),
         "float128": (16, 32),
     }
@@ -202,6 +206,7 @@ def get_dtype_size(precision: PrecisionLevel, complex_type: bool = False) -> int
 # =============================================================================
 # Coordinate Precision Configuration
 # =============================================================================
+
 
 class CoordinatePrecision(BaseModel):
     """Precision settings for coordinate calculations.
@@ -219,20 +224,17 @@ class CoordinatePrecision(BaseModel):
     """
 
     antenna_positions: PrecisionLevel = Field(
-        default="float64",
-        description="Antenna position precision"
+        default="float64", description="Antenna position precision"
     )
     source_positions: PrecisionLevel = Field(
-        default="float64",
-        description="Source coordinate precision"
+        default="float64", description="Source coordinate precision"
     )
     direction_cosines: PrecisionLevel = Field(
         default="float64",
-        description="Direction cosine (l,m,n) precision - feeds into phase"
+        description="Direction cosine (l,m,n) precision - feeds into phase",
     )
     uvw: PrecisionLevel = Field(
-        default="float64",
-        description="Baseline UVW coordinate precision"
+        default="float64", description="Baseline UVW coordinate precision"
     )
 
     @field_validator("*", mode="before")
@@ -251,6 +253,7 @@ class CoordinatePrecision(BaseModel):
 # =============================================================================
 # Jones Matrix Precision Configuration
 # =============================================================================
+
 
 class JonesPrecision(BaseModel):
     """Precision settings for Jones matrix calculations.
@@ -283,35 +286,24 @@ class JonesPrecision(BaseModel):
 
     geometric_phase: PrecisionLevel = Field(
         default="float64",
-        description="K term (geometric delay) - CRITICAL for phase accuracy"
+        description="K term (geometric delay) - CRITICAL for phase accuracy",
     )
-    beam: PrecisionLevel = Field(
-        default="float64",
-        description="E term (primary beam)"
-    )
+    beam: PrecisionLevel = Field(default="float64", description="E term (primary beam)")
     ionosphere: PrecisionLevel = Field(
-        default="float64",
-        description="Z term (ionosphere)"
+        default="float64", description="Z term (ionosphere)"
     )
     troposphere: PrecisionLevel = Field(
-        default="float64",
-        description="T term (troposphere)"
+        default="float64", description="T term (troposphere)"
     )
     parallactic: PrecisionLevel = Field(
-        default="float64",
-        description="P term (parallactic angle)"
+        default="float64", description="P term (parallactic angle)"
     )
     gain: PrecisionLevel = Field(
-        default="float64",
-        description="G term (antenna gains)"
+        default="float64", description="G term (antenna gains)"
     )
-    bandpass: PrecisionLevel = Field(
-        default="float64",
-        description="B term (bandpass)"
-    )
+    bandpass: PrecisionLevel = Field(default="float64", description="B term (bandpass)")
     polarization_leakage: PrecisionLevel = Field(
-        default="float64",
-        description="D term (polarization leakage)"
+        default="float64", description="D term (polarization leakage)"
     )
 
     @field_validator("*", mode="before")
@@ -336,6 +328,7 @@ class JonesPrecision(BaseModel):
 # Sky Model Precision Configuration
 # =============================================================================
 
+
 class SkyModelPrecision(BaseModel):
     """Precision settings for sky model data storage.
 
@@ -357,20 +350,16 @@ class SkyModelPrecision(BaseModel):
     """
 
     source_positions: PrecisionLevel = Field(
-        default="float64",
-        description="RA/Dec precision — phase-critical"
+        default="float64", description="RA/Dec precision — phase-critical"
     )
     flux: PrecisionLevel = Field(
-        default="float64",
-        description="Flux density and Stokes parameter precision"
+        default="float64", description="Flux density and Stokes parameter precision"
     )
     spectral_index: PrecisionLevel = Field(
-        default="float64",
-        description="Power-law spectral index precision"
+        default="float64", description="Power-law spectral index precision"
     )
     healpix_maps: PrecisionLevel = Field(
-        default="float32",
-        description="HEALPix brightness temperature map precision"
+        default="float32", description="HEALPix brightness temperature map precision"
     )
 
     @field_validator("*", mode="before")
@@ -404,6 +393,7 @@ class SkyModelPrecision(BaseModel):
 # Main Precision Configuration
 # =============================================================================
 
+
 class PrecisionConfig(BaseModel):
     """Main precision configuration for RRIvis simulations.
 
@@ -426,7 +416,7 @@ class PrecisionConfig(BaseModel):
     Examples
     --------
     >>> config = PrecisionConfig.standard()  # All float64
-    >>> config = PrecisionConfig.fast()      # Optimized for speed
+    >>> config = PrecisionConfig.fast()  # Optimized for speed
     >>> config = PrecisionConfig(
     ...     default="float64",
     ...     jones=JonesPrecision(geometric_phase="float128"),
@@ -434,28 +424,23 @@ class PrecisionConfig(BaseModel):
     """
 
     default: PrecisionLevel = Field(
-        default="float64",
-        description="Default precision (fallback)"
+        default="float64", description="Default precision (fallback)"
     )
     coordinates: CoordinatePrecision = Field(
-        default_factory=CoordinatePrecision,
-        description="Coordinate precision settings"
+        default_factory=CoordinatePrecision, description="Coordinate precision settings"
     )
     jones: JonesPrecision = Field(
-        default_factory=JonesPrecision,
-        description="Jones matrix precision settings"
+        default_factory=JonesPrecision, description="Jones matrix precision settings"
     )
     accumulation: PrecisionLevel = Field(
-        default="float64",
-        description="Visibility accumulation precision"
+        default="float64", description="Visibility accumulation precision"
     )
     output: PrecisionLevel = Field(
-        default="float64",
-        description="Output visibility precision"
+        default="float64", description="Output visibility precision"
     )
     sky_model: SkyModelPrecision = Field(
         default_factory=SkyModelPrecision,
-        description="Sky model data precision settings"
+        description="Sky model data precision settings",
     )
 
     model_config = {
@@ -471,7 +456,7 @@ class PrecisionConfig(BaseModel):
         raise ValueError(f"Invalid precision: {v}. Must be one of {VALID_PRECISIONS}")
 
     @model_validator(mode="after")
-    def apply_defaults(self) -> "PrecisionConfig":
+    def apply_defaults(self) -> PrecisionConfig:
         """Apply default precision to sub-configs where not explicitly set."""
         # This validator runs after initial construction
         # We could use it to propagate defaults, but for now we keep
@@ -483,7 +468,7 @@ class PrecisionConfig(BaseModel):
     # =========================================================================
 
     @classmethod
-    def standard(cls) -> "PrecisionConfig":
+    def standard(cls) -> PrecisionConfig:
         """Standard precision: float64 everywhere (current default behavior).
 
         Use for: General simulations, 21cm cosmology, precision-critical work.
@@ -496,7 +481,7 @@ class PrecisionConfig(BaseModel):
         return cls(default="float64")
 
     @classmethod
-    def fast(cls) -> "PrecisionConfig":
+    def fast(cls) -> PrecisionConfig:
         """Fast precision: float32 where safe, float64 for critical paths.
 
         Use for: Large SKA simulations, quick previews, GPU optimization.
@@ -540,7 +525,7 @@ class PrecisionConfig(BaseModel):
         )
 
     @classmethod
-    def precise(cls) -> "PrecisionConfig":
+    def precise(cls) -> PrecisionConfig:
         """High precision: float128 for critical paths, float64 elsewhere.
 
         Use for: Validation, debugging numerical issues, cross-validation
@@ -582,7 +567,7 @@ class PrecisionConfig(BaseModel):
         )
 
     @classmethod
-    def ultra(cls) -> "PrecisionConfig":
+    def ultra(cls) -> PrecisionConfig:
         """Ultra precision: float128 everywhere.
 
         Use for: Debugging only - very slow, NumPy only.
@@ -627,7 +612,7 @@ class PrecisionConfig(BaseModel):
     # Helper Methods
     # =========================================================================
 
-    def with_overrides(self, **kwargs) -> "PrecisionConfig":
+    def with_overrides(self, **kwargs) -> PrecisionConfig:
         """Create a new config with specified overrides.
 
         Parameters
@@ -660,10 +645,7 @@ class PrecisionConfig(BaseModel):
         return PrecisionConfig(**data)
 
     def get_real_dtype(
-        self,
-        component: str,
-        sub_component: Optional[str] = None,
-        backend: str = "numpy"
+        self, component: str, sub_component: str | None = None, backend: str = "numpy"
     ) -> Any:
         """Get real dtype for a component.
 
@@ -694,10 +676,7 @@ class PrecisionConfig(BaseModel):
             return get_real_dtype(self.default, backend)
 
     def get_complex_dtype(
-        self,
-        component: str,
-        sub_component: Optional[str] = None,
-        backend: str = "numpy"
+        self, component: str, sub_component: str | None = None, backend: str = "numpy"
     ) -> Any:
         """Get complex dtype for a component.
 
@@ -753,7 +732,9 @@ class PrecisionConfig(BaseModel):
             self.jones.ionosphere,
             self.jones.gain,
         ]
-        jones_avg = sum(size_factors[p] for p in jones_precisions) / len(jones_precisions)
+        jones_avg = sum(size_factors[p] for p in jones_precisions) / len(
+            jones_precisions
+        )
         factor += weights["jones"] * jones_avg
 
         # Accumulation and output
@@ -809,11 +790,15 @@ class PrecisionConfig(BaseModel):
         if backend_name == "numpy" and not FLOAT128_AVAILABLE:
             # Check for float128 usage on unsupported platform
             if any(
-                getattr(self, f, None) == "float128" or
-                any(getattr(self.coordinates, f2, None) == "float128"
-                    for f2 in self.coordinates.model_fields) or
-                any(getattr(self.jones, f3, None) == "float128"
-                    for f3 in self.jones.model_fields)
+                getattr(self, f, None) == "float128"
+                or any(
+                    getattr(self.coordinates, f2, None) == "float128"
+                    for f2 in self.coordinates.model_fields
+                )
+                or any(
+                    getattr(self.jones, f3, None) == "float128"
+                    for f3 in self.jones.model_fields
+                )
                 for f in ["default", "accumulation", "output"]
             ):
                 warnings_list.append(
@@ -828,9 +813,8 @@ class PrecisionConfig(BaseModel):
 # Helper Functions
 # =============================================================================
 
-def resolve_precision(
-    precision: Union[str, PrecisionConfig, None]
-) -> PrecisionConfig:
+
+def resolve_precision(precision: str | PrecisionConfig | None) -> PrecisionConfig:
     """Resolve precision argument to a PrecisionConfig.
 
     Parameters
