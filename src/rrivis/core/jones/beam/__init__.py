@@ -316,10 +316,111 @@ class AnalyticBeamJones(BeamJones):
         return config
 
 
+class FITSBeamJones(BeamJones):
+    """Beam Jones term using FITS beam files via BeamManager.
+
+    Wraps a BeamManager instance to provide FITS-based beam responses
+    within the JonesChain framework. Falls back to identity if the
+    BeamManager returns None.
+
+    Args:
+        beam_manager: BeamManager instance for FITS beam interpolation
+        source_altaz: Source coordinates in alt-az, shape (N_sources, 2) [alt, az] in radians
+        frequencies: Observation frequencies in Hz, shape (N_freq,)
+    """
+
+    def __init__(
+        self,
+        beam_manager: Any,
+        source_altaz: np.ndarray,
+        frequencies: np.ndarray,
+    ):
+        self._beam_manager = beam_manager
+
+        def beam_model(
+            antenna_idx: int,
+            zenith_angle: float,
+            azimuth: float,
+            frequency: float,
+            time_idx: int,
+            **kw: Any,
+        ) -> np.ndarray:
+            alt = np.pi / 2 - zenith_angle
+            antenna_number = kw.get("antenna_number", antenna_idx)
+            jones = self._beam_manager.get_jones_matrix(
+                antenna_number=antenna_number,
+                alt_rad=alt,
+                az_rad=azimuth,
+                freq_hz=frequency,
+                location=None,
+                time=None,
+            )
+            if jones is None:
+                return np.eye(2, dtype=np.complex128)
+            return jones
+
+        super().__init__(beam_model, source_altaz, frequencies)
+
+    def compute_jones_all_sources(
+        self,
+        antenna_idx: int,
+        n_sources: int,
+        freq_idx: int,
+        time_idx: int,
+        backend: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Vectorized FITS beam lookup for all sources.
+
+        Args:
+            antenna_idx: Antenna index
+            n_sources: Number of sources
+            freq_idx: Frequency index
+            time_idx: Time index
+            backend: Array backend
+            **kwargs: Must include 'antenna_number' for BeamManager lookup
+
+        Returns:
+            Jones matrices, shape (n_sources, 2, 2)
+        """
+        alts = self.source_altaz[:n_sources, 0]
+        azs = self.source_altaz[:n_sources, 1]
+        frequency = self.frequencies[freq_idx]
+        antenna_number = kwargs.get("antenna_number", antenna_idx)
+
+        jones = self._beam_manager.get_jones_matrix(
+            antenna_number=antenna_number,
+            alt_rad=alts,
+            az_rad=azs,
+            freq_hz=frequency,
+            location=None,
+            time=None,
+        )
+
+        if jones is None:
+            result = np.zeros((n_sources, 2, 2), dtype=np.complex128)
+            result[:, 0, 0] = 1.0
+            result[:, 1, 1] = 1.0
+            return backend.asarray(result, dtype=np.complex128)
+
+        if jones.ndim == 2:
+            jones = np.tile(jones, (n_sources, 1, 1))
+        return backend.asarray(jones, dtype=np.complex128)
+
+    def is_diagonal(self) -> bool:
+        return False  # FITS beams can have cross-pol
+
+    def get_config(self) -> Dict[str, Any]:
+        config = super().get_config()
+        config["beam_source"] = "fits"
+        return config
+
+
 __all__ = [
     # Jones matrix classes
     "BeamJones",
     "AnalyticBeamJones",
+    "FITSBeamJones",
     # Analytic beam patterns
     "AntennaType",
     "BeamPatternType",

@@ -78,6 +78,7 @@ from .geometric import GeometricPhaseJones
 from .beam import (
     BeamJones,
     AnalyticBeamJones,
+    FITSBeamJones,
 )
 
 # G term: Electronic gains
@@ -186,6 +187,7 @@ __all__ = [
     # E term
     "BeamJones",
     "AnalyticBeamJones",
+    "FITSBeamJones",
     # G term
     "GainJones",
     "TimeVariableGainJones",
