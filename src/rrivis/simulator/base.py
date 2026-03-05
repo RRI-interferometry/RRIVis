@@ -170,7 +170,6 @@ class VisibilitySimulator(ABC):
                 - beam_pattern_per_antenna: dict of analytic beam types
                 - beam_pattern_params: dict of beam pattern parameters
                 - return_correlations: bool, extract XX/XY/YX/YY (default True)
-                - use_jones_chain: bool, use full Jones formalism
                 - jones_config: dict of Jones term configurations
 
         Returns

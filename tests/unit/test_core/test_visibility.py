@@ -305,7 +305,7 @@ class TestBackendIntegration(unittest.TestCase):
 
 
 class TestJonesChainIntegration(unittest.TestCase):
-    """Test visibility calculation with JonesChain."""
+    """Test visibility calculation with JonesChain terms."""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -338,8 +338,8 @@ class TestJonesChainIntegration(unittest.TestCase):
             1: np.array([theta_HPBW]),
         }
 
-    def test_jones_chain_mode(self):
-        """Test visibility calculation with JonesChain mode enabled."""
+    def test_basic_visibility(self):
+        """Test basic visibility calculation."""
         vis = calculate_visibility(
             antennas=self.antennas,
             baselines=self.baselines,
@@ -351,15 +351,12 @@ class TestJonesChainIntegration(unittest.TestCase):
             hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=True,
         )
         self.assertIn((0, 1), vis)
         self.assertIn("I", vis[(0, 1)])
-        # Should have non-zero visibility for source above horizon
-        # (Note: may be zero if source is below horizon at this time/location)
 
-    def test_jones_chain_with_gains(self):
-        """Test JonesChain with gains enabled."""
+    def test_with_gains(self):
+        """Test visibility with gains enabled."""
         jones_config = {
             "G": {"enabled": True, "sigma": 0.0},  # No perturbation for deterministic test
         }
@@ -375,13 +372,12 @@ class TestJonesChainIntegration(unittest.TestCase):
             hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=True,
             jones_config=jones_config,
         )
         self.assertIn((0, 1), vis)
 
-    def test_jones_chain_with_bandpass(self):
-        """Test JonesChain with bandpass enabled."""
+    def test_with_bandpass(self):
+        """Test visibility with bandpass enabled."""
         jones_config = {
             "B": {"enabled": True},
         }
@@ -397,13 +393,12 @@ class TestJonesChainIntegration(unittest.TestCase):
             hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=True,
             jones_config=jones_config,
         )
         self.assertIn((0, 1), vis)
 
-    def test_jones_chain_with_leakage(self):
-        """Test JonesChain with polarization leakage enabled."""
+    def test_with_leakage(self):
+        """Test visibility with polarization leakage enabled."""
         jones_config = {
             "D": {"enabled": True},
         }
@@ -419,51 +414,9 @@ class TestJonesChainIntegration(unittest.TestCase):
             hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=True,
             jones_config=jones_config,
         )
         self.assertIn((0, 1), vis)
-
-    def test_legacy_vs_jones_chain_similar(self):
-        """Test that legacy and JonesChain modes give similar results for basic case."""
-        # Legacy mode (beam only)
-        vis_legacy = calculate_visibility(
-            antennas=self.antennas,
-            baselines=self.baselines,
-            sources=self.sources,
-            location=self.location,
-            obstime=self.obstime,
-            wavelengths=self.wavelengths,
-            freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
-            duration_seconds=60.0,
-            time_step_seconds=60.0,
-            use_jones_chain=False,
-        )
-
-        # JonesChain mode (K + E only, no extra effects)
-        vis_chain = calculate_visibility(
-            antennas=self.antennas,
-            baselines=self.baselines,
-            sources=self.sources,
-            location=self.location,
-            obstime=self.obstime,
-            wavelengths=self.wavelengths,
-            freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
-            duration_seconds=60.0,
-            time_step_seconds=60.0,
-            use_jones_chain=True,
-            jones_config={},  # No extra effects
-        )
-
-        # Both should have the same baselines
-        self.assertEqual(set(vis_legacy.keys()), set(vis_chain.keys()))
-
-        # Check that visibilities are returned (may differ slightly due to implementation)
-        for key in vis_legacy:
-            self.assertIn("I", vis_legacy[key])
-            self.assertIn("I", vis_chain[key])
 
 
 class TestVectorizedCoherency(unittest.TestCase):
@@ -698,8 +651,8 @@ class TestBeamCaching(unittest.TestCase):
                           f"Non-finite visibility for baseline {key}")
 
 
-class TestJonesChainEquivalence(unittest.TestCase):
-    """Test legacy vs JonesChain equivalence for E-term-only case."""
+class TestIdentityJonesTerms(unittest.TestCase):
+    """Test that identity Jones terms (stubs) don't alter the result."""
 
     def setUp(self):
         self.antennas = {
@@ -731,9 +684,9 @@ class TestJonesChainEquivalence(unittest.TestCase):
             1: np.array([theta_HPBW]),
         }
 
-    def test_legacy_vs_chain_stokes_I_close(self):
-        """Legacy and JonesChain paths should give very similar Stokes I."""
-        vis_legacy = calculate_visibility(
+    def test_stokes_I_visibility_correct(self):
+        """Visibility should produce valid Stokes I results."""
+        vis = calculate_visibility(
             antennas=self.antennas,
             baselines=self.baselines,
             sources=self.sources,
@@ -744,41 +697,22 @@ class TestJonesChainEquivalence(unittest.TestCase):
             hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=False,
         )
 
-        vis_chain = calculate_visibility(
-            antennas=self.antennas,
-            baselines=self.baselines,
-            sources=self.sources,
-            location=self.location,
-            obstime=self.obstime,
-            wavelengths=self.wavelengths,
-            freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
-            duration_seconds=60.0,
-            time_step_seconds=60.0,
-            use_jones_chain=True,
-            jones_config={},
-        )
+        for key in vis:
+            self.assertIn("I", vis[key])
+            # Stokes I should be complex
+            self.assertTrue(np.iscomplexobj(vis[key]["I"]))
 
-        for key in vis_legacy:
-            np.testing.assert_array_almost_equal(
-                vis_legacy[key]["I"],
-                vis_chain[key]["I"],
-                decimal=10,
-                err_msg=f"Legacy vs JonesChain Stokes I mismatch for {key}",
-            )
-
-    def test_chain_with_all_stubs_matches_legacy(self):
-        """JonesChain with all stub terms enabled should match legacy."""
+    def test_identity_jones_terms_dont_change_result(self):
+        """Adding G/B/D stubs with zero perturbation should not alter output."""
         jones_config = {
             "G": {"enabled": True, "sigma": 0.0},
             "B": {"enabled": True},
             "D": {"enabled": True},
         }
 
-        vis_chain = calculate_visibility(
+        vis_with_stubs = calculate_visibility(
             antennas=self.antennas,
             baselines=self.baselines,
             sources=self.sources,
@@ -789,11 +723,10 @@ class TestJonesChainEquivalence(unittest.TestCase):
             hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=True,
             jones_config=jones_config,
         )
 
-        vis_legacy = calculate_visibility(
+        vis_without = calculate_visibility(
             antennas=self.antennas,
             baselines=self.baselines,
             sources=self.sources,
@@ -804,17 +737,157 @@ class TestJonesChainEquivalence(unittest.TestCase):
             hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=False,
         )
 
         # Stubs all return identity, so results should match
-        for key in vis_legacy:
+        for key in vis_without:
             np.testing.assert_array_almost_equal(
-                vis_legacy[key]["I"],
-                vis_chain[key]["I"],
+                vis_without[key]["I"],
+                vis_with_stubs[key]["I"],
                 decimal=10,
                 err_msg=f"Stubs should not alter visibility for {key}",
             )
+
+
+class TestFITSBeamJones(unittest.TestCase):
+    """Test FITSBeamJones with a mock BeamManager."""
+
+    def setUp(self):
+        self.antennas = {
+            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            1: {"Name": "Ant1", "Number": 1, "BeamID": 0, "Position": (100.0, 0.0, 0.0)},
+        }
+        self.baselines = {
+            (0, 1): {"BaselineVector": np.array([100.0, 0.0, 0.0])},
+        }
+        self.sources = [
+            {
+                "coords": SkyCoord(ra=0.0 * u.deg, dec=45.0 * u.deg, frame="icrs"),
+                "flux": 1.0,
+                "spectral_index": -0.7,
+            },
+        ]
+        self.location = EarthLocation(lat=45.0 * u.deg, lon=0.0 * u.deg, height=0 * u.m)
+        self.obstime = Time("2023-06-21T12:00:00", scale="utc")
+        self.freqs = np.array([150e6])
+        self.wavelengths = (3e8 / self.freqs) * u.m
+        theta_HPBW = np.radians(10.0)
+        self.hpbw_per_antenna = {
+            0: np.array([theta_HPBW]),
+            1: np.array([theta_HPBW]),
+        }
+
+    def _make_mock_beam_manager(self, return_value):
+        """Create a mock BeamManager that returns a fixed value."""
+        class MockBeamManager:
+            mode = "shared"
+
+            def get_jones_matrix(self, antenna_number, alt_rad, az_rad,
+                                 freq_hz, location, time, check_domain=True):
+                return return_value
+        return MockBeamManager()
+
+    def test_identity_fits_beam(self):
+        """FITS beam returning identity should match analytic uniform beam."""
+        n_sources = 1  # Will be determined at runtime
+        identity = np.array([[[1.0, 0.0], [0.0, 1.0]]], dtype=np.complex128)
+
+        mock_bm = self._make_mock_beam_manager(identity)
+
+        vis_fits = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            beam_manager=mock_bm,
+            beam_pattern_per_antenna={0: 'uniform', 1: 'uniform'},
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+        )
+
+        vis_uniform = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            beam_pattern_per_antenna={0: 'uniform', 1: 'uniform'},
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+        )
+
+        for key in vis_fits:
+            np.testing.assert_array_almost_equal(
+                vis_fits[key]["I"],
+                vis_uniform[key]["I"],
+                decimal=10,
+                err_msg=f"Identity FITS beam should match uniform analytic for {key}",
+            )
+
+    def test_none_fits_beam_fallback(self):
+        """FITS beam returning None should fall back to identity."""
+        mock_bm = self._make_mock_beam_manager(None)
+
+        vis = calculate_visibility(
+            antennas=self.antennas,
+            baselines=self.baselines,
+            sources=self.sources,
+            location=self.location,
+            obstime=self.obstime,
+            wavelengths=self.wavelengths,
+            freqs=self.freqs,
+            hpbw_per_antenna=self.hpbw_per_antenna,
+            beam_manager=mock_bm,
+            duration_seconds=60.0,
+            time_step_seconds=60.0,
+        )
+
+        # Should still produce valid output
+        self.assertIn((0, 1), vis)
+        self.assertIn("I", vis[(0, 1)])
+        # Should be non-zero (identity beam doesn't attenuate)
+        # but source may or may not be above horizon
+
+    def test_fits_beam_shape_propagation(self):
+        """FITS beam returning (n_sources, 2, 2) should work correctly."""
+        from rrivis.core.jones.beam import FITSBeamJones
+        from rrivis.backends import get_backend
+
+        backend = get_backend("numpy")
+
+        # Create a mock that returns scaled identity for n_sources
+        class ScaledBeamManager:
+            mode = "shared"
+
+            def get_jones_matrix(self, antenna_number, alt_rad, az_rad,
+                                 freq_hz, location, time, check_domain=True):
+                n = len(np.atleast_1d(alt_rad))
+                result = np.zeros((n, 2, 2), dtype=np.complex128)
+                result[:, 0, 0] = 0.5
+                result[:, 1, 1] = 0.5
+                return result
+
+        bm = ScaledBeamManager()
+        source_altaz = np.array([[np.pi / 4, 0.0], [np.pi / 3, np.pi / 6]])
+        freqs_arr = np.array([150e6])
+
+        fits_jones = FITSBeamJones(bm, source_altaz, freqs_arr)
+        result = fits_jones.compute_jones_all_sources(
+            antenna_idx=0, n_sources=2, freq_idx=0, time_idx=0, backend=backend,
+        )
+
+        self.assertEqual(result.shape, (2, 2, 2))
+        np.testing.assert_array_almost_equal(result[:, 0, 0], 0.5)
+        np.testing.assert_array_almost_equal(result[:, 1, 1], 0.5)
+        np.testing.assert_array_almost_equal(result[:, 0, 1], 0.0)
+        np.testing.assert_array_almost_equal(result[:, 1, 0], 0.0)
 
 
 if __name__ == "__main__":

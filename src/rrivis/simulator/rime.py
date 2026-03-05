@@ -193,7 +193,6 @@ class RIMESimulator(VisibilitySimulator):
                 - beam_pattern_per_antenna: dict of analytic beam types
                 - beam_pattern_params: dict of beam parameters
                 - return_correlations: bool (default True)
-                - use_jones_chain: bool (default False)
                 - jones_config: dict of Jones term configs
 
         Returns
@@ -248,7 +247,6 @@ class RIMESimulator(VisibilitySimulator):
         beam_pattern_per_antenna = kwargs.get("beam_pattern_per_antenna", None)
         beam_pattern_params = kwargs.get("beam_pattern_params", None)
         return_correlations = kwargs.get("return_correlations", True)
-        use_jones_chain = kwargs.get("use_jones_chain", False)
         jones_config = kwargs.get("jones_config", None)
 
         # Extract time-stepping parameters (required)
@@ -272,7 +270,6 @@ class RIMESimulator(VisibilitySimulator):
             beam_pattern_params=beam_pattern_params,
             return_correlations=return_correlations,
             backend=backend,
-            use_jones_chain=use_jones_chain,
             jones_config=jones_config,
         )
 

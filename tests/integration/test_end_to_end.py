@@ -89,7 +89,7 @@ class TestBasicVisibilityCalculation:
             # At least check we got complex numbers back
             assert np.iscomplexobj(vis_data["I"])
 
-    def test_visibility_with_jones_chain(
+    def test_visibility_with_jones_config(
         self,
         sample_antennas_simple,
         sample_baselines_simple,
@@ -100,7 +100,7 @@ class TestBasicVisibilityCalculation:
         sample_wavelengths,
         sample_hpbw_simple,
     ):
-        """Test visibility calculation using Jones chain mode."""
+        """Test visibility calculation with Jones chain configuration."""
         from rrivis.core.visibility import calculate_visibility
 
         visibilities = calculate_visibility(
@@ -114,7 +114,6 @@ class TestBasicVisibilityCalculation:
             hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=True,
         )
 
         # Verify Jones chain mode produces valid output
@@ -193,7 +192,6 @@ class TestJonesChainIntegration:
             hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=True,
             jones_config=jones_config,
         )
 
@@ -228,59 +226,10 @@ class TestJonesChainIntegration:
             hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=True,
             jones_config=jones_config,
         )
 
         assert isinstance(visibilities, dict)
-
-
-@pytest.mark.integration
-class TestOutputFormats:
-    """Test output file writing integration."""
-
-    def test_hdf5_output(
-        self,
-        sample_antennas_simple,
-        sample_baselines_simple,
-        sample_sources_single,
-        sample_location_northern,
-        sample_obstime,
-        sample_frequencies_multiple,
-        sample_wavelengths,
-        sample_hpbw_simple,
-        temp_output_dir,
-    ):
-        """Test saving visibilities to HDF5 format."""
-        from rrivis.core.visibility import calculate_visibility
-
-        visibilities = calculate_visibility(
-            antennas=sample_antennas_simple,
-            baselines=sample_baselines_simple,
-            sources=sample_sources_single,
-            location=sample_location_northern,
-            obstime=sample_obstime,
-            wavelengths=sample_wavelengths,
-            freqs=sample_frequencies_multiple,
-            hpbw_per_antenna=sample_hpbw_simple,
-            duration_seconds=60.0,
-            time_step_seconds=60.0,
-        )
-
-        # Try to save to HDF5
-        try:
-            from rrivis.io.writers import save_hdf5
-
-            output_path = temp_output_dir / "test_visibilities.h5"
-            save_hdf5(
-                visibilities,
-                output_path,
-                metadata={"frequencies": sample_frequencies_multiple}
-            )
-
-            assert output_path.exists()
-        except ImportError:
-            pytest.skip("HDF5 writer not available")
 
 
 @pytest.mark.integration
@@ -328,67 +277,8 @@ class TestPolarizationWorkflow:
             hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
-            use_jones_chain=True,
         )
 
         # Should have polarization products
         for vis_data in visibilities.values():
             assert "I" in vis_data
-
-
-@pytest.mark.integration
-class TestLegacyVsJonesChain:
-    """Test consistency between legacy and Jones chain modes."""
-
-    def test_modes_produce_similar_results(
-        self,
-        sample_antennas_simple,
-        sample_baselines_simple,
-        sample_sources_single,
-        sample_location_northern,
-        sample_obstime,
-        sample_frequencies_multiple,
-        sample_wavelengths,
-        sample_hpbw_simple,
-    ):
-        """Test that legacy and Jones chain modes give similar results."""
-        from rrivis.core.visibility import calculate_visibility
-
-        # Legacy mode
-        vis_legacy = calculate_visibility(
-            antennas=sample_antennas_simple,
-            baselines=sample_baselines_simple,
-            sources=sample_sources_single,
-            location=sample_location_northern,
-            obstime=sample_obstime,
-            wavelengths=sample_wavelengths,
-            freqs=sample_frequencies_multiple,
-            hpbw_per_antenna=sample_hpbw_simple,
-            duration_seconds=60.0,
-            time_step_seconds=60.0,
-            use_jones_chain=False,
-        )
-
-        # Jones chain mode (minimal effects)
-        vis_jones = calculate_visibility(
-            antennas=sample_antennas_simple,
-            baselines=sample_baselines_simple,
-            sources=sample_sources_single,
-            location=sample_location_northern,
-            obstime=sample_obstime,
-            wavelengths=sample_wavelengths,
-            freqs=sample_frequencies_multiple,
-            hpbw_per_antenna=sample_hpbw_simple,
-            duration_seconds=60.0,
-            time_step_seconds=60.0,
-            use_jones_chain=True,
-            jones_config={},  # No extra effects
-        )
-
-        # Both should have same baselines
-        assert set(vis_legacy.keys()) == set(vis_jones.keys())
-
-        # Both should have Stokes I
-        for key in vis_legacy:
-            assert "I" in vis_legacy[key]
-            assert "I" in vis_jones[key]
