@@ -65,6 +65,7 @@ location:
   height: 377.8
 
 sky_model:
+  flux_unit: Jy
   test_sources:
     use_test_sources: true
     num_sources: 5

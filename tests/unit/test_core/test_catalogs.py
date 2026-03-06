@@ -551,6 +551,7 @@ class TestPyRadioSkyFile:
         stokes[0, 0, :] = [1.0, 2.0, 3.0] * au.Jy
 
         sky = PSky(
+            name=np.array(["src0", "src1", "src2"]),
             ra=SkyCoord(ra=[10, 20, 30] * au.deg, dec=[-30, -40, -50] * au.deg).ra,
             dec=SkyCoord(ra=[10, 20, 30] * au.deg, dec=[-30, -40, -50] * au.deg).dec,
             stokes=stokes,
@@ -560,7 +561,7 @@ class TestPyRadioSkyFile:
         )
 
         skyh5_path = tmp_path / "test.skyh5"
-        sky.write(str(skyh5_path))
+        sky.write_skyh5(str(skyh5_path))
 
         loaded = SkyModel.from_pyradiosky_file(
             str(skyh5_path), precision=PrecisionConfig.standard()
@@ -578,6 +579,7 @@ class TestPyRadioSkyFile:
         stokes[0, 0, :] = [5.0, 10.0] * au.Jy
 
         sky = PSky(
+            name=np.array(["src0", "src1"]),
             ra=SkyCoord(ra=[0, 90] * au.deg, dec=[0, 0] * au.deg).ra,
             dec=SkyCoord(ra=[0, 90] * au.deg, dec=[0, 0] * au.deg).dec,
             stokes=stokes,
@@ -587,7 +589,7 @@ class TestPyRadioSkyFile:
         )
 
         skyh5_path = tmp_path / "test2.skyh5"
-        sky.write(str(skyh5_path))
+        sky.write_skyh5(str(skyh5_path))
 
         loaded = SkyModel.from_pyradiosky_file(
             str(skyh5_path), flux_limit=1.0, precision=PrecisionConfig.standard()
@@ -609,6 +611,7 @@ class TestPyRadioSkyFile:
         stokes[0, 0, :] = [0.5, 2.0, 5.0, 0.1] * au.Jy
 
         sky = PSky(
+            name=np.array(["src0", "src1", "src2", "src3"]),
             ra=SkyCoord(ra=[0, 90, 180, 270] * au.deg, dec=[0, 0, 0, 0] * au.deg).ra,
             dec=SkyCoord(ra=[0, 90, 180, 270] * au.deg, dec=[0, 0, 0, 0] * au.deg).dec,
             stokes=stokes,
@@ -617,7 +620,7 @@ class TestPyRadioSkyFile:
             frame="icrs",
         )
         skyh5_path = tmp_path / "test3.skyh5"
-        sky.write(str(skyh5_path))
+        sky.write_skyh5(str(skyh5_path))
 
         loaded = SkyModel.from_pyradiosky_file(
             str(skyh5_path), flux_limit=1.0, precision=PrecisionConfig.standard()

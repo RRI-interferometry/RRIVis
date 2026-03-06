@@ -195,8 +195,12 @@ class SyntheticSourcesConfig(BaseModel):
 
     use_test_sources: bool = Field(False, description="Use test sources")
     num_sources: int = Field(100, ge=1, description="Number of test sources")
-    flux_min: float | None = Field(None, ge=0, description="Minimum flux in Jy")
-    flux_max: float | None = Field(None, ge=0, description="Maximum flux in Jy")
+    flux_min: float | None = Field(
+        None, ge=0, description="Minimum flux (in sky_model.flux_unit)"
+    )
+    flux_max: float | None = Field(
+        None, ge=0, description="Maximum flux (in sky_model.flux_unit)"
+    )
     dec_deg: float | None = Field(
         None, description="Declination for all sources (degrees)"
     )
@@ -212,8 +216,12 @@ class SyntheticSourcesHEALPixConfig(BaseModel):
         False, description="Use test sources in HEALPix mode"
     )
     num_sources: int = Field(100, ge=1, description="Number of test sources")
-    flux_min: float | None = Field(None, ge=0, description="Minimum flux in Jy")
-    flux_max: float | None = Field(None, ge=0, description="Maximum flux in Jy")
+    flux_min: float | None = Field(
+        None, ge=0, description="Minimum flux (in sky_model.flux_unit)"
+    )
+    flux_max: float | None = Field(
+        None, ge=0, description="Maximum flux (in sky_model.flux_unit)"
+    )
     dec_deg: float | None = Field(
         None, description="Declination for all sources (degrees)"
     )
@@ -238,7 +246,9 @@ class GSMConfig(BaseModel):
     gsm_catalogue: str = Field(
         "gsm2008", description="GSM catalogue (gsm2008, gsm2016, lfsm, haslam)"
     )
-    flux_limit: float = Field(50.0, ge=0, description="Flux limit (Jy)")
+    flux_limit: float = Field(
+        50.0, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
     nside: int = Field(32, ge=1, description="HEALPix nside")
     include_cmb: bool = Field(False, description="Include CMB contribution (2.725 K)")
     basemap: str | None = Field(
@@ -256,7 +266,9 @@ class GLEAMConfig(BaseModel):
 
     use_gleam: bool = Field(False, description="Use GLEAM")
     gleam_catalogue: str = Field("VIII/105/catalog", description="GLEAM catalogue")
-    flux_limit: float = Field(50.0, ge=0, description="Flux limit (Jy)")
+    flux_limit: float = Field(
+        50.0, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
     nside: int = Field(32, ge=1, description="HEALPix nside")
 
 
@@ -273,49 +285,63 @@ class MALSConfig(BaseModel):
     mals_release: Literal["dr1", "dr2", "dr3"] = Field(
         "dr2", description="MALS data release (dr1, dr2, dr3)"
     )
-    flux_limit: float = Field(1.0, ge=0, description="Flux limit in mJy")
+    flux_limit: float = Field(
+        1.0, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class VLSSrConfig(BaseModel):
     """VLSSr (73.8 MHz) catalog configuration."""
 
     use_vlssr: bool = Field(False, description="Use VLSSr catalog")
-    flux_limit: float = Field(1.0, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        1.0, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class TGSSConfig(BaseModel):
     """TGSS ADR1 (150 MHz) catalog configuration."""
 
     use_tgss: bool = Field(False, description="Use TGSS ADR1 catalog")
-    flux_limit: float = Field(0.1, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        0.1, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class WENSSConfig(BaseModel):
     """WENSS (325 MHz) catalog configuration."""
 
     use_wenss: bool = Field(False, description="Use WENSS catalog")
-    flux_limit: float = Field(0.05, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        0.05, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class SUMSSConfig(BaseModel):
     """SUMSS (843 MHz) catalog configuration."""
 
     use_sumss: bool = Field(False, description="Use SUMSS catalog")
-    flux_limit: float = Field(0.008, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        0.008, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class NVSSConfig(BaseModel):
     """NVSS (1400 MHz) catalog configuration."""
 
     use_nvss: bool = Field(False, description="Use NVSS catalog")
-    flux_limit: float = Field(0.0025, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        0.0025, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class FIRSTConfig(BaseModel):
     """FIRST (1400 MHz) catalog configuration."""
 
     use_first: bool = Field(False, description="Use FIRST catalog")
-    flux_limit: float = Field(0.001, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        0.001, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class LoTSSConfig(BaseModel):
@@ -325,28 +351,36 @@ class LoTSSConfig(BaseModel):
     lotss_release: Literal["dr1", "dr2"] = Field(
         "dr2", description="LoTSS data release"
     )
-    flux_limit: float = Field(0.001, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        0.001, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class AT20GConfig(BaseModel):
     """AT20G (20 GHz) catalog configuration."""
 
     use_at20g: bool = Field(False, description="Use AT20G catalog")
-    flux_limit: float = Field(0.04, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        0.04, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class ThreeCConfig(BaseModel):
     """3CR (178 MHz) catalog configuration."""
 
     use_3c: bool = Field(False, description="Use 3CR catalog")
-    flux_limit: float = Field(1.0, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        1.0, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class GB6Config(BaseModel):
     """GB6 (4850 MHz) catalog configuration."""
 
     use_gb6: bool = Field(False, description="Use GB6 catalog")
-    flux_limit: float = Field(0.018, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        0.018, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
 
 
 class RACSConfig(BaseModel):
@@ -357,7 +391,9 @@ class RACSConfig(BaseModel):
         "low",
         description="RACS band: low (887.5 MHz), mid (1367.5 MHz), high (1655.5 MHz)",
     )
-    flux_limit: float = Field(1.0, ge=0, description="Flux limit in Jy")
+    flux_limit: float = Field(
+        1.0, ge=0, description="Flux limit (in sky_model.flux_unit)"
+    )
     max_rows: int = Field(
         1_000_000, ge=1, description="Maximum rows to retrieve via TAP"
     )
@@ -394,7 +430,9 @@ class PyRadioSkyConfig(BaseModel):
     filetype: str | None = Field(
         None, description="File format (skyh5, votable, text, fhd). Inferred if None."
     )
-    flux_limit: float = Field(0.0, ge=0, description="Minimum Stokes I flux in Jy")
+    flux_limit: float = Field(
+        0.0, ge=0, description="Minimum Stokes I flux (in sky_model.flux_unit)"
+    )
     reference_frequency_hz: float | None = Field(
         None,
         description="Reference frequency for Stokes I extraction (Hz). Uses first channel if None.",
@@ -430,6 +468,11 @@ class SkyModelConfig(BaseModel):
     ulsa: ULSAConfig = Field(default_factory=ULSAConfig)
     # --- Local file loader ---
     pyradiosky: PyRadioSkyConfig = Field(default_factory=PyRadioSkyConfig)
+    # --- Flux unit for all flux values in this section ---
+    flux_unit: Literal["Jy", "mJy", "uJy"] | None = Field(
+        None,
+        description="Unit for all flux values (flux_min, flux_max, flux_limit) in this section",
+    )
 
 
 class ObsTimeConfig(BaseModel):
@@ -1010,9 +1053,44 @@ class RRIvisConfig(BaseModel):
                 "Choose 'point_sources' (catalogs) or 'healpix_map' (diffuse emission)."
             )
 
+        # --- Sky model: at least one must be enabled ---
+        sm = self.sky_model
+        any_sky_model_enabled = (
+            sm.test_sources.use_test_sources
+            or sm.test_sources_healpix.use_test_sources
+            or sm.gsm_healpix.use_gsm
+            or sm.gleam.use_gleam
+            or sm.gleam_healpix.use_gleam
+            or sm.mals.use_mals
+            or sm.vlssr.use_vlssr
+            or sm.tgss.use_tgss
+            or sm.wenss.use_wenss
+            or sm.sumss.use_sumss
+            or sm.nvss.use_nvss
+            or sm.first.use_first
+            or sm.lotss.use_lotss
+            or sm.at20g.use_at20g
+            or sm.three_c.use_3c
+            or sm.gb6.use_gb6
+            or sm.racs.use_racs
+            or sm.pysm3.use_pysm3
+            or sm.ulsa.use_ulsa
+            or sm.pyradiosky.use_pyradiosky
+        )
+        if not any_sky_model_enabled:
+            errors.append(
+                "sky_model: no sky model enabled. Enable at least one "
+                "(e.g., test_sources, gleam, gsm_healpix) in the sky_model section."
+            )
+        if sm.flux_unit is None:
+            errors.append(
+                "sky_model.flux_unit: required but not set. "
+                "Choose 'Jy', 'mJy', or 'uJy'."
+            )
+
         # --- pyradiosky file ---
-        if self.sky_model.pyradiosky.use_pyradiosky:
-            fname = self.sky_model.pyradiosky.filename
+        if sm.pyradiosky.use_pyradiosky:
+            fname = sm.pyradiosky.filename
             if not fname:
                 errors.append(
                     "sky_model.pyradiosky.filename: required when use_pyradiosky=true."

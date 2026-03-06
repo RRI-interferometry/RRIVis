@@ -73,6 +73,7 @@ simulators:
   name: ''
   use_different_simulator_for_cross_check: false
 sky_model:
+  flux_unit: Jy
   at20g:
     flux_limit: 0.04
     use_at20g: false
@@ -130,12 +131,12 @@ sky_model:
     flux_limit: 0.008
     use_sumss: false
   test_sources:
-    use_test_sources: false
-    num_sources: 100
-    flux_min: 2.0
-    flux_max: 8.0
+    use_test_sources: true
+    num_sources: 200
+    flux_min: 1.0
+    flux_max: 5.0
     dec_deg: -30.72
-    spectral_index: -0.8
+    spectral_index: 0
   test_sources_healpix:
     use_test_sources: false
     num_sources: 100
