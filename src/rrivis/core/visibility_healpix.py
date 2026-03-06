@@ -38,6 +38,98 @@ from rrivis.core.sky import (
 logger = logging.getLogger(__name__)
 
 
+def _compute_beam_power_pattern(
+    zenith_angles: np.ndarray,
+    hpbw_rad: float,
+    beam_type: str = "gaussian",
+    beam_manager: Any | None = None,
+    antenna_number: Any | None = None,
+    azimuth: np.ndarray | None = None,
+    frequency: float | None = None,
+) -> np.ndarray:
+    """Compute scalar beam power pattern B^2 for HEALPix pixels.
+
+    For analytic beams: B^2 = pattern_function(za, hpbw)^2
+    For FITS beams: B^2 = 0.5 * (|J_00|^2 + |J_01|^2 + |J_10|^2 + |J_11|^2)
+
+    Parameters
+    ----------
+    zenith_angles : ndarray
+        Zenith angles in radians, shape (N,).
+    hpbw_rad : float
+        Half-power beam width in radians (for analytic beams).
+    beam_type : str
+        Analytic beam type: 'gaussian', 'airy', 'cosine', 'exponential'.
+    beam_manager : BeamManager, optional
+        BeamManager for FITS beam lookup.
+    antenna_number : int, optional
+        Antenna number for beam_manager lookup.
+    azimuth : ndarray, optional
+        Azimuth angles in radians, shape (N,). Required for FITS beams.
+    frequency : float, optional
+        Frequency in Hz. Required for FITS beams and 'airy' beam.
+
+    Returns
+    -------
+    power_pattern : ndarray
+        Beam power pattern, shape (N,). Values in [0, 1].
+    """
+    if beam_manager is not None and antenna_number is not None:
+        jones = beam_manager.get_jones_matrix(
+            antenna_number=antenna_number,
+            alt_rad=np.pi / 2 - zenith_angles,
+            az_rad=azimuth if azimuth is not None else np.zeros_like(zenith_angles),
+            freq_hz=frequency,
+            location=None,
+            time=None,
+        )
+        if jones is not None:
+            # Power pattern = sum of |J_ij|^2 / 2  (average over polarizations)
+            return 0.5 * np.sum(np.abs(jones) ** 2, axis=(-2, -1))
+
+    # Analytic beam fallback
+    from rrivis.core.jones.beam.analytic import (
+        cosine_tapered_pattern,
+        exponential_tapered_pattern,
+        gaussian_A_theta_EBeam,
+    )
+
+    if beam_type == "gaussian":
+        voltage = gaussian_A_theta_EBeam(zenith_angles, hpbw_rad)
+    elif beam_type == "cosine":
+        voltage = cosine_tapered_pattern(zenith_angles, hpbw_rad)
+    elif beam_type == "exponential":
+        voltage = exponential_tapered_pattern(zenith_angles, hpbw_rad)
+    else:
+        voltage = gaussian_A_theta_EBeam(zenith_angles, hpbw_rad)
+
+    return np.asarray(voltage, dtype=np.float64) ** 2
+
+
+def compute_beam_squared_integral(
+    beam_power: np.ndarray, pixel_solid_angle: float
+) -> float:
+    """Compute the beam squared integral (beam solid angle).
+
+    Omega_pp = sum(B^2 * Omega_pix)
+
+    Useful for power spectrum normalization.
+
+    Parameters
+    ----------
+    beam_power : ndarray
+        Beam power pattern B^2, shape (N_pixels,).
+    pixel_solid_angle : float
+        Solid angle per pixel in steradians.
+
+    Returns
+    -------
+    float
+        Beam squared integral in steradians.
+    """
+    return float(np.sum(beam_power * pixel_solid_angle))
+
+
 def calculate_visibility_healpix(
     sky_model: SkyModel,
     antennas: dict,
@@ -50,6 +142,7 @@ def calculate_visibility_healpix(
     time_step_seconds: float,
     hpbw_per_antenna: dict | None = None,
     beam_manager: Any | None = None,
+    beam_pattern_per_antenna: dict | None = None,
     backend: ArrayBackend | None = None,
     output_units: str = "Jy",
 ) -> dict:
@@ -86,6 +179,8 @@ def calculate_visibility_healpix(
         Half-power beam width per antenna (for beam attenuation).
     beam_manager : BeamManager, optional
         Beam pattern manager for FITS-based beams.
+    beam_pattern_per_antenna : dict, optional
+        Maps antenna number -> beam pattern type string ('gaussian', 'airy', etc.).
     backend : ArrayBackend, optional
         Computation backend (CPU/GPU).
     output_units : str, default="Jy"
@@ -176,8 +271,20 @@ def calculate_visibility_healpix(
         dir_m = np.cos(alt_vis) * np.cos(az_vis)
         dir_n = np.sin(alt_vis)
 
-        # Stack direction cosines for vectorized computation
-        np.column_stack([dir_l, dir_m, dir_n])  # (n_visible, 3)
+        # Zenith angles for beam computation
+        za_vis = np.pi / 2 - alt_vis
+
+        # Compute per-antenna beam power patterns
+        ant_nums = set()
+        for ant1, ant2 in baselines:
+            ant_nums.add(ant1)
+            ant_nums.add(ant2)
+
+        beam_patterns: dict[Any, np.ndarray] = {}
+        has_beam_manager = (
+            beam_manager is not None
+            and getattr(beam_manager, "mode", "analytic") != "analytic"
+        )
 
         # ======================================================================
         # FREQUENCY LOOP
@@ -214,10 +321,31 @@ def calculate_visibility_healpix(
             else:
                 signal = temp_vis * omega_pixel
 
+            # Compute per-antenna beam power patterns for this frequency
+            for ant_num in ant_nums:
+                if hpbw_per_antenna is not None:
+                    hpbw_rad = hpbw_per_antenna.get(ant_num, np.array([0.1]))[freq_idx]
+                else:
+                    hpbw_rad = 0.1
+                btype = (
+                    beam_pattern_per_antenna.get(ant_num, "gaussian")
+                    if beam_pattern_per_antenna
+                    else "gaussian"
+                )
+                beam_patterns[ant_num] = _compute_beam_power_pattern(
+                    zenith_angles=za_vis,
+                    hpbw_rad=hpbw_rad,
+                    beam_type=btype,
+                    beam_manager=beam_manager if has_beam_manager else None,
+                    antenna_number=ant_num,
+                    azimuth=az_vis,
+                    frequency=freq,
+                )
+
             # Compute visibility for each baseline
-            # V = Σ signal × exp(-2πi (ul + vm + w(n-1)))
+            # V = Σ B_pq * signal × exp(-2πi (ul + vm + w(n-1)))
             # Using w(n-1) formulation per Smirnov 2011 RIME
-            for bl_idx, (_bl_key, bl_vec) in enumerate(
+            for bl_idx, ((ant1, ant2), bl_vec) in enumerate(
                 zip(baseline_keys, baseline_vectors, strict=False)
             ):
                 # Baseline in wavelengths
@@ -230,8 +358,12 @@ def calculate_visibility_healpix(
                 # Phase factor
                 phase = np.exp(-2j * np.pi * delay)
 
+                # Apply beam: geometric mean of antenna power patterns
+                B_pq = np.sqrt(beam_patterns[ant1] * beam_patterns[ant2])
+                beamed_signal = signal * B_pq
+
                 # Sum over all visible pixels
-                vis = np.sum(signal * phase)
+                vis = np.sum(beamed_signal * phase)
 
                 visibilities[bl_idx, time_idx, freq_idx] = vis
 

@@ -1646,3 +1646,53 @@ def convert_angle_for_display(angle_radians, angle_unit):
     if angle_unit == "degrees":
         return np.degrees(angle_radians)
     return angle_radians  # Already in radians
+
+
+def short_dipole_jones(zenith_angle, azimuth):
+    """Short dipole antenna Jones matrix (full 2x2, non-diagonal).
+
+    Computes the Jones matrix for a short (Hertzian) dipole antenna
+    aligned along the x-axis. This is the simplest polarized beam model
+    with genuine cross-polarization coupling.
+
+    The Jones matrix maps sky basis vectors (theta-hat, phi-hat) to
+    feed responses::
+
+        J = [[cos(az) * cos(za), -sin(az)], [sin(az) * cos(za), cos(az)]]
+
+    Parameters
+    ----------
+    zenith_angle : float or ndarray
+        Zenith angle(s) in radians.
+    azimuth : float or ndarray
+        Azimuth angle(s) in radians.
+
+    Returns
+    -------
+    jones : ndarray
+        Complex Jones matrices.
+        Shape (2, 2) for scalar inputs, (N, 2, 2) for array inputs.
+
+    References
+    ----------
+    .. [1] Balanis, "Antenna Theory" (4th ed.), Chapter 4: Linear Wire Antennas
+    """
+    za = np.asarray(zenith_angle, dtype=np.float64)
+    az = np.asarray(azimuth, dtype=np.float64)
+    input_is_scalar = za.ndim == 0
+
+    za = np.atleast_1d(za)
+    az = np.atleast_1d(az)
+
+    cos_za = np.cos(za)
+    cos_az = np.cos(az)
+    sin_az = np.sin(az)
+
+    n = za.shape[0]
+    jones = np.zeros((n, 2, 2), dtype=np.complex128)
+    jones[:, 0, 0] = cos_az * cos_za
+    jones[:, 0, 1] = -sin_az
+    jones[:, 1, 0] = sin_az * cos_za
+    jones[:, 1, 1] = cos_az
+
+    return jones.squeeze() if input_is_scalar else jones

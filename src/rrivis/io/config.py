@@ -142,15 +142,23 @@ class BeamsConfig(BaseModel):
     use_different_beam_responses: bool = Field(
         False, description="Per-antenna beam responses"
     )
-    all_beam_response: Literal["gaussian", "airy", "cosine", "exponential"] | None = (
-        Field(None, description="Default beam response pattern")
-    )
+    all_beam_response: (
+        Literal["gaussian", "airy", "cosine", "exponential", "short_dipole"] | None
+    ) = Field(None, description="Default beam response pattern")
     beam_response_per_antenna: dict[str, str] = Field(default_factory=dict)
     cosine_taper_exponent: float | None = Field(
         None, description="Cosine taper exponent"
     )
     exponential_taper_dB: float | None = Field(
         None, description="Exponential taper (dB)"
+    )
+    beam_peak_normalize: bool = Field(
+        True,
+        description="Peak-normalize FITS beams after loading (pyuvsim convention)",
+    )
+    beam_interp_function: str | None = Field(
+        None,
+        description="Interpolation function for FITS beams (e.g. 'az_za_simple', 'az_za_map_coordinates'). None uses pyuvdata default.",
     )
 
 
