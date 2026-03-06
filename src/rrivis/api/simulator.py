@@ -530,6 +530,17 @@ class Simulator:
             _precision = PrecisionConfig.standard()
 
         sky_config = self.config.get("sky_model", {})
+
+        # Flux unit conversion: convert user-specified flux values to canonical Jy
+        flux_unit = sky_config.get("flux_unit")
+        if flux_unit is None:
+            raise ValueError(
+                "sky_model.flux_unit is required. Set to 'Jy', 'mJy', or 'uJy'."
+            )
+        _flux_multipliers = {"Jy": 1.0, "mJy": 1e-3, "uJy": 1e-6}
+        _flux_mul = _flux_multipliers[flux_unit]
+        self._flux_unit = flux_unit
+
         test_config = sky_config.get("test_sources", {})
         test_healpix_config = sky_config.get("test_sources_healpix", {})
         gleam_config = sky_config.get("gleam", {})
@@ -547,7 +558,7 @@ class Simulator:
             flux_min = test_config.get("flux_min")
             flux_max = test_config.get("flux_max")
             flux_range = (
-                (flux_min, flux_max)
+                (flux_min * _flux_mul, flux_max * _flux_mul)
                 if flux_min is not None and flux_max is not None
                 else None
             )
@@ -567,7 +578,7 @@ class Simulator:
             flux_min = test_healpix_config.get("flux_min")
             flux_max = test_healpix_config.get("flux_max")
             flux_range = (
-                (flux_min, flux_max)
+                (flux_min * _flux_mul, flux_max * _flux_mul)
                 if flux_min is not None and flux_max is not None
                 else None
             )
@@ -590,13 +601,13 @@ class Simulator:
             )
 
         if gleam_config.get("use_gleam", False):
-            flux_limit = gleam_config.get("flux_limit", 1.0)
+            flux_limit = gleam_config.get("flux_limit", 1.0) * _flux_mul
             sky_models.append(
                 SkyModel.from_gleam(flux_limit=flux_limit, precision=_precision)
             )
 
         if mals_config.get("use_mals", False):
-            flux_limit = mals_config.get("flux_limit", 1.0)
+            flux_limit = mals_config.get("flux_limit", 1.0) * _flux_mul
             release = mals_config.get("mals_release", "dr2")
             sky_models.append(
                 SkyModel.from_mals(
@@ -624,7 +635,7 @@ class Simulator:
         if vlssr_config.get("use_vlssr", False):
             sky_models.append(
                 SkyModel.from_vlssr(
-                    flux_limit=vlssr_config.get("flux_limit", 1.0),
+                    flux_limit=vlssr_config.get("flux_limit", 1.0) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -633,7 +644,7 @@ class Simulator:
         if tgss_config.get("use_tgss", False):
             sky_models.append(
                 SkyModel.from_tgss(
-                    flux_limit=tgss_config.get("flux_limit", 0.1),
+                    flux_limit=tgss_config.get("flux_limit", 0.1) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -642,7 +653,7 @@ class Simulator:
         if wenss_config.get("use_wenss", False):
             sky_models.append(
                 SkyModel.from_wenss(
-                    flux_limit=wenss_config.get("flux_limit", 0.05),
+                    flux_limit=wenss_config.get("flux_limit", 0.05) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -651,7 +662,7 @@ class Simulator:
         if sumss_config.get("use_sumss", False):
             sky_models.append(
                 SkyModel.from_sumss(
-                    flux_limit=sumss_config.get("flux_limit", 0.008),
+                    flux_limit=sumss_config.get("flux_limit", 0.008) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -660,7 +671,7 @@ class Simulator:
         if nvss_config.get("use_nvss", False):
             sky_models.append(
                 SkyModel.from_nvss(
-                    flux_limit=nvss_config.get("flux_limit", 0.0025),
+                    flux_limit=nvss_config.get("flux_limit", 0.0025) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -669,7 +680,7 @@ class Simulator:
         if first_config.get("use_first", False):
             sky_models.append(
                 SkyModel.from_first(
-                    flux_limit=first_config.get("flux_limit", 0.001),
+                    flux_limit=first_config.get("flux_limit", 0.001) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -679,7 +690,7 @@ class Simulator:
             sky_models.append(
                 SkyModel.from_lotss(
                     release=lotss_config.get("lotss_release", "dr2"),
-                    flux_limit=lotss_config.get("flux_limit", 0.001),
+                    flux_limit=lotss_config.get("flux_limit", 0.001) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -688,7 +699,7 @@ class Simulator:
         if at20g_config.get("use_at20g", False):
             sky_models.append(
                 SkyModel.from_at20g(
-                    flux_limit=at20g_config.get("flux_limit", 0.04),
+                    flux_limit=at20g_config.get("flux_limit", 0.04) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -697,7 +708,7 @@ class Simulator:
         if three_c_config.get("use_3c", False):
             sky_models.append(
                 SkyModel.from_3c(
-                    flux_limit=three_c_config.get("flux_limit", 1.0),
+                    flux_limit=three_c_config.get("flux_limit", 1.0) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -706,7 +717,7 @@ class Simulator:
         if gb6_config.get("use_gb6", False):
             sky_models.append(
                 SkyModel.from_gb6(
-                    flux_limit=gb6_config.get("flux_limit", 0.018),
+                    flux_limit=gb6_config.get("flux_limit", 0.018) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -716,7 +727,7 @@ class Simulator:
             sky_models.append(
                 SkyModel.from_racs(
                     band=racs_config.get("racs_band", "low"),
-                    flux_limit=racs_config.get("flux_limit", 1.0),
+                    flux_limit=racs_config.get("flux_limit", 1.0) * _flux_mul,
                     max_rows=racs_config.get("max_rows", 1_000_000),
                     precision=_precision,
                 )
@@ -756,7 +767,7 @@ class Simulator:
                     SkyModel.from_pyradiosky_file(
                         filename=filename,
                         filetype=pyradiosky_config.get("filetype"),
-                        flux_limit=pyradiosky_config.get("flux_limit", 0.0),
+                        flux_limit=pyradiosky_config.get("flux_limit", 0.0) * _flux_mul,
                         reference_frequency_hz=pyradiosky_config.get(
                             "reference_frequency_hz"
                         ),
@@ -878,6 +889,8 @@ class Simulator:
                 "Sky Model": sky_label,
                 "Frequencies": f"{len(self._frequencies_hz)} channels",
             }
+            if hasattr(self, "_flux_unit") and self._flux_unit != "Jy":
+                config_data["Flux Unit"] = self._flux_unit
             print_table("Simulation Configuration", config_data)
             console.print()  # Add spacing
 

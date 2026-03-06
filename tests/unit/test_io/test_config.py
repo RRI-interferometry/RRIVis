@@ -283,6 +283,30 @@ class TestSkyModelConfig:
         assert config.test_sources.use_test_sources is False
         assert config.gleam.use_gleam is False
         assert config.gsm_healpix.use_gsm is False
+        assert config.flux_unit is None
+
+    def test_flux_unit_valid_literals(self):
+        """Test valid flux unit literals are accepted."""
+        for unit in ["Jy", "mJy", "uJy"]:
+            config = SkyModelConfig(flux_unit=unit)
+            assert config.flux_unit == unit
+
+    def test_flux_unit_invalid_value(self):
+        """Test invalid flux unit raises validation error."""
+        with pytest.raises(ValidationError):
+            SkyModelConfig(flux_unit="kJy")
+        with pytest.raises(ValidationError):
+            SkyModelConfig(flux_unit="nJy")
+
+    def test_flux_unit_yaml_roundtrip(self, tmp_path):
+        """Test flux_unit survives YAML roundtrip."""
+        original = RRIvisConfig(
+            sky_model=SkyModelConfig(flux_unit="mJy"),
+        )
+        yaml_path = tmp_path / "flux_unit_roundtrip.yaml"
+        original.to_yaml(yaml_path)
+        loaded = RRIvisConfig.from_yaml(yaml_path)
+        assert loaded.sky_model.flux_unit == "mJy"
 
     def test_nested_test_sources(self):
         """Test nested test sources configuration."""
@@ -481,7 +505,7 @@ telescope:
         """Blank config should report all required-field errors."""
         config = RRIvisConfig()
         errors = config.validate()
-        assert len(errors) == 11
+        assert len(errors) == 13
         assert any("antenna_positions_file" in e for e in errors)
         assert any("antenna_file_format" in e for e in errors)
         assert any("all_antenna_type" in e for e in errors)
@@ -493,6 +517,8 @@ telescope:
         assert any("frequency_interval" in e for e in errors)
         assert any("frequency_bandwidth" in e for e in errors)
         assert any("sky_representation" in e for e in errors)
+        assert any("no sky model enabled" in e for e in errors)
+        assert any("flux_unit" in e for e in errors)
 
     def test_validate_valid_config_returns_empty(self, tmp_path):
         """Fully populated config should return no errors."""
@@ -516,6 +542,10 @@ telescope:
                 frequency_bandwidth=50.0,
             ),
             visibility=VisibilityConfig(sky_representation="point_sources"),
+            sky_model=SkyModelConfig(
+                test_sources=TestSourcesConfig(use_test_sources=True),
+                flux_unit="Jy",
+            ),
         )
         assert config.validate() == []
 
@@ -539,6 +569,10 @@ telescope:
                 frequency_bandwidth=50.0,
             ),
             visibility=VisibilityConfig(sky_representation="point_sources"),
+            sky_model=SkyModelConfig(
+                test_sources=TestSourcesConfig(use_test_sources=True),
+                flux_unit="Jy",
+            ),
         )
         errors = config.validate()
         assert len(errors) == 1

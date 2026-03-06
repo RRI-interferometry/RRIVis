@@ -102,7 +102,11 @@ class _PyradioskyMixin:
         ref_freq_hz = reference_frequency_hz
         if ref_freq_hz is None:
             if sky.freq_array is not None and len(sky.freq_array) > 0:
-                ref_freq_hz = float(sky.freq_array[0])
+                freq_arr = sky.freq_array
+                if hasattr(freq_arr, "to_value"):
+                    ref_freq_hz = float(freq_arr[0].to_value(u.Hz))
+                else:
+                    ref_freq_hz = float(freq_arr[0])
             else:
                 raise ValueError(
                     "Cannot determine reference frequency. "
@@ -110,14 +114,19 @@ class _PyradioskyMixin:
                 )
 
         if sky.freq_array is not None and len(sky.freq_array) > 1:
-            ref_chan_idx = int(
-                np.argmin(np.abs(np.array(sky.freq_array) - ref_freq_hz))
+            freq_vals = (
+                sky.freq_array.to_value(u.Hz)
+                if hasattr(sky.freq_array, "to_value")
+                else np.asarray(sky.freq_array, dtype=np.float64)
             )
+            ref_chan_idx = int(np.argmin(np.abs(freq_vals - ref_freq_hz)))
         else:
             ref_chan_idx = 0
 
         # stokes shape: (4, Nfreqs, Ncomponents) or (4, 1, Ncomponents)
         stokes = sky.stokes
+        if hasattr(stokes, "to_value"):
+            stokes = stokes.to_value(u.Jy)
         stokes_i_ref = np.array(stokes[0, ref_chan_idx, :], dtype=np.float64)
 
         n_stokes = stokes.shape[0]
@@ -146,8 +155,16 @@ class _PyradioskyMixin:
             if sky.freq_array is not None and len(sky.freq_array) >= 2:
                 s_first = np.array(stokes[0, 0, :], dtype=np.float64)
                 s_last = np.array(stokes[0, -1, :], dtype=np.float64)
-                freq_first = float(sky.freq_array[0])
-                freq_last = float(sky.freq_array[-1])
+                freq_first = float(
+                    sky.freq_array[0].to_value(u.Hz)
+                    if hasattr(sky.freq_array, "to_value")
+                    else sky.freq_array[0]
+                )
+                freq_last = float(
+                    sky.freq_array[-1].to_value(u.Hz)
+                    if hasattr(sky.freq_array, "to_value")
+                    else sky.freq_array[-1]
+                )
                 spectral_indices = np.zeros(sky.Ncomponents, dtype=np.float64)
                 valid = (s_first > 0) & (s_last > 0)
                 if np.any(valid):
