@@ -650,7 +650,7 @@ class TestBeamManager:
         from astropy.time import Time
 
         # Setup mock handlers
-        def create_mock_handler(beam_path, config, logger):
+        def create_mock_handler(beam_path, config, logger, **kwargs):
             mock = Mock()
             # Different beams return different values based on path
             if "beam_A" in beam_path:
@@ -783,7 +783,7 @@ class TestIntegration:
         }
 
         # Create mock handlers that return different Jones matrices
-        def create_mock_handler(beam_path, cfg, logger):
+        def create_mock_handler(beam_path, cfg, logger, **kwargs):
             mock = Mock()
             if "beam_A" in beam_path:
                 # Beam A: stronger in X-pol
@@ -840,6 +840,157 @@ class TestIntegration:
         # For unpolarized source with different beams, expect non-zero cross-pols
         # (unlike identical beams which would give zero cross-pols)
         assert np.abs(V_matrix[0, 1]) > 1e-10 or np.abs(V_matrix[1, 0]) > 1e-10
+
+
+class TestPeakNormalization:
+    """Tests for FITS beam peak normalization (Item 3)."""
+
+    @pytest.fixture
+    def mock_config(self):
+        return {
+            "beams": {
+                "beam_za_max_deg": 90.0,
+                "beam_freq_buffer_mhz": 1.0,
+                "beam_freq_interp": "cubic",
+            },
+            "obs_frequency": {"freq_min_MHz": 49.0, "freq_max_MHz": 51.0},
+        }
+
+    @patch("os.path.exists")
+    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    def test_peak_normalize_true_by_default(
+        self, mock_uvbeam_class, mock_exists, mock_config
+    ):
+        """peak_normalize=True calls beam.peak_normalize()."""
+        mock_exists.return_value = True
+        mock_beam = Mock()
+        mock_beam.beam_type = "efield"
+        mock_beam.pixel_coordinate_system = "az_za"
+        mock_uvbeam_class.return_value = mock_beam
+
+        handler = BeamFITSHandler("/mock/beam.fits", mock_config, Mock())
+
+        mock_beam.peak_normalize.assert_called_once()
+        assert handler.peak_normalize is True
+
+    @patch("os.path.exists")
+    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    def test_peak_normalize_false_skips(
+        self, mock_uvbeam_class, mock_exists, mock_config
+    ):
+        """peak_normalize=False does not call beam.peak_normalize()."""
+        mock_exists.return_value = True
+        mock_beam = Mock()
+        mock_beam.beam_type = "efield"
+        mock_beam.pixel_coordinate_system = "az_za"
+        mock_uvbeam_class.return_value = mock_beam
+
+        handler = BeamFITSHandler(
+            "/mock/beam.fits", mock_config, Mock(), peak_normalize=False
+        )
+
+        mock_beam.peak_normalize.assert_not_called()
+        assert handler.peak_normalize is False
+
+    def test_config_beam_peak_normalize_default(self):
+        """BeamsConfig.beam_peak_normalize defaults to True."""
+        from rrivis.io.config import BeamsConfig
+
+        config = BeamsConfig()
+        assert config.beam_peak_normalize is True
+
+
+class TestInterpFunction:
+    """Tests for FITS beam interpolation function config (Item 6)."""
+
+    @pytest.fixture
+    def mock_config(self):
+        return {
+            "beams": {
+                "beam_za_max_deg": 90.0,
+                "beam_freq_buffer_mhz": 1.0,
+                "beam_freq_interp": "cubic",
+            },
+            "obs_frequency": {"freq_min_MHz": 49.0, "freq_max_MHz": 51.0},
+        }
+
+    @patch("os.path.exists")
+    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    def test_interp_function_passed_to_beam(
+        self, mock_uvbeam_class, mock_exists, mock_config
+    ):
+        """interp_function kwarg is passed to beam.interp()."""
+        mock_exists.return_value = True
+        mock_beam = Mock()
+        mock_beam.beam_type = "efield"
+        mock_beam.pixel_coordinate_system = "az_za"
+
+        def mock_interp(**kwargs):
+            n_pts = len(kwargs["az_array"])
+            result = np.ones((2, 1, 2, 1, n_pts), dtype=complex)
+            return result, np.ones(n_pts, dtype=bool)
+
+        mock_beam.interp = Mock(side_effect=mock_interp)
+        mock_uvbeam_class.return_value = mock_beam
+
+        handler = BeamFITSHandler(
+            "/mock/beam.fits",
+            mock_config,
+            Mock(),
+            interp_function="az_za_simple",
+        )
+
+        handler.get_jones_matrix(
+            alt_rad=np.pi / 4, az_rad=0.0, freq_hz=50e6, location=None, time=None
+        )
+
+        # Verify interpolation_function was passed
+        call_kwargs = mock_beam.interp.call_args[1]
+        assert call_kwargs["interpolation_function"] == "az_za_simple"
+
+    @patch("os.path.exists")
+    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    def test_interp_function_none_not_passed(
+        self, mock_uvbeam_class, mock_exists, mock_config
+    ):
+        """interp_function=None does not add kwarg to beam.interp()."""
+        mock_exists.return_value = True
+        mock_beam = Mock()
+        mock_beam.beam_type = "efield"
+        mock_beam.pixel_coordinate_system = "az_za"
+
+        def mock_interp(**kwargs):
+            n_pts = len(kwargs["az_array"])
+            result = np.ones((2, 1, 2, 1, n_pts), dtype=complex)
+            return result, np.ones(n_pts, dtype=bool)
+
+        mock_beam.interp = Mock(side_effect=mock_interp)
+        mock_uvbeam_class.return_value = mock_beam
+
+        handler = BeamFITSHandler(
+            "/mock/beam.fits", mock_config, Mock(), interp_function=None
+        )
+
+        handler.get_jones_matrix(
+            alt_rad=np.pi / 4, az_rad=0.0, freq_hz=50e6, location=None, time=None
+        )
+
+        call_kwargs = mock_beam.interp.call_args[1]
+        assert "interpolation_function" not in call_kwargs
+
+    def test_config_beam_interp_function_default(self):
+        """BeamsConfig.beam_interp_function defaults to None."""
+        from rrivis.io.config import BeamsConfig
+
+        config = BeamsConfig()
+        assert config.beam_interp_function is None
+
+    def test_config_beam_interp_function_accepts_string(self):
+        """BeamsConfig.beam_interp_function accepts string values."""
+        from rrivis.io.config import BeamsConfig
+
+        config = BeamsConfig(beam_interp_function="az_za_map_coordinates")
+        assert config.beam_interp_function == "az_za_map_coordinates"
 
 
 if __name__ == "__main__":

@@ -104,7 +104,14 @@ class BeamFITSHandler:
         Frequency interpolation method (default: 'cubic')
     """
 
-    def __init__(self, beam_file_path, config, logger):
+    def __init__(
+        self,
+        beam_file_path,
+        config,
+        logger,
+        peak_normalize=True,
+        interp_function=None,
+    ):
         """
         Load beam FITS file with optional partial reading.
 
@@ -116,6 +123,13 @@ class BeamFITSHandler:
             RRIvis configuration dictionary
         logger : logging.Logger
             Logger instance
+        peak_normalize : bool, optional
+            If True (default), call ``beam.peak_normalize()`` after loading.
+            This ensures the beam peak is unity, matching pyuvsim convention.
+        interp_function : str or None, optional
+            Interpolation function to pass to ``beam.interp()``. If None,
+            uses pyuvdata's default. E.g. ``"az_za_simple"``,
+            ``"az_za_map_coordinates"``.
 
         Raises
         ------
@@ -127,6 +141,8 @@ class BeamFITSHandler:
         self.logger = logger
         self.config = config
         self.beam_file_path = beam_file_path
+        self.peak_normalize = peak_normalize
+        self.interp_function = interp_function
 
         # Check file exists
         if not os.path.exists(beam_file_path):
@@ -173,6 +189,11 @@ class BeamFITSHandler:
                 freq_range=[freq_min - freq_buffer, freq_max + freq_buffer],
                 za_range=[0, za_max_deg],  # DEGREES!
             )
+
+            # Peak-normalize the beam (pyuvsim convention)
+            if self.peak_normalize and hasattr(self.beam, "peak_normalize"):
+                self.beam.peak_normalize()
+                self.logger.info("  Applied peak normalization")
 
             self.logger.info("  Loaded successfully")
             self.logger.info(f"  Beam type: {self.beam.beam_type}")
@@ -304,6 +325,8 @@ class BeamFITSHandler:
             }
             if not check_domain:
                 interp_kwargs["check_azza_domain"] = False
+            if self.interp_function is not None:
+                interp_kwargs["interpolation_function"] = self.interp_function
             interp_data, interp_basis_vector = self.beam.interp(**interp_kwargs)
 
         except Exception as e:
@@ -392,6 +415,11 @@ class BeamManager:
         self.antenna_data = antenna_data
         self.logger = logger
 
+        # Beam handler options from config
+        beams_config = config.get("beams", {})
+        self.peak_normalize = beams_config.get("beam_peak_normalize", True)
+        self.interp_function = beams_config.get("beam_interp_function", None)
+
         # Storage for beam handlers
         self.beam_handlers = {}  # beam_id → BeamFITSHandler
         self.antenna_to_beam = {}  # antenna_number → beam_id
@@ -427,7 +455,13 @@ class BeamManager:
         self.logger.info("Loading shared beam for all antennas")
 
         # Load single beam with ID 0
-        self.beam_handlers[0] = BeamFITSHandler(beam_path, self.config, self.logger)
+        self.beam_handlers[0] = BeamFITSHandler(
+            beam_path,
+            self.config,
+            self.logger,
+            peak_normalize=self.peak_normalize,
+            interp_function=self.interp_function,
+        )
 
         # All antennas use beam 0
         for ant_num in self.antenna_data["antenna_numbers"]:
@@ -487,7 +521,11 @@ class BeamManager:
             beam_path = beam_files[beam_id]
             self.logger.info(f"Loading beam {beam_id}: {beam_path}")
             self.beam_handlers[beam_id] = BeamFITSHandler(
-                beam_path, self.config, self.logger
+                beam_path,
+                self.config,
+                self.logger,
+                peak_normalize=self.peak_normalize,
+                interp_function=self.interp_function,
             )
 
         # Map antennas to beams
@@ -515,7 +553,11 @@ class BeamManager:
             beam_path = beam_files[beam_id]
             self.logger.info(f"Loading beam {beam_id}: {beam_path}")
             self.beam_handlers[beam_id] = BeamFITSHandler(
-                beam_path, self.config, self.logger
+                beam_path,
+                self.config,
+                self.logger,
+                peak_normalize=self.peak_normalize,
+                interp_function=self.interp_function,
             )
 
         # Map antennas to beams

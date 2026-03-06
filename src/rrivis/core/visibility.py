@@ -440,21 +440,30 @@ def _build_jones_chain(
             frequencies=np.array([freq]),
         )
     else:
-        first_ant = ant_keys[0]
-        hpbw_rad = hpbw_per_antenna.get(first_ant, np.array([0.1]))[freq_idx]
-        beam_type = (
-            beam_pattern_per_antenna.get(first_ant, "gaussian")
+        # Build per-antenna HPBW map (extract freq_idx from each antenna's array)
+        hpbw_map = {
+            ant: hpbw_per_antenna.get(ant, np.array([0.1]))[freq_idx]
+            for ant in ant_keys
+        }
+        beam_type_map = (
+            {ant: beam_pattern_per_antenna.get(ant, "gaussian") for ant in ant_keys}
             if beam_pattern_per_antenna
-            else "gaussian"
+            else None
         )
+
+        # Use first antenna as default (backward compatible)
+        first_ant = ant_keys[0]
+        default_hpbw = hpbw_map[first_ant]
+        default_beam_type = beam_type_map[first_ant] if beam_type_map else "gaussian"
+
         e_jones = AnalyticBeamJones(
             source_altaz=np.column_stack([alt_rad, az_rad]),
             frequencies=np.array([freq]),
-            hpbw_radians=hpbw_rad,
-            beam_type=beam_type,
-            wavelength=wavelength_value if beam_type == "airy" else None,
+            hpbw_radians=default_hpbw,
+            beam_type=default_beam_type,
+            wavelength=wavelength_value if default_beam_type == "airy" else None,
             diameter=antennas.get(first_ant, {}).get("diameter", 12.0)
-            if beam_type == "airy"
+            if default_beam_type == "airy"
             else None,
             taper_exponent=beam_pattern_params.get("cosine_taper_exponent", 1.0)
             if beam_pattern_params
@@ -462,6 +471,8 @@ def _build_jones_chain(
             taper_dB=beam_pattern_params.get("exponential_taper_dB", 10.0)
             if beam_pattern_params
             else 10.0,
+            hpbw_per_antenna=hpbw_map,
+            beam_type_per_antenna=beam_type_map,
         )
     chain.add_term(e_jones)
 

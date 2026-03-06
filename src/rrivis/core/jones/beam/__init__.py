@@ -43,6 +43,7 @@ from rrivis.core.jones.beam.analytic import (
     gaussian_A_theta_EBeam,
     get_beam_pattern_function,
     get_hpbw_function,
+    short_dipole_jones,
 )
 
 # Re-export FITS beam handling
@@ -196,18 +197,24 @@ class AnalyticBeamJones(BeamJones):
         diameter: float | None = None,
         taper_exponent: float = 1.0,
         taper_dB: float = 10.0,
+        hpbw_per_antenna: dict[Any, float] | None = None,
+        beam_type_per_antenna: dict[Any, str] | None = None,
     ):
         """Initialize analytic beam.
 
         Args:
             source_altaz: Source alt-az coordinates (N_sources, 2) in radians
             frequencies: Frequencies in Hz (N_freq,)
-            hpbw_radians: Half-power beam width in radians
-            beam_type: 'gaussian', 'airy', 'cosine', or 'exponential'
+            hpbw_radians: Half-power beam width in radians (default for all antennas)
+            beam_type: 'gaussian', 'airy', 'cosine', or 'exponential' (default)
             wavelength: Observation wavelength in meters (required for 'airy')
             diameter: Antenna diameter in meters (required for 'airy')
             taper_exponent: Cosine taper exponent (for 'cosine', default 1.0)
             taper_dB: Exponential taper in dB (for 'exponential', default 10.0)
+            hpbw_per_antenna: Per-antenna HPBW map {ant_number: hpbw_rad}.
+                Falls back to hpbw_radians when None or missing.
+            beam_type_per_antenna: Per-antenna beam type map {ant_number: str}.
+                Falls back to beam_type when None or missing.
         """
         self.hpbw_radians = hpbw_radians
         self.beam_type = beam_type
@@ -215,31 +222,74 @@ class AnalyticBeamJones(BeamJones):
         self.diameter = diameter
         self.taper_exponent = taper_exponent
         self.taper_dB = taper_dB
+        self.hpbw_per_antenna = hpbw_per_antenna
+        self.beam_type_per_antenna = beam_type_per_antenna
 
         # Create beam model function
         def beam_model(antenna_idx, zenith_angle, azimuth, frequency, time_idx, **kw):
-            return self._compute_analytic_beam(zenith_angle)
+            ant_num = kw.get("antenna_number", antenna_idx)
+            hpbw = self._get_hpbw_for_antenna(ant_num)
+            btype = self._get_beam_type_for_antenna(ant_num)
+            return self._compute_analytic_beam(
+                zenith_angle, azimuth=azimuth, hpbw=hpbw, beam_type=btype
+            )
 
         super().__init__(beam_model, source_altaz, frequencies)
 
-    def _compute_analytic_beam(self, zenith_angle) -> np.ndarray:
+    def _get_hpbw_for_antenna(self, ant_num: Any) -> float:
+        """Get HPBW for a specific antenna, falling back to default."""
+        if self.hpbw_per_antenna is not None and ant_num in self.hpbw_per_antenna:
+            return self.hpbw_per_antenna[ant_num]
+        return self.hpbw_radians
+
+    def _get_beam_type_for_antenna(self, ant_num: Any) -> str:
+        """Get beam type for a specific antenna, falling back to default."""
+        if (
+            self.beam_type_per_antenna is not None
+            and ant_num in self.beam_type_per_antenna
+        ):
+            return self.beam_type_per_antenna[ant_num]
+        return self.beam_type
+
+    def _compute_analytic_beam(
+        self,
+        zenith_angle,
+        azimuth=None,
+        hpbw: float | None = None,
+        beam_type: str | None = None,
+    ) -> np.ndarray:
         """Compute analytic beam pattern using functions from ``analytic.py``.
 
         Args:
             zenith_angle: Angle from zenith in radians (scalar or array)
+            azimuth: Azimuth angle in radians (required for 'short_dipole')
+            hpbw: Override HPBW in radians (defaults to self.hpbw_radians)
+            beam_type: Override beam type (defaults to self.beam_type)
 
         Returns:
-            2x2 diagonal Jones matrix (2, 2) for scalar,
-            or (n_sources, 2, 2) for array input
+            2x2 Jones matrix (2, 2) for scalar,
+            or (n_sources, 2, 2) for array input.
+            Diagonal for standard beams, full 2x2 for 'short_dipole'.
         """
+        btype = beam_type if beam_type is not None else self.beam_type
+        hpbw_rad = hpbw if hpbw is not None else self.hpbw_radians
+
+        # Short dipole returns full 2x2 non-diagonal Jones
+        if btype == "short_dipole":
+            if azimuth is None:
+                raise ValueError("short_dipole beam requires azimuth angles")
+            from rrivis.core.jones.beam.analytic import short_dipole_jones
+
+            return short_dipole_jones(zenith_angle, azimuth)
+
         # Detect scalar input before pattern functions may wrap it
         input_is_scalar = np.ndim(zenith_angle) == 0
 
-        if self.beam_type == "uniform":
+        if btype == "uniform":
             amplitude = np.ones_like(np.asarray(zenith_angle, dtype=float))
-        elif self.beam_type == "gaussian":
-            amplitude = gaussian_A_theta_EBeam(zenith_angle, self.hpbw_radians)
-        elif self.beam_type == "airy":
+        elif btype == "gaussian":
+            amplitude = gaussian_A_theta_EBeam(zenith_angle, hpbw_rad)
+        elif btype == "airy":
             if self.wavelength is not None and self.diameter is not None:
                 amplitude = airy_disk_pattern(
                     zenith_angle, self.wavelength, self.diameter
@@ -250,18 +300,18 @@ class AnalyticBeamJones(BeamJones):
                 amplitude = np.where(
                     np.abs(za) < 1e-10,
                     1.0,
-                    (2 * np.sinc(2 * np.pi * za / (self.hpbw_radians * np.pi))) ** 2,
+                    (2 * np.sinc(2 * np.pi * za / (hpbw_rad * np.pi))) ** 2,
                 )
-        elif self.beam_type == "cosine":
+        elif btype == "cosine":
             amplitude = cosine_tapered_pattern(
                 zenith_angle,
-                self.hpbw_radians,
+                hpbw_rad,
                 taper_exponent=self.taper_exponent,
             )
-        elif self.beam_type == "exponential":
+        elif btype == "exponential":
             amplitude = exponential_tapered_pattern(
                 zenith_angle,
-                self.hpbw_radians,
+                hpbw_rad,
                 taper_dB=self.taper_dB,
             )
         else:
@@ -298,20 +348,33 @@ class AnalyticBeamJones(BeamJones):
     ) -> Any:
         """Compute analytic beam Jones for all sources at once.
 
-        Returns (n_sources, 2, 2) diagonal matrices.
+        Returns (n_sources, 2, 2) matrices (diagonal for standard beams,
+        full 2x2 for non-diagonal beam types like 'short_dipole').
         """
-        # Get all zenith angles at once
         alts = self.source_altaz[:n_sources, 0]
+        azs = self.source_altaz[:n_sources, 1]
         zenith_angles = np.pi / 2 - alts
 
-        # _compute_analytic_beam now handles arrays
+        ant_num = kwargs.get("antenna_number", antenna_idx)
+        hpbw = self._get_hpbw_for_antenna(ant_num)
+        btype = self._get_beam_type_for_antenna(ant_num)
+
         return backend.asarray(
-            self._compute_analytic_beam(zenith_angles),
+            self._compute_analytic_beam(
+                zenith_angles, azimuth=azs, hpbw=hpbw, beam_type=btype
+            ),
             dtype=np.complex128,
         )
 
     def is_diagonal(self) -> bool:
-        return True  # Analytic beams are diagonal
+        # Non-diagonal for short_dipole; also check per-antenna types
+        if self.beam_type == "short_dipole":
+            return False
+        if self.beam_type_per_antenna:
+            for btype in self.beam_type_per_antenna.values():
+                if btype == "short_dipole":
+                    return False
+        return True
 
     def get_config(self) -> dict[str, Any]:
         config = super().get_config()
@@ -451,6 +514,7 @@ __all__ = [
     "get_beam_pattern_function",
     "calculate_beam_pattern",
     "convert_angle_for_display",
+    "short_dipole_jones",
     # FITS beam handling
     "astropy_az_to_uvbeam_az",
     "BeamFITSHandler",

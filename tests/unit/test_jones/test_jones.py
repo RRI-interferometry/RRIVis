@@ -207,6 +207,189 @@ class TestAnalyticBeamJones:
         np.testing.assert_almost_equal(jones[0, 0], 1.0)
 
 
+class TestPerAntennaBeam:
+    """Tests for per-antenna HPBW/beam_type support (Item 5)."""
+
+    def test_different_hpbw_per_antenna(self, numpy_backend, frequencies):
+        """Different HPBW per antenna produces different Jones matrices."""
+        # Source off-axis at 5 degrees from zenith
+        source_altaz = np.array([[np.deg2rad(85), 0.0]])
+        hpbw_map = {0: np.deg2rad(5.0), 1: np.deg2rad(20.0)}
+
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(10.0),
+            beam_type="gaussian",
+            hpbw_per_antenna=hpbw_map,
+        )
+
+        jones_ant0 = beam.compute_jones_all_sources(
+            0, 1, 0, 0, numpy_backend, antenna_number=0
+        )
+        jones_ant1 = beam.compute_jones_all_sources(
+            1, 1, 0, 0, numpy_backend, antenna_number=1
+        )
+
+        # Narrow beam (ant0, 5deg HPBW) should attenuate more at 5deg off-axis
+        # than wide beam (ant1, 20deg HPBW)
+        amp0 = np.abs(jones_ant0[0, 0, 0])
+        amp1 = np.abs(jones_ant1[0, 0, 0])
+        assert amp0 < amp1, (
+            f"Narrow beam ({amp0}) should be weaker than wide beam ({amp1})"
+        )
+
+    def test_backward_compat_single_hpbw(self, numpy_backend, frequencies):
+        """Single HPBW without per-antenna map still works."""
+        source_altaz = np.array([[np.pi / 2, 0.0]])
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(10.0),
+            beam_type="gaussian",
+        )
+        jones = beam.compute_jones(0, 0, 0, 0, numpy_backend)
+        np.testing.assert_almost_equal(jones[0, 0], 1.0)
+
+    def test_per_antenna_beam_type(self, numpy_backend, frequencies):
+        """Different beam types per antenna."""
+        source_altaz = np.array([[np.deg2rad(80), 0.0]])
+        beam_type_map = {0: "gaussian", 1: "cosine"}
+
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(30.0),
+            beam_type="gaussian",
+            beam_type_per_antenna=beam_type_map,
+        )
+
+        jones_gauss = beam.compute_jones_all_sources(
+            0, 1, 0, 0, numpy_backend, antenna_number=0
+        )
+        jones_cosine = beam.compute_jones_all_sources(
+            1, 1, 0, 0, numpy_backend, antenna_number=1
+        )
+
+        # Different beam types should produce different amplitudes
+        assert not np.allclose(jones_gauss, jones_cosine)
+
+    def test_missing_antenna_falls_back_to_default(self, numpy_backend, frequencies):
+        """Antenna not in per-antenna map falls back to default."""
+        source_altaz = np.array([[np.deg2rad(85), 0.0]])
+        hpbw_map = {0: np.deg2rad(5.0)}
+
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(10.0),
+            beam_type="gaussian",
+            hpbw_per_antenna=hpbw_map,
+        )
+
+        # Antenna 99 not in map, should use default 10 deg
+        jones_default = beam.compute_jones_all_sources(
+            99, 1, 0, 0, numpy_backend, antenna_number=99
+        )
+        # Antenna 0 has 5 deg
+        jones_ant0 = beam.compute_jones_all_sources(
+            0, 1, 0, 0, numpy_backend, antenna_number=0
+        )
+
+        assert not np.allclose(jones_default, jones_ant0)
+
+
+class TestShortDipoleBeam:
+    """Tests for short dipole polarized beam (Item 2)."""
+
+    def test_short_dipole_at_zenith(self):
+        """Short dipole at zenith: cos(0)=1, sin(0)=0 gives identity-like."""
+        from rrivis.core.jones.beam import short_dipole_jones
+
+        jones = short_dipole_jones(0.0, 0.0)
+        # At za=0, az=0: [[cos(0)*cos(0), -sin(0)], [sin(0)*cos(0), cos(0)]]
+        #              = [[1, 0], [0, 1]]
+        np.testing.assert_almost_equal(jones, np.eye(2))
+
+    def test_short_dipole_off_axis(self):
+        """Short dipole at za=45deg, az=0: [[cos(45), 0], [0, 1]]."""
+        from rrivis.core.jones.beam import short_dipole_jones
+
+        za = np.pi / 4
+        jones = short_dipole_jones(za, 0.0)
+        expected = np.array([[np.cos(za), 0.0], [0.0, 1.0]], dtype=np.complex128)
+        np.testing.assert_almost_equal(jones, expected)
+
+    def test_short_dipole_cross_pol(self):
+        """Short dipole at az=45deg has non-zero cross-pol."""
+        from rrivis.core.jones.beam import short_dipole_jones
+
+        za = np.pi / 4
+        az = np.pi / 4
+        jones = short_dipole_jones(za, az)
+        # Off-diagonal elements should be non-zero
+        assert np.abs(jones[0, 1]) > 1e-10
+        assert np.abs(jones[1, 0]) > 1e-10
+
+    def test_short_dipole_array_input(self):
+        """Short dipole handles array inputs."""
+        from rrivis.core.jones.beam import short_dipole_jones
+
+        za = np.array([0.0, np.pi / 4, np.pi / 3])
+        az = np.array([0.0, np.pi / 4, np.pi / 2])
+        jones = short_dipole_jones(za, az)
+        assert jones.shape == (3, 2, 2)
+
+    def test_analytic_beam_short_dipole_type(self, numpy_backend, frequencies):
+        """AnalyticBeamJones with beam_type='short_dipole' returns non-diagonal."""
+        source_altaz = np.array([[np.deg2rad(60), np.deg2rad(45)]])
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(10.0),
+            beam_type="short_dipole",
+        )
+
+        jones = beam.compute_jones_all_sources(0, 1, 0, 0, numpy_backend)
+        # Should have non-zero off-diagonal elements
+        assert np.abs(jones[0, 0, 1]) > 1e-10 or np.abs(jones[0, 1, 0]) > 1e-10
+
+    def test_is_diagonal_false_for_short_dipole(self, frequencies):
+        """is_diagonal() returns False for short_dipole."""
+        source_altaz = np.array([[np.pi / 2, 0.0]])
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(10.0),
+            beam_type="short_dipole",
+        )
+        assert not beam.is_diagonal()
+
+    def test_is_diagonal_true_for_gaussian(self, frequencies):
+        """is_diagonal() returns True for standard beam types."""
+        source_altaz = np.array([[np.pi / 2, 0.0]])
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(10.0),
+            beam_type="gaussian",
+        )
+        assert beam.is_diagonal()
+
+    def test_short_dipole_requires_azimuth(self, frequencies):
+        """Short dipole raises ValueError if azimuth not provided."""
+        source_altaz = np.array([[np.pi / 2, 0.0]])
+        beam = AnalyticBeamJones(
+            source_altaz=source_altaz,
+            frequencies=frequencies,
+            hpbw_radians=np.deg2rad(10.0),
+            beam_type="short_dipole",
+        )
+        # Direct call without azimuth should raise
+        with pytest.raises(ValueError, match="short_dipole beam requires azimuth"):
+            beam._compute_analytic_beam(np.array([0.0]))
+
+
 class TestGainJones:
     """Tests for G term (electronic gains)."""
 
