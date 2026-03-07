@@ -10074,7 +10074,7 @@ packages:
 - pypi: ./
   name: rrivis
   version: 0.2.0
-  sha256: a37303468d02edca1f3680dd214fafefba05d39227b4bc0222b33228f6a8e758
+  sha256: 0c29f819b17f085cf0e4f8e2295b51248b85611b51c2636ff2fc8cb04e09115d
   requires_dist:
   - numpy>=1.24.0
   - astropy>=5.0
@@ -10095,6 +10095,7 @@ packages:
   - tqdm>=4.65
   - pympler>=1.0
   - rich>=13.0
+  - click>=8.0
   - jax>=0.4.20 ; extra == 'gpu'
   - jaxlib>=0.4.20 ; extra == 'gpu'
   - jax[cuda12]>=0.4.20 ; extra == 'gpu-cuda'
