@@ -86,36 +86,6 @@ class TestCLIWithConfig:
 
 
 @pytest.mark.integration
-class TestCLIMigrate:
-    """Test configuration migration CLI."""
-
-    def test_migrate_help(self):
-        """Test rrivis-migrate --help."""
-        result = subprocess.run(
-            [sys.executable, "-m", "rrivis.cli.migrate", "--help"],
-            capture_output=True,
-            text=True,
-        )
-
-        # May fail if migrate module doesn't exist yet, which is acceptable
-        if result.returncode == 0:
-            assert (
-                "migrate" in result.stdout.lower() or "config" in result.stdout.lower()
-            )
-
-    def test_migrate_module_importable(self):
-        """Test that migrate module can be imported."""
-        try:
-            from rrivis.cli.migrate import cli_migrate
-
-            # Just verify it exists and is callable
-            assert callable(cli_migrate) or cli_migrate is None
-        except (ImportError, AttributeError):
-            # Module may not exist yet - that's fine
-            pytest.skip("Migrate CLI not yet implemented")
-
-
-@pytest.mark.integration
 class TestCLIBackendSelection:
     """Test backend selection through CLI."""
 

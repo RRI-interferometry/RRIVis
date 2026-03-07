@@ -53,6 +53,7 @@ dependencies = [
     "tqdm>=4.65",
     "pympler>=1.0",
     "rich>=13.0",
+    "click>=8.0",
 ]
 
 [project.optional-dependencies]
