@@ -8,6 +8,10 @@ sdk_version: "1.41.0"
 app_file: app.py
 pinned: false
 license: mit
+tags:
+  - radio-astronomy
+  - interferometry
+  - simulation
 short_description: A GPU-Accelerated, Full-Polarization Visibility Simulator
 ---
 
