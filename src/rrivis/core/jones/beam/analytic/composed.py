@@ -1,4 +1,4 @@
-# rrivis/core/jones/beam/analytic.py
+# rrivis/core/jones/beam/analytic/composed.py
 """Composed aperture beam model for the E-Jones (primary beam) in the RIME.
 
 This module provides :func:`compute_aperture_beam`, which combines aperture
@@ -93,8 +93,8 @@ def compute_aperture_beam(
         Jones matrix, shape ``(2, 2)`` for scalar input or
         ``(N, 2, 2)`` for array input, dtype ``complex128``.
     """
-    from rrivis.core.jones.beam.aperture import compute_u_beam
-    from rrivis.core.jones.beam.taper import TAPER_FUNCTIONS
+    from rrivis.core.jones.beam.analytic.aperture import compute_u_beam
+    from rrivis.core.jones.beam.analytic.taper import TAPER_FUNCTIONS
 
     if feed_params is None:
         feed_params = {}
@@ -107,7 +107,7 @@ def compute_aperture_beam(
     # Step 1: If feed_model != "none", compute effective edge_taper_dB
     effective_edge_taper = edge_taper_dB
     if feed_model != "none":
-        from rrivis.core.jones.beam.feed import (
+        from rrivis.core.jones.beam.analytic.feed import (
             compute_edge_taper_from_feed,
             feed_to_farfield_numerical,
         )
@@ -143,7 +143,7 @@ def compute_aperture_beam(
         # Already computed above
         pass
     elif aperture_shape == "rectangular":
-        from rrivis.core.jones.beam.aperture import sinc_voltage_pattern
+        from rrivis.core.jones.beam.analytic.aperture import sinc_voltage_pattern
 
         length_x = aperture_params.get("length_x", diameter)
         length_y = aperture_params.get("length_y", diameter)
@@ -156,7 +156,9 @@ def compute_aperture_beam(
         uy = length_y * np.sin(theta_y) / wavelength
         co_pol = sinc_voltage_pattern(ux, uy)
     elif aperture_shape == "elliptical":
-        from rrivis.core.jones.beam.aperture import elliptical_airy_voltage_pattern
+        from rrivis.core.jones.beam.analytic.aperture import (
+            elliptical_airy_voltage_pattern,
+        )
 
         diameter_x = aperture_params.get("diameter_x", diameter)
         diameter_y = aperture_params.get("diameter_y", diameter)

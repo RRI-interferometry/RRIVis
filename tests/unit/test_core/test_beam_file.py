@@ -15,7 +15,7 @@ import astropy.units as u
 import numpy as np
 import pytest
 
-from rrivis.core.jones.beam.fits import (
+from rrivis.core.jones.beam.fits.handler import (
     BeamFITSHandler,
     BeamManager,
     astropy_az_to_uvbeam_az,
@@ -142,7 +142,7 @@ class TestBeamFITSHandler:
         return Mock()
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_initialization(
         self, mock_uvbeam_class, mock_exists, mock_config, mock_logger
     ):
@@ -162,7 +162,7 @@ class TestBeamFITSHandler:
         # Note: BeamFITSHandler loads immediately, no lazy loading for handler itself
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_load_beam_with_correct_units(
         self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger
     ):
@@ -193,7 +193,7 @@ class TestBeamFITSHandler:
         assert za_range[1] > 3.2  # If it were radians, max would be ~1.57
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_jones_matrix_ordering(
         self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger
     ):
@@ -256,7 +256,7 @@ class TestBeamFITSHandler:
         )
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_azimuth_conversion_applied(
         self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger
     ):
@@ -306,7 +306,7 @@ class TestBeamFITSHandler:
         )
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_array_input(
         self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger
     ):
@@ -338,7 +338,7 @@ class TestBeamFITSHandler:
         assert jones.shape == (n_sources, 2, 2)
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_error_handling_missing_file(
         self, mock_uvbeam_class, mock_exists, mock_config, mock_logger
     ):
@@ -350,7 +350,7 @@ class TestBeamFITSHandler:
             BeamFITSHandler("/nonexistent/beam.fits", mock_config, mock_logger)
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_beam_loads_on_init(
         self, mock_uvbeam_class, mock_exists, mock_config, mock_uvbeam, mock_logger
     ):
@@ -493,7 +493,7 @@ class TestBeamManager:
         assert manager.mode == "analytic"
         assert manager.beam_handlers == {}
 
-    @patch("rrivis.core.jones.beam.fits.BeamFITSHandler")
+    @patch("rrivis.core.jones.beam.fits.handler.BeamFITSHandler")
     def test_shared_mode(
         self,
         mock_handler_class,
@@ -510,7 +510,7 @@ class TestBeamManager:
         assert 0 in manager.beam_handlers
         mock_handler_class.assert_called_once()
 
-    @patch("rrivis.core.jones.beam.fits.BeamFITSHandler")
+    @patch("rrivis.core.jones.beam.fits.handler.BeamFITSHandler")
     def test_per_antenna_from_layout_with_beam_ids(
         self,
         mock_handler_class,
@@ -552,7 +552,7 @@ class TestBeamManager:
                 mock_logger,
             )
 
-    @patch("rrivis.core.jones.beam.fits.BeamFITSHandler")
+    @patch("rrivis.core.jones.beam.fits.handler.BeamFITSHandler")
     def test_per_antenna_from_config(
         self,
         mock_handler_class,
@@ -571,7 +571,7 @@ class TestBeamManager:
         assert 0 in manager.antenna_to_beam
         assert 1 in manager.antenna_to_beam
 
-    @patch("rrivis.core.jones.beam.fits.BeamFITSHandler")
+    @patch("rrivis.core.jones.beam.fits.handler.BeamFITSHandler")
     def test_get_jones_matrix_analytic_returns_none(
         self,
         mock_handler_class,
@@ -598,7 +598,7 @@ class TestBeamManager:
 
         assert result is None
 
-    @patch("rrivis.core.jones.beam.fits.BeamFITSHandler")
+    @patch("rrivis.core.jones.beam.fits.handler.BeamFITSHandler")
     def test_get_jones_matrix_shared_mode(
         self,
         mock_handler_class,
@@ -637,7 +637,7 @@ class TestBeamManager:
             assert result.shape == (2, 2)
             mock_handler.get_jones_matrix.assert_called()
 
-    @patch("rrivis.core.jones.beam.fits.BeamFITSHandler")
+    @patch("rrivis.core.jones.beam.fits.handler.BeamFITSHandler")
     def test_get_jones_matrix_per_antenna_mode(
         self,
         mock_handler_class,
@@ -737,8 +737,8 @@ class TestIntegration:
         """Mock logger for testing."""
         return Mock()
 
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
-    @patch("rrivis.core.jones.beam.fits.BeamFITSHandler")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.BeamFITSHandler")
     def test_realistic_rime_workflow(
         self, mock_handler_class, mock_uvbeam_class, mock_logger
     ):
@@ -857,7 +857,7 @@ class TestPeakNormalization:
         }
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_peak_normalize_true_by_default(
         self, mock_uvbeam_class, mock_exists, mock_config
     ):
@@ -874,7 +874,7 @@ class TestPeakNormalization:
         assert handler.peak_normalize is True
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_peak_normalize_false_skips(
         self, mock_uvbeam_class, mock_exists, mock_config
     ):
@@ -915,7 +915,7 @@ class TestInterpFunction:
         }
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_interp_function_passed_to_beam(
         self, mock_uvbeam_class, mock_exists, mock_config
     ):
@@ -949,7 +949,7 @@ class TestInterpFunction:
         assert call_kwargs["interpolation_function"] == "az_za_simple"
 
     @patch("os.path.exists")
-    @patch("rrivis.core.jones.beam.fits.UVBeam")
+    @patch("rrivis.core.jones.beam.fits.handler.UVBeam")
     def test_interp_function_none_not_passed(
         self, mock_uvbeam_class, mock_exists, mock_config
     ):

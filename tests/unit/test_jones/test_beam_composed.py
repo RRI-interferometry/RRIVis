@@ -12,8 +12,11 @@ class TestComposedBeamBasic:
 
     def test_circular_uniform_is_airy(self):
         """Circular aperture + uniform taper = Airy pattern."""
-        from rrivis.core.jones.beam.analytic import compute_aperture_beam
-        from rrivis.core.jones.beam.aperture import airy_voltage_pattern, compute_u_beam
+        from rrivis.core.jones.beam.analytic.aperture import (
+            airy_voltage_pattern,
+            compute_u_beam,
+        )
+        from rrivis.core.jones.beam.analytic.composed import compute_aperture_beam
 
         theta = np.linspace(0.001, 0.1, 50)
         freq = 150e6
@@ -39,7 +42,7 @@ class TestComposedBeamBasic:
 
     def test_circular_gaussian_taper_center(self):
         """Circular + gaussian taper: on-axis response = 1.0."""
-        from rrivis.core.jones.beam.analytic import compute_aperture_beam
+        from rrivis.core.jones.beam.analytic.composed import compute_aperture_beam
 
         jones = compute_aperture_beam(
             theta=np.array([0.0]),
@@ -57,7 +60,7 @@ class TestComposedBeamBasic:
 
     def test_beam_narrows_with_frequency(self):
         """Beam should be narrower at higher frequency (HPBW ~ 1/freq)."""
-        from rrivis.core.jones.beam.analytic import compute_aperture_beam
+        from rrivis.core.jones.beam.analytic.composed import compute_aperture_beam
 
         theta = np.array([0.05])
         diameter = 14.0
@@ -84,7 +87,7 @@ class TestComposedBeamBasic:
 
     def test_scalar_input(self):
         """Scalar theta input returns (2, 2) Jones matrix."""
-        from rrivis.core.jones.beam.analytic import compute_aperture_beam
+        from rrivis.core.jones.beam.analytic.composed import compute_aperture_beam
 
         jones = compute_aperture_beam(
             theta=0.0,
@@ -98,7 +101,7 @@ class TestComposedBeamBasic:
 
     def test_array_input(self):
         """Array theta input returns (N, 2, 2) Jones matrices."""
-        from rrivis.core.jones.beam.analytic import compute_aperture_beam
+        from rrivis.core.jones.beam.analytic.composed import compute_aperture_beam
 
         theta = np.array([0.0, 0.05, 0.1])
         jones = compute_aperture_beam(
@@ -116,7 +119,7 @@ class TestComposedBeamFeed:
 
     def test_feed_derives_edge_taper(self):
         """Feed model with analytical computation derives edge taper."""
-        from rrivis.core.jones.beam.analytic import compute_aperture_beam
+        from rrivis.core.jones.beam.analytic.composed import compute_aperture_beam
 
         theta = np.array([0.0, 0.05])
 
@@ -136,7 +139,7 @@ class TestComposedBeamFeed:
 
     def test_feed_numerical_computation(self):
         """Feed model with numerical Hankel transform."""
-        from rrivis.core.jones.beam.analytic import compute_aperture_beam
+        from rrivis.core.jones.beam.analytic.composed import compute_aperture_beam
 
         theta = np.array([0.0, 0.03])
 
@@ -160,7 +163,7 @@ class TestComposedBeamApertureShapes:
 
     def test_rectangular_aperture(self):
         """Rectangular aperture with sinc pattern."""
-        from rrivis.core.jones.beam.analytic import compute_aperture_beam
+        from rrivis.core.jones.beam.analytic.composed import compute_aperture_beam
 
         theta = np.array([0.0, 0.05])
         phi = np.array([0.0, 0.0])
@@ -179,7 +182,7 @@ class TestComposedBeamApertureShapes:
 
     def test_elliptical_aperture(self):
         """Elliptical aperture reduces to circular when Dx=Dy."""
-        from rrivis.core.jones.beam.analytic import compute_aperture_beam
+        from rrivis.core.jones.beam.analytic.composed import compute_aperture_beam
 
         theta = np.linspace(0.001, 0.05, 10)
         phi = np.zeros_like(theta)

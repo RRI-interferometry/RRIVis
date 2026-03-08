@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from scipy.optimize import brentq
 
-from rrivis.core.jones.beam.taper import (
+from rrivis.core.jones.beam.analytic.taper import (
     TAPER_FUNCTIONS,
     cosine_taper,
     gaussian_taper_pattern,
