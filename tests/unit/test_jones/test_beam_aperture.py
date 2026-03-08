@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from rrivis.core.jones.beam.aperture import (
+from rrivis.core.jones.beam.analytic.aperture import (
     APERTURE_SHAPES,
     airy_voltage_pattern,
     compute_u_beam,

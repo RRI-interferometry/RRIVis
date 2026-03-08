@@ -6,8 +6,8 @@ approximations for standard aperture taper patterns.
 
 import numpy as np
 
-from rrivis.core.jones.beam.numerical_hpbw import compute_hpbw_numerical
-from rrivis.core.jones.beam.taper import (
+from rrivis.core.jones.beam.analytic.numerical_hpbw import compute_hpbw_numerical
+from rrivis.core.jones.beam.analytic.taper import (
     gaussian_taper_pattern,
     parabolic_taper,
     uniform_taper,

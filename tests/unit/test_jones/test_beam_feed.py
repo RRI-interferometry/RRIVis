@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from rrivis.core.jones.beam.feed import (
+from rrivis.core.jones.beam.analytic.feed import (
     FEED_MODELS,
     REFLECTOR_TYPES,
     cassegrain_angle,

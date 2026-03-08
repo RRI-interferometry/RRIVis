@@ -113,7 +113,7 @@ def _compute_beam_power_pattern(
             return 0.5 * np.sum(np.abs(jones) ** 2, axis=(-2, -1))
 
     # Aperture-based analytic beam
-    from rrivis.core.jones.beam.analytic import compute_aperture_beam
+    from rrivis.core.jones.beam.analytic.composed import compute_aperture_beam
 
     jones = compute_aperture_beam(
         theta=zenith_angles,
