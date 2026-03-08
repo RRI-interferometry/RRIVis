@@ -167,8 +167,6 @@ class VisibilitySimulator(ABC):
                 - wavelengths: astropy.Quantity array (derived from frequencies)
                 - hpbw_per_antenna: dict mapping antenna -> HPBW array
                 - beam_manager: BeamManager for FITS beam interpolation
-                - beam_pattern_per_antenna: dict of analytic beam types
-                - beam_pattern_params: dict of beam pattern parameters
                 - return_correlations: bool, extract XX/XY/YX/YY (default True)
                 - jones_config: dict of Jones term configurations
 

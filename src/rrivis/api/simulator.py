@@ -201,9 +201,7 @@ class Simulator:
             config["antenna_layout"] = {
                 "antenna_positions_file": str(antenna_layout),
                 "antenna_file_format": "rrivis",
-                "all_antenna_type": "parabolic",  # Options: parabolic, spherical, phased_array, dipole
                 "all_antenna_diameter": 14.0,
-                "illumination_taper": "10db",  # Options: uniform, cosine, gaussian, 10db, 20db
             }
 
         if frequencies:
@@ -343,7 +341,7 @@ class Simulator:
         from rrivis.backends import get_backend
         from rrivis.core.antenna import read_antenna_positions
         from rrivis.core.baseline import generate_baselines
-        from rrivis.core.jones.beam import AntennaType, calculate_hpbw_for_antenna_type
+        from rrivis.core.jones.beam import compute_hpbw
         from rrivis.core.observation import get_location_and_time
         from rrivis.simulator import get_simulator
 
@@ -377,27 +375,20 @@ class Simulator:
         else:
             raise ValueError("No antenna_positions_file specified in config")
 
-        # Set up beam types and responses for each antenna
-        beam_config = self.config.get("beams", {})
-        all_beam_response = beam_config.get("all_beam_response", "gaussian")
-        antenna_type = antenna_config.get("all_antenna_type", "parabolic")
+        # Set antenna diameter for each antenna
         antenna_diameter = antenna_config.get("all_antenna_diameter", 14.0)
 
-        # Set diameter and beam info for each antenna
-        beams_per_antenna = {}
-        beam_response_per_antenna = {}
         for ant_id in self._antennas:
             self._antennas[ant_id]["diameter"] = antenna_diameter
-            beams_per_antenna[self._antennas[ant_id]["Number"]] = antenna_type
-            beam_response_per_antenna[self._antennas[ant_id]["Number"]] = (
-                all_beam_response
-            )
 
         # Generate baselines
+        # Build simple beam metadata maps for baseline generation
+        ant_nums = [ant["Number"] for ant in self._antennas.values()]
+        beams_per_antenna = dict.fromkeys(ant_nums, "gaussian")
         self._baselines = generate_baselines(
             self._antennas,
             beams_per_antenna,
-            beam_response_per_antenna,
+            beams_per_antenna,
             verbose=verbose,
         )
         logger.debug(f"Generated {len(self._baselines)} baselines")
@@ -441,69 +432,22 @@ class Simulator:
             f"{self._frequencies_hz[0] / 1e6:.1f} - {self._frequencies_hz[-1] / 1e6:.1f} MHz"
         )
 
-        # Calculate HPBW per antenna using antenna-type-specific coefficients
-        # Map config antenna type strings to AntennaType constants
-        # This provides more accurate HPBW values based on illumination pattern
-        antenna_type_mapping = {
-            # Simple names map to standard 10dB taper (most common)
-            "parabolic": AntennaType.PARABOLIC_10DB,
-            "dish": AntennaType.PARABOLIC_10DB,
-            # Specific illumination patterns
-            "parabolic_uniform": AntennaType.PARABOLIC_UNIFORM,
-            "parabolic_cosine": AntennaType.PARABOLIC_COSINE,
-            "parabolic_gaussian": AntennaType.PARABOLIC_GAUSSIAN,
-            "parabolic_10db": AntennaType.PARABOLIC_10DB,
-            "parabolic_10db_taper": AntennaType.PARABOLIC_10DB,
-            "parabolic_20db": AntennaType.PARABOLIC_20DB,
-            "parabolic_20db_taper": AntennaType.PARABOLIC_20DB,
-            # Spherical reflectors (FAST, Arecibo)
-            "spherical": AntennaType.SPHERICAL_GAUSSIAN,
-            "spherical_uniform": AntennaType.SPHERICAL_UNIFORM,
-            "spherical_gaussian": AntennaType.SPHERICAL_GAUSSIAN,
-            # Phased arrays (MWA, LOFAR, SKA-Low)
-            "phased_array": AntennaType.PHASED_ARRAY,
-            "array": AntennaType.PHASED_ARRAY,
-            # Dipoles (HERA, MWA elements)
-            "dipole": AntennaType.DIPOLE_SHORT,
-            "dipole_short": AntennaType.DIPOLE_SHORT,
-            "dipole_halfwave": AntennaType.DIPOLE_HALFWAVE,
-            "dipole_folded": AntennaType.DIPOLE_FOLDED,
-        }
-
-        # Get the antenna type string from config
-        config_antenna_type = antenna_config.get("all_antenna_type")
-        if config_antenna_type is None:
-            raise ValueError(
-                "antenna_layout.all_antenna_type is required but not set. "
-                "E.g. 'parabolic', 'dipole', 'phased_array'."
-            )
-        illumination_type = antenna_config.get("illumination_taper", None)
-
-        # If illumination_taper is specified, construct the full type name
-        if illumination_type and config_antenna_type in ["parabolic", "dish"]:
-            full_type = f"parabolic_{illumination_type}"
-            if full_type in antenna_type_mapping:
-                config_antenna_type = full_type
-
-        # Map to AntennaType constant
-        antenna_type_constant = antenna_type_mapping.get(
-            config_antenna_type.lower(),
-            AntennaType.PARABOLIC_10DB,  # Default fallback
-        )
-
-        logger.debug(
-            f"Using antenna type '{config_antenna_type}' -> {antenna_type_constant}"
-        )
+        # Calculate HPBW per antenna using k * lambda / D formula
+        beam_config = self.config.get("beams", {})
+        user_hpbw_deg = beam_config.get("hpbw_deg")
 
         self._hpbw_per_antenna = {}
         for _ant_id, ant_data in self._antennas.items():
             ant_num = ant_data["Number"]
             diameter = ant_data.get("diameter", antenna_diameter)
 
-            # Calculate HPBW for all frequencies using antenna-specific coefficients
-            hpbw_array = calculate_hpbw_for_antenna_type(
-                antenna_type_constant, self._frequencies_hz, diameter
-            )
+            if user_hpbw_deg is not None:
+                # User-provided HPBW takes precedence
+                hpbw_array = np.full(
+                    len(self._frequencies_hz), np.radians(user_hpbw_deg)
+                )
+            else:
+                hpbw_array = compute_hpbw(self._frequencies_hz, diameter)
             self._hpbw_per_antenna[ant_num] = hpbw_array
 
         # Get visibility configuration
@@ -898,19 +842,6 @@ class Simulator:
             f"Running visibility simulation ({self._sky_representation} mode)..."
         )
 
-        # Get beam pattern configuration
-        beam_config = self.config.get("beams", {})
-        beam_pattern_per_antenna = {}
-        for _ant_id, ant_data in self._antennas.items():
-            beam_pattern_per_antenna[ant_data["Number"]] = beam_config.get(
-                "all_beam_response", "gaussian"
-            )
-
-        beam_pattern_params = {
-            "cosine_taper_exponent": beam_config.get("cosine_taper_exponent", 1.0),
-            "exponential_taper_dB": beam_config.get("exponential_taper_dB", 10.0),
-        }
-
         # Calculate visibilities based on sky representation
         duration_seconds = self.config.get("obs_time", {}).get("duration_seconds", 1.0)
         time_step_seconds = self.config.get("obs_time", {}).get(
@@ -970,8 +901,6 @@ class Simulator:
                 time_step_seconds=time_step_seconds,
                 # Optional kwargs
                 beam_manager=self._beam_manager,
-                beam_pattern_per_antenna=beam_pattern_per_antenna,
-                beam_pattern_params=beam_pattern_params,
                 return_correlations=True,
             )
 

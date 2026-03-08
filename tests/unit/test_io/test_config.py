@@ -103,11 +103,12 @@ class TestBeamsConfig:
     """Test BeamsConfig validation."""
 
     def test_default_values(self):
-        """Test default beam configuration (optional fields default to None)."""
+        """Test default beam configuration."""
         config = BeamsConfig()
         assert config.beam_mode is None
-        assert config.all_beam_response is None
+        assert config.all_beam_response == "gaussian"
         assert config.beam_za_max_deg is None
+        assert config.hpbw_deg is None
 
     def test_valid_beam_modes(self):
         """Test valid beam modes."""
@@ -117,9 +118,13 @@ class TestBeamsConfig:
 
     def test_valid_beam_responses(self):
         """Test valid beam response patterns."""
-        for response in ["gaussian", "airy", "cosine", "exponential"]:
-            config = BeamsConfig(all_beam_response=response)
-            assert config.all_beam_response == response
+        config = BeamsConfig(all_beam_response="gaussian")
+        assert config.all_beam_response == "gaussian"
+
+    def test_default_beam_response(self):
+        """Test default beam response is gaussian."""
+        config = BeamsConfig()
+        assert config.all_beam_response == "gaussian"
 
     def test_zenith_angle_set(self):
         """Test zenith angle can be set."""
@@ -505,10 +510,9 @@ telescope:
         """Blank config should report all required-field errors."""
         config = RRIvisConfig()
         errors = config.validate()
-        assert len(errors) == 13
+        assert len(errors) == 12
         assert any("antenna_positions_file" in e for e in errors)
         assert any("antenna_file_format" in e for e in errors)
-        assert any("all_antenna_type" in e for e in errors)
         assert any("all_antenna_diameter" in e for e in errors)
         assert any("obs_time.start_time" in e for e in errors)
         assert any("duration_seconds" in e for e in errors)
@@ -528,7 +532,6 @@ telescope:
             antenna_layout=AntennaLayoutConfig(
                 antenna_positions_file=str(antenna_file),
                 antenna_file_format="rrivis",
-                all_antenna_type="parabolic",
                 all_antenna_diameter=14.0,
             ),
             obs_time=ObsTimeConfig(
@@ -555,7 +558,6 @@ telescope:
             antenna_layout=AntennaLayoutConfig(
                 antenna_positions_file="/no/such/file.txt",
                 antenna_file_format="rrivis",
-                all_antenna_type="parabolic",
                 all_antenna_diameter=14.0,
             ),
             obs_time=ObsTimeConfig(

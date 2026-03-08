@@ -9,9 +9,6 @@
 antenna_layout:
   antenna_positions_file: "antenna_layout_examples/example_casa_format.cfg"
   antenna_file_format: "casa"
-  use_different_antenna_types: false
-  all_antenna_type: "parabolic_uniform"  # Ideal uniform illumination
-  antenna_types: {}
   use_different_diameters: false
   all_antenna_diameter: 14.0
 

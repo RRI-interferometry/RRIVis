@@ -24,7 +24,6 @@ def get_minimal_config() -> dict[str, Any]:
         "antenna_layout": {
             "antenna_positions_file": "test_antennas.txt",
             "antenna_file_format": "rrivis",
-            "all_antenna_type": "parabolic",
             "all_antenna_diameter": 14.0,
         },
         "obs_frequency": {
@@ -69,7 +68,6 @@ def get_full_config() -> dict[str, Any]:
         "antenna_layout": {
             "antenna_positions_file": "HERA65.csv",
             "antenna_file_format": "rrivis",
-            "all_antenna_type": "parabolic",
             "all_antenna_diameter": 14.0,
         },
         "obs_frequency": {

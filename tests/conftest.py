@@ -401,7 +401,6 @@ def temp_config_file(tmp_path):
 antenna_layout:
   antenna_positions_file: "test_antennas.txt"
   antenna_file_format: "rrivis"
-  all_antenna_type: "parabolic"
   all_antenna_diameter: 14.0
 
 obs_frequency:

@@ -9,9 +9,6 @@
 antenna_layout:
   antenna_positions_file: "antenna_layout_examples/example_rrivis_format.txt"
   antenna_file_format: "rrivis"
-  use_different_antenna_types: false
-  all_antenna_type: "spherical_gaussian"  # Spherical with Gaussian taper
-  antenna_types: {}
   use_different_diameters: false
   all_antenna_diameter: 14.0  # Effective illuminated diameter
 

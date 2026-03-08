@@ -85,16 +85,6 @@ class AntennaLayoutConfig(BaseModel):
     antenna_file_format: (
         Literal["rrivis", "casa", "measurement_set", "uvfits", "mwa", "pyuvdata"] | None
     ) = Field(None, description="Antenna file format")
-    all_antenna_type: str | None = Field(
-        None,
-        description="Default antenna type for all antennas",
-    )
-    use_different_antenna_types: bool = Field(
-        False, description="Use per-antenna types"
-    )
-    antenna_types: dict[str, str] = Field(
-        default_factory=dict, description="Per-antenna type mapping"
-    )
     all_antenna_diameter: float | None = Field(
         None, description="Default antenna diameter (meters)"
     )
@@ -139,18 +129,12 @@ class BeamsConfig(BaseModel):
     )
     beam_za_buffer_deg: float | None = Field(None, description="ZA buffer (degrees)")
     beam_freq_buffer_hz: float | None = Field(None, description="Frequency buffer (Hz)")
-    use_different_beam_responses: bool = Field(
-        False, description="Per-antenna beam responses"
+    all_beam_response: Literal["gaussian"] | None = Field(
+        "gaussian", description="Beam response pattern (only gaussian supported)"
     )
-    all_beam_response: (
-        Literal["gaussian", "airy", "cosine", "exponential", "short_dipole"] | None
-    ) = Field(None, description="Default beam response pattern")
-    beam_response_per_antenna: dict[str, str] = Field(default_factory=dict)
-    cosine_taper_exponent: float | None = Field(
-        None, description="Cosine taper exponent"
-    )
-    exponential_taper_dB: float | None = Field(
-        None, description="Exponential taper (dB)"
+    hpbw_deg: float | None = Field(
+        None,
+        description="User-specified HPBW in degrees (overrides computed value)",
     )
     beam_peak_normalize: bool = Field(
         True,
@@ -919,11 +903,6 @@ class RRIvisConfig(BaseModel):
             errors.append(
                 "antenna_layout.antenna_file_format: required but not set. "
                 "E.g. 'rrivis', 'casa', 'uvfits'."
-            )
-        if not al.use_different_antenna_types and al.all_antenna_type is None:
-            errors.append(
-                "antenna_layout.all_antenna_type: required but not set. "
-                "E.g. 'parabolic', 'dipole', 'phased_array'."
             )
         if al.all_antenna_diameter is None:
             errors.append(
