@@ -30,11 +30,9 @@ feeds:
   feed_types_per_antenna: {}
 
 beams:
-  # NEW: Beam FITS configuration for per-antenna mode with config mapping
-  beam_mode: "per_antenna"  # Different beams for different antennas
-
-  # How to assign beams: use antenna_beam_map below
-  beam_assignment: "from_config"
+  # NEW: Beam FITS configuration for per-antenna FITS beams
+  beam_mode: "fits"  # FITS beam files
+  per_antenna: true  # Different beam file per antenna
 
   # Map antenna names to beam FITS files
   # IMPORTANT: Antenna names must match those in the antenna layout file

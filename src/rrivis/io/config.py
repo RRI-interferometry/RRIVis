@@ -114,15 +114,31 @@ class FeedsConfig(BaseModel):
 class BeamsConfig(BaseModel):
     """Beam configuration."""
 
-    beam_mode: Literal["analytic", "shared", "per_antenna"] | None = Field(
-        None, description="Beam mode"
+    beam_mode: Literal["analytic", "fits", "mixed"] | None = Field(
+        None,
+        description=(
+            "Beam model type. 'analytic': parametric beam (e.g. Gaussian); "
+            "'fits': beam loaded from FITS file(s); "
+            "'mixed': per-antenna mix of analytic and FITS beams."
+        ),
     )
-    beam_file: str | None = Field(None, description="Beam FITS file path")
-    beam_assignment: Literal["from_layout", "from_config"] | None = Field(
-        None, description="Beam assignment method"
+    per_antenna: bool = Field(
+        False,
+        description=(
+            "If True, each antenna uses its own beam (via antenna_beam_map). "
+            "If False, all antennas share a common beam."
+        ),
+    )
+    beam_file: str | None = Field(
+        None,
+        description="FITS beam file path shared by all antennas (fits mode, per_antenna=False).",
     )
     antenna_beam_map: dict[str, str] = Field(
-        default_factory=dict, description="Antenna to beam file mapping"
+        default_factory=dict,
+        description=(
+            "Mapping of antenna number (str) to beam specification. "
+            "For fits/mixed modes with per_antenna=True: value is a FITS file path or 'analytic'."
+        ),
     )
     beam_za_max_deg: float | None = Field(
         None, description="Max zenith angle (degrees)"
@@ -130,7 +146,7 @@ class BeamsConfig(BaseModel):
     beam_za_buffer_deg: float | None = Field(None, description="ZA buffer (degrees)")
     beam_freq_buffer_hz: float | None = Field(None, description="Frequency buffer (Hz)")
     all_beam_response: Literal["gaussian"] | None = Field(
-        "gaussian", description="Beam response pattern (only gaussian supported)"
+        None, description="Beam response pattern for analytic beams (e.g. 'gaussian')"
     )
     hpbw_deg: float | None = Field(
         None,
@@ -1019,11 +1035,37 @@ class RRIvisConfig(BaseModel):
 
         # --- Beam cross-field ---
         beams = self.beams
-        if beams.beam_mode == "analytic" and beams.all_beam_response is None:
+        if beams.beam_mode is None:
             errors.append(
-                "beams.all_beam_response: required when beam_mode='analytic'. "
-                "E.g. 'gaussian'."
+                "beams.beam_mode: required. "
+                "Set to 'analytic' (parametric beam), 'fits' (FITS beam file), "
+                "or 'mixed' (per-antenna mix of analytic and FITS)."
             )
+        elif beams.beam_mode == "analytic":
+            if beams.all_beam_response is None:
+                errors.append(
+                    "beams.all_beam_response: required when beam_mode='analytic'. "
+                    "Set to 'gaussian'."
+                )
+        elif beams.beam_mode == "fits":
+            if beams.per_antenna:
+                if not beams.antenna_beam_map:
+                    errors.append(
+                        "beams.antenna_beam_map: required when beam_mode='fits' and per_antenna=true. "
+                        "Provide a mapping of antenna number to FITS beam file path."
+                    )
+            else:
+                if not beams.beam_file:
+                    errors.append(
+                        "beams.beam_file: required when beam_mode='fits' and per_antenna=false. "
+                        "Provide the path to a FITS beam file."
+                    )
+        elif beams.beam_mode == "mixed":
+            if not beams.antenna_beam_map:
+                errors.append(
+                    "beams.antenna_beam_map: required when beam_mode='mixed'. "
+                    "Map each antenna number to a FITS file path or 'analytic'."
+                )
 
         # --- Visibility sky representation ---
         if self.visibility.sky_representation is None:
