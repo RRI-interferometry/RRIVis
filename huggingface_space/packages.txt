@@ -1,0 +1,4 @@
+libcfitsio-dev
+pkg-config
+gfortran
+libhdf5-dev
