@@ -1,0 +1,29 @@
+name: Sync to Hugging Face Space
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "huggingface_space/**"
+  workflow_dispatch:
+
+jobs:
+  sync-to-hf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Push huggingface_space/ to HF Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          cd huggingface_space/
+          git init
+          git config user.email "kartik4321mandar@gmail.com"
+          git config user.name "Kartik Mandar"
+          git add .
+          git commit -m "Sync from GitHub $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push --force https://kartikmandar:$HF_TOKEN@huggingface.co/spaces/kartikmandar/RRIVis main
