@@ -16,7 +16,6 @@ baseline_selection:
 beams:
   beam_mode: analytic
   per_antenna: false
-  all_beam_response: gaussian
   antenna_beam_map: {}
   beam_file: null
   beam_freq_buffer_hz: null

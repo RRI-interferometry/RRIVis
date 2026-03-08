@@ -39,7 +39,8 @@ rime O(N_src × N_bl × N_freq)
 ...     location=location,
 ...     obstime=obstime,
 ...     wavelengths=wavelengths,
-...     hpbw_per_antenna=hpbw,
+...     duration_seconds=1.0,
+...     time_step_seconds=1.0,
 ... )
 
 API Reference

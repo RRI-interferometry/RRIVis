@@ -1,19 +1,32 @@
 """Primary beam Jones term (E matrix) and beam pattern models.
 
-This sub-package consolidates:
-- Analytic beam patterns (``analytic``) — Gaussian beam model
-- FITS-based beam file handling (``fits``) — UVBeam interpolation, BeamManager
-- Jones matrix wrappers (``BeamJones``, ``AnalyticBeamJones``) for RIME integration
+This sub-package implements the E-Jones (primary beam) for the RIME,
+representing how antenna sensitivity varies across the sky.
 
-The E term represents the primary beam voltage pattern of the antenna.
-It is direction-dependent and generally a full 2x2 matrix due to
-cross-polarization coupling and beam squint.
+Modules
+-------
+analytic
+    Composed aperture beam model (``compute_aperture_beam``).
+aperture
+    Aperture shape far-field patterns (Airy, sinc, elliptical Airy).
+taper
+    Illumination taper functions (uniform, Gaussian, parabolic, cosine).
+feed
+    Feed pattern models and reflector geometry (prime-focus, Cassegrain).
+numerical_hpbw
+    Numerical HPBW finder for arbitrary beam patterns.
+fits
+    FITS beam file handling via pyuvdata UVBeam.
 
-Examples
---------
->>> from rrivis.core.jones.beam import BeamJones, AnalyticBeamJones
->>> from rrivis.core.jones.beam import gaussian_A_theta_EBeam, BeamManager
->>> from rrivis.core.jones.beam.fits import BeamFITSHandler
+Classes
+-------
+BeamJones
+    Base beam Jones term wrapping a callable beam model.
+AnalyticBeamJones
+    Aperture-based analytic beam with configurable shape, taper, feed,
+    and feed.
+FITSBeamJones
+    FITS-file-based beam via ``BeamManager``.
 """
 
 from collections.abc import Callable
@@ -22,18 +35,7 @@ from typing import Any
 import numpy as np
 
 from rrivis.core.jones.base import JonesTerm
-
-# Re-export analytic beam patterns
-from rrivis.core.jones.beam.analytic import (
-    BEAM_PATTERN_FUNCTIONS,
-    BeamPatternType,
-    calculate_beam_pattern,
-    calculate_gaussian_beam_area_EBeam,
-    compute_hpbw,
-    convert_angle_for_display,
-    gaussian_A_theta_EBeam,
-    get_beam_pattern_function,
-)
+from rrivis.core.jones.beam.analytic import compute_aperture_beam
 
 # Re-export FITS beam handling
 from rrivis.core.jones.beam.fits import (
@@ -44,22 +46,26 @@ from rrivis.core.jones.beam.fits import (
 
 
 class BeamJones(JonesTerm):
-    """Primary beam voltage pattern Jones matrix.
+    """Primary beam voltage pattern Jones matrix (E term in the RIME).
 
-    E = [[E_xx, E_xy],
-         [E_yx, E_yy]]
+    The beam Jones matrix describes how antenna sensitivity varies across
+    the sky::
 
-    The beam pattern describes how antenna sensitivity varies across the sky.
-    This is generally a full 2x2 matrix (non-diagonal) due to:
-    - Cross-polarization coupling
-    - Beam squint (different patterns for X and Y polarizations)
-    - Asymmetric feeds
+        E = [[E_xx, E_xy], [E_yx, E_yy]]
 
-    Args:
-        beam_model: Callable that returns 2x2 Jones matrix.
-                   Signature: (antenna_idx, zenith_angle, azimuth, frequency, **kw) -> (2, 2)
-        source_altaz: Source coordinates in alt-az, shape (N_sources, 2) [alt, az] in radians
-        frequencies: Observation frequencies in Hz, shape (N_freq,)
+    This is generally a full 2x2 matrix (non-diagonal) due to
+    cross-polarization coupling, beam squint, and asymmetric feeds.
+
+    Parameters
+    ----------
+    beam_model : callable
+        Function returning a 2x2 Jones matrix. Signature:
+        ``(antenna_idx, zenith_angle, azimuth, frequency, time_idx, **kw) -> (2, 2)``
+    source_altaz : np.ndarray
+        Source coordinates in alt-az, shape ``(N_sources, 2)`` as
+        ``[altitude, azimuth]`` in radians.
+    frequencies : np.ndarray
+        Observation frequencies in Hz, shape ``(N_freq,)``.
     """
 
     def __init__(
@@ -68,13 +74,6 @@ class BeamJones(JonesTerm):
         source_altaz: np.ndarray,
         frequencies: np.ndarray,
     ):
-        """Initialize beam Jones term.
-
-        Args:
-            beam_model: Function computing beam Jones matrix
-            source_altaz: Array of source alt-az coordinates (N_sources, 2) in radians
-            frequencies: Frequencies in Hz (N_freq,)
-        """
         self.beam_model = beam_model
         self.source_altaz = np.asarray(source_altaz)
         self.frequencies = np.asarray(frequencies)
@@ -107,18 +106,27 @@ class BeamJones(JonesTerm):
         backend: Any,
         **kwargs,
     ) -> Any:
-        """Compute primary beam Jones matrix.
+        """Compute primary beam Jones matrix for a single source.
 
-        Args:
-            antenna_idx: Antenna index
-            source_idx: Source index
-            freq_idx: Frequency index
-            time_idx: Time index
-            backend: Array backend
-            **kwargs: Additional parameters passed to beam_model
+        Parameters
+        ----------
+        antenna_idx : int
+            Antenna index.
+        source_idx : int or None
+            Source index into ``source_altaz``.
+        freq_idx : int
+            Frequency index into ``frequencies``.
+        time_idx : int
+            Time step index.
+        backend : ArrayBackend
+            Array backend for type conversion.
+        **kwargs
+            Additional parameters forwarded to ``beam_model``.
 
-        Returns:
-            2x2 complex Jones matrix
+        Returns
+        -------
+        np.ndarray
+            Complex Jones matrix, shape ``(2, 2)``.
         """
         # Get source coordinates
         alt, az = self.source_altaz[source_idx]
@@ -155,95 +163,109 @@ class BeamJones(JonesTerm):
 
 
 class AnalyticBeamJones(BeamJones):
-    """Beam Jones term using Gaussian analytic beam pattern.
+    """Beam Jones term using aperture-based analytic beam patterns.
 
-    Delegates to ``gaussian_A_theta_EBeam`` for beam computation.
-    Assumes diagonal beam (no cross-polarization).
+    Combines aperture shape, illumination taper, feed model, and
+    cross-polarization model into a full 2x2 Jones matrix via
+    :func:`~rrivis.core.jones.beam.analytic.compute_aperture_beam`.
 
-    Args:
-        source_altaz: Source alt-az coordinates (N_sources, 2) in radians
-        frequencies: Frequencies in Hz (N_freq,)
-        hpbw_radians: Half-power beam width in radians
-        hpbw_per_antenna: Per-antenna HPBW map {ant_number: hpbw_rad}.
-            Falls back to hpbw_radians when None or missing.
+    Parameters
+    ----------
+    source_altaz : np.ndarray
+        Source alt-az coordinates, shape ``(N_sources, 2)`` in radians.
+    frequencies : np.ndarray
+        Frequencies in Hz, shape ``(N_freq,)``.
+    diameter : float
+        Default antenna diameter in metres.
+    aperture_shape : str
+        Aperture geometry: ``'circular'``, ``'rectangular'``, ``'elliptical'``.
+    taper : str
+        Illumination taper: ``'uniform'``, ``'gaussian'``, ``'parabolic'``,
+        ``'parabolic_squared'``, ``'cosine'``.
+    edge_taper_dB : float
+        Edge taper in dB (default 10.0).
+    feed_model : str
+        Feed pattern model: ``'none'``, ``'corrugated_horn'``,
+        ``'open_waveguide'``, ``'dipole_ground_plane'``.
+    feed_computation : str
+        ``'analytical'`` (derive edge taper) or ``'numerical'`` (Hankel transform).
+    feed_params : dict or None
+        Feed-specific parameters (e.g. ``q``, ``focal_ratio``).
+    reflector_type : str
+        ``'prime_focus'`` or ``'cassegrain'``.
+    magnification : float
+        Cassegrain magnification ``M = (e+1)/(e-1)``.
+    diameter_per_antenna : dict or None
+        Per-antenna diameter overrides ``{antenna_number: diameter_m}``.
+    aperture_params : dict or None
+        Aperture-specific parameters (e.g. ``length_x``/``length_y`` for
+        rectangular, ``diameter_x``/``diameter_y`` for elliptical).
     """
 
     def __init__(
         self,
         source_altaz: np.ndarray,
         frequencies: np.ndarray,
-        hpbw_radians: float,
-        beam_type: str = "gaussian",
-        hpbw_per_antenna: dict[Any, float] | None = None,
+        diameter: float,
+        aperture_shape: str = "circular",
+        taper: str = "gaussian",
+        edge_taper_dB: float = 10.0,
+        feed_model: str = "none",
+        feed_computation: str = "analytical",
+        feed_params: dict | None = None,
+        reflector_type: str = "prime_focus",
+        magnification: float = 1.0,
+        diameter_per_antenna: dict[Any, float] | None = None,
+        aperture_params: dict | None = None,
     ):
-        """Initialize analytic beam.
+        self.diameter = diameter
+        self.aperture_shape = aperture_shape
+        self.taper = taper
+        self.edge_taper_dB = edge_taper_dB
+        self.feed_model = feed_model
+        self.feed_computation = feed_computation
+        self.feed_params = feed_params or {}
+        self.reflector_type = reflector_type
+        self.magnification = magnification
+        self.diameter_per_antenna = diameter_per_antenna
+        self.aperture_params = aperture_params or {}
 
-        Args:
-            source_altaz: Source alt-az coordinates (N_sources, 2) in radians
-            frequencies: Frequencies in Hz (N_freq,)
-            hpbw_radians: Half-power beam width in radians (default for all antennas)
-            beam_type: Beam type (only 'gaussian' is supported)
-            hpbw_per_antenna: Per-antenna HPBW map {ant_number: hpbw_rad}.
-                Falls back to hpbw_radians when None or missing.
-        """
-        self.hpbw_radians = hpbw_radians
-        self.beam_type = beam_type
-        self.hpbw_per_antenna = hpbw_per_antenna
-
-        # Create beam model function
-        def beam_model(antenna_idx, zenith_angle, azimuth, frequency, time_idx, **kw):
+        def beam_model(
+            antenna_idx: int,
+            zenith_angle: float,
+            azimuth: float,
+            frequency: float,
+            time_idx: int,
+            **kw: Any,
+        ) -> np.ndarray:
             ant_num = kw.get("antenna_number", antenna_idx)
-            hpbw = self._get_hpbw_for_antenna(ant_num)
-            return self._compute_analytic_beam(zenith_angle, hpbw=hpbw)
+            d = self._get_diameter_for_antenna(ant_num)
+            return compute_aperture_beam(
+                theta=zenith_angle,
+                phi=azimuth,
+                frequency=frequency,
+                diameter=d,
+                aperture_shape=self.aperture_shape,
+                taper=self.taper,
+                edge_taper_dB=self.edge_taper_dB,
+                feed_model=self.feed_model,
+                feed_computation=self.feed_computation,
+                feed_params=self.feed_params,
+                reflector_type=self.reflector_type,
+                magnification=self.magnification,
+                aperture_params=self.aperture_params,
+            )
 
         super().__init__(beam_model, source_altaz, frequencies)
 
-    def _get_hpbw_for_antenna(self, ant_num: Any) -> float:
-        """Get HPBW for a specific antenna, falling back to default."""
-        if self.hpbw_per_antenna is not None and ant_num in self.hpbw_per_antenna:
-            return self.hpbw_per_antenna[ant_num]
-        return self.hpbw_radians
-
-    def _compute_analytic_beam(
-        self,
-        zenith_angle,
-        hpbw: float | None = None,
-    ) -> np.ndarray:
-        """Compute Gaussian beam pattern.
-
-        Args:
-            zenith_angle: Angle from zenith in radians (scalar or array)
-            hpbw: Override HPBW in radians (defaults to self.hpbw_radians)
-
-        Returns:
-            2x2 Jones matrix (2, 2) for scalar,
-            or (n_sources, 2, 2) for array input.
-        """
-        hpbw_rad = hpbw if hpbw is not None else self.hpbw_radians
-
-        # Detect scalar input before pattern functions may wrap it
-        input_is_scalar = np.ndim(zenith_angle) == 0
-
-        amplitude = gaussian_A_theta_EBeam(zenith_angle, hpbw_rad)
-        amplitude = np.asarray(amplitude).ravel()
-
-        if input_is_scalar:
-            # Scalar: return (2, 2)
-            a = float(amplitude[0]) if amplitude.size > 0 else 1.0
-            return np.array(
-                [
-                    [a, 0],
-                    [0, a],
-                ],
-                dtype=np.complex128,
-            )
-        else:
-            # Array: return (n_sources, 2, 2)
-            n = amplitude.shape[0]
-            jones = np.zeros((n, 2, 2), dtype=np.complex128)
-            jones[:, 0, 0] = amplitude
-            jones[:, 1, 1] = amplitude
-            return jones
+    def _get_diameter_for_antenna(self, ant_num: Any) -> float:
+        """Get diameter for a specific antenna, falling back to default."""
+        if (
+            self.diameter_per_antenna is not None
+            and ant_num in self.diameter_per_antenna
+        ):
+            return self.diameter_per_antenna[ant_num]
+        return self.diameter
 
     def compute_jones_all_sources(
         self,
@@ -252,22 +274,40 @@ class AnalyticBeamJones(BeamJones):
         freq_idx: int,
         time_idx: int,
         backend: Any,
-        **kwargs,
+        **kwargs: Any,
     ) -> Any:
-        """Compute Gaussian beam Jones for all sources at once.
+        """Vectorized beam Jones computation for all sources.
 
-        Returns (n_sources, 2, 2) diagonal matrices.
+        Returns
+        -------
+        np.ndarray
+            Jones matrices, shape ``(n_sources, 2, 2)``.
         """
         alts = self.source_altaz[:n_sources, 0]
+        azs = self.source_altaz[:n_sources, 1]
         zenith_angles = np.pi / 2 - alts
+        frequency = self.frequencies[freq_idx]
 
         ant_num = kwargs.get("antenna_number", antenna_idx)
-        hpbw = self._get_hpbw_for_antenna(ant_num)
+        d = self._get_diameter_for_antenna(ant_num)
 
-        return backend.asarray(
-            self._compute_analytic_beam(zenith_angles, hpbw=hpbw),
-            dtype=np.complex128,
+        jones = compute_aperture_beam(
+            theta=zenith_angles,
+            phi=azs,
+            frequency=frequency,
+            diameter=d,
+            aperture_shape=self.aperture_shape,
+            taper=self.taper,
+            edge_taper_dB=self.edge_taper_dB,
+            feed_model=self.feed_model,
+            feed_computation=self.feed_computation,
+            feed_params=self.feed_params,
+            reflector_type=self.reflector_type,
+            magnification=self.magnification,
+            aperture_params=self.aperture_params,
         )
+
+        return backend.asarray(jones, dtype=np.complex128)
 
     def is_diagonal(self) -> bool:
         return True
@@ -276,8 +316,11 @@ class AnalyticBeamJones(BeamJones):
         config = super().get_config()
         config.update(
             {
-                "hpbw_radians": self.hpbw_radians,
-                "beam_type": self.beam_type,
+                "diameter": self.diameter,
+                "aperture_shape": self.aperture_shape,
+                "taper": self.taper,
+                "edge_taper_dB": self.edge_taper_dB,
+                "feed_model": self.feed_model,
             }
         )
         return config
@@ -286,14 +329,19 @@ class AnalyticBeamJones(BeamJones):
 class FITSBeamJones(BeamJones):
     """Beam Jones term using FITS beam files via BeamManager.
 
-    Wraps a BeamManager instance to provide FITS-based beam responses
-    within the JonesChain framework. Falls back to identity if the
-    BeamManager returns None.
+    Wraps a :class:`BeamManager` instance to provide FITS-based beam
+    responses within the JonesChain framework. Falls back to identity
+    if the BeamManager returns ``None``.
 
-    Args:
-        beam_manager: BeamManager instance for FITS beam interpolation
-        source_altaz: Source coordinates in alt-az, shape (N_sources, 2) [alt, az] in radians
-        frequencies: Observation frequencies in Hz, shape (N_freq,)
+    Parameters
+    ----------
+    beam_manager : BeamManager
+        BeamManager instance for FITS beam interpolation.
+    source_altaz : np.ndarray
+        Source coordinates in alt-az, shape ``(N_sources, 2)``
+        as ``[altitude, azimuth]`` in radians.
+    frequencies : np.ndarray
+        Observation frequencies in Hz, shape ``(N_freq,)``.
     """
 
     def __init__(
@@ -339,16 +387,25 @@ class FITSBeamJones(BeamJones):
     ) -> Any:
         """Vectorized FITS beam lookup for all sources.
 
-        Args:
-            antenna_idx: Antenna index
-            n_sources: Number of sources
-            freq_idx: Frequency index
-            time_idx: Time index
-            backend: Array backend
-            **kwargs: Must include 'antenna_number' for BeamManager lookup
+        Parameters
+        ----------
+        antenna_idx : int
+            Antenna index.
+        n_sources : int
+            Number of sources to evaluate.
+        freq_idx : int
+            Frequency index.
+        time_idx : int
+            Time step index.
+        backend : ArrayBackend
+            Array backend for type conversion.
+        **kwargs
+            Must include ``antenna_number`` for BeamManager lookup.
 
-        Returns:
-            Jones matrices, shape (n_sources, 2, 2)
+        Returns
+        -------
+        np.ndarray
+            Jones matrices, shape ``(n_sources, 2, 2)``.
         """
         alts = self.source_altaz[:n_sources, 0]
         azs = self.source_altaz[:n_sources, 1]
@@ -388,15 +445,8 @@ __all__ = [
     "BeamJones",
     "AnalyticBeamJones",
     "FITSBeamJones",
-    # Analytic beam patterns
-    "BeamPatternType",
-    "BEAM_PATTERN_FUNCTIONS",
-    "gaussian_A_theta_EBeam",
-    "calculate_gaussian_beam_area_EBeam",
-    "compute_hpbw",
-    "get_beam_pattern_function",
-    "calculate_beam_pattern",
-    "convert_angle_for_display",
+    # Analytic beam
+    "compute_aperture_beam",
     # FITS beam handling
     "astropy_az_to_uvbeam_az",
     "BeamFITSHandler",

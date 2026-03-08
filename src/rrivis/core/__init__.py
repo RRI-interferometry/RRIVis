@@ -9,13 +9,7 @@ from pygdsm import GSMObserver08
 
 from rrivis.core.antenna import read_antenna_positions
 from rrivis.core.baseline import generate_baselines
-from rrivis.core.jones.beam import (
-    BeamManager,
-    BeamPatternType,
-    calculate_gaussian_beam_area_EBeam,
-    compute_hpbw,
-    gaussian_A_theta_EBeam,
-)
+from rrivis.core.jones.beam import BeamManager
 from rrivis.core.observation import get_location_and_time
 from rrivis.core.polarization import (
     apply_jones_matrices,
@@ -52,11 +46,6 @@ __all__ = [
     # Baseline
     "generate_baselines",
     # Beams
-    "gaussian_A_theta_EBeam",
-    "calculate_gaussian_beam_area_EBeam",
-    "compute_hpbw",
-    "BeamPatternType",
-    # Beam file
     "BeamManager",
     # Observation
     "get_location_and_time",

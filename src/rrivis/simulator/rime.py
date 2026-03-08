@@ -94,7 +94,8 @@ class RIMESimulator(VisibilitySimulator):
     ...     location=location,
     ...     obstime=obstime,
     ...     wavelengths=wavelengths,
-    ...     hpbw_per_antenna=hpbw,
+    ...     duration_seconds=1.0,
+    ...     time_step_seconds=1.0,
     ... )
     >>>
     >>> # Access correlation products
@@ -186,12 +187,11 @@ class RIMESimulator(VisibilitySimulator):
                 - location: EarthLocation for observer
                 - obstime: Time for observation
                 - wavelengths: Quantity array of wavelengths
-                - hpbw_per_antenna: dict of HPBW per antenna
 
             Optional:
                 - beam_manager: BeamManager for FITS beams
                 - return_correlations: bool (default True)
-                - jones_config: dict of Jones term configs
+                - jones_config: dict of Jones term configs (includes beam config)
 
         Returns
         -------
@@ -218,7 +218,6 @@ class RIMESimulator(VisibilitySimulator):
         location = kwargs.get("location")
         obstime = kwargs.get("obstime")
         wavelengths = kwargs.get("wavelengths")
-        hpbw_per_antenna = kwargs.get("hpbw_per_antenna")
 
         # Validate required parameters
         missing = []
@@ -228,8 +227,6 @@ class RIMESimulator(VisibilitySimulator):
             missing.append("obstime")
         if wavelengths is None:
             missing.append("wavelengths")
-        if hpbw_per_antenna is None:
-            missing.append("hpbw_per_antenna")
 
         if missing:
             raise ValueError(
@@ -258,7 +255,6 @@ class RIMESimulator(VisibilitySimulator):
             obstime=obstime,
             wavelengths=wavelengths,
             freqs=frequencies,
-            hpbw_per_antenna=hpbw_per_antenna,
             duration_seconds=duration_seconds,
             time_step_seconds=time_step_seconds,
             beam_manager=beam_manager,

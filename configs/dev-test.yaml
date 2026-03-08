@@ -7,9 +7,6 @@ antenna_layout:
   antenna_positions_file: "antenna_layout_examples/example_rrivis_format.txt"
   antenna_file_format: "rrivis"
 
-beams:
-  all_beam_response: "gaussian"
-
 location:
   lat: -30.72
   lon: 21.43

@@ -170,7 +170,7 @@ class Simulator:
         self._obstime = None
         self._frequencies_hz: np.ndarray | None = None
         self._wavelengths = None
-        self._hpbw_per_antenna: dict | None = None
+        self._beam_config: dict = {}
         self._beam_manager = None
         self._is_setup = False
 
@@ -341,7 +341,6 @@ class Simulator:
         from rrivis.backends import get_backend
         from rrivis.core.antenna import read_antenna_positions
         from rrivis.core.baseline import generate_baselines
-        from rrivis.core.jones.beam import compute_hpbw
         from rrivis.core.observation import get_location_and_time
         from rrivis.simulator import get_simulator
 
@@ -432,23 +431,19 @@ class Simulator:
             f"{self._frequencies_hz[0] / 1e6:.1f} - {self._frequencies_hz[-1] / 1e6:.1f} MHz"
         )
 
-        # Calculate HPBW per antenna using k * lambda / D formula
+        # Extract beam configuration for aperture-based model
         beam_config = self.config.get("beams", {})
-        user_hpbw_deg = beam_config.get("hpbw_deg")
-
-        self._hpbw_per_antenna = {}
-        for _ant_id, ant_data in self._antennas.items():
-            ant_num = ant_data["Number"]
-            diameter = ant_data.get("diameter", antenna_diameter)
-
-            if user_hpbw_deg is not None:
-                # User-provided HPBW takes precedence
-                hpbw_array = np.full(
-                    len(self._frequencies_hz), np.radians(user_hpbw_deg)
-                )
-            else:
-                hpbw_array = compute_hpbw(self._frequencies_hz, diameter)
-            self._hpbw_per_antenna[ant_num] = hpbw_array
+        self._beam_config = {
+            "aperture_shape": beam_config.get("aperture_shape", "circular"),
+            "taper": beam_config.get("taper", "gaussian"),
+            "edge_taper_dB": beam_config.get("edge_taper_dB", 10.0),
+            "feed_model": beam_config.get("feed_model", "none"),
+            "feed_computation": beam_config.get("feed_computation", "analytical"),
+            "feed_params": beam_config.get("feed_params", {}),
+            "reflector_type": beam_config.get("reflector_type", "prime_focus"),
+            "magnification": beam_config.get("magnification", 1.0),
+            "aperture_params": beam_config.get("aperture_params", {}),
+        }
 
         # Get visibility configuration
         visibility_config = self.config.get("visibility", {})
@@ -862,10 +857,10 @@ class Simulator:
                 freqs=self._frequencies_hz,
                 duration_seconds=duration_seconds,
                 time_step_seconds=time_step_seconds,
-                hpbw_per_antenna=self._hpbw_per_antenna,
                 beam_manager=self._beam_manager,
                 backend=self._backend,
                 output_units="Jy",
+                beam_config=self._beam_config,
             )
 
             # Convert healpix result format to match RIME format for compatibility
@@ -885,6 +880,8 @@ class Simulator:
 
         else:
             # Use point source RIME calculation (original behavior)
+            # Build jones_config with beam settings
+            jones_config = {"beam": self._beam_config}
             visibilities = self._simulator.calculate_visibilities(
                 antennas=self._antennas,
                 baselines=self._baselines,
@@ -895,13 +892,13 @@ class Simulator:
                 location=self._location,
                 obstime=self._obstime,
                 wavelengths=self._wavelengths,
-                hpbw_per_antenna=self._hpbw_per_antenna,
                 # Time-stepping parameters
                 duration_seconds=duration_seconds,
                 time_step_seconds=time_step_seconds,
                 # Optional kwargs
                 beam_manager=self._beam_manager,
                 return_correlations=True,
+                jones_config=jones_config,
             )
 
         t_total = time.perf_counter() - t_start

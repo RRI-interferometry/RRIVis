@@ -37,7 +37,6 @@ beams:
   use_different_beams: false
   all_beam_type: "efield"
   beams_per_antenna: {}
-  all_beam_response: "gaussian"
 
 baseline_selection:
   use_autocorrelations: true

@@ -14,8 +14,6 @@ Usage:
 import argparse
 from pathlib import Path
 
-import numpy as np
-
 
 def main():
     """Run a simple visibility simulation."""
@@ -67,7 +65,9 @@ def main():
 
         # Get the antenna layout example path
         examples_dir = Path(__file__).parent.parent.parent
-        antenna_file = examples_dir / "antenna_layout_examples" / "example_rrivis_format.txt"
+        antenna_file = (
+            examples_dir / "antenna_layout_examples" / "example_rrivis_format.txt"
+        )
 
         if not antenna_file.exists():
             # Fallback: create a simple inline antenna layout
@@ -81,7 +81,7 @@ def main():
             sky_model="test",  # Use test sources
             location={
                 "lat": -30.72,  # HERA latitude
-                "lon": 21.43,   # HERA longitude
+                "lon": 21.43,  # HERA longitude
                 "height": 1073.0,
             },
             start_time="2025-01-15T00:00:00",
@@ -102,7 +102,9 @@ def main():
     print(f"  Antennas: {len(sim._antennas) if sim._antennas else 'N/A'}")
     print(f"  Baselines: {len(sim._baselines) if sim._baselines else 'N/A'}")
     print(f"  Sources: {len(sim._sources) if sim._sources else 'N/A'}")
-    print(f"  Frequencies: {len(sim._frequencies_hz) if sim._frequencies_hz is not None else 'N/A'}")
+    print(
+        f"  Frequencies: {len(sim._frequencies_hz) if sim._frequencies_hz is not None else 'N/A'}"
+    )
 
     # Estimate memory usage
     memory_estimate = sim.get_memory_estimate()
@@ -130,7 +132,9 @@ def main():
 
         # Show available correlation products
         if hasattr(results, "correlation_products"):
-            print(f"  Correlation products: {results.get('correlation_products', ['XX', 'XY', 'YX', 'YY'])}")
+            print(
+                f"  Correlation products: {results.get('correlation_products', ['XX', 'XY', 'YX', 'YY'])}"
+            )
 
     # Save results
     output_dir = Path(args.output_dir)

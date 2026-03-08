@@ -50,7 +50,6 @@ def calculate_visibility(
     obstime: Any,
     wavelengths: Any,
     freqs: Any,
-    hpbw_per_antenna: dict,
     duration_seconds: float,
     time_step_seconds: float,
     beam_manager: Any | None = None,
@@ -84,9 +83,6 @@ def calculate_visibility(
         Wavelength array corresponding to frequencies (with units).
     freqs : ndarray
         Frequency array in Hz.
-    hpbw_per_antenna : dict
-        Maps antenna number -> array of HPBW values in radians per frequency.
-        Used for analytic beam fallback.
     beam_manager : BeamManager, optional
         BeamManager instance for getting Jones matrices from beam FITS files.
         If None or in analytic mode, falls back to analytic beams.
@@ -256,7 +252,6 @@ def calculate_visibility(
                 jones_config,
                 antennas,
                 ant_keys,
-                hpbw_per_antenna,
                 alt_rad_t,
                 az_rad_t,
                 freq,
@@ -326,7 +321,6 @@ def _build_jones_chain(
     jones_config,
     antennas,
     ant_keys,
-    hpbw_per_antenna,
     alt_rad,
     az_rad,
     freq,
@@ -351,8 +345,6 @@ def _build_jones_chain(
         Antenna dictionary.
     ant_keys : list
         Ordered list of antenna keys.
-    hpbw_per_antenna : dict
-        HPBW data for beam calculation.
     alt_rad, az_rad : ndarray
         Source altitudes/azimuths in radians.
     freq : float
@@ -412,22 +404,31 @@ def _build_jones_chain(
             frequencies=np.array([freq]),
         )
     else:
-        # Build per-antenna HPBW map (extract freq_idx from each antenna's array)
-        hpbw_map = {
-            ant: hpbw_per_antenna.get(ant, np.array([0.1]))[freq_idx]
-            for ant in ant_keys
-        }
+        beam_cfg = jones_config.get("beam", {})
 
-        # Use first antenna as default (backward compatible)
+        # Get default antenna diameter
         first_ant = ant_keys[0]
-        default_hpbw = hpbw_map[first_ant]
+        antenna_diameter = antennas[first_ant].get("diameter", 14.0)
+
+        # Build per-antenna diameter map
+        diameter_map = {
+            ant: antennas[ant].get("diameter", antenna_diameter) for ant in ant_keys
+        }
 
         e_jones = AnalyticBeamJones(
             source_altaz=np.column_stack([alt_rad, az_rad]),
             frequencies=np.array([freq]),
-            hpbw_radians=default_hpbw,
-            beam_type="gaussian",
-            hpbw_per_antenna=hpbw_map,
+            diameter=antenna_diameter,
+            aperture_shape=beam_cfg.get("aperture_shape", "circular"),
+            taper=beam_cfg.get("taper", "gaussian"),
+            edge_taper_dB=beam_cfg.get("edge_taper_dB", 10.0),
+            feed_model=beam_cfg.get("feed_model", "none"),
+            feed_computation=beam_cfg.get("feed_computation", "analytical"),
+            feed_params=beam_cfg.get("feed_params"),
+            reflector_type=beam_cfg.get("reflector_type", "prime_focus"),
+            magnification=beam_cfg.get("magnification", 1.0),
+            diameter_per_antenna=diameter_map,
+            aperture_params=beam_cfg.get("aperture_params"),
         )
     chain.add_term(e_jones)
 
@@ -526,23 +527,3 @@ def calculate_modulus_phase(visibilities):
             phases[key] = np.angle(val)
 
     return moduli, phases
-
-
-def convert_phase_for_display(phase_radians, angle_unit):
-    """
-    Convert phase from radians to the user's preferred unit for display.
-
-    Parameters:
-    -----------
-    phase_radians : ndarray or float
-        Phase value(s) in radians
-    angle_unit : str
-        Target unit ('degrees' or 'radians')
-
-    Returns:
-    --------
-    Phase value(s) in the specified unit
-    """
-    from rrivis.core.jones.beam.analytic import convert_angle_for_display
-
-    return convert_angle_for_display(phase_radians, angle_unit)

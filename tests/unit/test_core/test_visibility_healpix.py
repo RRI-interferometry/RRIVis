@@ -16,38 +16,36 @@ class TestBeamPowerPattern:
     def test_unity_at_zenith_gaussian(self):
         """Gaussian beam power should be 1.0 at zenith."""
         za = np.array([0.0])
-        power = _compute_beam_power_pattern(
-            za, hpbw_rad=np.deg2rad(10.0), beam_type="gaussian"
-        )
+        power = _compute_beam_power_pattern(za, diameter=14.0, frequency=150e6)
         np.testing.assert_almost_equal(power[0], 1.0)
 
     def test_decreases_off_axis(self):
         """Beam power should decrease away from zenith."""
         za = np.array([0.0, np.deg2rad(5.0), np.deg2rad(15.0), np.deg2rad(30.0)])
-        power = _compute_beam_power_pattern(za, hpbw_rad=np.deg2rad(10.0))
+        power = _compute_beam_power_pattern(za, diameter=14.0, frequency=150e6)
         # Should be monotonically decreasing for Gaussian
         assert np.all(np.diff(power) < 0)
 
-    def test_different_hpbw_different_power(self):
-        """Different HPBW should produce different power patterns."""
+    def test_different_diameter_different_power(self):
+        """Different diameters should produce different power patterns."""
         za = np.array([np.deg2rad(10.0)])
-        power_narrow = _compute_beam_power_pattern(za, hpbw_rad=np.deg2rad(5.0))
-        power_wide = _compute_beam_power_pattern(za, hpbw_rad=np.deg2rad(30.0))
-        # Wider beam should have more power at 10 degrees off-axis
-        assert power_wide[0] > power_narrow[0]
+        # Larger diameter = narrower beam = less power at 10 deg
+        power_large = _compute_beam_power_pattern(za, diameter=25.0, frequency=150e6)
+        power_small = _compute_beam_power_pattern(za, diameter=5.0, frequency=150e6)
+        # Smaller dish = wider beam = more power at 10 degrees off-axis
+        assert power_small[0] > power_large[0]
 
-    def test_power_is_voltage_squared(self):
-        """Power pattern should be voltage pattern squared."""
-        from rrivis.core.jones.beam.analytic import gaussian_A_theta_EBeam
-
-        za = np.linspace(0, np.deg2rad(30), 10)
-        hpbw = np.deg2rad(10.0)
-        voltage = gaussian_A_theta_EBeam(za, hpbw)
-        expected_power = np.asarray(voltage) ** 2
-        actual_power = _compute_beam_power_pattern(
-            za, hpbw_rad=hpbw, beam_type="gaussian"
+    def test_power_at_zenith(self):
+        """Power at zenith should be 1.0 for any configuration."""
+        za = np.array([0.0])
+        power = _compute_beam_power_pattern(
+            za,
+            diameter=14.0,
+            frequency=150e6,
+            taper="parabolic",
+            edge_taper_dB=10.0,
         )
-        np.testing.assert_allclose(actual_power, expected_power)
+        np.testing.assert_almost_equal(power[0], 1.0)
 
     def test_beam_manager_fallback(self):
         """When beam_manager returns None, falls back to analytic."""
@@ -59,11 +57,11 @@ class TestBeamPowerPattern:
         za = np.array([0.0, np.deg2rad(5.0)])
         power = _compute_beam_power_pattern(
             za,
-            hpbw_rad=np.deg2rad(10.0),
+            diameter=14.0,
+            frequency=150e6,
             beam_manager=mock_manager,
             antenna_number=0,
             azimuth=np.zeros(2),
-            frequency=150e6,
         )
         # Should still return valid power (fallen back to analytic)
         np.testing.assert_almost_equal(power[0], 1.0)
