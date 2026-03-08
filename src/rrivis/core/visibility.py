@@ -54,8 +54,6 @@ def calculate_visibility(
     duration_seconds: float,
     time_step_seconds: float,
     beam_manager: Any | None = None,
-    beam_pattern_per_antenna: dict | None = None,
-    beam_pattern_params: dict | None = None,
     return_correlations: bool = True,
     backend: ArrayBackend | None = None,
     jones_config: dict[str, Any] | None = None,
@@ -92,12 +90,6 @@ def calculate_visibility(
     beam_manager : BeamManager, optional
         BeamManager instance for getting Jones matrices from beam FITS files.
         If None or in analytic mode, falls back to analytic beams.
-    beam_pattern_per_antenna : dict, optional
-        Maps antenna number -> beam pattern type string for analytic beams.
-        Supported: 'gaussian', 'airy', 'cosine', 'exponential'.
-        Defaults to 'gaussian'.
-    beam_pattern_params : dict, optional
-        Additional parameters for analytic beam patterns.
     return_correlations : bool, optional
         If True, extract and return correlation products (XX, XY, YX, YY, I).
         If False, return raw 2×2 visibility matrices.
@@ -146,14 +138,6 @@ def calculate_visibility(
     ...     },
     ... )
     """
-    # Set defaults for beam pattern configuration
-    if beam_pattern_per_antenna is None:
-        beam_pattern_per_antenna = {}
-    if beam_pattern_params is None:
-        beam_pattern_params = {
-            "cosine_taper_exponent": 1.0,
-            "exponential_taper_dB": 10.0,
-        }
     if jones_config is None:
         jones_config = {}
 
@@ -273,7 +257,6 @@ def calculate_visibility(
                 antennas,
                 ant_keys,
                 hpbw_per_antenna,
-                beam_pattern_per_antenna,
                 alt_rad_t,
                 az_rad_t,
                 freq,
@@ -282,8 +265,6 @@ def calculate_visibility(
                 location,
                 time_idx,
                 beam_manager=beam_manager,
-                beam_pattern_params=beam_pattern_params,
-                wavelength_value=wavelength.value,
             )
 
             # Per-antenna Jones cache: compute chain once per antenna
@@ -346,7 +327,6 @@ def _build_jones_chain(
     antennas,
     ant_keys,
     hpbw_per_antenna,
-    beam_pattern_per_antenna,
     alt_rad,
     az_rad,
     freq,
@@ -355,8 +335,6 @@ def _build_jones_chain(
     location,
     time_idx,
     beam_manager=None,
-    beam_pattern_params=None,
-    wavelength_value=None,
 ):
     """Build a JonesChain with configured terms (K excluded).
 
@@ -375,8 +353,6 @@ def _build_jones_chain(
         Ordered list of antenna keys.
     hpbw_per_antenna : dict
         HPBW data for beam calculation.
-    beam_pattern_per_antenna : dict
-        Beam pattern types per antenna.
     alt_rad, az_rad : ndarray
         Source altitudes/azimuths in radians.
     freq : float
@@ -392,10 +368,6 @@ def _build_jones_chain(
     beam_manager : BeamManager, optional
         BeamManager for FITS beam lookup. If provided and not in analytic mode,
         uses FITSBeamJones instead of AnalyticBeamJones.
-    beam_pattern_params : dict, optional
-        Beam pattern parameters (taper exponents, etc.).
-    wavelength_value : float, optional
-        Wavelength in meters (needed for Airy beam).
 
     Returns
     -------
@@ -445,34 +417,17 @@ def _build_jones_chain(
             ant: hpbw_per_antenna.get(ant, np.array([0.1]))[freq_idx]
             for ant in ant_keys
         }
-        beam_type_map = (
-            {ant: beam_pattern_per_antenna.get(ant, "gaussian") for ant in ant_keys}
-            if beam_pattern_per_antenna
-            else None
-        )
 
         # Use first antenna as default (backward compatible)
         first_ant = ant_keys[0]
         default_hpbw = hpbw_map[first_ant]
-        default_beam_type = beam_type_map[first_ant] if beam_type_map else "gaussian"
 
         e_jones = AnalyticBeamJones(
             source_altaz=np.column_stack([alt_rad, az_rad]),
             frequencies=np.array([freq]),
             hpbw_radians=default_hpbw,
-            beam_type=default_beam_type,
-            wavelength=wavelength_value if default_beam_type == "airy" else None,
-            diameter=antennas.get(first_ant, {}).get("diameter", 12.0)
-            if default_beam_type == "airy"
-            else None,
-            taper_exponent=beam_pattern_params.get("cosine_taper_exponent", 1.0)
-            if beam_pattern_params
-            else 1.0,
-            taper_dB=beam_pattern_params.get("exponential_taper_dB", 10.0)
-            if beam_pattern_params
-            else 10.0,
+            beam_type="gaussian",
             hpbw_per_antenna=hpbw_map,
-            beam_type_per_antenna=beam_type_map,
         )
     chain.add_term(e_jones)
 

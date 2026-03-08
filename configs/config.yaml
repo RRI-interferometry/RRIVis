@@ -7,9 +7,6 @@ telescope:
 antenna_layout:
   antenna_positions_file: antenna_layout_examples/hera_5.txt
   antenna_file_format: rrivis
-  all_antenna_type: parabolic_10db_taper
-  use_different_antenna_types: false
-  antenna_types: {}
   all_antenna_diameter: 14.0
   use_different_diameters: false
   diameters: {}
@@ -28,11 +25,7 @@ beams:
   beam_za_max_deg: 90.0
   beam_za_buffer_deg: 5.0
   beam_freq_buffer_hz: 1000000.0
-  use_different_beam_responses: false
   all_beam_response: gaussian
-  beam_response_per_antenna: {}
-  cosine_taper_exponent: 1.0
-  exponential_taper_dB: 10.0
 baseline_selection:
   use_autocorrelations: true
   use_crosscorrelations: true

@@ -594,21 +594,8 @@ class TestUniformBeam(unittest.TestCase):
             1: np.array([theta_HPBW]),
         }
 
-    def test_uniform_beam_gives_expected_result(self):
-        """Uniform beam should not attenuate sources."""
-        vis_uniform = calculate_visibility(
-            antennas=self.antennas,
-            baselines=self.baselines,
-            sources=self.sources,
-            location=self.location,
-            obstime=self.obstime,
-            wavelengths=self.wavelengths,
-            freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
-            beam_pattern_per_antenna={0: "uniform", 1: "uniform"},
-            duration_seconds=60.0,
-            time_step_seconds=60.0,
-        )
+    def test_gaussian_beam_gives_expected_result(self):
+        """Gaussian beam should produce valid visibilities."""
         vis_gauss = calculate_visibility(
             antennas=self.antennas,
             baselines=self.baselines,
@@ -618,19 +605,16 @@ class TestUniformBeam(unittest.TestCase):
             wavelengths=self.wavelengths,
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
-            beam_pattern_per_antenna={0: "gaussian", 1: "gaussian"},
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
 
-        # Uniform beam: |V_I| >= |V_gauss_I| (no attenuation)
-        for key in vis_uniform:
-            amp_uniform = np.abs(vis_uniform[key]["I"])
+        # Gaussian beam should produce non-zero visibilities
+        for key in vis_gauss:
             amp_gauss = np.abs(vis_gauss[key]["I"])
-            # Uniform should give at least as much signal as Gaussian
             self.assertTrue(
-                np.all(amp_uniform >= amp_gauss * 0.99),
-                f"Uniform beam should not attenuate below Gaussian for baseline {key}",
+                np.any(amp_gauss > 0),
+                f"Gaussian beam should produce non-zero signal for baseline {key}",
             )
 
 
@@ -859,7 +843,7 @@ class TestFITSBeamJones(unittest.TestCase):
         return MockBeamManager()
 
     def test_identity_fits_beam(self):
-        """FITS beam returning identity should match analytic uniform beam."""
+        """FITS beam returning identity should produce valid visibilities."""
         identity = np.array([[[1.0, 0.0], [0.0, 1.0]]], dtype=np.complex128)
 
         mock_bm = self._make_mock_beam_manager(identity)
@@ -874,31 +858,17 @@ class TestFITSBeamJones(unittest.TestCase):
             freqs=self.freqs,
             hpbw_per_antenna=self.hpbw_per_antenna,
             beam_manager=mock_bm,
-            beam_pattern_per_antenna={0: "uniform", 1: "uniform"},
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
 
-        vis_uniform = calculate_visibility(
-            antennas=self.antennas,
-            baselines=self.baselines,
-            sources=self.sources,
-            location=self.location,
-            obstime=self.obstime,
-            wavelengths=self.wavelengths,
-            freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
-            beam_pattern_per_antenna={0: "uniform", 1: "uniform"},
-            duration_seconds=60.0,
-            time_step_seconds=60.0,
-        )
-
+        # Identity FITS beam should produce valid non-zero visibilities
         for key in vis_fits:
-            np.testing.assert_array_almost_equal(
-                vis_fits[key]["I"],
-                vis_uniform[key]["I"],
-                decimal=10,
-                err_msg=f"Identity FITS beam should match uniform analytic for {key}",
+            self.assertIn("I", vis_fits[key])
+            amp = np.abs(vis_fits[key]["I"])
+            self.assertTrue(
+                np.any(amp > 0),
+                f"Identity FITS beam should produce non-zero signal for {key}",
             )
 
     def test_none_fits_beam_fallback(self):

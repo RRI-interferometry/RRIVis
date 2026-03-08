@@ -1,24 +1,18 @@
-# Configuration: Parabolic with Cosine-Tapered Beam Pattern
-# Models Cassegrain or offset-fed reflectors with cosine illumination
+# Configuration: Parabolic with Gaussian Beam Pattern
+# Uses Gaussian beam approximation for primary beam response
 # Characteristics:
-# - Cosine taper: A(θ) = cos^n(θ/θ_edge)
-# - ~81% aperture efficiency (for n=1)
-# - ~-23 dB first sidelobe
-# - Common in Cassegrain and offset feeds
-# - Good compromise between efficiency and sidelobes
+# - Fast and widely used approximation
+# - Smooth rolloff without sidelobe structure
+# - HPBW scales with λ/D
 
 antenna_layout:
   antenna_positions_file: "antenna_layout_examples/example_rrivis_format.txt"
   antenna_file_format: "rrivis"
-  use_different_antenna_types: false
-  all_antenna_type: "parabolic_cosine"  # Cosine taper
-  antenna_types: {}
   use_different_diameters: false
   all_antenna_diameter: 14.0
 
 beams:
-  all_beam_response: "cosine"  # Cosine-tapered pattern
-  cosine_taper_exponent: 1.0  # Standard cosine (n=1)
+  all_beam_response: "gaussian"
 
 location:
   lat: -30.72152777777791

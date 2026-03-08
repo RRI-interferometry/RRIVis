@@ -1,12 +1,9 @@
 antenna_layout:
   all_antenna_diameter: 14.0
-  all_antenna_type: parabolic
   antenna_file_format: rrivis
   antenna_positions_file: ../antenna_layout_examples/hera_5.txt
-  antenna_types: {}
   diameters: {}
   fixed_HPBW: null
-  use_different_antenna_types: false
   use_different_diameters: false
 baseline_selection:
   only_selective_baseline_length: false
@@ -23,12 +20,8 @@ beams:
   beam_file: null
   beam_freq_buffer_hz: null
   beam_mode: null
-  beam_response_per_antenna: {}
   beam_za_buffer_deg: null
   beam_za_max_deg: null
-  cosine_taper_exponent: null
-  exponential_taper_dB: null
-  use_different_beam_responses: false
 compute:
   backend: numpy
 feeds:

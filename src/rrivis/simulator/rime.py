@@ -190,8 +190,6 @@ class RIMESimulator(VisibilitySimulator):
 
             Optional:
                 - beam_manager: BeamManager for FITS beams
-                - beam_pattern_per_antenna: dict of analytic beam types
-                - beam_pattern_params: dict of beam parameters
                 - return_correlations: bool (default True)
                 - jones_config: dict of Jones term configs
 
@@ -244,8 +242,6 @@ class RIMESimulator(VisibilitySimulator):
 
         # Extract optional parameters with defaults
         beam_manager = kwargs.get("beam_manager", None)
-        beam_pattern_per_antenna = kwargs.get("beam_pattern_per_antenna", None)
-        beam_pattern_params = kwargs.get("beam_pattern_params", None)
         return_correlations = kwargs.get("return_correlations", True)
         jones_config = kwargs.get("jones_config", None)
 
@@ -266,8 +262,6 @@ class RIMESimulator(VisibilitySimulator):
             duration_seconds=duration_seconds,
             time_step_seconds=time_step_seconds,
             beam_manager=beam_manager,
-            beam_pattern_per_antenna=beam_pattern_per_antenna,
-            beam_pattern_params=beam_pattern_params,
             return_correlations=return_correlations,
             backend=backend,
             jones_config=jones_config,

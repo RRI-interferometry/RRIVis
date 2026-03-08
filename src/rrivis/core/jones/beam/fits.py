@@ -2,13 +2,6 @@
 """
 Beam FITS file handling using pyuvdata UVBeam.
 
-CRITICAL FIXES APPLIED:
-1. za_range must be in DEGREES, not radians (UVBeam API requirement)
-2. Jones matrix index order: rows=feeds, cols=sky_basis (RIME standard)
-3. Azimuth convention conversion: Astropy (N=0) → UVBeam (E=0)
-4. beam_ids None check in BeamManager (avoid crash)
-5. Extensive documentation on conventions
-
 Loads beam files, performs coordinate transformations, and interpolates
 to provide 2×2 Jones matrices for visibility calculations.
 

@@ -14,9 +14,6 @@ telescope:
 antenna_layout:
   antenna_positions_file: "antenna_layout_examples/example_rrivis_format.txt"
   antenna_file_format: "rrivis"
-  use_different_antenna_types: false
-  all_antenna_type: "parabolic_10db_taper"
-  antenna_types: {}
   use_different_diameters: false
   all_antenna_diameter: 14.0
   diameters: {}
@@ -44,11 +41,7 @@ beams:
   beam_freq_buffer_hz: 1e6   # Add 1 MHz buffer around observation frequencies
 
   # Analytic beam fallback (used if beam file fails to load)
-  use_different_beam_responses: false
   all_beam_response: "gaussian"
-  beam_response_per_antenna: {}
-  cosine_taper_exponent: 1.0
-  exponential_taper_dB: 10.0
 
 baseline_selection:
   use_autocorrelations: true

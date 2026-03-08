@@ -21,22 +21,6 @@ class TestBeamPowerPattern:
         )
         np.testing.assert_almost_equal(power[0], 1.0)
 
-    def test_unity_at_zenith_cosine(self):
-        """Cosine beam power should be 1.0 at zenith."""
-        za = np.array([0.0])
-        power = _compute_beam_power_pattern(
-            za, hpbw_rad=np.deg2rad(30.0), beam_type="cosine"
-        )
-        np.testing.assert_almost_equal(power[0], 1.0)
-
-    def test_unity_at_zenith_exponential(self):
-        """Exponential beam power should be 1.0 at zenith."""
-        za = np.array([0.0])
-        power = _compute_beam_power_pattern(
-            za, hpbw_rad=np.deg2rad(10.0), beam_type="exponential"
-        )
-        np.testing.assert_almost_equal(power[0], 1.0)
-
     def test_decreases_off_axis(self):
         """Beam power should decrease away from zenith."""
         za = np.array([0.0, np.deg2rad(5.0), np.deg2rad(15.0), np.deg2rad(30.0)])

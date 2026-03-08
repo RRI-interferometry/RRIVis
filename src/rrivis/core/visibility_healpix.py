@@ -87,21 +87,10 @@ def _compute_beam_power_pattern(
             # Power pattern = sum of |J_ij|^2 / 2  (average over polarizations)
             return 0.5 * np.sum(np.abs(jones) ** 2, axis=(-2, -1))
 
-    # Analytic beam fallback
-    from rrivis.core.jones.beam.analytic import (
-        cosine_tapered_pattern,
-        exponential_tapered_pattern,
-        gaussian_A_theta_EBeam,
-    )
+    # Analytic beam fallback (Gaussian only)
+    from rrivis.core.jones.beam.analytic import gaussian_A_theta_EBeam
 
-    if beam_type == "gaussian":
-        voltage = gaussian_A_theta_EBeam(zenith_angles, hpbw_rad)
-    elif beam_type == "cosine":
-        voltage = cosine_tapered_pattern(zenith_angles, hpbw_rad)
-    elif beam_type == "exponential":
-        voltage = exponential_tapered_pattern(zenith_angles, hpbw_rad)
-    else:
-        voltage = gaussian_A_theta_EBeam(zenith_angles, hpbw_rad)
+    voltage = gaussian_A_theta_EBeam(zenith_angles, hpbw_rad)
 
     return np.asarray(voltage, dtype=np.float64) ** 2
 
@@ -142,7 +131,6 @@ def calculate_visibility_healpix(
     time_step_seconds: float,
     hpbw_per_antenna: dict | None = None,
     beam_manager: Any | None = None,
-    beam_pattern_per_antenna: dict | None = None,
     backend: ArrayBackend | None = None,
     output_units: str = "Jy",
 ) -> dict:
@@ -179,8 +167,6 @@ def calculate_visibility_healpix(
         Half-power beam width per antenna (for beam attenuation).
     beam_manager : BeamManager, optional
         Beam pattern manager for FITS-based beams.
-    beam_pattern_per_antenna : dict, optional
-        Maps antenna number -> beam pattern type string ('gaussian', 'airy', etc.).
     backend : ArrayBackend, optional
         Computation backend (CPU/GPU).
     output_units : str, default="Jy"
@@ -327,15 +313,10 @@ def calculate_visibility_healpix(
                     hpbw_rad = hpbw_per_antenna.get(ant_num, np.array([0.1]))[freq_idx]
                 else:
                     hpbw_rad = 0.1
-                btype = (
-                    beam_pattern_per_antenna.get(ant_num, "gaussian")
-                    if beam_pattern_per_antenna
-                    else "gaussian"
-                )
                 beam_patterns[ant_num] = _compute_beam_power_pattern(
                     zenith_angles=za_vis,
                     hpbw_rad=hpbw_rad,
-                    beam_type=btype,
+                    beam_type="gaussian",
                     beam_manager=beam_manager if has_beam_manager else None,
                     antenna_number=ant_num,
                     azimuth=az_vis,
