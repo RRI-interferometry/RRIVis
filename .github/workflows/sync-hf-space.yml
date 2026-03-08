@@ -21,7 +21,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           cd huggingface_space/
-          git init
+          git init -b main
           git config user.email "kartik4321mandar@gmail.com"
           git config user.name "Kartik Mandar"
           git add .
