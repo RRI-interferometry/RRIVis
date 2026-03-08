@@ -1,4 +1,4 @@
-rrivis @ git+https://github.com/kartikmandar/RRIvis.git@refactoring
+rrivis @ git+https://github.com/RRI-interferometry/RRIvis.git@main
 streamlit>=1.41.0
 matplotlib>=3.7
 plotly>=5.14
