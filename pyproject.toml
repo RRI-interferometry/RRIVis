@@ -95,7 +95,6 @@ ms = [
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
-    "black>=23.0",
     "ruff>=0.1",
     "mypy>=1.7",
     "ipython>=8.12",
@@ -195,7 +194,6 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 check_untyped_defs = true
-ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = [
