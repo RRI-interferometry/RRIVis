@@ -106,25 +106,25 @@ class TestBeamsConfig:
         """Test default beam configuration."""
         config = BeamsConfig()
         assert config.beam_mode is None
-        assert config.all_beam_response == "gaussian"
+        assert config.aperture_shape == "circular"
+        assert config.taper == "gaussian"
         assert config.beam_za_max_deg is None
-        assert config.hpbw_deg is None
 
     def test_valid_beam_modes(self):
         """Test valid beam modes."""
-        for mode in ["analytic", "shared", "per_antenna"]:
+        for mode in ["analytic", "fits", "mixed"]:
             config = BeamsConfig(beam_mode=mode)
             assert config.beam_mode == mode
 
-    def test_valid_beam_responses(self):
-        """Test valid beam response patterns."""
-        config = BeamsConfig(all_beam_response="gaussian")
-        assert config.all_beam_response == "gaussian"
-
-    def test_default_beam_response(self):
-        """Test default beam response is gaussian."""
+    def test_default_taper_is_gaussian(self):
+        """Test default taper is gaussian."""
         config = BeamsConfig()
-        assert config.all_beam_response == "gaussian"
+        assert config.taper == "gaussian"
+
+    def test_default_aperture_shape_is_circular(self):
+        """Test default aperture shape is circular."""
+        config = BeamsConfig()
+        assert config.aperture_shape == "circular"
 
     def test_zenith_angle_set(self):
         """Test zenith angle can be set."""
@@ -510,7 +510,7 @@ telescope:
         """Blank config should report all required-field errors."""
         config = RRIvisConfig()
         errors = config.validate()
-        assert len(errors) == 12
+        assert len(errors) == 13
         assert any("antenna_positions_file" in e for e in errors)
         assert any("antenna_file_format" in e for e in errors)
         assert any("all_antenna_diameter" in e for e in errors)
@@ -520,6 +520,7 @@ telescope:
         assert any("starting_frequency" in e for e in errors)
         assert any("frequency_interval" in e for e in errors)
         assert any("frequency_bandwidth" in e for e in errors)
+        assert any("beam_mode" in e for e in errors)
         assert any("sky_representation" in e for e in errors)
         assert any("no sky model enabled" in e for e in errors)
         assert any("flux_unit" in e for e in errors)
@@ -544,6 +545,7 @@ telescope:
                 frequency_interval=1.0,
                 frequency_bandwidth=50.0,
             ),
+            beams=BeamsConfig(beam_mode="analytic"),
             visibility=VisibilityConfig(sky_representation="point_sources"),
             sky_model=SkyModelConfig(
                 test_sources=TestSourcesConfig(use_test_sources=True),
@@ -570,6 +572,7 @@ telescope:
                 frequency_interval=1.0,
                 frequency_bandwidth=50.0,
             ),
+            beams=BeamsConfig(beam_mode="analytic"),
             visibility=VisibilityConfig(sky_representation="point_sources"),
             sky_model=SkyModelConfig(
                 test_sources=TestSourcesConfig(use_test_sources=True),
@@ -631,8 +634,8 @@ telescope:
         assert any("location.lon" in e for e in errors)
         assert any("location.height" in e for e in errors)
 
-    def test_validate_analytic_beam_missing_response(self, tmp_path):
-        """beam_mode=analytic with no all_beam_response should be an error."""
+    def test_validate_beam_config_defaults(self, tmp_path):
+        """Default beam config should not produce beam-related validation errors."""
         antenna_file = tmp_path / "antennas.txt"
         antenna_file.write_text("0 0 0\n")
         config = RRIvisConfig(
@@ -651,10 +654,10 @@ telescope:
                 frequency_interval=1.0,
                 frequency_bandwidth=50.0,
             ),
-            beams=BeamsConfig(beam_mode="analytic", all_beam_response=None),
+            beams=BeamsConfig(beam_mode="analytic"),
         )
         errors = config.validate()
-        assert any("all_beam_response" in e for e in errors)
+        assert not any("beam" in e.lower() for e in errors)
 
     def test_validate_invalid_start_time(self, tmp_path):
         """Garbage start_time string should be reported."""

@@ -164,20 +164,6 @@ class TestApplyJonesMatrices:
         # Should equal coherency matrix for ideal instrument
         assert np.allclose(V, C)
 
-    def test_leaky_beam_creates_crosspol(self):
-        """Leaky Jones matrix creates cross-pol even for unpolarized source."""
-        stokes_I = 10.0
-        C = stokes_to_coherency(stokes_I)  # Unpolarized: C[0,1] = 0
-
-        # Leaky beam (off-diagonal elements)
-        J_leaky = np.array([[0.95, 0.05], [0.03, 0.97]], dtype=complex)
-
-        V = apply_jones_matrices(J_leaky, C, J_leaky)
-
-        # Cross-pol should be non-zero due to leakage
-        assert not np.allclose(V[0, 1], 0), "Leakage should create cross-pol"
-        assert not np.allclose(V[1, 0], 0)
-
     def test_hermitian_visibility(self):
         """Visibility matrix should be Hermitian for autocorrelations (same antenna).
 

@@ -1,23 +1,9 @@
 # rrivis/core/jones/beam/analytic.py
-"""
-Gaussian beam pattern and HPBW calculation functions.
+"""Composed aperture beam model for the E-Jones (primary beam) in the RIME.
 
-This module provides Gaussian beam pattern modeling for radio astronomy
-interferometry, implementing the "E" term (primary beam) in the RIME
-(Radio Interferometer Measurement Equation):
-
-    V_pq = sum_sources [E_p(theta) * C_source * E_q^H(theta) * exp(-2*pi*i*uvw.lmn)]
-
-Beam Pattern
-------------
-- **Gaussian**: exp(-theta^2) model, good approximation for tapered dishes
-
-Physical Background
--------------------
-The beam width scales inversely with frequency (lambda/D relationship):
-    HPBW = k * (lambda / D) = k * (c / f) / D
-
-where k depends on the illumination pattern (default k=1.15 for 10dB edge taper).
+This module provides :func:`compute_aperture_beam`, which combines aperture
+shape, illumination taper, and optional feed model to produce a diagonal 2x2
+Jones matrix per sky direction.
 
 References
 ----------
@@ -29,385 +15,183 @@ References
        (3rd ed., 2017) Chapter 7: Design of the Receiving System
 .. [4] Smirnov, O.M. "Revisiting the RIME I" (2011) A&A 527, A106
        Section 2.3: The E-Jones (primary beam)
-
-Examples
---------
-Calculate HPBW for a 14m dish at 150 MHz:
-
->>> from rrivis.core.jones.beam.analytic import compute_hpbw
->>> import numpy as np
->>> freq_hz = 150e6  # 150 MHz
->>> diameter = 14.0  # meters
->>> hpbw = compute_hpbw(freq_hz, diameter)
->>> print(f"HPBW: {np.degrees(hpbw[0]):.2f} degrees")
-HPBW: 9.43 degrees
-
-Calculate beam response at various angles:
-
->>> from rrivis.core.jones.beam.analytic import gaussian_A_theta_EBeam
->>> theta = np.linspace(0, 0.3, 100)  # radians
->>> response = gaussian_A_theta_EBeam(theta, theta_HPBW=0.1)
->>> response[0]  # On-axis response
-1.0
 """
 
-import healpy as hp
 import numpy as np
-
-# =============================================================================
-# PHYSICAL CONSTANTS
-# =============================================================================
 
 # Speed of light in vacuum (m/s)
 _C = 299_792_458.0
 
 
-# =============================================================================
-# HPBW CALCULATION
-# =============================================================================
+def compute_aperture_beam(
+    theta: np.ndarray,
+    phi: np.ndarray | None,
+    frequency: float,
+    diameter: float,
+    aperture_shape: str = "circular",
+    taper: str = "gaussian",
+    edge_taper_dB: float = 10.0,
+    feed_model: str = "none",
+    feed_params: dict | None = None,
+    feed_computation: str = "analytical",
+    reflector_type: str = "prime_focus",
+    magnification: float = 1.0,
+    aperture_params: dict | None = None,
+) -> np.ndarray:
+    """Compute the composed beam Jones matrix.
 
+    Combines aperture shape, illumination taper, optional feed model,
+    to produce a diagonal 2x2 Jones matrix per sky direction.
+    The computation proceeds in three steps:
 
-def compute_hpbw(freq_hz, diameter, k=1.15):
-    """Compute HPBW using k * lambda / D formula.
+    1. **Feed model** (if enabled): derive effective ``edge_taper_dB``
+       analytically, or compute the far-field pattern numerically via
+       Hankel transform.
+    2. **Co-pol voltage**: evaluate the aperture+taper pattern at
+       ``u_beam = D * sin(theta) * freq / c``.
+    3. **Jones matrix**: assemble diagonal ``[[co, 0], [0, co]]``.
 
     Parameters
     ----------
-    freq_hz : float or array_like
+    theta : ndarray
+        Zenith angles in radians (scalar or array).
+    phi : ndarray or None
+        Azimuth angles in radians. Required for cross-pol and
+        elliptical aperture; defaults to zero if ``None``.
+    frequency : float
         Frequency in Hz.
     diameter : float
-        Antenna diameter in meters.
-    k : float, optional
-        Beam width coefficient (default 1.15, standard 10dB taper).
+        Antenna diameter in metres.
+    aperture_shape : str
+        Aperture geometry: ``'circular'``, ``'rectangular'``,
+        ``'elliptical'``.
+    taper : str
+        Illumination taper: ``'uniform'``, ``'gaussian'``,
+        ``'parabolic'``, ``'parabolic_squared'``, ``'cosine'``.
+    edge_taper_dB : float
+        Edge taper in dB for tapers that accept it.
+    feed_model : str
+        Feed pattern model: ``'none'``, ``'corrugated_horn'``,
+        ``'open_waveguide'``, ``'dipole_ground_plane'``.
+    feed_params : dict or None
+        Feed-specific parameters (``q``, ``b_over_lambda``,
+        ``height_wavelengths``, ``focal_ratio``).
+    feed_computation : str
+        ``'analytical'`` (derive edge taper from feed edge
+        illumination) or ``'numerical'`` (Hankel transform).
+    reflector_type : str
+        ``'prime_focus'`` or ``'cassegrain'``.
+    magnification : float
+        Cassegrain magnification ``M = (e+1)/(e-1)``.
+    aperture_params : dict or None
+        Aperture-specific parameters (``length_x``/``length_y`` for
+        rectangular, ``diameter_x``/``diameter_y`` for elliptical).
 
     Returns
     -------
     ndarray
-        HPBW in radians.
+        Jones matrix, shape ``(2, 2)`` for scalar input or
+        ``(N, 2, 2)`` for array input, dtype ``complex128``.
     """
-    f = np.atleast_1d(freq_hz)
-    return k * (_C / f) / diameter
+    from rrivis.core.jones.beam.aperture import compute_u_beam
+    from rrivis.core.jones.beam.taper import TAPER_FUNCTIONS
 
+    if feed_params is None:
+        feed_params = {}
+    if aperture_params is None:
+        aperture_params = {}
 
-# =============================================================================
-# BEAM PATTERN FUNCTIONS
-# =============================================================================
+    input_is_scalar = np.ndim(theta) == 0
+    theta = np.atleast_1d(np.asarray(theta, dtype=np.float64))
 
-
-def gaussian_A_theta_EBeam(theta, theta_HPBW):
-    """
-    Compute Gaussian primary beam pattern A(theta).
-
-    This is the standard beam model used in visibility simulations. The
-    Gaussian approximation is computationally efficient and provides a
-    good match to real beam measurements for most radio telescopes.
-
-    Parameters
-    ----------
-    theta : float or array_like
-        Off-axis angle(s) from pointing center in radians.
-        For HEALPix coordinates, this is the colatitude (zenith angle).
-    theta_HPBW : float
-        Half-Power Beam Width (HPBW) in radians.
-        This is the full width at half maximum (FWHM) of the beam.
-
-    Returns
-    -------
-    ndarray
-        Normalized beam response A(theta) in range [0, 1].
-        A(0) = 1.0 (on-axis pointing center).
-
-    Notes
-    -----
-    **Formula**::
-
-        A(theta) = exp(-(theta / (sqrt(2) * theta_HPBW))^2)
-                 = exp(-theta^2 / (2 * sigma^2))
-
-    where sigma = theta_HPBW / sqrt(2*ln(2)) ~ 0.849 * theta_HPBW
-
-    This ensures:
-
-    - A(0) = 1.0 (normalized on-axis)
-    - A(theta_HPBW) = exp(-ln(2)) = 0.5 = -3 dB (half-power definition)
-
-    **Physical motivation**: Gaussian beams arise from Gaussian-tapered
-    aperture illumination and are self-Fourier-transforming, meaning the
-    far-field pattern has the same Gaussian shape as the aperture field.
-
-    **RIME context**: In the RIME, A(theta) represents the E-Jones (primary
-    beam), which weights source contributions to visibility:
-    V = sum_sources [E_p * C * E_q^H * K]
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> theta = np.array([0, 0.05, 0.1, 0.15])  # radians
-    >>> theta_HPBW = 0.1  # radians
-    >>> response = gaussian_A_theta_EBeam(theta, theta_HPBW)
-    >>> response[0]  # On-axis
-    1.0
-    >>> np.isclose(response[2], 0.5, atol=0.01)  # At HPBW
-    True
-
-    See Also
-    --------
-    calculate_gaussian_beam_area_EBeam : Integrate beam over sky.
-    """
-    # Gaussian beam formula ensuring A(theta_HPBW) = 0.5
-    # sigma = theta_HPBW / sqrt(2*ln(2)), simplified form below
-    return np.exp(-((theta / (np.sqrt(2) * theta_HPBW)) ** 2))
-
-
-def calculate_gaussian_beam_area_EBeam(nside, theta_HPBW):
-    """
-    Calculate beam solid angle by integrating Gaussian pattern over HEALPix sphere.
-
-    The beam solid angle (or beam area) is the integral of the beam pattern
-    over the full sky. This quantity is needed for flux density calculations
-    and beam normalization in visibility simulations.
-
-    Parameters
-    ----------
-    nside : int
-        HEALPix nside parameter controlling sky pixelization resolution.
-        Higher nside = finer resolution. Typical values: 64, 128, 256, 512.
-        Number of pixels = 12 * nside^2.
-    theta_HPBW : float or array_like
-        Half-Power Beam Width in radians. Can be:
-
-        - Single value: Returns single beam area
-        - Array with all identical values: Returns single beam area (optimized)
-        - Array with varying values: Returns list of beam areas, one per HPBW
-
-    Returns
-    -------
-    float or list
-        Beam solid angle in steradians (sr).
-
-        - If theta_HPBW is scalar or all-identical array: returns float
-        - If theta_HPBW varies: returns list of floats, one per unique HPBW
-
-    Notes
-    -----
-    **Calculation method**::
-
-        Omega_beam = sum_pixels[A(theta_pixel) * delta_Omega_pixel]
-
-    where A(theta) is the Gaussian beam pattern and delta_Omega_pixel is
-    the solid angle of each HEALPix pixel (constant for a given nside).
-
-    **Analytical approximation**: For a Gaussian beam, the analytical
-    beam solid angle is approximately:
-
-        Omega_beam ~ pi * theta_HPBW^2 / (4 * ln(2)) ~ 1.133 * theta_HPBW^2
-
-    The numerical integration provides accuracy for wide beams where
-    spherical geometry matters.
-
-    **Resolution requirements**: For accurate integration, use nside such
-    that the pixel size is much smaller than the beam width. Rule of thumb:
-    nside > 2 * pi / theta_HPBW.
-
-    Examples
-    --------
-    >>> # Single frequency beam area
-    >>> beam_area = calculate_gaussian_beam_area_EBeam(nside=128, theta_HPBW=0.1)
-    >>> print(f"Beam area: {beam_area:.4f} sr")
-
-    >>> # Multiple frequencies with different HPBWs
-    >>> hpbw_array = np.array([0.05, 0.1, 0.15])  # radians
-    >>> beam_areas = calculate_gaussian_beam_area_EBeam(
-    ...     nside=128, theta_HPBW=hpbw_array
-    ... )
-    >>> for h, a in zip(hpbw_array, beam_areas):
-    ...     print(f"HPBW={np.degrees(h):.1f} deg: {a:.4f} sr")
-
-    See Also
-    --------
-    gaussian_A_theta_EBeam : The beam pattern function being integrated.
-    """
-    # Get HEALPix pixel properties
-    pixel_area = hp.nside2pixarea(nside)  # Solid angle per pixel (sr)
-    npix = hp.nside2npix(nside)  # Total pixels: 12 * nside^2
-
-    # Get angular coordinates for all pixels
-    # theta: colatitude (0 at north pole), phi: azimuth
-    theta, phi = hp.pix2ang(nside, np.arange(npix))
-
-    # Optimization: if all HPBW values are identical, compute once
-    if np.ndim(theta_HPBW) > 0 and np.all(theta_HPBW == theta_HPBW[0]):
-        beam_response = gaussian_A_theta_EBeam(theta, theta_HPBW[0])
-        return np.sum(beam_response * pixel_area)
-
-    # Handle array of varying HPBW values
-    beam_areas = []
-    for hpbw in np.atleast_1d(theta_HPBW):
-        beam_response = gaussian_A_theta_EBeam(theta, hpbw)
-        beam_area = np.sum(beam_response * pixel_area)
-        beam_areas.append(beam_area)
-
-    # Return scalar if input was scalar
-    if np.ndim(theta_HPBW) == 0:
-        return beam_areas[0]
-    return beam_areas
-
-
-# =============================================================================
-# BEAM PATTERN TYPE REGISTRY
-# =============================================================================
-
-
-class BeamPatternType:
-    """
-    String constants identifying beam pattern models.
-
-    Attributes
-    ----------
-    GAUSSIAN : str
-        Gaussian beam pattern. Fast, simple, no sidelobes.
-        Params: theta_HPBW
-
-    Examples
-    --------
-    >>> pattern_func = get_beam_pattern_function(BeamPatternType.GAUSSIAN)
-    >>> response = pattern_func(theta, theta_HPBW=0.1)
-
-    See Also
-    --------
-    get_beam_pattern_function : Retrieve function for a pattern type.
-    calculate_beam_pattern : Calculate pattern with unified interface.
-    """
-
-    GAUSSIAN = "gaussian"
-
-
-# Registry mapping pattern type strings to functions
-BEAM_PATTERN_FUNCTIONS = {
-    BeamPatternType.GAUSSIAN: gaussian_A_theta_EBeam,
-}
-"""
-dict : Mapping from pattern type identifiers to pattern functions.
-"""
-
-
-def get_beam_pattern_function(pattern_type):
-    """
-    Retrieve the beam pattern function for a given pattern type.
-
-    Parameters
-    ----------
-    pattern_type : str
-        Beam pattern type identifier from :class:`BeamPatternType`.
-
-    Returns
-    -------
-    callable
-        Beam pattern calculation function.
-
-    Raises
-    ------
-    ValueError
-        If ``pattern_type`` is not recognized.
-
-    Examples
-    --------
-    >>> gauss_func = get_beam_pattern_function(BeamPatternType.GAUSSIAN)
-    >>> response = gauss_func(theta, theta_HPBW=0.1)
-
-    See Also
-    --------
-    calculate_beam_pattern : Unified interface for all patterns.
-    BeamPatternType : Available pattern types.
-    """
-    if pattern_type not in BEAM_PATTERN_FUNCTIONS:
-        available = ", ".join(sorted(BEAM_PATTERN_FUNCTIONS.keys()))
-        raise ValueError(
-            f"Unknown beam pattern type: '{pattern_type}'. Available types: {available}"
+    # Step 1: If feed_model != "none", compute effective edge_taper_dB
+    effective_edge_taper = edge_taper_dB
+    if feed_model != "none":
+        from rrivis.core.jones.beam.feed import (
+            compute_edge_taper_from_feed,
+            feed_to_farfield_numerical,
         )
-    return BEAM_PATTERN_FUNCTIONS[pattern_type]
+
+        focal_ratio = feed_params.get("focal_ratio", 0.4)
+        focal_length = focal_ratio * diameter
+
+        if feed_computation == "numerical":
+            # Path B: numerical Hankel transform
+            u_beam = compute_u_beam(theta, diameter, frequency)
+            co_pol = feed_to_farfield_numerical(
+                feed_model=feed_model,
+                feed_params=feed_params,
+                focal_length=focal_length,
+                aperture_radius=diameter / 2,
+                u_beam=u_beam,
+                reflector_type=reflector_type,
+                magnification=magnification,
+            )
+        else:
+            # Path A: analytical bridge — derive effective edge taper
+            effective_edge_taper = compute_edge_taper_from_feed(
+                feed_model=feed_model,
+                dish_diameter=diameter,
+                focal_length=focal_length,
+                feed_params=feed_params,
+                reflector_type=reflector_type,
+                magnification=magnification,
+            )
+
+    # Step 2: Compute co-pol voltage pattern
+    if feed_model != "none" and feed_computation == "numerical":
+        # Already computed above
+        pass
+    elif aperture_shape == "rectangular":
+        from rrivis.core.jones.beam.aperture import sinc_voltage_pattern
+
+        length_x = aperture_params.get("length_x", diameter)
+        length_y = aperture_params.get("length_y", diameter)
+        wavelength = _C / frequency
+        phi_arr = phi if phi is not None else np.zeros_like(theta)
+        # Decompose theta into x and y components using phi
+        theta_x = theta * np.cos(phi_arr)
+        theta_y = theta * np.sin(phi_arr)
+        ux = length_x * np.sin(theta_x) / wavelength
+        uy = length_y * np.sin(theta_y) / wavelength
+        co_pol = sinc_voltage_pattern(ux, uy)
+    elif aperture_shape == "elliptical":
+        from rrivis.core.jones.beam.aperture import elliptical_airy_voltage_pattern
+
+        diameter_x = aperture_params.get("diameter_x", diameter)
+        diameter_y = aperture_params.get("diameter_y", diameter)
+        wavelength = _C / frequency
+        phi_arr = phi if phi is not None else np.zeros_like(theta)
+        co_pol = elliptical_airy_voltage_pattern(
+            theta, phi_arr, diameter_x, diameter_y, wavelength
+        )
+    else:
+        # Circular aperture with taper
+        u_beam = compute_u_beam(theta, diameter, frequency)
+        taper_func = TAPER_FUNCTIONS.get(taper)
+        if taper_func is None:
+            raise ValueError(
+                f"Unknown taper type: '{taper}'. "
+                f"Available: {', '.join(TAPER_FUNCTIONS.keys())}"
+            )
+        # Tapers that accept edge_taper_dB
+        if taper in ("gaussian", "parabolic", "parabolic_squared"):
+            co_pol = taper_func(u_beam, edge_taper_dB=effective_edge_taper)
+        else:
+            co_pol = taper_func(u_beam)
+
+    # Step 3: Build diagonal Jones matrix: [[co, 0], [0, co]]
+    if input_is_scalar:
+        jones = np.zeros((2, 2), dtype=np.complex128)
+        jones[0, 0] = co_pol[0] if co_pol.ndim > 0 else co_pol
+        jones[1, 1] = co_pol[0] if co_pol.ndim > 0 else co_pol
+        return jones
+    jones = np.zeros((len(co_pol), 2, 2), dtype=np.complex128)
+    jones[:, 0, 0] = co_pol
+    jones[:, 1, 1] = co_pol
+    return jones
 
 
-def calculate_beam_pattern(pattern_type, theta, **kwargs):
-    """
-    Calculate beam response for a specific pattern type.
-
-    Unified interface for computing beam patterns. Automatically routes
-    to the correct function based on ``pattern_type`` and passes through
-    any additional keyword arguments.
-
-    Parameters
-    ----------
-    pattern_type : str
-        Beam pattern type from :class:`BeamPatternType`:
-
-        - ``"gaussian"``: Gaussian pattern
-
-    theta : float or array_like
-        Off-axis angle(s) from pointing center in radians.
-    **kwargs : dict
-        Additional parameters specific to each pattern type:
-
-        - **gaussian**: ``theta_HPBW`` (required)
-
-    Returns
-    -------
-    ndarray
-        Normalized beam response A(theta) in range [0, 1].
-
-    Raises
-    ------
-    ValueError
-        If ``pattern_type`` is not recognized.
-    TypeError
-        If required kwargs for the pattern type are missing.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> theta = np.linspace(0, 0.2, 100)  # radians
-
-    >>> # Gaussian pattern
-    >>> response = calculate_beam_pattern("gaussian", theta, theta_HPBW=0.1)
-
-    See Also
-    --------
-    BeamPatternType : Available pattern type identifiers.
-    get_beam_pattern_function : Get function reference directly.
-    """
-    pattern_func = get_beam_pattern_function(pattern_type)
-    return pattern_func(theta, **kwargs)
-
-
-def convert_angle_for_display(angle_radians, angle_unit):
-    """
-    Convert angle from radians to user-specified display unit.
-
-    Utility function for presenting angles in configuration output
-    or user interfaces where the display unit may be configurable.
-
-    Parameters
-    ----------
-    angle_radians : float or array_like
-        Angle value(s) in radians.
-    angle_unit : str
-        Target unit for display. Supported values:
-
-        - ``"degrees"``: Convert to degrees
-        - ``"radians"``: Return unchanged
-
-    Returns
-    -------
-    float or ndarray
-        Angle value in the specified unit.
-
-    Examples
-    --------
-    >>> hpbw_rad = 0.1745  # ~10 degrees
-    >>> convert_angle_for_display(hpbw_rad, "degrees")
-    10.0
-    >>> convert_angle_for_display(hpbw_rad, "radians")
-    0.1745
-    """
-    if angle_unit == "degrees":
-        return np.degrees(angle_radians)
-    return angle_radians  # Already in radians
+__all__ = [
+    "compute_aperture_beam",
+]

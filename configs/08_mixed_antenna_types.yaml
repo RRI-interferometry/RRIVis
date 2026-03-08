@@ -10,9 +10,6 @@ antenna_layout:
   use_different_diameters: false
   all_antenna_diameter: 14.0
 
-beams:
-  all_beam_response: "gaussian"
-
 location:
   lat: -30.72152777777791
   lon: 21.428305555555557

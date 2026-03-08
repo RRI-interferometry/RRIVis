@@ -46,8 +46,6 @@ beams:
   beam_za_buffer_deg: 5.0    # Add 5° buffer
   beam_freq_buffer_hz: 1e6   # Add 1 MHz buffer
 
-  # Analytic beam fallback
-  all_beam_response: "gaussian"
 
 baseline_selection:
   use_autocorrelations: true

@@ -372,7 +372,7 @@ class TestRIMESimulator:
                 sources=[],
                 frequencies=np.array([100e6]),
                 backend=mock_backend,
-                # Missing: location, obstime, wavelengths, hpbw_per_antenna
+                # Missing: location, obstime, wavelengths
             )
 
 

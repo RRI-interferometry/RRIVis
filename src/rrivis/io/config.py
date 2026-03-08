@@ -145,13 +145,6 @@ class BeamsConfig(BaseModel):
     )
     beam_za_buffer_deg: float | None = Field(None, description="ZA buffer (degrees)")
     beam_freq_buffer_hz: float | None = Field(None, description="Frequency buffer (Hz)")
-    all_beam_response: Literal["gaussian"] | None = Field(
-        None, description="Beam response pattern for analytic beams (e.g. 'gaussian')"
-    )
-    hpbw_deg: float | None = Field(
-        None,
-        description="User-specified HPBW in degrees (overrides computed value)",
-    )
     beam_peak_normalize: bool = Field(
         True,
         description="Peak-normalize FITS beams after loading (pyuvsim convention)",
@@ -159,6 +152,45 @@ class BeamsConfig(BaseModel):
     beam_interp_function: str | None = Field(
         None,
         description="Interpolation function for FITS beams (e.g. 'az_za_simple', 'az_za_map_coordinates'). None uses pyuvdata default.",
+    )
+
+    # Aperture shape and taper
+    aperture_shape: Literal["circular", "rectangular", "elliptical"] = Field(
+        "circular", description="Aperture geometry."
+    )
+    taper: Literal[
+        "uniform", "gaussian", "parabolic", "parabolic_squared", "cosine"
+    ] = Field("gaussian", description="Illumination taper function.")
+    edge_taper_dB: float = Field(10.0, description="Edge taper in dB (pedestal level).")
+
+    # Feed model
+    feed_model: Literal[
+        "none", "corrugated_horn", "open_waveguide", "dipole_ground_plane"
+    ] = Field(
+        "none", description="Feed pattern model. Overrides taper when not 'none'."
+    )
+    feed_computation: Literal["analytical", "numerical"] = Field(
+        "analytical",
+        description="Feed-to-beam computation: 'analytical' (derive edge taper) or 'numerical' (Hankel transform).",
+    )
+    feed_params: dict[str, float] = Field(
+        default_factory=dict,
+        description="Feed params: q (horn), b_over_lambda (waveguide), height_wavelengths (dipole), focal_ratio (f/D).",
+    )
+
+    # Reflector geometry
+    reflector_type: Literal["prime_focus", "cassegrain"] = Field(
+        "prime_focus", description="Reflector geometry type."
+    )
+    magnification: float = Field(
+        1.0,
+        description="Cassegrain magnification M = (e+1)/(e-1). Only used when reflector_type='cassegrain'.",
+    )
+
+    # Aperture-specific parameters
+    aperture_params: dict[str, float] = Field(
+        default_factory=dict,
+        description="Aperture params: length_x/length_y (rectangular), diameter_x/diameter_y (elliptical).",
     )
 
 
@@ -1042,10 +1074,34 @@ class RRIvisConfig(BaseModel):
                 "or 'mixed' (per-antenna mix of analytic and FITS)."
             )
         elif beams.beam_mode == "analytic":
-            if beams.all_beam_response is None:
+            # Validate aperture-specific parameters
+            if beams.aperture_shape == "rectangular":
+                if (
+                    "length_x" not in beams.aperture_params
+                    or "length_y" not in beams.aperture_params
+                ):
+                    errors.append(
+                        "beams.aperture_params: 'length_x' and 'length_y' required "
+                        "when aperture_shape='rectangular'."
+                    )
+            elif beams.aperture_shape == "elliptical":
+                if (
+                    "diameter_x" not in beams.aperture_params
+                    or "diameter_y" not in beams.aperture_params
+                ):
+                    errors.append(
+                        "beams.aperture_params: 'diameter_x' and 'diameter_y' required "
+                        "when aperture_shape='elliptical'."
+                    )
+            if beams.feed_model != "none":
+                if "focal_ratio" not in beams.feed_params:
+                    errors.append(
+                        "beams.feed_params.focal_ratio: required when feed_model is not 'none'. "
+                        "Set to the f/D ratio (e.g. 0.4)."
+                    )
+            if beams.reflector_type == "cassegrain" and beams.magnification <= 1.0:
                 errors.append(
-                    "beams.all_beam_response: required when beam_mode='analytic'. "
-                    "Set to 'gaussian'."
+                    "beams.magnification: must be > 1.0 when reflector_type='cassegrain'."
                 )
         elif beams.beam_mode == "fits":
             if beams.per_antenna:

@@ -20,18 +20,21 @@ class TestVisibilityOptimized(unittest.TestCase):
                 "Number": 136,
                 "BeamID": 0,
                 "Position": (-156.5976, 2.9439, -0.1819),
+                "diameter": 14.0,
             },
             140: {
                 "Name": "HH140",
                 "Number": 140,
                 "BeamID": 0,
                 "Position": (-98.1662, 3.1671, -0.3008),
+                "diameter": 14.0,
             },
             121: {
                 "Name": "HH121",
                 "Number": 121,
                 "BeamID": 0,
                 "Position": (-90.8139, -9.4618, -0.1707),
+                "diameter": 14.0,
             },
         }
 
@@ -66,14 +69,6 @@ class TestVisibilityOptimized(unittest.TestCase):
         self.freqs = np.array([100e6, 110e6, 120e6])  # 100, 110, 120 MHz
         self.wavelengths = (3e8 / self.freqs) * u.m  # Wavelengths in meters
 
-        # Half Power Beam Width (HPBW) per antenna per frequency
-        theta_HPBW = np.radians(5.0)
-        self.hpbw_per_antenna = {
-            136: np.full(len(self.freqs), theta_HPBW),
-            140: np.full(len(self.freqs), theta_HPBW),
-            121: np.full(len(self.freqs), theta_HPBW),
-        }
-
     def test_valid_visibility(self):
         """Test visibility calculation with valid inputs."""
         visibilities = calculate_visibility(
@@ -84,7 +79,6 @@ class TestVisibilityOptimized(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -120,7 +114,6 @@ class TestVisibilityOptimized(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -152,7 +145,6 @@ class TestVisibilityOptimized(unittest.TestCase):
                 obstime=self.obstime,
                 wavelengths=self.wavelengths,
                 freqs=self.freqs,
-                hpbw_per_antenna=self.hpbw_per_antenna,
                 duration_seconds=60.0,
                 time_step_seconds=60.0,
             )
@@ -167,7 +159,6 @@ class TestVisibilityOptimized(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -199,12 +190,19 @@ class TestBackendIntegration(unittest.TestCase):
         """Set up test fixtures."""
         # Sample antenna data
         self.antennas = {
-            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            0: {
+                "Name": "Ant0",
+                "Number": 0,
+                "BeamID": 0,
+                "Position": (0.0, 0.0, 0.0),
+                "diameter": 14.0,
+            },
             1: {
                 "Name": "Ant1",
                 "Number": 1,
                 "BeamID": 0,
                 "Position": (100.0, 0.0, 0.0),
+                "diameter": 14.0,
             },
         }
 
@@ -230,13 +228,6 @@ class TestBackendIntegration(unittest.TestCase):
         self.freqs = np.array([150e6])
         self.wavelengths = (3e8 / self.freqs) * u.m
 
-        # HPBW
-        theta_HPBW = np.radians(10.0)
-        self.hpbw_per_antenna = {
-            0: np.array([theta_HPBW]),
-            1: np.array([theta_HPBW]),
-        }
-
     def test_default_backend(self):
         """Test that default backend (None) works."""
         vis = calculate_visibility(
@@ -247,7 +238,6 @@ class TestBackendIntegration(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             backend=None,  # Default NumPy backend
@@ -268,7 +258,6 @@ class TestBackendIntegration(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             backend=backend,
@@ -288,7 +277,6 @@ class TestBackendIntegration(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             backend=None,
@@ -303,7 +291,6 @@ class TestBackendIntegration(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             backend=backend,
@@ -325,12 +312,19 @@ class TestJonesChainIntegration(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.antennas = {
-            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            0: {
+                "Name": "Ant0",
+                "Number": 0,
+                "BeamID": 0,
+                "Position": (0.0, 0.0, 0.0),
+                "diameter": 14.0,
+            },
             1: {
                 "Name": "Ant1",
                 "Number": 1,
                 "BeamID": 0,
                 "Position": (100.0, 0.0, 0.0),
+                "diameter": 14.0,
             },
         }
 
@@ -352,12 +346,6 @@ class TestJonesChainIntegration(unittest.TestCase):
         self.freqs = np.array([150e6])
         self.wavelengths = (3e8 / self.freqs) * u.m
 
-        theta_HPBW = np.radians(10.0)
-        self.hpbw_per_antenna = {
-            0: np.array([theta_HPBW]),
-            1: np.array([theta_HPBW]),
-        }
-
     def test_basic_visibility(self):
         """Test basic visibility calculation."""
         vis = calculate_visibility(
@@ -368,7 +356,6 @@ class TestJonesChainIntegration(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -392,7 +379,6 @@ class TestJonesChainIntegration(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             jones_config=jones_config,
@@ -413,7 +399,6 @@ class TestJonesChainIntegration(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             jones_config=jones_config,
@@ -434,7 +419,6 @@ class TestJonesChainIntegration(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             jones_config=jones_config,
@@ -475,12 +459,19 @@ class TestStokesIFastPath(unittest.TestCase):
 
     def setUp(self):
         self.antennas = {
-            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            0: {
+                "Name": "Ant0",
+                "Number": 0,
+                "BeamID": 0,
+                "Position": (0.0, 0.0, 0.0),
+                "diameter": 14.0,
+            },
             1: {
                 "Name": "Ant1",
                 "Number": 1,
                 "BeamID": 0,
                 "Position": (100.0, 0.0, 0.0),
+                "diameter": 14.0,
             },
         }
         self.baselines = {
@@ -509,11 +500,6 @@ class TestStokesIFastPath(unittest.TestCase):
         self.obstime = Time("2023-06-21T12:00:00", scale="utc")
         self.freqs = np.array([150e6])
         self.wavelengths = (3e8 / self.freqs) * u.m
-        theta_HPBW = np.radians(10.0)
-        self.hpbw_per_antenna = {
-            0: np.array([theta_HPBW]),
-            1: np.array([theta_HPBW]),
-        }
 
     def test_unpolarized_matches_polarized(self):
         """Stokes-I fast path should match full path when Q=U=V=0."""
@@ -526,7 +512,6 @@ class TestStokesIFastPath(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -546,7 +531,6 @@ class TestStokesIFastPath(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -566,12 +550,19 @@ class TestUniformBeam(unittest.TestCase):
 
     def setUp(self):
         self.antennas = {
-            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            0: {
+                "Name": "Ant0",
+                "Number": 0,
+                "BeamID": 0,
+                "Position": (0.0, 0.0, 0.0),
+                "diameter": 14.0,
+            },
             1: {
                 "Name": "Ant1",
                 "Number": 1,
                 "BeamID": 0,
                 "Position": (100.0, 0.0, 0.0),
+                "diameter": 14.0,
             },
         }
         self.baselines = {
@@ -588,11 +579,6 @@ class TestUniformBeam(unittest.TestCase):
         self.obstime = Time("2023-06-21T12:00:00", scale="utc")
         self.freqs = np.array([76e6])  # At reference freq
         self.wavelengths = (3e8 / self.freqs) * u.m
-        theta_HPBW = np.radians(10.0)
-        self.hpbw_per_antenna = {
-            0: np.array([theta_HPBW]),
-            1: np.array([theta_HPBW]),
-        }
 
     def test_gaussian_beam_gives_expected_result(self):
         """Gaussian beam should produce valid visibilities."""
@@ -604,7 +590,6 @@ class TestUniformBeam(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -624,18 +609,26 @@ class TestBeamCaching(unittest.TestCase):
     def setUp(self):
         # 3 antennas, but baselines share antennas -> caching should kick in
         self.antennas = {
-            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            0: {
+                "Name": "Ant0",
+                "Number": 0,
+                "BeamID": 0,
+                "Position": (0.0, 0.0, 0.0),
+                "diameter": 14.0,
+            },
             1: {
                 "Name": "Ant1",
                 "Number": 1,
                 "BeamID": 0,
                 "Position": (100.0, 0.0, 0.0),
+                "diameter": 14.0,
             },
             2: {
                 "Name": "Ant2",
                 "Number": 2,
                 "BeamID": 0,
                 "Position": (0.0, 100.0, 0.0),
+                "diameter": 14.0,
             },
         }
         self.baselines = {
@@ -654,12 +647,6 @@ class TestBeamCaching(unittest.TestCase):
         self.obstime = Time("2023-06-21T12:00:00", scale="utc")
         self.freqs = np.array([150e6])
         self.wavelengths = (3e8 / self.freqs) * u.m
-        theta_HPBW = np.radians(10.0)
-        self.hpbw_per_antenna = {
-            0: np.array([theta_HPBW]),
-            1: np.array([theta_HPBW]),
-            2: np.array([theta_HPBW]),
-        }
 
     def test_cached_results_valid(self):
         """With beam caching, all baselines should produce valid results."""
@@ -671,7 +658,6 @@ class TestBeamCaching(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -691,12 +677,19 @@ class TestIdentityJonesTerms(unittest.TestCase):
 
     def setUp(self):
         self.antennas = {
-            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            0: {
+                "Name": "Ant0",
+                "Number": 0,
+                "BeamID": 0,
+                "Position": (0.0, 0.0, 0.0),
+                "diameter": 14.0,
+            },
             1: {
                 "Name": "Ant1",
                 "Number": 1,
                 "BeamID": 0,
                 "Position": (100.0, 0.0, 0.0),
+                "diameter": 14.0,
             },
         }
         self.baselines = {
@@ -718,11 +711,6 @@ class TestIdentityJonesTerms(unittest.TestCase):
         self.obstime = Time("2023-06-21T12:00:00", scale="utc")
         self.freqs = np.array([150e6])
         self.wavelengths = (3e8 / self.freqs) * u.m
-        theta_HPBW = np.radians(10.0)
-        self.hpbw_per_antenna = {
-            0: np.array([theta_HPBW]),
-            1: np.array([theta_HPBW]),
-        }
 
     def test_stokes_I_visibility_correct(self):
         """Visibility should produce valid Stokes I results."""
@@ -734,7 +722,6 @@ class TestIdentityJonesTerms(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -760,7 +747,6 @@ class TestIdentityJonesTerms(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             jones_config=jones_config,
@@ -774,7 +760,6 @@ class TestIdentityJonesTerms(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -794,12 +779,19 @@ class TestFITSBeamJones(unittest.TestCase):
 
     def setUp(self):
         self.antennas = {
-            0: {"Name": "Ant0", "Number": 0, "BeamID": 0, "Position": (0.0, 0.0, 0.0)},
+            0: {
+                "Name": "Ant0",
+                "Number": 0,
+                "BeamID": 0,
+                "Position": (0.0, 0.0, 0.0),
+                "diameter": 14.0,
+            },
             1: {
                 "Name": "Ant1",
                 "Number": 1,
                 "BeamID": 0,
                 "Position": (100.0, 0.0, 0.0),
+                "diameter": 14.0,
             },
         }
         self.baselines = {
@@ -816,11 +808,6 @@ class TestFITSBeamJones(unittest.TestCase):
         self.obstime = Time("2023-06-21T12:00:00", scale="utc")
         self.freqs = np.array([150e6])
         self.wavelengths = (3e8 / self.freqs) * u.m
-        theta_HPBW = np.radians(10.0)
-        self.hpbw_per_antenna = {
-            0: np.array([theta_HPBW]),
-            1: np.array([theta_HPBW]),
-        }
 
     def _make_mock_beam_manager(self, return_value):
         """Create a mock BeamManager that returns a fixed value."""
@@ -856,7 +843,6 @@ class TestFITSBeamJones(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             beam_manager=mock_bm,
             duration_seconds=60.0,
             time_step_seconds=60.0,
@@ -883,7 +869,6 @@ class TestFITSBeamJones(unittest.TestCase):
             obstime=self.obstime,
             wavelengths=self.wavelengths,
             freqs=self.freqs,
-            hpbw_per_antenna=self.hpbw_per_antenna,
             beam_manager=mock_bm,
             duration_seconds=60.0,
             time_step_seconds=60.0,

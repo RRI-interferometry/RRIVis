@@ -275,32 +275,6 @@ def sample_wavelengths(sample_frequencies_multiple):
 
 
 # =============================================================================
-# HPBW FIXTURES
-# =============================================================================
-
-
-@pytest.fixture
-def sample_hpbw_simple(sample_antennas_simple, sample_frequencies_multiple):
-    """HPBW per antenna for simple layout."""
-    theta_HPBW = np.radians(10.0)
-    return {
-        0: np.full(len(sample_frequencies_multiple), theta_HPBW),
-        1: np.full(len(sample_frequencies_multiple), theta_HPBW),
-    }
-
-
-@pytest.fixture
-def sample_hpbw_three(sample_antennas_three, sample_frequencies_multiple):
-    """HPBW per antenna for three-antenna layout."""
-    theta_HPBW = np.radians(5.0)
-    return {
-        136: np.full(len(sample_frequencies_multiple), theta_HPBW),
-        140: np.full(len(sample_frequencies_multiple), theta_HPBW),
-        121: np.full(len(sample_frequencies_multiple), theta_HPBW),
-    }
-
-
-# =============================================================================
 # BACKEND FIXTURES
 # =============================================================================
 
@@ -364,7 +338,6 @@ def complete_simulation_setup(
     sample_obstime,
     sample_frequencies_multiple,
     sample_wavelengths,
-    sample_hpbw_simple,
     numpy_backend,
 ):
     """Complete setup for running a visibility calculation."""
@@ -376,7 +349,6 @@ def complete_simulation_setup(
         "obstime": sample_obstime,
         "frequencies": sample_frequencies_multiple,
         "wavelengths": sample_wavelengths,
-        "hpbw_per_antenna": sample_hpbw_simple,
         "backend": numpy_backend,
     }
 

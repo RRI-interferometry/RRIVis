@@ -165,7 +165,6 @@ class VisibilitySimulator(ABC):
                 - location: astropy.EarthLocation for observer position
                 - obstime: astropy.Time for observation time
                 - wavelengths: astropy.Quantity array (derived from frequencies)
-                - hpbw_per_antenna: dict mapping antenna -> HPBW array
                 - beam_manager: BeamManager for FITS beam interpolation
                 - return_correlations: bool, extract XX/XY/YX/YY (default True)
                 - jones_config: dict of Jones term configurations

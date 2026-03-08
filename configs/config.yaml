@@ -25,7 +25,6 @@ beams:
   beam_za_max_deg: 90.0
   beam_za_buffer_deg: 5.0
   beam_freq_buffer_hz: 1000000.0
-  all_beam_response: gaussian
 baseline_selection:
   use_autocorrelations: true
   use_crosscorrelations: true

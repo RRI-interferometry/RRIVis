@@ -140,41 +140,6 @@ class TestGeometricPhaseJones:
         np.testing.assert_almost_equal(jones[1, 0], 0.0)
 
 
-class TestComputeHPBW:
-    """Tests for compute_hpbw() utility function."""
-
-    def test_compute_hpbw_formula(self):
-        """Verify k*c/(f*D) formula."""
-        from rrivis.core.jones.beam import compute_hpbw
-
-        freq_hz = 150e6  # 150 MHz
-        diameter = 14.0  # meters
-        k = 1.15
-        c = 299_792_458.0
-
-        hpbw = compute_hpbw(freq_hz, diameter, k=k)
-        expected = k * c / (freq_hz * diameter)
-        np.testing.assert_almost_equal(hpbw[0], expected)
-
-    def test_compute_hpbw_array_input(self):
-        """compute_hpbw should handle array frequencies."""
-        from rrivis.core.jones.beam import compute_hpbw
-
-        freqs = np.array([100e6, 150e6, 200e6])
-        hpbw = compute_hpbw(freqs, 14.0)
-        assert hpbw.shape == (3,)
-        # Higher frequency → narrower beam
-        assert hpbw[0] > hpbw[1] > hpbw[2]
-
-    def test_compute_hpbw_default_k(self):
-        """Default k=1.15 (10dB taper)."""
-        from rrivis.core.jones.beam import compute_hpbw
-
-        hpbw = compute_hpbw(150e6, 14.0)
-        hpbw_custom = compute_hpbw(150e6, 14.0, k=1.15)
-        np.testing.assert_array_equal(hpbw, hpbw_custom)
-
-
 class TestAnalyticBeamJones:
     """Tests for E term (Gaussian beam)."""
 
@@ -185,8 +150,7 @@ class TestAnalyticBeamJones:
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=np.deg2rad(10.0),
-            beam_type="gaussian",
+            diameter=14.0,
         )
 
         jones = beam.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -197,14 +161,12 @@ class TestAnalyticBeamJones:
 
     def test_gaussian_beam_decreases_off_axis(self, numpy_backend, frequencies):
         """Gaussian beam should decrease off-axis."""
-        hpbw = np.deg2rad(10.0)
         # Source off-axis (alt=85deg = 5deg from zenith)
         source_altaz = np.array([[np.deg2rad(85), 0.0]])
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=hpbw,
-            beam_type="gaussian",
+            diameter=14.0,
         )
 
         jones = beam.compute_jones(0, 0, 0, 0, numpy_backend)
@@ -215,20 +177,18 @@ class TestAnalyticBeamJones:
 
 
 class TestPerAntennaBeam:
-    """Tests for per-antenna HPBW/beam_type support (Item 5)."""
+    """Tests for per-antenna diameter support."""
 
-    def test_different_hpbw_per_antenna(self, numpy_backend, frequencies):
-        """Different HPBW per antenna produces different Jones matrices."""
+    def test_different_diameter_per_antenna(self, numpy_backend, frequencies):
+        """Different diameter per antenna produces different Jones matrices."""
         # Source off-axis at 5 degrees from zenith
         source_altaz = np.array([[np.deg2rad(85), 0.0]])
-        hpbw_map = {0: np.deg2rad(5.0), 1: np.deg2rad(20.0)}
 
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=np.deg2rad(10.0),
-            beam_type="gaussian",
-            hpbw_per_antenna=hpbw_map,
+            diameter=14.0,
+            diameter_per_antenna={0: 14.0, 1: 7.0},
         )
 
         jones_ant0 = beam.compute_jones_all_sources(
@@ -238,44 +198,41 @@ class TestPerAntennaBeam:
             1, 1, 0, 0, numpy_backend, antenna_number=1
         )
 
-        # Narrow beam (ant0, 5deg HPBW) should attenuate more at 5deg off-axis
-        # than wide beam (ant1, 20deg HPBW)
+        # Larger dish (ant0, 14m) has narrower beam, should attenuate more at 5deg off-axis
+        # than smaller dish (ant1, 7m) which has a wider beam
         amp0 = np.abs(jones_ant0[0, 0, 0])
         amp1 = np.abs(jones_ant1[0, 0, 0])
         assert amp0 < amp1, (
             f"Narrow beam ({amp0}) should be weaker than wide beam ({amp1})"
         )
 
-    def test_backward_compat_single_hpbw(self, numpy_backend, frequencies):
-        """Single HPBW without per-antenna map still works."""
+    def test_single_diameter_without_per_antenna(self, numpy_backend, frequencies):
+        """Single diameter without per-antenna map still works."""
         source_altaz = np.array([[np.pi / 2, 0.0]])
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=np.deg2rad(10.0),
-            beam_type="gaussian",
+            diameter=14.0,
         )
         jones = beam.compute_jones(0, 0, 0, 0, numpy_backend)
         np.testing.assert_almost_equal(jones[0, 0], 1.0)
 
     def test_missing_antenna_falls_back_to_default(self, numpy_backend, frequencies):
-        """Antenna not in per-antenna map falls back to default."""
+        """Antenna not in per-antenna map falls back to default diameter."""
         source_altaz = np.array([[np.deg2rad(85), 0.0]])
-        hpbw_map = {0: np.deg2rad(5.0)}
 
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=np.deg2rad(10.0),
-            beam_type="gaussian",
-            hpbw_per_antenna=hpbw_map,
+            diameter=14.0,
+            diameter_per_antenna={0: 7.0},
         )
 
-        # Antenna 99 not in map, should use default 10 deg
+        # Antenna 99 not in map, should use default 14m diameter
         jones_default = beam.compute_jones_all_sources(
             99, 1, 0, 0, numpy_backend, antenna_number=99
         )
-        # Antenna 0 has 5 deg
+        # Antenna 0 has 7m diameter
         jones_ant0 = beam.compute_jones_all_sources(
             0, 1, 0, 0, numpy_backend, antenna_number=0
         )
@@ -287,13 +244,12 @@ class TestIsDiagonalBeam:
     """Tests for is_diagonal() on analytic beams."""
 
     def test_is_diagonal_true_for_gaussian(self, frequencies):
-        """is_diagonal() returns True for Gaussian beam."""
+        """is_diagonal() returns True for Gaussian beam (no cross-pol)."""
         source_altaz = np.array([[np.pi / 2, 0.0]])
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=np.deg2rad(10.0),
-            beam_type="gaussian",
+            diameter=14.0,
         )
         assert beam.is_diagonal()
 
@@ -974,8 +930,7 @@ class TestJonesChain:
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=np.deg2rad(10.0),
-            beam_type="gaussian",
+            diameter=14.0,
         )
         assert beam.is_direction_dependent
 
@@ -1102,8 +1057,7 @@ class TestComputeJonesAllSources:
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=np.deg2rad(10.0),
-            beam_type="gaussian",
+            diameter=14.0,
         )
 
         # Vectorized
@@ -1156,8 +1110,7 @@ class TestComputeAntennaJonesAllSources:
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=np.deg2rad(10.0),
-            beam_type="gaussian",
+            diameter=14.0,
         )
         g = GainJones(n_antennas=4)
 
@@ -1192,8 +1145,7 @@ class TestComputeAntennaJonesAllSources:
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=np.deg2rad(20.0),
-            beam_type="gaussian",
+            diameter=14.0,
         )
         g = GainJones(n_antennas=4)
 
@@ -1249,8 +1201,7 @@ class TestIntegration:
         beam = AnalyticBeamJones(
             source_altaz=source_altaz,
             frequencies=frequencies,
-            hpbw_radians=np.deg2rad(20.0),
-            beam_type="gaussian",
+            diameter=14.0,
         )
 
         g_jones = GainJones(n_antennas=n_antennas)

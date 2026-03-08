@@ -18,13 +18,13 @@ version = "0.2.0"
 # -- General configuration ---------------------------------------------------
 
 extensions = [
-    "sphinx.ext.autodoc",        # Auto-generate docs from docstrings
-    "sphinx.ext.napoleon",       # Support NumPy/Google style docstrings
-    "sphinx.ext.viewcode",       # Add links to source code
-    "sphinx.ext.intersphinx",    # Link to other project docs
-    "sphinx.ext.mathjax",        # Math rendering
-    "sphinx.ext.autosummary",    # Generate summary tables
-    "myst_parser",               # Markdown support
+    "sphinx.ext.autodoc",  # Auto-generate docs from docstrings
+    "sphinx.ext.napoleon",  # Support NumPy/Google style docstrings
+    "sphinx.ext.viewcode",  # Add links to source code
+    "sphinx.ext.intersphinx",  # Link to other project docs
+    "sphinx.ext.mathjax",  # Math rendering
+    "sphinx.ext.autosummary",  # Generate summary tables
+    "myst_parser",  # Markdown support
 ]
 
 # Napoleon settings for NumPy-style docstrings

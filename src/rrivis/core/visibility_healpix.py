@@ -40,34 +40,59 @@ logger = logging.getLogger(__name__)
 
 def _compute_beam_power_pattern(
     zenith_angles: np.ndarray,
-    hpbw_rad: float,
-    beam_type: str = "gaussian",
+    diameter: float,
+    frequency: float,
     beam_manager: Any | None = None,
     antenna_number: Any | None = None,
     azimuth: np.ndarray | None = None,
-    frequency: float | None = None,
+    aperture_shape: str = "circular",
+    taper: str = "gaussian",
+    edge_taper_dB: float = 10.0,
+    feed_model: str = "none",
+    feed_params: dict | None = None,
+    feed_computation: str = "analytical",
+    reflector_type: str = "prime_focus",
+    magnification: float = 1.0,
+    aperture_params: dict | None = None,
 ) -> np.ndarray:
     """Compute scalar beam power pattern B^2 for HEALPix pixels.
 
-    For analytic beams: B^2 = pattern_function(za, hpbw)^2
     For FITS beams: B^2 = 0.5 * (|J_00|^2 + |J_01|^2 + |J_10|^2 + |J_11|^2)
+    For analytic beams: Uses compute_aperture_beam to get Jones, then
+    B^2 = 0.5 * sum(|J_ij|^2).
 
     Parameters
     ----------
     zenith_angles : ndarray
         Zenith angles in radians, shape (N,).
-    hpbw_rad : float
-        Half-power beam width in radians (for analytic beams).
-    beam_type : str
-        Analytic beam type: 'gaussian', 'airy', 'cosine', 'exponential'.
+    diameter : float
+        Antenna diameter in meters.
+    frequency : float
+        Frequency in Hz.
     beam_manager : BeamManager, optional
         BeamManager for FITS beam lookup.
     antenna_number : int, optional
         Antenna number for beam_manager lookup.
     azimuth : ndarray, optional
-        Azimuth angles in radians, shape (N,). Required for FITS beams.
-    frequency : float, optional
-        Frequency in Hz. Required for FITS beams and 'airy' beam.
+        Azimuth angles in radians, shape (N,).
+    aperture_shape : str
+        Aperture geometry type.
+    taper : str
+        Illumination taper function.
+    edge_taper_dB : float
+        Edge taper in dB.
+    feed_model : str
+        Feed pattern model.
+    feed_params : dict, optional
+        Feed-specific parameters.
+    feed_computation : str
+        'analytical' or 'numerical'.
+    reflector_type : str
+        Reflector geometry type.
+    magnification : float
+        Cassegrain magnification.
+    aperture_params : dict, optional
+        Aperture-specific parameters.
 
     Returns
     -------
@@ -87,12 +112,25 @@ def _compute_beam_power_pattern(
             # Power pattern = sum of |J_ij|^2 / 2  (average over polarizations)
             return 0.5 * np.sum(np.abs(jones) ** 2, axis=(-2, -1))
 
-    # Analytic beam fallback (Gaussian only)
-    from rrivis.core.jones.beam.analytic import gaussian_A_theta_EBeam
+    # Aperture-based analytic beam
+    from rrivis.core.jones.beam.analytic import compute_aperture_beam
 
-    voltage = gaussian_A_theta_EBeam(zenith_angles, hpbw_rad)
-
-    return np.asarray(voltage, dtype=np.float64) ** 2
+    jones = compute_aperture_beam(
+        theta=zenith_angles,
+        phi=azimuth,
+        frequency=frequency,
+        diameter=diameter,
+        aperture_shape=aperture_shape,
+        taper=taper,
+        edge_taper_dB=edge_taper_dB,
+        feed_model=feed_model,
+        feed_params=feed_params,
+        feed_computation=feed_computation,
+        reflector_type=reflector_type,
+        magnification=magnification,
+        aperture_params=aperture_params,
+    )
+    return 0.5 * np.sum(np.abs(jones) ** 2, axis=(-2, -1))
 
 
 def compute_beam_squared_integral(
@@ -129,10 +167,10 @@ def calculate_visibility_healpix(
     freqs: Any,
     duration_seconds: float,
     time_step_seconds: float,
-    hpbw_per_antenna: dict | None = None,
     beam_manager: Any | None = None,
     backend: ArrayBackend | None = None,
     output_units: str = "Jy",
+    beam_config: dict | None = None,
 ) -> dict:
     """
     Calculate visibility directly from HEALPix brightness temperature map.
@@ -163,14 +201,16 @@ def calculate_visibility_healpix(
         Total observation duration in seconds.
     time_step_seconds : float
         Time step for integration in seconds.
-    hpbw_per_antenna : dict, optional
-        Half-power beam width per antenna (for beam attenuation).
     beam_manager : BeamManager, optional
         Beam pattern manager for FITS-based beams.
     backend : ArrayBackend, optional
         Computation backend (CPU/GPU).
     output_units : str, default="Jy"
         Output units: "Jy" (convert to Jansky) or "K.sr" (keep temperature × solid angle).
+    beam_config : dict, optional
+        Beam configuration with keys: aperture_shape, taper, edge_taper_dB,
+        feed_model, feed_params, feed_computation, reflector_type, magnification,
+        aperture_params.
 
     Returns
     -------
@@ -308,19 +348,25 @@ def calculate_visibility_healpix(
                 signal = temp_vis * omega_pixel
 
             # Compute per-antenna beam power patterns for this frequency
+            bcfg = beam_config or {}
             for ant_num in ant_nums:
-                if hpbw_per_antenna is not None:
-                    hpbw_rad = hpbw_per_antenna.get(ant_num, np.array([0.1]))[freq_idx]
-                else:
-                    hpbw_rad = 0.1
+                ant_diameter = antennas.get(ant_num, {}).get("diameter", 14.0)
                 beam_patterns[ant_num] = _compute_beam_power_pattern(
                     zenith_angles=za_vis,
-                    hpbw_rad=hpbw_rad,
-                    beam_type="gaussian",
+                    diameter=ant_diameter,
+                    frequency=freq,
                     beam_manager=beam_manager if has_beam_manager else None,
                     antenna_number=ant_num,
                     azimuth=az_vis,
-                    frequency=freq,
+                    aperture_shape=bcfg.get("aperture_shape", "circular"),
+                    taper=bcfg.get("taper", "gaussian"),
+                    edge_taper_dB=bcfg.get("edge_taper_dB", 10.0),
+                    feed_model=bcfg.get("feed_model", "none"),
+                    feed_params=bcfg.get("feed_params"),
+                    feed_computation=bcfg.get("feed_computation", "analytical"),
+                    reflector_type=bcfg.get("reflector_type", "prime_focus"),
+                    magnification=bcfg.get("magnification", 1.0),
+                    aperture_params=bcfg.get("aperture_params"),
                 )
 
             # Compute visibility for each baseline

@@ -23,7 +23,6 @@ class TestBasicVisibilityCalculation:
         sample_obstime,
         sample_frequencies_multiple,
         sample_wavelengths,
-        sample_hpbw_simple,
     ):
         """Test minimal visibility calculation with all required inputs."""
         from rrivis.core.visibility import calculate_visibility
@@ -36,7 +35,6 @@ class TestBasicVisibilityCalculation:
             obstime=sample_obstime,
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
-            hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -61,7 +59,6 @@ class TestBasicVisibilityCalculation:
         sample_obstime,
         sample_frequencies_multiple,
         sample_wavelengths,
-        sample_hpbw_simple,
     ):
         """Test visibility calculation with multiple sources."""
         from rrivis.core.visibility import calculate_visibility
@@ -74,7 +71,6 @@ class TestBasicVisibilityCalculation:
             obstime=sample_obstime,
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
-            hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -93,7 +89,6 @@ class TestBasicVisibilityCalculation:
         sample_obstime,
         sample_frequencies_multiple,
         sample_wavelengths,
-        sample_hpbw_simple,
     ):
         """Test visibility calculation with Jones chain configuration."""
         from rrivis.core.visibility import calculate_visibility
@@ -106,7 +101,6 @@ class TestBasicVisibilityCalculation:
             obstime=sample_obstime,
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
-            hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
@@ -130,7 +124,6 @@ class TestBackendIntegration:
         sample_obstime,
         sample_frequencies_multiple,
         sample_wavelengths,
-        sample_hpbw_simple,
         numpy_backend,
     ):
         """Test visibility calculation with explicit NumPy backend."""
@@ -144,7 +137,6 @@ class TestBackendIntegration:
             obstime=sample_obstime,
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
-            hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             backend=numpy_backend,
@@ -167,7 +159,6 @@ class TestJonesChainIntegration:
         sample_obstime,
         sample_frequencies_multiple,
         sample_wavelengths,
-        sample_hpbw_simple,
     ):
         """Test Jones chain with gain calibration enabled."""
         from rrivis.core.visibility import calculate_visibility
@@ -184,7 +175,6 @@ class TestJonesChainIntegration:
             obstime=sample_obstime,
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
-            hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             jones_config=jones_config,
@@ -201,7 +191,6 @@ class TestJonesChainIntegration:
         sample_obstime,
         sample_frequencies_multiple,
         sample_wavelengths,
-        sample_hpbw_simple,
     ):
         """Test Jones chain with bandpass enabled."""
         from rrivis.core.visibility import calculate_visibility
@@ -218,7 +207,6 @@ class TestJonesChainIntegration:
             obstime=sample_obstime,
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
-            hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
             jones_config=jones_config,
@@ -256,7 +244,6 @@ class TestPolarizationWorkflow:
         sample_obstime,
         sample_frequencies_multiple,
         sample_wavelengths,
-        sample_hpbw_simple,
     ):
         """Test visibility calculation with polarized sources."""
         from rrivis.core.visibility import calculate_visibility
@@ -269,7 +256,6 @@ class TestPolarizationWorkflow:
             obstime=sample_obstime,
             wavelengths=sample_wavelengths,
             freqs=sample_frequencies_multiple,
-            hpbw_per_antenna=sample_hpbw_simple,
             duration_seconds=60.0,
             time_step_seconds=60.0,
         )
