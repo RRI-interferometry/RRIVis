@@ -30,7 +30,8 @@ feeds:
 
 beams:
   # NEW: Beam FITS configuration for shared mode
-  beam_mode: "shared"  # All antennas use the same beam file
+  beam_mode: "fits"  # FITS beam file
+  per_antenna: false  # All antennas share the same beam file
 
   # Path to the shared beam FITS file (pyuvdata UVBeam format)
   beam_file: "/path/to/mwa_full_embedded_element_pattern.fits"

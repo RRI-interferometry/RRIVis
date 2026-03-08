@@ -34,16 +34,12 @@ feeds:
   feed_types_per_antenna: {}
 
 beams:
-  # NEW: Beam FITS configuration for per-antenna mode with BeamID from layout
-  beam_mode: "per_antenna"  # Different beams for different antennas
+  # NEW: Beam FITS configuration for per-antenna FITS beams via antenna_beam_map
+  beam_mode: "fits"  # FITS beam files
+  per_antenna: true  # Different beam file per antenna
 
-  # How to assign beams: read BeamID column from antenna layout file
-  beam_assignment: "from_layout"
-
-  # The BeamID values from the layout file correspond to beam files
-  # in the data/beams/ directory with naming convention: {BeamID}.fits
-  # Example: BeamID "beam_dipole" → data/beams/beam_dipole.fits
-  #          BeamID "beam_dish" → data/beams/beam_dish.fits
+  # Map antenna number to beam FITS file path
+  # The antenna_beam_map keys must match antenna numbers in the layout file
 
   # Beam loading parameters
   beam_za_max_deg: 90.0      # Load beam up to 90° zenith angle

@@ -14,12 +14,12 @@ baseline_selection:
   use_autocorrelations: false
   use_crosscorrelations: true
 beams:
-  all_beam_response: null
+  beam_mode: analytic
+  per_antenna: false
+  all_beam_response: gaussian
   antenna_beam_map: {}
-  beam_assignment: null
   beam_file: null
   beam_freq_buffer_hz: null
-  beam_mode: null
   beam_za_buffer_deg: null
   beam_za_max_deg: null
 compute:

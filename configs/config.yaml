@@ -20,7 +20,7 @@ feeds:
   feed_types_per_antenna: {}
 beams:
   beam_mode: analytic
-  beam_assignment: from_layout
+  per_antenna: false
   antenna_beam_map: {}
   beam_za_max_deg: 90.0
   beam_za_buffer_deg: 5.0
