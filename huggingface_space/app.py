@@ -25,8 +25,8 @@ CONFIG_PATH = Path(__file__).parent / "config.yaml"
 # --- Plotting Functions ---
 def plot_antenna_layout(antennas: dict) -> go.Figure:
     """Plot antenna positions using Plotly."""
-    east = [ant["E"] for ant in antennas.values()]
-    north = [ant["N"] for ant in antennas.values()]
+    east = [ant["Position"][0] for ant in antennas.values()]
+    north = [ant["Position"][1] for ant in antennas.values()]
     names = [ant["Name"] for ant in antennas.values()]
 
     fig = go.Figure()
@@ -57,7 +57,7 @@ def plot_uv_coverage(baselines: dict, wavelengths) -> go.Figure:
     """Plot UV coverage."""
     u_all, v_all = [], []
     for _bl_key, bl_data in baselines.items():
-        bl_vec = np.array([bl_data["E"], bl_data["N"], bl_data.get("U", 0.0)])
+        bl_vec = np.asarray(bl_data["BaselineVector"])
         for wl in wavelengths:
             wl_val = wl.value if hasattr(wl, "value") else float(wl)
             u = bl_vec[0] / wl_val
@@ -320,30 +320,4 @@ if "results" in st.session_state:
 else:
     st.info(
         "Click **Run Simulation** to simulate visibilities from the configuration above."
-    )
-
-    st.markdown("---")
-    st.markdown("### About RRIVis")
-    st.markdown(
-        """
-        RRIVis implements the **Radio Interferometer Measurement Equation (RIME)**:
-
-        $$V_{pq}(\\nu, t) = \\sum_s J_p(s, \\nu, t) \\cdot C_s(\\nu) \\cdot J_q^H(s, \\nu, t)$$
-
-        where:
-        - $V_{pq}$ is the visibility for baseline $p$-$q$
-        - $J_p$ is the Jones matrix chain for antenna $p$
-        - $C_s$ is the coherency matrix for source $s$
-        - $J_q^H$ is the Hermitian conjugate of the Jones matrix for antenna $q$
-
-        **Features:**
-        - Full Stokes polarization (I, Q, U, V)
-        - GPU acceleration via JAX
-        - 20+ sky model catalogs (GLEAM, NVSS, TGSS, etc.)
-        - Multiple antenna layout formats
-        - HDF5 and Measurement Set output
-
-        [GitHub Repository](https://github.com/kartikmandar/RRIvis) |
-        [Documentation](https://rrivis.readthedocs.io)
-        """
     )
