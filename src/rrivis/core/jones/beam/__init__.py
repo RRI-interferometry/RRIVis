@@ -150,6 +150,10 @@ class BeamJones(JonesTerm):
 from rrivis.core.jones.beam.analytic import (  # noqa: E402
     AnalyticBeamJones,
     compute_aperture_beam,
+    plot_beam_2d,
+    plot_beam_comparison,
+    plot_beam_pattern,
+    plot_feed_illumination,
 )
 from rrivis.core.jones.beam.fits import (  # noqa: E402
     BeamFITSHandler,
@@ -165,6 +169,11 @@ __all__ = [
     "FITSBeamJones",
     # Analytic beam
     "compute_aperture_beam",
+    # Beam plotting
+    "plot_beam_pattern",
+    "plot_beam_comparison",
+    "plot_beam_2d",
+    "plot_feed_illumination",
     # FITS beam handling
     "astropy_az_to_uvbeam_az",
     "BeamFITSHandler",

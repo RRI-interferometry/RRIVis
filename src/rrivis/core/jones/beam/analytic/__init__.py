@@ -189,8 +189,63 @@ class AnalyticBeamJones(BeamJones):
         )
         return config
 
+    def plot(
+        self,
+        frequency: float | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Plot the beam pattern for this Jones term configuration.
+
+        Convenience method that calls
+        :func:`~rrivis.core.jones.beam.analytic.plotting.plot_beam_pattern`
+        with this instance's beam parameters.
+
+        Parameters
+        ----------
+        frequency : float or None
+            Frequency in Hz. Defaults to ``self.frequencies[0]``.
+        **kwargs
+            Additional keyword arguments forwarded to
+            :func:`plot_beam_pattern`.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            The figure containing the beam pattern plot.
+        """
+        from rrivis.core.jones.beam.analytic.plotting import plot_beam_pattern
+
+        if frequency is None:
+            frequency = float(self.frequencies[0])
+
+        return plot_beam_pattern(
+            diameter=self.diameter,
+            frequency=frequency,
+            aperture_shape=self.aperture_shape,
+            taper=self.taper,
+            edge_taper_dB=self.edge_taper_dB,
+            feed_model=self.feed_model,
+            feed_computation=self.feed_computation,
+            feed_params=self.feed_params,
+            reflector_type=self.reflector_type,
+            magnification=self.magnification,
+            aperture_params=self.aperture_params,
+            **kwargs,
+        )
+
+
+from rrivis.core.jones.beam.analytic.plotting import (  # noqa: E402
+    plot_beam_2d,
+    plot_beam_comparison,
+    plot_beam_pattern,
+    plot_feed_illumination,
+)
 
 __all__ = [
     "AnalyticBeamJones",
     "compute_aperture_beam",
+    "plot_beam_pattern",
+    "plot_beam_comparison",
+    "plot_beam_2d",
+    "plot_feed_illumination",
 ]
