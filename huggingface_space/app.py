@@ -205,11 +205,7 @@ def plot_visibility_matrix(results: dict) -> go.Figure:
 
 
 # --- Main Content ---
-st.title("📡 RRIVis - Radio Interferometer Visibility Simulator")
-st.markdown(
-    "Simulate radio interferometer visibilities using the **RIME** "
-    "(Radio Interferometer Measurement Equation) with full polarization support."
-)
+st.title("RRIVis - Radio Interferometer Visibility Simulator")
 
 # --- Display Config YAML ---
 st.subheader("Simulation Configuration")
