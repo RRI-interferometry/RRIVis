@@ -15,7 +15,7 @@ taper
 feed
     Feed pattern models and reflector geometry (prime-focus, Cassegrain).
 numerical_hpbw
-    Numerical HPBW finder for arbitrary beam patterns.
+    Diagnostic HPBW finder for beam pattern visualization.
 """
 
 from typing import Any

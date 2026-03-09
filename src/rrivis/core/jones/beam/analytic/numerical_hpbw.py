@@ -1,9 +1,14 @@
-"""Numerical HPBW finder for arbitrary beam patterns.
+"""Diagnostic HPBW finder for beam pattern visualization.
+
+This is a **diagnostic/visualization utility** — it is NOT used in RIME
+simulation computations. The RIME evaluates the full beam pattern directly
+at each source position; HPBW is never used as an intermediate quantity.
 
 Given any beam voltage pattern function, this module numerically evaluates
 the pattern on a fine angular grid and interpolates to find the half-power
-beam width (HPBW). This is useful for beam patterns that lack a closed-form
-HPBW expression (e.g., tapered aperture patterns, measured beams).
+beam width (HPBW). This is useful for annotating beam plots and inspecting
+beam patterns that lack a closed-form HPBW expression (e.g., tapered
+aperture patterns, measured beams).
 
 The algorithm works by:
 
@@ -40,6 +45,10 @@ def compute_hpbw_numerical(
     **beam_kwargs,
 ) -> np.ndarray:
     """Find HPBW by evaluating beam pattern and interpolating to half-power.
+
+    This function is for diagnostics and plot annotations only. The RIME
+    simulation evaluates the full beam pattern directly at each source
+    position — HPBW is never used as an intermediate computational quantity.
 
     Parameters
     ----------
