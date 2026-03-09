@@ -1,0 +1,68 @@
+antenna_layout:
+  all_antenna_diameter: 14.0
+  antenna_file_format: rrivis
+  antenna_positions_file: antenna_layouts/hera_5.txt
+  use_different_diameters: false
+  diameters: {}
+baseline_selection:
+  use_autocorrelations: false
+  use_crosscorrelations: true
+  only_selective_baseline_length: false
+  selective_baseline_lengths: []
+  selective_baseline_tolerance_meters: 0.5
+  trim_by_angle_ranges: false
+  selective_angle_ranges_deg: []
+beams:
+  beam_mode: analytic
+  per_antenna: false
+  antenna_beam_map: {}
+  beam_peak_normalize: true
+  aperture_shape: circular
+  taper: gaussian
+  edge_taper_dB: 10.0
+  feed_model: none
+  feed_computation: analytical
+  feed_params: {}
+  reflector_type: prime_focus
+  magnification: 1.0
+  aperture_params: {}
+compute:
+  backend: numpy
+feeds:
+  use_polarized_feeds: false
+  polarization_type: ''
+  use_different_polarization_type: false
+  polarization_per_antenna: {}
+  use_different_feed_types: false
+  all_feed_type: ''
+  feed_types_per_antenna: {}
+location:
+  lat: -30.72152
+  lon: 21.42830
+  height: 1073.0
+obs_frequency:
+  starting_frequency: 50
+  frequency_interval: 1.0
+  frequency_bandwidth: 100
+  frequency_unit: MHz
+obs_time:
+  start_time: '2025-01-01T00:00:00'
+  duration_seconds: 3600
+  time_step_seconds: 60
+output:
+  save_simulation_data: false
+  plot_results: false
+sky_model:
+  flux_unit: Jy
+  test_sources:
+    use_test_sources: true
+    num_sources: 200
+    flux_min: 1.0
+    flux_max: 5.0
+    dec_deg: -30.72
+    spectral_index: 0
+telescope:
+  telescope_name: HERA
+visibility:
+  calculation_type: direct_sum
+  sky_representation: point_sources
