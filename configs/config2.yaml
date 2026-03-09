@@ -18,9 +18,28 @@ beams:
   per_antenna: false
   antenna_beam_map: {}
   beam_file: null
-  beam_freq_buffer_hz: null
-  beam_za_buffer_deg: null
   beam_za_max_deg: null
+  beam_za_buffer_deg: null
+  beam_freq_buffer_hz: null
+  beam_peak_normalize: true
+  beam_interp_function: null
+
+  # Aperture shape and taper
+  aperture_shape: circular
+  taper: gaussian
+  edge_taper_dB: 10.0
+
+  # Feed model
+  feed_model: none
+  feed_computation: analytical
+  feed_params: {}
+
+  # Reflector geometry
+  reflector_type: prime_focus
+  magnification: 1.0
+
+  # Aperture-specific parameters
+  aperture_params: {}
 compute:
   backend: numpy
 feeds:
