@@ -827,13 +827,14 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         flux_range: tuple[float, float] | None = None,
         dec_deg: float | None = None,
         spectral_index: float | None = None,
+        distribution: str = "uniform",
+        seed: int | None = None,
+        dec_range_deg: float | None = None,
         brightness_conversion: str = "planck",
         precision: Any = None,
     ) -> "SkyModel":
         """
         Generate synthetic test sources.
-
-        Creates point sources evenly distributed in Right Ascension.
 
         Parameters
         ----------
@@ -843,8 +844,21 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             (min_flux, max_flux) in Jy. Must be provided.
         dec_deg : float, optional
             Declination for all sources (degrees). Must be provided.
+            For 'uniform' distribution, all sources share this declination.
+            For 'random', used as the center of a declination band.
         spectral_index : float, optional
             Spectral index for all sources. Must be provided.
+        distribution : str, default="uniform"
+            Source distribution mode:
+            - "uniform": evenly spaced in RA, linearly spaced flux, fixed Dec.
+            - "random": random RA, Dec (within band around dec_deg), and flux.
+        seed : int, optional
+            Random seed for reproducibility. Only used when distribution='random'.
+        dec_range_deg : float, optional
+            Half-width of declination band in degrees (only used when
+            distribution='random'). Sources are drawn uniformly from
+            [dec_deg - dec_range_deg, dec_deg + dec_range_deg], clamped to
+            [-90, 90]. Defaults to 10.0 when distribution='random'.
         precision : PrecisionConfig, optional
             Precision configuration for array dtypes. If None, uses float64.
 
@@ -856,7 +870,8 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         Raises
         ------
         ValueError
-            If dec_deg, flux_range, or spectral_index is not provided.
+            If dec_deg, flux_range, or spectral_index is not provided, or if
+            distribution is not 'uniform' or 'random'.
         """
         errors = []
         if dec_deg is None:
@@ -867,22 +882,48 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             )
         if spectral_index is None:
             errors.append("spectral_index is required for test sources")
+        if distribution not in ("uniform", "random"):
+            errors.append(
+                f"distribution must be 'uniform' or 'random', got '{distribution}'"
+            )
         if errors:
             raise ValueError(
                 "Missing required test source parameters:\n  - " + "\n  - ".join(errors)
             )
 
         n = num_sources
-        if n == 1:
-            ra_deg_arr = np.array([0.0])
-            flux_arr = np.array([(flux_range[0] + flux_range[1]) / 2])
+
+        if distribution == "random":
+            rng = np.random.default_rng(seed)
+
+            # RA: uniform over full sky
+            ra_deg_arr = rng.uniform(0.0, 360.0, size=n)
+
+            # Dec: uniform within band around dec_deg
+            half_width = dec_range_deg if dec_range_deg is not None else 10.0
+            dec_lo = max(-90.0, dec_deg - half_width)
+            dec_hi = min(90.0, dec_deg + half_width)
+            dec_deg_arr = rng.uniform(dec_lo, dec_hi, size=n)
+
+            # Flux: uniform between min and max
+            flux_arr = rng.uniform(flux_range[0], flux_range[1], size=n)
+
+            logger.debug(
+                f"Generated {n} random test sources "
+                f"(seed={seed}, dec=[{dec_lo:.1f}, {dec_hi:.1f}]°)"
+            )
         else:
-            ra_deg_arr = np.array([(360.0 / n) * i for i in range(n)])
-            flux_arr = np.linspace(flux_range[0], flux_range[1], n)
+            # Deterministic uniform distribution (original behavior)
+            if n == 1:
+                ra_deg_arr = np.array([0.0])
+                flux_arr = np.array([(flux_range[0] + flux_range[1]) / 2])
+            else:
+                ra_deg_arr = np.array([(360.0 / n) * i for i in range(n)])
+                flux_arr = np.linspace(flux_range[0], flux_range[1], n)
 
-        dec_deg_arr = np.full(n, dec_deg)
+            dec_deg_arr = np.full(n, dec_deg)
 
-        logger.debug(f"Generated {n} test sources")
+            logger.debug(f"Generated {n} uniform test sources")
 
         sky = cls(
             _ra_rad=np.deg2rad(ra_deg_arr),

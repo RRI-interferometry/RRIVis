@@ -259,7 +259,7 @@ class Simulator:
 
         Examples
         --------
-        >>> sim = Simulator.from_config("configs/01_parabolic.yaml")
+        >>> sim = Simulator.from_config("configs/config.yaml")
         >>> results = sim.run()
 
         With precision in config file:
@@ -507,6 +507,9 @@ class Simulator:
                     flux_range=flux_range,
                     dec_deg=test_config.get("dec_deg"),
                     spectral_index=test_config.get("spectral_index"),
+                    distribution=test_config.get("distribution", "uniform"),
+                    seed=test_config.get("seed"),
+                    dec_range_deg=test_config.get("dec_range_deg"),
                     precision=_precision,
                 )
             )
@@ -527,6 +530,9 @@ class Simulator:
                 flux_range=flux_range,
                 dec_deg=test_healpix_config.get("dec_deg"),
                 spectral_index=test_healpix_config.get("spectral_index"),
+                distribution=test_healpix_config.get("distribution", "uniform"),
+                seed=test_healpix_config.get("seed"),
+                dec_range_deg=test_healpix_config.get("dec_range_deg"),
                 precision=_precision,
             )
             obs_freq_config = self.config.get("obs_frequency", {})

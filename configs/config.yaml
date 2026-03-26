@@ -1,51 +1,156 @@
-telescope:
-  telescope_name: Unknown
-  use_pyuvdata_telescope: false
-  use_pyuvdata_location: false
-  use_pyuvdata_antennas: false
-  use_pyuvdata_diameters: false
 antenna_layout:
-  antenna_positions_file: antenna_layout_examples/hera_5.txt
-  antenna_file_format: rrivis
   all_antenna_diameter: 14.0
-  use_different_diameters: false
+  antenna_file_format: rrivis
+  antenna_positions_file: ../antenna_layout_examples/hera_5.txt
   diameters: {}
-feeds:
-  use_polarized_feeds: false
-  polarization_type: ''
-  use_different_polarization_type: false
-  polarization_per_antenna: {}
-  use_different_feed_types: false
-  all_feed_type: ''
-  feed_types_per_antenna: {}
+  fixed_HPBW: null
+  use_different_diameters: false
+baseline_selection:
+  only_selective_baseline_length: false
+  selective_angle_ranges_deg: []
+  selective_baseline_lengths: []
+  selective_baseline_tolerance_meters: 0.5
+  trim_by_angle_ranges: false
+  use_autocorrelations: false
+  use_crosscorrelations: true
 beams:
   beam_mode: analytic
   per_antenna: false
   antenna_beam_map: {}
-  beam_za_max_deg: 90.0
-  beam_za_buffer_deg: 5.0
-  beam_freq_buffer_hz: 1000000.0
-baseline_selection:
-  use_autocorrelations: true
-  use_crosscorrelations: true
-  only_selective_baseline_length: false
-  selective_baseline_lengths: []
-  selective_baseline_tolerance_meters: 2.0
-  trim_by_angle_ranges: false
-  selective_angle_ranges_deg: []
+  beam_file: null
+  beam_za_max_deg: null
+  beam_za_buffer_deg: null
+  beam_freq_buffer_hz: null
+  beam_peak_normalize: true
+  beam_interp_function: null
+
+  # Aperture shape and taper
+  aperture_shape: circular
+  taper: gaussian
+  edge_taper_dB: 10.0
+
+  # Feed model
+  feed_model: none
+  feed_computation: analytical
+  feed_params: {}
+
+  # Reflector geometry
+  reflector_type: prime_focus
+  magnification: 1.0
+
+  # Aperture-specific parameters
+  aperture_params: {}
+compute:
+  backend: numpy
+feeds:
+  all_feed_type: ''
+  feed_types_per_antenna: {}
+  polarization_per_antenna: {}
+  polarization_type: ''
+  use_different_feed_types: false
+  use_different_polarization_type: false
+  use_polarized_feeds: false
 location:
-  lat: -30.72152
-  lon: 21.42830
-  height: 1073.0
+  height: ''
+  lat: ''
+  lon: ''
+obs_frequency:
+  frequency_bandwidth: 100
+  frequency_interval: 1.0
+  frequency_unit: MHz
+  starting_frequency: 50
+obs_time:
+  duration_seconds: 3600
+  start_time: 2025-01-01T00:00:00
+  time_step_seconds: 60
+output:
+  angle_unit: ''
+  open_plots_in_browser: false
+  output_file_format: null
+  output_file_name: visibilities
+  overwrite_output: false
+  plot_results: false
+  plot_skymodel_every_hour: false
+  plotting_backend: bokeh
+  prompt_for_output_suffix: false
+  save_log_data: false
+  save_simulation_data: true
+  simulation_data_dir: ''
+  simulation_subdir: ''
+  skip_overwrite_confirmation: false
+  skymodel_frequency: null
+precision: null
+simulators:
+  name: ''
+  use_different_simulator_for_cross_check: false
 sky_model:
   flux_unit: Jy
+  at20g:
+    flux_limit: 0.04
+    use_at20g: false
+  first:
+    flux_limit: 0.001
+    use_first: false
+  gb6:
+    flux_limit: 0.018
+    use_gb6: false
+  gleam:
+    flux_limit: 50.0
+    gleam_catalogue: VIII/105/catalog
+    nside: 32
+    use_gleam: false
+  gleam_healpix:
+    flux_limit: 50.0
+    gleam_catalogue: VIII/105/catalog
+    nside: 32
+    use_gleam: false
+  gsm_healpix:
+    basemap: null
+    flux_limit: 50.0
+    gsm_catalogue: gsm2008
+    include_cmb: false
+    interpolation: null
+    nside: 32
+    use_gsm: false
+  lotss:
+    flux_limit: 0.001
+    lotss_release: dr2
+    use_lotss: false
+  mals:
+    flux_limit: 1.0
+    mals_release: dr2
+    use_mals: false
+  nvss:
+    flux_limit: 0.0025
+    use_nvss: false
+  pyradiosky:
+    filename: ''
+    filetype: null
+    flux_limit: 0.0
+    reference_frequency_hz: null
+    use_pyradiosky: false
+  pysm3:
+    components: s1
+    nside: 64
+    use_pysm3: false
+  racs:
+    flux_limit: 1.0
+    max_rows: 1000000
+    racs_band: low
+    use_racs: false
+  sumss:
+    flux_limit: 0.008
+    use_sumss: false
   test_sources:
-    use_test_sources: false
-    num_sources: 100
-    flux_min: 2.0
-    flux_max: 8.0
+    use_test_sources: true
+    num_sources: 200
+    distribution: random
+    seed: 42
+    flux_min: 1.0
+    flux_max: 5.0
     dec_deg: -30.72
-    spectral_index: -0.8
+    dec_range_deg: 10.0
+    spectral_index: 0
   test_sources_healpix:
     use_test_sources: false
     num_sources: 100
@@ -54,102 +159,27 @@ sky_model:
     dec_deg: -30.72
     spectral_index: -0.8
     nside: 64
-  gsm_healpix:
-    use_gsm: false
-    gsm_catalogue: gsm2008
-    flux_limit: 50.0
-    nside: 32
-    include_cmb: false
-  gleam:
-    use_gleam: false
-    gleam_catalogue: VIII/105/catalog
-    flux_limit: 50.0
-    nside: 32
-  gleam_healpix:
-    use_gleam: false
-    gleam_catalogue: VIII/105/catalog
-    flux_limit: 50.0
-    nside: 32
-  mals:
-    use_mals: false
-    mals_release: dr2
-    flux_limit: 1.0
-  vlssr:
-    use_vlssr: false
-    flux_limit: 1.0
   tgss:
-    use_tgss: false
     flux_limit: 0.1
-  wenss:
-    use_wenss: false
-    flux_limit: 0.05
-  sumss:
-    use_sumss: false
-    flux_limit: 0.008
-  nvss:
-    use_nvss: false
-    flux_limit: 0.0025
-  first:
-    use_first: false
-    flux_limit: 0.001
-  lotss:
-    use_lotss: false
-    lotss_release: dr2
-    flux_limit: 0.001
-  at20g:
-    use_at20g: false
-    flux_limit: 0.04
+    use_tgss: false
   three_c:
+    flux_limit: 1.0
     use_3c: false
-    flux_limit: 1.0
-  gb6:
-    use_gb6: false
-    flux_limit: 0.018
-  racs:
-    use_racs: false
-    racs_band: low
-    flux_limit: 1.0
-    max_rows: 1000000
-  pysm3:
-    use_pysm3: false
-    components: s1
-    nside: 64
   ulsa:
-    use_ulsa: false
     nside: 64
-  pyradiosky:
-    use_pyradiosky: false
-    filename: ''
-    flux_limit: 0.0
-obs_time:
-  start_time: '2023-01-01T00:00:00'
-  duration_seconds: 3600.0
-  time_step_seconds: 60.0
-obs_frequency:
-  starting_frequency: 50.0
-  frequency_interval: 2.0
-  frequency_bandwidth: 100.0
-  frequency_unit: MHz
-output:
-  simulation_data_dir: ''
-  simulation_subdir: ''
-  output_file_name: complex_visibility
-  output_file_format: HDF5
-  save_simulation_data: true
-  overwrite_output: false
-  skip_overwrite_confirmation: true
-  plot_results: true
-  open_plots_in_browser: false
-  plotting_backend: bokeh
-  plot_skymodel_every_hour: true
-  save_log_data: true
-  angle_unit: ''
-  skymodel_frequency: 150.0
-compute:
-  backend: numpy
-simulators:
-  use_different_simulator_for_cross_check: false
-  name: ''
+    use_ulsa: false
+  vlssr:
+    flux_limit: 1.0
+    use_vlssr: false
+  wenss:
+    flux_limit: 0.05
+    use_wenss: false
+telescope:
+  telescope_name: HERA
+  use_pyuvdata_antennas: false
+  use_pyuvdata_diameters: false
+  use_pyuvdata_location: false
+  use_pyuvdata_telescope: false
 visibility:
   calculation_type: direct_sum
   sky_representation: point_sources

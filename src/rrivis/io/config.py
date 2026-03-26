@@ -227,6 +227,17 @@ class SyntheticSourcesConfig(BaseModel):
 
     use_test_sources: bool = Field(False, description="Use test sources")
     num_sources: int = Field(100, ge=1, description="Number of test sources")
+    distribution: Literal["uniform", "random"] = Field(
+        "uniform",
+        description=(
+            "Source distribution: 'uniform' (evenly spaced RA, linear flux) "
+            "or 'random' (random RA/Dec/flux)."
+        ),
+    )
+    seed: int | None = Field(
+        None,
+        description="Random seed for reproducibility (only used when distribution='random').",
+    )
     flux_min: float | None = Field(
         None, ge=0, description="Minimum flux (in sky_model.flux_unit)"
     )
@@ -234,7 +245,12 @@ class SyntheticSourcesConfig(BaseModel):
         None, ge=0, description="Maximum flux (in sky_model.flux_unit)"
     )
     dec_deg: float | None = Field(
-        None, description="Declination for all sources (degrees)"
+        None,
+        description="Declination for all sources (degrees). For 'uniform' distribution, all sources share this declination. For 'random', used as the center of a declination band (default width ±10°).",
+    )
+    dec_range_deg: float | None = Field(
+        None,
+        description="Half-width of declination band in degrees (only used when distribution='random'). Sources are drawn from [dec_deg - dec_range_deg, dec_deg + dec_range_deg].",
     )
     spectral_index: float | None = Field(
         None, description="Spectral index for all sources"
@@ -248,6 +264,17 @@ class SyntheticSourcesHEALPixConfig(BaseModel):
         False, description="Use test sources in HEALPix mode"
     )
     num_sources: int = Field(100, ge=1, description="Number of test sources")
+    distribution: Literal["uniform", "random"] = Field(
+        "uniform",
+        description=(
+            "Source distribution: 'uniform' (evenly spaced RA, linear flux) "
+            "or 'random' (random RA/Dec/flux)."
+        ),
+    )
+    seed: int | None = Field(
+        None,
+        description="Random seed for reproducibility (only used when distribution='random').",
+    )
     flux_min: float | None = Field(
         None, ge=0, description="Minimum flux (in sky_model.flux_unit)"
     )
@@ -255,7 +282,12 @@ class SyntheticSourcesHEALPixConfig(BaseModel):
         None, ge=0, description="Maximum flux (in sky_model.flux_unit)"
     )
     dec_deg: float | None = Field(
-        None, description="Declination for all sources (degrees)"
+        None,
+        description="Declination for all sources (degrees). For 'uniform' distribution, all sources share this declination. For 'random', used as the center of a declination band (default width ±10°).",
+    )
+    dec_range_deg: float | None = Field(
+        None,
+        description="Half-width of declination band in degrees (only used when distribution='random'). Sources are drawn from [dec_deg - dec_range_deg, dec_deg + dec_range_deg].",
     )
     spectral_index: float | None = Field(
         None, description="Spectral index for all sources"
