@@ -142,6 +142,7 @@ dmypy.json
 *~
 .DS_Store
 ._*
+RRIVis.code-workspace
 
 # pixi environment
 .pixi/
