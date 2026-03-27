@@ -621,30 +621,12 @@ class Simulator:
                 )
             )
 
-        first_config = sky_config.get("first", {})
-        if first_config.get("use_first", False):
-            sky_models.append(
-                SkyModel.from_first(
-                    flux_limit=first_config.get("flux_limit", 0.001) * _flux_mul,
-                    precision=_precision,
-                )
-            )
-
         lotss_config = sky_config.get("lotss", {})
         if lotss_config.get("use_lotss", False):
             sky_models.append(
                 SkyModel.from_lotss(
                     release=lotss_config.get("lotss_release", "dr2"),
                     flux_limit=lotss_config.get("flux_limit", 0.001) * _flux_mul,
-                    precision=_precision,
-                )
-            )
-
-        at20g_config = sky_config.get("at20g", {})
-        if at20g_config.get("use_at20g", False):
-            sky_models.append(
-                SkyModel.from_at20g(
-                    flux_limit=at20g_config.get("flux_limit", 0.04) * _flux_mul,
                     precision=_precision,
                 )
             )
@@ -658,11 +640,11 @@ class Simulator:
                 )
             )
 
-        gb6_config = sky_config.get("gb6", {})
-        if gb6_config.get("use_gb6", False):
+        vlass_config = sky_config.get("vlass", {})
+        if vlass_config.get("use_vlass", False):
             sky_models.append(
-                SkyModel.from_gb6(
-                    flux_limit=gb6_config.get("flux_limit", 0.018) * _flux_mul,
+                SkyModel.from_vlass(
+                    flux_limit=vlass_config.get("flux_limit", 0.001) * _flux_mul,
                     precision=_precision,
                 )
             )

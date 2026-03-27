@@ -399,15 +399,6 @@ class NVSSConfig(BaseModel):
     )
 
 
-class FIRSTConfig(BaseModel):
-    """FIRST (1400 MHz) catalog configuration."""
-
-    use_first: bool = Field(False, description="Use FIRST catalog")
-    flux_limit: float = Field(
-        0.001, ge=0, description="Flux limit (in sky_model.flux_unit)"
-    )
-
-
 class LoTSSConfig(BaseModel):
     """LoTSS (144 MHz) catalog configuration."""
 
@@ -420,15 +411,6 @@ class LoTSSConfig(BaseModel):
     )
 
 
-class AT20GConfig(BaseModel):
-    """AT20G (20 GHz) catalog configuration."""
-
-    use_at20g: bool = Field(False, description="Use AT20G catalog")
-    flux_limit: float = Field(
-        0.04, ge=0, description="Flux limit (in sky_model.flux_unit)"
-    )
-
-
 class ThreeCConfig(BaseModel):
     """3CR (178 MHz) catalog configuration."""
 
@@ -438,12 +420,12 @@ class ThreeCConfig(BaseModel):
     )
 
 
-class GB6Config(BaseModel):
-    """GB6 (4850 MHz) catalog configuration."""
+class VLASSConfig(BaseModel):
+    """VLASS Quick Look (3000 MHz) catalog configuration."""
 
-    use_gb6: bool = Field(False, description="Use GB6 catalog")
+    use_vlass: bool = Field(False, description="Use VLASS catalog")
     flux_limit: float = Field(
-        0.018, ge=0, description="Flux limit (in sky_model.flux_unit)"
+        0.001, ge=0, description="Flux limit (in sky_model.flux_unit)"
     )
 
 
@@ -521,11 +503,9 @@ class SkyModelConfig(BaseModel):
     wenss: WENSSConfig = Field(default_factory=WENSSConfig)
     sumss: SUMSSConfig = Field(default_factory=SUMSSConfig)
     nvss: NVSSConfig = Field(default_factory=NVSSConfig)
-    first: FIRSTConfig = Field(default_factory=FIRSTConfig)
     lotss: LoTSSConfig = Field(default_factory=LoTSSConfig)
-    at20g: AT20GConfig = Field(default_factory=AT20GConfig)
     three_c: ThreeCConfig = Field(default_factory=ThreeCConfig)
-    gb6: GB6Config = Field(default_factory=GB6Config)
+    vlass: VLASSConfig = Field(default_factory=VLASSConfig)
     racs: RACSConfig = Field(default_factory=RACSConfig)
     # --- New diffuse models ---
     pysm3: PySM3Config = Field(default_factory=PySM3Config)
@@ -1176,11 +1156,9 @@ class RRIvisConfig(BaseModel):
             or sm.wenss.use_wenss
             or sm.sumss.use_sumss
             or sm.nvss.use_nvss
-            or sm.first.use_first
             or sm.lotss.use_lotss
-            or sm.at20g.use_at20g
             or sm.three_c.use_3c
-            or sm.gb6.use_gb6
+            or sm.vlass.use_vlass
             or sm.racs.use_racs
             or sm.pysm3.use_pysm3
             or sm.ulsa.use_ulsa

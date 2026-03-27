@@ -95,7 +95,6 @@ class _VizierLoadersMixin:
         is_sexagesimal = info.get("coords_sexagesimal", False)
         coord_frame = info.get("coord_frame", "icrs")
         flux_unit = info.get("flux_unit", "Jy")
-        spindex_from_cols = info.get("spindex_from_cols")
 
         # Auto-detect sexagesimal coordinates: if the first valid RA value is a
         # string that can't be parsed as a float, treat coords as sexagesimal.
@@ -187,29 +186,7 @@ class _VizierLoadersMixin:
         default_spindex = info["default_spindex"]
         alpha_arr = np.full(n, default_spindex, dtype=np.float64)
 
-        if spindex_from_cols is not None:
-            # Two-frequency log-slope (e.g. AT20G)
-            s_low_col = spindex_from_cols["s_low"]
-            s_high_col = spindex_from_cols["s_high"]
-            freq_low = spindex_from_cols["freq_low_hz"]
-            freq_high = spindex_from_cols["freq_high_hz"]
-            if s_low_col in catalog.colnames and s_high_col in catalog.colnames:
-                for j, i in enumerate(valid_indices):
-                    row = rows_list[i]
-                    sl = row[s_low_col]
-                    sh = row[s_high_col]
-                    if (
-                        not np.ma.is_masked(sl)
-                        and not np.ma.is_masked(sh)
-                        and np.isfinite(float(sl))
-                        and np.isfinite(float(sh))
-                        and float(sl) > 0
-                        and float(sh) > 0
-                    ):
-                        alpha_arr[j] = np.log(float(sl) / float(sh)) / np.log(
-                            freq_low / freq_high
-                        )
-        elif info.get("spindex_col") and info["spindex_col"] in catalog.colnames:
+        if info.get("spindex_col") and info["spindex_col"] in catalog.colnames:
             for j, i in enumerate(valid_indices):
                 row = rows_list[i]
                 val = row[info["spindex_col"]]
@@ -258,7 +235,7 @@ class _VizierLoadersMixin:
         catalog : str, default="gleam_egc"
             Catalog key in ``VIZIER_POINT_CATALOGS``. Available GLEAM
             catalogs: ``"gleam_egc"``, ``"gleam_x_dr1"``, ``"gleam_x_dr2"``,
-            ``"gleam_gal"``, ``"gleam_sgp"``, ``"g4jy"``.
+            ``"gleam_gal"``.
 
             Legacy VizieR IDs (e.g. ``"VIII/100/gleamegc"``) are also
             accepted for backward compatibility.
@@ -275,14 +252,10 @@ class _VizierLoadersMixin:
             "VIII/100/gleamegc": "gleam_egc",
             "VIII/113/catalog2": "gleam_x_dr2",
             "VIII/102/gleamgal": "gleam_gal",
-            "VIII/109/gleamsgp": "gleam_sgp",
             "VIII/110/catalog": "gleam_x_dr1",
-            "VIII/105/catalog": "g4jy",
         }
         key = _LEGACY_GLEAM_IDS.get(catalog, catalog)
-        _gleam_keys = sorted(
-            k for k in VIZIER_POINT_CATALOGS if k.startswith("gleam") or k == "g4jy"
-        )
+        _gleam_keys = sorted(k for k in VIZIER_POINT_CATALOGS if k.startswith("gleam"))
         if key not in VIZIER_POINT_CATALOGS:
             raise ValueError(
                 f"Unknown GLEAM catalog '{catalog}'. Available: {_gleam_keys}"
@@ -479,36 +452,6 @@ class _VizierLoadersMixin:
         )
 
     @classmethod
-    def from_first(
-        cls,
-        flux_limit: float = 0.001,
-        brightness_conversion: str = "planck",
-        precision: Any = None,
-    ) -> "SkyModel":  # noqa: F821
-        """
-        Load the FIRST catalog from VizieR (1400 MHz, ~946,432 sources).
-
-        FIRST (White et al. 1997) is the Faint Images of the Radio Sky at
-        Twenty Centimeters survey at 1.4 GHz. Reference: VIII/92 on VizieR.
-
-        Parameters
-        ----------
-        flux_limit : float, default=0.001
-            Minimum flux density in Jy.
-        brightness_conversion : str, default="planck"
-            Conversion method: "planck" or "rayleigh-jeans".
-        precision : PrecisionConfig, optional
-            Precision configuration for array dtypes.
-
-        Returns
-        -------
-        SkyModel
-        """
-        return cls._load_from_vizier_catalog(
-            "first", flux_limit, brightness_conversion, precision
-        )
-
-    @classmethod
     def from_lotss(
         cls,
         release: str = "dr2",
@@ -552,37 +495,6 @@ class _VizierLoadersMixin:
         )
 
     @classmethod
-    def from_at20g(
-        cls,
-        flux_limit: float = 0.04,
-        brightness_conversion: str = "planck",
-        precision: Any = None,
-    ) -> "SkyModel":  # noqa: F821
-        """
-        Load the AT20G catalog from VizieR (20 GHz, ~5,890 sources).
-
-        AT20G (Murphy et al. 2010) is the Australia Telescope 20 GHz Survey.
-        Spectral indices are computed from multi-frequency flux measurements
-        (4.8 and 8.6 GHz) where available. Reference: VIII/83 on VizieR.
-
-        Parameters
-        ----------
-        flux_limit : float, default=0.04
-            Minimum flux density in Jy.
-        brightness_conversion : str, default="planck"
-            Conversion method: "planck" or "rayleigh-jeans".
-        precision : PrecisionConfig, optional
-            Precision configuration for array dtypes.
-
-        Returns
-        -------
-        SkyModel
-        """
-        return cls._load_from_vizier_catalog(
-            "at20g", flux_limit, brightness_conversion, precision
-        )
-
-    @classmethod
     def from_3c(
         cls,
         flux_limit: float = 1.0,
@@ -614,21 +526,25 @@ class _VizierLoadersMixin:
         )
 
     @classmethod
-    def from_gb6(
+    def from_vlass(
         cls,
-        flux_limit: float = 0.018,
+        flux_limit: float = 0.001,
         brightness_conversion: str = "planck",
         precision: Any = None,
     ) -> "SkyModel":  # noqa: F821
         """
-        Load the GB6 catalog from VizieR (4850 MHz, ~75,162 sources).
+        Load the VLASS Quick Look catalog from VizieR (3000 MHz, ~1.9M sources).
 
-        GB6 (Gregory et al. 1996) is the Green Bank 6 cm Radio Source Catalog
-        at 4.85 GHz. Reference: VIII/40 on VizieR.
+        VLASS (Lacy et al. 2020) is the VLA Sky Survey at 2-4 GHz (S-band).
+        The Quick Look Epoch 1 catalog (Gordon et al. 2021) covers 33,885 deg^2
+        at 2.5 arcsec resolution. Reference: J/ApJS/255/30 on VizieR.
+
+        Note: Quick Look flux densities may be systematically underestimated
+        by approximately 15%.
 
         Parameters
         ----------
-        flux_limit : float, default=0.018
+        flux_limit : float, default=0.001
             Minimum flux density in Jy.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
@@ -640,7 +556,7 @@ class _VizierLoadersMixin:
         SkyModel
         """
         return cls._load_from_vizier_catalog(
-            "gb6", flux_limit, brightness_conversion, precision
+            "vlass", flux_limit, brightness_conversion, precision
         )
 
     @classmethod

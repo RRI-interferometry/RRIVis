@@ -85,15 +85,9 @@ simulators:
   use_different_simulator_for_cross_check: false
 sky_model:
   flux_unit: Jy
-  at20g:
-    flux_limit: 0.04
-    use_at20g: false
-  first:
+  vlass:
     flux_limit: 0.001
-    use_first: false
-  gb6:
-    flux_limit: 0.018
-    use_gb6: false
+    use_vlass: false
   gleam:
     flux_limit: 50.0
     gleam_catalogue: VIII/105/catalog

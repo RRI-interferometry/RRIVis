@@ -374,18 +374,16 @@ rrivis/
 
 | Method | Survey | Frequency |
 |--------|--------|-----------|
-| `from_gleam()` | GLEAM EGC, X-DR1/DR2, Galactic, SGP, G4Jy | 76-200 MHz |
+| `from_gleam()` | GLEAM EGC, X-DR1/DR2, Galactic | 76-200 MHz |
 | `from_mals()` | MALS DR1/DR2/DR3 | 1.2-1.4 GHz |
 | `from_vlssr()` | VLSSr | 74 MHz |
 | `from_tgss()` | TGSS ADR1 | 150 MHz |
 | `from_wenss()` | WENSS | 325 MHz |
 | `from_sumss()` | SUMSS | 843 MHz |
 | `from_nvss()` | NVSS | 1.4 GHz |
-| `from_first()` | FIRST | 1.4 GHz |
 | `from_lotss()` | LoTSS DR1/DR2 | 144 MHz |
-| `from_at20g()` | AT20G | 20 GHz |
 | `from_3c()` | 3CR | 178 MHz |
-| `from_gb6()` | GB6 | 4.85 GHz |
+| `from_vlass()` | VLASS Quick Look Ep.1 | 3 GHz |
 | `from_racs()` | RACS Low/Mid/High (CASDA TAP) | 887-1655 MHz |
 
 ```python
