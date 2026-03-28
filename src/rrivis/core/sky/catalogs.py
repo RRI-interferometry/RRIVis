@@ -50,19 +50,90 @@ DIFFUSE_MODELS = {
     },
     "gsm2016": {
         "class": GlobalSkyModel16,
-        "description": "Global Sky Model 2016 (10 MHz - 5 THz)",
+        "description": (
+            "Global Sky Model 2016 (Zheng, Tegmark, Dillon, Kim, de Oliveira-Costa, "
+            "MNRAS 464, 3486, 2017; arXiv:1605.04920). "
+            "https://ui.adsabs.harvard.edu/abs/2017MNRAS.464.3486Z/abstract "
+            "Improved PCA-based all-sky model of diffuse Galactic radio emission from "
+            "10 MHz to 5 THz, superseding GSM2008 with a substantially expanded dataset "
+            "and frequency range. Derived from 29 sky maps spanning radio through "
+            "far-infrared, including low-frequency surveys (Guzman 45 MHz, Haslam "
+            "408 MHz), mid-frequency surveys (Reich 1.42 GHz, WMAP 9-year 23-94 GHz), "
+            "and high-frequency data (Planck 30-857 GHz, COBE-FIRAS up to 5 THz). "
+            "Uses principal component analysis on the expanded dataset to interpolate "
+            "and extrapolate across the full frequency range. Key improvements over "
+            "GSM2008: ~3x more input maps, extension to 5 THz (capturing thermal dust "
+            "emission in the far-infrared), and inclusion of Planck satellite data for "
+            "improved accuracy at CMB frequencies. Native resolution depends on frequency "
+            "(up to nside=1024 where input data permits). Output in antenna/brightness "
+            "temperature (K) by default. "
+            "Note: the model name 'GSM2016' refers to the arXiv preprint year "
+            "(1605.04920); the journal publication date is 2017. "
+            "Via pygdsm (telegraphic/pygdsm). "
+            "pygdsm constructor params: "
+            "freq_unit ('Hz'/'MHz'/'GHz'), "
+            "data_unit ('TRJ'=Rayleigh-Jeans temperature [default], "
+            "'TCMB'=CMB thermodynamic temperature, 'MJysr'=MJy/sr), "
+            "include_cmb (bool, adds 2.725K monopole)."
+        ),
         "freq_range": (10e6, 5e12),
         "init_kwargs": {"freq_unit": "Hz", "data_unit": "TRJ", "include_cmb": False},
     },
     "lfsm": {
         "class": LowFrequencySkyModel,
-        "description": "Low Frequency Sky Model (10 - 408 MHz)",
+        "description": (
+            "Low Frequency Sky Model (Dowell, Taylor, Schinzel, Kassim, Stovall, "
+            "MNRAS 469, 4537, 2017). "
+            "https://ui.adsabs.harvard.edu/abs/2017MNRAS.469.4537D/abstract "
+            "PCA-based diffuse sky model optimized for 10-408 MHz, built primarily from "
+            "the LWA1 Low Frequency Sky Survey (LFSS). Uses sky maps from the Long "
+            "Wavelength Array station 1 (LWA1, a 256-dipole array in New Mexico) at "
+            "multiple frequencies between 35-80 MHz, combined with the reprocessed "
+            "Haslam 408 MHz map. The dense spectral sampling below 100 MHz -- where "
+            "GSM2008 and GSM2016 have few or no direct survey anchor points -- makes "
+            "LFSM substantially more reliable in the 30-200 MHz range critical for "
+            "Epoch of Reionization (EoR), 21-cm cosmology, and low-frequency radio "
+            "interferometry (LOFAR, MWA, HERA, NenuFAR). PCA decomposition similar "
+            "to GSM2008 but fitted to the low-frequency-optimized input dataset. "
+            "Native resolution varies with frequency (~2 deg at the lowest frequencies, "
+            "improving at higher frequencies). Output in brightness temperature (K). "
+            "Via pygdsm (telegraphic/pygdsm). "
+            "pygdsm constructor params: "
+            "freq_unit ('Hz'/'MHz'/'GHz'), "
+            "include_cmb (bool, adds 2.725K monopole)."
+        ),
         "freq_range": (10e6, 408e6),
         "init_kwargs": {"freq_unit": "Hz", "include_cmb": False},
     },
     "haslam": {
         "class": HaslamSkyModel,
-        "description": "Haslam 408 MHz map with spectral scaling",
+        "description": (
+            "Haslam 408 MHz All-Sky Continuum Survey (Haslam, Salter, Stoffel, Wilson, "
+            "A&AS 47, 1, 1982; reprocessed by Remazeilles, Dickinson, Banday, "
+            "Bigot-Sazy, Ghosh, MNRAS 451, 4311, 2015). "
+            "https://ui.adsabs.harvard.edu/abs/1982A%26AS...47....1H/abstract "
+            "The most widely used all-sky radio continuum template. The original survey "
+            "compiled observations from the Jodrell Bank MkI (76 m, UK), Bonn Stockert "
+            "(25 m, Germany), and Parkes (64 m, Australia) radio telescopes to achieve "
+            "complete sky coverage at 408 MHz with ~56 arcmin angular resolution. "
+            "Emission is dominated by Galactic synchrotron radiation (>90% of the signal "
+            "at 408 MHz). The 2015 reprocessing by Remazeilles et al. reduced large-scale "
+            "striping artifacts from the original scanning strategy, subtracted "
+            "extragalactic point sources, and improved zero-level calibration. "
+            "pygdsm's HaslamSkyModel extrapolates to other frequencies using a single "
+            "power-law: T(v) = T_408 * (v/408 MHz)^beta, where beta is the spectral "
+            "index (default -2.6, typical of optically thin synchrotron emission). This "
+            "is the simplest spectral model available -- it assumes a spatially uniform "
+            "spectral index, unlike GSM2008/GSM2016 which use PCA-derived spatial and "
+            "spectral structure. Best suited for quick estimates or as a baseline "
+            "comparison. Stored at nside=512 (HEALPix RING ordering). "
+            "Via pygdsm (telegraphic/pygdsm). "
+            "pygdsm constructor params: "
+            "freq_unit ('Hz'/'MHz'/'GHz'), "
+            "spectral_index (float, default=-2.6; power-law exponent for frequency "
+            "scaling; typical synchrotron range: -2.4 to -2.8), "
+            "include_cmb (bool, adds 2.725K monopole)."
+        ),
         "freq_range": (10e6, 100e9),
         "init_kwargs": {
             "freq_unit": "Hz",

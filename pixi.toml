@@ -55,12 +55,10 @@ click = ">=8.0"
 nbconvert = ">=7.17.0,<8"
 jupyter = ">=1.1.1,<2"
 pytest-cov = ">=7.0.0,<8"
+ipykernel = ">=7.2.0,<8"
 
 [pypi-dependencies]
 pygdsm = "*"
 pyradiosky = "*"
 pysm3 = "*"
 rrivis = { path = ".", editable = true }
-
-# Note: ULSA requires manual install due to broken caput dependency:
-#   pixi run pip install git+https://github.com/Yanping-Cong/ULSA.git

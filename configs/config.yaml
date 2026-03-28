@@ -159,9 +159,6 @@ sky_model:
   three_c:
     flux_limit: 1.0
     use_3c: false
-  ulsa:
-    nside: 64
-    use_ulsa: false
   vlssr:
     flux_limit: 1.0
     use_vlssr: false

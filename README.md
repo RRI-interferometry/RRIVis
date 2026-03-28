@@ -11,7 +11,7 @@ A Python package for simulating radio interferometry visibilities with GPU accel
 - **GPU Acceleration**: Universal GPU support via JAX (NVIDIA/AMD/Apple Silicon/TPU) and Numba (CUDA/ROCm)
 - **Full Polarization**: Complete RIME implementation with 2x2 Jones matrices and coherency matrices
 - **Jones Matrix Framework**: 46 exported classes across 17 files covering K, E, Z, T, P, D, G, B, F, W, C, H and more
-- **20+ Sky Catalogs**: 20 VizieR catalogs (GLEAM, MALS, VLSSr, TGSS, WENSS, SUMSS, NVSS, FIRST, LoTSS, AT20G, 3CR, GB6) + RACS via CASDA TAP + GSM/LFSM/Haslam diffuse models + PySM3 + ULSA
+- **20+ Sky Catalogs**: 20 VizieR catalogs (GLEAM, MALS, VLSSr, TGSS, WENSS, SUMSS, NVSS, FIRST, LoTSS, AT20G, 3CR, GB6) + RACS via CASDA TAP + GSM/LFSM/Haslam diffuse models + PySM3
 - **Flexible Beam Models**: Analytic (Gaussian, Airy, cosine, exponential, short dipole) and FITS-based beam patterns with per-antenna support
 - **Measurement Set I/O**: Export to CASA MS format for QuartiCal, WSClean, and CASA calibration
 - **High-Level API**: Simple `Simulator` class for notebooks and scripts
@@ -346,7 +346,7 @@ rrivis/
 │       ├── catalogs.py      # Catalog metadata (20 VizieR, 3 RACS, 4 diffuse)
 │       ├── constants.py     # Physical constants + T_b/Jy conversions
 │       ├── _loaders_vizier.py   # VizieR catalog loader mixin
-│       ├── _loaders_diffuse.py  # Diffuse sky loader mixin (pygdsm, pysm3, ulsa)
+│       ├── _loaders_diffuse.py  # Diffuse sky loader mixin (pygdsm, pysm3)
 │       └── _loaders_pyradiosky.py  # PyRadioSky file loader mixin
 ├── simulator/               # RIME simulator (Strategy pattern)
 │   ├── base.py              # VisibilitySimulator ABC
@@ -427,8 +427,8 @@ sky = SkyModel.from_diffuse_sky("haslam", frequencies=frequencies, nside=64)
 # Planck Sky Model components (PySM3)
 sky = SkyModel.from_pysm3(components=["s1", "d1"], frequencies=frequencies, nside=64)
 
-# Ultra-Long-wavelength Sky Model
-sky = SkyModel.from_ulsa(frequencies=frequencies, nside=64)
+# PySM3 component-based foreground model
+sky = SkyModel.from_pysm3(components=["s1", "f1"], frequencies=frequencies, nside=64)
 ```
 
 ### Custom Point Sources

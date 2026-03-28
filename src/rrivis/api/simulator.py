@@ -673,17 +673,6 @@ class Simulator:
                 )
             )
 
-        ulsa_config = sky_config.get("ulsa", {})
-        if ulsa_config.get("use_ulsa", False):
-            obs_freq_config = self.config.get("obs_frequency", {})
-            sky_models.append(
-                SkyModel.from_ulsa(
-                    nside=ulsa_config.get("nside", 64),
-                    obs_frequency_config=obs_freq_config,
-                    precision=_precision,
-                )
-            )
-
         # --- Local file loader via pyradiosky ---
         pyradiosky_config = sky_config.get("pyradiosky", {})
         if pyradiosky_config.get("use_pyradiosky", False):

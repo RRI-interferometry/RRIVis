@@ -1,5 +1,5 @@
 # rrivis/core/sky/_loaders_diffuse.py
-"""Diffuse sky model loader mixin (pygdsm, PySM3, ULSA) for SkyModel."""
+"""Diffuse sky model loader mixin (pygdsm, PySM3) for SkyModel."""
 
 import logging
 from typing import Any
@@ -350,111 +350,6 @@ class _DiffuseLoadersMixin:
             _native_format="healpix",
             frequency=float(frequencies[0]),
             model_name=model_name,
-            brightness_conversion=brightness_conversion,
-            _precision=precision,
-        )
-        sky._ensure_dtypes()
-        return sky
-
-    @classmethod
-    def from_ulsa(
-        cls,
-        nside: int = 64,
-        frequencies: np.ndarray | None = None,
-        obs_frequency_config: dict[str, Any] | None = None,
-        brightness_conversion: str = "planck",
-        precision: Any = None,
-    ) -> "SkyModel":  # noqa: F821
-        """
-        Load the ULSA ultra-low-frequency sky model as multi-frequency HEALPix maps.
-
-        ULSA (Cong et al.) provides global sky brightness temperature maps
-        below ~100 MHz. Maps are rotated from Galactic to Equatorial coordinates.
-
-        Parameters
-        ----------
-        nside : int, default=64
-            HEALPix NSIDE resolution.
-        frequencies : np.ndarray, optional
-            Array of observation frequencies in Hz. Takes precedence over
-            ``obs_frequency_config`` when both are provided.
-        obs_frequency_config : dict, optional
-            Frequency configuration dict (keys: starting_frequency,
-            frequency_interval, frequency_bandwidth, frequency_unit).
-        brightness_conversion : str, default="planck"
-            Conversion method for T_b -> Jy: "planck" or "rayleigh-jeans".
-
-        Returns
-        -------
-        SkyModel
-            Sky model in healpix_multifreq mode.
-
-        Raises
-        ------
-        ImportError
-            If ``ULSA`` is not installed.
-        ValueError
-            If neither ``frequencies`` nor ``obs_frequency_config`` is provided.
-        """
-        try:
-            import ULSA as ulsa
-        except ImportError as err:
-            raise ImportError(
-                "ULSA is required for from_ulsa(). "
-                "Install it with: "
-                "pip install git+https://github.com/Yanping-Cong/ULSA.git"
-            ) from err
-
-        if frequencies is None and obs_frequency_config is None:
-            raise ValueError(
-                "Either 'frequencies' or 'obs_frequency_config' must be provided. "
-                "Example: from_ulsa(nside=64, frequencies=np.linspace(1e6, 100e6, 20))"
-            )
-
-        if frequencies is None:
-            frequencies = cls._parse_frequency_config(obs_frequency_config)
-        frequencies = np.asarray(frequencies, dtype=np.float64)
-
-        n_freq = len(frequencies)
-        logger.info(
-            f"Loading ULSA: {n_freq} frequencies "
-            f"({frequencies[0] / 1e6:.3f}\u2013{frequencies[-1] / 1e6:.3f} MHz), nside={nside}"
-        )
-
-        rot = Rotator(coord=["G", "C"])
-        healpix_maps: dict[float, np.ndarray] = {}
-
-        for freq in frequencies:
-            freq_mhz = freq / 1e6
-            try:
-                # Try modern API: ulsa.generate(freq_mhz, nside=nside)
-                temp_map = ulsa.generate(freq_mhz, nside=nside)
-            except (AttributeError, TypeError):
-                try:
-                    # Fallback to older API: ulsa.Sky(nside).generate(freq_mhz)
-                    temp_map = ulsa.Sky(nside).generate(freq_mhz)
-                except Exception as e:
-                    logger.error(f"ULSA generation failed at {freq_mhz:.3f} MHz: {e}")
-                    npix = hp.nside2npix(nside)
-                    temp_map = np.zeros(npix, dtype=np.float32)
-
-            if len(temp_map) != hp.nside2npix(nside):
-                temp_map = hp.ud_grade(temp_map, nside_out=nside)
-
-            temp_map = rot.rotate_map_pixel(temp_map)
-            healpix_maps[float(freq)] = temp_map.astype(np.float32)
-
-        logger.info(
-            f"ULSA loaded: {hp.nside2npix(nside)} pixels \u00d7 {n_freq} frequencies"
-        )
-
-        sky = cls(
-            _healpix_maps=healpix_maps,
-            _healpix_nside=nside,
-            _observation_frequencies=frequencies,
-            _native_format="healpix",
-            frequency=float(frequencies[0]),
-            model_name="ulsa",
             brightness_conversion=brightness_conversion,
             _precision=precision,
         )

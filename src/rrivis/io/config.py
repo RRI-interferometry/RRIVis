@@ -456,14 +456,6 @@ class PySM3Config(BaseModel):
     # Frequencies are taken from the obs_frequency section of the config
 
 
-class ULSAConfig(BaseModel):
-    """ULSA ultra-low-frequency diffuse model configuration."""
-
-    use_ulsa: bool = Field(False, description="Use ULSA diffuse model")
-    nside: int = Field(64, ge=1, description="HEALPix NSIDE resolution")
-    # Frequencies are taken from the obs_frequency section of the config
-
-
 class PyRadioSkyConfig(BaseModel):
     """Local sky model file loader via pyradiosky."""
 
@@ -509,7 +501,6 @@ class SkyModelConfig(BaseModel):
     racs: RACSConfig = Field(default_factory=RACSConfig)
     # --- New diffuse models ---
     pysm3: PySM3Config = Field(default_factory=PySM3Config)
-    ulsa: ULSAConfig = Field(default_factory=ULSAConfig)
     # --- Local file loader ---
     pyradiosky: PyRadioSkyConfig = Field(default_factory=PyRadioSkyConfig)
     # --- Flux unit for all flux values in this section ---
@@ -1161,7 +1152,6 @@ class RRIvisConfig(BaseModel):
             or sm.vlass.use_vlass
             or sm.racs.use_racs
             or sm.pysm3.use_pysm3
-            or sm.ulsa.use_ulsa
             or sm.pyradiosky.use_pyradiosky
         )
         if not any_sky_model_enabled:
