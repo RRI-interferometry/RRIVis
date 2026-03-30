@@ -84,6 +84,9 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
     _stokes_v: np.ndarray | None = field(default=None, repr=False)
 
     _healpix_maps: dict[float, np.ndarray] | None = None
+    _healpix_q_maps: dict[float, np.ndarray] | None = None
+    _healpix_u_maps: dict[float, np.ndarray] | None = None
+    _healpix_v_maps: dict[float, np.ndarray] | None = None
     _observation_frequencies: np.ndarray | None = None
     _healpix_nside: int | None = None
 
@@ -167,6 +170,18 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             self._healpix_maps = {
                 f: m.astype(hp_dt, copy=False) for f, m in self._healpix_maps.items()
             }
+        if self._healpix_q_maps is not None:
+            self._healpix_q_maps = {
+                f: m.astype(hp_dt, copy=False) for f, m in self._healpix_q_maps.items()
+            }
+        if self._healpix_u_maps is not None:
+            self._healpix_u_maps = {
+                f: m.astype(hp_dt, copy=False) for f, m in self._healpix_u_maps.items()
+            }
+        if self._healpix_v_maps is not None:
+            self._healpix_v_maps = {
+                f: m.astype(hp_dt, copy=False) for f, m in self._healpix_v_maps.items()
+            }
 
     @classmethod
     def _empty_sky(
@@ -248,6 +263,14 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             return len(first_map)
         return len(self._ra_rad) if self._ra_rad is not None else 0
 
+    @property
+    def has_polarized_healpix_maps(self) -> bool:
+        """Return True if any polarization (Q/U/V) HEALPix maps are populated."""
+        return any(
+            m is not None
+            for m in (self._healpix_q_maps, self._healpix_u_maps, self._healpix_v_maps)
+        )
+
     def _has_point_sources(self) -> bool:
         """Return True if columnar point-source arrays are populated and non-empty."""
         return self._ra_rad is not None and len(self._ra_rad) > 0
@@ -326,7 +349,10 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
 
     @staticmethod
     def estimate_healpix_memory(
-        nside: int, n_frequencies: int, dtype: type = np.float32
+        nside: int,
+        n_frequencies: int,
+        dtype: type = np.float32,
+        n_stokes: int = 1,
     ) -> dict[str, Any]:
         """
         Estimate memory usage for multi-frequency HEALPix maps.
@@ -339,6 +365,8 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             Number of frequency channels.
         dtype : type, default=np.float32
             Data type for maps.
+        n_stokes : int, default=1
+            Number of Stokes components (1 for I-only, 4 for full IQUV).
 
         Returns
         -------
@@ -346,6 +374,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             Memory estimation with keys:
             - npix: number of pixels
             - n_freq: number of frequencies
+            - n_stokes: number of Stokes components
             - bytes_per_map: bytes for one map
             - total_bytes: total memory in bytes
             - total_mb: total memory in MB
@@ -357,11 +386,16 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         >>> info = SkyModel.estimate_healpix_memory(nside=1024, n_frequencies=20)
         >>> print(f"Memory: {info['total_mb']:.1f} MB")
         Memory: 960.0 MB
+        >>> info = SkyModel.estimate_healpix_memory(
+        ...     nside=1024, n_frequencies=20, n_stokes=4
+        ... )
+        >>> print(f"Memory: {info['total_mb']:.1f} MB")
+        Memory: 3840.0 MB
         """
         npix = hp.nside2npix(nside)
         bytes_per_value = np.dtype(dtype).itemsize
         bytes_per_map = npix * bytes_per_value
-        total_bytes = bytes_per_map * n_frequencies
+        total_bytes = bytes_per_map * n_frequencies * n_stokes
 
         # Approximate resolution in arcminutes
         resolution_arcmin = np.sqrt(4 * np.pi / npix) * (180 / np.pi) * 60
@@ -369,6 +403,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         return {
             "npix": npix,
             "n_freq": n_frequencies,
+            "n_stokes": n_stokes,
             "bytes_per_map": bytes_per_map,
             "total_bytes": total_bytes,
             "total_mb": total_bytes / 1e6,
@@ -495,9 +530,30 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         self._flux_ref = flux_jy[valid_idx]
         n = len(valid_idx)
         self._alpha = np.zeros(n, dtype=np.float64)  # no per-pixel alpha in HEALPix
-        self._stokes_q = np.zeros(n, dtype=np.float64)
-        self._stokes_u = np.zeros(n, dtype=np.float64)
-        self._stokes_v = np.zeros(n, dtype=np.float64)
+
+        # Rayleigh-Jeans factor for K_RJ -> Jy (linear, sign-preserving)
+        from .constants import C_LIGHT, K_BOLTZMANN
+
+        rj_factor = (2 * K_BOLTZMANN * frequency**2 / C_LIGHT**2) * omega / 1e-26
+
+        # Extract Q/U/V from polarization maps if available
+        if self._healpix_q_maps is not None and frequency in self._healpix_q_maps:
+            q_map = self._healpix_q_maps[frequency]
+            self._stokes_q = q_map[valid_idx].astype(np.float64) * rj_factor
+        else:
+            self._stokes_q = np.zeros(n, dtype=np.float64)
+
+        if self._healpix_u_maps is not None and frequency in self._healpix_u_maps:
+            u_map = self._healpix_u_maps[frequency]
+            self._stokes_u = u_map[valid_idx].astype(np.float64) * rj_factor
+        else:
+            self._stokes_u = np.zeros(n, dtype=np.float64)
+
+        if self._healpix_v_maps is not None and frequency in self._healpix_v_maps:
+            v_map = self._healpix_v_maps[frequency]
+            self._stokes_v = v_map[valid_idx].astype(np.float64) * rj_factor
+        else:
+            self._stokes_v = np.zeros(n, dtype=np.float64)
 
     def to_healpix(
         self, nside: int = 64, frequency: float | None = None
@@ -522,7 +578,12 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
 
     def _point_sources_to_healpix_multifreq(
         self, nside: int, frequencies: np.ndarray, ref_frequency: float = 76e6
-    ) -> dict[float, np.ndarray]:
+    ) -> tuple[
+        dict[float, np.ndarray],
+        dict[float, np.ndarray] | None,
+        dict[float, np.ndarray] | None,
+        dict[float, np.ndarray] | None,
+    ]:
         """
         Convert point sources to multi-frequency HEALPix brightness temperature maps.
 
@@ -540,29 +601,57 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
 
         Returns
         -------
-        temp_maps : Dict[float, np.ndarray]
-            Dictionary mapping frequency (Hz) to brightness temperature map (K).
+        i_maps : dict[float, np.ndarray]
+            Stokes I brightness temperature maps (K).
+        q_maps : dict[float, np.ndarray] or None
+            Stokes Q maps (K_RJ), or None if all sources are unpolarized.
+        u_maps : dict[float, np.ndarray] or None
+            Stokes U maps (K_RJ), or None.
+        v_maps : dict[float, np.ndarray] or None
+            Stokes V maps (K_RJ), or None.
         """
         if not self._has_point_sources():
             npix = hp.nside2npix(nside)
-            return {
+            empty = {
                 float(freq): np.zeros(npix, dtype=np.float32) for freq in frequencies
             }
+            return empty, None, None, None
 
         npix = hp.nside2npix(nside)
         omega_pixel = 4 * np.pi / npix
         n_sources = len(self._ra_rad)
         n_freq = len(frequencies)
 
-        mem_info = self.estimate_healpix_memory(nside, n_freq, np.float32)
+        # Check if any source has non-zero polarization
+        has_pol = (
+            self._stokes_q is not None
+            and self._stokes_u is not None
+            and self._stokes_v is not None
+            and (
+                np.any(self._stokes_q != 0)
+                or np.any(self._stokes_u != 0)
+                or np.any(self._stokes_v != 0)
+            )
+        )
+
+        n_stokes = 4 if has_pol else 1
+        mem_info = self.estimate_healpix_memory(nside, n_freq, np.float32, n_stokes)
         logger.info(
-            f"Creating {n_freq} HEALPix maps (nside={nside}): "
+            f"Creating {n_freq} HEALPix maps (nside={nside}, "
+            f"stokes={'IQUV' if has_pol else 'I'}): "
             f"~{mem_info['total_mb']:.1f} MB"
         )
 
         ipix = hp.ang2pix(nside, np.pi / 2 - self._dec_rad, self._ra_rad)
 
-        temp_maps: dict[float, np.ndarray] = {}
+        # Rayleigh-Jeans factor: Jy -> K_RJ (inverse of T->S conversion)
+        from .constants import C_LIGHT, K_BOLTZMANN
+
+        i_maps: dict[float, np.ndarray] = {}
+        q_maps: dict[float, np.ndarray] = {} if has_pol else None
+        u_maps: dict[float, np.ndarray] = {} if has_pol else None
+        v_maps: dict[float, np.ndarray] = {} if has_pol else None
+
         for freq in frequencies:
             scale = (float(freq) / ref_frequency) ** self._alpha
             flux_f = self._flux_ref * scale
@@ -578,14 +667,32 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                     omega_pixel,
                     method=self.brightness_conversion,
                 ).astype(np.float32)
-            temp_maps[float(freq)] = temp_out
+            i_maps[float(freq)] = temp_out
+
+            if has_pol:
+                # Jy -> K_RJ via Rayleigh-Jeans (linear, sign-preserving)
+                rj_inv = (
+                    C_LIGHT**2 / (2 * K_BOLTZMANN * float(freq) ** 2 * omega_pixel)
+                ) * 1e-26
+
+                q_flux = self._stokes_q * scale
+                q_map = np.bincount(ipix, weights=q_flux, minlength=npix)
+                q_maps[float(freq)] = (q_map * rj_inv).astype(np.float32)
+
+                u_flux = self._stokes_u * scale
+                u_map = np.bincount(ipix, weights=u_flux, minlength=npix)
+                u_maps[float(freq)] = (u_map * rj_inv).astype(np.float32)
+
+                v_flux = self._stokes_v * scale
+                v_map = np.bincount(ipix, weights=v_flux, minlength=npix)
+                v_maps[float(freq)] = (v_map * rj_inv).astype(np.float32)
 
         logger.info(
             f"Converted {n_sources} point sources to {n_freq} HEALPix maps "
             f"({frequencies[0] / 1e6:.1f}-{frequencies[-1] / 1e6:.1f} MHz)"
         )
 
-        return temp_maps
+        return i_maps, q_maps, u_maps, v_maps
 
     def to_healpix_for_observation(
         self,
@@ -653,9 +760,13 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
 
         frequencies = self._parse_frequency_config(obs_frequency_config)
 
-        self._healpix_maps = self._point_sources_to_healpix_multifreq(
+        i_maps, q_maps, u_maps, v_maps = self._point_sources_to_healpix_multifreq(
             nside, frequencies, ref_frequency
         )
+        self._healpix_maps = i_maps
+        self._healpix_q_maps = q_maps
+        self._healpix_u_maps = u_maps
+        self._healpix_v_maps = v_maps
         self._healpix_nside = nside
         self._observation_frequencies = frequencies
 
@@ -695,23 +806,7 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                 "No multi-frequency HEALPix maps available. "
                 "Use to_healpix_for_observation() first."
             )
-
-        if frequency in self._healpix_maps:
-            return self._healpix_maps[frequency]
-
-        available_freqs = np.array(list(self._healpix_maps.keys()))
-        idx = np.argmin(np.abs(available_freqs - frequency))
-        nearest_freq = available_freqs[idx]
-
-        freq_diff_mhz = abs(frequency - nearest_freq) / 1e6
-        if freq_diff_mhz > 0.001:  # More than 1 kHz difference
-            logger.warning(
-                f"Exact frequency {frequency / 1e6:.3f} MHz not found. "
-                f"Using nearest: {nearest_freq / 1e6:.3f} MHz "
-                f"(diff: {freq_diff_mhz:.3f} MHz)"
-            )
-
-        return self._healpix_maps[nearest_freq]
+        return self._healpix_maps[self._resolve_frequency(frequency)]
 
     def get_multifreq_maps(self) -> tuple[dict[float, np.ndarray], int, np.ndarray]:
         """
@@ -744,6 +839,116 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             )
 
         return (self._healpix_maps, self._healpix_nside, self._observation_frequencies)
+
+    def _resolve_frequency(self, frequency: float) -> float:
+        """Resolve a frequency to the nearest available key in ``_healpix_maps``.
+
+        Returns the exact key if present, or the nearest one (with a warning
+        if the difference exceeds 1 kHz).
+        """
+        if frequency in self._healpix_maps:
+            return frequency
+        available_freqs = np.array(list(self._healpix_maps.keys()))
+        idx = np.argmin(np.abs(available_freqs - frequency))
+        nearest_freq = float(available_freqs[idx])
+        freq_diff_mhz = abs(frequency - nearest_freq) / 1e6
+        if freq_diff_mhz > 0.001:
+            logger.warning(
+                f"Exact frequency {frequency / 1e6:.3f} MHz not found. "
+                f"Using nearest: {nearest_freq / 1e6:.3f} MHz "
+                f"(diff: {freq_diff_mhz:.3f} MHz)"
+            )
+        return nearest_freq
+
+    def get_stokes_maps_at_frequency(
+        self, frequency: float
+    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+        """Get Stokes I/Q/U/V HEALPix maps at a specific frequency.
+
+        Parameters
+        ----------
+        frequency : float
+            Frequency in Hz.
+
+        Returns
+        -------
+        I_map : np.ndarray
+            Stokes I brightness temperature map (K_RJ).
+        Q_map : np.ndarray or None
+            Stokes Q map (K_RJ), or None if not available.
+        U_map : np.ndarray or None
+            Stokes U map (K_RJ), or None if not available.
+        V_map : np.ndarray or None
+            Stokes V map (K_RJ), or None if not available.
+
+        Raises
+        ------
+        ValueError
+            If no multi-frequency HEALPix maps are available.
+        """
+        if self._healpix_maps is None:
+            raise ValueError(
+                "No multi-frequency HEALPix maps available. "
+                "Use to_healpix_for_observation() first."
+            )
+        freq_key = self._resolve_frequency(frequency)
+        I_map = self._healpix_maps[freq_key]
+        Q_map = (
+            self._healpix_q_maps[freq_key] if self._healpix_q_maps is not None else None
+        )
+        U_map = (
+            self._healpix_u_maps[freq_key] if self._healpix_u_maps is not None else None
+        )
+        V_map = (
+            self._healpix_v_maps[freq_key] if self._healpix_v_maps is not None else None
+        )
+        return I_map, Q_map, U_map, V_map
+
+    def get_multifreq_stokes_maps(
+        self,
+    ) -> tuple[
+        dict[float, np.ndarray],
+        dict[float, np.ndarray] | None,
+        dict[float, np.ndarray] | None,
+        dict[float, np.ndarray] | None,
+        int,
+        np.ndarray,
+    ]:
+        """Get all multi-frequency Stokes I/Q/U/V HEALPix maps.
+
+        Returns
+        -------
+        I_maps : dict[float, np.ndarray]
+            Stokes I maps keyed by frequency (Hz).
+        Q_maps : dict[float, np.ndarray] or None
+            Stokes Q maps, or None if not available.
+        U_maps : dict[float, np.ndarray] or None
+            Stokes U maps, or None if not available.
+        V_maps : dict[float, np.ndarray] or None
+            Stokes V maps, or None if not available.
+        nside : int
+            HEALPix NSIDE parameter.
+        frequencies : np.ndarray
+            Array of frequencies in Hz.
+
+        Raises
+        ------
+        ValueError
+            If no multi-frequency maps are available.
+        """
+        if self._healpix_maps is None:
+            raise ValueError(
+                "No multi-frequency HEALPix maps available. "
+                "Use to_healpix_for_observation() first."
+            )
+        return (
+            self._healpix_maps,
+            self._healpix_q_maps,
+            self._healpix_u_maps,
+            self._healpix_v_maps,
+            self._healpix_nside,
+            self._observation_frequencies,
+        )
 
     def get_for_visibility(
         self,
@@ -1038,6 +1243,73 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             "racs": cls.list_racs_catalogs(),
         }
 
+    @classmethod
+    def get_catalog_info(cls, catalog_key: str) -> dict[str, Any]:
+        """Query column names and metadata for any supported catalog or model.
+
+        Dispatches to VizieR, CASDA TAP, or diffuse model metadata based on
+        the key. Results from VizieR and CASDA TAP are cached to avoid
+        redundant network calls.
+
+        Parameters
+        ----------
+        catalog_key : str
+            Catalog or model identifier. Accepted values:
+
+            - VizieR catalog key (e.g. ``"gleam_egc"``, ``"nvss"``, ``"tgss"``)
+            - RACS band prefixed with ``"racs_"`` (e.g. ``"racs_low"``)
+            - Diffuse model name (e.g. ``"gsm2008"``, ``"lfsm"``)
+
+        Returns
+        -------
+        dict
+            Catalog-specific information including column names (for point
+            sources) or model parameters (for diffuse models). See
+            ``get_catalog_columns()``, ``get_racs_columns()``, and
+            ``get_diffuse_model_info()`` for detailed return formats.
+
+        Raises
+        ------
+        ValueError
+            If ``catalog_key`` is not recognized.
+
+        Examples
+        --------
+        >>> info = SkyModel.get_catalog_info("nvss")
+        >>> print(info["columns"][:3])
+        ['recno', 'Field', 'Xpos']
+
+        >>> info = SkyModel.get_catalog_info("racs_low")
+        >>> print(info["freq_mhz"])
+        887.5
+
+        >>> info = SkyModel.get_catalog_info("gsm2008")
+        >>> print(info["class_name"])
+        'GlobalSkyModel'
+        """
+        from .catalogs import DIFFUSE_MODELS, RACS_CATALOGS, VIZIER_POINT_CATALOGS
+
+        if catalog_key in VIZIER_POINT_CATALOGS:
+            return cls.get_catalog_columns(catalog_key)
+
+        if catalog_key.startswith("racs_"):
+            band = catalog_key[5:]
+            if band in RACS_CATALOGS:
+                return cls.get_racs_columns(band)
+
+        if catalog_key in RACS_CATALOGS:
+            return cls.get_racs_columns(catalog_key)
+
+        if catalog_key in DIFFUSE_MODELS:
+            return cls.get_diffuse_model_info(catalog_key)
+
+        all_keys = (
+            sorted(VIZIER_POINT_CATALOGS.keys())
+            + [f"racs_{b}" for b in sorted(RACS_CATALOGS.keys())]
+            + sorted(DIFFUSE_MODELS.keys())
+        )
+        raise ValueError(f"Unknown catalog key '{catalog_key}'. Available: {all_keys}")
+
     # =========================================================================
     # Combination
     # =========================================================================
@@ -1221,11 +1493,40 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             for m in models:
                 if m.mode == "point_sources" and m._has_point_sources():
                     ipix_m = hp.ang2pix(ref_nside, np.pi / 2 - m._dec_rad, m._ra_rad)
-                    ps_models_data.append((ipix_m, m._flux_ref, m._alpha))
+                    ps_models_data.append((ipix_m, m._flux_ref, m._alpha, m))
+
+            # Check if any model has polarized maps
+            any_pol = any(
+                m.has_polarized_healpix_maps
+                for m in models
+                if m.mode == "healpix_multifreq"
+            ) or any(
+                m._stokes_q is not None
+                and (
+                    np.any(m._stokes_q != 0)
+                    or np.any(m._stokes_u != 0)
+                    or np.any(m._stokes_v != 0)
+                )
+                for m in models
+                if m.mode == "point_sources" and m._has_point_sources()
+            )
+
+            from .constants import C_LIGHT, K_BOLTZMANN
 
             combined_maps: dict[float, np.ndarray] = {}
+            combined_q: dict[float, np.ndarray] = {} if any_pol else None
+            combined_u: dict[float, np.ndarray] = {} if any_pol else None
+            combined_v: dict[float, np.ndarray] = {} if any_pol else None
+
             for freq_hz in ref_freqs:
                 combined_flux = np.zeros(npix, dtype=np.float64)
+                combined_q_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
+                combined_u_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
+                combined_v_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
+
+                rj_factor = (
+                    (2 * K_BOLTZMANN * freq_hz**2 / C_LIGHT**2) * omega_pixel / 1e-26
+                )
 
                 for m in models:
                     if m.mode == "healpix_multifreq":
@@ -1239,12 +1540,43 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                                 method=brightness_conversion,
                             )
 
-                for ipix_m, flux_ref_m, alpha_m in ps_models_data:
+                        if any_pol and m.has_polarized_healpix_maps:
+                            if m._healpix_q_maps is not None:
+                                q_t = m._healpix_q_maps.get(freq_hz)
+                                if q_t is not None:
+                                    combined_q_flux += (
+                                        q_t.astype(np.float64) * rj_factor
+                                    )
+                            if m._healpix_u_maps is not None:
+                                u_t = m._healpix_u_maps.get(freq_hz)
+                                if u_t is not None:
+                                    combined_u_flux += (
+                                        u_t.astype(np.float64) * rj_factor
+                                    )
+                            if m._healpix_v_maps is not None:
+                                v_t = m._healpix_v_maps.get(freq_hz)
+                                if v_t is not None:
+                                    combined_v_flux += (
+                                        v_t.astype(np.float64) * rj_factor
+                                    )
+
+                for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
                     scale = (float(freq_hz) / ref_frequency) ** alpha_m
                     flux_at_f = flux_ref_m * scale
                     combined_flux += np.bincount(
                         ipix_m, weights=flux_at_f, minlength=npix
                     )
+
+                    if any_pol and m_obj._stokes_q is not None:
+                        combined_q_flux += np.bincount(
+                            ipix_m, weights=m_obj._stokes_q * scale, minlength=npix
+                        )
+                        combined_u_flux += np.bincount(
+                            ipix_m, weights=m_obj._stokes_u * scale, minlength=npix
+                        )
+                        combined_v_flux += np.bincount(
+                            ipix_m, weights=m_obj._stokes_v * scale, minlength=npix
+                        )
 
                 combined_T_b = np.zeros(npix, dtype=np.float64)
                 pos_flux = combined_flux > 0
@@ -1257,13 +1589,23 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                     )
                 combined_maps[freq_hz] = combined_T_b.astype(np.float32)
 
+                if any_pol:
+                    rj_inv = 1.0 / rj_factor if rj_factor != 0 else 0.0
+                    combined_q[freq_hz] = (combined_q_flux * rj_inv).astype(np.float32)
+                    combined_u[freq_hz] = (combined_u_flux * rj_inv).astype(np.float32)
+                    combined_v[freq_hz] = (combined_v_flux * rj_inv).astype(np.float32)
+
             logger.info(
                 f"Combined {len(models)} models into healpix_multifreq "
-                f"({len(ref_freqs)} channels, nside={ref_nside})"
+                f"({len(ref_freqs)} channels, nside={ref_nside}"
+                f"{', stokes=IQUV' if any_pol else ''})"
             )
 
             sky = cls(
                 _healpix_maps=combined_maps,
+                _healpix_q_maps=combined_q,
+                _healpix_u_maps=combined_u,
+                _healpix_v_maps=combined_v,
                 _healpix_nside=ref_nside,
                 _observation_frequencies=ref_freqs,
                 _native_format="healpix",
@@ -1329,13 +1671,25 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
                 if len(freqs) > 1
                 else f"{freqs[0] / 1e6:.1f}"
             )
+            stokes_components = "I"
+            n_stokes = 1
+            if self._healpix_q_maps is not None:
+                stokes_components += "Q"
+                n_stokes += 1
+            if self._healpix_u_maps is not None:
+                stokes_components += "U"
+                n_stokes += 1
+            if self._healpix_v_maps is not None:
+                stokes_components += "V"
+                n_stokes += 1
             mem_info = self.estimate_healpix_memory(
-                self._healpix_nside, len(freqs), np.float32
+                self._healpix_nside, len(freqs), np.float32, n_stokes=n_stokes
             )
             return (
                 f"SkyModel(native='{self._native_format}', model='{self.model_name}', "
                 f"mode='healpix_multifreq', nside={self._healpix_nside}, "
                 f"n_freq={len(freqs)}, freq_range={freq_range}MHz, "
+                f"stokes='{stokes_components}', "
                 f"memory={mem_info['total_mb']:.1f}MB)"
             )
         return (

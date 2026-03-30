@@ -33,6 +33,51 @@ class _DiffuseLoadersMixin:
         """
         return {name: info["description"] for name, info in DIFFUSE_MODELS.items()}
 
+    @staticmethod
+    def get_diffuse_model_info(model_name: str) -> dict[str, Any]:
+        """Get configuration parameters and metadata for a diffuse sky model.
+
+        Parameters
+        ----------
+        model_name : str
+            Model name: ``"gsm2008"``, ``"gsm2016"``, ``"lfsm"``, ``"haslam"``.
+
+        Returns
+        -------
+        dict
+            Keys:
+
+            - ``"parameters"`` : dict — constructor keyword arguments and defaults
+            - ``"freq_range_hz"`` : tuple[float, float] — valid frequency range
+            - ``"description"`` : str — model description
+            - ``"class_name"`` : str — pygdsm class name
+
+        Raises
+        ------
+        ValueError
+            If ``model_name`` is not recognized.
+
+        Examples
+        --------
+        >>> info = SkyModel.get_diffuse_model_info("gsm2008")
+        >>> print(info["parameters"])
+        {'freq_unit': 'Hz', 'basemap': 'haslam', 'interpolation': 'pchip', 'include_cmb': False}
+        """
+        model_name = model_name.lower()
+        if model_name not in DIFFUSE_MODELS:
+            raise ValueError(
+                f"Unknown diffuse model '{model_name}'. "
+                f"Available: {sorted(DIFFUSE_MODELS.keys())}"
+            )
+
+        info = DIFFUSE_MODELS[model_name]
+        return {
+            "parameters": dict(info["init_kwargs"]),
+            "freq_range_hz": info["freq_range"],
+            "description": info["description"],
+            "class_name": info["class"].__name__,
+        }
+
     @classmethod
     def from_diffuse_sky(
         cls,
@@ -259,6 +304,7 @@ class _DiffuseLoadersMixin:
         nside: int = 64,
         frequencies: np.ndarray | None = None,
         obs_frequency_config: dict[str, Any] | None = None,
+        include_polarization: bool = False,
         brightness_conversion: str = "planck",
         precision: Any = None,
     ) -> "SkyModel":  # noqa: F821
@@ -282,8 +328,16 @@ class _DiffuseLoadersMixin:
         obs_frequency_config : dict, optional
             Frequency configuration dict (keys: starting_frequency,
             frequency_interval, frequency_bandwidth, frequency_unit).
+        include_polarization : bool, default=False
+            If True, extract Stokes Q and U maps from PySM3 in addition to
+            Stokes I. The data is in K_RJ units; ``brightness_conversion``
+            is forced to ``"rayleigh-jeans"`` when polarization is included.
+            Coordinate rotation uses ``rotate_map_alms()`` for correct
+            spin-2 handling of Q/U.
         brightness_conversion : str, default="planck"
-            Conversion method for T_b -> Jy: "planck" or "rayleigh-jeans".
+            Conversion method for T_b -> Jy: ``"planck"`` or
+            ``"rayleigh-jeans"``. Overridden to ``"rayleigh-jeans"`` when
+            ``include_polarization=True``.
 
         Returns
         -------
@@ -309,6 +363,18 @@ class _DiffuseLoadersMixin:
             frequencies = cls._parse_frequency_config(obs_frequency_config)
         frequencies = np.asarray(frequencies, dtype=np.float64)
 
+        if include_polarization:
+            if brightness_conversion != "rayleigh-jeans":
+                logger.info(
+                    "Using Rayleigh-Jeans conversion (required: polarized K_RJ data)"
+                )
+            brightness_conversion = "rayleigh-jeans"
+        else:
+            if brightness_conversion == "planck":
+                logger.debug("Using Planck conversion (Stokes I only, default)")
+            else:
+                logger.debug("Using Rayleigh-Jeans conversion (user override)")
+
         components_list = (
             [components] if isinstance(components, str) else list(components)
         )
@@ -316,35 +382,70 @@ class _DiffuseLoadersMixin:
 
         logger.info(
             f"Loading PySM3 components {components_list}: {n_freq} frequencies "
-            f"({frequencies[0] / 1e6:.1f}\u2013{frequencies[-1] / 1e6:.1f} MHz), nside={nside}"
+            f"({frequencies[0] / 1e6:.1f}\u2013{frequencies[-1] / 1e6:.1f} MHz), "
+            f"nside={nside}, polarization={'IQUV' if include_polarization else 'I'}"
         )
 
-        sky = pysm3.Sky(nside=nside, preset_strings=components_list)
+        pysm_sky = pysm3.Sky(nside=nside, preset_strings=components_list)
         rot = Rotator(coord=["G", "C"])
 
         healpix_maps: dict[float, np.ndarray] = {}
+        healpix_q_maps: dict[float, np.ndarray] | None = (
+            {} if include_polarization else None
+        )
+        healpix_u_maps: dict[float, np.ndarray] | None = (
+            {} if include_polarization else None
+        )
+
         for freq in frequencies:
-            emission = sky.get_emission(freq * pysm3_u.Hz)
+            emission = pysm_sky.get_emission(freq * pysm3_u.Hz)
             emission_krj = emission.to(
                 pysm3_u.K_RJ,
                 equivalencies=pysm3_u.cmb_equivalencies(freq * pysm3_u.Hz),
             )
-            temp_map = np.array(emission_krj[0])  # Stokes I
 
-            current_nside = hp.get_nside(temp_map)
-            if current_nside != nside:
-                temp_map = hp.ud_grade(temp_map, nside_out=nside)
+            if include_polarization and emission_krj.shape[0] >= 3:
+                # Stack I, Q, U as (3, npix) for spin-2 aware rotation
+                i_map = np.array(emission_krj[0])
+                q_map = np.array(emission_krj[1])
+                u_map = np.array(emission_krj[2])
 
-            temp_map = rot.rotate_map_pixel(temp_map)
-            healpix_maps[float(freq)] = temp_map.astype(np.float32)
+                # Ensure consistent nside
+                current_nside = hp.get_nside(i_map)
+                if current_nside != nside:
+                    i_map = hp.ud_grade(i_map, nside_out=nside)
+                    q_map = hp.ud_grade(q_map, nside_out=nside)
+                    u_map = hp.ud_grade(u_map, nside_out=nside)
+
+                # Spin-2 aware rotation: rotate_map_alms auto-detects
+                # (3, npix) input as IQU polarization and applies proper
+                # Wigner D-matrix rotation in harmonic space.
+                iqu = np.array([i_map, q_map, u_map])
+                iqu_rot = rot.rotate_map_alms(iqu)
+
+                healpix_maps[float(freq)] = iqu_rot[0].astype(np.float32)
+                healpix_q_maps[float(freq)] = iqu_rot[1].astype(np.float32)
+                healpix_u_maps[float(freq)] = iqu_rot[2].astype(np.float32)
+            else:
+                # I-only path (spin-0 rotation is fine)
+                temp_map = np.array(emission_krj[0])
+                current_nside = hp.get_nside(temp_map)
+                if current_nside != nside:
+                    temp_map = hp.ud_grade(temp_map, nside_out=nside)
+                temp_map = rot.rotate_map_pixel(temp_map)
+                healpix_maps[float(freq)] = temp_map.astype(np.float32)
 
         model_name = f"pysm3:{'+'.join(components_list)}"
         logger.info(
-            f"PySM3 {components_list} loaded: {hp.nside2npix(nside)} pixels \u00d7 {n_freq} frequencies"
+            f"PySM3 {components_list} loaded: {hp.nside2npix(nside)} pixels "
+            f"\u00d7 {n_freq} frequencies"
+            f"{', stokes=IQU' if include_polarization else ''}"
         )
 
         sky = cls(
             _healpix_maps=healpix_maps,
+            _healpix_q_maps=healpix_q_maps,
+            _healpix_u_maps=healpix_u_maps,
             _healpix_nside=nside,
             _observation_frequencies=frequencies,
             _native_format="healpix",

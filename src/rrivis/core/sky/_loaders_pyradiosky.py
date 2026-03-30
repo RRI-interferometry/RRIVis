@@ -306,39 +306,85 @@ class _PyradioskyMixin:
 
         npix = hp.nside2npix(nside)
 
-        # --- Extract Stokes I and build full-sky maps ---
-        # psky_eval.stokes shape: (4, Nfreqs, Ncomponents)
+        # --- Extract Stokes and build full-sky maps ---
+        # psky_eval.stokes shape: (n_stokes, Nfreqs, Ncomponents)
         stokes_data = np.asarray(psky_eval.stokes.value)
+        n_stokes_avail = stokes_data.shape[0]
+        has_pol = n_stokes_avail >= 3
+
+        if has_pol:
+            if brightness_conversion != "rayleigh-jeans":
+                logger.info(
+                    "Using Rayleigh-Jeans conversion (required: polarized K_RJ data)"
+                )
+            brightness_conversion = "rayleigh-jeans"
+
+        def _build_full_map(data_1d: np.ndarray) -> np.ndarray:
+            """Build a full-sky RING-ordered map from raw Stokes data."""
+            if hpx_inds is not None:
+                full = np.zeros(npix, dtype=np.float64)
+                pix = hpx_inds
+                if is_nested:
+                    pix = hp.nest2ring(nside, pix)
+                full[pix] = data_1d
+            else:
+                full = np.array(data_1d, dtype=np.float64)
+                if is_nested:
+                    full = hp.reorder(full, n2r=True)
+            return full
 
         healpix_maps: dict[float, np.ndarray] = {}
+        healpix_q_maps: dict[float, np.ndarray] | None = {} if has_pol else None
+        healpix_u_maps: dict[float, np.ndarray] | None = {} if has_pol else None
+        healpix_v_maps: dict[float, np.ndarray] | None = (
+            {} if n_stokes_avail >= 4 else None
+        )
+
         for i_freq in range(n_freq):
-            stokes_i = stokes_data[0, i_freq, :]
+            i_map = _build_full_map(stokes_data[0, i_freq, :])
 
-            if hpx_inds is not None:
-                # Sparse map: fill only specified pixels
-                full_map = np.zeros(npix, dtype=np.float64)
-                pixel_indices = hpx_inds
-                if is_nested:
-                    pixel_indices = hp.nest2ring(nside, pixel_indices)
-                full_map[pixel_indices] = stokes_i
+            if has_pol:
+                q_map = _build_full_map(stokes_data[1, i_freq, :])
+                u_map = _build_full_map(stokes_data[2, i_freq, :])
+
+                if rot is not None:
+                    # Spin-2 aware rotation for IQU
+                    iqu = np.array([i_map, q_map, u_map])
+                    iqu_rot = rot.rotate_map_alms(iqu)
+                    i_map = iqu_rot[0]
+                    q_map = iqu_rot[1]
+                    u_map = iqu_rot[2]
+
+                healpix_maps[float(obs_freqs[i_freq])] = i_map.astype(np.float32)
+                healpix_q_maps[float(obs_freqs[i_freq])] = q_map.astype(np.float32)
+                healpix_u_maps[float(obs_freqs[i_freq])] = u_map.astype(np.float32)
+
+                if n_stokes_avail >= 4:
+                    # V is spin-0 (pseudo-scalar), rotate with pixel method
+                    v_map = _build_full_map(stokes_data[3, i_freq, :])
+                    if rot is not None:
+                        v_map = rot.rotate_map_pixel(v_map)
+                    healpix_v_maps[float(obs_freqs[i_freq])] = v_map.astype(np.float32)
             else:
-                # Full-sky map
-                full_map = np.array(stokes_i, dtype=np.float64)
-                if is_nested:
-                    full_map = hp.reorder(full_map, n2r=True)
-
-            if rot is not None:
-                full_map = rot.rotate_map_pixel(full_map)
-
-            healpix_maps[float(obs_freqs[i_freq])] = full_map.astype(np.float32)
+                # I-only: spin-0 rotation
+                if rot is not None:
+                    i_map = rot.rotate_map_pixel(i_map)
+                healpix_maps[float(obs_freqs[i_freq])] = i_map.astype(np.float32)
 
         model_name = f"pyradiosky:{os.path.basename(filename)}"
+        stokes_label = "I"
+        if has_pol:
+            stokes_label = "IQU" + ("V" if n_stokes_avail >= 4 else "")
         logger.info(
-            f"pyradiosky HEALPix loaded: {npix} pixels \u00d7 {n_freq} frequencies"
+            f"pyradiosky HEALPix loaded: {npix} pixels \u00d7 {n_freq} frequencies, "
+            f"stokes={stokes_label}"
         )
 
         sky_model = cls(
             _healpix_maps=healpix_maps,
+            _healpix_q_maps=healpix_q_maps,
+            _healpix_u_maps=healpix_u_maps,
+            _healpix_v_maps=healpix_v_maps,
             _healpix_nside=nside,
             _observation_frequencies=obs_freqs,
             _native_format="healpix",

@@ -1,6 +1,7 @@
 # rrivis/core/sky/_loaders_vizier.py
 """VizieR and CASDA TAP loader mixin for SkyModel."""
 
+import functools
 import logging
 from typing import Any
 
@@ -710,3 +711,142 @@ class _VizierLoadersMixin:
         ...     print(f"{name}: {desc}")
         """
         return {name: info["description"] for name, info in RACS_CATALOGS.items()}
+
+    @staticmethod
+    @functools.lru_cache(maxsize=32)
+    def get_catalog_columns(catalog_key: str) -> dict[str, Any]:
+        """Query VizieR for all available columns in a point-source catalog.
+
+        Fetches one row from VizieR and returns the full list of column names
+        along with metadata about which columns RRIVis uses.
+
+        Parameters
+        ----------
+        catalog_key : str
+            Key in ``VIZIER_POINT_CATALOGS`` (e.g. ``"gleam_egc"``, ``"nvss"``).
+
+        Returns
+        -------
+        dict
+            Keys:
+
+            - ``"columns"`` : list[str] — all column names in the catalog
+            - ``"used_by_rrivis"`` : dict[str, str | None] — columns used by
+              RRIVis (``"ra"``, ``"dec"``, ``"flux"``, ``"spectral_index"``)
+            - ``"vizier_id"`` : str — VizieR catalog identifier
+            - ``"freq_mhz"`` : float — survey reference frequency
+            - ``"flux_unit"`` : str — unit of the flux column
+            - ``"description"`` : str — catalog description
+
+            If the query fails, the dict contains an ``"error"`` key instead.
+
+        Examples
+        --------
+        >>> info = SkyModel.get_catalog_columns("nvss")
+        >>> print(info["columns"][:5])
+        ['recno', 'Field', 'Xpos', 'Ypos', 'NVSS']
+        >>> print(info["used_by_rrivis"])
+        {'ra': 'RAJ2000', 'dec': 'DEJ2000', 'flux': 'S1.4', 'spectral_index': None}
+        """
+        if catalog_key not in VIZIER_POINT_CATALOGS:
+            raise ValueError(
+                f"Unknown catalog key '{catalog_key}'. "
+                f"Available: {sorted(VIZIER_POINT_CATALOGS.keys())}"
+            )
+
+        info = VIZIER_POINT_CATALOGS[catalog_key]
+
+        try:
+            v = Vizier(columns=["**"], row_limit=1)
+            tables = v.get_catalogs(info["vizier_id"])
+            if not tables:
+                return {"error": f"No tables returned from VizieR for '{catalog_key}'"}
+
+            catalog = None
+            if info.get("table") is not None:
+                for t in tables:
+                    if info["table"] in t.meta.get("name", ""):
+                        catalog = t
+                        break
+            if catalog is None:
+                catalog = tables[0]
+
+            columns = list(catalog.colnames)
+        except Exception as e:
+            logger.error(f"Failed to query VizieR columns for {catalog_key}: {e}")
+            return {"error": str(e)}
+
+        return {
+            "columns": columns,
+            "used_by_rrivis": {
+                "ra": info["ra_col"],
+                "dec": info["dec_col"],
+                "flux": info["flux_col"],
+                "spectral_index": info.get("spindex_col"),
+            },
+            "vizier_id": info["vizier_id"],
+            "freq_mhz": info["freq_mhz"],
+            "flux_unit": info.get("flux_unit", "Jy"),
+            "description": info["description"],
+        }
+
+    @staticmethod
+    @functools.lru_cache(maxsize=8)
+    def get_racs_columns(band: str) -> dict[str, Any]:
+        """Query CASDA TAP for available columns in a RACS catalog.
+
+        Parameters
+        ----------
+        band : str
+            RACS band: ``"low"``, ``"mid"``, or ``"high"``.
+
+        Returns
+        -------
+        dict
+            Keys:
+
+            - ``"columns"`` : list[str] — all column names in the TAP table
+            - ``"used_by_rrivis"`` : dict[str, str] — columns used by RRIVis
+            - ``"tap_table"`` : str — CASDA TAP table name
+            - ``"freq_mhz"`` : float — survey frequency
+            - ``"description"`` : str — band description
+
+            If the query fails, the dict contains an ``"error"`` key instead.
+
+        Examples
+        --------
+        >>> info = SkyModel.get_racs_columns("low")
+        >>> print(info["freq_mhz"])
+        887.5
+        """
+        band = band.lower()
+        if band not in RACS_CATALOGS:
+            raise ValueError(
+                f"Unknown RACS band '{band}'. Available: {sorted(RACS_CATALOGS.keys())}"
+            )
+
+        info = RACS_CATALOGS[band]
+
+        try:
+            tap = TapPlus(url=CASDA_TAP_URL)
+            job = tap.launch_job(
+                f"SELECT column_name FROM tap_schema.columns "
+                f"WHERE table_name='{info['tap_table']}'"
+            )
+            result = job.get_results()
+            columns = list(result["column_name"])
+        except Exception as e:
+            logger.error(f"Failed to query CASDA TAP columns for RACS-{band}: {e}")
+            return {"error": str(e)}
+
+        return {
+            "columns": columns,
+            "used_by_rrivis": {
+                "ra": info["ra_col"],
+                "dec": info["dec_col"],
+                "flux": info["flux_col"],
+            },
+            "tap_table": info["tap_table"],
+            "freq_mhz": info["freq_mhz"],
+            "description": info["description"],
+        }

@@ -824,6 +824,11 @@ class Simulator:
             # Use direct HEALPix visibility calculation
             from rrivis.core.visibility_healpix import calculate_visibility_healpix
 
+            use_pol = (
+                self._sky_model is not None
+                and self._sky_model.has_polarized_healpix_maps
+            )
+
             healpix_result = calculate_visibility_healpix(
                 sky_model=self._sky_model,
                 antennas=self._antennas,
@@ -838,22 +843,37 @@ class Simulator:
                 backend=self._backend,
                 output_units="Jy",
                 beam_config=self._beam_config,
+                include_polarization=use_pol,
             )
 
             # Convert healpix result format to match RIME format for compatibility
-            # healpix returns: {"visibilities": (n_baselines, n_times, n_freqs), ...}
-            # RIME returns: {(ant1, ant2): {"I": (n_times, n_freqs), ...}, ...}
+            # healpix returns: {"visibilities": (n_bl, n_t, n_f[, 2, 2]), ...}
+            # RIME returns: {(ant1, ant2): {"I": ..., "XX": ..., ...}, ...}
             visibilities = {}
             baseline_keys = healpix_result["baseline_keys"]
             vis_array = healpix_result["visibilities"]
-            for bl_idx, bl_key in enumerate(baseline_keys):
-                visibilities[bl_key] = {
-                    "I": vis_array[bl_idx],
-                    "XX": vis_array[bl_idx],  # For compatibility
-                    "YY": vis_array[bl_idx],
-                    "XY": np.zeros_like(vis_array[bl_idx]),
-                    "YX": np.zeros_like(vis_array[bl_idx]),
-                }
+
+            if healpix_result.get("polarized", False):
+                # Polarized: vis_array is (n_bl, n_t, n_f, 2, 2)
+                for bl_idx, bl_key in enumerate(baseline_keys):
+                    V = vis_array[bl_idx]  # (n_t, n_f, 2, 2)
+                    visibilities[bl_key] = {
+                        "XX": V[..., 0, 0],
+                        "XY": V[..., 0, 1],
+                        "YX": V[..., 1, 0],
+                        "YY": V[..., 1, 1],
+                        "I": V[..., 0, 0] + V[..., 1, 1],  # XX + YY = I
+                    }
+            else:
+                # Scalar: vis_array is (n_bl, n_t, n_f)
+                for bl_idx, bl_key in enumerate(baseline_keys):
+                    visibilities[bl_key] = {
+                        "I": vis_array[bl_idx],
+                        "XX": vis_array[bl_idx],
+                        "YY": vis_array[bl_idx],
+                        "XY": np.zeros_like(vis_array[bl_idx]),
+                        "YX": np.zeros_like(vis_array[bl_idx]),
+                    }
 
         else:
             # Use point source RIME calculation (original behavior)
