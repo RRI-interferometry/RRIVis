@@ -367,9 +367,11 @@ def run_config_mode(
                 console.print("  Existing files:")
                 for f in existing_files:
                     console.print(f"    [dim]→[/dim]  [cyan]{f.name}[/cyan]")
-                console.print("\n  [bold][y][/bold] Overwrite existing files")
-                console.print("  [bold][n][/bold] Abort")
-                console.print("  [bold][s][/bold] Save to a new folder with a suffix\n")
+                console.print("\n  [bold]\\[y][/bold] Overwrite existing files")
+                console.print("  [bold]\\[n][/bold] Abort")
+                console.print(
+                    "  [bold]\\[s][/bold] Save to a new folder with a suffix\n"
+                )
                 try:
                     answer = input("Enter choice [y/n/s]: ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
