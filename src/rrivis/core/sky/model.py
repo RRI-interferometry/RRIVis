@@ -136,6 +136,68 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         self._validate_precision()
         return self._precision.sky_model.get_dtype("healpix_maps")
 
+    @staticmethod
+    def _deg_to_rad_at_precision(arr: np.ndarray, precision: Any) -> np.ndarray:
+        """Convert degrees to radians using a precision-appropriate intermediate dtype.
+
+        Parameters
+        ----------
+        arr : np.ndarray
+            Array of angles in degrees.
+        precision : PrecisionConfig, optional
+            Precision configuration object. If None, uses numpy default (float64).
+
+        Returns
+        -------
+        np.ndarray
+            Array of angles in radians, dtype determined by precision config.
+
+        Notes
+        -----
+        - **float32 target**: Conversion happens at float64 for trig accuracy,
+          then _ensure_dtypes() casts to float32. This is more accurate than
+          computing trig at float32 directly.
+        - **float64 target**: Conversion at float64 (numpy default, no-op).
+        - **float128 target**: Array is upcast to float128 BEFORE conversion
+          to exploit full precision during trig calculation.
+        - **None precision**: Falls back to numpy default (float64).
+        """
+        if precision is None:
+            return np.deg2rad(arr)
+        src_dt = precision.sky_model.get_dtype("source_positions")
+        if src_dt == np.float32:
+            # Convert at float64 for accuracy; final cast to float32 happens in _ensure_dtypes
+            return np.deg2rad(arr.astype(np.float64, copy=False))
+        # float64 (no-op) or float128 (upcast before trig)
+        return np.deg2rad(arr.astype(src_dt, copy=False))
+
+    @staticmethod
+    def _rad_to_deg_at_precision(arr: np.ndarray, precision: Any) -> np.ndarray:
+        """Convert radians to degrees using a precision-appropriate dtype.
+
+        Parameters
+        ----------
+        arr : np.ndarray
+            Array of angles in radians.
+        precision : PrecisionConfig, optional
+            Precision configuration object. If None, uses numpy default.
+
+        Returns
+        -------
+        np.ndarray
+            Array of angles in degrees, dtype preserved or set by precision config.
+
+        Notes
+        -----
+        numpy.rad2deg() naturally preserves input dtype, so this helper mainly
+        serves as a documentation point that the output respects precision config.
+        For float128 input arrays, float128 is preserved in output.
+        """
+        if precision is None:
+            return np.rad2deg(arr)
+        src_dt = precision.sky_model.get_dtype("source_positions")
+        return np.rad2deg(arr.astype(src_dt, copy=False))
+
     def _ensure_dtypes(self) -> None:
         """Cast internal arrays to precision-appropriate dtypes.
 
@@ -1131,8 +1193,8 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             logger.debug(f"Generated {n} uniform test sources")
 
         sky = cls(
-            _ra_rad=np.deg2rad(ra_deg_arr),
-            _dec_rad=np.deg2rad(dec_deg_arr),
+            _ra_rad=cls._deg_to_rad_at_precision(ra_deg_arr, precision),
+            _dec_rad=cls._deg_to_rad_at_precision(dec_deg_arr, precision),
             _flux_ref=flux_arr.astype(np.float64),
             _alpha=np.full(n, float(spectral_index)),
             _stokes_q=np.zeros(n, dtype=np.float64),

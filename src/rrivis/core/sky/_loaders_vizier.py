@@ -658,8 +658,12 @@ class _VizierLoadersMixin:
             return cls._empty_sky(model_name, brightness_conversion, precision)
 
         sky = cls(
-            _ra_rad=np.deg2rad(np.array(ra_list, dtype=np.float64)),
-            _dec_rad=np.deg2rad(np.array(dec_list, dtype=np.float64)),
+            _ra_rad=cls._deg_to_rad_at_precision(
+                np.array(ra_list, dtype=np.float64), precision
+            ),
+            _dec_rad=cls._deg_to_rad_at_precision(
+                np.array(dec_list, dtype=np.float64), precision
+            ),
             _flux_ref=np.array(flux_list, dtype=np.float64),
             _alpha=np.full(n, -0.7, dtype=np.float64),  # No multi-freq data in RACS
             _stokes_q=np.zeros(n, dtype=np.float64),
