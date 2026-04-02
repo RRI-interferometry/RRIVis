@@ -16,6 +16,47 @@ from .catalogs import CASDA_TAP_URL, RACS_CATALOGS, VIZIER_POINT_CATALOGS
 logger = logging.getLogger(__name__)
 
 
+def _require_service(service: str, action: str) -> None:
+    """Check network connectivity for *service* and raise if unavailable.
+
+    Parameters
+    ----------
+    service : str
+        Service name recognised by ``rrivis.utils.network`` (e.g.
+        ``"vizier"``, ``"casda"``).
+    action : str
+        Human-readable description of the operation that needs the
+        service (used in the error message).
+
+    Raises
+    ------
+    ConnectionError
+        If general internet or the specific service is unreachable.
+    """
+    from rrivis.utils.network import (
+        SERVICE_DISPLAY_NAMES,
+        check_service,
+        is_online,
+    )
+
+    display = SERVICE_DISPLAY_NAMES.get(service, service)
+
+    if not is_online():
+        raise ConnectionError(
+            f"No internet connection. Cannot {action}.\n"
+            f"Hint: use offline metadata methods like "
+            f"SkyModel.get_catalog_info(key) or SkyModel.list_point_catalogs() "
+            f"which work without network."
+        )
+
+    if not check_service(service):
+        raise ConnectionError(
+            f"{display} ({service}) is unreachable. Cannot {action}.\n"
+            f"The service may be temporarily down. Try again later, or use "
+            f"SkyModel.get_catalog_info(key) for offline metadata."
+        )
+
+
 class _VizierLoadersMixin:
     """Mixin providing VizieR and CASDA TAP factory classmethods for SkyModel."""
 
@@ -64,6 +105,8 @@ class _VizierLoadersMixin:
 
         info = VIZIER_POINT_CATALOGS[catalog_key]
         logger.info(f"Fetching {info['description']}")
+
+        _require_service("vizier", f"download catalog '{catalog_key}' from VizieR")
         logger.info("Downloading from VizieR...")
 
         try:
@@ -611,6 +654,8 @@ class _VizierLoadersMixin:
 
         logger.info(f"Fetching {info['description']} via CASDA TAP")
 
+        _require_service("casda", f"download RACS-{band} catalog from CASDA")
+
         try:
             tap = TapPlus(url=CASDA_TAP_URL)
             adql = (
@@ -717,6 +762,120 @@ class _VizierLoadersMixin:
         return {name: info["description"] for name, info in RACS_CATALOGS.items()}
 
     @staticmethod
+    def get_point_catalog_metadata(catalog_key: str) -> dict[str, Any]:
+        """Get static metadata for a VizieR point-source catalog (no network).
+
+        Returns all locally-stored metadata for the catalog without
+        making any network calls. For live column queries from VizieR,
+        use ``get_catalog_columns()`` instead.
+
+        Parameters
+        ----------
+        catalog_key : str
+            Key in ``VIZIER_POINT_CATALOGS`` (e.g. ``"gleam_egc"``, ``"nvss"``).
+
+        Returns
+        -------
+        dict
+            Keys:
+
+            - ``"vizier_id"`` : str — VizieR catalog identifier
+            - ``"description"`` : str — catalog description
+            - ``"freq_mhz"`` : float — survey reference frequency
+            - ``"flux_col"`` : str — flux column name
+            - ``"flux_unit"`` : str — unit of the flux column
+            - ``"ra_col"`` : str — RA column name
+            - ``"dec_col"`` : str — Dec column name
+            - ``"spindex_col"`` : str or None — spectral index column
+            - ``"default_spindex"`` : float — default spectral index
+            - ``"coord_frame"`` : str — coordinate frame (e.g. ``"icrs"``, ``"fk4"``)
+
+        Raises
+        ------
+        ValueError
+            If ``catalog_key`` is not recognized.
+
+        Examples
+        --------
+        >>> info = SkyModel.get_point_catalog_metadata("nvss")
+        >>> print(info["freq_mhz"])
+        1400.0
+        >>> print(info["flux_col"], info["flux_unit"])
+        S1.4 mJy
+        """
+        if catalog_key not in VIZIER_POINT_CATALOGS:
+            raise ValueError(
+                f"Unknown catalog key '{catalog_key}'. "
+                f"Available: {sorted(VIZIER_POINT_CATALOGS.keys())}"
+            )
+        info = VIZIER_POINT_CATALOGS[catalog_key]
+        return {
+            "vizier_id": info["vizier_id"],
+            "description": info["description"],
+            "freq_mhz": info["freq_mhz"],
+            "flux_col": info["flux_col"],
+            "flux_unit": info.get("flux_unit", "Jy"),
+            "ra_col": info["ra_col"],
+            "dec_col": info["dec_col"],
+            "spindex_col": info.get("spindex_col"),
+            "default_spindex": info["default_spindex"],
+            "coord_frame": info.get("coord_frame", "icrs"),
+        }
+
+    @staticmethod
+    def get_racs_metadata(band: str) -> dict[str, Any]:
+        """Get static metadata for a RACS catalog band (no network).
+
+        Returns all locally-stored metadata for the RACS band without
+        making any network calls. For live column queries from CASDA TAP,
+        use ``get_racs_columns()`` instead.
+
+        Parameters
+        ----------
+        band : str
+            RACS band: ``"low"``, ``"mid"``, or ``"high"``.
+
+        Returns
+        -------
+        dict
+            Keys:
+
+            - ``"description"`` : str — band description
+            - ``"freq_mhz"`` : float — survey frequency
+            - ``"tap_table"`` : str — CASDA TAP table name
+            - ``"ra_col"`` : str — RA column name
+            - ``"dec_col"`` : str — Dec column name
+            - ``"flux_col"`` : str — flux column name
+            - ``"flux_unit"`` : str — unit of the flux column
+
+        Raises
+        ------
+        ValueError
+            If ``band`` is not recognized.
+
+        Examples
+        --------
+        >>> info = SkyModel.get_racs_metadata("low")
+        >>> print(info["freq_mhz"])
+        887.5
+        """
+        band = band.lower()
+        if band not in RACS_CATALOGS:
+            raise ValueError(
+                f"Unknown RACS band '{band}'. Available: {sorted(RACS_CATALOGS.keys())}"
+            )
+        info = RACS_CATALOGS[band]
+        return {
+            "description": info["description"],
+            "freq_mhz": info["freq_mhz"],
+            "tap_table": info["tap_table"],
+            "ra_col": info["ra_col"],
+            "dec_col": info["dec_col"],
+            "flux_col": info["flux_col"],
+            "flux_unit": info.get("flux_unit", "mJy"),
+        }
+
+    @staticmethod
     @functools.lru_cache(maxsize=32)
     def get_catalog_columns(catalog_key: str) -> dict[str, Any]:
         """Query VizieR for all available columns in a point-source catalog.
@@ -764,6 +923,10 @@ class _VizierLoadersMixin:
             )
 
         info = VIZIER_POINT_CATALOGS[catalog_key]
+
+        _require_service(
+            "vizier", f"query live columns for '{catalog_key}' from VizieR"
+        )
 
         try:
             v = Vizier(columns=["**"], row_limit=1)
@@ -844,6 +1007,8 @@ class _VizierLoadersMixin:
             )
 
         info = RACS_CATALOGS[band]
+
+        _require_service("casda", f"query live columns for RACS-{band} from CASDA")
 
         try:
             tap = TapPlus(url=CASDA_TAP_URL)

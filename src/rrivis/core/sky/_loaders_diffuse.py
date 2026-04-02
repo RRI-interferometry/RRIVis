@@ -14,6 +14,39 @@ from .catalogs import DIFFUSE_MODELS
 logger = logging.getLogger(__name__)
 
 
+def _check_data_service(service: str, model_name: str) -> None:
+    """Warn if the data service for a diffuse model is unreachable.
+
+    Unlike VizieR/CASDA loaders, pygdsm and PySM3 cache data locally
+    after the first download, so a network failure is not always fatal.
+    This check logs a warning instead of raising immediately — the
+    actual init call will raise if the data truly isn't available.
+
+    Parameters
+    ----------
+    service : str
+        Service name (``"pygdsm_data"`` or ``"pysm3_data"``).
+    model_name : str
+        Human-readable model name for the warning message.
+    """
+    from rrivis.utils.network import SERVICE_DISPLAY_NAMES, check_service, is_online
+
+    display = SERVICE_DISPLAY_NAMES.get(service, service)
+
+    if not is_online():
+        logger.warning(
+            f"No internet connection. Loading {model_name} may fail if data "
+            f"files have not been downloaded previously."
+        )
+        return
+
+    if not check_service(service):
+        logger.warning(
+            f"{display} is unreachable. Loading {model_name} may fail if data "
+            f"files have not been cached locally from a previous run."
+        )
+
+
 class _DiffuseLoadersMixin:
     """Mixin providing diffuse-sky factory classmethods for SkyModel."""
 
@@ -219,15 +252,18 @@ class _DiffuseLoadersMixin:
             init_kwargs["basemap"] = basemap
         if interpolation is not None:
             init_kwargs["interpolation"] = interpolation
+
+        _check_data_service("pygdsm_data", model.upper())
+
         try:
             pygdsm_instance = model_class(**init_kwargs)
         except Exception as e:
-            logger.error(
-                f"Failed to initialize {model.upper()}: {e}. "
-                "This model may require internet access to download data "
-                "files on first use."
-            )
-            raise
+            raise ConnectionError(
+                f"Failed to initialize {model.upper()}: {e}\n"
+                "This model requires internet access to download data files "
+                "on first use. Check your network connection, or verify that "
+                "Zenodo (zenodo.org) is reachable."
+            ) from e
 
         rot = Rotator(coord=["G", "C"])
 
@@ -394,15 +430,17 @@ class _DiffuseLoadersMixin:
             f"nside={nside}, polarization={'IQUV' if include_polarization else 'I'}"
         )
 
+        _check_data_service("pysm3_data", f"PySM3 {components_list}")
+
         try:
             pysm_sky = pysm3.Sky(nside=nside, preset_strings=components_list)
         except Exception as e:
-            logger.error(
-                f"Failed to initialize PySM3 with components {components_list}: {e}. "
-                "PySM3 may require internet access to download data files "
-                "on first use."
-            )
-            raise
+            raise ConnectionError(
+                f"Failed to initialize PySM3 with components {components_list}: {e}\n"
+                "PySM3 requires internet access to download data files on "
+                "first use. Check your network connection, or verify that "
+                "NERSC portal (portal.nersc.gov) is reachable."
+            ) from e
         rot = Rotator(coord=["G", "C"])
 
         healpix_maps: dict[float, np.ndarray] = {}

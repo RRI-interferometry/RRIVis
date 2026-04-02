@@ -1286,12 +1286,12 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         }
 
     @classmethod
-    def get_catalog_info(cls, catalog_key: str) -> dict[str, Any]:
-        """Query column names and metadata for any supported catalog or model.
+    def get_catalog_info(cls, catalog_key: str, live: bool = False) -> dict[str, Any]:
+        """Get metadata for any supported catalog or model.
 
-        Dispatches to VizieR, CASDA TAP, or diffuse model metadata based on
-        the key. Results from VizieR and CASDA TAP are cached to avoid
-        redundant network calls.
+        Returns locally-stored metadata by default (no network). Pass
+        ``live=True`` to also fetch live column information from VizieR
+        or CASDA TAP.
 
         Parameters
         ----------
@@ -1301,14 +1301,18 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
             - VizieR catalog key (e.g. ``"gleam_egc"``, ``"nvss"``, ``"tgss"``)
             - RACS band prefixed with ``"racs_"`` (e.g. ``"racs_low"``)
             - Diffuse model name (e.g. ``"gsm2008"``, ``"lfsm"``)
+        live : bool, default=False
+            If True, query VizieR/CASDA TAP for live column information
+            (requires network). If False, return only static metadata.
 
         Returns
         -------
         dict
-            Catalog-specific information including column names (for point
-            sources) or model parameters (for diffuse models). See
-            ``get_catalog_columns()``, ``get_racs_columns()``, and
-            ``get_diffuse_model_info()`` for detailed return formats.
+            Catalog-specific information. For VizieR catalogs see
+            ``get_point_catalog_metadata()`` (offline) or
+            ``get_catalog_columns()`` (live). For RACS see
+            ``get_racs_metadata()`` / ``get_racs_columns()``. For diffuse
+            models see ``get_diffuse_model_info()``.
 
         Raises
         ------
@@ -1318,8 +1322,8 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         Examples
         --------
         >>> info = SkyModel.get_catalog_info("nvss")
-        >>> print(info["columns"][:3])
-        ['recno', 'Field', 'Xpos']
+        >>> print(info["freq_mhz"])
+        1400.0
 
         >>> info = SkyModel.get_catalog_info("racs_low")
         >>> print(info["freq_mhz"])
@@ -1332,15 +1336,21 @@ class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
         from .catalogs import DIFFUSE_MODELS, RACS_CATALOGS, VIZIER_POINT_CATALOGS
 
         if catalog_key in VIZIER_POINT_CATALOGS:
-            return cls.get_catalog_columns(catalog_key)
+            if live:
+                return cls.get_catalog_columns(catalog_key)
+            return cls.get_point_catalog_metadata(catalog_key)
 
         if catalog_key.startswith("racs_"):
             band = catalog_key[5:]
             if band in RACS_CATALOGS:
-                return cls.get_racs_columns(band)
+                if live:
+                    return cls.get_racs_columns(band)
+                return cls.get_racs_metadata(band)
 
         if catalog_key in RACS_CATALOGS:
-            return cls.get_racs_columns(catalog_key)
+            if live:
+                return cls.get_racs_columns(catalog_key)
+            return cls.get_racs_metadata(catalog_key)
 
         if catalog_key in DIFFUSE_MODELS:
             return cls.get_diffuse_model_info(catalog_key)

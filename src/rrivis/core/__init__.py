@@ -29,10 +29,8 @@ from rrivis.core.precision import (
 )
 from rrivis.core.sky import (
     C_LIGHT,
-    DIFFUSE_MODELS,
     H_PLANCK,
     K_BOLTZMANN,
-    VIZIER_POINT_CATALOGS,
     SkyModel,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
@@ -61,8 +59,6 @@ __all__ = [
     "H_PLANCK",
     "brightness_temp_to_flux_density",
     "flux_density_to_brightness_temp",
-    "VIZIER_POINT_CATALOGS",
-    "DIFFUSE_MODELS",
     # Visibility
     "calculate_visibility",
     "calculate_visibility_healpix",
