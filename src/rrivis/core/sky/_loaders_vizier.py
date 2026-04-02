@@ -718,7 +718,8 @@ class _VizierLoadersMixin:
         """Query VizieR for all available columns in a point-source catalog.
 
         Fetches one row from VizieR and returns the full list of column names
-        along with metadata about which columns RRIVis uses.
+        along with metadata about which columns RRIVis uses. Column
+        descriptions and units are extracted from VizieR's own metadata.
 
         Parameters
         ----------
@@ -731,6 +732,8 @@ class _VizierLoadersMixin:
             Keys:
 
             - ``"columns"`` : list[str] — all column names in the catalog
+            - ``"column_details"`` : dict[str, dict] — per-column metadata
+              from VizieR with ``"description"`` and ``"unit"`` keys
             - ``"used_by_rrivis"`` : dict[str, str | None] — columns used by
               RRIVis (``"ra"``, ``"dec"``, ``"flux"``, ``"spectral_index"``)
             - ``"vizier_id"`` : str — VizieR catalog identifier
@@ -747,6 +750,8 @@ class _VizierLoadersMixin:
         ['recno', 'Field', 'Xpos', 'Ypos', 'NVSS']
         >>> print(info["used_by_rrivis"])
         {'ra': 'RAJ2000', 'dec': 'DEJ2000', 'flux': 'S1.4', 'spectral_index': None}
+        >>> print(info["column_details"]["S1.4"])
+        {'description': '...', 'unit': 'mJy'}
         """
         if catalog_key not in VIZIER_POINT_CATALOGS:
             raise ValueError(
@@ -772,12 +777,21 @@ class _VizierLoadersMixin:
                 catalog = tables[0]
 
             columns = list(catalog.colnames)
+
+            column_details = {}
+            for col_name in columns:
+                col = catalog.columns[col_name]
+                column_details[col_name] = {
+                    "description": getattr(col, "description", None) or "",
+                    "unit": str(col.unit) if col.unit else None,
+                }
         except Exception as e:
             logger.error(f"Failed to query VizieR columns for {catalog_key}: {e}")
             return {"error": str(e)}
 
         return {
             "columns": columns,
+            "column_details": column_details,
             "used_by_rrivis": {
                 "ra": info["ra_col"],
                 "dec": info["dec_col"],
@@ -830,17 +844,29 @@ class _VizierLoadersMixin:
         try:
             tap = TapPlus(url=CASDA_TAP_URL)
             job = tap.launch_job(
-                f"SELECT column_name FROM tap_schema.columns "
+                f"SELECT column_name, description, unit "
+                f"FROM tap_schema.columns "
                 f"WHERE table_name='{info['tap_table']}'"
             )
             result = job.get_results()
             columns = list(result["column_name"])
+
+            column_details = {}
+            for row in result:
+                col_name = row["column_name"]
+                column_details[col_name] = {
+                    "description": str(row["description"])
+                    if row["description"]
+                    else "",
+                    "unit": str(row["unit"]) if row["unit"] else None,
+                }
         except Exception as e:
             logger.error(f"Failed to query CASDA TAP columns for RACS-{band}: {e}")
             return {"error": str(e)}
 
         return {
             "columns": columns,
+            "column_details": column_details,
             "used_by_rrivis": {
                 "ra": info["ra_col"],
                 "dec": info["dec_col"],
