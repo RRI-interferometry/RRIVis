@@ -174,6 +174,7 @@ class Simulator:
         self._beam_manager = None
         self._is_setup = False
         self._network_status = None
+        self._device_resources = None
         self._offline = (
             config.get("compute", {}).get("offline", False) if config else False
         )
@@ -327,6 +328,14 @@ class Simulator:
         """
         return self._network_status
 
+    @property
+    def device_resources(self):
+        """Get the device resources detected during setup.
+
+        Returns None if setup() hasn't been called yet.
+        """
+        return self._device_resources
+
     def setup(self) -> "Simulator":
         """
         Set up simulation components (antennas, baselines, sources).
@@ -357,6 +366,12 @@ class Simulator:
         from rrivis.simulator import get_simulator
 
         print_info("Setting up simulation...")
+
+        # Device resource detection
+        from rrivis.utils.device import get_device_resources
+
+        self._device_resources = get_device_resources()
+        print_info(f"Device: {self._device_resources.summary()}")
 
         # Initialize backend with precision
         self._backend = get_backend(self._backend_name, precision=self._precision)

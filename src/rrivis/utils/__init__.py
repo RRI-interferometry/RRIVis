@@ -4,6 +4,7 @@ This module provides common utilities for logging, validation,
 network connectivity detection, and other helper functions.
 """
 
+from rrivis.utils.device import DeviceResources, get_device_resources
 from rrivis.utils.logging import get_logger, setup_logging
 from rrivis.utils.network import (
     NetworkStatus,
@@ -21,4 +22,6 @@ __all__ = [
     "is_online",
     "check_service",
     "check_all_services",
+    "DeviceResources",
+    "get_device_resources",
 ]

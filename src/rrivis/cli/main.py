@@ -646,6 +646,77 @@ def run_status_mode(verbose: int = 0) -> int:
             border_style="cyan",
         )
     )
+
+    # Device resources panel
+    from rrivis.utils.device import get_device_resources
+
+    with console.status("Detecting device resources..."):
+        dev = get_device_resources()
+
+    dev_table = Table(show_header=True, header_style="bold cyan", padding=(0, 1))
+    dev_table.add_column("Resource", style="white")
+    dev_table.add_column("Value")
+
+    # OS
+    dev_table.add_row(
+        "OS",
+        f"{dev.os_info.name} {dev.os_info.version} "
+        f"({dev.os_info.architecture}, {dev.os_info.bits})",
+    )
+
+    # CPU
+    cores_str = ""
+    if dev.cpu.physical_cores is not None:
+        cores_str = (
+            f"{dev.cpu.physical_cores} physical / {dev.cpu.logical_cores} logical"
+        )
+    else:
+        cores_str = f"{dev.cpu.logical_cores} logical"
+    cpu_label = dev.cpu.model or dev.cpu.architecture
+    dev_table.add_row("CPU", f"{cpu_label} ({dev.cpu.architecture}, {cores_str})")
+
+    # RAM
+    if dev.memory.total_gb is not None:
+        ram_parts = [f"{dev.memory.total_gb:.2f} GB total"]
+        if dev.memory.available_gb is not None:
+            ram_parts.append(f"{dev.memory.available_gb:.2f} GB available")
+        dev_table.add_row("RAM", ", ".join(ram_parts))
+    else:
+        dev_table.add_row("RAM", "[dim]Unknown (install psutil for detection)[/dim]")
+
+    # Storage
+    dev_table.add_row(
+        "Storage",
+        f"{dev.storage.free_gb:.2f} GB free / {dev.storage.total_gb:.2f} GB total",
+    )
+
+    # GPU(s)
+    if dev.gpus:
+        for i, gpu in enumerate(dev.gpus):
+            label = "GPU" if i == 0 else ""
+            parts = [gpu.name or gpu.vendor]
+            details: list[str] = []
+            if gpu.vram_total_gb is not None:
+                details.append(f"{gpu.vram_total_gb:.1f} GB VRAM")
+            if gpu.cores is not None:
+                details.append(f"{gpu.cores} cores")
+            if gpu.metal_support:
+                details.append(gpu.metal_support)
+            if gpu.cuda_driver:
+                details.append(f"Driver {gpu.cuda_driver}")
+            if details:
+                parts.append(f"({', '.join(details)})")
+            dev_table.add_row(label, " ".join(parts))
+    else:
+        dev_table.add_row("GPU", "[dim]None detected[/dim]")
+
+    console.print(
+        Panel(
+            dev_table,
+            title="[bold]RRIvis Device Resources[/bold]",
+            border_style="cyan",
+        )
+    )
     console.print()
     return 0
 

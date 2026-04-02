@@ -49,7 +49,8 @@ from rrivis.simulator import (
     list_simulators,
 )
 
-# Network utilities
+# Network & device utilities
+from rrivis.utils.device import get_device_resources
 from rrivis.utils.network import is_online
 
 # Core functions (for advanced users)
@@ -87,8 +88,9 @@ __all__ = [
     "list_simulators",
     "VisibilitySimulator",
     "RIMESimulator",
-    # Network utilities
+    # Network & device utilities
     "is_online",
+    "get_device_resources",
     # Core functions (when available)
     "calculate_visibility",
     "read_antenna_positions",
