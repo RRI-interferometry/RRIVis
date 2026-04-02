@@ -173,6 +173,10 @@ class Simulator:
         self._beam_config: dict = {}
         self._beam_manager = None
         self._is_setup = False
+        self._network_status = None
+        self._offline = (
+            config.get("compute", {}).get("offline", False) if config else False
+        )
 
         # Build configuration from arguments
         if config is not None:
@@ -315,6 +319,14 @@ class Simulator:
             return self._backend.precision
         return None
 
+    @property
+    def network_status(self):
+        """Get the network status detected during setup.
+
+        Returns None if setup() hasn't been called yet.
+        """
+        return self._network_status
+
     def setup(self) -> "Simulator":
         """
         Set up simulation components (antennas, baselines, sources).
@@ -456,6 +468,41 @@ class Simulator:
                 "Spherical harmonic (m-mode) visibility calculation is not yet implemented. "
                 "Use calculation_type='direct_sum' instead."
             )
+
+        # Network connectivity check (before sky model loading)
+        from rrivis.utils.network import (
+            SERVICE_DISPLAY_NAMES,
+            get_network_status,
+            get_required_services,
+        )
+
+        self._network_status = get_network_status(offline=self._offline)
+
+        sky_config = self.config.get("sky_model", {})
+        required_services = get_required_services(sky_config)
+
+        if self._network_status.forced_offline:
+            status_label = "offline (forced)"
+        elif self._network_status.is_online:
+            status_label = "online"
+        else:
+            status_label = "offline"
+
+        if required_services:
+            service_names = [SERVICE_DISPLAY_NAMES.get(s, s) for s in required_services]
+            print_info(
+                f"Network: {status_label} (required: {', '.join(service_names)})"
+            )
+            if not self._network_status.is_online:
+                for service, models in required_services.items():
+                    display = SERVICE_DISPLAY_NAMES.get(service, service)
+                    model_names = ", ".join(models)
+                    print_warning(
+                        f"Sky model(s) [{model_names}] require {display} "
+                        f"but network is unavailable"
+                    )
+        else:
+            print_info(f"Network: {status_label} (no network-dependent models)")
 
         # Load sky model using unified SkyModel class
         # Extract precision config to pass to SkyModel factory methods

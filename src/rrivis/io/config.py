@@ -792,6 +792,14 @@ class ComputeConfig(BaseModel):
         "numpy",
         description="Computation backend: 'auto', 'numpy', 'numba', 'jax'",
     )
+    offline: bool = Field(
+        False,
+        description=(
+            "Force offline mode. When True, all network connectivity checks "
+            "are skipped and sky models requiring internet will raise errors "
+            "or be skipped."
+        ),
+    )
 
 
 class RRIvisConfig(BaseModel):

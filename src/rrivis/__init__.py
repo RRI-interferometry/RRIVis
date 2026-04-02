@@ -49,6 +49,9 @@ from rrivis.simulator import (
     list_simulators,
 )
 
+# Network utilities
+from rrivis.utils.network import is_online
+
 # Core functions (for advanced users)
 # Note: These imports may fail until import updates are complete
 # They will be enabled once all modules are updated
@@ -84,6 +87,8 @@ __all__ = [
     "list_simulators",
     "VisibilitySimulator",
     "RIMESimulator",
+    # Network utilities
+    "is_online",
     # Core functions (when available)
     "calculate_visibility",
     "read_antenna_positions",

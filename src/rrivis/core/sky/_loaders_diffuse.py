@@ -219,7 +219,15 @@ class _DiffuseLoadersMixin:
             init_kwargs["basemap"] = basemap
         if interpolation is not None:
             init_kwargs["interpolation"] = interpolation
-        pygdsm_instance = model_class(**init_kwargs)
+        try:
+            pygdsm_instance = model_class(**init_kwargs)
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize {model.upper()}: {e}. "
+                "This model may require internet access to download data "
+                "files on first use."
+            )
+            raise
 
         rot = Rotator(coord=["G", "C"])
 
@@ -386,7 +394,15 @@ class _DiffuseLoadersMixin:
             f"nside={nside}, polarization={'IQUV' if include_polarization else 'I'}"
         )
 
-        pysm_sky = pysm3.Sky(nside=nside, preset_strings=components_list)
+        try:
+            pysm_sky = pysm3.Sky(nside=nside, preset_strings=components_list)
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize PySM3 with components {components_list}: {e}. "
+                "PySM3 may require internet access to download data files "
+                "on first use."
+            )
+            raise
         rot = Rotator(coord=["G", "C"])
 
         healpix_maps: dict[float, np.ndarray] = {}

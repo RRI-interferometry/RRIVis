@@ -12,9 +12,6 @@ simulate = "rrivis simulate"
 init = "rrivis init"
 validate = "rrivis validate"
 
-# Legacy entry point (deprecated - will be removed in v0.3.0)
-start = "python src/main.py"
-
 # Development tools
 lint = "ruff check ."
 fix = "ruff check --fix ."

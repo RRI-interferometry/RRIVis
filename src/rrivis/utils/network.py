@@ -1,0 +1,325 @@
+"""Network connectivity detection for RRIvis.
+
+Provides utilities to check internet connectivity and reachability of
+specific services (VizieR, CASDA, pygdsm data, PySM3 data) that RRIVis
+depends on for sky model downloads.
+"""
+
+import socket
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
+from rrivis.utils.logging import get_logger
+
+logger = get_logger("rrivis.utils.network")
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_GENERAL_HOST = "8.8.8.8"
+_GENERAL_PORT = 53
+_GENERAL_TIMEOUT = 2.0
+_SERVICE_TIMEOUT = 3.0
+_CACHE_TTL = 300.0  # seconds
+
+SERVICE_ENDPOINTS: dict[str, tuple[str, int]] = {
+    "vizier": ("vizier.cds.unistra.fr", 443),
+    "casda": ("casda.csiro.au", 443),
+    "pygdsm_data": ("zenodo.org", 443),
+    "pysm3_data": ("portal.nersc.gov", 443),
+}
+
+# Maps (config_key, enable_field) -> service name for sky models that need network.
+# Config keys match the keys under sky_model in config.yaml.
+SKY_MODEL_SERVICES: dict[tuple[str, str], str] = {
+    ("gleam", "use_gleam"): "vizier",
+    ("gleam_healpix", "use_gleam"): "vizier",
+    ("mals", "use_mals"): "vizier",
+    ("vlssr", "use_vlssr"): "vizier",
+    ("tgss", "use_tgss"): "vizier",
+    ("wenss", "use_wenss"): "vizier",
+    ("sumss", "use_sumss"): "vizier",
+    ("nvss", "use_nvss"): "vizier",
+    ("lotss", "use_lotss"): "vizier",
+    ("three_c", "use_3c"): "vizier",
+    ("vlass", "use_vlass"): "vizier",
+    ("racs", "use_racs"): "casda",
+    ("gsm_healpix", "use_gsm"): "pygdsm_data",
+    ("pysm3", "use_pysm3"): "pysm3_data",
+}
+
+# Human-readable display names for services.
+SERVICE_DISPLAY_NAMES: dict[str, str] = {
+    "vizier": "VizieR",
+    "casda": "CASDA",
+    "pygdsm_data": "pygdsm data",
+    "pysm3_data": "PySM3 data",
+}
+
+# ---------------------------------------------------------------------------
+# NetworkStatus dataclass
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NetworkStatus:
+    """Result of a network connectivity check.
+
+    Attributes
+    ----------
+    internet : bool
+        Whether general internet connectivity is available.
+    vizier : bool or None
+        Whether VizieR is reachable (None if not checked).
+    casda : bool or None
+        Whether CASDA is reachable (None if not checked).
+    pygdsm_data : bool or None
+        Whether Zenodo (pygdsm data host) is reachable (None if not checked).
+    pysm3_data : bool or None
+        Whether NERSC portal (PySM3 data host) is reachable (None if not checked).
+    timestamp : float
+        Monotonic time when the check was performed.
+    forced_offline : bool
+        True if offline mode was forced via --offline flag or config.
+    """
+
+    internet: bool
+    vizier: bool | None = None
+    casda: bool | None = None
+    pygdsm_data: bool | None = None
+    pysm3_data: bool | None = None
+    timestamp: float = field(default_factory=time.monotonic)
+    forced_offline: bool = False
+
+    @property
+    def is_online(self) -> bool:
+        """Whether the system is considered online.
+
+        Returns False if offline mode is forced, or if general internet
+        connectivity is unavailable.
+        """
+        return not self.forced_offline and self.internet
+
+    def service_available(self, name: str) -> bool | None:
+        """Get the availability of a named service.
+
+        Parameters
+        ----------
+        name : str
+            Service name (one of: vizier, casda, pygdsm_data, pysm3_data).
+
+        Returns
+        -------
+        bool or None
+            True/False if checked, None if not checked.
+
+        Raises
+        ------
+        ValueError
+            If the service name is unknown.
+        """
+        if name not in SERVICE_ENDPOINTS:
+            raise ValueError(
+                f"Unknown service {name!r}. "
+                f"Known services: {', '.join(SERVICE_ENDPOINTS)}"
+            )
+        return getattr(self, name)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to a plain dictionary."""
+        return {
+            "internet": self.internet,
+            "vizier": self.vizier,
+            "casda": self.casda,
+            "pygdsm_data": self.pygdsm_data,
+            "pysm3_data": self.pysm3_data,
+            "timestamp": self.timestamp,
+            "forced_offline": self.forced_offline,
+            "is_online": self.is_online,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Module-level cache
+# ---------------------------------------------------------------------------
+
+_cached_status: NetworkStatus | None = None
+
+
+# ---------------------------------------------------------------------------
+# Low-level check
+# ---------------------------------------------------------------------------
+
+
+def _check_socket(host: str, port: int, timeout: float) -> bool:
+    """Attempt a TCP connection to *host*:*port*.
+
+    Returns True if the connection succeeds within *timeout* seconds,
+    False otherwise.
+    """
+    try:
+        conn = socket.create_connection((host, port), timeout=timeout)
+        conn.close()
+        logger.debug("Socket check %s:%d — reachable", host, port)
+        return True
+    except OSError:
+        logger.debug("Socket check %s:%d — unreachable", host, port)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def is_online(timeout: float = _GENERAL_TIMEOUT) -> bool:
+    """Quick check for general internet connectivity.
+
+    Uses a cached result if available and not expired (TTL = 300 s).
+
+    Parameters
+    ----------
+    timeout : float
+        TCP connection timeout in seconds (default 2).
+
+    Returns
+    -------
+    bool
+        True if the internet appears reachable.
+    """
+    global _cached_status
+
+    now = time.monotonic()
+    if (
+        _cached_status is not None
+        and not _cached_status.forced_offline
+        and (now - _cached_status.timestamp) < _CACHE_TTL
+    ):
+        return _cached_status.internet
+
+    result = _check_socket(_GENERAL_HOST, _GENERAL_PORT, timeout)
+    _cached_status = NetworkStatus(internet=result, timestamp=now)
+    return result
+
+
+def check_service(service: str, timeout: float = _SERVICE_TIMEOUT) -> bool:
+    """Check whether a specific service is reachable.
+
+    Parameters
+    ----------
+    service : str
+        Service name (one of: vizier, casda, pygdsm_data, pysm3_data).
+    timeout : float
+        TCP connection timeout in seconds (default 3).
+
+    Returns
+    -------
+    bool
+        True if the service endpoint is reachable.
+
+    Raises
+    ------
+    ValueError
+        If *service* is not a known service name.
+    """
+    if service not in SERVICE_ENDPOINTS:
+        raise ValueError(
+            f"Unknown service {service!r}. "
+            f"Known services: {', '.join(SERVICE_ENDPOINTS)}"
+        )
+    host, port = SERVICE_ENDPOINTS[service]
+    return _check_socket(host, port, timeout)
+
+
+def check_all_services(timeout: float = _SERVICE_TIMEOUT) -> NetworkStatus:
+    """Check general internet connectivity and all known services.
+
+    Always performs fresh checks (ignores cache). Updates the module-level
+    cache with the result.
+
+    Parameters
+    ----------
+    timeout : float
+        TCP connection timeout per endpoint in seconds (default 3).
+
+    Returns
+    -------
+    NetworkStatus
+        Full status with all fields populated.
+    """
+    global _cached_status
+
+    now = time.monotonic()
+    internet = _check_socket(
+        _GENERAL_HOST, _GENERAL_PORT, min(timeout, _GENERAL_TIMEOUT)
+    )
+
+    service_results: dict[str, bool] = {}
+    for name, (host, port) in SERVICE_ENDPOINTS.items():
+        service_results[name] = _check_socket(host, port, timeout)
+
+    status = NetworkStatus(
+        internet=internet,
+        timestamp=now,
+        **service_results,
+    )
+    _cached_status = status
+    return status
+
+
+def get_network_status(offline: bool = False) -> NetworkStatus:
+    """Get network status, respecting the offline flag.
+
+    This is the primary entry point used by :class:`~rrivis.api.simulator.Simulator`.
+
+    Parameters
+    ----------
+    offline : bool
+        If True, return a forced-offline status with no network I/O.
+
+    Returns
+    -------
+    NetworkStatus
+        Current network status.
+    """
+    if offline:
+        return NetworkStatus(
+            internet=False,
+            forced_offline=True,
+            timestamp=time.monotonic(),
+        )
+    online = is_online()
+    return NetworkStatus(internet=online, timestamp=time.monotonic())
+
+
+def get_required_services(sky_config: dict) -> dict[str, list[str]]:
+    """Determine which network services are needed by enabled sky models.
+
+    Parameters
+    ----------
+    sky_config : dict
+        The ``sky_model`` section of the RRIVis configuration (as a dict).
+
+    Returns
+    -------
+    dict[str, list[str]]
+        Mapping of service name to list of model names that require it.
+        Only services needed by at least one enabled model are included.
+    """
+    required: dict[str, list[str]] = {}
+    for (config_key, enable_field), service in SKY_MODEL_SERVICES.items():
+        sub = sky_config.get(config_key, {})
+        if isinstance(sub, dict) and sub.get(enable_field, False):
+            required.setdefault(service, []).append(config_key)
+    return required
+
+
+def clear_cache() -> None:
+    """Reset the module-level cached network status.
+
+    Intended for use in tests.
+    """
+    global _cached_status
+    _cached_status = None

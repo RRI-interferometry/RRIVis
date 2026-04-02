@@ -87,6 +87,12 @@ _BACKEND_CHOICES = click.Choice(["auto", "numpy", "jax", "numba"])
     "-v", "--verbose", count=True, help="Increase verbosity (use -vv for debug)"
 )
 @click.option("-q", "--quiet", is_flag=True, help="Suppress non-error output")
+@click.option(
+    "--offline",
+    is_flag=True,
+    default=False,
+    help="Force offline mode (skip all network checks and downloads)",
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -96,6 +102,7 @@ def cli(
     backend: str,
     verbose: int,
     quiet: bool,
+    offline: bool,
 ) -> None:
     """RRIvis — Radio Interferometer Visibility Simulator."""
     ctx.ensure_object(dict)
@@ -104,6 +111,7 @@ def cli(
     ctx.obj["backend"] = backend
     ctx.obj["antenna_file"] = antenna_file
     ctx.obj["sim_data_dir"] = sim_data_dir
+    ctx.obj["offline"] = offline
 
     if ctx.invoked_subcommand is None:
         if config_flag:
@@ -115,6 +123,7 @@ def cli(
                     backend=backend,
                     verbose=verbose,
                     quiet=quiet,
+                    offline=offline,
                 )
             )
         else:
@@ -195,6 +204,13 @@ def validate(config: str) -> None:
     sys.exit(run_validate_mode(config=config))
 
 
+@cli.command()
+@click.pass_context
+def status(ctx: click.Context) -> None:
+    """Check network connectivity and service availability."""
+    sys.exit(run_status_mode(verbose=ctx.obj.get("verbose", 0)))
+
+
 # ---------------------------------------------------------------------------
 # Handler functions — logic unchanged, parameters are direct (no Namespace)
 # ---------------------------------------------------------------------------
@@ -207,6 +223,7 @@ def run_config_mode(
     backend: str,
     verbose: int,
     quiet: bool,
+    offline: bool = False,
 ) -> int:
     """Run simulation using configuration file (v0.1.x compatible)."""
     from rrivis.utils.logging import (
@@ -317,6 +334,9 @@ def run_config_mode(
             return 1
 
         # Apply CLI overrides
+        if offline:
+            config.compute.offline = True
+
         if antenna_file:
             config.antenna_layout.antenna_positions_file = antenna_file
 
@@ -575,6 +595,59 @@ def run_validate_mode(config: str) -> int:
     except Exception as e:
         print(f"Configuration is INVALID: {e}")
         return 1
+
+
+def run_status_mode(verbose: int = 0) -> int:
+    """Check and display network connectivity status."""
+    from rich.panel import Panel
+    from rich.table import Table
+
+    from rrivis.utils.logging import console, setup_logging
+    from rrivis.utils.network import (
+        SERVICE_DISPLAY_NAMES,
+        SERVICE_ENDPOINTS,
+        check_all_services,
+    )
+
+    setup_logging(level=logging.DEBUG if verbose >= 2 else logging.INFO)
+
+    console.print()
+    with console.status("Checking network connectivity..."):
+        net_status = check_all_services()
+
+    table = Table(show_header=True, header_style="bold cyan", padding=(0, 1))
+    table.add_column("Service", style="white")
+    table.add_column("Endpoint", style="dim")
+    table.add_column("Status")
+
+    # General internet row
+    if net_status.internet:
+        inet_status = "[bold green]Online[/bold green]"
+    else:
+        inet_status = "[bold red]Offline[/bold red]"
+    table.add_row("Internet", "8.8.8.8:53", inet_status)
+
+    # Per-service rows
+    for name, (host, _port) in SERVICE_ENDPOINTS.items():
+        available = net_status.service_available(name)
+        display = SERVICE_DISPLAY_NAMES.get(name, name)
+        if available is True:
+            svc_status = "[green]Reachable[/green]"
+        elif available is False:
+            svc_status = "[red]Unreachable[/red]"
+        else:
+            svc_status = "[dim]Not checked[/dim]"
+        table.add_row(display, host, svc_status)
+
+    console.print(
+        Panel(
+            table,
+            title="[bold]RRIvis Network Status[/bold]",
+            border_style="cyan",
+        )
+    )
+    console.print()
+    return 0
 
 
 def main() -> None:
