@@ -57,6 +57,37 @@ def _require_service(service: str, action: str) -> None:
         )
 
 
+def _extract_masked_column(catalog, col_name: str, dtype=np.float64) -> np.ndarray:
+    """Extract an astropy Table column as a plain ndarray, masked entries → NaN.
+
+    Uses ``np.ma.filled`` instead of ``np.array`` to avoid astropy's
+    default fill_value (often 1e+20) silently replacing masked entries.
+
+    Parameters
+    ----------
+    catalog : astropy.table.Table
+        Source table (from VizieR or TAP query).
+    col_name : str
+        Column name to extract.
+    dtype : numpy dtype
+        Output dtype (default float64).
+
+    Returns
+    -------
+    np.ndarray
+        Plain (non-masked) array with NaN where values were masked or
+        non-finite.
+    """
+    col = catalog[col_name]
+    arr = np.ma.filled(np.ma.array(col), fill_value=np.nan).astype(dtype)
+    # np.asarray strips astropy Column/Quantity wrappers (which carry units
+    # like deg or mJy) down to a plain ndarray, preventing unit conflicts
+    # when the caller multiplies by astropy units (e.g. * u.deg → deg²).
+    arr = np.asarray(arr)
+    arr[~np.isfinite(arr)] = np.nan
+    return arr
+
+
 class _VizierLoadersMixin:
     """Mixin providing VizieR and CASDA TAP factory classmethods for SkyModel."""
 
@@ -110,7 +141,18 @@ class _VizierLoadersMixin:
         logger.info("Downloading from VizieR...")
 
         try:
-            v = Vizier(columns=["**"], row_limit=-1)
+            needed_cols = [info["ra_col"], info["dec_col"], info["flux_col"]]
+            if info.get("spindex_col"):
+                needed_cols.append(info["spindex_col"])
+            v = Vizier(columns=needed_cols, row_limit=-1)
+
+            # Push flux_limit filter to VizieR server to reduce download size
+            flux_unit = info.get("flux_unit", "Jy")
+            limit_in_catalog_units = flux_limit * (
+                1000.0 if flux_unit == "mJy" else 1.0
+            )
+            v.column_filters = {info["flux_col"]: f">={limit_in_catalog_units}"}
+
             tables = v.get_catalogs(info["vizier_id"])
             if not tables:
                 raise ValueError("No tables returned from VizieR")
@@ -138,11 +180,9 @@ class _VizierLoadersMixin:
 
         is_sexagesimal = info.get("coords_sexagesimal", False)
         coord_frame = info.get("coord_frame", "icrs")
-        flux_unit = info.get("flux_unit", "Jy")
 
         # Auto-detect sexagesimal coordinates: if the first valid RA value is a
         # string that can't be parsed as a float, treat coords as sexagesimal.
-        # This handles VizieR returning sexagesimal strings when columns=["**"].
         if not is_sexagesimal and len(catalog) > 0:
             sample_ra = catalog[0][info["ra_col"]]
             if isinstance(sample_ra, (str, np.str_)):
@@ -155,14 +195,7 @@ class _VizierLoadersMixin:
                     )
 
         flux_col = info["flux_col"]
-        flux_raw_list = []
-        for row in catalog:
-            val = row[flux_col]
-            if np.ma.is_masked(val) or not np.isfinite(float(val)):
-                flux_raw_list.append(np.nan)
-            else:
-                flux_raw_list.append(float(val))
-        flux_raw = np.array(flux_raw_list, dtype=np.float64)
+        flux_raw = _extract_masked_column(catalog, flux_col)
         flux_jy_raw = flux_raw * (1e-3 if flux_unit == "mJy" else 1.0)
         flux_valid = np.isfinite(flux_jy_raw) & (flux_jy_raw >= flux_limit)
 
@@ -173,49 +206,21 @@ class _VizierLoadersMixin:
             return _empty()
 
         if is_sexagesimal:
-            ra_strs = [
-                str(row[info["ra_col"]])
-                for i, row in enumerate(catalog)
-                if flux_valid[i]
-            ]
-            dec_strs = [
-                str(row[info["dec_col"]])
-                for i, row in enumerate(catalog)
-                if flux_valid[i]
-            ]
+            ra_strs = [str(v) for v in catalog[info["ra_col"]][flux_valid]]
+            dec_strs = [str(v) for v in catalog[info["dec_col"]][flux_valid]]
             sc = SkyCoord(
                 ra_strs, dec_strs, unit=(u.hourangle, u.deg), frame=coord_frame
             )
         else:
-            ra_list, dec_list = [], []
-            coord_ok = np.ones(n_rows, dtype=bool)
-            for i, row in enumerate(catalog):
-                if not flux_valid[i]:
-                    coord_ok[i] = False
-                    ra_list.append(0.0)
-                    dec_list.append(0.0)
-                    continue
-                ra_val = row[info["ra_col"]]
-                dec_val = row[info["dec_col"]]
-                if np.ma.is_masked(ra_val) or np.ma.is_masked(dec_val):
-                    coord_ok[i] = False
-                    ra_list.append(0.0)
-                    dec_list.append(0.0)
-                    continue
-                if not (np.isfinite(float(ra_val)) and np.isfinite(float(dec_val))):
-                    coord_ok[i] = False
-                    ra_list.append(0.0)
-                    dec_list.append(0.0)
-                    continue
-                ra_list.append(float(ra_val))
-                dec_list.append(float(dec_val))
-            combined_valid = flux_valid & coord_ok
+            ra_raw = _extract_masked_column(catalog, info["ra_col"])
+            dec_raw = _extract_masked_column(catalog, info["dec_col"])
+            coord_ok = flux_valid & np.isfinite(ra_raw) & np.isfinite(dec_raw)
             sc = SkyCoord(
-                ra=np.array(ra_list, dtype=np.float64)[combined_valid] * u.deg,
-                dec=np.array(dec_list, dtype=np.float64)[combined_valid] * u.deg,
+                ra=ra_raw[coord_ok] * u.deg,
+                dec=dec_raw[coord_ok] * u.deg,
                 frame=coord_frame,
             )
-            flux_valid = combined_valid  # update mask
+            flux_valid = coord_ok
 
         if coord_frame != "icrs":
             sc = sc.icrs
@@ -225,17 +230,15 @@ class _VizierLoadersMixin:
         flux_jy = flux_jy_raw[flux_valid]
         n = len(flux_jy)
 
-        rows_list = list(catalog)
         valid_indices = np.where(flux_valid)[0]
         default_spindex = info["default_spindex"]
         alpha_arr = np.full(n, default_spindex, dtype=np.float64)
 
         if info.get("spindex_col") and info["spindex_col"] in catalog.colnames:
-            for j, i in enumerate(valid_indices):
-                row = rows_list[i]
-                val = row[info["spindex_col"]]
-                if not np.ma.is_masked(val) and np.isfinite(float(val)):
-                    alpha_arr[j] = float(val)
+            spindex_raw = _extract_masked_column(catalog, info["spindex_col"])
+            spindex_valid = spindex_raw[valid_indices]
+            finite_mask = np.isfinite(spindex_valid)
+            alpha_arr[finite_mask] = spindex_valid[finite_mask]
 
         logger.info(
             f"{catalog_key.upper()} loaded: {n:,} sources (flux >= {flux_limit} Jy)"
@@ -673,27 +676,48 @@ class _VizierLoadersMixin:
 
         freq_hz = info["freq_mhz"] * 1e6
 
-        ra_list, dec_list, flux_list = [], [], []
-        for row in result:
-            try:
-                flux_mjy = row[info["flux_col"]]
-                if np.ma.is_masked(flux_mjy) or not np.isfinite(float(flux_mjy)):
+        try:
+            flux_raw = _extract_masked_column(result, info["flux_col"]) * 1e-3
+            ra_raw = _extract_masked_column(result, info["ra_col"])
+            dec_raw = _extract_masked_column(result, info["dec_col"])
+            valid = (
+                np.isfinite(flux_raw)
+                & np.isfinite(ra_raw)
+                & np.isfinite(dec_raw)
+                & (flux_raw >= flux_limit)
+            )
+            ra_arr = ra_raw[valid]
+            dec_arr = dec_raw[valid]
+            flux_arr = flux_raw[valid]
+        except Exception as e:
+            logger.warning(
+                f"Vectorized extraction failed for RACS-{band}, "
+                f"falling back to row-by-row: {e}"
+            )
+            ra_list, dec_list, flux_list = [], [], []
+            for row in result:
+                try:
+                    flux_mjy = row[info["flux_col"]]
+                    if np.ma.is_masked(flux_mjy) or not np.isfinite(float(flux_mjy)):
+                        continue
+                    flux_jy = float(flux_mjy) * 1e-3
+                    if flux_jy < flux_limit:
+                        continue
+                    ra_val = row[info["ra_col"]]
+                    dec_val = row[info["dec_col"]]
+                    if np.ma.is_masked(ra_val) or np.ma.is_masked(dec_val):
+                        continue
+                    ra_list.append(float(ra_val))
+                    dec_list.append(float(dec_val))
+                    flux_list.append(flux_jy)
+                except Exception as row_err:
+                    logger.debug(f"Skipping RACS row: {row_err}")
                     continue
-                flux_jy = float(flux_mjy) * 1e-3
-                if flux_jy < flux_limit:
-                    continue
-                ra_val = row[info["ra_col"]]
-                dec_val = row[info["dec_col"]]
-                if np.ma.is_masked(ra_val) or np.ma.is_masked(dec_val):
-                    continue
-                ra_list.append(float(ra_val))
-                dec_list.append(float(dec_val))
-                flux_list.append(flux_jy)
-            except Exception as e:
-                logger.debug(f"Skipping RACS row: {e}")
-                continue
+            ra_arr = np.array(ra_list, dtype=np.float64)
+            dec_arr = np.array(dec_list, dtype=np.float64)
+            flux_arr = np.array(flux_list, dtype=np.float64)
 
-        n = len(flux_list)
+        n = len(flux_arr)
         logger.info(
             f"RACS-{band.upper()} loaded: {n:,} sources "
             f"(flux >= {flux_limit} Jy, freq={info['freq_mhz']} MHz)"
@@ -703,13 +727,9 @@ class _VizierLoadersMixin:
             return cls._empty_sky(model_name, brightness_conversion, precision)
 
         sky = cls(
-            _ra_rad=cls._deg_to_rad_at_precision(
-                np.array(ra_list, dtype=np.float64), precision
-            ),
-            _dec_rad=cls._deg_to_rad_at_precision(
-                np.array(dec_list, dtype=np.float64), precision
-            ),
-            _flux_ref=np.array(flux_list, dtype=np.float64),
+            _ra_rad=cls._deg_to_rad_at_precision(ra_arr, precision),
+            _dec_rad=cls._deg_to_rad_at_precision(dec_arr, precision),
+            _flux_ref=flux_arr,
             _alpha=np.full(n, -0.7, dtype=np.float64),  # No multi-freq data in RACS
             _stokes_q=np.zeros(n, dtype=np.float64),
             _stokes_u=np.zeros(n, dtype=np.float64),

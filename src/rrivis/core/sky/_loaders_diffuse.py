@@ -2,6 +2,9 @@
 """Diffuse sky model loader mixin (pygdsm, PySM3) for SkyModel."""
 
 import logging
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import healpy as hp
@@ -12,6 +15,108 @@ from pygdsm import GlobalSkyModel, GSMObserver08
 from .catalogs import DIFFUSE_MODELS
 
 logger = logging.getLogger(__name__)
+
+# Thread-local storage for per-thread pygdsm instances (thread safety).
+_thread_local = threading.local()
+
+
+def _generate_diffuse_map(
+    freq: float,
+    model_class: type,
+    init_kwargs: dict,
+    nside: int,
+) -> tuple[float, np.ndarray]:
+    """Generate a single diffuse sky map at *freq* Hz.
+
+    Each thread gets its own pygdsm model instance via thread-local
+    storage, avoiding concurrent access to mutable internal state.
+
+    Parameters
+    ----------
+    freq : float
+        Frequency in Hz.
+    model_class : type
+        pygdsm model class (e.g. ``GlobalSkyModel``).
+    init_kwargs : dict
+        Constructor kwargs for the model class.
+    nside : int
+        Target HEALPix NSIDE.
+
+    Returns
+    -------
+    tuple[float, np.ndarray]
+        ``(frequency_hz, brightness_temperature_map)`` as float32.
+    """
+    if not hasattr(_thread_local, "instance") or _thread_local.cls is not model_class:
+        _thread_local.instance = model_class(**init_kwargs)
+        _thread_local.cls = model_class
+    temp_map = _thread_local.instance.generate(freq)
+    if hp.get_nside(temp_map) != nside:
+        temp_map = hp.ud_grade(temp_map, nside_out=nside)
+    rot = Rotator(coord=["G", "C"])
+    temp_map = rot.rotate_map_pixel(temp_map)
+    return float(freq), temp_map.astype(np.float32)
+
+
+def _generate_pysm3_map(
+    freq: float,
+    nside: int,
+    components_list: list[str],
+    include_polarization: bool,
+) -> tuple[float, np.ndarray, np.ndarray | None, np.ndarray | None]:
+    """Generate a single PySM3 sky map at *freq* Hz.
+
+    Each call creates its own ``pysm3.Sky`` instance to avoid shared
+    mutable state across threads.
+
+    Parameters
+    ----------
+    freq : float
+        Frequency in Hz.
+    nside : int
+        Target HEALPix NSIDE.
+    components_list : list[str]
+        PySM3 preset strings (e.g. ``["s1", "d1"]``).
+    include_polarization : bool
+        If True, return I/Q/U maps; otherwise I only.
+
+    Returns
+    -------
+    tuple
+        ``(frequency_hz, I_map, Q_map_or_None, U_map_or_None)`` as
+        float32.
+    """
+    import pysm3
+    import pysm3.units as pysm3_u
+
+    sky = pysm3.Sky(nside=nside, preset_strings=components_list)
+    emission = sky.get_emission(freq * pysm3_u.Hz)
+    emission_krj = emission.to(
+        pysm3_u.K_RJ,
+        equivalencies=pysm3_u.cmb_equivalencies(freq * pysm3_u.Hz),
+    )
+    rot = Rotator(coord=["G", "C"])
+
+    if include_polarization and emission_krj.shape[0] >= 3:
+        i_map, q_map, u_map = (np.array(emission_krj[k]) for k in range(3))
+        current_nside = hp.get_nside(i_map)
+        if current_nside != nside:
+            i_map = hp.ud_grade(i_map, nside_out=nside)
+            q_map = hp.ud_grade(q_map, nside_out=nside)
+            u_map = hp.ud_grade(u_map, nside_out=nside)
+        iqu_rot = rot.rotate_map_alms(np.array([i_map, q_map, u_map]))
+        return (
+            float(freq),
+            iqu_rot[0].astype(np.float32),
+            iqu_rot[1].astype(np.float32),
+            iqu_rot[2].astype(np.float32),
+        )
+    else:
+        temp_map = np.array(emission_krj[0])
+        if hp.get_nside(temp_map) != nside:
+            temp_map = hp.ud_grade(temp_map, nside_out=nside)
+        temp_map = rot.rotate_map_pixel(temp_map)
+        return float(freq), temp_map.astype(np.float32), None, None
 
 
 def _check_data_service(service: str, model_name: str) -> None:
@@ -265,16 +370,33 @@ class _DiffuseLoadersMixin:
                 "Zenodo (zenodo.org) is reachable."
             ) from e
 
-        rot = Rotator(coord=["G", "C"])
-
         healpix_maps: dict[float, np.ndarray] = {}
-        for freq in frequencies:
-            temp_map = pygdsm_instance.generate(freq)
-            current_nside = hp.get_nside(temp_map)
-            if current_nside != nside:
-                temp_map = hp.ud_grade(temp_map, nside_out=nside)
-            temp_map = rot.rotate_map_pixel(temp_map)
-            healpix_maps[float(freq)] = temp_map.astype(np.float32)
+        if n_freq <= 2:
+            # Sequential: avoid thread pool overhead for 1-2 frequencies
+            rot = Rotator(coord=["G", "C"])
+            for freq in frequencies:
+                temp_map = pygdsm_instance.generate(freq)
+                if hp.get_nside(temp_map) != nside:
+                    temp_map = hp.ud_grade(temp_map, nside_out=nside)
+                temp_map = rot.rotate_map_pixel(temp_map)
+                healpix_maps[float(freq)] = temp_map.astype(np.float32)
+        else:
+            n_workers = min(n_freq, os.cpu_count() or 4)
+            logger.info(f"Generating {n_freq} maps in parallel ({n_workers} workers)")
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                futures = [
+                    pool.submit(
+                        _generate_diffuse_map,
+                        freq,
+                        model_class,
+                        init_kwargs,
+                        nside,
+                    )
+                    for freq in frequencies
+                ]
+                for future in as_completed(futures):
+                    key, m = future.result()
+                    healpix_maps[key] = m
 
         logger.info(
             f"{model.upper()} loaded: {hp.nside2npix(nside)} pixels \u00d7 {n_freq} frequencies"
@@ -441,8 +563,6 @@ class _DiffuseLoadersMixin:
                 "first use. Check your network connection, or verify that "
                 "NERSC portal (portal.nersc.gov) is reachable."
             ) from e
-        rot = Rotator(coord=["G", "C"])
-
         healpix_maps: dict[float, np.ndarray] = {}
         healpix_q_maps: dict[float, np.ndarray] | None = (
             {} if include_polarization else None
@@ -451,43 +571,58 @@ class _DiffuseLoadersMixin:
             {} if include_polarization else None
         )
 
-        for freq in frequencies:
-            emission = pysm_sky.get_emission(freq * pysm3_u.Hz)
-            emission_krj = emission.to(
-                pysm3_u.K_RJ,
-                equivalencies=pysm3_u.cmb_equivalencies(freq * pysm3_u.Hz),
+        if n_freq <= 2:
+            # Sequential: avoid thread pool overhead for 1-2 frequencies
+            rot = Rotator(coord=["G", "C"])
+            for freq in frequencies:
+                emission = pysm_sky.get_emission(freq * pysm3_u.Hz)
+                emission_krj = emission.to(
+                    pysm3_u.K_RJ,
+                    equivalencies=pysm3_u.cmb_equivalencies(freq * pysm3_u.Hz),
+                )
+
+                if include_polarization and emission_krj.shape[0] >= 3:
+                    i_map = np.array(emission_krj[0])
+                    q_map = np.array(emission_krj[1])
+                    u_map = np.array(emission_krj[2])
+                    current_nside = hp.get_nside(i_map)
+                    if current_nside != nside:
+                        i_map = hp.ud_grade(i_map, nside_out=nside)
+                        q_map = hp.ud_grade(q_map, nside_out=nside)
+                        u_map = hp.ud_grade(u_map, nside_out=nside)
+                    iqu_rot = rot.rotate_map_alms(np.array([i_map, q_map, u_map]))
+                    healpix_maps[float(freq)] = iqu_rot[0].astype(np.float32)
+                    healpix_q_maps[float(freq)] = iqu_rot[1].astype(np.float32)
+                    healpix_u_maps[float(freq)] = iqu_rot[2].astype(np.float32)
+                else:
+                    temp_map = np.array(emission_krj[0])
+                    if hp.get_nside(temp_map) != nside:
+                        temp_map = hp.ud_grade(temp_map, nside_out=nside)
+                    temp_map = rot.rotate_map_pixel(temp_map)
+                    healpix_maps[float(freq)] = temp_map.astype(np.float32)
+        else:
+            # Cap PySM3 workers at 4 (heavy per-instance template loading)
+            n_workers = min(n_freq, os.cpu_count() or 4, 4)
+            logger.info(
+                f"Generating {n_freq} PySM3 maps in parallel ({n_workers} workers)"
             )
-
-            if include_polarization and emission_krj.shape[0] >= 3:
-                # Stack I, Q, U as (3, npix) for spin-2 aware rotation
-                i_map = np.array(emission_krj[0])
-                q_map = np.array(emission_krj[1])
-                u_map = np.array(emission_krj[2])
-
-                # Ensure consistent nside
-                current_nside = hp.get_nside(i_map)
-                if current_nside != nside:
-                    i_map = hp.ud_grade(i_map, nside_out=nside)
-                    q_map = hp.ud_grade(q_map, nside_out=nside)
-                    u_map = hp.ud_grade(u_map, nside_out=nside)
-
-                # Spin-2 aware rotation: rotate_map_alms auto-detects
-                # (3, npix) input as IQU polarization and applies proper
-                # Wigner D-matrix rotation in harmonic space.
-                iqu = np.array([i_map, q_map, u_map])
-                iqu_rot = rot.rotate_map_alms(iqu)
-
-                healpix_maps[float(freq)] = iqu_rot[0].astype(np.float32)
-                healpix_q_maps[float(freq)] = iqu_rot[1].astype(np.float32)
-                healpix_u_maps[float(freq)] = iqu_rot[2].astype(np.float32)
-            else:
-                # I-only path (spin-0 rotation is fine)
-                temp_map = np.array(emission_krj[0])
-                current_nside = hp.get_nside(temp_map)
-                if current_nside != nside:
-                    temp_map = hp.ud_grade(temp_map, nside_out=nside)
-                temp_map = rot.rotate_map_pixel(temp_map)
-                healpix_maps[float(freq)] = temp_map.astype(np.float32)
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                futures = [
+                    pool.submit(
+                        _generate_pysm3_map,
+                        freq,
+                        nside,
+                        components_list,
+                        include_polarization,
+                    )
+                    for freq in frequencies
+                ]
+                for future in as_completed(futures):
+                    key, i_map, q_map, u_map = future.result()
+                    healpix_maps[key] = i_map
+                    if include_polarization and q_map is not None:
+                        healpix_q_maps[key] = q_map
+                        healpix_u_maps[key] = u_map
 
         model_name = f"pysm3:{'+'.join(components_list)}"
         logger.info(
