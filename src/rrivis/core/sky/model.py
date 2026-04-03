@@ -20,6 +20,7 @@ from astropy.coordinates import SkyCoord
 from ._loaders_diffuse import _DiffuseLoadersMixin
 from ._loaders_pyradiosky import _PyradioskyMixin
 from ._loaders_vizier import _VizierLoadersMixin
+from ._plotting import _PlottingMixin
 from .constants import (
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
@@ -34,7 +35,9 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class SkyModel(_VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin):
+class SkyModel(
+    _VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin, _PlottingMixin
+):
     """
     Unified sky model with bidirectional conversion.
 
