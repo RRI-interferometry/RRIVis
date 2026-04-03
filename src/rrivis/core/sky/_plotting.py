@@ -53,7 +53,7 @@ _HEALPY_PROJECTIONS = {
 }
 
 # Valid matplotlib sky projections for scatter plots
-_MPL_PROJECTIONS = {"mollweide", "aitoff", "hammer"}
+_MPL_PROJECTIONS = {"mollweide", "aitoff", "hammer", "cartesian"}
 
 # Axis labels per coordinate system
 _COORD_LABELS = {
@@ -268,8 +268,8 @@ class _PlottingMixin:
         alpha : float
             Marker transparency.
         projection : str
-            Matplotlib projection: ``"mollweide"``, ``"aitoff"``, or
-            ``"hammer"``.
+            Matplotlib projection: ``"mollweide"``, ``"aitoff"``,
+            ``"hammer"``, or ``"cartesian"`` (rectilinear RA/Dec in degrees).
         coord : str, optional
             Target coordinate frame: ``"G"`` (Galactic), ``"E"``
             (Ecliptic), or None (Equatorial, no rotation).
@@ -300,21 +300,39 @@ class _PlottingMixin:
 
         lon, lat = self._rotate_coords(self._ra_rad, self._dec_rad, coord)
 
-        fig, ax = plt.subplots(figsize=figsize, subplot_kw={"projection": projection})
-        sc = ax.scatter(
-            lon,
-            lat,
-            c=values,
-            s=marker_size,
-            alpha=alpha,
-            cmap=cmap,
-            rasterized=True,
-        )
+        if projection == "cartesian":
+            fig, ax = plt.subplots(figsize=figsize)
+            lon_deg = np.degrees(lon)
+            lat_deg = np.degrees(lat)
+            sc = ax.scatter(
+                lon_deg,
+                lat_deg,
+                c=values,
+                s=marker_size,
+                alpha=alpha,
+                cmap=cmap,
+                rasterized=True,
+            )
+            ax.invert_xaxis()
+            ax.set_aspect("equal")
+        else:
+            fig, ax = plt.subplots(
+                figsize=figsize, subplot_kw={"projection": projection}
+            )
+            sc = ax.scatter(
+                lon,
+                lat,
+                c=values,
+                s=marker_size,
+                alpha=alpha,
+                cmap=cmap,
+                rasterized=True,
+            )
         fig.colorbar(sc, ax=ax, label=cbar_label, shrink=0.6)
         ax.grid(True, alpha=0.3)
         xlabel, ylabel = _COORD_LABELS.get(coord, ("RA", "Dec"))
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
+        ax.set_xlabel(xlabel + " [deg]" if projection == "cartesian" else xlabel)
+        ax.set_ylabel(ylabel + " [deg]" if projection == "cartesian" else ylabel)
         ax.set_title(
             title if title is not None else self._auto_title("Source Positions")
         )
@@ -416,7 +434,8 @@ class _PlottingMixin:
             Number of bins for histogram mode.
         projection : str
             Matplotlib projection for sky_map mode: ``"mollweide"``,
-            ``"aitoff"``, or ``"hammer"``.  Ignored for histogram.
+            ``"aitoff"``, ``"hammer"``, or ``"cartesian"`` (rectilinear
+            RA/Dec in degrees).  Ignored for histogram.
         coord : str, optional
             Target coordinate frame for sky_map mode: ``"G"``
             (Galactic), ``"E"`` (Ecliptic), or None (Equatorial).
@@ -465,9 +484,6 @@ class _PlottingMixin:
                     f"Choose from: {sorted(_MPL_PROJECTIONS)}"
                 )
             figsize = figsize or (14, 7)
-            fig, ax = plt.subplots(
-                figsize=figsize, subplot_kw={"projection": projection}
-            )
             lon, lat = self._rotate_coords(self._ra_rad, self._dec_rad, coord)
 
             # Symmetric colorbar centered on median
@@ -476,17 +492,38 @@ class _PlottingMixin:
             vmin = median_alpha - max_dev
             vmax = median_alpha + max_dev
 
-            sc = ax.scatter(
-                lon,
-                lat,
-                c=alpha_arr,
-                s=0.1,
-                alpha=0.3,
-                cmap=cmap,
-                vmin=vmin,
-                vmax=vmax,
-                rasterized=True,
-            )
+            if projection == "cartesian":
+                fig, ax = plt.subplots(figsize=figsize)
+                lon_deg = np.degrees(lon)
+                lat_deg = np.degrees(lat)
+                sc = ax.scatter(
+                    lon_deg,
+                    lat_deg,
+                    c=alpha_arr,
+                    s=0.1,
+                    alpha=0.3,
+                    cmap=cmap,
+                    vmin=vmin,
+                    vmax=vmax,
+                    rasterized=True,
+                )
+                ax.invert_xaxis()
+                ax.set_aspect("equal")
+            else:
+                fig, ax = plt.subplots(
+                    figsize=figsize, subplot_kw={"projection": projection}
+                )
+                sc = ax.scatter(
+                    lon,
+                    lat,
+                    c=alpha_arr,
+                    s=0.1,
+                    alpha=0.3,
+                    cmap=cmap,
+                    vmin=vmin,
+                    vmax=vmax,
+                    rasterized=True,
+                )
             fig.colorbar(
                 sc,
                 ax=ax,
@@ -495,8 +532,8 @@ class _PlottingMixin:
             )
             ax.grid(True, alpha=0.3)
             xlabel, ylabel = _COORD_LABELS.get(coord, ("RA", "Dec"))
-            ax.set_xlabel(xlabel)
-            ax.set_ylabel(ylabel)
+            ax.set_xlabel(xlabel + " [deg]" if projection == "cartesian" else xlabel)
+            ax.set_ylabel(ylabel + " [deg]" if projection == "cartesian" else ylabel)
             ax.set_title(
                 title
                 if title is not None
