@@ -154,7 +154,20 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "vlssr": {
         "vizier_id": "VIII/97",
         "table": None,
-        "description": "VLSSr: VLA Low-Frequency Sky Survey redux (73.8 MHz, ~92,964 sources)",
+        "description": (
+            "VLSSr: VLA Low-Frequency Sky Survey Redux (Lane, Cotton, van Velzen, "
+            "Taylor, Perley, Kassim, Condon, MNRAS 440, 327, 2014). "
+            "https://ui.adsabs.harvard.edu/abs/2014MNRAS.440..327L/abstract "
+            "A 73.8 MHz continuum survey using the VLA in B and BnA configurations with "
+            "1.56 MHz bandwidth, observed 2001-2007. The redux reprocessed the "
+            "original VLSS data (Cohen et al. 2007, AJ 134, 1245) with improved "
+            "ionospheric calibration and wide-field imaging. Resolution 75 arcsec, "
+            "median rms noise ~0.1 Jy/beam. Sky coverage: 9.3 sr (the entire sky "
+            "above an irregular southern boundary near declination -30 deg to -40 deg, "
+            "depending on hour angle). Catalog contains 92,964 sources. Peak flux "
+            "density (Sp) in Jy/beam; no integrated flux reported. Clean bias is "
+            "0.66 * sigma. Via VizieR VIII/97."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "Sp",
@@ -168,7 +181,20 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "tgss": {
         "vizier_id": "J/A+A/598/A78",
         "table": None,
-        "description": "TGSS ADR1: GMRT 150 MHz All-Sky Radio Survey (150 MHz, ~623,604 sources)",
+        "description": (
+            "TGSS ADR1: TIFR GMRT Sky Survey Alternative Data Release 1 "
+            "(Intema, Jagannathan, Mooley, Frail, A&A 598, A78, 2017). "
+            "https://ui.adsabs.harvard.edu/abs/2017A&A...598A..78I/abstract "
+            "A 150 MHz continuum survey using the Giant Metrewave Radio Telescope "
+            "(GMRT, Khodad, Maharashtra, India), observed April 2010 to March 2012 "
+            "over 2000+ hours. The ADR1 pipeline applied direction-dependent "
+            "ionospheric phase calibration, antenna pointing corrections, and "
+            "improved primary beam models. Resolution ~25 arcsec, median rms noise "
+            "3.5 mJy/beam. Sky coverage: 36,900 deg^2 (90% of sky) between "
+            "declination -53 deg and +90 deg. Catalog contains 623,604 sources "
+            "above a 7-sigma peak-to-noise threshold. Stotal is the total "
+            "integrated flux density in mJy. Via VizieR J/A+A/598/A78."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "Stotal",
@@ -182,7 +208,22 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "wenss": {
         "vizier_id": "VIII/62",
         "table": None,
-        "description": "WENSS: Westerbork Northern Sky Survey (325 MHz, ~229,000 sources)",
+        "description": (
+            "WENSS: Westerbork Northern Sky Survey (Rengelink, Tang, de Bruyn, "
+            "Miley, Bremer, Roettgering, Bremer, A&AS 124, 259, 1997; "
+            "full survey: de Bruyn et al., in prep). "
+            "https://ui.adsabs.harvard.edu/abs/1997A&AS..124..259R/abstract "
+            "A 325 MHz (92 cm) continuum survey using the Westerbork Synthesis "
+            "Radio Telescope (WSRT, Westerbork, Netherlands). Resolution "
+            "54 arcsec x 54 arcsec * cosec(delta), positional accuracy ~1.5 arcsec "
+            "for strong sources. Limiting flux density ~18 mJy (5-sigma). "
+            "Sky coverage: the entire sky north of declination +28 deg "
+            "(3.14 sr, ~10,300 deg^2). The main catalog (declination +28 deg to "
+            "+76 deg) contains ~211,234 sources and the polar catalog (above "
+            "+72 deg) contains ~18,186 sources, totalling ~229,420 sources. "
+            "Sint is the integrated flux density in mJy. A collaboration between "
+            "ASTRON and Leiden Observatory. Via VizieR VIII/62."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "Sint",
@@ -196,7 +237,22 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "sumss": {
         "vizier_id": "VIII/81B",
         "table": None,
-        "description": "SUMSS: Sydney University Molonglo Sky Survey (843 MHz, ~210,412 sources)",
+        "description": (
+            "SUMSS: Sydney University Molonglo Sky Survey (Bock, Large, Sadler, "
+            "AJ 117, 1578, 1999 [survey design]; Mauch, Murphy, Buttery, Curran, "
+            "Hunstead, Piestrzynski, Robertson, Sadler, MNRAS 342, 1117, 2003 "
+            "[source catalog]). "
+            "https://ui.adsabs.harvard.edu/abs/2003MNRAS.342.1117M/abstract "
+            "An 843 MHz continuum survey using the Molonglo Observatory Synthesis "
+            "Telescope (MOST, near Canberra, Australia) in its upgraded wide-field "
+            "configuration. Resolution 45 arcsec x 45 arcsec * cosec(delta), "
+            "rms noise ~1 mJy/beam. Mosaic images are 4.3 deg x 4.3 deg. "
+            "Sky coverage: the southern sky from declination -30 deg southward, "
+            "excluding |b| < 10 deg (~8,000 deg^2). Designed to complement the "
+            "NVSS with matched resolution and sensitivity. Catalog version 2.1 "
+            "contains ~211,000 sources (v2.1) from 633 mosaics. St is the total "
+            "integrated flux density in mJy. Via VizieR VIII/81B."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "St",
@@ -210,7 +266,21 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "nvss": {
         "vizier_id": "VIII/65",
         "table": None,
-        "description": "NVSS: NRAO VLA Sky Survey (1400 MHz, ~1.8M sources)",
+        "description": (
+            "NVSS: NRAO VLA Sky Survey (Condon, Cotton, Greisen, Yin, Perley, "
+            "Taylor, Broderick, AJ 115, 1693, 1998). "
+            "https://ui.adsabs.harvard.edu/abs/1998AJ....115.1693C/abstract "
+            "A 1.4 GHz continuum survey using the VLA in D and DnC configurations "
+            "(Socorro, New Mexico, USA). Resolution 45 arcsec FWHM, rms noise "
+            "~0.45 mJy/beam (Stokes I), ~0.29 mJy/beam (Stokes Q and U). "
+            "Sky coverage: the entire sky north of declination -40 deg (82% of "
+            "the celestial sphere, 33,885 deg^2). The survey produced 2326 "
+            "4 deg x 4 deg continuum cubes (Stokes I, Q, U) and a catalog of "
+            "~1.8 million discrete sources. 99% complete at 3.5 mJy integrated "
+            "flux density. Positional accuracy <1 arcsec for sources >15 mJy, "
+            "~7 arcsec at the survey limit. S1.4 is the integrated flux density "
+            "at 1.4 GHz in mJy. Via VizieR VIII/65."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "S1.4",
@@ -224,7 +294,22 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "vlass": {
         "vizier_id": "J/ApJS/255/30",
         "table": "comp",
-        "description": "VLASS QL Ep.1: VLA Sky Survey Quick Look (3000 MHz, ~1.9M sources)",
+        "description": (
+            "VLASS QL Ep.1: VLA Sky Survey Quick Look Epoch 1 Component Catalog "
+            "(Gordon, Boyce, O'Dea, Rudnick, Andernach, et al., "
+            "ApJS 255, 30, 2021). "
+            "https://ui.adsabs.harvard.edu/abs/2021ApJS..255...30G/abstract "
+            "The VLA Sky Survey (Lacy et al. 2020, PASP 132, 035001) observes "
+            "the sky north of declination -40 deg in S-band (2-4 GHz, centre "
+            "~3 GHz) using the VLA in BnA and B configurations. Angular resolution "
+            "~2.5 arcsec — the highest of any all-sky radio continuum survey. "
+            "The Quick Look Epoch 1 catalog contains ~1.9 million reliably detected "
+            "radio components from the CIRADA pipeline. Caution: Quick Look flux "
+            "densities are systematically underestimated by ~15% at peak flux "
+            ">3 mJy/beam and are often unreliable for fainter components. "
+            "Ftot is the total integrated flux density in mJy. "
+            "Via VizieR J/ApJS/255/30."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "Ftot",
@@ -238,7 +323,19 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "lotss_dr1": {
         "vizier_id": "J/A+A/622/A1",
         "table": None,
-        "description": "LoTSS DR1: LOFAR Two-metre Sky Survey DR1 (144 MHz, ~325,000 sources)",
+        "description": (
+            "LoTSS DR1: LOFAR Two-metre Sky Survey First Data Release "
+            "(Shimwell, Tasse, Hardcastle, Mechev, Williams, Best, Rottgering, "
+            "et al., A&A 622, A1, 2019). "
+            "https://ui.adsabs.harvard.edu/abs/2019A&A...622A...1S/abstract "
+            "A sensitive 120-168 MHz survey using LOFAR (LOw-Frequency ARray, "
+            "core in Exloo, Netherlands) High Band Antennas. Resolution 6 arcsec, "
+            "median rms noise 71 uJy/beam, positional accuracy ~0.2 arcsec. "
+            "DR1 covers 424 deg^2 in the HETDEX Spring Field "
+            "(RA 10h45m-15h30m, Dec +45 deg to +57 deg). Catalog contains "
+            "325,694 sources detected at >=5-sigma. Sint is the total integrated "
+            "flux density in mJy. Via VizieR J/A+A/622/A1."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "Sint",
@@ -252,7 +349,18 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "lotss_dr2": {
         "vizier_id": "J/A+A/659/A1",
         "table": None,
-        "description": "LoTSS DR2: LOFAR Two-metre Sky Survey DR2 (144 MHz, ~4.4M sources)",
+        "description": (
+            "LoTSS DR2: LOFAR Two-metre Sky Survey Second Data Release "
+            "(Shimwell, Hardcastle, Tasse, Best, Rottgering, Williams, Botteon, "
+            "et al., A&A 659, A1, 2022). "
+            "https://ui.adsabs.harvard.edu/abs/2022A&A...659A...1S/abstract "
+            "Covers 27% of the northern sky (5,634 deg^2) in two regions "
+            "centred near 12h45m +44d30m and 1h00m +28d00m spanning 4,178 and "
+            "1,457 deg^2 respectively. 120-168 MHz, resolution 6 arcsec, "
+            "median rms noise 83 uJy/beam. Catalog contains 4,396,228 radio "
+            "components. SpeakTot is the total integrated flux density of the source "
+            "in mJy/beam. Via VizieR J/A+A/659/A1."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "SpeakTot",
@@ -266,7 +374,22 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "3c": {
         "vizier_id": "VIII/1",
         "table": "3cr",
-        "description": "3CR: Third Cambridge Catalogue Revised (178 MHz, ~328 sources, B1950 coords)",
+        "description": (
+            "3CR: Revised Third Cambridge Catalogue of Radio Sources "
+            "(Edge, Shakeshaft, McAdam, Baldwin, Archer, MmRAS 68, 37, 1959 "
+            "[original 3C]; Bennett, MmRAS 68, 163, 1962 [3CR revision]). "
+            "https://ui.adsabs.harvard.edu/abs/1962MmRAS..68..163B/abstract "
+            "The foundational radio source catalog at 178 MHz from the Cambridge "
+            "radio interferometer. The 3CR revision (Bennett 1962) provides a "
+            "complete and reliable list of all sources north of declination "
+            "-5 deg with flux density >9 Jy at 178 MHz, excluding regions near "
+            "the Galactic ridge. Contains 328 sources and is the "
+            "best-studied sample of powerful radio-loud AGN, quasars, and radio "
+            "galaxies. Historically foundational for radio galaxy classification "
+            "(Fanaroff-Riley types) and AGN unification models. Coordinates "
+            "are B1950 (FK4), automatically converted to ICRS by RRIVis. "
+            "S178MHz is the flux density at 178 MHz in Jy. Via VizieR VIII/1."
+        ),
         "ra_col": "RA1950",
         "dec_col": "DE1950",
         "flux_col": "S178MHz",
@@ -281,7 +404,24 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "gleam_egc": {
         "vizier_id": "VIII/100/gleamegc",
         "table": None,
-        "description": "GLEAM EGC catalog, version 2 (307,455 sources, 200 MHz wideband)",
+        "description": (
+            "GLEAM EGC: GaLactic and Extragalactic All-sky MWA Survey — "
+            "Extragalactic Catalogue (Hurley-Walker, Callingham, Hancock, "
+            "Franzen, Hindson, Kapinska, et al., MNRAS 464, 1146, 2017). "
+            "https://ui.adsabs.harvard.edu/abs/2017MNRAS.464.1146H/abstract "
+            "A 72-231 MHz continuum survey using the Murchison Widefield Array "
+            "(MWA Phase I, 128 tiles, Murchison Radio-astronomy Observatory, "
+            "Western Australia). Sources selected from a time- and frequency-"
+            "integrated wideband image centred at 200 MHz with ~2 arcmin "
+            "resolution. 20 separate flux density measurements across the "
+            "72-231 MHz band. Sky coverage: 24,831 deg^2 — the entire southern "
+            "sky excluding the Magellanic Clouds and |b| < 10 deg. "
+            "Catalog contains 307,455 sources. 90% complete at 170 mJy, 50% "
+            "complete at 55 mJy, reliability 99.97% above 5-sigma (~50 mJy). "
+            "Fpwide is the wideband (170-231 MHz) peak flux density in Jy. "
+            "The alpha column provides per-source spectral indices fitted "
+            "across the 72-231 MHz band. Via VizieR VIII/100/gleamegc."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "Fpwide",
@@ -295,7 +435,21 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "gleam_x_dr1": {
         "vizier_id": "VIII/110/catalog",
         "table": None,
-        "description": "GLEAM-X DR1 (78,967 sources, 200 MHz wideband)",
+        "description": (
+            "GLEAM-X DR1: GaLactic and Extragalactic All-sky MWA eXtended — "
+            "Data Release 1 (Hurley-Walker, Hancock, Franzen, Callingham, "
+            "Duchesne, et al., PASA 39, e035, 2022). "
+            "https://ui.adsabs.harvard.edu/abs/2022PASA...39...35H/abstract "
+            "Observations at 72-231 MHz using the MWA Phase II extended "
+            "configuration (2018-2020), providing higher resolution than "
+            "the original GLEAM survey. DR1 covers 1,447 deg^2 "
+            "(4h <= RA <= 13h, -32.7 deg <= Dec <= -20.7 deg). Resolution "
+            "~45 arcsec to 2 arcmin depending on frequency band. "
+            "Catalog contains 78,967 components, of which 71,320 are "
+            "spectrally fitted. Fpwide is the wideband (170-231 MHz) peak "
+            "flux density in Jy. The alpha-SP column provides per-source "
+            "spectral indices. Via VizieR VIII/110/catalog."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "Fpwide",
@@ -309,7 +463,21 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "gleam_x_dr2": {
         "vizier_id": "VIII/113/catalog2",
         "table": None,
-        "description": "GLEAM-X DR2 (624,866 sources, 200 MHz wideband)",
+        "description": (
+            "GLEAM-X DR2: GaLactic and Extragalactic All-sky MWA eXtended — "
+            "Data Release 2 (Ross, Hurley-Walker, Hancock, Duchesne, Riseley, "
+            "et al., PASA 41, e054, 2024). "
+            "https://ui.adsabs.harvard.edu/abs/2024PASA...41...54R/abstract "
+            "Covers 12,892 deg^2 around the South Galactic Pole "
+            "(20h40m <= RA <= 6h40m, -90 deg <= Dec <= +30 deg) at 72-231 MHz "
+            "using over 1,000 hours of MWA Phase II observations (2020). "
+            "Source finding performed on a 170-231 MHz wideband mosaic with "
+            "median rms noise 1.5 mJy/beam. Catalog contains 624,866 "
+            "components, of which 562,302 are spectrally fitted. "
+            "98% complete at 50 mJy, reliability 98.7% at 5-sigma. "
+            "Fpwide is the wideband peak flux density in Jy. "
+            "Via VizieR VIII/113/catalog2."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "Fpwide",
@@ -323,7 +491,21 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "gleam_gal": {
         "vizier_id": "VIII/102/gleamgal",
         "table": None,
-        "description": "GLEAM Galactic plane (22,037 sources, 200 MHz wideband)",
+        "description": (
+            "GLEAM Galactic Plane: GaLactic and Extragalactic All-sky MWA "
+            "Survey II — Galactic Plane (Hurley-Walker, Hancock, Franzen, "
+            "Callingham, Hindson, et al., PASA 36, e047, 2019). "
+            "https://ui.adsabs.harvard.edu/abs/2019PASA...36...47H/abstract "
+            "The Galactic plane component of GLEAM covering |b| < 10 deg "
+            "for two longitude ranges: 345 deg < l < 67 deg (inner Galaxy) "
+            "and 180 deg < l < 240 deg (outer Galaxy), at 72-231 MHz using "
+            "MWA Phase I. Unlike the extragalactic catalog, this analysis "
+            "used multi-scale CLEAN to better deconvolve large-scale Galactic "
+            "structure. Source finding on a 60 MHz bandwidth image centred at "
+            "200 MHz. Catalog contains 22,037 compact source components with "
+            "rms position accuracy better than 2 arcsec. Fpwide is the wideband "
+            "peak flux density in Jy. Via VizieR VIII/102/gleamgal."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "Fpwide",
@@ -338,7 +520,21 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "mals_dr1": {
         "vizier_id": "J/ApJS/270/33",
         "table": "catalog",
-        "description": "MALS DR1: Stokes I at 1-1.4 GHz (495,325 sources)",
+        "description": (
+            "MALS DR1: MeerKAT Absorption Line Survey Data Release 1 — "
+            "Stokes I Image Catalogs (Deka, Gupta, Jagannathan, Sekhar, "
+            "Momjian, et al., ApJS 270, 33, 2024). "
+            "https://ui.adsabs.harvard.edu/abs/2024ApJS..270...33D/abstract "
+            "L-band (900-1670 MHz) continuum survey using MeerKAT (64-dish "
+            "radio interferometer, Karoo, South Africa) from 391 pointings. "
+            "Median angular resolution ~12 arcsec at 1006 MHz and ~8 arcsec "
+            "at 1381 MHz. Median rms noise ~25 uJy/beam (1006 MHz) and "
+            "~22 uJy/beam (1381 MHz). DR1 covers 2,289 deg^2 and contains "
+            "495,325 sources detected at >5-sigma. Primary science goal is "
+            "HI and OH absorption line studies, with continuum catalogs as "
+            "a key data product. Flux is the integrated flux density in mJy. "
+            "SpMALS provides in-band spectral indices. Via VizieR J/ApJS/270/33."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "Flux",
@@ -352,7 +548,19 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
     "mals_dr2": {
         "vizier_id": "J/A+A/690/A163",
         "table": "all",
-        "description": "MALS DR2: Wideband continuum (971,980 sources)",
+        "description": (
+            "MALS DR2: MeerKAT Absorption Line Survey Data Release 2 — "
+            "Wideband Continuum Catalogues (Wagenveld, Gupta, Chen, Sekhar, "
+            "Jagannathan, et al., A&A 690, A163, 2024). "
+            "https://ui.adsabs.harvard.edu/abs/2024A&A...690A.163W/abstract "
+            "Full wideband L-band continuum catalog from 391 MeerKAT pointings "
+            "covering 4,344 deg^2, reaching a depth of ~10 uJy/beam. Contains "
+            "971,980 sources spanning five orders of magnitude in flux density "
+            "down to ~200 uJy, providing a robust view of the extragalactic "
+            "radio source population. FluxTot is the total integrated flux "
+            "density in mJy. SpIndex provides wideband spectral indices. "
+            "Via VizieR J/A+A/690/A163."
+        ),
         "ra_col": "RAJ2000",
         "dec_col": "DEJ2000",
         "flux_col": "FluxTot",
@@ -375,7 +583,19 @@ RACS_CATALOGS: dict[str, Any] = {
         "dec_col": "dec_deg_cont",
         "flux_col": "flux_peak",
         "flux_unit": "mJy",
-        "description": "RACS-Low DR1: Rapid ASKAP Continuum Survey at 887.5 MHz",
+        "description": (
+            "RACS-Low DR1: Rapid ASKAP Continuum Survey at 887.5 MHz "
+            "(McConnell, Hale, Lenc, Banfield, George, et al., PASA 37, e048, "
+            "2020 [survey design]; Hale, McConnell, Thomson, Lenc, Vernstrom, "
+            "et al., PASA 38, e058, 2021 [source catalog]). "
+            "https://ui.adsabs.harvard.edu/abs/2020PASA...37...48M/abstract "
+            "First all-sky survey with the Australian Square Kilometre Array "
+            "Pathfinder (ASKAP, 36 x 12-m antennas, Murchison Radio-astronomy "
+            "Observatory, Western Australia). 288 MHz bandwidth centred at "
+            "887.5 MHz, resolution ~15 arcsec (convolved to 25 arcsec for the "
+            "catalog). Sky coverage: declination -80 deg to +30 deg, excluding "
+            "|b| < 5 deg (~2.1 million sources). Via CASDA TAP."
+        ),
     },
     "mid": {
         "freq_mhz": 1367.5,
@@ -384,7 +604,15 @@ RACS_CATALOGS: dict[str, Any] = {
         "dec_col": "dec_deg_cont",
         "flux_col": "flux_peak",
         "flux_unit": "mJy",
-        "description": "RACS-Mid DR1: Rapid ASKAP Continuum Survey at 1367.5 MHz",
+        "description": (
+            "RACS-Mid DR1: Rapid ASKAP Continuum Survey at 1367.5 MHz "
+            "(Duchesne, Thomson, Hale, Whiting, Grundy, et al., PASA 41, "
+            "e003, 2024). "
+            "https://ui.adsabs.harvard.edu/abs/2024PASA...41....3D/abstract "
+            "Second epoch of RACS using ASKAP (36 x 12-m antennas), 288 MHz "
+            "bandwidth centred at 1367.5 MHz. Sky coverage: declination south "
+            "of +49 deg. Via CASDA TAP."
+        ),
     },
     "high": {
         "freq_mhz": 1655.5,
@@ -393,6 +621,15 @@ RACS_CATALOGS: dict[str, Any] = {
         "dec_col": "dec_deg_cont",
         "flux_col": "flux_peak",
         "flux_unit": "mJy",
-        "description": "RACS-High DR1: Rapid ASKAP Continuum Survey at 1655.5 MHz",
+        "description": (
+            "RACS-High DR1: Rapid ASKAP Continuum Survey at 1655.5 MHz "
+            "(Duchesne, Ross, Thomson, Lenc, Murphy, Galvin, Hotan, Moss, "
+            "Whiting, PASA 42, e038, 2025). "
+            "https://ui.adsabs.harvard.edu/abs/2025PASA...42...38D/abstract "
+            "Third epoch of RACS using ASKAP (36 x 12-m antennas), 288 MHz "
+            "bandwidth centred at 1655.5 MHz. Median resolution "
+            "~11.8 arcsec x 8.1 arcsec. Observed 2021-2022. Catalog contains "
+            "~2.7 million sources with 99.2% reliability. Via CASDA TAP."
+        ),
     },
 }
