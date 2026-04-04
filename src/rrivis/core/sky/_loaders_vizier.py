@@ -12,6 +12,7 @@ from astroquery.utils.tap.core import TapPlus
 from astroquery.vizier import Vizier
 
 from .catalogs import CASDA_TAP_URL, RACS_CATALOGS, VIZIER_POINT_CATALOGS
+from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,22 @@ def _extract_masked_column(catalog, col_name: str, dtype=np.float64) -> np.ndarr
     return arr
 
 
+def _select_table(tables, info: dict) -> Any:
+    """Select the correct table from a VizieR TableList.
+
+    If the catalog metadata specifies a ``table`` name, search for it;
+    otherwise return the first table.  Returns ``None`` if *tables* is
+    empty.
+    """
+    if not tables:
+        return None
+    if info["table"] is not None:
+        for t in tables:
+            if info["table"] in t.meta.get("name", ""):
+                return t
+    return tables[0]
+
+
 class _VizierLoadersMixin:
     """Mixin providing VizieR and CASDA TAP factory classmethods for SkyModel."""
 
@@ -98,6 +115,7 @@ class _VizierLoadersMixin:
         flux_limit: float = 1.0,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load a point-source catalog from VizieR using unified metadata.
@@ -114,6 +132,10 @@ class _VizierLoadersMixin:
             Minimum flux density in Jy; rows below this are skipped.
         brightness_conversion : str, default="planck"
             Conversion method: "planck" or "rayleigh-jeans".
+        region : SkyRegion, optional
+            If given, only sources inside this sky region are loaded.
+            Uses VizieR ``query_region()`` for server-side spatial
+            filtering, then applies a client-side trim.
 
         Returns
         -------
@@ -153,17 +175,39 @@ class _VizierLoadersMixin:
             )
             v.column_filters = {info["flux_col"]: f">={limit_in_catalog_units}"}
 
-            tables = v.get_catalogs(info["vizier_id"])
-            if not tables:
-                raise ValueError("No tables returned from VizieR")
-            catalog = None
-            if info["table"] is not None:
-                for t in tables:
-                    if info["table"] in t.meta.get("name", ""):
-                        catalog = t
-                        break
-            if catalog is None:
-                catalog = tables[0]
+            if region is not None:
+                # Server-side spatial query — one per atomic sub-region
+                from astropy.table import vstack
+
+                all_tables = []
+                for sub in region._iter_atomic():
+                    if sub._shape == "cone":
+                        t = v.query_region(
+                            sub.center,
+                            radius=sub.radius,
+                            catalog=[info["vizier_id"]],
+                        )
+                    else:  # box
+                        t = v.query_region(
+                            sub.center,
+                            width=sub.width,
+                            height=sub.height,
+                            catalog=[info["vizier_id"]],
+                        )
+                    if t:
+                        tbl = _select_table(t, info)
+                        if tbl is not None:
+                            all_tables.append(tbl)
+                if not all_tables:
+                    raise ValueError("No tables returned from VizieR")
+                catalog = vstack(all_tables) if len(all_tables) > 1 else all_tables[0]
+            else:
+                tables = v.get_catalogs(info["vizier_id"])
+                if not tables:
+                    raise ValueError("No tables returned from VizieR")
+                catalog = _select_table(tables, info)
+                if catalog is None:
+                    catalog = tables[0]
         except Exception as e:
             logger.error(f"Failed to fetch {catalog_key}: {e}")
             return _empty()
@@ -240,6 +284,29 @@ class _VizierLoadersMixin:
             finite_mask = np.isfinite(spindex_valid)
             alpha_arr[finite_mask] = spindex_valid[finite_mask]
 
+        # Client-side region trim (catches VizieR edge cases) + dedup
+        if region is not None:
+            in_region = region.contains(ra_rad, dec_rad)
+            ra_rad = ra_rad[in_region]
+            dec_rad = dec_rad[in_region]
+            flux_jy = flux_jy[in_region]
+            alpha_arr = alpha_arr[in_region]
+            n = len(flux_jy)
+
+            # Dedup overlapping sub-region results
+            if n > 0 and len(region._iter_atomic()) > 1:
+                coords_key = np.round(np.column_stack([ra_rad, dec_rad]), decimals=8)
+                _, unique_idx = np.unique(coords_key, axis=0, return_index=True)
+                unique_idx = np.sort(unique_idx)
+                ra_rad = ra_rad[unique_idx]
+                dec_rad = dec_rad[unique_idx]
+                flux_jy = flux_jy[unique_idx]
+                alpha_arr = alpha_arr[unique_idx]
+                n = len(flux_jy)
+
+        if n == 0:
+            return _empty()
+
         logger.info(
             f"{catalog_key.upper()} loaded: {n:,} sources (flux >= {flux_limit} Jy)"
         )
@@ -271,6 +338,7 @@ class _VizierLoadersMixin:
         catalog: str = "gleam_egc",
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load GLEAM catalog from VizieR.
@@ -308,7 +376,7 @@ class _VizierLoadersMixin:
                 f"Unknown GLEAM catalog '{catalog}'. Available: {_gleam_keys}"
             )
         return cls._load_from_vizier_catalog(
-            key, flux_limit, brightness_conversion, precision
+            key, flux_limit, brightness_conversion, precision, region=region
         )
 
     @classmethod
@@ -318,6 +386,7 @@ class _VizierLoadersMixin:
         release: str = "dr2",
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load MALS catalog from VizieR.
@@ -343,7 +412,7 @@ class _VizierLoadersMixin:
                 f"Unknown MALS release '{release}'. Available: 'dr1', 'dr2', 'dr3'."
             )
         return cls._load_from_vizier_catalog(
-            key, flux_limit, brightness_conversion, precision
+            key, flux_limit, brightness_conversion, precision, region=region
         )
 
     @classmethod
@@ -352,6 +421,7 @@ class _VizierLoadersMixin:
         flux_limit: float = 1.0,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load the VLSSr catalog from VizieR (73.8 MHz, ~92,964 sources).
@@ -373,7 +443,7 @@ class _VizierLoadersMixin:
         SkyModel
         """
         return cls._load_from_vizier_catalog(
-            "vlssr", flux_limit, brightness_conversion, precision
+            "vlssr", flux_limit, brightness_conversion, precision, region=region
         )
 
     @classmethod
@@ -382,6 +452,7 @@ class _VizierLoadersMixin:
         flux_limit: float = 0.1,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load the TGSS ADR1 catalog from VizieR (150 MHz, ~623,604 sources).
@@ -404,7 +475,7 @@ class _VizierLoadersMixin:
         SkyModel
         """
         return cls._load_from_vizier_catalog(
-            "tgss", flux_limit, brightness_conversion, precision
+            "tgss", flux_limit, brightness_conversion, precision, region=region
         )
 
     @classmethod
@@ -413,6 +484,7 @@ class _VizierLoadersMixin:
         flux_limit: float = 0.05,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load the WENSS catalog from VizieR (325 MHz, ~229,000 sources).
@@ -434,7 +506,7 @@ class _VizierLoadersMixin:
         SkyModel
         """
         return cls._load_from_vizier_catalog(
-            "wenss", flux_limit, brightness_conversion, precision
+            "wenss", flux_limit, brightness_conversion, precision, region=region
         )
 
     @classmethod
@@ -443,6 +515,7 @@ class _VizierLoadersMixin:
         flux_limit: float = 0.008,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load the SUMSS catalog from VizieR (843 MHz, ~210,412 sources).
@@ -464,7 +537,7 @@ class _VizierLoadersMixin:
         SkyModel
         """
         return cls._load_from_vizier_catalog(
-            "sumss", flux_limit, brightness_conversion, precision
+            "sumss", flux_limit, brightness_conversion, precision, region=region
         )
 
     @classmethod
@@ -473,6 +546,7 @@ class _VizierLoadersMixin:
         flux_limit: float = 0.0025,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load the NVSS catalog from VizieR (1400 MHz, ~1.8M sources).
@@ -495,7 +569,7 @@ class _VizierLoadersMixin:
         SkyModel
         """
         return cls._load_from_vizier_catalog(
-            "nvss", flux_limit, brightness_conversion, precision
+            "nvss", flux_limit, brightness_conversion, precision, region=region
         )
 
     @classmethod
@@ -505,6 +579,7 @@ class _VizierLoadersMixin:
         flux_limit: float = 0.001,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load the LoTSS catalog from VizieR (144 MHz, DR1: ~325k, DR2: ~4.4M sources).
@@ -538,7 +613,7 @@ class _VizierLoadersMixin:
                 f"Unknown LoTSS release '{release}'. Available: 'dr1', 'dr2'."
             )
         return cls._load_from_vizier_catalog(
-            key, flux_limit, brightness_conversion, precision
+            key, flux_limit, brightness_conversion, precision, region=region
         )
 
     @classmethod
@@ -547,6 +622,7 @@ class _VizierLoadersMixin:
         flux_limit: float = 1.0,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load the 3CR catalog from VizieR (178 MHz, ~471 sources).
@@ -569,7 +645,7 @@ class _VizierLoadersMixin:
         SkyModel
         """
         return cls._load_from_vizier_catalog(
-            "3c", flux_limit, brightness_conversion, precision
+            "3c", flux_limit, brightness_conversion, precision, region=region
         )
 
     @classmethod
@@ -578,6 +654,7 @@ class _VizierLoadersMixin:
         flux_limit: float = 0.001,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load the VLASS Quick Look catalog from VizieR (3000 MHz, ~1.9M sources).
@@ -603,7 +680,7 @@ class _VizierLoadersMixin:
         SkyModel
         """
         return cls._load_from_vizier_catalog(
-            "vlass", flux_limit, brightness_conversion, precision
+            "vlass", flux_limit, brightness_conversion, precision, region=region
         )
 
     @classmethod
@@ -614,6 +691,7 @@ class _VizierLoadersMixin:
         max_rows: int = 1_000_000,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: SkyRegion | None = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load a RACS catalog via CASDA TAP (887.5 / 1367.5 / 1655.5 MHz).
@@ -667,6 +745,23 @@ class _VizierLoadersMixin:
                 f"FROM {info['tap_table']} "
                 f"WHERE {info['flux_col']} >= {flux_limit_mjy}"
             )
+            if region is not None:
+                spatial_parts = []
+                pt = f"POINT('ICRS', {info['ra_col']}, {info['dec_col']})"
+                for sub in region._iter_atomic():
+                    if sub._shape == "cone":
+                        spatial_parts.append(
+                            f"CONTAINS({pt}, CIRCLE('ICRS', "
+                            f"{sub.center.ra.deg}, {sub.center.dec.deg}, "
+                            f"{sub.radius.deg})) = 1"
+                        )
+                    else:  # box
+                        spatial_parts.append(
+                            f"CONTAINS({pt}, BOX('ICRS', "
+                            f"{sub.center.ra.deg}, {sub.center.dec.deg}, "
+                            f"{sub.width.deg}, {sub.height.deg})) = 1"
+                        )
+                adql += " AND (" + " OR ".join(spatial_parts) + ")"
             job = tap.launch_job(adql)
             result = job.get_results()
 
@@ -716,6 +811,13 @@ class _VizierLoadersMixin:
             ra_arr = np.array(ra_list, dtype=np.float64)
             dec_arr = np.array(dec_list, dtype=np.float64)
             flux_arr = np.array(flux_list, dtype=np.float64)
+
+        # Client-side region trim
+        if region is not None and len(flux_arr) > 0:
+            in_region = region.contains(np.deg2rad(ra_arr), np.deg2rad(dec_arr))
+            ra_arr = ra_arr[in_region]
+            dec_arr = dec_arr[in_region]
+            flux_arr = flux_arr[in_region]
 
         n = len(flux_arr)
         logger.info(

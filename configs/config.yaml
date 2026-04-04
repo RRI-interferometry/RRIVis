@@ -85,6 +85,25 @@ simulators:
   use_different_simulator_for_cross_check: false
 sky_model:
   flux_unit: Jy
+  # region:                          # Optional: load only sources in this region
+  #   shape: cone                    # "cone" or "box"
+  #   center_ra_deg: 0.0             # RA centre (ICRS degrees)
+  #   center_dec_deg: -27.0          # Dec centre (ICRS degrees)
+  #   radius_deg: 10.0               # Cone radius — for shape: cone
+  #   # width_deg: 20.0              # RA extent — for shape: box
+  #   # height_deg: 10.0             # Dec extent — for shape: box
+  #
+  # # Multiple regions (union):
+  # region:
+  #   - shape: cone
+  #     center_ra_deg: 83.6
+  #     center_dec_deg: 22.0
+  #     radius_deg: 5.0
+  #   - shape: box
+  #     center_ra_deg: 180.0
+  #     center_dec_deg: -30.0
+  #     width_deg: 20.0
+  #     height_deg: 10.0
   vlass:
     flux_limit: 0.001
     use_vlass: false

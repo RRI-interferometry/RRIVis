@@ -9,9 +9,11 @@ from .constants import (
     flux_density_to_brightness_temp,
 )
 from .model import SkyModel
+from .region import SkyRegion
 
 __all__ = [
     "SkyModel",
+    "SkyRegion",
     "K_BOLTZMANN",
     "C_LIGHT",
     "H_PLANCK",

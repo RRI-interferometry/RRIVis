@@ -3,13 +3,16 @@
 
 import logging
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import astropy.units as u
 import healpy as hp
 import numpy as np
 from healpy.rotator import Rotator
 from pyradiosky import SkyModel as PyRadioSkyModel
+
+if TYPE_CHECKING:
+    from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,7 @@ class _PyradioskyMixin:
         precision: Any = None,
         frequencies: np.ndarray | None = None,
         obs_frequency_config: dict[str, Any] | None = None,
+        region: "SkyRegion | None" = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load a local sky model file via pyradiosky.
@@ -92,6 +96,7 @@ class _PyradioskyMixin:
                 obs_frequency_config,
                 brightness_conversion,
                 precision,
+                region=region,
             )
         elif sky.component_type != "point":
             raise ValueError(
@@ -182,6 +187,12 @@ class _PyradioskyMixin:
         )
 
         valid = np.isfinite(stokes_i_ref) & (stokes_i_ref >= flux_limit)
+
+        # Client-side region filter
+        if region is not None:
+            in_region = region.contains(ra_arr, dec_arr)
+            valid = valid & in_region
+
         n = int(valid.sum())
 
         model_name = f"pyradiosky:{os.path.basename(filename)}"
@@ -218,6 +229,7 @@ class _PyradioskyMixin:
         obs_frequency_config: dict[str, Any] | None,
         brightness_conversion: str,
         precision: Any,
+        region: "SkyRegion | None" = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load a pyradiosky HEALPix sky model as multi-frequency HEALPix maps.
@@ -370,6 +382,17 @@ class _PyradioskyMixin:
                 if rot is not None:
                     i_map = rot.rotate_map_pixel(i_map)
                 healpix_maps[float(obs_freqs[i_freq])] = i_map.astype(np.float32)
+
+        # Apply region mask (zero out-of-region pixels)
+        if region is not None:
+            mask = region.healpix_mask(nside)
+            n_retained = int(mask.sum())
+            for freq_key in healpix_maps:
+                healpix_maps[freq_key][~mask] = 0.0
+            for maps in (healpix_q_maps, healpix_u_maps, healpix_v_maps):
+                for freq_key in maps:
+                    maps[freq_key][~mask] = 0.0
+            logger.info(f"Region mask applied: {n_retained}/{npix} pixels retained")
 
         model_name = f"pyradiosky:{os.path.basename(filename)}"
         stokes_label = "I"

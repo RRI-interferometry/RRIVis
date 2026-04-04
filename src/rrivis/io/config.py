@@ -477,6 +477,33 @@ class PyRadioSkyConfig(BaseModel):
     )
 
 
+class SkyRegionEntryConfig(BaseModel):
+    """A single sky region filter (cone or box).
+
+    When ``shape="cone"``, ``radius_deg`` is required.
+    When ``shape="box"``, ``width_deg`` and ``height_deg`` are required.
+    """
+
+    shape: Literal["cone", "box"] = Field(
+        "cone", description="Region shape: 'cone' or 'box'"
+    )
+    center_ra_deg: float = Field(
+        ..., ge=0.0, lt=360.0, description="RA centre (ICRS degrees)"
+    )
+    center_dec_deg: float = Field(
+        ..., ge=-90.0, le=90.0, description="Dec centre (ICRS degrees)"
+    )
+    radius_deg: float | None = Field(
+        None, gt=0.0, le=180.0, description="Cone radius (degrees)"
+    )
+    width_deg: float | None = Field(
+        None, gt=0.0, le=360.0, description="Box RA width (degrees)"
+    )
+    height_deg: float | None = Field(
+        None, gt=0.0, le=180.0, description="Box Dec height (degrees)"
+    )
+
+
 class SkyModelConfig(BaseModel):
     """Sky model configuration."""
 
@@ -507,6 +534,11 @@ class SkyModelConfig(BaseModel):
     flux_unit: Literal["Jy", "mJy", "uJy"] | None = Field(
         None,
         description="Unit for all flux values (flux_min, flux_max, flux_limit) in this section",
+    )
+    # --- Optional sky region filter ---
+    region: SkyRegionEntryConfig | list[SkyRegionEntryConfig] | None = Field(
+        None,
+        description="Sky region filter(s). Single region or list for union of regions.",
     )
 
 

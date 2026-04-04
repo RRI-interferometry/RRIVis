@@ -5,7 +5,7 @@ import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import healpy as hp
 import numpy as np
@@ -13,6 +13,9 @@ from healpy.rotator import Rotator
 from pygdsm import GlobalSkyModel, GSMObserver08
 
 from .catalogs import DIFFUSE_MODELS
+
+if TYPE_CHECKING:
+    from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +232,7 @@ class _DiffuseLoadersMixin:
         retain_pygdsm_instance: bool = False,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: "SkyRegion | None" = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load a diffuse sky model (GSM, LFSM, Haslam) as multi-frequency HEALPix maps.
@@ -398,6 +402,16 @@ class _DiffuseLoadersMixin:
                     key, m = future.result()
                     healpix_maps[key] = m
 
+        # Apply region mask (zero out-of-region pixels)
+        if region is not None:
+            mask = region.healpix_mask(nside)
+            n_retained = int(mask.sum())
+            for freq_key in healpix_maps:
+                healpix_maps[freq_key][~mask] = 0.0
+            logger.info(
+                f"Region mask applied: {n_retained}/{hp.nside2npix(nside)} pixels retained"
+            )
+
         logger.info(
             f"{model.upper()} loaded: {hp.nside2npix(nside)} pixels \u00d7 {n_freq} frequencies"
         )
@@ -473,6 +487,7 @@ class _DiffuseLoadersMixin:
         include_polarization: bool = False,
         brightness_conversion: str = "planck",
         precision: Any = None,
+        region: "SkyRegion | None" = None,
     ) -> "SkyModel":  # noqa: F821
         """
         Load a PySM3 diffuse sky model as multi-frequency HEALPix maps.
@@ -623,6 +638,19 @@ class _DiffuseLoadersMixin:
                     if include_polarization and q_map is not None:
                         healpix_q_maps[key] = q_map
                         healpix_u_maps[key] = u_map
+
+        # Apply region mask (zero out-of-region pixels)
+        if region is not None:
+            mask = region.healpix_mask(nside)
+            n_retained = int(mask.sum())
+            for freq_key in healpix_maps:
+                healpix_maps[freq_key][~mask] = 0.0
+            for maps in (healpix_q_maps, healpix_u_maps):
+                for freq_key in maps:
+                    maps[freq_key][~mask] = 0.0
+            logger.info(
+                f"Region mask applied: {n_retained}/{hp.nside2npix(nside)} pixels retained"
+            )
 
         model_name = f"pysm3:{'+'.join(components_list)}"
         logger.info(

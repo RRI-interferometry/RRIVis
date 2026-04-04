@@ -542,6 +542,31 @@ class Simulator:
         _flux_mul = _flux_multipliers[flux_unit]
         self._flux_unit = flux_unit
 
+        # Build sky region from config (if specified)
+        from rrivis.core.sky.region import SkyRegion
+
+        def _build_sky_region(entry: dict) -> SkyRegion:
+            if entry.get("shape", "cone") == "cone":
+                return SkyRegion.cone(
+                    entry["center_ra_deg"],
+                    entry["center_dec_deg"],
+                    entry["radius_deg"],
+                )
+            return SkyRegion.box(
+                entry["center_ra_deg"],
+                entry["center_dec_deg"],
+                entry["width_deg"],
+                entry["height_deg"],
+            )
+
+        region_config = sky_config.get("region")
+        region = None
+        if region_config:
+            if isinstance(region_config, list):
+                region = SkyRegion.union([_build_sky_region(e) for e in region_config])
+            else:
+                region = _build_sky_region(region_config)
+
         test_config = sky_config.get("test_sources", {})
         test_healpix_config = sky_config.get("test_sources_healpix", {})
         gleam_config = sky_config.get("gleam", {})
@@ -610,7 +635,9 @@ class Simulator:
         if gleam_config.get("use_gleam", False):
             flux_limit = gleam_config.get("flux_limit", 1.0) * _flux_mul
             sky_models.append(
-                SkyModel.from_gleam(flux_limit=flux_limit, precision=_precision)
+                SkyModel.from_gleam(
+                    flux_limit=flux_limit, precision=_precision, region=region
+                )
             )
 
         if mals_config.get("use_mals", False):
@@ -618,7 +645,10 @@ class Simulator:
             release = mals_config.get("mals_release", "dr2")
             sky_models.append(
                 SkyModel.from_mals(
-                    flux_limit=flux_limit, release=release, precision=_precision
+                    flux_limit=flux_limit,
+                    release=release,
+                    precision=_precision,
+                    region=region,
                 )
             )
 
@@ -634,6 +664,7 @@ class Simulator:
                     basemap=gsm_config.get("basemap"),
                     interpolation=gsm_config.get("interpolation"),
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -644,6 +675,7 @@ class Simulator:
                 SkyModel.from_vlssr(
                     flux_limit=vlssr_config.get("flux_limit", 1.0) * _flux_mul,
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -653,6 +685,7 @@ class Simulator:
                 SkyModel.from_tgss(
                     flux_limit=tgss_config.get("flux_limit", 0.1) * _flux_mul,
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -662,6 +695,7 @@ class Simulator:
                 SkyModel.from_wenss(
                     flux_limit=wenss_config.get("flux_limit", 0.05) * _flux_mul,
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -671,6 +705,7 @@ class Simulator:
                 SkyModel.from_sumss(
                     flux_limit=sumss_config.get("flux_limit", 0.008) * _flux_mul,
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -680,6 +715,7 @@ class Simulator:
                 SkyModel.from_nvss(
                     flux_limit=nvss_config.get("flux_limit", 0.0025) * _flux_mul,
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -690,6 +726,7 @@ class Simulator:
                     release=lotss_config.get("lotss_release", "dr2"),
                     flux_limit=lotss_config.get("flux_limit", 0.001) * _flux_mul,
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -699,6 +736,7 @@ class Simulator:
                 SkyModel.from_3c(
                     flux_limit=three_c_config.get("flux_limit", 1.0) * _flux_mul,
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -708,6 +746,7 @@ class Simulator:
                 SkyModel.from_vlass(
                     flux_limit=vlass_config.get("flux_limit", 0.001) * _flux_mul,
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -719,6 +758,7 @@ class Simulator:
                     flux_limit=racs_config.get("flux_limit", 1.0) * _flux_mul,
                     max_rows=racs_config.get("max_rows", 1_000_000),
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -732,6 +772,7 @@ class Simulator:
                     nside=pysm3_config.get("nside", 64),
                     obs_frequency_config=obs_freq_config,
                     precision=_precision,
+                    region=region,
                 )
             )
 
@@ -751,6 +792,7 @@ class Simulator:
                         ),
                         precision=_precision,
                         obs_frequency_config=obs_freq_config,
+                        region=region,
                     )
                 )
             else:

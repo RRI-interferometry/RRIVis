@@ -10,7 +10,7 @@ management.
 import logging
 import warnings
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import astropy.units as u
 import healpy as hp
@@ -25,6 +25,9 @@ from .constants import (
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
 )
+
+if TYPE_CHECKING:
+    from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
 
@@ -319,6 +322,78 @@ class SkyModel(
     def _has_point_sources(self) -> bool:
         """Return True if columnar point-source arrays are populated and non-empty."""
         return self._ra_rad is not None and len(self._ra_rad) > 0
+
+    def filter_region(self, region: "SkyRegion") -> "SkyModel":
+        """Return a new SkyModel containing only sources/pixels within *region*.
+
+        For point-source models, applies a boolean mask to all columnar
+        arrays.  For HEALPix models, sets out-of-region pixels to zero.
+
+        Does **not** mutate ``self`` — always returns a new instance.
+
+        Parameters
+        ----------
+        region : SkyRegion
+            Sky region to filter to (cone, box, or union).
+
+        Returns
+        -------
+        SkyModel
+            Filtered copy.
+        """
+        if self._native_format == "point_sources" and self._ra_rad is not None:
+            mask = region.contains(self._ra_rad, self._dec_rad)
+            return SkyModel(
+                _ra_rad=self._ra_rad[mask],
+                _dec_rad=self._dec_rad[mask],
+                _flux_ref=self._flux_ref[mask] if self._flux_ref is not None else None,
+                _alpha=self._alpha[mask] if self._alpha is not None else None,
+                _stokes_q=self._stokes_q[mask] if self._stokes_q is not None else None,
+                _stokes_u=self._stokes_u[mask] if self._stokes_u is not None else None,
+                _stokes_v=self._stokes_v[mask] if self._stokes_v is not None else None,
+                _native_format="point_sources",
+                model_name=self.model_name,
+                frequency=self.frequency,
+                brightness_conversion=self.brightness_conversion,
+                _precision=self._precision,
+            )
+
+        if self._healpix_maps is not None:
+            hp_mask = region.healpix_mask(self._healpix_nside)
+            new_maps = {f: m.copy() for f, m in self._healpix_maps.items()}
+            for m in new_maps.values():
+                m[~hp_mask] = 0.0
+            new_q = None
+            new_u = None
+            new_v = None
+            if self._healpix_q_maps is not None:
+                new_q = {f: m.copy() for f, m in self._healpix_q_maps.items()}
+                for m in new_q.values():
+                    m[~hp_mask] = 0.0
+            if self._healpix_u_maps is not None:
+                new_u = {f: m.copy() for f, m in self._healpix_u_maps.items()}
+                for m in new_u.values():
+                    m[~hp_mask] = 0.0
+            if self._healpix_v_maps is not None:
+                new_v = {f: m.copy() for f, m in self._healpix_v_maps.items()}
+                for m in new_v.values():
+                    m[~hp_mask] = 0.0
+            return SkyModel(
+                _healpix_maps=new_maps,
+                _healpix_q_maps=new_q,
+                _healpix_u_maps=new_u,
+                _healpix_v_maps=new_v,
+                _healpix_nside=self._healpix_nside,
+                _observation_frequencies=self._observation_frequencies,
+                _native_format="healpix",
+                frequency=self.frequency,
+                model_name=self.model_name,
+                brightness_conversion=self.brightness_conversion,
+                _precision=self._precision,
+            )
+
+        # Empty model — nothing to filter
+        return self
 
     # =========================================================================
     # Helper Methods
