@@ -112,6 +112,15 @@ class _PyradioskyMixin:
                     ref_freq_hz = float(freq_arr[0].to_value(u.Hz))
                 else:
                     ref_freq_hz = float(freq_arr[0])
+            elif (
+                sky.reference_frequency is not None and len(sky.reference_frequency) > 0
+            ):
+                # spectral_index type: frequency stored per-component
+                rf = sky.reference_frequency
+                if hasattr(rf, "to_value"):
+                    ref_freq_hz = float(rf[0].to_value(u.Hz))
+                else:
+                    ref_freq_hz = float(rf[0])
             else:
                 raise ValueError(
                     "Cannot determine reference frequency. "

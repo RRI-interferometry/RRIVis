@@ -632,147 +632,180 @@ class Simulator:
                 f"Loaded test sources (HEALPix): {num_sources} sources, nside={hp_nside}"
             )
 
+        # --- Collect network catalog loaders for parallel download ---
+        network_loaders: list[tuple[str, dict]] = []
+
         if gleam_config.get("use_gleam", False):
-            flux_limit = gleam_config.get("flux_limit", 1.0) * _flux_mul
-            sky_models.append(
-                SkyModel.from_gleam(
-                    flux_limit=flux_limit, precision=_precision, region=region
+            network_loaders.append(
+                (
+                    "from_gleam",
+                    {
+                        "flux_limit": gleam_config.get("flux_limit", 1.0) * _flux_mul,
+                        "region": region,
+                    },
                 )
             )
 
         if mals_config.get("use_mals", False):
-            flux_limit = mals_config.get("flux_limit", 1.0) * _flux_mul
-            release = mals_config.get("mals_release", "dr2")
-            sky_models.append(
-                SkyModel.from_mals(
-                    flux_limit=flux_limit,
-                    release=release,
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_mals",
+                    {
+                        "flux_limit": mals_config.get("flux_limit", 1.0) * _flux_mul,
+                        "release": mals_config.get("mals_release", "dr2"),
+                        "region": region,
+                    },
                 )
             )
 
         if gsm_config.get("use_gsm", False):
-            model_name = gsm_config.get("gsm_catalogue", "gsm2008")
             obs_freq_config = self.config.get("obs_frequency", {})
-            sky_models.append(
-                SkyModel.from_diffuse_sky(
-                    model=model_name,
-                    nside=nside,
-                    obs_frequency_config=obs_freq_config,
-                    include_cmb=gsm_config.get("include_cmb", False),
-                    basemap=gsm_config.get("basemap"),
-                    interpolation=gsm_config.get("interpolation"),
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_diffuse_sky",
+                    {
+                        "model": gsm_config.get("gsm_catalogue", "gsm2008"),
+                        "nside": nside,
+                        "obs_frequency_config": obs_freq_config,
+                        "include_cmb": gsm_config.get("include_cmb", False),
+                        "basemap": gsm_config.get("basemap"),
+                        "interpolation": gsm_config.get("interpolation"),
+                        "region": region,
+                    },
                 )
             )
 
-        # --- New point-source catalogs ---
         vlssr_config = sky_config.get("vlssr", {})
         if vlssr_config.get("use_vlssr", False):
-            sky_models.append(
-                SkyModel.from_vlssr(
-                    flux_limit=vlssr_config.get("flux_limit", 1.0) * _flux_mul,
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_vlssr",
+                    {
+                        "flux_limit": vlssr_config.get("flux_limit", 1.0) * _flux_mul,
+                        "region": region,
+                    },
                 )
             )
 
         tgss_config = sky_config.get("tgss", {})
         if tgss_config.get("use_tgss", False):
-            sky_models.append(
-                SkyModel.from_tgss(
-                    flux_limit=tgss_config.get("flux_limit", 0.1) * _flux_mul,
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_tgss",
+                    {
+                        "flux_limit": tgss_config.get("flux_limit", 0.1) * _flux_mul,
+                        "region": region,
+                    },
                 )
             )
 
         wenss_config = sky_config.get("wenss", {})
         if wenss_config.get("use_wenss", False):
-            sky_models.append(
-                SkyModel.from_wenss(
-                    flux_limit=wenss_config.get("flux_limit", 0.05) * _flux_mul,
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_wenss",
+                    {
+                        "flux_limit": wenss_config.get("flux_limit", 0.05) * _flux_mul,
+                        "region": region,
+                    },
                 )
             )
 
         sumss_config = sky_config.get("sumss", {})
         if sumss_config.get("use_sumss", False):
-            sky_models.append(
-                SkyModel.from_sumss(
-                    flux_limit=sumss_config.get("flux_limit", 0.008) * _flux_mul,
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_sumss",
+                    {
+                        "flux_limit": sumss_config.get("flux_limit", 0.008) * _flux_mul,
+                        "region": region,
+                    },
                 )
             )
 
         nvss_config = sky_config.get("nvss", {})
         if nvss_config.get("use_nvss", False):
-            sky_models.append(
-                SkyModel.from_nvss(
-                    flux_limit=nvss_config.get("flux_limit", 0.0025) * _flux_mul,
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_nvss",
+                    {
+                        "flux_limit": nvss_config.get("flux_limit", 0.0025) * _flux_mul,
+                        "region": region,
+                    },
                 )
             )
 
         lotss_config = sky_config.get("lotss", {})
         if lotss_config.get("use_lotss", False):
-            sky_models.append(
-                SkyModel.from_lotss(
-                    release=lotss_config.get("lotss_release", "dr2"),
-                    flux_limit=lotss_config.get("flux_limit", 0.001) * _flux_mul,
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_lotss",
+                    {
+                        "release": lotss_config.get("lotss_release", "dr2"),
+                        "flux_limit": lotss_config.get("flux_limit", 0.001) * _flux_mul,
+                        "region": region,
+                    },
                 )
             )
 
         three_c_config = sky_config.get("three_c", {})
         if three_c_config.get("use_3c", False):
-            sky_models.append(
-                SkyModel.from_3c(
-                    flux_limit=three_c_config.get("flux_limit", 1.0) * _flux_mul,
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_3c",
+                    {
+                        "flux_limit": three_c_config.get("flux_limit", 1.0) * _flux_mul,
+                        "region": region,
+                    },
                 )
             )
 
         vlass_config = sky_config.get("vlass", {})
         if vlass_config.get("use_vlass", False):
-            sky_models.append(
-                SkyModel.from_vlass(
-                    flux_limit=vlass_config.get("flux_limit", 0.001) * _flux_mul,
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_vlass",
+                    {
+                        "flux_limit": vlass_config.get("flux_limit", 0.001) * _flux_mul,
+                        "region": region,
+                    },
                 )
             )
 
         racs_config = sky_config.get("racs", {})
         if racs_config.get("use_racs", False):
-            sky_models.append(
-                SkyModel.from_racs(
-                    band=racs_config.get("racs_band", "low"),
-                    flux_limit=racs_config.get("flux_limit", 1.0) * _flux_mul,
-                    max_rows=racs_config.get("max_rows", 1_000_000),
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_racs",
+                    {
+                        "band": racs_config.get("racs_band", "low"),
+                        "flux_limit": racs_config.get("flux_limit", 1.0) * _flux_mul,
+                        "max_rows": racs_config.get("max_rows", 1_000_000),
+                        "region": region,
+                    },
                 )
             )
 
-        # --- New diffuse models ---
         pysm3_config = sky_config.get("pysm3", {})
         if pysm3_config.get("use_pysm3", False):
             obs_freq_config = self.config.get("obs_frequency", {})
-            sky_models.append(
-                SkyModel.from_pysm3(
-                    components=pysm3_config.get("components", "s1"),
-                    nside=pysm3_config.get("nside", 64),
-                    obs_frequency_config=obs_freq_config,
-                    precision=_precision,
-                    region=region,
+            network_loaders.append(
+                (
+                    "from_pysm3",
+                    {
+                        "components": pysm3_config.get("components", "s1"),
+                        "nside": pysm3_config.get("nside", 64),
+                        "obs_frequency_config": obs_freq_config,
+                        "region": region,
+                    },
+                )
+            )
+
+        # Download all network catalogs in parallel (up to 8 concurrent)
+        if network_loaders:
+            sky_models.extend(
+                SkyModel.load_parallel(
+                    network_loaders, max_workers=8, precision=_precision
                 )
             )
 

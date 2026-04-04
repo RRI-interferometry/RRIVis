@@ -1142,6 +1142,213 @@ class SkyModel(
         return self
 
     # =========================================================================
+    # Serialization (SkyH5 via pyradiosky)
+    # =========================================================================
+
+    def _to_pyradiosky(self) -> Any:
+        """Convert this SkyModel to a ``pyradiosky.SkyModel`` for serialization.
+
+        Returns
+        -------
+        pyradiosky.SkyModel
+
+        Raises
+        ------
+        ValueError
+            If the model is empty (no sources/pixels).
+        """
+        from pyradiosky import SkyModel as PyRadioSkyModel
+
+        if self._native_format == "point_sources":
+            if self._ra_rad is None or len(self._ra_rad) == 0:
+                raise ValueError("Cannot save an empty point-source SkyModel.")
+
+            n = len(self._ra_rad)
+            prefix = self.model_name or "src"
+            names = np.array([f"{prefix}_{i}" for i in range(n)])
+
+            skycoord = SkyCoord(
+                ra=self._ra_rad, dec=self._dec_rad, unit="rad", frame="icrs"
+            )
+
+            stokes_arr = np.zeros((4, 1, n), dtype=np.float64)
+            stokes_arr[0, 0, :] = self._flux_ref
+            if self._stokes_q is not None:
+                stokes_arr[1, 0, :] = self._stokes_q
+            if self._stokes_u is not None:
+                stokes_arr[2, 0, :] = self._stokes_u
+            if self._stokes_v is not None:
+                stokes_arr[3, 0, :] = self._stokes_v
+
+            ref_freq = self.frequency or 1e8
+            ref_freq_arr = np.full(n, ref_freq) * u.Hz
+
+            return PyRadioSkyModel(
+                name=names,
+                skycoord=skycoord,
+                stokes=stokes_arr * u.Jy,
+                spectral_type="spectral_index",
+                spectral_index=self._alpha.copy(),
+                reference_frequency=ref_freq_arr,
+                component_type="point",
+                history=f"RRIVis SkyModel: {self.model_name or 'unknown'}, "
+                f"brightness_conversion={self.brightness_conversion}",
+            )
+
+        if self._healpix_maps is not None:
+            nside = self._healpix_nside
+            npix = hp.nside2npix(nside)
+            sorted_freqs = np.sort(np.array(list(self._healpix_maps.keys())))
+            n_freq = len(sorted_freqs)
+
+            stokes_arr = np.zeros((4, n_freq, npix), dtype=np.float32)
+            for i, f in enumerate(sorted_freqs):
+                stokes_arr[0, i, :] = self._healpix_maps[f]
+                if self._healpix_q_maps and f in self._healpix_q_maps:
+                    stokes_arr[1, i, :] = self._healpix_q_maps[f]
+                if self._healpix_u_maps and f in self._healpix_u_maps:
+                    stokes_arr[2, i, :] = self._healpix_u_maps[f]
+                if self._healpix_v_maps and f in self._healpix_v_maps:
+                    stokes_arr[3, i, :] = self._healpix_v_maps[f]
+
+            from astropy.coordinates import ICRS
+
+            return PyRadioSkyModel(
+                nside=nside,
+                hpx_order="ring",
+                hpx_inds=np.arange(npix),
+                stokes=stokes_arr * u.K,
+                spectral_type="full",
+                freq_array=sorted_freqs * u.Hz,
+                component_type="healpix",
+                frame=ICRS(),
+                history=f"RRIVis SkyModel: {self.model_name or 'unknown'}, "
+                f"brightness_conversion={self.brightness_conversion}",
+            )
+
+        raise ValueError("Cannot save an empty SkyModel (no sources or maps).")
+
+    def save(
+        self,
+        filename: str,
+        *,
+        clobber: bool = False,
+        compression: str | None = "gzip",
+    ) -> None:
+        """Save this SkyModel to SkyH5 format (HDF5 via pyradiosky).
+
+        The file can be loaded back with ``SkyModel.load()`` or
+        ``SkyModel.from_pyradiosky_file()``.
+
+        Parameters
+        ----------
+        filename : str
+            Output file path (typically ``*.skyh5``).
+        clobber : bool, default False
+            Overwrite an existing file.
+        compression : str or None, default "gzip"
+            HDF5 compression for data arrays.
+        """
+        psky = self._to_pyradiosky()
+        psky.write_skyh5(filename, clobber=clobber, data_compression=compression)
+        logger.info(f"SkyModel saved to {filename}")
+
+    @classmethod
+    def load(
+        cls,
+        filename: str,
+        *,
+        precision: Any = None,
+        **kwargs: Any,
+    ) -> "SkyModel":
+        """Load a SkyModel from a SkyH5 file.
+
+        Convenience wrapper around ``from_pyradiosky_file()``.
+
+        Parameters
+        ----------
+        filename : str
+            Path to a ``.skyh5`` file.
+        precision : PrecisionConfig, optional
+            Precision configuration for array dtypes.
+        **kwargs
+            Forwarded to ``from_pyradiosky_file()``.
+        """
+        return cls.from_pyradiosky_file(
+            filename, filetype="skyh5", precision=precision, **kwargs
+        )
+
+    # =========================================================================
+    # Parallel Loading
+    # =========================================================================
+
+    @classmethod
+    def load_parallel(
+        cls,
+        loaders: list[tuple[str, dict[str, Any]]],
+        max_workers: int = 8,
+        precision: Any = None,
+    ) -> list["SkyModel"]:
+        """Load multiple sky models in parallel using threads.
+
+        Each loader is a ``(method_name, kwargs)`` tuple identifying a
+        factory classmethod on ``SkyModel`` (e.g. ``"from_gleam"``).
+        Downloads run concurrently via ``ThreadPoolExecutor``.  Failed
+        loaders are logged as warnings and excluded from the result.
+
+        Parameters
+        ----------
+        loaders : list of (str, dict)
+            ``[(method_name, kwargs), ...]``.
+            Example: ``[("from_gleam", {"flux_limit": 0.5})]``
+        max_workers : int, default 8
+            Maximum concurrent threads.
+        precision : PrecisionConfig, optional
+            Injected into each loader's kwargs if not already present.
+
+        Returns
+        -------
+        list of SkyModel
+            Successfully loaded models.
+        """
+        import concurrent.futures
+
+        def _load_one(method_name: str, kw: dict) -> "SkyModel":
+            factory = getattr(cls, method_name)
+            return factory(**kw)
+
+        n = min(len(loaders), max_workers)
+        results: list[SkyModel] = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n) as pool:
+            future_to_name: dict[concurrent.futures.Future, str] = {}
+            for method_name, kwargs in loaders:
+                kw = dict(kwargs)  # shallow copy to avoid mutating caller's dict
+                if precision is not None and "precision" not in kw:
+                    kw["precision"] = precision
+                f = pool.submit(_load_one, method_name, kw)
+                future_to_name[f] = method_name
+
+            for future in concurrent.futures.as_completed(future_to_name):
+                name = future_to_name[future]
+                try:
+                    sky = future.result()
+                    if sky.n_sources > 0 or (
+                        sky._healpix_maps is not None and len(sky._healpix_maps) > 0
+                    ):
+                        results.append(sky)
+                        logger.info(
+                            f"Parallel load complete: {name} "
+                            f"({sky.n_sources:,} sources)"
+                        )
+                    else:
+                        logger.info(f"Parallel load: {name} returned empty model")
+                except Exception as e:
+                    logger.warning(f"Parallel load failed for {name}: {e}")
+
+        return results
+
+    # =========================================================================
     # Factory Methods (no external deps)
     # =========================================================================
 
