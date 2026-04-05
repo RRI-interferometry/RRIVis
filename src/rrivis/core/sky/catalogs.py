@@ -3,20 +3,13 @@
 
 from typing import Any
 
-from pygdsm import (
-    GlobalSkyModel,
-    GlobalSkyModel16,
-    HaslamSkyModel,
-    LowFrequencySkyModel,
-)
-
 # =============================================================================
 # Diffuse sky model metadata (pygdsm)
 # =============================================================================
 
 DIFFUSE_MODELS = {
     "gsm2008": {
-        "class": GlobalSkyModel,
+        "class": "pygdsm.GlobalSkyModel",
         "description": (
             "Global Sky Model 2008 (de Oliveira-Costa et al., MNRAS 388, 247, 2008). "
             "https://ui.adsabs.harvard.edu/abs/2008MNRAS.388..247D/abstract "
@@ -49,7 +42,7 @@ DIFFUSE_MODELS = {
         },
     },
     "gsm2016": {
-        "class": GlobalSkyModel16,
+        "class": "pygdsm.GlobalSkyModel16",
         "description": (
             "Global Sky Model 2016 (Zheng, Tegmark, Dillon, Kim, de Oliveira-Costa, "
             "MNRAS 464, 3486, 2017; arXiv:1605.04920). "
@@ -80,7 +73,7 @@ DIFFUSE_MODELS = {
         "init_kwargs": {"freq_unit": "Hz", "data_unit": "TRJ", "include_cmb": False},
     },
     "lfsm": {
-        "class": LowFrequencySkyModel,
+        "class": "pygdsm.LowFrequencySkyModel",
         "description": (
             "Low Frequency Sky Model (Dowell, Taylor, Schinzel, Kassim, Stovall, "
             "MNRAS 469, 4537, 2017). "
@@ -106,7 +99,7 @@ DIFFUSE_MODELS = {
         "init_kwargs": {"freq_unit": "Hz", "include_cmb": False},
     },
     "haslam": {
-        "class": HaslamSkyModel,
+        "class": "pygdsm.HaslamSkyModel",
         "description": (
             "Haslam 408 MHz All-Sky Continuum Survey (Haslam, Salter, Stoffel, Wilson, "
             "A&AS 47, 1, 1982; reprocessed by Remazeilles, Dickinson, Banday, "

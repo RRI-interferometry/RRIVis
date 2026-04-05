@@ -5,8 +5,6 @@ visibility simulation including antenna handling, baseline generation,
 beam patterns, source models, and the RIME visibility calculation.
 """
 
-from pygdsm import GSMObserver08
-
 from rrivis.core.antenna import read_antenna_positions
 from rrivis.core.baseline import generate_baselines
 from rrivis.core.jones.beam import BeamManager
@@ -73,3 +71,11 @@ __all__ = [
     "FLOAT128_AVAILABLE",
     "COMPLEX256_AVAILABLE",
 ]
+
+
+def __getattr__(name: str):
+    if name == "GSMObserver08":
+        from pygdsm import GSMObserver08
+
+        return GSMObserver08
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

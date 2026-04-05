@@ -17,23 +17,19 @@ import healpy as hp
 import numpy as np
 from astropy.coordinates import SkyCoord
 
-from ._loaders_bbs import _BBSLoadersMixin
-from ._loaders_diffuse import _DiffuseLoadersMixin
-from ._loaders_fits import _FITSImageLoadersMixin
-from ._loaders_pyradiosky import _PyradioskyMixin
-from ._loaders_vizier import _VizierLoadersMixin
 from ._plotting import _PlottingMixin
 from .constants import (
+    C_LIGHT,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
 )
 
 if TYPE_CHECKING:
+    from rrivis.core.precision import PrecisionConfig
+
     from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
-
-_C_LIGHT = 299792458.0  # speed of light in m/s
 
 
 # =============================================================================
@@ -109,7 +105,7 @@ def _apply_faraday_rotation(
     q_scaled = q_ref * spectral_scale
     u_scaled = u_ref * spectral_scale
     if rm is not None and np.any(rm != 0):
-        delta_chi = rm * ((_C_LIGHT / freq) ** 2 - (_C_LIGHT / ref_freq) ** 2)
+        delta_chi = rm * ((C_LIGHT / freq) ** 2 - (C_LIGHT / ref_freq) ** 2)
         cos2 = np.cos(2.0 * delta_chi)
         sin2 = np.sin(2.0 * delta_chi)
         q_out = q_scaled * cos2 - u_scaled * sin2
@@ -125,11 +121,6 @@ def _apply_faraday_rotation(
 
 @dataclass
 class SkyModel(
-    _VizierLoadersMixin,
-    _DiffuseLoadersMixin,
-    _PyradioskyMixin,
-    _BBSLoadersMixin,
-    _FITSImageLoadersMixin,
     _PlottingMixin,
 ):
     """
@@ -217,7 +208,7 @@ class SkyModel(
 
     _point_sources_frequency: float | None = field(default=None, repr=False)
 
-    _precision: Any = field(default=None, repr=False)
+    _precision: "PrecisionConfig | None" = field(default=None, repr=False)
 
     _pygdsm_instance: Any = field(default=None, repr=False)
 
@@ -256,7 +247,9 @@ class SkyModel(
         return self._precision.sky_model.get_dtype("healpix_maps")
 
     @staticmethod
-    def _deg_to_rad_at_precision(arr: np.ndarray, precision: Any) -> np.ndarray:
+    def _deg_to_rad_at_precision(
+        arr: np.ndarray, precision: "PrecisionConfig | None"
+    ) -> np.ndarray:
         """Convert degrees to radians at the precision config's dtype.
 
         Parameters
@@ -277,7 +270,9 @@ class SkyModel(
         return np.deg2rad(arr.astype(src_dt, copy=False))
 
     @staticmethod
-    def _rad_to_deg_at_precision(arr: np.ndarray, precision: Any) -> np.ndarray:
+    def _rad_to_deg_at_precision(
+        arr: np.ndarray, precision: "PrecisionConfig | None"
+    ) -> np.ndarray:
         """Convert radians to degrees at the precision config's dtype.
 
         Parameters
@@ -357,7 +352,7 @@ class SkyModel(
         cls,
         model_name: str,
         brightness_conversion: str = "planck",
-        precision: Any = None,
+        precision: "PrecisionConfig | None" = None,
     ) -> "SkyModel":
         """Return an empty point-source SkyModel (zero-length arrays)."""
         return cls(
@@ -372,6 +367,30 @@ class SkyModel(
             brightness_conversion=brightness_conversion,
             _precision=precision,
         )
+
+    # =========================================================================
+    # Generic loader dispatcher
+    # =========================================================================
+
+    @classmethod
+    def from_catalog(cls, name: str, **kwargs) -> "SkyModel":
+        """Load a sky model by registered loader name.
+
+        Parameters
+        ----------
+        name : str
+            Loader name (e.g. ``"gleam"``, ``"nvss"``, ``"diffuse_sky"``).
+            Use ``list_loaders()`` from ``_registry`` to see all names.
+        **kwargs
+            Forwarded to the registered loader function.
+
+        Returns
+        -------
+        SkyModel
+        """
+        from ._registry import get_loader
+
+        return get_loader(name)(**kwargs)
 
     # =========================================================================
     # Properties
@@ -440,6 +459,46 @@ class SkyModel(
             for m in (self._healpix_q_maps, self._healpix_u_maps, self._healpix_v_maps)
         )
 
+    @property
+    def pixel_solid_angle(self) -> float:
+        """Solid angle per HEALPix pixel in steradians.
+
+        Raises
+        ------
+        ValueError
+            If no HEALPix maps are available.
+        """
+        if self._healpix_nside is None:
+            raise ValueError(
+                "No HEALPix maps available. "
+                "Use from_diffuse_sky() or to_healpix_for_observation() first."
+            )
+        return 4 * np.pi / hp.nside2npix(self._healpix_nside)
+
+    @property
+    def pixel_coords(self) -> SkyCoord:
+        """SkyCoord of all HEALPix pixel centers (ICRS, RING ordering).
+
+        Returns
+        -------
+        SkyCoord
+            Coordinates of all pixels, length ``hp.nside2npix(nside)``.
+
+        Raises
+        ------
+        ValueError
+            If no HEALPix maps are available.
+        """
+        if self._healpix_nside is None:
+            raise ValueError(
+                "No HEALPix maps available. "
+                "Use from_diffuse_sky() or to_healpix_for_observation() first."
+            )
+        nside = self._healpix_nside
+        npix = hp.nside2npix(nside)
+        theta, phi = hp.pix2ang(nside, np.arange(npix))
+        return SkyCoord(ra=phi, dec=np.pi / 2 - theta, unit="rad", frame="icrs")
+
     def _has_point_sources(self) -> bool:
         """Return True if columnar point-source arrays are populated and non-empty."""
         return self._ra_rad is not None and len(self._ra_rad) > 0
@@ -496,22 +555,22 @@ class SkyModel(
             hp_mask = region.healpix_mask(self._healpix_nside)
             new_maps = {f: m.copy() for f, m in self._healpix_maps.items()}
             for m in new_maps.values():
-                m[~hp_mask] = 0.0
+                m[~hp_mask] = hp.UNSEEN
             new_q = None
             new_u = None
             new_v = None
             if self._healpix_q_maps is not None:
                 new_q = {f: m.copy() for f, m in self._healpix_q_maps.items()}
                 for m in new_q.values():
-                    m[~hp_mask] = 0.0
+                    m[~hp_mask] = hp.UNSEEN
             if self._healpix_u_maps is not None:
                 new_u = {f: m.copy() for f, m in self._healpix_u_maps.items()}
                 for m in new_u.values():
-                    m[~hp_mask] = 0.0
+                    m[~hp_mask] = hp.UNSEEN
             if self._healpix_v_maps is not None:
                 new_v = {f: m.copy() for f, m in self._healpix_v_maps.items()}
                 for m in new_v.values():
-                    m[~hp_mask] = 0.0
+                    m[~hp_mask] = hp.UNSEEN
             return SkyModel(
                 _healpix_maps=new_maps,
                 _healpix_q_maps=new_q,
@@ -693,6 +752,16 @@ class SkyModel(
         list of dict
             Point sources with coords, flux, spectral_index, stokes.
         """
+        # Invalidate cached arrays if frequency changed (healpix-native models)
+        if (
+            self._native_format == "healpix"
+            and self._ra_rad is not None
+            and frequency is not None
+            and self._point_sources_frequency != frequency
+        ):
+            self._ra_rad = None
+            self._point_sources_frequency = None
+
         # If columnar arrays already populated, build list-of-dicts from them
         if self._ra_rad is not None:
             if flux_limit > 0:
@@ -807,8 +876,13 @@ class SkyModel(
         n = len(valid_idx)
         self._alpha = np.zeros(n, dtype=np.float64)  # no per-pixel alpha in HEALPix
 
-        # Rayleigh-Jeans factor for K_RJ -> Jy (linear, sign-preserving)
-        from .constants import C_LIGHT, K_BOLTZMANN
+        # Stokes Q/U/V use Rayleigh-Jeans (linear, sign-preserving) rather than
+        # Planck because: (a) Q/U/V values can be negative, which Planck cannot
+        # handle; (b) at the small amplitudes typical of polarized emission, the
+        # RJ approximation is adequate. Stokes I above uses the user's chosen
+        # brightness_conversion (Planck by default) for the non-linear T_b -> Jy
+        # conversion of always-positive intensity values.
+        from .constants import K_BOLTZMANN
 
         rj_factor = (2 * K_BOLTZMANN * frequency**2 / C_LIGHT**2) * omega / 1e-26
 
@@ -921,7 +995,7 @@ class SkyModel(
         ipix = hp.ang2pix(nside, np.pi / 2 - self._dec_rad, self._ra_rad)
 
         # Rayleigh-Jeans factor: Jy -> K_RJ (inverse of T->S conversion)
-        from .constants import C_LIGHT, K_BOLTZMANN
+        from .constants import K_BOLTZMANN
 
         i_maps: dict[float, np.ndarray] = {}
         q_maps: dict[float, np.ndarray] = {} if has_pol else None
@@ -982,7 +1056,7 @@ class SkyModel(
         self,
         nside: int,
         obs_frequency_config: dict[str, Any],
-        ref_frequency: float = 76e6,
+        ref_frequency: float | None = None,
     ) -> "SkyModel":
         """
         Convert point sources to multi-frequency HEALPix maps for observation.
@@ -1041,6 +1115,14 @@ class SkyModel(
                 "No point sources available for conversion. "
                 "Load sources first using from_gleam(), from_mals(), etc."
             )
+
+        if ref_frequency is None:
+            ref_frequency = self.frequency
+            if ref_frequency is None:
+                raise ValueError(
+                    "ref_frequency must be provided (no frequency set on this SkyModel). "
+                    "Set sky.frequency or pass ref_frequency explicitly."
+                )
 
         frequencies = self._parse_frequency_config(obs_frequency_config)
 
@@ -1419,6 +1501,20 @@ class SkyModel(
         compression : str or None, default "gzip"
             HDF5 compression for data arrays.
         """
+        lost = []
+        if self._rotation_measure is not None and np.any(self._rotation_measure != 0):
+            lost.append("rotation measure")
+        if self._major_arcsec is not None and np.any(self._major_arcsec > 0):
+            lost.append("Gaussian morphology")
+        if self._spectral_coeffs is not None and self._spectral_coeffs.shape[1] > 1:
+            lost.append("multi-term spectral coefficients")
+        if lost:
+            warnings.warn(
+                f"SkyH5 format does not preserve: {', '.join(lost)}. "
+                "Use to_bbs() for lossless export.",
+                UserWarning,
+                stacklevel=2,
+            )
         psky = self._to_pyradiosky()
         psky.write_skyh5(filename, clobber=clobber, data_compression=compression)
         logger.info(f"SkyModel saved to {filename}")
@@ -1428,7 +1524,7 @@ class SkyModel(
         cls,
         filename: str,
         *,
-        precision: Any = None,
+        precision: "PrecisionConfig | None" = None,
         **kwargs: Any,
     ) -> "SkyModel":
         """Load a SkyModel from a SkyH5 file.
@@ -1444,7 +1540,9 @@ class SkyModel(
         **kwargs
             Forwarded to ``from_pyradiosky_file()``.
         """
-        return cls.from_pyradiosky_file(
+        from ._loaders_pyradiosky import load_pyradiosky_file
+
+        return load_pyradiosky_file(
             filename, filetype="skyh5", precision=precision, **kwargs
         )
 
@@ -1457,7 +1555,7 @@ class SkyModel(
         cls,
         loaders: list[tuple[str, dict[str, Any]]],
         max_workers: int = 8,
-        precision: Any = None,
+        precision: "PrecisionConfig | None" = None,
     ) -> list["SkyModel"]:
         """Load multiple sky models in parallel using threads.
 
@@ -1484,8 +1582,9 @@ class SkyModel(
         import concurrent.futures
 
         def _load_one(method_name: str, kw: dict) -> "SkyModel":
-            factory = getattr(cls, method_name)
-            return factory(**kw)
+            from ._registry import get_loader
+
+            return get_loader(method_name)(**kw)
 
         n = min(len(loaders), max_workers)
         results: list[SkyModel] = []
@@ -1533,7 +1632,7 @@ class SkyModel(
         seed: int | None = None,
         dec_range_deg: float | None = None,
         brightness_conversion: str = "planck",
-        precision: Any = None,
+        precision: "PrecisionConfig | None" = None,
     ) -> "SkyModel":
         """
         Generate synthetic test sources.
@@ -1649,7 +1748,7 @@ class SkyModel(
         sources: list[dict[str, Any]],
         model_name: str = "custom",
         brightness_conversion: str = "planck",
-        precision: Any = None,
+        precision: "PrecisionConfig | None" = None,
     ) -> "SkyModel":
         """
         Create SkyModel from existing point source list.
@@ -1747,8 +1846,8 @@ class SkyModel(
     # Listing (delegates to mixins)
     # =========================================================================
 
-    @classmethod
-    def list_all_models(cls) -> dict[str, dict[str, str]]:
+    @staticmethod
+    def list_all_models() -> dict[str, dict[str, str]]:
         """List all available sky models and catalogs with their descriptions.
 
         Returns
@@ -1756,90 +1855,58 @@ class SkyModel(
         dict[str, dict[str, str]]
             Nested mapping: category -> {name: description}.
             Categories: "diffuse", "point_catalogs", "racs".
-
-        Examples
-        --------
-        >>> all_models = SkyModel.list_all_models()
-        >>> for category, models in all_models.items():
-        ...     print(f"\\n=== {category} ===")
-        ...     for name, desc in models.items():
-        ...         print(f"  {name}: {desc[:80]}...")
         """
+        from ._loaders_diffuse import list_diffuse_models
+        from ._loaders_vizier import list_point_catalogs, list_racs_catalogs
+
         return {
-            "diffuse": cls.list_diffuse_models(),
-            "point_catalogs": cls.list_point_catalogs(),
-            "racs": cls.list_racs_catalogs(),
+            "diffuse": list_diffuse_models(),
+            "point_catalogs": list_point_catalogs(),
+            "racs": list_racs_catalogs(),
         }
 
-    @classmethod
-    def get_catalog_info(cls, catalog_key: str, live: bool = False) -> dict[str, Any]:
+    @staticmethod
+    def get_catalog_info(catalog_key: str, live: bool = False) -> dict[str, Any]:
         """Get metadata for any supported catalog or model.
-
-        Returns locally-stored metadata by default (no network). Pass
-        ``live=True`` to also fetch live column information from VizieR
-        or CASDA TAP.
 
         Parameters
         ----------
         catalog_key : str
-            Catalog or model identifier. Accepted values:
-
-            - VizieR catalog key (e.g. ``"gleam_egc"``, ``"nvss"``, ``"tgss"``)
-            - RACS band prefixed with ``"racs_"`` (e.g. ``"racs_low"``)
-            - Diffuse model name (e.g. ``"gsm2008"``, ``"lfsm"``)
+            Catalog or model identifier (e.g. ``"gleam_egc"``, ``"racs_low"``,
+            ``"gsm2008"``).
         live : bool, default=False
-            If True, query VizieR/CASDA TAP for live column information
-            (requires network). If False, return only static metadata.
-
-        Returns
-        -------
-        dict
-            Catalog-specific information. For VizieR catalogs see
-            ``get_point_catalog_metadata()`` (offline) or
-            ``get_catalog_columns()`` (live). For RACS see
-            ``get_racs_metadata()`` / ``get_racs_columns()``. For diffuse
-            models see ``get_diffuse_model_info()``.
-
-        Raises
-        ------
-        ValueError
-            If ``catalog_key`` is not recognized.
-
-        Examples
-        --------
-        >>> info = SkyModel.get_catalog_info("nvss")
-        >>> print(info["freq_mhz"])
-        1400.0
-
-        >>> info = SkyModel.get_catalog_info("racs_low")
-        >>> print(info["freq_mhz"])
-        887.5
-
-        >>> info = SkyModel.get_catalog_info("gsm2008")
-        >>> print(info["class_name"])
-        'GlobalSkyModel'
+            If True, query VizieR/CASDA TAP for live column information.
         """
+        from ._loaders_diffuse import get_diffuse_model_info
+        from ._loaders_vizier import (
+            get_catalog_columns,
+            get_point_catalog_metadata,
+            get_racs_columns,
+            get_racs_metadata,
+        )
         from .catalogs import DIFFUSE_MODELS, RACS_CATALOGS, VIZIER_POINT_CATALOGS
 
         if catalog_key in VIZIER_POINT_CATALOGS:
-            if live:
-                return cls.get_catalog_columns(catalog_key)
-            return cls.get_point_catalog_metadata(catalog_key)
+            return (
+                get_catalog_columns(catalog_key)
+                if live
+                else get_point_catalog_metadata(catalog_key)
+            )
 
         if catalog_key.startswith("racs_"):
             band = catalog_key[5:]
             if band in RACS_CATALOGS:
-                if live:
-                    return cls.get_racs_columns(band)
-                return cls.get_racs_metadata(band)
+                return get_racs_columns(band) if live else get_racs_metadata(band)
 
         if catalog_key in RACS_CATALOGS:
-            if live:
-                return cls.get_racs_columns(catalog_key)
-            return cls.get_racs_metadata(catalog_key)
+            return (
+                get_racs_columns(catalog_key)
+                if live
+                else get_racs_metadata(catalog_key)
+            )
 
         if catalog_key in DIFFUSE_MODELS:
-            return cls.get_diffuse_model_info(catalog_key)
+            return get_diffuse_model_info(catalog_key)
 
         all_keys = (
             sorted(VIZIER_POINT_CATALOGS.keys())
@@ -1853,6 +1920,355 @@ class SkyModel(
     # =========================================================================
 
     @classmethod
+    def _concat_point_sources(
+        cls,
+        models: list["SkyModel"],
+        frequency: float | None = None,
+        brightness_conversion: str = "planck",
+        precision: "PrecisionConfig | None" = None,
+    ) -> "SkyModel":
+        """Concatenate columnar arrays from multiple point-source SkyModels.
+
+        Unlike ``combine()`` via ``from_point_sources()``, this avoids the
+        dict round-trip and uses ``np.concatenate`` directly on the internal
+        arrays for better performance and lower memory usage.
+
+        Parameters
+        ----------
+        models : list of SkyModel
+            Models to concatenate. Each must already have point-source arrays
+            populated (call ``to_point_sources()`` on healpix-native models
+            first).
+        frequency : float, optional
+            Frequency for healpix-to-point-source conversion.
+        brightness_conversion : str, default ``"planck"``
+            Brightness conversion method for the combined model.
+        precision : PrecisionConfig, optional
+            Precision configuration for the combined model.
+
+        Returns
+        -------
+        SkyModel
+            A new point-source SkyModel with concatenated arrays.
+        """
+        # Ensure each model has point-source arrays populated; skip empties
+        populated: list[SkyModel] = []
+        for m in models:
+            if m._ra_rad is None:
+                m.to_point_sources(frequency=frequency)
+            if m._ra_rad is not None and len(m._ra_rad) > 0:
+                populated.append(m)
+
+        if not populated:
+            return cls._empty_sky(
+                "combined",
+                brightness_conversion=brightness_conversion,
+                precision=precision,
+            )
+
+        # --- Required arrays ---
+        ra = np.concatenate([m._ra_rad for m in populated])
+        dec = np.concatenate([m._dec_rad for m in populated])
+        flux = np.concatenate([m._flux_ref for m in populated])
+        alpha = np.concatenate([m._alpha for m in populated])
+        sq = np.concatenate([m._stokes_q for m in populated])
+        su = np.concatenate([m._stokes_u for m in populated])
+        sv = np.concatenate([m._stokes_v for m in populated])
+
+        n = len(ra)
+
+        # --- Optional: rotation measure ---
+        rm: np.ndarray | None = None
+        if any(m._rotation_measure is not None for m in populated):
+            rm = np.concatenate(
+                [
+                    m._rotation_measure
+                    if m._rotation_measure is not None
+                    else np.zeros(len(m._ra_rad), dtype=np.float64)
+                    for m in populated
+                ]
+            )
+
+        # --- Optional: Gaussian morphology ---
+        major: np.ndarray | None = None
+        minor: np.ndarray | None = None
+        pa: np.ndarray | None = None
+        if any(m._major_arcsec is not None for m in populated):
+            major = np.concatenate(
+                [
+                    m._major_arcsec
+                    if m._major_arcsec is not None
+                    else np.zeros(len(m._ra_rad), dtype=np.float64)
+                    for m in populated
+                ]
+            )
+            minor = np.concatenate(
+                [
+                    m._minor_arcsec
+                    if m._minor_arcsec is not None
+                    else np.zeros(len(m._ra_rad), dtype=np.float64)
+                    for m in populated
+                ]
+            )
+            pa = np.concatenate(
+                [
+                    m._pa_deg
+                    if m._pa_deg is not None
+                    else np.zeros(len(m._ra_rad), dtype=np.float64)
+                    for m in populated
+                ]
+            )
+
+        # --- Optional: spectral coefficients (may differ in N_terms) ---
+        sp_coeffs: np.ndarray | None = None
+        if any(m._spectral_coeffs is not None for m in populated):
+            max_terms = max(
+                m._spectral_coeffs.shape[1]
+                for m in populated
+                if m._spectral_coeffs is not None
+            )
+            parts: list[np.ndarray] = []
+            for m in populated:
+                n_m = len(m._ra_rad)
+                if m._spectral_coeffs is not None:
+                    arr = m._spectral_coeffs
+                    if arr.shape[1] < max_terms:
+                        pad = np.zeros((n_m, max_terms - arr.shape[1]), dtype=arr.dtype)
+                        arr = np.concatenate([arr, pad], axis=1)
+                    parts.append(arr)
+                else:
+                    # Default: column 0 = alpha, rest zero
+                    fallback = np.zeros((n_m, max_terms), dtype=np.float64)
+                    fallback[:, 0] = m._alpha
+                    parts.append(fallback)
+            sp_coeffs = np.concatenate(parts, axis=0)
+
+        # Infer frequency from models if not provided
+        freq = frequency
+        if freq is None:
+            for m in populated:
+                if m.frequency is not None:
+                    freq = m.frequency
+                    break
+
+        sky = cls(
+            _ra_rad=ra,
+            _dec_rad=dec,
+            _flux_ref=flux,
+            _alpha=alpha,
+            _stokes_q=sq,
+            _stokes_u=su,
+            _stokes_v=sv,
+            _rotation_measure=rm,
+            _major_arcsec=major,
+            _minor_arcsec=minor,
+            _pa_deg=pa,
+            _spectral_coeffs=sp_coeffs,
+            _native_format="point_sources",
+            model_name="combined",
+            frequency=freq,
+            brightness_conversion=brightness_conversion,
+            _precision=precision,
+        )
+        sky._ensure_dtypes()
+
+        logger.info(f"Concatenated {len(populated)} models: {n} total sources")
+        return sky
+
+    @classmethod
+    def _combine_healpix(
+        cls,
+        models: list["SkyModel"],
+        ref_nside: int,
+        ref_freqs: np.ndarray,
+        ref_frequency: float | None,
+        brightness_conversion: str = "planck",
+        precision: "PrecisionConfig | None" = None,
+    ) -> "SkyModel":
+        """Combine models by element-wise addition in Jy space per frequency channel.
+
+        All healpix_multifreq models must share the same nside and frequency
+        grid.  Point-source models are binned into the same grid via
+        ``np.bincount``.  Stokes I is converted T_b -> Jy -> T_b so that
+        addition is correct under both Planck and Rayleigh-Jeans conversions.
+
+        Parameters
+        ----------
+        models : list of SkyModel
+            Models to combine.
+        ref_nside : int
+            Common HEALPix nside (from first healpix_multifreq model).
+        ref_freqs : np.ndarray
+            Common frequency grid in Hz.
+        ref_frequency : float or None
+            Reference frequency for spectral extrapolation of point sources.
+        brightness_conversion : str, default ``"planck"``
+            Brightness conversion method.
+        precision : PrecisionConfig, optional
+            Precision configuration for the combined model.
+
+        Returns
+        -------
+        SkyModel
+            Combined healpix_multifreq SkyModel.
+        """
+        # Validate all healpix_multifreq models share the same nside and
+        # frequency grid before doing element-wise arithmetic.  Mismatched
+        # nside causes shape errors; mismatched frequency grids cause silent
+        # scientific corruption via nearest-frequency fallback.
+        for m in models:
+            if m.mode != "healpix_multifreq":
+                continue
+            _, m_nside, m_freqs = m.get_multifreq_maps()
+            if m_nside != ref_nside:
+                raise ValueError(
+                    f"Cannot combine HEALPix models with different nside values: "
+                    f"reference has nside={ref_nside}, model '{m.model_name}' has "
+                    f"nside={m_nside}. Resample to a common nside with hp.ud_grade() "
+                    f"before combining."
+                )
+            if not np.array_equal(m_freqs, ref_freqs):
+                raise ValueError(
+                    f"Cannot combine HEALPix models with different frequency grids: "
+                    f"reference has {len(ref_freqs)} channels "
+                    f"({ref_freqs[0] / 1e6:.3f}\u2013{ref_freqs[-1] / 1e6:.3f} MHz), "
+                    f"model '{m.model_name}' has {len(m_freqs)} channels "
+                    f"({m_freqs[0] / 1e6:.3f}\u2013{m_freqs[-1] / 1e6:.3f} MHz). "
+                    f"All models must share the same observation frequency grid."
+                )
+
+        npix = hp.nside2npix(ref_nside)
+        omega_pixel = 4 * np.pi / npix
+
+        ps_models_data = []
+        for m in models:
+            if m.mode == "point_sources" and m._has_point_sources():
+                ipix_m = hp.ang2pix(ref_nside, np.pi / 2 - m._dec_rad, m._ra_rad)
+                ps_models_data.append((ipix_m, m._flux_ref, m._alpha, m))
+
+        # Check if any model has polarized maps
+        any_pol = any(
+            m.has_polarized_healpix_maps
+            for m in models
+            if m.mode == "healpix_multifreq"
+        ) or any(
+            m._stokes_q is not None
+            and (
+                np.any(m._stokes_q != 0)
+                or np.any(m._stokes_u != 0)
+                or np.any(m._stokes_v != 0)
+            )
+            for m in models
+            if m.mode == "point_sources" and m._has_point_sources()
+        )
+
+        from .constants import K_BOLTZMANN
+
+        combined_maps: dict[float, np.ndarray] = {}
+        combined_q: dict[float, np.ndarray] = {} if any_pol else None
+        combined_u: dict[float, np.ndarray] = {} if any_pol else None
+        combined_v: dict[float, np.ndarray] = {} if any_pol else None
+
+        for freq_hz in ref_freqs:
+            combined_flux = np.zeros(npix, dtype=np.float64)
+            combined_q_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
+            combined_u_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
+            combined_v_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
+
+            rj_factor = (
+                (2 * K_BOLTZMANN * freq_hz**2 / C_LIGHT**2) * omega_pixel / 1e-26
+            )
+
+            for m in models:
+                if m.mode == "healpix_multifreq":
+                    t_map = m.get_map_at_frequency(freq_hz).astype(np.float64)
+                    pos = t_map > 0
+                    if np.any(pos):
+                        combined_flux[pos] += brightness_temp_to_flux_density(
+                            t_map[pos],
+                            freq_hz,
+                            omega_pixel,
+                            method=brightness_conversion,
+                        )
+
+                    if any_pol and m.has_polarized_healpix_maps:
+                        if m._healpix_q_maps is not None:
+                            q_t = m._healpix_q_maps.get(freq_hz)
+                            if q_t is not None:
+                                combined_q_flux += q_t.astype(np.float64) * rj_factor
+                        if m._healpix_u_maps is not None:
+                            u_t = m._healpix_u_maps.get(freq_hz)
+                            if u_t is not None:
+                                combined_u_flux += u_t.astype(np.float64) * rj_factor
+                        if m._healpix_v_maps is not None:
+                            v_t = m._healpix_v_maps.get(freq_hz)
+                            if v_t is not None:
+                                combined_v_flux += v_t.astype(np.float64) * rj_factor
+
+            for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
+                scale = _compute_spectral_scale(
+                    alpha_m, m_obj._spectral_coeffs, float(freq_hz), ref_frequency
+                )
+                flux_at_f = flux_ref_m * scale
+                combined_flux += np.bincount(ipix_m, weights=flux_at_f, minlength=npix)
+
+                if any_pol and m_obj._stokes_q is not None:
+                    q_f, u_f = _apply_faraday_rotation(
+                        m_obj._stokes_q,
+                        m_obj._stokes_u,
+                        m_obj._rotation_measure,
+                        float(freq_hz),
+                        ref_frequency,
+                        scale,
+                    )
+                    combined_q_flux += np.bincount(ipix_m, weights=q_f, minlength=npix)
+                    combined_u_flux += np.bincount(ipix_m, weights=u_f, minlength=npix)
+                    combined_v_flux += np.bincount(
+                        ipix_m, weights=m_obj._stokes_v * scale, minlength=npix
+                    )
+
+            combined_T_b = np.zeros(npix, dtype=np.float64)
+            pos_flux = combined_flux > 0
+            if np.any(pos_flux):
+                combined_T_b[pos_flux] = flux_density_to_brightness_temp(
+                    combined_flux[pos_flux],
+                    freq_hz,
+                    omega_pixel,
+                    method=brightness_conversion,
+                )
+            combined_maps[freq_hz] = combined_T_b.astype(np.float32)
+
+            if any_pol:
+                rj_inv = 1.0 / rj_factor if rj_factor != 0 else 0.0
+                combined_q[freq_hz] = (combined_q_flux * rj_inv).astype(np.float32)
+                combined_u[freq_hz] = (combined_u_flux * rj_inv).astype(np.float32)
+                combined_v[freq_hz] = (combined_v_flux * rj_inv).astype(np.float32)
+
+        freq = float(ref_freqs[0]) if len(ref_freqs) > 0 else None
+
+        logger.info(
+            f"Combined {len(models)} models into healpix_multifreq "
+            f"({len(ref_freqs)} channels, nside={ref_nside}"
+            f"{', stokes=IQUV' if any_pol else ''})"
+        )
+
+        sky = cls(
+            _healpix_maps=combined_maps,
+            _healpix_q_maps=combined_q,
+            _healpix_u_maps=combined_u,
+            _healpix_v_maps=combined_v,
+            _healpix_nside=ref_nside,
+            _observation_frequencies=ref_freqs,
+            _native_format="healpix",
+            frequency=freq,
+            model_name="combined",
+            brightness_conversion=brightness_conversion,
+            _precision=precision,
+        )
+        sky._ensure_dtypes()
+        return sky
+
+    @classmethod
     def combine(
         cls,
         models: list["SkyModel"],
@@ -1860,9 +2276,9 @@ class SkyModel(
         nside: int = 64,
         frequency: float | None = None,
         obs_frequency_config: dict[str, Any] | None = None,
-        ref_frequency: float = 76e6,
+        ref_frequency: float | None = None,
         brightness_conversion: str = "planck",
-        precision: Any = None,
+        precision: "PrecisionConfig | None" = None,
     ) -> "SkyModel":
         """
         Combine multiple sky models into one.
@@ -1987,201 +2403,42 @@ class SkyModel(
                     freq = m.frequency
                     break
 
+        # Resolve ref_frequency from model metadata if not provided
+        if ref_frequency is None:
+            for m in models:
+                if m.frequency is not None:
+                    ref_frequency = m.frequency
+                    break
+            if ref_frequency is None:
+                ref_frequency = freq  # last resort
+
         has_healpix_multifreq = any(m.mode == "healpix_multifreq" for m in models)
 
         # ==================================================================
         # HEALPIX_MAP REPRESENTATION WITH MULTIFREQ MODELS
-        # Combine maps element-wise in Jy space (not T_b space), per
-        # frequency. T_b addition is nonlinear under Planck:
-        # T_b(I1+I2) != T_b(I1) + T_b(I2)
         # ==================================================================
         if representation == "healpix_map" and has_healpix_multifreq:
             ref_model = next(m for m in models if m.mode == "healpix_multifreq")
             _, ref_nside, ref_freqs = ref_model.get_multifreq_maps()
 
-            # Validate all healpix_multifreq models share the same nside and
-            # frequency grid before doing element-wise arithmetic.  Mismatched
-            # nside causes shape errors; mismatched frequency grids cause silent
-            # scientific corruption via nearest-frequency fallback.
-            for m in models:
-                if m.mode != "healpix_multifreq":
-                    continue
-                _, m_nside, m_freqs = m.get_multifreq_maps()
-                if m_nside != ref_nside:
-                    raise ValueError(
-                        f"Cannot combine HEALPix models with different nside values: "
-                        f"reference has nside={ref_nside}, model '{m.model_name}' has "
-                        f"nside={m_nside}. Resample to a common nside with hp.ud_grade() "
-                        f"before combining."
-                    )
-                if not np.array_equal(m_freqs, ref_freqs):
-                    raise ValueError(
-                        f"Cannot combine HEALPix models with different frequency grids: "
-                        f"reference has {len(ref_freqs)} channels "
-                        f"({ref_freqs[0] / 1e6:.3f}\u2013{ref_freqs[-1] / 1e6:.3f} MHz), "
-                        f"model '{m.model_name}' has {len(m_freqs)} channels "
-                        f"({m_freqs[0] / 1e6:.3f}\u2013{m_freqs[-1] / 1e6:.3f} MHz). "
-                        f"All models must share the same observation frequency grid."
-                    )
-
-            npix = hp.nside2npix(ref_nside)
-            omega_pixel = 4 * np.pi / npix
-
-            ps_models_data = []
-            for m in models:
-                if m.mode == "point_sources" and m._has_point_sources():
-                    ipix_m = hp.ang2pix(ref_nside, np.pi / 2 - m._dec_rad, m._ra_rad)
-                    ps_models_data.append((ipix_m, m._flux_ref, m._alpha, m))
-
-            # Check if any model has polarized maps
-            any_pol = any(
-                m.has_polarized_healpix_maps
-                for m in models
-                if m.mode == "healpix_multifreq"
-            ) or any(
-                m._stokes_q is not None
-                and (
-                    np.any(m._stokes_q != 0)
-                    or np.any(m._stokes_u != 0)
-                    or np.any(m._stokes_v != 0)
-                )
-                for m in models
-                if m.mode == "point_sources" and m._has_point_sources()
-            )
-
-            from .constants import C_LIGHT, K_BOLTZMANN
-
-            combined_maps: dict[float, np.ndarray] = {}
-            combined_q: dict[float, np.ndarray] = {} if any_pol else None
-            combined_u: dict[float, np.ndarray] = {} if any_pol else None
-            combined_v: dict[float, np.ndarray] = {} if any_pol else None
-
-            for freq_hz in ref_freqs:
-                combined_flux = np.zeros(npix, dtype=np.float64)
-                combined_q_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
-                combined_u_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
-                combined_v_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
-
-                rj_factor = (
-                    (2 * K_BOLTZMANN * freq_hz**2 / C_LIGHT**2) * omega_pixel / 1e-26
-                )
-
-                for m in models:
-                    if m.mode == "healpix_multifreq":
-                        t_map = m.get_map_at_frequency(freq_hz).astype(np.float64)
-                        pos = t_map > 0
-                        if np.any(pos):
-                            combined_flux[pos] += brightness_temp_to_flux_density(
-                                t_map[pos],
-                                freq_hz,
-                                omega_pixel,
-                                method=brightness_conversion,
-                            )
-
-                        if any_pol and m.has_polarized_healpix_maps:
-                            if m._healpix_q_maps is not None:
-                                q_t = m._healpix_q_maps.get(freq_hz)
-                                if q_t is not None:
-                                    combined_q_flux += (
-                                        q_t.astype(np.float64) * rj_factor
-                                    )
-                            if m._healpix_u_maps is not None:
-                                u_t = m._healpix_u_maps.get(freq_hz)
-                                if u_t is not None:
-                                    combined_u_flux += (
-                                        u_t.astype(np.float64) * rj_factor
-                                    )
-                            if m._healpix_v_maps is not None:
-                                v_t = m._healpix_v_maps.get(freq_hz)
-                                if v_t is not None:
-                                    combined_v_flux += (
-                                        v_t.astype(np.float64) * rj_factor
-                                    )
-
-                for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
-                    scale = _compute_spectral_scale(
-                        alpha_m, m_obj._spectral_coeffs, float(freq_hz), ref_frequency
-                    )
-                    flux_at_f = flux_ref_m * scale
-                    combined_flux += np.bincount(
-                        ipix_m, weights=flux_at_f, minlength=npix
-                    )
-
-                    if any_pol and m_obj._stokes_q is not None:
-                        q_f, u_f = _apply_faraday_rotation(
-                            m_obj._stokes_q,
-                            m_obj._stokes_u,
-                            m_obj._rotation_measure,
-                            float(freq_hz),
-                            ref_frequency,
-                            scale,
-                        )
-                        combined_q_flux += np.bincount(
-                            ipix_m, weights=q_f, minlength=npix
-                        )
-                        combined_u_flux += np.bincount(
-                            ipix_m, weights=u_f, minlength=npix
-                        )
-                        combined_v_flux += np.bincount(
-                            ipix_m, weights=m_obj._stokes_v * scale, minlength=npix
-                        )
-
-                combined_T_b = np.zeros(npix, dtype=np.float64)
-                pos_flux = combined_flux > 0
-                if np.any(pos_flux):
-                    combined_T_b[pos_flux] = flux_density_to_brightness_temp(
-                        combined_flux[pos_flux],
-                        freq_hz,
-                        omega_pixel,
-                        method=brightness_conversion,
-                    )
-                combined_maps[freq_hz] = combined_T_b.astype(np.float32)
-
-                if any_pol:
-                    rj_inv = 1.0 / rj_factor if rj_factor != 0 else 0.0
-                    combined_q[freq_hz] = (combined_q_flux * rj_inv).astype(np.float32)
-                    combined_u[freq_hz] = (combined_u_flux * rj_inv).astype(np.float32)
-                    combined_v[freq_hz] = (combined_v_flux * rj_inv).astype(np.float32)
-
-            logger.info(
-                f"Combined {len(models)} models into healpix_multifreq "
-                f"({len(ref_freqs)} channels, nside={ref_nside}"
-                f"{', stokes=IQUV' if any_pol else ''})"
-            )
-
-            sky = cls(
-                _healpix_maps=combined_maps,
-                _healpix_q_maps=combined_q,
-                _healpix_u_maps=combined_u,
-                _healpix_v_maps=combined_v,
-                _healpix_nside=ref_nside,
-                _observation_frequencies=ref_freqs,
-                _native_format="healpix",
-                frequency=float(ref_freqs[0]) if len(ref_freqs) > 0 else freq,
-                model_name="combined",
+            return cls._combine_healpix(
+                models,
+                ref_nside=ref_nside,
+                ref_freqs=ref_freqs,
+                ref_frequency=ref_frequency,
                 brightness_conversion=brightness_conversion,
-                _precision=precision,
+                precision=precision,
             )
-            sky._ensure_dtypes()
-            return sky
 
         # ==================================================================
         # ALL OTHER CASES: Concatenate as point sources first
         # ==================================================================
-        all_sources = []
-        for m in models:
-            sources = m.to_point_sources(frequency=freq)
-            all_sources.extend(sources)
-
-        logger.info(f"Combined {len(models)} models: {len(all_sources)} total sources")
-
-        combined = cls.from_point_sources(
-            all_sources,
-            model_name="combined",
+        combined = cls._concat_point_sources(
+            models,
+            frequency=freq,
             brightness_conversion=brightness_conversion,
             precision=precision,
         )
-        combined.frequency = freq
 
         if representation == "healpix_map":
             if obs_frequency_config is None:

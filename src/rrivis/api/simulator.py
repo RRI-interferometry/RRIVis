@@ -815,8 +815,10 @@ class Simulator:
             filename = pyradiosky_config.get("filename", "")
             if filename:
                 obs_freq_config = self.config.get("obs_frequency", {})
+                from rrivis.core.sky._loaders_pyradiosky import load_pyradiosky_file
+
                 sky_models.append(
-                    SkyModel.from_pyradiosky_file(
+                    load_pyradiosky_file(
                         filename=filename,
                         filetype=pyradiosky_config.get("filetype"),
                         flux_limit=pyradiosky_config.get("flux_limit", 0.0) * _flux_mul,
@@ -838,8 +840,10 @@ class Simulator:
         if bbs_config.get("use_bbs", False):
             bbs_filename = bbs_config.get("filename", "")
             if bbs_filename:
+                from rrivis.core.sky._loaders_bbs import load_bbs
+
                 sky_models.append(
-                    SkyModel.from_bbs(
+                    load_bbs(
                         bbs_filename,
                         flux_limit=bbs_config.get("flux_limit", 0.0) * _flux_mul,
                         precision=_precision,
@@ -854,8 +858,10 @@ class Simulator:
         if fits_config.get("use_fits_image", False):
             fits_filename = fits_config.get("filename", "")
             if fits_filename:
+                from rrivis.core.sky._loaders_fits import load_fits_image
+
                 sky_models.append(
-                    SkyModel.from_fits_image(
+                    load_fits_image(
                         fits_filename,
                         nside=fits_config.get("nside", 128),
                         precision=_precision,

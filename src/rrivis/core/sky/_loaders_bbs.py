@@ -10,6 +10,8 @@ Reference:
   - WSClean component list documentation
 """
 
+from __future__ import annotations
+
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -17,7 +19,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from astropy.coordinates import SkyCoord
 
+from ._registry import register_loader
+
 if TYPE_CHECKING:
+    from rrivis.core.precision import PrecisionConfig
+
     from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
@@ -179,318 +185,319 @@ def _parse_format_header(line: str) -> tuple[list[str], dict[str, str]]:
 
 
 # ============================================================================
-# BBS Loader Mixin
+# BBS Loader and Writer (standalone functions)
 # ============================================================================
 
 
-class _BBSLoadersMixin:
-    """Mixin providing BBS/DP3/WSClean sky model I/O."""
+@register_loader("bbs")
+def load_bbs(
+    filename: str,
+    *,
+    flux_limit: float = 0.0,
+    region: SkyRegion | None = None,
+    precision: PrecisionConfig | None = None,
+) -> Any:
+    """Load a sky model from BBS/DP3/WSClean format.
 
-    @classmethod
-    def from_bbs(
-        cls,
-        filename: str,
-        *,
-        flux_limit: float = 0.0,
-        region: "SkyRegion | None" = None,
-        precision: Any = None,
-    ) -> Any:
-        """Load a sky model from BBS/DP3/WSClean format.
+    Supports both BBS ``# (...) = format`` and WSClean ``Format = ...``
+    header syntax.  POINT and GAUSSIAN source types are supported;
+    SHAPELET sources are skipped with a warning.
 
-        Supports both BBS ``# (...) = format`` and WSClean ``Format = ...``
-        header syntax.  POINT and GAUSSIAN source types are supported;
-        SHAPELET sources are skipped with a warning.
+    Parameters
+    ----------
+    filename : str
+        Path to the sky model file.
+    flux_limit : float, default 0.0
+        Minimum Stokes I flux in Jy.
+    region : SkyRegion, optional
+        Spatial filter.
+    precision : PrecisionConfig, optional
+        Precision configuration.
+    """
+    from .model import SkyModel
 
-        Parameters
-        ----------
-        filename : str
-            Path to the sky model file.
-        flux_limit : float, default 0.0
-            Minimum Stokes I flux in Jy.
-        region : SkyRegion, optional
-            Spatial filter.
-        precision : PrecisionConfig, optional
-            Precision configuration.
-        """
-        columns, defaults = None, {}
-        sources: list[dict[str, Any]] = []
+    columns, defaults = None, {}
+    sources: list[dict[str, Any]] = []
 
-        with open(filename) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
+    with open(filename) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Detect format header
+            if columns is None:
+                low = line.lower()
+                if "= format" in low or low.startswith("format"):
+                    columns, defaults = _parse_format_header(line)
                     continue
-
-                # Detect format header
-                if columns is None:
-                    low = line.lower()
-                    if "= format" in low or low.startswith("format"):
-                        columns, defaults = _parse_format_header(line)
-                        continue
-                    if line.startswith("#"):
-                        continue
-                    # Fixed-format (no header) — legacy OSKAR 12-column
-                    columns = [
-                        "Ra",
-                        "Dec",
-                        "I",
-                        "Q",
-                        "U",
-                        "V",
-                        "ReferenceFrequency",
-                        "SpectralIndex",
-                        "RotationMeasure",
-                        "MajorAxis",
-                        "MinorAxis",
-                        "Orientation",
-                    ]
-
                 if line.startswith("#"):
                     continue
+                # Fixed-format (no header) -- legacy OSKAR 12-column
+                columns = [
+                    "Ra",
+                    "Dec",
+                    "I",
+                    "Q",
+                    "U",
+                    "V",
+                    "ReferenceFrequency",
+                    "SpectralIndex",
+                    "RotationMeasure",
+                    "MajorAxis",
+                    "MinorAxis",
+                    "Orientation",
+                ]
 
-                # Build column index (case-insensitive)
-                col_lower = [c.lower() for c in columns]
+            if line.startswith("#"):
+                continue
 
-                # Split data line by comma (BBS) or whitespace (fixed-format)
-                # Must handle bracket-delimited arrays like [-0.7,-0.05]
-                if "," in line:
-                    fields = []
-                    current = ""
-                    depth = 0
-                    for ch in line:
-                        if ch == "[":
-                            depth += 1
-                        elif ch == "]":
-                            depth -= 1
-                        if ch == "," and depth == 0:
-                            fields.append(current.strip())
-                            current = ""
-                        else:
-                            current += ch
-                    fields.append(current.strip())
-                else:
-                    fields = line.split()
+            # Build column index (case-insensitive)
+            col_lower = [c.lower() for c in columns]
 
-                # Check for patch definition (empty Name and Type)
-                name_idx = col_lower.index("name") if "name" in col_lower else -1
-                type_idx = col_lower.index("type") if "type" in col_lower else -1
-                if name_idx >= 0 and type_idx >= 0:
-                    name_val = fields[name_idx] if name_idx < len(fields) else ""
-                    type_val = fields[type_idx] if type_idx < len(fields) else ""
-                    if not name_val.strip() and not type_val.strip():
-                        continue  # patch definition line — skip
+            # Split data line by comma (BBS) or whitespace (fixed-format)
+            # Must handle bracket-delimited arrays like [-0.7,-0.05]
+            if "," in line:
+                fields = []
+                current = ""
+                depth = 0
+                for ch in line:
+                    if ch == "[":
+                        depth += 1
+                    elif ch == "]":
+                        depth -= 1
+                    if ch == "," and depth == 0:
+                        fields.append(current.strip())
+                        current = ""
+                    else:
+                        current += ch
+                fields.append(current.strip())
+            else:
+                fields = line.split()
 
-                # Helper to get field value with default
-                def _get(
-                    col_name: str,
-                    default: str = "0",
-                    _cl: list[str] = col_lower,
-                    _fl: list[str] = fields,
-                    _df: dict[str, str] = defaults,
-                ) -> str:
-                    cn = col_name.lower()
-                    if cn in _cl:
-                        idx = _cl.index(cn)
-                        if idx < len(_fl) and _fl[idx].strip():
-                            return _fl[idx].strip()
-                    return _df.get(cn, default)
+            # Check for patch definition (empty Name and Type)
+            name_idx = col_lower.index("name") if "name" in col_lower else -1
+            type_idx = col_lower.index("type") if "type" in col_lower else -1
+            if name_idx >= 0 and type_idx >= 0:
+                name_val = fields[name_idx] if name_idx < len(fields) else ""
+                type_val = fields[type_idx] if type_idx < len(fields) else ""
+                if not name_val.strip() and not type_val.strip():
+                    continue  # patch definition line -- skip
 
-                # Source type
-                src_type = _get("type", "POINT").upper()
-                if src_type == "SHAPELET":
-                    logger.warning("Skipping SHAPELET source (not supported)")
-                    continue
+            # Helper to get field value with default
+            def _get(
+                col_name: str,
+                default: str = "0",
+                _cl: list[str] = col_lower,
+                _fl: list[str] = fields,
+                _df: dict[str, str] = defaults,
+            ) -> str:
+                cn = col_name.lower()
+                if cn in _cl:
+                    idx = _cl.index(cn)
+                    if idx < len(_fl) and _fl[idx].strip():
+                        return _fl[idx].strip()
+                return _df.get(cn, default)
 
-                # Coordinates
-                ra_deg = _parse_bbs_ra(_get("ra"))
-                dec_deg = _parse_bbs_dec(_get("dec"))
+            # Source type
+            src_type = _get("type", "POINT").upper()
+            if src_type == "SHAPELET":
+                logger.warning("Skipping SHAPELET source (not supported)")
+                continue
 
-                # Stokes I
-                stokes_i = float(_get("i", "0"))
-                if stokes_i <= 0:
-                    continue
+            # Coordinates
+            ra_deg = _parse_bbs_ra(_get("ra"))
+            dec_deg = _parse_bbs_dec(_get("dec"))
 
-                # Stokes Q, U, V
-                stokes_q = float(_get("q", "0"))
-                stokes_u = float(_get("u", "0"))
-                stokes_v = float(_get("v", "0"))
+            # Stokes I
+            stokes_i = float(_get("i", "0"))
+            if stokes_i <= 0:
+                continue
 
-                # Spectral index (bracket array or single value)
-                si_str = _get("spectralindex", "[]")
-                si_str = si_str.strip("[]")
-                if si_str:
-                    si_coeffs = [float(x) for x in si_str.split(",") if x.strip()]
-                else:
-                    si_coeffs = [-0.7]
-                alpha = si_coeffs[0] if si_coeffs else -0.7
+            # Stokes Q, U, V
+            stokes_q = float(_get("q", "0"))
+            stokes_u = float(_get("u", "0"))
+            stokes_v = float(_get("v", "0"))
 
-                # Rotation measure
-                rm = float(_get("rotationmeasure", "0"))
+            # Spectral index (bracket array or single value)
+            si_str = _get("spectralindex", "[]")
+            si_str = si_str.strip("[]")
+            if si_str:
+                si_coeffs = [float(x) for x in si_str.split(",") if x.strip()]
+            else:
+                si_coeffs = [-0.7]
+            alpha = si_coeffs[0] if si_coeffs else -0.7
 
-                # Polarization from angle/fraction (if Q/U not set)
-                pol_angle = float(_get("polarizationangle", "0"))
-                pol_frac = float(_get("polarizedfraction", "0"))
-                if stokes_q == 0 and stokes_u == 0 and pol_frac > 0:
-                    chi0 = np.deg2rad(pol_angle)
-                    stokes_q = pol_frac * stokes_i * np.cos(2 * chi0)
-                    stokes_u = pol_frac * stokes_i * np.sin(2 * chi0)
+            # Rotation measure
+            rm = float(_get("rotationmeasure", "0"))
 
-                # Gaussian morphology
-                major = float(_get("majoraxis", "0"))
-                minor = float(_get("minoraxis", "0"))
-                orientation = float(_get("orientation", "0"))
+            # Polarization from angle/fraction (if Q/U not set)
+            pol_angle = float(_get("polarizationangle", "0"))
+            pol_frac = float(_get("polarizedfraction", "0"))
+            if stokes_q == 0 and stokes_u == 0 and pol_frac > 0:
+                chi0 = np.deg2rad(pol_angle)
+                stokes_q = pol_frac * stokes_i * np.cos(2 * chi0)
+                stokes_u = pol_frac * stokes_i * np.sin(2 * chi0)
 
-                # Also accept OSKAR-style aliases
-                if major == 0:
-                    major = float(_get("major_ax", "0"))
-                if minor == 0:
-                    minor = float(_get("minor_ax", "0"))
-                if orientation == 0:
-                    orientation = float(_get("positionangle", "0"))
+            # Gaussian morphology
+            major = float(_get("majoraxis", "0"))
+            minor = float(_get("minoraxis", "0"))
+            orientation = float(_get("orientation", "0"))
 
-                src: dict[str, Any] = {
-                    "coords": SkyCoord(
-                        ra=ra_deg, dec=dec_deg, unit="deg", frame="icrs"
-                    ),
-                    "flux": stokes_i,
-                    "spectral_index": alpha,
-                    "stokes_q": stokes_q,
-                    "stokes_u": stokes_u,
-                    "stokes_v": stokes_v,
-                    "rotation_measure": rm,
-                }
+            # Also accept OSKAR-style aliases
+            if major == 0:
+                major = float(_get("major_ax", "0"))
+            if minor == 0:
+                minor = float(_get("minor_ax", "0"))
+            if orientation == 0:
+                orientation = float(_get("positionangle", "0"))
 
-                if major > 0:
-                    src["major_arcsec"] = major
-                    src["minor_arcsec"] = minor
-                    src["pa_deg"] = orientation
+            src: dict[str, Any] = {
+                "coords": SkyCoord(ra=ra_deg, dec=dec_deg, unit="deg", frame="icrs"),
+                "flux": stokes_i,
+                "spectral_index": alpha,
+                "stokes_q": stokes_q,
+                "stokes_u": stokes_u,
+                "stokes_v": stokes_v,
+                "rotation_measure": rm,
+            }
 
-                if len(si_coeffs) > 1:
-                    src["spectral_coeffs"] = si_coeffs
+            if major > 0:
+                src["major_arcsec"] = major
+                src["minor_arcsec"] = minor
+                src["pa_deg"] = orientation
 
-                sources.append(src)
+            if len(si_coeffs) > 1:
+                src["spectral_coeffs"] = si_coeffs
 
-        if not sources:
-            logger.warning(f"No sources found in {filename}")
+            sources.append(src)
 
-        # Apply flux limit
-        if flux_limit > 0:
-            sources = [s for s in sources if s["flux"] >= flux_limit]
+    if not sources:
+        logger.warning(f"No sources found in {filename}")
 
-        sky = cls.from_point_sources(
-            sources,
-            model_name=f"bbs:{filename.split('/')[-1]}",
-            precision=precision,
-        )
+    # Apply flux limit
+    if flux_limit > 0:
+        sources = [s for s in sources if s["flux"] >= flux_limit]
 
-        # Set reference frequency from file (use first source's ref_freq)
-        if sources:
-            _rf = float(_get("referencefrequency", "0")) if columns else 0.0
-            if _rf > 0:
-                sky.frequency = _rf
+    sky = SkyModel.from_point_sources(
+        sources,
+        model_name=f"bbs:{filename.split('/')[-1]}",
+        precision=precision,
+    )
 
-        if region is not None:
-            sky = sky.filter_region(region)
+    # Set reference frequency from file (use first source's ref_freq)
+    if sources:
+        _rf = float(_get("referencefrequency", "0")) if columns else 0.0
+        if _rf > 0:
+            sky.frequency = _rf
 
-        logger.info(f"Loaded {sky.n_sources} sources from BBS file {filename}")
-        return sky
+    if region is not None:
+        sky = sky.filter_region(region)
 
-    def to_bbs(
-        self,
-        filename: str,
-        *,
-        reference_frequency_hz: float | None = None,
-    ) -> None:
-        """Write this SkyModel to BBS/DP3 format.
+    logger.info(f"Loaded {sky.n_sources} sources from BBS file {filename}")
+    return sky
 
-        Parameters
-        ----------
-        filename : str
-            Output file path (typically ``*.skymodel``).
-        reference_frequency_hz : float, optional
-            Override reference frequency. Defaults to ``self.frequency``.
-        """
-        if self._ra_rad is None or len(self._ra_rad) == 0:
-            raise ValueError("Cannot write an empty SkyModel to BBS format.")
 
-        ref_freq = reference_frequency_hz or self.frequency or 1e8
-        n = len(self._ra_rad)
-        prefix = self.model_name or "src"
+def write_bbs(
+    sky_model: SkyModel,  # noqa: F821
+    filename: str,
+    *,
+    reference_frequency_hz: float | None = None,
+) -> None:
+    """Write a SkyModel to BBS/DP3 format.
 
-        has_rm = self._rotation_measure is not None and np.any(
-            self._rotation_measure != 0
-        )
-        has_gauss = self._major_arcsec is not None and np.any(self._major_arcsec > 0)
-        has_pol = (self._stokes_q is not None and np.any(self._stokes_q != 0)) or (
-            self._stokes_u is not None and np.any(self._stokes_u != 0)
-        )
+    Parameters
+    ----------
+    sky_model : SkyModel
+        The sky model to write.
+    filename : str
+        Output file path (typically ``*.skymodel``).
+    reference_frequency_hz : float, optional
+        Override reference frequency. Defaults to ``sky_model.frequency``.
+    """
+    if sky_model._ra_rad is None or len(sky_model._ra_rad) == 0:
+        raise ValueError("Cannot write an empty SkyModel to BBS format.")
 
-        # Build format header
-        cols = ["Name", "Type", "Ra", "Dec", "I"]
-        if has_pol:
-            cols.extend(["Q", "U", "V"])
-        cols.extend(
-            [
-                f"ReferenceFrequency='{ref_freq}'",
-                "SpectralIndex='[]'",
-                "LogarithmicSI='true'",
-            ]
-        )
-        if has_gauss:
-            cols.extend(["MajorAxis", "MinorAxis", "Orientation"])
-        if has_rm:
-            cols.append("RotationMeasure")
+    ref_freq = reference_frequency_hz or sky_model.frequency or 1e8
+    n = len(sky_model._ra_rad)
+    prefix = sky_model.model_name or "src"
 
-        header = f"# ({', '.join(cols)}) = format\n"
+    has_rm = sky_model._rotation_measure is not None and np.any(
+        sky_model._rotation_measure != 0
+    )
+    has_gauss = sky_model._major_arcsec is not None and np.any(
+        sky_model._major_arcsec > 0
+    )
+    has_pol = (
+        sky_model._stokes_q is not None and np.any(sky_model._stokes_q != 0)
+    ) or (sky_model._stokes_u is not None and np.any(sky_model._stokes_u != 0))
 
-        with open(filename, "w") as f:
-            f.write(header)
+    # Build format header
+    cols = ["Name", "Type", "Ra", "Dec", "I"]
+    if has_pol:
+        cols.extend(["Q", "U", "V"])
+    cols.extend(
+        [
+            f"ReferenceFrequency='{ref_freq}'",
+            "SpectralIndex='[]'",
+            "LogarithmicSI='true'",
+        ]
+    )
+    if has_gauss:
+        cols.extend(["MajorAxis", "MinorAxis", "Orientation"])
+    if has_rm:
+        cols.append("RotationMeasure")
 
-            ra_deg = np.rad2deg(self._ra_rad)
-            dec_deg = np.rad2deg(self._dec_rad)
+    header = f"# ({', '.join(cols)}) = format\n"
 
-            for i in range(n):
-                name = f"{prefix}_{i}"
-                is_gauss = has_gauss and self._major_arcsec[i] > 0
-                src_type = "GAUSSIAN" if is_gauss else "POINT"
-                ra_str = _format_ra_bbs(ra_deg[i])
-                dec_str = _format_dec_bbs(dec_deg[i])
-                flux_i = self._flux_ref[i]
+    with open(filename, "w") as f:
+        f.write(header)
 
-                # Spectral index
-                if self._spectral_coeffs is not None:
-                    si_list = self._spectral_coeffs[i].tolist()
-                    # Trim trailing zeros
-                    while len(si_list) > 1 and si_list[-1] == 0:
-                        si_list.pop()
-                    si_str = "[" + ",".join(f"{c}" for c in si_list) + "]"
-                else:
-                    si_str = f"[{self._alpha[i]}]"
+        ra_deg = np.rad2deg(sky_model._ra_rad)
+        dec_deg = np.rad2deg(sky_model._dec_rad)
 
-                parts = [name, src_type, ra_str, dec_str, f"{flux_i}"]
+        for i in range(n):
+            name = f"{prefix}_{i}"
+            is_gauss = has_gauss and sky_model._major_arcsec[i] > 0
+            src_type = "GAUSSIAN" if is_gauss else "POINT"
+            ra_str = _format_ra_bbs(ra_deg[i])
+            dec_str = _format_dec_bbs(dec_deg[i])
+            flux_i = sky_model._flux_ref[i]
 
-                if has_pol:
-                    q = self._stokes_q[i] if self._stokes_q is not None else 0.0
-                    u = self._stokes_u[i] if self._stokes_u is not None else 0.0
-                    v = self._stokes_v[i] if self._stokes_v is not None else 0.0
-                    parts.extend([f"{q}", f"{u}", f"{v}"])
+            # Spectral index
+            if sky_model._spectral_coeffs is not None:
+                si_list = sky_model._spectral_coeffs[i].tolist()
+                # Trim trailing zeros
+                while len(si_list) > 1 and si_list[-1] == 0:
+                    si_list.pop()
+                si_str = "[" + ",".join(f"{c}" for c in si_list) + "]"
+            else:
+                si_str = f"[{sky_model._alpha[i]}]"
 
-                parts.extend(["", si_str, "true"])
+            parts = [name, src_type, ra_str, dec_str, f"{flux_i}"]
 
-                if has_gauss:
-                    maj = self._major_arcsec[i] if is_gauss else 0.0
-                    mi = self._minor_arcsec[i] if is_gauss else 0.0
-                    pa = self._pa_deg[i] if is_gauss else 0.0
-                    parts.extend([f"{maj}", f"{mi}", f"{pa}"])
+            if has_pol:
+                q = sky_model._stokes_q[i] if sky_model._stokes_q is not None else 0.0
+                u = sky_model._stokes_u[i] if sky_model._stokes_u is not None else 0.0
+                v = sky_model._stokes_v[i] if sky_model._stokes_v is not None else 0.0
+                parts.extend([f"{q}", f"{u}", f"{v}"])
 
-                if has_rm:
-                    rm_val = (
-                        self._rotation_measure[i]
-                        if self._rotation_measure is not None
-                        else 0.0
-                    )
-                    parts.append(f"{rm_val}")
+            parts.extend(["", si_str, "true"])
 
-                f.write(", ".join(parts) + "\n")
+            if has_gauss:
+                maj = sky_model._major_arcsec[i] if is_gauss else 0.0
+                mi = sky_model._minor_arcsec[i] if is_gauss else 0.0
+                pa = sky_model._pa_deg[i] if is_gauss else 0.0
+                parts.extend([f"{maj}", f"{mi}", f"{pa}"])
 
-        logger.info(f"SkyModel written to BBS format: {filename}")
+            if has_rm:
+                rm_val = (
+                    sky_model._rotation_measure[i]
+                    if sky_model._rotation_measure is not None
+                    else 0.0
+                )
+                parts.append(f"{rm_val}")
+
+            f.write(", ".join(parts) + "\n")
+
+    logger.info(f"SkyModel written to BBS format: {filename}")
