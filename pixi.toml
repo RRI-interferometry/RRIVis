@@ -53,6 +53,7 @@ nbconvert = ">=7.17.0,<8"
 jupyter = ">=1.1.1,<2"
 pytest-cov = ">=7.0.0,<8"
 ipykernel = ">=7.2.0,<8"
+reproject = ">=0.18.0,<0.20"
 
 [pypi-dependencies]
 pygdsm = "*"

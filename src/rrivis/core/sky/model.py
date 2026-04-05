@@ -17,7 +17,9 @@ import healpy as hp
 import numpy as np
 from astropy.coordinates import SkyCoord
 
+from ._loaders_bbs import _BBSLoadersMixin
 from ._loaders_diffuse import _DiffuseLoadersMixin
+from ._loaders_fits import _FITSImageLoadersMixin
 from ._loaders_pyradiosky import _PyradioskyMixin
 from ._loaders_vizier import _VizierLoadersMixin
 from ._plotting import _PlottingMixin
@@ -31,6 +33,90 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_C_LIGHT = 299792458.0  # speed of light in m/s
+
+
+# =============================================================================
+# Spectral / Faraday Helpers (module-level for use by visibility.py)
+# =============================================================================
+
+
+def _compute_spectral_scale(
+    alpha: np.ndarray,
+    spectral_coeffs: np.ndarray | None,
+    freq: float,
+    ref_freq: float,
+) -> np.ndarray:
+    """Compute frequency scaling factor for each source.
+
+    Uses log-polynomial when *spectral_coeffs* has >1 term, else simple
+    power law ``(freq / ref_freq) ** alpha``.
+
+    Parameters
+    ----------
+    alpha : np.ndarray
+        Simple spectral index array, shape ``(N,)``.
+    spectral_coeffs : np.ndarray or None
+        Log-polynomial coefficients, shape ``(N, N_terms)``.  Column 0 is
+        the simple spectral index.  ``None`` ⇒ use *alpha* only.
+    freq, ref_freq : float
+        Observation and reference frequencies in Hz.
+
+    Returns
+    -------
+    np.ndarray
+        Multiplicative scaling factor, shape ``(N,)``.
+    """
+    ratio = freq / ref_freq
+    if spectral_coeffs is not None and spectral_coeffs.shape[1] > 1:
+        log_ratio = np.log10(ratio)
+        exponent = np.zeros(len(alpha), dtype=np.float64)
+        for k in range(spectral_coeffs.shape[1]):
+            exponent += spectral_coeffs[:, k] * log_ratio**k
+        return ratio**exponent
+    return ratio**alpha
+
+
+def _apply_faraday_rotation(
+    q_ref: np.ndarray,
+    u_ref: np.ndarray,
+    rm: np.ndarray | None,
+    freq: float,
+    ref_freq: float,
+    spectral_scale: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply spectral scaling and Faraday rotation to Q/U arrays.
+
+    When *rm* is ``None`` or all-zero, this reduces to simple power-law
+    scaling (identical to the pre-RM behaviour).
+
+    Parameters
+    ----------
+    q_ref, u_ref : np.ndarray
+        Stokes Q, U at the reference frequency (Jy), shape ``(N,)``.
+    rm : np.ndarray or None
+        Rotation measure in rad/m² per source.
+    freq, ref_freq : float
+        Observation and reference frequencies in Hz.
+    spectral_scale : np.ndarray
+        Pre-computed ``(freq / ref_freq) ** alpha`` (or log-poly), shape ``(N,)``.
+
+    Returns
+    -------
+    q_out, u_out : np.ndarray
+        Scaled (and optionally Faraday-rotated) Stokes Q, U.
+    """
+    q_scaled = q_ref * spectral_scale
+    u_scaled = u_ref * spectral_scale
+    if rm is not None and np.any(rm != 0):
+        delta_chi = rm * ((_C_LIGHT / freq) ** 2 - (_C_LIGHT / ref_freq) ** 2)
+        cos2 = np.cos(2.0 * delta_chi)
+        sin2 = np.sin(2.0 * delta_chi)
+        q_out = q_scaled * cos2 - u_scaled * sin2
+        u_out = q_scaled * sin2 + u_scaled * cos2
+        return q_out, u_out
+    return q_scaled, u_scaled
+
 
 # =============================================================================
 # SkyModel Class
@@ -39,7 +125,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SkyModel(
-    _VizierLoadersMixin, _DiffuseLoadersMixin, _PyradioskyMixin, _PlottingMixin
+    _VizierLoadersMixin,
+    _DiffuseLoadersMixin,
+    _PyradioskyMixin,
+    _BBSLoadersMixin,
+    _FITSImageLoadersMixin,
+    _PlottingMixin,
 ):
     """
     Unified sky model with bidirectional conversion.
@@ -61,6 +152,14 @@ class SkyModel(
         Spectral index for power-law extrapolation.
     _stokes_q, _stokes_u, _stokes_v : np.ndarray, optional
         Stokes polarization parameters.
+    _rotation_measure : np.ndarray, optional
+        Rotation measure in rad/m² (per source) for Faraday rotation of Q/U.
+    _major_arcsec, _minor_arcsec, _pa_deg : np.ndarray, optional
+        Gaussian morphology: FWHM major/minor axes in arcsec, position angle
+        in degrees (N through E). Zero values indicate point sources.
+    _spectral_coeffs : np.ndarray, optional
+        Multi-term log-polynomial spectral coefficients, shape (N, N_terms).
+        Column 0 = spectral index (same as ``_alpha``).
     _healpix_maps : dict[float, np.ndarray], optional
         Multi-frequency HEALPix brightness temperature maps (freq_hz -> T_b).
         One map per observation channel; generated natively by pygdsm for
@@ -88,6 +187,20 @@ class SkyModel(
     _stokes_q: np.ndarray | None = field(default=None, repr=False)
     _stokes_u: np.ndarray | None = field(default=None, repr=False)
     _stokes_v: np.ndarray | None = field(default=None, repr=False)
+
+    _rotation_measure: np.ndarray | None = field(default=None, repr=False)
+    """Rotation measure in rad/m² (per source). None = no RM data."""
+
+    _major_arcsec: np.ndarray | None = field(default=None, repr=False)
+    """FWHM major axis in arcsec (per source). 0 = point source."""
+    _minor_arcsec: np.ndarray | None = field(default=None, repr=False)
+    """FWHM minor axis in arcsec (per source). 0 = point source."""
+    _pa_deg: np.ndarray | None = field(default=None, repr=False)
+    """Position angle in degrees, North through East (per source)."""
+
+    _spectral_coeffs: np.ndarray | None = field(default=None, repr=False)
+    """Multi-term log-polynomial spectral coefficients, shape (N_sources, N_terms).
+    Column 0 = simple spectral index (same as _alpha). None = single power law."""
 
     _healpix_maps: dict[float, np.ndarray] | None = None
     _healpix_q_maps: dict[float, np.ndarray] | None = None
@@ -214,6 +327,14 @@ class SkyModel(
             self._stokes_q = self._stokes_q.astype(flux_dt, copy=False)
             self._stokes_u = self._stokes_u.astype(flux_dt, copy=False)
             self._stokes_v = self._stokes_v.astype(flux_dt, copy=False)
+        if self._rotation_measure is not None:
+            self._rotation_measure = self._rotation_measure.astype(flux_dt, copy=False)
+        if self._major_arcsec is not None:
+            self._major_arcsec = self._major_arcsec.astype(src_dt, copy=False)
+            self._minor_arcsec = self._minor_arcsec.astype(src_dt, copy=False)
+            self._pa_deg = self._pa_deg.astype(src_dt, copy=False)
+        if self._spectral_coeffs is not None:
+            self._spectral_coeffs = self._spectral_coeffs.astype(alpha_dt, copy=False)
         if self._healpix_maps is not None:
             self._healpix_maps = {
                 f: m.astype(hp_dt, copy=False) for f, m in self._healpix_maps.items()
@@ -351,6 +472,19 @@ class SkyModel(
                 _stokes_q=self._stokes_q[mask] if self._stokes_q is not None else None,
                 _stokes_u=self._stokes_u[mask] if self._stokes_u is not None else None,
                 _stokes_v=self._stokes_v[mask] if self._stokes_v is not None else None,
+                _rotation_measure=self._rotation_measure[mask]
+                if self._rotation_measure is not None
+                else None,
+                _major_arcsec=self._major_arcsec[mask]
+                if self._major_arcsec is not None
+                else None,
+                _minor_arcsec=self._minor_arcsec[mask]
+                if self._minor_arcsec is not None
+                else None,
+                _pa_deg=self._pa_deg[mask] if self._pa_deg is not None else None,
+                _spectral_coeffs=self._spectral_coeffs[mask]
+                if self._spectral_coeffs is not None
+                else None,
                 _native_format="point_sources",
                 model_name=self.model_name,
                 frequency=self.frequency,
@@ -577,8 +711,22 @@ class SkyModel(
             sq_m = self._stokes_q[mask]
             su_m = self._stokes_u[mask]
             sv_m = self._stokes_v[mask]
-            return [
-                {
+            rm_m = (
+                self._rotation_measure[mask]
+                if self._rotation_measure is not None
+                else None
+            )
+            maj_m = self._major_arcsec[mask] if self._major_arcsec is not None else None
+            min_m = self._minor_arcsec[mask] if self._minor_arcsec is not None else None
+            pa_m = self._pa_deg[mask] if self._pa_deg is not None else None
+            sc_m = (
+                self._spectral_coeffs[mask]
+                if self._spectral_coeffs is not None
+                else None
+            )
+            result = []
+            for i in range(n):
+                d: dict[str, Any] = {
                     "coords": coords[i],
                     "flux": float(flux_m[i]),
                     "spectral_index": float(alpha_m[i]),
@@ -586,8 +734,16 @@ class SkyModel(
                     "stokes_u": float(su_m[i]),
                     "stokes_v": float(sv_m[i]),
                 }
-                for i in range(n)
-            ]
+                if rm_m is not None:
+                    d["rotation_measure"] = float(rm_m[i])
+                if maj_m is not None:
+                    d["major_arcsec"] = float(maj_m[i])
+                    d["minor_arcsec"] = float(min_m[i])
+                    d["pa_deg"] = float(pa_m[i])
+                if sc_m is not None:
+                    d["spectral_coeffs"] = sc_m[i].tolist()
+                result.append(d)
+            return result
 
         # Convert from multi-frequency HEALPix (lazy: populate arrays on first call)
         if self._healpix_maps is not None:
@@ -773,7 +929,9 @@ class SkyModel(
         v_maps: dict[float, np.ndarray] = {} if has_pol else None
 
         for freq in frequencies:
-            scale = (float(freq) / ref_frequency) ** self._alpha
+            scale = _compute_spectral_scale(
+                self._alpha, self._spectral_coeffs, float(freq), ref_frequency
+            )
             flux_f = self._flux_ref * scale
 
             flux_map = np.bincount(ipix, weights=flux_f, minlength=npix)
@@ -795,11 +953,17 @@ class SkyModel(
                     C_LIGHT**2 / (2 * K_BOLTZMANN * float(freq) ** 2 * omega_pixel)
                 ) * 1e-26
 
-                q_flux = self._stokes_q * scale
+                q_flux, u_flux = _apply_faraday_rotation(
+                    self._stokes_q,
+                    self._stokes_u,
+                    self._rotation_measure,
+                    float(freq),
+                    ref_frequency,
+                    scale,
+                )
                 q_map = np.bincount(ipix, weights=q_flux, minlength=npix)
                 q_maps[float(freq)] = (q_map * rj_inv).astype(np.float32)
 
-                u_flux = self._stokes_u * scale
                 u_map = np.bincount(ipix, weights=u_flux, minlength=npix)
                 u_maps[float(freq)] = (u_map * rj_inv).astype(np.float32)
 
@@ -1240,6 +1404,12 @@ class SkyModel(
         The file can be loaded back with ``SkyModel.load()`` or
         ``SkyModel.from_pyradiosky_file()``.
 
+        .. note::
+
+            SkyH5 does not preserve rotation measure, Gaussian morphology,
+            or multi-term spectral coefficients.  Use ``to_bbs()`` for
+            lossless export of these fields.
+
         Parameters
         ----------
         filename : str
@@ -1526,6 +1696,32 @@ class SkyModel(
         stokes_u = np.array([s.get("stokes_u", 0.0) for s in sources], dtype=np.float64)
         stokes_v = np.array([s.get("stokes_v", 0.0) for s in sources], dtype=np.float64)
 
+        # Optional extended fields
+        rm = None
+        if any("rotation_measure" in s for s in sources):
+            rm = np.array(
+                [s.get("rotation_measure", 0.0) for s in sources], dtype=np.float64
+            )
+        major = None
+        minor = None
+        pa = None
+        if any("major_arcsec" in s for s in sources):
+            major = np.array(
+                [s.get("major_arcsec", 0.0) for s in sources], dtype=np.float64
+            )
+            minor = np.array(
+                [s.get("minor_arcsec", 0.0) for s in sources], dtype=np.float64
+            )
+            pa = np.array([s.get("pa_deg", 0.0) for s in sources], dtype=np.float64)
+        sp_coeffs = None
+        if any("spectral_coeffs" in s for s in sources):
+            max_terms = max(len(s.get("spectral_coeffs", [])) for s in sources)
+            if max_terms > 0:
+                sp_coeffs = np.zeros((n, max_terms), dtype=np.float64)
+                for i, s in enumerate(sources):
+                    coeffs = s.get("spectral_coeffs", [s.get("spectral_index", -0.7)])
+                    sp_coeffs[i, : len(coeffs)] = coeffs
+
         sky = cls(
             _ra_rad=ra_rad,
             _dec_rad=dec_rad,
@@ -1534,6 +1730,11 @@ class SkyModel(
             _stokes_q=stokes_q,
             _stokes_u=stokes_u,
             _stokes_v=stokes_v,
+            _rotation_measure=rm,
+            _major_arcsec=major,
+            _minor_arcsec=minor,
+            _pa_deg=pa,
+            _spectral_coeffs=sp_coeffs,
             _native_format="point_sources",
             model_name=model_name,
             brightness_conversion=brightness_conversion,
@@ -1898,18 +2099,28 @@ class SkyModel(
                                     )
 
                 for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
-                    scale = (float(freq_hz) / ref_frequency) ** alpha_m
+                    scale = _compute_spectral_scale(
+                        alpha_m, m_obj._spectral_coeffs, float(freq_hz), ref_frequency
+                    )
                     flux_at_f = flux_ref_m * scale
                     combined_flux += np.bincount(
                         ipix_m, weights=flux_at_f, minlength=npix
                     )
 
                     if any_pol and m_obj._stokes_q is not None:
+                        q_f, u_f = _apply_faraday_rotation(
+                            m_obj._stokes_q,
+                            m_obj._stokes_u,
+                            m_obj._rotation_measure,
+                            float(freq_hz),
+                            ref_frequency,
+                            scale,
+                        )
                         combined_q_flux += np.bincount(
-                            ipix_m, weights=m_obj._stokes_q * scale, minlength=npix
+                            ipix_m, weights=q_f, minlength=npix
                         )
                         combined_u_flux += np.bincount(
-                            ipix_m, weights=m_obj._stokes_u * scale, minlength=npix
+                            ipix_m, weights=u_f, minlength=npix
                         )
                         combined_v_flux += np.bincount(
                             ipix_m, weights=m_obj._stokes_v * scale, minlength=npix
@@ -2029,7 +2240,16 @@ class SkyModel(
                 f"stokes='{stokes_components}', "
                 f"memory={mem_info['total_mb']:.1f}MB)"
             )
+        extras = []
+        if self._rotation_measure is not None and np.any(self._rotation_measure != 0):
+            extras.append("RM")
+        if self._major_arcsec is not None and np.any(self._major_arcsec > 0):
+            n_gauss = int(np.sum(self._major_arcsec > 0))
+            extras.append(f"gaussian={n_gauss}")
+        if self._spectral_coeffs is not None and self._spectral_coeffs.shape[1] > 1:
+            extras.append(f"spectral_terms={self._spectral_coeffs.shape[1]}")
+        extra_str = f", {', '.join(extras)}" if extras else ""
         return (
             f"SkyModel(native='{self._native_format}', model='{self.model_name}', "
-            f"n_sources={self.n_sources})"
+            f"n_sources={self.n_sources}{extra_str})"
         )

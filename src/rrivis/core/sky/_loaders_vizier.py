@@ -166,6 +166,12 @@ class _VizierLoadersMixin:
             needed_cols = [info["ra_col"], info["dec_col"], info["flux_col"]]
             if info.get("spindex_col"):
                 needed_cols.append(info["spindex_col"])
+            # Optional Gaussian morphology columns
+            _major_col = info.get("major_col")
+            _minor_col = info.get("minor_col")
+            _pa_col = info.get("pa_col")
+            if _major_col:
+                needed_cols.extend([_major_col, _minor_col, _pa_col])
             v = Vizier(columns=needed_cols, row_limit=-1)
 
             # Push flux_limit filter to VizieR server to reduce download size
@@ -284,6 +290,19 @@ class _VizierLoadersMixin:
             finite_mask = np.isfinite(spindex_valid)
             alpha_arr[finite_mask] = spindex_valid[finite_mask]
 
+        # Extract Gaussian morphology columns if available
+        _gauss_major = None
+        _gauss_minor = None
+        _gauss_pa = None
+        if _major_col and _major_col in catalog.colnames:
+            _raw_maj = _extract_masked_column(catalog, _major_col)[valid_indices]
+            _raw_min = _extract_masked_column(catalog, _minor_col)[valid_indices]
+            _raw_pa = _extract_masked_column(catalog, _pa_col)[valid_indices]
+            # Replace NaN with 0 (unresolved → point source)
+            _gauss_major = np.where(np.isfinite(_raw_maj), _raw_maj, 0.0)
+            _gauss_minor = np.where(np.isfinite(_raw_min), _raw_min, 0.0)
+            _gauss_pa = np.where(np.isfinite(_raw_pa), _raw_pa, 0.0)
+
         # Client-side region trim (catches VizieR edge cases) + dedup
         if region is not None:
             in_region = region.contains(ra_rad, dec_rad)
@@ -291,6 +310,10 @@ class _VizierLoadersMixin:
             dec_rad = dec_rad[in_region]
             flux_jy = flux_jy[in_region]
             alpha_arr = alpha_arr[in_region]
+            if _gauss_major is not None:
+                _gauss_major = _gauss_major[in_region]
+                _gauss_minor = _gauss_minor[in_region]
+                _gauss_pa = _gauss_pa[in_region]
             n = len(flux_jy)
 
             # Dedup overlapping sub-region results
@@ -302,6 +325,10 @@ class _VizierLoadersMixin:
                 dec_rad = dec_rad[unique_idx]
                 flux_jy = flux_jy[unique_idx]
                 alpha_arr = alpha_arr[unique_idx]
+                if _gauss_major is not None:
+                    _gauss_major = _gauss_major[unique_idx]
+                    _gauss_minor = _gauss_minor[unique_idx]
+                    _gauss_pa = _gauss_pa[unique_idx]
                 n = len(flux_jy)
 
         if n == 0:
@@ -319,6 +346,9 @@ class _VizierLoadersMixin:
             _stokes_q=np.zeros(n, dtype=np.float64),
             _stokes_u=np.zeros(n, dtype=np.float64),
             _stokes_v=np.zeros(n, dtype=np.float64),
+            _major_arcsec=_gauss_major,
+            _minor_arcsec=_gauss_minor,
+            _pa_deg=_gauss_pa,
             _native_format="point_sources",
             model_name=catalog_key,
             brightness_conversion=brightness_conversion,

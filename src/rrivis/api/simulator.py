@@ -833,6 +833,40 @@ class Simulator:
                     "pyradiosky enabled but no filename specified; skipping."
                 )
 
+        # --- BBS/DP3/WSClean sky model file ---
+        bbs_config = sky_config.get("bbs", {})
+        if bbs_config.get("use_bbs", False):
+            bbs_filename = bbs_config.get("filename", "")
+            if bbs_filename:
+                sky_models.append(
+                    SkyModel.from_bbs(
+                        bbs_filename,
+                        flux_limit=bbs_config.get("flux_limit", 0.0) * _flux_mul,
+                        precision=_precision,
+                        region=region,
+                    )
+                )
+            else:
+                logger.warning("BBS enabled but no filename specified; skipping.")
+
+        # --- FITS image sky model ---
+        fits_config = sky_config.get("fits_image", {})
+        if fits_config.get("use_fits_image", False):
+            fits_filename = fits_config.get("filename", "")
+            if fits_filename:
+                sky_models.append(
+                    SkyModel.from_fits_image(
+                        fits_filename,
+                        nside=fits_config.get("nside", 128),
+                        precision=_precision,
+                        region=region,
+                    )
+                )
+            else:
+                logger.warning(
+                    "FITS image enabled but no filename specified; skipping."
+                )
+
         # If no models selected, raise an error
         if not sky_models:
             raise ValueError(

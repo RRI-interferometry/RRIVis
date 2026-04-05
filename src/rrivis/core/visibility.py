@@ -176,6 +176,37 @@ def calculate_visibility(
     source_stokes_U_orig = np.array([s.get("stokes_u", 0.0) for s in sources])
     source_stokes_V_orig = np.array([s.get("stokes_v", 0.0) for s in sources])
     source_spectral_indices_orig = np.array([s["spectral_index"] for s in sources])
+    source_rm_orig = np.array([s.get("rotation_measure", 0.0) for s in sources])
+
+    # Multi-term spectral coefficients (None if no source has them)
+    _has_coeffs = any("spectral_coeffs" in s for s in sources)
+    if _has_coeffs:
+        _max_terms = max(len(s.get("spectral_coeffs", [])) for s in sources)
+        source_spectral_coeffs_orig = np.zeros(
+            (len(sources), _max_terms), dtype=np.float64
+        )
+        for _i, s in enumerate(sources):
+            _c = s.get("spectral_coeffs", [s.get("spectral_index", -0.7)])
+            source_spectral_coeffs_orig[_i, : len(_c)] = _c
+    else:
+        source_spectral_coeffs_orig = None
+
+    # Gaussian morphology
+    source_major_orig = np.array([s.get("major_arcsec", 0.0) for s in sources])
+    source_minor_orig = np.array([s.get("minor_arcsec", 0.0) for s in sources])
+    source_pa_orig = np.array([s.get("pa_deg", 0.0) for s in sources])
+    has_gaussians = np.any(source_major_orig > 0)
+
+    # Pre-compute Gaussian (a, b, c) quadratic form coefficients
+    if has_gaussians:
+        _maj_rad = np.deg2rad(source_major_orig / 3600.0)
+        _min_rad = np.deg2rad(source_minor_orig / 3600.0)
+        _pa_rad = np.deg2rad(source_pa_orig)
+        _K_maj = (np.pi**2 * _maj_rad**2) / (4.0 * np.log(2))
+        _K_min = (np.pi**2 * _min_rad**2) / (4.0 * np.log(2))
+        gauss_a_orig = np.cos(_pa_rad) ** 2 * _K_min + np.sin(_pa_rad) ** 2 * _K_maj
+        gauss_b_orig = 0.5 * np.sin(2 * _pa_rad) * (_K_maj - _K_min)
+        gauss_c_orig = np.sin(_pa_rad) ** 2 * _K_min + np.cos(_pa_rad) ** 2 * _K_maj
 
     # ===========================================================================
     # TIME LOOP: Iterate over time steps, updating source positions each step
@@ -207,6 +238,16 @@ def calculate_visibility(
         source_stokes_U_t = source_stokes_U_orig[above_horizon]
         source_stokes_V_t = source_stokes_V_orig[above_horizon]
         source_spectral_indices_t = source_spectral_indices_orig[above_horizon]
+        source_rm_t = source_rm_orig[above_horizon]
+        source_spectral_coeffs_t = (
+            source_spectral_coeffs_orig[above_horizon]
+            if source_spectral_coeffs_orig is not None
+            else None
+        )
+        if has_gaussians:
+            gauss_a_t = gauss_a_orig[above_horizon]
+            gauss_b_t = gauss_b_orig[above_horizon]
+            gauss_c_t = gauss_c_orig[above_horizon]
 
         n_sources = len(az_rad_t)
 
@@ -221,19 +262,28 @@ def calculate_visibility(
         for freq_idx, (wavelength, freq) in enumerate(
             zip(wavelengths, freqs, strict=False)
         ):
-            # Scale source fluxes by spectral index
-            I_scaled = (
-                source_stokes_I_t * (freq / reference_freq) ** source_spectral_indices_t
+            # Scale source fluxes by spectral index (or log-polynomial)
+            from rrivis.core.sky.model import (
+                _apply_faraday_rotation,
+                _compute_spectral_scale,
             )
-            Q_scaled = (
-                source_stokes_Q_t * (freq / reference_freq) ** source_spectral_indices_t
+
+            scale = _compute_spectral_scale(
+                source_spectral_indices_t,
+                source_spectral_coeffs_t,
+                freq,
+                reference_freq,
             )
-            U_scaled = (
-                source_stokes_U_t * (freq / reference_freq) ** source_spectral_indices_t
+            I_scaled = source_stokes_I_t * scale
+            Q_scaled, U_scaled = _apply_faraday_rotation(
+                source_stokes_Q_t,
+                source_stokes_U_t,
+                source_rm_t,
+                freq,
+                reference_freq,
+                scale,
             )
-            V_scaled = (
-                source_stokes_V_t * (freq / reference_freq) ** source_spectral_indices_t
-            )
+            V_scaled = source_stokes_V_t * scale
 
             # Coherency matrices: (n_sources, 2, 2)
             coherency_matrices = stokes_to_coherency(
@@ -284,15 +334,26 @@ def calculate_visibility(
                 b_dot_s = u * l_np + v * m_np + w * (n_np - 1.0)
                 phase = np.exp(-2j * np.pi * b_dot_s)
 
+                # Gaussian envelope: scalar attenuation per source
+                if has_gaussians:
+                    envelope = np.exp(
+                        -(gauss_a_t * u**2 + 2 * gauss_b_t * u * v + gauss_c_t * v**2)
+                    )
+                else:
+                    envelope = 1.0
+
                 # Vectorized RIME: V = sum_s phase_s * J_p[s] @ C[s] @ J_q_H[s]
                 J_q_H = np.conj(np.swapaxes(J_q, -2, -1))
 
                 if is_unpolarized:
                     V_all = J_p @ J_q_H
-                    V_all = V_all * (I_scaled * phase / 2.0)[:, np.newaxis, np.newaxis]
+                    V_all = (
+                        V_all
+                        * (I_scaled * phase * envelope / 2.0)[:, np.newaxis, np.newaxis]
+                    )
                 else:
                     V_all = J_p @ coherency_matrices @ J_q_H
-                    V_all = V_all * phase[:, np.newaxis, np.newaxis]
+                    V_all = V_all * (phase * envelope)[:, np.newaxis, np.newaxis]
 
                 visibility_matrix = V_all.sum(axis=0)
                 visibilities_matrices[(ant1, ant2)][time_idx, freq_idx] = (

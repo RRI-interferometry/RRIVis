@@ -477,6 +477,30 @@ class PyRadioSkyConfig(BaseModel):
     )
 
 
+class BBSConfig(BaseModel):
+    """BBS/DP3/WSClean sky model file loader."""
+
+    use_bbs: bool = Field(
+        False, description="Load sky model from BBS/DP3/WSClean format file"
+    )
+    filename: str = Field(
+        "", description="Path to BBS sky model file (.skymodel, .txt)"
+    )
+    flux_limit: float = Field(
+        0.0, ge=0, description="Minimum Stokes I flux (in sky_model.flux_unit)"
+    )
+
+
+class FITSImageConfig(BaseModel):
+    """FITS image sky model loader (reprojected to HEALPix)."""
+
+    use_fits_image: bool = Field(
+        False, description="Load sky model from FITS image file"
+    )
+    filename: str = Field("", description="Path to FITS image file (.fits)")
+    nside: int = Field(128, description="HEALPix NSIDE for reprojection")
+
+
 class SkyRegionEntryConfig(BaseModel):
     """A single sky region filter (cone or box).
 
@@ -530,6 +554,8 @@ class SkyModelConfig(BaseModel):
     pysm3: PySM3Config = Field(default_factory=PySM3Config)
     # --- Local file loader ---
     pyradiosky: PyRadioSkyConfig = Field(default_factory=PyRadioSkyConfig)
+    bbs: BBSConfig = Field(default_factory=BBSConfig)
+    fits_image: FITSImageConfig = Field(default_factory=FITSImageConfig)
     # --- Flux unit for all flux values in this section ---
     flux_unit: Literal["Jy", "mJy", "uJy"] | None = Field(
         None,

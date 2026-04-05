@@ -177,6 +177,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 73.8,
         "coords_sexagesimal": True,
         "coord_frame": "icrs",
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
     "tgss": {
         "vizier_id": "J/A+A/598/A78",
@@ -204,6 +207,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 150.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": "Maj",
+        "minor_col": "Min",
+        "pa_col": "PA",
     },
     "wenss": {
         "vizier_id": "VIII/62",
@@ -233,6 +239,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 325.0,
         "coords_sexagesimal": True,
         "coord_frame": "icrs",
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
     "sumss": {
         "vizier_id": "VIII/81B",
@@ -262,6 +271,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 843.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": "dMajAxis",
+        "minor_col": "dMinAxis",
+        "pa_col": "dPA",
     },
     "nvss": {
         "vizier_id": "VIII/65",
@@ -290,6 +302,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 1400.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": "MajAxis",
+        "minor_col": "MinAxis",
+        "pa_col": "PA",
     },
     "vlass": {
         "vizier_id": "J/ApJS/255/30",
@@ -319,6 +334,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 3000.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": "DCMaj",
+        "minor_col": "DCMin",
+        "pa_col": "DCPA",
     },
     "lotss_dr1": {
         "vizier_id": "J/A+A/622/A1",
@@ -345,6 +363,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 144.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
     "lotss_dr2": {
         "vizier_id": "J/A+A/659/A1",
@@ -370,6 +391,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 144.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
     "3c": {
         "vizier_id": "VIII/1",
@@ -399,6 +423,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 178.0,
         "coords_sexagesimal": True,
         "coord_frame": "fk4",  # B1950 → converted to ICRS via .icrs
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
     # --- GLEAM family ---
     "gleam_egc": {
@@ -431,6 +458,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 200.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
     "gleam_x_dr1": {
         "vizier_id": "VIII/110/catalog",
@@ -459,6 +489,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 200.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
     "gleam_x_dr2": {
         "vizier_id": "VIII/113/catalog2",
@@ -487,6 +520,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 200.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
     "gleam_gal": {
         "vizier_id": "VIII/102/gleamgal",
@@ -515,6 +551,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 200.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
     # --- MALS family ---
     "mals_dr1": {
@@ -544,6 +583,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 1200.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
     "mals_dr2": {
         "vizier_id": "J/A+A/690/A163",
@@ -570,6 +612,9 @@ VIZIER_POINT_CATALOGS: dict[str, Any] = {
         "freq_mhz": 1284.0,
         "coords_sexagesimal": False,
         "coord_frame": "icrs",
+        "major_col": None,
+        "minor_col": None,
+        "pa_col": None,
     },
 }
 
