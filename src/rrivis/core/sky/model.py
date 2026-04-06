@@ -24,7 +24,6 @@ import numpy as np
 from astropy.coordinates import SkyCoord
 
 from .constants import BrightnessConversion
-from .spectral import apply_faraday_rotation, compute_spectral_scale
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -32,13 +31,6 @@ if TYPE_CHECKING:
     from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Backward-compatible aliases so that ``visibility.py`` (and any other
-# consumer) can keep importing from ``rrivis.core.sky.model``.
-# ---------------------------------------------------------------------------
-_compute_spectral_scale = compute_spectral_scale
-_apply_faraday_rotation = apply_faraday_rotation
 
 # =============================================================================
 # Mode Constants
@@ -412,11 +404,6 @@ class SkyModel:
                 self._healpix_v_maps.astype(hp_dt, copy=False),
             )
 
-    # Backward-compatible alias used by loaders that have not been updated yet.
-    def _ensure_dtypes(self) -> None:
-        """Backward-compatible alias for ``_ensure_dtypes_frozen()``."""
-        self._ensure_dtypes_frozen()
-
     # =========================================================================
     # Immutable Replace Helper
     # =========================================================================
@@ -721,31 +708,6 @@ class SkyModel:
     # =========================================================================
     # Helper Methods
     # =========================================================================
-
-    @staticmethod
-    def _parse_frequency_config(obs_frequency_config: dict[str, Any]) -> np.ndarray:
-        """Parse observation frequency configuration to array of frequencies in Hz.
-
-        Thin wrapper around ``rrivis.utils.frequency.parse_frequency_config``
-        for backward compatibility.
-
-        Parameters
-        ----------
-        obs_frequency_config : dict
-            Observation frequency configuration with keys:
-            - starting_frequency: float
-            - frequency_interval: float (channel width)
-            - frequency_bandwidth: float (total bandwidth)
-            - frequency_unit: str ("Hz", "kHz", "MHz", "GHz")
-
-        Returns
-        -------
-        frequencies : np.ndarray
-            Array of frequency channel centers in Hz.
-        """
-        from rrivis.utils.frequency import parse_frequency_config as _parse
-
-        return _parse(obs_frequency_config)
 
     @staticmethod
     def estimate_healpix_memory(
@@ -1158,123 +1120,6 @@ class SkyModel:
             result.append(d)
         return result
 
-    # Backward-compatible alias
-    def to_point_sources(
-        self, flux_limit: float = 0.0, frequency: float | None = None
-    ) -> list[dict[str, Any]]:
-        """Get sky model as point sources.
-
-        .. deprecated::
-            Use ``as_point_source_dicts()`` instead. This method is kept for
-            backward compatibility.
-
-        Parameters
-        ----------
-        flux_limit : float, default=0.0
-            Minimum flux in Jy to include.
-        frequency : float, optional
-            Frequency for T_b to Jy conversion.
-
-        Returns
-        -------
-        list of dict
-            Point sources with coords, flux, spectral_index, stokes.
-        """
-        return self.as_point_source_dicts(flux_limit=flux_limit, frequency=frequency)
-
-    # Backward-compatible stub
-    def to_healpix(
-        self, nside: int = 64, frequency: float | None = None
-    ) -> tuple[np.ndarray, int, np.ndarray | None]:
-        """
-        .. deprecated::
-            Single-frequency HEALPix maps are no longer supported.
-            Use ``with_healpix_maps()`` for correct multi-frequency
-            conversion that preserves the native pygdsm spectral model.
-
-        Raises
-        ------
-        ValueError
-            Always. Redirect callers to the multi-frequency API.
-        """
-        raise ValueError(
-            "to_healpix() is no longer supported. "
-            "Use with_healpix_maps(nside, frequencies=...) for "
-            "correct multi-frequency conversion with proper spectral handling. "
-            "For diffuse models, use from_diffuse_sky(frequencies=...) directly."
-        )
-
-    # Backward-compatible stub
-    def to_healpix_for_observation(
-        self,
-        nside: int,
-        obs_frequency_config: dict[str, Any],
-        ref_frequency: float | None = None,
-    ) -> "SkyModel":
-        """Convert point sources to multi-frequency HEALPix maps.
-
-        .. deprecated::
-            Use ``with_healpix_maps()`` instead. This method is kept for
-            backward compatibility and returns a **new** ``SkyModel``
-            (it does **not** mutate ``self``).
-
-        Parameters
-        ----------
-        nside : int
-            HEALPix NSIDE parameter.
-        obs_frequency_config : dict
-            Observation frequency configuration.
-        ref_frequency : float, optional
-            Reference frequency in Hz.
-
-        Returns
-        -------
-        SkyModel
-            New instance with HEALPix maps populated.
-        """
-        return self.with_healpix_maps(
-            nside=nside,
-            obs_frequency_config=obs_frequency_config,
-            ref_frequency=ref_frequency,
-        )
-
-    # Backward-compatible stub
-    def get_for_visibility(
-        self,
-        representation: str,
-        nside: int = 64,
-        flux_limit: float = 0.0,
-        frequency: float | None = None,
-    ) -> "SkyModel":
-        """Ensure sky model is in the requested representation.
-
-        .. deprecated::
-            Use ``with_representation()`` instead. This method is kept for
-            backward compatibility and returns a **new** ``SkyModel``
-            (it does **not** mutate ``self``).
-
-        Parameters
-        ----------
-        representation : str
-            ``"point_sources"`` or ``"healpix_multifreq"``
-        nside : int, default=64
-            HEALPix NSIDE parameter.
-        flux_limit : float, default=0.0
-            Minimum flux for point_sources mode.
-        frequency : float, optional
-            Frequency for conversion.
-
-        Returns
-        -------
-        SkyModel
-        """
-        return self.with_representation(
-            representation=representation,
-            nside=nside,
-            flux_limit=flux_limit,
-            frequency=frequency,
-        )
-
     # =========================================================================
     # HEALPix Map Accessors (array-indexed)
     # =========================================================================
@@ -1307,21 +1152,6 @@ class SkyModel:
                 f"(diff: {freq_diff_mhz:.3f} MHz)"
             )
         return idx
-
-    # Backward-compatible alias
-    def _resolve_frequency(self, frequency: float) -> float:
-        """Resolve a frequency to the nearest available frequency.
-
-        .. deprecated::
-            Use ``_resolve_frequency_index()`` instead.
-
-        Returns
-        -------
-        float
-            The nearest available frequency in Hz.
-        """
-        idx = self._resolve_frequency_index(frequency)
-        return float(self._observation_frequencies[idx])
 
     def get_map_at_frequency(self, frequency: float) -> np.ndarray:
         """

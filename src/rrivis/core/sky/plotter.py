@@ -308,10 +308,8 @@ class SkyPlotter:
             return None, f"Stokes {stokes}"
 
         idx = self._resolve_frequency_index(frequency)
-        freqs = self._sky._observation_frequencies
-        freq_key = float(freqs[idx])
-        if freq_key in stokes_maps:
-            return stokes_maps[freq_key], f"Stokes {stokes}"
+        if idx < len(stokes_maps):
+            return stokes_maps[idx], f"Stokes {stokes}"
         return None, f"Stokes {stokes}"
 
     # =====================================================================
