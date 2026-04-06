@@ -217,6 +217,7 @@ def load_bbs(
     from .model import SkyModel
 
     columns, defaults = None, {}
+    ref_freq_from_header: float = 0.0
     sources: list[dict[str, Any]] = []
 
     with open(filename) as f:
@@ -230,6 +231,9 @@ def load_bbs(
                 low = line.lower()
                 if "= format" in low or low.startswith("format"):
                     columns, defaults = _parse_format_header(line)
+                    ref_freq_from_header = float(
+                        defaults.get("referencefrequency", "0")
+                    )
                     continue
                 if line.startswith("#"):
                     continue
@@ -385,11 +389,9 @@ def load_bbs(
         precision=precision,
     )
 
-    # Set reference frequency from file (use first source's ref_freq)
-    if sources:
-        _rf = float(_get("referencefrequency", "0")) if columns else 0.0
-        if _rf > 0:
-            sky.frequency = _rf
+    # Apply reference frequency from file header
+    if ref_freq_from_header > 0:
+        sky = sky.with_frequency(ref_freq_from_header)
 
     if region is not None:
         sky = sky.filter_region(region)

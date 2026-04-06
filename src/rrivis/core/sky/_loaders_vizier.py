@@ -380,7 +380,6 @@ def _load_from_vizier_catalog(
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
-    sky._ensure_dtypes()
     return sky
 
 
@@ -452,7 +451,7 @@ def load_mals(
         Minimum flux density in Jy. The catalog stores flux in mJy;
         unit conversion is handled internally by the generic loader.
     release : str, default="dr2"
-        Data release: "dr1", "dr2", or "dr3".
+        Data release: "dr1" or "dr2".
     precision : PrecisionConfig, optional
         Precision configuration for array dtypes. If None, uses float64.
 
@@ -463,9 +462,7 @@ def load_mals(
     """
     key = f"mals_{release.lower()}"
     if key not in VIZIER_POINT_CATALOGS:
-        raise ValueError(
-            f"Unknown MALS release '{release}'. Available: 'dr1', 'dr2', 'dr3'."
-        )
+        raise ValueError(f"Unknown MALS release '{release}'. Available: 'dr1', 'dr2'.")
     return _load_from_vizier_catalog(
         key, flux_limit, brightness_conversion, precision, region=region
     )
@@ -905,7 +902,6 @@ def load_racs(
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
-    sky._ensure_dtypes()
     return sky
 
 

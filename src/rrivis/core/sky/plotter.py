@@ -1,10 +1,17 @@
-# rrivis/core/sky/_plotting.py
-"""Sky model plotting mixin for SkyModel.
+# rrivis/core/sky/plotter.py
+"""Standalone plotting accessor for SkyModel.
 
 Provides matplotlib-based visualization methods for point-source catalogs
 and HEALPix diffuse maps. All public methods return a
 :class:`matplotlib.figure.Figure` and never call ``plt.show()``, following
 the convention established by the beam plotting module.
+
+Usage::
+
+    sky = SkyModel.from_gleam(...)
+    fig = sky.plot.source_positions()
+    fig = sky.plot.flux_histogram()
+    fig = sky.plot("auto")  # dispatcher via __call__
 """
 
 from __future__ import annotations
@@ -16,6 +23,8 @@ import numpy as np
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
+
+    from .model import SkyModel
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +73,11 @@ _COORD_LABELS = {
 }
 
 
-class _PlottingMixin:
-    """Mixin providing plotting methods for SkyModel."""
+class SkyPlotter:
+    """Plotting accessor for SkyModel. Access via ``sky_model.plot``."""
+
+    def __init__(self, sky_model: SkyModel) -> None:
+        self._sky = sky_model
 
     # -- helpers ----------------------------------------------------------
 
@@ -80,30 +92,30 @@ class _PlottingMixin:
             Frequency in Hz to include in the title.
         """
         parts: list[str] = []
-        if self.model_name:
-            parts.append(self.model_name.upper().replace("_", " "))
+        if self._sky.model_name:
+            parts.append(self._sky.model_name.upper().replace("_", " "))
         if frequency is not None:
             parts.append(_freq_label(frequency))
-        if self._healpix_nside is not None and self._healpix_maps is not None:
-            parts.append(f"nside={self._healpix_nside}")
+        if self._sky._healpix_nside is not None and self._sky._healpix_maps is not None:
+            parts.append(f"nside={self._sky._healpix_nside}")
         meta = " — ".join(parts) if parts else "Sky Model"
         return f"{meta} — {suffix}"
 
     def _validate_plot_mode(self, required: str) -> None:
         """Raise ValueError if the model lacks the required data."""
         if required == "point_sources":
-            if not self._has_point_sources():
+            if not self._sky._has_point_sources():
                 raise ValueError(
                     f"Plot requires point-source data, but this SkyModel "
-                    f"(model='{self.model_name}') has mode='{self.mode}'. "
-                    f"Load a point-source catalog or call to_point_sources() first."
+                    f"(model='{self._sky.model_name}') has mode='{self._sky.mode}'. "
+                    f"Load a point-source catalog or call as_point_source_dicts() first."
                 )
         elif required == "healpix":
-            if self._healpix_maps is None:
+            if self._sky._healpix_maps is None:
                 raise ValueError(
                     f"Plot requires HEALPix maps, but this SkyModel "
-                    f"(model='{self.model_name}') has mode='{self.mode}'. "
-                    f"Load a diffuse model or call to_healpix_for_observation() first."
+                    f"(model='{self._sky.model_name}') has mode='{self._sky.mode}'. "
+                    f"Load a diffuse model or call with_healpix_maps() first."
                 )
 
     def _resolve_plot_frequency(self, frequency: float | None) -> float:
@@ -113,7 +125,7 @@ class _PlottingMixin:
         ----------
         frequency : float or None
             Requested frequency in Hz.  If None, falls back to
-            ``self.frequency`` then the first key of ``_healpix_maps``.
+            ``self._sky.frequency`` then the first observation frequency.
 
         Returns
         -------
@@ -127,11 +139,38 @@ class _PlottingMixin:
         """
         if frequency is not None:
             return float(frequency)
-        if self.frequency is not None:
-            return float(self.frequency)
-        if self._healpix_maps:
-            return float(next(iter(self._healpix_maps)))
+        if self._sky.frequency is not None:
+            return float(self._sky.frequency)
+        if (
+            self._sky._observation_frequencies is not None
+            and len(self._sky._observation_frequencies) > 0
+        ):
+            return float(self._sky._observation_frequencies[0])
         raise ValueError("No frequency specified and none available in the model.")
+
+    def _resolve_frequency_index(self, frequency: float) -> int:
+        """Find the index of the nearest frequency in ``_observation_frequencies``.
+
+        Parameters
+        ----------
+        frequency : float
+            Frequency in Hz.
+
+        Returns
+        -------
+        int
+            Index into ``_observation_frequencies``.
+
+        Raises
+        ------
+        ValueError
+            If no observation frequencies are available.
+        """
+        freqs = self._sky._observation_frequencies
+        if freqs is None or len(freqs) == 0:
+            raise ValueError("No observation frequencies available.")
+        idx = int(np.argmin(np.abs(freqs - frequency)))
+        return idx
 
     def _get_color_data(self, color_by: str) -> tuple[np.ndarray, str]:
         """Return (values, colorbar_label) for a point-source color parameter.
@@ -148,11 +187,11 @@ class _PlottingMixin:
         label : str
         """
         mapping = {
-            "flux": (self._flux_ref, _COLORBAR_LABELS["flux"]),
-            "spectral_index": (self._alpha, _COLORBAR_LABELS["spectral_index"]),
-            "stokes_q": (self._stokes_q, _COLORBAR_LABELS["stokes_q"]),
-            "stokes_u": (self._stokes_u, _COLORBAR_LABELS["stokes_u"]),
-            "stokes_v": (self._stokes_v, _COLORBAR_LABELS["stokes_v"]),
+            "flux": (self._sky._flux_ref, _COLORBAR_LABELS["flux"]),
+            "spectral_index": (self._sky._alpha, _COLORBAR_LABELS["spectral_index"]),
+            "stokes_q": (self._sky._stokes_q, _COLORBAR_LABELS["stokes_q"]),
+            "stokes_u": (self._sky._stokes_u, _COLORBAR_LABELS["stokes_u"]),
+            "stokes_v": (self._sky._stokes_v, _COLORBAR_LABELS["stokes_v"]),
         }
         if color_by not in mapping:
             raise ValueError(
@@ -192,9 +231,9 @@ class _PlottingMixin:
         from healpy.rotator import Rotator
 
         rotator = Rotator(coord=["C", coord])
-        theta = np.pi / 2 - dec_rad  # Dec → colatitude
+        theta = np.pi / 2 - dec_rad  # Dec -> colatitude
         theta_rot, phi_rot = rotator(theta, ra_rad)
-        lat = np.pi / 2 - theta_rot  # colatitude → latitude
+        lat = np.pi / 2 - theta_rot  # colatitude -> latitude
         lon = phi_rot.copy()
         lon[lon > np.pi] -= 2 * np.pi
         return lon, lat
@@ -235,11 +274,51 @@ class _PlottingMixin:
         view_func = getattr(hp, func_name)
         view_func(map_data, coord=coord, rot=rot, **kwargs)
 
+    def _get_stokes_map(
+        self, stokes: str, frequency: float
+    ) -> tuple[np.ndarray | None, str]:
+        """Retrieve a single Stokes map and its label.
+
+        Parameters
+        ----------
+        stokes : str
+            ``"I"``, ``"Q"``, ``"U"``, or ``"V"``.
+        frequency : float
+            Frequency in Hz.
+
+        Returns
+        -------
+        map_data : np.ndarray or None
+        label : str
+        """
+        if stokes == "I":
+            return self._sky.get_map_at_frequency(frequency), "Stokes I"
+
+        maps_attr = {
+            "Q": self._sky._healpix_q_maps,
+            "U": self._sky._healpix_u_maps,
+            "V": self._sky._healpix_v_maps,
+        }
+        if stokes not in maps_attr:
+            raise ValueError(
+                f"Unknown stokes='{stokes}'. Choose from 'I', 'Q', 'U', 'V'."
+            )
+        stokes_maps = maps_attr[stokes]
+        if stokes_maps is None:
+            return None, f"Stokes {stokes}"
+
+        idx = self._resolve_frequency_index(frequency)
+        freqs = self._sky._observation_frequencies
+        freq_key = float(freqs[idx])
+        if freq_key in stokes_maps:
+            return stokes_maps[freq_key], f"Stokes {stokes}"
+        return None, f"Stokes {stokes}"
+
     # =====================================================================
     # Point-source plots
     # =====================================================================
 
-    def plot_source_positions(
+    def source_positions(
         self,
         color_by: str = "flux",
         cmap: str = "inferno",
@@ -298,7 +377,7 @@ class _PlottingMixin:
             values = np.log10(np.clip(values, 1e-6, None))
             cbar_label = _COLORBAR_LABELS["flux_log"]
 
-        lon, lat = self._rotate_coords(self._ra_rad, self._dec_rad, coord)
+        lon, lat = self._rotate_coords(self._sky._ra_rad, self._sky._dec_rad, coord)
 
         if projection == "cartesian":
             fig, ax = plt.subplots(figsize=figsize)
@@ -338,7 +417,7 @@ class _PlottingMixin:
         )
         return fig
 
-    def plot_flux_histogram(
+    def flux_histogram(
         self,
         n_bins: int = 50,
         log_scale: bool = True,
@@ -365,7 +444,7 @@ class _PlottingMixin:
         import matplotlib.pyplot as plt
 
         self._validate_plot_mode("point_sources")
-        flux = self._flux_ref
+        flux = self._sky._flux_ref
 
         fig, ax = plt.subplots(figsize=figsize)
 
@@ -412,7 +491,7 @@ class _PlottingMixin:
         )
         return fig
 
-    def plot_spectral_index(
+    def spectral_index(
         self,
         plot_type: str = "histogram",
         cmap: str = "RdBu_r",
@@ -453,7 +532,7 @@ class _PlottingMixin:
         import matplotlib.pyplot as plt
 
         self._validate_plot_mode("point_sources")
-        alpha_arr = self._alpha
+        alpha_arr = self._sky._alpha
 
         if plot_type == "histogram":
             figsize = figsize or (10, 6)
@@ -484,7 +563,7 @@ class _PlottingMixin:
                     f"Choose from: {sorted(_MPL_PROJECTIONS)}"
                 )
             figsize = figsize or (14, 7)
-            lon, lat = self._rotate_coords(self._ra_rad, self._dec_rad, coord)
+            lon, lat = self._rotate_coords(self._sky._ra_rad, self._sky._dec_rad, coord)
 
             # Symmetric colorbar centered on median
             median_alpha = np.median(alpha_arr)
@@ -550,50 +629,7 @@ class _PlottingMixin:
     # HEALPix plots
     # =====================================================================
 
-    def _get_stokes_map(
-        self, stokes: str, frequency: float
-    ) -> tuple[np.ndarray | None, str]:
-        """Retrieve a single Stokes map and its label.
-
-        Parameters
-        ----------
-        stokes : str
-            ``"I"``, ``"Q"``, ``"U"``, or ``"V"``.
-        frequency : float
-            Frequency in Hz.
-
-        Returns
-        -------
-        map_data : np.ndarray or None
-        label : str
-        """
-        if stokes == "I":
-            return self.get_map_at_frequency(frequency), "Stokes I"
-        maps_dict = {
-            "Q": self._healpix_q_maps,
-            "U": self._healpix_u_maps,
-            "V": self._healpix_v_maps,
-        }
-        if stokes not in maps_dict:
-            raise ValueError(
-                f"Unknown stokes='{stokes}'. Choose from 'I', 'Q', 'U', 'V'."
-            )
-        stokes_maps = maps_dict[stokes]
-        if stokes_maps is None:
-            return None, f"Stokes {stokes}"
-        freq_key = self._nearest_freq_key(stokes_maps, frequency)
-        return stokes_maps[freq_key], f"Stokes {stokes}"
-
-    @staticmethod
-    def _nearest_freq_key(
-        maps_dict: dict[float, np.ndarray], frequency: float
-    ) -> float:
-        """Find the nearest frequency key in a maps dict."""
-        keys = np.array(list(maps_dict.keys()))
-        idx = np.argmin(np.abs(keys - frequency))
-        return float(keys[idx])
-
-    def plot_healpix_map(
+    def healpix_map(
         self,
         frequency: float | None = None,
         stokes: str = "I",
@@ -684,7 +720,7 @@ class _PlottingMixin:
         plt.subplots_adjust(left=0.05, right=0.95, top=0.90, bottom=0.05)
         return fig
 
-    def plot_multifreq_grid(
+    def multifreq_grid(
         self,
         frequencies: list[float] | np.ndarray | None = None,
         max_panels: int = 12,
@@ -739,7 +775,7 @@ class _PlottingMixin:
         if frequencies is not None:
             freqs = np.asarray(frequencies, dtype=float)
         else:
-            all_freqs = self._observation_frequencies
+            all_freqs = self._sky._observation_frequencies
             if all_freqs is None or len(all_freqs) == 0:
                 raise ValueError("No observation frequencies available.")
             if len(all_freqs) <= max_panels:
@@ -821,7 +857,7 @@ class _PlottingMixin:
         plt.subplots_adjust(hspace=0.3, wspace=0.1)
         return fig
 
-    def plot_stokes(
+    def stokes(
         self,
         frequency: float | None = None,
         log_scale_I: bool = True,
@@ -869,8 +905,8 @@ class _PlottingMixin:
         stokes_params = ["I", "Q", "U", "V"]
         fig = plt.figure(figsize=figsize)
 
-        for i, stokes in enumerate(stokes_params):
-            map_data, stokes_label = self._get_stokes_map(stokes, freq)
+        for i, stokes_name in enumerate(stokes_params):
+            map_data, stokes_label = self._get_stokes_map(stokes_name, freq)
 
             if map_data is None:
                 # Gray panel with "No data" text
@@ -890,7 +926,7 @@ class _PlottingMixin:
                 ax.set_yticks([])
                 continue
 
-            is_quv = stokes in ("Q", "U", "V")
+            is_quv = stokes_name in ("Q", "U", "V")
             if is_quv:
                 max_abs = np.nanmax(np.abs(map_data))
                 plot_data = map_data
@@ -942,7 +978,7 @@ class _PlottingMixin:
     # Dispatcher
     # =====================================================================
 
-    def plot(
+    def __call__(
         self,
         plot_type: str = "auto",
         **kwargs,
@@ -955,12 +991,12 @@ class _PlottingMixin:
             Plot type.  ``"auto"`` dispatches based on the model's current
             mode.  Other options:
 
-            - ``"sources"`` / ``"source_positions"`` — Mollweide scatter
-            - ``"flux"`` / ``"flux_histogram"`` — flux histogram
-            - ``"alpha"`` / ``"spectral_index"`` — spectral index plot
-            - ``"map"`` / ``"healpix"`` — single HEALPix Mollweide
-            - ``"grid"`` / ``"multifreq"`` — multi-frequency grid
-            - ``"stokes"`` — Stokes IQUV 2x2 grid
+            - ``"sources"`` / ``"source_positions"`` -- Mollweide scatter
+            - ``"flux"`` / ``"flux_histogram"`` -- flux histogram
+            - ``"alpha"`` / ``"spectral_index"`` -- spectral index plot
+            - ``"map"`` / ``"healpix"`` -- single HEALPix Mollweide
+            - ``"grid"`` / ``"multifreq"`` -- multi-frequency grid
+            - ``"stokes"`` -- Stokes IQUV 2x2 grid
 
         **kwargs
             Passed through to the underlying plot method.
@@ -970,23 +1006,23 @@ class _PlottingMixin:
         matplotlib.figure.Figure
         """
         _dispatch = {
-            "sources": self.plot_source_positions,
-            "source_positions": self.plot_source_positions,
-            "flux": self.plot_flux_histogram,
-            "flux_histogram": self.plot_flux_histogram,
-            "alpha": self.plot_spectral_index,
-            "spectral_index": self.plot_spectral_index,
-            "map": self.plot_healpix_map,
-            "healpix": self.plot_healpix_map,
-            "grid": self.plot_multifreq_grid,
-            "multifreq": self.plot_multifreq_grid,
-            "stokes": self.plot_stokes,
+            "sources": self.source_positions,
+            "source_positions": self.source_positions,
+            "flux": self.flux_histogram,
+            "flux_histogram": self.flux_histogram,
+            "alpha": self.spectral_index,
+            "spectral_index": self.spectral_index,
+            "map": self.healpix_map,
+            "healpix": self.healpix_map,
+            "grid": self.multifreq_grid,
+            "multifreq": self.multifreq_grid,
+            "stokes": self.stokes,
         }
 
         if plot_type == "auto":
-            if self.mode == "healpix_multifreq":
-                return self.plot_healpix_map(**kwargs)
-            return self.plot_source_positions(**kwargs)
+            if self._sky.mode == "healpix_multifreq":
+                return self.healpix_map(**kwargs)
+            return self.source_positions(**kwargs)
 
         if plot_type not in _dispatch:
             raise ValueError(

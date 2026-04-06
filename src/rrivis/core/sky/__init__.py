@@ -12,14 +12,24 @@ from .constants import (
     C_LIGHT,
     H_PLANCK,
     K_BOLTZMANN,
+    BrightnessConversion,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
 )
-from .model import SkyModel
+from .model import (
+    MODE_HEALPIX,
+    MODE_POINT_SOURCES,
+    NATIVE_HEALPIX,
+    NATIVE_POINT_SOURCES,
+    SkyModel,
+)
+from .plotter import SkyPlotter
 from .region import BoxRegion, ConeRegion, SkyRegion, UnionRegion
+from .spectral import apply_faraday_rotation, compute_spectral_scale
 
 __all__ = [
     "SkyModel",
+    "SkyPlotter",
     "SkyRegion",
     "ConeRegion",
     "BoxRegion",
@@ -27,9 +37,16 @@ __all__ = [
     "K_BOLTZMANN",
     "C_LIGHT",
     "H_PLANCK",
+    "BrightnessConversion",
     "brightness_temp_to_flux_density",
     "flux_density_to_brightness_temp",
     "register_loader",
     "get_loader",
     "list_loaders",
+    "compute_spectral_scale",
+    "apply_faraday_rotation",
+    "MODE_POINT_SOURCES",
+    "MODE_HEALPIX",
+    "NATIVE_POINT_SOURCES",
+    "NATIVE_HEALPIX",
 ]

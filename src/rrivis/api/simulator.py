@@ -623,7 +623,7 @@ class Simulator:
                 precision=_precision,
             )
             obs_freq_config = self.config.get("obs_frequency", {})
-            sky.to_healpix_for_observation(
+            sky = sky.with_healpix_maps(
                 nside=hp_nside,
                 obs_frequency_config=obs_freq_config,
             )
@@ -894,14 +894,14 @@ class Simulator:
                 precision=_precision,
             )
 
-        # Ensure sky model is in requested representation
-        self._sky_model.frequency = frequency
-        self._sky_model.get_for_visibility(
+        # Ensure sky model is in requested representation (immutable chain)
+        self._sky_model = self._sky_model.with_frequency(frequency)
+        self._sky_model = self._sky_model.with_representation(
             representation=sky_representation, nside=nside, frequency=frequency
         )
 
         # Get point sources for RIME calculator (needed even in healpix mode for some calculations)
-        self._sources = self._sky_model.to_point_sources(frequency=frequency)
+        self._sources = self._sky_model.as_point_source_dicts(frequency=frequency)
 
         # Store the sky representation for use in run()
         self._sky_representation = sky_representation

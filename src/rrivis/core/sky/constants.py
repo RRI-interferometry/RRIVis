@@ -1,7 +1,17 @@
 # rrivis/core/sky/constants.py
 """Physical constants and unit-conversion helpers for sky models."""
 
+from __future__ import annotations
+
+from typing import Literal
+
 import numpy as np
+
+# =============================================================================
+# Type Aliases
+# =============================================================================
+
+BrightnessConversion = Literal["planck", "rayleigh-jeans"]
 
 # =============================================================================
 # Physical Constants

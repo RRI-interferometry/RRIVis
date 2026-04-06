@@ -5,6 +5,7 @@ network connectivity detection, and other helper functions.
 """
 
 from rrivis.utils.device import DeviceResources, get_device_resources
+from rrivis.utils.frequency import parse_frequency_config
 from rrivis.utils.logging import get_logger, setup_logging
 from rrivis.utils.network import (
     NetworkStatus,
@@ -24,4 +25,5 @@ __all__ = [
     "check_all_services",
     "DeviceResources",
     "get_device_resources",
+    "parse_frequency_config",
 ]

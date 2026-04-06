@@ -296,13 +296,12 @@ def load_fits_image(
 
     obs_freqs = np.sort(np.array(list(i_maps.keys())))
 
-    sky = SkyModel(
-        _healpix_maps=i_maps,
-        _healpix_q_maps=q_maps if q_maps else None,
-        _healpix_u_maps=u_maps if u_maps else None,
-        _healpix_v_maps=v_maps if v_maps else None,
-        _healpix_nside=nside,
-        _observation_frequencies=obs_freqs,
+    sky = SkyModel._from_freq_dict_maps(
+        i_maps,
+        q_maps if q_maps else None,
+        u_maps if u_maps else None,
+        v_maps if v_maps else None,
+        nside,
         _native_format="healpix",
         frequency=float(obs_freqs[0]),
         model_name=f"fits:{filename.split('/')[-1]}",

@@ -13,6 +13,8 @@ import healpy as hp
 import numpy as np
 from healpy.rotator import Rotator
 
+from rrivis.utils.frequency import parse_frequency_config
+
 from ._registry import register_loader
 from .catalogs import DIFFUSE_MODELS
 
@@ -74,9 +76,15 @@ def _generate_diffuse_map(
     tuple[float, np.ndarray]
         ``(frequency_hz, brightness_temperature_map)`` as float32.
     """
-    if not hasattr(_thread_local, "instance") or _thread_local.cls is not model_class:
+    kwargs_key = tuple(sorted(init_kwargs.items()))
+    if (
+        not hasattr(_thread_local, "kwargs_key")
+        or _thread_local.kwargs_key != kwargs_key
+        or _thread_local.cls is not model_class
+    ):
         _thread_local.instance = model_class(**init_kwargs)
         _thread_local.cls = model_class
+        _thread_local.kwargs_key = kwargs_key
     temp_map = _thread_local.instance.generate(freq)
     if hp.get_nside(temp_map) != nside:
         temp_map = hp.ud_grade(temp_map, nside_out=nside)
@@ -369,7 +377,7 @@ def load_diffuse_sky(
         )
 
     if frequencies is None:
-        frequencies = SkyModel._parse_frequency_config(obs_frequency_config)
+        frequencies = parse_frequency_config(obs_frequency_config)
     frequencies = np.asarray(frequencies, dtype=np.float64)
 
     info = DIFFUSE_MODELS[model]
@@ -450,10 +458,12 @@ def load_diffuse_sky(
         f"{model.upper()} loaded: {hp.nside2npix(nside)} pixels \u00d7 {n_freq} frequencies"
     )
 
-    result = SkyModel(
-        _healpix_maps=healpix_maps,
-        _healpix_nside=nside,
-        _observation_frequencies=frequencies,
+    result = SkyModel._from_freq_dict_maps(
+        healpix_maps,
+        None,
+        None,
+        None,
+        nside,
         _native_format="healpix",
         frequency=float(frequencies[0]),
         model_name=model,
@@ -461,7 +471,6 @@ def load_diffuse_sky(
         _precision=precision,
         _pygdsm_instance=pygdsm_instance if retain_pygdsm_instance else None,
     )
-    result._ensure_dtypes()
     return result
 
 
@@ -579,7 +588,7 @@ def load_pysm3(
         )
 
     if frequencies is None:
-        frequencies = SkyModel._parse_frequency_config(obs_frequency_config)
+        frequencies = parse_frequency_config(obs_frequency_config)
     frequencies = np.asarray(frequencies, dtype=np.float64)
 
     if include_polarization:
@@ -693,17 +702,16 @@ def load_pysm3(
         f"{', stokes=IQU' if include_polarization else ''}"
     )
 
-    sky = SkyModel(
-        _healpix_maps=healpix_maps,
-        _healpix_q_maps=healpix_q_maps,
-        _healpix_u_maps=healpix_u_maps,
-        _healpix_nside=nside,
-        _observation_frequencies=frequencies,
+    sky = SkyModel._from_freq_dict_maps(
+        healpix_maps,
+        healpix_q_maps,
+        healpix_u_maps,
+        None,
+        nside,
         _native_format="healpix",
         frequency=float(frequencies[0]),
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
-    sky._ensure_dtypes()
     return sky

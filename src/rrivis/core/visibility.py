@@ -263,19 +263,19 @@ def calculate_visibility(
             zip(wavelengths, freqs, strict=False)
         ):
             # Scale source fluxes by spectral index (or log-polynomial)
-            from rrivis.core.sky.model import (
-                _apply_faraday_rotation,
-                _compute_spectral_scale,
+            from rrivis.core.sky.spectral import (
+                apply_faraday_rotation,
+                compute_spectral_scale,
             )
 
-            scale = _compute_spectral_scale(
+            scale = compute_spectral_scale(
                 source_spectral_indices_t,
                 source_spectral_coeffs_t,
                 freq,
                 reference_freq,
             )
             I_scaled = source_stokes_I_t * scale
-            Q_scaled, U_scaled = _apply_faraday_rotation(
+            Q_scaled, U_scaled = apply_faraday_rotation(
                 source_stokes_Q_t,
                 source_stokes_U_t,
                 source_rm_t,

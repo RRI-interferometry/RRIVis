@@ -13,6 +13,8 @@ import numpy as np
 from healpy.rotator import Rotator
 from pyradiosky import SkyModel as PyRadioSkyModel
 
+from rrivis.utils.frequency import parse_frequency_config
+
 from ._registry import register_loader
 
 if TYPE_CHECKING:
@@ -210,9 +212,9 @@ def load_pyradiosky_file(
     logger.info(f"pyradiosky file loaded: {n:,} sources from {filename}")
 
     if n == 0:
-        empty = SkyModel._empty_sky(model_name, brightness_conversion, precision)
-        empty.frequency = ref_freq_hz
-        return empty
+        return SkyModel._empty_sky(
+            model_name, brightness_conversion, precision, frequency=ref_freq_hz
+        )
 
     sky_model = SkyModel(
         _ra_rad=ra_arr[valid],
@@ -228,7 +230,6 @@ def load_pyradiosky_file(
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
-    sky_model._ensure_dtypes()
     return sky_model
 
 
@@ -278,7 +279,7 @@ def _load_pyradiosky_healpix(
     if frequencies is not None:
         obs_freqs = np.asarray(frequencies, dtype=np.float64)
     elif obs_frequency_config is not None:
-        obs_freqs = SkyModel._parse_frequency_config(obs_frequency_config)
+        obs_freqs = parse_frequency_config(obs_frequency_config)
     elif (
         psky.spectral_type in ("full", "subband")
         and psky.freq_array is not None
@@ -413,18 +414,16 @@ def _load_pyradiosky_healpix(
         f"stokes={stokes_label}"
     )
 
-    sky_model = SkyModel(
-        _healpix_maps=healpix_maps,
-        _healpix_q_maps=healpix_q_maps,
-        _healpix_u_maps=healpix_u_maps,
-        _healpix_v_maps=healpix_v_maps,
-        _healpix_nside=nside,
-        _observation_frequencies=obs_freqs,
+    sky_model = SkyModel._from_freq_dict_maps(
+        healpix_maps,
+        healpix_q_maps,
+        healpix_u_maps,
+        healpix_v_maps,
+        nside,
         _native_format="healpix",
         frequency=float(obs_freqs[0]),
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
-    sky_model._ensure_dtypes()
     return sky_model

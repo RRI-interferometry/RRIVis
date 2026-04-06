@@ -300,7 +300,7 @@ def calculate_visibility_healpix(
     if sky_model.mode != "healpix_multifreq":
         raise ValueError(
             "sky_model must be in healpix_multifreq mode. "
-            "Call to_healpix_for_observation() first (for point-source catalogs) "
+            "Call with_healpix_maps() first (for point-source catalogs) "
             "or use from_diffuse_sky(frequencies=...) (for diffuse models)."
         )
 
