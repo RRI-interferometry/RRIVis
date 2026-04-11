@@ -17,7 +17,6 @@ import re
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from astropy.coordinates import SkyCoord
 
 from ._registry import register_loader
 
@@ -189,13 +188,20 @@ def _parse_format_header(line: str) -> tuple[list[str], dict[str, str]]:
 # ============================================================================
 
 
-@register_loader("bbs")
+@register_loader(
+    "bbs",
+    config_section="bbs",
+    use_flag="use_bbs",
+    requires_file=True,
+    network_service=None,
+)
 def load_bbs(
     filename: str,
     *,
     flux_limit: float = 0.0,
     region: SkyRegion | None = None,
     precision: PrecisionConfig | None = None,
+    brightness_conversion: str = "planck",
 ) -> Any:
     """Load a sky model from BBS/DP3/WSClean format.
 
@@ -213,12 +219,30 @@ def load_bbs(
         Spatial filter.
     precision : PrecisionConfig, optional
         Precision configuration.
+    brightness_conversion : str, default ``"planck"``
+        Brightness conversion method: ``"planck"`` or ``"rayleigh-jeans"``.
     """
     from .model import SkyModel
 
     columns, defaults = None, {}
     ref_freq_from_header: float = 0.0
-    sources: list[dict[str, Any]] = []
+
+    # Accumulate per-source arrays directly (avoids SkyCoord round-trip)
+    ra_deg_list: list[float] = []
+    dec_deg_list: list[float] = []
+    flux_list: list[float] = []
+    alpha_list: list[float] = []
+    sq_list: list[float] = []
+    su_list: list[float] = []
+    sv_list: list[float] = []
+    rm_list: list[float] = []
+    ref_freq_list: list[float] = []
+    major_list: list[float] = []
+    minor_list: list[float] = []
+    pa_list: list[float] = []
+    sp_coeffs_list: list[list[float]] = []
+    has_gaussian = False
+    has_spectral_coeffs = False
 
     with open(filename) as f:
         for line in f:
@@ -356,47 +380,112 @@ def load_bbs(
             if orientation == 0:
                 orientation = float(_get("positionangle", "0"))
 
-            src: dict[str, Any] = {
-                "coords": SkyCoord(ra=ra_deg, dec=dec_deg, unit="deg", frame="icrs"),
-                "flux": stokes_i,
-                "spectral_index": alpha,
-                "stokes_q": stokes_q,
-                "stokes_u": stokes_u,
-                "stokes_v": stokes_v,
-                "rotation_measure": rm,
-            }
+            src_ref_freq = float(
+                _get(
+                    "referencefrequency",
+                    str(ref_freq_from_header) if ref_freq_from_header > 0 else "0",
+                )
+            )
+
+            # Accumulate into parallel lists
+            ra_deg_list.append(ra_deg)
+            dec_deg_list.append(dec_deg)
+            flux_list.append(stokes_i)
+            alpha_list.append(alpha)
+            sq_list.append(stokes_q)
+            su_list.append(stokes_u)
+            sv_list.append(stokes_v)
+            rm_list.append(rm)
+            ref_freq_list.append(src_ref_freq)
+            major_list.append(major)
+            minor_list.append(minor)
+            pa_list.append(orientation)
 
             if major > 0:
-                src["major_arcsec"] = major
-                src["minor_arcsec"] = minor
-                src["pa_deg"] = orientation
+                has_gaussian = True
 
             if len(si_coeffs) > 1:
-                src["spectral_coeffs"] = si_coeffs
+                has_spectral_coeffs = True
+            sp_coeffs_list.append(si_coeffs)
 
-            sources.append(src)
-
-    if not sources:
+    n_parsed = len(flux_list)
+    if n_parsed == 0:
         logger.warning(f"No sources found in {filename}")
 
-    # Apply flux limit
-    if flux_limit > 0:
-        sources = [s for s in sources if s["flux"] >= flux_limit]
+    # Convert all accumulation lists to numpy arrays
+    ra_deg_arr = np.array(ra_deg_list, dtype=np.float64)
+    dec_deg_arr = np.array(dec_deg_list, dtype=np.float64)
+    flux_arr = np.array(flux_list, dtype=np.float64)
+    alpha_arr = np.array(alpha_list, dtype=np.float64)
+    sq_arr = np.array(sq_list, dtype=np.float64)
+    su_arr = np.array(su_list, dtype=np.float64)
+    sv_arr = np.array(sv_list, dtype=np.float64)
+    rm_arr = np.array(rm_list, dtype=np.float64)
+    ref_freq_arr = np.array(ref_freq_list, dtype=np.float64)
+    major_arr = np.array(major_list, dtype=np.float64)
+    minor_arr = np.array(minor_list, dtype=np.float64)
+    pa_arr = np.array(pa_list, dtype=np.float64)
 
-    sky = SkyModel.from_point_sources(
-        sources,
+    # Apply flux limit as a vectorized mask
+    if flux_limit > 0 and n_parsed > 0:
+        mask = flux_arr >= flux_limit
+        ra_deg_arr = ra_deg_arr[mask]
+        dec_deg_arr = dec_deg_arr[mask]
+        flux_arr = flux_arr[mask]
+        alpha_arr = alpha_arr[mask]
+        sq_arr = sq_arr[mask]
+        su_arr = su_arr[mask]
+        sv_arr = sv_arr[mask]
+        rm_arr = rm_arr[mask]
+        ref_freq_arr = ref_freq_arr[mask]
+        major_arr = major_arr[mask]
+        minor_arr = minor_arr[mask]
+        pa_arr = pa_arr[mask]
+        sp_coeffs_list = [sp_coeffs_list[i] for i in np.flatnonzero(mask)]
+
+    # Build optional array fields (set to None if all zeros / not needed)
+    rm_arr = rm_arr if np.any(rm_arr != 0) else None
+    ref_freq_arr = ref_freq_arr if np.any(ref_freq_arr > 0) else None
+    major_arr = major_arr if has_gaussian else None
+    minor_arr = minor_arr if has_gaussian else None
+    pa_arr = pa_arr if has_gaussian else None
+
+    sp_coeffs_arr = None
+    if has_spectral_coeffs and sp_coeffs_list:
+        max_terms = max(len(c) for c in sp_coeffs_list)
+        if max_terms > 0:
+            n = len(sp_coeffs_list)
+            sp_coeffs_arr = np.zeros((n, max_terms), dtype=np.float64)
+            for i, coeffs in enumerate(sp_coeffs_list):
+                sp_coeffs_arr[i, : len(coeffs)] = coeffs
+
+    sky = SkyModel.from_arrays(
+        ra_rad=np.deg2rad(ra_deg_arr),
+        dec_rad=np.deg2rad(dec_deg_arr),
+        flux=flux_arr,
+        spectral_index=alpha_arr,
+        stokes_q=sq_arr,
+        stokes_u=su_arr,
+        stokes_v=sv_arr,
+        rotation_measure=rm_arr,
+        major_arcsec=major_arr,
+        minor_arcsec=minor_arr,
+        pa_deg=pa_arr,
+        spectral_coeffs=sp_coeffs_arr,
+        ref_freq=ref_freq_arr,
         model_name=f"bbs:{filename.split('/')[-1]}",
+        brightness_conversion=brightness_conversion,
         precision=precision,
     )
 
     # Apply reference frequency from file header
     if ref_freq_from_header > 0:
-        sky = sky.with_frequency(ref_freq_from_header)
+        sky = sky.with_reference_frequency(ref_freq_from_header)
 
     if region is not None:
         sky = sky.filter_region(region)
 
-    logger.info(f"Loaded {sky.n_sources} sources from BBS file {filename}")
+    logger.info(f"Loaded {sky.n_point_sources} sources from BBS file {filename}")
     return sky
 
 
@@ -415,24 +504,24 @@ def write_bbs(
     filename : str
         Output file path (typically ``*.skymodel``).
     reference_frequency_hz : float, optional
-        Override reference frequency. Defaults to ``sky_model.frequency``.
+        Override reference frequency. Defaults to ``sky_model.reference_frequency``.
     """
-    if sky_model._ra_rad is None or len(sky_model._ra_rad) == 0:
+    if sky_model.ra_rad is None or len(sky_model.ra_rad) == 0:
         raise ValueError("Cannot write an empty SkyModel to BBS format.")
 
-    ref_freq = reference_frequency_hz or sky_model.frequency or 1e8
-    n = len(sky_model._ra_rad)
+    ref_freq = reference_frequency_hz or sky_model.reference_frequency or 1e8
+    n = len(sky_model.ra_rad)
     prefix = sky_model.model_name or "src"
 
-    has_rm = sky_model._rotation_measure is not None and np.any(
-        sky_model._rotation_measure != 0
+    has_rm = sky_model.rotation_measure is not None and np.any(
+        sky_model.rotation_measure != 0
     )
-    has_gauss = sky_model._major_arcsec is not None and np.any(
-        sky_model._major_arcsec > 0
+    has_gauss = sky_model.major_arcsec is not None and np.any(
+        sky_model.major_arcsec > 0
     )
-    has_pol = (
-        sky_model._stokes_q is not None and np.any(sky_model._stokes_q != 0)
-    ) or (sky_model._stokes_u is not None and np.any(sky_model._stokes_u != 0))
+    has_pol = (sky_model.stokes_q is not None and np.any(sky_model.stokes_q != 0)) or (
+        sky_model.stokes_u is not None and np.any(sky_model.stokes_u != 0)
+    )
 
     # Build format header
     cols = ["Name", "Type", "Ra", "Dec", "I"]
@@ -455,47 +544,47 @@ def write_bbs(
     with open(filename, "w") as f:
         f.write(header)
 
-        ra_deg = np.rad2deg(sky_model._ra_rad)
-        dec_deg = np.rad2deg(sky_model._dec_rad)
+        ra_deg = np.rad2deg(sky_model.ra_rad)
+        dec_deg = np.rad2deg(sky_model.dec_rad)
 
         for i in range(n):
             name = f"{prefix}_{i}"
-            is_gauss = has_gauss and sky_model._major_arcsec[i] > 0
+            is_gauss = has_gauss and sky_model.major_arcsec[i] > 0
             src_type = "GAUSSIAN" if is_gauss else "POINT"
             ra_str = _format_ra_bbs(ra_deg[i])
             dec_str = _format_dec_bbs(dec_deg[i])
-            flux_i = sky_model._flux_ref[i]
+            flux_i = sky_model.flux[i]
 
             # Spectral index
-            if sky_model._spectral_coeffs is not None:
-                si_list = sky_model._spectral_coeffs[i].tolist()
+            if sky_model.spectral_coeffs is not None:
+                si_list = sky_model.spectral_coeffs[i].tolist()
                 # Trim trailing zeros
                 while len(si_list) > 1 and si_list[-1] == 0:
                     si_list.pop()
                 si_str = "[" + ",".join(f"{c}" for c in si_list) + "]"
             else:
-                si_str = f"[{sky_model._alpha[i]}]"
+                si_str = f"[{sky_model.spectral_index[i]}]"
 
             parts = [name, src_type, ra_str, dec_str, f"{flux_i}"]
 
             if has_pol:
-                q = sky_model._stokes_q[i] if sky_model._stokes_q is not None else 0.0
-                u = sky_model._stokes_u[i] if sky_model._stokes_u is not None else 0.0
-                v = sky_model._stokes_v[i] if sky_model._stokes_v is not None else 0.0
+                q = sky_model.stokes_q[i] if sky_model.stokes_q is not None else 0.0
+                u = sky_model.stokes_u[i] if sky_model.stokes_u is not None else 0.0
+                v = sky_model.stokes_v[i] if sky_model.stokes_v is not None else 0.0
                 parts.extend([f"{q}", f"{u}", f"{v}"])
 
             parts.extend(["", si_str, "true"])
 
             if has_gauss:
-                maj = sky_model._major_arcsec[i] if is_gauss else 0.0
-                mi = sky_model._minor_arcsec[i] if is_gauss else 0.0
-                pa = sky_model._pa_deg[i] if is_gauss else 0.0
+                maj = sky_model.major_arcsec[i] if is_gauss else 0.0
+                mi = sky_model.minor_arcsec[i] if is_gauss else 0.0
+                pa = sky_model.pa_deg[i] if is_gauss else 0.0
                 parts.extend([f"{maj}", f"{mi}", f"{pa}"])
 
             if has_rm:
                 rm_val = (
-                    sky_model._rotation_measure[i]
-                    if sky_model._rotation_measure is not None
+                    sky_model.rotation_measure[i]
+                    if sky_model.rotation_measure is not None
                     else 0.0
                 )
                 parts.append(f"{rm_val}")

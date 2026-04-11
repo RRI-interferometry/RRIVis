@@ -7,7 +7,17 @@ from . import _loaders_diffuse as _loaders_diffuse  # noqa: F401
 from . import _loaders_fits as _loaders_fits  # noqa: F401
 from . import _loaders_pyradiosky as _loaders_pyradiosky  # noqa: F401
 from . import _loaders_vizier as _loaders_vizier  # noqa: F401
-from ._registry import get_loader, list_loaders, register_loader
+from ._registry import (
+    build_alias_map,
+    build_loader_kwargs,
+    build_network_services_map,
+    build_sky_model_map,
+    get_loader,
+    get_loader_meta,
+    list_loaders,
+    register_loader,
+)
+from .catalogs import DiffuseModelEntry, RacsCatalogEntry, VizierCatalogEntry
 from .constants import (
     C_LIGHT,
     H_PLANCK,
@@ -15,13 +25,14 @@ from .constants import (
     BrightnessConversion,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
+    rayleigh_jeans_factor,
 )
+from .convert import bin_sources_to_flux
+from .discovery import estimate_healpix_memory, get_catalog_info, list_all_models
 from .model import (
-    MODE_HEALPIX,
-    MODE_POINT_SOURCES,
-    NATIVE_HEALPIX,
-    NATIVE_POINT_SOURCES,
+    SkyFormat,
     SkyModel,
+    SourceArrays,
 )
 from .plotter import SkyPlotter
 from .region import BoxRegion, ConeRegion, SkyRegion, UnionRegion
@@ -42,11 +53,22 @@ __all__ = [
     "flux_density_to_brightness_temp",
     "register_loader",
     "get_loader",
+    "get_loader_meta",
     "list_loaders",
+    "build_network_services_map",
+    "build_alias_map",
+    "build_loader_kwargs",
     "compute_spectral_scale",
     "apply_faraday_rotation",
-    "MODE_POINT_SOURCES",
-    "MODE_HEALPIX",
-    "NATIVE_POINT_SOURCES",
-    "NATIVE_HEALPIX",
+    "SkyFormat",
+    "SourceArrays",
+    "estimate_healpix_memory",
+    "list_all_models",
+    "get_catalog_info",
+    "build_sky_model_map",
+    "rayleigh_jeans_factor",
+    "bin_sources_to_flux",
+    "DiffuseModelEntry",
+    "VizierCatalogEntry",
+    "RacsCatalogEntry",
 ]

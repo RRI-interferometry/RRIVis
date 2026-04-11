@@ -4,9 +4,6 @@
 from __future__ import annotations
 
 import logging
-import os
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
 import healpy as hp
@@ -14,9 +11,11 @@ import numpy as np
 from healpy.rotator import Rotator
 
 from rrivis.utils.frequency import parse_frequency_config
+from rrivis.utils.network import require_service
 
 from ._registry import register_loader
 from .catalogs import DIFFUSE_MODELS
+from .model import SkyFormat
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -24,9 +23,6 @@ if TYPE_CHECKING:
     from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
-
-# Thread-local storage for per-thread pygdsm instances (thread safety).
-_thread_local = threading.local()
 
 
 def _resolve_model_class(class_path: str) -> type:
@@ -49,144 +45,6 @@ def _resolve_model_class(class_path: str) -> type:
     return getattr(module, class_name)
 
 
-def _generate_diffuse_map(
-    freq: float,
-    model_class: type,
-    init_kwargs: dict,
-    nside: int,
-) -> tuple[float, np.ndarray]:
-    """Generate a single diffuse sky map at *freq* Hz.
-
-    Each thread gets its own pygdsm model instance via thread-local
-    storage, avoiding concurrent access to mutable internal state.
-
-    Parameters
-    ----------
-    freq : float
-        Frequency in Hz.
-    model_class : type
-        pygdsm model class (e.g. ``GlobalSkyModel``).
-    init_kwargs : dict
-        Constructor kwargs for the model class.
-    nside : int
-        Target HEALPix NSIDE.
-
-    Returns
-    -------
-    tuple[float, np.ndarray]
-        ``(frequency_hz, brightness_temperature_map)`` as float32.
-    """
-    kwargs_key = tuple(sorted(init_kwargs.items()))
-    if (
-        not hasattr(_thread_local, "kwargs_key")
-        or _thread_local.kwargs_key != kwargs_key
-        or _thread_local.cls is not model_class
-    ):
-        _thread_local.instance = model_class(**init_kwargs)
-        _thread_local.cls = model_class
-        _thread_local.kwargs_key = kwargs_key
-    temp_map = _thread_local.instance.generate(freq)
-    if hp.get_nside(temp_map) != nside:
-        temp_map = hp.ud_grade(temp_map, nside_out=nside)
-    rot = Rotator(coord=["G", "C"])
-    temp_map = rot.rotate_map_pixel(temp_map)
-    return float(freq), temp_map.astype(np.float32)
-
-
-def _generate_pysm3_map(
-    freq: float,
-    nside: int,
-    components_list: list[str],
-    include_polarization: bool,
-) -> tuple[float, np.ndarray, np.ndarray | None, np.ndarray | None]:
-    """Generate a single PySM3 sky map at *freq* Hz.
-
-    Each call creates its own ``pysm3.Sky`` instance to avoid shared
-    mutable state across threads.
-
-    Parameters
-    ----------
-    freq : float
-        Frequency in Hz.
-    nside : int
-        Target HEALPix NSIDE.
-    components_list : list[str]
-        PySM3 preset strings (e.g. ``["s1", "d1"]``).
-    include_polarization : bool
-        If True, return I/Q/U maps; otherwise I only.
-
-    Returns
-    -------
-    tuple
-        ``(frequency_hz, I_map, Q_map_or_None, U_map_or_None)`` as
-        float32.
-    """
-    import pysm3
-    import pysm3.units as pysm3_u
-
-    sky = pysm3.Sky(nside=nside, preset_strings=components_list)
-    emission = sky.get_emission(freq * pysm3_u.Hz)
-    emission_krj = emission.to(
-        pysm3_u.K_RJ,
-        equivalencies=pysm3_u.cmb_equivalencies(freq * pysm3_u.Hz),
-    )
-    rot = Rotator(coord=["G", "C"])
-
-    if include_polarization and emission_krj.shape[0] >= 3:
-        i_map, q_map, u_map = (np.array(emission_krj[k]) for k in range(3))
-        current_nside = hp.get_nside(i_map)
-        if current_nside != nside:
-            i_map = hp.ud_grade(i_map, nside_out=nside)
-            q_map = hp.ud_grade(q_map, nside_out=nside)
-            u_map = hp.ud_grade(u_map, nside_out=nside)
-        iqu_rot = rot.rotate_map_alms(np.array([i_map, q_map, u_map]))
-        return (
-            float(freq),
-            iqu_rot[0].astype(np.float32),
-            iqu_rot[1].astype(np.float32),
-            iqu_rot[2].astype(np.float32),
-        )
-    else:
-        temp_map = np.array(emission_krj[0])
-        if hp.get_nside(temp_map) != nside:
-            temp_map = hp.ud_grade(temp_map, nside_out=nside)
-        temp_map = rot.rotate_map_pixel(temp_map)
-        return float(freq), temp_map.astype(np.float32), None, None
-
-
-def _check_data_service(service: str, model_name: str) -> None:
-    """Warn if the data service for a diffuse model is unreachable.
-
-    Unlike VizieR/CASDA loaders, pygdsm and PySM3 cache data locally
-    after the first download, so a network failure is not always fatal.
-    This check logs a warning instead of raising immediately -- the
-    actual init call will raise if the data truly isn't available.
-
-    Parameters
-    ----------
-    service : str
-        Service name (``"pygdsm_data"`` or ``"pysm3_data"``).
-    model_name : str
-        Human-readable model name for the warning message.
-    """
-    from rrivis.utils.network import SERVICE_DISPLAY_NAMES, check_service, is_online
-
-    display = SERVICE_DISPLAY_NAMES.get(service, service)
-
-    if not is_online():
-        logger.warning(
-            f"No internet connection. Loading {model_name} may fail if data "
-            f"files have not been downloaded previously."
-        )
-        return
-
-    if not check_service(service):
-        logger.warning(
-            f"{display} is unreachable. Loading {model_name} may fail if data "
-            f"files have not been cached locally from a previous run."
-        )
-
-
 # =========================================================================
 # Listing helpers (module-level functions)
 # =========================================================================
@@ -205,7 +63,7 @@ def list_diffuse_models() -> dict[str, str]:
     >>> for name, desc in list_diffuse_models().items():
     ...     print(f"{name}: {desc[:80]}...")
     """
-    return {name: info["description"] for name, info in DIFFUSE_MODELS.items()}
+    return {name: info.description for name, info in DIFFUSE_MODELS.items()}
 
 
 def get_diffuse_model_info(model_name: str) -> dict[str, Any]:
@@ -246,10 +104,10 @@ def get_diffuse_model_info(model_name: str) -> dict[str, Any]:
 
     info = DIFFUSE_MODELS[model_name]
     return {
-        "parameters": dict(info["init_kwargs"]),
-        "freq_range_hz": info["freq_range"],
-        "description": info["description"],
-        "class_name": info["class"].rsplit(".", 1)[-1],
+        "parameters": dict(info.init_kwargs),
+        "freq_range_hz": info.freq_range,
+        "description": info.description,
+        "class_name": info.class_path.rsplit(".", 1)[-1],
     }
 
 
@@ -258,7 +116,21 @@ def get_diffuse_model_info(model_name: str) -> dict[str, Any]:
 # =========================================================================
 
 
-@register_loader("diffuse_sky")
+@register_loader(
+    "diffuse_sky",
+    config_section="gsm_healpix",
+    use_flag="use_gsm",
+    is_healpix=True,
+    network_service="pygdsm_data",
+    aliases=["gsm", "gsm2008", "gsm2016", "lfsm", "haslam"],
+    config_fields={
+        "gsm_catalogue": "model",
+        "nside": "nside",
+        "include_cmb": "include_cmb",
+        "basemap": "basemap",
+        "interpolation": "interpolation",
+    },
+)
 def load_diffuse_sky(
     model: str = "gsm2008",
     nside: int = 32,
@@ -267,7 +139,6 @@ def load_diffuse_sky(
     include_cmb: bool | None = None,
     basemap: str | None = None,
     interpolation: str | None = None,
-    retain_pygdsm_instance: bool = False,
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
     region: SkyRegion | None = None,
@@ -307,18 +178,13 @@ def load_diffuse_sky(
         closer to the original paper but can overshoot).
         Raises ``ValueError`` if set for non-GSM2008 models.
         When None, uses the default from ``DIFFUSE_MODELS`` (``"pchip"``).
-    retain_pygdsm_instance : bool, default=False
-        If True, keep the pygdsm model object on the returned SkyModel
-        (accessible via the ``pygdsm_model`` property). This adds ~63 MB
-        of memory overhead for GSM2008. When False (default), the pygdsm
-        instance is discarded after map generation.
     brightness_conversion : str, default="planck"
         Conversion method for T_b -> Jy: "planck" (exact) or "rayleigh-jeans".
 
     Returns
     -------
     SkyModel
-        Sky model in healpix_multifreq mode with one T_b map per frequency.
+        Sky model in healpix_map mode with one T_b map per frequency.
 
     Raises
     ------
@@ -332,7 +198,7 @@ def load_diffuse_sky(
     >>> freqs = np.linspace(100e6, 120e6, 20)
     >>> sky = load_diffuse_sky(model="gsm2008", nside=32, frequencies=freqs)
     >>> sky.mode
-    'healpix_multifreq'
+    'healpix_map'
 
     >>> sky = load_diffuse_sky(
     ...     model="gsm2008",
@@ -381,16 +247,16 @@ def load_diffuse_sky(
     frequencies = np.asarray(frequencies, dtype=np.float64)
 
     info = DIFFUSE_MODELS[model]
-    model_class = _resolve_model_class(info["class"])
+    model_class = _resolve_model_class(info.class_path)
     n_freq = len(frequencies)
 
     logger.info(
         f"Loading {model.upper()}: {n_freq} frequencies "
         f"({frequencies[0] / 1e6:.1f}\u2013{frequencies[-1] / 1e6:.1f} MHz), nside={nside}"
     )
-    logger.info(f"Model info: {info['description']}")
+    logger.info(f"Model info: {info.description}")
 
-    init_kwargs = info["init_kwargs"].copy()
+    init_kwargs = dict(info.init_kwargs)
     if include_cmb is not None:
         init_kwargs["include_cmb"] = include_cmb
     if basemap is not None:
@@ -398,7 +264,7 @@ def load_diffuse_sky(
     if interpolation is not None:
         init_kwargs["interpolation"] = interpolation
 
-    _check_data_service("pygdsm_data", model.upper())
+    require_service("pygdsm_data", f"load {model.upper()}", strict=False)
 
     try:
         pygdsm_instance = model_class(**init_kwargs)
@@ -410,68 +276,80 @@ def load_diffuse_sky(
             "Zenodo (zenodo.org) is reachable."
         ) from e
 
-    healpix_maps: dict[float, np.ndarray] = {}
-    if n_freq <= 2:
-        # Sequential: avoid thread pool overhead for 1-2 frequencies
-        rot = Rotator(coord=["G", "C"])
-        for freq in frequencies:
-            temp_map = pygdsm_instance.generate(freq)
-            if hp.get_nside(temp_map) != nside:
-                temp_map = hp.ud_grade(temp_map, nside_out=nside)
-            temp_map = rot.rotate_map_pixel(temp_map)
-            healpix_maps[float(freq)] = temp_map.astype(np.float32)
-    else:
-        # Note: ThreadPoolExecutor provides limited parallelism here because
-        # pygdsm.generate() is CPU-bound (numpy operations) and the GIL prevents
-        # true parallel execution of Python threads. However, it still helps when
-        # I/O (disk cache reads) or memory allocation dominates.
-        # ProcessPoolExecutor would give real parallelism but pygdsm model
-        # instances are not picklable, hence the thread-local storage pattern.
-        n_workers = min(n_freq, os.cpu_count() or 4)
-        logger.info(f"Generating {n_freq} maps in parallel ({n_workers} workers)")
-        with ThreadPoolExecutor(max_workers=n_workers) as pool:
-            futures = [
-                pool.submit(
-                    _generate_diffuse_map,
-                    freq,
-                    model_class,
-                    init_kwargs,
-                    nside,
-                )
-                for freq in frequencies
-            ]
-            for future in as_completed(futures):
-                key, m = future.result()
-                healpix_maps[key] = m
+    npix = hp.nside2npix(nside)
+    i_arr = np.zeros((n_freq, npix), dtype=np.float32)
+    rot = Rotator(coord=["G", "C"])
+    for fi, freq in enumerate(frequencies):
+        temp_map = pygdsm_instance.generate(freq)
+        if hp.get_nside(temp_map) != nside:
+            temp_map = hp.ud_grade(temp_map, nside_out=nside)
+        temp_map = rot.rotate_map_pixel(temp_map)
+        i_arr[fi] = temp_map.astype(np.float32)
 
     # Apply region mask (zero out-of-region pixels)
     if region is not None:
         mask = region.healpix_mask(nside)
         n_retained = int(mask.sum())
-        for freq_key in healpix_maps:
-            healpix_maps[freq_key][~mask] = 0.0
-        logger.info(
-            f"Region mask applied: {n_retained}/{hp.nside2npix(nside)} pixels retained"
-        )
+        i_arr[:, ~mask] = 0.0
+        logger.info(f"Region mask applied: {n_retained}/{npix} pixels retained")
 
-    logger.info(
-        f"{model.upper()} loaded: {hp.nside2npix(nside)} pixels \u00d7 {n_freq} frequencies"
-    )
+    logger.info(f"{model.upper()} loaded: {npix} pixels \u00d7 {n_freq} frequencies")
 
-    result = SkyModel._from_freq_dict_maps(
-        healpix_maps,
-        None,
-        None,
-        None,
-        nside,
-        _native_format="healpix",
-        frequency=float(frequencies[0]),
+    return SkyModel(
+        _healpix_maps=i_arr,
+        _healpix_nside=nside,
+        _observation_frequencies=frequencies,
+        _native_format=SkyFormat.HEALPIX,
+        _active_mode=SkyFormat.HEALPIX,
         model_name=model,
         brightness_conversion=brightness_conversion,
         _precision=precision,
-        _pygdsm_instance=pygdsm_instance if retain_pygdsm_instance else None,
     )
-    return result
+
+
+def create_pygdsm_model(
+    model: str = "gsm2008",
+    include_cmb: bool | None = None,
+    basemap: str | None = None,
+    interpolation: str | None = None,
+) -> Any:
+    """Create a pygdsm model instance for standalone use.
+
+    Use this when you need direct access to pygdsm functionality
+    (e.g. ``generate()``, ``view()``, ``write_fits()``) without
+    going through SkyModel.
+
+    Parameters
+    ----------
+    model : str, default="gsm2008"
+        Model name: "gsm2008", "gsm2016", "lfsm", "haslam".
+    include_cmb : bool or None
+        Include CMB. None uses model default.
+    basemap : str or None
+        GSM2008-only basemap parameter.
+    interpolation : str or None
+        GSM2008-only interpolation parameter.
+
+    Returns
+    -------
+    object
+        A pygdsm model instance (e.g. GlobalSkyModel).
+    """
+    model = model.lower()
+    if model not in DIFFUSE_MODELS:
+        raise ValueError(
+            f"Unknown model '{model}'. Available: {list(DIFFUSE_MODELS.keys())}"
+        )
+    info = DIFFUSE_MODELS[model]
+    model_class = _resolve_model_class(info.class_path)
+    init_kwargs = dict(info.init_kwargs)
+    if include_cmb is not None:
+        init_kwargs["include_cmb"] = include_cmb
+    if basemap is not None:
+        init_kwargs["basemap"] = basemap
+    if interpolation is not None:
+        init_kwargs["interpolation"] = interpolation
+    return model_class(**init_kwargs)
 
 
 def create_gsm_observer(
@@ -523,7 +401,14 @@ def create_gsm_observer(
     return observer
 
 
-@register_loader("pysm3")
+@register_loader(
+    "pysm3",
+    config_section="pysm3",
+    use_flag="use_pysm3",
+    is_healpix=True,
+    network_service="pysm3_data",
+    config_fields={"components": "components", "nside": "nside"},
+)
 def load_pysm3(
     components: str | list[str] = "s1",
     nside: int = 64,
@@ -568,7 +453,7 @@ def load_pysm3(
     Returns
     -------
     SkyModel
-        Sky model in healpix_multifreq mode.
+        Sky model in healpix_map mode.
 
     Raises
     ------
@@ -612,7 +497,7 @@ def load_pysm3(
         f"nside={nside}, polarization={'IQUV' if include_polarization else 'I'}"
     )
 
-    _check_data_service("pysm3_data", f"PySM3 {components_list}")
+    require_service("pysm3_data", f"load PySM3 {components_list}", strict=False)
 
     try:
         pysm_sky = pysm3.Sky(nside=nside, preset_strings=components_list)
@@ -623,95 +508,66 @@ def load_pysm3(
             "first use. Check your network connection, or verify that "
             "NERSC portal (portal.nersc.gov) is reachable."
         ) from e
-    healpix_maps: dict[float, np.ndarray] = {}
-    healpix_q_maps: dict[float, np.ndarray] | None = (
-        {} if include_polarization else None
-    )
-    healpix_u_maps: dict[float, np.ndarray] | None = (
-        {} if include_polarization else None
-    )
+    npix = hp.nside2npix(nside)
+    i_arr = np.zeros((n_freq, npix), dtype=np.float32)
+    q_arr = np.zeros((n_freq, npix), dtype=np.float32) if include_polarization else None
+    u_arr = np.zeros((n_freq, npix), dtype=np.float32) if include_polarization else None
 
-    if n_freq <= 2:
-        # Sequential: avoid thread pool overhead for 1-2 frequencies
-        rot = Rotator(coord=["G", "C"])
-        for freq in frequencies:
-            emission = pysm_sky.get_emission(freq * pysm3_u.Hz)
-            emission_krj = emission.to(
-                pysm3_u.K_RJ,
-                equivalencies=pysm3_u.cmb_equivalencies(freq * pysm3_u.Hz),
-            )
+    rot = Rotator(coord=["G", "C"])
+    for fi, freq in enumerate(frequencies):
+        emission = pysm_sky.get_emission(freq * pysm3_u.Hz)
+        emission_krj = emission.to(
+            pysm3_u.K_RJ,
+            equivalencies=pysm3_u.cmb_equivalencies(freq * pysm3_u.Hz),
+        )
 
-            if include_polarization and emission_krj.shape[0] >= 3:
-                i_map = np.array(emission_krj[0])
-                q_map = np.array(emission_krj[1])
-                u_map = np.array(emission_krj[2])
-                current_nside = hp.get_nside(i_map)
-                if current_nside != nside:
-                    i_map = hp.ud_grade(i_map, nside_out=nside)
-                    q_map = hp.ud_grade(q_map, nside_out=nside)
-                    u_map = hp.ud_grade(u_map, nside_out=nside)
-                iqu_rot = rot.rotate_map_alms(np.array([i_map, q_map, u_map]))
-                healpix_maps[float(freq)] = iqu_rot[0].astype(np.float32)
-                healpix_q_maps[float(freq)] = iqu_rot[1].astype(np.float32)
-                healpix_u_maps[float(freq)] = iqu_rot[2].astype(np.float32)
-            else:
-                temp_map = np.array(emission_krj[0])
-                if hp.get_nside(temp_map) != nside:
-                    temp_map = hp.ud_grade(temp_map, nside_out=nside)
-                temp_map = rot.rotate_map_pixel(temp_map)
-                healpix_maps[float(freq)] = temp_map.astype(np.float32)
-    else:
-        # Cap PySM3 workers at 4 (heavy per-instance template loading)
-        n_workers = min(n_freq, os.cpu_count() or 4, 4)
-        logger.info(f"Generating {n_freq} PySM3 maps in parallel ({n_workers} workers)")
-        with ThreadPoolExecutor(max_workers=n_workers) as pool:
-            futures = [
-                pool.submit(
-                    _generate_pysm3_map,
-                    freq,
-                    nside,
-                    components_list,
-                    include_polarization,
-                )
-                for freq in frequencies
-            ]
-            for future in as_completed(futures):
-                key, i_map, q_map, u_map = future.result()
-                healpix_maps[key] = i_map
-                if include_polarization and q_map is not None:
-                    healpix_q_maps[key] = q_map
-                    healpix_u_maps[key] = u_map
+        if include_polarization and emission_krj.shape[0] >= 3:
+            i_map = np.array(emission_krj[0])
+            q_map = np.array(emission_krj[1])
+            u_map = np.array(emission_krj[2])
+            current_nside = hp.get_nside(i_map)
+            if current_nside != nside:
+                i_map = hp.ud_grade(i_map, nside_out=nside)
+                q_map = hp.ud_grade(q_map, nside_out=nside)
+                u_map = hp.ud_grade(u_map, nside_out=nside)
+            iqu_rot = rot.rotate_map_alms(np.array([i_map, q_map, u_map]))
+            i_arr[fi] = iqu_rot[0].astype(np.float32)
+            q_arr[fi] = iqu_rot[1].astype(np.float32)
+            u_arr[fi] = iqu_rot[2].astype(np.float32)
+        else:
+            temp_map = np.array(emission_krj[0])
+            if hp.get_nside(temp_map) != nside:
+                temp_map = hp.ud_grade(temp_map, nside_out=nside)
+            temp_map = rot.rotate_map_pixel(temp_map)
+            i_arr[fi] = temp_map.astype(np.float32)
 
     # Apply region mask (zero out-of-region pixels)
     if region is not None:
         mask = region.healpix_mask(nside)
         n_retained = int(mask.sum())
-        for freq_key in healpix_maps:
-            healpix_maps[freq_key][~mask] = 0.0
-        for maps in (healpix_q_maps, healpix_u_maps):
-            for freq_key in maps:
-                maps[freq_key][~mask] = 0.0
-        logger.info(
-            f"Region mask applied: {n_retained}/{hp.nside2npix(nside)} pixels retained"
-        )
+        i_arr[:, ~mask] = 0.0
+        if q_arr is not None:
+            q_arr[:, ~mask] = 0.0
+        if u_arr is not None:
+            u_arr[:, ~mask] = 0.0
+        logger.info(f"Region mask applied: {n_retained}/{npix} pixels retained")
 
     model_name = f"pysm3:{'+'.join(components_list)}"
     logger.info(
-        f"PySM3 {components_list} loaded: {hp.nside2npix(nside)} pixels "
+        f"PySM3 {components_list} loaded: {npix} pixels "
         f"\u00d7 {n_freq} frequencies"
         f"{', stokes=IQU' if include_polarization else ''}"
     )
 
-    sky = SkyModel._from_freq_dict_maps(
-        healpix_maps,
-        healpix_q_maps,
-        healpix_u_maps,
-        None,
-        nside,
-        _native_format="healpix",
-        frequency=float(frequencies[0]),
+    return SkyModel(
+        _healpix_maps=i_arr,
+        _healpix_q_maps=q_arr,
+        _healpix_u_maps=u_arr,
+        _healpix_nside=nside,
+        _observation_frequencies=frequencies,
+        _native_format=SkyFormat.HEALPIX,
+        _active_mode=SkyFormat.HEALPIX,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
-    return sky

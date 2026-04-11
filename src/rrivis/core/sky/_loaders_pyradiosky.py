@@ -16,6 +16,7 @@ from pyradiosky import SkyModel as PyRadioSkyModel
 from rrivis.utils.frequency import parse_frequency_config
 
 from ._registry import register_loader
+from .model import SkyFormat
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -25,7 +26,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@register_loader("pyradiosky_file")
+@register_loader(
+    "pyradiosky_file",
+    config_section="pyradiosky",
+    use_flag="use_pyradiosky",
+    requires_file=True,
+    network_service=None,
+)
 def load_pyradiosky_file(
     filename: str,
     filetype: str | None = None,
@@ -192,6 +199,16 @@ def load_pyradiosky_file(
         else:
             spectral_indices = np.zeros(sky.Ncomponents, dtype=np.float64)
 
+    # Build per-source reference frequency array
+    per_source_ref_freq = None
+    if sky.spectral_type == "spectral_index" and sky.reference_frequency is not None:
+        rf = sky.reference_frequency
+        per_source_ref_freq = (
+            rf.to_value(u.Hz).astype(np.float64)
+            if hasattr(rf, "to_value")
+            else np.asarray(rf, dtype=np.float64)
+        )
+
     ra_arr = np.array(
         sky.ra.rad if hasattr(sky.ra, "rad") else sky.ra, dtype=np.float64
     )
@@ -212,21 +229,29 @@ def load_pyradiosky_file(
     logger.info(f"pyradiosky file loaded: {n:,} sources from {filename}")
 
     if n == 0:
-        return SkyModel._empty_sky(
-            model_name, brightness_conversion, precision, frequency=ref_freq_hz
+        return SkyModel.empty_sky(
+            model_name,
+            brightness_conversion,
+            precision,
+            reference_frequency=ref_freq_hz,
         )
 
     sky_model = SkyModel(
         _ra_rad=ra_arr[valid],
         _dec_rad=dec_arr[valid],
-        _flux_ref=stokes_i_ref[valid],
-        _alpha=spectral_indices[valid],
+        _flux=stokes_i_ref[valid],
+        _spectral_index=spectral_indices[valid],
         _stokes_q=stokes_q[valid],
         _stokes_u=stokes_u[valid],
         _stokes_v=stokes_v[valid],
-        _native_format="point_sources",
+        _ref_freq=(
+            per_source_ref_freq[valid]
+            if per_source_ref_freq is not None
+            else np.full(n, ref_freq_hz, dtype=np.float64)
+        ),
+        _native_format=SkyFormat.POINT_SOURCES,
         model_name=model_name,
-        frequency=ref_freq_hz,
+        reference_frequency=ref_freq_hz,
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
@@ -266,7 +291,7 @@ def _load_pyradiosky_healpix(
     Returns
     -------
     SkyModel
-        Sky model in healpix_multifreq mode.
+        Sky model in healpix_map mode.
 
     Raises
     ------
@@ -358,51 +383,47 @@ def _load_pyradiosky_healpix(
                 full = hp.reorder(full, n2r=True)
         return full
 
-    healpix_maps: dict[float, np.ndarray] = {}
-    healpix_q_maps: dict[float, np.ndarray] | None = {} if has_pol else None
-    healpix_u_maps: dict[float, np.ndarray] | None = {} if has_pol else None
-    healpix_v_maps: dict[float, np.ndarray] | None = {} if n_stokes_avail >= 4 else None
+    i_arr = np.zeros((n_freq, npix), dtype=np.float32)
+    q_arr = np.zeros((n_freq, npix), dtype=np.float32) if has_pol else None
+    u_arr = np.zeros((n_freq, npix), dtype=np.float32) if has_pol else None
+    v_arr = np.zeros((n_freq, npix), dtype=np.float32) if n_stokes_avail >= 4 else None
 
-    for i_freq in range(n_freq):
-        i_map = _build_full_map(stokes_data[0, i_freq, :])
+    for fi in range(n_freq):
+        i_map = _build_full_map(stokes_data[0, fi, :])
 
         if has_pol:
-            q_map = _build_full_map(stokes_data[1, i_freq, :])
-            u_map = _build_full_map(stokes_data[2, i_freq, :])
+            q_map = _build_full_map(stokes_data[1, fi, :])
+            u_map = _build_full_map(stokes_data[2, fi, :])
 
             if rot is not None:
-                # Spin-2 aware rotation for IQU
                 iqu = np.array([i_map, q_map, u_map])
                 iqu_rot = rot.rotate_map_alms(iqu)
                 i_map = iqu_rot[0]
                 q_map = iqu_rot[1]
                 u_map = iqu_rot[2]
 
-            healpix_maps[float(obs_freqs[i_freq])] = i_map.astype(np.float32)
-            healpix_q_maps[float(obs_freqs[i_freq])] = q_map.astype(np.float32)
-            healpix_u_maps[float(obs_freqs[i_freq])] = u_map.astype(np.float32)
+            i_arr[fi] = i_map.astype(np.float32)
+            q_arr[fi] = q_map.astype(np.float32)
+            u_arr[fi] = u_map.astype(np.float32)
 
             if n_stokes_avail >= 4:
-                # V is spin-0 (pseudo-scalar), rotate with pixel method
-                v_map = _build_full_map(stokes_data[3, i_freq, :])
+                v_map = _build_full_map(stokes_data[3, fi, :])
                 if rot is not None:
                     v_map = rot.rotate_map_pixel(v_map)
-                healpix_v_maps[float(obs_freqs[i_freq])] = v_map.astype(np.float32)
+                v_arr[fi] = v_map.astype(np.float32)
         else:
-            # I-only: spin-0 rotation
             if rot is not None:
                 i_map = rot.rotate_map_pixel(i_map)
-            healpix_maps[float(obs_freqs[i_freq])] = i_map.astype(np.float32)
+            i_arr[fi] = i_map.astype(np.float32)
 
     # Apply region mask (zero out-of-region pixels)
     if region is not None:
         mask = region.healpix_mask(nside)
         n_retained = int(mask.sum())
-        for freq_key in healpix_maps:
-            healpix_maps[freq_key][~mask] = 0.0
-        for maps in (healpix_q_maps, healpix_u_maps, healpix_v_maps):
-            for freq_key in maps:
-                maps[freq_key][~mask] = 0.0
+        i_arr[:, ~mask] = 0.0
+        for arr in (q_arr, u_arr, v_arr):
+            if arr is not None:
+                arr[:, ~mask] = 0.0
         logger.info(f"Region mask applied: {n_retained}/{npix} pixels retained")
 
     model_name = f"pyradiosky:{os.path.basename(filename)}"
@@ -414,16 +435,16 @@ def _load_pyradiosky_healpix(
         f"stokes={stokes_label}"
     )
 
-    sky_model = SkyModel._from_freq_dict_maps(
-        healpix_maps,
-        healpix_q_maps,
-        healpix_u_maps,
-        healpix_v_maps,
-        nside,
-        _native_format="healpix",
-        frequency=float(obs_freqs[0]),
+    return SkyModel(
+        _healpix_maps=i_arr,
+        _healpix_q_maps=q_arr,
+        _healpix_u_maps=u_arr,
+        _healpix_v_maps=v_arr,
+        _healpix_nside=nside,
+        _observation_frequencies=obs_freqs,
+        _native_format=SkyFormat.HEALPIX,
+        _active_mode=SkyFormat.HEALPIX,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
-    return sky_model

@@ -128,7 +128,7 @@ from rrivis.backends import list_backends
 print(list_backends())  # {'numpy': True, 'jax': bool, 'numba': bool, ...}
 
 # Use GPU (10-50x faster for large simulations)
-sim = Simulator.from_config("config.yaml", backend="jax")
+sim = Simulator.from_config("config.yaml")
 results = sim.run()
 ```
 
@@ -276,7 +276,7 @@ sky_model:
   flux_unit: "Jy"               # required: Jy, mJy, or uJy
   gleam:
     use_gleam: true
-    gleam_variant: "gleam_egc"  # gleam_egc, gleam_x_dr1, gleam_x_dr2, ...
+    gleam_catalogue: "gleam_egc"  # gleam_egc, gleam_x_dr1, gleam_x_dr2, ...
     flux_limit: 1.0
 
 output:
@@ -372,19 +372,21 @@ rrivis/
 
 ### Point-Source Catalogs (via VizieR)
 
-| Method | Survey | Frequency |
-|--------|--------|-----------|
-| `from_gleam()` | GLEAM EGC, X-DR1/DR2, Galactic | 76-200 MHz |
-| `from_mals()` | MALS DR1/DR2/DR3 | 1.2-1.4 GHz |
-| `from_vlssr()` | VLSSr | 74 MHz |
-| `from_tgss()` | TGSS ADR1 | 150 MHz |
-| `from_wenss()` | WENSS | 325 MHz |
-| `from_sumss()` | SUMSS | 843 MHz |
-| `from_nvss()` | NVSS | 1.4 GHz |
-| `from_lotss()` | LoTSS DR1/DR2 | 144 MHz |
-| `from_3c()` | 3CR | 178 MHz |
-| `from_vlass()` | VLASS Quick Look Ep.1 | 3 GHz |
-| `from_racs()` | RACS Low/Mid/High (CASDA TAP) | 887-1655 MHz |
+| Loader Name | Survey | Frequency |
+|-------------|--------|-----------|
+| `"gleam"` | GLEAM EGC, X-DR1/DR2, Galactic | 76-200 MHz |
+| `"mals"` | MALS DR1/DR2 | 1.2-1.4 GHz |
+| `"vlssr"` | VLSSr | 74 MHz |
+| `"tgss"` | TGSS ADR1 | 150 MHz |
+| `"wenss"` | WENSS | 325 MHz |
+| `"sumss"` | SUMSS | 843 MHz |
+| `"nvss"` | NVSS | 1.4 GHz |
+| `"lotss"` | LoTSS DR1/DR2 | 144 MHz |
+| `"3c"` | 3CR | 178 MHz |
+| `"vlass"` | VLASS Quick Look Ep.1 | 3 GHz |
+| `"racs"` | RACS Low/Mid/High (CASDA TAP) | 887-1655 MHz |
+
+All loaded via `SkyModel.from_catalog(name, **kwargs)`.
 
 ```python
 from rrivis.core.sky.model import SkyModel
@@ -393,13 +395,13 @@ from rrivis.core.precision import PrecisionConfig
 precision = PrecisionConfig.standard()
 
 # Load GLEAM EGC catalog (sources > 1 Jy)
-sky = SkyModel.from_gleam(flux_limit=1.0, precision=precision)
+sky = SkyModel.from_catalog("gleam", flux_limit=1.0, precision=precision)
 
 # Load LoTSS DR2
-sky = SkyModel.from_lotss(release="dr2", flux_limit=0.001, precision=precision)
+sky = SkyModel.from_catalog("lotss", release="dr2", flux_limit=0.001, precision=precision)
 
 # Load RACS-Low via CASDA TAP
-sky = SkyModel.from_racs(band="low", flux_limit=1.0, precision=precision)
+sky = SkyModel.from_catalog("racs", band="low", flux_limit=1.0, precision=precision)
 
 # Combine multiple catalogs
 combined = SkyModel.combine([sky1, sky2], precision=precision)
@@ -413,40 +415,41 @@ import numpy as np
 frequencies = np.array([150e6, 160e6, 170e6])  # Hz
 
 # Global Sky Model 2008 (de Oliveira-Costa et al.)
-sky = SkyModel.from_diffuse_sky("gsm2008", frequencies=frequencies, nside=64)
+sky = SkyModel.from_catalog("diffuse_sky", model="gsm2008", frequencies=frequencies, nside=64)
 
 # Global Sky Model 2016 (Zheng et al.)
-sky = SkyModel.from_diffuse_sky("gsm2016", frequencies=frequencies, nside=64)
+sky = SkyModel.from_catalog("diffuse_sky", model="gsm2016", frequencies=frequencies, nside=64)
 
 # Low-Frequency Sky Model (10-408 MHz)
-sky = SkyModel.from_diffuse_sky("lfsm", frequencies=frequencies, nside=64)
+sky = SkyModel.from_catalog("diffuse_sky", model="lfsm", frequencies=frequencies, nside=64)
 
 # Haslam 408 MHz with spectral scaling
-sky = SkyModel.from_diffuse_sky("haslam", frequencies=frequencies, nside=64)
+sky = SkyModel.from_catalog("diffuse_sky", model="haslam", frequencies=frequencies, nside=64)
 
 # Planck Sky Model components (PySM3)
-sky = SkyModel.from_pysm3(components=["s1", "d1"], frequencies=frequencies, nside=64)
+sky = SkyModel.from_catalog("pysm3", components=["s1", "d1"], frequencies=frequencies, nside=64)
 
 # PySM3 component-based foreground model
-sky = SkyModel.from_pysm3(components=["s1", "f1"], frequencies=frequencies, nside=64)
+sky = SkyModel.from_catalog("pysm3", components=["s1", "f1"], frequencies=frequencies, nside=64)
 ```
 
 ### Custom Point Sources
 
 ```python
 from rrivis.core.sky.model import SkyModel
+from rrivis.core.precision import PrecisionConfig
 import numpy as np
 
-# Build from arrays directly
-sky = SkyModel()
-sky._ra_rad = np.array([0.0, 0.26])           # radians
-sky._dec_rad = np.array([-0.536, -0.536])     # radians
-sky._flux_ref = np.array([10.0, 5.0])         # Jy
-sky._alpha = np.array([-0.7, -0.8])           # spectral index
-sky._stokes_q = np.zeros(2)
-sky._stokes_u = np.zeros(2)
-sky._stokes_v = np.zeros(2)
-sky._native_format = "point_sources"
+precision = PrecisionConfig.standard()
+
+# Build from arrays directly (SkyModel is immutable)
+sky = SkyModel.from_arrays(
+    ra_rad=np.deg2rad([0.0, 15.0]),
+    dec_rad=np.deg2rad([-30.72, -30.72]),
+    flux_ref=np.array([10.0, 5.0]),          # Jy
+    alpha=np.array([-0.7, -0.8]),            # spectral index
+    precision=precision,
+)
 ```
 
 ## Beam Models
@@ -456,18 +459,12 @@ sky._native_format = "point_sources"
 ```yaml
 beams:
   beam_mode: "analytic"
-  all_beam_response: "gaussian"     # or "airy", "cosine", "exponential", "short_dipole"
-  cosine_taper_exponent: 1.0        # for cosine pattern
-  exponential_taper_dB: 10.0        # for exponential pattern
+  all_beam_response: "gaussian"
 ```
 
 | Pattern | Description | Best For |
 |---------|-------------|----------|
 | `gaussian` | Gaussian approximation, fast | Standard simulations |
-| `airy` | Exact Airy disk (Bessel function) | High-accuracy sidelobe studies |
-| `cosine` | Cosine-tapered (Cassegrain feeds) | Offset-fed reflectors |
-| `exponential` | Exponential taper | Feed horns |
-| `short_dipole` | Full 2x2 non-diagonal Jones (HERA/MWA) | Low-frequency arrays |
 
 ### FITS Beam Files
 

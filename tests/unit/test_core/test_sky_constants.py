@@ -9,6 +9,7 @@ from rrivis.core.sky.constants import (
     K_BOLTZMANN,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
+    rayleigh_jeans_factor,
 )
 
 # =============================================================================
@@ -301,3 +302,31 @@ class TestPhysicalConsistency:
         assert np.allclose(T_planck, T_rj, rtol=1e-4), (
             f"Planck and RJ temperatures disagree: Planck={T_planck}, RJ={T_rj}"
         )
+
+
+# =============================================================================
+# TestRayleighJeansFactor — rayleigh_jeans_factor helper
+# =============================================================================
+
+
+class TestRayleighJeansFactor:
+    def test_matches_inline_expression(self):
+        """rayleigh_jeans_factor() must match the inline RJ formula."""
+        freq = 150e6
+        omega = 4 * np.pi / 12288  # nside=32
+        expected = (2 * K_BOLTZMANN * freq**2 / C_LIGHT**2) * omega / 1e-26
+        assert rayleigh_jeans_factor(freq, omega) == pytest.approx(expected, rel=1e-14)
+
+    def test_scales_with_frequency_squared(self):
+        """Factor should scale as freq^2."""
+        omega = 1e-4
+        f1 = rayleigh_jeans_factor(100e6, omega)
+        f2 = rayleigh_jeans_factor(200e6, omega)
+        assert f2 / f1 == pytest.approx(4.0, rel=1e-14)
+
+    def test_scales_with_solid_angle(self):
+        """Factor should scale linearly with solid angle."""
+        freq = 150e6
+        f1 = rayleigh_jeans_factor(freq, 1e-4)
+        f2 = rayleigh_jeans_factor(freq, 2e-4)
+        assert f2 / f1 == pytest.approx(2.0, rel=1e-14)

@@ -310,10 +310,7 @@ class GSMConfig(BaseModel):
     gsm_catalogue: str = Field(
         "gsm2008", description="GSM catalogue (gsm2008, gsm2016, lfsm, haslam)"
     )
-    flux_limit: float = Field(
-        50.0, ge=0, description="Flux limit (in sky_model.flux_unit)"
-    )
-    nside: int = Field(32, ge=1, description="HEALPix nside")
+    nside: int = Field(64, ge=1, description="HEALPix nside")
     include_cmb: bool = Field(False, description="Include CMB contribution (2.725 K)")
     basemap: str | None = Field(
         None,
@@ -329,9 +326,9 @@ class GLEAMConfig(BaseModel):
     """GLEAM configuration."""
 
     use_gleam: bool = Field(False, description="Use GLEAM")
-    gleam_catalogue: str = Field("VIII/105/catalog", description="GLEAM catalogue")
+    gleam_catalogue: str = Field("gleam_egc", description="GLEAM catalogue key")
     flux_limit: float = Field(
-        50.0, ge=0, description="Flux limit (in sky_model.flux_unit)"
+        1.0, ge=0, description="Flux limit (in sky_model.flux_unit)"
     )
     nside: int = Field(32, ge=1, description="HEALPix nside")
 
@@ -342,11 +339,13 @@ class MALSConfig(BaseModel):
     MALS provides L-band (900-1670 MHz) radio continuum catalogs:
     - DR1: 495,325 sources at 1-1.4 GHz (J/ApJS/270/33)
     - DR2: 971,980 sources wideband (J/A+A/690/A163) - largest MeerKAT catalog
-    - DR3: 3,640 HI 21-cm absorption features (J/A+A/698/A120)
+
+    Note: DR3 (HI 21-cm absorption features) is not supported — it contains
+    absorption line data, not a continuum catalog suitable for this loader.
     """
 
     use_mals: bool = Field(False, description="Use MALS catalog")
-    mals_release: Literal["dr1", "dr2", "dr3"] = Field(
+    mals_release: Literal["dr1", "dr2"] = Field(
         "dr2", description="MALS data release (dr1, dr2, dr3)"
     )
     flux_limit: float = Field(
@@ -538,7 +537,6 @@ class SkyModelConfig(BaseModel):
     )
     gsm_healpix: GSMConfig = Field(default_factory=GSMConfig)
     gleam: GLEAMConfig = Field(default_factory=GLEAMConfig)
-    gleam_healpix: GLEAMConfig = Field(default_factory=GLEAMConfig)
     mals: MALSConfig = Field(default_factory=MALSConfig)
     # --- New point-source catalogs ---
     vlssr: VLSSrConfig = Field(default_factory=VLSSrConfig)
@@ -560,6 +558,14 @@ class SkyModelConfig(BaseModel):
     flux_unit: Literal["Jy", "mJy", "uJy"] | None = Field(
         None,
         description="Unit for all flux values (flux_min, flux_max, flux_limit) in this section",
+    )
+    # --- Brightness conversion method for all loaders ---
+    brightness_conversion: Literal["planck", "rayleigh-jeans"] = Field(
+        "planck",
+        description=(
+            "Brightness temperature conversion method for all loaders. "
+            "'planck' (exact Planck law) or 'rayleigh-jeans' (RJ approximation)."
+        ),
     )
     # --- Optional sky region filter ---
     region: SkyRegionEntryConfig | list[SkyRegionEntryConfig] | None = Field(
@@ -1200,26 +1206,39 @@ class RRIvisConfig(BaseModel):
             )
 
         # --- Sky model: at least one must be enabled ---
+        # Check test sources (not in loader registry) + all registered loaders
         sm = self.sky_model
         any_sky_model_enabled = (
-            sm.test_sources.use_test_sources
-            or sm.test_sources_healpix.use_test_sources
-            or sm.gsm_healpix.use_gsm
-            or sm.gleam.use_gleam
-            or sm.gleam_healpix.use_gleam
-            or sm.mals.use_mals
-            or sm.vlssr.use_vlssr
-            or sm.tgss.use_tgss
-            or sm.wenss.use_wenss
-            or sm.sumss.use_sumss
-            or sm.nvss.use_nvss
-            or sm.lotss.use_lotss
-            or sm.three_c.use_3c
-            or sm.vlass.use_vlass
-            or sm.racs.use_racs
-            or sm.pysm3.use_pysm3
-            or sm.pyradiosky.use_pyradiosky
+            sm.test_sources.use_test_sources or sm.test_sources_healpix.use_test_sources
         )
+
+        # Registry-driven check: iterate registered loaders for enabled flags
+        # and file-existence validation.
+        from rrivis.core.sky._registry import _LOADER_META
+
+        for _loader_name, meta in _LOADER_META.items():
+            section_name = meta["config_section"]
+            use_flag = meta["use_flag"]
+            section = getattr(sm, section_name, None)
+            if section is None:
+                continue
+            is_enabled = getattr(section, use_flag, False)
+            if is_enabled:
+                any_sky_model_enabled = True
+                # Validate filename for file-based loaders
+                if meta["requires_file"]:
+                    fname = getattr(section, "filename", "")
+                    if not fname:
+                        errors.append(
+                            f"sky_model.{section_name}.filename: required "
+                            f"when {use_flag}=true."
+                        )
+                    elif not Path(fname).exists():
+                        errors.append(
+                            f"sky_model.{section_name}.filename: file not "
+                            f"found: '{fname}'."
+                        )
+
         if not any_sky_model_enabled:
             errors.append(
                 "sky_model: no sky model enabled. Enable at least one "
@@ -1230,18 +1249,6 @@ class RRIvisConfig(BaseModel):
                 "sky_model.flux_unit: required but not set. "
                 "Choose 'Jy', 'mJy', or 'uJy'."
             )
-
-        # --- pyradiosky file ---
-        if sm.pyradiosky.use_pyradiosky:
-            fname = sm.pyradiosky.filename
-            if not fname:
-                errors.append(
-                    "sky_model.pyradiosky.filename: required when use_pyradiosky=true."
-                )
-            elif not Path(fname).exists():
-                errors.append(
-                    f"sky_model.pyradiosky.filename: file not found: '{fname}'."
-                )
 
         return errors
 

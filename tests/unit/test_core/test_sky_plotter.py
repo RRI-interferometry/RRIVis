@@ -12,6 +12,7 @@ from matplotlib.figure import Figure  # noqa: E402
 
 from rrivis.core.precision import PrecisionConfig  # noqa: E402
 from rrivis.core.sky import SkyModel  # noqa: E402
+from rrivis.core.sky.model import SkyFormat  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -46,8 +47,8 @@ def healpix_sky(precision):
         _healpix_maps=maps,
         _healpix_nside=nside,
         _observation_frequencies=freqs,
-        _native_format="healpix",
-        frequency=100e6,
+        _native_format=SkyFormat.HEALPIX,
+        reference_frequency=100e6,
         model_name="healpix_test",
         _precision=precision,
     )
@@ -225,8 +226,8 @@ class TestHealpixMapVariants:
             _healpix_u_maps=u_maps,
             _healpix_nside=nside,
             _observation_frequencies=freqs,
-            _native_format="healpix",
-            frequency=100e6,
+            _native_format=SkyFormat.HEALPIX,
+            reference_frequency=100e6,
             model_name="test_pol",
             _precision=precision,
         )
@@ -267,8 +268,8 @@ class TestStokesPanel:
             _healpix_u_maps=u_maps,
             _healpix_nside=nside,
             _observation_frequencies=freqs,
-            _native_format="healpix",
-            frequency=100e6,
+            _native_format=SkyFormat.HEALPIX,
+            reference_frequency=100e6,
             model_name="test_pol",
             _precision=precision,
         )

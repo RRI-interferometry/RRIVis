@@ -13,21 +13,19 @@ The simplest way to run a simulation is using the high-level ``Simulator`` class
 
    from rrivis import Simulator
 
-   # Create simulator
-   sim = Simulator()
-
-   # Setup with configuration
-   sim.setup(
+   # Create simulator with configuration
+   sim = Simulator(
        antenna_layout="path/to/antennas.txt",
        frequencies=[100, 150, 200],  # MHz
        sky_model="gleam",
    )
 
-   # Run simulation
+   # Setup and run
+   sim.setup()
    results = sim.run(progress=True)
 
    # Save results
-   sim.save("output.h5")
+   sim.save("output/")
 
 Using a Configuration File
 --------------------------
@@ -60,9 +58,10 @@ Then load and run:
 .. code-block:: python
 
    from rrivis import Simulator
+   from rrivis.io.config import load_config
 
-   sim = Simulator()
-   sim.setup(config="config.yaml")
+   sim = Simulator(config=load_config("config.yaml"))
+   sim.setup()
    results = sim.run()
 
 GPU Acceleration
@@ -75,12 +74,20 @@ Enable GPU acceleration for faster simulations:
    from rrivis import Simulator
 
    # Auto-detect best backend
-   sim = Simulator(backend="auto")
+   sim = Simulator(
+       antenna_layout="antennas.txt",
+       sky_model="gleam",
+       backend="auto",
+   )
 
    # Or explicitly use JAX
-   sim = Simulator(backend="jax")
+   sim = Simulator(
+       antenna_layout="antennas.txt",
+       sky_model="gleam",
+       backend="jax",
+   )
 
-   sim.setup(antenna_layout="antennas.txt", sky_model="gleam")
+   sim.setup()
    results = sim.run()  # Uses GPU if available
 
 Check available backends:
@@ -99,13 +106,12 @@ The simulation results contain visibility data:
 
    results = sim.run()
 
-   # Access visibilities by baseline
-   vis_01 = results.visibilities[(0, 1)]  # Shape: (n_times, n_freqs)
+   # Access visibilities by baseline (results is a dict)
+   vis_01 = results["visibilities"][(0, 1)]  # Shape: (n_times, n_freqs)
 
    # Get metadata
-   print(f"Number of baselines: {len(results.visibilities)}")
-   print(f"Frequencies: {results.frequencies}")
-   print(f"Time points: {results.time_points}")
+   print(f"Number of baselines: {len(results['visibilities'])}")
+   print(f"Frequencies: {results['frequencies']}")
 
 Using Jones Matrices
 --------------------
@@ -129,12 +135,12 @@ Add instrumental effects using Jones matrices:
        GainJones(amplitude_std=0.01),
    ])
 
-   # Use in simulation
-   sim = Simulator()
-   sim.setup(
+   # Use in simulation (pass jones_config to run())
+   sim = Simulator(
        antenna_layout="antennas.txt",
-       jones_chain=jones,
+       sky_model="test",
    )
+   sim.setup()
    results = sim.run()
 
 Command Line Interface

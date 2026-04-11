@@ -8,7 +8,7 @@ the convention established by the beam plotting module.
 
 Usage::
 
-    sky = SkyModel.from_gleam(...)
+    sky = SkyModel.from_catalog("gleam", precision=precision)
     fig = sky.plot.source_positions()
     fig = sky.plot.flux_histogram()
     fig = sky.plot("auto")  # dispatcher via __call__
@@ -20,6 +20,8 @@ import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
+
+from .model import SkyFormat
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -96,22 +98,22 @@ class SkyPlotter:
             parts.append(self._sky.model_name.upper().replace("_", " "))
         if frequency is not None:
             parts.append(_freq_label(frequency))
-        if self._sky._healpix_nside is not None and self._sky._healpix_maps is not None:
-            parts.append(f"nside={self._sky._healpix_nside}")
+        if self._sky.healpix_nside is not None and self._sky.healpix_maps is not None:
+            parts.append(f"nside={self._sky.healpix_nside}")
         meta = " — ".join(parts) if parts else "Sky Model"
         return f"{meta} — {suffix}"
 
     def _validate_plot_mode(self, required: str) -> None:
         """Raise ValueError if the model lacks the required data."""
         if required == "point_sources":
-            if not self._sky._has_point_sources():
+            if not self._sky.has_point_sources:
                 raise ValueError(
                     f"Plot requires point-source data, but this SkyModel "
                     f"(model='{self._sky.model_name}') has mode='{self._sky.mode}'. "
-                    f"Load a point-source catalog or call as_point_source_dicts() first."
+                    f"Load a point-source catalog or call with_representation('point_sources') first."
                 )
         elif required == "healpix":
-            if self._sky._healpix_maps is None:
+            if self._sky.healpix_maps is None:
                 raise ValueError(
                     f"Plot requires HEALPix maps, but this SkyModel "
                     f"(model='{self._sky.model_name}') has mode='{self._sky.mode}'. "
@@ -125,7 +127,7 @@ class SkyPlotter:
         ----------
         frequency : float or None
             Requested frequency in Hz.  If None, falls back to
-            ``self._sky.frequency`` then the first observation frequency.
+            ``self._sky.reference_frequency`` then the first observation frequency.
 
         Returns
         -------
@@ -139,38 +141,14 @@ class SkyPlotter:
         """
         if frequency is not None:
             return float(frequency)
-        if self._sky.frequency is not None:
-            return float(self._sky.frequency)
+        if self._sky.reference_frequency is not None:
+            return float(self._sky.reference_frequency)
         if (
-            self._sky._observation_frequencies is not None
-            and len(self._sky._observation_frequencies) > 0
+            self._sky.observation_frequencies is not None
+            and len(self._sky.observation_frequencies) > 0
         ):
-            return float(self._sky._observation_frequencies[0])
+            return float(self._sky.observation_frequencies[0])
         raise ValueError("No frequency specified and none available in the model.")
-
-    def _resolve_frequency_index(self, frequency: float) -> int:
-        """Find the index of the nearest frequency in ``_observation_frequencies``.
-
-        Parameters
-        ----------
-        frequency : float
-            Frequency in Hz.
-
-        Returns
-        -------
-        int
-            Index into ``_observation_frequencies``.
-
-        Raises
-        ------
-        ValueError
-            If no observation frequencies are available.
-        """
-        freqs = self._sky._observation_frequencies
-        if freqs is None or len(freqs) == 0:
-            raise ValueError("No observation frequencies available.")
-        idx = int(np.argmin(np.abs(freqs - frequency)))
-        return idx
 
     def _get_color_data(self, color_by: str) -> tuple[np.ndarray, str]:
         """Return (values, colorbar_label) for a point-source color parameter.
@@ -187,11 +165,14 @@ class SkyPlotter:
         label : str
         """
         mapping = {
-            "flux": (self._sky._flux_ref, _COLORBAR_LABELS["flux"]),
-            "spectral_index": (self._sky._alpha, _COLORBAR_LABELS["spectral_index"]),
-            "stokes_q": (self._sky._stokes_q, _COLORBAR_LABELS["stokes_q"]),
-            "stokes_u": (self._sky._stokes_u, _COLORBAR_LABELS["stokes_u"]),
-            "stokes_v": (self._sky._stokes_v, _COLORBAR_LABELS["stokes_v"]),
+            "flux": (self._sky.flux, _COLORBAR_LABELS["flux"]),
+            "spectral_index": (
+                self._sky.spectral_index,
+                _COLORBAR_LABELS["spectral_index"],
+            ),
+            "stokes_q": (self._sky.stokes_q, _COLORBAR_LABELS["stokes_q"]),
+            "stokes_u": (self._sky.stokes_u, _COLORBAR_LABELS["stokes_u"]),
+            "stokes_v": (self._sky.stokes_v, _COLORBAR_LABELS["stokes_v"]),
         }
         if color_by not in mapping:
             raise ValueError(
@@ -295,9 +276,9 @@ class SkyPlotter:
             return self._sky.get_map_at_frequency(frequency), "Stokes I"
 
         maps_attr = {
-            "Q": self._sky._healpix_q_maps,
-            "U": self._sky._healpix_u_maps,
-            "V": self._sky._healpix_v_maps,
+            "Q": self._sky.healpix_q_maps,
+            "U": self._sky.healpix_u_maps,
+            "V": self._sky.healpix_v_maps,
         }
         if stokes not in maps_attr:
             raise ValueError(
@@ -307,10 +288,107 @@ class SkyPlotter:
         if stokes_maps is None:
             return None, f"Stokes {stokes}"
 
-        idx = self._resolve_frequency_index(frequency)
+        idx = self._sky.resolve_frequency_index(frequency)
         if idx < len(stokes_maps):
             return stokes_maps[idx], f"Stokes {stokes}"
         return None, f"Stokes {stokes}"
+
+    def _scatter_sky(
+        self,
+        lon: np.ndarray,
+        lat: np.ndarray,
+        values: np.ndarray,
+        cbar_label: str,
+        *,
+        cmap: str = "inferno",
+        marker_size: float = 0.1,
+        alpha: float = 0.3,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        projection: str = "mollweide",
+        coord: str | None = None,
+        title: str = "",
+        figsize: tuple[float, float] = (14, 7),
+    ) -> Figure:
+        """Shared scatter plot on a sky projection.
+
+        Parameters
+        ----------
+        lon, lat : np.ndarray
+            Source coordinates in radians (already rotated if needed).
+        values : np.ndarray
+            Values for color mapping.
+        cbar_label : str
+            Label for the colorbar.
+        cmap : str
+            Matplotlib colormap name.
+        marker_size : float
+            Scatter marker size.
+        alpha : float
+            Marker transparency.
+        vmin, vmax : float or None
+            Colorbar limits.
+        projection : str
+            Matplotlib projection: ``"mollweide"``, ``"aitoff"``,
+            ``"hammer"``, or ``"cartesian"`` (rectilinear).
+        coord : str or None
+            Coordinate frame (used only for axis labels).
+        title : str
+            Plot title.
+        figsize : tuple
+            Figure size in inches.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        import matplotlib.pyplot as plt
+
+        if projection not in _MPL_PROJECTIONS:
+            raise ValueError(
+                f"Unknown projection='{projection}'. "
+                f"Choose from: {sorted(_MPL_PROJECTIONS)}"
+            )
+
+        if projection == "cartesian":
+            fig, ax = plt.subplots(figsize=figsize)
+            lon_deg = np.degrees(lon)
+            lat_deg = np.degrees(lat)
+            sc = ax.scatter(
+                lon_deg,
+                lat_deg,
+                c=values,
+                s=marker_size,
+                alpha=alpha,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                rasterized=True,
+            )
+            ax.invert_xaxis()
+            ax.set_aspect("equal")
+        else:
+            fig, ax = plt.subplots(
+                figsize=figsize, subplot_kw={"projection": projection}
+            )
+            sc = ax.scatter(
+                lon,
+                lat,
+                c=values,
+                s=marker_size,
+                alpha=alpha,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                rasterized=True,
+            )
+        fig.colorbar(sc, ax=ax, label=cbar_label, shrink=0.6)
+        ax.grid(True, alpha=0.3)
+        xlabel, ylabel = _COORD_LABELS.get(coord, ("RA", "Dec"))
+        ax.set_xlabel(xlabel + " [deg]" if projection == "cartesian" else xlabel)
+        ax.set_ylabel(ylabel + " [deg]" if projection == "cartesian" else ylabel)
+        ax.set_title(title)
+        return fig
 
     # =====================================================================
     # Point-source plots
@@ -359,14 +437,6 @@ class SkyPlotter:
         -------
         matplotlib.figure.Figure
         """
-        import matplotlib.pyplot as plt
-
-        if projection not in _MPL_PROJECTIONS:
-            raise ValueError(
-                f"Unknown projection='{projection}'. "
-                f"Choose from: {sorted(_MPL_PROJECTIONS)}"
-            )
-
         self._validate_plot_mode("point_sources")
 
         values, cbar_label = self._get_color_data(color_by)
@@ -375,45 +445,21 @@ class SkyPlotter:
             values = np.log10(np.clip(values, 1e-6, None))
             cbar_label = _COLORBAR_LABELS["flux_log"]
 
-        lon, lat = self._rotate_coords(self._sky._ra_rad, self._sky._dec_rad, coord)
+        lon, lat = self._rotate_coords(self._sky.ra_rad, self._sky.dec_rad, coord)
 
-        if projection == "cartesian":
-            fig, ax = plt.subplots(figsize=figsize)
-            lon_deg = np.degrees(lon)
-            lat_deg = np.degrees(lat)
-            sc = ax.scatter(
-                lon_deg,
-                lat_deg,
-                c=values,
-                s=marker_size,
-                alpha=alpha,
-                cmap=cmap,
-                rasterized=True,
-            )
-            ax.invert_xaxis()
-            ax.set_aspect("equal")
-        else:
-            fig, ax = plt.subplots(
-                figsize=figsize, subplot_kw={"projection": projection}
-            )
-            sc = ax.scatter(
-                lon,
-                lat,
-                c=values,
-                s=marker_size,
-                alpha=alpha,
-                cmap=cmap,
-                rasterized=True,
-            )
-        fig.colorbar(sc, ax=ax, label=cbar_label, shrink=0.6)
-        ax.grid(True, alpha=0.3)
-        xlabel, ylabel = _COORD_LABELS.get(coord, ("RA", "Dec"))
-        ax.set_xlabel(xlabel + " [deg]" if projection == "cartesian" else xlabel)
-        ax.set_ylabel(ylabel + " [deg]" if projection == "cartesian" else ylabel)
-        ax.set_title(
-            title if title is not None else self._auto_title("Source Positions")
+        return self._scatter_sky(
+            lon,
+            lat,
+            values,
+            cbar_label,
+            cmap=cmap,
+            marker_size=marker_size,
+            alpha=alpha,
+            projection=projection,
+            coord=coord,
+            title=title if title is not None else self._auto_title("Source Positions"),
+            figsize=figsize,
         )
-        return fig
 
     def flux_histogram(
         self,
@@ -442,7 +488,7 @@ class SkyPlotter:
         import matplotlib.pyplot as plt
 
         self._validate_plot_mode("point_sources")
-        flux = self._sky._flux_ref
+        flux = self._sky.flux
 
         fig, ax = plt.subplots(figsize=figsize)
 
@@ -530,7 +576,7 @@ class SkyPlotter:
         import matplotlib.pyplot as plt
 
         self._validate_plot_mode("point_sources")
-        alpha_arr = self._sky._alpha
+        alpha_arr = self._sky.spectral_index
 
         if plot_type == "histogram":
             figsize = figsize or (10, 6)
@@ -555,68 +601,28 @@ class SkyPlotter:
             return fig
 
         elif plot_type == "sky_map":
-            if projection not in _MPL_PROJECTIONS:
-                raise ValueError(
-                    f"Unknown projection='{projection}'. "
-                    f"Choose from: {sorted(_MPL_PROJECTIONS)}"
-                )
             figsize = figsize or (14, 7)
-            lon, lat = self._rotate_coords(self._sky._ra_rad, self._sky._dec_rad, coord)
+            lon, lat = self._rotate_coords(self._sky.ra_rad, self._sky.dec_rad, coord)
 
             # Symmetric colorbar centered on median
             median_alpha = np.median(alpha_arr)
             max_dev = np.max(np.abs(alpha_arr - median_alpha))
-            vmin = median_alpha - max_dev
-            vmax = median_alpha + max_dev
 
-            if projection == "cartesian":
-                fig, ax = plt.subplots(figsize=figsize)
-                lon_deg = np.degrees(lon)
-                lat_deg = np.degrees(lat)
-                sc = ax.scatter(
-                    lon_deg,
-                    lat_deg,
-                    c=alpha_arr,
-                    s=0.1,
-                    alpha=0.3,
-                    cmap=cmap,
-                    vmin=vmin,
-                    vmax=vmax,
-                    rasterized=True,
-                )
-                ax.invert_xaxis()
-                ax.set_aspect("equal")
-            else:
-                fig, ax = plt.subplots(
-                    figsize=figsize, subplot_kw={"projection": projection}
-                )
-                sc = ax.scatter(
-                    lon,
-                    lat,
-                    c=alpha_arr,
-                    s=0.1,
-                    alpha=0.3,
-                    cmap=cmap,
-                    vmin=vmin,
-                    vmax=vmax,
-                    rasterized=True,
-                )
-            fig.colorbar(
-                sc,
-                ax=ax,
-                label=_COLORBAR_LABELS["spectral_index"],
-                shrink=0.6,
-            )
-            ax.grid(True, alpha=0.3)
-            xlabel, ylabel = _COORD_LABELS.get(coord, ("RA", "Dec"))
-            ax.set_xlabel(xlabel + " [deg]" if projection == "cartesian" else xlabel)
-            ax.set_ylabel(ylabel + " [deg]" if projection == "cartesian" else ylabel)
-            ax.set_title(
-                title
+            return self._scatter_sky(
+                lon,
+                lat,
+                alpha_arr,
+                _COLORBAR_LABELS["spectral_index"],
+                cmap=cmap,
+                vmin=median_alpha - max_dev,
+                vmax=median_alpha + max_dev,
+                projection=projection,
+                coord=coord,
+                title=title
                 if title is not None
-                else self._auto_title("Spectral Index Sky Map")
+                else self._auto_title("Spectral Index Sky Map"),
+                figsize=figsize,
             )
-            return fig
 
         else:
             raise ValueError(
@@ -773,7 +779,7 @@ class SkyPlotter:
         if frequencies is not None:
             freqs = np.asarray(frequencies, dtype=float)
         else:
-            all_freqs = self._sky._observation_frequencies
+            all_freqs = self._sky.observation_frequencies
             if all_freqs is None or len(all_freqs) == 0:
                 raise ValueError("No observation frequencies available.")
             if len(all_freqs) <= max_panels:
@@ -1018,7 +1024,7 @@ class SkyPlotter:
         }
 
         if plot_type == "auto":
-            if self._sky.mode == "healpix_multifreq":
+            if self._sky.mode == SkyFormat.HEALPIX:
                 return self.healpix_map(**kwargs)
             return self.source_positions(**kwargs)
 

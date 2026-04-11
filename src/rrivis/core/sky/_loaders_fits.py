@@ -15,6 +15,7 @@ import numpy as np
 
 from ._registry import register_loader
 from .constants import flux_density_to_brightness_temp
+from .model import SkyFormat
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -41,7 +42,14 @@ def _axis_values(header: Any, axis: int, n: int) -> np.ndarray:
     return crval + (np.arange(n) + 1 - crpix) * cdelt
 
 
-@register_loader("fits_image")
+@register_loader(
+    "fits_image",
+    config_section="fits_image",
+    use_flag="use_fits_image",
+    is_healpix=True,
+    requires_file=True,
+    network_service=None,
+)
 def load_fits_image(
     filename: str,
     *,
@@ -75,7 +83,7 @@ def load_fits_image(
     Returns
     -------
     SkyModel
-        In ``healpix_multifreq`` mode.
+        In ``healpix_map`` mode.
     """
     from .model import SkyModel
 
@@ -177,10 +185,14 @@ def load_fits_image(
     npix = hp.nside2npix(nside)
     omega_pixel = 4 * np.pi / npix
 
-    i_maps: dict[float, np.ndarray] = {}
-    q_maps: dict[float, np.ndarray] = {}
-    u_maps: dict[float, np.ndarray] = {}
-    v_maps: dict[float, np.ndarray] = {}
+    n_freq_out = len(freq_vals)
+    i_arr = np.zeros((n_freq_out, npix), dtype=np.float32)
+    q_arr = np.zeros((n_freq_out, npix), dtype=np.float32)
+    u_arr = np.zeros((n_freq_out, npix), dtype=np.float32)
+    v_arr = np.zeros((n_freq_out, npix), dtype=np.float32)
+    has_q = False
+    has_u = False
+    has_v = False
 
     def _get_slice(stokes_idx: int | None, freq_idx: int | None) -> np.ndarray:
         """Extract a 2D spatial slice from the data cube."""
@@ -225,7 +237,7 @@ def load_fits_image(
         hp_array[~np.isfinite(hp_array)] = 0.0
         return hp_array
 
-    n_freq_out = len(freq_vals)
+    i_has_data = False
     for fi in range(n_freq_out):
         freq_hz = float(freq_vals[fi]) if fi < len(freq_vals) else float(freq_vals[0])
 
@@ -233,7 +245,6 @@ def load_fits_image(
             if si >= n_stokes:
                 break
 
-            # Determine freq index into FITS data
             fits_fi = fi if freq_ax is not None else None
             fits_si = si if stokes_ax is not None else None
 
@@ -243,11 +254,8 @@ def load_fits_image(
             # Unit conversion
             if is_jy_beam:
                 hp_map *= pixel_area_sr / beam_area_sr
-                # Now in Jy/pixel -- convert to Jy
-                # (already per pixel after rescaling)
 
             if is_jy_beam or is_jy_pixel:
-                # Convert Jy -> brightness temperature K
                 pos = hp_map > 0
                 temp_map = np.zeros_like(hp_map)
                 if np.any(pos):
@@ -259,7 +267,6 @@ def load_fits_image(
                     )
                 hp_map = temp_map
             elif is_jy_sr:
-                # Jy/sr -> Jy per pixel
                 hp_jy = hp_map * omega_pixel
                 pos = hp_jy > 0
                 temp_map = np.zeros_like(hp_map)
@@ -271,39 +278,58 @@ def load_fits_image(
                         method=brightness_conversion,
                     )
                 hp_map = temp_map
-            # else: already in K or unknown unit -- use as-is
 
             hp_map_f32 = hp_map.astype(np.float32)
 
             # Stokes mapping: I=1, Q=2, U=3, V=4
             if stokes_code == 1 or n_stokes == 1:
-                i_maps[freq_hz] = hp_map_f32
+                i_arr[fi] = hp_map_f32
+                i_has_data = True
             elif stokes_code == 2:
-                q_maps[freq_hz] = hp_map_f32
+                q_arr[fi] = hp_map_f32
+                has_q = True
             elif stokes_code == 3:
-                u_maps[freq_hz] = hp_map_f32
+                u_arr[fi] = hp_map_f32
+                has_u = True
             elif stokes_code == 4:
-                v_maps[freq_hz] = hp_map_f32
+                v_arr[fi] = hp_map_f32
+                has_v = True
 
     # If single frequency and no freq axis, replicate for each requested freq
-    if freq_ax is None and frequencies is not None and len(i_maps) == 1:
-        single_freq = next(iter(i_maps))
-        single_map = i_maps[single_freq]
-        i_maps = {float(f): single_map.copy() for f in frequencies}
+    if freq_ax is None and frequencies is not None and n_freq_out == 1:
+        n_rep = len(frequencies)
+        i_arr = np.broadcast_to(i_arr[0:1], (n_rep, npix)).copy()
+        if has_q:
+            q_arr = np.broadcast_to(q_arr[0:1], (n_rep, npix)).copy()
+        if has_u:
+            u_arr = np.broadcast_to(u_arr[0:1], (n_rep, npix)).copy()
+        if has_v:
+            v_arr = np.broadcast_to(v_arr[0:1], (n_rep, npix)).copy()
+        freq_vals = np.asarray(frequencies, dtype=np.float64)
 
-    if not i_maps:
+    if not i_has_data:
         raise ValueError(f"No Stokes I data found in {filename}")
 
-    obs_freqs = np.sort(np.array(list(i_maps.keys())))
+    obs_freqs = np.sort(freq_vals)
+    # Sort arrays to match sorted frequency order
+    sort_idx = np.argsort(freq_vals)
+    i_arr = i_arr[sort_idx]
+    if has_q:
+        q_arr = q_arr[sort_idx]
+    if has_u:
+        u_arr = u_arr[sort_idx]
+    if has_v:
+        v_arr = v_arr[sort_idx]
 
-    sky = SkyModel._from_freq_dict_maps(
-        i_maps,
-        q_maps if q_maps else None,
-        u_maps if u_maps else None,
-        v_maps if v_maps else None,
-        nside,
-        _native_format="healpix",
-        frequency=float(obs_freqs[0]),
+    sky = SkyModel(
+        _healpix_maps=i_arr,
+        _healpix_q_maps=q_arr if has_q else None,
+        _healpix_u_maps=u_arr if has_u else None,
+        _healpix_v_maps=v_arr if has_v else None,
+        _healpix_nside=nside,
+        _observation_frequencies=obs_freqs,
+        _native_format=SkyFormat.HEALPIX,
+        _active_mode=SkyFormat.HEALPIX,
         model_name=f"fits:{filename.split('/')[-1]}",
         brightness_conversion=brightness_conversion,
         _precision=precision,

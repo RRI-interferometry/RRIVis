@@ -16,7 +16,7 @@ def compute_spectral_scale(
     alpha: np.ndarray,
     spectral_coeffs: np.ndarray | None,
     freq: float,
-    ref_freq: float,
+    ref_freq: float | np.ndarray,
 ) -> np.ndarray:
     """Compute frequency scaling factor for each source.
 
@@ -30,8 +30,11 @@ def compute_spectral_scale(
     spectral_coeffs : np.ndarray or None
         Log-polynomial coefficients, shape ``(N, N_terms)``.  Column 0 is
         the simple spectral index.  ``None`` => use *alpha* only.
-    freq, ref_freq : float
-        Observation and reference frequencies in Hz.
+    freq : float
+        Observation frequency in Hz.
+    ref_freq : float or np.ndarray
+        Reference frequency in Hz. Can be a scalar (shared by all sources)
+        or a per-source array of shape ``(N,)``.
 
     Returns
     -------
@@ -39,6 +42,15 @@ def compute_spectral_scale(
         Multiplicative scaling factor, shape ``(N,)``.
     """
     ratio = freq / ref_freq
+    # Guard against invalid ref_freq (zero, negative, or NaN — e.g. test
+    # sources or mixed-catalog models where some sources lack ref_freq).
+    # Scale factor = 1.0 for those sources (no spectral extrapolation).
+    if isinstance(ref_freq, np.ndarray):
+        bad = ~(ref_freq > 0)  # catches <= 0 and NaN
+        if np.any(bad):
+            ratio = np.where(bad, 1.0, ratio)
+    elif not (ref_freq > 0):  # catches <= 0 and NaN
+        return np.ones_like(alpha)
     if spectral_coeffs is not None and spectral_coeffs.shape[1] > 1:
         log_ratio = np.log10(ratio)
         exponent = np.zeros(len(alpha), dtype=np.float64)
@@ -53,7 +65,7 @@ def apply_faraday_rotation(
     u_ref: np.ndarray,
     rm: np.ndarray | None,
     freq: float,
-    ref_freq: float,
+    ref_freq: float | np.ndarray,
     spectral_scale: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Apply spectral scaling and Faraday rotation to Q/U arrays.
@@ -67,8 +79,10 @@ def apply_faraday_rotation(
         Stokes Q, U at the reference frequency (Jy), shape ``(N,)``.
     rm : np.ndarray or None
         Rotation measure in rad/m^2 per source.
-    freq, ref_freq : float
-        Observation and reference frequencies in Hz.
+    freq : float
+        Observation frequency in Hz.
+    ref_freq : float or np.ndarray
+        Reference frequency in Hz. Scalar or per-source array ``(N,)``.
     spectral_scale : np.ndarray
         Pre-computed ``(freq / ref_freq) ** alpha`` (or log-poly), shape ``(N,)``.
 
@@ -80,7 +94,17 @@ def apply_faraday_rotation(
     q_scaled = q_ref * spectral_scale
     u_scaled = u_ref * spectral_scale
     if rm is not None and np.any(rm != 0):
-        delta_chi = rm * ((C_LIGHT / freq) ** 2 - (C_LIGHT / ref_freq) ** 2)
+        # Guard against invalid ref_freq (zero, negative, NaN) which would
+        # produce inf/nan in (C_LIGHT / ref_freq)**2.  For those sources
+        # substitute freq so that delta_chi = 0 (no Faraday rotation).
+        safe_ref_freq = ref_freq
+        if isinstance(ref_freq, np.ndarray):
+            bad = ~(ref_freq > 0)  # catches <= 0 and NaN
+            if np.any(bad):
+                safe_ref_freq = np.where(bad, freq, ref_freq)
+        elif not (ref_freq > 0):
+            return q_scaled, u_scaled
+        delta_chi = rm * ((C_LIGHT / freq) ** 2 - (C_LIGHT / safe_ref_freq) ** 2)
         cos2 = np.cos(2.0 * delta_chi)
         sin2 = np.sin(2.0 * delta_chi)
         q_out = q_scaled * cos2 - u_scaled * sin2

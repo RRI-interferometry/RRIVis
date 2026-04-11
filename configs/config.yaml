@@ -85,6 +85,7 @@ simulators:
   use_different_simulator_for_cross_check: false
 sky_model:
   flux_unit: Jy
+  # brightness_conversion: planck    # "planck" (exact, default) or "rayleigh-jeans"
   # region:                          # Optional: load only sources in this region
   #   shape: cone                    # "cone" or "box"
   #   center_ra_deg: 0.0             # RA centre (ICRS degrees)

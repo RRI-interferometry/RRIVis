@@ -23,6 +23,11 @@ def parse_frequency_config(obs_frequency_config: dict[str, Any]) -> np.ndarray:
         - frequency_bandwidth: float (total bandwidth)
         - frequency_unit: str ("Hz", "kHz", "MHz", "GHz")
 
+        If the dict contains a ``frequencies_hz`` key (a list or array of
+        frequencies in Hz), that array is returned directly.  This is used
+        by the programmatic ``Simulator(frequencies=[...])`` API to
+        preserve non-uniform channel spacing.
+
     Returns
     -------
     frequencies : np.ndarray
@@ -37,11 +42,17 @@ def parse_frequency_config(obs_frequency_config: dict[str, Any]) -> np.ndarray:
     ...     "frequency_unit": "MHz",
     ... }
     >>> freqs = parse_frequency_config(config)
-    >>> len(freqs)  # 20 channels
-    20
+    >>> len(freqs)  # 21 channels (inclusive of both endpoints)
+    21
     >>> freqs[0] / 1e6  # First channel at 100 MHz
     100.0
     """
+    # Fast path: raw frequency array provided by the programmatic API
+    if "frequencies_hz" in obs_frequency_config:
+        freqs = np.asarray(obs_frequency_config["frequencies_hz"], dtype=np.float64)
+        logger.debug(f"Using raw frequency array: {len(freqs)} channels")
+        return freqs
+
     start_freq = obs_frequency_config["starting_frequency"]
     interval = obs_frequency_config["frequency_interval"]
     bandwidth = obs_frequency_config["frequency_bandwidth"]
@@ -58,20 +69,18 @@ def parse_frequency_config(obs_frequency_config: dict[str, Any]) -> np.ndarray:
     interval_hz = interval * unit_factor
     bandwidth_hz = bandwidth * unit_factor
 
-    n_channels = int(bandwidth_hz / interval_hz)
-    if n_channels <= 0:
+    if bandwidth_hz < interval_hz:
         raise ValueError(
             f"Invalid frequency config: bandwidth ({bandwidth} {unit}) must be "
-            f"greater than interval ({interval} {unit})"
+            f"greater than or equal to interval ({interval} {unit})"
         )
 
-    frequencies = np.array(
-        [start_hz + i * interval_hz for i in range(n_channels)], dtype=np.float64
-    )
+    n_channels = max(1, int(bandwidth_hz / interval_hz)) + 1
+    frequencies = np.linspace(start_hz, start_hz + bandwidth_hz, n_channels)
 
     logger.debug(
         f"Parsed frequency config: {n_channels} channels from "
-        f"{start_freq} to {start_freq + bandwidth - interval} {unit}"
+        f"{start_freq} to {start_freq + bandwidth} {unit}"
     )
 
     return frequencies

@@ -14,7 +14,10 @@ Where:
     - ^H: Hermitian conjugate
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rrivis.core.sky.model import SourceArrays
 
 import numpy as np
 
@@ -145,7 +148,7 @@ class RIMESimulator(VisibilitySimulator):
         self,
         antennas: dict[Any, dict],
         baselines: dict[tuple[Any, Any], dict],
-        sources: list[dict],
+        source_arrays: "SourceArrays",
         frequencies: np.ndarray,
         backend: Any,
         **kwargs,
@@ -169,12 +172,8 @@ class RIMESimulator(VisibilitySimulator):
             Keys: (ant1, ant2) tuples
             Values: dicts with "BaselineVector"
 
-        sources : list
-            List of source dictionaries with:
-                - "coords": SkyCoord object
-                - "flux": flux density in Jy
-                - "spectral_index": spectral index
-                - Optional: "stokes_q", "stokes_u", "stokes_v"
+        source_arrays : dict
+            Dict of source arrays from ``SkyModel.as_point_source_arrays()``.
 
         frequencies : ndarray
             Frequency array in Hz.
@@ -250,7 +249,7 @@ class RIMESimulator(VisibilitySimulator):
         return calculate_visibility(
             antennas=antennas,
             baselines=baselines,
-            sources=sources,
+            source_arrays=source_arrays,
             location=location,
             obstime=obstime,
             wavelengths=wavelengths,

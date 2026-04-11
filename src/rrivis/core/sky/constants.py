@@ -27,6 +27,7 @@ def brightness_temp_to_flux_density(
     frequency: float,
     solid_angle: float,
     method: str = "planck",
+    dtype: np.dtype | type = np.float64,
 ) -> np.ndarray:
     """
     Convert brightness temperature to flux density in Jy.
@@ -41,13 +42,17 @@ def brightness_temp_to_flux_density(
         Solid angle in steradians.
     method : str, default="planck"
         Conversion method: "planck" (exact) or "rayleigh-jeans" (approximation).
+    dtype : np.dtype or type, default=np.float64
+        Working precision for the conversion.  The Planck formula involves
+        ``expm1(hν/kT)`` which can lose precision in float32; use float64
+        or higher for accurate results.
 
     Returns
     -------
     np.ndarray
         Flux density in Jy.
     """
-    temperature = np.asarray(temperature, dtype=np.float64)
+    temperature = np.asarray(temperature, dtype=dtype)
     if method == "rayleigh-jeans":
         # S = (2 k_B T ν²/c²) × Ω / 1e-26
         return (
@@ -75,6 +80,7 @@ def flux_density_to_brightness_temp(
     frequency: float,
     solid_angle: float,
     method: str = "planck",
+    dtype: np.dtype | type = np.float64,
 ) -> np.ndarray:
     """
     Convert flux density in Jy to brightness temperature in Kelvin.
@@ -89,13 +95,15 @@ def flux_density_to_brightness_temp(
         Solid angle in steradians.
     method : str, default="planck"
         Conversion method: "planck" (exact) or "rayleigh-jeans" (approximation).
+    dtype : np.dtype or type, default=np.float64
+        Working precision for the conversion.
 
     Returns
     -------
     np.ndarray
         Brightness temperature in Kelvin.
     """
-    flux_jy = np.asarray(flux_jy, dtype=np.float64)
+    flux_jy = np.asarray(flux_jy, dtype=dtype)
     if method == "rayleigh-jeans":
         # T = S c² / (2 k_B ν² Ω) × 1e-26
         return (
@@ -118,3 +126,26 @@ def flux_density_to_brightness_temp(
     I_nu = flux_jy * 1e-26 / solid_angle
     ratio = 2 * H_PLANCK * frequency**3 / (C_LIGHT**2 * I_nu)
     return H_PLANCK * frequency / (K_BOLTZMANN * np.log1p(ratio))
+
+
+def rayleigh_jeans_factor(frequency: float, solid_angle: float) -> float:
+    """Rayleigh-Jeans conversion factor between brightness temperature and flux density.
+
+    Returns ``(2 * k_B * freq^2 / c^2) * omega / 1e-26``.
+
+    Multiply brightness temperature (K) by this factor to get flux density (Jy).
+    Divide flux density (Jy) by this factor to get brightness temperature (K).
+
+    Parameters
+    ----------
+    frequency : float
+        Frequency in Hz.
+    solid_angle : float
+        Solid angle in steradians (e.g. per-pixel solid angle).
+
+    Returns
+    -------
+    float
+        Conversion factor in Jy/K.
+    """
+    return (2 * K_BOLTZMANN * frequency**2 / C_LIGHT**2) * solid_angle / 1e-26

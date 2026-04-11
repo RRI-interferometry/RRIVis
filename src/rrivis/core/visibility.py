@@ -11,8 +11,12 @@ JonesChain integration for complete instrumental forward modeling.
 """
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from rrivis.core.sky.model import SourceArrays
+
+import astropy.units as u
 import numpy as np
 from astropy.coordinates import AltAz, SkyCoord
 from astropy.time import TimeDelta
@@ -45,7 +49,7 @@ logger = logging.getLogger(__name__)
 def calculate_visibility(
     antennas: dict,
     baselines: dict,
-    sources: list,
+    source_arrays: "SourceArrays",
     location: Any,
     obstime: Any,
     wavelengths: Any,
@@ -72,9 +76,12 @@ def calculate_visibility(
     baselines : dict
         Dictionary of baselines between antennas.
         Keys: (ant1, ant2) tuples, Values: dicts with "BaselineVector"
-    sources : list
-        List of source dicts with 'coords', 'flux', 'spectral_index',
-        'stokes_q', 'stokes_u', 'stokes_v'.
+    source_arrays : dict
+        Dict of source arrays from ``SkyModel.as_point_source_arrays()``.
+        Keys: ``ra_rad``, ``dec_rad``, ``flux``, ``spectral_index``,
+        ``stokes_q``, ``stokes_u``, ``stokes_v``, ``ref_freq``,
+        ``rotation_measure``, ``major_arcsec``, ``minor_arcsec``,
+        ``pa_deg``, ``spectral_coeffs``.
     location : EarthLocation
         Observer's geographical location.
     obstime : Time
@@ -144,8 +151,10 @@ def calculate_visibility(
     # Get array namespace from backend
     xp = backend.xp
 
-    # Reference frequency for spectral index calculation (76 MHz)
-    reference_freq = 76e6  # Hz
+    # Extract arrays from source_arrays dict
+    _ra_rad = source_arrays["ra_rad"]
+    _dec_rad = source_arrays["dec_rad"]
+    _ref_freq = source_arrays["ref_freq"]
 
     # Calculate number of time steps
     n_times = max(1, int(duration_seconds / time_step_seconds))
@@ -158,8 +167,8 @@ def calculate_visibility(
         for key in baselines.keys()
     }
 
-    # Handle empty source list
-    if not sources:
+    # Handle empty source arrays
+    if len(_ra_rad) == 0:
         if return_correlations:
             return {
                 key: _extract_correlations(backend.to_numpy(val))
@@ -169,32 +178,37 @@ def calculate_visibility(
             key: backend.to_numpy(val) for key, val in visibilities_matrices.items()
         }
 
-    # Convert source list to arrays (these are time-invariant)
-    source_coords = SkyCoord([s["coords"] for s in sources])
-    source_stokes_I_orig = np.array([s["flux"] for s in sources])
-    source_stokes_Q_orig = np.array([s.get("stokes_q", 0.0) for s in sources])
-    source_stokes_U_orig = np.array([s.get("stokes_u", 0.0) for s in sources])
-    source_stokes_V_orig = np.array([s.get("stokes_v", 0.0) for s in sources])
-    source_spectral_indices_orig = np.array([s["spectral_index"] for s in sources])
-    source_rm_orig = np.array([s.get("rotation_measure", 0.0) for s in sources])
-
-    # Multi-term spectral coefficients (None if no source has them)
-    _has_coeffs = any("spectral_coeffs" in s for s in sources)
-    if _has_coeffs:
-        _max_terms = max(len(s.get("spectral_coeffs", [])) for s in sources)
-        source_spectral_coeffs_orig = np.zeros(
-            (len(sources), _max_terms), dtype=np.float64
-        )
-        for _i, s in enumerate(sources):
-            _c = s.get("spectral_coeffs", [s.get("spectral_index", -0.7)])
-            source_spectral_coeffs_orig[_i, : len(_c)] = _c
+    # Build SkyCoord from RA/Dec arrays (time-invariant)
+    source_coords = SkyCoord(
+        ra=np.rad2deg(_ra_rad) * u.deg,
+        dec=np.rad2deg(_dec_rad) * u.deg,
+        frame="icrs",
+    )
+    if isinstance(_ref_freq, np.ndarray):
+        source_ref_freq_orig = _ref_freq.astype(np.float64, copy=False)
     else:
-        source_spectral_coeffs_orig = None
+        source_ref_freq_orig = np.full(len(_ra_rad), _ref_freq, dtype=np.float64)
+    source_stokes_I_orig = source_arrays["flux"]
+    source_stokes_Q_orig = source_arrays["stokes_q"]
+    source_stokes_U_orig = source_arrays["stokes_u"]
+    source_stokes_V_orig = source_arrays["stokes_v"]
+    source_spectral_indices_orig = source_arrays["spectral_index"]
+    source_rm_orig = (
+        source_arrays["rotation_measure"]
+        if source_arrays["rotation_measure"] is not None
+        else np.zeros(len(_ra_rad), dtype=np.float64)
+    )
+
+    # Multi-term spectral coefficients
+    source_spectral_coeffs_orig = source_arrays["spectral_coeffs"]
 
     # Gaussian morphology
-    source_major_orig = np.array([s.get("major_arcsec", 0.0) for s in sources])
-    source_minor_orig = np.array([s.get("minor_arcsec", 0.0) for s in sources])
-    source_pa_orig = np.array([s.get("pa_deg", 0.0) for s in sources])
+    _maj = source_arrays["major_arcsec"]
+    _minn = source_arrays["minor_arcsec"]
+    _pa = source_arrays["pa_deg"]
+    source_major_orig = _maj if _maj is not None else np.zeros(len(_ra_rad))
+    source_minor_orig = _minn if _minn is not None else np.zeros(len(_ra_rad))
+    source_pa_orig = _pa if _pa is not None else np.zeros(len(_ra_rad))
     has_gaussians = np.any(source_major_orig > 0)
 
     # Pre-compute Gaussian (a, b, c) quadratic form coefficients
@@ -238,6 +252,7 @@ def calculate_visibility(
         source_stokes_U_t = source_stokes_U_orig[above_horizon]
         source_stokes_V_t = source_stokes_V_orig[above_horizon]
         source_spectral_indices_t = source_spectral_indices_orig[above_horizon]
+        source_ref_freq_t = source_ref_freq_orig[above_horizon]
         source_rm_t = source_rm_orig[above_horizon]
         source_spectral_coeffs_t = (
             source_spectral_coeffs_orig[above_horizon]
@@ -272,7 +287,7 @@ def calculate_visibility(
                 source_spectral_indices_t,
                 source_spectral_coeffs_t,
                 freq,
-                reference_freq,
+                source_ref_freq_t,
             )
             I_scaled = source_stokes_I_t * scale
             Q_scaled, U_scaled = apply_faraday_rotation(
@@ -280,7 +295,7 @@ def calculate_visibility(
                 source_stokes_U_t,
                 source_rm_t,
                 freq,
-                reference_freq,
+                source_ref_freq_t,
                 scale,
             )
             V_scaled = source_stokes_V_t * scale
@@ -330,14 +345,20 @@ def calculate_visibility(
                 J_q = jones_antenna_cache[ant2]
 
                 # Geometric phase (K) applied separately
-                u, v, w = np.array(baseline["BaselineVector"]) / wavelength.value
-                b_dot_s = u * l_np + v * m_np + w * (n_np - 1.0)
+                bl_u, bl_v, bl_w = (
+                    np.array(baseline["BaselineVector"]) / wavelength.value
+                )
+                b_dot_s = bl_u * l_np + bl_v * m_np + bl_w * (n_np - 1.0)
                 phase = np.exp(-2j * np.pi * b_dot_s)
 
                 # Gaussian envelope: scalar attenuation per source
                 if has_gaussians:
                     envelope = np.exp(
-                        -(gauss_a_t * u**2 + 2 * gauss_b_t * u * v + gauss_c_t * v**2)
+                        -(
+                            gauss_a_t * bl_u**2
+                            + 2 * gauss_b_t * bl_u * bl_v
+                            + gauss_c_t * bl_v**2
+                        )
                     )
                 else:
                     envelope = 1.0

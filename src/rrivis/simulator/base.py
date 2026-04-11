@@ -9,7 +9,10 @@ algorithms based on problem characteristics (source count, array density, etc.).
 """
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rrivis.core.sky.model import SourceArrays
 
 import numpy as np
 
@@ -116,7 +119,7 @@ class VisibilitySimulator(ABC):
         self,
         antennas: dict[Any, dict],
         baselines: dict[tuple[Any, Any], dict],
-        sources: list[dict],
+        source_arrays: "SourceArrays",
         frequencies: np.ndarray,
         backend: Any,
         **kwargs,
@@ -144,13 +147,8 @@ class VisibilitySimulator(ABC):
             Values: dicts with at minimum:
                 - "BaselineVector": [u, v, w] in meters
 
-        sources : list
-            List of source dictionaries, each containing:
-                - "coords": astropy.SkyCoord object
-                - "flux": flux density in Jy (Stokes I)
-                - "spectral_index": spectral index α (S ∝ ν^α)
-                Optional:
-                - "stokes_q", "stokes_u", "stokes_v": polarization (default 0)
+        source_arrays : dict
+            Dict of source arrays from ``SkyModel.as_point_source_arrays()``.
 
         frequencies : ndarray
             Frequency array in Hz. Shape: (N_freq,)

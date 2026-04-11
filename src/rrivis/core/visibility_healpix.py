@@ -297,11 +297,11 @@ def calculate_visibility_healpix(
         - baselines: Baseline info
         - metadata: Additional information
     """
-    if sky_model.mode != "healpix_multifreq":
+    if sky_model.mode != "healpix_map":
         raise ValueError(
-            "sky_model must be in healpix_multifreq mode. "
+            "sky_model must be in healpix_map mode. "
             "Call with_healpix_maps() first (for point-source catalogs) "
-            "or use from_diffuse_sky(frequencies=...) (for diffuse models)."
+            "or use from_catalog('diffuse_sky', frequencies=...) (for diffuse models)."
         )
 
     # Determine if we should use the polarized path
@@ -431,14 +431,31 @@ def calculate_visibility_healpix(
                     else np.zeros_like(I_vis)
                 )
 
-                # Convert all Stokes K_RJ -> Jy using Rayleigh-Jeans
-                rj_factor = (
+                # Stokes I: respect brightness_conversion (Planck or RJ)
+                conversion = getattr(sky_model, "brightness_conversion", "planck")
+                if conversion == "rayleigh-jeans":
+                    rj_factor_I = (
+                        (2 * K_BOLTZMANN * freq**2 / C_LIGHT**2) * omega_pixel * 1e26
+                    )
+                    I_jy = I_vis * rj_factor_I
+                else:
+                    I_jy = np.zeros(len(I_vis))
+                    pos = I_vis > 0
+                    if np.any(pos):
+                        I_jy[pos] = brightness_temp_to_flux_density(
+                            I_vis[pos].astype(np.float64),
+                            freq,
+                            omega_pixel,
+                            method="planck",
+                        )
+
+                # Stokes Q/U/V: always RJ (can be negative, RJ is linear)
+                rj_factor_pol = (
                     (2 * K_BOLTZMANN * freq**2 / C_LIGHT**2) * omega_pixel * 1e26
                 )
-                I_jy = I_vis * rj_factor
-                Q_jy = Q_vis * rj_factor
-                U_jy = U_vis * rj_factor
-                V_jy = V_vis * rj_factor
+                Q_jy = Q_vis * rj_factor_pol
+                U_jy = U_vis * rj_factor_pol
+                V_jy = V_vis * rj_factor_pol
 
                 # Build per-pixel coherency matrices: (n_visible, 2, 2)
                 coherency = stokes_to_coherency(I_jy, Q_jy, U_jy, V_jy)

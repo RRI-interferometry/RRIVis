@@ -31,24 +31,25 @@ SERVICE_ENDPOINTS: dict[str, tuple[str, int]] = {
     "pysm3_data": ("portal.nersc.gov", 443),
 }
 
-# Maps (config_key, enable_field) -> service name for sky models that need network.
-# Config keys match the keys under sky_model in config.yaml.
-SKY_MODEL_SERVICES: dict[tuple[str, str], str] = {
-    ("gleam", "use_gleam"): "vizier",
-    ("gleam_healpix", "use_gleam"): "vizier",
-    ("mals", "use_mals"): "vizier",
-    ("vlssr", "use_vlssr"): "vizier",
-    ("tgss", "use_tgss"): "vizier",
-    ("wenss", "use_wenss"): "vizier",
-    ("sumss", "use_sumss"): "vizier",
-    ("nvss", "use_nvss"): "vizier",
-    ("lotss", "use_lotss"): "vizier",
-    ("three_c", "use_3c"): "vizier",
-    ("vlass", "use_vlass"): "vizier",
-    ("racs", "use_racs"): "casda",
-    ("gsm_healpix", "use_gsm"): "pygdsm_data",
-    ("pysm3", "use_pysm3"): "pysm3_data",
-}
+# Maps (config_key, enable_field) -> service name for sky models that need
+# network.  Derived lazily from the loader registry so that adding a new
+# loader in _loaders_*.py is sufficient — no manual update needed here.
+_SKY_MODEL_SERVICES_CACHE: dict[tuple[str, str], str] | None = None
+
+
+def get_sky_model_services() -> dict[tuple[str, str], str]:
+    """Return the (config_section, use_flag) -> network_service mapping.
+
+    Built lazily from the loader registry on first call.  Equivalent to
+    the old hardcoded ``SKY_MODEL_SERVICES`` dict.
+    """
+    global _SKY_MODEL_SERVICES_CACHE
+    if _SKY_MODEL_SERVICES_CACHE is None:
+        from rrivis.core.sky._registry import build_network_services_map
+
+        _SKY_MODEL_SERVICES_CACHE = build_network_services_map()
+    return _SKY_MODEL_SERVICES_CACHE
+
 
 # Human-readable display names for services.
 SERVICE_DISPLAY_NAMES: dict[str, str] = {
@@ -309,11 +310,68 @@ def get_required_services(sky_config: dict) -> dict[str, list[str]]:
         Only services needed by at least one enabled model are included.
     """
     required: dict[str, list[str]] = {}
-    for (config_key, enable_field), service in SKY_MODEL_SERVICES.items():
+    for (config_key, enable_field), service in get_sky_model_services().items():
         sub = sky_config.get(config_key, {})
         if isinstance(sub, dict) and sub.get(enable_field, False):
             required.setdefault(service, []).append(config_key)
     return required
+
+
+def require_service(service: str, action: str, *, strict: bool = True) -> None:
+    """Check network connectivity for a service.
+
+    When ``strict=True`` (default), raises :class:`ConnectionError` if the
+    service is unreachable -- appropriate for loaders that *must* download
+    data (e.g. VizieR catalogs).  When ``strict=False``, logs a warning
+    instead -- appropriate for services whose data may already be cached
+    locally (e.g. pygdsm, PySM3).
+
+    Parameters
+    ----------
+    service : str
+        Service name (e.g. ``"vizier"``, ``"casda"``, ``"pygdsm_data"``,
+        ``"pysm3_data"``).
+    action : str
+        Human-readable description of what needs the service
+        (e.g. ``"download catalog 'gleam' from VizieR"``).
+    strict : bool, default True
+        If True, raise :class:`ConnectionError` when unavailable.
+        If False, log a warning instead (for services with local caches).
+
+    Raises
+    ------
+    ConnectionError
+        Only when ``strict=True`` and the service is unreachable.
+    """
+    display = SERVICE_DISPLAY_NAMES.get(service, service)
+
+    if not is_online():
+        msg = (
+            f"No internet connection. Cannot {action}.\n"
+            f"Hint: use offline metadata methods like "
+            f"SkyModel.get_catalog_info(key) or SkyModel.list_point_catalogs() "
+            f"which work without network."
+        )
+        if strict:
+            raise ConnectionError(msg)
+        logger.warning(
+            f"No internet connection. {action.capitalize()} may fail if data "
+            f"files have not been downloaded previously."
+        )
+        return
+
+    if not check_service(service):
+        msg = (
+            f"{display} ({service}) is unreachable. Cannot {action}.\n"
+            f"The service may be temporarily down. Try again later, or use "
+            f"SkyModel.get_catalog_info(key) for offline metadata."
+        )
+        if strict:
+            raise ConnectionError(msg)
+        logger.warning(
+            f"{display} is unreachable. {action.capitalize()} may fail if data "
+            f"files have not been cached locally from a previous run."
+        )
 
 
 def clear_cache() -> None:
@@ -321,5 +379,6 @@ def clear_cache() -> None:
 
     Intended for use in tests.
     """
-    global _cached_status
+    global _cached_status, _SKY_MODEL_SERVICES_CACHE
     _cached_status = None
+    _SKY_MODEL_SERVICES_CACHE = None

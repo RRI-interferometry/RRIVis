@@ -6,7 +6,6 @@ import pytest
 
 from rrivis.utils.network import (
     SERVICE_ENDPOINTS,
-    SKY_MODEL_SERVICES,
     NetworkStatus,
     _check_socket,
     check_all_services,
@@ -14,6 +13,7 @@ from rrivis.utils.network import (
     clear_cache,
     get_network_status,
     get_required_services,
+    get_sky_model_services,
     is_online,
 )
 
@@ -271,11 +271,11 @@ class TestGetRequiredServices:
         assert get_required_services({}) == {}
 
     def test_all_vizier_models_mapped(self):
-        """Every VizieR/CASDA/diffuse model in SKY_MODEL_SERVICES
+        """Every model in get_sky_model_services()
         should map to a known service endpoint."""
-        for (_key, _field), service in SKY_MODEL_SERVICES.items():
+        for (_key, _field), service in get_sky_model_services().items():
             assert service in SERVICE_ENDPOINTS, (
-                f"SKY_MODEL_SERVICES maps ({_key}, {_field}) to "
+                f"get_sky_model_services() maps ({_key}, {_field}) to "
                 f"unknown service {service!r}"
             )
 

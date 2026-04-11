@@ -31,52 +31,18 @@ from astropy.coordinates import SkyCoord
 from astroquery.utils.tap.core import TapPlus
 from astroquery.vizier import Vizier
 
-from ._registry import register_loader
-from .catalogs import CASDA_TAP_URL, RACS_CATALOGS, VIZIER_POINT_CATALOGS
+from rrivis.utils.network import require_service
+
+from ._registry import get_loader, register_loader
+from .catalogs import (
+    CASDA_TAP_URL,
+    RACS_CATALOGS,
+    VIZIER_POINT_CATALOGS,
+    VizierCatalogEntry,
+)
 from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
-
-
-def _require_service(service: str, action: str) -> None:
-    """Check network connectivity for *service* and raise if unavailable.
-
-    Parameters
-    ----------
-    service : str
-        Service name recognised by ``rrivis.utils.network`` (e.g.
-        ``"vizier"``, ``"casda"``).
-    action : str
-        Human-readable description of the operation that needs the
-        service (used in the error message).
-
-    Raises
-    ------
-    ConnectionError
-        If general internet or the specific service is unreachable.
-    """
-    from rrivis.utils.network import (
-        SERVICE_DISPLAY_NAMES,
-        check_service,
-        is_online,
-    )
-
-    display = SERVICE_DISPLAY_NAMES.get(service, service)
-
-    if not is_online():
-        raise ConnectionError(
-            f"No internet connection. Cannot {action}.\n"
-            f"Hint: use offline metadata methods like "
-            f"SkyModel.get_catalog_info(key) or SkyModel.list_point_catalogs() "
-            f"which work without network."
-        )
-
-    if not check_service(service):
-        raise ConnectionError(
-            f"{display} ({service}) is unreachable. Cannot {action}.\n"
-            f"The service may be temporarily down. Try again later, or use "
-            f"SkyModel.get_catalog_info(key) for offline metadata."
-        )
 
 
 def _extract_masked_column(catalog, col_name: str, dtype=np.float64) -> np.ndarray:
@@ -110,7 +76,7 @@ def _extract_masked_column(catalog, col_name: str, dtype=np.float64) -> np.ndarr
     return arr
 
 
-def _select_table(tables, info: dict) -> Any:
+def _select_table(tables, info: VizierCatalogEntry) -> Any:
     """Select the correct table from a VizieR TableList.
 
     If the catalog metadata specifies a ``table`` name, search for it;
@@ -119,9 +85,9 @@ def _select_table(tables, info: dict) -> Any:
     """
     if not tables:
         return None
-    if info["table"] is not None:
+    if info.table is not None:
         for t in tables:
-            if info["table"] in t.meta.get("name", ""):
+            if info.table in t.meta.get("name", ""):
                 return t
     return tables[0]
 
@@ -177,30 +143,30 @@ def _load_from_vizier_catalog(
         )
 
     def _empty():
-        return SkyModel._empty_sky(catalog_key, brightness_conversion, precision)
+        return SkyModel.empty_sky(catalog_key, brightness_conversion, precision)
 
     info = VIZIER_POINT_CATALOGS[catalog_key]
-    logger.info(f"Fetching {info['description']}")
+    logger.info(f"Fetching {info.description}")
 
-    _require_service("vizier", f"download catalog '{catalog_key}' from VizieR")
+    require_service("vizier", f"download catalog '{catalog_key}' from VizieR")
     logger.info("Downloading from VizieR...")
 
     try:
-        needed_cols = [info["ra_col"], info["dec_col"], info["flux_col"]]
-        if info.get("spindex_col"):
-            needed_cols.append(info["spindex_col"])
+        needed_cols = [info.ra_col, info.dec_col, info.flux_col]
+        if info.spindex_col:
+            needed_cols.append(info.spindex_col)
         # Optional Gaussian morphology columns
-        _major_col = info.get("major_col")
-        _minor_col = info.get("minor_col")
-        _pa_col = info.get("pa_col")
+        _major_col = info.major_col
+        _minor_col = info.minor_col
+        _pa_col = info.pa_col
         if _major_col:
             needed_cols.extend([_major_col, _minor_col, _pa_col])
         v = Vizier(columns=needed_cols, row_limit=-1)
 
         # Push flux_limit filter to VizieR server to reduce download size
-        flux_unit = info.get("flux_unit", "Jy")
+        flux_unit = info.flux_unit
         limit_in_catalog_units = flux_limit * (1000.0 if flux_unit == "mJy" else 1.0)
-        v.column_filters = {info["flux_col"]: f">={limit_in_catalog_units}"}
+        v.column_filters = {info.flux_col: f">={limit_in_catalog_units}"}
 
         if region is not None:
             # Server-side spatial query -- one per atomic sub-region
@@ -214,14 +180,14 @@ def _load_from_vizier_catalog(
                     t = v.query_region(
                         sub.center,
                         radius=sub.radius,
-                        catalog=[info["vizier_id"]],
+                        catalog=[info.vizier_id],
                     )
                 else:  # box
                     t = v.query_region(
                         sub.center,
                         width=sub.width,
                         height=sub.height,
-                        catalog=[info["vizier_id"]],
+                        catalog=[info.vizier_id],
                     )
                 if t:
                     tbl = _select_table(t, info)
@@ -231,14 +197,14 @@ def _load_from_vizier_catalog(
                 raise ValueError("No tables returned from VizieR")
             catalog = vstack(all_tables) if len(all_tables) > 1 else all_tables[0]
         else:
-            tables = v.get_catalogs(info["vizier_id"])
+            tables = v.get_catalogs(info.vizier_id)
             if not tables:
                 raise ValueError("No tables returned from VizieR")
             catalog = _select_table(tables, info)
             if catalog is None:
                 catalog = tables[0]
     except ConnectionError:
-        raise  # Network issues already have good messages from _require_service
+        raise  # Network issues already have good messages from require_service
     except Exception as e:
         raise RuntimeError(
             f"Failed to fetch catalog '{catalog_key}' from VizieR: {e}\n"
@@ -257,13 +223,13 @@ def _load_from_vizier_catalog(
             "Consider increasing flux_limit to reduce the source count."
         )
 
-    is_sexagesimal = info.get("coords_sexagesimal", False)
-    coord_frame = info.get("coord_frame", "icrs")
+    is_sexagesimal = info.coords_sexagesimal
+    coord_frame = info.coord_frame
 
     # Auto-detect sexagesimal coordinates: if the first valid RA value is a
     # string that can't be parsed as a float, treat coords as sexagesimal.
     if not is_sexagesimal and len(catalog) > 0:
-        sample_ra = catalog[0][info["ra_col"]]
+        sample_ra = catalog[0][info.ra_col]
         if isinstance(sample_ra, (str, np.str_)):
             try:
                 float(sample_ra)
@@ -271,7 +237,7 @@ def _load_from_vizier_catalog(
                 is_sexagesimal = True
                 logger.debug(f"{catalog_key}: auto-detected sexagesimal coordinates")
 
-    flux_col = info["flux_col"]
+    flux_col = info.flux_col
     flux_raw = _extract_masked_column(catalog, flux_col)
     flux_jy_raw = flux_raw * (1e-3 if flux_unit == "mJy" else 1.0)
     flux_valid = np.isfinite(flux_jy_raw) & (flux_jy_raw >= flux_limit)
@@ -283,12 +249,12 @@ def _load_from_vizier_catalog(
         return _empty()
 
     if is_sexagesimal:
-        ra_strs = [str(v) for v in catalog[info["ra_col"]][flux_valid]]
-        dec_strs = [str(v) for v in catalog[info["dec_col"]][flux_valid]]
+        ra_strs = [str(v) for v in catalog[info.ra_col][flux_valid]]
+        dec_strs = [str(v) for v in catalog[info.dec_col][flux_valid]]
         sc = SkyCoord(ra_strs, dec_strs, unit=(u.hourangle, u.deg), frame=coord_frame)
     else:
-        ra_raw = _extract_masked_column(catalog, info["ra_col"])
-        dec_raw = _extract_masked_column(catalog, info["dec_col"])
+        ra_raw = _extract_masked_column(catalog, info.ra_col)
+        dec_raw = _extract_masked_column(catalog, info.dec_col)
         coord_ok = flux_valid & np.isfinite(ra_raw) & np.isfinite(dec_raw)
         sc = SkyCoord(
             ra=ra_raw[coord_ok] * u.deg,
@@ -306,11 +272,11 @@ def _load_from_vizier_catalog(
     n = len(flux_jy)
 
     valid_indices = np.where(flux_valid)[0]
-    default_spindex = info["default_spindex"]
+    default_spindex = info.default_spindex
     alpha_arr = np.full(n, default_spindex, dtype=np.float64)
 
-    if info.get("spindex_col") and info["spindex_col"] in catalog.colnames:
-        spindex_raw = _extract_masked_column(catalog, info["spindex_col"])
+    if info.spindex_col and info.spindex_col in catalog.colnames:
+        spindex_raw = _extract_masked_column(catalog, info.spindex_col)
         spindex_valid = spindex_raw[valid_indices]
         finite_mask = np.isfinite(spindex_valid)
         alpha_arr[finite_mask] = spindex_valid[finite_mask]
@@ -363,22 +329,19 @@ def _load_from_vizier_catalog(
         f"{catalog_key.upper()} loaded: {n:,} sources (flux >= {flux_limit} Jy)"
     )
 
-    sky = SkyModel(
-        _ra_rad=ra_rad,
-        _dec_rad=dec_rad,
-        _flux_ref=flux_jy,
-        _alpha=alpha_arr,
-        _stokes_q=np.zeros(n, dtype=np.float64),
-        _stokes_u=np.zeros(n, dtype=np.float64),
-        _stokes_v=np.zeros(n, dtype=np.float64),
-        _major_arcsec=_gauss_major,
-        _minor_arcsec=_gauss_minor,
-        _pa_deg=_gauss_pa,
-        _native_format="point_sources",
+    sky = SkyModel.from_arrays(
+        ra_rad=ra_rad,
+        dec_rad=dec_rad,
+        flux=flux_jy,
+        spectral_index=alpha_arr,
+        ref_freq=np.full(n, info.freq_mhz * 1e6, dtype=np.float64),
+        major_arcsec=_gauss_major,
+        minor_arcsec=_gauss_minor,
+        pa_deg=_gauss_pa,
         model_name=catalog_key,
-        frequency=info["freq_mhz"] * 1e6,
+        reference_frequency=info.freq_mhz * 1e6,
         brightness_conversion=brightness_conversion,
-        _precision=precision,
+        precision=precision,
     )
     return sky
 
@@ -388,7 +351,13 @@ def _load_from_vizier_catalog(
 # =========================================================================
 
 
-@register_loader("gleam")
+@register_loader(
+    "gleam",
+    config_section="gleam",
+    use_flag="use_gleam",
+    network_service="vizier",
+    config_fields={"flux_limit": "flux_limit", "gleam_catalogue": "catalog"},
+)
 def load_gleam(
     flux_limit: float = 1.0,
     catalog: str = "gleam_egc",
@@ -434,7 +403,13 @@ def load_gleam(
     )
 
 
-@register_loader("mals")
+@register_loader(
+    "mals",
+    config_section="mals",
+    use_flag="use_mals",
+    network_service="vizier",
+    config_fields={"flux_limit": "flux_limit", "mals_release": "release"},
+)
 def load_mals(
     flux_limit: float = 1.0,
     release: str = "dr2",
@@ -468,164 +443,83 @@ def load_mals(
     )
 
 
-@register_loader("vlssr")
-def load_vlssr(
-    flux_limit: float = 1.0,
-    brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
-    region: SkyRegion | None = None,
-) -> SkyModel:  # noqa: F821
-    """
-    Load the VLSSr catalog from VizieR (73.8 MHz, ~92,964 sources).
+# =========================================================================
+# Data-driven registration of simple VizieR loaders
+# =========================================================================
 
-    VLSSr (Cohen et al. 2007) is the redux of the VLA Low-frequency Sky
-    Survey at 73.8 MHz. Reference: VIII/97 on VizieR.
+# Catalog keys with only flux_limit as their config-driven parameter.
+# Complex loaders (gleam, mals, lotss, racs) are kept as explicit functions.
+_SIMPLE_VIZIER_CATALOGS = {
+    "vlssr": "vlssr",
+    "tgss": "tgss",
+    "wenss": "wenss",
+    "sumss": "sumss",
+    "nvss": "nvss",
+    "3c": "three_c",  # config_section differs from loader name
+    "vlass": "vlass",
+}
 
-    Parameters
-    ----------
-    flux_limit : float, default=1.0
-        Minimum flux density in Jy.
-    brightness_conversion : str, default="planck"
-        Conversion method: "planck" or "rayleigh-jeans".
-    precision : PrecisionConfig, optional
-        Precision configuration for array dtypes.
 
-    Returns
-    -------
-    SkyModel
-    """
-    return _load_from_vizier_catalog(
-        "vlssr", flux_limit, brightness_conversion, precision, region=region
+def _make_simple_vizier_loader(catalog_key: str):
+    """Create a simple VizieR loader function for *catalog_key*."""
+    info = VIZIER_POINT_CATALOGS[catalog_key]
+
+    def loader(
+        flux_limit: float = info.default_flux_limit,
+        brightness_conversion: str = "planck",
+        precision: PrecisionConfig | None = None,
+        region: SkyRegion | None = None,
+    ):
+        return _load_from_vizier_catalog(
+            catalog_key, flux_limit, brightness_conversion, precision, region=region
+        )
+
+    loader.__name__ = f"load_{catalog_key}"
+    loader.__qualname__ = f"load_{catalog_key}"
+    loader.__doc__ = (
+        f"Load the {catalog_key.upper()} catalog from VizieR.\n\n"
+        f"{info.description}\n\n"
+        f"Parameters\n----------\n"
+        f"flux_limit : float, default={info.default_flux_limit}\n"
+        f"    Minimum flux density in Jy.\n"
+        f"brightness_conversion : str, default='planck'\n"
+        f"    Conversion method: 'planck' or 'rayleigh-jeans'.\n"
+        f"precision : PrecisionConfig, optional\n"
+        f"    Precision configuration for array dtypes.\n"
+        f"region : SkyRegion, optional\n"
+        f"    Spatial filter.\n\n"
+        f"Returns\n-------\nSkyModel\n"
     )
+    return loader
 
 
-@register_loader("tgss")
-def load_tgss(
-    flux_limit: float = 0.1,
-    brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
-    region: SkyRegion | None = None,
-) -> SkyModel:  # noqa: F821
-    """
-    Load the TGSS ADR1 catalog from VizieR (150 MHz, ~623,604 sources).
+for _key, _config_section in _SIMPLE_VIZIER_CATALOGS.items():
+    _fn = _make_simple_vizier_loader(_key)
+    register_loader(
+        _key,
+        config_section=_config_section,
+        use_flag=f"use_{_key}",
+        network_service="vizier",
+        config_fields={"flux_limit": "flux_limit"},
+    )(_fn)
 
-    TGSS ADR1 (Intema et al. 2017) is the GMRT 150 MHz All-Sky Radio Survey.
-    Reference: J/A+A/598/A78 on VizieR. Flux densities are in mJy; this
-    method converts to Jy automatically before applying ``flux_limit``.
-
-    Parameters
-    ----------
-    flux_limit : float, default=0.1
-        Minimum flux density in Jy.
-    brightness_conversion : str, default="planck"
-        Conversion method: "planck" or "rayleigh-jeans".
-    precision : PrecisionConfig, optional
-        Precision configuration for array dtypes.
-
-    Returns
-    -------
-    SkyModel
-    """
-    return _load_from_vizier_catalog(
-        "tgss", flux_limit, brightness_conversion, precision, region=region
-    )
+# Expose as module-level names for direct import
+load_vlssr = get_loader("vlssr")
+load_tgss = get_loader("tgss")
+load_wenss = get_loader("wenss")
+load_sumss = get_loader("sumss")
+load_nvss = get_loader("nvss")
+load_3c = get_loader("3c")
+load_vlass = get_loader("vlass")
 
 
-@register_loader("wenss")
-def load_wenss(
-    flux_limit: float = 0.05,
-    brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
-    region: SkyRegion | None = None,
-) -> SkyModel:  # noqa: F821
-    """
-    Load the WENSS catalog from VizieR (325 MHz, ~229,000 sources).
-
-    WENSS (de Bruyn et al. 1998) is the Westerbork Northern Sky Survey
-    at 325 MHz. Reference: VIII/62 on VizieR.
-
-    Parameters
-    ----------
-    flux_limit : float, default=0.05
-        Minimum flux density in Jy.
-    brightness_conversion : str, default="planck"
-        Conversion method: "planck" or "rayleigh-jeans".
-    precision : PrecisionConfig, optional
-        Precision configuration for array dtypes.
-
-    Returns
-    -------
-    SkyModel
-    """
-    return _load_from_vizier_catalog(
-        "wenss", flux_limit, brightness_conversion, precision, region=region
-    )
-
-
-@register_loader("sumss")
-def load_sumss(
-    flux_limit: float = 0.008,
-    brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
-    region: SkyRegion | None = None,
-) -> SkyModel:  # noqa: F821
-    """
-    Load the SUMSS catalog from VizieR (843 MHz, ~210,412 sources).
-
-    SUMSS (Mauch et al. 2003) is the Sydney University Molonglo Sky
-    Survey at 843 MHz. Reference: VIII/81B on VizieR.
-
-    Parameters
-    ----------
-    flux_limit : float, default=0.008
-        Minimum flux density in Jy.
-    brightness_conversion : str, default="planck"
-        Conversion method: "planck" or "rayleigh-jeans".
-    precision : PrecisionConfig, optional
-        Precision configuration for array dtypes.
-
-    Returns
-    -------
-    SkyModel
-    """
-    return _load_from_vizier_catalog(
-        "sumss", flux_limit, brightness_conversion, precision, region=region
-    )
-
-
-@register_loader("nvss")
-def load_nvss(
-    flux_limit: float = 0.0025,
-    brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
-    region: SkyRegion | None = None,
-) -> SkyModel:  # noqa: F821
-    """
-    Load the NVSS catalog from VizieR (1400 MHz, ~1.8M sources).
-
-    NVSS (Condon et al. 1998) is the NRAO VLA Sky Survey at 1.4 GHz.
-    Reference: VIII/65 on VizieR. Warning: the full catalog has ~1.8M
-    rows -- consider using a high flux_limit to reduce memory usage.
-
-    Parameters
-    ----------
-    flux_limit : float, default=0.0025
-        Minimum flux density in Jy.
-    brightness_conversion : str, default="planck"
-        Conversion method: "planck" or "rayleigh-jeans".
-    precision : PrecisionConfig, optional
-        Precision configuration for array dtypes.
-
-    Returns
-    -------
-    SkyModel
-    """
-    return _load_from_vizier_catalog(
-        "nvss", flux_limit, brightness_conversion, precision, region=region
-    )
-
-
-@register_loader("lotss")
+@register_loader(
+    "lotss",
+    config_section="lotss",
+    use_flag="use_lotss",
+    network_service="vizier",
+    config_fields={"flux_limit": "flux_limit", "lotss_release": "release"},
+)
 def load_lotss(
     release: str = "dr2",
     flux_limit: float = 0.001,
@@ -667,74 +561,17 @@ def load_lotss(
     )
 
 
-@register_loader("3c")
-def load_3c(
-    flux_limit: float = 1.0,
-    brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
-    region: SkyRegion | None = None,
-) -> SkyModel:  # noqa: F821
-    """
-    Load the 3CR catalog from VizieR (178 MHz, ~471 sources).
-
-    3CR (Edge et al. 1959, revised) is the Third Cambridge Catalogue.
-    Coordinates are B1950 FK4 and are automatically converted to ICRS.
-    Reference: VIII/1 on VizieR.
-
-    Parameters
-    ----------
-    flux_limit : float, default=1.0
-        Minimum flux density in Jy.
-    brightness_conversion : str, default="planck"
-        Conversion method: "planck" or "rayleigh-jeans".
-    precision : PrecisionConfig, optional
-        Precision configuration for array dtypes.
-
-    Returns
-    -------
-    SkyModel
-    """
-    return _load_from_vizier_catalog(
-        "3c", flux_limit, brightness_conversion, precision, region=region
-    )
-
-
-@register_loader("vlass")
-def load_vlass(
-    flux_limit: float = 0.001,
-    brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
-    region: SkyRegion | None = None,
-) -> SkyModel:  # noqa: F821
-    """
-    Load the VLASS Quick Look catalog from VizieR (3000 MHz, ~1.9M sources).
-
-    VLASS (Lacy et al. 2020) is the VLA Sky Survey at 2-4 GHz (S-band).
-    The Quick Look Epoch 1 catalog (Gordon et al. 2021) covers 33,885 deg^2
-    at 2.5 arcsec resolution. Reference: J/ApJS/255/30 on VizieR.
-
-    Note: Quick Look flux densities may be systematically underestimated
-    by approximately 15%.
-
-    Parameters
-    ----------
-    flux_limit : float, default=0.001
-        Minimum flux density in Jy.
-    brightness_conversion : str, default="planck"
-        Conversion method: "planck" or "rayleigh-jeans".
-    precision : PrecisionConfig, optional
-        Precision configuration for array dtypes.
-
-    Returns
-    -------
-    SkyModel
-    """
-    return _load_from_vizier_catalog(
-        "vlass", flux_limit, brightness_conversion, precision, region=region
-    )
-
-
-@register_loader("racs")
+@register_loader(
+    "racs",
+    config_section="racs",
+    use_flag="use_racs",
+    network_service="casda",
+    config_fields={
+        "flux_limit": "flux_limit",
+        "racs_band": "band",
+        "max_rows": "max_rows",
+    },
+)
 def load_racs(
     band: str = "low",
     flux_limit: float = 1.0,
@@ -785,21 +622,21 @@ def load_racs(
     flux_limit_mjy = flux_limit * 1000.0
     model_name = f"racs_{band}"
 
-    logger.info(f"Fetching {info['description']} via CASDA TAP")
+    logger.info(f"Fetching {info.description} via CASDA TAP")
 
-    _require_service("casda", f"download RACS-{band} catalog from CASDA")
+    require_service("casda", f"download RACS-{band} catalog from CASDA")
 
     try:
         tap = TapPlus(url=CASDA_TAP_URL)
         adql = (
             f"SELECT TOP {max_rows} "
-            f"{info['ra_col']}, {info['dec_col']}, {info['flux_col']} "
-            f"FROM {info['tap_table']} "
-            f"WHERE {info['flux_col']} >= {flux_limit_mjy}"
+            f"{info.ra_col}, {info.dec_col}, {info.flux_col} "
+            f"FROM {info.tap_table} "
+            f"WHERE {info.flux_col} >= {flux_limit_mjy}"
         )
         if region is not None:
             spatial_parts = []
-            pt = f"POINT('ICRS', {info['ra_col']}, {info['dec_col']})"
+            pt = f"POINT('ICRS', {info.ra_col}, {info.dec_col})"
             from .region import ConeRegion
 
             for sub in region._iter_atomic():
@@ -829,12 +666,12 @@ def load_racs(
             f"please report at https://github.com/RRI-interferometry/RRIVis/issues"
         ) from e
 
-    freq_hz = info["freq_mhz"] * 1e6
+    freq_hz = info.freq_mhz * 1e6
 
     try:
-        flux_raw = _extract_masked_column(result, info["flux_col"]) * 1e-3
-        ra_raw = _extract_masked_column(result, info["ra_col"])
-        dec_raw = _extract_masked_column(result, info["dec_col"])
+        flux_raw = _extract_masked_column(result, info.flux_col) * 1e-3
+        ra_raw = _extract_masked_column(result, info.ra_col)
+        dec_raw = _extract_masked_column(result, info.dec_col)
         valid = (
             np.isfinite(flux_raw)
             & np.isfinite(ra_raw)
@@ -852,14 +689,14 @@ def load_racs(
         ra_list, dec_list, flux_list = [], [], []
         for row in result:
             try:
-                flux_mjy = row[info["flux_col"]]
+                flux_mjy = row[info.flux_col]
                 if np.ma.is_masked(flux_mjy) or not np.isfinite(float(flux_mjy)):
                     continue
                 flux_jy = float(flux_mjy) * 1e-3
                 if flux_jy < flux_limit:
                     continue
-                ra_val = row[info["ra_col"]]
-                dec_val = row[info["dec_col"]]
+                ra_val = row[info.ra_col]
+                dec_val = row[info.dec_col]
                 if np.ma.is_masked(ra_val) or np.ma.is_masked(dec_val):
                     continue
                 ra_list.append(float(ra_val))
@@ -882,25 +719,21 @@ def load_racs(
     n = len(flux_arr)
     logger.info(
         f"RACS-{band.upper()} loaded: {n:,} sources "
-        f"(flux >= {flux_limit} Jy, freq={info['freq_mhz']} MHz)"
+        f"(flux >= {flux_limit} Jy, freq={info.freq_mhz} MHz)"
     )
 
     if n == 0:
-        return SkyModel._empty_sky(model_name, brightness_conversion, precision)
+        return SkyModel.empty_sky(model_name, brightness_conversion, precision)
 
-    sky = SkyModel(
-        _ra_rad=SkyModel._deg_to_rad_at_precision(ra_arr, precision),
-        _dec_rad=SkyModel._deg_to_rad_at_precision(dec_arr, precision),
-        _flux_ref=flux_arr,
-        _alpha=np.full(n, -0.7, dtype=np.float64),  # No multi-freq data in RACS
-        _stokes_q=np.zeros(n, dtype=np.float64),
-        _stokes_u=np.zeros(n, dtype=np.float64),
-        _stokes_v=np.zeros(n, dtype=np.float64),
-        _native_format="point_sources",
+    sky = SkyModel.from_arrays(
+        ra_rad=SkyModel.deg_to_rad_at_precision(ra_arr, precision),
+        dec_rad=SkyModel.deg_to_rad_at_precision(dec_arr, precision),
+        flux=flux_arr,
+        ref_freq=np.full(n, freq_hz, dtype=np.float64),
         model_name=model_name,
-        frequency=freq_hz,
+        reference_frequency=freq_hz,
         brightness_conversion=brightness_conversion,
-        _precision=precision,
+        precision=precision,
     )
     return sky
 
@@ -923,7 +756,7 @@ def list_point_catalogs() -> dict[str, str]:
     >>> for name, desc in list_point_catalogs().items():
     ...     print(f"{name}: {desc[:80]}...")
     """
-    return {name: info["description"] for name, info in VIZIER_POINT_CATALOGS.items()}
+    return {name: info.description for name, info in VIZIER_POINT_CATALOGS.items()}
 
 
 def list_racs_catalogs() -> dict[str, str]:
@@ -939,7 +772,7 @@ def list_racs_catalogs() -> dict[str, str]:
     >>> for name, desc in list_racs_catalogs().items():
     ...     print(f"{name}: {desc}")
     """
-    return {name: info["description"] for name, info in RACS_CATALOGS.items()}
+    return {name: info.description for name, info in RACS_CATALOGS.items()}
 
 
 def get_point_catalog_metadata(catalog_key: str) -> dict[str, Any]:
@@ -990,16 +823,16 @@ def get_point_catalog_metadata(catalog_key: str) -> dict[str, Any]:
         )
     info = VIZIER_POINT_CATALOGS[catalog_key]
     return {
-        "vizier_id": info["vizier_id"],
-        "description": info["description"],
-        "freq_mhz": info["freq_mhz"],
-        "flux_col": info["flux_col"],
-        "flux_unit": info.get("flux_unit", "Jy"),
-        "ra_col": info["ra_col"],
-        "dec_col": info["dec_col"],
-        "spindex_col": info.get("spindex_col"),
-        "default_spindex": info["default_spindex"],
-        "coord_frame": info.get("coord_frame", "icrs"),
+        "vizier_id": info.vizier_id,
+        "description": info.description,
+        "freq_mhz": info.freq_mhz,
+        "flux_col": info.flux_col,
+        "flux_unit": info.flux_unit,
+        "ra_col": info.ra_col,
+        "dec_col": info.dec_col,
+        "spindex_col": info.spindex_col,
+        "default_spindex": info.default_spindex,
+        "coord_frame": info.coord_frame,
     }
 
 
@@ -1046,13 +879,13 @@ def get_racs_metadata(band: str) -> dict[str, Any]:
         )
     info = RACS_CATALOGS[band]
     return {
-        "description": info["description"],
-        "freq_mhz": info["freq_mhz"],
-        "tap_table": info["tap_table"],
-        "ra_col": info["ra_col"],
-        "dec_col": info["dec_col"],
-        "flux_col": info["flux_col"],
-        "flux_unit": info.get("flux_unit", "mJy"),
+        "description": info.description,
+        "freq_mhz": info.freq_mhz,
+        "tap_table": info.tap_table,
+        "ra_col": info.ra_col,
+        "dec_col": info.dec_col,
+        "flux_col": info.flux_col,
+        "flux_unit": info.flux_unit,
     }
 
 
@@ -1104,18 +937,18 @@ def get_catalog_columns(catalog_key: str) -> dict[str, Any]:
 
     info = VIZIER_POINT_CATALOGS[catalog_key]
 
-    _require_service("vizier", f"query live columns for '{catalog_key}' from VizieR")
+    require_service("vizier", f"query live columns for '{catalog_key}' from VizieR")
 
     try:
         v = Vizier(columns=["**"], row_limit=1)
-        tables = v.get_catalogs(info["vizier_id"])
+        tables = v.get_catalogs(info.vizier_id)
         if not tables:
             return {"error": f"No tables returned from VizieR for '{catalog_key}'"}
 
         catalog = None
-        if info.get("table") is not None:
+        if info.table is not None:
             for t in tables:
-                if info["table"] in t.meta.get("name", ""):
+                if info.table in t.meta.get("name", ""):
                     catalog = t
                     break
         if catalog is None:
@@ -1138,15 +971,15 @@ def get_catalog_columns(catalog_key: str) -> dict[str, Any]:
         "columns": columns,
         "column_details": column_details,
         "used_by_rrivis": {
-            "ra": info["ra_col"],
-            "dec": info["dec_col"],
-            "flux": info["flux_col"],
-            "spectral_index": info.get("spindex_col"),
+            "ra": info.ra_col,
+            "dec": info.dec_col,
+            "flux": info.flux_col,
+            "spectral_index": info.spindex_col,
         },
-        "vizier_id": info["vizier_id"],
-        "freq_mhz": info["freq_mhz"],
-        "flux_unit": info.get("flux_unit", "Jy"),
-        "description": info["description"],
+        "vizier_id": info.vizier_id,
+        "freq_mhz": info.freq_mhz,
+        "flux_unit": info.flux_unit,
+        "description": info.description,
     }
 
 
@@ -1186,14 +1019,14 @@ def get_racs_columns(band: str) -> dict[str, Any]:
 
     info = RACS_CATALOGS[band]
 
-    _require_service("casda", f"query live columns for RACS-{band} from CASDA")
+    require_service("casda", f"query live columns for RACS-{band} from CASDA")
 
     try:
         tap = TapPlus(url=CASDA_TAP_URL)
         job = tap.launch_job(
             f"SELECT column_name, description, unit "
             f"FROM tap_schema.columns "
-            f"WHERE table_name='{info['tap_table']}'"
+            f"WHERE table_name='{info.tap_table}'"
         )
         result = job.get_results()
         columns = list(result["column_name"])
@@ -1213,11 +1046,11 @@ def get_racs_columns(band: str) -> dict[str, Any]:
         "columns": columns,
         "column_details": column_details,
         "used_by_rrivis": {
-            "ra": info["ra_col"],
-            "dec": info["dec_col"],
-            "flux": info["flux_col"],
+            "ra": info.ra_col,
+            "dec": info.dec_col,
+            "flux": info.flux_col,
         },
-        "tap_table": info["tap_table"],
-        "freq_mhz": info["freq_mhz"],
-        "description": info["description"],
+        "tap_table": info.tap_table,
+        "freq_mhz": info.freq_mhz,
+        "description": info.description,
     }

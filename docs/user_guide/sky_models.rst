@@ -14,20 +14,18 @@ point source positions and fluxes.
 
 .. code-block:: python
 
-   from rrivis import Simulator
+   from rrivis.core.sky import SkyModel
+   from rrivis.core.precision import PrecisionConfig
 
-   sim = Simulator()
-   sim.setup(
-       antenna_layout="antennas.txt",
-       sky_model="gleam",
-       flux_limit=1.0,  # Jy
-   )
+   precision = PrecisionConfig.standard()
+   sky = SkyModel.from_catalog("gleam", flux_limit=1.0, precision=precision)
 
 Configuration:
 
 .. code-block:: yaml
 
    sky_model:
+     flux_unit: "Jy"
      gleam:
        use_gleam: true
        flux_limit: 1.0
@@ -40,34 +38,41 @@ The Global Sky Model provides diffuse emission.
 
 .. code-block:: python
 
-   sim.setup(
-       antenna_layout="antennas.txt",
-       sky_model="gsm",
-       nside=64,  # HEALPix resolution
-   )
+   import numpy as np
+   from rrivis.core.sky import SkyModel
+
+   frequencies = np.linspace(100e6, 200e6, 11)  # Hz
+   sky = SkyModel.from_catalog("diffuse_sky", model="gsm2008", frequencies=frequencies, nside=64)
 
 Configuration:
 
 .. code-block:: yaml
 
    sky_model:
+     flux_unit: "Jy"
      gsm_healpix:
        use_gsm: true
        nside: 64
-       flux_limit: 0.1
 
-Combined GSM + GLEAM
-^^^^^^^^^^^^^^^^^^^^
+Combined Models
+^^^^^^^^^^^^^^^
 
 Combine diffuse and point source emission:
 
-.. code-block:: yaml
+.. code-block:: python
 
-   sky_model:
-     gsm+gleam_healpix:
-       use_gsm_gleam: true
-       nside: 64
-       flux_limit: 1.0
+   from rrivis.core.sky import SkyModel
+   from rrivis.core.precision import PrecisionConfig
+   import numpy as np
+
+   precision = PrecisionConfig.standard()
+   frequencies = np.linspace(100e6, 200e6, 11)
+
+   gleam = SkyModel.from_catalog("gleam", flux_limit=1.0, precision=precision)
+   gsm = SkyModel.from_catalog("diffuse_sky", model="gsm2008", frequencies=frequencies, nside=64, precision=precision)
+   combined = SkyModel.combine(
+       [gleam, gsm], representation="healpix_map", precision=precision,
+   )
 
 Test Sources
 ^^^^^^^^^^^^
@@ -76,11 +81,16 @@ Simple point sources for testing:
 
 .. code-block:: python
 
-   sim.setup(
-       antenna_layout="antennas.txt",
-       sky_model="test",
+   from rrivis.core.sky import SkyModel
+   from rrivis.core.precision import PrecisionConfig
+
+   precision = PrecisionConfig.standard()
+   sky = SkyModel.from_test_sources(
        num_sources=100,
-       flux_limit=50.0,
+       flux_range=(2.0, 8.0),
+       dec_deg=-30.0,
+       spectral_index=-0.8,
+       precision=precision,
    )
 
 Configuration:
@@ -88,39 +98,50 @@ Configuration:
 .. code-block:: yaml
 
    sky_model:
+     flux_unit: "Jy"
      test_sources:
        use_test_sources: true
        num_sources: 100
-       flux_limit: 50.0
 
 Custom Point Sources
 --------------------
 
-Define custom point sources programmatically:
+Define custom point sources programmatically using ``SkyModel.from_arrays()``:
 
 .. code-block:: python
 
-   from rrivis.core.source import PointSource
+   import numpy as np
+   from rrivis.core.sky import SkyModel
+   from rrivis.core.precision import PrecisionConfig
+
+   precision = PrecisionConfig.standard()
+   sky = SkyModel.from_arrays(
+       ra_rad=np.deg2rad([0.0, 15.0]),
+       dec_rad=np.deg2rad([-30.0, -30.0]),
+       flux=np.array([10.0, 5.0]),
+       spectral_index=np.array([-0.7, -0.8]),
+       precision=precision,
+   )
+
+Or using ``from_point_sources()`` with dictionaries:
+
+.. code-block:: python
+
+   from astropy.coordinates import SkyCoord
 
    sources = [
-       PointSource(
-           ra=0.0,          # degrees
-           dec=-30.0,       # degrees
-           flux=10.0,       # Jy
-           spectral_index=-0.7,
-       ),
-       PointSource(
-           ra=15.0,
-           dec=-30.0,
-           flux=5.0,
-           spectral_index=-0.8,
-       ),
+       {
+           "coords": SkyCoord(ra=0.0, dec=-30.0, unit="deg"),
+           "flux": 10.0,
+           "spectral_index": -0.7,
+       },
+       {
+           "coords": SkyCoord(ra=15.0, dec=-30.0, unit="deg"),
+           "flux": 5.0,
+           "spectral_index": -0.8,
+       },
    ]
-
-   sim.setup(
-       antenna_layout="antennas.txt",
-       sky_model=sources,
-   )
+   sky = SkyModel.from_point_sources(sources, precision=precision)
 
 Polarized Sources
 ^^^^^^^^^^^^^^^^^
@@ -129,35 +150,28 @@ Include polarization (Stokes I, Q, U, V):
 
 .. code-block:: python
 
-   from rrivis.core.source import PointSource
-
-   source = PointSource(
-       ra=0.0,
-       dec=-30.0,
-       stokes_i=10.0,    # Total intensity (Jy)
-       stokes_q=1.0,     # Linear polarization
-       stokes_u=0.5,
-       stokes_v=0.0,     # Circular polarization
-       spectral_index=-0.7,
+   sky = SkyModel.from_arrays(
+       ra_rad=np.deg2rad([0.0]),
+       dec_rad=np.deg2rad([-30.0]),
+       flux=np.array([10.0]),
+       spectral_index=np.array([-0.7]),
+       stokes_q=np.array([1.0]),
+       stokes_u=np.array([0.5]),
+       stokes_v=np.array([0.0]),
+       precision=precision,
    )
 
 HEALPix Sky Maps
 ----------------
 
-Load sky models in HEALPix format:
+Convert point sources to multi-frequency HEALPix maps:
 
 .. code-block:: python
 
-   import healpy as hp
+   import numpy as np
 
-   # Load HEALPix map
-   sky_map = hp.read_map("sky_model.fits")
-
-   sim.setup(
-       antenna_layout="antennas.txt",
-       sky_model=sky_map,
-       nside=64,
-   )
+   frequencies = np.linspace(100e6, 200e6, 11)
+   sky_healpix = sky.with_healpix_maps(nside=64, frequencies=frequencies)
 
 Flux Limits
 -----------
@@ -167,10 +181,10 @@ Control simulation speed with flux limits:
 .. code-block:: python
 
    # Only sources brighter than 1 Jy
-   sim.setup(sky_model="gleam", flux_limit=1.0)
+   sky = SkyModel.from_catalog("gleam", flux_limit=1.0, precision=precision)
 
    # Include fainter sources (slower)
-   sim.setup(sky_model="gleam", flux_limit=0.1)
+   sky = SkyModel.from_catalog("gleam", flux_limit=0.1, precision=precision)
 
 Spectral Index
 --------------
@@ -181,7 +195,8 @@ Source fluxes are scaled with frequency using spectral index:
 
    S(\nu) = S_0 \left(\frac{\nu}{\nu_0}\right)^{\alpha}
 
-where :math:`\alpha` is the spectral index (typically -0.7 to -0.8).
+where :math:`\alpha` is the spectral index (typically -0.7 to -0.8) and
+:math:`\nu_0` is the catalog reference frequency (stored per model).
 
 Sky Model Selection Guide
 -------------------------
@@ -192,15 +207,15 @@ Sky Model Selection Guide
    * - Use Case
      - Recommended Model
    * - Quick testing
-     - test_sources
+     - ``from_test_sources()``
    * - Point source calibration
-     - gleam
+     - ``from_catalog("gleam")``
    * - Diffuse emission
-     - gsm
+     - ``from_catalog("diffuse_sky", model="gsm2008")``
    * - Full sky simulation
-     - gsm+gleam
+     - ``SkyModel.combine([gleam, gsm])``
    * - Custom science
-     - Custom PointSource list
+     - ``from_arrays()`` or ``from_point_sources()``
 
 Performance Considerations
 --------------------------
@@ -213,6 +228,10 @@ For large simulations, use GPU backends:
 
 .. code-block:: python
 
-   sim = Simulator(backend="jax")
-   sim.setup(sky_model="gleam", flux_limit=0.1)
+   sim = Simulator(
+       antenna_layout="antennas.txt",
+       sky_model="gleam",
+       backend="jax",
+   )
+   sim.setup()
    results = sim.run()  # GPU accelerated
