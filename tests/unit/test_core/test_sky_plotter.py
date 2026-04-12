@@ -292,3 +292,260 @@ class TestCoordinateAndColorOptions:
         """source_positions(log_color=False) returns a Figure (linear color scale)."""
         fig = test_sky.plot.source_positions(log_color=False)
         assert isinstance(fig, Figure)
+
+
+# ---------------------------------------------------------------------------
+# Sky-cube analysis fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def analysis_sky(precision):
+    """HEALPix model with enough channels for spectral analysis (20 freqs)."""
+    nside = 16
+    npix = hp.nside2npix(nside)
+    n_freq = 20
+    freqs = np.linspace(75e6, 85e6, n_freq)
+    rng = np.random.default_rng(7)
+    # Near-Gaussian cube with small monopole
+    maps = rng.normal(100.0, 10.0, (n_freq, npix)).astype(np.float32)
+    return SkyModel(
+        _healpix_maps=maps,
+        _healpix_nside=nside,
+        _observation_frequencies=freqs,
+        _native_format=SkyFormat.HEALPIX,
+        reference_frequency=80e6,
+        model_name="analysis_test",
+        _precision=precision,
+    )
+
+
+# ---------------------------------------------------------------------------
+# pixel_histogram
+# ---------------------------------------------------------------------------
+
+
+class TestPixelHistogram:
+    def test_returns_figure(self, analysis_sky):
+        fig = analysis_sky.plot.pixel_histogram()
+        assert isinstance(fig, Figure)
+
+    def test_custom_bins(self, analysis_sky):
+        fig = analysis_sky.plot.pixel_histogram(bins=50)
+        assert isinstance(fig, Figure)
+
+    def test_no_stats_no_fit(self, analysis_sky):
+        fig = analysis_sky.plot.pixel_histogram(
+            show_gaussian_fit=False, annotate_stats=False
+        )
+        assert isinstance(fig, Figure)
+
+    def test_raises_for_point_sources(self, test_sky):
+        with pytest.raises(ValueError, match="HEALPix"):
+            test_sky.plot.pixel_histogram()
+
+
+# ---------------------------------------------------------------------------
+# variance_spectrum
+# ---------------------------------------------------------------------------
+
+
+class TestVarianceSpectrum:
+    def test_returns_figure(self, analysis_sky):
+        fig = analysis_sky.plot.variance_spectrum()
+        assert isinstance(fig, Figure)
+
+    def test_raises_for_single_frequency(self, healpix_sky):
+        # healpix_sky has 2 frequencies — OK. Build one with 1 freq.
+        nside = 8
+        npix = hp.nside2npix(nside)
+        sky = SkyModel(
+            _healpix_maps=np.ones((1, npix), dtype=np.float32),
+            _healpix_nside=nside,
+            _observation_frequencies=np.array([100e6]),
+            _native_format=SkyFormat.HEALPIX,
+            model_name="single",
+        )
+        with pytest.raises(ValueError, match="at least 2"):
+            sky.plot.variance_spectrum()
+
+
+# ---------------------------------------------------------------------------
+# frequency_spectra
+# ---------------------------------------------------------------------------
+
+
+class TestFrequencySpectra:
+    def test_returns_figure(self, analysis_sky):
+        fig = analysis_sky.plot.frequency_spectra(n_pixels=4)
+        assert isinstance(fig, Figure)
+
+    def test_custom_pixel_indices(self, analysis_sky):
+        fig = analysis_sky.plot.frequency_spectra(pixel_indices=[0, 5, 10])
+        assert isinstance(fig, Figure)
+
+    def test_no_mean_panel(self, analysis_sky):
+        fig = analysis_sky.plot.frequency_spectra(n_pixels=4, show_mean_spectrum=False)
+        assert isinstance(fig, Figure)
+
+
+# ---------------------------------------------------------------------------
+# frequency_waterfall
+# ---------------------------------------------------------------------------
+
+
+class TestFrequencyWaterfall:
+    def test_returns_figure(self, analysis_sky):
+        fig = analysis_sky.plot.frequency_waterfall()
+        assert isinstance(fig, Figure)
+
+    def test_stride(self, analysis_sky):
+        fig = analysis_sky.plot.frequency_waterfall(pixel_stride=10)
+        assert isinstance(fig, Figure)
+
+    def test_no_detrend(self, analysis_sky):
+        fig = analysis_sky.plot.frequency_waterfall(detrend=False)
+        assert isinstance(fig, Figure)
+
+    def test_invalid_stride_raises(self, analysis_sky):
+        with pytest.raises(ValueError, match="pixel_stride"):
+            analysis_sky.plot.frequency_waterfall(pixel_stride=0)
+
+
+# ---------------------------------------------------------------------------
+# angular_power_spectrum
+# ---------------------------------------------------------------------------
+
+
+class TestAngularPowerSpectrum:
+    @pytest.mark.parametrize("rep", ["c_ell", "d_ell", "both"])
+    def test_returns_figure(self, analysis_sky, rep):
+        fig = analysis_sky.plot.angular_power_spectrum(representation=rep)
+        assert isinstance(fig, Figure)
+
+    def test_explicit_frequencies(self, analysis_sky):
+        fig = analysis_sky.plot.angular_power_spectrum(frequencies=[80e6, 82e6])
+        assert isinstance(fig, Figure)
+
+    def test_ell_max_reference(self, analysis_sky):
+        fig = analysis_sky.plot.angular_power_spectrum(ell_max_input=30)
+        assert isinstance(fig, Figure)
+
+    def test_invalid_representation_raises(self, analysis_sky):
+        with pytest.raises(ValueError, match="representation"):
+            analysis_sky.plot.angular_power_spectrum(representation="bad")
+
+
+# ---------------------------------------------------------------------------
+# cross_frequency_cell
+# ---------------------------------------------------------------------------
+
+
+class TestCrossFrequencyCell:
+    def test_returns_figure(self, analysis_sky):
+        fig = analysis_sky.plot.cross_frequency_cell()
+        assert isinstance(fig, Figure)
+
+    def test_with_target_frequencies(self, analysis_sky):
+        fig = analysis_sky.plot.cross_frequency_cell(
+            ref_frequency=80e6,
+            target_frequencies=[81e6, 83e6],
+        )
+        assert isinstance(fig, Figure)
+
+    def test_separations(self, analysis_sky):
+        fig = analysis_sky.plot.cross_frequency_cell(separations=[1, 2, 5])
+        assert isinstance(fig, Figure)
+
+
+# ---------------------------------------------------------------------------
+# multipole_bands
+# ---------------------------------------------------------------------------
+
+
+class TestMultipoleBands:
+    def test_returns_figure(self, analysis_sky):
+        fig = analysis_sky.plot.multipole_bands()
+        assert isinstance(fig, Figure)
+
+    def test_custom_bands(self, analysis_sky):
+        fig = analysis_sky.plot.multipole_bands(bands=[(2, 10), (10, 20)])
+        assert isinstance(fig, Figure)
+
+
+# ---------------------------------------------------------------------------
+# frequency_correlation
+# ---------------------------------------------------------------------------
+
+
+class TestFrequencyCorrelation:
+    def test_returns_figure(self, analysis_sky):
+        fig = analysis_sky.plot.frequency_correlation()
+        assert isinstance(fig, Figure)
+
+    def test_no_decorrelation_panel(self, analysis_sky):
+        fig = analysis_sky.plot.frequency_correlation(show_decorrelation=False)
+        assert isinstance(fig, Figure)
+
+    def test_invalid_stride_raises(self, analysis_sky):
+        with pytest.raises(ValueError, match="pixel_stride"):
+            analysis_sky.plot.frequency_correlation(pixel_stride=0)
+
+
+# ---------------------------------------------------------------------------
+# delay_spectrum
+# ---------------------------------------------------------------------------
+
+
+class TestDelaySpectrum:
+    @pytest.mark.parametrize(
+        "window", ["blackmanharris", "blackman", "hann", "hamming", "none"]
+    )
+    def test_windows(self, analysis_sky, window):
+        fig = analysis_sky.plot.delay_spectrum(window=window)
+        assert isinstance(fig, Figure)
+
+    def test_no_kparallel(self, analysis_sky):
+        fig = analysis_sky.plot.delay_spectrum(show_kparallel=False)
+        assert isinstance(fig, Figure)
+
+    def test_invalid_window_raises(self, analysis_sky):
+        with pytest.raises(ValueError, match="window"):
+            analysis_sky.plot.delay_spectrum(window="bogus")
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher
+# ---------------------------------------------------------------------------
+
+
+class TestAnalysisDispatcher:
+    @pytest.mark.parametrize(
+        "plot_type",
+        [
+            "pdf",
+            "histogram",
+            "pixel_histogram",
+            "cell",
+            "power_spectrum",
+            "angular_power_spectrum",
+            "cross_cell",
+            "cross_frequency_cell",
+            "bands",
+            "multipole_bands",
+            "corr",
+            "correlation",
+            "frequency_correlation",
+            "spectra",
+            "frequency_spectra",
+            "delay",
+            "delay_spectrum",
+            "variance",
+            "variance_spectrum",
+            "waterfall",
+            "frequency_waterfall",
+        ],
+    )
+    def test_dispatcher(self, analysis_sky, plot_type):
+        fig = analysis_sky.plot(plot_type)
+        assert isinstance(fig, Figure)
