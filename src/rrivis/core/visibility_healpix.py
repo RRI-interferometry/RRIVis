@@ -302,7 +302,7 @@ def calculate_visibility_healpix(
     if sky_model.mode != SkyFormat.HEALPIX:
         raise ValueError(
             "sky_model must be in healpix_map mode. "
-            "Call with_healpix_maps() first (for point-source catalogs) "
+            "Call materialize_healpix() first (for point-source catalogs) "
             "or use from_catalog('diffuse_sky', frequencies=...) (for diffuse models)."
         )
 

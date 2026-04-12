@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import logging
 import warnings
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import healpy as hp
 import numpy as np
 
+from ._data import HealpixData, PointSourceData
 from .constants import (
     BrightnessConversion,
     brightness_temp_to_flux_density,
@@ -34,6 +35,8 @@ if TYPE_CHECKING:
     from .model import SkyModel
 
 logger = logging.getLogger(__name__)
+
+MixedModelPolicy = Literal["error", "warn", "allow"]
 
 
 class CombineHealpixData(TypedDict):
@@ -58,12 +61,13 @@ def concat_point_sources(
     reference_frequency: float | None = None,
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
+    allow_lossy_point_materialization: bool = False,
 ) -> dict[str, Any]:
     """Concatenate columnar arrays from multiple point-source SkyModels.
 
-    Each model that lacks point-source arrays is first converted via
-    ``with_representation("point_sources", ...)``.  Empty models are
-    silently skipped.
+    Each model that lacks point-source arrays must either opt in to
+    lossy HEALPix-to-point conversion or be excluded before calling this
+    function. Empty models are silently skipped.
 
     Parameters
     ----------
@@ -92,9 +96,18 @@ def concat_point_sources(
     # Ensure each model has point-source arrays populated; skip empties
     populated: list[SkyModel] = []
     for m in models:
-        if m.ra_rad is None:
-            m = m.with_representation("point_sources", frequency=reference_frequency)
-        if m.ra_rad is not None and len(m.ra_rad) > 0:
+        if m.point is None and m.healpix is not None:
+            if not allow_lossy_point_materialization:
+                raise ValueError(
+                    "Point-source combination requires converting a HEALPix-only "
+                    "model to point sources, which is lossy. Re-run with "
+                    "allow_lossy_point_materialization=True to opt in."
+                )
+            m = m.materialize_point_sources(
+                frequency=reference_frequency,
+                lossy=True,
+            )
+        if m.point is not None and not m.point.is_empty:
             populated.append(m)
 
     if not populated:
@@ -275,8 +288,15 @@ def combine_healpix(
     """
     # Validate all healpix_map models share the same nside and
     # frequency grid before doing element-wise arithmetic.
-    for m in models:
-        if m.mode != SkyFormat.HEALPIX:
+    healpix_models = [m for m in models if m.healpix is not None]
+    point_only_models = [
+        m
+        for m in models
+        if m.healpix is None and m.point is not None and not m.point.is_empty
+    ]
+
+    for m in healpix_models:
+        if m.healpix is None:
             continue
         m_nside = m.healpix_nside
         m_freqs = m.observation_frequencies
@@ -303,23 +323,20 @@ def combine_healpix(
 
     # Collect point-source data for pixel-binning
     ps_models_data = []
-    for m in models:
-        if m.mode == SkyFormat.POINT_SOURCES and m.has_point_sources:
+    for m in point_only_models:
+        if m.has_point_sources:
             ipix_m = hp.ang2pix(ref_nside, np.pi / 2 - m.dec_rad, m.ra_rad)
             ps_models_data.append((ipix_m, m.flux, m.spectral_index, m))
 
     # Check if any model has polarized maps
-    any_pol = any(
-        m.has_polarized_healpix_maps for m in models if m.mode == SkyFormat.HEALPIX
-    ) or any(
+    any_pol = any(m.has_polarized_healpix_maps for m in healpix_models) or any(
         m.stokes_q is not None
         and (
             np.any(m.stokes_q != 0)
             or np.any(m.stokes_u != 0)
             or np.any(m.stokes_v != 0)
         )
-        for m in models
-        if m.mode == SkyFormat.POINT_SOURCES and m.has_point_sources
+        for m in point_only_models
     )
 
     # Resolve output dtype from precision config
@@ -358,8 +375,8 @@ def combine_healpix(
             combined_T_b = np.zeros(npix, dtype=np.float64)
 
             # Add healpix T_b maps directly
-            for m in models:
-                if m.mode == SkyFormat.HEALPIX:
+            for m in healpix_models:
+                if m.healpix is not None:
                     combined_T_b += m.healpix_maps[freq_idx].astype(np.float64)
 
             # Add point-source contributions (flux → T_b via RJ factor)
@@ -394,8 +411,8 @@ def combine_healpix(
                 combined_u_T = np.zeros(npix, dtype=np.float64)
                 combined_v_T = np.zeros(npix, dtype=np.float64)
 
-                for m in models:
-                    if m.mode == SkyFormat.HEALPIX and m.has_polarized_healpix_maps:
+                for m in healpix_models:
+                    if m.has_polarized_healpix_maps:
                         if m.healpix_q_maps is not None:
                             combined_q_T += m.healpix_q_maps[freq_idx].astype(
                                 np.float64
@@ -460,8 +477,8 @@ def combine_healpix(
             combined_v_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
 
             # Add healpix_map models
-            for m in models:
-                if m.mode == SkyFormat.HEALPIX:
+            for m in healpix_models:
+                if m.healpix is not None:
                     t_map = m.healpix_maps[freq_idx].astype(np.float64)
                     pos = t_map > 0
                     if np.any(pos):
@@ -590,9 +607,10 @@ def _resolve_combination_params(
 
     # Auto-detect representation
     if representation is None:
-        has_healpix_native = any(m.native_format == SkyFormat.HEALPIX for m in models)
         representation = (
-            SkyFormat.HEALPIX if has_healpix_native else SkyFormat.POINT_SOURCES
+            SkyFormat.HEALPIX
+            if any(m.healpix is not None for m in models)
+            else SkyFormat.POINT_SOURCES
         )
 
     # Resolve frequency from model metadata
@@ -615,10 +633,12 @@ def _resolve_combination_params(
     return representation, freq, ref_frequency
 
 
-def _warn_combination_issues(
-    models: list[SkyModel], brightness_conversion: str
+def _check_combination_issues(
+    models: list[SkyModel],
+    brightness_conversion: str,
+    mixed_model_policy: MixedModelPolicy,
 ) -> None:
-    """Emit warnings for inconsistent brightness_conversion and double-counting."""
+    """Validate or warn on combination policies."""
     bc_values = {m.brightness_conversion for m in models}
     if len(bc_values) > 1:
         warnings.warn(
@@ -630,18 +650,26 @@ def _warn_combination_issues(
         )
 
     has_catalog = any(
-        m.mode == SkyFormat.POINT_SOURCES and m.has_point_sources for m in models
+        m.point is not None
+        and not m.point.is_empty
+        and m.native_representation == SkyFormat.POINT_SOURCES
+        for m in models
     )
-    has_diffuse = any(m.mode == SkyFormat.HEALPIX for m in models)
+    has_diffuse = any(
+        m.healpix is not None and m.native_representation == SkyFormat.HEALPIX
+        for m in models
+    )
     if has_catalog and has_diffuse:
-        warnings.warn(
+        message = (
             "Combining catalog sources (GLEAM/MALS) with diffuse models (GSM/LFSM/Haslam) "
             "may result in double-counting of bright sources. Diffuse models already include "
             "integrated emission from bright sources. Consider using only one model type "
-            "or implementing source subtraction for accurate results.",
-            UserWarning,
-            stacklevel=3,
+            "or set sky_model.mixed_model_policy='warn' or 'allow' to override this guard."
         )
+        if mixed_model_policy == "error":
+            raise ValueError(message)
+        if mixed_model_policy == "warn":
+            warnings.warn(message, UserWarning, stacklevel=3)
 
 
 def _combine_as_healpix_merge(
@@ -654,7 +682,7 @@ def _combine_as_healpix_merge(
     """Combine models with existing HEALPix maps via Jy-space addition."""
     from .model import SkyModel
 
-    ref_model = next(m for m in models if m.mode == SkyFormat.HEALPIX)
+    ref_model = next(m for m in models if m.healpix is not None)
     ref_nside = ref_model.healpix_nside
     ref_freqs = ref_model.observation_frequencies
 
@@ -669,13 +697,16 @@ def _combine_as_healpix_merge(
     )
 
     return SkyModel(
-        _healpix_maps=data["healpix_maps"],
-        _healpix_q_maps=data["healpix_q_maps"],
-        _healpix_u_maps=data["healpix_u_maps"],
-        _healpix_v_maps=data["healpix_v_maps"],
-        _healpix_nside=data["healpix_nside"],
-        _observation_frequencies=data["observation_frequencies"],
-        _native_format=SkyFormat.HEALPIX,
+        healpix=HealpixData(
+            maps=data["healpix_maps"],
+            nside=data["healpix_nside"],
+            frequencies=data["observation_frequencies"],
+            q_maps=data["healpix_q_maps"],
+            u_maps=data["healpix_u_maps"],
+            v_maps=data["healpix_v_maps"],
+        ),
+        native_representation=SkyFormat.HEALPIX,
+        active_representation=SkyFormat.HEALPIX,
         reference_frequency=data["reference_frequency"],
         model_name="combined",
         brightness_conversion=brightness_conversion,
@@ -688,6 +719,7 @@ def _combine_as_point_sources(
     frequency: float | None,
     brightness_conversion: str,
     precision: PrecisionConfig | None,
+    allow_lossy_point_materialization: bool,
 ) -> SkyModel:
     """Combine models by concatenating point-source arrays."""
     from .model import SkyModel
@@ -697,23 +729,27 @@ def _combine_as_point_sources(
         reference_frequency=frequency,
         brightness_conversion=brightness_conversion,
         precision=precision,
+        allow_lossy_point_materialization=allow_lossy_point_materialization,
     )
 
     return SkyModel(
-        _ra_rad=data["ra_rad"],
-        _dec_rad=data["dec_rad"],
-        _flux=data["flux"],
-        _spectral_index=data["spectral_index"],
-        _stokes_q=data["stokes_q"],
-        _stokes_u=data["stokes_u"],
-        _stokes_v=data["stokes_v"],
-        _ref_freq=data["ref_freq"],
-        _rotation_measure=data["rotation_measure"],
-        _major_arcsec=data["major_arcsec"],
-        _minor_arcsec=data["minor_arcsec"],
-        _pa_deg=data["pa_deg"],
-        _spectral_coeffs=data["spectral_coeffs"],
-        _native_format=SkyFormat.POINT_SOURCES,
+        point=PointSourceData(
+            ra_rad=data["ra_rad"],
+            dec_rad=data["dec_rad"],
+            flux=data["flux"],
+            spectral_index=data["spectral_index"],
+            stokes_q=data["stokes_q"],
+            stokes_u=data["stokes_u"],
+            stokes_v=data["stokes_v"],
+            ref_freq=data["ref_freq"],
+            rotation_measure=data["rotation_measure"],
+            major_arcsec=data["major_arcsec"],
+            minor_arcsec=data["minor_arcsec"],
+            pa_deg=data["pa_deg"],
+            spectral_coeffs=data["spectral_coeffs"],
+        ),
+        native_representation=SkyFormat.POINT_SOURCES,
+        active_representation=SkyFormat.POINT_SOURCES,
         model_name="combined",
         reference_frequency=data["reference_frequency"],
         brightness_conversion=brightness_conversion,
@@ -731,9 +767,12 @@ def combine_models(
     representation: SkyFormat | str | None = None,
     nside: int = 64,
     frequency: float | None = None,
+    frequencies: np.ndarray | None = None,
     obs_frequency_config: dict[str, Any] | None = None,
     ref_frequency: float | None = None,
     brightness_conversion: str = "planck",
+    allow_lossy_point_materialization: bool = False,
+    mixed_model_policy: MixedModelPolicy = "error",
     precision: PrecisionConfig | None = None,
     memmap_path: str | None = None,
 ) -> SkyModel:
@@ -753,12 +792,20 @@ def combine_models(
         HEALPix NSIDE for ``healpix_map`` output.
     frequency : float, optional
         Frequency for HEALPix-to-point-source conversions.
+    frequencies : np.ndarray, optional
+        Frequency array for point-to-HEALPix conversion when no input
+        model already carries HEALPix maps.
     obs_frequency_config : dict, optional
-        Required for ``healpix_map`` when no model already has maps.
+        Frequency config fallback for point-to-HEALPix conversion.
     ref_frequency : float, optional
         Reference frequency for spectral extrapolation (Hz).
     brightness_conversion : str, default ``"planck"``
         Brightness conversion method.
+    allow_lossy_point_materialization : bool, default False
+        Allow lossy HEALPix-to-point conversion when point-source output
+        is requested.
+    mixed_model_policy : {"error", "warn", "allow"}, default "error"
+        Policy for combining point catalogs with diffuse HEALPix models.
     precision : PrecisionConfig, optional
         Precision configuration for the combined model.
     memmap_path : str or None, optional
@@ -780,12 +827,12 @@ def combine_models(
             precision=precision,
         )
 
-    _warn_combination_issues(models, brightness_conversion)
+    _check_combination_issues(models, brightness_conversion, mixed_model_policy)
     representation, freq, ref_freq = _resolve_combination_params(
         models, representation, frequency, ref_frequency
     )
 
-    has_healpix_map = any(m.mode == SkyFormat.HEALPIX for m in models)
+    has_healpix_map = any(m.healpix is not None for m in models)
 
     # Path 1: HEALPix merge (at least one model already has maps)
     if representation == SkyFormat.HEALPIX and has_healpix_map:
@@ -798,18 +845,25 @@ def combine_models(
         )
 
     # Path 2: Concatenate as point sources
-    combined = _combine_as_point_sources(models, freq, brightness_conversion, precision)
+    combined = _combine_as_point_sources(
+        models,
+        freq,
+        brightness_conversion,
+        precision,
+        allow_lossy_point_materialization,
+    )
 
     # Path 3: Optionally convert concatenated PS to HEALPix
     if representation == SkyFormat.HEALPIX:
-        if obs_frequency_config is None:
+        if frequencies is None and obs_frequency_config is None:
             raise ValueError(
-                "obs_frequency_config is required for healpix_map representation. "
-                "Provide a dict with: starting_frequency, frequency_interval, "
-                "frequency_bandwidth, frequency_unit."
+                "healpix_map output requires 'frequencies' or "
+                "'obs_frequency_config' when no input model already carries "
+                "HEALPix maps."
             )
-        combined = combined.with_healpix_maps(
+        combined = combined.materialize_healpix(
             nside=nside,
+            frequencies=frequencies,
             obs_frequency_config=obs_frequency_config,
             ref_frequency=ref_freq,
             memmap_path=memmap_path,

@@ -43,12 +43,18 @@ Configuration files use YAML format:
      start_time: "2025-01-01T00:00:00"
 
    sky_model:
-     gleam:
-       use_gleam: true
-       flux_limit: 1.0
-     gsm_healpix:
-       use_gsm: false
-       nside: 64
+     flux_unit: "Jy"
+     mixed_model_policy: "error"
+     sources:
+       - kind: gleam
+         flux_limit: 1.0
+       - kind: diffuse_sky
+         model: gsm2008
+         nside: 64
+
+   visibility:
+     sky_representation: "healpix_map"
+     allow_lossy_point_materialization: false
 
    output:
      output_file_format: "HDF5"
@@ -56,6 +62,20 @@ Configuration files use YAML format:
 
 Configuration Sections
 ----------------------
+
+The ``sky_model`` section is source-driven: ``sky_model.sources`` is a list of
+loader specifications, each with a required ``kind`` and loader-specific
+arguments. Global options such as ``flux_unit`` and
+``brightness_conversion`` live alongside that list.
+
+Two policy fields are especially important:
+
+- ``sky_model.mixed_model_policy`` controls whether point catalogs may be
+  combined with diffuse HEALPix models. The default is ``"error"``.
+- ``visibility.allow_lossy_point_materialization`` controls whether the
+  simulator may convert HEALPix maps into point sources when
+  ``visibility.sky_representation`` is ``"point_sources"``. The default
+  is ``false``.
 
 Telescope
 ^^^^^^^^^

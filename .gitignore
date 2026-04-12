@@ -117,6 +117,7 @@ venv.bak
 .ropeproject
 
 # Non useful files
+AGENTS.md
 CLAUDE.md
 .roomodes
 .claude
@@ -180,4 +181,3 @@ temp/
 
 # Bokeh HTML outputs
 *.html
-

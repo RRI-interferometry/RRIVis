@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ._data import HealpixData, PointSourceData
 from .constants import BrightnessConversion
 from .model import SkyFormat
 
@@ -54,14 +55,8 @@ def create_empty(
         precision = PrecisionConfig.standard()
 
     return SkyModel(
-        _ra_rad=np.zeros(0, dtype=np.float64),
-        _dec_rad=np.zeros(0, dtype=np.float64),
-        _flux=np.zeros(0, dtype=np.float64),
-        _spectral_index=np.zeros(0, dtype=np.float64),
-        _stokes_q=np.zeros(0, dtype=np.float64),
-        _stokes_u=np.zeros(0, dtype=np.float64),
-        _stokes_v=np.zeros(0, dtype=np.float64),
-        _ref_freq=np.zeros(0, dtype=np.float64),
+        point=PointSourceData.empty(),
+        native_representation=SkyFormat.POINT_SOURCES,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,
@@ -115,22 +110,28 @@ def create_from_arrays(
         stokes_v = np.zeros(n, dtype=flux_dt)
     if ref_freq is None and reference_frequency is not None:
         ref_freq = np.full(n, reference_frequency, dtype=flux_dt)
+    if ref_freq is None:
+        ref_freq = np.full(n, reference_frequency or 0.0, dtype=flux_dt)
+
+    point = PointSourceData(
+        ra_rad=np.asarray(ra_rad, dtype=src_dt),
+        dec_rad=np.asarray(dec_rad, dtype=src_dt),
+        flux=np.asarray(flux, dtype=flux_dt),
+        spectral_index=np.asarray(spectral_index, dtype=si_dt),
+        stokes_q=np.asarray(stokes_q, dtype=flux_dt),
+        stokes_u=np.asarray(stokes_u, dtype=flux_dt),
+        stokes_v=np.asarray(stokes_v, dtype=flux_dt),
+        ref_freq=np.asarray(ref_freq, dtype=flux_dt),
+        rotation_measure=rotation_measure,
+        major_arcsec=major_arcsec,
+        minor_arcsec=minor_arcsec,
+        pa_deg=pa_deg,
+        spectral_coeffs=spectral_coeffs,
+    )
 
     return SkyModel(
-        _ra_rad=np.asarray(ra_rad, dtype=src_dt),
-        _dec_rad=np.asarray(dec_rad, dtype=src_dt),
-        _flux=np.asarray(flux, dtype=flux_dt),
-        _spectral_index=np.asarray(spectral_index, dtype=si_dt),
-        _stokes_q=np.asarray(stokes_q, dtype=flux_dt),
-        _stokes_u=np.asarray(stokes_u, dtype=flux_dt),
-        _stokes_v=np.asarray(stokes_v, dtype=flux_dt),
-        _rotation_measure=rotation_measure,
-        _major_arcsec=major_arcsec,
-        _minor_arcsec=minor_arcsec,
-        _pa_deg=pa_deg,
-        _spectral_coeffs=spectral_coeffs,
-        _ref_freq=ref_freq,
-        _native_format=SkyFormat.POINT_SOURCES,
+        point=point,
+        native_representation=SkyFormat.POINT_SOURCES,
         model_name=model_name,
         reference_frequency=reference_frequency,
         brightness_conversion=brightness_conversion,
@@ -166,13 +167,19 @@ def create_from_freq_dict_maps(
 
     kwargs.setdefault("_active_mode", SkyFormat.HEALPIX)
 
+    healpix = HealpixData(
+        maps=i_arr,
+        nside=nside,
+        frequencies=sorted_freqs,
+        q_maps=q_arr,
+        u_maps=u_arr,
+        v_maps=v_arr,
+    )
+
     return SkyModel(
-        _healpix_maps=i_arr,
-        _healpix_q_maps=q_arr,
-        _healpix_u_maps=u_arr,
-        _healpix_v_maps=v_arr,
-        _healpix_nside=nside,
-        _observation_frequencies=sorted_freqs,
+        healpix=healpix,
+        active_representation=kwargs.pop("_active_mode", SkyFormat.HEALPIX),
+        native_representation=kwargs.pop("_native_format", SkyFormat.HEALPIX),
         **kwargs,
     )
 
@@ -241,18 +248,17 @@ def create_test_sources(
     else:
         stokes_v_arr = np.zeros(n, dtype=np.float64)
 
-    return SkyModel(
-        _ra_rad=SkyModel.deg_to_rad_at_precision(ra_deg_arr, precision),
-        _dec_rad=SkyModel.deg_to_rad_at_precision(dec_deg_arr, precision),
-        _flux=flux_arr.astype(np.float64),
-        _spectral_index=np.full(n, float(spectral_index)),
-        _stokes_q=stokes_q_arr,
-        _stokes_u=stokes_u_arr,
-        _stokes_v=stokes_v_arr,
-        _native_format=SkyFormat.POINT_SOURCES,
+    return create_from_arrays(
+        ra_rad=SkyModel.deg_to_rad_at_precision(ra_deg_arr, precision),
+        dec_rad=SkyModel.deg_to_rad_at_precision(dec_deg_arr, precision),
+        flux=flux_arr.astype(np.float64),
+        spectral_index=np.full(n, float(spectral_index)),
+        stokes_q=stokes_q_arr,
+        stokes_u=stokes_u_arr,
+        stokes_v=stokes_v_arr,
         model_name="test_sources",
         brightness_conversion=brightness_conversion,
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -290,7 +296,7 @@ def load_models_parallel(
             name = future_to_name[future]
             try:
                 sky = future.result()
-                if sky.has_point_sources or sky._healpix_maps is not None:
+                if sky.available_representations:
                     results.append(sky)
                     logger.info(
                         f"Parallel load complete: {name} "

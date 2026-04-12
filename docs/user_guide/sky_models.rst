@@ -26,10 +26,10 @@ Configuration:
 
    sky_model:
      flux_unit: "Jy"
-     gleam:
-       use_gleam: true
-       flux_limit: 1.0
-       gleam_catalogue: "VIII/100/gleamegc"
+     sources:
+       - kind: gleam
+         flux_limit: 1.0
+         catalog: gleam_egc
 
 Global Sky Model (GSM)
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -50,9 +50,10 @@ Configuration:
 
    sky_model:
      flux_unit: "Jy"
-     gsm_healpix:
-       use_gsm: true
-       nside: 64
+     sources:
+       - kind: diffuse_sky
+         model: gsm2008
+         nside: 64
 
 Combined Models
 ^^^^^^^^^^^^^^^
@@ -71,8 +72,18 @@ Combine diffuse and point source emission:
    gleam = SkyModel.from_catalog("gleam", flux_limit=1.0, precision=precision)
    gsm = SkyModel.from_catalog("diffuse_sky", model="gsm2008", frequencies=frequencies, nside=64, precision=precision)
    combined = SkyModel.combine(
-       [gleam, gsm], representation="healpix_map", precision=precision,
+       [gleam, gsm],
+       representation="healpix_map",
+       nside=64,
+       frequencies=frequencies,
+       mixed_model_policy="warn",
+       precision=precision,
    )
+
+Mixing point catalogs with diffuse HEALPix models is blocked by default
+because it can double-count bright sources. Set
+``mixed_model_policy="warn"`` or ``"allow"`` only when that tradeoff is
+intentional.
 
 Test Sources
 ^^^^^^^^^^^^
@@ -99,9 +110,9 @@ Configuration:
 
    sky_model:
      flux_unit: "Jy"
-     test_sources:
-       use_test_sources: true
-       num_sources: 100
+     sources:
+       - kind: test_sources
+         num_sources: 100
 
 Custom Point Sources
 --------------------
@@ -123,25 +134,8 @@ Define custom point sources programmatically using ``SkyModel.from_arrays()``:
        precision=precision,
    )
 
-Or using ``from_point_sources()`` with dictionaries:
-
-.. code-block:: python
-
-   from astropy.coordinates import SkyCoord
-
-   sources = [
-       {
-           "coords": SkyCoord(ra=0.0, dec=-30.0, unit="deg"),
-           "flux": 10.0,
-           "spectral_index": -0.7,
-       },
-       {
-           "coords": SkyCoord(ra=15.0, dec=-30.0, unit="deg"),
-           "flux": 5.0,
-           "spectral_index": -0.8,
-       },
-   ]
-   sky = SkyModel.from_point_sources(sources, precision=precision)
+RRIvis keeps custom catalogs in columnar arrays rather than per-source
+dictionaries, so ``from_arrays()`` is the direct construction API.
 
 Polarized Sources
 ^^^^^^^^^^^^^^^^^
@@ -171,7 +165,21 @@ Convert point sources to multi-frequency HEALPix maps:
    import numpy as np
 
    frequencies = np.linspace(100e6, 200e6, 11)
-   sky_healpix = sky.with_healpix_maps(nside=64, frequencies=frequencies)
+   sky_healpix = sky.materialize_healpix(nside=64, frequencies=frequencies)
+
+Convert a HEALPix-only model back to a point-source view explicitly:
+
+.. code-block:: python
+
+   point_view = sky_healpix.materialize_point_sources(
+       frequency=100e6,
+       lossy=True,
+   )
+
+Lossy HEALPix-to-point conversion is never implicit. Simulator configs
+must opt in with ``visibility.allow_lossy_point_materialization: true``
+before requesting ``visibility.sky_representation: point_sources`` for a
+HEALPix-only model.
 
 Flux Limits
 -----------
@@ -215,7 +223,7 @@ Sky Model Selection Guide
    * - Full sky simulation
      - ``SkyModel.combine([gleam, gsm])``
    * - Custom science
-     - ``from_arrays()`` or ``from_point_sources()``
+     - ``from_arrays()``
 
 Performance Considerations
 --------------------------

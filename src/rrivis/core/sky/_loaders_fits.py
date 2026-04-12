@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 import healpy as hp
 import numpy as np
 
+from ._data import HealpixData
+from ._precision import get_sky_storage_dtype
 from ._registry import register_loader
 from .constants import flux_density_to_brightness_temp
 from .model import SkyFormat
@@ -213,10 +215,11 @@ def load_fits_image(
 
     n_freq_out = len(final_freqs)
     scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
-    i_arr = allocate_cube((n_freq_out, npix), np.float32, scratch, "i_maps")
-    q_arr = allocate_cube((n_freq_out, npix), np.float32, scratch, "q_maps")
-    u_arr = allocate_cube((n_freq_out, npix), np.float32, scratch, "u_maps")
-    v_arr = allocate_cube((n_freq_out, npix), np.float32, scratch, "v_maps")
+    hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
+    i_arr = allocate_cube((n_freq_out, npix), hp_dtype, scratch, "i_maps")
+    q_arr = allocate_cube((n_freq_out, npix), hp_dtype, scratch, "q_maps")
+    u_arr = allocate_cube((n_freq_out, npix), hp_dtype, scratch, "u_maps")
+    v_arr = allocate_cube((n_freq_out, npix), hp_dtype, scratch, "v_maps")
     has_q = False
     has_u = False
     has_v = False
@@ -326,29 +329,29 @@ def load_fits_image(
                     )
                 hp_map = temp_map
 
-            hp_map_f32 = hp_map.astype(np.float32)
+            hp_map_cast = hp_map.astype(hp_dtype)
 
             # Stokes mapping: I=1, Q=2, U=3, V=4
             if stokes_code == 1 or n_stokes == 1:
-                i_arr[out_fi] = hp_map_f32
+                i_arr[out_fi] = hp_map_cast
                 i_has_data = True
                 if single_freq_replicate:
-                    cache_i = hp_map_f32
+                    cache_i = hp_map_cast
             elif stokes_code == 2:
-                q_arr[out_fi] = hp_map_f32
+                q_arr[out_fi] = hp_map_cast
                 has_q = True
                 if single_freq_replicate:
-                    cache_q = hp_map_f32
+                    cache_q = hp_map_cast
             elif stokes_code == 3:
-                u_arr[out_fi] = hp_map_f32
+                u_arr[out_fi] = hp_map_cast
                 has_u = True
                 if single_freq_replicate:
-                    cache_u = hp_map_f32
+                    cache_u = hp_map_cast
             elif stokes_code == 4:
-                v_arr[out_fi] = hp_map_f32
+                v_arr[out_fi] = hp_map_cast
                 has_v = True
                 if single_freq_replicate:
-                    cache_v = hp_map_f32
+                    cache_v = hp_map_cast
 
     if not i_has_data:
         raise ValueError(f"No Stokes I data found in {filename}")
@@ -365,14 +368,16 @@ def load_fits_image(
         v_arr = finalize_cube(v_arr, scratch, "v_maps")
 
     sky = SkyModel(
-        _healpix_maps=i_arr,
-        _healpix_q_maps=q_arr if has_q else None,
-        _healpix_u_maps=u_arr if has_u else None,
-        _healpix_v_maps=v_arr if has_v else None,
-        _healpix_nside=nside,
-        _observation_frequencies=obs_freqs,
-        _native_format=SkyFormat.HEALPIX,
-        _active_mode=SkyFormat.HEALPIX,
+        healpix=HealpixData(
+            maps=i_arr,
+            nside=nside,
+            frequencies=obs_freqs,
+            q_maps=q_arr if has_q else None,
+            u_maps=u_arr if has_u else None,
+            v_maps=v_arr if has_v else None,
+        ),
+        native_representation=SkyFormat.HEALPIX,
+        active_representation=SkyFormat.HEALPIX,
         model_name=f"fits:{filename.split('/')[-1]}",
         brightness_conversion=brightness_conversion,
         _precision=precision,

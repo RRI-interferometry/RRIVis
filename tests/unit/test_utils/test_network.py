@@ -232,14 +232,13 @@ class TestNetworkStatus:
 class TestGetRequiredServices:
     def test_no_network_models(self):
         sky_config = {
-            "test_sources": {"use_test_sources": True},
+            "sources": [{"kind": "test_sources"}],
         }
         assert get_required_services(sky_config) == {}
 
     def test_vizier_model(self):
         sky_config = {
-            "gleam": {"use_gleam": True},
-            "nvss": {"use_nvss": True},
+            "sources": [{"kind": "gleam"}, {"kind": "nvss"}],
         }
         result = get_required_services(sky_config)
         assert "vizier" in result
@@ -247,14 +246,13 @@ class TestGetRequiredServices:
         assert "nvss" in result["vizier"]
 
     def test_casda_model(self):
-        sky_config = {"racs": {"use_racs": True}}
+        sky_config = {"sources": [{"kind": "racs"}]}
         result = get_required_services(sky_config)
         assert result == {"casda": ["racs"]}
 
     def test_diffuse_models(self):
         sky_config = {
-            "gsm_healpix": {"use_gsm": True},
-            "pysm3": {"use_pysm3": True},
+            "sources": [{"kind": "gsm2008"}, {"kind": "pysm3"}],
         }
         result = get_required_services(sky_config)
         assert "pygdsm_data" in result
@@ -262,8 +260,7 @@ class TestGetRequiredServices:
 
     def test_disabled_models_excluded(self):
         sky_config = {
-            "gleam": {"use_gleam": False},
-            "nvss": {"use_nvss": False},
+            "sources": [],
         }
         assert get_required_services(sky_config) == {}
 
@@ -273,10 +270,9 @@ class TestGetRequiredServices:
     def test_all_vizier_models_mapped(self):
         """Every model in get_sky_model_services()
         should map to a known service endpoint."""
-        for (_key, _field), service in get_sky_model_services().items():
+        for _key, service in get_sky_model_services().items():
             assert service in SERVICE_ENDPOINTS, (
-                f"get_sky_model_services() maps ({_key}, {_field}) to "
-                f"unknown service {service!r}"
+                f"get_sky_model_services() maps {_key!r} to unknown service {service!r}"
             )
 
 

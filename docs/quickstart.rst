@@ -49,9 +49,9 @@ For more complex simulations, use a YAML configuration file:
      frequency_unit: "MHz"
 
    sky_model:
-     gleam:
-       use_gleam: true
-       flux_limit: 1.0
+     sources:
+       - kind: gleam
+         flux_limit: 1.0
 
 Then load and run:
 

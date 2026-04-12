@@ -224,53 +224,48 @@ class Simulator:
             }
 
         if sky_model:
-            # Build map from registry + manual aliases for non-loader entries
-            from rrivis.core.sky._registry import (
+            from rrivis.core.sky.registry import (
                 build_alias_map,
-                build_sky_model_map,
+                get_loader_definition,
+                list_loaders,
             )
 
-            _SKY_MODEL_MAP = build_sky_model_map()
-            # Test sources are synthetic (not registered loaders)
-            _SKY_MODEL_MAP.update(
-                {
-                    "test": ("test_sources", "use_test_sources", False),
-                    "test_sources": ("test_sources", "use_test_sources", False),
-                    "test_healpix": ("test_sources_healpix", "use_test_sources", True),
-                }
-            )
-            # Add loader aliases from registry (e.g. gsm -> diffuse_sky)
-            _alias_map = build_alias_map()
-            for alias, canonical in _alias_map.items():
-                if canonical in _SKY_MODEL_MAP and alias not in _SKY_MODEL_MAP:
-                    _SKY_MODEL_MAP[alias] = _SKY_MODEL_MAP[canonical]
+            aliases = build_alias_map()
+            synthetic_names = {"test", "test_sources", "test_healpix"}
 
-            entry = _SKY_MODEL_MAP.get(sky_model)
-            if entry is None:
-                raise ValueError(
-                    f"Unknown sky_model '{sky_model}'. "
-                    f"Available: {sorted(_SKY_MODEL_MAP.keys())}. "
-                    f"For BBS/FITS/pyradiosky models, use config= parameter."
-                )
-            section, flag, is_healpix = entry
-            sky_config: dict[str, Any] = {section: {flag: True}}
-
-            # Set GSM variant model name (must match GSMConfig.gsm_catalogue field)
-            if sky_model in _alias_map and _alias_map[sky_model] == "diffuse_sky":
-                sky_config[section]["gsm_catalogue"] = sky_model
-
-            # Special defaults for test_sources
             if sky_model in ("test", "test_sources"):
-                sky_config[section].update(
-                    {
-                        "flux_min": 2.0,
-                        "flux_max": 8.0,
-                        "dec_deg": -30.72,
-                        "spectral_index": -0.8,
-                    }
-                )
+                source = {
+                    "kind": "test_sources",
+                    "flux_min": 2.0,
+                    "flux_max": 8.0,
+                    "dec_deg": -30.72,
+                    "spectral_index": -0.8,
+                }
+                is_healpix = False
+            elif sky_model == "test_healpix":
+                source = {
+                    "kind": "test_sources",
+                    "representation": "healpix_map",
+                    "nside": 64,
+                }
+                is_healpix = True
+            else:
+                canonical = aliases.get(sky_model, sky_model)
+                try:
+                    definition = get_loader_definition(canonical)
+                except ValueError:
+                    available = sorted(
+                        set(list_loaders()) | set(aliases) | synthetic_names
+                    )
+                    raise ValueError(
+                        f"Unknown sky_model '{sky_model}'. Available: {available}."
+                    ) from None
+                source = {"kind": canonical}
+                if canonical == "diffuse_sky" and sky_model in aliases:
+                    source["model"] = sky_model
+                is_healpix = definition.is_healpix
 
-            config["sky_model"] = {"flux_unit": "Jy", **sky_config}
+            config["sky_model"] = {"flux_unit": "Jy", "sources": [source]}
             config["visibility"] = {
                 "sky_representation": "healpix_map" if is_healpix else "point_sources",
             }
@@ -505,6 +500,9 @@ class Simulator:
         sky_representation = visibility_config.get(
             "sky_representation", "point_sources"
         )
+        allow_lossy_point_materialization = visibility_config.get(
+            "allow_lossy_point_materialization", False
+        )
 
         # Validate calculation type
         if calculation_type == "spherical_harmonic":
@@ -569,6 +567,7 @@ class Simulator:
 
         # Brightness conversion method (applies to all loaders)
         _brightness_conv = sky_config.get("brightness_conversion", "planck")
+        mixed_model_policy = sky_config.get("mixed_model_policy", "error")
 
         # Build sky region from config (if specified)
         from rrivis.core.sky.region import SkyRegion
@@ -595,179 +594,55 @@ class Simulator:
             else:
                 region = _build_sky_region(region_config)
 
-        test_config = sky_config.get("test_sources", {})
-        test_healpix_config = sky_config.get("test_sources_healpix", {})
+        from rrivis.io.config import SkySourceConfig
 
         frequency = float(self._frequencies_hz[0])
-        nside = sky_config.get("gsm_healpix", {}).get("nside", 64)
+        source_specs = [
+            spec
+            if isinstance(spec, SkySourceConfig)
+            else SkySourceConfig.model_validate(spec)
+            for spec in sky_config.get("sources", [])
+        ]
+        nside = next(
+            (int(spec.nside) for spec in source_specs if spec.nside is not None),
+            64,
+        )
 
         # Collect all requested sky models
         sky_models = []
-
-        if test_config.get("use_test_sources", False):
-            num_sources = test_config.get("num_sources", 100)
-            flux_min = test_config.get("flux_min")
-            flux_max = test_config.get("flux_max")
-            flux_range = (
-                (flux_min * _flux_mul, flux_max * _flux_mul)
-                if flux_min is not None and flux_max is not None
-                else None
-            )
-            sky_models.append(
-                SkyModel.from_test_sources(
-                    num_sources=num_sources,
-                    flux_range=flux_range,
-                    dec_deg=test_config.get("dec_deg"),
-                    spectral_index=test_config.get("spectral_index"),
-                    distribution=test_config.get("distribution", "uniform"),
-                    seed=test_config.get("seed"),
-                    dec_range_deg=test_config.get("dec_range_deg"),
-                    precision=_precision,
-                )
-            )
-            logger.debug(f"Loaded test sources: {num_sources} sources")
-
-        if test_healpix_config.get("use_test_sources", False):
-            num_sources = test_healpix_config.get("num_sources", 100)
-            flux_min = test_healpix_config.get("flux_min")
-            flux_max = test_healpix_config.get("flux_max")
-            flux_range = (
-                (flux_min * _flux_mul, flux_max * _flux_mul)
-                if flux_min is not None and flux_max is not None
-                else None
-            )
-            hp_nside = test_healpix_config.get("nside", 64)
-            sky = SkyModel.from_test_sources(
-                num_sources=num_sources,
-                flux_range=flux_range,
-                dec_deg=test_healpix_config.get("dec_deg"),
-                spectral_index=test_healpix_config.get("spectral_index"),
-                distribution=test_healpix_config.get("distribution", "uniform"),
-                seed=test_healpix_config.get("seed"),
-                dec_range_deg=test_healpix_config.get("dec_range_deg"),
-                precision=_precision,
-            )
-            obs_freq_config = self.config.get("obs_frequency", {})
-            sky = sky.with_healpix_maps(
-                nside=hp_nside,
-                obs_frequency_config=obs_freq_config,
-                ref_frequency=frequency,
-            )
-            sky_models.append(sky)
-            logger.debug(
-                f"Loaded test sources (HEALPix): {num_sources} sources, nside={hp_nside}"
-            )
-
-        # --- Collect network/local catalog loaders from registry ---
-        from rrivis.core.sky._registry import (
-            build_loader_kwargs,
-            get_loader_meta,
-            list_loaders,
-        )
+        from rrivis.core.sky.registry import get_loader_definition
 
         obs_freq_config = self.config.get("obs_frequency", {})
-        network_loaders: list[tuple[str, dict]] = []
+        loader_requests: list[tuple[str, dict[str, Any]]] = []
 
-        for _loader_name in list_loaders():
-            _meta = get_loader_meta(_loader_name)
-            if _meta.get("requires_file"):
-                continue  # file-based loaders handled separately below
-            _section = sky_config.get(_meta["config_section"], {})
-            if not _section.get(_meta["use_flag"], False):
-                continue
-            _kwargs = build_loader_kwargs(
-                _loader_name,
-                _section,
-                flux_multiplier=_flux_mul,
-                region=region,
-                obs_freq_config=obs_freq_config if _meta["is_healpix"] else None,
-                brightness_conversion=_brightness_conv,
+        for spec in source_specs:
+            get_loader_definition(spec.kind)
+            loader_requests.append(
+                spec.to_loader_request(
+                    flux_multiplier=_flux_mul,
+                    region=region,
+                    brightness_conversion=_brightness_conv,
+                    frequencies=self._frequencies_hz,
+                    obs_frequency_config=obs_freq_config,
+                )
             )
-            network_loaders.append((_loader_name, _kwargs))
 
-        # Download all network catalogs in parallel (up to 8 concurrent)
-        if network_loaders:
+        if loader_requests:
             sky_models.extend(
                 SkyModel.load_parallel(
-                    network_loaders,
+                    loader_requests,
                     max_workers=8,
                     precision=_precision,
                     strict=True,
                 )
             )
 
-        # --- Local file loader via pyradiosky ---
-        pyradiosky_config = sky_config.get("pyradiosky", {})
-        if pyradiosky_config.get("use_pyradiosky", False):
-            filename = pyradiosky_config.get("filename", "")
-            if filename:
-                obs_freq_config = self.config.get("obs_frequency", {})
-                from rrivis.core.sky._loaders_pyradiosky import load_pyradiosky_file
-
-                sky_models.append(
-                    load_pyradiosky_file(
-                        filename=filename,
-                        filetype=pyradiosky_config.get("filetype"),
-                        flux_limit=pyradiosky_config.get("flux_limit", 0.0) * _flux_mul,
-                        reference_frequency_hz=pyradiosky_config.get(
-                            "reference_frequency_hz"
-                        ),
-                        brightness_conversion=_brightness_conv,
-                        precision=_precision,
-                        obs_frequency_config=obs_freq_config,
-                        region=region,
-                    )
-                )
-            else:
-                logger.warning(
-                    "pyradiosky enabled but no filename specified; skipping."
-                )
-
-        # --- BBS/DP3/WSClean sky model file ---
-        bbs_config = sky_config.get("bbs", {})
-        if bbs_config.get("use_bbs", False):
-            bbs_filename = bbs_config.get("filename", "")
-            if bbs_filename:
-                from rrivis.core.sky._loaders_bbs import load_bbs
-
-                sky_models.append(
-                    load_bbs(
-                        bbs_filename,
-                        flux_limit=bbs_config.get("flux_limit", 0.0) * _flux_mul,
-                        brightness_conversion=_brightness_conv,
-                        precision=_precision,
-                        region=region,
-                    )
-                )
-            else:
-                logger.warning("BBS enabled but no filename specified; skipping.")
-
-        # --- FITS image sky model ---
-        fits_config = sky_config.get("fits_image", {})
-        if fits_config.get("use_fits_image", False):
-            fits_filename = fits_config.get("filename", "")
-            if fits_filename:
-                from rrivis.core.sky._loaders_fits import load_fits_image
-
-                sky_models.append(
-                    load_fits_image(
-                        fits_filename,
-                        nside=fits_config.get("nside", 128),
-                        brightness_conversion=_brightness_conv,
-                        precision=_precision,
-                        region=region,
-                    )
-                )
-            else:
-                logger.warning(
-                    "FITS image enabled but no filename specified; skipping."
-                )
-
         # If no models selected, raise an error
         if not sky_models:
             raise ValueError(
                 "No sky model enabled in configuration. "
-                "Enable at least one sky model (e.g., test_sources, gleam, gsm_healpix, etc.) "
+                "Enable at least one sky model source spec "
+                "(for example kind='test_sources', 'gleam', or 'diffuse_sky') "
                 "in the sky_model section of your config."
             )
 
@@ -780,17 +655,38 @@ class Simulator:
                 representation=sky_representation,
                 nside=nside,
                 frequency=frequency,
+                frequencies=self._frequencies_hz,
                 obs_frequency_config=self.config.get("obs_frequency", {}),
+                allow_lossy_point_materialization=allow_lossy_point_materialization,
+                mixed_model_policy=mixed_model_policy,
                 precision=_precision,
             )
 
         # Ensure sky model is in requested representation (immutable chain)
-        self._sky_model = self._sky_model.with_representation(
-            representation=sky_representation,
-            nside=nside,
-            frequency=frequency,
-            frequencies=self._frequencies_hz,
-        )
+        if sky_representation == "healpix_map":
+            if self._sky_model.healpix is not None:
+                self._sky_model = self._sky_model.activate("healpix_map")
+            else:
+                self._sky_model = self._sky_model.materialize_healpix(
+                    nside=nside,
+                    frequencies=self._frequencies_hz,
+                    ref_frequency=frequency,
+                )
+        else:
+            if self._sky_model.point is not None:
+                self._sky_model = self._sky_model.activate("point_sources")
+            else:
+                if not allow_lossy_point_materialization:
+                    raise ValueError(
+                        "Requested visibility.sky_representation='point_sources' "
+                        "for a HEALPix-only sky model. Set "
+                        "visibility.allow_lossy_point_materialization=true to "
+                        "opt in to lossy HEALPix-to-point conversion."
+                    )
+                self._sky_model = self._sky_model.materialize_point_sources(
+                    frequency=frequency,
+                    lossy=True,
+                )
 
         # Get point source arrays for RIME calculator (only in point_sources mode)
         from rrivis.core.sky.model import SkyFormat
@@ -798,9 +694,7 @@ class Simulator:
         if self._sky_model.mode == SkyFormat.HEALPIX:
             self._source_arrays = None
         else:
-            self._source_arrays = self._sky_model.as_point_source_arrays(
-                frequency=frequency
-            )
+            self._source_arrays = self._sky_model.as_point_source_arrays()
 
         self._is_setup = True
         n_sky = self._sky_model.n_sky_elements

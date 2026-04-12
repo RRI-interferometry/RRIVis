@@ -110,14 +110,14 @@ class SkyPlotter:
                 raise ValueError(
                     f"Plot requires point-source data, but this SkyModel "
                     f"(model='{self._sky.model_name}') has mode='{self._sky.mode.value}'. "
-                    f"Load a point-source catalog or call with_representation('point_sources') first."
+                    f"Load a point-source catalog or call materialize_point_sources(..., lossy=True) first."
                 )
         elif required == "healpix":
             if self._sky.healpix_maps is None:
                 raise ValueError(
                     f"Plot requires HEALPix maps, but this SkyModel "
                     f"(model='{self._sky.model_name}') has mode='{self._sky.mode.value}'. "
-                    f"Load a diffuse model or call with_healpix_maps() first."
+                    f"Load a diffuse model or call materialize_healpix() first."
                 )
 
     def _resolve_plot_frequency(self, frequency: float | None) -> float:

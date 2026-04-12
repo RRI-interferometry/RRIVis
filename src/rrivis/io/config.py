@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TelescopeConfig(BaseModel):
@@ -452,6 +452,9 @@ class PySM3Config(BaseModel):
         "s1", description="PySM3 preset string(s), e.g. 's1' or ['s1', 'd1', 'f1']"
     )
     nside: int = Field(64, ge=1, description="HEALPix NSIDE resolution")
+    include_polarization: bool = Field(
+        False, description="Include polarized Q/U output from PySM3"
+    )
     # Frequencies are taken from the obs_frequency section of the config
 
 
@@ -526,40 +529,264 @@ class SkyRegionEntryConfig(BaseModel):
         None, gt=0.0, le=180.0, description="Box Dec height (degrees)"
     )
 
+    @model_validator(mode="after")
+    def validate_shape_fields(self) -> "SkyRegionEntryConfig":
+        if self.shape == "cone" and self.radius_deg is None:
+            raise ValueError("radius_deg is required when region shape='cone'.")
+        if self.shape == "box" and (self.width_deg is None or self.height_deg is None):
+            raise ValueError(
+                "width_deg and height_deg are required when region shape='box'."
+            )
+        return self
+
+
+class SkySourceConfig(BaseModel):
+    """One source entry in ``sky_model.sources``."""
+
+    kind: str = Field(..., description="Loader kind or alias")
+
+    # Shared numeric/source controls
+    flux_limit: float | None = Field(None, ge=0.0, description="Minimum flux limit")
+    nside: int | None = Field(None, ge=1, description="HEALPix NSIDE")
+
+    # Synthetic sources
+    representation: Literal["point_sources", "healpix_map"] | None = Field(
+        None, description="Synthetic-source output representation"
+    )
+    num_sources: int = Field(100, ge=1, description="Number of synthetic sources")
+    distribution: Literal["uniform", "random"] = Field(
+        "uniform", description="Synthetic source placement"
+    )
+    seed: int | None = Field(None, description="Random seed")
+    flux_min: float | None = Field(None, ge=0.0, description="Minimum source flux")
+    flux_max: float | None = Field(None, ge=0.0, description="Maximum source flux")
+    dec_deg: float | None = Field(None, description="Source declination")
+    dec_range_deg: float | None = Field(
+        None, ge=0.0, description="Half-width of random declination band"
+    )
+    spectral_index: float | None = Field(None, description="Spectral index")
+    polarization_fraction: float = Field(
+        0.0, ge=0.0, le=1.0, description="Linear polarization fraction"
+    )
+    polarization_angle_deg: float = Field(0.0, description="Linear polarization angle")
+    stokes_v_fraction: float = Field(
+        0.0, ge=0.0, le=1.0, description="Circular polarization fraction"
+    )
+
+    # Diffuse / catalog selection
+    model: str | None = Field(None, description="Diffuse-model selector")
+    include_cmb: bool | None = Field(None, description="Include CMB in diffuse sky")
+    basemap: str | None = Field(None, description="GSM2008 basemap")
+    interpolation: str | None = Field(None, description="GSM2008 interpolation")
+    catalog: str | None = Field(None, description="Catalog identifier")
+    release: str | None = Field(None, description="Release identifier")
+    band: str | None = Field(None, description="Catalog band selector")
+    components: str | list[str] | None = Field(
+        None, description="PySM3 preset string(s)"
+    )
+    include_polarization: bool = Field(
+        False, description="Include polarized diffuse output when supported"
+    )
+    max_rows: int | None = Field(None, ge=1, description="Maximum rows for TAP query")
+
+    # File loaders
+    filename: str | None = Field(None, description="Input filename")
+    filetype: str | None = Field(None, description="File format override")
+    reference_frequency_hz: float | None = Field(
+        None, description="Reference frequency for file-based point sources"
+    )
+
+    def to_loader_request(
+        self,
+        *,
+        flux_multiplier: float = 1.0,
+        region: Any = None,
+        brightness_conversion: str | None = None,
+        frequencies: Any = None,
+        obs_frequency_config: dict[str, Any] | None = None,
+        memmap_path: str | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Build an explicit loader request for this source spec."""
+
+        def _set(target: dict[str, Any], key: str, value: Any) -> None:
+            if value is not None:
+                target[key] = value
+
+        kwargs: dict[str, Any] = {}
+        if brightness_conversion is not None:
+            kwargs["brightness_conversion"] = brightness_conversion
+        if region is not None:
+            kwargs["region"] = region
+        if memmap_path is not None:
+            kwargs["memmap_path"] = memmap_path
+
+        if self.kind == "test_sources":
+            kwargs["num_sources"] = self.num_sources
+            kwargs["distribution"] = self.distribution
+            kwargs["representation"] = self.representation or "point_sources"
+            kwargs["nside"] = self.nside or 64
+            kwargs["polarization_fraction"] = self.polarization_fraction
+            kwargs["polarization_angle_deg"] = self.polarization_angle_deg
+            kwargs["stokes_v_fraction"] = self.stokes_v_fraction
+            _set(
+                kwargs,
+                "flux_min",
+                None if self.flux_min is None else self.flux_min * flux_multiplier,
+            )
+            _set(
+                kwargs,
+                "flux_max",
+                None if self.flux_max is None else self.flux_max * flux_multiplier,
+            )
+            _set(kwargs, "dec_deg", self.dec_deg)
+            _set(kwargs, "spectral_index", self.spectral_index)
+            _set(kwargs, "seed", self.seed)
+            _set(kwargs, "dec_range_deg", self.dec_range_deg)
+            if frequencies is not None:
+                kwargs["frequencies"] = frequencies
+            elif obs_frequency_config is not None:
+                kwargs["obs_frequency_config"] = obs_frequency_config
+            return self.kind, kwargs
+
+        if self.kind == "diffuse_sky":
+            kwargs["model"] = self.model or "gsm2008"
+            kwargs["nside"] = self.nside or 64
+            _set(kwargs, "include_cmb", self.include_cmb)
+            _set(kwargs, "basemap", self.basemap)
+            _set(kwargs, "interpolation", self.interpolation)
+            if frequencies is not None:
+                kwargs["frequencies"] = frequencies
+            elif obs_frequency_config is not None:
+                kwargs["obs_frequency_config"] = obs_frequency_config
+            return self.kind, kwargs
+
+        if self.kind == "pysm3":
+            kwargs["components"] = self.components or "s1"
+            kwargs["nside"] = self.nside or 64
+            kwargs["include_polarization"] = self.include_polarization
+            if frequencies is not None:
+                kwargs["frequencies"] = frequencies
+            elif obs_frequency_config is not None:
+                kwargs["obs_frequency_config"] = obs_frequency_config
+            return self.kind, kwargs
+
+        if self.kind == "fits_image":
+            kwargs["filename"] = self.filename
+            kwargs["nside"] = self.nside or 128
+            if frequencies is not None:
+                kwargs["frequencies"] = frequencies
+            return self.kind, kwargs
+
+        if self.kind == "pyradiosky_file":
+            kwargs["filename"] = self.filename
+            _set(kwargs, "filetype", self.filetype)
+            _set(
+                kwargs,
+                "flux_limit",
+                None if self.flux_limit is None else self.flux_limit * flux_multiplier,
+            )
+            _set(kwargs, "reference_frequency_hz", self.reference_frequency_hz)
+            if frequencies is not None:
+                kwargs["frequencies"] = frequencies
+            elif obs_frequency_config is not None:
+                kwargs["obs_frequency_config"] = obs_frequency_config
+            return self.kind, kwargs
+
+        if self.kind == "bbs":
+            kwargs["filename"] = self.filename
+            _set(
+                kwargs,
+                "flux_limit",
+                None if self.flux_limit is None else self.flux_limit * flux_multiplier,
+            )
+            return self.kind, kwargs
+
+        _set(
+            kwargs,
+            "flux_limit",
+            None if self.flux_limit is None else self.flux_limit * flux_multiplier,
+        )
+
+        if self.kind == "gleam":
+            kwargs["catalog"] = self.catalog or "gleam_egc"
+        elif self.kind == "mals":
+            kwargs["release"] = self.release or "dr2"
+        elif self.kind == "lotss":
+            kwargs["release"] = self.release or "dr2"
+        elif self.kind == "racs":
+            kwargs["band"] = self.band or "low"
+            kwargs["max_rows"] = self.max_rows or 1_000_000
+
+        return self.kind, kwargs
+
+    @model_validator(mode="after")
+    def normalize_kind(self) -> "SkySourceConfig":
+        from rrivis.core.sky.registry import build_alias_map
+
+        raw_kind = self.kind
+        synthetic_aliases = {"test": "test_sources", "test_healpix": "test_sources"}
+        if raw_kind in synthetic_aliases:
+            self.kind = synthetic_aliases[raw_kind]
+        else:
+            alias_map = build_alias_map()
+            if raw_kind in alias_map:
+                self.kind = alias_map[raw_kind]
+
+        if self.kind == "test_sources":
+            if raw_kind == "test_healpix" and self.representation is None:
+                self.representation = "healpix_map"
+            if self.representation is None:
+                self.representation = "point_sources"
+            if self.representation == "healpix_map" and self.nside is None:
+                self.nside = 64
+        elif self.kind == "diffuse_sky":
+            if self.model is None:
+                self.model = raw_kind if raw_kind != "diffuse_sky" else "gsm2008"
+            if self.nside is None:
+                self.nside = 64
+        elif self.kind == "gleam" and self.catalog is None:
+            self.catalog = "gleam_egc"
+        elif self.kind == "mals" and self.release is None:
+            self.release = "dr2"
+        elif self.kind == "lotss" and self.release is None:
+            self.release = "dr2"
+        elif self.kind == "racs":
+            if self.band is None:
+                self.band = "low"
+            if self.max_rows is None:
+                self.max_rows = 1_000_000
+        elif self.kind == "pysm3":
+            if self.components is None:
+                self.components = "s1"
+            if self.nside is None:
+                self.nside = 64
+        elif self.kind == "fits_image" and self.nside is None:
+            self.nside = 128
+
+        if self.kind in {"pyradiosky_file", "bbs", "fits_image"} and not self.filename:
+            raise ValueError(f"filename is required for source kind '{self.kind}'.")
+
+        if (
+            self.flux_min is not None
+            and self.flux_max is not None
+            and self.flux_min > self.flux_max
+        ):
+            raise ValueError("flux_min must be <= flux_max.")
+
+        return self
+
 
 class SkyModelConfig(BaseModel):
     """Sky model configuration."""
 
-    # --- Existing models (unchanged) ---
-    test_sources: SyntheticSourcesConfig = Field(default_factory=SyntheticSourcesConfig)
-    test_sources_healpix: SyntheticSourcesHEALPixConfig = Field(
-        default_factory=SyntheticSourcesHEALPixConfig
+    sources: list[SkySourceConfig] = Field(
+        default_factory=list,
+        description="List of sky-model source specs to load and combine",
     )
-    gsm_healpix: GSMConfig = Field(default_factory=GSMConfig)
-    gleam: GLEAMConfig = Field(default_factory=GLEAMConfig)
-    mals: MALSConfig = Field(default_factory=MALSConfig)
-    # --- New point-source catalogs ---
-    vlssr: VLSSrConfig = Field(default_factory=VLSSrConfig)
-    tgss: TGSSConfig = Field(default_factory=TGSSConfig)
-    wenss: WENSSConfig = Field(default_factory=WENSSConfig)
-    sumss: SUMSSConfig = Field(default_factory=SUMSSConfig)
-    nvss: NVSSConfig = Field(default_factory=NVSSConfig)
-    lotss: LoTSSConfig = Field(default_factory=LoTSSConfig)
-    three_c: ThreeCConfig = Field(default_factory=ThreeCConfig)
-    vlass: VLASSConfig = Field(default_factory=VLASSConfig)
-    racs: RACSConfig = Field(default_factory=RACSConfig)
-    # --- New diffuse models ---
-    pysm3: PySM3Config = Field(default_factory=PySM3Config)
-    # --- Local file loader ---
-    pyradiosky: PyRadioSkyConfig = Field(default_factory=PyRadioSkyConfig)
-    bbs: BBSConfig = Field(default_factory=BBSConfig)
-    fits_image: FITSImageConfig = Field(default_factory=FITSImageConfig)
-    # --- Flux unit for all flux values in this section ---
-    flux_unit: Literal["Jy", "mJy", "uJy"] | None = Field(
-        None,
-        description="Unit for all flux values (flux_min, flux_max, flux_limit) in this section",
+    flux_unit: Literal["Jy", "mJy", "uJy"] = Field(
+        "Jy",
+        description="Unit for all source-spec flux values (flux_min, flux_max, flux_limit)",
     )
-    # --- Brightness conversion method for all loaders ---
     brightness_conversion: Literal["planck", "rayleigh-jeans"] = Field(
         "planck",
         description=(
@@ -567,7 +794,13 @@ class SkyModelConfig(BaseModel):
             "'planck' (exact Planck law) or 'rayleigh-jeans' (RJ approximation)."
         ),
     )
-    # --- Optional sky region filter ---
+    mixed_model_policy: Literal["error", "warn", "allow"] = Field(
+        "error",
+        description=(
+            "How to handle combinations that mix point catalogs with diffuse "
+            "HEALPix models: error, warn, or allow."
+        ),
+    )
     region: SkyRegionEntryConfig | list[SkyRegionEntryConfig] | None = Field(
         None,
         description="Sky region filter(s). Single region or list for union of regions.",
@@ -687,6 +920,13 @@ class VisibilityConfig(BaseModel):
     )
     sky_representation: Literal["point_sources", "healpix_map"] | None = Field(
         None, description="Sky model representation: 'point_sources' or 'healpix_map'"
+    )
+    allow_lossy_point_materialization: bool = Field(
+        False,
+        description=(
+            "Allow lossy HEALPix-to-point conversion when point_sources mode "
+            "is requested."
+        ),
     )
 
 
@@ -1205,50 +1445,33 @@ class RRIvisConfig(BaseModel):
                 "Choose 'point_sources' (catalogs) or 'healpix_map' (diffuse emission)."
             )
 
-        # --- Sky model: at least one must be enabled ---
-        # Check test sources (not in loader registry) + all registered loaders
+        # --- Sky model: at least one source spec must be present ---
         sm = self.sky_model
-        any_sky_model_enabled = (
-            sm.test_sources.use_test_sources or sm.test_sources_healpix.use_test_sources
-        )
+        if not sm.sources:
+            errors.append(
+                "sky_model.sources: add at least one source entry "
+                "(for example kind='test_sources', 'gleam', or 'diffuse_sky')."
+            )
+        else:
+            from rrivis.core.sky.registry import get_loader_definition
 
-        # Registry-driven check: iterate registered loaders for enabled flags
-        # and file-existence validation.
-        from rrivis.core.sky._registry import _LOADER_META
-
-        for _loader_name, meta in _LOADER_META.items():
-            section_name = meta["config_section"]
-            use_flag = meta["use_flag"]
-            section = getattr(sm, section_name, None)
-            if section is None:
-                continue
-            is_enabled = getattr(section, use_flag, False)
-            if is_enabled:
-                any_sky_model_enabled = True
-                # Validate filename for file-based loaders
-                if meta["requires_file"]:
-                    fname = getattr(section, "filename", "")
+            for idx, source in enumerate(sm.sources):
+                try:
+                    definition = get_loader_definition(source.kind)
+                except ValueError as exc:
+                    errors.append(f"sky_model.sources[{idx}].kind: {exc}")
+                    continue
+                if definition.requires_file:
+                    fname = source.filename or ""
                     if not fname:
                         errors.append(
-                            f"sky_model.{section_name}.filename: required "
-                            f"when {use_flag}=true."
+                            f"sky_model.sources[{idx}].filename: required for "
+                            f"kind='{source.kind}'."
                         )
                     elif not Path(fname).exists():
                         errors.append(
-                            f"sky_model.{section_name}.filename: file not "
-                            f"found: '{fname}'."
+                            f"sky_model.sources[{idx}].filename: file not found: '{fname}'."
                         )
-
-        if not any_sky_model_enabled:
-            errors.append(
-                "sky_model: no sky model enabled. Enable at least one "
-                "(e.g., test_sources, gleam, gsm_healpix) in the sky_model section."
-            )
-        if sm.flux_unit is None:
-            errors.append(
-                "sky_model.flux_unit: required but not set. "
-                "Choose 'Jy', 'mJy', or 'uJy'."
-            )
 
         return errors
 

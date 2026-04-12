@@ -13,6 +13,8 @@ from healpy.rotator import Rotator
 from rrivis.utils.frequency import parse_frequency_config
 from rrivis.utils.network import require_service
 
+from ._data import HealpixData
+from ._precision import get_sky_storage_dtype
 from ._registry import register_loader
 from .catalogs import DIFFUSE_MODELS
 from .model import SkyFormat
@@ -281,14 +283,15 @@ def load_diffuse_sky(
 
     npix = hp.nside2npix(nside)
     scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
-    i_arr = allocate_cube((n_freq, npix), np.float32, scratch, "i_maps")
+    hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
+    i_arr = allocate_cube((n_freq, npix), hp_dtype, scratch, "i_maps")
     rot = Rotator(coord=["G", "C"])
     for fi, freq in enumerate(frequencies):
         temp_map = pygdsm_instance.generate(freq)
         if hp.get_nside(temp_map) != nside:
             temp_map = hp.ud_grade(temp_map, nside_out=nside)
         temp_map = rot.rotate_map_pixel(temp_map)
-        i_arr[fi] = temp_map.astype(np.float32)
+        i_arr[fi] = temp_map.astype(hp_dtype)
 
     # Apply region mask (zero out-of-region pixels)
     if region is not None:
@@ -303,11 +306,9 @@ def load_diffuse_sky(
     i_arr = finalize_cube(i_arr, scratch, "i_maps")
 
     return SkyModel(
-        _healpix_maps=i_arr,
-        _healpix_nside=nside,
-        _observation_frequencies=frequencies,
-        _native_format=SkyFormat.HEALPIX,
-        _active_mode=SkyFormat.HEALPIX,
+        healpix=HealpixData(maps=i_arr, nside=nside, frequencies=frequencies),
+        native_representation=SkyFormat.HEALPIX,
+        active_representation=SkyFormat.HEALPIX,
         model_name=model,
         brightness_conversion=brightness_conversion,
         _precision=precision,
@@ -432,7 +433,8 @@ def load_pysm3(
 
     Generates one brightness temperature map per observation frequency
     using PySM3's native per-channel computation. Maps are rotated from
-    Galactic to Equatorial (ICRS) coordinates and stored as float32.
+    Galactic to Equatorial (ICRS) coordinates and stored using the
+    configured HEALPix precision.
 
     Parameters
     ----------
@@ -520,14 +522,15 @@ def load_pysm3(
 
     npix = hp.nside2npix(nside)
     scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
-    i_arr = allocate_cube((n_freq, npix), np.float32, scratch, "i_maps")
+    hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
+    i_arr = allocate_cube((n_freq, npix), hp_dtype, scratch, "i_maps")
     q_arr = (
-        allocate_cube((n_freq, npix), np.float32, scratch, "q_maps")
+        allocate_cube((n_freq, npix), hp_dtype, scratch, "q_maps")
         if include_polarization
         else None
     )
     u_arr = (
-        allocate_cube((n_freq, npix), np.float32, scratch, "u_maps")
+        allocate_cube((n_freq, npix), hp_dtype, scratch, "u_maps")
         if include_polarization
         else None
     )
@@ -550,15 +553,15 @@ def load_pysm3(
                 q_map = hp.ud_grade(q_map, nside_out=nside)
                 u_map = hp.ud_grade(u_map, nside_out=nside)
             iqu_rot = rot.rotate_map_alms(np.array([i_map, q_map, u_map]))
-            i_arr[fi] = iqu_rot[0].astype(np.float32)
-            q_arr[fi] = iqu_rot[1].astype(np.float32)
-            u_arr[fi] = iqu_rot[2].astype(np.float32)
+            i_arr[fi] = iqu_rot[0].astype(hp_dtype)
+            q_arr[fi] = iqu_rot[1].astype(hp_dtype)
+            u_arr[fi] = iqu_rot[2].astype(hp_dtype)
         else:
             temp_map = np.array(emission_krj[0])
             if hp.get_nside(temp_map) != nside:
                 temp_map = hp.ud_grade(temp_map, nside_out=nside)
             temp_map = rot.rotate_map_pixel(temp_map)
-            i_arr[fi] = temp_map.astype(np.float32)
+            i_arr[fi] = temp_map.astype(hp_dtype)
 
     # Apply region mask (zero out-of-region pixels)
     if region is not None:
@@ -586,13 +589,15 @@ def load_pysm3(
         u_arr = finalize_cube(u_arr, scratch, "u_maps")
 
     return SkyModel(
-        _healpix_maps=i_arr,
-        _healpix_q_maps=q_arr,
-        _healpix_u_maps=u_arr,
-        _healpix_nside=nside,
-        _observation_frequencies=frequencies,
-        _native_format=SkyFormat.HEALPIX,
-        _active_mode=SkyFormat.HEALPIX,
+        healpix=HealpixData(
+            maps=i_arr,
+            nside=nside,
+            frequencies=frequencies,
+            q_maps=q_arr,
+            u_maps=u_arr,
+        ),
+        native_representation=SkyFormat.HEALPIX,
+        active_representation=SkyFormat.HEALPIX,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,

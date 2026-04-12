@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from rrivis.core.sky.model import SkyModel
 from rrivis.utils.diagnostics.planner import DiagnosticsPlanner
 
 # ---------------------------------------------------------------------------
@@ -140,23 +141,20 @@ class TestObservableStrip:
 class TestSourceFiltering:
     def _make_sky_model(self):
         """Build a minimal SkyModel with 5 known sources."""
-        from rrivis.core.sky.model import SkyFormat, SkyModel
-
         ras = np.deg2rad([30.0, 45.0, 60.0, 120.0, 300.0])
         decs = np.deg2rad([-32.0, -28.0, -35.0, -30.0, -30.0])
         fluxes = np.array([10.0, 5.0, 8.0, 2.0, 1.0])
         alphas = np.zeros(5)
         zeros = np.zeros(5)
 
-        return SkyModel(
-            _ra_rad=ras,
-            _dec_rad=decs,
-            _flux=fluxes,
-            _spectral_index=alphas,
-            _stokes_q=zeros,
-            _stokes_u=zeros,
-            _stokes_v=zeros,
-            _native_format=SkyFormat.POINT_SOURCES,
+        return SkyModel.from_arrays(
+            ra_rad=ras,
+            dec_rad=decs,
+            flux=fluxes,
+            spectral_index=alphas,
+            stokes_q=zeros,
+            stokes_u=zeros,
+            stokes_v=zeros,
             model_name="test",
             brightness_conversion="planck",
         )

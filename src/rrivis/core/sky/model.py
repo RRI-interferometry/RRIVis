@@ -56,243 +56,32 @@ class SkyFormat(Enum):
 
 @dataclass(frozen=True)
 class SkyModel:
-    """
-    Unified sky model with bidirectional conversion (frozen / immutable).
+    """Unified immutable sky model built from typed payloads."""
 
-    Can hold sky data in either point source or HEALPix format, and convert
-    between them on demand.  This allows uniform treatment of all sky models
-    (catalogs, diffuse emission, test sources) regardless of their native format.
-
-    All methods that would previously mutate ``self`` now return a *new*
-    ``SkyModel`` instance created via ``dataclasses.replace``.
-
-    Columnar point-source arrays are ``(N_sources,)`` float64.  ``None`` means
-    not populated; ``len == 0`` means loaded but no sources passed the filter.
-
-    HEALPix maps are stored as 2-D arrays of shape ``(n_freq, npix)``.  The
-    companion ``_observation_frequencies`` array provides the frequency axis.
-
-    Attributes
-    ----------
-    _ra_rad, _dec_rad : np.ndarray, optional
-        Right ascension and declination in radians.
-    _flux : np.ndarray, optional
-        Reference flux density in Jy.
-    _spectral_index : np.ndarray, optional
-        Spectral index for power-law extrapolation.
-    _stokes_q, _stokes_u, _stokes_v : np.ndarray, optional
-        Stokes polarization parameters.
-    _rotation_measure : np.ndarray, optional
-        Rotation measure in rad/m^2 (per source) for Faraday rotation of Q/U.
-    _major_arcsec, _minor_arcsec, _pa_deg : np.ndarray, optional
-        Gaussian morphology: FWHM major/minor axes in arcsec, position angle
-        in degrees (N through E). Zero values indicate point sources.
-    _spectral_coeffs : np.ndarray, optional
-        Multi-term log-polynomial spectral coefficients, shape (N, N_terms).
-        Column 0 = spectral index (same as ``_spectral_index``).
-    _healpix_maps : np.ndarray, optional
-        Multi-frequency HEALPix brightness temperature maps, shape ``(n_freq, npix)``.
-        One map per observation channel; generated natively by pygdsm for
-        diffuse models, or via spectral extrapolation for point source catalogs.
-    _healpix_q_maps : np.ndarray, optional
-        Stokes Q HEALPix maps, shape ``(n_freq, npix)``.
-    _healpix_u_maps : np.ndarray, optional
-        Stokes U HEALPix maps, shape ``(n_freq, npix)``.
-    _healpix_v_maps : np.ndarray, optional
-        Stokes V HEALPix maps, shape ``(n_freq, npix)``.
-    _healpix_nside : int, optional
-        HEALPix NSIDE parameter.
-    _observation_frequencies : np.ndarray, optional
-        Frequency axis for HEALPix maps, shape ``(n_freq,)``.
-    _native_format : str
-        Original format: ``"point_sources"`` or ``"healpix"``.
-    reference_frequency : float, optional
-        Reference frequency in Hz for spectral extrapolation of point-source models.
-    model_name : str, optional
-        Name of the sky model.
-    brightness_conversion : BrightnessConversion
-        Conversion method for T_b / Jy: ``"planck"`` or ``"rayleigh-jeans"``.
-    """
-
-    _ra_rad: np.ndarray | None = field(default=None, repr=False)
-    _dec_rad: np.ndarray | None = field(default=None, repr=False)
-    _flux: np.ndarray | None = field(default=None, repr=False)
-    _spectral_index: np.ndarray | None = field(default=None, repr=False)
-    _stokes_q: np.ndarray | None = field(default=None, repr=False)
-    _stokes_u: np.ndarray | None = field(default=None, repr=False)
-    _stokes_v: np.ndarray | None = field(default=None, repr=False)
-
-    _rotation_measure: np.ndarray | None = field(default=None, repr=False)
-    """Rotation measure in rad/m^2 (per source). None = no RM data."""
-
-    _major_arcsec: np.ndarray | None = field(default=None, repr=False)
-    """FWHM major axis in arcsec (per source). 0 = point source."""
-    _minor_arcsec: np.ndarray | None = field(default=None, repr=False)
-    """FWHM minor axis in arcsec (per source). 0 = point source."""
-    _pa_deg: np.ndarray | None = field(default=None, repr=False)
-    """Position angle in degrees, North through East (per source)."""
-
-    _spectral_coeffs: np.ndarray | None = field(default=None, repr=False)
-    """Multi-term log-polynomial spectral coefficients, shape (N_sources, N_terms).
-    Column 0 = simple spectral index (same as _spectral_index). None = single power law."""
-
-    _ref_freq: np.ndarray | None = field(default=None, repr=False)
-    """Per-source reference frequency in Hz, shape (N_sources,).
-    Required for point-source models. None for HEALPix-only models."""
-
-    _healpix_maps: np.ndarray | None = None
-    _healpix_q_maps: np.ndarray | None = None
-    _healpix_u_maps: np.ndarray | None = None
-    _healpix_v_maps: np.ndarray | None = None
-    _observation_frequencies: np.ndarray | None = None
-    _healpix_nside: int | None = None
-
-    _native_format: SkyFormat = SkyFormat.POINT_SOURCES
-    _active_mode: SkyFormat | None = None
-
+    point: PointSourceData | None = field(default=None, repr=False)
+    healpix: HealpixData | None = field(default=None, repr=False)
+    native_representation: SkyFormat = SkyFormat.POINT_SOURCES
+    active_representation: SkyFormat | None = None
     reference_frequency: float | None = None
     model_name: str | None = None
     brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK
-
     _precision: "PrecisionConfig | None" = field(default=None, repr=False)
 
-    # --- Inner data containers (auto-built from flat fields) ---
-    _ps: Any = field(default=None, repr=False)
-    """PointSourceData container. Auto-populated from flat fields in __post_init__."""
-    _hp: Any = field(default=None, repr=False)
-    """HealpixData container. Auto-populated from flat fields in __post_init__."""
-
-    # =========================================================================
-    # Post-init Validation
-    # =========================================================================
-
     def __post_init__(self) -> None:
-        """Validate field consistency and cast dtypes."""
-        # --- Array length consistency ---
-        arr_fields = {
-            "_ra_rad": self._ra_rad,
-            "_dec_rad": self._dec_rad,
-            "_flux": self._flux,
-            "_spectral_index": self._spectral_index,
-        }
-        if self._ref_freq is not None:
-            arr_fields["_ref_freq"] = self._ref_freq
-        lengths = {k: len(v) for k, v in arr_fields.items() if v is not None}
-        if lengths:
-            unique_lengths = set(lengths.values())
-            if len(unique_lengths) > 1:
-                raise ValueError(
-                    f"Point-source arrays must all have the same length, got: {lengths}"
-                )
-
-        # --- Stokes Q/U/V: all-or-none ---
-        stokes_set = {
-            "_stokes_q": self._stokes_q is not None,
-            "_stokes_u": self._stokes_u is not None,
-            "_stokes_v": self._stokes_v is not None,
-        }
-        stokes_present = [k for k, v in stokes_set.items() if v]
-        stokes_absent = [k for k, v in stokes_set.items() if not v]
-        if stokes_present and stokes_absent:
+        """Validate payload consistency and precision defaults."""
+        if self.point is None and self.healpix is None:
             raise ValueError(
-                f"Stokes Q/U/V must be all set or all None. "
-                f"Present: {stokes_present}, absent: {stokes_absent}"
+                "SkyModel requires at least one payload. "
+                "Use SkyModel.empty_sky() for an empty point-source model."
             )
 
-        # --- Morphology fields: all-or-none ---
-        morph_set = {
-            "_major_arcsec": self._major_arcsec is not None,
-            "_minor_arcsec": self._minor_arcsec is not None,
-            "_pa_deg": self._pa_deg is not None,
-        }
-        morph_present = [k for k, v in morph_set.items() if v]
-        morph_absent = [k for k, v in morph_set.items() if not v]
-        if morph_present and morph_absent:
-            raise ValueError(
-                f"Morphology fields (major, minor, pa) must be all set or all None. "
-                f"Present: {morph_present}, absent: {morph_absent}"
-            )
-
-        # --- Optional per-source array length consistency ---
-        if lengths:
-            n = next(iter(set(lengths.values())))
-            optional_arrays = {
-                "_stokes_q": self._stokes_q,
-                "_stokes_u": self._stokes_u,
-                "_stokes_v": self._stokes_v,
-                "_rotation_measure": self._rotation_measure,
-                "_major_arcsec": self._major_arcsec,
-                "_minor_arcsec": self._minor_arcsec,
-                "_pa_deg": self._pa_deg,
-            }
-            for name, arr in optional_arrays.items():
-                if arr is not None and len(arr) != n:
-                    raise ValueError(
-                        f"{name} has length {len(arr)}, expected {n} "
-                        f"(must match core point-source arrays)."
-                    )
-            if (
-                self._spectral_coeffs is not None
-                and self._spectral_coeffs.shape[0] != n
-            ):
-                raise ValueError(
-                    f"_spectral_coeffs first dimension is {self._spectral_coeffs.shape[0]}, "
-                    f"expected {n} (must match core point-source arrays)."
-                )
-
-        # --- HEALPix validation ---
-        if self._healpix_maps is not None:
-            if self._healpix_nside is None:
-                raise ValueError(
-                    "_healpix_nside is required when _healpix_maps is not None."
-                )
-            expected_npix = hp.nside2npix(self._healpix_nside)
-            if self._healpix_maps.ndim != 2:
-                raise ValueError(
-                    f"_healpix_maps must be 2-D (n_freq, npix), "
-                    f"got shape {self._healpix_maps.shape}"
-                )
-            if self._healpix_maps.shape[1] != expected_npix:
-                raise ValueError(
-                    f"_healpix_maps has {self._healpix_maps.shape[1]} pixels per map, "
-                    f"expected {expected_npix} for nside={self._healpix_nside}"
-                )
-            # Validate observation_frequencies exists and matches n_freq
-            n_freq = self._healpix_maps.shape[0]
-            if self._observation_frequencies is None:
-                raise ValueError(
-                    "_observation_frequencies is required when _healpix_maps "
-                    "is not None."
-                )
-            if len(self._observation_frequencies) != n_freq:
-                raise ValueError(
-                    f"_observation_frequencies has {len(self._observation_frequencies)} "
-                    f"entries but _healpix_maps has {n_freq} frequency channels. "
-                    f"They must match."
-                )
-            # Validate polarization map shapes
-            for name, arr in [
-                ("_healpix_q_maps", self._healpix_q_maps),
-                ("_healpix_u_maps", self._healpix_u_maps),
-                ("_healpix_v_maps", self._healpix_v_maps),
-            ]:
-                if arr is not None and arr.shape != self._healpix_maps.shape:
-                    raise ValueError(
-                        f"{name} shape {arr.shape} does not match "
-                        f"_healpix_maps shape {self._healpix_maps.shape}"
-                    )
-
-        # (_active_mode is now inferred by the mode property when None)
-
-        # --- _native_format validation (strict: enum required, no coercion) ---
-        if not isinstance(self._native_format, SkyFormat):
+        if not isinstance(self.native_representation, SkyFormat):
             raise TypeError(
-                f"_native_format must be a SkyFormat enum, got "
-                f"{type(self._native_format).__name__}: '{self._native_format}'. "
-                f"Use SkyFormat.POINT_SOURCES or SkyFormat.HEALPIX."
+                f"native_representation must be a SkyFormat enum, got "
+                f"{type(self.native_representation).__name__}: "
+                f"{self.native_representation!r}."
             )
 
-        # --- brightness_conversion coercion and validation ---
         if not isinstance(self.brightness_conversion, BrightnessConversion):
             try:
                 object.__setattr__(
@@ -306,79 +95,208 @@ class SkyModel:
                     f"got '{self.brightness_conversion}'"
                 ) from None
 
-        # --- Default precision if not provided ---
+        if self.native_representation == SkyFormat.POINT_SOURCES and self.point is None:
+            raise ValueError(
+                "native_representation='point_sources' requires a point payload."
+            )
+        if self.native_representation == SkyFormat.HEALPIX and self.healpix is None:
+            raise ValueError(
+                "native_representation='healpix_map' requires a HEALPix payload."
+            )
+
         if self._precision is None:
             from rrivis.core.precision import PrecisionConfig
 
             object.__setattr__(self, "_precision", PrecisionConfig.standard())
 
-        # --- Auto-build inner data containers from flat fields ---
-        from ._data import HealpixData, PointSourceData
-
-        if self._ps is None and self._ra_rad is not None:
-            ps = PointSourceData(
-                ra_rad=self._ra_rad,
-                dec_rad=self._dec_rad,
-                flux=self._flux,
-                spectral_index=self._spectral_index
-                if self._spectral_index is not None
-                else np.zeros(len(self._ra_rad), dtype=np.float64),
-                stokes_q=self._stokes_q
-                if self._stokes_q is not None
-                else np.zeros(len(self._ra_rad), dtype=np.float64),
-                stokes_u=self._stokes_u
-                if self._stokes_u is not None
-                else np.zeros(len(self._ra_rad), dtype=np.float64),
-                stokes_v=self._stokes_v
-                if self._stokes_v is not None
-                else np.zeros(len(self._ra_rad), dtype=np.float64),
-                ref_freq=self._ref_freq
-                if self._ref_freq is not None
-                else np.full(
-                    len(self._ra_rad),
-                    self.reference_frequency or 0.0,
-                    dtype=np.float64,
-                ),
-                rotation_measure=self._rotation_measure,
-                major_arcsec=self._major_arcsec,
-                minor_arcsec=self._minor_arcsec,
-                pa_deg=self._pa_deg,
-                spectral_coeffs=self._spectral_coeffs,
+        if self.point is not None:
+            object.__setattr__(
+                self, "point", self._cast_point_data(self.point, self._precision)
             )
-            object.__setattr__(self, "_ps", ps)
-
-        if self._hp is None and self._healpix_maps is not None:
-            hp_data = HealpixData(
-                maps=self._healpix_maps,
-                nside=self._healpix_nside,
-                frequencies=self._observation_frequencies,
-                q_maps=self._healpix_q_maps,
-                u_maps=self._healpix_u_maps,
-                v_maps=self._healpix_v_maps,
+        if self.healpix is not None:
+            object.__setattr__(
+                self, "healpix", self._cast_healpix_data(self.healpix, self._precision)
             )
-            object.__setattr__(self, "_hp", hp_data)
 
-    # =========================================================================
-    # Structured Access Properties
-    # =========================================================================
+        active = self.active_representation or self.native_representation
+        if active not in self.available_representations:
+            raise ValueError(
+                f"active_representation={active.value!r} is not available on this model. "
+                f"Available: {[r.value for r in sorted(self.available_representations, key=lambda r: r.value)]}"
+            )
+        object.__setattr__(self, "active_representation", active)
+
+    @classmethod
+    def _cast_point_data(
+        cls,
+        point: PointSourceData | None,
+        precision: "PrecisionConfig | None",
+    ) -> PointSourceData | None:
+        if point is None or precision is None:
+            return point
+        src_dt = precision.sky_model.get_dtype("source_positions")
+        flux_dt = precision.sky_model.get_dtype("flux")
+        si_dt = precision.sky_model.get_dtype("spectral_index")
+        return PointSourceData(
+            ra_rad=np.asarray(point.ra_rad, dtype=src_dt),
+            dec_rad=np.asarray(point.dec_rad, dtype=src_dt),
+            flux=np.asarray(point.flux, dtype=flux_dt),
+            spectral_index=np.asarray(point.spectral_index, dtype=si_dt),
+            stokes_q=np.asarray(point.stokes_q, dtype=flux_dt),
+            stokes_u=np.asarray(point.stokes_u, dtype=flux_dt),
+            stokes_v=np.asarray(point.stokes_v, dtype=flux_dt),
+            ref_freq=np.asarray(point.ref_freq, dtype=flux_dt),
+            rotation_measure=(
+                None
+                if point.rotation_measure is None
+                else np.asarray(point.rotation_measure, dtype=flux_dt)
+            ),
+            major_arcsec=(
+                None
+                if point.major_arcsec is None
+                else np.asarray(point.major_arcsec, dtype=src_dt)
+            ),
+            minor_arcsec=(
+                None
+                if point.minor_arcsec is None
+                else np.asarray(point.minor_arcsec, dtype=src_dt)
+            ),
+            pa_deg=None
+            if point.pa_deg is None
+            else np.asarray(point.pa_deg, dtype=src_dt),
+            spectral_coeffs=(
+                None
+                if point.spectral_coeffs is None
+                else np.asarray(point.spectral_coeffs, dtype=si_dt)
+            ),
+        )
+
+    @classmethod
+    def _cast_healpix_data(
+        cls,
+        healpix_data: HealpixData | None,
+        precision: "PrecisionConfig | None",
+    ) -> HealpixData | None:
+        if healpix_data is None or precision is None:
+            return healpix_data
+        hp_dt = precision.sky_model.get_dtype("healpix_maps")
+        flux_dt = precision.sky_model.get_dtype("flux")
+
+        def _cast_map(arr: np.ndarray | None) -> np.ndarray | None:
+            if arr is None:
+                return None
+            return arr if arr.dtype == hp_dt else arr.astype(hp_dt, copy=False)
+
+        return HealpixData(
+            maps=_cast_map(healpix_data.maps),
+            nside=healpix_data.nside,
+            frequencies=np.asarray(healpix_data.frequencies, dtype=flux_dt),
+            q_maps=_cast_map(healpix_data.q_maps),
+            u_maps=_cast_map(healpix_data.u_maps),
+            v_maps=_cast_map(healpix_data.v_maps),
+        )
 
     @property
     def ps(self) -> "PointSourceData | None":
-        """Structured point-source data container (read-only).
-
-        Returns None if no point-source data is present.
-        Use ``has_point_sources`` to check availability.
-        """
-        return self._ps
+        """Structured point-source payload."""
+        return self.point
 
     @property
     def hp(self) -> "HealpixData | None":
-        """Structured HEALPix data container (read-only).
+        """Structured HEALPix payload."""
+        return self.healpix
 
-        Returns None if no HEALPix maps are present.
-        Use ``has_multifreq_maps`` to check availability.
-        """
-        return self._hp
+    @property
+    def _ps(self) -> "PointSourceData | None":
+        return self.point
+
+    @property
+    def _hp(self) -> "HealpixData | None":
+        return self.healpix
+
+    @property
+    def _native_format(self) -> SkyFormat:
+        return self.native_representation
+
+    @property
+    def _active_mode(self) -> SkyFormat | None:
+        return self.active_representation
+
+    @property
+    def _ra_rad(self) -> np.ndarray | None:
+        return self.point.ra_rad if self.point is not None else None
+
+    @property
+    def _dec_rad(self) -> np.ndarray | None:
+        return self.point.dec_rad if self.point is not None else None
+
+    @property
+    def _flux(self) -> np.ndarray | None:
+        return self.point.flux if self.point is not None else None
+
+    @property
+    def _spectral_index(self) -> np.ndarray | None:
+        return self.point.spectral_index if self.point is not None else None
+
+    @property
+    def _stokes_q(self) -> np.ndarray | None:
+        return self.point.stokes_q if self.point is not None else None
+
+    @property
+    def _stokes_u(self) -> np.ndarray | None:
+        return self.point.stokes_u if self.point is not None else None
+
+    @property
+    def _stokes_v(self) -> np.ndarray | None:
+        return self.point.stokes_v if self.point is not None else None
+
+    @property
+    def _rotation_measure(self) -> np.ndarray | None:
+        return self.point.rotation_measure if self.point is not None else None
+
+    @property
+    def _major_arcsec(self) -> np.ndarray | None:
+        return self.point.major_arcsec if self.point is not None else None
+
+    @property
+    def _minor_arcsec(self) -> np.ndarray | None:
+        return self.point.minor_arcsec if self.point is not None else None
+
+    @property
+    def _pa_deg(self) -> np.ndarray | None:
+        return self.point.pa_deg if self.point is not None else None
+
+    @property
+    def _spectral_coeffs(self) -> np.ndarray | None:
+        return self.point.spectral_coeffs if self.point is not None else None
+
+    @property
+    def _ref_freq(self) -> np.ndarray | None:
+        return self.point.ref_freq if self.point is not None else None
+
+    @property
+    def _healpix_maps(self) -> np.ndarray | None:
+        return self.healpix.maps if self.healpix is not None else None
+
+    @property
+    def _healpix_q_maps(self) -> np.ndarray | None:
+        return self.healpix.q_maps if self.healpix is not None else None
+
+    @property
+    def _healpix_u_maps(self) -> np.ndarray | None:
+        return self.healpix.u_maps if self.healpix is not None else None
+
+    @property
+    def _healpix_v_maps(self) -> np.ndarray | None:
+        return self.healpix.v_maps if self.healpix is not None else None
+
+    @property
+    def _observation_frequencies(self) -> np.ndarray | None:
+        return self.healpix.frequencies if self.healpix is not None else None
+
+    @property
+    def _healpix_nside(self) -> int | None:
+        return self.healpix.nside if self.healpix is not None else None
 
     # =========================================================================
     # Precision Helpers
@@ -472,72 +390,63 @@ class SkyModel:
         ),
     }
 
-    @staticmethod
-    def _apply_precision_casts(
-        precision: "PrecisionConfig", kwargs: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Cast arrays in *kwargs* to precision-appropriate dtypes.
-
-        Operates on a kwargs dict **before** constructing the frozen dataclass,
-        so that ``__post_init__`` never needs to mutate fields.
-
-        Parameters
-        ----------
-        precision : PrecisionConfig
-            Precision configuration.
-        kwargs : dict
-            Constructor kwargs (modified in place and returned).
-
-        Returns
-        -------
-        dict[str, Any]
-        """
-        for category, fields in SkyModel._PRECISION_CATEGORIES.items():
-            dt = precision.sky_model.get_dtype(category)
-            for key in fields:
-                arr = kwargs.get(key)
-                if arr is not None:
-                    kwargs[key] = arr.astype(dt, copy=False)
-        return kwargs
-
     # =========================================================================
     # Immutable Replace Helper
     # =========================================================================
 
     def _replace(self, **changes: Any) -> "SkyModel":
-        """Return a new ``SkyModel`` with the given fields replaced.
-
-        Parameters
-        ----------
-        **changes
-            Keyword arguments matching field names to override.
-
-        Returns
-        -------
-        SkyModel
-            New instance with the specified changes.
-        """
+        """Return a new ``SkyModel`` with the given fields replaced."""
         import dataclasses
 
-        # Resolve precision: inherit from self if not overridden.
-        # _precision must always be set -- factory methods handle this.
-        precision = changes.get("_precision", self._precision)
+        precision = changes.pop("_precision", self._precision)
         if precision is None:
             raise ValueError(
                 "SkyModel._replace(): _precision must not be None. "
-                "This is a bug -- all factory methods should set precision "
-                "via PrecisionConfig.standard() or an explicit config."
+                "This is a bug -- all factory methods should set precision."
             )
 
-        # Apply dtype casts before constructing the frozen dataclass.
-        changes = SkyModel._apply_precision_casts(precision, changes)
+        field_changes: dict[str, Any] = {"_precision": precision}
 
-        # Clear inner containers so __post_init__ rebuilds them from
-        # the (potentially updated) flat fields.
-        changes.setdefault("_ps", None)
-        changes.setdefault("_hp", None)
+        if "point" in changes:
+            field_changes["point"] = self._cast_point_data(
+                changes.pop("point"), precision
+            )
+        elif "_ps" in changes:
+            field_changes["point"] = self._cast_point_data(
+                changes.pop("_ps"), precision
+            )
 
-        return dataclasses.replace(self, **changes)
+        if "healpix" in changes:
+            field_changes["healpix"] = self._cast_healpix_data(
+                changes.pop("healpix"), precision
+            )
+        elif "_hp" in changes:
+            field_changes["healpix"] = self._cast_healpix_data(
+                changes.pop("_hp"), precision
+            )
+
+        if "_native_format" in changes:
+            field_changes["native_representation"] = changes.pop("_native_format")
+        if "_active_mode" in changes:
+            field_changes["active_representation"] = changes.pop("_active_mode")
+
+        for key in (
+            "native_representation",
+            "active_representation",
+            "reference_frequency",
+            "model_name",
+            "brightness_conversion",
+        ):
+            if key in changes:
+                field_changes[key] = changes.pop(key)
+
+        if changes:
+            unknown = ", ".join(sorted(changes))
+            raise TypeError(
+                f"SkyModel._replace() received unsupported fields: {unknown}"
+            )
+
+        return dataclasses.replace(self, **field_changes)
 
     # =========================================================================
     # Per-Source Field Helpers
@@ -560,29 +469,11 @@ class SkyModel:
         "_pa_deg",
     )
 
-    def _masked_point_source_kwargs(self, mask: np.ndarray) -> dict[str, Any]:
-        """Apply a boolean mask to all per-source arrays.
-
-        Returns a kwargs dict suitable for passing to the ``SkyModel``
-        constructor.  ``_spectral_coeffs`` (2-D) is handled separately.
-
-        Parameters
-        ----------
-        mask : np.ndarray
-            Boolean mask of shape ``(n_sources,)``.
-
-        Returns
-        -------
-        dict[str, Any]
-        """
-        kwargs: dict[str, Any] = {}
-        for field_name in self._PER_SOURCE_FIELDS:
-            arr = getattr(self, field_name)
-            kwargs[field_name] = arr[mask] if arr is not None else None
-        kwargs["_spectral_coeffs"] = (
-            self._spectral_coeffs[mask] if self._spectral_coeffs is not None else None
-        )
-        return kwargs
+    def _masked_point_source_data(self, mask: np.ndarray) -> PointSourceData | None:
+        """Return point-source payload with a boolean mask applied."""
+        if self.point is None:
+            return None
+        return self.point.masked(mask)
 
     # =========================================================================
     # Empty Sky / Generic Loader
@@ -611,7 +502,7 @@ class SkyModel:
         ----------
         name : str
             Loader name (e.g. ``"gleam"``, ``"nvss"``, ``"diffuse_sky"``).
-            Use ``list_loaders()`` from ``_registry`` to see all names.
+            Use ``list_loaders()`` from ``rrivis.core.sky.registry`` to see all names.
         **kwargs
             Forwarded to the registered loader function.
 
@@ -619,7 +510,7 @@ class SkyModel:
         -------
         SkyModel
         """
-        from ._registry import get_loader
+        from .registry import get_loader
 
         return get_loader(name)(**kwargs)
 
@@ -629,33 +520,28 @@ class SkyModel:
 
     @property
     def mode(self) -> SkyFormat:
-        """Return the active representation mode for the RIME engine.
-
-        When ``_active_mode`` is explicitly set, returns that value.
-        Otherwise infers from populated data: HEALPix takes priority
-        (since it's the more specific representation).
-        """
-        if self._active_mode is not None:
-            return self._active_mode
-        # Infer from data
-        if self._healpix_maps is not None:
-            return SkyFormat.HEALPIX
-        return SkyFormat.POINT_SOURCES
+        """Return the active representation mode for the RIME engine."""
+        return self.active_representation or self.native_representation
 
     @property
     def has_multifreq_maps(self) -> bool:
         """Return True if multi-frequency HEALPix maps are available."""
-        return self._healpix_maps is not None
+        return self.healpix is not None
+
+    @property
+    def available_representations(self) -> set[SkyFormat]:
+        """Return the set of representations populated on this model."""
+        result: set[SkyFormat] = set()
+        if self.point is not None:
+            result.add(SkyFormat.POINT_SOURCES)
+        if self.healpix is not None:
+            result.add(SkyFormat.HEALPIX)
+        return result
 
     @property
     def representations(self) -> set[SkyFormat]:
-        """Return the set of representations currently populated on this model."""
-        result: set[SkyFormat] = set()
-        if self._ra_rad is not None and len(self._ra_rad) > 0:
-            result.add(SkyFormat.POINT_SOURCES)
-        if self._healpix_maps is not None:
-            result.add(SkyFormat.HEALPIX)
-        return result
+        """Backward-compatible alias for available_representations."""
+        return self.available_representations
 
     @property
     def n_frequencies(self) -> int:
@@ -667,7 +553,7 @@ class SkyModel:
     @property
     def native_format(self) -> SkyFormat:
         """Return the native/original format of this sky model."""
-        return self._native_format
+        return self.native_representation
 
     @property
     def n_sky_elements(self) -> int:
@@ -710,7 +596,7 @@ class SkyModel:
         if self._healpix_nside is None:
             raise ValueError(
                 "No HEALPix maps available. "
-                "Use from_catalog('diffuse_sky', ...) or with_healpix_maps() first."
+                "Use from_catalog('diffuse_sky', ...) or materialize_healpix() first."
             )
         return 4 * np.pi / hp.nside2npix(self._healpix_nside)
 
@@ -731,7 +617,7 @@ class SkyModel:
         if self._healpix_nside is None:
             raise ValueError(
                 "No HEALPix maps available. "
-                "Use from_catalog('diffuse_sky', ...) or with_healpix_maps() first."
+                "Use from_catalog('diffuse_sky', ...) or materialize_healpix() first."
             )
         nside = self._healpix_nside
         npix = hp.nside2npix(nside)
@@ -873,33 +759,37 @@ class SkyModel:
     # Region Filtering
     # =========================================================================
 
-    def _masked_healpix_kwargs(self, region: "SkyRegion") -> dict[str, Any]:
-        """Return kwargs dict with region-masked HEALPix map copies.
-
-        Zeros out pixels outside the region in copies of all HEALPix arrays.
-        """
+    def _masked_healpix_data(self, region: "SkyRegion") -> HealpixData | None:
+        """Return region-masked HEALPix payload."""
+        if self.healpix is None:
+            return None
         hp_mask = region.healpix_mask(self._healpix_nside)
         inv_mask = ~hp_mask
 
         new_maps = self._healpix_maps.copy()
         new_maps[:, inv_mask] = 0.0
-        result: dict[str, Any] = {
-            "_healpix_maps": new_maps,
-            "_healpix_nside": self._healpix_nside,
-            "_observation_frequencies": self._observation_frequencies,
-        }
+        q_maps = None
+        u_maps = None
+        v_maps = None
 
-        for field_name, arr in [
-            ("_healpix_q_maps", self._healpix_q_maps),
-            ("_healpix_u_maps", self._healpix_u_maps),
-            ("_healpix_v_maps", self._healpix_v_maps),
-        ]:
-            if arr is not None:
-                new_arr = arr.copy()
-                new_arr[:, inv_mask] = 0.0
-                result[field_name] = new_arr
+        if self._healpix_q_maps is not None:
+            q_maps = self._healpix_q_maps.copy()
+            q_maps[:, inv_mask] = 0.0
+        if self._healpix_u_maps is not None:
+            u_maps = self._healpix_u_maps.copy()
+            u_maps[:, inv_mask] = 0.0
+        if self._healpix_v_maps is not None:
+            v_maps = self._healpix_v_maps.copy()
+            v_maps[:, inv_mask] = 0.0
 
-        return result
+        return HealpixData(
+            maps=new_maps,
+            nside=self._healpix_nside,
+            frequencies=self._observation_frequencies,
+            q_maps=q_maps,
+            u_maps=u_maps,
+            v_maps=v_maps,
+        )
 
     def filter_region(self, region: "SkyRegion") -> "SkyModel":
         """Return a new SkyModel containing only sources/pixels within *region*.
@@ -920,29 +810,29 @@ class SkyModel:
         SkyModel
             Filtered copy.
         """
-        kwargs: dict[str, Any] = {}
+        point = self.point
+        healpix = self.healpix
 
-        # Filter HEALPix data if present
-        if self._healpix_maps is not None:
-            kwargs.update(self._masked_healpix_kwargs(region))
+        if self.healpix is not None:
+            healpix = self._masked_healpix_data(region)
 
-        # Filter point-source data if present
-        if self.has_point_sources:
+        if self.point is not None:
             mask = region.contains(self._ra_rad, self._dec_rad)
-            kwargs.update(self._masked_point_source_kwargs(mask))
+            point = self._masked_point_source_data(mask)
 
-        if not kwargs:
+        if point is self.point and healpix is self.healpix:
             return self  # empty model — nothing to filter
 
-        kwargs.update(
-            _native_format=self._native_format,
-            _active_mode=self._active_mode,
+        return self._replace(
+            point=point,
+            healpix=healpix,
+            native_representation=self.native_representation,
+            active_representation=self.active_representation,
             model_name=self.model_name,
             reference_frequency=self.reference_frequency,
             brightness_conversion=self.brightness_conversion,
             _precision=self._precision,
         )
-        return SkyModel(**kwargs)
 
     # =========================================================================
     # Helper Methods
@@ -967,7 +857,33 @@ class SkyModel:
         """
         return self._replace(reference_frequency=reference_frequency)
 
-    def with_healpix_maps(
+    @staticmethod
+    def _coerce_representation(representation: "SkyFormat | str") -> SkyFormat:
+        if isinstance(representation, str) and not isinstance(
+            representation, SkyFormat
+        ):
+            try:
+                return SkyFormat(representation)
+            except ValueError:
+                raise ValueError(
+                    f"Unknown representation '{representation}'. "
+                    f"Supported: SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX."
+                ) from None
+        return representation
+
+    def activate(self, representation: "SkyFormat | str") -> "SkyModel":
+        """Switch the active representation without materializing new data."""
+        target = self._coerce_representation(representation)
+        if target not in self.available_representations:
+            raise ValueError(
+                f"Representation '{target.value}' is not populated on this model. "
+                f"Available: {[r.value for r in sorted(self.available_representations, key=lambda r: r.value)]}"
+            )
+        if self.mode == target:
+            return self
+        return self._replace(active_representation=target)
+
+    def materialize_healpix(
         self,
         nside: int,
         frequencies: np.ndarray | None = None,
@@ -975,39 +891,12 @@ class SkyModel:
         ref_frequency: float | None = None,
         memmap_path: str | None = None,
     ) -> "SkyModel":
-        """Convert point sources to multi-frequency HEALPix maps (immutable).
+        """Materialize a HEALPix payload from the point-source payload.
 
-        Creates one HEALPix map per frequency channel. Returns a *new*
-        ``SkyModel`` with the healpix fields populated; ``self`` is unchanged.
-
-        Parameters
-        ----------
-        nside : int
-            HEALPix NSIDE parameter.
-        frequencies : np.ndarray, optional
-            Array of frequencies in Hz. Mutually exclusive with
-            *obs_frequency_config*.
-        obs_frequency_config : dict, optional
-            Observation frequency configuration dict.  Parsed via
-            ``parse_frequency_config()``.  Mutually exclusive with
-            *frequencies*.
-            # TODO: accept a Pydantic model for obs_frequency_config
-        ref_frequency : float, optional
-            Reference frequency for flux values in Hz. Defaults to
-            ``self.reference_frequency``.
-
-        Returns
-        -------
-        SkyModel
-            New instance with HEALPix maps populated.
-
-        Raises
-        ------
-        ValueError
-            If no point sources are available, or if neither *frequencies*
-            nor *obs_frequency_config* is provided.
+        The existing point payload is preserved; only the active representation
+        changes to HEALPix.
         """
-        if not self.has_point_sources:
+        if self.point is None:
             raise ValueError(
                 "No point sources available for conversion. "
                 "Load sources first using from_catalog('gleam'), from_catalog('mals'), etc."
@@ -1066,163 +955,101 @@ class SkyModel:
         )
 
         return self._replace(
-            _healpix_maps=i_maps,
-            _healpix_q_maps=q_maps,
-            _healpix_u_maps=u_maps,
-            _healpix_v_maps=v_maps,
-            _healpix_nside=nside,
-            _observation_frequencies=frequencies,
-            _active_mode=SkyFormat.HEALPIX,
+            healpix=HealpixData(
+                maps=i_maps,
+                nside=nside,
+                frequencies=frequencies,
+                q_maps=q_maps,
+                u_maps=u_maps,
+                v_maps=v_maps,
+            ),
+            active_representation=SkyFormat.HEALPIX,
         )
 
-    def with_representation(
+    def materialize_point_sources(
         self,
-        representation: "SkyFormat | str",
-        nside: int = 64,
-        flux_limit: float = 0.0,
         frequency: float | None = None,
-        frequencies: np.ndarray | None = None,
-        obs_frequency_config: dict[str, Any] | None = None,
-        memmap_path: str | None = None,
+        flux_limit: float = 0.0,
+        *,
+        lossy: bool = False,
     ) -> "SkyModel":
-        """Ensure sky model is in the requested representation.
+        """Materialize a point-source payload from the HEALPix payload."""
+        if self.point is not None:
+            return self.activate(SkyFormat.POINT_SOURCES)
 
-        Returns a new ``SkyModel`` if conversion is needed, or ``self``
-        if already in the correct format.  This is the main method to call
-        before visibility calculation.
-
-        Parameters
-        ----------
-        representation : str
-            ``"point_sources"`` or ``"healpix_map"``
-        nside : int, default=64
-            HEALPix NSIDE for healpix_map mode.
-        flux_limit : float, default=0.0
-            Minimum flux for point_sources mode (used when converting from
-            HEALPix).
-        frequency : float, optional
-            Frequency for conversion.
-        frequencies : np.ndarray, optional
-            Frequency array in Hz for point→HEALPix conversion.
-            Mutually exclusive with *obs_frequency_config*.
-        obs_frequency_config : dict, optional
-            Observation frequency config dict for point→HEALPix conversion.
-            Mutually exclusive with *frequencies*.
-
-        Returns
-        -------
-        SkyModel
-            Instance with the requested representation populated.
-
-        Raises
-        ------
-        ValueError
-            If ``healpix_map`` is requested but no maps exist and no
-            frequency information is provided for auto-conversion.
-        """
-        # Coerce string to SkyFormat enum
-        if isinstance(representation, str) and not isinstance(
-            representation, SkyFormat
-        ):
-            try:
-                representation = SkyFormat(representation)
-            except ValueError:
-                raise ValueError(
-                    f"Unknown representation '{representation}'. "
-                    f"Supported: SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX."
-                ) from None
+        if self.healpix is None:
+            raise ValueError("No HEALPix payload available for conversion.")
+        if not lossy:
+            raise ValueError(
+                "HEALPix-to-point-source conversion is lossy. "
+                "Call materialize_point_sources(..., lossy=True) to opt in."
+            )
 
         freq = frequency or self.reference_frequency
+        n_freq = (
+            len(self._observation_frequencies)
+            if self._observation_frequencies is not None
+            else 0
+        )
+        resol_arcmin = float(hp.nside2resol(self._healpix_nside, arcmin=True))
+        warnings.warn(
+            f"HEALPix-to-point-source conversion is lossy: positions are "
+            f"quantized to pixel centers (nside={self._healpix_nside}, "
+            f"~{resol_arcmin:.1f}' resolution) and spectral indices are "
+            f"fit from {n_freq} channels. Use 'healpix_map' mode for "
+            f"full-fidelity diffuse emission.",
+            stacklevel=2,
+        )
 
-        if representation == SkyFormat.POINT_SOURCES:
-            # If point-source data is already available, just switch mode
-            if self.has_point_sources:
-                if self.mode == SkyFormat.POINT_SOURCES:
-                    return self
-                return self._replace(_active_mode=SkyFormat.POINT_SOURCES)
-            # No point-source data — must convert from healpix (lossy)
-            if self._healpix_maps is None:
-                return self  # empty model
+        from .convert import healpix_map_to_point_arrays
 
-            n_freq = (
-                len(self._observation_frequencies)
-                if self._observation_frequencies is not None
-                else 0
-            )
-            resol_arcmin = float(hp.nside2resol(self._healpix_nside, arcmin=True))
-            warnings.warn(
-                f"HEALPix-to-point-source conversion is lossy: positions are "
-                f"quantized to pixel centers (nside={self._healpix_nside}, "
-                f"~{resol_arcmin:.1f}' resolution) and spectral indices are "
-                f"fit from {n_freq} channels. Use 'healpix_map' mode for "
-                f"full-fidelity diffuse emission.",
-                stacklevel=2,
-            )
-
-            from .convert import healpix_map_to_point_arrays
-
-            resolve_freq = freq or (
-                float(self._observation_frequencies[0])
-                if self._observation_frequencies is not None
-                else None
-            )
-            if resolve_freq is None:
-                raise ValueError(
-                    "frequency is required for HEALPix-to-point-source conversion."
-                )
-            fi = self.resolve_frequency_index(resolve_freq)
-            temp_map = self._healpix_maps[fi]
-            arrays = healpix_map_to_point_arrays(
-                temp_map,
-                resolve_freq,
-                self.brightness_conversion,
-                healpix_q_maps=self._healpix_q_maps,
-                healpix_u_maps=self._healpix_u_maps,
-                healpix_v_maps=self._healpix_v_maps,
-                observation_frequencies=self._observation_frequencies,
-                freq_index=fi,
-                healpix_maps=self._healpix_maps,
-                ref_freq_out=resolve_freq,
-            )
-            # Apply flux limit
-            if flux_limit > 0:
-                mask = arrays["flux"] >= flux_limit
-                arrays = {k: v[mask] for k, v in arrays.items()}
-            return self._replace(
-                _ra_rad=arrays["ra_rad"],
-                _dec_rad=arrays["dec_rad"],
-                _flux=arrays["flux"],
-                _spectral_index=arrays["spectral_index"],
-                _stokes_q=arrays["stokes_q"],
-                _stokes_u=arrays["stokes_u"],
-                _stokes_v=arrays["stokes_v"],
-                _ref_freq=arrays["ref_freq"],
-                _active_mode=SkyFormat.POINT_SOURCES,
-            )
-
-        if representation == SkyFormat.HEALPIX:
-            # If healpix data is already available, just switch mode
-            if self._healpix_maps is not None:
-                if self.mode == SkyFormat.HEALPIX:
-                    return self
-                return self._replace(_active_mode=SkyFormat.HEALPIX)
-            # No healpix data — must convert from point sources
-            if frequencies is not None or obs_frequency_config is not None:
-                return self.with_healpix_maps(
-                    nside=nside,
-                    frequencies=frequencies,
-                    obs_frequency_config=obs_frequency_config,
-                    memmap_path=memmap_path,
-                )
+        resolve_freq = freq or (
+            float(self._observation_frequencies[0])
+            if self._observation_frequencies is not None
+            else None
+        )
+        if resolve_freq is None:
             raise ValueError(
-                "Cannot convert point sources to HEALPix without frequency "
-                "information. Pass frequencies=np.array([...]) or "
-                "obs_frequency_config={...} to enable auto-conversion."
+                "frequency is required for HEALPix-to-point-source conversion."
             )
+        fi = self.resolve_frequency_index(resolve_freq)
+        temp_map = self._healpix_maps[fi]
+        arrays = healpix_map_to_point_arrays(
+            temp_map,
+            resolve_freq,
+            self.brightness_conversion,
+            healpix_q_maps=self._healpix_q_maps,
+            healpix_u_maps=self._healpix_u_maps,
+            healpix_v_maps=self._healpix_v_maps,
+            observation_frequencies=self._observation_frequencies,
+            freq_index=fi,
+            healpix_maps=self._healpix_maps,
+            ref_freq_out=resolve_freq,
+        )
+        if flux_limit > 0:
+            mask = arrays["flux"] >= flux_limit
+            arrays = {
+                key: (value[mask] if isinstance(value, np.ndarray) else value)
+                for key, value in arrays.items()
+            }
 
-        raise ValueError(
-            f"Unknown representation '{representation}'. "
-            f"Supported: 'point_sources', 'healpix_map'."
+        return self._replace(
+            point=PointSourceData(
+                ra_rad=arrays["ra_rad"],
+                dec_rad=arrays["dec_rad"],
+                flux=arrays["flux"],
+                spectral_index=arrays["spectral_index"],
+                stokes_q=arrays["stokes_q"],
+                stokes_u=arrays["stokes_u"],
+                stokes_v=arrays["stokes_v"],
+                ref_freq=arrays["ref_freq"],
+                rotation_measure=arrays["rotation_measure"],
+                major_arcsec=arrays["major_arcsec"],
+                minor_arcsec=arrays["minor_arcsec"],
+                pa_deg=arrays["pa_deg"],
+                spectral_coeffs=arrays["spectral_coeffs"],
+            ),
+            active_representation=SkyFormat.POINT_SOURCES,
         )
 
     def as_point_source_arrays(
@@ -1230,32 +1057,15 @@ class SkyModel:
         flux_limit: float = 0.0,
         frequency: float | None = None,
     ) -> SourceArrays:
-        """Get sky model as a dict of numpy arrays for visibility calculation.
+        """Get point-source arrays without performing implicit conversion."""
+        if self.point is None:
+            hint = (
+                " Use materialize_point_sources(frequency=..., lossy=True) first."
+                if self.healpix is not None
+                else ""
+            )
+            raise ValueError(f"No point-source payload available.{hint}")
 
-        Pure function that does **not** mutate ``self``.  If the model is
-        HEALPix-native and no point-source arrays are populated, a temporary
-        conversion is performed without touching the internal state.
-
-        Parameters
-        ----------
-        flux_limit : float, default=0.0
-            Minimum flux in Jy to include.
-        frequency : float, optional
-            Frequency for T_b to Jy conversion (used to select the channel
-            when in HEALPix mode).
-
-        Returns
-        -------
-        dict
-            Keys: ``ra_rad``, ``dec_rad``, ``flux``, ``spectral_index``,
-            ``stokes_q``, ``stokes_u``, ``stokes_v``, ``ref_freq`` (float),
-            ``rotation_measure``, ``major_arcsec``, ``minor_arcsec``,
-            ``pa_deg``, ``spectral_coeffs``.  Array values have shape
-            ``(n_sources,)`` (or ``(n_sources, n_terms)`` for
-            ``spectral_coeffs``).  Optional fields are ``None`` when
-            not populated.
-        """
-        # Determine which arrays to use
         ra = self._ra_rad
         dec = self._dec_rad
         flux = self._flux
@@ -1268,14 +1078,6 @@ class SkyModel:
         minn = self._minor_arcsec
         pa = self._pa_deg
         sc = self._spectral_coeffs
-
-        # If point-source arrays are not available, convert from HEALPix
-        # by delegating to with_representation (single conversion path).
-        if ra is None and self._healpix_maps is not None:
-            converted = self.with_representation(
-                "point_sources", flux_limit=0.0, frequency=frequency
-            )
-            return converted.as_point_source_arrays(flux_limit=flux_limit)
 
         _ps_ref_freq_val = float(self.reference_frequency or 0.0)
 
@@ -1371,13 +1173,13 @@ class SkyModel:
 
         Examples
         --------
-        >>> sky = sky.with_healpix_maps(nside=64, frequencies=freqs)
+        >>> sky = sky.materialize_healpix(nside=64, frequencies=freqs)
         >>> map_100mhz = sky.get_map_at_frequency(100e6)
         """
         if self._healpix_maps is None:
             raise ValueError(
                 "No multi-frequency HEALPix maps available. "
-                "Use with_healpix_maps() first."
+                "Use materialize_healpix() first."
             )
         idx = self.resolve_frequency_index(frequency)
         return self._healpix_maps[idx]
@@ -1409,7 +1211,7 @@ class SkyModel:
         if self._healpix_maps is None:
             raise ValueError(
                 "No multi-frequency HEALPix maps available. "
-                "Use with_healpix_maps() first."
+                "Use materialize_healpix() first."
             )
 
         return (self._healpix_maps, self._healpix_nside, self._observation_frequencies)
@@ -1443,7 +1245,7 @@ class SkyModel:
         if self._healpix_maps is None:
             raise ValueError(
                 "No multi-frequency HEALPix maps available. "
-                "Use with_healpix_maps() first."
+                "Use materialize_healpix() first."
             )
         idx = self.resolve_frequency_index(frequency)
         I_map = self._healpix_maps[idx]
@@ -1487,7 +1289,7 @@ class SkyModel:
         if self._healpix_maps is None:
             raise ValueError(
                 "No multi-frequency HEALPix maps available. "
-                "Use with_healpix_maps() first."
+                "Use materialize_healpix() first."
             )
         return (
             self._healpix_maps,
@@ -1533,7 +1335,7 @@ class SkyModel:
         if self._healpix_maps is None:
             raise ValueError(
                 "No multi-frequency HEALPix maps available. "
-                "Use with_healpix_maps() first."
+                "Use materialize_healpix() first."
             )
         for i, freq in enumerate(self._observation_frequencies):
             s_i = self._healpix_maps[i]
@@ -1572,7 +1374,7 @@ class SkyModel:
 
         if self._healpix_maps is None:
             raise ValueError(
-                "No HEALPix maps to back with memmap. Use with_healpix_maps() first."
+                "No HEALPix maps to back with memmap. Use materialize_healpix() first."
             )
 
         if path is None:
@@ -1588,17 +1390,28 @@ class SkyModel:
             # Re-open read-only for immutability
             return np.memmap(fpath, dtype=arr.dtype, mode="r", shape=arr.shape)
 
-        changes: dict[str, Any] = {
-            "_healpix_maps": _to_memmap(self._healpix_maps, "i_maps"),
-        }
-        if self._healpix_q_maps is not None:
-            changes["_healpix_q_maps"] = _to_memmap(self._healpix_q_maps, "q_maps")
-        if self._healpix_u_maps is not None:
-            changes["_healpix_u_maps"] = _to_memmap(self._healpix_u_maps, "u_maps")
-        if self._healpix_v_maps is not None:
-            changes["_healpix_v_maps"] = _to_memmap(self._healpix_v_maps, "v_maps")
+        healpix = HealpixData(
+            maps=_to_memmap(self._healpix_maps, "i_maps"),
+            nside=self._healpix_nside,
+            frequencies=self._observation_frequencies,
+            q_maps=(
+                _to_memmap(self._healpix_q_maps, "q_maps")
+                if self._healpix_q_maps is not None
+                else None
+            ),
+            u_maps=(
+                _to_memmap(self._healpix_u_maps, "u_maps")
+                if self._healpix_u_maps is not None
+                else None
+            ),
+            v_maps=(
+                _to_memmap(self._healpix_v_maps, "v_maps")
+                if self._healpix_v_maps is not None
+                else None
+            ),
+        )
 
-        return self._replace(**changes)
+        return self._replace(healpix=healpix)
 
     # =========================================================================
     # Serialization (delegates to _serialization.py)

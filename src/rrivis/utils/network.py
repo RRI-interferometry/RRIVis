@@ -31,21 +31,15 @@ SERVICE_ENDPOINTS: dict[str, tuple[str, int]] = {
     "pysm3_data": ("portal.nersc.gov", 443),
 }
 
-# Maps (config_key, enable_field) -> service name for sky models that need
-# network.  Derived lazily from the loader registry so that adding a new
-# loader in _loaders_*.py is sufficient — no manual update needed here.
-_SKY_MODEL_SERVICES_CACHE: dict[tuple[str, str], str] | None = None
+# Maps source kind -> service name for sky models that need network.
+_SKY_MODEL_SERVICES_CACHE: dict[str, str] | None = None
 
 
-def get_sky_model_services() -> dict[tuple[str, str], str]:
-    """Return the (config_section, use_flag) -> network_service mapping.
-
-    Built lazily from the loader registry on first call.  Equivalent to
-    the old hardcoded ``SKY_MODEL_SERVICES`` dict.
-    """
+def get_sky_model_services() -> dict[str, str]:
+    """Return the source-kind -> network-service mapping."""
     global _SKY_MODEL_SERVICES_CACHE
     if _SKY_MODEL_SERVICES_CACHE is None:
-        from rrivis.core.sky._registry import build_network_services_map
+        from rrivis.core.sky.registry import build_network_services_map
 
         _SKY_MODEL_SERVICES_CACHE = build_network_services_map()
     return _SKY_MODEL_SERVICES_CACHE
@@ -310,10 +304,40 @@ def get_required_services(sky_config: dict) -> dict[str, list[str]]:
         Only services needed by at least one enabled model are included.
     """
     required: dict[str, list[str]] = {}
-    for (config_key, enable_field), service in get_sky_model_services().items():
-        sub = sky_config.get(config_key, {})
-        if isinstance(sub, dict) and sub.get(enable_field, False):
-            required.setdefault(service, []).append(config_key)
+    sources = sky_config.get("sources")
+    if isinstance(sources, list):
+        alias_map = {}
+        try:
+            from rrivis.core.sky.registry import build_alias_map
+
+            alias_map = build_alias_map()
+        except Exception:
+            alias_map = {}
+
+        services = get_sky_model_services()
+        for entry in sources:
+            if not isinstance(entry, dict):
+                continue
+            raw_kind = entry.get("kind")
+            if not raw_kind:
+                continue
+            kind = alias_map.get(raw_kind, raw_kind)
+            service = services.get(kind)
+            if service is not None:
+                required.setdefault(service, []).append(kind)
+        return required
+
+    # Fallback for legacy config shape.
+    for kind, service in get_sky_model_services().items():
+        sub = sky_config.get(kind, {})
+        if isinstance(sub, dict):
+            enabled = any(
+                bool(v)
+                for k, v in sub.items()
+                if isinstance(k, str) and k.startswith("use_")
+            )
+            if enabled:
+                required.setdefault(service, []).append(kind)
     return required
 
 
