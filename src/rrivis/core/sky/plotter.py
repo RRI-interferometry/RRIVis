@@ -109,14 +109,14 @@ class SkyPlotter:
             if not self._sky.has_point_sources:
                 raise ValueError(
                     f"Plot requires point-source data, but this SkyModel "
-                    f"(model='{self._sky.model_name}') has mode='{self._sky.mode}'. "
+                    f"(model='{self._sky.model_name}') has mode='{self._sky.mode.value}'. "
                     f"Load a point-source catalog or call with_representation('point_sources') first."
                 )
         elif required == "healpix":
             if self._sky.healpix_maps is None:
                 raise ValueError(
                     f"Plot requires HEALPix maps, but this SkyModel "
-                    f"(model='{self._sky.model_name}') has mode='{self._sky.mode}'. "
+                    f"(model='{self._sky.model_name}') has mode='{self._sky.mode.value}'. "
                     f"Load a diffuse model or call with_healpix_maps() first."
                 )
 

@@ -793,7 +793,9 @@ class Simulator:
         )
 
         # Get point source arrays for RIME calculator (only in point_sources mode)
-        if self._sky_model.mode == "healpix_map":
+        from rrivis.core.sky.model import SkyFormat
+
+        if self._sky_model.mode == SkyFormat.HEALPIX:
             self._source_arrays = None
         else:
             self._source_arrays = self._sky_model.as_point_source_arrays(
@@ -802,7 +804,7 @@ class Simulator:
 
         self._is_setup = True
         n_sky = self._sky_model.n_sky_elements
-        sky_type = "pixels" if self._sky_model.mode == "healpix_map" else "sources"
+        sky_type = "pixels" if self._sky_model.mode == SkyFormat.HEALPIX else "sources"
         print_success(
             f"Setup complete: {len(self._antennas)} antennas, {len(self._baselines)} baselines, {n_sky} {sky_type}"
         )
@@ -857,12 +859,14 @@ class Simulator:
         t_setup = time.perf_counter() - t_start
 
         if progress:
+            from rrivis.core.sky.model import SkyFormat as _SF
+
             # Print configuration table (after setup, needs backend/sky_model info)
             n_sky = self._sky_model.n_sky_elements if self._sky_model else 0
-            _sky_mode = self._sky_model.mode if self._sky_model else "point_sources"
+            _sky_mode = self._sky_model.mode if self._sky_model else _SF.POINT_SOURCES
             sky_label = (
                 f"{n_sky} pixels (HEALPix)"
-                if _sky_mode == "healpix_map"
+                if _sky_mode == _SF.HEALPIX
                 else f"{n_sky} sources"
             )
             config_data = {
@@ -871,7 +875,7 @@ class Simulator:
                 if self._backend.precision
                 else "standard",
                 "Simulator": f"{self._simulator.name} ({self._simulator.complexity})",
-                "Sky Mode": _sky_mode,
+                "Sky Mode": _sky_mode.value,
                 "Antennas": len(self._antennas),
                 "Baselines": len(self._baselines),
                 "Sky Model": sky_label,
@@ -882,8 +886,10 @@ class Simulator:
             print_table("Simulation Configuration", config_data)
             console.print()  # Add spacing
 
-        _sky_mode = self._sky_model.mode if self._sky_model else "point_sources"
-        print_info(f"Running visibility simulation ({_sky_mode} mode)...")
+        from rrivis.core.sky.model import SkyFormat
+
+        _sky_mode = self._sky_model.mode if self._sky_model else SkyFormat.POINT_SOURCES
+        print_info(f"Running visibility simulation ({_sky_mode.value} mode)...")
 
         # Calculate visibilities based on sky representation
         duration_seconds = self.config.get("obs_time", {}).get("duration_seconds", 1.0)
@@ -891,7 +897,7 @@ class Simulator:
             "time_step_seconds", 1.0
         )
 
-        if _sky_mode == "healpix_map" and self._sky_model is not None:
+        if _sky_mode == SkyFormat.HEALPIX and self._sky_model is not None:
             # Use direct HEALPix visibility calculation
             from rrivis.core.visibility_healpix import calculate_visibility_healpix
 
@@ -1185,6 +1191,108 @@ class Simulator:
             saved_paths = sorted(html_after - html_before)
 
         return saved_paths
+
+    def show_strip(
+        self,
+        *,
+        lst_start_hours: float | None = None,
+        lst_end_hours: float | None = None,
+        background_mode: str = "gsm",
+        use_lst_axis: bool = False,
+        beam_lst_hours: float | None = None,
+        max_point_sources: int = 1000,
+        open_in_browser: bool = True,
+        save_path: str | None = None,
+        **kwargs,
+    ):
+        """Show the observable sky strip for this simulation's config.
+
+        Produces an interactive Bokeh visualisation of the sky region
+        visible to the telescope, overlaid with the configured sky model
+        and beam pattern.  Can be called before or after ``run()``.
+
+        Parameters
+        ----------
+        lst_start_hours, lst_end_hours : float, optional
+            LST range (hours).  If not given, derived from config obs_time.
+        background_mode : str
+            ``"gsm"`` | ``"reference"`` | ``"none"``.
+        use_lst_axis : bool
+            Display x-axis as LST hours.
+        beam_lst_hours : float, optional
+            LST where beam is centred (defaults to strip centre).
+        max_point_sources : int
+            Brightest sources to show (default 1000).
+        open_in_browser : bool
+            Open the HTML plot in a browser.
+        save_path : str, optional
+            Directory to save the HTML file.
+        **kwargs
+            Forwarded to :class:`~rrivis.utils.diagnostics.DiagnosticsPlanner`.
+
+        Returns
+        -------
+        Bokeh layout
+        """
+        from rrivis.utils.diagnostics import DiagnosticsPlanner, StripPlotter
+
+        cfg = self.config
+
+        # Extract location
+        loc = cfg.get("location", {})
+        lat = float(loc.get("lat", -30.72))
+        lon = float(loc.get("lon", 21.43))
+        height = float(loc.get("height", 1073.0))
+
+        # Frequency (MHz)
+        obs_f = cfg.get("obs_frequency", {})
+        unit = obs_f.get("frequency_unit", "MHz")
+        _mult = {"Hz": 1e-6, "kHz": 1e-3, "MHz": 1.0, "GHz": 1e3}
+        freq_mhz = float(obs_f.get("starting_frequency", 150)) * _mult.get(unit, 1.0)
+
+        # Time — fallback to config if LST not provided
+        start_iso = None
+        duration = None
+        if lst_start_hours is None or lst_end_hours is None:
+            obs_t = cfg.get("obs_time", {})
+            start_iso = obs_t.get("start_time")
+            duration = obs_t.get("duration_seconds")
+
+        # Beam
+        beams = cfg.get("beams", {})
+        ant_cfg = cfg.get("antenna_layout", {})
+        diameter = ant_cfg.get("all_antenna_diameter")
+
+        planner = DiagnosticsPlanner(
+            latitude_deg=lat,
+            longitude_deg=lon,
+            height_m=height,
+            lst_start_hours=lst_start_hours,
+            lst_end_hours=lst_end_hours,
+            start_time_iso=start_iso,
+            duration_seconds=duration,
+            frequency_mhz=freq_mhz,
+            beam_diameter_m=float(diameter) if diameter else None,
+            beam_config=beams if beams else None,
+            beam_fits_path=beams.get("beam_file"),
+            beam_lst_hours=beam_lst_hours,
+            max_point_sources=max_point_sources,
+            background_mode=background_mode,
+            **kwargs,
+        )
+
+        strip = planner.compute()
+        plotter = StripPlotter(strip, use_lst_axis=use_lst_axis)
+        layout = plotter.create_plot()
+
+        if save_path or open_in_browser:
+            plotter.save(
+                layout,
+                folder_path=save_path,
+                open_in_browser=open_in_browser,
+            )
+
+        return layout
 
     def save(
         self,

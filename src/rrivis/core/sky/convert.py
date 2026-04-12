@@ -7,17 +7,16 @@ Pure functions that accept and return raw numpy arrays. No SkyModel dependency.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import healpy as hp
 import numpy as np
 
+from ._data import empty_source_arrays as _empty_source_arrays
 from .constants import (
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
     rayleigh_jeans_factor,
 )
-from .model import _empty_source_arrays
 from .spectral import apply_faraday_rotation, compute_spectral_scale
 
 logger = logging.getLogger(__name__)
@@ -317,6 +316,8 @@ def bin_sources_to_flux(
     freq: float,
     ref_frequency: float | np.ndarray,
     npix: int,
+    *,
+    scale: np.ndarray | None = None,
 ) -> np.ndarray:
     """Bin point sources into a HEALPix flux density map at a given frequency.
 
@@ -339,13 +340,19 @@ def bin_sources_to_flux(
         Reference frequency in Hz (scalar or per-source).
     npix : int
         Total number of HEALPix pixels.
+    scale : np.ndarray or None, optional
+        Pre-computed spectral scale factor, shape ``(N_sources,)``.
+        When provided, skips redundant ``compute_spectral_scale`` call.
 
     Returns
     -------
     np.ndarray
         Flux density map in Jy, shape ``(npix,)``.
     """
-    scale = compute_spectral_scale(spectral_index, spectral_coeffs, freq, ref_frequency)
+    if scale is None:
+        scale = compute_spectral_scale(
+            spectral_index, spectral_coeffs, freq, ref_frequency
+        )
     flux_f = flux * scale
     return np.bincount(ipix, weights=flux_f, minlength=npix)
 
@@ -364,8 +371,8 @@ def point_sources_to_healpix_maps(
     frequencies: np.ndarray,
     ref_frequency: float | np.ndarray,
     brightness_conversion: str,
-    estimate_memory_fn: Any = None,
     output_dtype: np.dtype = np.float32,
+    memmap_path: str | None = None,
 ) -> tuple[
     np.ndarray,
     np.ndarray | None,
@@ -437,13 +444,14 @@ def point_sources_to_healpix_maps(
     )
 
     n_stokes = 4 if has_pol else 1
-    if estimate_memory_fn is not None:
-        mem_info = estimate_memory_fn(nside, n_freq, output_dtype, n_stokes)
-        logger.info(
-            f"Creating {n_freq} HEALPix maps (nside={nside}, "
-            f"stokes={'IQUV' if has_pol else 'I'}): "
-            f"~{mem_info['total_mb']:.1f} MB"
-        )
+    from .discovery import estimate_healpix_memory
+
+    mem_info = estimate_healpix_memory(nside, n_freq, output_dtype, n_stokes)
+    logger.info(
+        f"Creating {n_freq} HEALPix maps (nside={nside}, "
+        f"stokes={'IQUV' if has_pol else 'I'}): "
+        f"~{mem_info['total_mb']:.1f} MB"
+    )
 
     ipix = hp.ang2pix(nside, np.pi / 2 - dec_rad, ra_rad)
 
@@ -464,10 +472,25 @@ def point_sources_to_healpix_maps(
             nside,
         )
 
-    i_arr = np.zeros((n_freq, npix), dtype=output_dtype)
-    q_arr = np.zeros((n_freq, npix), dtype=output_dtype) if has_pol else None
-    u_arr = np.zeros((n_freq, npix), dtype=output_dtype) if has_pol else None
-    v_arr = np.zeros((n_freq, npix), dtype=output_dtype) if has_pol else None
+    from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+
+    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
+    i_arr = allocate_cube((n_freq, npix), output_dtype, scratch, "i_maps")
+    q_arr = (
+        allocate_cube((n_freq, npix), output_dtype, scratch, "q_maps")
+        if has_pol
+        else None
+    )
+    u_arr = (
+        allocate_cube((n_freq, npix), output_dtype, scratch, "u_maps")
+        if has_pol
+        else None
+    )
+    v_arr = (
+        allocate_cube((n_freq, npix), output_dtype, scratch, "v_maps")
+        if has_pol
+        else None
+    )
 
     for fi, freq in enumerate(frequencies):
         scale = compute_spectral_scale(
@@ -482,6 +505,7 @@ def point_sources_to_healpix_maps(
             float(freq),
             ref_frequency,
             npix,
+            scale=scale,
         )
 
         temp_out = np.zeros(npix, dtype=output_dtype)
@@ -521,5 +545,14 @@ def point_sources_to_healpix_maps(
         f"Converted {n_sources} point sources to {n_freq} HEALPix maps "
         f"({frequencies[0] / 1e6:.1f}-{frequencies[-1] / 1e6:.1f} MHz)"
     )
+
+    # Flush and re-open read-only if memmap-backed.
+    i_arr = finalize_cube(i_arr, scratch, "i_maps")
+    if q_arr is not None:
+        q_arr = finalize_cube(q_arr, scratch, "q_maps")
+    if u_arr is not None:
+        u_arr = finalize_cube(u_arr, scratch, "u_maps")
+    if v_arr is not None:
+        v_arr = finalize_cube(v_arr, scratch, "v_maps")
 
     return i_arr, q_arr, u_arr, v_arr

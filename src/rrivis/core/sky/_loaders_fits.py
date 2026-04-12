@@ -58,6 +58,7 @@ def load_fits_image(
     region: SkyRegion | None = None,
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
+    memmap_path: str | None = None,
 ) -> Any:
     """Load a FITS image and reproject to HEALPix multi-frequency maps.
 
@@ -185,11 +186,37 @@ def load_fits_image(
     npix = hp.nside2npix(nside)
     omega_pixel = 4 * np.pi / npix
 
-    n_freq_out = len(freq_vals)
-    i_arr = np.zeros((n_freq_out, npix), dtype=np.float32)
-    q_arr = np.zeros((n_freq_out, npix), dtype=np.float32)
-    u_arr = np.zeros((n_freq_out, npix), dtype=np.float32)
-    v_arr = np.zeros((n_freq_out, npix), dtype=np.float32)
+    from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+
+    # Determine the final output frequency grid up front so we can allocate
+    # the final-shape cube directly and write rows into their sorted
+    # position — no post-hoc sort reindex, no broadcast-and-copy.
+    freq_vals_raw = np.asarray(freq_vals, dtype=np.float64)
+    single_freq_replicate = (
+        freq_ax is None and frequencies is not None and len(freq_vals_raw) == 1
+    )
+    if single_freq_replicate:
+        # Replicate the single FITS slice across the caller-supplied
+        # frequency grid.  The sort below is a no-op because the grid
+        # is written in its final order.
+        final_freqs = np.asarray(frequencies, dtype=np.float64)
+        sort_idx = np.argsort(final_freqs)
+        final_freqs = final_freqs[sort_idx]
+        # The source FITS slice index for each output row is always 0
+        # because there is only one slice to replicate.
+        src_row_for_out = [0] * len(final_freqs)
+    else:
+        sort_idx = np.argsort(freq_vals_raw)
+        final_freqs = freq_vals_raw[sort_idx]
+        # Map each output row to its source row (inverse of sort).
+        src_row_for_out = sort_idx.tolist()
+
+    n_freq_out = len(final_freqs)
+    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
+    i_arr = allocate_cube((n_freq_out, npix), np.float32, scratch, "i_maps")
+    q_arr = allocate_cube((n_freq_out, npix), np.float32, scratch, "q_maps")
+    u_arr = allocate_cube((n_freq_out, npix), np.float32, scratch, "u_maps")
+    v_arr = allocate_cube((n_freq_out, npix), np.float32, scratch, "v_maps")
     has_q = False
     has_u = False
     has_v = False
@@ -238,14 +265,34 @@ def load_fits_image(
         return hp_array
 
     i_has_data = False
-    for fi in range(n_freq_out):
-        freq_hz = float(freq_vals[fi]) if fi < len(freq_vals) else float(freq_vals[0])
+    # Cache reprojected + unit-converted slices for single-freq replication
+    # so we don't redo the reprojection work for each replicated row.
+    cache_i: np.ndarray | None = None
+    cache_q: np.ndarray | None = None
+    cache_u: np.ndarray | None = None
+    cache_v: np.ndarray | None = None
+
+    for out_fi in range(n_freq_out):
+        src_fi = src_row_for_out[out_fi]
+        freq_hz = float(final_freqs[out_fi])
+
+        if single_freq_replicate and cache_i is not None:
+            # Replicate cached FITS slice.  Memmap-safe: row-by-row copy,
+            # no broadcast-then-copy allocation of the full cube.
+            i_arr[out_fi] = cache_i
+            if cache_q is not None:
+                q_arr[out_fi] = cache_q
+            if cache_u is not None:
+                u_arr[out_fi] = cache_u
+            if cache_v is not None:
+                v_arr[out_fi] = cache_v
+            continue
 
         for si, stokes_code in enumerate(stokes_vals):
             if si >= n_stokes:
                 break
 
-            fits_fi = fi if freq_ax is not None else None
+            fits_fi = src_fi if freq_ax is not None else None
             fits_si = si if stokes_ax is not None else None
 
             image_2d = _get_slice(fits_si, fits_fi)
@@ -283,43 +330,39 @@ def load_fits_image(
 
             # Stokes mapping: I=1, Q=2, U=3, V=4
             if stokes_code == 1 or n_stokes == 1:
-                i_arr[fi] = hp_map_f32
+                i_arr[out_fi] = hp_map_f32
                 i_has_data = True
+                if single_freq_replicate:
+                    cache_i = hp_map_f32
             elif stokes_code == 2:
-                q_arr[fi] = hp_map_f32
+                q_arr[out_fi] = hp_map_f32
                 has_q = True
+                if single_freq_replicate:
+                    cache_q = hp_map_f32
             elif stokes_code == 3:
-                u_arr[fi] = hp_map_f32
+                u_arr[out_fi] = hp_map_f32
                 has_u = True
+                if single_freq_replicate:
+                    cache_u = hp_map_f32
             elif stokes_code == 4:
-                v_arr[fi] = hp_map_f32
+                v_arr[out_fi] = hp_map_f32
                 has_v = True
-
-    # If single frequency and no freq axis, replicate for each requested freq
-    if freq_ax is None and frequencies is not None and n_freq_out == 1:
-        n_rep = len(frequencies)
-        i_arr = np.broadcast_to(i_arr[0:1], (n_rep, npix)).copy()
-        if has_q:
-            q_arr = np.broadcast_to(q_arr[0:1], (n_rep, npix)).copy()
-        if has_u:
-            u_arr = np.broadcast_to(u_arr[0:1], (n_rep, npix)).copy()
-        if has_v:
-            v_arr = np.broadcast_to(v_arr[0:1], (n_rep, npix)).copy()
-        freq_vals = np.asarray(frequencies, dtype=np.float64)
+                if single_freq_replicate:
+                    cache_v = hp_map_f32
 
     if not i_has_data:
         raise ValueError(f"No Stokes I data found in {filename}")
 
-    obs_freqs = np.sort(freq_vals)
-    # Sort arrays to match sorted frequency order
-    sort_idx = np.argsort(freq_vals)
-    i_arr = i_arr[sort_idx]
+    obs_freqs = final_freqs
+
+    # Flush and re-open read-only if memmap-backed.
+    i_arr = finalize_cube(i_arr, scratch, "i_maps")
     if has_q:
-        q_arr = q_arr[sort_idx]
+        q_arr = finalize_cube(q_arr, scratch, "q_maps")
     if has_u:
-        u_arr = u_arr[sort_idx]
+        u_arr = finalize_cube(u_arr, scratch, "u_maps")
     if has_v:
-        v_arr = v_arr[sort_idx]
+        v_arr = finalize_cube(v_arr, scratch, "v_maps")
 
     sky = SkyModel(
         _healpix_maps=i_arr,

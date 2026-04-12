@@ -43,6 +43,7 @@ def load_pyradiosky_file(
     frequencies: np.ndarray | None = None,
     obs_frequency_config: dict[str, Any] | None = None,
     region: SkyRegion | None = None,
+    memmap_path: str | None = None,
 ) -> SkyModel:  # noqa: F821
     """
     Load a local sky model file via pyradiosky.
@@ -110,6 +111,7 @@ def load_pyradiosky_file(
             brightness_conversion,
             precision,
             region=region,
+            memmap_path=memmap_path,
         )
     elif sky.component_type != "point":
         raise ValueError(
@@ -266,6 +268,7 @@ def _load_pyradiosky_healpix(
     brightness_conversion: str,
     precision: PrecisionConfig | None,
     region: SkyRegion | None = None,
+    memmap_path: str | None = None,
 ) -> SkyModel:  # noqa: F821
     """
     Load a pyradiosky HEALPix sky model as multi-frequency HEALPix maps.
@@ -383,10 +386,25 @@ def _load_pyradiosky_healpix(
                 full = hp.reorder(full, n2r=True)
         return full
 
-    i_arr = np.zeros((n_freq, npix), dtype=np.float32)
-    q_arr = np.zeros((n_freq, npix), dtype=np.float32) if has_pol else None
-    u_arr = np.zeros((n_freq, npix), dtype=np.float32) if has_pol else None
-    v_arr = np.zeros((n_freq, npix), dtype=np.float32) if n_stokes_avail >= 4 else None
+    from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+
+    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
+    i_arr = allocate_cube((n_freq, npix), np.float32, scratch, "i_maps")
+    q_arr = (
+        allocate_cube((n_freq, npix), np.float32, scratch, "q_maps")
+        if has_pol
+        else None
+    )
+    u_arr = (
+        allocate_cube((n_freq, npix), np.float32, scratch, "u_maps")
+        if has_pol
+        else None
+    )
+    v_arr = (
+        allocate_cube((n_freq, npix), np.float32, scratch, "v_maps")
+        if n_stokes_avail >= 4
+        else None
+    )
 
     for fi in range(n_freq):
         i_map = _build_full_map(stokes_data[0, fi, :])
@@ -434,6 +452,15 @@ def _load_pyradiosky_healpix(
         f"pyradiosky HEALPix loaded: {npix} pixels \u00d7 {n_freq} frequencies, "
         f"stokes={stokes_label}"
     )
+
+    # Flush and re-open read-only if memmap-backed.
+    i_arr = finalize_cube(i_arr, scratch, "i_maps")
+    if q_arr is not None:
+        q_arr = finalize_cube(q_arr, scratch, "q_maps")
+    if u_arr is not None:
+        u_arr = finalize_cube(u_arr, scratch, "u_maps")
+    if v_arr is not None:
+        v_arr = finalize_cube(v_arr, scratch, "v_maps")
 
     return SkyModel(
         _healpix_maps=i_arr,

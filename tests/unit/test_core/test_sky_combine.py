@@ -149,7 +149,7 @@ class TestCombineModels:
         sky_b = _make_point_sky(18, precision, seed=20)
 
         result = combine_models([sky_a, sky_b], precision=precision)
-        assert result.mode == "point_sources"
+        assert result.mode == SkyFormat.POINT_SOURCES
         assert len(result.ra_rad) == 30
 
     def test_combine_models_double_counting_warning(self, precision):
@@ -297,7 +297,7 @@ class TestCombineModels:
             [sky1_hp, sky2_hp],
             representation="healpix_map",
         )
-        assert result.mode == "healpix_map"
+        assert result.mode == SkyFormat.HEALPIX
         assert result.healpix_maps is not None
         assert result.healpix_maps.shape == (2, npix)
 
@@ -397,7 +397,7 @@ class TestCombineModels:
             obs_frequency_config=obs_config,
             precision=precision,
         )
-        assert result.mode == "healpix_map"
+        assert result.mode == SkyFormat.HEALPIX
         assert result.healpix_maps is not None
         assert result.healpix_nside == 8
 
@@ -516,7 +516,7 @@ class TestAutoRepresentation:
             _precision=precision,
         )
         combined = SkyModel.combine([sky_hp], precision=precision)
-        assert combined.mode == "healpix_map"
+        assert combined.mode == SkyFormat.HEALPIX
 
     def test_auto_picks_point_sources_when_no_healpix(self, precision):
         """Auto-detection picks point_sources when no model is HEALPix-native."""
@@ -528,7 +528,7 @@ class TestAutoRepresentation:
             precision=precision,
         )
         combined = SkyModel.combine([sky], precision=precision)
-        assert combined.mode == "point_sources"
+        assert combined.mode == SkyFormat.POINT_SOURCES
 
 
 # ---------------------------------------------------------------------------

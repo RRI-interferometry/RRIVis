@@ -205,8 +205,8 @@ class TestFromTestSources:
     def test_from_test_sources_basic(self, test_sky):
         """Uniform distribution: correct count, mode, coordinate ranges, flux range."""
         assert test_sky.n_point_sources == 50
-        assert test_sky.mode == "point_sources"
-        assert test_sky.native_format == "point_sources"
+        assert test_sky.mode == SkyFormat.POINT_SOURCES
+        assert test_sky.native_format == SkyFormat.POINT_SOURCES
 
         # RA in [0, 2pi]
         assert np.all(test_sky.ra_rad >= 0)
@@ -340,10 +340,10 @@ class TestPointSourcesRoundtrip:
 class TestModeAndConversion:
     def test_mode_property(self, test_sky, obs_freq_config):
         """Mode switches from point_sources to healpix_map after conversion."""
-        assert test_sky.mode == "point_sources"
+        assert test_sky.mode == SkyFormat.POINT_SOURCES
         sky = test_sky.with_reference_frequency(100e6)
         sky = sky.with_healpix_maps(nside=32, obs_frequency_config=obs_freq_config)
-        assert sky.mode == "healpix_map"
+        assert sky.mode == SkyFormat.HEALPIX
 
     def test_with_healpix_maps(self, test_sky, obs_freq_config):
         """with_healpix_maps populates HEALPix and preserves point-source data."""
@@ -352,7 +352,7 @@ class TestModeAndConversion:
         assert sky.has_multifreq_maps is True
         assert sky.n_frequencies == 6
         assert sky.healpix_nside == 32
-        assert sky.mode == "healpix_map"
+        assert sky.mode == SkyFormat.HEALPIX
         # PS arrays are preserved (dual representation)
         assert sky.ra_rad is not None
         assert sky.has_point_sources is True
@@ -367,7 +367,7 @@ class TestModeAndConversion:
         # Original has PS only, new model has both representations
         assert sky.ra_rad is not None
         assert sky2.ra_rad is not None
-        assert sky2.mode == "healpix_map"
+        assert sky2.mode == SkyFormat.HEALPIX
 
     def test_with_healpix_maps_no_ref_frequency_raises(self, test_sky, obs_freq_config):
         """with_healpix_maps raises when no ref_frequency is available."""
@@ -449,7 +449,7 @@ class TestCombine:
         )
         combined = SkyModel.combine([sky1, sky2], precision=precision)
         assert combined.n_point_sources == 50
-        assert combined.mode == "point_sources"
+        assert combined.mode == SkyFormat.POINT_SOURCES
 
 
 # ---------------------------------------------------------------------------
@@ -610,7 +610,7 @@ class TestEmptySky:
         """empty_sky creates a model with zero sources in point_sources mode."""
         sky = SkyModel.empty_sky("test")
         assert sky.n_point_sources == 0
-        assert sky.mode == "point_sources"
+        assert sky.mode == SkyFormat.POINT_SOURCES
         assert sky.model_name == "test"
 
     def test_empty_sky_with_reference_frequency(self):
@@ -927,44 +927,7 @@ class TestFromArraysExpanded:
 
 
 # ---------------------------------------------------------------------------
-# from_point_sources expanded
-# ---------------------------------------------------------------------------
-
-
-class TestFromPointSourcesExpanded:
-    def test_empty_list(self, precision):
-        """Empty list → empty model."""
-        with pytest.warns(DeprecationWarning, match="from_point_sources"):
-            sky = SkyModel.from_point_sources([], precision=precision)
-        assert sky.n_point_sources == 0
-
-    def test_default_spectral_index(self, precision):
-        """No 'spectral_index' in dict → defaults to -0.7."""
-        src = {
-            "coords": SkyCoord(ra=180.0, dec=-30.0, unit="deg", frame="icrs"),
-            "flux": 5.0,
-        }
-        with pytest.warns(DeprecationWarning, match="from_point_sources"):
-            sky = SkyModel.from_point_sources([src], precision=precision)
-        assert np.isclose(sky.spectral_index[0], -0.7)
-
-    def test_optional_fields_preserved(self, precision):
-        """Dicts with RM and morphology → preserved in model."""
-        src = {
-            "coords": SkyCoord(ra=0.0, dec=0.0, unit="deg", frame="icrs"),
-            "flux": 1.0,
-            "spectral_index": -0.8,
-            "rotation_measure": 15.0,
-            "major_arcsec": 20.0,
-            "minor_arcsec": 10.0,
-            "pa_deg": 30.0,
-            "spectral_coeffs": [-0.8, -0.05],
-        }
-        with pytest.warns(DeprecationWarning, match="from_point_sources"):
-            sky = SkyModel.from_point_sources([src], precision=precision)
-        assert np.isclose(sky.rotation_measure[0], 15.0)
-        assert np.isclose(sky.major_arcsec[0], 20.0)
-        assert sky.spectral_coeffs is not None
+# (from_point_sources tests removed — method deleted in Phase 3)
 
 
 # ---------------------------------------------------------------------------
@@ -1694,35 +1657,7 @@ class TestFromTestSourcesEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# TestFromPointSourcesSpectralCoeffs
-# ---------------------------------------------------------------------------
-
-
-class TestFromPointSourcesSpectralCoeffs:
-    def test_mixed_spectral_coeffs(self, precision):
-        """Sources where some have spectral_coeffs, others don't → padded array."""
-        src1 = {
-            "coords": SkyCoord(ra=0.0, dec=0.0, unit="deg", frame="icrs"),
-            "flux": 1.0,
-            "spectral_index": -0.7,
-            "spectral_coeffs": [-0.7, -0.1],
-        }
-        src2 = {
-            "coords": SkyCoord(ra=10.0, dec=0.0, unit="deg", frame="icrs"),
-            "flux": 2.0,
-            "spectral_index": -0.8,
-            # No spectral_coeffs key
-        }
-        with pytest.warns(DeprecationWarning, match="from_point_sources"):
-            sky = SkyModel.from_point_sources([src1, src2], precision=precision)
-        assert sky.spectral_coeffs is not None
-        assert sky.spectral_coeffs.shape == (2, 2)
-        # First source: coeffs as given
-        assert np.isclose(sky.spectral_coeffs[0, 0], -0.7)
-        assert np.isclose(sky.spectral_coeffs[0, 1], -0.1)
-        # Second source: first coeff is spectral_index default, second is 0
-        assert np.isclose(sky.spectral_coeffs[1, 0], -0.8)
-        assert np.isclose(sky.spectral_coeffs[1, 1], 0.0)
+# (TestFromPointSourcesSpectralCoeffs removed — from_point_sources deleted in Phase 3)
 
 
 # ---------------------------------------------------------------------------
@@ -1840,7 +1775,9 @@ class TestRefFreqArray:
             spectral_index=-0.7,
             precision=precision,
         )
-        assert sky.ref_freq is None
+        # ref_freq is populated via _ps (zeros when no ref_freq was provided)
+        assert sky.ref_freq is not None
+        assert np.all(sky.ref_freq == 0.0)
 
     def test_ref_freq_length_validation(self):
         """Mismatched _ref_freq length raises ValueError."""
@@ -1908,7 +1845,7 @@ class TestSinglePointSourceToHealpix:
         ).with_reference_frequency(100e6)
         freqs = np.array([100e6, 101e6, 102e6])
         result = sky.with_representation("healpix_map", nside=8, frequencies=freqs)
-        assert result.mode == "healpix_map"
+        assert result.mode == SkyFormat.HEALPIX
         assert result.healpix_maps is not None
         assert result.healpix_maps.shape[0] == 3
 
@@ -2007,7 +1944,7 @@ class TestDualRepresentation:
         """with_healpix_maps preserves point-source data, switches mode."""
         sky = test_sky.with_reference_frequency(100e6)
         hp_sky = sky.with_healpix_maps(nside=8, obs_frequency_config=obs_freq_config)
-        assert hp_sky.mode == "healpix_map"
+        assert hp_sky.mode == SkyFormat.HEALPIX
         assert hp_sky.has_multifreq_maps is True
         # PS arrays preserved
         assert hp_sky.ra_rad is not None
@@ -2025,7 +1962,7 @@ class TestDualRepresentation:
         hp_sky = sky.with_representation(
             "healpix_map", nside=8, obs_frequency_config=obs_freq_config
         )
-        assert hp_sky.mode == "healpix_map"
+        assert hp_sky.mode == SkyFormat.HEALPIX
         assert hp_sky.ra_rad is not None
         assert hp_sky.has_multifreq_maps is True
 
@@ -2034,7 +1971,7 @@ class TestDualRepresentation:
         sky = test_sky.with_reference_frequency(100e6)
         hp_sky = sky.with_healpix_maps(nside=8, obs_frequency_config=obs_freq_config)
         ps_sky = hp_sky.with_representation("point_sources", frequency=100e6)
-        assert ps_sky.mode == "point_sources"
+        assert ps_sky.mode == SkyFormat.POINT_SOURCES
         assert ps_sky.ra_rad is not None
         # HEALPix data preserved
         assert ps_sky.has_multifreq_maps is True
@@ -2049,14 +1986,14 @@ class TestDualRepresentation:
         hp_sky = sky.with_representation(
             "healpix_map", nside=8, obs_frequency_config=obs_freq_config
         )
-        assert hp_sky.mode == "healpix_map"
+        assert hp_sky.mode == SkyFormat.HEALPIX
         assert hp_sky.ra_rad is not None
         assert hp_sky.has_multifreq_maps is True
         assert hp_sky.n_point_sources == original_n
 
         # Step 2: healpix -> PS (uses preserved PS, no lossy conversion)
         ps_sky = hp_sky.with_representation("point_sources", frequency=100e6)
-        assert ps_sky.mode == "point_sources"
+        assert ps_sky.mode == SkyFormat.POINT_SOURCES
         assert ps_sky.ra_rad is not None
         assert ps_sky.has_multifreq_maps is True
         # Original source count preserved (no quantization loss)
@@ -2092,7 +2029,7 @@ class TestDualRepresentation:
         hp_sky = sky.with_healpix_maps(nside=8, obs_frequency_config=obs_freq_config)
         region = SkyRegion.cone(ra_deg=180.0, dec_deg=-30.0, radius_deg=30.0)
         filtered = hp_sky.filter_region(region)
-        assert filtered.mode == "healpix_map"
+        assert filtered.mode == SkyFormat.HEALPIX
         assert filtered.has_multifreq_maps is True
         # PS data also filtered (subset of original)
         assert filtered.has_point_sources
@@ -2102,16 +2039,16 @@ class TestDualRepresentation:
         """Switching mode on a dual model returns quickly without conversion."""
         sky = test_sky.with_reference_frequency(100e6)
         hp_sky = sky.with_healpix_maps(nside=8, obs_frequency_config=obs_freq_config)
-        assert hp_sky.mode == "healpix_map"
+        assert hp_sky.mode == SkyFormat.HEALPIX
 
         # Switch to point_sources — no conversion needed
         ps_sky = hp_sky.with_representation("point_sources")
-        assert ps_sky.mode == "point_sources"
+        assert ps_sky.mode == SkyFormat.POINT_SOURCES
         assert ps_sky.has_multifreq_maps is True  # healpix still there
 
         # Switch back — no conversion needed
         hp2 = ps_sky.with_representation("healpix_map")
-        assert hp2.mode == "healpix_map"
+        assert hp2.mode == SkyFormat.HEALPIX
         assert hp2.has_point_sources is True  # PS still there
 
     def test_with_representation_noop_ps(self, test_sky):

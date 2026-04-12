@@ -3,15 +3,26 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from enum import Enum
 
 import numpy as np
 
 # =============================================================================
-# Type Aliases
+# Enums
 # =============================================================================
 
-BrightnessConversion = Literal["planck", "rayleigh-jeans"]
+
+class BrightnessConversion(str, Enum):
+    """Brightness temperature conversion method.
+
+    Inherits from ``str`` so that enum members can be passed directly to
+    functions with ``method: str`` parameters (e.g. ``method=BrightnessConversion.PLANCK``
+    works because the member IS the string ``"planck"``).
+    """
+
+    PLANCK = "planck"
+    RAYLEIGH_JEANS = "rayleigh-jeans"
+
 
 # =============================================================================
 # Physical Constants

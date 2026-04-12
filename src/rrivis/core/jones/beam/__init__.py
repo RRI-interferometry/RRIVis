@@ -161,6 +161,12 @@ from rrivis.core.jones.beam.fits import (  # noqa: E402
     FITSBeamJones,
     astropy_az_to_uvbeam_az,
 )
+from rrivis.core.jones.beam.projection import (  # noqa: E402
+    BeamSkyProjection,
+    compute_beam_power_on_radec_grid,
+    create_rgba_overlay,
+    extract_contours,
+)
 
 __all__ = [
     # Jones matrix classes
@@ -178,4 +184,9 @@ __all__ = [
     "astropy_az_to_uvbeam_az",
     "BeamFITSHandler",
     "BeamManager",
+    # Beam sky projection
+    "BeamSkyProjection",
+    "compute_beam_power_on_radec_grid",
+    "create_rgba_overlay",
+    "extract_contours",
 ]

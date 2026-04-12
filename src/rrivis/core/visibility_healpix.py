@@ -297,7 +297,9 @@ def calculate_visibility_healpix(
         - baselines: Baseline info
         - metadata: Additional information
     """
-    if sky_model.mode != "healpix_map":
+    from rrivis.core.sky.model import SkyFormat
+
+    if sky_model.mode != SkyFormat.HEALPIX:
         raise ValueError(
             "sky_model must be in healpix_map mode. "
             "Call with_healpix_maps() first (for point-source catalogs) "

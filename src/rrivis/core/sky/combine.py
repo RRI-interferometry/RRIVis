@@ -19,6 +19,7 @@ import healpy as hp
 import numpy as np
 
 from .constants import (
+    BrightnessConversion,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
     rayleigh_jeans_factor,
@@ -231,6 +232,7 @@ def combine_healpix(
     ref_frequency: float | None,
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
+    memmap_path: str | None = None,
 ) -> CombineHealpixData:
     """Combine models by element-wise addition in Jy space per frequency channel.
 
@@ -328,114 +330,233 @@ def combine_healpix(
     )
 
     # Pre-allocate output arrays: shape (n_freq, npix)
-    combined_I = np.zeros((n_freq, npix), dtype=hp_dtype)
+    from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+
+    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
+    combined_I = allocate_cube((n_freq, npix), hp_dtype, scratch, "i_maps")
     combined_Q: np.ndarray | None = (
-        np.zeros((n_freq, npix), dtype=hp_dtype) if any_pol else None
+        allocate_cube((n_freq, npix), hp_dtype, scratch, "q_maps") if any_pol else None
     )
     combined_U: np.ndarray | None = (
-        np.zeros((n_freq, npix), dtype=hp_dtype) if any_pol else None
+        allocate_cube((n_freq, npix), hp_dtype, scratch, "u_maps") if any_pol else None
     )
     combined_V: np.ndarray | None = (
-        np.zeros((n_freq, npix), dtype=hp_dtype) if any_pol else None
+        allocate_cube((n_freq, npix), hp_dtype, scratch, "v_maps") if any_pol else None
+    )
+
+    # Determine if we can use the RJ fast path (T_b linearly additive)
+    is_rj = brightness_conversion == BrightnessConversion.RAYLEIGH_JEANS or (
+        isinstance(brightness_conversion, str)
+        and brightness_conversion == "rayleigh-jeans"
     )
 
     for freq_idx, freq_hz in enumerate(ref_freqs):
-        combined_flux = np.zeros(npix, dtype=np.float64)
-        combined_q_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
-        combined_u_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
-        combined_v_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
-
         rj_factor = rayleigh_jeans_factor(freq_hz, omega_pixel)
 
-        # --- Add healpix_map models ---
-        for m in models:
-            if m.mode == SkyFormat.HEALPIX:
-                t_map = m.healpix_maps[freq_idx].astype(np.float64)
-                pos = t_map > 0
-                if np.any(pos):
-                    combined_flux[pos] += brightness_temp_to_flux_density(
-                        t_map[pos],
-                        freq_hz,
-                        omega_pixel,
-                        method=brightness_conversion,
+        if is_rj:
+            # --- RJ fast path: T_b is linearly additive ---
+            combined_T_b = np.zeros(npix, dtype=np.float64)
+
+            # Add healpix T_b maps directly
+            for m in models:
+                if m.mode == SkyFormat.HEALPIX:
+                    combined_T_b += m.healpix_maps[freq_idx].astype(np.float64)
+
+            # Add point-source contributions (flux → T_b via RJ factor)
+            for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
+                ps_ref_freq = (
+                    m_obj.ref_freq
+                    if m_obj.ref_freq is not None
+                    else np.full(
+                        len(flux_ref_m),
+                        m_obj.reference_frequency or ref_frequency,
+                        dtype=np.float64,
                     )
-
-                if any_pol and m.has_polarized_healpix_maps:
-                    if m.healpix_q_maps is not None:
-                        q_t = m.healpix_q_maps[freq_idx]
-                        if q_t is not None:
-                            combined_q_flux += q_t.astype(np.float64) * rj_factor
-                    if m.healpix_u_maps is not None:
-                        u_t = m.healpix_u_maps[freq_idx]
-                        if u_t is not None:
-                            combined_u_flux += u_t.astype(np.float64) * rj_factor
-                    if m.healpix_v_maps is not None:
-                        v_t = m.healpix_v_maps[freq_idx]
-                        if v_t is not None:
-                            combined_v_flux += v_t.astype(np.float64) * rj_factor
-
-        # --- Add point-source models via bincount ---
-        for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
-            ps_ref_freq = (
-                m_obj.ref_freq
-                if m_obj.ref_freq is not None
-                else np.full(
-                    len(flux_ref_m),
-                    m_obj.reference_frequency or ref_frequency,
-                    dtype=np.float64,
                 )
-            )
-            combined_flux += bin_sources_to_flux(
-                ipix_m,
-                flux_ref_m,
-                alpha_m,
-                m_obj.spectral_coeffs,
-                float(freq_hz),
-                ps_ref_freq,
-                npix,
-            )
-
-            if any_pol and m_obj.stokes_q is not None:
-                scale = compute_spectral_scale(
-                    alpha_m, m_obj.spectral_coeffs, float(freq_hz), ps_ref_freq
-                )
-                q_f, u_f = apply_faraday_rotation(
-                    m_obj.stokes_q,
-                    m_obj.stokes_u,
-                    m_obj.rotation_measure,
+                flux_map = bin_sources_to_flux(
+                    ipix_m,
+                    flux_ref_m,
+                    alpha_m,
+                    m_obj.spectral_coeffs,
                     float(freq_hz),
                     ps_ref_freq,
-                    scale,
+                    npix,
                 )
-                combined_q_flux += np.bincount(ipix_m, weights=q_f, minlength=npix)
-                combined_u_flux += np.bincount(ipix_m, weights=u_f, minlength=npix)
-                combined_v_flux += np.bincount(
-                    ipix_m, weights=m_obj.stokes_v * scale, minlength=npix
+                # Jy → K_RJ: divide by RJ factor
+                if rj_factor != 0:
+                    combined_T_b += flux_map / rj_factor
+
+            combined_I[freq_idx] = combined_T_b.astype(hp_dtype)
+
+            # Polarization (always RJ for Q/U/V)
+            if any_pol:
+                combined_q_T = np.zeros(npix, dtype=np.float64)
+                combined_u_T = np.zeros(npix, dtype=np.float64)
+                combined_v_T = np.zeros(npix, dtype=np.float64)
+
+                for m in models:
+                    if m.mode == SkyFormat.HEALPIX and m.has_polarized_healpix_maps:
+                        if m.healpix_q_maps is not None:
+                            combined_q_T += m.healpix_q_maps[freq_idx].astype(
+                                np.float64
+                            )
+                        if m.healpix_u_maps is not None:
+                            combined_u_T += m.healpix_u_maps[freq_idx].astype(
+                                np.float64
+                            )
+                        if m.healpix_v_maps is not None:
+                            combined_v_T += m.healpix_v_maps[freq_idx].astype(
+                                np.float64
+                            )
+
+                for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
+                    if m_obj.stokes_q is not None:
+                        ps_ref_freq = (
+                            m_obj.ref_freq
+                            if m_obj.ref_freq is not None
+                            else np.full(
+                                len(flux_ref_m),
+                                m_obj.reference_frequency or ref_frequency,
+                                dtype=np.float64,
+                            )
+                        )
+                        scale = compute_spectral_scale(
+                            alpha_m,
+                            m_obj.spectral_coeffs,
+                            float(freq_hz),
+                            ps_ref_freq,
+                        )
+                        q_f, u_f = apply_faraday_rotation(
+                            m_obj.stokes_q,
+                            m_obj.stokes_u,
+                            m_obj.rotation_measure,
+                            float(freq_hz),
+                            ps_ref_freq,
+                            scale,
+                        )
+                        rj_inv = 1.0 / rj_factor if rj_factor != 0 else 0.0
+                        combined_q_T += (
+                            np.bincount(ipix_m, weights=q_f, minlength=npix) * rj_inv
+                        )
+                        combined_u_T += (
+                            np.bincount(ipix_m, weights=u_f, minlength=npix) * rj_inv
+                        )
+                        combined_v_T += (
+                            np.bincount(
+                                ipix_m, weights=m_obj.stokes_v * scale, minlength=npix
+                            )
+                            * rj_inv
+                        )
+
+                combined_Q[freq_idx] = combined_q_T.astype(hp_dtype)
+                combined_U[freq_idx] = combined_u_T.astype(hp_dtype)
+                combined_V[freq_idx] = combined_v_T.astype(hp_dtype)
+
+        else:
+            # --- Planck path: must round-trip through Jy (non-linear) ---
+            combined_flux = np.zeros(npix, dtype=np.float64)
+            combined_q_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
+            combined_u_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
+            combined_v_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
+
+            # Add healpix_map models
+            for m in models:
+                if m.mode == SkyFormat.HEALPIX:
+                    t_map = m.healpix_maps[freq_idx].astype(np.float64)
+                    pos = t_map > 0
+                    if np.any(pos):
+                        combined_flux[pos] += brightness_temp_to_flux_density(
+                            t_map[pos],
+                            freq_hz,
+                            omega_pixel,
+                            method=brightness_conversion,
+                        )
+
+                    if any_pol and m.has_polarized_healpix_maps:
+                        if m.healpix_q_maps is not None:
+                            q_t = m.healpix_q_maps[freq_idx]
+                            if q_t is not None:
+                                combined_q_flux += q_t.astype(np.float64) * rj_factor
+                        if m.healpix_u_maps is not None:
+                            u_t = m.healpix_u_maps[freq_idx]
+                            if u_t is not None:
+                                combined_u_flux += u_t.astype(np.float64) * rj_factor
+                        if m.healpix_v_maps is not None:
+                            v_t = m.healpix_v_maps[freq_idx]
+                            if v_t is not None:
+                                combined_v_flux += v_t.astype(np.float64) * rj_factor
+
+            # Add point-source models via bincount
+            for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
+                ps_ref_freq = (
+                    m_obj.ref_freq
+                    if m_obj.ref_freq is not None
+                    else np.full(
+                        len(flux_ref_m),
+                        m_obj.reference_frequency or ref_frequency,
+                        dtype=np.float64,
+                    )
+                )
+                combined_flux += bin_sources_to_flux(
+                    ipix_m,
+                    flux_ref_m,
+                    alpha_m,
+                    m_obj.spectral_coeffs,
+                    float(freq_hz),
+                    ps_ref_freq,
+                    npix,
                 )
 
-        # --- Convert combined flux back to brightness temperature ---
-        combined_T_b = np.zeros(npix, dtype=np.float64)
-        pos_flux = combined_flux > 0
-        if np.any(pos_flux):
-            combined_T_b[pos_flux] = flux_density_to_brightness_temp(
-                combined_flux[pos_flux],
-                freq_hz,
-                omega_pixel,
-                method=brightness_conversion,
-            )
-        combined_I[freq_idx] = combined_T_b.astype(hp_dtype)
+                if any_pol and m_obj.stokes_q is not None:
+                    scale = compute_spectral_scale(
+                        alpha_m, m_obj.spectral_coeffs, float(freq_hz), ps_ref_freq
+                    )
+                    q_f, u_f = apply_faraday_rotation(
+                        m_obj.stokes_q,
+                        m_obj.stokes_u,
+                        m_obj.rotation_measure,
+                        float(freq_hz),
+                        ps_ref_freq,
+                        scale,
+                    )
+                    combined_q_flux += np.bincount(ipix_m, weights=q_f, minlength=npix)
+                    combined_u_flux += np.bincount(ipix_m, weights=u_f, minlength=npix)
+                    combined_v_flux += np.bincount(
+                        ipix_m, weights=m_obj.stokes_v * scale, minlength=npix
+                    )
 
-        if any_pol:
-            rj_inv = 1.0 / rj_factor if rj_factor != 0 else 0.0
-            combined_Q[freq_idx] = (combined_q_flux * rj_inv).astype(hp_dtype)
-            combined_U[freq_idx] = (combined_u_flux * rj_inv).astype(hp_dtype)
-            combined_V[freq_idx] = (combined_v_flux * rj_inv).astype(hp_dtype)
+            # Convert combined flux back to brightness temperature
+            combined_T_b = np.zeros(npix, dtype=np.float64)
+            pos_flux = combined_flux > 0
+            if np.any(pos_flux):
+                combined_T_b[pos_flux] = flux_density_to_brightness_temp(
+                    combined_flux[pos_flux],
+                    freq_hz,
+                    omega_pixel,
+                    method=brightness_conversion,
+                )
+            combined_I[freq_idx] = combined_T_b.astype(hp_dtype)
+
+            if any_pol:
+                rj_inv = 1.0 / rj_factor if rj_factor != 0 else 0.0
+                combined_Q[freq_idx] = (combined_q_flux * rj_inv).astype(hp_dtype)
+                combined_U[freq_idx] = (combined_u_flux * rj_inv).astype(hp_dtype)
+                combined_V[freq_idx] = (combined_v_flux * rj_inv).astype(hp_dtype)
 
     logger.info(
         f"Combined {len(models)} models into healpix_map "
         f"({n_freq} channels, nside={ref_nside}"
         f"{', stokes=IQUV' if any_pol else ''})"
     )
+
+    # Flush and re-open read-only if memmap-backed.
+    combined_I = finalize_cube(combined_I, scratch, "i_maps")
+    if combined_Q is not None:
+        combined_Q = finalize_cube(combined_Q, scratch, "q_maps")
+    if combined_U is not None:
+        combined_U = finalize_cube(combined_U, scratch, "u_maps")
+    if combined_V is not None:
+        combined_V = finalize_cube(combined_V, scratch, "v_maps")
 
     return {
         "healpix_maps": combined_I,
@@ -455,14 +576,18 @@ def combine_healpix(
 
 def _resolve_combination_params(
     models: list[SkyModel],
-    representation: str | None,
+    representation: SkyFormat | str | None,
     frequency: float | None,
     ref_frequency: float | None,
-) -> tuple[str, float | None, float | None]:
+) -> tuple[SkyFormat, float | None, float | None]:
     """Auto-detect representation and resolve frequency defaults.
 
     Returns (representation, frequency, ref_frequency).
     """
+    # Coerce string to SkyFormat
+    if isinstance(representation, str) and not isinstance(representation, SkyFormat):
+        representation = SkyFormat(representation)
+
     # Auto-detect representation
     if representation is None:
         has_healpix_native = any(m.native_format == SkyFormat.HEALPIX for m in models)
@@ -524,6 +649,7 @@ def _combine_as_healpix_merge(
     ref_frequency: float | None,
     brightness_conversion: str,
     precision: PrecisionConfig | None,
+    memmap_path: str | None = None,
 ) -> SkyModel:
     """Combine models with existing HEALPix maps via Jy-space addition."""
     from .model import SkyModel
@@ -539,6 +665,7 @@ def _combine_as_healpix_merge(
         ref_frequency=ref_frequency,
         brightness_conversion=brightness_conversion,
         precision=precision,
+        memmap_path=memmap_path,
     )
 
     return SkyModel(
@@ -601,13 +728,14 @@ def _combine_as_point_sources(
 
 def combine_models(
     models: list[SkyModel],
-    representation: str | None = None,
+    representation: SkyFormat | str | None = None,
     nside: int = 64,
     frequency: float | None = None,
     obs_frequency_config: dict[str, Any] | None = None,
     ref_frequency: float | None = None,
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
+    memmap_path: str | None = None,
 ) -> SkyModel:
     """Combine multiple sky models into one.
 
@@ -633,6 +761,10 @@ def combine_models(
         Brightness conversion method.
     precision : PrecisionConfig, optional
         Precision configuration for the combined model.
+    memmap_path : str or None, optional
+        If given, stream the combined HEALPix cube to memory-mapped files
+        at this directory (created if needed) rather than allocating it
+        in RAM.  Only affects HEALPix output paths.
 
     Returns
     -------
@@ -658,7 +790,11 @@ def combine_models(
     # Path 1: HEALPix merge (at least one model already has maps)
     if representation == SkyFormat.HEALPIX and has_healpix_map:
         return _combine_as_healpix_merge(
-            models, ref_freq, brightness_conversion, precision
+            models,
+            ref_freq,
+            brightness_conversion,
+            precision,
+            memmap_path=memmap_path,
         )
 
     # Path 2: Concatenate as point sources
@@ -676,6 +812,7 @@ def combine_models(
             nside=nside,
             obs_frequency_config=obs_frequency_config,
             ref_frequency=ref_freq,
+            memmap_path=memmap_path,
         )
 
     return combined

@@ -7,6 +7,7 @@ from . import _loaders_diffuse as _loaders_diffuse  # noqa: F401
 from . import _loaders_fits as _loaders_fits  # noqa: F401
 from . import _loaders_pyradiosky as _loaders_pyradiosky  # noqa: F401
 from . import _loaders_vizier as _loaders_vizier  # noqa: F401
+from ._data import HealpixData, PointSourceData, SourceArrays
 from ._registry import (
     build_alias_map,
     build_loader_kwargs,
@@ -32,7 +33,6 @@ from .discovery import estimate_healpix_memory, get_catalog_info, list_all_model
 from .model import (
     SkyFormat,
     SkyModel,
-    SourceArrays,
 )
 from .plotter import SkyPlotter
 from .region import BoxRegion, ConeRegion, SkyRegion, UnionRegion
@@ -62,6 +62,8 @@ __all__ = [
     "apply_faraday_rotation",
     "SkyFormat",
     "SourceArrays",
+    "PointSourceData",
+    "HealpixData",
     "estimate_healpix_memory",
     "list_all_models",
     "get_catalog_info",

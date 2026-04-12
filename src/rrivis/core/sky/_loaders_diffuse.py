@@ -142,6 +142,7 @@ def load_diffuse_sky(
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
     region: SkyRegion | None = None,
+    memmap_path: str | None = None,
 ) -> SkyModel:  # noqa: F821
     """
     Load a diffuse sky model (GSM, LFSM, Haslam) as multi-frequency HEALPix maps.
@@ -276,8 +277,11 @@ def load_diffuse_sky(
             "Zenodo (zenodo.org) is reachable."
         ) from e
 
+    from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+
     npix = hp.nside2npix(nside)
-    i_arr = np.zeros((n_freq, npix), dtype=np.float32)
+    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
+    i_arr = allocate_cube((n_freq, npix), np.float32, scratch, "i_maps")
     rot = Rotator(coord=["G", "C"])
     for fi, freq in enumerate(frequencies):
         temp_map = pygdsm_instance.generate(freq)
@@ -294,6 +298,9 @@ def load_diffuse_sky(
         logger.info(f"Region mask applied: {n_retained}/{npix} pixels retained")
 
     logger.info(f"{model.upper()} loaded: {npix} pixels \u00d7 {n_freq} frequencies")
+
+    # Flush and re-open read-only if memmap-backed.
+    i_arr = finalize_cube(i_arr, scratch, "i_maps")
 
     return SkyModel(
         _healpix_maps=i_arr,
@@ -418,6 +425,7 @@ def load_pysm3(
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
     region: SkyRegion | None = None,
+    memmap_path: str | None = None,
 ) -> SkyModel:  # noqa: F821
     """
     Load a PySM3 diffuse sky model as multi-frequency HEALPix maps.
@@ -508,10 +516,21 @@ def load_pysm3(
             "first use. Check your network connection, or verify that "
             "NERSC portal (portal.nersc.gov) is reachable."
         ) from e
+    from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+
     npix = hp.nside2npix(nside)
-    i_arr = np.zeros((n_freq, npix), dtype=np.float32)
-    q_arr = np.zeros((n_freq, npix), dtype=np.float32) if include_polarization else None
-    u_arr = np.zeros((n_freq, npix), dtype=np.float32) if include_polarization else None
+    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
+    i_arr = allocate_cube((n_freq, npix), np.float32, scratch, "i_maps")
+    q_arr = (
+        allocate_cube((n_freq, npix), np.float32, scratch, "q_maps")
+        if include_polarization
+        else None
+    )
+    u_arr = (
+        allocate_cube((n_freq, npix), np.float32, scratch, "u_maps")
+        if include_polarization
+        else None
+    )
 
     rot = Rotator(coord=["G", "C"])
     for fi, freq in enumerate(frequencies):
@@ -558,6 +577,13 @@ def load_pysm3(
         f"\u00d7 {n_freq} frequencies"
         f"{', stokes=IQU' if include_polarization else ''}"
     )
+
+    # Flush and re-open read-only if memmap-backed.
+    i_arr = finalize_cube(i_arr, scratch, "i_maps")
+    if q_arr is not None:
+        q_arr = finalize_cube(q_arr, scratch, "q_maps")
+    if u_arr is not None:
+        u_arr = finalize_cube(u_arr, scratch, "u_maps")
 
     return SkyModel(
         _healpix_maps=i_arr,

@@ -5,6 +5,7 @@ network connectivity detection, and other helper functions.
 """
 
 from rrivis.utils.device import DeviceResources, get_device_resources
+from rrivis.utils.diagnostics import DiagnosticsPlanner, ObservableStrip, StripPlotter
 from rrivis.utils.frequency import parse_frequency_config
 from rrivis.utils.logging import get_logger, setup_logging
 from rrivis.utils.network import (
@@ -26,4 +27,7 @@ __all__ = [
     "DeviceResources",
     "get_device_resources",
     "parse_frequency_config",
+    "DiagnosticsPlanner",
+    "ObservableStrip",
+    "StripPlotter",
 ]
