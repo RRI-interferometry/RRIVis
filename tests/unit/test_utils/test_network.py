@@ -232,13 +232,13 @@ class TestNetworkStatus:
 class TestGetRequiredServices:
     def test_no_network_models(self):
         sky_config = {
-            "sources": [{"kind": "test_sources"}],
+            "sources": [{"test_sources": {}}],
         }
         assert get_required_services(sky_config) == {}
 
     def test_vizier_model(self):
         sky_config = {
-            "sources": [{"kind": "gleam"}, {"kind": "nvss"}],
+            "sources": [{"gleam": {}}, {"nvss": {}}],
         }
         result = get_required_services(sky_config)
         assert "vizier" in result
@@ -246,13 +246,13 @@ class TestGetRequiredServices:
         assert "nvss" in result["vizier"]
 
     def test_casda_model(self):
-        sky_config = {"sources": [{"kind": "racs"}]}
+        sky_config = {"sources": [{"racs": {}}]}
         result = get_required_services(sky_config)
         assert result == {"casda": ["racs"]}
 
     def test_diffuse_models(self):
         sky_config = {
-            "sources": [{"kind": "gsm2008"}, {"kind": "pysm3"}],
+            "sources": [{"gsm2008": {}}, {"pysm3": {}}],
         }
         result = get_required_services(sky_config)
         assert "pygdsm_data" in result

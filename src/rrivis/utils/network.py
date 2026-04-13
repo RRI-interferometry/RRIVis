@@ -39,9 +39,9 @@ def get_sky_model_services() -> dict[str, str]:
     """Return the source-kind -> network-service mapping."""
     global _SKY_MODEL_SERVICES_CACHE
     if _SKY_MODEL_SERVICES_CACHE is None:
-        from rrivis.core.sky.registry import build_network_services_map
+        from rrivis.core.sky.registry import loader_registry
 
-        _SKY_MODEL_SERVICES_CACHE = build_network_services_map()
+        _SKY_MODEL_SERVICES_CACHE = loader_registry.network_services()
     return _SKY_MODEL_SERVICES_CACHE
 
 
@@ -306,22 +306,22 @@ def get_required_services(sky_config: dict) -> dict[str, list[str]]:
     required: dict[str, list[str]] = {}
     sources = sky_config.get("sources")
     if isinstance(sources, list):
-        alias_map = {}
-        try:
-            from rrivis.core.sky.registry import build_alias_map
-
-            alias_map = build_alias_map()
-        except Exception:
-            alias_map = {}
+        from rrivis.core.sky.registry import loader_registry
 
         services = get_sky_model_services()
         for entry in sources:
             if not isinstance(entry, dict):
                 continue
-            raw_kind = entry.get("kind")
-            if not raw_kind:
+            if "kind" in entry:
+                raw_kind = entry["kind"]
+            elif len(entry) == 1:
+                raw_kind = next(iter(entry))
+            else:
                 continue
-            kind = alias_map.get(raw_kind, raw_kind)
+            try:
+                kind, _ = loader_registry.resolve_request(raw_kind, {})
+            except ValueError:
+                continue
             service = services.get(kind)
             if service is not None:
                 required.setdefault(service, []).append(kind)

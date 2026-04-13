@@ -274,10 +274,11 @@ obs_time:
 
 sky_model:
   flux_unit: "Jy"               # required: Jy, mJy, or uJy
-  gleam:
-    use_gleam: true
-    gleam_catalogue: "gleam_egc"  # gleam_egc, gleam_x_dr1, gleam_x_dr2, ...
-    flux_limit: 1.0
+  sources:
+    - gleam:
+        catalog: "gleam_egc"     # gleam_egc, gleam_x_dr1, gleam_x_dr2, ...
+        flux_limit: 1.0
+        max_rows: 10000
 
 output:
   output_file_format: "HDF5"
@@ -386,68 +387,109 @@ rrivis/
 | `"vlass"` | VLASS Quick Look Ep.1 | 3 GHz |
 | `"racs"` | RACS Low/Mid/High (CASDA TAP) | 887-1655 MHz |
 
-All loaded via `SkyModel.from_catalog(name, **kwargs)`.
+Use typed loader functions for programmatic work. VizieR-backed catalog loaders
+require a `region`, `max_rows`, or `allow_full_catalog=True` so large surveys are
+not downloaded accidentally.
 
 ```python
-from rrivis.core.sky.model import SkyModel
+from rrivis.core.sky import combine_models
+from rrivis.core.sky.loaders import load_gleam, load_lotss, load_racs
 from rrivis.core.precision import PrecisionConfig
 
 precision = PrecisionConfig.standard()
 
 # Load GLEAM EGC catalog (sources > 1 Jy)
-sky = SkyModel.from_catalog("gleam", flux_limit=1.0, precision=precision)
+sky = load_gleam(flux_limit=1.0, max_rows=10000, precision=precision)
 
 # Load LoTSS DR2
-sky = SkyModel.from_catalog("lotss", release="dr2", flux_limit=0.001, precision=precision)
+sky = load_lotss(
+    release="dr2",
+    flux_limit=0.001,
+    max_rows=10000,
+    precision=precision,
+)
 
 # Load RACS-Low via CASDA TAP
-sky = SkyModel.from_catalog("racs", band="low", flux_limit=1.0, precision=precision)
+sky = load_racs(band="low", flux_limit=1.0, max_rows=10000, precision=precision)
 
 # Combine multiple catalogs
-combined = SkyModel.combine([sky1, sky2], precision=precision)
+combined = combine_models([sky1, sky2], precision=precision)
 ```
 
 ### Diffuse Sky Models
 
 ```python
 import numpy as np
+from rrivis.core.precision import PrecisionConfig
+from rrivis.core.sky.loaders import load_diffuse_sky, load_pysm3
 
 frequencies = np.array([150e6, 160e6, 170e6])  # Hz
+precision = PrecisionConfig.standard()
 
 # Global Sky Model 2008 (de Oliveira-Costa et al.)
-sky = SkyModel.from_catalog("diffuse_sky", model="gsm2008", frequencies=frequencies, nside=64)
+sky = load_diffuse_sky(
+    model="gsm2008",
+    frequencies=frequencies,
+    nside=64,
+    precision=precision,
+)
 
 # Global Sky Model 2016 (Zheng et al.)
-sky = SkyModel.from_catalog("diffuse_sky", model="gsm2016", frequencies=frequencies, nside=64)
+sky = load_diffuse_sky(
+    model="gsm2016",
+    frequencies=frequencies,
+    nside=64,
+    precision=precision,
+)
 
 # Low-Frequency Sky Model (10-408 MHz)
-sky = SkyModel.from_catalog("diffuse_sky", model="lfsm", frequencies=frequencies, nside=64)
+sky = load_diffuse_sky(
+    model="lfsm",
+    frequencies=frequencies,
+    nside=64,
+    precision=precision,
+)
 
 # Haslam 408 MHz with spectral scaling
-sky = SkyModel.from_catalog("diffuse_sky", model="haslam", frequencies=frequencies, nside=64)
+sky = load_diffuse_sky(
+    model="haslam",
+    frequencies=frequencies,
+    nside=64,
+    precision=precision,
+)
 
 # Planck Sky Model components (PySM3)
-sky = SkyModel.from_catalog("pysm3", components=["s1", "d1"], frequencies=frequencies, nside=64)
+sky = load_pysm3(
+    components=["s1", "d1"],
+    frequencies=frequencies,
+    nside=64,
+    precision=precision,
+)
 
 # PySM3 component-based foreground model
-sky = SkyModel.from_catalog("pysm3", components=["s1", "f1"], frequencies=frequencies, nside=64)
+sky = load_pysm3(
+    components=["s1", "f1"],
+    frequencies=frequencies,
+    nside=64,
+    precision=precision,
+)
 ```
 
 ### Custom Point Sources
 
 ```python
-from rrivis.core.sky.model import SkyModel
+from rrivis.core.sky import create_from_arrays
 from rrivis.core.precision import PrecisionConfig
 import numpy as np
 
 precision = PrecisionConfig.standard()
 
-# Build from arrays directly (SkyModel is immutable)
-sky = SkyModel.from_arrays(
+# Build from arrays directly
+sky = create_from_arrays(
     ra_rad=np.deg2rad([0.0, 15.0]),
     dec_rad=np.deg2rad([-30.72, -30.72]),
-    flux_ref=np.array([10.0, 5.0]),          # Jy
-    alpha=np.array([-0.7, -0.8]),            # spectral index
+    flux=np.array([10.0, 5.0]),              # Jy
+    spectral_index=np.array([-0.7, -0.8]),
     precision=precision,
 )
 ```

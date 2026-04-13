@@ -1045,4 +1045,4 @@ class TestSourceMergingWarning:
 # ---------------------------------------------------------------------------
 
 # _empty_point_source_arrays tests removed — functionality consolidated
-# into _empty_source_arrays() in model.py (see test_sky_model.py).
+# into empty_source_arrays() in _data.py (see test_sky_model.py).

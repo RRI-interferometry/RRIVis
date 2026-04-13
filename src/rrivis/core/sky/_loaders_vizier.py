@@ -33,6 +33,7 @@ from astroquery.vizier import Vizier
 
 from rrivis.utils.network import require_service
 
+from ._factories import create_empty, create_from_arrays
 from ._registry import get_loader, register_loader
 from .catalogs import (
     CASDA_TAP_URL,
@@ -92,6 +93,54 @@ def _select_table(tables, info: VizierCatalogEntry) -> Any:
     return tables[0]
 
 
+def _find_name_column(catalog) -> str | None:
+    """Best-effort lookup for a stable source-name column."""
+    lowered = {name.lower(): name for name in catalog.colnames}
+    exact = (
+        "source_name",
+        "sourcename",
+        "component_name",
+        "componentname",
+        "name",
+    )
+    for candidate in exact:
+        if candidate in lowered:
+            return lowered[candidate]
+    for name in catalog.colnames:
+        if "name" in name.lower():
+            return name
+    return None
+
+
+def _find_id_column(catalog) -> str | None:
+    """Best-effort lookup for a stable source-identifier column."""
+    lowered = {name.lower(): name for name in catalog.colnames}
+    exact = (
+        "source_id",
+        "sourceid",
+        "component_id",
+        "componentid",
+        "objid",
+        "id",
+    )
+    for candidate in exact:
+        if candidate in lowered:
+            return lowered[candidate]
+    for name in catalog.colnames:
+        low = name.lower()
+        if low.endswith("_id") or low == "id":
+            return name
+    return None
+
+
+def _extract_text_column(catalog, col_name: str) -> np.ndarray:
+    """Extract a text-like astropy column as a plain string ndarray."""
+    return np.asarray(
+        np.ma.filled(np.ma.array(catalog[col_name]), fill_value=""),
+        dtype=str,
+    )
+
+
 # =========================================================================
 # Core VizieR loader (module-level function)
 # =========================================================================
@@ -103,6 +152,8 @@ def _load_from_vizier_catalog(
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
     region: SkyRegion | None = None,
+    max_rows: int | None = None,
+    allow_full_catalog: bool = False,
 ) -> SkyModel:  # noqa: F821
     """
     Load a point-source catalog from VizieR using unified metadata.
@@ -134,8 +185,6 @@ def _load_from_vizier_catalog(
     ValueError
         If ``catalog_key`` is not in ``VIZIER_POINT_CATALOGS``.
     """
-    from .model import SkyModel
-
     if catalog_key not in VIZIER_POINT_CATALOGS:
         raise ValueError(
             f"Unknown VizieR catalog key '{catalog_key}'. "
@@ -143,9 +192,14 @@ def _load_from_vizier_catalog(
         )
 
     def _empty():
-        return SkyModel.empty_sky(catalog_key, brightness_conversion, precision)
+        return create_empty(catalog_key, brightness_conversion, precision)
 
     info = VIZIER_POINT_CATALOGS[catalog_key]
+    if region is None and max_rows is None and not allow_full_catalog:
+        raise ValueError(
+            f"Catalog '{catalog_key}' requires region=..., max_rows=..., or "
+            "allow_full_catalog=True before downloading from VizieR."
+        )
     logger.info(f"Fetching {info.description}")
 
     require_service("vizier", f"download catalog '{catalog_key}' from VizieR")
@@ -161,7 +215,7 @@ def _load_from_vizier_catalog(
         _pa_col = info.pa_col
         if _major_col:
             needed_cols.extend([_major_col, _minor_col, _pa_col])
-        v = Vizier(columns=needed_cols, row_limit=-1)
+        v = Vizier(columns=needed_cols, row_limit=max_rows or -1)
 
         # Push flux_limit filter to VizieR server to reduce download size
         flux_unit = info.flux_unit
@@ -274,6 +328,20 @@ def _load_from_vizier_catalog(
     valid_indices = np.where(flux_valid)[0]
     default_spindex = info.default_spindex
     alpha_arr = np.full(n, default_spindex, dtype=np.float64)
+    name_col = _find_name_column(catalog)
+    source_name = (
+        _extract_text_column(catalog, name_col)[valid_indices]
+        if name_col is not None
+        else None
+    )
+    id_col = _find_id_column(catalog)
+    source_id = (
+        _extract_text_column(catalog, id_col)[valid_indices]
+        if id_col is not None
+        else None
+    )
+    if source_id is None and source_name is not None:
+        source_id = source_name.copy()
 
     if info.spindex_col and info.spindex_col in catalog.colnames:
         spindex_raw = _extract_masked_column(catalog, info.spindex_col)
@@ -301,6 +369,10 @@ def _load_from_vizier_catalog(
         dec_rad = dec_rad[in_region]
         flux_jy = flux_jy[in_region]
         alpha_arr = alpha_arr[in_region]
+        if source_name is not None:
+            source_name = source_name[in_region]
+        if source_id is not None:
+            source_id = source_id[in_region]
         if _gauss_major is not None:
             _gauss_major = _gauss_major[in_region]
             _gauss_minor = _gauss_minor[in_region]
@@ -309,13 +381,23 @@ def _load_from_vizier_catalog(
 
         # Dedup overlapping sub-region results
         if n > 0 and len(region._iter_atomic()) > 1:
-            coords_key = np.round(np.column_stack([ra_rad, dec_rad]), decimals=8)
-            _, unique_idx = np.unique(coords_key, axis=0, return_index=True)
+            unique_idx = None
+            if source_id is not None and np.all(source_id != ""):
+                _, unique_idx = np.unique(source_id, return_index=True)
+            elif source_name is not None and np.all(source_name != ""):
+                _, unique_idx = np.unique(source_name, return_index=True)
+            else:
+                coords_key = np.round(np.column_stack([ra_rad, dec_rad]), decimals=8)
+                _, unique_idx = np.unique(coords_key, axis=0, return_index=True)
             unique_idx = np.sort(unique_idx)
             ra_rad = ra_rad[unique_idx]
             dec_rad = dec_rad[unique_idx]
             flux_jy = flux_jy[unique_idx]
             alpha_arr = alpha_arr[unique_idx]
+            if source_name is not None:
+                source_name = source_name[unique_idx]
+            if source_id is not None:
+                source_id = source_id[unique_idx]
             if _gauss_major is not None:
                 _gauss_major = _gauss_major[unique_idx]
                 _gauss_minor = _gauss_minor[unique_idx]
@@ -329,7 +411,7 @@ def _load_from_vizier_catalog(
         f"{catalog_key.upper()} loaded: {n:,} sources (flux >= {flux_limit} Jy)"
     )
 
-    sky = SkyModel.from_arrays(
+    sky = create_from_arrays(
         ra_rad=ra_rad,
         dec_rad=dec_rad,
         flux=flux_jy,
@@ -338,6 +420,8 @@ def _load_from_vizier_catalog(
         major_arcsec=_gauss_major,
         minor_arcsec=_gauss_minor,
         pa_deg=_gauss_pa,
+        source_name=source_name,
+        source_id=source_id,
         model_name=catalog_key,
         reference_frequency=info.freq_mhz * 1e6,
         brightness_conversion=brightness_conversion,
@@ -356,7 +440,12 @@ def _load_from_vizier_catalog(
     config_section="gleam",
     use_flag="use_gleam",
     network_service="vizier",
-    config_fields={"flux_limit": "flux_limit", "gleam_catalogue": "catalog"},
+    config_fields={
+        "flux_limit": "flux_limit",
+        "catalog": "catalog",
+        "max_rows": "max_rows",
+        "allow_full_catalog": "allow_full_catalog",
+    },
 )
 def load_gleam(
     flux_limit: float = 1.0,
@@ -364,6 +453,8 @@ def load_gleam(
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
     region: SkyRegion | None = None,
+    max_rows: int | None = None,
+    allow_full_catalog: bool = False,
 ) -> SkyModel:  # noqa: F821
     """
     Load GLEAM catalog from VizieR.
@@ -376,9 +467,6 @@ def load_gleam(
         Catalog key in ``VIZIER_POINT_CATALOGS``. Available GLEAM
         catalogs: ``"gleam_egc"``, ``"gleam_x_dr1"``, ``"gleam_x_dr2"``,
         ``"gleam_gal"``.
-
-        Legacy VizieR IDs (e.g. ``"VIII/100/gleamegc"``) are also
-        accepted for backward compatibility.
     precision : PrecisionConfig, optional
         Precision configuration for array dtypes. If None, uses float64.
 
@@ -387,19 +475,17 @@ def load_gleam(
     SkyModel
         Sky model with GLEAM sources.
     """
-    # Backward compat: accept old VizieR IDs
-    _LEGACY_GLEAM_IDS = {
-        "VIII/100/gleamegc": "gleam_egc",
-        "VIII/113/catalog2": "gleam_x_dr2",
-        "VIII/102/gleamgal": "gleam_gal",
-        "VIII/110/catalog": "gleam_x_dr1",
-    }
-    key = _LEGACY_GLEAM_IDS.get(catalog, catalog)
     _gleam_keys = sorted(k for k in VIZIER_POINT_CATALOGS if k.startswith("gleam"))
-    if key not in VIZIER_POINT_CATALOGS:
+    if catalog not in VIZIER_POINT_CATALOGS:
         raise ValueError(f"Unknown GLEAM catalog '{catalog}'. Available: {_gleam_keys}")
     return _load_from_vizier_catalog(
-        key, flux_limit, brightness_conversion, precision, region=region
+        catalog,
+        flux_limit,
+        brightness_conversion,
+        precision,
+        region=region,
+        max_rows=max_rows,
+        allow_full_catalog=allow_full_catalog,
     )
 
 
@@ -408,7 +494,12 @@ def load_gleam(
     config_section="mals",
     use_flag="use_mals",
     network_service="vizier",
-    config_fields={"flux_limit": "flux_limit", "mals_release": "release"},
+    config_fields={
+        "flux_limit": "flux_limit",
+        "release": "release",
+        "max_rows": "max_rows",
+        "allow_full_catalog": "allow_full_catalog",
+    },
 )
 def load_mals(
     flux_limit: float = 1.0,
@@ -416,6 +507,8 @@ def load_mals(
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
     region: SkyRegion | None = None,
+    max_rows: int | None = None,
+    allow_full_catalog: bool = False,
 ) -> SkyModel:  # noqa: F821
     """
     Load MALS catalog from VizieR.
@@ -439,7 +532,13 @@ def load_mals(
     if key not in VIZIER_POINT_CATALOGS:
         raise ValueError(f"Unknown MALS release '{release}'. Available: 'dr1', 'dr2'.")
     return _load_from_vizier_catalog(
-        key, flux_limit, brightness_conversion, precision, region=region
+        key,
+        flux_limit,
+        brightness_conversion,
+        precision,
+        region=region,
+        max_rows=max_rows,
+        allow_full_catalog=allow_full_catalog,
     )
 
 
@@ -469,9 +568,17 @@ def _make_simple_vizier_loader(catalog_key: str):
         brightness_conversion: str = "planck",
         precision: PrecisionConfig | None = None,
         region: SkyRegion | None = None,
+        max_rows: int | None = None,
+        allow_full_catalog: bool = False,
     ):
         return _load_from_vizier_catalog(
-            catalog_key, flux_limit, brightness_conversion, precision, region=region
+            catalog_key,
+            flux_limit,
+            brightness_conversion,
+            precision,
+            region=region,
+            max_rows=max_rows,
+            allow_full_catalog=allow_full_catalog,
         )
 
     loader.__name__ = f"load_{catalog_key}"
@@ -500,7 +607,11 @@ for _key, _config_section in _SIMPLE_VIZIER_CATALOGS.items():
         config_section=_config_section,
         use_flag=f"use_{_key}",
         network_service="vizier",
-        config_fields={"flux_limit": "flux_limit"},
+        config_fields={
+            "flux_limit": "flux_limit",
+            "max_rows": "max_rows",
+            "allow_full_catalog": "allow_full_catalog",
+        },
     )(_fn)
 
 # Expose as module-level names for direct import
@@ -518,7 +629,12 @@ load_vlass = get_loader("vlass")
     config_section="lotss",
     use_flag="use_lotss",
     network_service="vizier",
-    config_fields={"flux_limit": "flux_limit", "lotss_release": "release"},
+    config_fields={
+        "flux_limit": "flux_limit",
+        "release": "release",
+        "max_rows": "max_rows",
+        "allow_full_catalog": "allow_full_catalog",
+    },
 )
 def load_lotss(
     release: str = "dr2",
@@ -526,6 +642,8 @@ def load_lotss(
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
     region: SkyRegion | None = None,
+    max_rows: int | None = None,
+    allow_full_catalog: bool = False,
 ) -> SkyModel:  # noqa: F821
     """
     Load the LoTSS catalog from VizieR (144 MHz, DR1: ~325k, DR2: ~4.4M sources).
@@ -557,7 +675,13 @@ def load_lotss(
     if key not in VIZIER_POINT_CATALOGS:
         raise ValueError(f"Unknown LoTSS release '{release}'. Available: 'dr1', 'dr2'.")
     return _load_from_vizier_catalog(
-        key, flux_limit, brightness_conversion, precision, region=region
+        key,
+        flux_limit,
+        brightness_conversion,
+        precision,
+        region=region,
+        max_rows=max_rows,
+        allow_full_catalog=allow_full_catalog,
     )
 
 
@@ -568,7 +692,7 @@ def load_lotss(
     network_service="casda",
     config_fields={
         "flux_limit": "flux_limit",
-        "racs_band": "band",
+        "band": "band",
         "max_rows": "max_rows",
     },
 )
@@ -681,12 +805,28 @@ def load_racs(
         ra_arr = ra_raw[valid]
         dec_arr = dec_raw[valid]
         flux_arr = flux_raw[valid]
+        id_col = _find_id_column(result)
+        name_col = _find_name_column(result)
+        source_id = (
+            _extract_text_column(result, id_col)[valid] if id_col is not None else None
+        )
+        source_name = (
+            _extract_text_column(result, name_col)[valid]
+            if name_col is not None
+            else None
+        )
+        if source_id is None and source_name is not None:
+            source_id = source_name.copy()
     except Exception as e:
         logger.warning(
             f"Vectorized extraction failed for RACS-{band}, "
             f"falling back to row-by-row: {e}"
         )
         ra_list, dec_list, flux_list = [], [], []
+        source_name_list: list[str] = []
+        source_id_list: list[str] = []
+        id_col = _find_id_column(result)
+        name_col = _find_name_column(result)
         for row in result:
             try:
                 flux_mjy = row[info.flux_col]
@@ -702,12 +842,26 @@ def load_racs(
                 ra_list.append(float(ra_val))
                 dec_list.append(float(dec_val))
                 flux_list.append(flux_jy)
+                if name_col is not None:
+                    source_name_list.append(
+                        "" if np.ma.is_masked(row[name_col]) else str(row[name_col])
+                    )
+                if id_col is not None:
+                    source_id_list.append(
+                        "" if np.ma.is_masked(row[id_col]) else str(row[id_col])
+                    )
             except Exception as row_err:
                 logger.debug(f"Skipping RACS row: {row_err}")
                 continue
         ra_arr = np.array(ra_list, dtype=np.float64)
         dec_arr = np.array(dec_list, dtype=np.float64)
         flux_arr = np.array(flux_list, dtype=np.float64)
+        source_name = (
+            np.array(source_name_list, dtype=str) if source_name_list else None
+        )
+        source_id = np.array(source_id_list, dtype=str) if source_id_list else None
+        if source_id is None and source_name is not None:
+            source_id = source_name.copy()
 
     # Client-side region trim
     if region is not None and len(flux_arr) > 0:
@@ -715,6 +869,10 @@ def load_racs(
         ra_arr = ra_arr[in_region]
         dec_arr = dec_arr[in_region]
         flux_arr = flux_arr[in_region]
+        if source_name is not None:
+            source_name = source_name[in_region]
+        if source_id is not None:
+            source_id = source_id[in_region]
 
     n = len(flux_arr)
     logger.info(
@@ -723,13 +881,15 @@ def load_racs(
     )
 
     if n == 0:
-        return SkyModel.empty_sky(model_name, brightness_conversion, precision)
+        return create_empty(model_name, brightness_conversion, precision)
 
-    sky = SkyModel.from_arrays(
+    sky = create_from_arrays(
         ra_rad=SkyModel.deg_to_rad_at_precision(ra_arr, precision),
         dec_rad=SkyModel.deg_to_rad_at_precision(dec_arr, precision),
         flux=flux_arr,
         ref_freq=np.full(n, freq_hz, dtype=np.float64),
+        source_name=source_name,
+        source_id=source_id,
         model_name=model_name,
         reference_frequency=freq_hz,
         brightness_conversion=brightness_conversion,

@@ -17,7 +17,7 @@ lint = "ruff check ."
 fix = "ruff check --fix ."
 format = "ruff format ."
 check-format = "ruff format --check ."
-typecheck = "mypy src/rrivis"
+typecheck = "python -m mypy src/rrivis"
 test = "python -m pytest tests/"
 pre-commit-install = "pre-commit install"
 

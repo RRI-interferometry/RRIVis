@@ -224,46 +224,20 @@ class Simulator:
             }
 
         if sky_model:
-            from rrivis.core.sky.registry import (
-                build_alias_map,
-                get_loader_definition,
-                list_loaders,
-            )
+            from rrivis.core.sky.registry import loader_registry
 
-            aliases = build_alias_map()
-            synthetic_names = {"test", "test_sources", "test_healpix"}
-
-            if sky_model in ("test", "test_sources"):
-                source = {
-                    "kind": "test_sources",
-                    "flux_min": 2.0,
-                    "flux_max": 8.0,
-                    "dec_deg": -30.72,
-                    "spectral_index": -0.8,
-                }
-                is_healpix = False
-            elif sky_model == "test_healpix":
-                source = {
-                    "kind": "test_sources",
-                    "representation": "healpix_map",
-                    "nside": 64,
-                }
-                is_healpix = True
-            else:
-                canonical = aliases.get(sky_model, sky_model)
-                try:
-                    definition = get_loader_definition(canonical)
-                except ValueError:
-                    available = sorted(
-                        set(list_loaders()) | set(aliases) | synthetic_names
-                    )
-                    raise ValueError(
-                        f"Unknown sky_model '{sky_model}'. Available: {available}."
-                    ) from None
-                source = {"kind": canonical}
-                if canonical == "diffuse_sky" and sky_model in aliases:
-                    source["model"] = sky_model
-                is_healpix = definition.is_healpix
+            try:
+                canonical, defaults = loader_registry.resolve_request(sky_model, {})
+                meta = loader_registry.meta(sky_model)
+            except ValueError:
+                available = sorted(
+                    set(loader_registry.names()) | set(loader_registry.aliases())
+                )
+                raise ValueError(
+                    f"Unknown sky_model '{sky_model}'. Available: {available}."
+                ) from None
+            source = {canonical: defaults}
+            is_healpix = meta["representation"] == "healpix_map"
 
             config["sky_model"] = {"flux_unit": "Jy", "sources": [source]}
             config["visibility"] = {
@@ -549,7 +523,6 @@ class Simulator:
         # Load sky model using unified SkyModel class
         # Extract precision config to pass to SkyModel factory methods
         from rrivis.core.precision import PrecisionConfig
-        from rrivis.core.sky import SkyModel
 
         _precision = (
             self._backend.precision if self._backend else PrecisionConfig.standard()
@@ -569,54 +542,37 @@ class Simulator:
         _brightness_conv = sky_config.get("brightness_conversion", "planck")
         mixed_model_policy = sky_config.get("mixed_model_policy", "error")
 
-        # Build sky region from config (if specified)
-        from rrivis.core.sky.region import SkyRegion
+        from rrivis.io.config import (
+            SkySourceConfig,
+            build_sky_region,
+            parse_sky_source_config,
+        )
 
-        def _build_sky_region(entry: dict) -> SkyRegion:
-            if entry.get("shape", "cone") == "cone":
-                return SkyRegion.cone(
-                    entry["center_ra_deg"],
-                    entry["center_dec_deg"],
-                    entry["radius_deg"],
-                )
-            return SkyRegion.box(
-                entry["center_ra_deg"],
-                entry["center_dec_deg"],
-                entry["width_deg"],
-                entry["height_deg"],
-            )
-
-        region_config = sky_config.get("region")
-        region = None
-        if region_config:
-            if isinstance(region_config, list):
-                region = SkyRegion.union([_build_sky_region(e) for e in region_config])
-            else:
-                region = _build_sky_region(region_config)
-
-        from rrivis.io.config import SkySourceConfig
+        region = build_sky_region(sky_config.get("region"))
 
         frequency = float(self._frequencies_hz[0])
         source_specs = [
-            spec
-            if isinstance(spec, SkySourceConfig)
-            else SkySourceConfig.model_validate(spec)
+            spec if isinstance(spec, SkySourceConfig) else parse_sky_source_config(spec)
             for spec in sky_config.get("sources", [])
         ]
         nside = next(
-            (int(spec.nside) for spec in source_specs if spec.nside is not None),
+            (
+                int(spec.nside)
+                for spec in source_specs
+                if getattr(spec, "nside", None) is not None
+            ),
             64,
         )
 
         # Collect all requested sky models
         sky_models = []
-        from rrivis.core.sky.registry import get_loader_definition
+        from rrivis.core.sky.registry import loader_registry
 
         obs_freq_config = self.config.get("obs_frequency", {})
         loader_requests: list[tuple[str, dict[str, Any]]] = []
 
         for spec in source_specs:
-            get_loader_definition(spec.kind)
+            loader_registry.definition(spec.kind)
             loader_requests.append(
                 spec.to_loader_request(
                     flux_multiplier=_flux_mul,
@@ -628,8 +584,10 @@ class Simulator:
             )
 
         if loader_requests:
+            from rrivis.core.sky._factories import load_models_parallel
+
             sky_models.extend(
-                SkyModel.load_parallel(
+                load_models_parallel(
                     loader_requests,
                     max_workers=8,
                     precision=_precision,
@@ -646,59 +604,33 @@ class Simulator:
                 "in the sky_model section of your config."
             )
 
-        # Combine all models into one
-        if len(sky_models) == 1:
-            self._sky_model = sky_models[0]
-        else:
-            self._sky_model = SkyModel.combine(
-                sky_models,
-                representation=sky_representation,
-                nside=nside,
-                frequency=frequency,
-                frequencies=self._frequencies_hz,
-                obs_frequency_config=self.config.get("obs_frequency", {}),
-                allow_lossy_point_materialization=allow_lossy_point_materialization,
-                mixed_model_policy=mixed_model_policy,
-                precision=_precision,
-            )
+        from rrivis.core.sky.pipeline import prepare_sky_model
 
-        # Ensure sky model is in requested representation (immutable chain)
-        if sky_representation == "healpix_map":
-            if self._sky_model.healpix is not None:
-                self._sky_model = self._sky_model.activate("healpix_map")
-            else:
-                self._sky_model = self._sky_model.materialize_healpix(
-                    nside=nside,
-                    frequencies=self._frequencies_hz,
-                    ref_frequency=frequency,
-                )
-        else:
-            if self._sky_model.point is not None:
-                self._sky_model = self._sky_model.activate("point_sources")
-            else:
-                if not allow_lossy_point_materialization:
-                    raise ValueError(
-                        "Requested visibility.sky_representation='point_sources' "
-                        "for a HEALPix-only sky model. Set "
-                        "visibility.allow_lossy_point_materialization=true to "
-                        "opt in to lossy HEALPix-to-point conversion."
-                    )
-                self._sky_model = self._sky_model.materialize_point_sources(
-                    frequency=frequency,
-                    lossy=True,
-                )
+        self._sky_model = prepare_sky_model(
+            sky_models,
+            representation=sky_representation,
+            nside=nside,
+            frequency=frequency,
+            frequencies=self._frequencies_hz,
+            obs_frequency_config=self.config.get("obs_frequency", {}),
+            allow_lossy=allow_lossy_point_materialization,
+            mixed_model_policy=mixed_model_policy,
+            brightness_conversion=_brightness_conv,
+            precision=_precision,
+        )
 
         # Get point source arrays for RIME calculator (only in point_sources mode)
         from rrivis.core.sky.model import SkyFormat
 
-        if self._sky_model.mode == SkyFormat.HEALPIX:
+        sky_mode = SkyFormat(sky_representation)
+        if sky_mode == SkyFormat.HEALPIX:
             self._source_arrays = None
         else:
             self._source_arrays = self._sky_model.as_point_source_arrays()
 
         self._is_setup = True
-        n_sky = self._sky_model.n_sky_elements
-        sky_type = "pixels" if self._sky_model.mode == SkyFormat.HEALPIX else "sources"
+        n_sky = self._sky_model.n_sky_elements_for(sky_mode)
+        sky_type = "pixels" if sky_mode == SkyFormat.HEALPIX else "sources"
         print_success(
             f"Setup complete: {len(self._antennas)} antennas, {len(self._baselines)} baselines, {n_sky} {sky_type}"
         )
@@ -756,8 +688,14 @@ class Simulator:
             from rrivis.core.sky.model import SkyFormat as _SF
 
             # Print configuration table (after setup, needs backend/sky_model info)
-            n_sky = self._sky_model.n_sky_elements if self._sky_model else 0
-            _sky_mode = self._sky_model.mode if self._sky_model else _SF.POINT_SOURCES
+            _sky_mode = _SF(
+                self.config.get("visibility", {}).get(
+                    "sky_representation", "point_sources"
+                )
+            )
+            n_sky = (
+                self._sky_model.n_sky_elements_for(_sky_mode) if self._sky_model else 0
+            )
             sky_label = (
                 f"{n_sky} pixels (HEALPix)"
                 if _sky_mode == _SF.HEALPIX
@@ -782,7 +720,9 @@ class Simulator:
 
         from rrivis.core.sky.model import SkyFormat
 
-        _sky_mode = self._sky_model.mode if self._sky_model else SkyFormat.POINT_SOURCES
+        _sky_mode = SkyFormat(
+            self.config.get("visibility", {}).get("sky_representation", "point_sources")
+        )
         print_info(f"Running visibility simulation ({_sky_mode.value} mode)...")
 
         # Calculate visibilities based on sky representation
@@ -799,6 +739,12 @@ class Simulator:
                 self._sky_model is not None
                 and self._sky_model.has_polarized_healpix_maps
             )
+            if self._backend.name != "numpy":
+                print_warning(
+                    "HEALPix visibility simulation uses the NumPy CPU path; "
+                    f"configured backend '{self._backend.name}' applies to "
+                    "point-source visibility mode only."
+                )
 
             healpix_result = calculate_visibility_healpix(
                 sky_model=self._sky_model,
@@ -811,7 +757,6 @@ class Simulator:
                 duration_seconds=duration_seconds,
                 time_step_seconds=time_step_seconds,
                 beam_manager=self._beam_manager,
-                backend=self._backend,
                 output_units="Jy",
                 beam_config=self._beam_config,
                 include_polarization=use_pol,
@@ -872,7 +817,7 @@ class Simulator:
         t_total = time.perf_counter() - t_start
 
         # Compile results
-        n_sky = self._sky_model.n_sky_elements if self._sky_model else 0
+        n_sky = self._sky_model.n_sky_elements_for(_sky_mode) if self._sky_model else 0
         self._results = {
             "visibilities": visibilities,
             "frequencies": self._frequencies_hz,

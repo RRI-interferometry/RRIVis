@@ -3,7 +3,8 @@
 import numpy as np
 import pytest
 
-from rrivis.core.sky.model import SkyModel
+from rrivis.core.precision import PrecisionConfig
+from rrivis.core.sky import create_from_arrays
 from rrivis.utils.diagnostics.planner import DiagnosticsPlanner
 
 # ---------------------------------------------------------------------------
@@ -147,7 +148,7 @@ class TestSourceFiltering:
         alphas = np.zeros(5)
         zeros = np.zeros(5)
 
-        return SkyModel.from_arrays(
+        return create_from_arrays(
             ra_rad=ras,
             dec_rad=decs,
             flux=fluxes,
@@ -157,6 +158,7 @@ class TestSourceFiltering:
             stokes_v=zeros,
             model_name="test",
             brightness_conversion="planck",
+            precision=PrecisionConfig.standard(),
         )
 
     def test_in_strip_mask(self):

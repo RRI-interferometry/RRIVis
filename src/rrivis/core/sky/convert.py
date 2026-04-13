@@ -96,22 +96,25 @@ def _fit_pixel_spectral_indices(
         if abs(denom) > 1e-30:
             alpha[all_valid] = (N * sum_xy - sum_x * sum_y) / denom
 
-    # For pixels with partial frequency coverage, fit individually
+    # For pixels with partial frequency coverage, use masked vectorized sums.
     partial = fittable & ~all_valid
     if np.any(partial):
-        partial_idx = np.where(partial)[0]
-        for pi in partial_idx:
-            mask = positive_mask[:, pi]
-            x = log_ratio[mask]
-            y = np.log10(flux_matrix[mask, pi])
-            N = len(x)
-            sum_x = np.sum(x)
-            sum_x2 = np.sum(x**2)
-            sum_y = np.sum(y)
-            sum_xy = np.sum(x * y)
-            denom = N * sum_x2 - sum_x**2
-            if abs(denom) > 1e-30:
-                alpha[pi] = (N * sum_xy - sum_x * sum_y) / denom
+        masked_flux = np.where(positive_mask[:, partial], flux_matrix[:, partial], 1.0)
+        log_s = np.where(positive_mask[:, partial], np.log10(masked_flux), 0.0)
+        valid = positive_mask[:, partial].astype(np.float64)
+        x = log_ratio[:, None]
+        n_fit = valid.sum(axis=0)
+        sum_x = (x * valid).sum(axis=0)
+        sum_x2 = ((x**2) * valid).sum(axis=0)
+        sum_y = log_s.sum(axis=0)
+        sum_xy = (x * log_s).sum(axis=0)
+        denom = n_fit * sum_x2 - sum_x**2
+        good = np.abs(denom) > 1e-30
+        partial_alpha = np.zeros(int(partial.sum()), dtype=np.float64)
+        partial_alpha[good] = (
+            n_fit[good] * sum_xy[good] - sum_x[good] * sum_y[good]
+        ) / denom[good]
+        alpha[partial] = partial_alpha
 
     # Clamp non-finite values
     bad = ~np.isfinite(alpha)
@@ -136,6 +139,8 @@ def healpix_map_to_point_arrays(
     freq_index: int | None = None,
     healpix_maps: np.ndarray | None = None,
     ref_freq_out: float | None = None,
+    *,
+    warn: bool = True,
 ) -> dict[str, np.ndarray]:
     """Convert a HEALPix brightness temperature map to columnar point-source arrays.
 
@@ -237,7 +242,7 @@ def healpix_map_to_point_arrays(
         n_freq = (
             len(observation_frequencies) if observation_frequencies is not None else 0
         )
-        if n_freq <= 1:
+        if warn and n_freq <= 1:
             logger.warning(
                 "Only %d frequency channel available \u2014 cannot fit spectral "
                 "index. All pixels assigned alpha=0 (flat spectrum). For "
@@ -245,7 +250,7 @@ def healpix_map_to_point_arrays(
                 "representation directly.",
                 max(n_freq, 1),
             )
-        else:
+        elif warn:
             logger.warning(
                 "HEALPix-to-point-source conversion assigns alpha=0 (flat "
                 "spectrum) to all pixels. For accurate multi-frequency "
@@ -254,13 +259,14 @@ def healpix_map_to_point_arrays(
 
     # Position quantization warning
     resol_arcmin = np.degrees(hp.nside2resol(nside)) * 60
-    logger.warning(
-        "HEALPix-to-point-source conversion: source positions are quantized "
-        "to pixel centers (nside=%d, angular resolution ~%.2f arcmin). "
-        "Sub-pixel positions from the original catalog are lost.",
-        nside,
-        resol_arcmin,
-    )
+    if warn:
+        logger.warning(
+            "HEALPix-to-point-source conversion: source positions are quantized "
+            "to pixel centers (nside=%d, angular resolution ~%.2f arcmin). "
+            "Sub-pixel positions from the original catalog are lost.",
+            nside,
+            resol_arcmin,
+        )
 
     # Stokes Q/U/V use Rayleigh-Jeans (linear, sign-preserving) rather than
     # Planck because: (a) Q/U/V values can be negative, which Planck cannot

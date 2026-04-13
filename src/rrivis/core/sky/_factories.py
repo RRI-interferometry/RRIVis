@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
-from typing import TYPE_CHECKING, Any
+import traceback
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -22,6 +24,38 @@ if TYPE_CHECKING:
     from .model import SkyModel
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SkyLoadError:
+    """Context for one failed sky-loader request."""
+
+    loader_name: str
+    kwargs: dict[str, Any]
+    exception: Exception
+    traceback_text: str
+
+
+class SkyLoadAggregateError(RuntimeError):
+    """Raised when strict parallel sky loading has one or more failures."""
+
+    def __init__(self, failures: list[SkyLoadError]) -> None:
+        self.failures = failures
+        details = "\n".join(
+            f"- {failure.loader_name}: {failure.exception}" for failure in failures
+        )
+        super().__init__(
+            f"load_parallel: {len(failures)} loader(s) failed (strict=True):\n{details}"
+        )
+
+
+def _require_precision(precision: PrecisionConfig | None) -> PrecisionConfig:
+    if precision is None:
+        raise ValueError(
+            "Sky model construction requires an explicit PrecisionConfig. "
+            "Pass precision=... at the loader or constructor boundary."
+        )
+    return precision
 
 
 def create_empty(
@@ -49,14 +83,11 @@ def create_empty(
     """
     from .model import SkyModel
 
-    if precision is None:
-        from rrivis.core.precision import PrecisionConfig
-
-        precision = PrecisionConfig.standard()
+    precision = _require_precision(precision)
 
     return SkyModel(
         point=PointSourceData.empty(),
-        native_representation=SkyFormat.POINT_SOURCES,
+        source_format=SkyFormat.POINT_SOURCES,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,
@@ -78,6 +109,9 @@ def create_from_arrays(
     pa_deg: np.ndarray | None = None,
     spectral_coeffs: np.ndarray | None = None,
     ref_freq: np.ndarray | None = None,
+    source_name: np.ndarray | None = None,
+    source_id: np.ndarray | None = None,
+    extra_columns: dict[str, np.ndarray] | None = None,
     model_name: str = "custom",
     reference_frequency: float | None = None,
     brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK,
@@ -89,10 +123,7 @@ def create_from_arrays(
     """
     from .model import SkyModel
 
-    if precision is None:
-        from rrivis.core.precision import PrecisionConfig
-
-        precision = PrecisionConfig.standard()
+    precision = _require_precision(precision)
 
     # Resolve dtypes from precision config
     src_dt = precision.sky_model.get_dtype("source_positions")
@@ -127,11 +158,14 @@ def create_from_arrays(
         minor_arcsec=minor_arcsec,
         pa_deg=pa_deg,
         spectral_coeffs=spectral_coeffs,
+        source_name=source_name,
+        source_id=source_id,
+        extra_columns={} if extra_columns is None else extra_columns,
     )
 
     return SkyModel(
         point=point,
-        native_representation=SkyFormat.POINT_SOURCES,
+        source_format=SkyFormat.POINT_SOURCES,
         model_name=model_name,
         reference_frequency=reference_frequency,
         brightness_conversion=brightness_conversion,
@@ -154,18 +188,15 @@ def create_from_freq_dict_maps(
     """
     from .model import SkyModel
 
-    if kwargs.get("_precision") is None:
-        from rrivis.core.precision import PrecisionConfig
-
-        kwargs["_precision"] = PrecisionConfig.standard()
+    precision = _require_precision(
+        kwargs.pop("precision", kwargs.pop("_precision", None))
+    )
 
     sorted_freqs = np.sort(np.array(list(i_maps.keys()), dtype=np.float64))
     i_arr = np.stack([i_maps[f] for f in sorted_freqs])
     q_arr = np.stack([q_maps[f] for f in sorted_freqs]) if q_maps else None
     u_arr = np.stack([u_maps[f] for f in sorted_freqs]) if u_maps else None
     v_arr = np.stack([v_maps[f] for f in sorted_freqs]) if v_maps else None
-
-    kwargs.setdefault("_active_mode", SkyFormat.HEALPIX)
 
     healpix = HealpixData(
         maps=i_arr,
@@ -178,8 +209,8 @@ def create_from_freq_dict_maps(
 
     return SkyModel(
         healpix=healpix,
-        active_representation=kwargs.pop("_active_mode", SkyFormat.HEALPIX),
-        native_representation=kwargs.pop("_native_format", SkyFormat.HEALPIX),
+        source_format=kwargs.pop("source_format", SkyFormat.HEALPIX),
+        _precision=precision,
         **kwargs,
     )
 
@@ -201,10 +232,7 @@ def create_test_sources(
     """Generate synthetic test sources."""
     from .model import SkyModel
 
-    if precision is None:
-        from rrivis.core.precision import PrecisionConfig
-
-        precision = PrecisionConfig.standard()
+    precision = _require_precision(precision)
 
     if distribution not in ("uniform", "random"):
         raise ValueError(
@@ -277,44 +305,52 @@ def load_models_parallel(
     def _load_one(method_name: str, kw: dict) -> SkyModel:
         from ._registry import get_loader
 
-        return get_loader(method_name)(**kw)
+        return cast(SkyModel, get_loader(method_name)(**kw))
 
     n = min(len(loaders), max_workers)
-    results: list[SkyModel] = []
-    failures: list[tuple[str, Exception]] = []
+    results: list[SkyModel | None] = [None] * len(loaders)
+    failures: list[SkyLoadError] = []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=n) as pool:
-        future_to_name: dict[concurrent.futures.Future, str] = {}
-        for method_name, kwargs in loaders:
+        future_to_loader: dict[concurrent.futures.Future, tuple[int, str]] = {}
+        for index, (method_name, kwargs) in enumerate(loaders):
             kw = dict(kwargs)
             if precision is not None and "precision" not in kw:
                 kw["precision"] = precision
             f = pool.submit(_load_one, method_name, kw)
-            future_to_name[f] = method_name
+            future_to_loader[f] = (index, method_name)
 
-        for future in concurrent.futures.as_completed(future_to_name):
-            name = future_to_name[future]
+        for future in concurrent.futures.as_completed(future_to_loader):
+            index, name = future_to_loader[future]
             try:
                 sky = future.result()
-                if sky.available_representations:
-                    results.append(sky)
+                if sky.available_formats:
+                    results[index] = sky
+                    try:
+                        n_elements = sky.n_sky_elements
+                    except ValueError:
+                        n_elements = sky.n_sky_elements_for(SkyFormat.HEALPIX)
                     logger.info(
-                        f"Parallel load complete: {name} "
-                        f"({sky.n_sky_elements:,} sky elements)"
+                        f"Parallel load complete: {name} ({n_elements:,} sky elements)"
                     )
                 else:
                     logger.info(f"Parallel load: {name} returned empty model")
             except Exception as e:
-                failures.append((name, e))
+                failures.append(
+                    SkyLoadError(
+                        loader_name=name,
+                        kwargs=loaders[index][1],
+                        exception=e,
+                        traceback_text=traceback.format_exc(),
+                    )
+                )
                 logger.warning(f"Parallel load failed for {name}: {e}")
 
-    logger.info(f"load_parallel: {len(results)}/{len(loaders)} loaders succeeded")
+    loaded = [sky for sky in results if sky is not None]
+
+    logger.info(f"load_parallel: {len(loaded)}/{len(loaders)} loaders succeeded")
 
     if failures and strict:
-        names = ", ".join(n for n, _ in failures)
-        raise RuntimeError(
-            f"load_parallel: {len(failures)}/{len(loaders)} loaders failed "
-            f"(strict=True): {names}"
-        )
+        raise SkyLoadAggregateError(failures)
 
-    return results
+    return loaded

@@ -2,7 +2,16 @@
 """Unified sky model package for RRIVis."""
 
 from ._data import HealpixData, PointSourceData, SourceArrays
+from ._factories import (
+    create_empty,
+    create_from_arrays,
+    create_from_freq_dict_maps,
+    create_test_sources,
+    load_models_parallel,
+)
+from ._serialization import load_skyh5, save_skyh5, to_pyradiosky
 from .catalogs import DiffuseModelEntry, RacsCatalogEntry, VizierCatalogEntry
+from .combine import combine_models
 from .constants import (
     C_LIGHT,
     H_PLANCK,
@@ -18,6 +27,12 @@ from .model import (
     SkyFormat,
     SkyModel,
 )
+from .operations import (
+    materialize_healpix_model,
+    materialize_point_sources_model,
+    with_memmap_backing,
+)
+from .pipeline import prepare_sky_model
 from .plotter import SkyPlotter
 from .region import BoxRegion, ConeRegion, SkyRegion, UnionRegion
 from .spectral import apply_faraday_rotation, compute_spectral_scale
@@ -26,6 +41,19 @@ __all__ = [
     "SkyModel",
     "SkyPlotter",
     "SkyRegion",
+    "create_empty",
+    "create_from_arrays",
+    "create_from_freq_dict_maps",
+    "create_test_sources",
+    "load_models_parallel",
+    "combine_models",
+    "prepare_sky_model",
+    "materialize_healpix_model",
+    "materialize_point_sources_model",
+    "with_memmap_backing",
+    "to_pyradiosky",
+    "save_skyh5",
+    "load_skyh5",
     "ConeRegion",
     "BoxRegion",
     "UnionRegion",

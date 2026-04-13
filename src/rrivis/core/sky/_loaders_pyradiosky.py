@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+import warnings
+from typing import TYPE_CHECKING, Any, Literal
 
 import astropy.units as u
 import healpy as hp
@@ -28,19 +29,32 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class LossyConversionWarning(UserWarning):
+    """Warn when pyradiosky import drops higher-order spectral information."""
+
+
 @register_loader(
     "pyradiosky_file",
     config_section="pyradiosky",
     use_flag="use_pyradiosky",
+    category="file",
     requires_file=True,
     network_service=None,
     aliases=["pyradiosky"],
+    config_fields={
+        "filename": "filename",
+        "filetype": "filetype",
+        "flux_limit": "flux_limit",
+        "reference_frequency_hz": "reference_frequency_hz",
+        "spectral_loss_policy": "spectral_loss_policy",
+    },
 )
 def load_pyradiosky_file(
     filename: str,
     filetype: str | None = None,
     flux_limit: float = 0.0,
     reference_frequency_hz: float | None = None,
+    spectral_loss_policy: Literal["warn", "error"] = "warn",
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
     frequencies: np.ndarray | None = None,
@@ -181,6 +195,16 @@ def load_pyradiosky_file(
     elif sky.spectral_type == "flat":
         spectral_indices = np.zeros(sky.Ncomponents, dtype=np.float64)
     else:
+        message = (
+            "Loading a pyradiosky point file with spectral_type="
+            f"{sky.spectral_type!r} collapses the per-channel spectrum to a single "
+            "fitted spectral index. Set spectral_loss_policy='error' to reject "
+            "this import."
+        )
+        if spectral_loss_policy == "error":
+            raise ValueError(message)
+        warnings.warn(message, LossyConversionWarning, stacklevel=2)
+
         # "full" or "subband": log power-law fit between first and last channel
         if sky.freq_array is not None and len(sky.freq_array) >= 2:
             s_first = np.array(stokes[0, 0, :], dtype=np.float64)
@@ -220,6 +244,20 @@ def load_pyradiosky_file(
     dec_arr = np.array(
         sky.dec.rad if hasattr(sky.dec, "rad") else sky.dec, dtype=np.float64
     )
+    source_name = None
+    if getattr(sky, "name", None) is not None:
+        source_name = np.asarray(sky.name)
+
+    source_id = None
+    extra_columns: dict[str, np.ndarray] = {}
+    extra = getattr(sky, "extra_columns", None)
+    if extra is not None and getattr(extra.dtype, "names", None) is not None:
+        for name in extra.dtype.names:
+            values = np.asarray(extra[name])
+            if name == "source_id":
+                source_id = values
+            else:
+                extra_columns[name] = values
 
     valid = np.isfinite(stokes_i_ref) & (stokes_i_ref >= flux_limit)
 
@@ -234,7 +272,9 @@ def load_pyradiosky_file(
     logger.info(f"pyradiosky file loaded: {n:,} sources from {filename}")
 
     if n == 0:
-        return SkyModel.empty_sky(
+        from ._factories import create_empty
+
+        return create_empty(
             model_name,
             brightness_conversion,
             precision,
@@ -255,8 +295,13 @@ def load_pyradiosky_file(
                 if per_source_ref_freq is not None
                 else np.full(n, ref_freq_hz, dtype=np.float64)
             ),
+            source_name=source_name[valid] if source_name is not None else None,
+            source_id=source_id[valid] if source_id is not None else None,
+            extra_columns={
+                name: values[valid] for name, values in extra_columns.items()
+            },
         ),
-        native_representation=SkyFormat.POINT_SOURCES,
+        source_format=SkyFormat.POINT_SOURCES,
         model_name=model_name,
         reference_frequency=ref_freq_hz,
         brightness_conversion=brightness_conversion,
@@ -363,6 +408,11 @@ def _load_pyradiosky_healpix(
         hpx_inds = np.asarray(psky_eval.hpx_inds)
 
     npix = hp.nside2npix(nside)
+    is_sparse = hpx_inds is not None and len(hpx_inds) < npix
+    if is_sparse and rot is not None:
+        raise NotImplementedError(
+            "Sparse pyradiosky HEALPix maps in galactic frame are not supported yet."
+        )
 
     # --- Extract Stokes and build full-sky maps ---
     # psky_eval.stokes shape: (n_stokes, Nfreqs, Ncomponents)
@@ -377,67 +427,129 @@ def _load_pyradiosky_healpix(
             )
         brightness_conversion = "rayleigh-jeans"
 
-    def _build_full_map(data_1d: np.ndarray) -> np.ndarray:
-        """Build a full-sky RING-ordered map from raw Stokes data."""
-        if hpx_inds is not None:
-            full = np.zeros(npix, dtype=np.float64)
-            pix = hpx_inds
-            if is_nested:
-                pix = hp.nest2ring(nside, pix)
-            full[pix] = data_1d
+    pix = None
+    if hpx_inds is not None:
+        pix = np.array(hpx_inds, copy=True)
+        if is_nested:
+            pix = hp.nest2ring(nside, pix)
+
+    if region is not None:
+        region_mask = region.healpix_mask(nside)
+        if is_sparse and pix is not None:
+            keep_mask = region_mask[pix]
+            pix = pix[keep_mask]
+            stokes_data = stokes_data[:, :, keep_mask]
+            logger.info(
+                f"Region mask applied: {int(keep_mask.sum())}/{len(keep_mask)} "
+                "stored pixels retained"
+            )
         else:
-            full = np.array(data_1d, dtype=np.float64)
-            if is_nested:
-                full = hp.reorder(full, n2r=True)
-        return full
+            logger.info("Region mask will be applied to the full-sky HEALPix cube.")
 
     from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 
     scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
     hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
-    i_arr = allocate_cube((n_freq, npix), hp_dtype, scratch, "i_maps")
-    q_arr = (
-        allocate_cube((n_freq, npix), hp_dtype, scratch, "q_maps") if has_pol else None
-    )
-    u_arr = (
-        allocate_cube((n_freq, npix), hp_dtype, scratch, "u_maps") if has_pol else None
-    )
-    v_arr = (
-        allocate_cube((n_freq, npix), hp_dtype, scratch, "v_maps")
-        if n_stokes_avail >= 4
-        else None
-    )
+    if is_sparse:
+        stored_npix = 0 if pix is None else len(pix)
+        i_arr = allocate_cube((n_freq, stored_npix), hp_dtype, scratch, "i_maps")
+        q_arr = (
+            allocate_cube((n_freq, stored_npix), hp_dtype, scratch, "q_maps")
+            if has_pol
+            else None
+        )
+        u_arr = (
+            allocate_cube((n_freq, stored_npix), hp_dtype, scratch, "u_maps")
+            if has_pol
+            else None
+        )
+        v_arr = (
+            allocate_cube((n_freq, stored_npix), hp_dtype, scratch, "v_maps")
+            if n_stokes_avail >= 4
+            else None
+        )
+    else:
+
+        def _build_full_map(data_1d: np.ndarray) -> np.ndarray:
+            """Build a full-sky RING-ordered map from raw Stokes data."""
+            if pix is not None:
+                full = np.zeros(npix, dtype=np.float64)
+                full[pix] = data_1d
+                return full
+            full = np.array(data_1d, dtype=np.float64)
+            if is_nested:
+                full = hp.reorder(full, n2r=True)
+            return full
+
+        i_arr = allocate_cube((n_freq, npix), hp_dtype, scratch, "i_maps")
+        q_arr = (
+            allocate_cube((n_freq, npix), hp_dtype, scratch, "q_maps")
+            if has_pol
+            else None
+        )
+        u_arr = (
+            allocate_cube((n_freq, npix), hp_dtype, scratch, "u_maps")
+            if has_pol
+            else None
+        )
+        v_arr = (
+            allocate_cube((n_freq, npix), hp_dtype, scratch, "v_maps")
+            if n_stokes_avail >= 4
+            else None
+        )
 
     for fi in range(n_freq):
-        i_map = _build_full_map(stokes_data[0, fi, :])
+        if is_sparse:
+            i_map = np.asarray(stokes_data[0, fi, :], dtype=np.float64)
+            if has_pol:
+                q_map = np.asarray(stokes_data[1, fi, :], dtype=np.float64)
+                u_map = np.asarray(stokes_data[2, fi, :], dtype=np.float64)
+            if n_stokes_avail >= 4:
+                v_map = np.asarray(stokes_data[3, fi, :], dtype=np.float64)
 
-        if has_pol:
-            q_map = _build_full_map(stokes_data[1, fi, :])
-            u_map = _build_full_map(stokes_data[2, fi, :])
-
-            if rot is not None:
-                iqu = np.array([i_map, q_map, u_map])
-                iqu_rot = rot.rotate_map_alms(iqu)
-                i_map = iqu_rot[0]
-                q_map = iqu_rot[1]
-                u_map = iqu_rot[2]
+            if pix is not None:
+                i_map = i_map[: len(pix)]
+                if has_pol:
+                    q_map = q_map[: len(pix)]
+                    u_map = u_map[: len(pix)]
+                if n_stokes_avail >= 4:
+                    v_map = v_map[: len(pix)]
 
             i_arr[fi] = i_map.astype(hp_dtype)
-            q_arr[fi] = q_map.astype(hp_dtype)
-            u_arr[fi] = u_map.astype(hp_dtype)
-
+            if has_pol:
+                q_arr[fi] = q_map.astype(hp_dtype)
+                u_arr[fi] = u_map.astype(hp_dtype)
             if n_stokes_avail >= 4:
-                v_map = _build_full_map(stokes_data[3, fi, :])
-                if rot is not None:
-                    v_map = rot.rotate_map_pixel(v_map)
                 v_arr[fi] = v_map.astype(hp_dtype)
         else:
-            if rot is not None:
-                i_map = rot.rotate_map_pixel(i_map)
-            i_arr[fi] = i_map.astype(hp_dtype)
+            i_map = _build_full_map(stokes_data[0, fi, :])
 
-    # Apply region mask (zero out-of-region pixels)
-    if region is not None:
+            if has_pol:
+                q_map = _build_full_map(stokes_data[1, fi, :])
+                u_map = _build_full_map(stokes_data[2, fi, :])
+
+                if rot is not None:
+                    iqu = np.array([i_map, q_map, u_map])
+                    iqu_rot = rot.rotate_map_alms(iqu)
+                    i_map = iqu_rot[0]
+                    q_map = iqu_rot[1]
+                    u_map = iqu_rot[2]
+
+                i_arr[fi] = i_map.astype(hp_dtype)
+                q_arr[fi] = q_map.astype(hp_dtype)
+                u_arr[fi] = u_map.astype(hp_dtype)
+
+                if n_stokes_avail >= 4:
+                    v_map = _build_full_map(stokes_data[3, fi, :])
+                    if rot is not None:
+                        v_map = rot.rotate_map_pixel(v_map)
+                    v_arr[fi] = v_map.astype(hp_dtype)
+            else:
+                if rot is not None:
+                    i_map = rot.rotate_map_pixel(i_map)
+                i_arr[fi] = i_map.astype(hp_dtype)
+
+    if region is not None and not is_sparse:
         mask = region.healpix_mask(nside)
         n_retained = int(mask.sum())
         i_arr[:, ~mask] = 0.0
@@ -451,7 +563,7 @@ def _load_pyradiosky_healpix(
     if has_pol:
         stokes_label = "IQU" + ("V" if n_stokes_avail >= 4 else "")
     logger.info(
-        f"pyradiosky HEALPix loaded: {npix} pixels \u00d7 {n_freq} frequencies, "
+        f"pyradiosky HEALPix loaded: {i_arr.shape[1]} pixels \u00d7 {n_freq} frequencies, "
         f"stokes={stokes_label}"
     )
 
@@ -469,12 +581,12 @@ def _load_pyradiosky_healpix(
             maps=i_arr,
             nside=nside,
             frequencies=obs_freqs,
+            hpx_inds=pix if is_sparse else None,
             q_maps=q_arr,
             u_maps=u_arr,
             v_maps=v_arr,
         ),
-        native_representation=SkyFormat.HEALPIX,
-        active_representation=SkyFormat.HEALPIX,
+        source_format=SkyFormat.HEALPIX,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,

@@ -7,7 +7,7 @@ No imports from model.py, convert.py, combine.py, or loaders.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypedDict
 
 import healpy as hp
@@ -92,6 +92,9 @@ class PointSourceData:
     minor_arcsec: np.ndarray | None = None
     pa_deg: np.ndarray | None = None
     spectral_coeffs: np.ndarray | None = None  # shape (N, N_terms) or None
+    source_name: np.ndarray | None = None
+    source_id: np.ndarray | None = None
+    extra_columns: dict[str, np.ndarray] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate array consistency."""
@@ -133,11 +136,36 @@ class PointSourceData:
                 raise ValueError(
                     f"PointSourceData: {name} has length {len(arr)}, expected {n}."
                 )
+        for name in ("source_name", "source_id"):
+            arr = getattr(self, name)
+            if arr is None:
+                continue
+            arr_np = np.asarray(arr)
+            if len(arr_np) != n:
+                raise ValueError(
+                    f"PointSourceData: {name} has length {len(arr_np)}, expected {n}."
+                )
+            object.__setattr__(self, name, arr_np)
         if self.spectral_coeffs is not None and self.spectral_coeffs.shape[0] != n:
             raise ValueError(
                 f"PointSourceData: spectral_coeffs has {self.spectral_coeffs.shape[0]} "
                 f"rows, expected {n}."
             )
+        normalized_extra: dict[str, np.ndarray] = {}
+        for name, arr in self.extra_columns.items():
+            arr = np.asarray(arr)
+            if arr.ndim != 1:
+                raise ValueError(
+                    f"PointSourceData: extra column {name!r} must be 1-D, "
+                    f"got shape {arr.shape}."
+                )
+            if len(arr) != n:
+                raise ValueError(
+                    f"PointSourceData: extra column {name!r} has length {len(arr)}, "
+                    f"expected {n}."
+                )
+            normalized_extra[name] = arr
+        object.__setattr__(self, "extra_columns", normalized_extra)
 
     @property
     def n_sources(self) -> int:
@@ -200,6 +228,11 @@ class PointSourceData:
             spectral_coeffs=(
                 self.spectral_coeffs[mask] if self.spectral_coeffs is not None else None
             ),
+            source_name=(
+                self.source_name[mask] if self.source_name is not None else None
+            ),
+            source_id=self.source_id[mask] if self.source_id is not None else None,
+            extra_columns={name: arr[mask] for name, arr in self.extra_columns.items()},
         )
 
     def as_source_arrays(
@@ -230,6 +263,10 @@ class PointSourceData:
             mask = np.ones(self.n_sources, dtype=bool)
             n = self.n_sources
 
+        ref_freq = self.ref_freq[mask]
+        if reference_frequency and np.all(ref_freq == 0):
+            ref_freq = np.full(n, reference_frequency, dtype=ref_freq.dtype)
+
         return {
             "ra_rad": self.ra_rad[mask],
             "dec_rad": self.dec_rad[mask],
@@ -238,7 +275,7 @@ class PointSourceData:
             "stokes_q": self.stokes_q[mask],
             "stokes_u": self.stokes_u[mask],
             "stokes_v": self.stokes_v[mask],
-            "ref_freq": self.ref_freq[mask],
+            "ref_freq": ref_freq,
             "rotation_measure": (
                 self.rotation_measure[mask]
                 if self.rotation_measure is not None
@@ -275,6 +312,8 @@ class PointSourceData:
         "pa_deg",
     )
 
+    _METADATA_FIELDS: tuple[str, ...] = ("source_name", "source_id")
+
 
 # =============================================================================
 # HealpixData
@@ -285,18 +324,30 @@ class PointSourceData:
 class HealpixData:
     """Multi-frequency HEALPix brightness temperature maps.
 
-    All Stokes maps have shape ``(n_freq, npix)`` where
-    ``npix = hp.nside2npix(nside)``.  The ``frequencies`` array
+    Dense maps have shape ``(n_freq, npix)`` where
+    ``npix = hp.nside2npix(nside)``.  Sparse maps have shape
+    ``(n_freq, n_stored_pix)`` with ``hpx_inds`` giving the full-sky
+    HEALPix indices for each stored pixel.  The ``frequencies`` array
     provides the frequency axis in Hz.
     """
 
     maps: np.ndarray  # Stokes I, shape (n_freq, npix), in Kelvin
     nside: int
     frequencies: np.ndarray  # shape (n_freq,), in Hz
+    hpx_inds: np.ndarray | None = None
 
     q_maps: np.ndarray | None = None
     u_maps: np.ndarray | None = None
     v_maps: np.ndarray | None = None
+
+    i_unit: str = "K"
+    q_unit: str = "K"
+    u_unit: str = "K"
+    v_unit: str = "K"
+    i_brightness_conversion: str | None = None
+    q_brightness_conversion: str = "rayleigh-jeans"
+    u_brightness_conversion: str = "rayleigh-jeans"
+    v_brightness_conversion: str = "rayleigh-jeans"
 
     def __post_init__(self) -> None:
         """Validate array shapes."""
@@ -306,17 +357,43 @@ class HealpixData:
                 f"HealpixData: maps must be 2-D (n_freq, npix), "
                 f"got shape {self.maps.shape}"
             )
-        if self.maps.shape[1] != expected_npix:
-            raise ValueError(
-                f"HealpixData: maps has {self.maps.shape[1]} pixels per map, "
-                f"expected {expected_npix} for nside={self.nside}"
-            )
         n_freq = self.maps.shape[0]
         if len(self.frequencies) != n_freq:
             raise ValueError(
                 f"HealpixData: frequencies has {len(self.frequencies)} entries "
                 f"but maps has {n_freq} frequency channels."
             )
+
+        if self.hpx_inds is not None:
+            hpx_inds = np.asarray(self.hpx_inds)
+            if hpx_inds.ndim != 1:
+                raise ValueError(
+                    f"HealpixData: hpx_inds must be 1-D, got shape {hpx_inds.shape}"
+                )
+            if len(hpx_inds) != self.maps.shape[1]:
+                raise ValueError(
+                    "HealpixData: hpx_inds length must match the number of "
+                    f"stored pixels ({len(hpx_inds)} != {self.maps.shape[1]})."
+                )
+            if np.any(hpx_inds < 0) or np.any(hpx_inds >= expected_npix):
+                raise ValueError(
+                    f"HealpixData: hpx_inds must be in [0, {expected_npix}); "
+                    f"got min={int(np.min(hpx_inds)) if len(hpx_inds) else 'n/a'}, "
+                    f"max={int(np.max(hpx_inds)) if len(hpx_inds) else 'n/a'}."
+                )
+            if self.maps.shape[1] != len(hpx_inds):
+                raise ValueError(
+                    "HealpixData: maps has "
+                    f"{self.maps.shape[1]} pixels per map, but hpx_inds has "
+                    f"length {len(hpx_inds)}."
+                )
+            object.__setattr__(self, "hpx_inds", hpx_inds.astype(np.int64, copy=False))
+        elif self.maps.shape[1] != expected_npix:
+            raise ValueError(
+                f"HealpixData: maps has {self.maps.shape[1]} pixels per map, "
+                f"expected {expected_npix} for nside={self.nside}"
+            )
+
         for name, arr in [
             ("q_maps", self.q_maps),
             ("u_maps", self.u_maps),
@@ -328,6 +405,15 @@ class HealpixData:
                     f"maps shape {self.maps.shape}"
                 )
 
+        for name, unit in [
+            ("i_unit", self.i_unit),
+            ("q_unit", self.q_unit),
+            ("u_unit", self.u_unit),
+            ("v_unit", self.v_unit),
+        ]:
+            if not unit:
+                raise ValueError(f"HealpixData: {name} must be a non-empty string.")
+
     @property
     def n_frequencies(self) -> int:
         """Number of frequency channels."""
@@ -335,21 +421,71 @@ class HealpixData:
 
     @property
     def n_pixels(self) -> int:
-        """Number of HEALPix pixels per map."""
+        """Number of stored HEALPix pixels per map."""
         return self.maps.shape[1]
+
+    @property
+    def full_n_pixels(self) -> int:
+        """Number of pixels in the full HEALPix grid for ``nside``."""
+        return hp.nside2npix(self.nside)
 
     @property
     def pixel_solid_angle(self) -> float:
         """Solid angle per pixel in steradians."""
-        return 4 * np.pi / hp.nside2npix(self.nside)
+        return 4 * np.pi / self.full_n_pixels
+
+    @property
+    def is_sparse(self) -> bool:
+        """True when the maps only store a subset of HEALPix pixels."""
+        return self.hpx_inds is not None and len(self.hpx_inds) < self.full_n_pixels
+
+    @property
+    def pixel_indices(self) -> np.ndarray:
+        """Return the HEALPix indices corresponding to stored pixels."""
+        if self.hpx_inds is None:
+            return np.arange(self.full_n_pixels, dtype=np.int64)
+        return self.hpx_inds
 
     @property
     def has_polarization(self) -> bool:
         """True if any Stokes Q/U/V maps are populated."""
         return any(m is not None for m in (self.q_maps, self.u_maps, self.v_maps))
 
+    def to_dense(self) -> HealpixData:
+        """Return a dense copy with full-sky arrays."""
+        if not self.is_sparse:
+            return self
+
+        dense_shape = (self.n_frequencies, self.full_n_pixels)
+        dense_maps = np.zeros(dense_shape, dtype=self.maps.dtype)
+        dense_maps[:, self.hpx_inds] = self.maps
+
+        def _dense_copy(arr: np.ndarray | None) -> np.ndarray | None:
+            if arr is None:
+                return None
+            dense_arr = np.zeros(dense_shape, dtype=arr.dtype)
+            dense_arr[:, self.hpx_inds] = arr
+            return dense_arr
+
+        return HealpixData(
+            maps=dense_maps,
+            nside=self.nside,
+            frequencies=self.frequencies,
+            q_maps=_dense_copy(self.q_maps),
+            u_maps=_dense_copy(self.u_maps),
+            v_maps=_dense_copy(self.v_maps),
+            i_unit=self.i_unit,
+            q_unit=self.q_unit,
+            u_unit=self.u_unit,
+            v_unit=self.v_unit,
+            i_brightness_conversion=self.i_brightness_conversion,
+            q_brightness_conversion=self.q_brightness_conversion,
+            u_brightness_conversion=self.u_brightness_conversion,
+            v_brightness_conversion=self.v_brightness_conversion,
+        )
+
     def masked_region(self, healpix_mask: np.ndarray) -> HealpixData:
-        """Return new HealpixData with out-of-region pixels zeroed.
+        """Return new HealpixData masked to a sky region.
 
         Parameters
         ----------
@@ -360,6 +496,44 @@ class HealpixData:
         -------
         HealpixData
         """
+        healpix_mask = np.asarray(healpix_mask, dtype=bool)
+        if len(healpix_mask) != self.full_n_pixels:
+            raise ValueError(
+                "HealpixData.masked_region: mask length must match the full "
+                f"HEALPix grid ({len(healpix_mask)} != {self.full_n_pixels})."
+            )
+
+        if self.is_sparse:
+            keep = healpix_mask[self.hpx_inds]
+            if np.all(keep):
+                return self
+
+            new_maps = self.maps[:, keep]
+            new_q = self.q_maps[:, keep] if self.q_maps is not None else None
+            new_u = self.u_maps[:, keep] if self.u_maps is not None else None
+            new_v = self.v_maps[:, keep] if self.v_maps is not None else None
+            new_inds = self.hpx_inds[keep]
+            return HealpixData(
+                maps=new_maps,
+                nside=self.nside,
+                frequencies=self.frequencies,
+                hpx_inds=new_inds,
+                q_maps=new_q,
+                u_maps=new_u,
+                v_maps=new_v,
+                i_unit=self.i_unit,
+                q_unit=self.q_unit,
+                u_unit=self.u_unit,
+                v_unit=self.v_unit,
+                i_brightness_conversion=self.i_brightness_conversion,
+                q_brightness_conversion=self.q_brightness_conversion,
+                u_brightness_conversion=self.u_brightness_conversion,
+                v_brightness_conversion=self.v_brightness_conversion,
+            )
+
+        if np.all(healpix_mask):
+            return self
+
         inv_mask = ~healpix_mask
         new_maps = self.maps.copy()
         new_maps[:, inv_mask] = 0.0
@@ -384,4 +558,12 @@ class HealpixData:
             q_maps=new_q,
             u_maps=new_u,
             v_maps=new_v,
+            i_unit=self.i_unit,
+            q_unit=self.q_unit,
+            u_unit=self.u_unit,
+            v_unit=self.v_unit,
+            i_brightness_conversion=self.i_brightness_conversion,
+            q_brightness_conversion=self.q_brightness_conversion,
+            u_brightness_conversion=self.u_brightness_conversion,
+            v_brightness_conversion=self.v_brightness_conversion,
         )

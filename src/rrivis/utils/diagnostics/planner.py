@@ -107,7 +107,7 @@ class DiagnosticsPlanner:
     sky_model_name : str, optional
         Registered loader name (e.g. ``"gsm2008"``, ``"gleam"``).
     sky_model_kwargs : dict, optional
-        Extra kwargs forwarded to ``SkyModel.from_catalog``.
+        Extra kwargs forwarded to the registered sky loader.
     max_point_sources : int
         Maximum point sources to include (brightest first, default 1000).
     top_n_sources : int
@@ -354,10 +354,13 @@ class DiagnosticsPlanner:
             return self.sky_model
 
         if self.sky_model_name is not None:
-            from rrivis.core.sky.model import SkyModel
+            from rrivis.core.sky.registry import loader_registry
 
             logger.info("Loading sky model '%s' ...", self.sky_model_name)
-            return SkyModel.from_catalog(self.sky_model_name, **self.sky_model_kwargs)
+            loader_name, kwargs = loader_registry.resolve_request(
+                self.sky_model_name, self.sky_model_kwargs
+            )
+            return loader_registry.loader(loader_name)(**kwargs)
 
         return None
 
@@ -368,9 +371,7 @@ class DiagnosticsPlanner:
         if sky is None:
             return None
 
-        from rrivis.core.sky.model import SkyFormat
-
-        if sky.mode != SkyFormat.HEALPIX:
+        if sky.healpix is None:
             return None
 
         import healpy as hp
@@ -378,7 +379,7 @@ class DiagnosticsPlanner:
 
         # Pick the frequency channel closest to the observing frequency
         freq_idx = sky.resolve_frequency_index(self.frequency_hz)
-        healpix_map = sky.healpix_maps[freq_idx]
+        healpix_map = sky.healpix.maps[freq_idx]
 
         projected = hp.cartview(
             healpix_map,
@@ -399,14 +400,12 @@ class DiagnosticsPlanner:
         if sky is None:
             return None, None, None
 
-        from rrivis.core.sky.model import SkyFormat
-
-        if sky.mode != SkyFormat.POINT_SOURCES:
+        if sky.point is None:
             return None, None, None
 
-        ra_rad = sky.ra_rad
-        dec_rad = sky.dec_rad
-        flux = sky.flux
+        ra_rad = sky.point.ra_rad
+        dec_rad = sky.point.dec_rad
+        flux = sky.point.flux
 
         if ra_rad is None or len(ra_rad) == 0:
             return None, None, None

@@ -19,7 +19,23 @@ if TYPE_CHECKING:
     "test_sources",
     config_section="test_sources",
     use_flag="use_test_sources",
-    aliases=["test"],
+    category="synthetic",
+    aliases={"test": {}, "test_healpix": {"representation": "healpix_map"}},
+    config_fields={
+        "num_sources": "num_sources",
+        "distribution": "distribution",
+        "seed": "seed",
+        "flux_min": "flux_min",
+        "flux_max": "flux_max",
+        "dec_deg": "dec_deg",
+        "dec_range_deg": "dec_range_deg",
+        "spectral_index": "spectral_index",
+        "representation": "representation",
+        "nside": "nside",
+        "polarization_fraction": "polarization_fraction",
+        "polarization_angle_deg": "polarization_angle_deg",
+        "stokes_v_fraction": "stokes_v_fraction",
+    },
 )
 def load_test_sources(
     num_sources: int = 100,
@@ -46,14 +62,16 @@ def load_test_sources(
     """Generate synthetic test sources in point or HEALPix form."""
     from rrivis.utils.frequency import parse_frequency_config
 
+    from ._factories import create_test_sources
     from .model import SkyFormat, SkyModel
+    from .operations import materialize_healpix_model
 
     flux_range = (
         (flux_min, flux_max)
         if flux_min is not None and flux_max is not None
         else (1.0, 10.0)
     )
-    sky = SkyModel.from_test_sources(
+    sky = create_test_sources(
         num_sources=num_sources,
         flux_range=flux_range,
         dec_deg=dec_deg,
@@ -82,14 +100,13 @@ def load_test_sources(
         )
         if ref_frequency is not None:
             sky = sky.with_reference_frequency(ref_frequency)
-        sky = sky.materialize_healpix(
+        sky = materialize_healpix_model(
+            sky,
             nside=nside,
             frequencies=frequencies,
             obs_frequency_config=obs_frequency_config,
             ref_frequency=ref_frequency,
             memmap_path=memmap_path,
         )
-    else:
-        sky = sky.activate(SkyFormat.POINT_SOURCES)
 
     return sky

@@ -14,11 +14,11 @@ point source positions and fluxes.
 
 .. code-block:: python
 
-   from rrivis.core.sky import SkyModel
    from rrivis.core.precision import PrecisionConfig
+   from rrivis.core.sky.loaders import load_gleam
 
    precision = PrecisionConfig.standard()
-   sky = SkyModel.from_catalog("gleam", flux_limit=1.0, precision=precision)
+   sky = load_gleam(flux_limit=1.0, max_rows=10000, precision=precision)
 
 Configuration:
 
@@ -27,9 +27,10 @@ Configuration:
    sky_model:
      flux_unit: "Jy"
      sources:
-       - kind: gleam
-         flux_limit: 1.0
-         catalog: gleam_egc
+       - gleam:
+           flux_limit: 1.0
+           max_rows: 10000
+           catalog: gleam_egc
 
 Global Sky Model (GSM)
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -39,10 +40,17 @@ The Global Sky Model provides diffuse emission.
 .. code-block:: python
 
    import numpy as np
-   from rrivis.core.sky import SkyModel
+   from rrivis.core.precision import PrecisionConfig
+   from rrivis.core.sky.loaders import load_diffuse_sky
 
+   precision = PrecisionConfig.standard()
    frequencies = np.linspace(100e6, 200e6, 11)  # Hz
-   sky = SkyModel.from_catalog("diffuse_sky", model="gsm2008", frequencies=frequencies, nside=64)
+   sky = load_diffuse_sky(
+       model="gsm2008",
+       frequencies=frequencies,
+       nside=64,
+       precision=precision,
+   )
 
 Configuration:
 
@@ -51,9 +59,9 @@ Configuration:
    sky_model:
      flux_unit: "Jy"
      sources:
-       - kind: diffuse_sky
-         model: gsm2008
-         nside: 64
+       - diffuse_sky:
+           model: gsm2008
+           nside: 64
 
 Combined Models
 ^^^^^^^^^^^^^^^
@@ -62,16 +70,22 @@ Combine diffuse and point source emission:
 
 .. code-block:: python
 
-   from rrivis.core.sky import SkyModel
+   from rrivis.core.sky import combine_models
+   from rrivis.core.sky.loaders import load_diffuse_sky, load_gleam
    from rrivis.core.precision import PrecisionConfig
    import numpy as np
 
    precision = PrecisionConfig.standard()
    frequencies = np.linspace(100e6, 200e6, 11)
 
-   gleam = SkyModel.from_catalog("gleam", flux_limit=1.0, precision=precision)
-   gsm = SkyModel.from_catalog("diffuse_sky", model="gsm2008", frequencies=frequencies, nside=64, precision=precision)
-   combined = SkyModel.combine(
+   gleam = load_gleam(flux_limit=1.0, max_rows=10000, precision=precision)
+   gsm = load_diffuse_sky(
+       model="gsm2008",
+       frequencies=frequencies,
+       nside=64,
+       precision=precision,
+   )
+   combined = combine_models(
        [gleam, gsm],
        representation="healpix_map",
        nside=64,
@@ -92,11 +106,11 @@ Simple point sources for testing:
 
 .. code-block:: python
 
-   from rrivis.core.sky import SkyModel
+   from rrivis.core.sky import create_test_sources
    from rrivis.core.precision import PrecisionConfig
 
    precision = PrecisionConfig.standard()
-   sky = SkyModel.from_test_sources(
+   sky = create_test_sources(
        num_sources=100,
        flux_range=(2.0, 8.0),
        dec_deg=-30.0,
@@ -111,22 +125,22 @@ Configuration:
    sky_model:
      flux_unit: "Jy"
      sources:
-       - kind: test_sources
-         num_sources: 100
+       - test_sources:
+           num_sources: 100
 
 Custom Point Sources
 --------------------
 
-Define custom point sources programmatically using ``SkyModel.from_arrays()``:
+Define custom point sources programmatically using ``create_from_arrays()``:
 
 .. code-block:: python
 
    import numpy as np
-   from rrivis.core.sky import SkyModel
+   from rrivis.core.sky import create_from_arrays
    from rrivis.core.precision import PrecisionConfig
 
    precision = PrecisionConfig.standard()
-   sky = SkyModel.from_arrays(
+   sky = create_from_arrays(
        ra_rad=np.deg2rad([0.0, 15.0]),
        dec_rad=np.deg2rad([-30.0, -30.0]),
        flux=np.array([10.0, 5.0]),
@@ -135,7 +149,7 @@ Define custom point sources programmatically using ``SkyModel.from_arrays()``:
    )
 
 RRIvis keeps custom catalogs in columnar arrays rather than per-source
-dictionaries, so ``from_arrays()`` is the direct construction API.
+dictionaries, so ``create_from_arrays()`` is the direct construction API.
 
 Polarized Sources
 ^^^^^^^^^^^^^^^^^
@@ -144,7 +158,7 @@ Include polarization (Stokes I, Q, U, V):
 
 .. code-block:: python
 
-   sky = SkyModel.from_arrays(
+   sky = create_from_arrays(
        ra_rad=np.deg2rad([0.0]),
        dec_rad=np.deg2rad([-30.0]),
        flux=np.array([10.0]),
@@ -189,10 +203,10 @@ Control simulation speed with flux limits:
 .. code-block:: python
 
    # Only sources brighter than 1 Jy
-   sky = SkyModel.from_catalog("gleam", flux_limit=1.0, precision=precision)
+   sky = load_gleam(flux_limit=1.0, max_rows=10000, precision=precision)
 
    # Include fainter sources (slower)
-   sky = SkyModel.from_catalog("gleam", flux_limit=0.1, precision=precision)
+   sky = load_gleam(flux_limit=0.1, max_rows=10000, precision=precision)
 
 Spectral Index
 --------------
@@ -215,15 +229,15 @@ Sky Model Selection Guide
    * - Use Case
      - Recommended Model
    * - Quick testing
-     - ``from_test_sources()``
+     - ``create_test_sources()``
    * - Point source calibration
-     - ``from_catalog("gleam")``
+     - ``load_gleam()``
    * - Diffuse emission
-     - ``from_catalog("diffuse_sky", model="gsm2008")``
+     - ``load_diffuse_sky(model="gsm2008")``
    * - Full sky simulation
-     - ``SkyModel.combine([gleam, gsm])``
+     - ``combine_models([gleam, gsm])``
    * - Custom science
-     - ``from_arrays()``
+     - ``create_from_arrays()``
 
 Performance Considerations
 --------------------------
@@ -232,7 +246,7 @@ Performance Considerations
 - **HEALPix resolution**: Higher nside = more pixels = slower
 - **Flux limit**: Higher limit = fewer sources = faster
 
-For large simulations, use GPU backends:
+For large point-source simulations, use GPU backends:
 
 .. code-block:: python
 
@@ -242,4 +256,8 @@ For large simulations, use GPU backends:
        backend="jax",
    )
    sim.setup()
-   results = sim.run()  # GPU accelerated
+   results = sim.run()  # GPU accelerated for point-source visibility
+
+HEALPix direct visibility currently uses a NumPy CPU path. If a GPU backend is
+configured with ``visibility.sky_representation: healpix_map``, RRIVis warns and
+runs the HEALPix calculation on CPU.

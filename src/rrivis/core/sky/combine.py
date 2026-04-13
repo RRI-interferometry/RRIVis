@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 import healpy as hp
 import numpy as np
 
+from rrivis.utils.frequency import parse_frequency_config
+
 from ._data import HealpixData, PointSourceData
 from .constants import (
     BrightnessConversion,
@@ -27,6 +29,7 @@ from .constants import (
 )
 from .convert import bin_sources_to_flux
 from .model import SkyFormat
+from .operations import materialize_healpix_model, materialize_point_sources_model
 from .spectral import apply_faraday_rotation, compute_spectral_scale
 
 if TYPE_CHECKING:
@@ -51,6 +54,232 @@ class CombineHealpixData(TypedDict):
     reference_frequency: float | None
 
 
+def _concat_string_metadata(
+    models: list[SkyModel],
+    field_name: str,
+) -> np.ndarray | None:
+    """Concatenate per-source string metadata, filling missing values with blanks."""
+    if not any(
+        m.point is not None and getattr(m.point, field_name) is not None for m in models
+    ):
+        return None
+    parts: list[np.ndarray] = []
+    for model in models:
+        if model.point is None:
+            continue
+        values = getattr(model.point, field_name)
+        if values is None:
+            parts.append(np.full(model.point.n_sources, "", dtype=str))
+            continue
+        parts.append(np.asarray(values, dtype=str))
+    return np.concatenate(parts) if parts else None
+
+
+def _concat_object_metadata(
+    models: list[SkyModel],
+    field_name: str,
+) -> np.ndarray | None:
+    """Concatenate per-source metadata with a permissive object dtype."""
+    if not any(
+        m.point is not None and getattr(m.point, field_name) is not None for m in models
+    ):
+        return None
+    parts: list[np.ndarray] = []
+    for model in models:
+        if model.point is None:
+            continue
+        values = getattr(model.point, field_name)
+        if values is None:
+            parts.append(np.full(model.point.n_sources, None, dtype=object))
+            continue
+        parts.append(np.asarray(values, dtype=object))
+    return np.concatenate(parts) if parts else None
+
+
+def _concat_extra_columns(models: list[SkyModel]) -> dict[str, np.ndarray]:
+    """Concatenate arbitrary metadata columns, filling missing values with None."""
+    keys = sorted(
+        {
+            key
+            for model in models
+            if model.point is not None
+            for key in model.point.extra_columns
+        }
+    )
+    if not keys:
+        return {}
+
+    extra_columns: dict[str, np.ndarray] = {}
+    for key in keys:
+        parts: list[np.ndarray] = []
+        for model in models:
+            if model.point is None:
+                continue
+            values = model.point.extra_columns.get(key)
+            if values is None:
+                parts.append(np.full(model.point.n_sources, None, dtype=object))
+                continue
+            parts.append(np.asarray(values, dtype=object))
+        extra_columns[key] = np.concatenate(parts) if parts else np.zeros(0)
+    return extra_columns
+
+
+def _format_healpix_freq_grid(frequencies: np.ndarray) -> str:
+    """Return a compact human-readable summary of a frequency grid."""
+    freqs = np.asarray(frequencies, dtype=np.float64)
+    if freqs.size == 0:
+        return "0 channels"
+    if freqs.size == 1:
+        return f"1 channel ({freqs[0] / 1e6:.3f} MHz)"
+    return f"{len(freqs)} channels ({freqs[0] / 1e6:.3f}–{freqs[-1] / 1e6:.3f} MHz)"
+
+
+def _resolve_requested_healpix_frequencies(
+    frequencies: np.ndarray | None,
+    obs_frequency_config: dict[str, Any] | None,
+) -> np.ndarray | None:
+    """Resolve an explicit frequency request to a concrete array."""
+    if frequencies is not None and obs_frequency_config is not None:
+        raise ValueError(
+            "Provide either 'frequencies' or 'obs_frequency_config', not both."
+        )
+    if frequencies is not None:
+        return np.asarray(frequencies, dtype=np.float64)
+    if obs_frequency_config is not None:
+        return parse_frequency_config(obs_frequency_config)
+    return None
+
+
+def _validate_requested_healpix_grid(
+    models: list[SkyModel],
+    nside: int | None,
+    frequencies: np.ndarray | None,
+) -> None:
+    """Reject requests that would silently ignore an existing HEALPix grid."""
+    healpix_models = [m for m in models if m.healpix is not None]
+    if not healpix_models:
+        return
+
+    ref_model = healpix_models[0]
+    assert ref_model.healpix is not None
+    ref_nside = ref_model.healpix.nside
+    ref_freqs = np.asarray(ref_model.healpix.frequencies)
+
+    if nside is not None and nside != ref_nside:
+        raise ValueError(
+            "Requested HEALPix nside does not match the existing HEALPix payload: "
+            f"requested nside={nside}, but model '{ref_model.model_name or 'unnamed'}' "
+            f"already carries nside={ref_nside}. "
+            "Regrid that model first with "
+            "`regrid_healpix_model(model, nside=...)` or omit nside to keep the "
+            "existing grid."
+        )
+
+    if frequencies is not None and not np.array_equal(frequencies, ref_freqs):
+        raise ValueError(
+            "Requested HEALPix frequency grid does not match the existing "
+            f"payload in model '{ref_model.model_name or 'unnamed'}': "
+            f"existing grid = {_format_healpix_freq_grid(ref_freqs)}, "
+            f"requested grid = {_format_healpix_freq_grid(frequencies)}. "
+            "Exact frequency regridding is not implemented yet; regrid or "
+            "regenerate the HEALPix payload first."
+        )
+
+
+def regrid_healpix_model(
+    model: SkyModel,
+    *,
+    nside: int | None = None,
+    frequencies: np.ndarray | None = None,
+    obs_frequency_config: dict[str, Any] | None = None,
+) -> SkyModel:
+    """Explicitly regrid a HEALPix SkyModel.
+
+    First pass policy:
+    - ``nside`` changes are supported via ``healpy.ud_grade``.
+    - frequency changes are exact-only; requested frequencies must match the
+      existing HEALPix axis exactly.
+    """
+    if model.healpix is None:
+        raise ValueError("regrid_healpix_model requires a SkyModel with HEALPix data.")
+
+    requested_freqs = _resolve_requested_healpix_frequencies(
+        frequencies,
+        obs_frequency_config,
+    )
+    source_healpix = (
+        model.healpix.to_dense() if model.healpix.is_sparse else model.healpix
+    )
+    current_freqs = np.asarray(source_healpix.frequencies, dtype=np.float64)
+    if requested_freqs is not None and not np.array_equal(
+        requested_freqs, current_freqs
+    ):
+        raise ValueError(
+            "Exact frequency regridding is not implemented yet. "
+            f"Existing grid = {_format_healpix_freq_grid(current_freqs)}, "
+            f"requested grid = {_format_healpix_freq_grid(requested_freqs)}."
+        )
+
+    target_nside = source_healpix.nside if nside is None else nside
+    if target_nside == source_healpix.nside:
+        if requested_freqs is None or np.array_equal(requested_freqs, current_freqs):
+            return model
+        return model._replace(
+            healpix=HealpixData(
+                maps=source_healpix.maps,
+                nside=source_healpix.nside,
+                frequencies=requested_freqs,
+                hpx_inds=source_healpix.hpx_inds,
+                q_maps=source_healpix.q_maps,
+                u_maps=source_healpix.u_maps,
+                v_maps=source_healpix.v_maps,
+                i_unit=source_healpix.i_unit,
+                q_unit=source_healpix.q_unit,
+                u_unit=source_healpix.u_unit,
+                v_unit=source_healpix.v_unit,
+                i_brightness_conversion=source_healpix.i_brightness_conversion,
+                q_brightness_conversion=source_healpix.q_brightness_conversion,
+                u_brightness_conversion=source_healpix.u_brightness_conversion,
+                v_brightness_conversion=source_healpix.v_brightness_conversion,
+            )
+        )
+
+    def _regrid_rows(arr: np.ndarray) -> np.ndarray:
+        rows = [
+            hp.ud_grade(row, nside_out=target_nside, power=0) for row in np.asarray(arr)
+        ]
+        return np.stack(rows, axis=0)
+
+    q_maps = (
+        None if source_healpix.q_maps is None else _regrid_rows(source_healpix.q_maps)
+    )
+    u_maps = (
+        None if source_healpix.u_maps is None else _regrid_rows(source_healpix.u_maps)
+    )
+    v_maps = (
+        None if source_healpix.v_maps is None else _regrid_rows(source_healpix.v_maps)
+    )
+
+    return model._replace(
+        healpix=HealpixData(
+            maps=_regrid_rows(source_healpix.maps),
+            nside=target_nside,
+            frequencies=current_freqs if requested_freqs is None else requested_freqs,
+            q_maps=q_maps,
+            u_maps=u_maps,
+            v_maps=v_maps,
+            i_unit=source_healpix.i_unit,
+            q_unit=source_healpix.q_unit,
+            u_unit=source_healpix.u_unit,
+            v_unit=source_healpix.v_unit,
+            i_brightness_conversion=source_healpix.i_brightness_conversion,
+            q_brightness_conversion=source_healpix.q_brightness_conversion,
+            u_brightness_conversion=source_healpix.u_brightness_conversion,
+            v_brightness_conversion=source_healpix.v_brightness_conversion,
+        )
+    )
+
+
 # =============================================================================
 # Internal helper: concat point sources
 # =============================================================================
@@ -59,7 +288,7 @@ class CombineHealpixData(TypedDict):
 def concat_point_sources(
     models: list[SkyModel],
     reference_frequency: float | None = None,
-    brightness_conversion: str = "planck",
+    brightness_conversion: BrightnessConversion | str | None = None,
     precision: PrecisionConfig | None = None,
     allow_lossy_point_materialization: bool = False,
 ) -> dict[str, Any]:
@@ -103,7 +332,8 @@ def concat_point_sources(
                     "model to point sources, which is lossy. Re-run with "
                     "allow_lossy_point_materialization=True to opt in."
                 )
-            m = m.materialize_point_sources(
+            m = materialize_point_sources_model(
+                m,
                 frequency=reference_frequency,
                 lossy=True,
             )
@@ -111,25 +341,33 @@ def concat_point_sources(
             populated.append(m)
 
     if not populated:
-        from .model import _empty_source_arrays
+        from ._data import empty_source_arrays
 
-        return {**_empty_source_arrays(), "reference_frequency": None}
+        return {
+            **empty_source_arrays(),
+            "source_name": None,
+            "source_id": None,
+            "extra_columns": {},
+            "reference_frequency": None,
+        }
 
     # --- Required arrays ---
-    ra = np.concatenate([m.ra_rad for m in populated])
-    dec = np.concatenate([m.dec_rad for m in populated])
-    flux = np.concatenate([m.flux for m in populated])
-    si = np.concatenate([m.spectral_index for m in populated])
-    sq = np.concatenate([m.stokes_q for m in populated])
-    su = np.concatenate([m.stokes_u for m in populated])
-    sv = np.concatenate([m.stokes_v for m in populated])
+    ra = np.concatenate([m.point.ra_rad for m in populated if m.point is not None])
+    dec = np.concatenate([m.point.dec_rad for m in populated if m.point is not None])
+    flux = np.concatenate([m.point.flux for m in populated if m.point is not None])
+    si = np.concatenate(
+        [m.point.spectral_index for m in populated if m.point is not None]
+    )
+    sq = np.concatenate([m.point.stokes_q for m in populated if m.point is not None])
+    su = np.concatenate([m.point.stokes_u for m in populated if m.point is not None])
+    sv = np.concatenate([m.point.stokes_v for m in populated if m.point is not None])
 
     ref_freq_arr = np.concatenate(
         [
-            m.ref_freq
-            if m.ref_freq is not None
+            m.point.ref_freq
+            if m.point is not None and m.point.ref_freq is not None
             else np.full(
-                len(m.ra_rad),
+                m.point.n_sources if m.point is not None else 0,
                 m.reference_frequency or reference_frequency or 0.0,
                 dtype=np.float64,
             )
@@ -141,12 +379,16 @@ def concat_point_sources(
 
     # --- Optional: rotation measure ---
     rm: np.ndarray | None = None
-    if any(m.rotation_measure is not None for m in populated):
+    if any(
+        m.point is not None and m.point.rotation_measure is not None for m in populated
+    ):
         rm = np.concatenate(
             [
-                m.rotation_measure
-                if m.rotation_measure is not None
-                else np.zeros(len(m.ra_rad), dtype=np.float64)
+                m.point.rotation_measure
+                if m.point is not None and m.point.rotation_measure is not None
+                else np.zeros(
+                    m.point.n_sources if m.point is not None else 0, dtype=np.float64
+                )
                 for m in populated
             ]
         )
@@ -155,45 +397,55 @@ def concat_point_sources(
     major: np.ndarray | None = None
     minor: np.ndarray | None = None
     pa: np.ndarray | None = None
-    if any(m.major_arcsec is not None for m in populated):
+    if any(m.point is not None and m.point.major_arcsec is not None for m in populated):
         major = np.concatenate(
             [
-                m.major_arcsec
-                if m.major_arcsec is not None
-                else np.zeros(len(m.ra_rad), dtype=np.float64)
+                m.point.major_arcsec
+                if m.point is not None and m.point.major_arcsec is not None
+                else np.zeros(
+                    m.point.n_sources if m.point is not None else 0, dtype=np.float64
+                )
                 for m in populated
             ]
         )
         minor = np.concatenate(
             [
-                m.minor_arcsec
-                if m.minor_arcsec is not None
-                else np.zeros(len(m.ra_rad), dtype=np.float64)
+                m.point.minor_arcsec
+                if m.point is not None and m.point.minor_arcsec is not None
+                else np.zeros(
+                    m.point.n_sources if m.point is not None else 0, dtype=np.float64
+                )
                 for m in populated
             ]
         )
         pa = np.concatenate(
             [
-                m.pa_deg
-                if m.pa_deg is not None
-                else np.zeros(len(m.ra_rad), dtype=np.float64)
+                m.point.pa_deg
+                if m.point is not None and m.point.pa_deg is not None
+                else np.zeros(
+                    m.point.n_sources if m.point is not None else 0, dtype=np.float64
+                )
                 for m in populated
             ]
         )
 
     # --- Optional: spectral coefficients (may differ in N_terms) ---
     sp_coeffs: np.ndarray | None = None
-    if any(m.spectral_coeffs is not None for m in populated):
+    if any(
+        m.point is not None and m.point.spectral_coeffs is not None for m in populated
+    ):
         max_terms = max(
-            m.spectral_coeffs.shape[1]
+            m.point.spectral_coeffs.shape[1]
             for m in populated
-            if m.spectral_coeffs is not None
+            if m.point is not None and m.point.spectral_coeffs is not None
         )
         parts: list[np.ndarray] = []
         for m in populated:
-            n_m = len(m.ra_rad)
-            if m.spectral_coeffs is not None:
-                arr = m.spectral_coeffs
+            if m.point is None:
+                continue
+            n_m = m.point.n_sources
+            if m.point.spectral_coeffs is not None:
+                arr = m.point.spectral_coeffs
                 if arr.shape[1] < max_terms:
                     pad = np.zeros((n_m, max_terms - arr.shape[1]), dtype=arr.dtype)
                     arr = np.concatenate([arr, pad], axis=1)
@@ -201,17 +453,15 @@ def concat_point_sources(
             else:
                 # Default: column 0 = alpha, rest zero
                 fallback = np.zeros((n_m, max_terms), dtype=np.float64)
-                fallback[:, 0] = m.spectral_index
+                fallback[:, 0] = m.point.spectral_index
                 parts.append(fallback)
         sp_coeffs = np.concatenate(parts, axis=0)
 
-    # Infer reference frequency from models if not provided
     ref_freq_val = reference_frequency
     if ref_freq_val is None:
-        for m in populated:
-            if m.reference_frequency is not None:
-                ref_freq_val = m.reference_frequency
-                break
+        positive = ref_freq_arr[ref_freq_arr > 0]
+        if positive.size > 0 and np.allclose(positive, positive[0]):
+            ref_freq_val = float(positive[0])
 
     logger.info(f"Concatenated {len(populated)} models: {n} total sources")
 
@@ -229,6 +479,9 @@ def concat_point_sources(
         "minor_arcsec": minor,
         "pa_deg": pa,
         "spectral_coeffs": sp_coeffs,
+        "source_name": _concat_string_metadata(populated, "source_name"),
+        "source_id": _concat_object_metadata(populated, "source_id"),
+        "extra_columns": _concat_extra_columns(populated),
         "reference_frequency": ref_freq_val,
     }
 
@@ -298,23 +551,22 @@ def combine_healpix(
     for m in healpix_models:
         if m.healpix is None:
             continue
-        m_nside = m.healpix_nside
-        m_freqs = m.observation_frequencies
+        m_nside = m.healpix.nside
+        m_freqs = m.healpix.frequencies
         if m_nside != ref_nside:
             raise ValueError(
                 f"Cannot combine HEALPix models with different nside values: "
                 f"reference has nside={ref_nside}, model '{m.model_name}' has "
-                f"nside={m_nside}. Resample to a common nside with hp.ud_grade() "
-                f"before combining."
+                f"nside={m_nside}. Regrid one of the models first with "
+                f"`regrid_healpix_model(model, nside=...)` before combining."
             )
         if not np.array_equal(m_freqs, ref_freqs):
             raise ValueError(
                 f"Cannot combine HEALPix models with different frequency grids: "
-                f"reference has {len(ref_freqs)} channels "
-                f"({ref_freqs[0] / 1e6:.3f}\u2013{ref_freqs[-1] / 1e6:.3f} MHz), "
-                f"model '{m.model_name}' has {len(m_freqs)} channels "
-                f"({m_freqs[0] / 1e6:.3f}\u2013{m_freqs[-1] / 1e6:.3f} MHz). "
-                f"All models must share the same observation frequency grid."
+                f"reference has {_format_healpix_freq_grid(ref_freqs)}, "
+                f"model '{m.model_name}' has {_format_healpix_freq_grid(m_freqs)}. "
+                "Frequency interpolation is not implemented; align the grids "
+                "exactly before combining."
             )
 
     npix = hp.nside2npix(ref_nside)
@@ -324,17 +576,17 @@ def combine_healpix(
     # Collect point-source data for pixel-binning
     ps_models_data = []
     for m in point_only_models:
-        if m.has_point_sources:
-            ipix_m = hp.ang2pix(ref_nside, np.pi / 2 - m.dec_rad, m.ra_rad)
-            ps_models_data.append((ipix_m, m.flux, m.spectral_index, m))
+        if m.has_point_sources and m.point is not None:
+            ipix_m = hp.ang2pix(ref_nside, np.pi / 2 - m.point.dec_rad, m.point.ra_rad)
+            ps_models_data.append((ipix_m, m.point.flux, m.point.spectral_index, m))
 
     # Check if any model has polarized maps
     any_pol = any(m.has_polarized_healpix_maps for m in healpix_models) or any(
-        m.stokes_q is not None
+        m.point is not None
         and (
-            np.any(m.stokes_q != 0)
-            or np.any(m.stokes_u != 0)
-            or np.any(m.stokes_v != 0)
+            np.any(m.point.stokes_q != 0)
+            or np.any(m.point.stokes_u != 0)
+            or np.any(m.point.stokes_v != 0)
         )
         for m in point_only_models
     )
@@ -377,13 +629,16 @@ def combine_healpix(
             # Add healpix T_b maps directly
             for m in healpix_models:
                 if m.healpix is not None:
-                    combined_T_b += m.healpix_maps[freq_idx].astype(np.float64)
+                    pixel_indices = m.healpix.pixel_indices
+                    combined_T_b[pixel_indices] += m.healpix.maps[freq_idx].astype(
+                        np.float64
+                    )
 
             # Add point-source contributions (flux → T_b via RJ factor)
             for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
                 ps_ref_freq = (
-                    m_obj.ref_freq
-                    if m_obj.ref_freq is not None
+                    m_obj.point.ref_freq
+                    if m_obj.point is not None and m_obj.point.ref_freq is not None
                     else np.full(
                         len(flux_ref_m),
                         m_obj.reference_frequency or ref_frequency,
@@ -394,7 +649,7 @@ def combine_healpix(
                     ipix_m,
                     flux_ref_m,
                     alpha_m,
-                    m_obj.spectral_coeffs,
+                    m_obj.point.spectral_coeffs if m_obj.point is not None else None,
                     float(freq_hz),
                     ps_ref_freq,
                     npix,
@@ -413,24 +668,25 @@ def combine_healpix(
 
                 for m in healpix_models:
                     if m.has_polarized_healpix_maps:
-                        if m.healpix_q_maps is not None:
-                            combined_q_T += m.healpix_q_maps[freq_idx].astype(
-                                np.float64
-                            )
-                        if m.healpix_u_maps is not None:
-                            combined_u_T += m.healpix_u_maps[freq_idx].astype(
-                                np.float64
-                            )
-                        if m.healpix_v_maps is not None:
-                            combined_v_T += m.healpix_v_maps[freq_idx].astype(
-                                np.float64
-                            )
+                        pixel_indices = m.healpix.pixel_indices
+                        if m.healpix.q_maps is not None:
+                            combined_q_T[pixel_indices] += m.healpix.q_maps[
+                                freq_idx
+                            ].astype(np.float64)
+                        if m.healpix.u_maps is not None:
+                            combined_u_T[pixel_indices] += m.healpix.u_maps[
+                                freq_idx
+                            ].astype(np.float64)
+                        if m.healpix.v_maps is not None:
+                            combined_v_T[pixel_indices] += m.healpix.v_maps[
+                                freq_idx
+                            ].astype(np.float64)
 
                 for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
-                    if m_obj.stokes_q is not None:
+                    if m_obj.point is not None:
                         ps_ref_freq = (
-                            m_obj.ref_freq
-                            if m_obj.ref_freq is not None
+                            m_obj.point.ref_freq
+                            if m_obj.point.ref_freq is not None
                             else np.full(
                                 len(flux_ref_m),
                                 m_obj.reference_frequency or ref_frequency,
@@ -439,14 +695,14 @@ def combine_healpix(
                         )
                         scale = compute_spectral_scale(
                             alpha_m,
-                            m_obj.spectral_coeffs,
+                            m_obj.point.spectral_coeffs,
                             float(freq_hz),
                             ps_ref_freq,
                         )
                         q_f, u_f = apply_faraday_rotation(
-                            m_obj.stokes_q,
-                            m_obj.stokes_u,
-                            m_obj.rotation_measure,
+                            m_obj.point.stokes_q,
+                            m_obj.point.stokes_u,
+                            m_obj.point.rotation_measure,
                             float(freq_hz),
                             ps_ref_freq,
                             scale,
@@ -460,7 +716,9 @@ def combine_healpix(
                         )
                         combined_v_T += (
                             np.bincount(
-                                ipix_m, weights=m_obj.stokes_v * scale, minlength=npix
+                                ipix_m,
+                                weights=m_obj.point.stokes_v * scale,
+                                minlength=npix,
                             )
                             * rj_inv
                         )
@@ -479,35 +737,44 @@ def combine_healpix(
             # Add healpix_map models
             for m in healpix_models:
                 if m.healpix is not None:
-                    t_map = m.healpix_maps[freq_idx].astype(np.float64)
+                    t_map = m.healpix.maps[freq_idx].astype(np.float64)
+                    pixel_indices = m.healpix.pixel_indices
                     pos = t_map > 0
                     if np.any(pos):
-                        combined_flux[pos] += brightness_temp_to_flux_density(
-                            t_map[pos],
-                            freq_hz,
-                            omega_pixel,
-                            method=brightness_conversion,
+                        combined_flux[pixel_indices[pos]] += (
+                            brightness_temp_to_flux_density(
+                                t_map[pos],
+                                freq_hz,
+                                omega_pixel,
+                                method=brightness_conversion,
+                            )
                         )
 
                     if any_pol and m.has_polarized_healpix_maps:
-                        if m.healpix_q_maps is not None:
-                            q_t = m.healpix_q_maps[freq_idx]
+                        if m.healpix.q_maps is not None:
+                            q_t = m.healpix.q_maps[freq_idx]
                             if q_t is not None:
-                                combined_q_flux += q_t.astype(np.float64) * rj_factor
-                        if m.healpix_u_maps is not None:
-                            u_t = m.healpix_u_maps[freq_idx]
+                                combined_q_flux[pixel_indices] += (
+                                    q_t.astype(np.float64) * rj_factor
+                                )
+                        if m.healpix.u_maps is not None:
+                            u_t = m.healpix.u_maps[freq_idx]
                             if u_t is not None:
-                                combined_u_flux += u_t.astype(np.float64) * rj_factor
-                        if m.healpix_v_maps is not None:
-                            v_t = m.healpix_v_maps[freq_idx]
+                                combined_u_flux[pixel_indices] += (
+                                    u_t.astype(np.float64) * rj_factor
+                                )
+                        if m.healpix.v_maps is not None:
+                            v_t = m.healpix.v_maps[freq_idx]
                             if v_t is not None:
-                                combined_v_flux += v_t.astype(np.float64) * rj_factor
+                                combined_v_flux[pixel_indices] += (
+                                    v_t.astype(np.float64) * rj_factor
+                                )
 
             # Add point-source models via bincount
             for ipix_m, flux_ref_m, alpha_m, m_obj in ps_models_data:
                 ps_ref_freq = (
-                    m_obj.ref_freq
-                    if m_obj.ref_freq is not None
+                    m_obj.point.ref_freq
+                    if m_obj.point is not None and m_obj.point.ref_freq is not None
                     else np.full(
                         len(flux_ref_m),
                         m_obj.reference_frequency or ref_frequency,
@@ -518,20 +785,23 @@ def combine_healpix(
                     ipix_m,
                     flux_ref_m,
                     alpha_m,
-                    m_obj.spectral_coeffs,
+                    m_obj.point.spectral_coeffs if m_obj.point is not None else None,
                     float(freq_hz),
                     ps_ref_freq,
                     npix,
                 )
 
-                if any_pol and m_obj.stokes_q is not None:
+                if any_pol and m_obj.point is not None:
                     scale = compute_spectral_scale(
-                        alpha_m, m_obj.spectral_coeffs, float(freq_hz), ps_ref_freq
+                        alpha_m,
+                        m_obj.point.spectral_coeffs,
+                        float(freq_hz),
+                        ps_ref_freq,
                     )
                     q_f, u_f = apply_faraday_rotation(
-                        m_obj.stokes_q,
-                        m_obj.stokes_u,
-                        m_obj.rotation_measure,
+                        m_obj.point.stokes_q,
+                        m_obj.point.stokes_u,
+                        m_obj.point.rotation_measure,
                         float(freq_hz),
                         ps_ref_freq,
                         scale,
@@ -539,7 +809,9 @@ def combine_healpix(
                     combined_q_flux += np.bincount(ipix_m, weights=q_f, minlength=npix)
                     combined_u_flux += np.bincount(ipix_m, weights=u_f, minlength=npix)
                     combined_v_flux += np.bincount(
-                        ipix_m, weights=m_obj.stokes_v * scale, minlength=npix
+                        ipix_m,
+                        weights=m_obj.point.stokes_v * scale,
+                        minlength=npix,
                     )
 
             # Convert combined flux back to brightness temperature
@@ -613,51 +885,26 @@ def _resolve_combination_params(
             else SkyFormat.POINT_SOURCES
         )
 
-    # Resolve frequency from model metadata
     freq = frequency
-    if freq is None:
-        for m in models:
-            if m.reference_frequency is not None:
-                freq = m.reference_frequency
-                break
-
-    # Resolve ref_frequency
     if ref_frequency is None:
-        for m in models:
-            if m.reference_frequency is not None:
-                ref_frequency = m.reference_frequency
-                break
-        if ref_frequency is None:
-            ref_frequency = freq
+        ref_frequency = freq
 
     return representation, freq, ref_frequency
 
 
 def _check_combination_issues(
     models: list[SkyModel],
-    brightness_conversion: str,
     mixed_model_policy: MixedModelPolicy,
 ) -> None:
     """Validate or warn on combination policies."""
-    bc_values = {m.brightness_conversion for m in models}
-    if len(bc_values) > 1:
-        warnings.warn(
-            f"Combining models with different brightness_conversion settings: "
-            f"{bc_values}. The combined model will use '{brightness_conversion}'. "
-            f"For consistent results, ensure all models use the same conversion.",
-            UserWarning,
-            stacklevel=3,
-        )
-
     has_catalog = any(
         m.point is not None
         and not m.point.is_empty
-        and m.native_representation == SkyFormat.POINT_SOURCES
+        and m.source_format == SkyFormat.POINT_SOURCES
         for m in models
     )
     has_diffuse = any(
-        m.healpix is not None and m.native_representation == SkyFormat.HEALPIX
-        for m in models
+        m.healpix is not None and m.source_format == SkyFormat.HEALPIX for m in models
     )
     if has_catalog and has_diffuse:
         message = (
@@ -672,10 +919,28 @@ def _check_combination_issues(
             warnings.warn(message, UserWarning, stacklevel=3)
 
 
+def _resolve_brightness_conversion(
+    models: list[SkyModel],
+    requested: BrightnessConversion | str | None,
+) -> BrightnessConversion:
+    """Resolve output brightness conversion without silent clobbering."""
+    values = {m.brightness_conversion for m in models}
+    if requested is None:
+        if not values:
+            return BrightnessConversion.PLANCK
+        if len(values) == 1:
+            return next(iter(values))
+        raise ValueError(
+            "Cannot combine sky models with different brightness_conversion "
+            f"settings without an explicit brightness_conversion target: {values}."
+        )
+    return BrightnessConversion(requested)
+
+
 def _combine_as_healpix_merge(
     models: list[SkyModel],
     ref_frequency: float | None,
-    brightness_conversion: str,
+    brightness_conversion: BrightnessConversion,
     precision: PrecisionConfig | None,
     memmap_path: str | None = None,
 ) -> SkyModel:
@@ -683,8 +948,8 @@ def _combine_as_healpix_merge(
     from .model import SkyModel
 
     ref_model = next(m for m in models if m.healpix is not None)
-    ref_nside = ref_model.healpix_nside
-    ref_freqs = ref_model.observation_frequencies
+    ref_nside = ref_model.healpix.nside
+    ref_freqs = ref_model.healpix.frequencies
 
     data = combine_healpix(
         models,
@@ -704,9 +969,9 @@ def _combine_as_healpix_merge(
             q_maps=data["healpix_q_maps"],
             u_maps=data["healpix_u_maps"],
             v_maps=data["healpix_v_maps"],
+            i_brightness_conversion=brightness_conversion.value,
         ),
-        native_representation=SkyFormat.HEALPIX,
-        active_representation=SkyFormat.HEALPIX,
+        source_format=SkyFormat.HEALPIX,
         reference_frequency=data["reference_frequency"],
         model_name="combined",
         brightness_conversion=brightness_conversion,
@@ -717,7 +982,7 @@ def _combine_as_healpix_merge(
 def _combine_as_point_sources(
     models: list[SkyModel],
     frequency: float | None,
-    brightness_conversion: str,
+    brightness_conversion: BrightnessConversion,
     precision: PrecisionConfig | None,
     allow_lossy_point_materialization: bool,
 ) -> SkyModel:
@@ -747,9 +1012,11 @@ def _combine_as_point_sources(
             minor_arcsec=data["minor_arcsec"],
             pa_deg=data["pa_deg"],
             spectral_coeffs=data["spectral_coeffs"],
+            source_name=data["source_name"],
+            source_id=data["source_id"],
+            extra_columns=data["extra_columns"],
         ),
-        native_representation=SkyFormat.POINT_SOURCES,
-        active_representation=SkyFormat.POINT_SOURCES,
+        source_format=SkyFormat.POINT_SOURCES,
         model_name="combined",
         reference_frequency=data["reference_frequency"],
         brightness_conversion=brightness_conversion,
@@ -765,12 +1032,12 @@ def _combine_as_point_sources(
 def combine_models(
     models: list[SkyModel],
     representation: SkyFormat | str | None = None,
-    nside: int = 64,
+    nside: int | None = None,
     frequency: float | None = None,
     frequencies: np.ndarray | None = None,
     obs_frequency_config: dict[str, Any] | None = None,
     ref_frequency: float | None = None,
-    brightness_conversion: str = "planck",
+    brightness_conversion: BrightnessConversion | str | None = None,
     allow_lossy_point_materialization: bool = False,
     mixed_model_policy: MixedModelPolicy = "error",
     precision: PrecisionConfig | None = None,
@@ -788,7 +1055,7 @@ def combine_models(
     representation : str or None, default None
         Output representation: ``"point_sources"`` or ``"healpix_map"``.
         When ``None``, auto-detects from input models.
-    nside : int, default 64
+    nside : int, optional
         HEALPix NSIDE for ``healpix_map`` output.
     frequency : float, optional
         Frequency for HEALPix-to-point-source conversions.
@@ -799,8 +1066,9 @@ def combine_models(
         Frequency config fallback for point-to-HEALPix conversion.
     ref_frequency : float, optional
         Reference frequency for spectral extrapolation (Hz).
-    brightness_conversion : str, default ``"planck"``
-        Brightness conversion method.
+    brightness_conversion : str or BrightnessConversion, optional
+        Output brightness conversion method. When omitted, all inputs must
+        already agree; otherwise an explicit target is required.
     allow_lossy_point_materialization : bool, default False
         Allow lossy HEALPix-to-point conversion when point-source output
         is requested.
@@ -818,21 +1086,34 @@ def combine_models(
     SkyModel
         Combined sky model.
     """
-    from .model import SkyModel
-
     if not models:
-        return SkyModel.empty_sky(
+        from ._factories import create_empty
+
+        return create_empty(
             model_name="combined_empty",
-            brightness_conversion=brightness_conversion,
+            brightness_conversion=(
+                BrightnessConversion.PLANCK
+                if brightness_conversion is None
+                else BrightnessConversion(brightness_conversion)
+            ),
             precision=precision,
         )
 
-    _check_combination_issues(models, brightness_conversion, mixed_model_policy)
+    brightness_conversion = _resolve_brightness_conversion(
+        models, brightness_conversion
+    )
+    _check_combination_issues(models, mixed_model_policy)
+    requested_freqs = _resolve_requested_healpix_frequencies(
+        frequencies, obs_frequency_config
+    )
     representation, freq, ref_freq = _resolve_combination_params(
         models, representation, frequency, ref_frequency
     )
 
     has_healpix_map = any(m.healpix is not None for m in models)
+
+    if representation == SkyFormat.HEALPIX and has_healpix_map:
+        _validate_requested_healpix_grid(models, nside, requested_freqs)
 
     # Path 1: HEALPix merge (at least one model already has maps)
     if representation == SkyFormat.HEALPIX and has_healpix_map:
@@ -855,16 +1136,16 @@ def combine_models(
 
     # Path 3: Optionally convert concatenated PS to HEALPix
     if representation == SkyFormat.HEALPIX:
-        if frequencies is None and obs_frequency_config is None:
+        if requested_freqs is None:
             raise ValueError(
                 "healpix_map output requires 'frequencies' or "
                 "'obs_frequency_config' when no input model already carries "
                 "HEALPix maps."
             )
-        combined = combined.materialize_healpix(
-            nside=nside,
-            frequencies=frequencies,
-            obs_frequency_config=obs_frequency_config,
+        combined = materialize_healpix_model(
+            combined,
+            nside=64 if nside is None else nside,
+            frequencies=requested_freqs,
             ref_frequency=ref_freq,
             memmap_path=memmap_path,
         )

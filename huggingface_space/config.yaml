@@ -54,13 +54,13 @@ output:
   plot_results: false
 sky_model:
   flux_unit: Jy
-  test_sources:
-    use_test_sources: true
-    num_sources: 200
-    flux_min: 1.0
-    flux_max: 5.0
-    dec_deg: -30.72
-    spectral_index: 0
+  sources:
+    - test_sources:
+        num_sources: 200
+        flux_min: 1.0
+        flux_max: 5.0
+        dec_deg: -30.72
+        spectral_index: 0
 telescope:
   telescope_name: HERA
 visibility:

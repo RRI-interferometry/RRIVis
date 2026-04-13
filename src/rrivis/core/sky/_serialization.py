@@ -11,7 +11,6 @@ import warnings
 from typing import TYPE_CHECKING, Any
 
 import astropy.units as u
-import healpy as hp
 import numpy as np
 from astropy.coordinates import SkyCoord
 
@@ -23,38 +22,116 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def to_pyradiosky(sky: SkyModel) -> Any:
+def _resolve_serialization_format(
+    sky: SkyModel,
+    representation: Any,
+) -> Any:
+    from .model import SkyFormat
+
+    if representation is not None:
+        target = (
+            SkyFormat(representation)
+            if isinstance(representation, str)
+            else representation
+        )
+        if target not in sky.available_formats:
+            raise ValueError(
+                f"Cannot serialize as {target.value!r}; payload is not available. "
+                f"Available: {[fmt.value for fmt in sky.available_formats]}"
+            )
+        return target
+    if len(sky.available_formats) == 1:
+        return next(iter(sky.available_formats))
+    raise ValueError(
+        "SkyModel contains both point and HEALPix payloads. "
+        "Pass representation='point_sources' or representation='healpix_map' to save()."
+    )
+
+
+def _sanitize_extra_column(values: np.ndarray) -> np.ndarray:
+    """Convert metadata columns to pyradiosky-friendly array dtypes."""
+    arr = np.asarray(values)
+    if arr.dtype.kind != "O":
+        return arr
+
+    flat = arr.tolist()
+    present = [value for value in flat if value is not None]
+    if not present:
+        return np.full(len(arr), "", dtype=str)
+    if all(isinstance(value, (str, bytes, np.str_)) for value in present):
+        return np.asarray(
+            ["" if value is None else str(value) for value in flat],
+            dtype=str,
+        )
+    if all(
+        isinstance(
+            value,
+            (
+                bool,
+                int,
+                float,
+                np.bool_,
+                np.integer,
+                np.floating,
+            ),
+        )
+        for value in present
+    ):
+        return np.asarray(
+            [np.nan if value is None else float(value) for value in flat],
+            dtype=np.float64,
+        )
+    return np.asarray(
+        ["" if value is None else str(value) for value in flat],
+        dtype=str,
+    )
+
+
+def to_pyradiosky(sky: SkyModel, representation: Any = None) -> Any:
     """Convert a SkyModel to a pyradiosky.SkyModel for serialization.
 
-    Uses the current mode (not _native_format) to decide which
-    representation to serialize.
+    ``representation`` is required when both point and HEALPix payloads
+    are populated.
     """
     from pyradiosky import SkyModel as PyRadioSkyModel
 
-    # Prefer HEALPix if maps are populated
-    if sky._healpix_maps is not None:
-        nside = sky._healpix_nside
-        npix = hp.nside2npix(nside)
-        sorted_indices = np.argsort(sky._observation_frequencies)
-        sorted_freqs = sky._observation_frequencies[sorted_indices]
+    from .model import SkyFormat
+
+    target = _resolve_serialization_format(sky, representation)
+
+    if target == SkyFormat.HEALPIX:
+        if sky.healpix is None:
+            raise ValueError("Cannot serialize missing HEALPix SkyModel payload.")
+        healpix = sky.healpix
+        healpix_maps = healpix.maps
+        nside = healpix.nside
+        observation_frequencies = healpix.frequencies
+        npix = healpix.n_pixels
+        sorted_indices = np.argsort(observation_frequencies)
+        sorted_freqs = observation_frequencies[sorted_indices]
         n_freq = len(sorted_freqs)
 
         stokes_arr = np.zeros((4, n_freq, npix), dtype=np.float32)
+        q_maps = healpix.q_maps
+        u_maps = healpix.u_maps
+        v_maps = healpix.v_maps
         for out_i, src_i in enumerate(sorted_indices):
-            stokes_arr[0, out_i, :] = sky._healpix_maps[src_i]
-            if sky._healpix_q_maps is not None:
-                stokes_arr[1, out_i, :] = sky._healpix_q_maps[src_i]
-            if sky._healpix_u_maps is not None:
-                stokes_arr[2, out_i, :] = sky._healpix_u_maps[src_i]
-            if sky._healpix_v_maps is not None:
-                stokes_arr[3, out_i, :] = sky._healpix_v_maps[src_i]
+            stokes_arr[0, out_i, :] = healpix_maps[src_i]
+            if q_maps is not None:
+                stokes_arr[1, out_i, :] = q_maps[src_i]
+            if u_maps is not None:
+                stokes_arr[2, out_i, :] = u_maps[src_i]
+            if v_maps is not None:
+                stokes_arr[3, out_i, :] = v_maps[src_i]
 
         from astropy.coordinates import ICRS
 
         return PyRadioSkyModel(
             nside=nside,
             hpx_order="ring",
-            hpx_inds=np.arange(npix),
+            hpx_inds=(
+                healpix.hpx_inds if healpix.hpx_inds is not None else np.arange(npix)
+            ),
             stokes=stokes_arr * u.K,
             spectral_type="full",
             freq_array=sorted_freqs * u.Hz,
@@ -64,37 +141,50 @@ def to_pyradiosky(sky: SkyModel) -> Any:
             f"brightness_conversion={sky.brightness_conversion}",
         )
 
-    # Fall back to point-source serialization
-    if sky._ra_rad is not None and len(sky._ra_rad) > 0:
-        n = len(sky._ra_rad)
-        prefix = sky.model_name or "src"
-        names = np.array([f"{prefix}_{i}" for i in range(n)])
+    if sky.point is not None and not sky.point.is_empty:
+        point = sky.point
+        n = point.n_sources
+        if point.source_name is not None:
+            names = np.asarray(
+                ["" if value is None else str(value) for value in point.source_name],
+                dtype=str,
+            )
+        else:
+            names = np.full(n, "", dtype=str)
 
-        skycoord = SkyCoord(ra=sky._ra_rad, dec=sky._dec_rad, unit="rad", frame="icrs")
+        skycoord = SkyCoord(
+            ra=point.ra_rad, dec=point.dec_rad, unit="rad", frame="icrs"
+        )
 
         stokes_arr = np.zeros((4, 1, n), dtype=np.float64)
-        stokes_arr[0, 0, :] = sky._flux
-        if sky._stokes_q is not None:
-            stokes_arr[1, 0, :] = sky._stokes_q
-        if sky._stokes_u is not None:
-            stokes_arr[2, 0, :] = sky._stokes_u
-        if sky._stokes_v is not None:
-            stokes_arr[3, 0, :] = sky._stokes_v
+        stokes_arr[0, 0, :] = point.flux
+        stokes_arr[1, 0, :] = point.stokes_q
+        stokes_arr[2, 0, :] = point.stokes_u
+        stokes_arr[3, 0, :] = point.stokes_v
 
-        if sky._ref_freq is not None and len(sky._ref_freq) == n:
-            ref_freq_arr = sky._ref_freq * u.Hz
+        ref_freq = point.ref_freq
+        if ref_freq is not None and len(ref_freq) == n:
+            ref_freq_arr = ref_freq * u.Hz
         else:
-            ref_freq = sky.reference_frequency or 1e8
-            ref_freq_arr = np.full(n, ref_freq) * u.Hz
+            scalar_ref_freq = sky.reference_frequency or 1e8
+            ref_freq_arr = np.full(n, scalar_ref_freq) * u.Hz
+
+        extra_column_dict = {
+            name: _sanitize_extra_column(values)
+            for name, values in point.extra_columns.items()
+        }
+        if point.source_id is not None and "source_id" not in extra_column_dict:
+            extra_column_dict["source_id"] = _sanitize_extra_column(point.source_id)
 
         return PyRadioSkyModel(
             name=names,
             skycoord=skycoord,
             stokes=stokes_arr * u.Jy,
             spectral_type="spectral_index",
-            spectral_index=sky._spectral_index.copy(),
+            spectral_index=point.spectral_index.copy(),
             reference_frequency=ref_freq_arr,
             component_type="point",
+            extra_column_dict=extra_column_dict or None,
             history=f"RRIVis SkyModel: {sky.model_name or 'unknown'}, "
             f"brightness_conversion={sky.brightness_conversion}",
         )
@@ -106,6 +196,7 @@ def save_skyh5(
     sky: SkyModel,
     filename: str,
     *,
+    representation: Any = None,
     clobber: bool = False,
     compression: str | None = "gzip",
 ) -> None:
@@ -123,11 +214,15 @@ def save_skyh5(
         HDF5 compression for data arrays.
     """
     lost = []
-    if sky._rotation_measure is not None and np.any(sky._rotation_measure != 0):
+    point = sky.point
+    rotation_measure = point.rotation_measure if point is not None else None
+    major_arcsec = point.major_arcsec if point is not None else None
+    spectral_coeffs = point.spectral_coeffs if point is not None else None
+    if rotation_measure is not None and np.any(rotation_measure != 0):
         lost.append("rotation measure")
-    if sky._major_arcsec is not None and np.any(sky._major_arcsec > 0):
+    if major_arcsec is not None and np.any(major_arcsec > 0):
         lost.append("Gaussian morphology")
-    if sky._spectral_coeffs is not None and sky._spectral_coeffs.shape[1] > 1:
+    if spectral_coeffs is not None and spectral_coeffs.shape[1] > 1:
         lost.append("multi-term spectral coefficients")
     if lost:
         warnings.warn(
@@ -136,7 +231,7 @@ def save_skyh5(
             UserWarning,
             stacklevel=3,
         )
-    psky = to_pyradiosky(sky)
+    psky = to_pyradiosky(sky, representation=representation)
     psky.write_skyh5(filename, clobber=clobber, data_compression=compression)
     logger.info(f"SkyModel saved to {filename}")
 

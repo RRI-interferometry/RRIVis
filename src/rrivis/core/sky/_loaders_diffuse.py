@@ -122,11 +122,18 @@ def get_diffuse_model_info(model_name: str) -> dict[str, Any]:
     "diffuse_sky",
     config_section="gsm_healpix",
     use_flag="use_gsm",
-    is_healpix=True,
+    representations=("healpix_map",),
+    category="diffuse",
     network_service="pygdsm_data",
-    aliases=["gsm", "gsm2008", "gsm2016", "lfsm", "haslam"],
+    aliases={
+        "gsm": {"model": "gsm2008"},
+        "gsm2008": {"model": "gsm2008"},
+        "gsm2016": {"model": "gsm2016"},
+        "lfsm": {"model": "lfsm"},
+        "haslam": {"model": "haslam"},
+    },
     config_fields={
-        "gsm_catalogue": "model",
+        "model": "model",
         "nside": "nside",
         "include_cmb": "include_cmb",
         "basemap": "basemap",
@@ -200,8 +207,8 @@ def load_diffuse_sky(
     --------
     >>> freqs = np.linspace(100e6, 120e6, 20)
     >>> sky = load_diffuse_sky(model="gsm2008", nside=32, frequencies=freqs)
-    >>> sky.mode
-    'healpix_map'
+    >>> sky.healpix is not None
+    True
 
     >>> sky = load_diffuse_sky(
     ...     model="gsm2008",
@@ -307,8 +314,7 @@ def load_diffuse_sky(
 
     return SkyModel(
         healpix=HealpixData(maps=i_arr, nside=nside, frequencies=frequencies),
-        native_representation=SkyFormat.HEALPIX,
-        active_representation=SkyFormat.HEALPIX,
+        source_format=SkyFormat.HEALPIX,
         model_name=model,
         brightness_conversion=brightness_conversion,
         _precision=precision,
@@ -413,9 +419,14 @@ def create_gsm_observer(
     "pysm3",
     config_section="pysm3",
     use_flag="use_pysm3",
-    is_healpix=True,
+    representations=("healpix_map",),
+    category="diffuse",
     network_service="pysm3_data",
-    config_fields={"components": "components", "nside": "nside"},
+    config_fields={
+        "components": "components",
+        "nside": "nside",
+        "include_polarization": "include_polarization",
+    },
 )
 def load_pysm3(
     components: str | list[str] = "s1",
@@ -596,8 +607,7 @@ def load_pysm3(
             q_maps=q_arr,
             u_maps=u_arr,
         ),
-        native_representation=SkyFormat.HEALPIX,
-        active_representation=SkyFormat.HEALPIX,
+        source_format=SkyFormat.HEALPIX,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,

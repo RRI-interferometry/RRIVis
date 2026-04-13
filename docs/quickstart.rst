@@ -50,8 +50,9 @@ For more complex simulations, use a YAML configuration file:
 
    sky_model:
      sources:
-       - kind: gleam
-         flux_limit: 1.0
+       - gleam:
+           flux_limit: 1.0
+           max_rows: 10000
 
 Then load and run:
 

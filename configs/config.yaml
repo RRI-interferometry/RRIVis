@@ -105,86 +105,16 @@ sky_model:
   #     center_dec_deg: -30.0
   #     width_deg: 20.0
   #     height_deg: 10.0
-  vlass:
-    flux_limit: 0.001
-    use_vlass: false
-  gleam:
-    flux_limit: 50.0
-    gleam_catalogue: VIII/105/catalog
-    nside: 32
-    use_gleam: false
-  gleam_healpix:
-    flux_limit: 50.0
-    gleam_catalogue: VIII/105/catalog
-    nside: 32
-    use_gleam: false
-  gsm_healpix:
-    basemap: null
-    flux_limit: 50.0
-    gsm_catalogue: gsm2008
-    include_cmb: false
-    interpolation: null
-    nside: 32
-    use_gsm: false
-  lotss:
-    flux_limit: 0.001
-    lotss_release: dr2
-    use_lotss: false
-  mals:
-    flux_limit: 1.0
-    mals_release: dr2
-    use_mals: false
-  nvss:
-    flux_limit: 0.0025
-    use_nvss: false
-  pyradiosky:
-    filename: ''
-    filetype: null
-    flux_limit: 0.0
-    reference_frequency_hz: null
-    use_pyradiosky: false
-  pysm3:
-    components: s1
-    nside: 64
-    use_pysm3: false
-  racs:
-    flux_limit: 1.0
-    max_rows: 1000000
-    racs_band: low
-    use_racs: false
-  sumss:
-    flux_limit: 0.008
-    use_sumss: false
-  test_sources:
-    use_test_sources: true
-    num_sources: 200
-    distribution: random
-    seed: 42
-    flux_min: 1.0
-    flux_max: 5.0
-    dec_deg: -30.72
-    dec_range_deg: 10.0
-    spectral_index: 0
-  test_sources_healpix:
-    use_test_sources: false
-    num_sources: 100
-    flux_min: 2.0
-    flux_max: 8.0
-    dec_deg: -30.72
-    spectral_index: -0.8
-    nside: 64
-  tgss:
-    flux_limit: 0.1
-    use_tgss: false
-  three_c:
-    flux_limit: 1.0
-    use_3c: false
-  vlssr:
-    flux_limit: 1.0
-    use_vlssr: false
-  wenss:
-    flux_limit: 0.05
-    use_wenss: false
+  sources:
+    - test_sources:
+        num_sources: 200
+        distribution: random
+        seed: 42
+        flux_min: 1.0
+        flux_max: 5.0
+        dec_deg: -30.72
+        dec_range_deg: 10.0
+        spectral_index: 0
 telescope:
   telescope_name: HERA
   use_pyuvdata_antennas: false

@@ -22,18 +22,15 @@ import logging
 from typing import Any
 
 import astropy.units as u
-import healpy as hp
 import numpy as np
 from astropy.coordinates import AltAz
 from astropy.time import TimeDelta
 
-from rrivis.backends import ArrayBackend, get_backend
 from rrivis.core.polarization import stokes_to_coherency
 from rrivis.core.sky import (
-    C_LIGHT,
-    K_BOLTZMANN,
     SkyModel,
     brightness_temp_to_flux_density,
+    rayleigh_jeans_factor,
 )
 
 logger = logging.getLogger(__name__)
@@ -227,7 +224,6 @@ def calculate_visibility_healpix(
     duration_seconds: float,
     time_step_seconds: float,
     beam_manager: Any | None = None,
-    backend: ArrayBackend | None = None,
     output_units: str = "Jy",
     beam_config: dict | None = None,
     include_polarization: bool = False,
@@ -271,8 +267,6 @@ def calculate_visibility_healpix(
         Time step for integration in seconds.
     beam_manager : BeamManager, optional
         Beam pattern manager for FITS-based beams.
-    backend : ArrayBackend, optional
-        Computation backend (CPU/GPU).
     output_units : str, default="Jy"
         Output units: "Jy" (convert to Jansky) or "K.sr" (keep temperature ×
         solid angle). In polarized mode, always "Jy".
@@ -297,31 +291,25 @@ def calculate_visibility_healpix(
         - baselines: Baseline info
         - metadata: Additional information
     """
-    from rrivis.core.sky.model import SkyFormat
-
-    if sky_model.mode != SkyFormat.HEALPIX:
+    if sky_model.healpix is None:
         raise ValueError(
-            "sky_model must be in healpix_map mode. "
-            "Call materialize_healpix() first (for point-source catalogs) "
-            "or use from_catalog('diffuse_sky', frequencies=...) (for diffuse models)."
+            "sky_model must contain a HEALPix payload. "
+            "Materialize a HEALPix payload first (for point-source catalogs) "
+            "or load a diffuse HEALPix model with frequencies=...."
         )
 
     # Determine if we should use the polarized path
     use_polarization = include_polarization and sky_model.has_polarized_healpix_maps
 
-    # Get backend
-    if backend is None:
-        backend = get_backend("numpy")
-
     # Get multi-frequency map metadata
     _, nside, _ = sky_model.get_multifreq_maps()
-    npix = hp.nside2npix(nside)
     omega_pixel = sky_model.pixel_solid_angle
     pixel_coords = sky_model.pixel_coords
+    n_pixels = len(pixel_coords)
 
     pol_label = "polarized (2x2 RIME)" if use_polarization else "scalar"
     logger.info(
-        f"HEALPix visibility calculation: nside={nside}, {npix} pixels, {pol_label}"
+        f"HEALPix visibility calculation: nside={nside}, {n_pixels} pixels, {pol_label}"
     )
     logger.info(
         f"Pixel solid angle: {omega_pixel:.6f} sr ({np.degrees(np.sqrt(omega_pixel)):.3f}\u00b0)"
@@ -436,9 +424,7 @@ def calculate_visibility_healpix(
                 # Stokes I: respect brightness_conversion (Planck or RJ)
                 conversion = getattr(sky_model, "brightness_conversion", "planck")
                 if conversion == "rayleigh-jeans":
-                    rj_factor_I = (
-                        (2 * K_BOLTZMANN * freq**2 / C_LIGHT**2) * omega_pixel * 1e26
-                    )
+                    rj_factor_I = rayleigh_jeans_factor(freq, omega_pixel)
                     I_jy = I_vis * rj_factor_I
                 else:
                     I_jy = np.zeros(len(I_vis))
@@ -452,9 +438,7 @@ def calculate_visibility_healpix(
                         )
 
                 # Stokes Q/U/V: always RJ (can be negative, RJ is linear)
-                rj_factor_pol = (
-                    (2 * K_BOLTZMANN * freq**2 / C_LIGHT**2) * omega_pixel * 1e26
-                )
+                rj_factor_pol = rayleigh_jeans_factor(freq, omega_pixel)
                 Q_jy = Q_vis * rj_factor_pol
                 U_jy = U_vis * rj_factor_pol
                 V_jy = V_vis * rj_factor_pol
@@ -512,11 +496,7 @@ def calculate_visibility_healpix(
                 if output_units == "Jy":
                     conversion = getattr(sky_model, "brightness_conversion", "planck")
                     if conversion == "rayleigh-jeans":
-                        rj_factor = (
-                            (2 * K_BOLTZMANN * freq**2 / C_LIGHT**2)
-                            * omega_pixel
-                            * 1e26
-                        )
+                        rj_factor = rayleigh_jeans_factor(freq, omega_pixel)
                         signal = temp_vis * rj_factor
                     else:
                         pos = temp_vis > 0
@@ -586,7 +566,7 @@ def calculate_visibility_healpix(
         "metadata": {
             "model": sky_model.model_name,
             "nside": nside,
-            "n_pixels": npix,
+            "n_pixels": n_pixels,
             "pixel_solid_angle_sr": omega_pixel,
             "n_frequencies": n_freqs,
             "stokes": "IQUV" if use_polarization else "I",
@@ -600,24 +580,3 @@ def calculate_visibility_healpix(
     )
 
     return result
-
-
-def rayleigh_jeans_factor(frequency: float, solid_angle: float) -> float:
-    """
-    Compute the Rayleigh-Jeans conversion factor from T_b to Jy.
-
-    S [Jy] = T [K] × factor
-
-    Parameters
-    ----------
-    frequency : float
-        Frequency in Hz.
-    solid_angle : float
-        Solid angle in steradians.
-
-    Returns
-    -------
-    float
-        Conversion factor (multiply temperature by this to get Jy).
-    """
-    return (2 * K_BOLTZMANN * (frequency**2) / (C_LIGHT**2)) * solid_angle * 1e26

@@ -16,7 +16,7 @@ import numpy as np
 from ._data import HealpixData
 from ._precision import get_sky_storage_dtype
 from ._registry import register_loader
-from .constants import flux_density_to_brightness_temp
+from .constants import flux_density_to_brightness_temp, rayleigh_jeans_factor
 from .model import SkyFormat
 
 if TYPE_CHECKING:
@@ -48,9 +48,11 @@ def _axis_values(header: Any, axis: int, n: int) -> np.ndarray:
     "fits_image",
     config_section="fits_image",
     use_flag="use_fits_image",
-    is_healpix=True,
+    representations=("healpix_map",),
+    category="file",
     requires_file=True,
     network_service=None,
+    config_fields={"filename": "filename", "nside": "nside"},
 )
 def load_fits_image(
     filename: str,
@@ -301,38 +303,40 @@ def load_fits_image(
             image_2d = _get_slice(fits_si, fits_fi)
             hp_map = _reproject_slice(image_2d)
 
-            # Unit conversion
+            # Unit conversion. Stokes Q/U/V are signed linear components, so
+            # convert them with the signed Rayleigh-Jeans relation even when
+            # Stokes I uses the positive-only Planck inversion.
             if is_jy_beam:
+                assert pixel_area_sr is not None
+                assert beam_area_sr is not None
                 hp_map *= pixel_area_sr / beam_area_sr
 
+            flux_map: np.ndarray | None = None
             if is_jy_beam or is_jy_pixel:
-                pos = hp_map > 0
-                temp_map = np.zeros_like(hp_map)
-                if np.any(pos):
-                    temp_map[pos] = flux_density_to_brightness_temp(
-                        hp_map[pos],
-                        freq_hz,
-                        omega_pixel,
-                        method=brightness_conversion,
-                    )
-                hp_map = temp_map
+                flux_map = hp_map
             elif is_jy_sr:
-                hp_jy = hp_map * omega_pixel
-                pos = hp_jy > 0
-                temp_map = np.zeros_like(hp_map)
-                if np.any(pos):
-                    temp_map[pos] = flux_density_to_brightness_temp(
-                        hp_jy[pos],
-                        freq_hz,
-                        omega_pixel,
-                        method=brightness_conversion,
-                    )
-                hp_map = temp_map
+                flux_map = hp_map * omega_pixel
+
+            is_stokes_i = stokes_code == 1 or n_stokes == 1
+            if flux_map is not None:
+                if is_stokes_i:
+                    pos = flux_map > 0
+                    temp_map = np.zeros_like(hp_map)
+                    if np.any(pos):
+                        temp_map[pos] = flux_density_to_brightness_temp(
+                            flux_map[pos],
+                            freq_hz,
+                            omega_pixel,
+                            method=brightness_conversion,
+                        )
+                    hp_map = temp_map
+                else:
+                    hp_map = flux_map / rayleigh_jeans_factor(freq_hz, omega_pixel)
 
             hp_map_cast = hp_map.astype(hp_dtype)
 
             # Stokes mapping: I=1, Q=2, U=3, V=4
-            if stokes_code == 1 or n_stokes == 1:
+            if is_stokes_i:
                 i_arr[out_fi] = hp_map_cast
                 i_has_data = True
                 if single_freq_replicate:
@@ -376,8 +380,7 @@ def load_fits_image(
             u_maps=u_arr if has_u else None,
             v_maps=v_arr if has_v else None,
         ),
-        native_representation=SkyFormat.HEALPIX,
-        active_representation=SkyFormat.HEALPIX,
+        source_format=SkyFormat.HEALPIX,
         model_name=f"fits:{filename.split('/')[-1]}",
         brightness_conversion=brightness_conversion,
         _precision=precision,

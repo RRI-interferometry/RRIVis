@@ -86,14 +86,25 @@ def list_all_models() -> dict[str, dict[str, str]]:
         Nested mapping: category -> {name: description}.
         Categories: "diffuse", "point_catalogs", "racs".
     """
-    from ._loaders_diffuse import list_diffuse_models
-    from ._loaders_vizier import list_point_catalogs, list_racs_catalogs
+    from .registry import loader_registry
 
-    return {
-        "diffuse": list_diffuse_models(),
-        "point_catalogs": list_point_catalogs(),
-        "racs": list_racs_catalogs(),
+    groups: dict[str, dict[str, str]] = {
+        "diffuse": {},
+        "point_catalogs": {},
+        "synthetic": {},
+        "file": {},
     }
+    for definition in loader_registry.definitions():
+        if definition.category == "catalog":
+            group = "point_catalogs"
+        else:
+            group = definition.category
+        doc = (definition.loader.__doc__ or "").strip().splitlines()
+        description = doc[0].strip() if doc else definition.name
+        groups.setdefault(group, {})[definition.name] = description
+        for alias in definition.aliases:
+            groups[group][alias] = f"Alias for {definition.name}"
+    return {key: dict(sorted(value.items())) for key, value in groups.items()}
 
 
 def get_catalog_info(catalog_key: str, live: bool = False) -> dict[str, Any]:
@@ -115,6 +126,29 @@ def get_catalog_info(catalog_key: str, live: bool = False) -> dict[str, Any]:
         get_racs_metadata,
     )
     from .catalogs import DIFFUSE_MODELS, RACS_CATALOGS, VIZIER_POINT_CATALOGS
+    from .registry import loader_registry
+
+    try:
+        loader_name, _ = loader_registry.resolve_request(catalog_key, {})
+        definition = loader_registry.definition(loader_name)
+        meta = loader_registry.meta(catalog_key)
+        return {
+            "name": catalog_key,
+            "loader": definition.name,
+            "category": definition.category,
+            "representation": meta["representation"],
+            "representations": meta["representations"],
+            "output_mode": meta["output_mode"],
+            "primary_representation": meta["primary_representation"],
+            "supports_point_sources": meta["supports_point_sources"],
+            "supports_healpix_map": meta["supports_healpix_map"],
+            "network_service": definition.network_service,
+            "requires_file": definition.requires_file,
+            "aliases": list(definition.aliases),
+            "config_fields": dict(definition.config_fields),
+        }
+    except ValueError:
+        pass
 
     if catalog_key in VIZIER_POINT_CATALOGS:
         return (

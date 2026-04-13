@@ -9,11 +9,12 @@ import numpy as np
 import pytest
 
 from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import HealpixData
+from rrivis.core.sky import HealpixData, create_from_arrays
 from rrivis.core.sky._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from rrivis.core.sky.combine import combine_models
 from rrivis.core.sky.convert import point_sources_to_healpix_maps
 from rrivis.core.sky.model import SkyFormat, SkyModel
+from rrivis.core.sky.operations import materialize_healpix_model
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ def precision():
 
 def make_point_model(n: int, precision: PrecisionConfig, seed: int = 0) -> SkyModel:
     rng = np.random.default_rng(seed)
-    return SkyModel.from_arrays(
+    return create_from_arrays(
         ra_rad=rng.uniform(0, 2 * np.pi, n),
         dec_rad=rng.uniform(-np.pi / 2, np.pi / 2, n),
         flux=rng.uniform(0.1, 10.0, n),
@@ -55,8 +56,7 @@ def make_healpix_model(
             q_maps=q_maps,
             u_maps=u_maps,
         ),
-        native_representation=SkyFormat.HEALPIX,
-        active_representation=SkyFormat.HEALPIX,
+        source_format=SkyFormat.HEALPIX,
         model_name="hp",
         _precision=precision,
     )
@@ -94,14 +94,14 @@ class TestPointSourcesToHealpixMemmap:
     def test_parity_ram_vs_memmap(self, precision, tmp_path):
         sky = make_point_model(50, precision, seed=42)
         kwargs = {
-            "ra_rad": sky.ra_rad,
-            "dec_rad": sky.dec_rad,
-            "flux": sky.flux,
-            "spectral_index": sky.spectral_index,
+            "ra_rad": sky.point.ra_rad,
+            "dec_rad": sky.point.dec_rad,
+            "flux": sky.point.flux,
+            "spectral_index": sky.point.spectral_index,
             "spectral_coeffs": None,
-            "stokes_q": sky.stokes_q,
-            "stokes_u": sky.stokes_u,
-            "stokes_v": sky.stokes_v,
+            "stokes_q": sky.point.stokes_q,
+            "stokes_u": sky.point.stokes_u,
+            "stokes_v": sky.point.stokes_v,
             "rotation_measure": None,
             "nside": 8,
             "frequencies": np.linspace(100e6, 200e6, 4),
@@ -124,26 +124,30 @@ class TestSkyModelMaterializationMemmap:
     def test_materialize_healpix_parity(self, precision, tmp_path):
         sky = make_point_model(20, precision)
         freqs = np.linspace(100e6, 200e6, 4)
-        ram = sky.materialize_healpix(nside=8, frequencies=freqs)
-        mm = sky.materialize_healpix(
+        ram = materialize_healpix_model(sky, nside=8, frequencies=freqs)
+        mm = materialize_healpix_model(
+            sky,
             nside=8,
             frequencies=freqs,
             memmap_path=str(tmp_path),
         )
-        np.testing.assert_array_equal(ram.healpix_maps, mm.healpix_maps)
-        assert not isinstance(ram.healpix_maps, np.memmap)
-        assert isinstance(mm.healpix_maps, np.memmap)
+        np.testing.assert_array_equal(ram.healpix.maps, mm.healpix.maps)
+        assert not isinstance(ram.healpix.maps, np.memmap)
+        assert isinstance(mm.healpix.maps, np.memmap)
 
 
 class TestCombineMemmap:
     def test_combine_healpix_parity(self, precision, tmp_path):
         sky1 = make_healpix_model(nside=8, n_freq=4, precision=precision)
         sky2 = make_healpix_model(nside=8, n_freq=4, precision=precision)
-        ram = combine_models([sky1, sky2], representation=SkyFormat.HEALPIX)
+        ram = combine_models(
+            [sky1, sky2], representation=SkyFormat.HEALPIX, precision=precision
+        )
         mm = combine_models(
             [sky1, sky2],
             representation=SkyFormat.HEALPIX,
             memmap_path=str(tmp_path),
+            precision=precision,
         )
-        np.testing.assert_array_equal(ram.healpix_maps, mm.healpix_maps)
-        assert isinstance(mm.healpix_maps, np.memmap)
+        np.testing.assert_array_equal(ram.healpix.maps, mm.healpix.maps)
+        assert isinstance(mm.healpix.maps, np.memmap)
