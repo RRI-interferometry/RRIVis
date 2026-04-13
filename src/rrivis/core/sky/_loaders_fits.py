@@ -61,7 +61,7 @@ def load_fits_image(
     frequencies: np.ndarray | None = None,
     region: SkyRegion | None = None,
     brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
+    precision: PrecisionConfig,
     memmap_path: str | None = None,
 ) -> Any:
     """Load a FITS image and reproject to HEALPix multi-frequency maps.
@@ -82,7 +82,7 @@ def load_fits_image(
         Spatial filter applied after reprojection.
     brightness_conversion : str, default "planck"
         Conversion method: "planck" or "rayleigh-jeans".
-    precision : PrecisionConfig, optional
+    precision : PrecisionConfig
         Precision configuration.
 
     Returns
@@ -218,10 +218,26 @@ def load_fits_image(
     n_freq_out = len(final_freqs)
     scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
     hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
+    present_stokes = {int(code) for code in np.atleast_1d(stokes_vals)}
+    has_q_input = 2 in present_stokes
+    has_u_input = 3 in present_stokes
+    has_v_input = 4 in present_stokes
     i_arr = allocate_cube((n_freq_out, npix), hp_dtype, scratch, "i_maps")
-    q_arr = allocate_cube((n_freq_out, npix), hp_dtype, scratch, "q_maps")
-    u_arr = allocate_cube((n_freq_out, npix), hp_dtype, scratch, "u_maps")
-    v_arr = allocate_cube((n_freq_out, npix), hp_dtype, scratch, "v_maps")
+    q_arr = (
+        allocate_cube((n_freq_out, npix), hp_dtype, scratch, "q_maps")
+        if has_q_input
+        else None
+    )
+    u_arr = (
+        allocate_cube((n_freq_out, npix), hp_dtype, scratch, "u_maps")
+        if has_u_input
+        else None
+    )
+    v_arr = (
+        allocate_cube((n_freq_out, npix), hp_dtype, scratch, "v_maps")
+        if has_v_input
+        else None
+    )
     has_q = False
     has_u = False
     has_v = False
@@ -286,10 +302,13 @@ def load_fits_image(
             # no broadcast-then-copy allocation of the full cube.
             i_arr[out_fi] = cache_i
             if cache_q is not None:
+                assert q_arr is not None
                 q_arr[out_fi] = cache_q
             if cache_u is not None:
+                assert u_arr is not None
                 u_arr[out_fi] = cache_u
             if cache_v is not None:
+                assert v_arr is not None
                 v_arr[out_fi] = cache_v
             continue
 
@@ -342,16 +361,19 @@ def load_fits_image(
                 if single_freq_replicate:
                     cache_i = hp_map_cast
             elif stokes_code == 2:
+                assert q_arr is not None
                 q_arr[out_fi] = hp_map_cast
                 has_q = True
                 if single_freq_replicate:
                     cache_q = hp_map_cast
             elif stokes_code == 3:
+                assert u_arr is not None
                 u_arr[out_fi] = hp_map_cast
                 has_u = True
                 if single_freq_replicate:
                     cache_u = hp_map_cast
             elif stokes_code == 4:
+                assert v_arr is not None
                 v_arr[out_fi] = hp_map_cast
                 has_v = True
                 if single_freq_replicate:
@@ -365,10 +387,13 @@ def load_fits_image(
     # Flush and re-open read-only if memmap-backed.
     i_arr = finalize_cube(i_arr, scratch, "i_maps")
     if has_q:
+        assert q_arr is not None
         q_arr = finalize_cube(q_arr, scratch, "q_maps")
     if has_u:
+        assert u_arr is not None
         u_arr = finalize_cube(u_arr, scratch, "u_maps")
     if has_v:
+        assert v_arr is not None
         v_arr = finalize_cube(v_arr, scratch, "v_maps")
 
     sky = SkyModel(
@@ -376,6 +401,7 @@ def load_fits_image(
             maps=i_arr,
             nside=nside,
             frequencies=obs_freqs,
+            coordinate_frame="icrs",
             q_maps=q_arr if has_q else None,
             u_maps=u_arr if has_u else None,
             v_maps=v_arr if has_v else None,

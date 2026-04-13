@@ -44,7 +44,8 @@ def _resolve_serialization_format(
         return next(iter(sky.available_formats))
     raise ValueError(
         "SkyModel contains both point and HEALPix payloads. "
-        "Pass representation='point_sources' or representation='healpix_map' to save()."
+        "Pass representation='point_sources' or representation='healpix_map' "
+        "to to_pyradiosky() or save_skyh5()."
     )
 
 
@@ -124,7 +125,9 @@ def to_pyradiosky(sky: SkyModel, representation: Any = None) -> Any:
             if v_maps is not None:
                 stokes_arr[3, out_i, :] = v_maps[src_i]
 
-        from astropy.coordinates import ICRS
+        from astropy.coordinates import ICRS, Galactic
+
+        frame = Galactic() if healpix.coordinate_frame == "galactic" else ICRS()
 
         return PyRadioSkyModel(
             nside=nside,
@@ -136,7 +139,7 @@ def to_pyradiosky(sky: SkyModel, representation: Any = None) -> Any:
             spectral_type="full",
             freq_array=sorted_freqs * u.Hz,
             component_type="healpix",
-            frame=ICRS(),
+            frame=frame,
             history=f"RRIVis SkyModel: {sky.model_name or 'unknown'}, "
             f"brightness_conversion={sky.brightness_conversion}",
         )
@@ -208,6 +211,8 @@ def save_skyh5(
         The model to save.
     filename : str
         Output file path (typically *.skyh5).
+    representation : SkyFormat or str, optional
+        Required when both point-source and HEALPix payloads are present.
     clobber : bool, default False
         Overwrite an existing file.
     compression : str or None, default "gzip"
@@ -227,7 +232,7 @@ def save_skyh5(
     if lost:
         warnings.warn(
             f"SkyH5 format does not preserve: {', '.join(lost)}. "
-            "Use write_bbs() from _loaders_bbs for lossless export.",
+            "Use rrivis.core.sky.write_bbs() for lossless export.",
             UserWarning,
             stacklevel=3,
         )
@@ -239,7 +244,7 @@ def save_skyh5(
 def load_skyh5(
     filename: str,
     *,
-    precision: PrecisionConfig | None = None,
+    precision: PrecisionConfig,
     **kwargs: Any,
 ) -> SkyModel:
     """Load a SkyModel from a SkyH5 file.

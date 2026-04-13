@@ -149,7 +149,8 @@ def load_diffuse_sky(
     basemap: str | None = None,
     interpolation: str | None = None,
     brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
     region: SkyRegion | None = None,
     memmap_path: str | None = None,
 ) -> SkyModel:  # noqa: F821
@@ -206,7 +207,14 @@ def load_diffuse_sky(
     Examples
     --------
     >>> freqs = np.linspace(100e6, 120e6, 20)
-    >>> sky = load_diffuse_sky(model="gsm2008", nside=32, frequencies=freqs)
+    >>> from rrivis.core.precision import PrecisionConfig
+    >>> precision = PrecisionConfig.standard()
+    >>> sky = load_diffuse_sky(
+    ...     model="gsm2008",
+    ...     nside=32,
+    ...     frequencies=freqs,
+    ...     precision=precision,
+    ... )
     >>> sky.healpix is not None
     True
 
@@ -216,6 +224,7 @@ def load_diffuse_sky(
     ...     frequencies=freqs,
     ...     basemap="wmap",
     ...     interpolation="cubic",
+    ...     precision=precision,
     ... )
 
     >>> config = {
@@ -224,7 +233,12 @@ def load_diffuse_sky(
     ...     "frequency_bandwidth": 20.0,
     ...     "frequency_unit": "MHz",
     ... }
-    >>> sky = load_diffuse_sky(model="lfsm", nside=64, obs_frequency_config=config)
+    >>> sky = load_diffuse_sky(
+    ...     model="lfsm",
+    ...     nside=64,
+    ...     obs_frequency_config=config,
+    ...     precision=precision,
+    ... )
     """
     from .model import SkyModel
 
@@ -249,7 +263,7 @@ def load_diffuse_sky(
         raise ValueError(
             "Either 'frequencies' or 'obs_frequency_config' must be provided. "
             "Example: load_diffuse_sky(model='gsm2008', nside=32, "
-            "frequencies=np.linspace(100e6, 120e6, 20))"
+            "frequencies=np.linspace(100e6, 120e6, 20), precision=...)"
         )
 
     if frequencies is None:
@@ -313,7 +327,12 @@ def load_diffuse_sky(
     i_arr = finalize_cube(i_arr, scratch, "i_maps")
 
     return SkyModel(
-        healpix=HealpixData(maps=i_arr, nside=nside, frequencies=frequencies),
+        healpix=HealpixData(
+            maps=i_arr,
+            nside=nside,
+            frequencies=frequencies,
+            coordinate_frame="icrs",
+        ),
         source_format=SkyFormat.HEALPIX,
         model_name=model,
         brightness_conversion=brightness_conversion,
@@ -435,7 +454,8 @@ def load_pysm3(
     obs_frequency_config: dict[str, Any] | None = None,
     include_polarization: bool = False,
     brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
     region: SkyRegion | None = None,
     memmap_path: str | None = None,
 ) -> SkyModel:  # noqa: F821
@@ -490,7 +510,7 @@ def load_pysm3(
         raise ValueError(
             "Either 'frequencies' or 'obs_frequency_config' must be provided. "
             "Example: load_pysm3(components='s1', nside=64, "
-            "frequencies=np.linspace(100e6, 120e6, 20))"
+            "frequencies=np.linspace(100e6, 120e6, 20), precision=...)"
         )
 
     if frequencies is None:
@@ -604,6 +624,7 @@ def load_pysm3(
             maps=i_arr,
             nside=nside,
             frequencies=frequencies,
+            coordinate_frame="icrs",
             q_maps=q_arr,
             u_maps=u_arr,
         ),

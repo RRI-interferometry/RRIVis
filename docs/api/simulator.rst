@@ -27,12 +27,8 @@ Basic simulation:
 
    from rrivis import Simulator
 
-   sim = Simulator(backend="auto")
-   sim.setup(
-       antenna_layout="antennas.txt",
-       frequencies=[100, 150, 200],
-       sky_model="gleam",
-   )
+   sim = Simulator.from_config("config.yaml")
+   sim.setup()
    results = sim.run(progress=True)
    sim.save("output.h5")
 

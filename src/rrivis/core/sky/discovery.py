@@ -129,12 +129,14 @@ def get_catalog_info(catalog_key: str, live: bool = False) -> dict[str, Any]:
     from .registry import loader_registry
 
     try:
-        loader_name, _ = loader_registry.resolve_request(catalog_key, {})
+        loader_name, resolved_kwargs = loader_registry.resolve_request(catalog_key, {})
         definition = loader_registry.definition(loader_name)
         meta = loader_registry.meta(catalog_key)
-        return {
+        info = {
             "name": catalog_key,
             "loader": definition.name,
+            "resolved_loader": loader_name,
+            "resolved_kwargs": dict(resolved_kwargs),
             "category": definition.category,
             "representation": meta["representation"],
             "representations": meta["representations"],
@@ -147,6 +149,11 @@ def get_catalog_info(catalog_key: str, live: bool = False) -> dict[str, Any]:
             "aliases": list(definition.aliases),
             "config_fields": dict(definition.config_fields),
         }
+        model_name = resolved_kwargs.get("model")
+        if isinstance(model_name, str) and model_name in DIFFUSE_MODELS:
+            info["diffuse_model"] = model_name
+            info["diffuse_model_info"] = get_diffuse_model_info(model_name)
+        return info
     except ValueError:
         pass
 

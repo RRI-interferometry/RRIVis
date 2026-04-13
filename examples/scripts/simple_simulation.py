@@ -75,18 +75,30 @@ def main():
             antenna_file = None
             # Will use default test configuration
 
-        sim = Simulator(
-            antenna_layout=str(antenna_file) if antenna_file else None,
-            frequencies=[100, 120, 140, 160, 180, 200],  # MHz
-            sky_model="test",  # Use test sources
-            location={
+        config = {
+            "obs_frequency": {
+                "frequencies_hz": [100e6, 120e6, 140e6, 160e6, 180e6, 200e6],
+                "frequency_unit": "MHz",
+            },
+            "sky_model": {
+                "sources": [{"kind": "test_sources"}],
+            },
+            "visibility": {"sky_representation": "point_sources"},
+            "location": {
                 "lat": -30.72,  # HERA latitude
                 "lon": 21.43,  # HERA longitude
                 "height": 1073.0,
             },
-            start_time="2025-01-15T00:00:00",
-            backend=args.backend,
-        )
+            "obs_time": {"start_time": "2025-01-15T00:00:00"},
+        }
+        if antenna_file is not None:
+            config["antenna_layout"] = {
+                "antenna_positions_file": str(antenna_file),
+                "antenna_file_format": "rrivis",
+                "all_antenna_diameter": 14.0,
+            }
+
+        sim = Simulator(config=config, backend=args.backend)
 
     # Show simulation configuration
     print("=" * 60)

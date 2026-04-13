@@ -76,7 +76,7 @@ For CASA Measurement Set support:
 Development
 ^^^^^^^^^^^
 
-For development tools (pytest, black, ruff, mypy):
+For development tools (pytest, ruff, pyright):
 
 .. code-block:: bash
 

@@ -185,6 +185,7 @@ class SkyModel:
             maps=_cast_map(healpix_data.maps),
             nside=healpix_data.nside,
             frequencies=np.asarray(healpix_data.frequencies, dtype=flux_dt),
+            coordinate_frame=healpix_data.coordinate_frame,
             hpx_inds=healpix_data.hpx_inds,
             q_maps=_cast_map(healpix_data.q_maps),
             u_maps=_cast_map(healpix_data.u_maps),
@@ -455,7 +456,7 @@ class SkyModel:
 
     @property
     def pixel_coords(self) -> SkyCoord:
-        """SkyCoord of the stored HEALPix pixel centers (ICRS, RING ordering).
+        """SkyCoord of the stored HEALPix pixel centers in the stored frame.
 
         Returns
         -------
@@ -476,7 +477,10 @@ class SkyModel:
         nside = self.healpix.nside
         pixel_indices = self.healpix.pixel_indices
         theta, phi = hp.pix2ang(nside, pixel_indices)
-        return SkyCoord(ra=phi, dec=np.pi / 2 - theta, unit="rad", frame="icrs")
+        lat_rad = np.pi / 2 - theta
+        if self.healpix.coordinate_frame == "galactic":
+            return SkyCoord(l=phi, b=lat_rad, unit="rad", frame="galactic")
+        return SkyCoord(ra=phi, dec=lat_rad, unit="rad", frame="icrs")
 
     @property
     def has_point_sources(self) -> bool:
@@ -496,7 +500,10 @@ class SkyModel:
         """Return region-masked HEALPix payload."""
         if self.healpix is None:
             return None
-        hp_mask = region.healpix_mask(self.healpix.nside)
+        hp_mask = region.healpix_mask(
+            self.healpix.nside,
+            coordinate_frame=self.healpix.coordinate_frame,
+        )
         return self.healpix.masked_region(hp_mask)
 
     def filter_region(self, region: "SkyRegion") -> "SkyModel":
@@ -893,20 +900,27 @@ class SkyModel:
                 if arr is not None:
                     stokes_components += letter
                     n_stokes += 1
-            from .discovery import estimate_healpix_memory
-
-            mem_info = estimate_healpix_memory(
-                self.healpix.nside,
-                len(freqs),
-                np.float32,
-                n_stokes=n_stokes,
-            )
+            stored_arrays = [
+                arr
+                for arr in (
+                    self.healpix.maps,
+                    self.healpix.q_maps,
+                    self.healpix.u_maps,
+                    self.healpix.v_maps,
+                )
+                if arr is not None
+            ]
+            total_bytes = sum(arr.nbytes for arr in stored_arrays)
+            if self.healpix.hpx_inds is not None:
+                total_bytes += self.healpix.hpx_inds.nbytes
+            memory_mb = total_bytes / 1e6
             sparse_note = ", sparse=True" if self.healpix.is_sparse else ""
             parts.append(
                 f"nside={self.healpix.nside}, n_freq={len(freqs)}, "
                 f"pixels={self.healpix.n_pixels}{sparse_note}, "
                 f"freq_range={freq_range}MHz, stokes='{stokes_components}', "
-                f"memory={mem_info['total_mb']:.1f}MB"
+                f"frame='{self.healpix.coordinate_frame}', "
+                f"memory={memory_mb:.1f}MB"
             )
 
         return f"SkyModel({', '.join(parts)})"
@@ -984,6 +998,8 @@ class SkyModel:
             return False
         if self.healpix is not None and other.healpix is not None:
             if self.healpix.nside != other.healpix.nside:
+                return False
+            if self.healpix.coordinate_frame != other.healpix.coordinate_frame:
                 return False
             for name in (
                 "i_unit",

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Literal
 import astropy.units as u
 import healpy as hp
 import numpy as np
-from healpy.rotator import Rotator
 from pyradiosky import SkyModel as PyRadioSkyModel
 
 from rrivis.utils.frequency import parse_frequency_config
@@ -56,7 +55,8 @@ def load_pyradiosky_file(
     reference_frequency_hz: float | None = None,
     spectral_loss_policy: Literal["warn", "error"] = "warn",
     brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
     frequencies: np.ndarray | None = None,
     obs_frequency_config: dict[str, Any] | None = None,
     region: SkyRegion | None = None,
@@ -277,7 +277,7 @@ def load_pyradiosky_file(
         return create_empty(
             model_name,
             brightness_conversion,
-            precision,
+            precision=precision,
             reference_frequency=ref_freq_hz,
         )
 
@@ -388,13 +388,16 @@ def _load_pyradiosky_healpix(
         psky_eval.jansky_to_kelvin()
 
     # --- Determine coordinate frame and pixel handling ---
-    is_galactic = False
+    coordinate_frame = "icrs"
     if hasattr(psky_eval, "frame") and psky_eval.frame is not None:
         frame_name = str(psky_eval.frame).lower()
         if "galactic" in frame_name:
-            is_galactic = True
-
-    rot = Rotator(coord=["G", "C"]) if is_galactic else None
+            coordinate_frame = "galactic"
+        elif "icrs" not in frame_name:
+            raise ValueError(
+                "Unsupported pyradiosky HEALPix frame. "
+                f"Expected ICRS or Galactic, got {psky_eval.frame!r}."
+            )
 
     # Check for nested ordering
     is_nested = False
@@ -409,10 +412,6 @@ def _load_pyradiosky_healpix(
 
     npix = hp.nside2npix(nside)
     is_sparse = hpx_inds is not None and len(hpx_inds) < npix
-    if is_sparse and rot is not None:
-        raise NotImplementedError(
-            "Sparse pyradiosky HEALPix maps in galactic frame are not supported yet."
-        )
 
     # --- Extract Stokes and build full-sky maps ---
     # psky_eval.stokes shape: (n_stokes, Nfreqs, Ncomponents)
@@ -434,7 +433,10 @@ def _load_pyradiosky_healpix(
             pix = hp.nest2ring(nside, pix)
 
     if region is not None:
-        region_mask = region.healpix_mask(nside)
+        region_mask = region.healpix_mask(
+            nside,
+            coordinate_frame=coordinate_frame,
+        )
         if is_sparse and pix is not None:
             keep_mask = region_mask[pix]
             pix = pix[keep_mask]
@@ -528,29 +530,21 @@ def _load_pyradiosky_healpix(
                 q_map = _build_full_map(stokes_data[1, fi, :])
                 u_map = _build_full_map(stokes_data[2, fi, :])
 
-                if rot is not None:
-                    iqu = np.array([i_map, q_map, u_map])
-                    iqu_rot = rot.rotate_map_alms(iqu)
-                    i_map = iqu_rot[0]
-                    q_map = iqu_rot[1]
-                    u_map = iqu_rot[2]
-
                 i_arr[fi] = i_map.astype(hp_dtype)
                 q_arr[fi] = q_map.astype(hp_dtype)
                 u_arr[fi] = u_map.astype(hp_dtype)
 
                 if n_stokes_avail >= 4:
                     v_map = _build_full_map(stokes_data[3, fi, :])
-                    if rot is not None:
-                        v_map = rot.rotate_map_pixel(v_map)
                     v_arr[fi] = v_map.astype(hp_dtype)
             else:
-                if rot is not None:
-                    i_map = rot.rotate_map_pixel(i_map)
                 i_arr[fi] = i_map.astype(hp_dtype)
 
     if region is not None and not is_sparse:
-        mask = region.healpix_mask(nside)
+        mask = region.healpix_mask(
+            nside,
+            coordinate_frame=coordinate_frame,
+        )
         n_retained = int(mask.sum())
         i_arr[:, ~mask] = 0.0
         for arr in (q_arr, u_arr, v_arr):
@@ -581,6 +575,7 @@ def _load_pyradiosky_healpix(
             maps=i_arr,
             nside=nside,
             frequencies=obs_freqs,
+            coordinate_frame=coordinate_frame,
             hpx_inds=pix if is_sparse else None,
             q_maps=q_arr,
             u_maps=u_arr,

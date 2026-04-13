@@ -46,12 +46,12 @@ Configuration files use YAML format:
      flux_unit: "Jy"
      mixed_model_policy: "error"
      sources:
-       - gleam:
-           flux_limit: 1.0
-           max_rows: 10000
-       - diffuse_sky:
-           model: gsm2008
-           nside: 64
+       - kind: gleam
+         flux_limit: 1.0
+         max_rows: 10000
+       - kind: diffuse_sky
+         model: gsm2008
+         nside: 64
 
    visibility:
      sky_representation: "healpix_map"
@@ -65,9 +65,9 @@ Configuration Sections
 ----------------------
 
 The ``sky_model`` section is source-driven: ``sky_model.sources`` is a list of
-one-key loader specifications. The key is the loader name or alias, and the
-value contains loader-specific arguments. Global options such as ``flux_unit``
-and ``brightness_conversion`` live alongside that list.
+tagged loader specifications. Each entry must include ``kind: <loader_name>``
+plus any loader-specific arguments. Global options such as ``flux_unit`` and
+``brightness_conversion`` live alongside that list.
 
 Legacy nested catalog sections such as ``sky_model.gleam`` or
 ``sky_model.gsm_healpix`` are rejected. Represent each enabled sky input as one

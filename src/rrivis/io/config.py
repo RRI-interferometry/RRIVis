@@ -311,7 +311,7 @@ class SkySourceConfig(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    kind: str = Field(..., description="Canonical loader name")
+    kind: str = Field(..., description="Sky loader name or alias")
     region: SkyRegionEntryConfig | list[SkyRegionEntryConfig] | None = Field(
         None,
         description="Optional source-specific sky region override.",
@@ -326,12 +326,14 @@ class SkySourceConfig(BaseModel):
         *,
         flux_multiplier: float = 1.0,
         region: Any = None,
-        brightness_conversion: str | None = None,
+        brightness_conversion: Literal["planck", "rayleigh-jeans"] | None = None,
         frequencies: Any = None,
         obs_frequency_config: dict[str, Any] | None = None,
         memmap_path: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        """Build an explicit loader request for this source spec."""
+        """Build a resolved loader request for this source spec."""
+        from rrivis.core.sky.registry import loader_registry
+
         context = SkyLoaderRequestContext(
             flux_multiplier=flux_multiplier,
             region=region,
@@ -340,7 +342,8 @@ class SkySourceConfig(BaseModel):
             obs_frequency_config=obs_frequency_config,
             memmap_path=memmap_path,
         )
-        return self._build_loader_request(context)
+        raw_kind, explicit_kwargs = self._build_loader_request(context)
+        return loader_registry.resolve_request(raw_kind, explicit_kwargs)
 
     def _scaled_flux(
         self,
@@ -753,8 +756,7 @@ class CustomRegisteredSourceConfig(SkySourceConfig):
     ) -> tuple[str, dict[str, Any]]:
         from rrivis.core.sky.registry import loader_registry
 
-        kind = loader_registry.resolve_name(self.kind)
-        definition = loader_registry.definition(kind)
+        definition = loader_registry.definition(self.kind)
         kwargs = self._common_kwargs(
             context,
             include_frequency_context=definition.supports_healpix_map,
@@ -775,7 +777,7 @@ class CustomRegisteredSourceConfig(SkySourceConfig):
                 value = self._scaled_flux(value, context)
             kwargs[loader_arg] = value
 
-        return kind, kwargs
+        return self.kind, kwargs
 
 
 _SKY_SOURCE_CONFIG_UNION = Annotated[
@@ -963,7 +965,6 @@ class OutputConfig(BaseModel):
     plotting_backend: str = Field(
         "bokeh", description="Plotting backend (bokeh/matplotlib)"
     )
-    plot_skymodel_every_hour: bool = Field(False, description="Plot sky model")
     save_log_data: bool = Field(False, description="Save log data")
     angle_unit: Literal["degrees", "radians", ""] = Field(
         "", description="Angle display unit"
@@ -1550,8 +1551,8 @@ class RRIvisConfig(BaseModel):
         if not sm.sources:
             errors.append(
                 "sky_model.sources: add at least one source entry "
-                "(for example {'test_sources': {}}, {'gleam': {}}, "
-                "or {'diffuse_sky': {}})."
+                "(for example {'kind': 'test_sources'}, "
+                "{'kind': 'gleam'}, or {'kind': 'diffuse_sky'})."
             )
         else:
             from rrivis.core.sky.registry import loader_registry

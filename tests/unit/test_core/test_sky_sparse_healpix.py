@@ -31,6 +31,8 @@ def precision() -> PrecisionConfig:
 
 def make_sparse_healpix_model(
     precision: PrecisionConfig,
+    *,
+    coordinate_frame: str = "icrs",
 ) -> tuple[SkyModel, np.ndarray, np.ndarray]:
     nside = 8
     freqs = np.array([100e6], dtype=np.float64)
@@ -41,6 +43,7 @@ def make_sparse_healpix_model(
             maps=maps,
             nside=nside,
             frequencies=freqs,
+            coordinate_frame=coordinate_frame,
             hpx_inds=hpx_inds,
         ),
         source_format=SkyFormat.HEALPIX,
@@ -53,8 +56,13 @@ def make_sparse_healpix_model(
 
 def make_dense_equivalent(
     precision: PrecisionConfig,
+    *,
+    coordinate_frame: str = "icrs",
 ) -> tuple[SkyModel, np.ndarray, np.ndarray]:
-    sky, hpx_inds, freqs = make_sparse_healpix_model(precision)
+    sky, hpx_inds, freqs = make_sparse_healpix_model(
+        precision,
+        coordinate_frame=coordinate_frame,
+    )
     npix = hp.nside2npix(sky.healpix.nside)
     dense_maps = np.zeros((1, npix), dtype=np.float32)
     dense_maps[0, hpx_inds] = sky.healpix.maps[0]
@@ -63,6 +71,7 @@ def make_dense_equivalent(
             maps=dense_maps,
             nside=sky.healpix.nside,
             frequencies=freqs,
+            coordinate_frame=coordinate_frame,
         ),
         source_format=SkyFormat.HEALPIX,
         reference_frequency=float(freqs[0]),
@@ -136,13 +145,41 @@ class TestSparsePyradioskyLoader:
         assert loaded.healpix.maps.shape == (1, len(hpx_inds))
         np.testing.assert_array_equal(loaded.healpix.maps[0], sky.healpix.maps[0])
 
+    def test_galactic_sparse_round_trip_preserves_frame(self, precision):
+        sky, hpx_inds, freqs = make_sparse_healpix_model(
+            precision,
+            coordinate_frame="galactic",
+        )
+        psky = to_pyradiosky(sky, representation=SkyFormat.HEALPIX)
+
+        assert "galactic" in str(psky.frame).lower()
+        np.testing.assert_array_equal(psky.hpx_inds, hpx_inds)
+
+        loaded = _load_pyradiosky_healpix(
+            psky,
+            filename="galactic_sparse.skyh5",
+            frequencies=freqs,
+            obs_frequency_config=None,
+            brightness_conversion="rayleigh-jeans",
+            precision=precision,
+        )
+
+        assert loaded.healpix is not None
+        assert loaded.healpix.coordinate_frame == "galactic"
+        np.testing.assert_array_equal(loaded.healpix.hpx_inds, hpx_inds)
+        np.testing.assert_array_equal(loaded.healpix.maps, sky.healpix.maps)
+
 
 class TestSparseSkyModelBehavior:
     def test_sparse_pixel_coords_and_point_materialization(self, precision):
-        sky, hpx_inds, freqs = make_sparse_healpix_model(precision)
+        sky, hpx_inds, freqs = make_sparse_healpix_model(
+            precision,
+            coordinate_frame="galactic",
+        )
 
         coords = sky.pixel_coords
         assert len(coords) == len(hpx_inds)
+        assert coords.frame.name == "galactic"
 
         point = materialize_point_sources_model(
             sky,

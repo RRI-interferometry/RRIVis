@@ -27,10 +27,10 @@ Configuration:
    sky_model:
      flux_unit: "Jy"
      sources:
-       - gleam:
-           flux_limit: 1.0
-           max_rows: 10000
-           catalog: gleam_egc
+       - kind: gleam
+         flux_limit: 1.0
+         max_rows: 10000
+         catalog: gleam_egc
 
 Global Sky Model (GSM)
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -59,9 +59,22 @@ Configuration:
    sky_model:
      flux_unit: "Jy"
      sources:
-       - diffuse_sky:
-           model: gsm2008
-           nside: 64
+       - kind: gsm2008
+         nside: 64
+
+Alias forms resolve through the loader registry. For example,
+``kind: gsm2008`` becomes ``diffuse_sky`` with ``model: gsm2008``,
+and explicit fields still win:
+
+.. code-block:: yaml
+
+   sky_model:
+     sources:
+       - kind: gsm2016
+         nside: 128
+       - kind: gsm2016
+         model: haslam
+         nside: 64
 
 Combined Models
 ^^^^^^^^^^^^^^^
@@ -125,8 +138,8 @@ Configuration:
    sky_model:
      flux_unit: "Jy"
      sources:
-       - test_sources:
-           num_sources: 100
+       - kind: test_sources
+         num_sources: 100
 
 Custom Point Sources
 --------------------
@@ -177,15 +190,23 @@ Convert point sources to multi-frequency HEALPix maps:
 .. code-block:: python
 
    import numpy as np
+   from rrivis.core.sky import materialize_healpix_model
 
    frequencies = np.linspace(100e6, 200e6, 11)
-   sky_healpix = sky.materialize_healpix(nside=64, frequencies=frequencies)
+   sky_healpix = materialize_healpix_model(
+       sky,
+       nside=64,
+       frequencies=frequencies,
+   )
 
 Convert a HEALPix-only model back to a point-source view explicitly:
 
 .. code-block:: python
 
-   point_view = sky_healpix.materialize_point_sources(
+   from rrivis.core.sky import materialize_point_sources_model
+
+   point_view = materialize_point_sources_model(
+       sky_healpix,
        frequency=100e6,
        lossy=True,
    )
@@ -194,6 +215,22 @@ Lossy HEALPix-to-point conversion is never implicit. Simulator configs
 must opt in with ``visibility.allow_lossy_point_materialization: true``
 before requesting ``visibility.sky_representation: point_sources`` for a
 HEALPix-only model.
+
+Public Sky API
+--------------
+
+The root ``rrivis.core.sky`` package is intentionally small. The stable
+entry points are:
+
+- constructors: ``create_empty()``, ``create_from_arrays()``, ``create_test_sources()``
+- transforms: ``combine_models()``, ``materialize_healpix_model()``,
+  ``materialize_point_sources_model()``, ``with_memmap_backing()``
+- IO: ``load_skyh5()``, ``save_skyh5()``, ``to_pyradiosky()``, ``write_bbs()``
+- discovery: ``estimate_healpix_memory()``, ``list_all_models()``,
+  ``get_catalog_info()``
+
+Lower-level implementation helpers remain in their defining modules and
+are not part of the root public contract.
 
 Flux Limits
 -----------
@@ -251,8 +288,19 @@ For large point-source simulations, use GPU backends:
 .. code-block:: python
 
    sim = Simulator(
-       antenna_layout="antennas.txt",
-       sky_model="gleam",
+       config={
+           "antenna_layout": {
+               "antenna_positions_file": "antennas.txt",
+               "antenna_file_format": "rrivis",
+               "all_antenna_diameter": 14.0,
+           },
+           "obs_frequency": {
+               "frequencies_hz": [100e6, 150e6],
+               "frequency_unit": "MHz",
+           },
+           "sky_model": {"sources": [{"kind": "gleam"}]},
+           "visibility": {"sky_representation": "point_sources"},
+       },
        backend="jax",
    )
    sim.setup()

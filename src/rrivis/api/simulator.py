@@ -17,7 +17,12 @@ Examples
 >>> sim = Simulator(
 ...     antenna_layout="antennas.txt",
 ...     frequencies=[100, 150, 200],  # MHz
-...     sky_model="gleam",
+...     config={
+...         "sky_model": {
+...             "sources": [{"kind": "gleam"}],
+...         },
+...         "visibility": {"sky_representation": "point_sources"},
+...     },
 ...     backend="auto",  # Auto-detect GPU
 ... )
 >>> results = sim.run()
@@ -87,8 +92,6 @@ class Simulator:
         Path to antenna positions file.
     frequencies : list of float, optional
         List of frequencies in MHz.
-    sky_model : str, optional
-        Sky model name ("test", "gleam", "gsm").
     location : dict, optional
         Observatory location with lat, lon, height keys.
     start_time : str, optional
@@ -128,7 +131,10 @@ class Simulator:
     >>> sim = Simulator(
     ...     antenna_layout="HERA65.csv",
     ...     frequencies=[100, 150, 200],
-    ...     sky_model="gleam",
+    ...     config={
+    ...         "sky_model": {"sources": [{"kind": "gleam"}]},
+    ...         "visibility": {"sky_representation": "point_sources"},
+    ...     },
     ...     backend="jax",  # Use JAX GPU backend
     ... )
     >>> results = sim.run()
@@ -143,7 +149,6 @@ class Simulator:
         self,
         antenna_layout: str | Path | None = None,
         frequencies: list[float] | None = None,
-        sky_model: str | None = None,
         location: dict[str, float] | None = None,
         start_time: str | None = None,
         backend: str = "auto",
@@ -185,7 +190,6 @@ class Simulator:
             self.config = self._build_config(
                 antenna_layout=antenna_layout,
                 frequencies=frequencies,
-                sky_model=sky_model,
                 location=location,
                 start_time=start_time,
             )
@@ -194,7 +198,6 @@ class Simulator:
         self,
         antenna_layout: str | Path | None = None,
         frequencies: list[float] | None = None,
-        sky_model: str | None = None,
         location: dict[str, float] | None = None,
         start_time: str | None = None,
     ) -> dict[str, Any]:
@@ -221,27 +224,6 @@ class Simulator:
                 # can use it directly instead of the lossy linspace
                 # reconstruction from start/bandwidth/interval.
                 "frequencies_hz": (freq_array * 1e6).tolist(),
-            }
-
-        if sky_model:
-            from rrivis.core.sky.registry import loader_registry
-
-            try:
-                canonical, defaults = loader_registry.resolve_request(sky_model, {})
-                meta = loader_registry.meta(sky_model)
-            except ValueError:
-                available = sorted(
-                    set(loader_registry.names()) | set(loader_registry.aliases())
-                )
-                raise ValueError(
-                    f"Unknown sky_model '{sky_model}'. Available: {available}."
-                ) from None
-            source = {canonical: defaults}
-            is_healpix = meta["representation"] == "healpix_map"
-
-            config["sky_model"] = {"flux_unit": "Jy", "sources": [source]}
-            config["visibility"] = {
-                "sky_representation": "healpix_map" if is_healpix else "point_sources",
             }
 
         if location:
@@ -1031,49 +1013,74 @@ class Simulator:
 
         return saved_paths
 
-    def show_strip(
+    def plot_sky_visibility(
         self,
         *,
         lst_start_hours: float | None = None,
         lst_end_hours: float | None = None,
-        background_mode: str = "gsm",
-        use_lst_axis: bool = False,
-        beam_lst_hours: float | None = None,
+        x_axis: str = "ra",
+        background_layer: str = "diffuse",
+        footprint_model: str = "swept_beam",
+        mode: str = "summary",
+        snapshot_step_seconds: float = 3600.0,
+        footprint_step_seconds: float = 60.0,
+        beam_reference: str | float = "midpoint",
         max_point_sources: int = 1000,
+        top_n_sources: int = 5,
+        show_source_colorbar: bool = False,
+        color_scale: str = "log",
         open_in_browser: bool = True,
         save_path: str | None = None,
         **kwargs,
     ):
-        """Show the observable sky strip for this simulation's config.
+        """Render a sky-visibility view for this simulation's config.
 
-        Produces an interactive Bokeh visualisation of the sky region
-        visible to the telescope, overlaid with the configured sky model
-        and beam pattern.  Can be called before or after ``run()``.
+        Produces a geometry-aware sky-visibility plot with optional diffuse
+        background, point-source metrics, and beam overlay. Can be called
+        before or after :meth:`run`.
 
         Parameters
         ----------
         lst_start_hours, lst_end_hours : float, optional
             LST range (hours).  If not given, derived from config obs_time.
-        background_mode : str
-            ``"gsm"`` | ``"reference"`` | ``"none"``.
-        use_lst_axis : bool
-            Display x-axis as LST hours.
-        beam_lst_hours : float, optional
-            LST where beam is centred (defaults to strip centre).
+        x_axis : {"ra", "lst"}
+            X-axis convention: wrapped RA degrees or sidereal hours.
+        background_layer : {"diffuse", "none"}
+            Whether to draw the diffuse HEALPix background.
+        footprint_model : {"swept_beam", "rectangular_approx"}
+            Visibility-footprint model for the summary overlay.
+        mode : {"summary", "snapshots"}
+            Plot a time-swept summary or a snapshot grid.
+        snapshot_step_seconds : float
+            Snapshot cadence used when ``mode="snapshots"``.
+        footprint_step_seconds : float
+            Sampling cadence used for the summary footprint and source metrics.
+        beam_reference : {"midpoint", "start", "end"} or float
+            Beam-reference choice for the summary overlay. A float is treated
+            as an LST hour.
         max_point_sources : int
-            Brightest sources to show (default 1000).
+            Brightest point sources to include in the plot.
+        top_n_sources : int
+            Number of visible sources to rank and label.
+        show_source_colorbar : bool
+            Draw a flux colorbar for point sources.
+        color_scale : {"log", "linear"}
+            Flux color scaling for point sources.
         open_in_browser : bool
             Open the HTML plot in a browser.
         save_path : str, optional
             Directory to save the HTML file.
         **kwargs
-            Forwarded to :class:`~rrivis.utils.diagnostics.DiagnosticsPlanner`.
+            Forwarded to :class:`~rrivis.visualization.sky_visibility.SkyVisibilityPlanner`.
 
         Returns
         -------
         Bokeh layout
         """
-        from rrivis.utils.diagnostics import DiagnosticsPlanner, StripPlotter
+        from rrivis.visualization.sky_visibility import (
+            SkyVisibilityBokehRenderer,
+            SkyVisibilityPlanner,
+        )
 
         cfg = self.config
 
@@ -1102,7 +1109,7 @@ class Simulator:
         ant_cfg = cfg.get("antenna_layout", {})
         diameter = ant_cfg.get("all_antenna_diameter")
 
-        planner = DiagnosticsPlanner(
+        planner = SkyVisibilityPlanner(
             latitude_deg=lat,
             longitude_deg=lon,
             height_m=height,
@@ -1111,21 +1118,32 @@ class Simulator:
             start_time_iso=start_iso,
             duration_seconds=duration,
             frequency_mhz=freq_mhz,
+            field_radius_deg=kwargs.pop("field_radius_deg", None),
             beam_diameter_m=float(diameter) if diameter else None,
             beam_config=beams if beams else None,
             beam_fits_path=beams.get("beam_file"),
-            beam_lst_hours=beam_lst_hours,
+            beam_reference=beam_reference,
+            x_axis=x_axis,
+            background_layer=background_layer,
+            footprint_model=footprint_model,
+            mode=mode,
+            snapshot_step_seconds=snapshot_step_seconds,
+            footprint_step_seconds=footprint_step_seconds,
             max_point_sources=max_point_sources,
-            background_mode=background_mode,
+            top_n_sources=top_n_sources,
             **kwargs,
         )
 
-        strip = planner.compute()
-        plotter = StripPlotter(strip, use_lst_axis=use_lst_axis)
-        layout = plotter.create_plot()
+        plan = planner.build()
+        renderer = SkyVisibilityBokehRenderer(
+            plan,
+            show_source_colorbar=show_source_colorbar,
+            color_scale=color_scale,
+        )
+        layout = renderer.create_plot()
 
         if save_path or open_in_browser:
-            plotter.save(
+            renderer.save(
                 layout,
                 folder_path=save_path,
                 open_in_browser=open_in_browser,

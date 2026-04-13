@@ -22,6 +22,15 @@ from .spectral import apply_faraday_rotation, compute_spectral_scale
 logger = logging.getLogger(__name__)
 
 
+def _normalize_coordinate_frame(coordinate_frame: str) -> str:
+    frame = str(coordinate_frame).lower()
+    if frame not in {"icrs", "galactic"}:
+        raise ValueError(
+            f"coordinate_frame must be 'icrs' or 'galactic', got {coordinate_frame!r}."
+        )
+    return frame
+
+
 def _fit_pixel_spectral_indices(
     healpix_maps: np.ndarray,
     observation_frequencies: np.ndarray,
@@ -138,6 +147,7 @@ def healpix_map_to_point_arrays(
     observation_frequencies: np.ndarray | None = None,
     freq_index: int | None = None,
     healpix_maps: np.ndarray | None = None,
+    coordinate_frame: str = "icrs",
     ref_freq_out: float | None = None,
     *,
     warn: bool = True,
@@ -175,6 +185,9 @@ def healpix_map_to_point_arrays(
         Full Stokes I brightness temperature cube, shape ``(n_freq, npix)``.
         When provided together with ``observation_frequencies`` (≥2 channels),
         enables per-pixel spectral index fitting.
+    coordinate_frame : {"icrs", "galactic"}, default "icrs"
+        Coordinate frame of the input HEALPix pixel indexing. Returned point
+        coordinates are always ICRS.
     ref_freq_out : float or None
         Reference frequency stored in the output ``ref_freq`` array.
         Defaults to ``frequency`` if not given.
@@ -191,6 +204,7 @@ def healpix_map_to_point_arrays(
     nside = hp.npix2nside(npix)
     omega = 4 * np.pi / npix
     ref_freq_val = ref_freq_out if ref_freq_out is not None else frequency
+    frame = _normalize_coordinate_frame(coordinate_frame)
 
     flux_jy = np.zeros(npix, dtype=np.float64)
     pos = temp_map > 0
@@ -208,8 +222,16 @@ def healpix_map_to_point_arrays(
         return _empty_source_arrays()
 
     theta, phi = hp.pix2ang(nside, valid_idx)
-    ra_rad = phi  # phi = RA in radians
-    dec_rad = np.pi / 2 - theta  # colatitude -> declination
+    lat_rad = np.pi / 2 - theta
+    if frame == "galactic":
+        from astropy.coordinates import SkyCoord
+
+        icrs = SkyCoord(l=phi, b=lat_rad, unit="rad", frame="galactic").icrs
+        ra_rad = icrs.ra.rad
+        dec_rad = icrs.dec.rad
+    else:
+        ra_rad = phi
+        dec_rad = lat_rad
     flux_ref = flux_jy[valid_idx]
     n = len(valid_idx)
 
@@ -377,6 +399,7 @@ def point_sources_to_healpix_maps(
     frequencies: np.ndarray,
     ref_frequency: float | np.ndarray,
     brightness_conversion: str,
+    coordinate_frame: str = "icrs",
     output_dtype: np.dtype = np.float32,
     memmap_path: str | None = None,
 ) -> tuple[
@@ -414,8 +437,9 @@ def point_sources_to_healpix_maps(
         scaling of sources from different catalogs.
     brightness_conversion : str
         ``"planck"`` or ``"rayleigh-jeans"``.
-    estimate_memory_fn : callable, optional
-        Function ``(nside, n_freq, dtype, n_stokes) -> dict`` for logging.
+    coordinate_frame : {"icrs", "galactic"}, default "icrs"
+        Coordinate frame of the target HEALPix pixel indexing. Input point
+        coordinates are always interpreted as ICRS.
     output_dtype : np.dtype, default np.float32
         Dtype for output HEALPix arrays. Use ``precision.sky_model.get_dtype("healpix_maps")``
         to respect the user's precision configuration.
@@ -440,6 +464,7 @@ def point_sources_to_healpix_maps(
         return empty, None, None, None
 
     omega_pixel = 4 * np.pi / npix
+    frame = _normalize_coordinate_frame(coordinate_frame)
 
     # Check if any source has non-zero polarization
     has_pol = (
@@ -459,7 +484,17 @@ def point_sources_to_healpix_maps(
         f"~{mem_info['total_mb']:.1f} MB"
     )
 
-    ipix = hp.ang2pix(nside, np.pi / 2 - dec_rad, ra_rad)
+    if frame == "galactic":
+        from astropy.coordinates import SkyCoord
+
+        galactic = SkyCoord(ra=ra_rad, dec=dec_rad, unit="rad", frame="icrs").galactic
+        lon_rad = galactic.l.rad
+        lat_rad = galactic.b.rad
+    else:
+        lon_rad = ra_rad
+        lat_rad = dec_rad
+
+    ipix = hp.ang2pix(nside, np.pi / 2 - lat_rad, lon_rad)
 
     # Detect pixel collisions (multiple sources in one pixel)
     _unique_pixels, _counts = np.unique(ipix, return_counts=True)

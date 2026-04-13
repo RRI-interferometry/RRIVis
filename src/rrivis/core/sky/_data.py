@@ -334,6 +334,7 @@ class HealpixData:
     maps: np.ndarray  # Stokes I, shape (n_freq, npix), in Kelvin
     nside: int
     frequencies: np.ndarray  # shape (n_freq,), in Hz
+    coordinate_frame: str = "icrs"
     hpx_inds: np.ndarray | None = None
 
     q_maps: np.ndarray | None = None
@@ -351,6 +352,14 @@ class HealpixData:
 
     def __post_init__(self) -> None:
         """Validate array shapes."""
+        frame = str(self.coordinate_frame).lower()
+        if frame not in {"icrs", "galactic"}:
+            raise ValueError(
+                "HealpixData.coordinate_frame must be 'icrs' or 'galactic', "
+                f"got {self.coordinate_frame!r}."
+            )
+        object.__setattr__(self, "coordinate_frame", frame)
+
         expected_npix = hp.nside2npix(self.nside)
         if self.maps.ndim != 2:
             raise ValueError(
@@ -471,6 +480,7 @@ class HealpixData:
             maps=dense_maps,
             nside=self.nside,
             frequencies=self.frequencies,
+            coordinate_frame=self.coordinate_frame,
             q_maps=_dense_copy(self.q_maps),
             u_maps=_dense_copy(self.u_maps),
             v_maps=_dense_copy(self.v_maps),
@@ -517,6 +527,7 @@ class HealpixData:
                 maps=new_maps,
                 nside=self.nside,
                 frequencies=self.frequencies,
+                coordinate_frame=self.coordinate_frame,
                 hpx_inds=new_inds,
                 q_maps=new_q,
                 u_maps=new_u,
@@ -555,6 +566,7 @@ class HealpixData:
             maps=new_maps,
             nside=self.nside,
             frequencies=self.frequencies,
+            coordinate_frame=self.coordinate_frame,
             q_maps=new_q,
             u_maps=new_u,
             v_maps=new_v,

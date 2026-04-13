@@ -70,7 +70,6 @@ output:
   output_file_name: visibilities
   overwrite_output: false
   plot_results: false
-  plot_skymodel_every_hour: false
   plotting_backend: bokeh
   prompt_for_output_suffix: false
   save_log_data: false
@@ -106,13 +105,13 @@ sky_model:
   #     width_deg: 20.0
   #     height_deg: 10.0
   sources:
-    - test_sources:
-        num_sources: 200
-        distribution: random
-        seed: 42
-        flux_min: 1.0
-        flux_max: 5.0
-        dec_deg: -30.72
+    - kind: test_sources
+      num_sources: 200
+      distribution: random
+      seed: 42
+      flux_min: 1.0
+      flux_max: 5.0
+      dec_deg: -30.72
         dec_range_deg: 10.0
         spectral_index: 0
 telescope:

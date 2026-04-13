@@ -192,7 +192,11 @@ def _load_from_vizier_catalog(
         )
 
     def _empty():
-        return create_empty(catalog_key, brightness_conversion, precision)
+        return create_empty(
+            catalog_key,
+            brightness_conversion,
+            precision=precision,
+        )
 
     info = VIZIER_POINT_CATALOGS[catalog_key]
     if region is None and max_rows is None and not allow_full_catalog:
@@ -451,7 +455,8 @@ def load_gleam(
     flux_limit: float = 1.0,
     catalog: str = "gleam_egc",
     brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
     region: SkyRegion | None = None,
     max_rows: int | None = None,
     allow_full_catalog: bool = False,
@@ -467,8 +472,8 @@ def load_gleam(
         Catalog key in ``VIZIER_POINT_CATALOGS``. Available GLEAM
         catalogs: ``"gleam_egc"``, ``"gleam_x_dr1"``, ``"gleam_x_dr2"``,
         ``"gleam_gal"``.
-    precision : PrecisionConfig, optional
-        Precision configuration for array dtypes. If None, uses float64.
+    precision : PrecisionConfig
+        Precision configuration for array dtypes.
 
     Returns
     -------
@@ -505,7 +510,8 @@ def load_mals(
     flux_limit: float = 1.0,
     release: str = "dr2",
     brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
     region: SkyRegion | None = None,
     max_rows: int | None = None,
     allow_full_catalog: bool = False,
@@ -520,8 +526,8 @@ def load_mals(
         unit conversion is handled internally by the generic loader.
     release : str, default="dr2"
         Data release: "dr1" or "dr2".
-    precision : PrecisionConfig, optional
-        Precision configuration for array dtypes. If None, uses float64.
+    precision : PrecisionConfig
+        Precision configuration for array dtypes.
 
     Returns
     -------
@@ -566,7 +572,8 @@ def _make_simple_vizier_loader(catalog_key: str):
     def loader(
         flux_limit: float = info.default_flux_limit,
         brightness_conversion: str = "planck",
-        precision: PrecisionConfig | None = None,
+        *,
+        precision: PrecisionConfig,
         region: SkyRegion | None = None,
         max_rows: int | None = None,
         allow_full_catalog: bool = False,
@@ -591,7 +598,7 @@ def _make_simple_vizier_loader(catalog_key: str):
         f"    Minimum flux density in Jy.\n"
         f"brightness_conversion : str, default='planck'\n"
         f"    Conversion method: 'planck' or 'rayleigh-jeans'.\n"
-        f"precision : PrecisionConfig, optional\n"
+        f"precision : PrecisionConfig\n"
         f"    Precision configuration for array dtypes.\n"
         f"region : SkyRegion, optional\n"
         f"    Spatial filter.\n\n"
@@ -640,7 +647,8 @@ def load_lotss(
     release: str = "dr2",
     flux_limit: float = 0.001,
     brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
     region: SkyRegion | None = None,
     max_rows: int | None = None,
     allow_full_catalog: bool = False,
@@ -659,7 +667,7 @@ def load_lotss(
         Minimum flux density in Jy.
     brightness_conversion : str, default="planck"
         Conversion method: "planck" or "rayleigh-jeans".
-    precision : PrecisionConfig, optional
+    precision : PrecisionConfig
         Precision configuration for array dtypes.
 
     Returns
@@ -701,7 +709,8 @@ def load_racs(
     flux_limit: float = 1.0,
     max_rows: int = 1_000_000,
     brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
     region: SkyRegion | None = None,
 ) -> SkyModel:  # noqa: F821
     """
@@ -881,7 +890,11 @@ def load_racs(
     )
 
     if n == 0:
-        return create_empty(model_name, brightness_conversion, precision)
+        return create_empty(
+            model_name,
+            brightness_conversion,
+            precision=precision,
+        )
 
     sky = create_from_arrays(
         ra_rad=SkyModel.deg_to_rad_at_precision(ra_arr, precision),

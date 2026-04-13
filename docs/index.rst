@@ -58,15 +58,9 @@ Quick Example
 
    from rrivis import Simulator
 
-   # Create simulator with auto-detected backend
-   sim = Simulator(backend="auto")
-
-   # Configure simulation
-   sim.setup(
-       antenna_layout="antennas.txt",
-       frequencies=[100, 150, 200],  # MHz
-       sky_model="gleam",
-   )
+   # Create simulator from config
+   sim = Simulator.from_config("config.yaml")
+   sim.setup()
 
    # Run simulation
    results = sim.run(progress=True)

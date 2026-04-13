@@ -79,6 +79,7 @@ def materialize_healpix_model(
         frequencies=frequencies,
         ref_frequency=effective_ref_freq,
         brightness_conversion=sky.brightness_conversion,
+        coordinate_frame="icrs",
         output_dtype=sky._healpix_dtype(),
         memmap_path=memmap_path,
     )
@@ -88,6 +89,7 @@ def materialize_healpix_model(
             maps=i_maps,
             nside=nside,
             frequencies=frequencies,
+            coordinate_frame="icrs",
             q_maps=q_maps,
             u_maps=u_maps,
             v_maps=v_maps,
@@ -147,6 +149,7 @@ def materialize_point_sources_model(
         observation_frequencies=healpix.frequencies,
         freq_index=fi,
         healpix_maps=healpix.maps,
+        coordinate_frame=healpix.coordinate_frame,
         ref_freq_out=resolve_freq,
         warn=False,
     )
@@ -191,6 +194,8 @@ def with_memmap_backing(
 
     import os
 
+    os.makedirs(path, exist_ok=True)
+
     def _to_memmap(arr: np.ndarray, name: str) -> np.memmap:
         fpath = os.path.join(path, f"{name}.dat")
         mm = np.memmap(fpath, dtype=arr.dtype, mode="w+", shape=arr.shape)
@@ -202,6 +207,7 @@ def with_memmap_backing(
         maps=_to_memmap(sky.healpix.maps, "i_maps"),
         nside=sky.healpix.nside,
         frequencies=sky.healpix.frequencies,
+        coordinate_frame=sky.healpix.coordinate_frame,
         hpx_inds=sky.healpix.hpx_inds,
         q_maps=(
             _to_memmap(sky.healpix.q_maps, "q_maps")

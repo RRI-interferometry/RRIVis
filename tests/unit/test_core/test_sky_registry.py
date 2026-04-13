@@ -158,6 +158,16 @@ class TestRegistryMetadata:
         assert info["primary_representation"] == "healpix_map"
         assert info["supports_point_sources"] is False
         assert info["supports_healpix_map"] is True
+        assert info["resolved_loader"] == "test_sources"
+        assert info["resolved_kwargs"] == {"representation": "healpix_map"}
+
+    def test_discovery_catalog_info_exposes_diffuse_alias_metadata(self):
+        info = get_catalog_info("gsm2016")
+        assert info["loader"] == "diffuse_sky"
+        assert info["resolved_loader"] == "diffuse_sky"
+        assert info["resolved_kwargs"] == {"model": "gsm2016"}
+        assert info["diffuse_model"] == "gsm2016"
+        assert info["diffuse_model_info"]["class_name"] == "GlobalSkyModel16"
 
     def test_resolve_loader_request_merges_alias_defaults(self):
         kind, kwargs = loader_registry.resolve_request("gsm2016", {"nside": 128})
@@ -208,6 +218,22 @@ class TestSourceSpecs:
         assert kind == "diffuse_sky"
         assert kwargs["model"] == "gsm2016"
 
+    def test_diffuse_alias_kind_applies_alias_defaults(self):
+        spec = parse_sky_source_config({"kind": "gsm2016", "nside": 64})
+        kind, kwargs = spec.to_loader_request()
+        assert kind == "diffuse_sky"
+        assert kwargs["model"] == "gsm2016"
+        assert kwargs["nside"] == 64
+
+    def test_diffuse_alias_kind_allows_explicit_override(self):
+        spec = parse_sky_source_config(
+            {"kind": "gsm2016", "model": "haslam", "nside": 128}
+        )
+        kind, kwargs = spec.to_loader_request()
+        assert kind == "diffuse_sky"
+        assert kwargs["model"] == "haslam"
+        assert kwargs["nside"] == 128
+
     def test_test_sources_request_preserves_representation(self):
         freqs = np.array([150e6, 151e6])
         spec = parse_sky_source_config(
@@ -230,6 +256,15 @@ class TestSourceSpecs:
         assert kwargs["nside"] == 32
         assert kwargs["flux_min"] == pytest.approx(0.003)
         assert kwargs["flux_max"] == pytest.approx(0.007)
+        np.testing.assert_array_equal(kwargs["frequencies"], freqs)
+
+    def test_test_sources_alias_kind_applies_representation_default(self):
+        freqs = np.array([150e6, 151e6])
+        spec = parse_sky_source_config({"kind": "test_healpix", "nside": 32})
+        kind, kwargs = spec.to_loader_request(frequencies=freqs)
+        assert kind == "test_sources"
+        assert kwargs["representation"] == "healpix_map"
+        assert kwargs["nside"] == 32
         np.testing.assert_array_equal(kwargs["frequencies"], freqs)
 
     def test_file_loader_request_is_explicit(self):
@@ -281,6 +316,14 @@ class TestPublicBoundary:
         assert not hasattr(sky_public, "build_loader_kwargs")
         assert not hasattr(sky_public, "list_loaders")
         assert not hasattr(sky_public, "loader_registry")
+        assert not hasattr(sky_public, "create_from_freq_dict_maps")
+        assert not hasattr(sky_public, "load_models_parallel")
+        assert not hasattr(sky_public, "prepare_sky_model")
+        assert not hasattr(sky_public, "bin_sources_to_flux")
+        assert not hasattr(sky_public, "DiffuseModelEntry")
+        assert not hasattr(sky_public, "VizierCatalogEntry")
+        assert not hasattr(sky_public, "RacsCatalogEntry")
+        assert hasattr(sky_public, "write_bbs")
 
     def test_registry_module_wrappers_are_removed(self):
         assert not hasattr(registry_public, "get_loader")

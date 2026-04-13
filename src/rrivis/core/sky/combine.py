@@ -51,6 +51,7 @@ class CombineHealpixData(TypedDict):
     healpix_v_maps: np.ndarray | None
     healpix_nside: int
     observation_frequencies: np.ndarray
+    coordinate_frame: str
     reference_frequency: float | None
 
 
@@ -150,6 +151,42 @@ def _resolve_requested_healpix_frequencies(
     return None
 
 
+def _resolve_common_healpix_frame(models: list[SkyModel]) -> str:
+    """Return the shared HEALPix frame or raise on mismatches."""
+    frames = {m.healpix.coordinate_frame for m in models if m.healpix is not None}
+    if not frames:
+        return "icrs"
+    if len(frames) != 1:
+        raise ValueError(
+            "Cannot combine HEALPix models with different coordinate_frame "
+            f"values: {sorted(frames)}."
+        )
+    return next(iter(frames))
+
+
+def _point_source_healpix_indices(
+    point: PointSourceData,
+    nside: int,
+    *,
+    coordinate_frame: str,
+) -> np.ndarray:
+    if coordinate_frame == "galactic":
+        from astropy.coordinates import SkyCoord
+
+        galactic = SkyCoord(
+            ra=point.ra_rad,
+            dec=point.dec_rad,
+            unit="rad",
+            frame="icrs",
+        ).galactic
+        lon_rad = galactic.l.rad
+        lat_rad = galactic.b.rad
+    else:
+        lon_rad = point.ra_rad
+        lat_rad = point.dec_rad
+    return hp.ang2pix(nside, np.pi / 2 - lat_rad, lon_rad)
+
+
 def _validate_requested_healpix_grid(
     models: list[SkyModel],
     nside: int | None,
@@ -229,6 +266,7 @@ def regrid_healpix_model(
                 maps=source_healpix.maps,
                 nside=source_healpix.nside,
                 frequencies=requested_freqs,
+                coordinate_frame=source_healpix.coordinate_frame,
                 hpx_inds=source_healpix.hpx_inds,
                 q_maps=source_healpix.q_maps,
                 u_maps=source_healpix.u_maps,
@@ -265,6 +303,7 @@ def regrid_healpix_model(
             maps=_regrid_rows(source_healpix.maps),
             nside=target_nside,
             frequencies=current_freqs if requested_freqs is None else requested_freqs,
+            coordinate_frame=source_healpix.coordinate_frame,
             q_maps=q_maps,
             u_maps=u_maps,
             v_maps=v_maps,
@@ -542,6 +581,7 @@ def combine_healpix(
     # Validate all healpix_map models share the same nside and
     # frequency grid before doing element-wise arithmetic.
     healpix_models = [m for m in models if m.healpix is not None]
+    coordinate_frame = _resolve_common_healpix_frame(healpix_models)
     point_only_models = [
         m
         for m in models
@@ -577,7 +617,11 @@ def combine_healpix(
     ps_models_data = []
     for m in point_only_models:
         if m.has_point_sources and m.point is not None:
-            ipix_m = hp.ang2pix(ref_nside, np.pi / 2 - m.point.dec_rad, m.point.ra_rad)
+            ipix_m = _point_source_healpix_indices(
+                m.point,
+                ref_nside,
+                coordinate_frame=coordinate_frame,
+            )
             ps_models_data.append((ipix_m, m.point.flux, m.point.spectral_index, m))
 
     # Check if any model has polarized maps
@@ -854,6 +898,7 @@ def combine_healpix(
         "healpix_v_maps": combined_V,
         "healpix_nside": ref_nside,
         "observation_frequencies": ref_freqs,
+        "coordinate_frame": coordinate_frame,
         "reference_frequency": None,
     }
 
@@ -966,6 +1011,7 @@ def _combine_as_healpix_merge(
             maps=data["healpix_maps"],
             nside=data["healpix_nside"],
             frequencies=data["observation_frequencies"],
+            coordinate_frame=data["coordinate_frame"],
             q_maps=data["healpix_q_maps"],
             u_maps=data["healpix_u_maps"],
             v_maps=data["healpix_v_maps"],

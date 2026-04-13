@@ -17,9 +17,19 @@ Basic usage:
 
     >>> # Programmatic API
     >>> sim = rrivis.Simulator(
-    ...     antenna_layout="HERA65.csv",
-    ...     frequencies=[100, 150, 200],
-    ...     sky_model="gleam",
+    ...     config={
+    ...         "antenna_layout": {
+    ...             "antenna_positions_file": "HERA65.csv",
+    ...             "antenna_file_format": "rrivis",
+    ...             "all_antenna_diameter": 14.0,
+    ...         },
+    ...         "obs_frequency": {
+    ...             "frequencies_hz": [100e6, 150e6, 200e6],
+    ...             "frequency_unit": "MHz",
+    ...         },
+    ...         "sky_model": {"sources": [{"kind": "gleam"}]},
+    ...         "visibility": {"sky_representation": "point_sources"},
+    ...     },
     ... )
     >>> results = sim.run()
 

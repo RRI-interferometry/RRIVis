@@ -84,11 +84,23 @@ sim.save("output/", format="hdf5")
 
 # Or programmatic
 sim = Simulator(
-    antenna_layout="hera_5.txt",
-    frequencies=[150.0, 160.0, 170.0],   # MHz
-    sky_model="test",
-    location={"lat": -30.72, "lon": 21.43, "height": 1073.0},
-    start_time="2025-01-01T00:00:00",
+    config={
+        "antenna_layout": {
+            "antenna_positions_file": "hera_5.txt",
+            "antenna_file_format": "rrivis",
+            "all_antenna_diameter": 14.0,
+        },
+        "obs_frequency": {
+            "frequencies_hz": [150e6, 160e6, 170e6],
+            "frequency_unit": "MHz",
+        },
+        "sky_model": {
+            "sources": [{"kind": "test_sources"}],
+        },
+        "visibility": {"sky_representation": "point_sources"},
+        "location": {"lat": -30.72, "lon": 21.43, "height": 1073.0},
+        "obs_time": {"start_time": "2025-01-01T00:00:00"},
+    },
     backend="auto",
     precision="standard",
 )
@@ -275,10 +287,10 @@ obs_time:
 sky_model:
   flux_unit: "Jy"               # required: Jy, mJy, or uJy
   sources:
-    - gleam:
-        catalog: "gleam_egc"     # gleam_egc, gleam_x_dr1, gleam_x_dr2, ...
-        flux_limit: 1.0
-        max_rows: 10000
+    - kind: gleam
+      catalog: "gleam_egc"     # gleam_egc, gleam_x_dr1, gleam_x_dr2, ...
+      flux_limit: 1.0
+      max_rows: 10000
 
 output:
   output_file_format: "HDF5"

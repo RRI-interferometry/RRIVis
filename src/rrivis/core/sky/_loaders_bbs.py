@@ -202,7 +202,7 @@ def load_bbs(
     *,
     flux_limit: float = 0.0,
     region: SkyRegion | None = None,
-    precision: PrecisionConfig | None = None,
+    precision: PrecisionConfig,
     brightness_conversion: str = "planck",
 ) -> Any:
     """Load a sky model from BBS/DP3/WSClean format.
@@ -219,7 +219,7 @@ def load_bbs(
         Minimum Stokes I flux in Jy.
     region : SkyRegion, optional
         Spatial filter.
-    precision : PrecisionConfig, optional
+    precision : PrecisionConfig
         Precision configuration.
     brightness_conversion : str, default ``"planck"``
         Brightness conversion method: ``"planck"`` or ``"rayleigh-jeans"``.

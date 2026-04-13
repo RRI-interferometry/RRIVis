@@ -40,6 +40,7 @@ import sys
 from pathlib import Path
 
 import click
+import numpy as np
 
 from rrivis.__about__ import __description__, __version__
 
@@ -536,13 +537,41 @@ def run_simulate_mode(
 
     try:
         from rrivis.api.simulator import Simulator
+        from rrivis.core.sky.registry import loader_registry
 
-        sim = Simulator(
-            antenna_layout=antenna_layout,
-            frequencies=freq_list,
-            sky_model=sky_model,
-            backend=backend,
-        )
+        loader_name, defaults = loader_registry.resolve_request(sky_model, {})
+        meta = loader_registry.meta(sky_model)
+        config = {
+            "antenna_layout": {
+                "antenna_positions_file": antenna_layout,
+                "antenna_file_format": "rrivis",
+                "all_antenna_diameter": 14.0,
+            },
+            "obs_frequency": {
+                "starting_frequency": float(min(freq_list)),
+                "frequency_bandwidth": float(max(freq_list) - min(freq_list)),
+                "frequency_interval": (
+                    float(np.mean(np.diff(freq_list))) if len(freq_list) > 1 else 1.0
+                ),
+                "frequency_unit": "MHz",
+                "frequencies_hz": (
+                    np.asarray(freq_list, dtype=np.float64) * 1e6
+                ).tolist(),
+            },
+            "sky_model": {
+                "flux_unit": "Jy",
+                "sources": [{"kind": loader_name, **defaults}],
+            },
+            "visibility": {
+                "sky_representation": (
+                    "healpix_map"
+                    if meta["representation"] == "healpix_map"
+                    else "point_sources"
+                )
+            },
+        }
+
+        sim = Simulator(config=config, backend=backend)
 
         sim.run()
         sim.save(output, format=output_format)

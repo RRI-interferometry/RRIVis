@@ -13,12 +13,8 @@ The simplest way to run a simulation is using the high-level ``Simulator`` class
 
    from rrivis import Simulator
 
-   # Create simulator with configuration
-   sim = Simulator(
-       antenna_layout="path/to/antennas.txt",
-       frequencies=[100, 150, 200],  # MHz
-       sky_model="gleam",
-   )
+   # Create simulator from a tagged config file
+   sim = Simulator.from_config("config.yaml")
 
    # Setup and run
    sim.setup()
@@ -50,18 +46,17 @@ For more complex simulations, use a YAML configuration file:
 
    sky_model:
      sources:
-       - gleam:
-           flux_limit: 1.0
-           max_rows: 10000
+       - kind: gleam
+         flux_limit: 1.0
+         max_rows: 10000
 
 Then load and run:
 
 .. code-block:: python
 
    from rrivis import Simulator
-   from rrivis.io.config import load_config
 
-   sim = Simulator(config=load_config("config.yaml"))
+   sim = Simulator.from_config("config.yaml")
    sim.setup()
    results = sim.run()
 
@@ -74,19 +69,25 @@ Enable GPU acceleration for faster simulations:
 
    from rrivis import Simulator
 
+   config = {
+       "antenna_layout": {
+           "antenna_positions_file": "antennas.txt",
+           "antenna_file_format": "rrivis",
+           "all_antenna_diameter": 14.0,
+       },
+       "obs_frequency": {
+           "frequencies_hz": [100e6, 150e6, 200e6],
+           "frequency_unit": "MHz",
+       },
+       "sky_model": {"sources": [{"kind": "gleam"}]},
+       "visibility": {"sky_representation": "point_sources"},
+   }
+
    # Auto-detect best backend
-   sim = Simulator(
-       antenna_layout="antennas.txt",
-       sky_model="gleam",
-       backend="auto",
-   )
+   sim = Simulator(config=config, backend="auto")
 
    # Or explicitly use JAX
-   sim = Simulator(
-       antenna_layout="antennas.txt",
-       sky_model="gleam",
-       backend="jax",
-   )
+   sim = Simulator(config=config, backend="jax")
 
    sim.setup()
    results = sim.run()  # Uses GPU if available
@@ -137,10 +138,7 @@ Add instrumental effects using Jones matrices:
    ])
 
    # Use in simulation (pass jones_config to run())
-   sim = Simulator(
-       antenna_layout="antennas.txt",
-       sky_model="test",
-   )
+   sim = Simulator.from_config("config.yaml")
    sim.setup()
    results = sim.run()
 

@@ -13,6 +13,28 @@ from astropy.coordinates import Angle, SkyCoord
 logger = logging.getLogger(__name__)
 
 
+def _normalize_coordinate_frame(coordinate_frame: str) -> str:
+    frame = str(coordinate_frame).lower()
+    if frame not in {"icrs", "galactic"}:
+        raise ValueError(
+            f"coordinate_frame must be 'icrs' or 'galactic', got {coordinate_frame!r}."
+        )
+    return frame
+
+
+def _healpix_pixel_centers(
+    nside: int,
+    pixel_indices: np.ndarray,
+    *,
+    coordinate_frame: str,
+) -> SkyCoord:
+    theta, phi = hp.pix2ang(nside, pixel_indices)
+    lat_rad = np.pi / 2 - theta
+    if coordinate_frame == "galactic":
+        return SkyCoord(l=phi, b=lat_rad, unit="rad", frame="galactic")
+    return SkyCoord(ra=phi, dec=lat_rad, unit="rad", frame="icrs")
+
+
 class SkyRegion(ABC):
     """Sky region filter — cone, box, or union of multiple regions.
 
@@ -107,13 +129,19 @@ class SkyRegion(ABC):
         """
 
     @abstractmethod
-    def healpix_mask(self, nside: int) -> np.ndarray:
+    def healpix_mask(
+        self,
+        nside: int,
+        coordinate_frame: str = "icrs",
+    ) -> np.ndarray:
         """Boolean mask for HEALPix pixels inside the region.
 
         Parameters
         ----------
         nside : int
             HEALPix NSIDE parameter.
+        coordinate_frame : {"icrs", "galactic"}, default "icrs"
+            Coordinate frame used by the HEALPix pixel indexing.
 
         Returns
         -------
@@ -143,9 +171,17 @@ class ConeRegion(SkyRegion):
         coords = SkyCoord(ra=ra_rad, dec=dec_rad, unit="rad", frame="icrs")
         return np.asarray(coords.separation(self.center) <= self.radius)
 
-    def healpix_mask(self, nside: int) -> np.ndarray:
+    def healpix_mask(
+        self,
+        nside: int,
+        coordinate_frame: str = "icrs",
+    ) -> np.ndarray:
         npix = hp.nside2npix(nside)
-        vec = hp.ang2vec(np.pi / 2 - self.center.dec.rad, self.center.ra.rad)
+        frame = _normalize_coordinate_frame(coordinate_frame)
+        center = self.center.galactic if frame == "galactic" else self.center
+        lon_rad = center.spherical.lon.rad
+        lat_rad = center.spherical.lat.rad
+        vec = hp.ang2vec(np.pi / 2 - lat_rad, lon_rad)
         ipix = hp.query_disc(nside, vec, self.radius.rad)
         mask = np.zeros(npix, dtype=bool)
         mask[ipix] = True
@@ -183,7 +219,7 @@ class BoxRegion(SkyRegion):
         self.height = Angle(height_deg, unit="deg")
 
     def contains(self, ra_rad: np.ndarray, dec_rad: np.ndarray) -> np.ndarray:
-        ra_deg = np.degrees(ra_rad)
+        ra_deg = np.degrees(np.mod(ra_rad, 2 * np.pi))
         dec_deg = np.degrees(dec_rad)
         half_w = self.width.deg / 2
         half_h = self.height.deg / 2
@@ -204,25 +240,46 @@ class BoxRegion(SkyRegion):
 
         return ra_ok & dec_ok
 
-    def healpix_mask(self, nside: int) -> np.ndarray:
+    def healpix_mask(
+        self,
+        nside: int,
+        coordinate_frame: str = "icrs",
+    ) -> np.ndarray:
+        frame = _normalize_coordinate_frame(coordinate_frame)
         npix = hp.nside2npix(nside)
-        half_w = self.width.rad / 2
         half_h = self.height.rad / 2
         dec_c = self.center.dec.rad
-        ra_c = self.center.ra.rad
-        dec_min = max(dec_c - half_h, -np.pi / 2)
-        dec_max = min(dec_c + half_h, np.pi / 2)
-        corners = np.array(
-            [
-                hp.ang2vec(np.pi / 2 - dec_max, ra_c - half_w),
-                hp.ang2vec(np.pi / 2 - dec_max, ra_c + half_w),
-                hp.ang2vec(np.pi / 2 - dec_min, ra_c + half_w),
-                hp.ang2vec(np.pi / 2 - dec_min, ra_c - half_w),
-            ]
-        )
-        ipix = hp.query_polygon(nside, corners)
         mask = np.zeros(npix, dtype=bool)
-        mask[ipix] = True
+        if frame == "icrs":
+            dec_min = max(dec_c - half_h, -np.pi / 2)
+            dec_max = min(dec_c + half_h, np.pi / 2)
+            ipix = np.asarray(
+                hp.query_strip(
+                    nside,
+                    np.pi / 2 - dec_max,
+                    np.pi / 2 - dec_min,
+                ),
+                dtype=np.int64,
+            )
+            if ipix.size == 0:
+                return mask
+            centers = _healpix_pixel_centers(
+                nside,
+                ipix,
+                coordinate_frame="icrs",
+            )
+            keep = self.contains(centers.ra.rad, centers.dec.rad)
+            mask[ipix[keep]] = True
+            return mask
+
+        pixel_indices = np.arange(npix, dtype=np.int64)
+        galactic = _healpix_pixel_centers(
+            nside,
+            pixel_indices,
+            coordinate_frame="galactic",
+        )
+        icrs = galactic.icrs
+        mask[:] = self.contains(icrs.ra.rad, icrs.dec.rad)
         return mask
 
     def __repr__(self) -> str:
@@ -264,11 +321,15 @@ class UnionRegion(SkyRegion):
             mask |= sub.contains(ra_rad, dec_rad)
         return mask
 
-    def healpix_mask(self, nside: int) -> np.ndarray:
+    def healpix_mask(
+        self,
+        nside: int,
+        coordinate_frame: str = "icrs",
+    ) -> np.ndarray:
         npix = hp.nside2npix(nside)
         mask = np.zeros(npix, dtype=bool)
         for sub in self._sub_regions:
-            mask |= sub.healpix_mask(nside)
+            mask |= sub.healpix_mask(nside, coordinate_frame=coordinate_frame)
         return mask
 
     def _iter_atomic(self) -> list[SkyRegion]:

@@ -66,23 +66,22 @@ def make_healpix_model(
     precision: PrecisionConfig | None = None,
     model_name: str = "healpix",
     include_pol: bool = False,
+    coordinate_frame: str = "icrs",
+    dtype: np.dtype | type = np.float32,
 ) -> SkyModel:
     if freqs is None:
         freqs = np.array([100e6, 101e6], dtype=np.float64)
     npix = hp.nside2npix(nside)
-    maps = np.ones((len(freqs), npix), dtype=np.float32)
-    q_maps = np.full((len(freqs), npix), 0.1, dtype=np.float32) if include_pol else None
-    u_maps = (
-        np.full((len(freqs), npix), 0.05, dtype=np.float32) if include_pol else None
-    )
-    v_maps = (
-        np.full((len(freqs), npix), 0.01, dtype=np.float32) if include_pol else None
-    )
+    maps = np.ones((len(freqs), npix), dtype=dtype)
+    q_maps = np.full((len(freqs), npix), 0.1, dtype=dtype) if include_pol else None
+    u_maps = np.full((len(freqs), npix), 0.05, dtype=dtype) if include_pol else None
+    v_maps = np.full((len(freqs), npix), 0.01, dtype=dtype) if include_pol else None
     return SkyModel(
         healpix=HealpixData(
             maps=maps,
             nside=nside,
             frequencies=freqs,
+            coordinate_frame=coordinate_frame,
             q_maps=q_maps,
             u_maps=u_maps,
             v_maps=v_maps,
@@ -199,6 +198,10 @@ class TestBasicBehavior:
             precision=precision,
         )
         assert sky.n_point_sources == 4
+
+    def test_typed_loader_requires_precision_keyword(self):
+        with pytest.raises(TypeError, match="precision"):
+            load_test_sources()
 
     def test_removed_compatibility_wrappers(self):
         assert not hasattr(SkyModel, "with_healpix_maps")
@@ -351,6 +354,17 @@ class TestFilteringAndAccessors:
         assert len(coords) == hp.nside2npix(4)
         assert sky.pixel_solid_angle == pytest.approx(4 * np.pi / hp.nside2npix(4))
 
+    def test_pixel_helpers_honor_galactic_frame(self, precision):
+        sky = make_healpix_model(
+            nside=4,
+            precision=precision,
+            coordinate_frame="galactic",
+        )
+        coords = sky.pixel_coords
+
+        assert coords.frame.name == "galactic"
+        assert len(coords) == hp.nside2npix(4)
+
     def test_has_polarized_healpix_maps(self, precision):
         assert not make_healpix_model(precision=precision).has_polarized_healpix_maps
         assert make_healpix_model(
@@ -360,17 +374,30 @@ class TestFilteringAndAccessors:
 
 class TestMemmapAndEquality:
     def test_with_memmap_backing(self, precision, tmp_path):
-        sky = make_healpix_model(precision=precision)
+        sky = make_healpix_model(precision=precision, coordinate_frame="galactic")
         mapped = with_memmap_backing(sky, str(tmp_path))
         assert isinstance(mapped.healpix.maps, np.memmap)
         assert (tmp_path / "i_maps.dat").exists()
+        assert mapped.healpix.coordinate_frame == "galactic"
 
     def test_repr_and_memory_estimate(self, precision):
-        sky = make_healpix_model(precision=precision)
+        sky = make_healpix_model(precision=precision, coordinate_frame="galactic")
         rep = repr(sky)
         assert "nside=8" in rep
+        assert "frame='galactic'" in rep
         estimate = estimate_healpix_memory(8, len(sky.healpix.frequencies), np.float32)
         assert estimate["total_mb"] >= 0
+
+    def test_repr_uses_actual_healpix_storage_bytes(self, precision):
+        sky = make_healpix_model(
+            nside=64,
+            precision=precision,
+            coordinate_frame="galactic",
+            dtype=np.float64,
+        )
+        actual_mb = sky.healpix.maps.nbytes / 1e6
+        rep = repr(sky)
+        assert f"memory={actual_mb:.1f}MB" in rep
 
     def test_value_equality_and_closeness(self, precision):
         sky_a = make_point_model(n=5, precision=precision, seed=1)
@@ -379,3 +406,10 @@ class TestMemmapAndEquality:
         assert sky_a == sky_b
         assert sky_a.is_close(sky_b)
         assert sky_a != sky_c
+
+    def test_healpix_equality_includes_coordinate_frame(self, precision):
+        sky_icrs = make_healpix_model(precision=precision, coordinate_frame="icrs")
+        sky_gal = make_healpix_model(precision=precision, coordinate_frame="galactic")
+
+        assert sky_icrs != sky_gal
+        assert not sky_icrs.is_close(sky_gal)

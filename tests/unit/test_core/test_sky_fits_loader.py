@@ -7,6 +7,53 @@ from rrivis.core.precision import PrecisionConfig
 from rrivis.core.sky._loaders_fits import load_fits_image
 
 
+def test_fits_loader_stokes_i_only_avoids_polarization_allocations(
+    monkeypatch, tmp_path
+):
+    import reproject
+
+    from rrivis.core.sky import _allocation
+
+    def fake_reproject_to_healpix(image_and_wcs, frame, nside, **kwargs):
+        image_2d, _wcs = image_and_wcs
+        npix = 12 * nside**2
+        return np.full(npix, image_2d[0, 0], dtype=np.float64), np.ones(npix)
+
+    allocations: list[str] = []
+    real_allocate_cube = _allocation.allocate_cube
+
+    def spy_allocate_cube(shape, dtype, scratch, name):
+        allocations.append(name)
+        return real_allocate_cube(shape, dtype, scratch, name)
+
+    monkeypatch.setattr(reproject, "reproject_to_healpix", fake_reproject_to_healpix)
+    monkeypatch.setattr(_allocation, "allocate_cube", spy_allocate_cube)
+
+    data = np.ones((2, 2), dtype=np.float64)
+    hdu = fits.PrimaryHDU(data)
+    header = hdu.header
+    header["CTYPE1"] = "RA---TAN"
+    header["CTYPE2"] = "DEC--TAN"
+    header["RESTFRQ"] = 100e6
+    header["BUNIT"] = "Jy/pixel"
+
+    fits_path = tmp_path / "stokes_i_only.fits"
+    hdu.writeto(fits_path)
+
+    sky = load_fits_image(
+        str(fits_path),
+        nside=1,
+        brightness_conversion="planck",
+        precision=PrecisionConfig.standard(),
+    )
+
+    assert allocations == ["i_maps"]
+    assert sky.healpix is not None
+    assert sky.healpix.q_maps is None
+    assert sky.healpix.u_maps is None
+    assert sky.healpix.v_maps is None
+
+
 def test_fits_loader_preserves_signed_polarized_stokes(monkeypatch, tmp_path):
     import reproject
 

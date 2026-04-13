@@ -47,6 +47,27 @@ def test_parse_sky_source_config_accepts_tagged_kind_shape():
     assert source.nside == 64
 
 
+def test_alias_kind_source_config_resolves_loader_defaults():
+    source = parse_sky_source_config({"kind": "gsm2016", "nside": 128})
+
+    kind, kwargs = source.to_loader_request()
+
+    assert kind == "diffuse_sky"
+    assert kwargs["model"] == "gsm2016"
+    assert kwargs["nside"] == 128
+
+
+def test_alias_kind_source_config_keeps_explicit_override():
+    source = parse_sky_source_config(
+        {"kind": "test_healpix", "representation": "point_sources"}
+    )
+
+    kind, kwargs = source.to_loader_request()
+
+    assert kind == "test_sources"
+    assert kwargs["representation"] == "point_sources"
+
+
 def test_nested_loader_key_shape_is_rejected():
     with pytest.raises(Exception, match="kind"):
         parse_sky_source_config({"gleam": {"flux_limit": 1.0}})

@@ -10,7 +10,7 @@ import concurrent.futures
 import logging
 import traceback
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -61,7 +61,8 @@ def _require_precision(precision: PrecisionConfig | None) -> PrecisionConfig:
 def create_empty(
     model_name: str,
     brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK,
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
     reference_frequency: float | None = None,
 ) -> SkyModel:
     """Return an empty point-source SkyModel (zero-length arrays).
@@ -72,7 +73,7 @@ def create_empty(
         Name for the model.
     brightness_conversion : BrightnessConversion
         Brightness conversion method.
-    precision : PrecisionConfig, optional
+    precision : PrecisionConfig
         Precision configuration.
     reference_frequency : float, optional
         Reference frequency in Hz.
@@ -115,7 +116,8 @@ def create_from_arrays(
     model_name: str = "custom",
     reference_frequency: float | None = None,
     brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK,
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
 ) -> SkyModel:
     """Create a SkyModel from numpy arrays.
 
@@ -197,11 +199,13 @@ def create_from_freq_dict_maps(
     q_arr = np.stack([q_maps[f] for f in sorted_freqs]) if q_maps else None
     u_arr = np.stack([u_maps[f] for f in sorted_freqs]) if u_maps else None
     v_arr = np.stack([v_maps[f] for f in sorted_freqs]) if v_maps else None
+    coordinate_frame = kwargs.pop("coordinate_frame", "icrs")
 
     healpix = HealpixData(
         maps=i_arr,
         nside=nside,
         frequencies=sorted_freqs,
+        coordinate_frame=coordinate_frame,
         q_maps=q_arr,
         u_maps=u_arr,
         v_maps=v_arr,
@@ -224,7 +228,8 @@ def create_test_sources(
     seed: int | None = None,
     dec_range_deg: float | None = None,
     brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK,
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
     polarization_fraction: float = 0.0,
     polarization_angle_deg: float = 0.0,
     stokes_v_fraction: float = 0.0,
@@ -305,7 +310,7 @@ def load_models_parallel(
     def _load_one(method_name: str, kw: dict) -> SkyModel:
         from ._registry import get_loader
 
-        return cast(SkyModel, get_loader(method_name)(**kw))
+        return get_loader(method_name)(**kw)
 
     n = min(len(loaders), max_workers)
     results: list[SkyModel | None] = [None] * len(loaders)

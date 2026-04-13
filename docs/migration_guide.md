@@ -154,14 +154,8 @@ The new `Simulator` class provides a clean, notebook-friendly interface:
 from rrivis import Simulator
 
 # Create simulator with sensible defaults
-sim = Simulator()
-
-# Configure
-sim.setup(
-    antenna_layout="path/to/antennas.txt",
-    frequencies=[100, 150, 200],  # MHz
-    sky_model="gleam",
-)
+sim = Simulator.from_config("config.yaml")
+sim.setup()
 
 # Run simulation
 results = sim.run(progress=True)
@@ -273,12 +267,8 @@ vis = calculate_visibility(baselines, sources, frequencies)
 # New style (recommended)
 from rrivis import Simulator
 
-sim = Simulator()
-sim.setup(
-    antenna_layout="antennas.txt",
-    sky_model="gleam",
-    frequencies=[100, 200],
-)
+sim = Simulator.from_config("config.yaml")
+sim.setup()
 results = sim.run()
 ```
 

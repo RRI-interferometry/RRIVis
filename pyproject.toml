@@ -96,7 +96,7 @@ dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
     "ruff>=0.1",
-    "mypy>=1.7",
+    "pyright>=1.1",
     "ipython>=8.12",
     "jupyter>=1.0",
 ]
@@ -186,26 +186,20 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["rrivis"]
 
-# MyPy configuration
-[tool.mypy]
-python_version = "3.11"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = [
-    "astropy.*",
-    "healpy.*",
-    "pyuvdata.*",
-    "astroquery.*",
-    "pygdsm.*",
-    "bokeh.*",
-    "plotly.*",
+# Pyright configuration
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+include = ["src/rrivis"]
+exclude = [
+    "docs/_build",
+    "examples/notebooks",
+    "**/__pycache__",
 ]
-ignore_missing_imports = true
+extraPaths = ["src"]
+venvPath = ".pixi/envs"
+venv = "default"
+reportMissingTypeStubs = "none"
 
 # Coverage configuration
 [tool.coverage.run]

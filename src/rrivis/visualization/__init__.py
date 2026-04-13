@@ -11,7 +11,13 @@ from rrivis.visualization.bokeh_plots import (
     plot_modulus_vs_frequency,
     plot_visibility,
 )
-from rrivis.visualization.gsm_plots import diffused_sky_model
+from rrivis.visualization.sky_visibility import (
+    SkyVisibilityBokehRenderer,
+    SkyVisibilityPlan,
+    SkyVisibilityPlanner,
+    VisibilitySnapshot,
+    VisibilitySourceMetrics,
+)
 
 __all__ = [
     "plot_visibility",
@@ -19,5 +25,9 @@ __all__ = [
     "plot_antenna_layout",
     "plot_antenna_layout_3d_plotly",
     "plot_modulus_vs_frequency",
-    "diffused_sky_model",
+    "SkyVisibilityPlanner",
+    "SkyVisibilityPlan",
+    "SkyVisibilityBokehRenderer",
+    "VisibilitySnapshot",
+    "VisibilitySourceMetrics",
 ]

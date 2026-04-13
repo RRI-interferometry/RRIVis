@@ -46,6 +46,7 @@ def make_healpix_model(
     freqs: np.ndarray | None = None,
     precision: PrecisionConfig,
     value: float = 100.0,
+    coordinate_frame: str = "icrs",
 ) -> SkyModel:
     if freqs is None:
         freqs = np.array([100e6, 101e6], dtype=np.float64)
@@ -55,6 +56,7 @@ def make_healpix_model(
             maps=np.full((len(freqs), npix), value, dtype=np.float32),
             nside=nside,
             frequencies=freqs,
+            coordinate_frame=coordinate_frame,
         ),
         source_format=SkyFormat.HEALPIX,
         reference_frequency=float(freqs[0]),
@@ -70,6 +72,7 @@ def make_sparse_healpix_model(
     precision: PrecisionConfig,
     pixels: np.ndarray | None = None,
     value: float = 100.0,
+    coordinate_frame: str = "icrs",
 ) -> SkyModel:
     if freqs is None:
         freqs = np.array([100e6, 101e6], dtype=np.float64)
@@ -81,6 +84,7 @@ def make_sparse_healpix_model(
             maps=maps,
             nside=nside,
             frequencies=freqs,
+            coordinate_frame=coordinate_frame,
             hpx_inds=pixels,
         ),
         source_format=SkyFormat.HEALPIX,
@@ -215,6 +219,7 @@ class TestCombineModels:
             nside=8,
             freqs=np.array([100e6, 101e6], dtype=np.float64),
             precision=precision,
+            coordinate_frame="galactic",
         )
         regridded = regrid_healpix_model(
             sky,
@@ -223,6 +228,7 @@ class TestCombineModels:
         )
         assert regridded.healpix is not None
         assert regridded.healpix.nside == 4
+        assert regridded.healpix.coordinate_frame == "galactic"
         assert regridded.healpix.maps.shape == (2, hp.nside2npix(4))
         np.testing.assert_array_equal(
             regridded.healpix.frequencies,
@@ -315,6 +321,16 @@ class TestCombineModels:
                 precision=precision,
             )
 
+    def test_healpix_coordinate_frame_mismatch_raises(self, precision):
+        sky_a = make_healpix_model(precision=precision, coordinate_frame="icrs")
+        sky_b = make_healpix_model(precision=precision, coordinate_frame="galactic")
+        with pytest.raises(ValueError, match="coordinate_frame"):
+            combine_models(
+                [sky_a, sky_b],
+                representation=SkyFormat.HEALPIX,
+                precision=precision,
+            )
+
     def test_per_source_reference_frequencies_are_preserved(self, precision):
         sky_a = create_from_arrays(
             ra_rad=np.array([0.1]),
@@ -384,3 +400,4 @@ class TestCombineModels:
             combined.healpix.maps[:, sparse.healpix.hpx_inds],
             np.full((2, len(sparse.healpix.hpx_inds)), 3.0, dtype=np.float32),
         )
+        assert combined.healpix.coordinate_frame == sparse.healpix.coordinate_frame

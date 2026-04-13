@@ -3,6 +3,7 @@
 import healpy as hp
 import numpy as np
 import pytest
+from astropy.coordinates import SkyCoord
 
 from rrivis.core.sky import SkyRegion
 
@@ -153,6 +154,46 @@ class TestHealpixMask:
         assert mask.dtype == bool
         assert mask.shape == (npix,)
         assert 0 < np.sum(mask) < npix
+
+    def test_healpix_mask_box_matches_contains_on_icrs_pixel_centers(self):
+        """Box HEALPix masking uses the same geometry as contains()."""
+        nside = 16
+        region = SkyRegion.box(
+            ra_deg=350.0,
+            dec_deg=10.0,
+            width_deg=40.0,
+            height_deg=20.0,
+        )
+        mask = region.healpix_mask(nside)
+
+        theta, phi = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+        expected = region.contains(phi, np.pi / 2 - theta)
+
+        np.testing.assert_array_equal(mask, expected)
+
+    def test_healpix_mask_box_matches_contains_on_galactic_pixel_centers(self):
+        """Galactic HEALPix masks still apply the ICRS box contract."""
+        nside = 8
+        region = SkyRegion.box(
+            ra_deg=120.0,
+            dec_deg=25.0,
+            width_deg=45.0,
+            height_deg=30.0,
+        )
+        mask = region.healpix_mask(nside, coordinate_frame="galactic")
+
+        theta, phi = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+        icrs = SkyCoord(l=phi, b=np.pi / 2 - theta, unit="rad", frame="galactic").icrs
+        expected = region.contains(icrs.ra.rad, icrs.dec.rad)
+
+        np.testing.assert_array_equal(mask, expected)
+
+    def test_healpix_mask_box_near_pole_does_not_raise(self):
+        """Polar boxes avoid healpy.query_polygon degeneracy."""
+        mask = SkyRegion.box(0.0, 80.0, 60.0, 20.0).healpix_mask(64)
+
+        assert mask.dtype == bool
+        assert mask.any()
 
 
 # ---------------------------------------------------------------------------

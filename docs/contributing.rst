@@ -31,17 +31,17 @@ Code Style
 
 We use the following tools:
 
-- **black** - Code formatting
 - **ruff** - Linting
-- **mypy** - Type checking
+- **ruff format** - Code formatting
+- **pyright** - Type checking
 
 Run formatting and linting:
 
 .. code-block:: bash
 
-   black src/ tests/
+   ruff format src/ tests/
    ruff check src/ tests/
-   mypy src/
+   pyright src/rrivis
 
 Testing
 -------
