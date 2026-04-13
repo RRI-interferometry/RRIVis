@@ -11138,7 +11138,7 @@ packages:
 - pypi: ./
   name: rrivis
   version: 0.2.0
-  sha256: d26b35b01dd4f22af50288c568482238a23f60f86999f3eb7f598b06d6af58b8
+  sha256: cc691cb5414c39755084b506f9828d21f02b192eda39fe620784a62e39205b9b
   requires_dist:
   - numpy>=1.24.0
   - astropy>=5.0

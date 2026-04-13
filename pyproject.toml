@@ -189,7 +189,7 @@ known-first-party = ["rrivis"]
 # Pyright configuration
 [tool.pyright]
 pythonVersion = "3.11"
-typeCheckingMode = "basic"
+typeCheckingMode = "strict"
 include = ["src/rrivis"]
 exclude = [
     "docs/_build",
@@ -199,7 +199,10 @@ exclude = [
 extraPaths = ["src"]
 venvPath = ".pixi/envs"
 venv = "default"
-reportMissingTypeStubs = "none"
+reportImplicitOverride = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportUnreachable = "error"
+reportUnusedCallResult = "error"
 
 # Coverage configuration
 [tool.coverage.run]
