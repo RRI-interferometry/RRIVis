@@ -1,0 +1,54 @@
+[submodule "simulators/pyuvsim"]
+	path = simulators/pyuvsim
+	url = https://github.com/RadioAstronomySoftwareGroup/pyuvsim.git
+[submodule "simulators/matvis"]
+	path = simulators/matvis
+	url = https://github.com/HERA-Team/matvis.git
+[submodule "simulators/fftvis"]
+	path = simulators/fftvis
+	url = https://github.com/tyler-a-cox/fftvis.git
+[submodule "simulators/hera_sim"]
+	path = simulators/hera_sim
+	url = https://github.com/HERA-Team/hera_sim.git
+[submodule "simulators/healvis"]
+	path = simulators/healvis
+	url = https://github.com/RadioAstronomySoftwareGroup/healvis.git
+[submodule "simulators/RIMEz"]
+	path = simulators/RIMEz
+	url = https://github.com/UPennEoR/RIMEz.git
+[submodule "simulators/croissant"]
+	path = simulators/croissant
+	url = https://github.com/christianhbye/croissant.git
+[submodule "simulators/pyvisgen"]
+	path = simulators/pyvisgen
+	url = https://github.com/radionets-project/pyvisgen.git
+[submodule "simulators/PRISim"]
+	path = simulators/PRISim
+	url = https://github.com/nithyanandan/PRISim.git
+[submodule "simulators/pyradiosky"]
+	path = simulators/pyradiosky
+	url = https://github.com/RadioAstronomySoftwareGroup/pyradiosky.git
+[submodule "simulators/OSKAR"]
+	path = simulators/OSKAR
+	url = https://github.com/OxfordSKA/OSKAR.git
+	update = none
+[submodule "simulators/WODEN"]
+	path = simulators/WODEN
+	url = https://github.com/JLBLine/WODEN.git
+	update = none
+[submodule "simulators/rascil"]
+	path = simulators/rascil
+	url = https://gitlab.com/ska-telescope/external/rascil-main.git
+	update = none
+[submodule "simulators/DP3"]
+	path = simulators/DP3
+	url = https://git.astron.nl/RD/DP3.git
+	update = none
+[submodule "simulators/wsclean"]
+	path = simulators/wsclean
+	url = https://gitlab.com/aroffringa/wsclean.git
+	update = none
+[submodule "simulators/meqtrees-cattery"]
+	path = simulators/meqtrees-cattery
+	url = https://github.com/ratt-ru/meqtrees-cattery.git
+	update = none
