@@ -246,8 +246,10 @@ _DEFAULT_LOADER_MODULES = (
     "rrivis.core.sky._loaders_diffuse",
     "rrivis.core.sky._loaders_fits",
     "rrivis.core.sky._loaders_pyradiosky",
+    "rrivis.core.sky._loaders_skyh5_multifile",
     "rrivis.core.sky._loaders_synthetic",
     "rrivis.core.sky._loaders_vizier",
+    "rrivis.core.sky.recipes",
 )
 _DEFAULT_LOADERS_IMPORTED = False
 

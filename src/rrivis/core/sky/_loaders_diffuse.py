@@ -13,7 +13,13 @@ from healpy.rotator import Rotator
 from rrivis.utils.frequency import parse_frequency_config
 from rrivis.utils.network import require_service
 
-from ._data import HealpixData
+from ._data import (
+    HealpixData,
+    MonopoleConvention,
+    SkyCoverage,
+    SkyProvenance,
+    SourceSubtractionStatus,
+)
 from ._precision import get_sky_storage_dtype
 from ._registry import register_loader
 from .catalogs import DIFFUSE_MODELS
@@ -326,6 +332,64 @@ def load_diffuse_sky(
     # Flush and re-open read-only if memmap-backed.
     i_arr = finalize_cube(i_arr, scratch, "i_maps")
 
+    # Build provenance from DIFFUSE_MODELS metadata + runtime include_cmb choice.
+    resolved_include_cmb = init_kwargs.get("include_cmb", False)
+    if resolved_include_cmb:
+        monopole_convention = MonopoleConvention.ABSOLUTE_WITH_CMB
+    else:
+        monopole_convention = info.default_monopole_convention
+
+    native_res_rad = (
+        float(info.native_resolution_arcmin) * (np.pi / 180.0) / 60.0
+        if info.native_resolution_arcmin is not None
+        else None
+    )
+    angular_resolution_rad = (
+        (native_res_rad, float(np.pi)) if native_res_rad is not None else None
+    )
+
+    if info.source_subtracted_above_jy is not None:
+        src_sub = SourceSubtractionStatus.ABOVE_THRESHOLD
+        src_sub_threshold = float(info.source_subtracted_above_jy)
+        src_sub_freq = (
+            float(info.source_subtraction_freq_hz)
+            if info.source_subtraction_freq_hz is not None
+            else None
+        )
+        src_sub_method = "gaussian_fit_inpaint"
+    else:
+        src_sub = SourceSubtractionStatus.NONE
+        src_sub_threshold = None
+        src_sub_freq = None
+        src_sub_method = None
+
+    coverage_footprint = region.footprint() if region is not None else None
+    if region is None:
+        sky_coverage = SkyCoverage.FULL_SKY
+        coverage_fraction = 1.0
+        monopole_k = float(np.mean(i_arr[0])) if n_freq > 0 else None
+    else:
+        assert coverage_footprint is not None
+        sky_coverage = SkyCoverage.PARTIAL_SKY
+        coverage_fraction = coverage_footprint.coverage_fraction
+        monopole_k = None
+
+    provenance = SkyProvenance(
+        flux_completeness_jy=None,
+        flux_completeness_freq_hz=None,
+        angular_resolution_rad=angular_resolution_rad,
+        sky_coverage=sky_coverage,
+        coverage_fraction=coverage_fraction,
+        coverage_footprint=coverage_footprint,
+        monopole_convention=monopole_convention,
+        monopole_k=monopole_k,
+        source_subtraction=src_sub,
+        source_subtraction_threshold_jy=src_sub_threshold,
+        source_subtraction_freq_hz=src_sub_freq,
+        source_subtraction_method=src_sub_method,
+        notes=f"pygdsm/{model}",
+    )
+
     return SkyModel(
         healpix=HealpixData(
             maps=i_arr,
@@ -336,6 +400,7 @@ def load_diffuse_sky(
         source_format=SkyFormat.HEALPIX,
         model_name=model,
         brightness_conversion=brightness_conversion,
+        provenance=provenance,
         _precision=precision,
     )
 
@@ -619,6 +684,43 @@ def load_pysm3(
     if u_arr is not None:
         u_arr = finalize_cube(u_arr, scratch, "u_maps")
 
+    # PySM3 components are absolute, CMB-free brightness templates (unless "c1"
+    # is requested, which adds CMB).  Detect the CMB component to set the
+    # monopole convention; otherwise fall back to ABSOLUTE_NO_CMB.
+    includes_cmb = any(c.lower().startswith("c") for c in components_list)
+    monopole_convention = (
+        MonopoleConvention.ABSOLUTE_WITH_CMB
+        if includes_cmb
+        else MonopoleConvention.ABSOLUTE_NO_CMB
+    )
+
+    # PySM3's native resolution depends on the chosen preset; as a conservative
+    # lower bound take ~1.5 * pixel-scale at the chosen nside.
+    pixel_res_rad = float(hp.nside2resol(nside))
+    angular_resolution_rad = (pixel_res_rad, float(np.pi))
+
+    coverage_footprint = region.footprint() if region is not None else None
+    if region is None:
+        sky_coverage = SkyCoverage.FULL_SKY
+        coverage_fraction = 1.0
+        monopole_k = float(np.mean(i_arr[0])) if n_freq > 0 else None
+    else:
+        assert coverage_footprint is not None
+        sky_coverage = SkyCoverage.PARTIAL_SKY
+        coverage_fraction = coverage_footprint.coverage_fraction
+        monopole_k = None
+
+    provenance = SkyProvenance(
+        angular_resolution_rad=angular_resolution_rad,
+        sky_coverage=sky_coverage,
+        coverage_fraction=coverage_fraction,
+        coverage_footprint=coverage_footprint,
+        monopole_convention=monopole_convention,
+        monopole_k=monopole_k,
+        source_subtraction=SourceSubtractionStatus.NONE,
+        notes=f"pysm3:{'+'.join(components_list)}",
+    )
+
     return SkyModel(
         healpix=HealpixData(
             maps=i_arr,
@@ -631,5 +733,6 @@ def load_pysm3(
         source_format=SkyFormat.HEALPIX,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
+        provenance=provenance,
         _precision=precision,
     )

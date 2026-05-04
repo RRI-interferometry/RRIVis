@@ -333,6 +333,11 @@ def healpix_map_to_point_arrays(
         "minor_arcsec": None,
         "pa_deg": None,
         "spectral_coeffs": None,
+        "per_channel_flux": None,
+        "per_channel_stokes_q": None,
+        "per_channel_stokes_u": None,
+        "per_channel_stokes_v": None,
+        "channel_frequencies": None,
     }
 
 
@@ -346,6 +351,8 @@ def bin_sources_to_flux(
     npix: int,
     *,
     scale: np.ndarray | None = None,
+    per_channel_flux: np.ndarray | None = None,
+    channel_frequencies: np.ndarray | None = None,
 ) -> np.ndarray:
     """Bin point sources into a HEALPix flux density map at a given frequency.
 
@@ -377,11 +384,17 @@ def bin_sources_to_flux(
     np.ndarray
         Flux density map in Jy, shape ``(npix,)``.
     """
-    if scale is None:
-        scale = compute_spectral_scale(
-            spectral_index, spectral_coeffs, freq, ref_frequency
-        )
-    flux_f = flux * scale
+    if per_channel_flux is not None and channel_frequencies is not None:
+        from .spectral import nearest_channel_index
+
+        idx = nearest_channel_index(channel_frequencies, freq)
+        flux_f = per_channel_flux[idx].astype(np.float64, copy=False)
+    else:
+        if scale is None:
+            scale = compute_spectral_scale(
+                spectral_index, spectral_coeffs, freq, ref_frequency
+            )
+        flux_f = flux * scale
     return np.bincount(ipix, weights=flux_f, minlength=npix)
 
 
@@ -402,6 +415,11 @@ def point_sources_to_healpix_maps(
     coordinate_frame: str = "icrs",
     output_dtype: np.dtype = np.float32,
     memmap_path: str | None = None,
+    per_channel_flux: np.ndarray | None = None,
+    per_channel_stokes_q: np.ndarray | None = None,
+    per_channel_stokes_u: np.ndarray | None = None,
+    per_channel_stokes_v: np.ndarray | None = None,
+    channel_frequencies: np.ndarray | None = None,
 ) -> tuple[
     np.ndarray,
     np.ndarray | None,
@@ -533,21 +551,35 @@ def point_sources_to_healpix_maps(
         else None
     )
 
+    use_per_channel = per_channel_flux is not None and channel_frequencies is not None
     for fi, freq in enumerate(frequencies):
-        scale = compute_spectral_scale(
-            spectral_index, spectral_coeffs, float(freq), ref_frequency
-        )
-
-        flux_map = bin_sources_to_flux(
-            ipix,
-            flux,
-            spectral_index,
-            spectral_coeffs,
-            float(freq),
-            ref_frequency,
-            npix,
-            scale=scale,
-        )
+        if use_per_channel:
+            scale = None  # unused on per-channel path
+            flux_map = bin_sources_to_flux(
+                ipix,
+                flux,
+                spectral_index,
+                spectral_coeffs,
+                float(freq),
+                ref_frequency,
+                npix,
+                per_channel_flux=per_channel_flux,
+                channel_frequencies=channel_frequencies,
+            )
+        else:
+            scale = compute_spectral_scale(
+                spectral_index, spectral_coeffs, float(freq), ref_frequency
+            )
+            flux_map = bin_sources_to_flux(
+                ipix,
+                flux,
+                spectral_index,
+                spectral_coeffs,
+                float(freq),
+                ref_frequency,
+                npix,
+                scale=scale,
+            )
 
         temp_out = np.zeros(npix, dtype=output_dtype)
         occupied = flux_map > 0
@@ -564,21 +596,51 @@ def point_sources_to_healpix_maps(
             # Jy -> K_RJ via Rayleigh-Jeans (linear, sign-preserving)
             rj_inv = 1.0 / rayleigh_jeans_factor(float(freq), omega_pixel)
 
-            q_flux, u_flux = apply_faraday_rotation(
-                stokes_q,
-                stokes_u,
-                rotation_measure,
-                float(freq),
-                ref_frequency,
-                scale,
-            )
+            if use_per_channel:
+                from .spectral import nearest_channel_index
+
+                ch_idx = nearest_channel_index(channel_frequencies, float(freq))
+                if (
+                    per_channel_stokes_q is not None
+                    and per_channel_stokes_u is not None
+                ):
+                    q_flux = per_channel_stokes_q[ch_idx].astype(np.float64, copy=False)
+                    u_flux = per_channel_stokes_u[ch_idx].astype(np.float64, copy=False)
+                else:
+                    q_flux = (
+                        stokes_q.astype(np.float64, copy=False)
+                        if stokes_q is not None
+                        else np.zeros(n_sources)
+                    )
+                    u_flux = (
+                        stokes_u.astype(np.float64, copy=False)
+                        if stokes_u is not None
+                        else np.zeros(n_sources)
+                    )
+                if per_channel_stokes_v is not None:
+                    v_flux = per_channel_stokes_v[ch_idx].astype(np.float64, copy=False)
+                else:
+                    v_flux = (
+                        stokes_v.astype(np.float64, copy=False)
+                        if stokes_v is not None
+                        else np.zeros(n_sources)
+                    )
+            else:
+                q_flux, u_flux = apply_faraday_rotation(
+                    stokes_q,
+                    stokes_u,
+                    rotation_measure,
+                    float(freq),
+                    ref_frequency,
+                    scale,
+                )
+                v_flux = stokes_v * scale
             q_map = np.bincount(ipix, weights=q_flux, minlength=npix)
             q_arr[fi] = (q_map * rj_inv).astype(output_dtype)
 
             u_map = np.bincount(ipix, weights=u_flux, minlength=npix)
             u_arr[fi] = (u_map * rj_inv).astype(output_dtype)
 
-            v_flux = stokes_v * scale
             v_map = np.bincount(ipix, weights=v_flux, minlength=npix)
             v_arr[fi] = (v_map * rj_inv).astype(output_dtype)
 

@@ -4,6 +4,12 @@ This module provides common utilities for logging, validation,
 network connectivity detection, and other helper functions.
 """
 
+from rrivis.utils.cosmology import (
+    F_21CM_HZ,
+    add_redshift_secondary_axis,
+    frequency_to_redshift_21cm,
+    redshift_to_frequency_21cm,
+)
 from rrivis.utils.device import DeviceResources, get_device_resources
 from rrivis.utils.frequency import parse_frequency_config
 from rrivis.utils.logging import get_logger, setup_logging
@@ -26,4 +32,8 @@ __all__ = [
     "DeviceResources",
     "get_device_resources",
     "parse_frequency_config",
+    "F_21CM_HZ",
+    "frequency_to_redshift_21cm",
+    "redshift_to_frequency_21cm",
+    "add_redshift_secondary_axis",
 ]

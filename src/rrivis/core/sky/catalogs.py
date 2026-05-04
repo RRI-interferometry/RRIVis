@@ -7,7 +7,13 @@ fields at import time rather than raising runtime ``KeyError``s.
 
 from __future__ import annotations
 
+from functools import cache
+from importlib import resources
+
+import numpy as np
 from pydantic import BaseModel, Field
+
+from ._data import MonopoleConvention, SkyFootprint
 
 
 class _CatalogBase(BaseModel):
@@ -30,6 +36,33 @@ class DiffuseModelEntry(_CatalogBase):
     )
     init_kwargs: dict[str, object] = Field(
         default_factory=dict, description="Constructor keyword arguments"
+    )
+    native_resolution_arcmin: float | None = Field(
+        default=None,
+        description=(
+            "Native angular resolution (arcmin) of the underlying template — "
+            "used as the lower bound of ``SkyProvenance.angular_resolution_rad``."
+        ),
+    )
+    default_monopole_convention: MonopoleConvention = Field(
+        default=MonopoleConvention.ABSOLUTE_NO_CMB,
+        description=(
+            "Monopole convention of the model when ``include_cmb=False``. "
+            "Loader switches to ABSOLUTE_WITH_CMB if the user passes include_cmb=True."
+        ),
+    )
+    source_subtracted_above_jy: float | None = Field(
+        default=None,
+        description=(
+            "Flux-density cut (Jy) above which discrete sources were removed "
+            "from the diffuse template at construction time (None = not source-subtracted)."
+        ),
+    )
+    source_subtraction_freq_hz: float | None = Field(
+        default=None,
+        description=(
+            "Reference frequency (Hz) at which ``source_subtracted_above_jy`` was evaluated."
+        ),
     )
 
 
@@ -71,6 +104,20 @@ class VizierCatalogEntry(_CatalogBase):
     default_flux_limit: float = Field(
         1.0, description="Default minimum flux density in Jy for the loader"
     )
+    beam_fwhm_arcsec: float | None = Field(
+        default=None,
+        description=(
+            "Synthesized-beam FWHM in arcseconds for this survey — "
+            "sets the lower bound of ``SkyProvenance.angular_resolution_rad``."
+        ),
+    )
+    footprint_asset: str | None = Field(
+        default=None,
+        description=(
+            "Packaged NPZ footprint asset for this release. When present the "
+            "loader attaches it as ``SkyProvenance.coverage_footprint``."
+        ),
+    )
 
 
 class RacsCatalogEntry(_CatalogBase):
@@ -82,6 +129,20 @@ class RacsCatalogEntry(_CatalogBase):
     dec_col: str = Field(..., description="Declination column name")
     flux_col: str = Field(..., description="Flux density column name")
     flux_unit: str = Field("mJy", description="Unit of flux column")
+    beam_fwhm_arcsec: float | None = Field(
+        default=None,
+        description=(
+            "Synthesized-beam FWHM in arcseconds for this survey — "
+            "sets the lower bound of ``SkyProvenance.angular_resolution_rad``."
+        ),
+    )
+    footprint_asset: str | None = Field(
+        default=None,
+        description=(
+            "Packaged NPZ footprint asset for this release. When present the "
+            "loader attaches it as ``SkyProvenance.coverage_footprint``."
+        ),
+    )
 
 
 # =============================================================================
@@ -104,6 +165,8 @@ DIFFUSE_MODELS: dict[str, DiffuseModelEntry] = {
             "interpolation": "pchip",
             "include_cmb": False,
         },
+        native_resolution_arcmin=60.0,
+        default_monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
     ),
     "gsm2016": DiffuseModelEntry(
         class_path="pygdsm.GlobalSkyModel16",
@@ -115,6 +178,8 @@ DIFFUSE_MODELS: dict[str, DiffuseModelEntry] = {
         reference_url="https://ui.adsabs.harvard.edu/abs/2017MNRAS.464.3486Z/abstract",
         freq_range=(10e6, 5e12),
         init_kwargs={"freq_unit": "Hz", "data_unit": "TRJ", "include_cmb": False},
+        native_resolution_arcmin=56.0,
+        default_monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
     ),
     "lfsm": DiffuseModelEntry(
         class_path="pygdsm.LowFrequencySkyModel",
@@ -126,13 +191,19 @@ DIFFUSE_MODELS: dict[str, DiffuseModelEntry] = {
         reference_url="https://ui.adsabs.harvard.edu/abs/2017MNRAS.469.4537D/abstract",
         freq_range=(10e6, 408e6),
         init_kwargs={"freq_unit": "Hz", "include_cmb": False},
+        native_resolution_arcmin=300.0,
+        default_monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
     ),
     "haslam": DiffuseModelEntry(
         class_path="pygdsm.HaslamSkyModel",
         description=(
             "Haslam 408 MHz all-sky survey (Haslam et al. 1982, "
             "reprocessed Remazeilles et al. 2015). "
-            "Single power-law extrapolation, nside=512."
+            "Single power-law extrapolation, nside=512. "
+            "The pygdsm version uses the Remazeilles 2015 source-subtracted, "
+            "destriped map: extragalactic sources brighter than ~2 Jy at 408 MHz "
+            "have been removed and the holes inpainted via 2D Gaussian fitting "
+            "+ minimum curvature spline."
         ),
         reference_url="https://ui.adsabs.harvard.edu/abs/1982A%26AS...47....1H/abstract",
         freq_range=(10e6, 100e9),
@@ -141,16 +212,43 @@ DIFFUSE_MODELS: dict[str, DiffuseModelEntry] = {
             "spectral_index": -2.6,
             "include_cmb": False,
         },
+        native_resolution_arcmin=56.0,
+        default_monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+        source_subtracted_above_jy=2.0,
+        source_subtraction_freq_hz=408e6,
     ),
 }
 
 # CASDA TAP endpoint for RACS catalogs
 CASDA_TAP_URL = "https://casda.csiro.au/casda_vo_tools/tap"
+_FOOTPRINT_RESOURCE_PATH = ("core", "sky", "data", "footprints")
+
+
+@cache
+def load_catalog_footprint_asset(asset_name: str) -> SkyFootprint:
+    """Load a packaged catalog footprint asset."""
+    resource = resources.files("rrivis")
+    for part in _FOOTPRINT_RESOURCE_PATH:
+        resource = resource.joinpath(part)
+    resource = resource.joinpath(asset_name)
+    with resource.open("rb") as handle, np.load(handle, allow_pickle=False) as payload:
+        nside = int(payload["nside"])
+        coordinate_frame = str(np.asarray(payload["coordinate_frame"]).item())
+        hpx_inds = np.asarray(payload["hpx_inds"], dtype=np.int64)
+    return SkyFootprint(
+        nside=nside,
+        coordinate_frame=coordinate_frame,
+        hpx_inds=hpx_inds,
+    )
+
 
 # =============================================================================
 # VizieR point-source catalogs
 # =============================================================================
 
+# TODO(scientific-coverage): Curate true release masks or official MOCs for the
+# irregular survey footprints that still lack exact packaged coverage assets:
+# vlssr, lotss_dr2, gleam_*, and mals_*.
 VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
     "vlssr": VizierCatalogEntry(
         vizier_id="VIII/97",
@@ -166,6 +264,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         default_spindex=-0.7,
         freq_mhz=73.8,
         coords_sexagesimal=True,
+        beam_fwhm_arcsec=75.0,
     ),
     "tgss": VizierCatalogEntry(
         default_flux_limit=0.1,
@@ -184,13 +283,15 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         major_col="Maj",
         minor_col="Min",
         pa_col="PA",
+        beam_fwhm_arcsec=25.0,
+        footprint_asset="tgss.npz",
     ),
     "wenss": VizierCatalogEntry(
         default_flux_limit=0.05,
         vizier_id="VIII/62",
         description=(
             "WENSS: Westerbork Northern Sky Survey (Rengelink et al. 1997). "
-            "325 MHz, ~229k sources, dec > +28 deg."
+            "325 MHz, ~229k sources, dec >= +30 deg."
         ),
         reference_url="https://ui.adsabs.harvard.edu/abs/1997A&AS..124..259R/abstract",
         ra_col="RAJ2000",
@@ -200,6 +301,8 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         default_spindex=-0.7,
         freq_mhz=325.0,
         coords_sexagesimal=True,
+        beam_fwhm_arcsec=54.0,
+        footprint_asset="wenss.npz",
     ),
     "sumss": VizierCatalogEntry(
         default_flux_limit=0.008,
@@ -218,6 +321,8 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         major_col="dMajAxis",
         minor_col="dMinAxis",
         pa_col="dPA",
+        beam_fwhm_arcsec=45.0,
+        footprint_asset="sumss.npz",
     ),
     "nvss": VizierCatalogEntry(
         default_flux_limit=0.0025,
@@ -236,6 +341,8 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         major_col="MajAxis",
         minor_col="MinAxis",
         pa_col="PA",
+        beam_fwhm_arcsec=45.0,
+        footprint_asset="nvss.npz",
     ),
     "vlass": VizierCatalogEntry(
         default_flux_limit=0.001,
@@ -255,6 +362,8 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         major_col="DCMaj",
         minor_col="DCMin",
         pa_col="DCPA",
+        beam_fwhm_arcsec=2.5,
+        footprint_asset="vlass.npz",
     ),
     "lotss_dr1": VizierCatalogEntry(
         vizier_id="J/A+A/622/A1",
@@ -269,6 +378,8 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         flux_unit="mJy",
         default_spindex=-0.7,
         freq_mhz=144.0,
+        beam_fwhm_arcsec=6.0,
+        footprint_asset="lotss_dr1.npz",
     ),
     "lotss_dr2": VizierCatalogEntry(
         vizier_id="J/A+A/659/A1",
@@ -283,6 +394,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         flux_unit="mJy",
         default_spindex=-0.7,
         freq_mhz=144.0,
+        beam_fwhm_arcsec=6.0,
     ),
     "3c": VizierCatalogEntry(
         vizier_id="VIII/1",
@@ -300,6 +412,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         freq_mhz=178.0,
         coords_sexagesimal=True,
         coord_frame="fk4",
+        beam_fwhm_arcsec=300.0,
     ),
     # --- GLEAM family ---
     "gleam_egc": VizierCatalogEntry(
@@ -316,6 +429,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         spindex_col="alpha",
         default_spindex=-0.8,
         freq_mhz=200.0,
+        beam_fwhm_arcsec=120.0,
     ),
     "gleam_x_dr1": VizierCatalogEntry(
         vizier_id="VIII/110/catalog",
@@ -331,6 +445,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         spindex_col="alpha-SP",
         default_spindex=-0.8,
         freq_mhz=200.0,
+        beam_fwhm_arcsec=45.0,
     ),
     "gleam_x_dr2": VizierCatalogEntry(
         vizier_id="VIII/113/catalog2",
@@ -346,6 +461,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         spindex_col="alpha-SP",
         default_spindex=-0.8,
         freq_mhz=200.0,
+        beam_fwhm_arcsec=45.0,
     ),
     "gleam_gal": VizierCatalogEntry(
         vizier_id="VIII/102/gleamgal",
@@ -361,6 +477,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         spindex_col="alpha",
         default_spindex=-0.8,
         freq_mhz=200.0,
+        beam_fwhm_arcsec=120.0,
     ),
     # --- MALS family ---
     "mals_dr1": VizierCatalogEntry(
@@ -378,6 +495,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         spindex_col="SpMALS",
         default_spindex=0.0,
         freq_mhz=1200.0,
+        beam_fwhm_arcsec=8.0,
     ),
     "mals_dr2": VizierCatalogEntry(
         vizier_id="J/A+A/690/A163",
@@ -394,6 +512,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         spindex_col="SpIndex",
         default_spindex=0.0,
         freq_mhz=1284.0,
+        beam_fwhm_arcsec=8.0,
     ),
 }
 
@@ -413,6 +532,8 @@ RACS_CATALOGS: dict[str, RacsCatalogEntry] = {
         ra_col="ra_deg_cont",
         dec_col="dec_deg_cont",
         flux_col="flux_peak",
+        beam_fwhm_arcsec=25.0,
+        footprint_asset="racs_low.npz",
     ),
     "mid": RacsCatalogEntry(
         freq_mhz=1367.5,
@@ -425,6 +546,8 @@ RACS_CATALOGS: dict[str, RacsCatalogEntry] = {
         ra_col="ra_deg_cont",
         dec_col="dec_deg_cont",
         flux_col="flux_peak",
+        beam_fwhm_arcsec=10.0,
+        footprint_asset="racs_mid.npz",
     ),
     "high": RacsCatalogEntry(
         freq_mhz=1655.5,
@@ -437,5 +560,7 @@ RACS_CATALOGS: dict[str, RacsCatalogEntry] = {
         ra_col="ra_deg_cont",
         dec_col="dec_deg_cont",
         flux_col="flux_peak",
+        beam_fwhm_arcsec=8.0,
+        footprint_asset="racs_high.npz",
     ),
 }

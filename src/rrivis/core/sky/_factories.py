@@ -14,7 +14,14 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ._data import HealpixData, PointSourceData
+from ._data import (
+    HealpixData,
+    MonopoleConvention,
+    PointSourceData,
+    SkyCoverage,
+    SkyProvenance,
+    SourceSubtractionStatus,
+)
 from .constants import BrightnessConversion
 from .model import SkyFormat
 
@@ -64,6 +71,7 @@ def create_empty(
     *,
     precision: PrecisionConfig,
     reference_frequency: float | None = None,
+    provenance: SkyProvenance | None = None,
 ) -> SkyModel:
     """Return an empty point-source SkyModel (zero-length arrays).
 
@@ -77,6 +85,8 @@ def create_empty(
         Precision configuration.
     reference_frequency : float, optional
         Reference frequency in Hz.
+    provenance : SkyProvenance, optional
+        Physical-correctness metadata.  Defaults to an UNKNOWN-sentinel.
 
     Returns
     -------
@@ -93,6 +103,7 @@ def create_empty(
         brightness_conversion=brightness_conversion,
         _precision=precision,
         reference_frequency=reference_frequency,
+        provenance=provenance if provenance is not None else SkyProvenance(),
     )
 
 
@@ -118,10 +129,13 @@ def create_from_arrays(
     brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK,
     *,
     precision: PrecisionConfig,
+    provenance: SkyProvenance | None = None,
 ) -> SkyModel:
     """Create a SkyModel from numpy arrays.
 
     This is the preferred numpy-native constructor for point-source models.
+    Pass ``provenance=`` to declare physical-correctness metadata (flux
+    completeness, angular resolution, monopole convention).
     """
     from .model import SkyModel
 
@@ -172,6 +186,7 @@ def create_from_arrays(
         reference_frequency=reference_frequency,
         brightness_conversion=brightness_conversion,
         _precision=precision,
+        provenance=provenance if provenance is not None else SkyProvenance(),
     )
 
 
@@ -233,6 +248,8 @@ def create_test_sources(
     polarization_fraction: float = 0.0,
     polarization_angle_deg: float = 0.0,
     stokes_v_fraction: float = 0.0,
+    reference_frequency: float | None = None,
+    provenance: SkyProvenance | None = None,
 ) -> SkyModel:
     """Generate synthetic test sources."""
     from .model import SkyModel
@@ -281,6 +298,17 @@ def create_test_sources(
     else:
         stokes_v_arr = np.zeros(n, dtype=np.float64)
 
+    if provenance is None:
+        provenance = SkyProvenance(
+            flux_completeness_jy=(float(flux_range[0]), float(flux_range[1])),
+            flux_completeness_freq_hz=reference_frequency,
+            angular_resolution_rad=(0.0, float(np.pi)),
+            sky_coverage=SkyCoverage.FULL_SKY,
+            monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+            source_subtraction=SourceSubtractionStatus.NONE,
+            notes="synthetic/test_sources",
+        )
+
     return create_from_arrays(
         ra_rad=SkyModel.deg_to_rad_at_precision(ra_deg_arr, precision),
         dec_rad=SkyModel.deg_to_rad_at_precision(dec_deg_arr, precision),
@@ -290,8 +318,10 @@ def create_test_sources(
         stokes_u=stokes_u_arr,
         stokes_v=stokes_v_arr,
         model_name="test_sources",
+        reference_frequency=reference_frequency,
         brightness_conversion=brightness_conversion,
         precision=precision,
+        provenance=provenance,
     )
 
 

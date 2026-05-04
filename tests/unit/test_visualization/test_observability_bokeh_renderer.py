@@ -1,15 +1,13 @@
-"""Tests for Bokeh sky-visibility rendering."""
+"""Tests for Bokeh observability rendering."""
 
 import numpy as np
 from bokeh.layouts import Column
 from bokeh.models import DataTable, Div, GridPlot
 
+from rrivis.core.observability import ObservabilityPlanner
 from rrivis.core.precision import PrecisionConfig
 from rrivis.core.sky import create_from_arrays
-from rrivis.visualization.sky_visibility import (
-    SkyVisibilityBokehRenderer,
-    SkyVisibilityPlanner,
-)
+from rrivis.visualization.observability import ObservabilityBokehRenderer
 
 
 def _point_sky():
@@ -28,9 +26,9 @@ def _point_sky():
     )
 
 
-class TestSkyVisibilityBokehRenderer:
+class TestObservabilityBokehRenderer:
     def test_summary_layout_contains_tables(self):
-        plan = SkyVisibilityPlanner(
+        plan = ObservabilityPlanner(
             latitude_deg=-30.0,
             longitude_deg=21.0,
             lst_start_hours=1.0,
@@ -41,7 +39,7 @@ class TestSkyVisibilityBokehRenderer:
             footprint_step_seconds=3600.0,
         ).build()
 
-        layout = SkyVisibilityBokehRenderer(
+        layout = ObservabilityBokehRenderer(
             plan,
             show_source_colorbar=True,
         ).create_plot()
@@ -51,7 +49,7 @@ class TestSkyVisibilityBokehRenderer:
         assert len(list(layout.select({"type": Div}))) >= 1
 
     def test_lst_axis_uses_wrapped_hour_range(self):
-        plan = SkyVisibilityPlanner(
+        plan = ObservabilityPlanner(
             latitude_deg=-30.0,
             longitude_deg=21.0,
             lst_start_hours=1.0,
@@ -63,14 +61,14 @@ class TestSkyVisibilityBokehRenderer:
             footprint_step_seconds=3600.0,
         ).build()
 
-        layout = SkyVisibilityBokehRenderer(plan).create_plot()
+        layout = ObservabilityBokehRenderer(plan).create_plot()
         figure = layout.children[0]
 
         assert figure.x_range.start == -12
         assert figure.x_range.end == 12
 
     def test_snapshot_mode_returns_gridplot(self):
-        plan = SkyVisibilityPlanner(
+        plan = ObservabilityPlanner(
             latitude_deg=-30.0,
             longitude_deg=21.0,
             lst_start_hours=1.0,
@@ -82,7 +80,7 @@ class TestSkyVisibilityBokehRenderer:
             snapshot_step_seconds=7200.0,
         ).build()
 
-        layout = SkyVisibilityBokehRenderer(plan).create_plot()
+        layout = ObservabilityBokehRenderer(plan).create_plot()
 
         assert isinstance(layout, GridPlot)
         assert len(layout.children) == 3

@@ -13,7 +13,7 @@ the frequency axis.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -21,7 +21,13 @@ import healpy as hp
 import numpy as np
 from astropy.coordinates import SkyCoord
 
-from ._data import HealpixData, PointSourceData, SourceArrays
+from ._data import (
+    HealpixData,
+    PointSourceData,
+    SkyCoverage,
+    SkyProvenance,
+    SourceArrays,
+)
 from .constants import BrightnessConversion
 
 if TYPE_CHECKING:
@@ -63,6 +69,7 @@ class SkyModel:
     reference_frequency: float | None = None
     model_name: str | None = None
     brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK
+    provenance: SkyProvenance = field(default_factory=SkyProvenance)
     _precision: "PrecisionConfig | None" = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -91,6 +98,14 @@ class SkyModel:
                     f"brightness_conversion must be 'planck' or 'rayleigh-jeans', "
                     f"got '{self.brightness_conversion}'"
                 ) from None
+
+        if isinstance(self.provenance, dict):
+            self.provenance = SkyProvenance(**self.provenance)
+        elif not isinstance(self.provenance, SkyProvenance):
+            raise TypeError(
+                "SkyModel.provenance must be a SkyProvenance or a dict of its "
+                f"fields, got {type(self.provenance).__name__}."
+            )
 
         if self.source_format == SkyFormat.POINT_SOURCES and self.point is None:
             raise ValueError("source_format='point_sources' requires a point payload.")
@@ -162,6 +177,31 @@ class SkyModel:
             extra_columns={
                 name: np.asarray(values) for name, values in point.extra_columns.items()
             },
+            per_channel_flux=(
+                None
+                if point.per_channel_flux is None
+                else np.asarray(point.per_channel_flux, dtype=flux_dt)
+            ),
+            per_channel_stokes_q=(
+                None
+                if point.per_channel_stokes_q is None
+                else np.asarray(point.per_channel_stokes_q, dtype=flux_dt)
+            ),
+            per_channel_stokes_u=(
+                None
+                if point.per_channel_stokes_u is None
+                else np.asarray(point.per_channel_stokes_u, dtype=flux_dt)
+            ),
+            per_channel_stokes_v=(
+                None
+                if point.per_channel_stokes_v is None
+                else np.asarray(point.per_channel_stokes_v, dtype=flux_dt)
+            ),
+            channel_frequencies=(
+                None
+                if point.channel_frequencies is None
+                else np.asarray(point.channel_frequencies, dtype=np.float64)
+            ),
         )
 
     @classmethod
@@ -334,6 +374,7 @@ class SkyModel:
             "reference_frequency",
             "model_name",
             "brightness_conversion",
+            "provenance",
         ):
             if key in changes:
                 field_changes[key] = changes.pop(key)
@@ -527,17 +568,43 @@ class SkyModel:
         """
         point = self.point
         healpix = self.healpix
+        coverage_footprint = self.provenance.coverage_footprint
 
         if self.healpix is not None:
-            healpix = self._masked_healpix_data(region)
+            hp_mask = region.healpix_mask(
+                self.healpix.nside,
+                coordinate_frame=self.healpix.coordinate_frame,
+            )
+            healpix = self.healpix.masked_region(hp_mask)
 
         if self.point is not None:
             mask = region.contains(self.point.ra_rad, self.point.dec_rad)
             if not np.all(mask):
                 point = self._masked_point_source_data(mask)
 
-        if point is self.point and healpix is self.healpix:
-            return self  # empty model — nothing to filter
+        if coverage_footprint is not None:
+            coverage_footprint = coverage_footprint.intersect_mask(
+                region.healpix_mask(
+                    coverage_footprint.nside,
+                    coordinate_frame=coverage_footprint.coordinate_frame,
+                )
+            )
+        elif self.provenance.is_full_sky:
+            coverage_footprint = region.footprint()
+
+        coverage_fraction = (
+            coverage_footprint.coverage_fraction
+            if coverage_footprint is not None
+            else None
+        )
+
+        provenance = replace(
+            self.provenance,
+            sky_coverage=SkyCoverage.PARTIAL_SKY,
+            coverage_fraction=coverage_fraction,
+            coverage_footprint=coverage_footprint,
+            monopole_k=None,
+        )
 
         return self._replace(
             point=point,
@@ -546,6 +613,7 @@ class SkyModel:
             model_name=self.model_name,
             reference_frequency=self.reference_frequency,
             brightness_conversion=self.brightness_conversion,
+            provenance=provenance,
             _precision=self._precision,
         )
 
@@ -947,6 +1015,7 @@ class SkyModel:
             or self.reference_frequency != other.reference_frequency
             or self.brightness_conversion != other.brightness_conversion
             or self.source_format != other.source_format
+            or self.provenance != other.provenance
         ):
             return False
 

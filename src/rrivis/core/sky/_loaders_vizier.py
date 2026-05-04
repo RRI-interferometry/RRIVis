@@ -33,17 +33,101 @@ from astroquery.vizier import Vizier
 
 from rrivis.utils.network import require_service
 
+from ._data import (
+    MonopoleConvention,
+    SkyCoverage,
+    SkyProvenance,
+    SourceSubtractionStatus,
+)
 from ._factories import create_empty, create_from_arrays
 from ._registry import get_loader, register_loader
 from .catalogs import (
     CASDA_TAP_URL,
     RACS_CATALOGS,
     VIZIER_POINT_CATALOGS,
+    RacsCatalogEntry,
     VizierCatalogEntry,
+    load_catalog_footprint_asset,
 )
 from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
+
+
+def _build_point_catalog_provenance(
+    *,
+    info: VizierCatalogEntry | RacsCatalogEntry,
+    flux_limit_jy: float,
+    flux_jy: np.ndarray | None,
+    catalog_key: str,
+    region: SkyRegion | None = None,
+) -> SkyProvenance:
+    """Build a ``SkyProvenance`` for a point-source catalog from its metadata.
+
+    The returned provenance declares the catalog's flux-completeness band,
+    angular resolution, and ABSOLUTE_NO_CMB monopole (point catalogs carry no
+    isotropic background).  ``flux_completeness_jy`` uses ``flux_limit_jy``
+    as the lower bound and ``max(flux_jy)`` as the upper bound.
+    """
+    upper = float(np.max(flux_jy)) if flux_jy is not None and flux_jy.size else None
+    flux_completeness = (
+        (float(flux_limit_jy), upper)
+        if upper is not None and upper > flux_limit_jy
+        else None
+    )
+
+    # Angular resolution: beam FWHM at the low end, full sky at the high end.
+    beam_arcsec = getattr(info, "beam_fwhm_arcsec", None)
+    if beam_arcsec is not None:
+        beam_rad = float(beam_arcsec) * (np.pi / 180.0) / 3600.0
+        angular_resolution_rad: tuple[float, float] | None = (
+            beam_rad,
+            float(np.pi),
+        )
+    else:
+        angular_resolution_rad = None
+
+    coverage_footprint = None
+    footprint_asset = getattr(info, "footprint_asset", None)
+    if footprint_asset:
+        coverage_footprint = load_catalog_footprint_asset(footprint_asset)
+        if region is not None:
+            coverage_footprint = coverage_footprint.intersect_mask(
+                region.healpix_mask(
+                    coverage_footprint.nside,
+                    coordinate_frame=coverage_footprint.coordinate_frame,
+                )
+            )
+
+    if coverage_footprint is None:
+        sky_coverage = SkyCoverage.PARTIAL_SKY
+        coverage_fraction = None
+    else:
+        sky_coverage = (
+            SkyCoverage.FULL_SKY
+            if coverage_footprint.is_full_sky
+            else SkyCoverage.PARTIAL_SKY
+        )
+        coverage_fraction = coverage_footprint.coverage_fraction
+
+    # Monopole: treat the point catalog's integrated I flux over 4π sr as the
+    # contribution of discrete sources to the sky mean (in Jy/sr), which is a
+    # separate bookkeeping axis from the diffuse-map monopole. ``monopole_k``
+    # stays None here and is filled by the combiner once a frequency is known.
+    return SkyProvenance(
+        flux_completeness_jy=flux_completeness,
+        flux_completeness_freq_hz=float(info.freq_mhz) * 1e6,
+        angular_resolution_rad=angular_resolution_rad,
+        sky_coverage=sky_coverage,
+        coverage_fraction=coverage_fraction,
+        coverage_footprint=coverage_footprint,
+        monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+        monopole_k=None,
+        source_subtraction=SourceSubtractionStatus.NONE,
+        notes=f"vizier/{catalog_key}"
+        if isinstance(info, VizierCatalogEntry)
+        else f"racs/{catalog_key}",
+    )
 
 
 def _extract_masked_column(catalog, col_name: str, dtype=np.float64) -> np.ndarray:
@@ -191,14 +275,24 @@ def _load_from_vizier_catalog(
             f"Available: {sorted(VIZIER_POINT_CATALOGS.keys())}"
         )
 
+    info = VIZIER_POINT_CATALOGS[catalog_key]
+
     def _empty():
+        provenance = _build_point_catalog_provenance(
+            info=info,
+            flux_limit_jy=flux_limit,
+            flux_jy=None,
+            catalog_key=catalog_key,
+            region=region,
+        )
         return create_empty(
             catalog_key,
             brightness_conversion,
             precision=precision,
+            reference_frequency=info.freq_mhz * 1e6,
+            provenance=provenance,
         )
 
-    info = VIZIER_POINT_CATALOGS[catalog_key]
     if region is None and max_rows is None and not allow_full_catalog:
         raise ValueError(
             f"Catalog '{catalog_key}' requires region=..., max_rows=..., or "
@@ -431,7 +525,14 @@ def _load_from_vizier_catalog(
         brightness_conversion=brightness_conversion,
         precision=precision,
     )
-    return sky
+    provenance = _build_point_catalog_provenance(
+        info=info,
+        flux_limit_jy=flux_limit,
+        flux_jy=flux_jy,
+        catalog_key=catalog_key,
+        region=region,
+    )
+    return sky._replace(provenance=provenance)
 
 
 # =========================================================================
@@ -890,10 +991,19 @@ def load_racs(
     )
 
     if n == 0:
+        provenance = _build_point_catalog_provenance(
+            info=info,
+            flux_limit_jy=flux_limit,
+            flux_jy=None,
+            catalog_key=f"racs_{band}",
+            region=region,
+        )
         return create_empty(
             model_name,
             brightness_conversion,
             precision=precision,
+            reference_frequency=freq_hz,
+            provenance=provenance,
         )
 
     sky = create_from_arrays(
@@ -908,7 +1018,14 @@ def load_racs(
         brightness_conversion=brightness_conversion,
         precision=precision,
     )
-    return sky
+    provenance = _build_point_catalog_provenance(
+        info=info,
+        flux_limit_jy=flux_limit,
+        flux_jy=flux_arr,
+        catalog_key=f"racs_{band}",
+        region=region,
+    )
+    return sky._replace(provenance=provenance)
 
 
 # =========================================================================

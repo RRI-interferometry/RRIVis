@@ -1,12 +1,14 @@
-"""Geometry helpers for sky-visibility planning."""
+"""Coordinate-system helpers for RA/Dec, sidereal time, contour extraction,
+and polyline wrapping.
+
+Pure numpy (with a lazy ``matplotlib.pyplot`` import inside
+``extract_contour_segments``).  No rrivis imports — safe to use from any
+layer without creating cycles.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import numpy as np
-
-from rrivis.core.jones.beam.projection import BeamSkyProjection
 
 SIDEREAL_DAY_SECONDS = 86164.0905
 SIDEREAL_DEG_PER_SECOND = 360.0 / SIDEREAL_DAY_SECONDS
@@ -98,7 +100,11 @@ def radec_to_za_az(
     """Convert RA/Dec coordinates to zenith angle and azimuth."""
     dec_z = np.deg2rad(zenith_dec_deg)
     dec = np.deg2rad(dec_deg)
-    delta_ra = np.deg2rad(np.angle(np.exp(1j * np.deg2rad(ra_deg - zenith_ra_deg))))
+    # Wrap (ra - zenith_ra) into (-π, π] radians via angle(exp(i·φ)).
+    # The previous implementation applied an extra np.deg2rad to the output,
+    # which shrank the delta to (delta_deg · π/180)·π/180 radians and
+    # collapsed the projected beam into a declination-only stripe.
+    delta_ra = np.angle(np.exp(1j * np.deg2rad(ra_deg - zenith_ra_deg)))
 
     cos_za = np.sin(dec_z) * np.sin(dec) + np.cos(dec_z) * np.cos(dec) * np.cos(
         delta_ra
@@ -116,38 +122,6 @@ def radec_to_za_az(
     az_rad = np.arctan2(sin_az, cos_az) % (2.0 * np.pi)
     az_rad[za_rad < 1e-6] = 0.0
     return za_rad, az_rad
-
-
-def compute_beam_power_on_full_sky_grid(
-    beam_power_func: Callable[[np.ndarray, np.ndarray], np.ndarray],
-    zenith_ra_deg: float,
-    zenith_dec_deg: float,
-    ra_grid_deg: np.ndarray,
-    dec_grid_deg: np.ndarray,
-    max_za_deg: float = 90.0,
-) -> BeamSkyProjection:
-    """Evaluate a beam model on a full-sky RA/Dec grid."""
-    ra_mesh, dec_mesh = np.meshgrid(ra_grid_deg, dec_grid_deg)
-    za_rad, az_rad = radec_to_za_az(
-        ra_mesh,
-        dec_mesh,
-        zenith_ra_deg=zenith_ra_deg,
-        zenith_dec_deg=zenith_dec_deg,
-    )
-    power = beam_power_func(za_rad, az_rad)
-    power = np.asarray(power, dtype=float)
-    power[za_rad > np.deg2rad(max_za_deg)] = np.nan
-    with np.errstate(divide="ignore", invalid="ignore"):
-        power_db = 10.0 * np.log10(np.where(np.isnan(power), np.nan, power + 1e-30))
-    power_db[np.isnan(power)] = np.nan
-    return BeamSkyProjection(
-        ra_grid_deg=ra_grid_deg,
-        dec_grid_deg=dec_grid_deg,
-        power_db=power_db,
-        zenith_ra_deg=zenith_ra_deg,
-        zenith_dec_deg=zenith_dec_deg,
-        max_za_deg=max_za_deg,
-    )
 
 
 def extract_contour_segments(

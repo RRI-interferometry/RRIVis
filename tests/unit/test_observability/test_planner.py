@@ -1,13 +1,13 @@
-"""Tests for sky-visibility planning."""
+"""Tests for observability planning."""
 
 import healpy as hp
 import numpy as np
 import pytest
 
+from rrivis.core.observability import ObservabilityPlanner
 from rrivis.core.precision import PrecisionConfig
 from rrivis.core.sky import HealpixData, create_from_arrays
 from rrivis.core.sky.model import SkyFormat, SkyModel
-from rrivis.visualization.sky_visibility import SkyVisibilityPlanner
 
 
 @pytest.fixture
@@ -54,9 +54,9 @@ def _combined_sky(precision, *, coordinate_frame: str = "icrs"):
     )
 
 
-class TestSkyVisibilityPlanner:
+class TestObservabilityPlanner:
     def test_summary_plan_tracks_visibility_metrics(self, precision):
-        planner = SkyVisibilityPlanner(
+        planner = ObservabilityPlanner(
             latitude_deg=-30.0,
             longitude_deg=21.0,
             lst_start_hours=1.0,
@@ -81,7 +81,7 @@ class TestSkyVisibilityPlanner:
         assert len(plan.snapshots) == 3
 
     def test_rectangular_approx_masks_ra_interval(self, precision):
-        planner = SkyVisibilityPlanner(
+        planner = ObservabilityPlanner(
             latitude_deg=-30.0,
             longitude_deg=21.0,
             lst_start_hours=23.0,
@@ -100,7 +100,7 @@ class TestSkyVisibilityPlanner:
         assert plan.footprint_mask[dec_idx, ra_idx]
 
     def test_background_projection_accepts_galactic_metadata(self, precision):
-        planner = SkyVisibilityPlanner(
+        planner = ObservabilityPlanner(
             latitude_deg=-30.0,
             longitude_deg=21.0,
             lst_start_hours=1.0,
@@ -117,7 +117,7 @@ class TestSkyVisibilityPlanner:
         assert plan.projected_background.ndim == 2
 
     def test_analytic_beam_uses_full_sky_projection(self, precision):
-        planner = SkyVisibilityPlanner(
+        planner = ObservabilityPlanner(
             latitude_deg=-30.0,
             longitude_deg=21.0,
             lst_start_hours=1.0,

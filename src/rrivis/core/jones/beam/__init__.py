@@ -147,6 +147,12 @@ class BeamJones(JonesTerm):
 
 
 # Import from sub-packages AFTER BeamJones is defined (sub-packages inherit from it)
+from rrivis.core.jones.beam.analysis import (  # noqa: E402
+    BeamFeatures,
+    BeamRadialProfile,
+    azimuthal_radial_profile,
+    detect_beam_features,
+)
 from rrivis.core.jones.beam.analytic import (  # noqa: E402
     AnalyticBeamJones,
     compute_aperture_beam,
@@ -189,4 +195,9 @@ __all__ = [
     "compute_beam_power_on_radec_grid",
     "create_rgba_overlay",
     "extract_contours",
+    # Beam analysis
+    "BeamRadialProfile",
+    "BeamFeatures",
+    "azimuthal_radial_profile",
+    "detect_beam_features",
 ]

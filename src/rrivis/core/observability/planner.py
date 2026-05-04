@@ -1,4 +1,10 @@
-"""Sky-visibility planning and data assembly."""
+"""Observability planning and data assembly.
+
+Produces a renderer-neutral :class:`ObservabilityPlan` given an observer
+location, time/LST window, beam, and optional sky model.  Downstream
+consumers (matplotlib overlays, the Bokeh renderer, analysis code) use the
+resulting plan without depending on any specific visualisation backend.
+"""
 
 from __future__ import annotations
 
@@ -8,17 +14,18 @@ from typing import Any, Literal
 
 import numpy as np
 
-from .geometry import (
+from rrivis.utils.coordinates import (
     SIDEREAL_DEG_PER_SECOND,
     angular_separation_deg,
     axis_from_ra_deg,
     circular_interval_width_deg,
-    compute_beam_power_on_full_sky_grid,
     extract_contour_segments,
     normalize_ra_deg,
     unwrap_interval_end_deg,
     wrap_ra_deg,
 )
+
+from .geometry import compute_beam_power_on_full_sky_grid
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +36,7 @@ DisplayMode = Literal["summary", "snapshots"]
 
 
 @dataclass(frozen=True)
-class VisibilitySnapshot:
+class ObservabilitySnapshot:
     """One instantaneous sky-visibility snapshot."""
 
     label: str
@@ -42,7 +49,7 @@ class VisibilitySnapshot:
 
 
 @dataclass(frozen=True)
-class VisibilitySourceMetrics:
+class ObservabilitySourceMetrics:
     """Point-source positions plus visibility metrics."""
 
     ra_deg: np.ndarray
@@ -60,7 +67,7 @@ class VisibilitySourceMetrics:
 
 
 @dataclass(frozen=True)
-class SkyVisibilityPlan:
+class ObservabilityPlan:
     """Renderer-neutral sky-visibility description."""
 
     x_axis: AxisType
@@ -85,8 +92,8 @@ class SkyVisibilityPlan:
     footprint_model: FootprintModel
     footprint_mask: np.ndarray
     footprint_contours: tuple[tuple[np.ndarray, ...], ...]
-    snapshots: tuple[VisibilitySnapshot, ...]
-    source_metrics: VisibilitySourceMetrics | None
+    snapshots: tuple[ObservabilitySnapshot, ...]
+    source_metrics: ObservabilitySourceMetrics | None
     beam_projection: Any | None
     beam_contours: list[tuple[list[np.ndarray], float]] | None
     beam_reference_ra_deg: float | None
@@ -101,7 +108,7 @@ class _TrackSamples:
     raw_ra_deg: np.ndarray
 
 
-class SkyVisibilityPlanner:
+class ObservabilityPlanner:
     """Compute a reusable sky-visibility plan."""
 
     def __init__(
@@ -123,8 +130,6 @@ class SkyVisibilityPlanner:
         beam_vmin_db: float = -40.0,
         beam_vmax_db: float = 0.0,
         sky_model: Any | None = None,
-        sky_model_name: str | None = None,
-        sky_model_kwargs: dict | None = None,
         x_axis: AxisType = "ra",
         background_layer: BackgroundLayer = "diffuse",
         footprint_model: FootprintModel = "swept_beam",
@@ -194,8 +199,6 @@ class SkyVisibilityPlanner:
         self.beam_vmax_db = beam_vmax_db
 
         self.sky_model = sky_model
-        self.sky_model_name = sky_model_name
-        self.sky_model_kwargs = sky_model_kwargs or {}
 
         self.x_axis = x_axis
         self.background_layer = background_layer
@@ -211,7 +214,7 @@ class SkyVisibilityPlanner:
         self.nearby_buffer_deg = nearby_buffer_deg
         self.include_source_metrics = include_source_metrics
 
-    def build(self) -> SkyVisibilityPlan:
+    def build(self) -> ObservabilityPlan:
         """Build the sky-visibility plan."""
         import astropy.units as u
         from astropy.coordinates import EarthLocation
@@ -234,7 +237,7 @@ class SkyVisibilityPlanner:
             location, self.snapshot_step_seconds
         )
 
-        sky = self._resolve_sky_model()
+        sky = self.sky_model
         projected_background = self._project_background(sky)
 
         source_metrics, snapshot_visibility = self._build_source_metrics(
@@ -273,7 +276,7 @@ class SkyVisibilityPlanner:
             )
         )
 
-        return SkyVisibilityPlan(
+        return ObservabilityPlan(
             x_axis=self.x_axis,
             mode=self.mode,
             title=self._build_title(track),
@@ -387,21 +390,6 @@ class SkyVisibilityPlanner:
         hpbw_rad = 1.22 * wavelength_m / diameter_m
         return float(np.degrees(hpbw_rad) / 2.0)
 
-    def _resolve_sky_model(self):
-        if self.sky_model is not None:
-            return self.sky_model
-        if self.sky_model_name is None:
-            return None
-        from rrivis.core.precision import PrecisionConfig
-        from rrivis.core.sky.registry import loader_registry
-
-        loader_name, kwargs = loader_registry.resolve_request(
-            self.sky_model_name,
-            self.sky_model_kwargs,
-        )
-        kwargs.setdefault("precision", PrecisionConfig.standard())
-        return loader_registry.loader(loader_name)(**kwargs)
-
     def _project_background(self, sky) -> np.ndarray | None:
         if self.background_layer == "none" or sky is None or sky.healpix is None:
             return None
@@ -419,7 +407,7 @@ class SkyVisibilityPlanner:
             healpix_map = Rotator(coord=["G", "C"]).rotate_map_pixel(healpix_map)
         elif coordinate_frame.lower() != "icrs":
             raise ValueError(
-                "SkyVisibilityPlanner only supports HEALPix backgrounds in "
+                "ObservabilityPlanner only supports HEALPix backgrounds in "
                 f"ICRS or Galactic frames, got {coordinate_frame!r}."
             )
 
@@ -444,7 +432,7 @@ class SkyVisibilityPlanner:
         track: _TrackSamples,
         snapshots: _TrackSamples,
         field_radius_deg: float,
-    ) -> tuple[VisibilitySourceMetrics | None, np.ndarray | None]:
+    ) -> tuple[ObservabilitySourceMetrics | None, np.ndarray | None]:
         if sky is None or sky.point is None or not self.include_source_metrics:
             return None, None
 
@@ -509,7 +497,7 @@ class SkyVisibilityPlanner:
         )
 
         return (
-            VisibilitySourceMetrics(
+            ObservabilitySourceMetrics(
                 ra_deg=np.asarray(ra_deg, dtype=float),
                 dec_deg=np.asarray(dec_deg, dtype=float),
                 flux_jy=flux_jy,
@@ -567,9 +555,9 @@ class SkyVisibilityPlanner:
         ra_grid_deg: np.ndarray,
         dec_grid_deg: np.ndarray,
         field_radius_deg: float,
-    ) -> tuple[VisibilitySnapshot, ...]:
+    ) -> tuple[ObservabilitySnapshot, ...]:
         ra_mesh, dec_mesh = np.meshgrid(ra_grid_deg, dec_grid_deg)
-        snapshots: list[VisibilitySnapshot] = []
+        snapshots: list[ObservabilitySnapshot] = []
         for idx, (label, utc_iso, lst_hours, center_ra) in enumerate(
             zip(
                 snapshots_track.labels,
@@ -592,7 +580,7 @@ class SkyVisibilityPlanner:
             if source_visibility is not None:
                 visible_source_mask = np.asarray(source_visibility[idx], dtype=bool)
             snapshots.append(
-                VisibilitySnapshot(
+                ObservabilitySnapshot(
                     label=label,
                     utc_iso=utc_iso,
                     lst_hours=float(lst_hours),
@@ -704,8 +692,6 @@ class SkyVisibilityPlanner:
         return power_func
 
     def _fits_beam_power_func(self):
-        from scipy.interpolate import RegularGridInterpolator
-
         try:
             from pyuvdata import UVBeam
         except ImportError:
@@ -716,6 +702,16 @@ class SkyVisibilityPlanner:
         beam.read_beamfits(self.beam_fits_path)
         freq_array_mhz = beam.freq_array / 1e6
         freq_idx = int(np.argmin(np.abs(freq_array_mhz - self.frequency_mhz)))
+
+        if beam.pixel_coordinate_system == "healpix":
+            return self._fits_beam_power_func_healpix(beam, freq_idx)
+        return self._fits_beam_power_func_azza(beam, freq_idx)
+
+    @staticmethod
+    def _fits_beam_power_func_azza(beam, freq_idx: int):
+        """Interpolator for UVBeam FITS in ``az_za`` pixel system."""
+        from scipy.interpolate import RegularGridInterpolator
+
         az_array = beam.axis1_array
         za_array = beam.axis2_array
 
@@ -725,6 +721,10 @@ class SkyVisibilityPlanner:
             power = np.abs(e_theta) ** 2 + np.abs(e_phi) ** 2
         else:
             power = beam.data_array[0, 0, freq_idx, :, :]
+            # Power beams may carry multiple polarisations (e.g. XX and YY)
+            # at axis 1; average them for an I-response overlay.
+            if beam.data_array.ndim >= 4 and beam.data_array.shape[1] > 1:
+                power = beam.data_array[0, :, freq_idx, :, :].mean(axis=0)
 
         peak = np.nanmax(power)
         if peak > 0:
@@ -743,5 +743,57 @@ class SkyVisibilityPlanner:
         def power_func(za_rad: np.ndarray, az_rad: np.ndarray) -> np.ndarray:
             points = np.column_stack([za_rad.ravel(), az_rad.ravel()])
             return interpolator(points).reshape(za_rad.shape)
+
+        return power_func
+
+    @staticmethod
+    def _fits_beam_power_func_healpix(beam, freq_idx: int):
+        """Interpolator for UVBeam FITS stored on a HEALPix grid.
+
+        HEALPix UVBeams are stored with ``(Naxes_vec, Npols, Nfreqs, Npix)``
+        power values keyed on ``pixel_array``; pixel (theta=0, phi=0) is the
+        local zenith.  We build a dense full-sky map at the requested
+        frequency, average polarisations for an I-response, normalise to
+        peak, and return a closure that evaluates it at arbitrary (za, az)
+        via bilinear-in-pixel healpy interpolation.
+        """
+        import healpy as hp
+
+        nside = int(beam.nside)
+        npix = hp.nside2npix(nside)
+        ordering = (beam.ordering or "ring").lower()
+
+        if beam.beam_type == "efield":
+            e_theta = beam.data_array[0, 0, freq_idx, :]
+            e_phi = beam.data_array[1, 0, freq_idx, :]
+            stored = np.abs(e_theta) ** 2 + np.abs(e_phi) ** 2
+        else:
+            slab = beam.data_array[0, :, freq_idx, :]  # (Npols, Npix_stored)
+            stored = slab.mean(axis=0) if slab.ndim == 2 else slab
+
+        # Scatter sparse/nested pixel layouts into a dense RING map so
+        # ``hp.get_interp_val`` can be called without conversions.
+        dense = np.zeros(npix, dtype=np.float64)
+        if beam.pixel_array is not None and len(beam.pixel_array) < npix:
+            dense[np.asarray(beam.pixel_array)] = stored
+        elif stored.size == npix:
+            dense[:] = stored
+        else:
+            raise ValueError(
+                "HEALPix UVBeam: cannot reconcile data_array size "
+                f"{stored.size} with nside={nside} (npix={npix})."
+            )
+        if ordering == "nested":
+            dense = hp.reorder(dense, n2r=True)
+
+        peak = float(np.nanmax(dense))
+        if peak > 0:
+            dense = dense / peak
+
+        def power_func(za_rad: np.ndarray, az_rad: np.ndarray) -> np.ndarray:
+            za_flat = np.asarray(za_rad).ravel()
+            az_flat = np.asarray(az_rad).ravel()
+            out = hp.get_interp_val(dense, za_flat, az_flat)
+            return np.asarray(out, dtype=np.float64).reshape(np.shape(za_rad))
 
         return power_func

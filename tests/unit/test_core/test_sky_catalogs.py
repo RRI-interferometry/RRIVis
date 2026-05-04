@@ -11,6 +11,7 @@ from rrivis.core.sky.catalogs import (
     DiffuseModelEntry,
     RacsCatalogEntry,
     VizierCatalogEntry,
+    load_catalog_footprint_asset,
 )
 
 # =========================================================================
@@ -209,6 +210,7 @@ class TestDefaults:
         assert entry.major_col is None
         assert entry.minor_col is None
         assert entry.pa_col is None
+        assert entry.footprint_asset is None
         assert entry.reference_url == ""
 
     def test_racs_defaults(self):
@@ -221,6 +223,7 @@ class TestDefaults:
             flux_col="flux",
         )
         assert entry.flux_unit == "mJy"
+        assert entry.footprint_asset is None
         assert entry.reference_url == ""
 
     def test_diffuse_defaults(self):
@@ -240,3 +243,31 @@ class TestDefaults:
 
 def test_casda_tap_url():
     assert CASDA_TAP_URL.startswith("https://")
+
+
+class TestFootprintAssets:
+    @pytest.mark.parametrize(
+        "name",
+        ["tgss", "wenss", "sumss", "nvss", "vlass", "lotss_dr1"],
+    )
+    def test_vizier_curated_footprint_assets_load(self, name):
+        entry = VIZIER_POINT_CATALOGS[name]
+        assert entry.footprint_asset is not None
+        footprint = load_catalog_footprint_asset(entry.footprint_asset)
+        assert footprint.coordinate_frame == "icrs"
+        assert 0.0 < footprint.coverage_fraction < 1.0
+
+    @pytest.mark.parametrize(
+        "name",
+        ["vlssr", "lotss_dr2", "gleam_egc", "gleam_x_dr1", "gleam_x_dr2"],
+    )
+    def test_vizier_without_curated_footprint_assets_stay_unset(self, name):
+        assert VIZIER_POINT_CATALOGS[name].footprint_asset is None
+
+    @pytest.mark.parametrize("name", ["low", "mid", "high"])
+    def test_racs_curated_footprint_assets_load(self, name):
+        entry = RACS_CATALOGS[name]
+        assert entry.footprint_asset is not None
+        footprint = load_catalog_footprint_asset(entry.footprint_asset)
+        assert footprint.coordinate_frame == "icrs"
+        assert 0.0 < footprint.coverage_fraction < 1.0

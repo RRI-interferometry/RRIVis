@@ -10,6 +10,12 @@ import healpy as hp
 import numpy as np
 from astropy.coordinates import Angle, SkyCoord
 
+from ._data import (
+    DEFAULT_COVERAGE_FOOTPRINT_COORDINATE_FRAME,
+    DEFAULT_COVERAGE_FOOTPRINT_NSIDE,
+    SkyFootprint,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -149,6 +155,10 @@ class SkyRegion(ABC):
             Length ``hp.nside2npix(nside)`` boolean mask.
         """
 
+    @abstractmethod
+    def area_sr(self) -> float:
+        """Approximate solid angle of the region in steradians."""
+
     # ------------------------------------------------------------------
     # Helpers used by subclasses / loaders
     # ------------------------------------------------------------------
@@ -156,6 +166,19 @@ class SkyRegion(ABC):
     def _iter_atomic(self) -> list[SkyRegion]:
         """Return the list of non-union (cone/box) sub-regions."""
         return [self]
+
+    def footprint(
+        self,
+        *,
+        nside: int = DEFAULT_COVERAGE_FOOTPRINT_NSIDE,
+        coordinate_frame: str = DEFAULT_COVERAGE_FOOTPRINT_COORDINATE_FRAME,
+    ) -> SkyFootprint:
+        """Return a sparse HEALPix footprint for this region."""
+        return SkyFootprint.from_mask(
+            self.healpix_mask(nside, coordinate_frame=coordinate_frame),
+            nside=nside,
+            coordinate_frame=coordinate_frame,
+        )
 
 
 class ConeRegion(SkyRegion):
@@ -193,6 +216,9 @@ class ConeRegion(SkyRegion):
             f"dec={self.center.dec.deg:.4f}\u00b0, "
             f"radius={self.radius.deg:.4f}\u00b0)"
         )
+
+    def area_sr(self) -> float:
+        return float(2.0 * np.pi * (1.0 - np.cos(self.radius.rad)))
 
 
 class BoxRegion(SkyRegion):
@@ -290,6 +316,13 @@ class BoxRegion(SkyRegion):
             f"height={self.height.deg:.4f}\u00b0)"
         )
 
+    def area_sr(self) -> float:
+        half_h = self.height.rad / 2.0
+        dec_c = self.center.dec.rad
+        sin_d1 = np.sin(np.clip(dec_c + half_h, -np.pi / 2, np.pi / 2))
+        sin_d2 = np.sin(np.clip(dec_c - half_h, -np.pi / 2, np.pi / 2))
+        return float(self.width.rad * (sin_d1 - sin_d2))
+
 
 class UnionRegion(SkyRegion):
     """Union of multiple regions — a source in *any* sub-region is included."""
@@ -338,3 +371,9 @@ class UnionRegion(SkyRegion):
     def __repr__(self) -> str:
         n = len(self._sub_regions)
         return f"SkyRegion.union({n} sub-regions)"
+
+    def area_sr(self) -> float:
+        nside_approx = 512
+        mask = self.healpix_mask(nside_approx)
+        pixel_sr = 4.0 * np.pi / hp.nside2npix(nside_approx)
+        return float(int(mask.sum()) * pixel_sr)

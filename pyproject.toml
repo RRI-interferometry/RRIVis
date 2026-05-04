@@ -130,7 +130,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-rrivis = ["py.typed"]
+rrivis = ["py.typed", "core/sky/data/footprints/*.npz"]
 
 # Pytest configuration
 [tool.pytest.ini_options]

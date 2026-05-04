@@ -18,7 +18,7 @@ Usage::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._plotter_harmonics import _SkyPlotterHarmonicMixin
 from ._plotter_healpix import _SkyPlotterHealpixMixin
@@ -36,6 +36,19 @@ class SkyPlotter(
     _SkyPlotterHarmonicMixin,
 ):
     """Plotting helper for a ``SkyModel`` instance."""
+
+    def overlay_observability(self, fig: Figure, plan: Any, **kwargs: Any) -> Figure:
+        """Draw an :class:`ObservabilityPlan`'s footprint on every Mollweide panel.
+
+        Thin convenience wrapper around
+        :func:`rrivis.core.observability.overlay.draw_observability_overlay`.
+        Accepts the same keyword arguments (``color``, ``linestyle``,
+        ``draw_footprint``, ``draw_beam``, ``beam_color``,
+        ``beam_linewidths``, ``draw_tracks`` …).
+        """
+        from rrivis.core.observability.overlay import draw_observability_overlay
+
+        return draw_observability_overlay(fig, plan, **kwargs)
 
     def __call__(
         self,
@@ -76,6 +89,9 @@ class SkyPlotter(
             "variance_spectrum": self.variance_spectrum,
             "waterfall": self.frequency_waterfall,
             "frequency_waterfall": self.frequency_waterfall,
+            "linear_polarization": self.linear_polarization,
+            "linear_polarisation": self.linear_polarization,
+            "pol": self.linear_polarization,
         }
 
         if plot_type == "auto":

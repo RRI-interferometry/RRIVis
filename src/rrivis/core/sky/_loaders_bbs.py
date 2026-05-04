@@ -23,6 +23,7 @@ from ._registry import register_loader
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
 
+    from ._data import SkyProvenance
     from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
@@ -204,6 +205,7 @@ def load_bbs(
     region: SkyRegion | None = None,
     precision: PrecisionConfig,
     brightness_conversion: str = "planck",
+    provenance: SkyProvenance | None = None,
 ) -> Any:
     """Load a sky model from BBS/DP3/WSClean format.
 
@@ -504,6 +506,8 @@ def load_bbs(
         sky = sky.filter_region(region)
 
     logger.info(f"Loaded {sky.n_point_sources} sources from BBS file {filename}")
+    if provenance is not None:
+        sky = sky._replace(provenance=provenance)
     return sky
 
 

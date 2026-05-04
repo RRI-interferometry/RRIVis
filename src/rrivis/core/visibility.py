@@ -202,6 +202,15 @@ def calculate_visibility(
     # Multi-term spectral coefficients
     source_spectral_coeffs_orig = source_arrays["spectral_coeffs"]
 
+    # Per-channel Stokes tables (lossless multi-frequency spectrum).
+    # When populated, evaluate_point_flux_at_freq short-circuits to
+    # nearest-channel lookup instead of spectral-index extrapolation.
+    source_per_channel_flux_orig = source_arrays["per_channel_flux"]
+    source_per_channel_q_orig = source_arrays["per_channel_stokes_q"]
+    source_per_channel_u_orig = source_arrays["per_channel_stokes_u"]
+    source_per_channel_v_orig = source_arrays["per_channel_stokes_v"]
+    source_channel_frequencies = source_arrays["channel_frequencies"]
+
     # Gaussian morphology
     _maj = source_arrays["major_arcsec"]
     _minn = source_arrays["minor_arcsec"]
@@ -259,6 +268,26 @@ def calculate_visibility(
             if source_spectral_coeffs_orig is not None
             else None
         )
+        source_per_channel_flux_t = (
+            source_per_channel_flux_orig[:, above_horizon]
+            if source_per_channel_flux_orig is not None
+            else None
+        )
+        source_per_channel_q_t = (
+            source_per_channel_q_orig[:, above_horizon]
+            if source_per_channel_q_orig is not None
+            else None
+        )
+        source_per_channel_u_t = (
+            source_per_channel_u_orig[:, above_horizon]
+            if source_per_channel_u_orig is not None
+            else None
+        )
+        source_per_channel_v_t = (
+            source_per_channel_v_orig[:, above_horizon]
+            if source_per_channel_v_orig is not None
+            else None
+        )
         if has_gaussians:
             gauss_a_t = gauss_a_orig[above_horizon]
             gauss_b_t = gauss_b_orig[above_horizon]
@@ -277,28 +306,27 @@ def calculate_visibility(
         for freq_idx, (wavelength, freq) in enumerate(
             zip(wavelengths, freqs, strict=False)
         ):
-            # Scale source fluxes by spectral index (or log-polynomial)
-            from rrivis.core.sky.spectral import (
-                apply_faraday_rotation,
-                compute_spectral_scale,
-            )
+            # Resolve Stokes at this observation frequency. Short-circuits to
+            # nearest-channel lookup when per_channel_flux is populated;
+            # otherwise applies spectral-index extrapolation + Faraday rotation.
+            from rrivis.core.sky.spectral import evaluate_point_flux_at_freq
 
-            scale = compute_spectral_scale(
-                source_spectral_indices_t,
-                source_spectral_coeffs_t,
-                freq,
-                source_ref_freq_t,
-            )
-            I_scaled = source_stokes_I_t * scale
-            Q_scaled, U_scaled = apply_faraday_rotation(
+            I_scaled, Q_scaled, U_scaled, V_scaled = evaluate_point_flux_at_freq(
+                source_stokes_I_t,
                 source_stokes_Q_t,
                 source_stokes_U_t,
-                source_rm_t,
-                freq,
+                source_stokes_V_t,
+                source_spectral_indices_t,
+                source_spectral_coeffs_t,
                 source_ref_freq_t,
-                scale,
+                source_rm_t,
+                source_per_channel_flux_t,
+                source_per_channel_q_t,
+                source_per_channel_u_t,
+                source_per_channel_v_t,
+                source_channel_frequencies,
+                freq,
             )
-            V_scaled = source_stokes_V_t * scale
 
             # Coherency matrices: (n_sources, 2, 2)
             coherency_matrices = stokes_to_coherency(

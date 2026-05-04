@@ -1,4 +1,4 @@
-"""Bokeh renderer for sky-visibility plans."""
+"""Bokeh renderer for :class:`rrivis.core.observability.ObservabilityPlan`."""
 
 from __future__ import annotations
 
@@ -24,10 +24,15 @@ from bokeh.models import (
 from bokeh.plotting import figure
 from bokeh.resources import CDN
 
-from rrivis.core.jones.beam.projection import create_rgba_overlay
-
-from .geometry import axis_from_ra_deg, split_wrapped_path
-from .planner import SkyVisibilityPlan, VisibilitySnapshot
+from rrivis.core.observability import (
+    ObservabilityPlan,
+    ObservabilitySnapshot,
+    create_rgba_overlay,
+)
+from rrivis.utils.coordinates import (
+    axis_from_ra_deg,
+    split_wrapped_path,
+)
 
 
 def _create_blue_to_white_palette(n: int = 256) -> list[str]:
@@ -44,12 +49,12 @@ def _create_blue_to_white_palette(n: int = 256) -> list[str]:
 _SOURCE_PALETTE = _create_blue_to_white_palette(256)
 
 
-class SkyVisibilityBokehRenderer:
-    """Render a :class:`SkyVisibilityPlan` with Bokeh."""
+class ObservabilityBokehRenderer:
+    """Render a :class:`ObservabilityPlan` with Bokeh."""
 
     def __init__(
         self,
-        plan: SkyVisibilityPlan,
+        plan: ObservabilityPlan,
         *,
         show_source_colorbar: bool = False,
         color_scale: str = "log",
@@ -82,7 +87,7 @@ class SkyVisibilityBokehRenderer:
     def save(
         self,
         layout,
-        filename: str = "sky_visibility.html",
+        filename: str = "observability.html",
         title: str = "Sky Visibility",
         folder_path: str | None = None,
         open_in_browser: bool = False,
@@ -228,7 +233,7 @@ class SkyVisibilityBokehRenderer:
             alpha=0.7,
         )
 
-    def _add_snapshot_center(self, plot, snapshot: VisibilitySnapshot) -> None:
+    def _add_snapshot_center(self, plot, snapshot: ObservabilitySnapshot) -> None:
         plot.scatter(
             [float(self._to_x(snapshot.zenith_ra_deg))],
             [snapshot.zenith_dec_deg],

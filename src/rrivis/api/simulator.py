@@ -588,6 +588,24 @@ class Simulator:
 
         from rrivis.core.sky.pipeline import prepare_sky_model
 
+        # Compute an approximate primary-beam FWHM for the nside advisor.
+        # Uses the standard uniform-aperture rule `λ/D · 1.22` at the lowest
+        # (widest-beam) frequency.  Falls back to None when no antenna-diameter
+        # info is available (advisor disabled).
+        beam_fwhm_rad: float | None = None
+        try:
+            diameters = [
+                float(ant.diameter)
+                for ant in (self._antennas or [])
+                if getattr(ant, "diameter", None)
+            ]
+            if diameters and len(self._frequencies_hz):
+                d_min = min(diameters)
+                lam_max = float(speed_of_light.value) / float(self._frequencies_hz[0])
+                beam_fwhm_rad = 1.22 * lam_max / d_min
+        except Exception:  # noqa: BLE001  # advisor is best-effort
+            beam_fwhm_rad = None
+
         self._sky_model = prepare_sky_model(
             sky_models,
             representation=sky_representation,
@@ -599,6 +617,7 @@ class Simulator:
             mixed_model_policy=mixed_model_policy,
             brightness_conversion=_brightness_conv,
             precision=_precision,
+            beam_fwhm_rad=beam_fwhm_rad,
         )
 
         # Get point source arrays for RIME calculator (only in point_sources mode)
@@ -1013,7 +1032,7 @@ class Simulator:
 
         return saved_paths
 
-    def plot_sky_visibility(
+    def plot_observability(
         self,
         *,
         lst_start_hours: float | None = None,
@@ -1071,16 +1090,14 @@ class Simulator:
         save_path : str, optional
             Directory to save the HTML file.
         **kwargs
-            Forwarded to :class:`~rrivis.visualization.sky_visibility.SkyVisibilityPlanner`.
+            Forwarded to :class:`~rrivis.core.observability.ObservabilityPlanner`.
 
         Returns
         -------
         Bokeh layout
         """
-        from rrivis.visualization.sky_visibility import (
-            SkyVisibilityBokehRenderer,
-            SkyVisibilityPlanner,
-        )
+        from rrivis.core.observability import ObservabilityPlanner
+        from rrivis.visualization.observability import ObservabilityBokehRenderer
 
         cfg = self.config
 
@@ -1109,7 +1126,7 @@ class Simulator:
         ant_cfg = cfg.get("antenna_layout", {})
         diameter = ant_cfg.get("all_antenna_diameter")
 
-        planner = SkyVisibilityPlanner(
+        planner = ObservabilityPlanner(
             latitude_deg=lat,
             longitude_deg=lon,
             height_m=height,
@@ -1123,6 +1140,7 @@ class Simulator:
             beam_config=beams if beams else None,
             beam_fits_path=beams.get("beam_file"),
             beam_reference=beam_reference,
+            sky_model=getattr(self, "_sky_model", None),
             x_axis=x_axis,
             background_layer=background_layer,
             footprint_model=footprint_model,
@@ -1135,7 +1153,7 @@ class Simulator:
         )
 
         plan = planner.build()
-        renderer = SkyVisibilityBokehRenderer(
+        renderer = ObservabilityBokehRenderer(
             plan,
             show_source_colorbar=show_source_colorbar,
             color_scale=color_scale,

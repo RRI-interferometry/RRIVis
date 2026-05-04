@@ -320,6 +320,23 @@ class SkySourceConfig(BaseModel):
         None,
         description="Optional source-specific brightness conversion override.",
     )
+    provenance_override: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Optional explicit SkyProvenance metadata to attach to the loaded "
+            "model.  Useful when the source is a file whose completeness, "
+            "angular resolution, or source-subtraction status is known but "
+            "not auto-inferable by the loader.  Keys mirror the "
+            "``SkyProvenance`` dataclass fields (``flux_completeness_jy``, "
+            "``flux_completeness_freq_hz``, ``angular_resolution_rad``, "
+            "``sky_coverage``, ``coverage_fraction``, "
+            "``coverage_footprint``, "
+            "``monopole_convention``, ``monopole_k``, "
+            "``source_subtraction``, ``source_subtraction_threshold_jy``, "
+            "``source_subtraction_freq_hz``, ``source_subtraction_method``, "
+            "``notes``)."
+        ),
+    )
 
     def to_loader_request(
         self,
@@ -382,6 +399,11 @@ class SkySourceConfig(BaseModel):
 
         if include_memmap and context.memmap_path is not None:
             kwargs["memmap_path"] = context.memmap_path
+
+        if self.provenance_override is not None:
+            from rrivis.core.sky._data import SkyProvenance
+
+            kwargs["provenance"] = SkyProvenance(**self.provenance_override)
         return kwargs
 
     def _build_loader_request(
@@ -516,6 +538,55 @@ class BbsSourceConfig(SkySourceConfig):
         return self.kind, kwargs
 
 
+class Skyh5MultifileSourceConfig(SkySourceConfig):
+    kind: Literal["skyh5_multifile"] = "skyh5_multifile"
+    file_glob: str | None = Field(
+        None,
+        description=(
+            "Glob pattern matching single-frequency skyh5 files (mutually "
+            "exclusive with `filenames`)."
+        ),
+    )
+    filenames: list[str] | None = Field(
+        None,
+        description=(
+            "Explicit list of skyh5 paths (mutually exclusive with `file_glob`)."
+        ),
+    )
+    reference_frequency_hz: float | None = Field(
+        None,
+        description=(
+            "Reference channel for PointSourceData.flux / ref_freq; defaults "
+            "to the lowest channel when not set.  Ignored for HEALPix inputs."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> "Skyh5MultifileSourceConfig":
+        if (self.file_glob is None) == (self.filenames is None):
+            raise ValueError(
+                "skyh5_multifile: specify exactly one of `file_glob` or `filenames`."
+            )
+        return self
+
+    def _build_loader_request(
+        self,
+        context: SkyLoaderRequestContext,
+    ) -> tuple[str, dict[str, Any]]:
+        kwargs = self._common_kwargs(
+            context,
+            include_frequency_context=True,
+            include_memmap=True,
+        )
+        if self.file_glob is not None:
+            kwargs["file_glob"] = self.file_glob
+        else:
+            kwargs["filenames"] = self.filenames
+        if self.reference_frequency_hz is not None:
+            kwargs["reference_frequency_hz"] = self.reference_frequency_hz
+        return self.kind, kwargs
+
+
 class FitsImageSourceConfig(SkySourceConfig):
     kind: Literal["fits_image"] = "fits_image"
     filename: str = Field(..., description="Input filename")
@@ -605,6 +676,91 @@ class TestSourcesConfig(SkySourceConfig):
             kwargs["spectral_index"] = self.spectral_index
         if self.nside is not None:
             kwargs["nside"] = self.nside
+        return self.kind, kwargs
+
+
+class RealisticForegroundSourceConfig(SkySourceConfig):
+    """YAML wrapper for :func:`rrivis.core.sky.realistic_foreground_sky`."""
+
+    kind: Literal["realistic_foreground"] = "realistic_foreground"
+    diffuse: str = Field(
+        "haslam",
+        description="Registered pre-subtracted diffuse loader name (e.g. haslam).",
+    )
+    diffuse_kwargs: dict[str, Any] | None = Field(
+        None, description="Extra kwargs forwarded to the diffuse loader."
+    )
+    bright_catalogs: str = Field(
+        "gleam",
+        description="Registered bright-catalog loader name.",
+    )
+    bright_catalog_kwargs: dict[str, Any] | None = Field(
+        None,
+        description="Extra kwargs forwarded to the bright-catalog loader.",
+    )
+    bright_catalog_flux_min_jy: float = Field(
+        2.0,
+        ge=0.0,
+        description="Flux floor (Jy) for the bright catalog(s).",
+    )
+    confusion_flux_range_jy: tuple[float, float] | None = Field(
+        None,
+        description=(
+            "Optional Poisson confusion band (S_min, S_max) in Jy.  Only "
+            "enable with a strictly smooth diffuse (source_subtraction=ALL) "
+            "to avoid double-counting the diffuse's intrinsic sub-threshold "
+            "population."
+        ),
+    )
+    confusion_dn_ds: str = Field(
+        "franzen2019_gleam_154mhz",
+        description="Validated dN/dS preset identifier.",
+    )
+    confusion_spectral_index_dist: tuple[float, float] = Field(
+        (-0.8, 0.2),
+        description="(mean, σ) for Poisson spectral-index draw.",
+    )
+    nside: int = Field(128, ge=1, description="Output HEALPix NSIDE.")
+    include_cmb: bool = Field(
+        False,
+        description="If True, request a diffuse model that already includes the CMB.",
+    )
+    seed: int | None = Field(None, description="Random seed (for the Poisson layer).")
+    mixed_model_policy: Literal["error", "warn", "allow"] = Field(
+        "error",
+        description=(
+            "Forwarded to the internal combine_models call.  Leave at 'error' "
+            "since the recipe constructs disjoint layers by design."
+        ),
+    )
+
+    def _build_loader_request(
+        self,
+        context: SkyLoaderRequestContext,
+    ) -> tuple[str, dict[str, Any]]:
+        kwargs = self._common_kwargs(
+            context,
+            include_frequency_context=True,
+            include_memmap=True,
+        )
+        kwargs.update(
+            {
+                "diffuse": self.diffuse,
+                "bright_catalogs": self.bright_catalogs,
+                "bright_catalog_flux_min_jy": self.bright_catalog_flux_min_jy,
+                "confusion_flux_range_jy": self.confusion_flux_range_jy,
+                "confusion_dn_ds": self.confusion_dn_ds,
+                "confusion_spectral_index_dist": self.confusion_spectral_index_dist,
+                "nside": self.nside,
+                "include_cmb": self.include_cmb,
+                "seed": self.seed,
+                "mixed_model_policy": self.mixed_model_policy,
+            }
+        )
+        if self.diffuse_kwargs is not None:
+            kwargs["diffuse_kwargs"] = self.diffuse_kwargs
+        if self.bright_catalog_kwargs is not None:
+            kwargs["bright_catalog_kwargs"] = self.bright_catalog_kwargs
         return self.kind, kwargs
 
 
@@ -796,9 +952,11 @@ _SKY_SOURCE_CONFIG_UNION = Annotated[
         | DiffuseSkySourceConfig
         | Pysm3SourceConfig
         | PyradioskyFileSourceConfig
+        | Skyh5MultifileSourceConfig
         | BbsSourceConfig
         | FitsImageSourceConfig
         | TestSourcesConfig
+        | RealisticForegroundSourceConfig
     ),
     Field(discriminator="kind"),
 ]
@@ -819,9 +977,11 @@ _BUILTIN_SKY_SOURCE_KINDS = {
     "diffuse_sky",
     "pysm3",
     "pyradiosky_file",
+    "skyh5_multifile",
     "bbs",
     "fits_image",
     "test_sources",
+    "realistic_foreground",
 }
 
 

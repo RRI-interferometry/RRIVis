@@ -22,6 +22,7 @@ from .model import SkyFormat
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
 
+    from ._data import SkyProvenance
     from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ def load_fits_image(
     brightness_conversion: str = "planck",
     precision: PrecisionConfig,
     memmap_path: str | None = None,
+    provenance: SkyProvenance | None = None,
 ) -> Any:
     """Load a FITS image and reproject to HEALPix multi-frequency maps.
 
@@ -419,4 +421,6 @@ def load_fits_image(
         f"Loaded FITS image {filename} -> HEALPix nside={nside}, "
         f"{len(obs_freqs)} freq channels"
     )
+    if provenance is not None:
+        sky = sky._replace(provenance=provenance)
     return sky

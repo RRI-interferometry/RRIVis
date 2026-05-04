@@ -1,0 +1,114 @@
+# Example RRIVis config demonstrating the strict scientific foreground recipe:
+# Haslam (already source-subtracted above 2 Jy @ 408 MHz) + GLEAM catalog
+# above 3.5 Jy @ 200 MHz. The `realistic_foreground` sky spec only accepts
+# diffuse templates that are already scientifically prepared; it then adds
+# the bright catalog and, only for strictly smooth diffuse templates, an
+# optional validated Poisson confusion layer.
+
+antenna_layout:
+  all_antenna_diameter: 14.0
+  antenna_file_format: rrivis
+  antenna_positions_file: ../antenna_layout_examples/hera_5.txt
+  diameters: {}
+  fixed_HPBW: null
+  use_different_diameters: false
+baseline_selection:
+  only_selective_baseline_length: false
+  selective_angle_ranges_deg: []
+  selective_baseline_lengths: []
+  selective_baseline_tolerance_meters: 0.5
+  trim_by_angle_ranges: false
+  use_autocorrelations: false
+  use_crosscorrelations: true
+beams:
+  beam_mode: analytic
+  per_antenna: false
+  antenna_beam_map: {}
+  beam_file: null
+  beam_za_max_deg: null
+  beam_za_buffer_deg: null
+  beam_freq_buffer_hz: null
+  beam_peak_normalize: true
+  beam_interp_function: null
+  aperture_shape: circular
+  taper: gaussian
+  edge_taper_dB: 10.0
+  feed_model: none
+  feed_computation: analytical
+  feed_params: {}
+  reflector_type: prime_focus
+  magnification: 1.0
+  aperture_params: {}
+compute:
+  backend: numpy
+feeds:
+  all_feed_type: ''
+  feed_types_per_antenna: {}
+  polarization_per_antenna: {}
+  polarization_type: ''
+  use_different_feed_types: false
+  use_different_polarization_type: false
+  use_polarized_feeds: false
+location:
+  height: ''
+  lat: ''
+  lon: ''
+obs_frequency:
+  frequency_bandwidth: 10
+  frequency_interval: 1.0
+  frequency_unit: MHz
+  starting_frequency: 150
+obs_time:
+  duration_seconds: 600
+  start_time: 2026-01-01T00:00:00
+  time_step_seconds: 60
+output:
+  angle_unit: ''
+  open_plots_in_browser: false
+  output_file_format: null
+  output_file_name: realistic_foreground
+  overwrite_output: false
+  plot_results: false
+  plotting_backend: bokeh
+  prompt_for_output_suffix: false
+  save_log_data: false
+  save_simulation_data: true
+  simulation_data_dir: ''
+  simulation_subdir: ''
+  skip_overwrite_confirmation: false
+  skymodel_frequency: null
+precision: null
+simulators:
+  name: ''
+  use_different_simulator_for_cross_check: false
+sky_model:
+  flux_unit: Jy
+  mixed_model_policy: error
+  region:
+    shape: cone
+    center_ra_deg: 180.0
+    center_dec_deg: -30.0
+    radius_deg: 10.0
+  sources:
+    # One-shot §8 build: Haslam (pre-subtracted above 2 Jy @ 408 MHz) plus
+    # GLEAM (catalog above 3.5 Jy @ 200 MHz).  The scaled Haslam threshold
+    # at 200 MHz is ~3.3 Jy < 3.5 Jy, so the two layers are disjoint.
+    - kind: realistic_foreground
+      diffuse: haslam
+      bright_catalogs: gleam
+      bright_catalog_flux_min_jy: 3.5
+      # confusion_flux_range_jy: null            # skipped — Haslam already
+      #                                          # carries the sub-threshold
+      #                                          # population as smooth emission
+      nside: 128
+      include_cmb: false
+      seed: 42
+telescope:
+  telescope_name: HERA
+  use_pyuvdata_antennas: false
+  use_pyuvdata_diameters: false
+  use_pyuvdata_location: false
+  use_pyuvdata_telescope: false
+visibility:
+  calculation_type: direct_sum
+  sky_representation: healpix_map

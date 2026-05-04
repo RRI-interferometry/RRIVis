@@ -18,11 +18,12 @@ from rrivis.utils.frequency import parse_frequency_config
 from ._data import HealpixData, PointSourceData
 from ._precision import get_sky_storage_dtype
 from ._registry import register_loader
-from .model import SkyFormat
+from .model import SkyFormat, SkyModel
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
 
+    from ._data import SkyProvenance
     from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,8 @@ def load_pyradiosky_file(
     obs_frequency_config: dict[str, Any] | None = None,
     region: SkyRegion | None = None,
     memmap_path: str | None = None,
-) -> SkyModel:  # noqa: F821
+    provenance: SkyProvenance | None = None,
+) -> SkyModel:
     """
     Load a local sky model file via pyradiosky.
 
@@ -111,8 +113,6 @@ def load_pyradiosky_file(
         HEALPix file with ``spectral_type='spectral_index'`` or
         ``'flat'`` is loaded without explicit frequencies.
     """
-    from .model import SkyModel
-
     if not os.path.exists(filename):
         raise FileNotFoundError(f"Sky model file not found: {filename}")
 
@@ -120,7 +120,7 @@ def load_pyradiosky_file(
     sky.read(filename, filetype=filetype)
 
     if sky.component_type == "healpix":
-        return _load_pyradiosky_healpix(
+        sky_out = _load_pyradiosky_healpix(
             sky,
             filename,
             frequencies,
@@ -130,6 +130,9 @@ def load_pyradiosky_file(
             region=region,
             memmap_path=memmap_path,
         )
+        if provenance is not None:
+            sky_out = sky_out._replace(provenance=provenance)
+        return sky_out
     elif sky.component_type != "point":
         raise ValueError(
             f"Unsupported component_type: '{sky.component_type}'. "
@@ -307,6 +310,8 @@ def load_pyradiosky_file(
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
+    if provenance is not None:
+        sky_model = sky_model._replace(provenance=provenance)
     return sky_model
 
 
@@ -319,7 +324,7 @@ def _load_pyradiosky_healpix(
     precision: PrecisionConfig | None,
     region: SkyRegion | None = None,
     memmap_path: str | None = None,
-) -> SkyModel:  # noqa: F821
+) -> SkyModel:
     """
     Load a pyradiosky HEALPix sky model as multi-frequency HEALPix maps.
 
@@ -351,8 +356,6 @@ def _load_pyradiosky_healpix(
     ValueError
         If frequencies cannot be determined.
     """
-    from .model import SkyModel
-
     # --- Determine observation frequencies ---
     if frequencies is not None:
         obs_freqs = np.asarray(frequencies, dtype=np.float64)

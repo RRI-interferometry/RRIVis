@@ -262,3 +262,80 @@ class _SkyPlotterHealpixMixin(_SkyPlotterBase):
         fig.suptitle(suptitle, fontsize=14, y=0.98)
         plt.subplots_adjust(hspace=0.3, wspace=0.1)
         return fig
+
+    def linear_polarization(
+        self,
+        frequency: float | None = None,
+        *,
+        projection: str = "mollweide",
+        coord: str | list[str] | None = None,
+        rot: tuple[float, ...] | None = None,
+        cmap_p: str = "viridis",
+        cmap_chi: str = "twilight",
+        bins: int = 60,
+        title: str | None = None,
+        figsize: tuple[float, float] = (16, 5),
+    ) -> Figure:
+        """Three-panel linear-polarisation diagnostic at one frequency.
+
+        Renders ``P = sqrt(Q² + U²)`` (Mollweide), polarisation angle
+        ``χ = ½ atan2(U, Q)`` in degrees (Mollweide, ±90° colormap), and
+        a histogram of fractional polarisation ``P / |I|``.  Computed via
+        :func:`rrivis.core.sky.operations.compute_linear_polarization`.
+        """
+        import matplotlib.pyplot as plt
+
+        from .operations import compute_linear_polarization
+
+        self._validate_plot_mode("healpix")
+        freq = self._resolve_plot_frequency(frequency)
+        pol = compute_linear_polarization(self._sky, frequency=freq)
+        p_map = pol["P"]
+        chi_map = pol["chi_deg"]
+        frac_pol = pol["frac_pol"]
+
+        fig = plt.figure(figsize=figsize)
+
+        self._healpy_view(
+            p_map,
+            projection=projection,
+            coord=coord,
+            rot=rot,
+            fig=fig.number,
+            sub=(1, 3, 1),
+            title=r"$P = \sqrt{Q^2 + U^2}$",
+            cmap=cmap_p,
+            unit="K$_{RJ}$",
+            notext=True,
+        )
+        self._healpy_view(
+            chi_map,
+            projection=projection,
+            coord=coord,
+            rot=rot,
+            fig=fig.number,
+            sub=(1, 3, 2),
+            title=r"Polarisation angle  $\chi$",
+            cmap=cmap_chi,
+            min=-90.0,
+            max=90.0,
+            unit="degrees",
+            notext=True,
+        )
+
+        ax = fig.add_subplot(1, 3, 3)
+        finite = np.isfinite(frac_pol)
+        ax.hist(frac_pol[finite], bins=bins, color="#3a6ea5", alpha=0.85)
+        ax.set_xlabel(r"$P / |I|$")
+        ax.set_ylabel("Pixel count")
+        ax.set_title("Fractional linear polarisation")
+        ax.grid(True, alpha=0.3)
+
+        suptitle = (
+            title
+            if title is not None
+            else self._auto_title(f"Linear polarisation — {_freq_label(freq)}")
+        )
+        fig.suptitle(suptitle, fontsize=14, y=0.98)
+        plt.subplots_adjust(hspace=0.3, wspace=0.25, top=0.85)
+        return fig
