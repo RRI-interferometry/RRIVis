@@ -11,6 +11,7 @@ import logging
 import healpy as hp
 import numpy as np
 
+from ._data import _normalize_coordinate_frame
 from ._data import empty_source_arrays as _empty_source_arrays
 from .constants import (
     brightness_temp_to_flux_density,
@@ -20,15 +21,6 @@ from .constants import (
 from .spectral import apply_faraday_rotation, compute_spectral_scale
 
 logger = logging.getLogger(__name__)
-
-
-def _normalize_coordinate_frame(coordinate_frame: str) -> str:
-    frame = str(coordinate_frame).lower()
-    if frame not in {"icrs", "galactic"}:
-        raise ValueError(
-            f"coordinate_frame must be 'icrs' or 'galactic', got {coordinate_frame!r}."
-        )
-    return frame
 
 
 def _fit_pixel_spectral_indices(

@@ -507,7 +507,7 @@ def load_bbs(
 
     logger.info(f"Loaded {sky.n_point_sources} sources from BBS file {filename}")
     if provenance is not None:
-        sky = sky._replace(provenance=provenance)
+        sky = sky.replace(provenance=provenance)
     return sky
 
 

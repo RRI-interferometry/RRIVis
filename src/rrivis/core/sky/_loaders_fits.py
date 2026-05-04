@@ -17,7 +17,6 @@ from ._data import HealpixData
 from ._precision import get_sky_storage_dtype
 from ._registry import register_loader
 from .constants import flux_density_to_brightness_temp, rayleigh_jeans_factor
-from .model import SkyFormat
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -408,7 +407,6 @@ def load_fits_image(
             u_maps=u_arr if has_u else None,
             v_maps=v_arr if has_v else None,
         ),
-        source_format=SkyFormat.HEALPIX,
         model_name=f"fits:{filename.split('/')[-1]}",
         brightness_conversion=brightness_conversion,
         _precision=precision,
@@ -422,5 +420,5 @@ def load_fits_image(
         f"{len(obs_freqs)} freq channels"
     )
     if provenance is not None:
-        sky = sky._replace(provenance=provenance)
+        sky = sky.replace(provenance=provenance)
     return sky

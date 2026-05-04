@@ -5,6 +5,7 @@ from ._data import (
     HealpixData,
     MonopoleConvention,
     PointSourceData,
+    PointSpectrum,
     SkyCoverage,
     SkyFootprint,
     SkyProvenance,
@@ -14,7 +15,7 @@ from ._data import (
 from ._factories import create_empty, create_from_arrays, create_test_sources
 from ._loaders_bbs import write_bbs
 from ._serialization import load_skyh5, save_skyh5, to_pyradiosky
-from .combine import combine_models
+from .combine import combine_models, regrid_healpix_model
 from .constants import (
     C_LIGHT,
     H_PLANCK,
@@ -25,6 +26,25 @@ from .constants import (
     rayleigh_jeans_factor,
 )
 from .discovery import estimate_healpix_memory, get_catalog_info, list_all_models
+from .loaders import (
+    load_3c,
+    load_bbs,
+    load_diffuse_sky,
+    load_fits_image,
+    load_gleam,
+    load_lotss,
+    load_mals,
+    load_nvss,
+    load_pyradiosky_file,
+    load_pysm3,
+    load_racs,
+    load_sumss,
+    load_test_sources,
+    load_tgss,
+    load_vlass,
+    load_vlssr,
+    load_wenss,
+)
 from .model import (
     SkyFormat,
     SkyModel,
@@ -38,6 +58,7 @@ from .operations import (
     with_monopole,
     with_monopole_subtracted,
 )
+from .pipeline import prepare_sky_model
 from .plotter import SkyPlotter
 from .recipes import realistic_foreground_sky
 from .region import BoxRegion, ConeRegion, SkyRegion, UnionRegion
@@ -77,6 +98,7 @@ __all__ = [
     "SkyFormat",
     "SourceArrays",
     "PointSourceData",
+    "PointSpectrum",
     "HealpixData",
     "SkyProvenance",
     "SkyCoverage",
@@ -87,4 +109,25 @@ __all__ = [
     "list_all_models",
     "get_catalog_info",
     "rayleigh_jeans_factor",
+    # Loaders (typed re-exports)
+    "load_gleam",
+    "load_3c",
+    "load_mals",
+    "load_lotss",
+    "load_nvss",
+    "load_racs",
+    "load_sumss",
+    "load_tgss",
+    "load_vlass",
+    "load_vlssr",
+    "load_wenss",
+    "load_diffuse_sky",
+    "load_pysm3",
+    "load_fits_image",
+    "load_pyradiosky_file",
+    "load_bbs",
+    "load_test_sources",
+    # Orchestration
+    "prepare_sky_model",
+    "regrid_healpix_model",
 ]

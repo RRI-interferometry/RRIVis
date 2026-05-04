@@ -2,8 +2,8 @@
 
 Covers:
 
-* ``PointSourceData`` invariants on ``per_channel_flux`` / ``channel_frequencies``
-  and the paired Stokes tables.
+* ``PointSourceData`` invariants on its optional ``spectrum`` (PointSpectrum)
+  field and its paired Stokes tables.
 * ``spectral.evaluate_point_flux_at_freq`` nearest-channel behaviour and
   consistency with the extrapolation path when per-channel data is absent.
 * ``convert.bin_sources_to_flux`` short-circuit when per-channel inputs are
@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rrivis.core.sky._data import PointSourceData
+from rrivis.core.sky._data import PointSourceData, PointSpectrum
 from rrivis.core.sky.convert import bin_sources_to_flux
 from rrivis.core.sky.spectral import (
     compute_spectral_scale,
@@ -46,8 +46,7 @@ def _make_point(n: int, n_chan: int | None = None) -> PointSourceData:
         pcf = np.array(
             [(freqs[i] / freqs[0]) ** -0.7 * flux_ref for i in range(n_chan)]
         )
-        kwargs["per_channel_flux"] = pcf
-        kwargs["channel_frequencies"] = freqs
+        kwargs["spectrum"] = PointSpectrum(flux=pcf, frequencies=freqs)
     return PointSourceData(**kwargs)
 
 
@@ -55,66 +54,47 @@ class TestPointSourceDataInvariants:
     def test_construction_without_per_channel(self) -> None:
         p = _make_point(n=4, n_chan=None)
         assert p.n_sources == 4
-        assert p.per_channel_flux is None
-        assert p.channel_frequencies is None
+        assert p.spectrum is None
 
     def test_construction_with_per_channel(self) -> None:
         p = _make_point(n=3, n_chan=5)
-        assert p.per_channel_flux is not None
-        assert p.per_channel_flux.shape == (5, 3)
-        assert p.channel_frequencies is not None
-        assert len(p.channel_frequencies) == 5
-
-    def test_rejects_per_channel_flux_without_frequencies(self) -> None:
-        with pytest.raises(ValueError, match="must be set together"):
-            PointSourceData(
-                ra_rad=np.zeros(2),
-                dec_rad=np.zeros(2),
-                flux=np.zeros(2),
-                spectral_index=np.zeros(2),
-                stokes_q=np.zeros(2),
-                stokes_u=np.zeros(2),
-                stokes_v=np.zeros(2),
-                ref_freq=np.full(2, 1e8),
-                per_channel_flux=np.ones((3, 2)),
-            )
+        assert p.spectrum is not None
+        assert p.spectrum.flux.shape == (5, 3)
+        assert len(p.spectrum.frequencies) == 5
 
     def test_rejects_shape_mismatch(self) -> None:
         with pytest.raises(ValueError, match="does not match"):
-            PointSourceData(
-                ra_rad=np.zeros(2),
-                dec_rad=np.zeros(2),
-                flux=np.zeros(2),
-                spectral_index=np.zeros(2),
-                stokes_q=np.zeros(2),
-                stokes_u=np.zeros(2),
-                stokes_v=np.zeros(2),
-                ref_freq=np.full(2, 1e8),
-                per_channel_flux=np.ones((3, 2)),
-                channel_frequencies=np.array([1e8, 2e8]),  # length 2 != 3
+            PointSpectrum(
+                flux=np.ones((3, 2)),
+                frequencies=np.array([1e8, 2e8]),  # length 2 != 3
             )
 
     def test_rejects_non_ascending_frequencies(self) -> None:
         with pytest.raises(ValueError, match="strictly ascending"):
-            PointSourceData(
-                ra_rad=np.zeros(1),
-                dec_rad=np.zeros(1),
-                flux=np.zeros(1),
-                spectral_index=np.zeros(1),
-                stokes_q=np.zeros(1),
-                stokes_u=np.zeros(1),
-                stokes_v=np.zeros(1),
-                ref_freq=np.full(1, 1e8),
-                per_channel_flux=np.ones((3, 1)),
-                channel_frequencies=np.array([2e8, 1e8, 3e8]),
+            PointSpectrum(
+                flux=np.ones((3, 1)),
+                frequencies=np.array([2e8, 1e8, 3e8]),
             )
 
     def test_rejects_unpaired_polarization(self) -> None:
         pcf = np.ones((2, 3))
         freqs = np.array([1e8, 2e8])
         with pytest.raises(ValueError, match="must be set together"):
+            PointSpectrum(
+                flux=pcf,
+                frequencies=freqs,
+                stokes_q=np.ones((2, 3)),
+                # stokes_u missing — must be paired with q
+            )
+
+    def test_spectrum_source_count_must_match(self) -> None:
+        spectrum = PointSpectrum(
+            flux=np.ones((2, 5)),  # 5 sources in spectrum
+            frequencies=np.array([1e8, 2e8]),
+        )
+        with pytest.raises(ValueError, match="spectrum has"):
             PointSourceData(
-                ra_rad=np.zeros(3),
+                ra_rad=np.zeros(3),  # but only 3 here
                 dec_rad=np.zeros(3),
                 flux=np.zeros(3),
                 spectral_index=np.zeros(3),
@@ -122,23 +102,7 @@ class TestPointSourceDataInvariants:
                 stokes_u=np.zeros(3),
                 stokes_v=np.zeros(3),
                 ref_freq=np.full(3, 1e8),
-                per_channel_flux=pcf,
-                per_channel_stokes_q=np.ones((2, 3)),
-                channel_frequencies=freqs,
-            )
-
-    def test_rejects_stokes_v_without_flux_table(self) -> None:
-        with pytest.raises(ValueError, match="requires per_channel_flux"):
-            PointSourceData(
-                ra_rad=np.zeros(1),
-                dec_rad=np.zeros(1),
-                flux=np.zeros(1),
-                spectral_index=np.zeros(1),
-                stokes_q=np.zeros(1),
-                stokes_u=np.zeros(1),
-                stokes_v=np.zeros(1),
-                ref_freq=np.full(1, 1e8),
-                per_channel_stokes_v=np.ones((2, 1)),
+                spectrum=spectrum,
             )
 
     def test_masked_preserves_per_channel_tables(self) -> None:
@@ -146,10 +110,10 @@ class TestPointSourceDataInvariants:
         mask = np.array([True, False, True, False])
         m = p.masked(mask)
         assert m.n_sources == 2
-        assert m.per_channel_flux is not None
-        assert m.per_channel_flux.shape == (3, 2)
-        assert m.channel_frequencies is not None
-        np.testing.assert_array_equal(m.per_channel_flux, p.per_channel_flux[:, mask])
+        assert m.spectrum is not None
+        assert m.spectrum.flux.shape == (3, 2)
+        assert p.spectrum is not None
+        np.testing.assert_array_equal(m.spectrum.flux, p.spectrum.flux[:, mask])
 
 
 # --------------------------------------------------------------------------- #

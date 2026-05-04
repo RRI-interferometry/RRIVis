@@ -16,7 +16,7 @@ from rrivis.core.sky import (
 )
 from rrivis.core.sky.combine import combine_models
 from rrivis.core.sky.constants import BrightnessConversion
-from rrivis.core.sky.model import SkyFormat, SkyModel
+from rrivis.core.sky.model import SkyModel
 
 
 @pytest.fixture
@@ -61,7 +61,6 @@ def _make_full_diffuse_model(precision: PrecisionConfig) -> SkyModel:
             frequencies=np.array([150e6]),
             coordinate_frame="icrs",
         ),
-        source_format=SkyFormat.HEALPIX,
         reference_frequency=150e6,
         model_name="diffuse",
         brightness_conversion=BrightnessConversion.PLANCK,

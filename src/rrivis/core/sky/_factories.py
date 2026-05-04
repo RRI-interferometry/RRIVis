@@ -23,7 +23,6 @@ from ._data import (
     SourceSubtractionStatus,
 )
 from .constants import BrightnessConversion
-from .model import SkyFormat
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -98,7 +97,6 @@ def create_empty(
 
     return SkyModel(
         point=PointSourceData.empty(),
-        source_format=SkyFormat.POINT_SOURCES,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,
@@ -181,7 +179,6 @@ def create_from_arrays(
 
     return SkyModel(
         point=point,
-        source_format=SkyFormat.POINT_SOURCES,
         model_name=model_name,
         reference_frequency=reference_frequency,
         brightness_conversion=brightness_conversion,
@@ -226,9 +223,9 @@ def create_from_freq_dict_maps(
         v_maps=v_arr,
     )
 
+    kwargs.pop("source_format", None)  # legacy kwarg, no longer used
     return SkyModel(
         healpix=healpix,
-        source_format=kwargs.pop("source_format", SkyFormat.HEALPIX),
         _precision=precision,
         **kwargs,
     )
@@ -359,12 +356,13 @@ def load_models_parallel(
             index, name = future_to_loader[future]
             try:
                 sky = future.result()
-                if sky.available_formats:
+                if sky.formats:
                     results[index] = sky
-                    try:
-                        n_elements = sky.n_sky_elements
-                    except ValueError:
-                        n_elements = sky.n_sky_elements_for(SkyFormat.HEALPIX)
+                    n_elements = (
+                        sky.n_healpix_pixels
+                        if sky.healpix is not None
+                        else sky.n_point_sources
+                    )
                     logger.info(
                         f"Parallel load complete: {name} ({n_elements:,} sky elements)"
                     )

@@ -318,7 +318,6 @@ class TestPublicBoundary:
         assert not hasattr(sky_public, "loader_registry")
         assert not hasattr(sky_public, "create_from_freq_dict_maps")
         assert not hasattr(sky_public, "load_models_parallel")
-        assert not hasattr(sky_public, "prepare_sky_model")
         assert not hasattr(sky_public, "bin_sources_to_flux")
         assert not hasattr(sky_public, "DiffuseModelEntry")
         assert not hasattr(sky_public, "VizierCatalogEntry")

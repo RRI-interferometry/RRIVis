@@ -33,7 +33,6 @@ def _uniform_sky(
             nside=nside,
             frequencies=np.array([150e6]),
         ),
-        source_format="healpix_map",
         model_name="uniform_sky",
         _precision=precision,
     )

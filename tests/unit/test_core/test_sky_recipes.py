@@ -69,7 +69,7 @@ class TestRecipeHappyPath:
             precision=precision,
         )
 
-        assert sky.source_format is SkyFormat.HEALPIX
+        assert SkyFormat.HEALPIX in sky.formats
         assert sky.healpix is not None
         assert sky.healpix.nside == 32
         assert sky.n_frequencies == 2

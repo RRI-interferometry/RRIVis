@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -17,7 +16,7 @@ from ._data import (
 from ._dnds_models import DNDSModel, resolve_dn_ds
 from ._registry import register_loader
 from .constants import BrightnessConversion
-from .model import SkyFormat
+from .model import SkyFormat, _coerce_format
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -26,18 +25,6 @@ if TYPE_CHECKING:
     from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
-
-
-def _coerce_representation(representation: SkyFormat | str) -> SkyFormat:
-    if isinstance(representation, SkyFormat):
-        return representation
-    try:
-        return SkyFormat(representation)
-    except ValueError as exc:
-        raise ValueError(
-            f"Unknown representation '{representation}'. "
-            "Supported: 'point_sources', 'healpix_map'."
-        ) from exc
 
 
 @register_loader(
@@ -118,9 +105,9 @@ def load_test_sources(
         sky = sky.filter_region(region)
 
     if provenance is not None:
-        sky = replace(sky, provenance=provenance)
+        sky = sky.replace(provenance=provenance)
 
-    target = _coerce_representation(representation)
+    target = _coerce_format(representation)
     if target == SkyFormat.HEALPIX:
         if frequencies is None and obs_frequency_config is not None:
             frequencies = parse_frequency_config(obs_frequency_config)
@@ -426,9 +413,9 @@ def load_poisson_confusion(
         source_subtraction=SourceSubtractionStatus.NONE,
         notes=f"poisson_{model.name} (λ={expected_n:.1f}, N={n})",
     )
-    sky = replace(sky, provenance=provenance)
+    sky = sky.replace(provenance=provenance)
 
-    target = _coerce_representation(representation)
+    target = _coerce_format(representation)
     if target == SkyFormat.HEALPIX:
         if frequencies is None and obs_frequency_config is not None:
             from rrivis.utils.frequency import parse_frequency_config

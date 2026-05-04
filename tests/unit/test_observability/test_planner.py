@@ -7,7 +7,7 @@ import pytest
 from rrivis.core.observability import ObservabilityPlanner
 from rrivis.core.precision import PrecisionConfig
 from rrivis.core.sky import HealpixData, create_from_arrays
-from rrivis.core.sky.model import SkyFormat, SkyModel
+from rrivis.core.sky.model import SkyModel
 
 
 @pytest.fixture
@@ -47,7 +47,6 @@ def _combined_sky(precision, *, coordinate_frame: str = "icrs"):
             frequencies=np.array([150e6], dtype=np.float64),
             coordinate_frame=coordinate_frame,
         ),
-        source_format=SkyFormat.HEALPIX,
         reference_frequency=150e6,
         model_name="combined_sky",
         _precision=precision,

@@ -94,7 +94,6 @@ def _make_synthetic_diffuse_with_sources(
             nside=nside,
             frequencies=frequencies,
         ),
-        source_format="healpix_map",
         model_name="synth_diffuse",
         brightness_conversion="rayleigh-jeans",
         provenance=SkyProvenance(
@@ -252,7 +251,6 @@ class TestSubtractBrightSourcesGuards:
         )
         sky = SkyModel(
             healpix=sparse,
-            source_format="healpix_map",
             provenance=SkyProvenance(
                 monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
                 source_subtraction=SourceSubtractionStatus.NONE,

@@ -24,6 +24,7 @@ from astropy.coordinates import SkyCoord
 from ._data import (
     HealpixData,
     PointSourceData,
+    PointSpectrum,
     SkyCoverage,
     SkyProvenance,
     SourceArrays,
@@ -50,22 +51,64 @@ class SkyFormat(Enum):
     HEALPIX = "healpix_map"
 
 
+def _coerce_format(representation: "SkyFormat | str") -> SkyFormat:
+    """Coerce a string or SkyFormat to a SkyFormat enum value."""
+    if isinstance(representation, SkyFormat):
+        return representation
+    try:
+        return SkyFormat(representation)
+    except ValueError:
+        raise ValueError(
+            f"Unknown representation '{representation}'. "
+            f"Supported: SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX."
+        ) from None
+
+
+def _has_f32_array(sky: "SkyModel") -> bool:
+    """Return True if any payload array has a float32 dtype."""
+    if sky.point is not None:
+        for name in ("ra_rad", "dec_rad", "flux", "spectral_index"):
+            arr = getattr(sky.point, name, None)
+            if arr is not None and arr.dtype == np.float32:
+                return True
+        if (
+            sky.point.spectrum is not None
+            and sky.point.spectrum.flux.dtype == np.float32
+        ):
+            return True
+    if sky.healpix is not None and sky.healpix.maps.dtype == np.float32:
+        return True
+    return False
+
+
+def _default_eq_tolerance(a: "SkyModel", b: "SkyModel") -> tuple[float, float]:
+    """Pick (rtol, atol) for tolerant equality based on payload dtype.
+
+    f32 epsilon ~1.2e-7, so rtol=1e-7 catches representation error without
+    masking real differences. f64 epsilon ~2.2e-16, so rtol=1e-12 stays
+    effectively bit-exact for same-precision comparisons.
+    """
+    if _has_f32_array(a) or _has_f32_array(b):
+        return 1e-7, 0.0
+    return 1e-12, 0.0
+
+
 # =============================================================================
 # SkyModel Class
 # =============================================================================
 
 
-@dataclass
+@dataclass(frozen=True, eq=False)
 class SkyModel:
     """Unified sky model built from typed payloads.
 
-    ``source_format`` records the format the model was loaded from. It is
-    provenance only; public operations choose representations explicitly.
+    Frozen — use :meth:`replace` to derive new instances. The set of populated
+    payloads (:attr:`formats`) is the canonical "what's loaded" signal; both
+    point and healpix may be populated simultaneously (a hybrid model).
     """
 
     point: PointSourceData | None = field(default=None, repr=False)
     healpix: HealpixData | None = field(default=None, repr=False)
-    source_format: SkyFormat = SkyFormat.POINT_SOURCES
     reference_frequency: float | None = None
     model_name: str | None = None
     brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK
@@ -73,25 +116,19 @@ class SkyModel:
     _precision: "PrecisionConfig | None" = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        """Validate payload consistency and precision."""
+        """Validate payload presence and precision."""
         if self.point is None and self.healpix is None:
             raise ValueError(
                 "SkyModel requires at least one payload. "
                 "Use create_empty() for an empty point-source model."
             )
 
-        if isinstance(self.source_format, str):
-            self.source_format = self._coerce_representation(self.source_format)
-        if not isinstance(self.source_format, SkyFormat):
-            raise TypeError(
-                f"source_format must be a SkyFormat enum, got "
-                f"{type(self.source_format).__name__}: {self.source_format!r}."
-            )
-
         if not isinstance(self.brightness_conversion, BrightnessConversion):
             try:
-                self.brightness_conversion = BrightnessConversion(
-                    self.brightness_conversion
+                object.__setattr__(
+                    self,
+                    "brightness_conversion",
+                    BrightnessConversion(self.brightness_conversion),
                 )
             except (ValueError, KeyError):
                 raise ValueError(
@@ -100,17 +137,12 @@ class SkyModel:
                 ) from None
 
         if isinstance(self.provenance, dict):
-            self.provenance = SkyProvenance(**self.provenance)
+            object.__setattr__(self, "provenance", SkyProvenance(**self.provenance))
         elif not isinstance(self.provenance, SkyProvenance):
             raise TypeError(
                 "SkyModel.provenance must be a SkyProvenance or a dict of its "
                 f"fields, got {type(self.provenance).__name__}."
             )
-
-        if self.source_format == SkyFormat.POINT_SOURCES and self.point is None:
-            raise ValueError("source_format='point_sources' requires a point payload.")
-        if self.source_format == SkyFormat.HEALPIX and self.healpix is None:
-            raise ValueError("source_format='healpix_map' requires a HEALPix payload.")
 
         if self._precision is None:
             raise ValueError(
@@ -119,12 +151,18 @@ class SkyModel:
             )
 
         if self.point is not None:
-            self.point = self._cast_point_data(self.point, self._precision)
+            object.__setattr__(
+                self, "point", self._cast_point_data(self.point, self._precision)
+            )
         if self.healpix is not None:
-            self.healpix = self._cast_healpix_data(
-                self.healpix,
-                self._precision,
-                self.brightness_conversion,
+            object.__setattr__(
+                self,
+                "healpix",
+                self._cast_healpix_data(
+                    self.healpix,
+                    self._precision,
+                    self.brightness_conversion,
+                ),
             )
 
     @classmethod
@@ -177,30 +215,30 @@ class SkyModel:
             extra_columns={
                 name: np.asarray(values) for name, values in point.extra_columns.items()
             },
-            per_channel_flux=(
+            spectrum=(
                 None
-                if point.per_channel_flux is None
-                else np.asarray(point.per_channel_flux, dtype=flux_dt)
-            ),
-            per_channel_stokes_q=(
-                None
-                if point.per_channel_stokes_q is None
-                else np.asarray(point.per_channel_stokes_q, dtype=flux_dt)
-            ),
-            per_channel_stokes_u=(
-                None
-                if point.per_channel_stokes_u is None
-                else np.asarray(point.per_channel_stokes_u, dtype=flux_dt)
-            ),
-            per_channel_stokes_v=(
-                None
-                if point.per_channel_stokes_v is None
-                else np.asarray(point.per_channel_stokes_v, dtype=flux_dt)
-            ),
-            channel_frequencies=(
-                None
-                if point.channel_frequencies is None
-                else np.asarray(point.channel_frequencies, dtype=np.float64)
+                if point.spectrum is None
+                else PointSpectrum(
+                    flux=np.asarray(point.spectrum.flux, dtype=flux_dt),
+                    frequencies=np.asarray(
+                        point.spectrum.frequencies, dtype=np.float64
+                    ),
+                    stokes_q=(
+                        None
+                        if point.spectrum.stokes_q is None
+                        else np.asarray(point.spectrum.stokes_q, dtype=flux_dt)
+                    ),
+                    stokes_u=(
+                        None
+                        if point.spectrum.stokes_u is None
+                        else np.asarray(point.spectrum.stokes_u, dtype=flux_dt)
+                    ),
+                    stokes_v=(
+                        None
+                        if point.spectrum.stokes_v is None
+                        else np.asarray(point.spectrum.stokes_v, dtype=flux_dt)
+                    ),
+                )
             ),
         )
 
@@ -226,6 +264,7 @@ class SkyModel:
             nside=healpix_data.nside,
             frequencies=np.asarray(healpix_data.frequencies, dtype=flux_dt),
             coordinate_frame=healpix_data.coordinate_frame,
+            ordering=healpix_data.ordering,
             hpx_inds=healpix_data.hpx_inds,
             q_maps=_cast_map(healpix_data.q_maps),
             u_maps=_cast_map(healpix_data.u_maps),
@@ -338,14 +377,19 @@ class SkyModel:
     # Immutable Replace Helper
     # =========================================================================
 
-    def _replace(self, **changes: Any) -> "SkyModel":
-        """Return a new ``SkyModel`` with the given fields replaced."""
+    def replace(self, **changes: Any) -> "SkyModel":
+        """Return a new ``SkyModel`` with the given fields replaced.
+
+        Wraps ``dataclasses.replace`` with precision-aware payload casting and
+        a field whitelist. Always use this instead of ``dataclasses.replace``
+        on a SkyModel — direct calls bypass dtype coercion.
+        """
         import dataclasses
 
         precision = changes.pop("_precision", self._precision)
         if precision is None:
             raise ValueError(
-                "SkyModel._replace(): _precision must not be None. "
+                "SkyModel.replace(): _precision must not be None. "
                 "This is a bug -- all factory methods should set precision."
             )
 
@@ -370,7 +414,6 @@ class SkyModel:
             )
 
         for key in (
-            "source_format",
             "reference_frequency",
             "model_name",
             "brightness_conversion",
@@ -382,7 +425,7 @@ class SkyModel:
         if changes:
             unknown = ", ".join(sorted(changes))
             raise TypeError(
-                f"SkyModel._replace() received unsupported fields: {unknown}"
+                f"SkyModel.replace() received unsupported fields: {unknown}"
             )
 
         return dataclasses.replace(self, **field_changes)
@@ -425,8 +468,11 @@ class SkyModel:
         return self.healpix is not None
 
     @property
-    def available_formats(self) -> set[SkyFormat]:
-        """Return the set of representations populated on this model."""
+    def formats(self) -> set[SkyFormat]:
+        """Return the set of representations populated on this model.
+
+        Hybrid models (both point and healpix populated) return both members.
+        """
         result: set[SkyFormat] = set()
         if self.point is not None:
             result.add(SkyFormat.POINT_SOURCES)
@@ -441,25 +487,9 @@ class SkyModel:
             return len(self.healpix.frequencies)
         return 0
 
-    @property
-    def n_sky_elements(self) -> int:
-        """Return count for single-format models.
-
-        Models carrying both point and HEALPix payloads are ambiguous; use
-        ``n_sky_elements_for(...)`` to state the requested representation.
-        """
-        if len(self.available_formats) > 1:
-            raise ValueError(
-                "n_sky_elements is ambiguous because both point and HEALPix "
-                "payloads are present. Use n_sky_elements_for(representation)."
-            )
-        if self.healpix is not None:
-            return self.healpix.n_pixels
-        return self.point.n_sources if self.point is not None else 0
-
     def n_sky_elements_for(self, representation: "SkyFormat | str") -> int:
-        """Return the count for an explicit representation."""
-        target = self._coerce_representation(representation)
+        """Return the element count for an explicit representation (0 if absent)."""
+        target = _coerce_format(representation)
         if target == SkyFormat.HEALPIX:
             return self.healpix.n_pixels if self.healpix is not None else 0
         return self.point.n_sources if self.point is not None else 0
@@ -468,6 +498,11 @@ class SkyModel:
     def n_point_sources(self) -> int:
         """Return the number of point-source catalog entries (0 if none)."""
         return self.point.n_sources if self.point is not None else 0
+
+    @property
+    def n_healpix_pixels(self) -> int:
+        """Return the number of stored HEALPix pixels (0 if no healpix payload)."""
+        return self.healpix.n_pixels if self.healpix is not None else 0
 
     @property
     def n_pixels(self) -> int:
@@ -606,10 +641,9 @@ class SkyModel:
             monopole_k=None,
         )
 
-        return self._replace(
+        return self.replace(
             point=point,
             healpix=healpix,
-            source_format=self.source_format,
             model_name=self.model_name,
             reference_frequency=self.reference_frequency,
             brightness_conversion=self.brightness_conversion,
@@ -638,21 +672,7 @@ class SkyModel:
         SkyModel
             Copy with updated ``reference_frequency``.
         """
-        return self._replace(reference_frequency=reference_frequency)
-
-    @staticmethod
-    def _coerce_representation(representation: "SkyFormat | str") -> SkyFormat:
-        if isinstance(representation, str) and not isinstance(
-            representation, SkyFormat
-        ):
-            try:
-                return SkyFormat(representation)
-            except ValueError:
-                raise ValueError(
-                    f"Unknown representation '{representation}'. "
-                    f"Supported: SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX."
-                ) from None
-        return representation
+        return self.replace(reference_frequency=reference_frequency)
 
     def as_point_source_arrays(
         self,
@@ -922,12 +942,11 @@ class SkyModel:
         Returns
         -------
         str
-            Summary string including source format, model name, and available formats.
+            Summary string including model name and populated formats.
         """
         parts: list[str] = [
-            f"source_format='{self.source_format.value}'",
             f"model='{self.model_name}'",
-            f"available={[fmt.value for fmt in sorted(self.available_formats, key=lambda f: f.value)]}",
+            f"formats={[fmt.value for fmt in sorted(self.formats, key=lambda f: f.value)]}",
         ]
 
         # Point-source info
@@ -1001,10 +1020,14 @@ class SkyModel:
     __hash__ = None  # type: ignore[assignment]
 
     def __eq__(self, other: object) -> bool:
-        """Value equality: compare all scalar and array fields.
+        """Value equality with dtype-aware tolerance.
 
-        Uses ``np.array_equal`` for array comparisons (exact, handles
-        None and shape/dtype mismatches).
+        Uses :func:`np.allclose` so that the same logical sky loaded under
+        f32 and f64 precision compares equal up to representation error.
+        Tolerance is derived from the lower of the two models' float
+        precisions: ``rtol=1e-7`` if either side has any f32 array,
+        otherwise ``rtol=1e-12``. For bit-exact comparison use
+        ``is_close(rtol=0, atol=0)`` or compare arrays manually.
         """
         if not isinstance(other, SkyModel):
             return NotImplemented
@@ -1014,12 +1037,12 @@ class SkyModel:
             self.model_name != other.model_name
             or self.reference_frequency != other.reference_frequency
             or self.brightness_conversion != other.brightness_conversion
-            or self.source_format != other.source_format
             or self.provenance != other.provenance
         ):
             return False
 
-        return self._payloads_equal(other, close=False, rtol=0.0, atol=0.0)
+        rtol, atol = _default_eq_tolerance(self, other)
+        return self._payloads_equal(other, close=True, rtol=rtol, atol=atol)
 
     def _payloads_equal(
         self,
@@ -1062,6 +1085,16 @@ class SkyModel:
                     other.point.extra_columns[name],
                 ):
                     return False
+            # Spectrum
+            if (self.point.spectrum is None) != (other.point.spectrum is None):
+                return False
+            if self.point.spectrum is not None and other.point.spectrum is not None:
+                for name in ("flux", "frequencies", "stokes_q", "stokes_u", "stokes_v"):
+                    if not _arrays_equal(
+                        getattr(self.point.spectrum, name),
+                        getattr(other.point.spectrum, name),
+                    ):
+                        return False
 
         if (self.healpix is None) != (other.healpix is None):
             return False
@@ -1069,6 +1102,8 @@ class SkyModel:
             if self.healpix.nside != other.healpix.nside:
                 return False
             if self.healpix.coordinate_frame != other.healpix.coordinate_frame:
+                return False
+            if self.healpix.ordering != other.healpix.ordering:
                 return False
             for name in (
                 "i_unit",
@@ -1122,7 +1157,6 @@ class SkyModel:
             self.model_name != other.model_name
             or self.reference_frequency != other.reference_frequency
             or self.brightness_conversion != other.brightness_conversion
-            or self.source_format != other.source_format
         ):
             return False
 

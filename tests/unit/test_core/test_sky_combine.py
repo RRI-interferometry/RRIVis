@@ -58,7 +58,6 @@ def make_healpix_model(
             frequencies=freqs,
             coordinate_frame=coordinate_frame,
         ),
-        source_format=SkyFormat.HEALPIX,
         reference_frequency=float(freqs[0]),
         model_name="diffuse",
         _precision=precision,
@@ -87,7 +86,6 @@ def make_sparse_healpix_model(
             coordinate_frame=coordinate_frame,
             hpx_inds=pixels,
         ),
-        source_format=SkyFormat.HEALPIX,
         reference_frequency=float(freqs[0]),
         model_name="sparse-diffuse",
         _precision=precision,
@@ -171,7 +169,7 @@ class TestCombineModels:
         sky_a = make_point_model(12, precision=precision, seed=10)
         sky_b = make_point_model(18, precision=precision, seed=20)
         result = combine_models([sky_a, sky_b], precision=precision)
-        assert result.available_formats == {SkyFormat.POINT_SOURCES}
+        assert result.formats == {SkyFormat.POINT_SOURCES}
         assert result.n_point_sources == 30
 
     def test_point_models_can_materialize_healpix_with_frequencies(self, precision):

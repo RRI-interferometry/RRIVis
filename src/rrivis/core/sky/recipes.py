@@ -156,7 +156,7 @@ def _apply_recipe_coverage(
         coverage_footprint=coverage_footprint,
         monopole_k=None,
     )
-    return replace(sky, provenance=provenance)
+    return sky.replace(provenance=provenance)
 
 
 def _require_scientific_diffuse_ready(

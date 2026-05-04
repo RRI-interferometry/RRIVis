@@ -34,14 +34,14 @@ def _resolve_serialization_format(
             if isinstance(representation, str)
             else representation
         )
-        if target not in sky.available_formats:
+        if target not in sky.formats:
             raise ValueError(
                 f"Cannot serialize as {target.value!r}; payload is not available. "
-                f"Available: {[fmt.value for fmt in sky.available_formats]}"
+                f"Available: {[fmt.value for fmt in sky.formats]}"
             )
         return target
-    if len(sky.available_formats) == 1:
-        return next(iter(sky.available_formats))
+    if len(sky.formats) == 1:
+        return next(iter(sky.formats))
     raise ValueError(
         "SkyModel contains both point and HEALPix payloads. "
         "Pass representation='point_sources' or representation='healpix_map' "
@@ -131,7 +131,7 @@ def to_pyradiosky(sky: SkyModel, representation: Any = None) -> Any:
 
         return PyRadioSkyModel(
             nside=nside,
-            hpx_order="ring",
+            hpx_order=healpix.ordering,
             hpx_inds=(
                 healpix.hpx_inds if healpix.hpx_inds is not None else np.arange(npix)
             ),

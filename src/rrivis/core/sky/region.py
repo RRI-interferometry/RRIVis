@@ -14,18 +14,10 @@ from ._data import (
     DEFAULT_COVERAGE_FOOTPRINT_COORDINATE_FRAME,
     DEFAULT_COVERAGE_FOOTPRINT_NSIDE,
     SkyFootprint,
+    _normalize_coordinate_frame,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _normalize_coordinate_frame(coordinate_frame: str) -> str:
-    frame = str(coordinate_frame).lower()
-    if frame not in {"icrs", "galactic"}:
-        raise ValueError(
-            f"coordinate_frame must be 'icrs' or 'galactic', got {coordinate_frame!r}."
-        )
-    return frame
 
 
 def _healpix_pixel_centers(

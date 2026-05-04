@@ -269,7 +269,7 @@ def regrid_healpix_model(
     if target_nside == source_healpix.nside:
         if requested_freqs is None or np.array_equal(requested_freqs, current_freqs):
             return model
-        return model._replace(
+        return model.replace(
             healpix=HealpixData(
                 maps=source_healpix.maps,
                 nside=source_healpix.nside,
@@ -306,7 +306,7 @@ def regrid_healpix_model(
         None if source_healpix.v_maps is None else _regrid_rows(source_healpix.v_maps)
     )
 
-    return model._replace(
+    return model.replace(
         healpix=HealpixData(
             maps=_regrid_rows(source_healpix.maps),
             nside=target_nside,
@@ -965,15 +965,19 @@ def _scale_threshold_to_frequency(
     return float(threshold_jy) * (to_freq_hz / from_freq_hz) ** alpha
 
 
-def _classify_model(sky: SkyModel) -> str:
-    """Return ``"point"`` / ``"diffuse"`` / ``"mixed"`` based on payload state."""
-    has_point = sky.point is not None and not sky.point.is_empty
-    has_diffuse = sky.healpix is not None
-    if has_point and has_diffuse:
-        return "mixed"
-    if has_diffuse:
-        return "diffuse"
-    return "point"
+def _classify_model(sky: SkyModel) -> frozenset[SkyFormat]:
+    """Return the set of populated payloads on this model.
+
+    Hybrid models return a frozenset containing both
+    :data:`SkyFormat.POINT_SOURCES` and :data:`SkyFormat.HEALPIX`. Empty
+    point payloads (zero sources) are not considered populated.
+    """
+    formats: set[SkyFormat] = set()
+    if sky.point is not None and not sky.point.is_empty:
+        formats.add(SkyFormat.POINT_SOURCES)
+    if sky.healpix is not None:
+        formats.add(SkyFormat.HEALPIX)
+    return frozenset(formats)
 
 
 def _disjoint_pair_failures(
@@ -1134,8 +1138,9 @@ def _check_physical_disjointness(
         return
 
     # Pair each diffuse model against each point model and collect failures.
-    diffuse_models = [m for m in models if _classify_model(m) == "diffuse"]
-    point_models = [m for m in models if _classify_model(m) in ("point", "mixed")]
+    diffuse_only = frozenset({SkyFormat.HEALPIX})
+    diffuse_models = [m for m in models if _classify_model(m) == diffuse_only]
+    point_models = [m for m in models if SkyFormat.POINT_SOURCES in _classify_model(m)]
 
     if not diffuse_models or not point_models:
         return  # same-type combinations: no point-vs-diffuse overlap possible
@@ -1369,7 +1374,6 @@ def _combine_as_healpix_merge(
             v_maps=data["healpix_v_maps"],
             i_brightness_conversion=brightness_conversion.value,
         ),
-        source_format=SkyFormat.HEALPIX,
         reference_frequency=data["reference_frequency"],
         model_name="combined",
         brightness_conversion=brightness_conversion,
@@ -1416,7 +1420,6 @@ def _combine_as_point_sources(
             source_id=data["source_id"],
             extra_columns=data["extra_columns"],
         ),
-        source_format=SkyFormat.POINT_SOURCES,
         model_name="combined",
         reference_frequency=data["reference_frequency"],
         brightness_conversion=brightness_conversion,
@@ -1507,6 +1510,27 @@ def combine_models(
     requested_freqs = _resolve_requested_healpix_frequencies(
         frequencies, obs_frequency_config
     )
+
+    # Hybrid auto-detection: when no representation is specified, preserve
+    # both payloads if any input is hybrid, or if inputs span both types.
+    classifications = [_classify_model(m) for m in models]
+    any_hybrid_input = any(
+        c == frozenset({SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX})
+        for c in classifications
+    )
+    has_point = any(SkyFormat.POINT_SOURCES in c for c in classifications)
+    has_healpix = any(SkyFormat.HEALPIX in c for c in classifications)
+
+    if representation is None and (any_hybrid_input or (has_point and has_healpix)):
+        return _combine_as_hybrid(
+            models,
+            freq=frequency,
+            ref_freq=ref_frequency,
+            brightness_conversion=brightness_conversion,
+            precision=precision,
+            memmap_path=memmap_path,
+        )
+
     representation, freq, ref_freq = _resolve_combination_params(
         models, representation, frequency, ref_frequency
     )
@@ -1552,3 +1576,91 @@ def combine_models(
         )
 
     return combined
+
+
+def _combine_as_hybrid(
+    models: list[SkyModel],
+    *,
+    freq: float | None,
+    ref_freq: float | None,
+    brightness_conversion: BrightnessConversion,
+    precision: PrecisionConfig | None,
+    memmap_path: str | None,
+) -> SkyModel:
+    """Build a hybrid SkyModel preserving both point and HEALPix payloads.
+
+    Models with point payloads contribute to the point pile; models with
+    HEALPix payloads contribute to the HEALPix pile. Each pile is reduced
+    independently — no lossy point↔HEALPix conversion happens here.
+    """
+    from .model import SkyModel
+
+    point_models = [m for m in models if SkyFormat.POINT_SOURCES in _classify_model(m)]
+    healpix_models = [m for m in models if SkyFormat.HEALPIX in _classify_model(m)]
+
+    point_payload: PointSourceData | None = None
+    if point_models:
+        data = concat_point_sources(
+            point_models,
+            reference_frequency=freq,
+            brightness_conversion=brightness_conversion,
+            precision=precision,
+            allow_lossy_point_materialization=False,
+        )
+        if data["ra_rad"].size:
+            point_payload = PointSourceData(
+                ra_rad=data["ra_rad"],
+                dec_rad=data["dec_rad"],
+                flux=data["flux"],
+                spectral_index=data["spectral_index"],
+                stokes_q=data["stokes_q"],
+                stokes_u=data["stokes_u"],
+                stokes_v=data["stokes_v"],
+                ref_freq=data["ref_freq"],
+                rotation_measure=data["rotation_measure"],
+                major_arcsec=data["major_arcsec"],
+                minor_arcsec=data["minor_arcsec"],
+                pa_deg=data["pa_deg"],
+                spectral_coeffs=data["spectral_coeffs"],
+                source_name=data["source_name"],
+                source_id=data["source_id"],
+                extra_columns=data["extra_columns"],
+            )
+            point_ref_freq = data["reference_frequency"]
+        else:
+            point_ref_freq = None
+    else:
+        point_ref_freq = None
+
+    healpix_payload: HealpixData | None = None
+    if healpix_models:
+        # Reuse _combine_as_healpix_merge to get a HEALPix-only SkyModel,
+        # then borrow its healpix payload.
+        merged = _combine_as_healpix_merge(
+            healpix_models,
+            ref_freq,
+            brightness_conversion,
+            precision,
+            memmap_path=memmap_path,
+        )
+        healpix_payload = merged.healpix
+
+    if point_payload is None and healpix_payload is None:
+        from ._factories import create_empty
+
+        return create_empty(
+            model_name="combined_empty",
+            brightness_conversion=brightness_conversion,
+            precision=precision,
+        )
+
+    provenance = _merge_provenance(models)
+    return SkyModel(
+        point=point_payload,
+        healpix=healpix_payload,
+        model_name="combined",
+        reference_frequency=point_ref_freq if point_ref_freq is not None else ref_freq,
+        brightness_conversion=brightness_conversion,
+        provenance=provenance,
+        _precision=precision,
+    )

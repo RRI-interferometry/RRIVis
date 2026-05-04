@@ -31,7 +31,7 @@ from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ._data import HealpixData, PointSourceData
 from ._precision import get_sky_storage_dtype
 from ._registry import register_loader
-from .model import SkyFormat, SkyModel
+from .model import SkyModel
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -485,13 +485,12 @@ def _load_healpix_branch(
             u_maps=u_arr,
             v_maps=v_arr,
         ),
-        source_format=SkyFormat.HEALPIX,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
     if provenance is not None:
-        sky = sky._replace(provenance=provenance)
+        sky = sky.replace(provenance=provenance)
     return sky
 
 
@@ -654,6 +653,8 @@ def _load_point_branch(
         n_kept,
     )
 
+    from ._data import PointSpectrum
+
     sky = SkyModel(
         point=PointSourceData(
             ra_rad=ra_rad,
@@ -665,17 +666,18 @@ def _load_point_branch(
             stokes_v=v_ref,
             ref_freq=ref_freq_arr,
             source_name=source_name,
-            per_channel_flux=pc_flux_out,
-            per_channel_stokes_q=pc_q_out,
-            per_channel_stokes_u=pc_u_out,
-            per_channel_stokes_v=pc_v_out,
-            channel_frequencies=sorted_freqs.astype(np.float64),
+            spectrum=PointSpectrum(
+                flux=pc_flux_out,
+                frequencies=sorted_freqs.astype(np.float64),
+                stokes_q=pc_q_out,
+                stokes_u=pc_u_out,
+                stokes_v=pc_v_out,
+            ),
         ),
-        source_format=SkyFormat.POINT_SOURCES,
         model_name=model_name,
         reference_frequency=ref_freq_hz,
         _precision=precision,
     )
     if provenance is not None:
-        sky = sky._replace(provenance=provenance)
+        sky = sky.replace(provenance=provenance)
     return sky

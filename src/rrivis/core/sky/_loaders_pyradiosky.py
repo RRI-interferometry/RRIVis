@@ -18,7 +18,7 @@ from rrivis.utils.frequency import parse_frequency_config
 from ._data import HealpixData, PointSourceData
 from ._precision import get_sky_storage_dtype
 from ._registry import register_loader
-from .model import SkyFormat, SkyModel
+from .model import SkyModel
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -131,7 +131,7 @@ def load_pyradiosky_file(
             memmap_path=memmap_path,
         )
         if provenance is not None:
-            sky_out = sky_out._replace(provenance=provenance)
+            sky_out = sky_out.replace(provenance=provenance)
         return sky_out
     elif sky.component_type != "point":
         raise ValueError(
@@ -304,14 +304,13 @@ def load_pyradiosky_file(
                 name: values[valid] for name, values in extra_columns.items()
             },
         ),
-        source_format=SkyFormat.POINT_SOURCES,
         model_name=model_name,
         reference_frequency=ref_freq_hz,
         brightness_conversion=brightness_conversion,
         _precision=precision,
     )
     if provenance is not None:
-        sky_model = sky_model._replace(provenance=provenance)
+        sky_model = sky_model.replace(provenance=provenance)
     return sky_model
 
 
@@ -584,7 +583,6 @@ def _load_pyradiosky_healpix(
             u_maps=u_arr,
             v_maps=v_arr,
         ),
-        source_format=SkyFormat.HEALPIX,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         _precision=precision,

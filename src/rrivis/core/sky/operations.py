@@ -33,8 +33,14 @@ def materialize_healpix_model(
     obs_frequency_config: dict[str, Any] | None = None,
     ref_frequency: float | None = None,
     memmap_path: str | None = None,
+    clear_other: bool = False,
 ) -> SkyModel:
-    """Materialize a HEALPix payload from a point-source payload."""
+    """Materialize a HEALPix payload from a point-source payload.
+
+    By default the result is a hybrid model carrying both the original
+    point payload and the new HEALPix payload. Pass ``clear_other=True``
+    to drop the source point payload (pure point→HEALPix conversion).
+    """
     if sky.point is None:
         raise ValueError(
             "No point sources available for conversion. "
@@ -71,6 +77,7 @@ def materialize_healpix_model(
                 "explicitly."
             )
 
+    spectrum = sky.point.spectrum
     i_maps, q_maps, u_maps, v_maps = point_sources_to_healpix_maps(
         ra_rad=sky.point.ra_rad,
         dec_rad=sky.point.dec_rad,
@@ -88,25 +95,26 @@ def materialize_healpix_model(
         coordinate_frame="icrs",
         output_dtype=sky._healpix_dtype(),
         memmap_path=memmap_path,
-        per_channel_flux=sky.point.per_channel_flux,
-        per_channel_stokes_q=sky.point.per_channel_stokes_q,
-        per_channel_stokes_u=sky.point.per_channel_stokes_u,
-        per_channel_stokes_v=sky.point.per_channel_stokes_v,
-        channel_frequencies=sky.point.channel_frequencies,
+        per_channel_flux=spectrum.flux if spectrum is not None else None,
+        per_channel_stokes_q=spectrum.stokes_q if spectrum is not None else None,
+        per_channel_stokes_u=spectrum.stokes_u if spectrum is not None else None,
+        per_channel_stokes_v=spectrum.stokes_v if spectrum is not None else None,
+        channel_frequencies=spectrum.frequencies if spectrum is not None else None,
     )
 
-    return sky._replace(
-        healpix=HealpixData(
-            maps=i_maps,
-            nside=nside,
-            frequencies=frequencies,
-            coordinate_frame="icrs",
-            q_maps=q_maps,
-            u_maps=u_maps,
-            v_maps=v_maps,
-            i_brightness_conversion=sky.brightness_conversion.value,
-        ),
+    new_healpix = HealpixData(
+        maps=i_maps,
+        nside=nside,
+        frequencies=frequencies,
+        coordinate_frame="icrs",
+        q_maps=q_maps,
+        u_maps=u_maps,
+        v_maps=v_maps,
+        i_brightness_conversion=sky.brightness_conversion.value,
     )
+    if clear_other:
+        return sky.replace(point=None, healpix=new_healpix)
+    return sky.replace(healpix=new_healpix)
 
 
 def materialize_point_sources_model(
@@ -115,8 +123,14 @@ def materialize_point_sources_model(
     flux_limit: float = 0.0,
     *,
     lossy: bool = False,
+    clear_other: bool = False,
 ) -> SkyModel:
-    """Materialize a point-source payload from a HEALPix payload."""
+    """Materialize a point-source payload from a HEALPix payload.
+
+    By default the result is a hybrid model carrying both the original
+    HEALPix payload and the new point payload. Pass ``clear_other=True``
+    to drop the source HEALPix payload (pure HEALPix→point conversion).
+    """
     if sky.point is not None:
         return sky
 
@@ -171,23 +185,24 @@ def materialize_point_sources_model(
             for key, value in arrays.items()
         }
 
-    return sky._replace(
-        point=PointSourceData(
-            ra_rad=arrays["ra_rad"],
-            dec_rad=arrays["dec_rad"],
-            flux=arrays["flux"],
-            spectral_index=arrays["spectral_index"],
-            stokes_q=arrays["stokes_q"],
-            stokes_u=arrays["stokes_u"],
-            stokes_v=arrays["stokes_v"],
-            ref_freq=arrays["ref_freq"],
-            rotation_measure=arrays["rotation_measure"],
-            major_arcsec=arrays["major_arcsec"],
-            minor_arcsec=arrays["minor_arcsec"],
-            pa_deg=arrays["pa_deg"],
-            spectral_coeffs=arrays["spectral_coeffs"],
-        ),
+    new_point = PointSourceData(
+        ra_rad=arrays["ra_rad"],
+        dec_rad=arrays["dec_rad"],
+        flux=arrays["flux"],
+        spectral_index=arrays["spectral_index"],
+        stokes_q=arrays["stokes_q"],
+        stokes_u=arrays["stokes_u"],
+        stokes_v=arrays["stokes_v"],
+        ref_freq=arrays["ref_freq"],
+        rotation_measure=arrays["rotation_measure"],
+        major_arcsec=arrays["major_arcsec"],
+        minor_arcsec=arrays["minor_arcsec"],
+        pa_deg=arrays["pa_deg"],
+        spectral_coeffs=arrays["spectral_coeffs"],
     )
+    if clear_other:
+        return sky.replace(point=new_point, healpix=None)
+    return sky.replace(point=new_point)
 
 
 def with_memmap_backing(
@@ -245,7 +260,7 @@ def with_memmap_backing(
         v_brightness_conversion=sky.healpix.v_brightness_conversion,
     )
 
-    return sky._replace(healpix=healpix)
+    return sky.replace(healpix=healpix)
 
 
 # =============================================================================
@@ -575,7 +590,7 @@ def subtract_bright_sources(
             source_subtraction_method="gaussian_fit_inpaint",
             notes=old_prov.notes,
         )
-        return sky._replace(provenance=new_prov)
+        return sky.replace(provenance=new_prov)
 
     if max_sources is not None and candidate_pix.size > max_sources:
         order = np.argsort(-flux_per_pixel_jy[candidate_pix])
@@ -696,7 +711,7 @@ def subtract_bright_sources(
         + f"subtracted>{flux_limit_jy:g}Jy@{frequency_hz / 1e6:.1f}MHz "
         + f"(ok={n_fits_ok}/{n_fits_ok + n_fits_failed})",
     )
-    return sky._replace(healpix=new_healpix, provenance=new_prov)
+    return sky.replace(healpix=new_healpix, provenance=new_prov)
 
 
 # =============================================================================
@@ -861,7 +876,7 @@ def with_monopole(
     )
 
     if sky.healpix is None:
-        return sky._replace(provenance=new_prov)
+        return sky.replace(provenance=new_prov)
 
     new_maps = sky.healpix.maps + np.asarray(value_k, dtype=sky.healpix.maps.dtype)
     new_healpix = HealpixData(
@@ -882,7 +897,7 @@ def with_monopole(
         u_brightness_conversion=sky.healpix.u_brightness_conversion,
         v_brightness_conversion=sky.healpix.v_brightness_conversion,
     )
-    return sky._replace(healpix=new_healpix, provenance=new_prov)
+    return sky.replace(healpix=new_healpix, provenance=new_prov)
 
 
 def with_monopole_subtracted(sky: SkyModel) -> SkyModel:
@@ -931,7 +946,7 @@ def with_monopole_subtracted(sky: SkyModel) -> SkyModel:
     )
 
     if sky.healpix is None:
-        return sky._replace(provenance=new_prov)
+        return sky.replace(provenance=new_prov)
 
     maps = sky.healpix.maps
     # Per-channel pixel-area-weighted mean: pixels are equal-area on the HEALPix
@@ -957,4 +972,4 @@ def with_monopole_subtracted(sky: SkyModel) -> SkyModel:
         u_brightness_conversion=sky.healpix.u_brightness_conversion,
         v_brightness_conversion=sky.healpix.v_brightness_conversion,
     )
-    return sky._replace(healpix=new_healpix, provenance=new_prov)
+    return sky.replace(healpix=new_healpix, provenance=new_prov)

@@ -58,7 +58,7 @@ def _point(
         precision=precision,
     )
     beam_rad = beam_fwhm_arcsec * np.pi / 180.0 / 3600.0
-    return sky._replace(
+    return sky.replace(
         provenance=SkyProvenance(
             flux_completeness_jy=(flux_min_jy, flux_max_jy),
             flux_completeness_freq_hz=ref_freq_hz,
@@ -99,7 +99,6 @@ def _diffuse(
             frequencies=freqs_hz,
             coordinate_frame="icrs",
         ),
-        source_format="healpix_map",
         model_name=model_name,
         provenance=SkyProvenance(
             angular_resolution_rad=(lo_rad, float(np.pi)),
@@ -168,7 +167,7 @@ class TestDisjointnessPassRules:
             source_subtraction=SourceSubtractionStatus.NONE,
         )
         d = _diffuse(precision=precision, nside=nside, freqs_hz=freqs)
-        d = d._replace(provenance=d_prov)
+        d = d.replace(provenance=d_prov)
         p = _point(precision=precision, beam_fwhm_arcsec=60 * 60)  # 1 deg
         # point θ_min = 1 deg ≈ 0.0175 rad > 0.01 rad ⇒ disjoint by scale.
         combined = combine_models(
@@ -233,7 +232,7 @@ class TestDisjointnessFailures:
         """UNKNOWN on a diffuse+point pair must fail-closed under error."""
         # Make a diffuse model with no provenance declared (UNKNOWN).
         d = _diffuse(precision=precision)
-        d = d._replace(provenance=SkyProvenance())  # UNKNOWN
+        d = d.replace(provenance=SkyProvenance())  # UNKNOWN
         p = _point(precision=precision)
         with pytest.raises(ValueError, match="UNKNOWN"):
             combine_models(

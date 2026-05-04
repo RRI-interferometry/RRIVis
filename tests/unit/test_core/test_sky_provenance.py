@@ -3,7 +3,7 @@
 Covers:
 - SkyProvenance dataclass coercion and validation
 - Default (UNKNOWN) provenance on manual SkyModel construction
-- Provenance preservation through ``SkyModel._replace``
+- Provenance preservation through ``SkyModel.replace``
 - Loader-side population: synthetic test sources, (mocked) vizier & racs
   provenance helpers, and diffuse loaders via catalog metadata lookup.
 
@@ -121,11 +121,11 @@ class TestSkyModelProvenanceField:
         )
         sky = create_empty("empty", precision=precision, provenance=prov)
         # Replacing an unrelated field must not clobber provenance.
-        replaced = sky._replace(model_name="renamed")
+        replaced = sky.replace(model_name="renamed")
         assert replaced.provenance == prov
         # Explicitly replacing provenance overrides.
         new_prov = SkyProvenance(notes="updated")
-        updated = sky._replace(provenance=new_prov)
+        updated = sky.replace(provenance=new_prov)
         assert updated.provenance.notes == "updated"
 
     def test_equality_distinguishes_provenance(self, precision):

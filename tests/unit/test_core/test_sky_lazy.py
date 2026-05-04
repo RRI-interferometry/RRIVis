@@ -56,7 +56,6 @@ def make_healpix_model(
             q_maps=q_maps,
             u_maps=u_maps,
         ),
-        source_format=SkyFormat.HEALPIX,
         model_name="hp",
         _precision=precision,
     )

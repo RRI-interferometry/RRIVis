@@ -86,7 +86,6 @@ def make_healpix_model(
             u_maps=u_maps,
             v_maps=v_maps,
         ),
-        source_format=SkyFormat.HEALPIX,
         reference_frequency=float(freqs[0]),
         model_name=model_name,
         _precision=precision,
@@ -102,14 +101,6 @@ class TestPostInitValidation:
     def test_requires_payload(self):
         with pytest.raises(ValueError, match="requires at least one payload"):
             SkyModel()
-
-    def test_invalid_source_format_raises(self, precision):
-        with pytest.raises(ValueError, match="Unknown representation"):
-            SkyModel(
-                point=PointSourceData.empty(),
-                source_format="invalid",
-                _precision=precision,
-            )
 
     def test_precision_is_required(self):
         with pytest.raises(ValueError, match="explicit PrecisionConfig"):
@@ -179,8 +170,8 @@ class TestBasicBehavior:
             spectral_index=-0.8,
             precision=precision,
         )
-        assert sky.source_format == SkyFormat.POINT_SOURCES
-        assert sky.available_formats == {SkyFormat.POINT_SOURCES}
+        assert SkyFormat.POINT_SOURCES in sky.formats
+        assert sky.formats == {SkyFormat.POINT_SOURCES}
         assert sky.n_point_sources == 20
         assert np.allclose(sky.point.spectral_index, -0.8)
 
@@ -241,7 +232,7 @@ class TestMaterialization:
         assert sky is not test_sky
         assert sky.point is not None
         assert sky.healpix is not None
-        assert sky.available_formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
+        assert sky.formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
         assert sky.n_pixels == hp.nside2npix(16)
 
     def test_materialize_healpix_requires_reference_frequency(self, precision):
@@ -276,12 +267,12 @@ class TestMaterialization:
                 obs_frequency_config={"starting_frequency": 100.0},
             )
 
-    def test_counts_require_explicit_representation(self, test_sky, obs_freq_config):
+    def test_counts_per_representation(self, test_sky, obs_freq_config):
         hp_sky = materialize_healpix_model(
             test_sky, nside=8, obs_frequency_config=obs_freq_config
         )
-        with pytest.raises(ValueError, match="ambiguous"):
-            _ = hp_sky.n_sky_elements
+        assert hp_sky.n_point_sources == test_sky.n_point_sources
+        assert hp_sky.n_healpix_pixels == hp_sky.n_pixels
         assert hp_sky.n_sky_elements_for("point_sources") == test_sky.n_point_sources
         assert hp_sky.n_sky_elements_for("healpix_map") == hp_sky.n_pixels
 
@@ -293,7 +284,7 @@ class TestMaterialization:
     def test_materialize_point_sources_from_healpix(self, precision):
         sky = make_healpix_model(precision=precision, include_pol=True)
         point = materialize_point_sources_model(sky, frequency=100e6, lossy=True)
-        assert point.available_formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
+        assert point.formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
         assert point.point is not None
         assert point.healpix is not None
         assert point.n_point_sources > 0

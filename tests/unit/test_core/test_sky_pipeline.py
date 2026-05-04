@@ -30,7 +30,6 @@ def make_healpix_model(
             nside=nside,
             frequencies=freqs,
         ),
-        source_format=SkyFormat.HEALPIX,
         reference_frequency=float(freqs[0]),
         model_name="diffuse",
         _precision=precision,

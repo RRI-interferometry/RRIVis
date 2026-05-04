@@ -532,7 +532,7 @@ def _load_from_vizier_catalog(
         catalog_key=catalog_key,
         region=region,
     )
-    return sky._replace(provenance=provenance)
+    return sky.replace(provenance=provenance)
 
 
 # =========================================================================
@@ -1025,7 +1025,7 @@ def load_racs(
         catalog_key=f"racs_{band}",
         region=region,
     )
-    return sky._replace(provenance=provenance)
+    return sky.replace(provenance=provenance)
 
 
 # =========================================================================

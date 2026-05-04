@@ -13,7 +13,7 @@ from .combine import (
     _validate_requested_healpix_grid,
     combine_models,
 )
-from .model import SkyFormat, SkyModel
+from .model import SkyFormat, SkyModel, _coerce_format
 from .operations import materialize_healpix_model, materialize_point_sources_model
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ def prepare_sky_model(
         Target ratio of ``beam_fwhm`` to pixel scale for the advisor.
         Defaults to 5.
     """
-    target = SkyModel._coerce_representation(representation)
+    target = _coerce_format(representation)
     if not models:
         raise ValueError("prepare_sky_model requires at least one input model.")
 

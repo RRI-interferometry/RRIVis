@@ -41,7 +41,6 @@ def _healpix_sky(
             nside=nside,
             frequencies=np.array([150e6, 160e6]),
         ),
-        source_format="healpix_map",
         model_name="test_diffuse",
         provenance=SkyProvenance(
             angular_resolution_rad=(hp.nside2resol(nside), np.pi),
@@ -72,7 +71,6 @@ class TestWithMonopole:
                 q_maps=np.full((1, npix), 0.1, dtype=np.float32),
                 u_maps=np.full((1, npix), 0.2, dtype=np.float32),
             ),
-            source_format="healpix_map",
             provenance=SkyProvenance(
                 sky_coverage=SkyCoverage.FULL_SKY,
                 coverage_fraction=1.0,
@@ -157,7 +155,6 @@ class TestWithMonopoleSubtracted:
                 nside=nside,
                 frequencies=np.array([150e6]),
             ),
-            source_format="healpix_map",
             provenance=SkyProvenance(
                 sky_coverage=SkyCoverage.FULL_SKY,
                 coverage_fraction=1.0,

@@ -23,7 +23,6 @@ from ._data import (
 from ._precision import get_sky_storage_dtype
 from ._registry import register_loader
 from .catalogs import DIFFUSE_MODELS
-from .model import SkyFormat
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -397,7 +396,6 @@ def load_diffuse_sky(
             frequencies=frequencies,
             coordinate_frame="icrs",
         ),
-        source_format=SkyFormat.HEALPIX,
         model_name=model,
         brightness_conversion=brightness_conversion,
         provenance=provenance,
@@ -730,7 +728,6 @@ def load_pysm3(
             q_maps=q_arr,
             u_maps=u_arr,
         ),
-        source_format=SkyFormat.HEALPIX,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         provenance=provenance,

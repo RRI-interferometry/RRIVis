@@ -53,12 +53,12 @@ DEFAULT_COVERAGE_FOOTPRINT_NSIDE = 256
 DEFAULT_COVERAGE_FOOTPRINT_COORDINATE_FRAME = "icrs"
 
 
-def _normalize_coverage_coordinate_frame(coordinate_frame: str) -> str:
+def _normalize_coordinate_frame(coordinate_frame: str) -> str:
+    """Lowercase a frame name and validate it is 'icrs' or 'galactic'."""
     frame = str(coordinate_frame).lower()
     if frame not in {"icrs", "galactic"}:
         raise ValueError(
-            "SkyFootprint.coordinate_frame must be 'icrs' or 'galactic', got "
-            f"{coordinate_frame!r}."
+            f"coordinate_frame must be 'icrs' or 'galactic', got {coordinate_frame!r}."
         )
     return frame
 
@@ -79,7 +79,7 @@ class SkyFootprint:
         object.__setattr__(
             self,
             "coordinate_frame",
-            _normalize_coverage_coordinate_frame(self.coordinate_frame),
+            _normalize_coordinate_frame(self.coordinate_frame),
         )
 
         full_n_pixels = hp.nside2npix(nside)
@@ -492,6 +492,72 @@ def empty_source_arrays() -> SourceArrays:
 
 
 # =============================================================================
+# PointSpectrum (per-channel flux table)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class PointSpectrum:
+    """Lossless multi-frequency Stokes-flux samples for point sources.
+
+    All map arrays have shape ``(n_freq, N)``. Q and U are paired (both or
+    neither); V is independently optional. ``frequencies`` is 1-D, strictly
+    ascending, finite, and positive. When attached to a
+    :class:`PointSourceData`, ``N`` matches the source count and consumers
+    use nearest-channel lookup at observation frequencies.
+    """
+
+    flux: np.ndarray  # shape (n_freq, N), Stokes I in Jy
+    frequencies: np.ndarray  # shape (n_freq,), Hz, ascending
+    stokes_q: np.ndarray | None = None  # shape (n_freq, N)
+    stokes_u: np.ndarray | None = None  # shape (n_freq, N)
+    stokes_v: np.ndarray | None = None  # shape (n_freq, N)
+
+    def __post_init__(self) -> None:
+        freqs = np.asarray(self.frequencies)
+        if freqs.ndim != 1 or freqs.size == 0:
+            raise ValueError("PointSpectrum.frequencies must be a non-empty 1-D array.")
+        if not np.all(np.isfinite(freqs)) or np.any(freqs <= 0):
+            raise ValueError("PointSpectrum.frequencies must be finite and positive.")
+        if freqs.size > 1 and not np.all(np.diff(freqs) > 0):
+            raise ValueError("PointSpectrum.frequencies must be strictly ascending.")
+        if self.flux.ndim != 2 or self.flux.shape[0] != freqs.size:
+            raise ValueError(
+                f"PointSpectrum.flux shape {self.flux.shape} does not match "
+                f"frequencies (expected first axis = {freqs.size})."
+            )
+        if (self.stokes_q is None) != (self.stokes_u is None):
+            raise ValueError(
+                "PointSpectrum.stokes_q and stokes_u must be set together."
+            )
+        for name in ("stokes_q", "stokes_u", "stokes_v"):
+            arr = getattr(self, name)
+            if arr is not None and arr.shape != self.flux.shape:
+                raise ValueError(
+                    f"PointSpectrum.{name} shape {arr.shape} does not match "
+                    f"flux shape {self.flux.shape}."
+                )
+
+    @property
+    def n_frequencies(self) -> int:
+        return int(self.frequencies.size)
+
+    @property
+    def n_sources(self) -> int:
+        return int(self.flux.shape[1])
+
+    def masked_sources(self, mask: np.ndarray) -> PointSpectrum:
+        """Return a new PointSpectrum with a boolean mask applied along sources."""
+        return PointSpectrum(
+            flux=self.flux[:, mask],
+            frequencies=self.frequencies,
+            stokes_q=self.stokes_q[:, mask] if self.stokes_q is not None else None,
+            stokes_u=self.stokes_u[:, mask] if self.stokes_u is not None else None,
+            stokes_v=self.stokes_v[:, mask] if self.stokes_v is not None else None,
+        )
+
+
+# =============================================================================
 # PointSourceData
 # =============================================================================
 
@@ -527,14 +593,10 @@ class PointSourceData:
     source_id: np.ndarray | None = None
     extra_columns: dict[str, np.ndarray] = field(default_factory=dict)
 
-    # Optional per-channel flux tables (lossless multi-frequency spectrum).
-    # When populated, consumers evaluate flux at an observation frequency
-    # via nearest-channel lookup rather than spectral-index extrapolation.
-    per_channel_flux: np.ndarray | None = None  # shape (n_freq, N) — Stokes I Jy
-    per_channel_stokes_q: np.ndarray | None = None  # shape (n_freq, N)
-    per_channel_stokes_u: np.ndarray | None = None  # shape (n_freq, N)
-    per_channel_stokes_v: np.ndarray | None = None  # shape (n_freq, N)
-    channel_frequencies: np.ndarray | None = None  # shape (n_freq,), Hz, ascending
+    # Optional lossless multi-frequency Stokes-flux table. When populated,
+    # consumers evaluate flux at an observation frequency via nearest-channel
+    # lookup rather than spectral-index extrapolation.
+    spectrum: PointSpectrum | None = None
 
     def __post_init__(self) -> None:
         """Validate array consistency."""
@@ -592,64 +654,12 @@ class PointSourceData:
                 f"rows, expected {n}."
             )
 
-        # Per-channel flux tables (all-or-none between per_channel_flux and
-        # channel_frequencies; Q/U paired; V independently optional).
-        if (self.per_channel_flux is None) != (self.channel_frequencies is None):
+        # Spectrum (per-channel flux table) source-count consistency.
+        if self.spectrum is not None and self.spectrum.n_sources != n:
             raise ValueError(
-                "PointSourceData: per_channel_flux and channel_frequencies must "
-                "be set together (or both None)."
+                f"PointSourceData: spectrum has {self.spectrum.n_sources} "
+                f"sources, expected {n}."
             )
-        if self.channel_frequencies is not None:
-            freqs = np.asarray(self.channel_frequencies)
-            if freqs.ndim != 1 or freqs.size == 0:
-                raise ValueError(
-                    "PointSourceData: channel_frequencies must be a non-empty 1-D array."
-                )
-            if not np.all(np.isfinite(freqs)) or np.any(freqs <= 0):
-                raise ValueError(
-                    "PointSourceData: channel_frequencies must be finite and positive."
-                )
-            if freqs.size > 1 and not np.all(np.diff(freqs) > 0):
-                raise ValueError(
-                    "PointSourceData: channel_frequencies must be strictly ascending."
-                )
-            n_freq = freqs.size
-            assert self.per_channel_flux is not None  # for type checkers
-            if self.per_channel_flux.shape != (n_freq, n):
-                raise ValueError(
-                    "PointSourceData: per_channel_flux shape "
-                    f"{self.per_channel_flux.shape} does not match "
-                    f"(n_channel_frequencies={n_freq}, n_sources={n})."
-                )
-            if (self.per_channel_stokes_q is None) != (
-                self.per_channel_stokes_u is None
-            ):
-                raise ValueError(
-                    "PointSourceData: per_channel_stokes_q and per_channel_stokes_u "
-                    "must be set together."
-                )
-            for name in (
-                "per_channel_stokes_q",
-                "per_channel_stokes_u",
-                "per_channel_stokes_v",
-            ):
-                arr = getattr(self, name)
-                if arr is not None and arr.shape != (n_freq, n):
-                    raise ValueError(
-                        f"PointSourceData: {name} shape {arr.shape} does not match "
-                        f"per_channel_flux shape {(n_freq, n)}."
-                    )
-        else:
-            # Guard against user setting per-channel Stokes without the primary table.
-            for name in (
-                "per_channel_stokes_q",
-                "per_channel_stokes_u",
-                "per_channel_stokes_v",
-            ):
-                if getattr(self, name) is not None:
-                    raise ValueError(
-                        f"PointSourceData: {name} requires per_channel_flux to be set."
-                    )
         normalized_extra: dict[str, np.ndarray] = {}
         for name, arr in self.extra_columns.items():
             arr = np.asarray(arr)
@@ -732,27 +742,9 @@ class PointSourceData:
             ),
             source_id=self.source_id[mask] if self.source_id is not None else None,
             extra_columns={name: arr[mask] for name, arr in self.extra_columns.items()},
-            per_channel_flux=(
-                self.per_channel_flux[:, mask]
-                if self.per_channel_flux is not None
-                else None
-            ),
-            per_channel_stokes_q=(
-                self.per_channel_stokes_q[:, mask]
-                if self.per_channel_stokes_q is not None
-                else None
-            ),
-            per_channel_stokes_u=(
-                self.per_channel_stokes_u[:, mask]
-                if self.per_channel_stokes_u is not None
-                else None
-            ),
-            per_channel_stokes_v=(
-                self.per_channel_stokes_v[:, mask]
-                if self.per_channel_stokes_v is not None
-                else None
-            ),
-            channel_frequencies=self.channel_frequencies,
+            spectrum=self.spectrum.masked_sources(mask)
+            if self.spectrum is not None
+            else None,
         )
 
     def as_source_arrays(
@@ -812,26 +804,26 @@ class PointSourceData:
                 self.spectral_coeffs[mask] if self.spectral_coeffs is not None else None
             ),
             "per_channel_flux": (
-                self.per_channel_flux[:, mask]
-                if self.per_channel_flux is not None
-                else None
+                self.spectrum.flux[:, mask] if self.spectrum is not None else None
             ),
             "per_channel_stokes_q": (
-                self.per_channel_stokes_q[:, mask]
-                if self.per_channel_stokes_q is not None
+                self.spectrum.stokes_q[:, mask]
+                if self.spectrum is not None and self.spectrum.stokes_q is not None
                 else None
             ),
             "per_channel_stokes_u": (
-                self.per_channel_stokes_u[:, mask]
-                if self.per_channel_stokes_u is not None
+                self.spectrum.stokes_u[:, mask]
+                if self.spectrum is not None and self.spectrum.stokes_u is not None
                 else None
             ),
             "per_channel_stokes_v": (
-                self.per_channel_stokes_v[:, mask]
-                if self.per_channel_stokes_v is not None
+                self.spectrum.stokes_v[:, mask]
+                if self.spectrum is not None and self.spectrum.stokes_v is not None
                 else None
             ),
-            "channel_frequencies": self.channel_frequencies,
+            "channel_frequencies": (
+                self.spectrum.frequencies if self.spectrum is not None else None
+            ),
         }
 
     # Tuple of all per-source 1-D array field names (for iteration).
@@ -876,6 +868,7 @@ class HealpixData:
     nside: int
     frequencies: np.ndarray  # shape (n_freq,), in Hz
     coordinate_frame: str = "icrs"
+    ordering: str = "ring"  # "ring" or "nest" — HEALPix pixel ordering scheme
     hpx_inds: np.ndarray | None = None
 
     q_maps: np.ndarray | None = None
@@ -900,6 +893,13 @@ class HealpixData:
                 f"got {self.coordinate_frame!r}."
             )
         object.__setattr__(self, "coordinate_frame", frame)
+
+        ordering = str(self.ordering).lower()
+        if ordering not in {"ring", "nest"}:
+            raise ValueError(
+                f"HealpixData.ordering must be 'ring' or 'nest', got {self.ordering!r}."
+            )
+        object.__setattr__(self, "ordering", ordering)
 
         expected_npix = hp.nside2npix(self.nside)
         if self.maps.ndim != 2:

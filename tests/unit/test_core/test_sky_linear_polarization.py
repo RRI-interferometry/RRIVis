@@ -35,7 +35,6 @@ def _polarised_healpix(
             nside=nside,
             frequencies=np.array([150e6]),
         ),
-        source_format="healpix_map",
         model_name="test_pol",
         _precision=precision,
     )
@@ -75,7 +74,6 @@ class TestLinearPolHealpix:
                 nside=nside,
                 frequencies=np.array([150e6]),
             ),
-            source_format="healpix_map",
             model_name="i_only",
             _precision=precision,
         )

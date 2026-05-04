@@ -185,7 +185,7 @@ class TestHealpixBranch:
             file_glob=str(tmp_path / "c_*.skyh5"),
             precision=precision,
         )
-        assert sky.source_format is SkyFormat.HEALPIX
+        assert SkyFormat.HEALPIX in sky.formats
         assert sky.healpix is not None
         assert sky.healpix.maps.shape == (3, hp.nside2npix(8))
         np.testing.assert_array_equal(
@@ -289,14 +289,13 @@ class TestPointBranch:
             file_glob=str(tmp_path / "p_*.skyh5"),
             precision=precision,
         )
-        assert sky.source_format is SkyFormat.POINT_SOURCES
+        assert SkyFormat.POINT_SOURCES in sky.formats
         assert sky.point is not None
         assert sky.point.n_sources == 3
-        assert sky.point.per_channel_flux is not None
-        assert sky.point.per_channel_flux.shape == (3, 3)
-        assert sky.point.channel_frequencies is not None
+        assert sky.point.spectrum is not None
+        assert sky.point.spectrum.flux.shape == (3, 3)
         np.testing.assert_array_equal(
-            sky.point.channel_frequencies, np.array([100e6, 150e6, 200e6])
+            sky.point.spectrum.frequencies, np.array([100e6, 150e6, 200e6])
         )
 
     def test_reference_channel_slice_contract(
@@ -311,9 +310,9 @@ class TestPointBranch:
             precision=precision,
         )
         assert sky.point is not None
-        assert sky.point.per_channel_flux is not None
-        # flux == per_channel_flux[ref_idx, :] where ref channel is 150 MHz (idx 1).
-        np.testing.assert_allclose(sky.point.flux, sky.point.per_channel_flux[1, :])
+        assert sky.point.spectrum is not None
+        # flux == spectrum.flux[ref_idx, :] where ref channel is 150 MHz (idx 1).
+        np.testing.assert_allclose(sky.point.flux, sky.point.spectrum.flux[1, :])
         assert sky.point.ref_freq[0] == pytest.approx(150e6)
 
     def test_rejects_mismatched_source_list(
@@ -367,8 +366,8 @@ class TestPointBranch:
         )
         assert sky.point is not None
         assert sky.point.n_sources == 1
-        assert sky.point.per_channel_flux is not None
-        assert sky.point.per_channel_flux.shape == (2, 1)
+        assert sky.point.spectrum is not None
+        assert sky.point.spectrum.flux.shape == (2, 1)
 
 
 # --------------------------------------------------------------------------- #

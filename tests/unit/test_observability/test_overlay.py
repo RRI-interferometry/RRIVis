@@ -20,7 +20,7 @@ from rrivis.core.observability import (  # noqa: E402
 )
 from rrivis.core.precision import PrecisionConfig  # noqa: E402
 from rrivis.core.sky import HealpixData, SkyPlotter  # noqa: E402
-from rrivis.core.sky.model import SkyFormat, SkyModel  # noqa: E402
+from rrivis.core.sky.model import SkyModel  # noqa: E402
 
 
 def _single_channel_sky(nside: int = 16) -> SkyModel:
@@ -33,7 +33,6 @@ def _single_channel_sky(nside: int = 16) -> SkyModel:
             frequencies=np.array([80e6], dtype=np.float64),
             coordinate_frame="icrs",
         ),
-        source_format=SkyFormat.HEALPIX,
         model_name="overlay-test",
         brightness_conversion="rayleigh-jeans",
         _precision=PrecisionConfig.standard(),

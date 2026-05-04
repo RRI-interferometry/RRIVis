@@ -12,7 +12,7 @@ from matplotlib.figure import Figure
 
 from rrivis.core.precision import PrecisionConfig
 from rrivis.core.sky import HealpixData, SkyPlotter, create_test_sources
-from rrivis.core.sky.model import SkyFormat, SkyModel
+from rrivis.core.sky.model import SkyModel
 
 
 @pytest.fixture
@@ -39,7 +39,6 @@ def healpix_sky(precision):
     maps = np.random.default_rng(42).uniform(10, 1000, (2, npix)).astype(np.float32)
     return SkyModel(
         healpix=HealpixData(maps=maps, nside=nside, frequencies=freqs),
-        source_format=SkyFormat.HEALPIX,
         reference_frequency=100e6,
         model_name="healpix_test",
         _precision=precision,
