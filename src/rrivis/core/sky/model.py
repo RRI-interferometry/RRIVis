@@ -263,6 +263,7 @@ class SkyModel:
             maps=_cast_map(healpix_data.maps),
             nside=healpix_data.nside,
             frequencies=np.asarray(healpix_data.frequencies, dtype=flux_dt),
+            channel_widths_hz=healpix_data.channel_widths_hz,
             coordinate_frame=healpix_data.coordinate_frame,
             ordering=healpix_data.ordering,
             hpx_inds=healpix_data.hpx_inds,

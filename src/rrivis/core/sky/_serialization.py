@@ -238,7 +238,53 @@ def save_skyh5(
         )
     psky = to_pyradiosky(sky, representation=representation)
     psky.write_skyh5(filename, clobber=clobber, data_compression=compression)
+
+    # Stash SkyProvenance as a JSON-encoded HDF5 root attribute so that
+    # round-tripping a source-subtracted Haslam template (or any sky with
+    # tagged provenance) preserves the source_subtraction / monopole /
+    # completeness metadata that pyradiosky does not model.  Non-rrivis
+    # readers ignore the attribute; our load_skyh5 reads it back below.
+    import json
+
+    import h5py
+
+    with h5py.File(filename, "a") as fh:
+        fh.attrs["rrivis_provenance"] = json.dumps(sky.provenance.to_dict())
+
     logger.info(f"SkyModel saved to {filename}")
+
+
+def _read_skyh5_provenance(filename: str):  # type: ignore[no-untyped-def]
+    """Return the SkyProvenance stashed in ``filename`` by ``save_skyh5``.
+
+    Returns ``None`` if the file has no rrivis-written provenance attribute
+    (e.g. it was written by a different pyradiosky-based tool).
+    """
+    import json
+
+    import h5py
+
+    from ._data import SkyProvenance
+
+    try:
+        with h5py.File(filename, "r") as fh:
+            raw = fh.attrs.get("rrivis_provenance")
+    except OSError:
+        return None
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Failed to decode rrivis_provenance attribute in %s; provenance "
+            "will be reconstructed from defaults.",
+            filename,
+        )
+        return None
+    return SkyProvenance.from_dict(payload)
 
 
 def load_skyh5(
@@ -249,10 +295,18 @@ def load_skyh5(
 ) -> SkyModel:
     """Load a SkyModel from a SkyH5 file.
 
-    Convenience wrapper around load_pyradiosky_file().
+    Convenience wrapper around load_pyradiosky_file().  When the file was
+    written by ``save_skyh5``, the SkyProvenance round-trips via the
+    ``rrivis_provenance`` HDF5 root attribute; for files written by other
+    tools the provenance falls back to whatever pyradiosky/loader defaults
+    produce.
     """
     from ._loaders_pyradiosky import load_pyradiosky_file
 
-    return load_pyradiosky_file(
+    sky = load_pyradiosky_file(
         filename, filetype="skyh5", precision=precision, **kwargs
     )
+    stashed = _read_skyh5_provenance(filename)
+    if stashed is not None:
+        sky = sky.replace(provenance=stashed)
+    return sky

@@ -67,14 +67,15 @@ def _build_point_catalog_provenance(
     The returned provenance declares the catalog's flux-completeness band,
     angular resolution, and ABSOLUTE_NO_CMB monopole (point catalogs carry no
     isotropic background).  ``flux_completeness_jy`` uses ``flux_limit_jy``
-    as the lower bound and ``max(flux_jy)`` as the upper bound.
+    as the lower bound (the requested loader cut, also the catalog's effective
+    detection floor for this query) and the catalog's saturation/brightest-
+    sources cutoff (``info.flux_saturation_jy`` if known, else ``inf``) as the
+    upper bound.  This is a metadata band, not a sample statistic — the
+    brightest source actually present in the loaded subset is irrelevant.
     """
-    upper = float(np.max(flux_jy)) if flux_jy is not None and flux_jy.size else None
-    flux_completeness = (
-        (float(flux_limit_jy), upper)
-        if upper is not None and upper > flux_limit_jy
-        else None
-    )
+    saturation = getattr(info, "flux_saturation_jy", None)
+    upper = float(saturation) if saturation is not None else float("inf")
+    flux_completeness: tuple[float, float] | None = (float(flux_limit_jy), upper)
 
     # Angular resolution: beam FWHM at the low end, full sky at the high end.
     beam_arcsec = getattr(info, "beam_fwhm_arcsec", None)

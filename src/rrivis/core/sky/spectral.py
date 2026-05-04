@@ -23,6 +23,19 @@ def compute_spectral_scale(
     Uses log-polynomial when *spectral_coeffs* has >1 term, else simple
     power law ``(freq / ref_freq) ** alpha``.
 
+    The log-polynomial form follows the standard radio convention
+    (e.g. Remazeilles, Dickinson & Banday 2015 eqn. 7):
+
+    .. math::
+
+       S(\\nu) = S_0 \\cdot 10^{\\sum_k \\alpha_k (\\log_{10} r)^{k+1}},
+       \\quad r = \\nu / \\nu_0.
+
+    This is mathematically equivalent to the alternative form
+    ``r ** sum_k alpha_k (log10 r)**k`` because
+    ``r**x = 10**(x * log10 r)``.  We use the standard form here so that
+    the coefficient meaning lines up with the literature.
+
     Parameters
     ----------
     alpha : np.ndarray
@@ -53,10 +66,10 @@ def compute_spectral_scale(
         return np.ones_like(alpha)
     if spectral_coeffs is not None and spectral_coeffs.shape[1] > 1:
         log_ratio = np.log10(ratio)
-        exponent = np.zeros(len(alpha), dtype=np.float64)
+        log_scale = np.zeros(len(alpha), dtype=np.float64)
         for k in range(spectral_coeffs.shape[1]):
-            exponent += spectral_coeffs[:, k] * log_ratio**k
-        return ratio**exponent
+            log_scale += spectral_coeffs[:, k] * log_ratio ** (k + 1)
+        return 10.0**log_scale
     return ratio**alpha
 
 

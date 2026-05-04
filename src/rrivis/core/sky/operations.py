@@ -6,6 +6,7 @@ operations outside ``SkyModel`` itself.
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 import warnings
 from typing import TYPE_CHECKING, Any
@@ -34,12 +35,19 @@ def materialize_healpix_model(
     ref_frequency: float | None = None,
     memmap_path: str | None = None,
     clear_other: bool = False,
+    polarization_brightness_conversion: str = "rayleigh-jeans",
 ) -> SkyModel:
     """Materialize a HEALPix payload from a point-source payload.
 
     By default the result is a hybrid model carrying both the original
     point payload and the new HEALPix payload. Pass ``clear_other=True``
     to drop the source point payload (pure point→HEALPix conversion).
+
+    Stokes I uses ``sky.brightness_conversion``.  Stokes Q/U/V default to
+    Rayleigh-Jeans because polarized brightness can be negative; pass
+    ``polarization_brightness_conversion="planck"`` to use Planck for
+    Q/U/V too (requires every binned per-pixel Q/U/V flux to be strictly
+    positive).
     """
     if sky.point is None:
         raise ValueError(
@@ -78,7 +86,7 @@ def materialize_healpix_model(
             )
 
     spectrum = sky.point.spectrum
-    i_maps, q_maps, u_maps, v_maps = point_sources_to_healpix_maps(
+    i_maps, q_maps, u_maps, v_maps, collision_stats = point_sources_to_healpix_maps(
         ra_rad=sky.point.ra_rad,
         dec_rad=sky.point.dec_rad,
         flux=sky.point.flux,
@@ -100,6 +108,7 @@ def materialize_healpix_model(
         per_channel_stokes_u=spectrum.stokes_u if spectrum is not None else None,
         per_channel_stokes_v=spectrum.stokes_v if spectrum is not None else None,
         channel_frequencies=spectrum.frequencies if spectrum is not None else None,
+        polarization_brightness_conversion=polarization_brightness_conversion,
     )
 
     new_healpix = HealpixData(
@@ -111,10 +120,29 @@ def materialize_healpix_model(
         u_maps=u_maps,
         v_maps=v_maps,
         i_brightness_conversion=sky.brightness_conversion.value,
+        q_brightness_conversion=polarization_brightness_conversion,
+        u_brightness_conversion=polarization_brightness_conversion,
+        v_brightness_conversion=polarization_brightness_conversion,
     )
+
+    # Record pixel collisions in provenance.notes so a downstream consumer
+    # can detect — programmatically — that per-source identities were
+    # merged into individual pixels (and therefore that per-source spectral
+    # indices, source IDs, etc. cannot be recovered).
+    new_prov = sky.provenance
+    n_merged = collision_stats.get("n_merged", 0)
+    n_sources = collision_stats.get("n_sources", 0)
+    if n_merged > 0 and n_sources > 0:
+        pct = n_merged / n_sources
+        note = f"pixel_collisions={n_merged}/{n_sources} ({pct:.2%}) at nside={nside}"
+        merged_notes = (
+            f"{sky.provenance.notes}; {note}" if sky.provenance.notes else note
+        )
+        new_prov = dataclasses.replace(sky.provenance, notes=merged_notes)
+
     if clear_other:
-        return sky.replace(point=None, healpix=new_healpix)
-    return sky.replace(healpix=new_healpix)
+        return sky.replace(point=None, healpix=new_healpix, provenance=new_prov)
+    return sky.replace(healpix=new_healpix, provenance=new_prov)
 
 
 def materialize_point_sources_model(
@@ -124,12 +152,18 @@ def materialize_point_sources_model(
     *,
     lossy: bool = False,
     clear_other: bool = False,
+    polarization_brightness_conversion: str = "rayleigh-jeans",
 ) -> SkyModel:
     """Materialize a point-source payload from a HEALPix payload.
 
     By default the result is a hybrid model carrying both the original
     HEALPix payload and the new point payload. Pass ``clear_other=True``
     to drop the source HEALPix payload (pure HEALPix→point conversion).
+
+    Stokes I uses ``sky.brightness_conversion``.  Stokes Q/U/V default to
+    Rayleigh-Jeans because polarized brightness can be negative; pass
+    ``polarization_brightness_conversion="planck"`` to use Planck for
+    Q/U/V too (requires every Q/U/V pixel to be strictly positive).
     """
     if sky.point is not None:
         return sky
@@ -176,6 +210,7 @@ def materialize_point_sources_model(
         healpix_maps=healpix.maps,
         coordinate_frame=healpix.coordinate_frame,
         ref_freq_out=resolve_freq,
+        polarization_brightness_conversion=polarization_brightness_conversion,
         warn=False,
     )
     if flux_limit > 0:
@@ -200,9 +235,22 @@ def materialize_point_sources_model(
         pa_deg=arrays["pa_deg"],
         spectral_coeffs=arrays["spectral_coeffs"],
     )
+
+    # Update provenance: the new point catalog has *no* sub-pixel positional
+    # information.  Its effective angular resolution is the HEALPix pixel
+    # size at the nside used during conversion.  Without this update,
+    # downstream code that trusts ``angular_resolution_rad`` would still see
+    # the original diffuse template's resolution band, which no longer
+    # describes the quantized point catalog we just produced.
+    pixel_resolution_rad = float(hp.nside2resol(healpix.nside))
+    new_prov = dataclasses.replace(
+        sky.provenance,
+        angular_resolution_rad=(pixel_resolution_rad, float(np.pi)),
+    )
+
     if clear_other:
-        return sky.replace(point=new_point, healpix=None)
-    return sky.replace(point=new_point)
+        return sky.replace(point=new_point, healpix=None, provenance=new_prov)
+    return sky.replace(point=new_point, provenance=new_prov)
 
 
 def with_memmap_backing(
@@ -233,6 +281,7 @@ def with_memmap_backing(
         maps=_to_memmap(sky.healpix.maps, "i_maps"),
         nside=sky.healpix.nside,
         frequencies=sky.healpix.frequencies,
+        channel_widths_hz=sky.healpix.channel_widths_hz,
         coordinate_frame=sky.healpix.coordinate_frame,
         hpx_inds=sky.healpix.hpx_inds,
         q_maps=(
@@ -316,24 +365,47 @@ def _gnomonic_patch_coords(
     return x, y
 
 
-def _fit_symmetric_gaussian(
+def _fit_elliptical_gaussian(
     x: np.ndarray,
     y: np.ndarray,
     z: np.ndarray,
     sigma_init_rad: float,
 ) -> tuple[np.ndarray, bool]:
-    """Fit ``A · exp(-½·r²/σ²) + b_x·x + b_y·y + c`` to the patch.
+    """Fit an elliptical 2-D Gaussian + planar baseline to a tangent-plane patch.
 
-    Returns ``(params, ok)`` where ``params`` is
-    ``[A, x0, y0, sigma, bx, by, c]``; ``ok`` is False if the fit failed or
-    produced non-physical values.
+    Model::
+
+        x' =  (x - x0) cos(pa) + (y - y0) sin(pa)
+        y' = -(x - x0) sin(pa) + (y - y0) cos(pa)
+        f(x, y) = A · exp(-½ · (x'²/σ_M² + y'²/σ_m²))
+                  + bx·x + by·y + c
+
+    Matches the elliptical-Gaussian morphology used in Remazeilles,
+    Dickinson & Banday (2015) §3.  σ_M / σ_m are the major/minor 1-σ
+    widths; ``pa`` is the position angle of the major axis from the +x
+    axis (radians, wrapped into ``[-π/2, π/2]`` by symmetry).
+
+    Returns
+    -------
+    params : np.ndarray
+        ``[A, x0, y0, sigma_major, sigma_minor, pa_rad, bx, by, c]``.
+    ok : bool
+        ``False`` when the fit failed or produced non-physical values.
     """
     from scipy.optimize import curve_fit
 
-    def _model(xy, amp, x0, y0, sigma, bx, by, c):
+    def _model(xy, amp, x0, y0, sigma_M, sigma_m, pa, bx, by, c):
         xx, yy = xy
-        r2 = (xx - x0) ** 2 + (yy - y0) ** 2
-        return amp * np.exp(-0.5 * r2 / sigma**2) + bx * xx + by * yy + c
+        cos_pa = np.cos(pa)
+        sin_pa = np.sin(pa)
+        xr = (xx - x0) * cos_pa + (yy - y0) * sin_pa
+        yr = -(xx - x0) * sin_pa + (yy - y0) * cos_pa
+        return (
+            amp * np.exp(-0.5 * (xr**2 / sigma_M**2 + yr**2 / sigma_m**2))
+            + bx * xx
+            + by * yy
+            + c
+        )
 
     peak_idx = int(np.argmax(z))
     amp_init = float(z[peak_idx] - np.median(z))
@@ -342,7 +414,9 @@ def _fit_symmetric_gaussian(
         amp_init,
         float(x[peak_idx]),
         float(y[peak_idx]),
-        float(sigma_init_rad),
+        float(sigma_init_rad),  # sigma_major
+        float(sigma_init_rad),  # sigma_minor
+        0.0,  # pa_rad
         0.0,
         0.0,
         float(np.median(z)),
@@ -353,6 +427,8 @@ def _fit_symmetric_gaussian(
         float(x.min()),
         float(y.min()),
         sigma_init_rad * 0.2,
+        sigma_init_rad * 0.2,
+        -np.pi / 2.0,
         -np.inf,
         -np.inf,
         -np.inf,
@@ -362,6 +438,8 @@ def _fit_symmetric_gaussian(
         float(x.max()),
         float(y.max()),
         sigma_init_rad * 5.0,
+        sigma_init_rad * 5.0,
+        np.pi / 2.0,
         np.inf,
         np.inf,
         np.inf,
@@ -374,25 +452,44 @@ def _fit_symmetric_gaussian(
             z,
             p0=p0,
             bounds=(lower, upper),
-            maxfev=500,
+            maxfev=1000,
         )
     except (RuntimeError, ValueError):
         return np.asarray(p0), False
 
-    sigma_fit = popt[3]
     amp_fit = popt[0]
-    if amp_fit <= 0.0 or sigma_fit <= sigma_init_rad * 0.25:
+    sigma_M_fit = popt[3]
+    sigma_m_fit = popt[4]
+    sigma_min = min(sigma_M_fit, sigma_m_fit)
+    # Reject degenerate fits (negative amp, or either axis collapsed below
+    # the resolution floor that would imply an unresolved spike-on-noise).
+    if amp_fit <= 0.0 or sigma_min <= sigma_init_rad * 0.25:
         return popt, False
+
+    # Canonicalise so popt[3] is the major axis (larger σ) and popt[5] is
+    # measured from that axis.  Without this, the fitter is free to swap
+    # axes and shift the angle by π/2, which is fine for the model but
+    # confusing for downstream consumers that read sigma_major directly.
+    if sigma_m_fit > sigma_M_fit:
+        popt[3], popt[4] = sigma_m_fit, sigma_M_fit
+        pa_new = popt[5] + np.pi / 2.0
+        # Re-wrap into [-π/2, π/2].
+        pa_new = (pa_new + np.pi / 2.0) % np.pi - np.pi / 2.0
+        popt[5] = pa_new
     return popt, True
 
 
-def _evaluate_symmetric_gaussian(
+def _evaluate_elliptical_gaussian(
     params: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
 ) -> np.ndarray:
-    amp, x0, y0, sigma, _bx, _by, _c = params
-    return amp * np.exp(-0.5 * ((x - x0) ** 2 + (y - y0) ** 2) / sigma**2)
+    amp, x0, y0, sigma_M, sigma_m, pa, _bx, _by, _c = params
+    cos_pa = np.cos(pa)
+    sin_pa = np.sin(pa)
+    xr = (x - x0) * cos_pa + (y - y0) * sin_pa
+    yr = -(x - x0) * sin_pa + (y - y0) * cos_pa
+    return amp * np.exp(-0.5 * (xr**2 / sigma_M**2 + yr**2 / sigma_m**2))
 
 
 def _inpaint_by_alm(
@@ -456,7 +553,9 @@ def subtract_bright_sources(
        (flux-scaled to ``frequency_hz`` and filtered at ``flux_limit_jy``),
        or auto-detect local maxima in the map above ``flux_limit_jy``.
     2. **Fit.**  For each candidate, project a small tangent-plane patch
-       and fit a 2D symmetric Gaussian + planar baseline.
+       and fit a 2-D *elliptical* Gaussian (independent major/minor σ
+       and a position angle) + planar baseline, matching the morphology
+       fit by Remazeilles 2015.
     3. **Subtract.**  Evaluate the fitted Gaussian on the patch and
        subtract from the working Stokes-I cube (per frequency).
     4. **Inpaint.**  Pixels within ``inpaint_mask_sigma × σ_fit`` of each
@@ -506,6 +605,29 @@ def subtract_bright_sources(
     ------
     ValueError
         If the input does not carry a dense HEALPix payload.
+
+    Notes
+    -----
+    **Frequency dependence of the candidate set.**  Detection — and supplied-
+    catalog filtering — is performed at ``frequency_hz`` only.  Once the
+    candidate list is fixed at that single reference frequency, the
+    Gaussian-fit-and-subtract loop is repeated independently at every
+    frequency in the cube.  Two consequences follow:
+
+    * A source above ``flux_limit_jy`` at ``frequency_hz`` is subtracted
+      at *all* output frequencies, even if its scaled flux drops below the
+      threshold elsewhere in the band.
+    * A source below the threshold at ``frequency_hz`` but above it at
+      other frequencies is *missed entirely* — it never enters the
+      candidate list and is never subtracted.
+
+    This is the same simplification used in Remazeilles, Dickinson &
+    Banday (2015) §3 and is acceptable for the steep, smoothly varying
+    sources that dominate diffuse-template residuals.  Spectrally
+    unusual sources (GPS, IPS, transients, sources crossing the
+    threshold within the band) require either per-frequency repetition
+    of this routine or a multi-frequency catalog evaluated at each
+    output frequency.
     """
     if sky.healpix is None:
         raise ValueError(
@@ -626,28 +748,37 @@ def subtract_bright_sources(
 
             px, py = _gnomonic_patch_coords(int(center), patch, nside)
             pz = flux_ch_jy[patch]
-            params, ok = _fit_symmetric_gaussian(px, py, pz, sigma_init_rad=sigma_init)
+            params, ok = _fit_elliptical_gaussian(px, py, pz, sigma_init_rad=sigma_init)
             if not ok:
                 n_fits_failed += 1
                 continue
 
             # Reject fits whose integrated flux is below the catalog-style
             # threshold so we don't subtract noise-level bumps.
+            # Integral of A·exp(-½(x'²/σ_M² + y'²/σ_m²)) over the plane is
+            # 2π·A·σ_M·σ_m; divide by pixel area to convert from Jy/sr
+            # back to a Jy total.
             amp_fit = float(params[0])
-            sigma_fit_sq = float(params[3]) ** 2
-            integrated_flux_jy = amp_fit * 2.0 * np.pi * sigma_fit_sq / pixel_area_sr
+            sigma_M_fit = float(params[3])
+            sigma_m_fit = float(params[4])
+            integrated_flux_jy = (
+                amp_fit * 2.0 * np.pi * sigma_M_fit * sigma_m_fit / pixel_area_sr
+            )
             if catalog is None and integrated_flux_jy < flux_limit_jy:
                 n_fits_failed += 1
                 continue
             n_fits_ok += 1
 
-            model_vals = _evaluate_symmetric_gaussian(params, px, py)
+            model_vals = _evaluate_elliptical_gaussian(params, px, py)
             flux_ch_jy[patch] -= model_vals
 
-            sigma_fit = params[3]
-            x0_fit, y0_fit = params[1], params[2]
-            r2 = (px - x0_fit) ** 2 + (py - y0_fit) ** 2
-            core_mask = r2 <= (inpaint_mask_sigma * sigma_fit) ** 2
+            x0_fit, y0_fit, pa_fit = params[1], params[2], params[5]
+            cos_pa = np.cos(pa_fit)
+            sin_pa = np.sin(pa_fit)
+            xr = (px - x0_fit) * cos_pa + (py - y0_fit) * sin_pa
+            yr = -(px - x0_fit) * sin_pa + (py - y0_fit) * cos_pa
+            ellipse_r2 = (xr / sigma_M_fit) ** 2 + (yr / sigma_m_fit) ** 2
+            core_mask = ellipse_r2 <= inpaint_mask_sigma**2
             for p in patch[core_mask]:
                 inpaint_mask.add(int(p))
 
@@ -675,6 +806,7 @@ def subtract_bright_sources(
         maps=new_maps.astype(sky.healpix.maps.dtype, copy=False),
         nside=sky.healpix.nside,
         frequencies=sky.healpix.frequencies,
+        channel_widths_hz=sky.healpix.channel_widths_hz,
         coordinate_frame=sky.healpix.coordinate_frame,
         hpx_inds=sky.healpix.hpx_inds,
         q_maps=sky.healpix.q_maps,
@@ -849,6 +981,14 @@ def with_monopole(
         A new model with the DC level shifted and provenance updated.
     """
     convention = _coerce_monopole_convention(convention)
+    if np.ndim(value_k) != 0:
+        raise TypeError(
+            "with_monopole(value_k=...) must be a scalar (a uniform DC shift "
+            "applied to every pixel of the Stokes-I cube); received an "
+            f"array-like with shape {np.asarray(value_k).shape}.  Did you "
+            "intend to pass a per-channel mean?  with_monopole only supports "
+            "a single full-sky scalar."
+        )
     value_k = float(value_k)
     if sky.provenance.is_partial_sky:
         raise ValueError(
@@ -883,6 +1023,7 @@ def with_monopole(
         maps=new_maps,
         nside=sky.healpix.nside,
         frequencies=sky.healpix.frequencies,
+        channel_widths_hz=sky.healpix.channel_widths_hz,
         coordinate_frame=sky.healpix.coordinate_frame,
         hpx_inds=sky.healpix.hpx_inds,
         q_maps=sky.healpix.q_maps,
@@ -958,6 +1099,7 @@ def with_monopole_subtracted(sky: SkyModel) -> SkyModel:
         maps=new_maps,
         nside=sky.healpix.nside,
         frequencies=sky.healpix.frequencies,
+        channel_widths_hz=sky.healpix.channel_widths_hz,
         coordinate_frame=sky.healpix.coordinate_frame,
         hpx_inds=sky.healpix.hpx_inds,
         q_maps=sky.healpix.q_maps,

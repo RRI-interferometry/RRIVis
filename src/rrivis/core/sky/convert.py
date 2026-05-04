@@ -142,6 +142,7 @@ def healpix_map_to_point_arrays(
     coordinate_frame: str = "icrs",
     ref_freq_out: float | None = None,
     *,
+    polarization_brightness_conversion: str = "rayleigh-jeans",
     warn: bool = True,
 ) -> dict[str, np.ndarray]:
     """Convert a HEALPix brightness temperature map to columnar point-source arrays.
@@ -154,6 +155,23 @@ def healpix_map_to_point_arrays(
     spectral index is fitted via log-log linear regression of flux density
     vs. frequency.  Otherwise all pixels receive ``alpha=0``.
 
+    .. note::
+
+       **Brightness-conversion asymmetry between I and Q/U/V.**  Stokes I
+       is converted with the user-selected ``brightness_conversion`` method
+       (``"planck"`` is the natural choice for non-negative intensities at
+       all frequencies).  Stokes Q/U/V are converted with
+       ``polarization_brightness_conversion`` which defaults to
+       ``"rayleigh-jeans"`` because polarized brightness can legitimately
+       be negative and the Planck inverse is undefined for non-positive
+       arguments.  At ``ν ≲ 100 MHz`` the Planck and Rayleigh-Jeans
+       conversions disagree at the 5–15% level; a polarized HEALPix→point
+       round-trip with the default polarization setting therefore inflates
+       fractional polarization by roughly that fraction.  Pass
+       ``polarization_brightness_conversion="planck"`` to use the same
+       method for I and Q/U/V; this requires every Q/U/V pixel to be
+       strictly positive and will ``ValueError`` otherwise.
+
     Parameters
     ----------
     temp_map : np.ndarray
@@ -161,7 +179,7 @@ def healpix_map_to_point_arrays(
     frequency : float
         Frequency in Hz for T_b -> Jy conversion (reference frequency).
     brightness_conversion : str
-        Conversion method: ``"planck"`` or ``"rayleigh-jeans"``.
+        Conversion method for Stokes I: ``"planck"`` or ``"rayleigh-jeans"``.
     healpix_q_maps : np.ndarray or None
         Stokes Q maps, shape ``(n_freq, npix)`` or None.
     healpix_u_maps : np.ndarray or None
@@ -183,6 +201,8 @@ def healpix_map_to_point_arrays(
     ref_freq_out : float or None
         Reference frequency stored in the output ``ref_freq`` array.
         Defaults to ``frequency`` if not given.
+    polarization_brightness_conversion : {"rayleigh-jeans", "planck"}, default "rayleigh-jeans"
+        Brightness-conversion method for Stokes Q/U/V.  See the note above.
 
     Returns
     -------
@@ -192,6 +212,12 @@ def healpix_map_to_point_arrays(
         ``"stokes_v"``.
         All arrays have shape ``(N,)`` where N is the number of valid pixels.
     """
+    pol_method = str(polarization_brightness_conversion).lower()
+    if pol_method not in {"rayleigh-jeans", "planck"}:
+        raise ValueError(
+            "polarization_brightness_conversion must be 'rayleigh-jeans' or "
+            f"'planck', got {polarization_brightness_conversion!r}."
+        )
     npix = len(temp_map)
     nside = hp.npix2nside(npix)
     omega = 4 * np.pi / npix
@@ -282,32 +308,49 @@ def healpix_map_to_point_arrays(
             resol_arcmin,
         )
 
-    # Stokes Q/U/V use Rayleigh-Jeans (linear, sign-preserving) rather than
-    # Planck because: (a) Q/U/V values can be negative, which Planck cannot
-    # handle; (b) at the small amplitudes typical of polarized emission, the
-    # RJ approximation is adequate. Stokes I above uses the user's chosen
-    # brightness_conversion (Planck by default) for the non-linear T_b -> Jy
-    # conversion of always-positive intensity values.
-    rj_factor = rayleigh_jeans_factor(frequency, omega)
-
-    # Resolve freq_index if polarization maps are array-indexed
+    # Stokes Q/U/V conversion: by default Rayleigh-Jeans (linear,
+    # sign-preserving) because polarized brightness can legitimately be
+    # negative and the inverse Planck law is undefined for non-positive
+    # arguments.  Override with polarization_brightness_conversion="planck"
+    # to use the same non-linear conversion as Stokes I — only valid when
+    # every Q/U/V pixel is strictly positive (e.g. Stokes-I-only maps in
+    # which Q/U/V are not actually polarized observables).
     fi = freq_index
     if fi is None and observation_frequencies is not None:
         fi = int(np.argmin(np.abs(observation_frequencies - frequency)))
 
-    # Extract Q/U/V from polarization maps if available
+    def _convert_pol_slice(temp_slice: np.ndarray, name: str) -> np.ndarray:
+        if pol_method == "planck":
+            if np.any(temp_slice <= 0):
+                raise ValueError(
+                    "polarization_brightness_conversion='planck' requires "
+                    f"strictly positive {name} values; got values <= 0 (Planck "
+                    "is undefined for non-positive arguments).  Use "
+                    "'rayleigh-jeans' for sign-preserving linear conversion."
+                )
+            return brightness_temp_to_flux_density(
+                temp_slice, frequency, omega, method="planck"
+            )
+        return temp_slice * rayleigh_jeans_factor(frequency, omega)
+
     if healpix_q_maps is not None and fi is not None:
-        stokes_q = healpix_q_maps[fi][valid_idx].astype(np.float64) * rj_factor
+        stokes_q = _convert_pol_slice(
+            healpix_q_maps[fi][valid_idx].astype(np.float64), "Stokes Q"
+        )
     else:
         stokes_q = np.zeros(n, dtype=np.float64)
 
     if healpix_u_maps is not None and fi is not None:
-        stokes_u = healpix_u_maps[fi][valid_idx].astype(np.float64) * rj_factor
+        stokes_u = _convert_pol_slice(
+            healpix_u_maps[fi][valid_idx].astype(np.float64), "Stokes U"
+        )
     else:
         stokes_u = np.zeros(n, dtype=np.float64)
 
     if healpix_v_maps is not None and fi is not None:
-        stokes_v = healpix_v_maps[fi][valid_idx].astype(np.float64) * rj_factor
+        stokes_v = _convert_pol_slice(
+            healpix_v_maps[fi][valid_idx].astype(np.float64), "Stokes V"
+        )
     else:
         stokes_v = np.zeros(n, dtype=np.float64)
 
@@ -412,11 +455,14 @@ def point_sources_to_healpix_maps(
     per_channel_stokes_u: np.ndarray | None = None,
     per_channel_stokes_v: np.ndarray | None = None,
     channel_frequencies: np.ndarray | None = None,
+    *,
+    polarization_brightness_conversion: str = "rayleigh-jeans",
 ) -> tuple[
     np.ndarray,
     np.ndarray | None,
     np.ndarray | None,
     np.ndarray | None,
+    dict[str, int],
 ]:
     """Convert point sources to multi-frequency HEALPix brightness temperature maps.
 
@@ -454,24 +500,63 @@ def point_sources_to_healpix_maps(
         Dtype for output HEALPix arrays. Use ``precision.sky_model.get_dtype("healpix_maps")``
         to respect the user's precision configuration.
 
+    .. note::
+
+       **Brightness-conversion asymmetry between I and Q/U/V.**  Stokes I
+       uses ``brightness_conversion`` (Planck-by-default for non-negative
+       intensities).  Stokes Q/U/V use
+       ``polarization_brightness_conversion`` which defaults to
+       ``"rayleigh-jeans"`` because Q/U/V can be negative and the inverse
+       Planck law is undefined for non-positive arguments.  At
+       ``ν ≲ 100 MHz`` the two conventions differ by 5–15%; a polarized
+       point→HEALPix→point round-trip with the default polarization setting
+       therefore changes fractional polarization by roughly that amount.
+       Pass ``polarization_brightness_conversion="planck"`` to use the same
+       conversion for I and Q/U/V; this requires every binned Q/U/V
+       per-pixel sum to be strictly positive and will ``ValueError``
+       otherwise.
+
     Returns
     -------
     i_maps : np.ndarray
         Stokes I brightness temperature maps, shape ``(n_freq, npix)``.
     q_maps : np.ndarray or None
-        Stokes Q maps (K_RJ), shape ``(n_freq, npix)``, or None.
+        Stokes Q maps (K), shape ``(n_freq, npix)``, or None.
     u_maps : np.ndarray or None
-        Stokes U maps (K_RJ), shape ``(n_freq, npix)``, or None.
+        Stokes U maps (K), shape ``(n_freq, npix)``, or None.
     v_maps : np.ndarray or None
-        Stokes V maps (K_RJ), shape ``(n_freq, npix)``, or None.
+        Stokes V maps (K), shape ``(n_freq, npix)``, or None.
+    collision_stats : dict
+        ``{"n_sources": int, "n_collisions": int, "n_merged": int}`` —
+        number of pixels that received multiple sources (``n_collisions``)
+        and the total source count whose identities were merged
+        (``n_merged``).  Both are ``0`` when every source landed in its
+        own pixel.  Useful for downstream provenance tagging.
     """
+    pol_method = str(polarization_brightness_conversion).lower()
+    if pol_method not in {"rayleigh-jeans", "planck"}:
+        raise ValueError(
+            "polarization_brightness_conversion must be 'rayleigh-jeans' or "
+            f"'planck', got {polarization_brightness_conversion!r}."
+        )
+
     npix = hp.nside2npix(nside)
     n_freq = len(frequencies)
     n_sources = len(ra_rad)
 
     if n_sources == 0:
         empty = np.zeros((n_freq, npix), dtype=output_dtype)
-        return empty, None, None, None
+        return (
+            empty,
+            None,
+            None,
+            None,
+            {
+                "n_sources": 0,
+                "n_collisions": 0,
+                "n_merged": 0,
+            },
+        )
 
     omega_pixel = 4 * np.pi / npix
     frame = _normalize_coordinate_frame(coordinate_frame)
@@ -506,12 +591,13 @@ def point_sources_to_healpix_maps(
 
     ipix = hp.ang2pix(nside, np.pi / 2 - lat_rad, lon_rad)
 
-    # Detect pixel collisions (multiple sources in one pixel)
+    # Detect pixel collisions (multiple sources in one pixel) and capture
+    # counts so the caller can record them in SkyProvenance.notes.
     _unique_pixels, _counts = np.unique(ipix, return_counts=True)
     _multi = _counts > 1
-    if np.any(_multi):
-        n_collisions = int(np.sum(_multi))
-        n_merged = int(np.sum(_counts[_multi]))
+    n_collisions = int(np.sum(_multi))
+    n_merged = int(np.sum(_counts[_multi])) if n_collisions else 0
+    if n_collisions:
         logger.warning(
             "HEALPix pixelization: %d sources were merged into %d pixels "
             "(out of %d total sources). Individual source identities and "
@@ -522,6 +608,11 @@ def point_sources_to_healpix_maps(
             n_sources,
             nside,
         )
+    collision_stats: dict[str, int] = {
+        "n_sources": int(n_sources),
+        "n_collisions": n_collisions,
+        "n_merged": n_merged,
+    }
 
     from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 
@@ -585,8 +676,32 @@ def point_sources_to_healpix_maps(
         i_arr[fi] = temp_out
 
         if has_pol:
-            # Jy -> K_RJ via Rayleigh-Jeans (linear, sign-preserving)
-            rj_inv = 1.0 / rayleigh_jeans_factor(float(freq), omega_pixel)
+            # Jy -> K conversion for Q/U/V.  Default Rayleigh-Jeans is
+            # linear and sign-preserving; "planck" matches Stokes I but
+            # requires the per-pixel binned flux to be strictly positive.
+            freq_hz = float(freq)
+            rj_inv = 1.0 / rayleigh_jeans_factor(freq_hz, omega_pixel)
+
+            def _pol_flux_to_K(
+                flux_map: np.ndarray,
+                name: str,
+                _freq_hz: float = freq_hz,
+                _rj_inv: float = rj_inv,
+            ) -> np.ndarray:
+                if pol_method == "planck":
+                    if np.any(flux_map <= 0):
+                        raise ValueError(
+                            "polarization_brightness_conversion='planck' "
+                            f"requires strictly positive {name} flux per "
+                            "pixel; got values <= 0 after binning at "
+                            f"{_freq_hz / 1e6:.3f} MHz.  Use "
+                            "'rayleigh-jeans' for sign-preserving linear "
+                            "conversion."
+                        )
+                    return flux_density_to_brightness_temp(
+                        flux_map, _freq_hz, omega_pixel, method="planck"
+                    )
+                return flux_map * _rj_inv
 
             if use_per_channel:
                 from .spectral import nearest_channel_index
@@ -628,13 +743,13 @@ def point_sources_to_healpix_maps(
                 )
                 v_flux = stokes_v * scale
             q_map = np.bincount(ipix, weights=q_flux, minlength=npix)
-            q_arr[fi] = (q_map * rj_inv).astype(output_dtype)
+            q_arr[fi] = _pol_flux_to_K(q_map, "Stokes Q").astype(output_dtype)
 
             u_map = np.bincount(ipix, weights=u_flux, minlength=npix)
-            u_arr[fi] = (u_map * rj_inv).astype(output_dtype)
+            u_arr[fi] = _pol_flux_to_K(u_map, "Stokes U").astype(output_dtype)
 
             v_map = np.bincount(ipix, weights=v_flux, minlength=npix)
-            v_arr[fi] = (v_map * rj_inv).astype(output_dtype)
+            v_arr[fi] = _pol_flux_to_K(v_map, "Stokes V").astype(output_dtype)
 
     logger.info(
         f"Converted {n_sources} point sources to {n_freq} HEALPix maps "
@@ -650,4 +765,4 @@ def point_sources_to_healpix_maps(
     if v_arr is not None:
         v_arr = finalize_cube(v_arr, scratch, "v_maps")
 
-    return i_arr, q_arr, u_arr, v_arr
+    return i_arr, q_arr, u_arr, v_arr, collision_stats

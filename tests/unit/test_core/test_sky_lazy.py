@@ -107,8 +107,8 @@ class TestPointSourcesToHealpixMemmap:
             "ref_frequency": 100e6,
             "brightness_conversion": "planck",
         }
-        i_ram, q_ram, u_ram, v_ram = point_sources_to_healpix_maps(**kwargs)
-        i_mm, q_mm, u_mm, v_mm = point_sources_to_healpix_maps(
+        i_ram, q_ram, u_ram, v_ram, _ = point_sources_to_healpix_maps(**kwargs)
+        i_mm, q_mm, u_mm, v_mm, _ = point_sources_to_healpix_maps(
             **kwargs,
             memmap_path=str(tmp_path),
         )

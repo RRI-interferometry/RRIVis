@@ -204,7 +204,7 @@ class TestPointSourcesToHealpixMaps:
         alpha = np.array([0.0])
         freq = np.array([FREQ_100MHZ])
 
-        i_maps, q_maps, u_maps, v_maps = point_sources_to_healpix_maps(
+        i_maps, q_maps, u_maps, v_maps, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -240,7 +240,7 @@ class TestPointSourcesToHealpixMaps:
         alpha = np.array([0.0, 0.0])
         freq = np.array([FREQ_100MHZ])
 
-        i_maps, _, _, _ = point_sources_to_healpix_maps(
+        i_maps, _, _, _, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -278,7 +278,7 @@ class TestPointSourcesToHealpixMaps:
         ref_freq = FREQ_100MHZ
         freqs = np.array([FREQ_100MHZ, FREQ_200MHZ])
 
-        i_maps, _, _, _ = point_sources_to_healpix_maps(
+        i_maps, _, _, _, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -312,7 +312,7 @@ class TestPointSourcesToHealpixMaps:
         n_freq = 3
         freqs = np.array([100e6, 150e6, 200e6])
 
-        i_maps, q_maps, u_maps, v_maps = point_sources_to_healpix_maps(
+        i_maps, q_maps, u_maps, v_maps, _ = point_sources_to_healpix_maps(
             ra_rad=np.array([]),
             dec_rad=np.array([]),
             flux=np.array([]),
@@ -346,7 +346,7 @@ class TestPointSourcesToHealpixMaps:
         flux = np.array([1.0])
         alpha = np.array([-0.7])
 
-        i_maps, _, _, _ = point_sources_to_healpix_maps(
+        i_maps, _, _, _, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -376,7 +376,7 @@ class TestPointSourcesToHealpixMaps:
         alpha = np.array([0.0, 0.0])
 
         # All stokes Q/U/V are zero
-        _, q_maps, u_maps, v_maps = point_sources_to_healpix_maps(
+        _, q_maps, u_maps, v_maps, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -407,7 +407,7 @@ class TestPointSourcesToHealpixMaps:
         flux = np.array([5.0, 3.0])
         alpha = np.array([0.0, 0.0])
 
-        i_maps, q_maps, u_maps, v_maps = point_sources_to_healpix_maps(
+        i_maps, q_maps, u_maps, v_maps, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -449,7 +449,7 @@ class TestPointSourcesToHealpixMaps:
         total_flux_in = np.sum(flux)
 
         # Forward: point sources -> healpix
-        i_maps, _, _, _ = point_sources_to_healpix_maps(
+        i_maps, _, _, _, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -489,7 +489,7 @@ class TestPointSourcesToHealpixMaps:
         alpha = np.zeros(3)
         freq = np.array([FREQ_100MHZ])
 
-        i_maps, _, _, _ = point_sources_to_healpix_maps(
+        i_maps, _, _, _, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -532,7 +532,7 @@ class TestPointSourcesToHealpixMaps:
         alpha = np.array([0.0])
         freq = np.array([FREQ_100MHZ])
 
-        i_maps, _, _, _ = point_sources_to_healpix_maps(
+        i_maps, _, _, _, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -680,7 +680,7 @@ class TestPointSourcesToHealpixMapsOutputDtype:
 
     def test_default_dtype_is_float32(self):
         """Default output_dtype produces float32 arrays."""
-        i_maps, q_maps, u_maps, v_maps = point_sources_to_healpix_maps(
+        i_maps, q_maps, u_maps, v_maps, _ = point_sources_to_healpix_maps(
             **self._make_sources()
         )
         assert i_maps.dtype == np.float32
@@ -690,7 +690,7 @@ class TestPointSourcesToHealpixMapsOutputDtype:
 
     def test_float64_output_dtype(self):
         """Passing output_dtype=np.float64 produces float64 arrays."""
-        i_maps, q_maps, u_maps, v_maps = point_sources_to_healpix_maps(
+        i_maps, q_maps, u_maps, v_maps, _ = point_sources_to_healpix_maps(
             **self._make_sources(), output_dtype=np.float64
         )
         assert i_maps.dtype == np.float64
@@ -701,8 +701,8 @@ class TestPointSourcesToHealpixMapsOutputDtype:
     def test_float64_preserves_more_precision(self):
         """float64 output should preserve more precision than float32."""
         src = self._make_sources()
-        i32, _, _, _ = point_sources_to_healpix_maps(**src, output_dtype=np.float32)
-        i64, _, _, _ = point_sources_to_healpix_maps(**src, output_dtype=np.float64)
+        i32, _, _, _, _ = point_sources_to_healpix_maps(**src, output_dtype=np.float32)
+        i64, _, _, _, _ = point_sources_to_healpix_maps(**src, output_dtype=np.float64)
 
         # Both should have the same non-zero structure
         assert np.array_equal(i32 > 0, i64 > 0)
@@ -719,7 +719,7 @@ class TestPointSourcesToHealpixMapsOutputDtype:
 
     def test_empty_sources_respects_dtype(self):
         """Zero-source case should still return the requested dtype."""
-        i_maps, _, _, _ = point_sources_to_healpix_maps(
+        i_maps, _, _, _, _ = point_sources_to_healpix_maps(
             ra_rad=np.array([]),
             dec_rad=np.array([]),
             flux=np.array([]),
@@ -760,7 +760,7 @@ class TestSpectralIndexFitting:
         alpha_arr = np.array([alpha_true])
 
         # Forward: point sources -> healpix (bakes in the spectral info)
-        i_maps, _, _, _ = point_sources_to_healpix_maps(
+        i_maps, _, _, _, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -839,7 +839,7 @@ class TestSpectralIndexFitting:
         alpha_arr = np.full(3, alpha_true)
 
         # Forward
-        i_maps, _, _, _ = point_sources_to_healpix_maps(
+        i_maps, _, _, _, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,
@@ -887,7 +887,7 @@ class TestSpectralIndexFitting:
         flux = np.array([10.0, 10.0, 10.0])
 
         # Forward
-        i_maps, _, _, _ = point_sources_to_healpix_maps(
+        i_maps, _, _, _, _ = point_sources_to_healpix_maps(
             ra,
             dec,
             flux,

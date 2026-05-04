@@ -111,6 +111,17 @@ class VizierCatalogEntry(_CatalogBase):
             "sets the lower bound of ``SkyProvenance.angular_resolution_rad``."
         ),
     )
+    flux_saturation_jy: float | None = Field(
+        default=None,
+        description=(
+            "Catalog saturation / brightest-sources cutoff in Jy at "
+            "``freq_mhz`` — the upper bound of the catalog's completeness band. "
+            "Distinct from the brightest source actually present in any loaded "
+            "subset; reflects the survey's intrinsic dynamic range. ``None`` "
+            "means no upper limit is known and ``SkyProvenance.flux_completeness_jy`` "
+            "uses ``inf`` for the upper bound."
+        ),
+    )
     footprint_asset: str | None = Field(
         default=None,
         description=(
@@ -134,6 +145,17 @@ class RacsCatalogEntry(_CatalogBase):
         description=(
             "Synthesized-beam FWHM in arcseconds for this survey — "
             "sets the lower bound of ``SkyProvenance.angular_resolution_rad``."
+        ),
+    )
+    flux_saturation_jy: float | None = Field(
+        default=None,
+        description=(
+            "Catalog saturation / brightest-sources cutoff in Jy at "
+            "``freq_mhz`` — the upper bound of the catalog's completeness band. "
+            "Distinct from the brightest source actually present in any loaded "
+            "subset; reflects the survey's intrinsic dynamic range. ``None`` "
+            "means no upper limit is known and ``SkyProvenance.flux_completeness_jy`` "
+            "uses ``inf`` for the upper bound."
         ),
     )
     footprint_asset: str | None = Field(

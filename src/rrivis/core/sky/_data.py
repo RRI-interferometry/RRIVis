@@ -433,6 +433,137 @@ class SkyProvenance:
         """True if the payload is declared to cover a sky subset."""
         return self.sky_coverage == SkyCoverage.PARTIAL_SKY
 
+    # -------------------------------------------------------------------------
+    # JSON-friendly serialization (used by skyh5 round-trip).
+    # -------------------------------------------------------------------------
+
+    def to_dict(self) -> dict:
+        """Return a JSON-serializable dict representation.
+
+        Enums are encoded as their string ``.value``.  ``coverage_footprint``
+        is encoded as ``{"nside", "coordinate_frame", "hpx_inds"}`` with
+        ``hpx_inds`` as a list of ints.  ``inf`` and ``-inf`` are represented
+        as the JSON-compatible strings ``"inf"`` / ``"-inf"`` so that
+        round-trips through strict JSON parsers do not silently coerce them
+        to a finite number.
+        """
+
+        def _encode_float(x: float | None) -> float | str | None:
+            if x is None:
+                return None
+            if np.isposinf(x):
+                return "inf"
+            if np.isneginf(x):
+                return "-inf"
+            return float(x)
+
+        def _encode_pair(
+            pair: tuple[float, float] | None,
+        ) -> list[float | str] | None:
+            if pair is None:
+                return None
+            return [_encode_float(pair[0]), _encode_float(pair[1])]
+
+        footprint = None
+        if self.coverage_footprint is not None:
+            footprint = {
+                "nside": int(self.coverage_footprint.nside),
+                "coordinate_frame": self.coverage_footprint.coordinate_frame,
+                "hpx_inds": self.coverage_footprint.hpx_inds.astype(int).tolist(),
+            }
+
+        return {
+            "flux_completeness_jy": _encode_pair(self.flux_completeness_jy),
+            "flux_completeness_freq_hz": _encode_float(self.flux_completeness_freq_hz),
+            "angular_resolution_rad": _encode_pair(self.angular_resolution_rad),
+            "sky_coverage": self.sky_coverage.value,
+            "coverage_fraction": _encode_float(self.coverage_fraction),
+            "coverage_footprint": footprint,
+            "monopole_convention": self.monopole_convention.value,
+            "monopole_k": _encode_float(self.monopole_k),
+            "source_subtraction": self.source_subtraction.value,
+            "source_subtraction_threshold_jy": _encode_float(
+                self.source_subtraction_threshold_jy
+            ),
+            "source_subtraction_freq_hz": _encode_float(
+                self.source_subtraction_freq_hz
+            ),
+            "source_subtraction_method": self.source_subtraction_method,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SkyProvenance:
+        """Build a :class:`SkyProvenance` from the dict produced by ``to_dict``.
+
+        Tolerates missing keys (defaults are used) for forward-compatibility.
+        """
+
+        def _decode_float(x: object) -> float | None:
+            if x is None:
+                return None
+            if isinstance(x, str):
+                if x == "inf":
+                    return float("inf")
+                if x == "-inf":
+                    return float("-inf")
+                return float(x)
+            return float(x)
+
+        def _decode_pair(x: object) -> tuple[float, float] | None:
+            if x is None:
+                return None
+            if not isinstance(x, list | tuple) or len(x) != 2:
+                raise ValueError(
+                    f"SkyProvenance.from_dict: expected a 2-tuple/list, got {x!r}."
+                )
+            a = _decode_float(x[0])
+            b = _decode_float(x[1])
+            if a is None or b is None:
+                raise ValueError(
+                    "SkyProvenance.from_dict: pair entries must not be None."
+                )
+            return (a, b)
+
+        footprint_raw = data.get("coverage_footprint")
+        footprint: SkyFootprint | None = None
+        if footprint_raw is not None:
+            footprint = SkyFootprint(
+                nside=int(footprint_raw["nside"]),
+                hpx_inds=np.asarray(footprint_raw["hpx_inds"], dtype=np.int64),
+                coordinate_frame=footprint_raw.get(
+                    "coordinate_frame", DEFAULT_COVERAGE_FOOTPRINT_COORDINATE_FRAME
+                ),
+            )
+
+        return cls(
+            flux_completeness_jy=_decode_pair(data.get("flux_completeness_jy")),
+            flux_completeness_freq_hz=_decode_float(
+                data.get("flux_completeness_freq_hz")
+            ),
+            angular_resolution_rad=_decode_pair(data.get("angular_resolution_rad")),
+            sky_coverage=SkyCoverage(
+                data.get("sky_coverage", SkyCoverage.UNKNOWN.value)
+            ),
+            coverage_fraction=_decode_float(data.get("coverage_fraction")),
+            coverage_footprint=footprint,
+            monopole_convention=MonopoleConvention(
+                data.get("monopole_convention", MonopoleConvention.UNKNOWN.value)
+            ),
+            monopole_k=_decode_float(data.get("monopole_k")),
+            source_subtraction=SourceSubtractionStatus(
+                data.get("source_subtraction", SourceSubtractionStatus.UNKNOWN.value)
+            ),
+            source_subtraction_threshold_jy=_decode_float(
+                data.get("source_subtraction_threshold_jy")
+            ),
+            source_subtraction_freq_hz=_decode_float(
+                data.get("source_subtraction_freq_hz")
+            ),
+            source_subtraction_method=data.get("source_subtraction_method"),
+            notes=data.get("notes"),
+        )
+
 
 # =============================================================================
 # SourceArrays TypedDict
@@ -867,6 +998,16 @@ class HealpixData:
     maps: np.ndarray  # Stokes I, shape (n_freq, npix), in Kelvin
     nside: int
     frequencies: np.ndarray  # shape (n_freq,), in Hz
+    channel_widths_hz: np.ndarray | None = None
+    """Per-channel bandwidth in Hz, shape ``(n_freq,)``, strictly positive.
+
+    Encodes the bandwidth that each ``frequencies`` sample integrates over.
+    ``None`` means the source data does not carry channel-width information
+    (do **not** synthesise this from frequency spacing — adjacent samples
+    can be far apart while individual channels remain narrow).  Downstream
+    visibility code may use this to integrate steep-spectrum sources over
+    the channel rather than evaluating at the centre frequency.
+    """
     coordinate_frame: str = "icrs"
     ordering: str = "ring"  # "ring" or "nest" — HEALPix pixel ordering scheme
     hpx_inds: np.ndarray | None = None
@@ -913,6 +1054,20 @@ class HealpixData:
                 f"HealpixData: frequencies has {len(self.frequencies)} entries "
                 f"but maps has {n_freq} frequency channels."
             )
+
+        if self.channel_widths_hz is not None:
+            widths = np.asarray(self.channel_widths_hz, dtype=np.float64)
+            if widths.ndim != 1 or widths.shape[0] != n_freq:
+                raise ValueError(
+                    "HealpixData: channel_widths_hz must be 1-D with the same "
+                    f"length as frequencies ({n_freq}), got shape {widths.shape}."
+                )
+            if not np.all(np.isfinite(widths)) or np.any(widths <= 0):
+                raise ValueError(
+                    "HealpixData: channel_widths_hz must be finite and strictly "
+                    "positive."
+                )
+            object.__setattr__(self, "channel_widths_hz", widths)
 
         if self.hpx_inds is not None:
             hpx_inds = np.asarray(self.hpx_inds)
@@ -1021,6 +1176,7 @@ class HealpixData:
             maps=dense_maps,
             nside=self.nside,
             frequencies=self.frequencies,
+            channel_widths_hz=self.channel_widths_hz,
             coordinate_frame=self.coordinate_frame,
             q_maps=_dense_copy(self.q_maps),
             u_maps=_dense_copy(self.u_maps),
@@ -1068,6 +1224,7 @@ class HealpixData:
                 maps=new_maps,
                 nside=self.nside,
                 frequencies=self.frequencies,
+                channel_widths_hz=self.channel_widths_hz,
                 coordinate_frame=self.coordinate_frame,
                 hpx_inds=new_inds,
                 q_maps=new_q,
@@ -1107,6 +1264,7 @@ class HealpixData:
             maps=new_maps,
             nside=self.nside,
             frequencies=self.frequencies,
+            channel_widths_hz=self.channel_widths_hz,
             coordinate_frame=self.coordinate_frame,
             q_maps=new_q,
             u_maps=new_u,

@@ -205,7 +205,11 @@ class TestLoaderPopulation:
         assert prov.coverage_fraction is not None
         assert 0.0 < prov.coverage_fraction < 1.0
         assert prov.source_subtraction is SourceSubtractionStatus.NONE
-        assert prov.flux_completeness_jy == (1.0, 10.0)
+        # Upper bound is the catalog's saturation limit (None for NVSS in the
+        # current metadata) — we encode "no upper limit known" as +inf rather
+        # than max(loaded sample), which would conflate a sample statistic
+        # with intrinsic catalog metadata.
+        assert prov.flux_completeness_jy == (1.0, float("inf"))
         assert prov.flux_completeness_freq_hz == pytest.approx(1400e6)
         # Beam FWHM 45″ → radians.
         assert prov.angular_resolution_rad is not None
