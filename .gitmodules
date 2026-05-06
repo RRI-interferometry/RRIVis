@@ -52,3 +52,83 @@
 	path = simulators/meqtrees-cattery
 	url = https://github.com/ratt-ru/meqtrees-cattery.git
 	update = none
+[submodule "simulators/FHD"]
+	path = simulators/FHD
+	url = https://github.com/EoRImaging/FHD.git
+	update = none
+[submodule "simulators/PyFHD"]
+	path = simulators/PyFHD
+	url = https://github.com/ADACS-Australia/PyFHD.git
+[submodule "simulators/Karabo"]
+	path = simulators/Karabo
+	url = https://github.com/i4Ds/Karabo-Pipeline.git
+[submodule "simulators/TensorVis"]
+	path = simulators/TensorVis
+	url = https://github.com/HydraRadio/TensorVis.git
+[submodule "simulators/VisSim"]
+	path = simulators/VisSim
+	url = https://github.com/samirchoudhuri/VisSim.git
+[submodule "simulators/ism3d"]
+	path = simulators/ism3d
+	url = https://github.com/r-xue/ism3d.git
+[submodule "simulators/eht-imaging"]
+	path = simulators/eht-imaging
+	url = https://github.com/achael/eht-imaging.git
+[submodule "simulators/pyralysis"]
+	path = simulators/pyralysis
+	url = https://gitlab.com/clirai/pyralysis.git
+[submodule "simulators/MeqSilhouette"]
+	path = simulators/MeqSilhouette
+	url = https://github.com/rdeane/MeqSilhouette.git
+[submodule "simulators/omniuv"]
+	path = simulators/omniuv
+	url = https://github.com/liulei/omniuv.git
+[submodule "simulators/VNSIM"]
+	path = simulators/VNSIM
+	url = https://github.com/ZhenZHAO/VNSIM.git
+[submodule "simulators/APSYNSIM"]
+	path = simulators/APSYNSIM
+	url = https://github.com/onsala-space-observatory/APSYNSIM.git
+[submodule "simulators/friendlyVRI"]
+	path = simulators/friendlyVRI
+	url = https://github.com/crpurcell/friendlyVRI.git
+[submodule "simulators/galario"]
+	path = simulators/galario
+	url = https://github.com/mtazzari/galario.git
+	update = none
+[submodule "simulators/MPoL"]
+	path = simulators/MPoL
+	url = https://github.com/MPoL-dev/MPoL.git
+[submodule "simulators/gpuvmem"]
+	path = simulators/gpuvmem
+	url = https://github.com/miguelcarcamov/gpuvmem.git
+	update = none
+[submodule "simulators/uvplot"]
+	path = simulators/uvplot
+	url = https://github.com/mtazzari/uvplot.git
+[submodule "simulators/stimela"]
+	path = simulators/stimela
+	url = https://github.com/caracal-pipeline/stimela.git
+[submodule "simulators/caracal"]
+	path = simulators/caracal
+	url = https://github.com/caracal-pipeline/caracal.git
+[submodule "simulators/Obit"]
+	path = simulators/Obit
+	url = https://github.com/bill-cotton/Obit.git
+	update = none
+[submodule "simulators/BIPP"]
+	path = simulators/BIPP
+	url = https://github.com/epfl-radio-astro/bipp.git
+	update = none
+[submodule "simulators/DDFacet"]
+	path = simulators/DDFacet
+	url = https://github.com/saopicc/DDFacet.git
+[submodule "simulators/CubiCal"]
+	path = simulators/CubiCal
+	url = https://github.com/ratt-ru/CubiCal.git
+[submodule "simulators/killMS"]
+	path = simulators/killMS
+	url = https://github.com/saopicc/killMS.git
+[submodule "simulators/radionets"]
+	path = simulators/radionets
+	url = https://github.com/radionets-project/radionets.git
