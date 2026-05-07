@@ -30,6 +30,7 @@ from ._data import (
     SourceArrays,
 )
 from .constants import BrightnessConversion
+from .spectral import nearest_channel_index_with_warning
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
@@ -64,35 +65,6 @@ def _coerce_format(representation: "SkyFormat | str") -> SkyFormat:
         ) from None
 
 
-def _has_f32_array(sky: "SkyModel") -> bool:
-    """Return True if any payload array has a float32 dtype."""
-    if sky.point is not None:
-        for name in ("ra_rad", "dec_rad", "flux", "spectral_index"):
-            arr = getattr(sky.point, name, None)
-            if arr is not None and arr.dtype == np.float32:
-                return True
-        if (
-            sky.point.spectrum is not None
-            and sky.point.spectrum.flux.dtype == np.float32
-        ):
-            return True
-    if sky.healpix is not None and sky.healpix.maps.dtype == np.float32:
-        return True
-    return False
-
-
-def _default_eq_tolerance(a: "SkyModel", b: "SkyModel") -> tuple[float, float]:
-    """Pick (rtol, atol) for tolerant equality based on payload dtype.
-
-    f32 epsilon ~1.2e-7, so rtol=1e-7 catches representation error without
-    masking real differences. f64 epsilon ~2.2e-16, so rtol=1e-12 stays
-    effectively bit-exact for same-precision comparisons.
-    """
-    if _has_f32_array(a) or _has_f32_array(b):
-        return 1e-7, 0.0
-    return 1e-12, 0.0
-
-
 # =============================================================================
 # SkyModel Class
 # =============================================================================
@@ -105,6 +77,16 @@ class SkyModel:
     Frozen — use :meth:`replace` to derive new instances. The set of populated
     payloads (:attr:`formats`) is the canonical "what's loaded" signal; both
     point and healpix may be populated simultaneously (a hybrid model).
+
+    Equality semantics
+    ------------------
+    ``==`` is bit-exact: it requires every payload array to match element-by-
+    element via :func:`numpy.array_equal`.  Cross-precision comparisons
+    (e.g. an f32 model versus the same logical sky in f64) will return
+    ``False`` even when the only differences are representation error.
+
+    For tolerant comparisons, call :meth:`is_close`, which accepts ``rtol`` /
+    ``atol`` and is the appropriate tool for round-trip and precision tests.
     """
 
     point: PointSourceData | None = field(default=None, repr=False)
@@ -716,22 +698,9 @@ class SkyModel:
         """
         if self.healpix is None:
             raise ValueError("No observation frequencies available.")
-        freqs = self.healpix.frequencies
-        idx = int(np.argmin(np.abs(freqs - frequency)))
-        nearest_freq = float(freqs[idx])
-        diff_hz = abs(frequency - nearest_freq)
-        if len(freqs) > 1:
-            spacing_hz = float(np.median(np.diff(np.sort(freqs))))
-            warn_threshold_hz = max(1_000.0, 0.1 * spacing_hz)
-        else:
-            warn_threshold_hz = 1_000.0
-        if diff_hz > warn_threshold_hz:
-            logger.warning(
-                f"Exact frequency {frequency / 1e6:.3f} MHz not found. "
-                f"Using nearest: {nearest_freq / 1e6:.3f} MHz "
-                f"(diff: {diff_hz / 1e6:.3f} MHz)"
-            )
-        return idx
+        return nearest_channel_index_with_warning(
+            self.healpix.frequencies, frequency, label="resolve_frequency_index"
+        )
 
     def get_map_at_frequency(self, frequency: float) -> np.ndarray:
         """
@@ -1021,14 +990,13 @@ class SkyModel:
     __hash__ = None  # type: ignore[assignment]
 
     def __eq__(self, other: object) -> bool:
-        """Value equality with dtype-aware tolerance.
+        """Bit-exact value equality.
 
-        Uses :func:`np.allclose` so that the same logical sky loaded under
-        f32 and f64 precision compares equal up to representation error.
-        Tolerance is derived from the lower of the two models' float
-        precisions: ``rtol=1e-7`` if either side has any f32 array,
-        otherwise ``rtol=1e-12``. For bit-exact comparison use
-        ``is_close(rtol=0, atol=0)`` or compare arrays manually.
+        Compares every payload array via :func:`numpy.array_equal` (no
+        tolerance) and every scalar field via ``==``.  Cross-precision
+        comparisons (e.g. f32 vs f64) return ``False`` even when the only
+        differences are representation error — use :meth:`is_close` for
+        that case.
         """
         if not isinstance(other, SkyModel):
             return NotImplemented
@@ -1042,8 +1010,7 @@ class SkyModel:
         ):
             return False
 
-        rtol, atol = _default_eq_tolerance(self, other)
-        return self._payloads_equal(other, close=True, rtol=rtol, atol=atol)
+        return self._payloads_equal(other, close=False, rtol=0.0, atol=0.0)
 
     def _payloads_equal(
         self,

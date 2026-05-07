@@ -178,6 +178,29 @@ class TestRegistryMetadata:
         assert kind == "diffuse_sky"
         assert kwargs == {"model": "haslam"}
 
+    def test_alias_inherits_canonical_use_flag(self):
+        """Aliases share the canonical loader's metadata. There is no
+        per-alias ``use_flag`` override — once an alias resolves, every
+        subsequent registry lookup walks via the canonical name and
+        returns the canonical's ``use_flag``.
+
+        ``use_flag`` is metadata for catalog browsing (``discovery.py``);
+        the activation contract is ``kind`` (or its alias). YAML config
+        does not currently consume ``use_flag``; ``simulator.py`` and
+        ``io/config.py`` only walk the registry by ``kind``.
+        """
+        canonical = loader_registry.definition("diffuse_sky")
+        # The canonical use_flag for diffuse_sky is "use_gsm" (legacy).
+        assert canonical.meta_dict()["use_flag"] == "use_gsm"
+
+        # Resolving any alias hands back the canonical name.  The
+        # registry has only one definition per canonical name, so all
+        # aliases trivially inherit its use_flag.
+        for alias in ("gsm", "gsm2008", "gsm2016", "lfsm", "haslam"):
+            kind, _ = loader_registry.resolve_request(alias, {})
+            assert kind == "diffuse_sky"
+            assert loader_registry.definition(kind).meta_dict()["use_flag"] == "use_gsm"
+
 
 class TestSourceSpecs:
     def test_simple_catalog_request(self):

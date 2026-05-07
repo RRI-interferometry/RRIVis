@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
+import pickle
 import traceback
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -22,12 +23,12 @@ from ._data import (
     SkyProvenance,
     SourceSubtractionStatus,
 )
+from ._registry import get_loader
 from .constants import BrightnessConversion
+from .model import SkyModel
 
 if TYPE_CHECKING:
     from rrivis.core.precision import PrecisionConfig
-
-    from .model import SkyModel
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +92,6 @@ def create_empty(
     -------
     SkyModel
     """
-    from .model import SkyModel
-
     precision = _require_precision(precision)
 
     return SkyModel(
@@ -135,8 +134,6 @@ def create_from_arrays(
     Pass ``provenance=`` to declare physical-correctness metadata (flux
     completeness, angular resolution, monopole convention).
     """
-    from .model import SkyModel
-
     precision = _require_precision(precision)
 
     # Resolve dtypes from precision config
@@ -200,8 +197,6 @@ def create_from_freq_dict_maps(
     Standard constructor for loaders that build dict[float, ndarray]
     during generation (pygdsm, pysm3, etc.).
     """
-    from .model import SkyModel
-
     precision = _require_precision(
         kwargs.pop("precision", kwargs.pop("_precision", None))
     )
@@ -249,8 +244,6 @@ def create_test_sources(
     provenance: SkyProvenance | None = None,
 ) -> SkyModel:
     """Generate synthetic test sources."""
-    from .model import SkyModel
-
     precision = _require_precision(precision)
 
     if distribution not in ("uniform", "random"):
@@ -322,34 +315,93 @@ def create_test_sources(
     )
 
 
+def _run_one_loader(method_name: str, kw: dict) -> SkyModel:
+    """Worker entry point reused by both thread and process executors."""
+    return get_loader(method_name)(**kw)
+
+
+def _kwargs_picklable(
+    loaders: list[tuple[str, dict[str, Any]]],
+    precision: PrecisionConfig | None,
+) -> bool:
+    """Return True if every loader request can survive ProcessPoolExecutor IPC."""
+    for method_name, kwargs in loaders:
+        kw = dict(kwargs)
+        if precision is not None and "precision" not in kw:
+            kw["precision"] = precision
+        try:
+            pickle.dumps((method_name, kw))
+        except (pickle.PicklingError, TypeError, AttributeError):
+            return False
+    return True
+
+
 def load_models_parallel(
     loaders: list[tuple[str, dict[str, Any]]],
     max_workers: int = 8,
     precision: PrecisionConfig | None = None,
     strict: bool = True,
+    executor: Literal["thread", "process"] = "thread",
 ) -> list[SkyModel]:
-    """Load multiple sky models in parallel using threads.
+    """Load multiple sky models in parallel.
 
     Each loader is a (method_name, kwargs) tuple identifying a registered
     loader function.
+
+    Performance notes
+    -----------------
+    The default ``executor="thread"`` uses :class:`ThreadPoolExecutor`,
+    which is appropriate for I/O-bound loaders that release the GIL
+    (Vizier / TAP queries, FITS file reads). Several built-in loaders are
+    CPU-bound and hold the GIL — notably ``diffuse_sky`` (pygdsm regrid +
+    log-poly scaling), ``pyradiosky_file`` parsing, and large
+    ``healpy.ud_grade`` calls. Those will run effectively serially under
+    the thread pool.
+
+    Pass ``executor="process"`` to dispatch via
+    :class:`ProcessPoolExecutor` instead. The loader name and kwargs must
+    be picklable; this is true for the current loader registry (kwargs
+    are dicts of primitives, numpy arrays, and ``PrecisionConfig``).  If
+    a kwarg fails the pickle check, the call falls back to threads with a
+    warning rather than raising.
+
+    Parameters
+    ----------
+    loaders
+        ``(loader_name, kwargs)`` tuples.
+    max_workers
+        Worker pool size (capped to ``len(loaders)``).
+    precision
+        Default precision injected into any loader missing one.
+    strict
+        Raise :class:`SkyLoadAggregateError` if any loader failed.
+    executor
+        ``"thread"`` (default) or ``"process"``. See above.
     """
-
-    def _load_one(method_name: str, kw: dict) -> SkyModel:
-        from ._registry import get_loader
-
-        return get_loader(method_name)(**kw)
-
     n = min(len(loaders), max_workers)
     results: list[SkyModel | None] = [None] * len(loaders)
     failures: list[SkyLoadError] = []
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=n) as pool:
+    pool_cls: type[concurrent.futures.Executor]
+    if executor == "process":
+        if not _kwargs_picklable(loaders, precision):
+            logger.warning(
+                "load_models_parallel: requested executor='process' but loader "
+                "kwargs failed the pickle check. Falling back to thread pool."
+            )
+            pool_cls = concurrent.futures.ThreadPoolExecutor
+        else:
+            pool_cls = concurrent.futures.ProcessPoolExecutor
+    else:
+        pool_cls = concurrent.futures.ThreadPoolExecutor
+
+    with pool_cls(max_workers=n) as pool:
         future_to_loader: dict[concurrent.futures.Future, tuple[int, str]] = {}
         for index, (method_name, kwargs) in enumerate(loaders):
             kw = dict(kwargs)
             if precision is not None and "precision" not in kw:
                 kw["precision"] = precision
-            f = pool.submit(_load_one, method_name, kw)
+            f = pool.submit(_run_one_loader, method_name, kw)
             future_to_loader[f] = (index, method_name)
 
         for future in concurrent.futures.as_completed(future_to_loader):

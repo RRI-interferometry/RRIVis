@@ -11,6 +11,7 @@ import logging
 import healpy as hp
 import numpy as np
 
+from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ._data import _normalize_coordinate_frame
 from ._data import empty_source_arrays as _empty_source_arrays
 from .constants import (
@@ -18,7 +19,12 @@ from .constants import (
     flux_density_to_brightness_temp,
     rayleigh_jeans_factor,
 )
-from .spectral import apply_faraday_rotation, compute_spectral_scale
+from .discovery import estimate_healpix_memory
+from .spectral import (
+    apply_faraday_rotation,
+    compute_spectral_scale,
+    nearest_channel_index,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -420,8 +426,6 @@ def bin_sources_to_flux(
         Flux density map in Jy, shape ``(npix,)``.
     """
     if per_channel_flux is not None and channel_frequencies is not None:
-        from .spectral import nearest_channel_index
-
         idx = nearest_channel_index(channel_frequencies, freq)
         flux_f = per_channel_flux[idx].astype(np.float64, copy=False)
     else:
@@ -570,8 +574,6 @@ def point_sources_to_healpix_maps(
     )
 
     n_stokes = 4 if has_pol else 1
-    from .discovery import estimate_healpix_memory
-
     mem_info = estimate_healpix_memory(nside, n_freq, output_dtype, n_stokes)
     logger.info(
         f"Creating {n_freq} HEALPix maps (nside={nside}, "
@@ -613,8 +615,6 @@ def point_sources_to_healpix_maps(
         "n_collisions": n_collisions,
         "n_merged": n_merged,
     }
-
-    from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 
     scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
     i_arr = allocate_cube((n_freq, npix), output_dtype, scratch, "i_maps")
@@ -704,8 +704,6 @@ def point_sources_to_healpix_maps(
                 return flux_map * _rj_inv
 
             if use_per_channel:
-                from .spectral import nearest_channel_index
-
                 ch_idx = nearest_channel_index(channel_frequencies, float(freq))
                 if (
                     per_channel_stokes_q is not None

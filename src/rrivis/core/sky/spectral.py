@@ -7,9 +7,13 @@ visibility calculation engine (``visibility.py``).
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from .constants import C_LIGHT
+
+logger = logging.getLogger(__name__)
 
 
 def compute_spectral_scale(
@@ -129,6 +133,10 @@ def apply_faraday_rotation(
 def nearest_channel_index(channel_frequencies: np.ndarray, freq: float) -> int:
     """Return the index of the channel nearest to ``freq`` (ties broken low-side).
 
+    Silent variant. Use :func:`nearest_channel_index_with_warning` for
+    user-facing entry points where an off-grid frequency request is
+    surprising and should be flagged.
+
     Parameters
     ----------
     channel_frequencies : np.ndarray
@@ -142,6 +150,53 @@ def nearest_channel_index(channel_frequencies: np.ndarray, freq: float) -> int:
         Index of the channel closest to ``freq``.
     """
     return int(np.argmin(np.abs(channel_frequencies - freq)))
+
+
+def nearest_channel_index_with_warning(
+    channel_frequencies: np.ndarray,
+    freq: float,
+    *,
+    label: str | None = None,
+) -> int:
+    """Return the nearest-channel index and log a warning when ``freq`` is
+    far from every grid point.
+
+    Off-grid threshold is ``max(1 kHz, 0.1 * median(|diff|))`` of the channel
+    grid spacing. This matches the UX of
+    :meth:`SkyModel.resolve_frequency_index` so user-supplied frequencies get
+    a uniform "off-grid" experience whether they enter via the SkyModel API
+    or via per-channel point-source flux evaluation.
+
+    Parameters
+    ----------
+    channel_frequencies : np.ndarray
+        Strictly ascending channel frequency array in Hz.
+    freq : float
+        Observation frequency in Hz.
+    label : str or None
+        Optional context label included in the warning message
+        (e.g. ``"per-channel flux"``).
+    """
+    freqs = np.asarray(channel_frequencies)
+    idx = int(np.argmin(np.abs(freqs - freq)))
+    nearest_freq = float(freqs[idx])
+    diff_hz = abs(freq - nearest_freq)
+    if freqs.size > 1:
+        spacing_hz = float(np.median(np.diff(np.sort(freqs))))
+        warn_threshold_hz = max(1_000.0, 0.1 * spacing_hz)
+    else:
+        warn_threshold_hz = 1_000.0
+    if diff_hz > warn_threshold_hz:
+        prefix = f"{label}: " if label else ""
+        logger.warning(
+            "%snearest-channel lookup is off-grid: requested %.6f MHz, "
+            "nearest channel %.6f MHz (Δ=%.3f kHz).",
+            prefix,
+            freq / 1e6,
+            nearest_freq / 1e6,
+            diff_hz / 1e3,
+        )
+    return idx
 
 
 def evaluate_point_flux_at_freq(
@@ -197,7 +252,9 @@ def evaluate_point_flux_at_freq(
         Stokes values at the observation frequency, shape ``(N,)`` each.
     """
     if per_channel_flux is not None and channel_frequencies is not None:
-        idx = nearest_channel_index(channel_frequencies, freq)
+        idx = nearest_channel_index_with_warning(
+            channel_frequencies, freq, label="per-channel flux"
+        )
         i_out = per_channel_flux[idx].astype(np.float64, copy=False)
         if per_channel_stokes_q is not None and per_channel_stokes_u is not None:
             q_out = per_channel_stokes_q[idx].astype(np.float64, copy=False)

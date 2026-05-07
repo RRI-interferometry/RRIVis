@@ -1,4 +1,9 @@
-"""Sky-model orchestration helpers for consumers."""
+"""Sky-model orchestration helpers for consumers.
+
+``prepare_sky_model`` is the canonical user entry point for combining and
+materializing sky models.  It wraps the internal ``_combine_models`` engine
+with a beam-aware ``nside`` advisor and consistent materialization defaults.
+"""
 
 from __future__ import annotations
 
@@ -9,9 +14,9 @@ import numpy as np
 
 from .combine import (
     MixedModelPolicy,
+    _combine_models,
     _resolve_requested_healpix_frequencies,
     _validate_requested_healpix_grid,
-    combine_models,
 )
 from .model import SkyFormat, SkyModel, _coerce_format
 from .operations import materialize_healpix_model, materialize_point_sources_model
@@ -22,7 +27,7 @@ logger = logging.getLogger(__name__)
 def prepare_sky_model(
     models: list[SkyModel],
     *,
-    representation: SkyFormat | str,
+    representation: SkyFormat | str | None = None,
     nside: int | None = None,
     frequencies: np.ndarray | None = None,
     frequency: float | None = None,
@@ -35,10 +40,19 @@ def prepare_sky_model(
     beam_fwhm_rad: float | None = None,
     nside_safety_factor: float = 5.0,
 ) -> SkyModel:
-    """Combine and materialize sky models for an explicit representation.
+    """Combine and materialize sky models into a usable representation.
+
+    This is the canonical user entry point.  It validates inputs, runs the
+    physical-disjointness check, combines the models, and materializes the
+    result into the requested ``representation``.
 
     Parameters
     ----------
+    representation
+        ``"point_sources"``, ``"healpix_map"``, ``SkyFormat.POINT_SOURCES``,
+        ``SkyFormat.HEALPIX``, or ``None`` to auto-detect.  When ``None``,
+        a hybrid model is returned if inputs span both formats; otherwise
+        the input format is preserved.
     beam_fwhm_rad
         Optional primary-beam FWHM (radians).  When provided together with a
         ``HEALPIX`` representation request, an advisory warning is logged
@@ -49,9 +63,10 @@ def prepare_sky_model(
         Target ratio of ``beam_fwhm`` to pixel scale for the advisor.
         Defaults to 5.
     """
-    target = _coerce_format(representation)
     if not models:
         raise ValueError("prepare_sky_model requires at least one input model.")
+
+    target = _coerce_format(representation) if representation is not None else None
 
     requested_freqs = _resolve_requested_healpix_frequencies(
         frequencies,
@@ -60,7 +75,13 @@ def prepare_sky_model(
 
     # Beam-aware nside advisor: warn (advisory only, never raise) when the
     # user-chosen nside is too coarse relative to the primary-beam FWHM.
-    if target == SkyFormat.HEALPIX and beam_fwhm_rad is not None and nside is not None:
+    # Runs before the single-model fast path so passing-through one model
+    # still gets the advisory.
+    if (
+        (target == SkyFormat.HEALPIX or target is None)
+        and beam_fwhm_rad is not None
+        and nside is not None
+    ):
         from rrivis.utils.healpix import pixel_too_coarse, recommend_nside_for_beam
 
         if pixel_too_coarse(
@@ -80,10 +101,15 @@ def prepare_sky_model(
                 nside_safety_factor,
             )
 
+    # Single-model fast path: when no combine is needed and the caller didn't
+    # request a specific representation, return the model unchanged.
+    if len(models) == 1 and target is None:
+        return models[0]
+
     if len(models) == 1:
         sky = models[0]
     else:
-        sky = combine_models(
+        sky = _combine_models(
             models,
             representation=target,
             nside=nside,
@@ -96,6 +122,11 @@ def prepare_sky_model(
             precision=precision,
             memmap_path=memmap_path,
         )
+
+    # When target is None (auto-detect), accept whatever combine produced —
+    # _combine_models already preserves hybrids when inputs span formats.
+    if target is None:
+        return sky
 
     if target == SkyFormat.HEALPIX:
         if sky.healpix is not None:

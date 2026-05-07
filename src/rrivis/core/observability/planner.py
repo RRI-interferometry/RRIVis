@@ -398,7 +398,7 @@ class ObservabilityPlanner:
         import matplotlib.pyplot as plt
         from healpy.rotator import Rotator
 
-        healpix = sky.healpix.to_dense() if sky.healpix.is_sparse else sky.healpix
+        healpix = sky.healpix.require_dense("ObservabilityPlanner.background_layer")
         coordinate_frame = getattr(healpix, "coordinate_frame", "icrs")
         freq_idx = sky.resolve_frequency_index(self.frequency_hz)
         healpix_map = np.asarray(healpix.maps[freq_idx], dtype=float)

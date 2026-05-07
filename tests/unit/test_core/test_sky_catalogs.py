@@ -271,3 +271,53 @@ class TestFootprintAssets:
         footprint = load_catalog_footprint_asset(entry.footprint_asset)
         assert footprint.coordinate_frame == "icrs"
         assert 0.0 < footprint.coverage_fraction < 1.0
+
+
+class TestFluxUnitConversionFactor:
+    """Per-catalog flux unit handling is data-driven in catalogs.py."""
+
+    @pytest.mark.parametrize(
+        "name", sorted(set(VIZIER_POINT_CATALOGS) | set(RACS_CATALOGS))
+    )
+    def test_factor_matches_unit(self, name):
+        entry = (
+            VIZIER_POINT_CATALOGS[name]
+            if name in VIZIER_POINT_CATALOGS
+            else RACS_CATALOGS[name]
+        )
+        if entry.flux_unit in ("Jy", "Jy/beam"):
+            assert entry.flux_unit_conversion_factor == 1.0
+        elif entry.flux_unit == "mJy":
+            assert entry.flux_unit_conversion_factor == 1e-3
+        else:  # pragma: no cover - guarded by validator
+            pytest.fail(f"Unhandled flux_unit {entry.flux_unit!r} on {name}")
+
+    def test_unknown_flux_unit_rejected(self):
+        with pytest.raises(ValidationError, match="flux_unit"):
+            VizierCatalogEntry(
+                vizier_id="VIII/0",
+                description="bogus",
+                ra_col="RA",
+                dec_col="DEC",
+                flux_col="Flux",
+                flux_unit="kJy",  # not in _FLUX_UNIT_TO_JY
+                freq_mhz=100.0,
+            )
+
+
+class TestSimpleVizierLoaderRegistration:
+    """Each simple-VizieR catalog name resolves to a callable loader."""
+
+    @pytest.mark.parametrize(
+        "name",
+        ["vlssr", "tgss", "wenss", "sumss", "nvss", "3c", "vlass"],
+    )
+    def test_loader_callable_via_registry(self, name):
+        from rrivis.core.sky.registry import loader_registry
+
+        loader = loader_registry.loader(name)
+        assert callable(loader)
+        # Definition advertises the canonical config_fields the recipes layer
+        # depends on (flux_limit + max_rows + allow_full_catalog).
+        meta = loader_registry.meta(name)
+        assert "flux_limit" in meta["config_fields"]

@@ -179,8 +179,8 @@ class _SkyPlotterBase:
     ) -> tuple[np.ndarray | None, str]:
         """Retrieve a single Stokes map and its label."""
         healpix = self._sky.healpix
-        if healpix is not None and healpix.is_sparse:
-            healpix = healpix.to_dense()
+        if healpix is not None:
+            healpix = healpix.require_dense("SkyPlotter")
 
         if stokes == "I":
             if healpix is None:

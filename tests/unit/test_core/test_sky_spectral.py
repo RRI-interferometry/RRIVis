@@ -4,7 +4,12 @@ import numpy as np
 import pytest
 
 from rrivis.core.sky.constants import C_LIGHT
-from rrivis.core.sky.spectral import apply_faraday_rotation, compute_spectral_scale
+from rrivis.core.sky.spectral import (
+    apply_faraday_rotation,
+    compute_spectral_scale,
+    evaluate_point_flux_at_freq,
+    nearest_channel_index_with_warning,
+)
 
 # ---------------------------------------------------------------------------
 # TestComputeSpectralScale
@@ -340,3 +345,90 @@ class TestApplyFaradayRotation:
             rtol=1e-10,
             err_msg="Polarized intensity not conserved in vectorized test",
         )
+
+
+class TestNearestChannelIndexWithWarning:
+    """The user-facing nearest-channel helper warns on off-grid lookups."""
+
+    def test_silent_when_aligned(self, caplog):
+        freqs = np.array([100e6, 110e6, 120e6])
+        with caplog.at_level("WARNING", logger="rrivis.core.sky.spectral"):
+            idx = nearest_channel_index_with_warning(freqs, 110e6)
+        assert idx == 1
+        assert caplog.records == []
+
+    def test_warns_when_offgrid(self, caplog):
+        freqs = np.array([100e6, 110e6, 120e6])
+        # 5 MHz off-grid is well above the 0.1 * spacing = 1 MHz threshold.
+        with caplog.at_level("WARNING", logger="rrivis.core.sky.spectral"):
+            idx = nearest_channel_index_with_warning(
+                freqs, 105e6, label="per-channel flux"
+            )
+        assert idx == 0 or idx == 1  # tie-broken low side; either acceptable
+        assert any(
+            "off-grid" in r.getMessage() and "per-channel flux" in r.getMessage()
+            for r in caplog.records
+        )
+
+    def test_silent_within_tolerance(self, caplog):
+        freqs = np.array([100e6, 110e6, 120e6])
+        # 100 Hz difference is below the 1 kHz floor.
+        with caplog.at_level("WARNING", logger="rrivis.core.sky.spectral"):
+            nearest_channel_index_with_warning(freqs, 110e6 + 100.0)
+        assert caplog.records == []
+
+
+class TestEvaluatePointFluxOffGrid:
+    """The per-channel flux path warns when the requested frequency is off-grid."""
+
+    def test_per_channel_flux_silent_when_aligned(self, caplog):
+        n_src = 2
+        n_chan = 3
+        channel_freqs = np.array([100e6, 110e6, 120e6])
+        per_channel_flux = np.ones((n_chan, n_src))
+        zeros = np.zeros(n_src)
+
+        with caplog.at_level("WARNING", logger="rrivis.core.sky.spectral"):
+            evaluate_point_flux_at_freq(
+                stokes_i=zeros,
+                stokes_q=zeros,
+                stokes_u=zeros,
+                stokes_v=zeros,
+                spectral_index=zeros,
+                spectral_coeffs=None,
+                ref_freq=100e6,
+                rotation_measure=None,
+                per_channel_flux=per_channel_flux,
+                per_channel_stokes_q=None,
+                per_channel_stokes_u=None,
+                per_channel_stokes_v=None,
+                channel_frequencies=channel_freqs,
+                freq=110e6,
+            )
+        assert caplog.records == []
+
+    def test_per_channel_flux_warns_when_offgrid(self, caplog):
+        n_src = 2
+        n_chan = 3
+        channel_freqs = np.array([100e6, 110e6, 120e6])
+        per_channel_flux = np.ones((n_chan, n_src))
+        zeros = np.zeros(n_src)
+
+        with caplog.at_level("WARNING", logger="rrivis.core.sky.spectral"):
+            evaluate_point_flux_at_freq(
+                stokes_i=zeros,
+                stokes_q=zeros,
+                stokes_u=zeros,
+                stokes_v=zeros,
+                spectral_index=zeros,
+                spectral_coeffs=None,
+                ref_freq=100e6,
+                rotation_measure=None,
+                per_channel_flux=per_channel_flux,
+                per_channel_stokes_q=None,
+                per_channel_stokes_u=None,
+                per_channel_stokes_v=None,
+                channel_frequencies=channel_freqs,
+                freq=104e6,  # 4 MHz off-grid
+            )
+        assert any("per-channel flux" in r.getMessage() for r in caplog.records)

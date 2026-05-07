@@ -364,8 +364,16 @@ class UnionRegion(SkyRegion):
         n = len(self._sub_regions)
         return f"SkyRegion.union({n} sub-regions)"
 
-    def area_sr(self) -> float:
-        nside_approx = 512
-        mask = self.healpix_mask(nside_approx)
-        pixel_sr = 4.0 * np.pi / hp.nside2npix(nside_approx)
+    def area_sr(self, *, nside: int = 512) -> float:
+        """Approximate the union area by counting HEALPix pixels in the mask.
+
+        Parameters
+        ----------
+        nside
+            HEALPix resolution used for the discretization. Larger ``nside``
+            improves accuracy for unions of small regions; smaller ``nside``
+            is sufficient for large unions and runs faster. Defaults to 512.
+        """
+        mask = self.healpix_mask(nside)
+        pixel_sr = 4.0 * np.pi / hp.nside2npix(nside)
         return float(int(mask.sum()) * pixel_sr)

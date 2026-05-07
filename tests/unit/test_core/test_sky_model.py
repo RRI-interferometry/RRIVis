@@ -404,3 +404,21 @@ class TestMemmapAndEquality:
 
         assert sky_icrs != sky_gal
         assert not sky_icrs.is_close(sky_gal)
+
+    def test_eq_is_bit_exact_across_precisions(self):
+        """``==`` is bit-exact: f32 and f64 versions of the same logical sky
+        compare as unequal even when the only differences are representation
+        error.  ``is_close`` is the appropriate tool for cross-precision
+        comparisons."""
+        f32 = PrecisionConfig.fast()
+        f64 = PrecisionConfig.precise()
+        sky_f32 = make_point_model(n=5, precision=f32, seed=42)
+        sky_f64 = make_point_model(n=5, precision=f64, seed=42)
+        # The two models hold the same logical sky; their array dtypes differ.
+        assert sky_f32 != sky_f64
+        assert sky_f32.is_close(sky_f64)
+
+    def test_eq_round_trips_through_replace(self, precision):
+        """A no-op ``replace`` must produce an instance that compares equal."""
+        sky = make_point_model(n=4, precision=precision, seed=7)
+        assert sky == sky.replace()

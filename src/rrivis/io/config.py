@@ -729,7 +729,7 @@ class RealisticForegroundSourceConfig(SkySourceConfig):
     mixed_model_policy: Literal["error", "warn", "allow"] = Field(
         "error",
         description=(
-            "Forwarded to the internal combine_models call.  Leave at 'error' "
+            "Forwarded to prepare_sky_model.  Leave at 'error' "
             "since the recipe constructs disjoint layers by design."
         ),
     )

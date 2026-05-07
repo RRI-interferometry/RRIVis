@@ -1,5 +1,18 @@
 # rrivis/core/sky/__init__.py
-"""Unified sky model package for RRIVis."""
+"""Unified sky model package for RRIVis.
+
+Use :func:`prepare_sky_model` as the canonical user entry point for combining
+and materialising sky models.  The lower-level ``_combine_models`` engine
+lives in :mod:`rrivis.core.sky.combine` and is intended for advanced /
+internal use.
+
+Sparse :class:`HealpixData` is the canonical form for partial-sky inputs and
+propagates losslessly through load → combine → simulate.  Operations that
+genuinely need a full-sky array (plotting, harmonic regridding, lightcurves,
+observability projections, bright-source subtraction) raise — densify
+explicitly with ``sky.replace(healpix=sky.healpix.to_dense())`` rather than
+relying on implicit densification.
+"""
 
 from ._data import (
     HealpixData,
@@ -15,7 +28,7 @@ from ._data import (
 from ._factories import create_empty, create_from_arrays, create_test_sources
 from ._loaders_bbs import write_bbs
 from ._serialization import load_skyh5, save_skyh5, to_pyradiosky
-from .combine import combine_models, regrid_healpix_model
+from .combine import regrid_healpix_model
 from .constants import (
     C_LIGHT,
     H_PLANCK,
@@ -71,7 +84,6 @@ __all__ = [
     "create_empty",
     "create_from_arrays",
     "create_test_sources",
-    "combine_models",
     "compute_linear_polarization",
     "materialize_healpix_model",
     "materialize_point_sources_model",

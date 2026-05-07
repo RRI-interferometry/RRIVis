@@ -124,6 +124,22 @@ class TestUnion:
         assert isinstance(result, ConeRegion)
         assert result is c1
 
+    def test_union_area_sr_accepts_nside(self):
+        """UnionRegion.area_sr accepts an nside argument; finer nside tightens the
+        approximation toward the analytic two-cone area."""
+        c1 = SkyRegion.cone(ra_deg=0.0, dec_deg=0.0, radius_deg=2.0)
+        c2 = SkyRegion.cone(ra_deg=180.0, dec_deg=0.0, radius_deg=2.0)
+        union = SkyRegion.union([c1, c2])
+
+        analytic = c1.area_sr() + c2.area_sr()
+        coarse = union.area_sr(nside=64)
+        fine = union.area_sr(nside=512)
+
+        # Both finite and positive.
+        assert coarse > 0.0 and fine > 0.0
+        # Finer discretization gets closer to the analytic two-cone total.
+        assert abs(fine - analytic) <= abs(coarse - analytic)
+
 
 # ---------------------------------------------------------------------------
 # HEALPix mask

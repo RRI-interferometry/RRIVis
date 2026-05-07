@@ -1,6 +1,6 @@
 """Physical-disjointness checker + monopole-consistency tests.
 
-Covers the pass/warn/error matrix for ``combine_models``:
+Covers the pass/warn/error matrix for ``_combine_models``:
 
 * Rule 2.1 — diffuse ``source_subtraction=ALL`` ⇒ pass
 * Rule 2.2 — diffuse ``ABOVE_THRESHOLD`` with threshold ≤ catalog S_min ⇒ pass
@@ -25,9 +25,9 @@ from rrivis.core.sky import (
     SkyModel,
     SkyProvenance,
     SourceSubtractionStatus,
-    combine_models,
     create_from_arrays,
 )
+from rrivis.core.sky.combine import _combine_models
 
 
 @pytest.fixture
@@ -126,7 +126,7 @@ class TestDisjointnessPassRules:
         )
         p = _point(precision=precision)
         # No exception under default policy="error".
-        combined = combine_models(
+        combined = _combine_models(
             [d, p],
             precision=precision,
             nside=8,
@@ -144,7 +144,7 @@ class TestDisjointnessPassRules:
             threshold_freq_hz=408e6,
         )
         p = _point(precision=precision, flux_min_jy=5.0, flux_max_jy=20.0)
-        combined = combine_models(
+        combined = _combine_models(
             [d, p],
             precision=precision,
             nside=8,
@@ -170,7 +170,7 @@ class TestDisjointnessPassRules:
         d = d.replace(provenance=d_prov)
         p = _point(precision=precision, beam_fwhm_arcsec=60 * 60)  # 1 deg
         # point θ_min = 1 deg ≈ 0.0175 rad > 0.01 rad ⇒ disjoint by scale.
-        combined = combine_models(
+        combined = _combine_models(
             [d, p], precision=precision, nside=nside, frequencies=freqs
         )
         assert combined.healpix is not None
@@ -184,7 +184,7 @@ class TestDisjointnessFailures:
         )
         p = _point(precision=precision)
         with pytest.raises(ValueError, match="double-counting"):
-            combine_models(
+            _combine_models(
                 [d, p],
                 precision=precision,
                 mixed_model_policy="error",
@@ -199,7 +199,7 @@ class TestDisjointnessFailures:
         )
         p = _point(precision=precision)
         with pytest.warns(UserWarning, match="double-counting"):
-            combined = combine_models(
+            combined = _combine_models(
                 [d, p],
                 precision=precision,
                 mixed_model_policy="warn",
@@ -219,7 +219,7 @@ class TestDisjointnessFailures:
 
         with warnings.catch_warnings():
             warnings.simplefilter("error")  # escalate any warning to error
-            combined = combine_models(
+            combined = _combine_models(
                 [d, p],
                 precision=precision,
                 mixed_model_policy="allow",
@@ -235,7 +235,7 @@ class TestDisjointnessFailures:
         d = d.replace(provenance=SkyProvenance())  # UNKNOWN
         p = _point(precision=precision)
         with pytest.raises(ValueError, match="UNKNOWN"):
-            combine_models(
+            _combine_models(
                 [d, p],
                 precision=precision,
                 nside=8,
@@ -252,7 +252,7 @@ class TestDisjointnessFailures:
         )
         p = _point(precision=precision, flux_min_jy=5.0, flux_max_jy=20.0)
         with pytest.raises(ValueError, match="double-counted"):
-            combine_models(
+            _combine_models(
                 [d, p],
                 precision=precision,
                 nside=8,
@@ -273,7 +273,7 @@ class TestMonopoleConsistency:
             model_name="other",
         )
         with pytest.raises(ValueError, match="monopole conventions"):
-            combine_models(
+            _combine_models(
                 [a, b],
                 precision=precision,
                 mixed_model_policy=policy,
@@ -293,7 +293,7 @@ class TestMonopoleConsistency:
             monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
             model_name="other",
         )
-        combined = combine_models(
+        combined = _combine_models(
             [a, b],
             precision=precision,
             nside=8,
@@ -319,7 +319,7 @@ class TestCombinedProvenancePropagation:
             monopole_k=50.0,
             model_name="b",
         )
-        combined = combine_models(
+        combined = _combine_models(
             [a, b],
             precision=precision,
             nside=8,
@@ -328,7 +328,7 @@ class TestCombinedProvenancePropagation:
         assert combined.provenance.monopole_k == pytest.approx(150.0)
 
     def test_monopole_k_measured_from_healpix_when_any_missing(self, precision):
-        """For HEALPix outputs, combine_models falls back to the measured
+        """For HEALPix outputs, _combine_models falls back to the measured
         pixel-area-weighted mean of the combined cube when the per-layer
         merge produced None (e.g. because a contributor lacked ``monopole_k``).
         """
@@ -345,7 +345,7 @@ class TestCombinedProvenancePropagation:
             monopole_k=None,
             model_name="other",
         )
-        combined = combine_models(
+        combined = _combine_models(
             [a, b],
             precision=precision,
             nside=8,
@@ -364,7 +364,7 @@ class TestCombinedProvenancePropagation:
             source_subtraction=SourceSubtractionStatus.ALL,
             model_name="other",
         )
-        combined = combine_models(
+        combined = _combine_models(
             [a, b],
             precision=precision,
             nside=8,
@@ -380,7 +380,7 @@ class TestCombinedProvenancePropagation:
             source_subtraction=SourceSubtractionStatus.NONE,
             model_name="none",
         )
-        mixed = combine_models(
+        mixed = _combine_models(
             [a, c],
             precision=precision,
             nside=8,
@@ -402,7 +402,7 @@ class TestCombinedProvenancePropagation:
             threshold_freq_hz=408e6,
             model_name="other",
         )
-        combined = combine_models(
+        combined = _combine_models(
             [a, b],
             precision=precision,
             nside=8,
@@ -415,3 +415,76 @@ class TestCombinedProvenancePropagation:
         assert combined.provenance.source_subtraction_threshold_jy == pytest.approx(2.0)
         assert combined.provenance.source_subtraction_freq_hz == pytest.approx(408e6)
         assert combined.provenance.source_subtraction_method == "gaussian_fit_inpaint"
+
+
+class TestMergeProvenanceMonopoleDoubleCount:
+    """``merge_provenance`` must refuse to sum monopoles that would
+    double-count the CMB or alias an UNKNOWN convention onto absolutes.
+
+    These tests target ``merge_provenance`` directly (not ``_combine_models``)
+    so the post-merge measured-monopole fallback in ``_combine_as_healpix_merge``
+    cannot mask a wrongly-summed value.
+    """
+
+    def test_two_with_cmb_drops_monopole_k(self, precision):
+        from rrivis.core.sky._combine_provenance import merge_provenance
+
+        a = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.ALL,
+            monopole_convention=MonopoleConvention.ABSOLUTE_WITH_CMB,
+            monopole_k=2.725,
+        )
+        b = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.ALL,
+            monopole_convention=MonopoleConvention.ABSOLUTE_WITH_CMB,
+            monopole_k=2.725,
+            model_name="other",
+        )
+        merged = merge_provenance([a, b])
+        assert merged.monopole_k is None
+        assert merged.notes is not None
+        assert "double-count the CMB" in merged.notes
+
+    def test_with_cmb_plus_no_cmb_still_sums(self, precision):
+        from rrivis.core.sky._combine_provenance import merge_provenance
+
+        a = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.ALL,
+            monopole_convention=MonopoleConvention.ABSOLUTE_WITH_CMB,
+            monopole_k=2.725,
+        )
+        b = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.ALL,
+            monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+            monopole_k=12.0,
+            model_name="residual",
+        )
+        merged = merge_provenance([a, b])
+        # CMB + sky residual is a legitimate addition.
+        assert merged.monopole_k == pytest.approx(2.725 + 12.0)
+
+    def test_unknown_alongside_absolute_drops_monopole_k(self, precision):
+        from rrivis.core.sky._combine_provenance import merge_provenance
+
+        a = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.ALL,
+            monopole_convention=MonopoleConvention.UNKNOWN,
+            monopole_k=10.0,
+            model_name="unknown",
+        )
+        b = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.ALL,
+            monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+            monopole_k=5.0,
+            model_name="absolute",
+        )
+        merged = merge_provenance([a, b])
+        assert merged.monopole_k is None
+        assert merged.notes is not None
+        assert "UNKNOWN" in merged.notes

@@ -13,7 +13,7 @@ realistic-foreground research summary §8 (Jelić 2008 / SKA-Low 2025 style):
   subtraction threshold.
 
 Each layer is tagged with explicit :class:`SkyProvenance` so that the
-disjointness check inside :func:`combine_models` confirms no
+disjointness check inside :func:`prepare_sky_model` confirms no
 double-counting and the combined sky carries a coherent monopole.
 """
 
@@ -313,7 +313,7 @@ def realistic_foreground_sky(
         B_total = diffuse + bright_catalogs + poisson_confusion
 
     with each layer tagged so that the disjointness check in
-    :func:`combine_models` confirms no double-counting.
+    :func:`prepare_sky_model` confirms no double-counting.
 
     Parameters
     ----------
@@ -355,7 +355,7 @@ def realistic_foreground_sky(
     seed
         RNG seed forwarded to the Poisson loader.
     mixed_model_policy
-        Forwarded to :func:`combine_models`.  Defaults to ``"error"`` —
+        Forwarded to :func:`prepare_sky_model`.  Defaults to ``"error"`` —
         this recipe is constructed to be disjoint and the checker should
         pass without any tolerance.
 

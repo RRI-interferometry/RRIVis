@@ -11,7 +11,7 @@ import pytest
 from rrivis.core.precision import PrecisionConfig
 from rrivis.core.sky import HealpixData, create_from_arrays
 from rrivis.core.sky._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
-from rrivis.core.sky.combine import combine_models
+from rrivis.core.sky.combine import _combine_models
 from rrivis.core.sky.convert import point_sources_to_healpix_maps
 from rrivis.core.sky.model import SkyFormat, SkyModel
 from rrivis.core.sky.operations import materialize_healpix_model
@@ -139,10 +139,10 @@ class TestCombineMemmap:
     def test_combine_healpix_parity(self, precision, tmp_path):
         sky1 = make_healpix_model(nside=8, n_freq=4, precision=precision)
         sky2 = make_healpix_model(nside=8, n_freq=4, precision=precision)
-        ram = combine_models(
+        ram = _combine_models(
             [sky1, sky2], representation=SkyFormat.HEALPIX, precision=precision
         )
-        mm = combine_models(
+        mm = _combine_models(
             [sky1, sky2],
             representation=SkyFormat.HEALPIX,
             memmap_path=str(tmp_path),

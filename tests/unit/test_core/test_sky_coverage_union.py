@@ -14,7 +14,7 @@ from rrivis.core.sky import (
     SourceSubtractionStatus,
     create_from_arrays,
 )
-from rrivis.core.sky.combine import combine_models
+from rrivis.core.sky.combine import _combine_models
 from rrivis.core.sky.constants import BrightnessConversion
 from rrivis.core.sky.model import SkyModel
 
@@ -82,7 +82,7 @@ class TestCoverageUnion:
         footprint = SkyFootprint(nside=8, hpx_inds=np.array([1, 2, 3]))
         catalog = _make_partial_point_model(precision, footprint, name="catalog")
 
-        combined = combine_models([diffuse, catalog], precision=precision)
+        combined = _combine_models([diffuse, catalog], precision=precision)
 
         assert combined.provenance.sky_coverage is SkyCoverage.FULL_SKY
         assert combined.provenance.coverage_fraction == pytest.approx(1.0)
@@ -92,7 +92,7 @@ class TestCoverageUnion:
         model_a = _make_partial_point_model(precision, footprint, name="a")
         model_b = _make_partial_point_model(precision, footprint, name="b")
 
-        combined = combine_models([model_a, model_b], precision=precision)
+        combined = _combine_models([model_a, model_b], precision=precision)
 
         assert combined.provenance.sky_coverage is SkyCoverage.PARTIAL_SKY
         assert combined.provenance.coverage_fraction == pytest.approx(
@@ -106,7 +106,7 @@ class TestCoverageUnion:
         model_a = _make_partial_point_model(precision, footprint_a, name="a")
         model_b = _make_partial_point_model(precision, footprint_b, name="b")
 
-        combined = combine_models([model_a, model_b], precision=precision)
+        combined = _combine_models([model_a, model_b], precision=precision)
 
         assert combined.provenance.sky_coverage is SkyCoverage.PARTIAL_SKY
         assert combined.provenance.coverage_footprint is not None
@@ -119,7 +119,7 @@ class TestCoverageUnion:
         model_known = _make_partial_point_model(precision, footprint, name="known")
         model_unknown = _make_partial_point_model(precision, None, name="unknown")
 
-        combined = combine_models([model_known, model_unknown], precision=precision)
+        combined = _combine_models([model_known, model_unknown], precision=precision)
 
         assert combined.provenance.sky_coverage is SkyCoverage.UNKNOWN
         assert combined.provenance.coverage_fraction is None

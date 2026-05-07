@@ -11,9 +11,17 @@ from functools import cache
 from importlib import resources
 
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ._data import MonopoleConvention, SkyFootprint
+
+# Conversion factor from a catalog's native flux unit to Jy.  Catalogs that
+# report flux in mJy multiply by 1e-3; ``Jy``/``Jy/beam`` use 1.0.
+_FLUX_UNIT_TO_JY: dict[str, float] = {
+    "Jy": 1.0,
+    "Jy/beam": 1.0,
+    "mJy": 1e-3,
+}
 
 
 class _CatalogBase(BaseModel):
@@ -25,6 +33,28 @@ class _CatalogBase(BaseModel):
         ..., description="Short catalog description (1-2 sentences)"
     )
     reference_url: str = Field("", description="ADS or documentation URL")
+
+    @property
+    def flux_unit_conversion_factor(self) -> float:
+        """Multiplier that converts the catalog's native flux unit to Jy.
+
+        Looked up from :data:`_FLUX_UNIT_TO_JY` using the entry's declared
+        ``flux_unit``.  Subclasses without a ``flux_unit`` field raise
+        ``AttributeError``.
+        """
+        unit = getattr(self, "flux_unit", None)
+        if unit is None:
+            raise AttributeError(
+                f"{type(self).__name__} has no flux_unit; "
+                "flux_unit_conversion_factor only applies to catalog entries."
+            )
+        try:
+            return _FLUX_UNIT_TO_JY[unit]
+        except KeyError as exc:
+            raise ValueError(
+                f"Unknown flux_unit {unit!r} on {type(self).__name__}; "
+                f"supported units: {sorted(_FLUX_UNIT_TO_JY)}"
+            ) from exc
 
 
 class DiffuseModelEntry(_CatalogBase):
@@ -68,6 +98,15 @@ class DiffuseModelEntry(_CatalogBase):
 
 class VizierCatalogEntry(_CatalogBase):
     """Metadata for a VizieR point-source catalog."""
+
+    @model_validator(mode="after")
+    def _validate_flux_unit(self) -> VizierCatalogEntry:
+        if self.flux_unit not in _FLUX_UNIT_TO_JY:
+            raise ValueError(
+                f"VizierCatalogEntry: unknown flux_unit {self.flux_unit!r}; "
+                f"supported: {sorted(_FLUX_UNIT_TO_JY)}"
+            )
+        return self
 
     vizier_id: str = Field(
         ..., description="VizieR catalog identifier (e.g. 'VIII/97')"
@@ -133,6 +172,15 @@ class VizierCatalogEntry(_CatalogBase):
 
 class RacsCatalogEntry(_CatalogBase):
     """Metadata for a RACS catalog accessed via CASDA TAP."""
+
+    @model_validator(mode="after")
+    def _validate_flux_unit(self) -> RacsCatalogEntry:
+        if self.flux_unit not in _FLUX_UNIT_TO_JY:
+            raise ValueError(
+                f"RacsCatalogEntry: unknown flux_unit {self.flux_unit!r}; "
+                f"supported: {sorted(_FLUX_UNIT_TO_JY)}"
+            )
+        return self
 
     freq_mhz: float = Field(..., description="Survey frequency in MHz")
     tap_table: str = Field(..., description="CASDA TAP table name")

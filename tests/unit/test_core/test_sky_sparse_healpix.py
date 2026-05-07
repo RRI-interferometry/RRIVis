@@ -187,9 +187,15 @@ class TestSparseSkyModelBehavior:
         assert point.point is not None
         assert point.n_point_sources > 0
 
-    def test_sparse_plotter_smoke(self, precision):
+    def test_sparse_plotter_requires_explicit_densify(self, precision):
+        """Per the sparse-HEALPix doctrine, plotting raises on sparse input
+        and the user must densify themselves; a dense follow-up succeeds."""
         sky, _, _ = make_sparse_healpix_model(precision)
-        assert isinstance(SkyPlotter(sky).healpix_map(), Figure)
+        with pytest.raises(ValueError, match="SkyPlotter"):
+            SkyPlotter(sky).healpix_map()
+
+        dense_sky = sky.replace(healpix=sky.healpix.to_dense())
+        assert isinstance(SkyPlotter(dense_sky).healpix_map(), Figure)
 
 
 class TestSparseVisibility:

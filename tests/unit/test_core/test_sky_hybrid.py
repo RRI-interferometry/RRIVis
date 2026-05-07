@@ -6,7 +6,7 @@ Covers:
 - ``replace`` round-trips a hybrid.
 - ``materialize_*`` produces a hybrid by default and a single-format model
   with ``clear_other=True``.
-- ``combine_models`` preserves both payloads when inputs span types.
+- ``_combine_models`` preserves both payloads when inputs span types.
 - ``to_pyradiosky`` rejects a hybrid without an explicit representation.
 """
 
@@ -22,12 +22,12 @@ from rrivis.core.sky import (
     PointSourceData,
     SkyFormat,
     SkyModel,
-    combine_models,
     create_from_arrays,
     materialize_healpix_model,
     materialize_point_sources_model,
 )
 from rrivis.core.sky._serialization import to_pyradiosky
+from rrivis.core.sky.combine import _combine_models
 
 
 @pytest.fixture
@@ -149,7 +149,7 @@ class TestCombineModelsHybridAuto:
             _precision=precision,
         )
 
-        combined = combine_models(
+        combined = _combine_models(
             [point_only, healpix_only],
             precision=precision,
             mixed_model_policy="allow",

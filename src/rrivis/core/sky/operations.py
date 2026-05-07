@@ -6,7 +6,7 @@ operations outside ``SkyModel`` itself.
 
 from __future__ import annotations
 
-import dataclasses
+import os
 import tempfile
 import warnings
 from typing import TYPE_CHECKING, Any
@@ -14,13 +14,19 @@ from typing import TYPE_CHECKING, Any
 import healpy as hp
 import numpy as np
 
+from rrivis.utils.frequency import parse_frequency_config
+
 from ._data import (
     HealpixData,
     MonopoleConvention,
     PointSourceData,
-    SkyProvenance,
     SourceSubtractionStatus,
 )
+from .constants import (
+    brightness_temp_to_flux_density,
+    flux_density_to_brightness_temp,
+)
+from .convert import healpix_map_to_point_arrays, point_sources_to_healpix_maps
 
 if TYPE_CHECKING:
     from .model import SkyModel
@@ -61,16 +67,12 @@ def materialize_healpix_model(
             "Provide either 'frequencies' or 'obs_frequency_config', not both."
         )
     if frequencies is None and obs_frequency_config is not None:
-        from rrivis.utils.frequency import parse_frequency_config
-
         frequencies = parse_frequency_config(obs_frequency_config)
     if frequencies is None:
         raise ValueError(
             "Either 'frequencies' (np.ndarray) or 'obs_frequency_config' "
             "(dict) is required."
         )
-
-    from .convert import point_sources_to_healpix_maps
 
     effective_ref_freq: float | np.ndarray | None = None
     if sky.point.ref_freq is not None and np.any(sky.point.ref_freq > 0):
@@ -138,7 +140,7 @@ def materialize_healpix_model(
         merged_notes = (
             f"{sky.provenance.notes}; {note}" if sky.provenance.notes else note
         )
-        new_prov = dataclasses.replace(sky.provenance, notes=merged_notes)
+        new_prov = sky.provenance.replace(notes=merged_notes)
 
     if clear_other:
         return sky.replace(point=None, healpix=new_healpix, provenance=new_prov)
@@ -188,8 +190,6 @@ def materialize_point_sources_model(
         f"full-fidelity diffuse emission.",
         stacklevel=2,
     )
-
-    from .convert import healpix_map_to_point_arrays
 
     resolve_freq = freq or float(healpix.frequencies[0])
     if resolve_freq is None:
@@ -243,8 +243,7 @@ def materialize_point_sources_model(
     # the original diffuse template's resolution band, which no longer
     # describes the quantized point catalog we just produced.
     pixel_resolution_rad = float(hp.nside2resol(healpix.nside))
-    new_prov = dataclasses.replace(
-        sky.provenance,
+    new_prov = sky.provenance.replace(
         angular_resolution_rad=(pixel_resolution_rad, float(np.pi)),
     )
 
@@ -265,8 +264,6 @@ def with_memmap_backing(
 
     if path is None:
         path = tempfile.mkdtemp(prefix="rrivis_memmap_")
-
-    import os
 
     os.makedirs(path, exist_ok=True)
 
@@ -315,6 +312,23 @@ def with_memmap_backing(
 # =============================================================================
 # Bright-source subtraction (Remazeilles 2015 style)
 # =============================================================================
+
+# Auto-detection uses a permissive peak-pixel threshold of
+# ``detection_peak_fraction × flux_limit_jy`` so that resolved sources whose
+# brightest pixel holds only a fraction of their integrated flux still enter
+# the candidate list; the integrated fitted flux is then compared to the full
+# threshold before subtraction.  0.2 mirrors the Remazeilles 2015 §3 setup.
+_DEFAULT_DETECTION_PEAK_FRACTION: float = 0.2
+
+# Stop criteria for the harmonic-space inpaint loop.  80 iterations is more
+# than sufficient for an ℓ_max ≈ 2·nside band-limited fill at the rtol below;
+# tighten only if the inpainted pixels visibly diverge.
+_DEFAULT_INPAINT_MAX_ITERATIONS: int = 80
+_DEFAULT_INPAINT_RTOL: float = 1e-3
+
+# FWHM = 2·sqrt(2·ln 2)·σ ≈ 2.3548·σ for a Gaussian.  Kept exact to four
+# decimal places — matches the literature convention used downstream.
+_GAUSSIAN_FWHM_TO_SIGMA: float = 2.3548
 
 
 def _detect_local_maxima_above(
@@ -530,6 +544,180 @@ def _inpaint_by_alm(
     return working.astype(maps.dtype, copy=False)
 
 
+def _select_subtraction_candidates(
+    sky: SkyModel,
+    *,
+    frequency_hz: float,
+    flux_limit_jy: float,
+    catalog: SkyModel | None,
+    detection_peak_fraction: float,
+    max_sources: int | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Pick the HEALPix pixel indices to attempt subtraction at.
+
+    Two modes:
+
+    * ``catalog`` supplied: scale each catalog source's flux to
+      ``frequency_hz`` via its declared spectral index, keep those above
+      ``flux_limit_jy``, and project to pixel indices.
+    * ``catalog is None``: convert the reference-frequency Stokes I map to
+      Jy/pixel and call :func:`_detect_local_maxima_above` with a permissive
+      peak threshold of ``detection_peak_fraction × flux_limit_jy``.
+
+    Returns ``(candidate_pix, flux_per_pixel_jy)``.  ``flux_per_pixel_jy``
+    is the reference-frequency Jy map and is used by ``max_sources`` to
+    rank candidates.
+    """
+    nside = sky.healpix.nside
+    pixel_area_sr = 4.0 * np.pi / hp.nside2npix(nside)
+
+    idx = sky.resolve_frequency_index(frequency_hz)
+    reference_map_k = np.asarray(sky.healpix.maps[idx], dtype=np.float64)
+    use_rj = sky.brightness_conversion.value == "rayleigh-jeans" or np.any(
+        reference_map_k <= 0.0
+    )
+    conv_method = "rayleigh-jeans" if use_rj else "planck"
+    flux_per_pixel_jy = brightness_temp_to_flux_density(
+        reference_map_k,
+        frequency=float(frequency_hz),
+        solid_angle=pixel_area_sr,
+        method=conv_method,
+    )
+
+    if catalog is not None and catalog.point is not None and not catalog.point.is_empty:
+        cat_ref = (
+            catalog.point.ref_freq.astype(np.float64)
+            if catalog.point.ref_freq.size
+            else np.zeros(catalog.point.n_sources, dtype=np.float64)
+        )
+        alpha = catalog.point.spectral_index.astype(np.float64)
+        scaled_flux = catalog.point.flux.astype(np.float64).copy()
+        valid_ref = cat_ref > 0.0
+        if np.any(valid_ref):
+            scaled_flux[valid_ref] *= (
+                float(frequency_hz) / cat_ref[valid_ref]
+            ) ** alpha[valid_ref]
+        keep = scaled_flux >= flux_limit_jy
+        if not np.any(keep):
+            candidate_pix = np.asarray([], dtype=np.int64)
+        else:
+            theta = np.pi / 2.0 - catalog.point.dec_rad[keep].astype(np.float64)
+            phi = catalog.point.ra_rad[keep].astype(np.float64)
+            candidate_pix = np.unique(hp.ang2pix(nside, theta, phi))
+    else:
+        detection_threshold_jy = max(
+            flux_limit_jy * float(detection_peak_fraction), 0.0
+        )
+        candidate_pix = _detect_local_maxima_above(
+            flux_per_pixel_jy, nside, detection_threshold_jy
+        )
+
+    if max_sources is not None and candidate_pix.size > max_sources:
+        order = np.argsort(-flux_per_pixel_jy[candidate_pix])
+        candidate_pix = candidate_pix[order[:max_sources]]
+
+    return candidate_pix, flux_per_pixel_jy
+
+
+def _fit_and_subtract_per_channel(
+    sky: SkyModel,
+    candidate_pix: np.ndarray,
+    *,
+    patch_radius: float,
+    sigma_init: float,
+    inpaint_mask_sigma: float,
+    flux_limit_jy: float,
+    catalog_present: bool,
+) -> tuple[np.ndarray, set[int], int, int]:
+    """Run the per-channel Gaussian-fit-and-subtract loop.
+
+    For each channel: convert the cube slice to Jy, fit an elliptical
+    Gaussian + planar baseline at every candidate pixel, reject fits whose
+    integrated flux lies below ``flux_limit_jy`` (auto-detect mode only),
+    subtract the model on the patch, and accumulate the inpaint mask
+    (pixels within ``inpaint_mask_sigma × σ_fit`` of each centre).
+    Converts each modified channel back to brightness temperature.
+
+    Returns ``(new_maps_K, inpaint_mask_pixels, n_fits_ok, n_fits_failed)``.
+    """
+    nside = sky.healpix.nside
+    pixel_area_sr = 4.0 * np.pi / hp.nside2npix(nside)
+    new_maps = np.array(sky.healpix.maps, dtype=np.float64, copy=True)
+    n_freq = new_maps.shape[0]
+    cube_freqs = sky.healpix.frequencies
+    inpaint_mask: set[int] = set()
+    n_fits_ok = 0
+    n_fits_failed = 0
+
+    for fi in range(n_freq):
+        freq_ch = float(cube_freqs[fi])
+        use_rj_ch = sky.brightness_conversion.value == "rayleigh-jeans" or np.any(
+            new_maps[fi] <= 0.0
+        )
+        method_ch = "rayleigh-jeans" if use_rj_ch else "planck"
+        flux_ch_jy = brightness_temp_to_flux_density(
+            new_maps[fi].copy(),
+            frequency=freq_ch,
+            solid_angle=pixel_area_sr,
+            method=method_ch,
+        )
+
+        for center in candidate_pix:
+            patch = hp.query_disc(
+                nside, hp.pix2vec(nside, center), patch_radius, inclusive=True
+            )
+            if patch.size < 8:
+                continue
+
+            px, py = _gnomonic_patch_coords(int(center), patch, nside)
+            pz = flux_ch_jy[patch]
+            params, ok = _fit_elliptical_gaussian(px, py, pz, sigma_init_rad=sigma_init)
+            if not ok:
+                n_fits_failed += 1
+                continue
+
+            # Reject fits whose integrated flux is below the catalog-style
+            # threshold so we don't subtract noise-level bumps.
+            # Integral of A·exp(-½(x'²/σ_M² + y'²/σ_m²)) over the plane is
+            # 2π·A·σ_M·σ_m; divide by pixel area to convert from Jy/sr
+            # back to a Jy total.
+            amp_fit = float(params[0])
+            sigma_M_fit = float(params[3])
+            sigma_m_fit = float(params[4])
+            integrated_flux_jy = (
+                amp_fit * 2.0 * np.pi * sigma_M_fit * sigma_m_fit / pixel_area_sr
+            )
+            if not catalog_present and integrated_flux_jy < flux_limit_jy:
+                n_fits_failed += 1
+                continue
+            n_fits_ok += 1
+
+            model_vals = _evaluate_elliptical_gaussian(params, px, py)
+            flux_ch_jy[patch] -= model_vals
+
+            x0_fit, y0_fit, pa_fit = params[1], params[2], params[5]
+            cos_pa = np.cos(pa_fit)
+            sin_pa = np.sin(pa_fit)
+            xr = (px - x0_fit) * cos_pa + (py - y0_fit) * sin_pa
+            yr = -(px - x0_fit) * sin_pa + (py - y0_fit) * cos_pa
+            ellipse_r2 = (xr / sigma_M_fit) ** 2 + (yr / sigma_m_fit) ** 2
+            core_mask = ellipse_r2 <= inpaint_mask_sigma**2
+            for p in patch[core_mask]:
+                inpaint_mask.add(int(p))
+
+        flux_positive = flux_ch_jy.copy()
+        flux_positive[flux_positive <= 0] = np.finfo(np.float64).tiny
+        method_back = "rayleigh-jeans" if use_rj_ch else "planck"
+        new_maps[fi] = flux_density_to_brightness_temp(
+            flux_positive,
+            frequency=freq_ch,
+            solid_angle=pixel_area_sr,
+            method=method_back,
+        )
+
+    return new_maps, inpaint_mask, n_fits_ok, n_fits_failed
+
+
 def subtract_bright_sources(
     sky: SkyModel,
     *,
@@ -538,10 +726,10 @@ def subtract_bright_sources(
     catalog: SkyModel | None = None,
     patch_radius_rad: float | None = None,
     inpaint_mask_sigma: float = 3.0,
-    inpaint_max_iterations: int = 80,
-    inpaint_rtol: float = 1e-3,
+    inpaint_max_iterations: int = _DEFAULT_INPAINT_MAX_ITERATIONS,
+    inpaint_rtol: float = _DEFAULT_INPAINT_RTOL,
     max_sources: int | None = None,
-    detection_peak_fraction: float = 0.2,
+    detection_peak_fraction: float = _DEFAULT_DETECTION_PEAK_FRACTION,
 ) -> SkyModel:
     """Remove bright point sources from a HEALPix diffuse map.
 
@@ -634,163 +822,43 @@ def subtract_bright_sources(
             "subtract_bright_sources requires a HEALPix payload; got a "
             "point-only model.  Use materialize_healpix_model(...) first."
         )
-    if sky.healpix.is_sparse:
-        raise ValueError(
-            "subtract_bright_sources requires a dense HEALPix cube; call "
-            "sky.healpix.to_dense() (or re-materialize) before subtraction."
-        )
-
-    from .constants import (
-        brightness_temp_to_flux_density,
-        flux_density_to_brightness_temp,
-    )
+    sky.healpix.require_dense("subtract_bright_sources")
 
     nside = sky.healpix.nside
-    pixel_area_sr = 4.0 * np.pi / hp.nside2npix(nside)
-    default_patch_rad = 3.0 * hp.nside2resol(nside)
+    sigma_init = hp.nside2resol(nside) / _GAUSSIAN_FWHM_TO_SIGMA
     patch_radius = (
-        float(patch_radius_rad) if patch_radius_rad is not None else default_patch_rad
-    )
-    sigma_init = hp.nside2resol(nside) / 2.355
-
-    # Candidate positions at the target subtraction frequency.
-    idx = sky.resolve_frequency_index(frequency_hz)
-    reference_map_k = np.asarray(sky.healpix.maps[idx], dtype=np.float64)
-    use_rj = sky.brightness_conversion.value == "rayleigh-jeans" or np.any(
-        reference_map_k <= 0.0
-    )
-    conv_method = "rayleigh-jeans" if use_rj else "planck"
-    flux_per_pixel_jy = brightness_temp_to_flux_density(
-        reference_map_k,
-        frequency=float(frequency_hz),
-        solid_angle=pixel_area_sr,
-        method=conv_method,
+        float(patch_radius_rad)
+        if patch_radius_rad is not None
+        else 3.0 * hp.nside2resol(nside)
     )
 
-    if catalog is not None and catalog.point is not None and not catalog.point.is_empty:
-        cat_ref = (
-            catalog.point.ref_freq.astype(np.float64)
-            if catalog.point.ref_freq.size
-            else np.zeros(catalog.point.n_sources, dtype=np.float64)
-        )
-        alpha = catalog.point.spectral_index.astype(np.float64)
-        scaled_flux = catalog.point.flux.astype(np.float64).copy()
-        valid_ref = cat_ref > 0.0
-        if np.any(valid_ref):
-            scaled_flux[valid_ref] *= (
-                float(frequency_hz) / cat_ref[valid_ref]
-            ) ** alpha[valid_ref]
-        keep = scaled_flux >= flux_limit_jy
-        if not np.any(keep):
-            candidate_pix = np.asarray([], dtype=np.int64)
-        else:
-            theta = np.pi / 2.0 - catalog.point.dec_rad[keep].astype(np.float64)
-            phi = catalog.point.ra_rad[keep].astype(np.float64)
-            candidate_pix = np.unique(hp.ang2pix(nside, theta, phi))
-    else:
-        detection_threshold_jy = max(
-            flux_limit_jy * float(detection_peak_fraction), 0.0
-        )
-        candidate_pix = _detect_local_maxima_above(
-            flux_per_pixel_jy, nside, detection_threshold_jy
-        )
+    candidate_pix, _ = _select_subtraction_candidates(
+        sky,
+        frequency_hz=frequency_hz,
+        flux_limit_jy=flux_limit_jy,
+        catalog=catalog,
+        detection_peak_fraction=detection_peak_fraction,
+        max_sources=max_sources,
+    )
 
     if candidate_pix.size == 0:
-        old_prov = sky.provenance
-        new_prov = SkyProvenance(
-            flux_completeness_jy=old_prov.flux_completeness_jy,
-            flux_completeness_freq_hz=old_prov.flux_completeness_freq_hz,
-            angular_resolution_rad=old_prov.angular_resolution_rad,
-            sky_coverage=old_prov.sky_coverage,
-            coverage_fraction=old_prov.coverage_fraction,
-            coverage_footprint=old_prov.coverage_footprint,
-            monopole_convention=old_prov.monopole_convention,
-            monopole_k=old_prov.monopole_k,
+        new_prov = sky.provenance.replace(
             source_subtraction=SourceSubtractionStatus.ABOVE_THRESHOLD,
             source_subtraction_threshold_jy=float(flux_limit_jy),
             source_subtraction_freq_hz=float(frequency_hz),
             source_subtraction_method="gaussian_fit_inpaint",
-            notes=old_prov.notes,
         )
         return sky.replace(provenance=new_prov)
 
-    if max_sources is not None and candidate_pix.size > max_sources:
-        order = np.argsort(-flux_per_pixel_jy[candidate_pix])
-        candidate_pix = candidate_pix[order[:max_sources]]
-
-    # Per-channel fit + subtract loop.
-    new_maps = np.array(sky.healpix.maps, dtype=np.float64, copy=True)
-    n_freq = new_maps.shape[0]
-    cube_freqs = sky.healpix.frequencies
-    inpaint_mask: set[int] = set()
-    n_fits_ok = 0
-    n_fits_failed = 0
-
-    for fi in range(n_freq):
-        freq_ch = float(cube_freqs[fi])
-        use_rj_ch = sky.brightness_conversion.value == "rayleigh-jeans" or np.any(
-            new_maps[fi] <= 0.0
-        )
-        method_ch = "rayleigh-jeans" if use_rj_ch else "planck"
-        flux_ch_jy = brightness_temp_to_flux_density(
-            new_maps[fi].copy(),
-            frequency=freq_ch,
-            solid_angle=pixel_area_sr,
-            method=method_ch,
-        )
-
-        for center in candidate_pix:
-            patch = hp.query_disc(
-                nside, hp.pix2vec(nside, center), patch_radius, inclusive=True
-            )
-            if patch.size < 8:
-                continue
-
-            px, py = _gnomonic_patch_coords(int(center), patch, nside)
-            pz = flux_ch_jy[patch]
-            params, ok = _fit_elliptical_gaussian(px, py, pz, sigma_init_rad=sigma_init)
-            if not ok:
-                n_fits_failed += 1
-                continue
-
-            # Reject fits whose integrated flux is below the catalog-style
-            # threshold so we don't subtract noise-level bumps.
-            # Integral of A·exp(-½(x'²/σ_M² + y'²/σ_m²)) over the plane is
-            # 2π·A·σ_M·σ_m; divide by pixel area to convert from Jy/sr
-            # back to a Jy total.
-            amp_fit = float(params[0])
-            sigma_M_fit = float(params[3])
-            sigma_m_fit = float(params[4])
-            integrated_flux_jy = (
-                amp_fit * 2.0 * np.pi * sigma_M_fit * sigma_m_fit / pixel_area_sr
-            )
-            if catalog is None and integrated_flux_jy < flux_limit_jy:
-                n_fits_failed += 1
-                continue
-            n_fits_ok += 1
-
-            model_vals = _evaluate_elliptical_gaussian(params, px, py)
-            flux_ch_jy[patch] -= model_vals
-
-            x0_fit, y0_fit, pa_fit = params[1], params[2], params[5]
-            cos_pa = np.cos(pa_fit)
-            sin_pa = np.sin(pa_fit)
-            xr = (px - x0_fit) * cos_pa + (py - y0_fit) * sin_pa
-            yr = -(px - x0_fit) * sin_pa + (py - y0_fit) * cos_pa
-            ellipse_r2 = (xr / sigma_M_fit) ** 2 + (yr / sigma_m_fit) ** 2
-            core_mask = ellipse_r2 <= inpaint_mask_sigma**2
-            for p in patch[core_mask]:
-                inpaint_mask.add(int(p))
-
-        flux_positive = flux_ch_jy.copy()
-        flux_positive[flux_positive <= 0] = np.finfo(np.float64).tiny
-        method_back = "rayleigh-jeans" if use_rj_ch else "planck"
-        new_maps[fi] = flux_density_to_brightness_temp(
-            flux_positive,
-            frequency=freq_ch,
-            solid_angle=pixel_area_sr,
-            method=method_back,
-        )
+    new_maps, inpaint_mask, n_fits_ok, n_fits_failed = _fit_and_subtract_per_channel(
+        sky,
+        candidate_pix,
+        patch_radius=patch_radius,
+        sigma_init=sigma_init,
+        inpaint_mask_sigma=inpaint_mask_sigma,
+        flux_limit_jy=flux_limit_jy,
+        catalog_present=catalog is not None,
+    )
 
     if inpaint_mask:
         mask_pixels = np.asarray(sorted(inpaint_mask), dtype=np.int64)
@@ -826,14 +894,7 @@ def subtract_bright_sources(
     new_monopole = None
     if old_prov.monopole_k is not None:
         new_monopole = float(np.mean(new_maps[0]))
-    new_prov = SkyProvenance(
-        flux_completeness_jy=old_prov.flux_completeness_jy,
-        flux_completeness_freq_hz=old_prov.flux_completeness_freq_hz,
-        angular_resolution_rad=old_prov.angular_resolution_rad,
-        sky_coverage=old_prov.sky_coverage,
-        coverage_fraction=old_prov.coverage_fraction,
-        coverage_footprint=old_prov.coverage_footprint,
-        monopole_convention=old_prov.monopole_convention,
+    new_prov = old_prov.replace(
         monopole_k=new_monopole,
         source_subtraction=SourceSubtractionStatus.ABOVE_THRESHOLD,
         source_subtraction_threshold_jy=float(flux_limit_jy),
@@ -999,20 +1060,9 @@ def with_monopole(
     old_prov = sky.provenance
     old_monopole = old_prov.monopole_k
     new_monopole = old_monopole + value_k if old_monopole is not None else value_k
-    new_prov = SkyProvenance(
-        flux_completeness_jy=old_prov.flux_completeness_jy,
-        flux_completeness_freq_hz=old_prov.flux_completeness_freq_hz,
-        angular_resolution_rad=old_prov.angular_resolution_rad,
-        sky_coverage=old_prov.sky_coverage,
-        coverage_fraction=old_prov.coverage_fraction,
-        coverage_footprint=old_prov.coverage_footprint,
+    new_prov = old_prov.replace(
         monopole_convention=convention,
         monopole_k=new_monopole,
-        source_subtraction=old_prov.source_subtraction,
-        source_subtraction_threshold_jy=old_prov.source_subtraction_threshold_jy,
-        source_subtraction_freq_hz=old_prov.source_subtraction_freq_hz,
-        source_subtraction_method=old_prov.source_subtraction_method,
-        notes=old_prov.notes,
     )
 
     if sky.healpix is None:
@@ -1069,21 +1119,9 @@ def with_monopole_subtracted(sky: SkyModel) -> SkyModel:
             "products do not have a well-defined global monopole."
         )
 
-    old_prov = sky.provenance
-    new_prov = SkyProvenance(
-        flux_completeness_jy=old_prov.flux_completeness_jy,
-        flux_completeness_freq_hz=old_prov.flux_completeness_freq_hz,
-        angular_resolution_rad=old_prov.angular_resolution_rad,
-        sky_coverage=old_prov.sky_coverage,
-        coverage_fraction=old_prov.coverage_fraction,
-        coverage_footprint=old_prov.coverage_footprint,
+    new_prov = sky.provenance.replace(
         monopole_convention=MonopoleConvention.MEAN_SUBTRACTED,
         monopole_k=0.0,
-        source_subtraction=old_prov.source_subtraction,
-        source_subtraction_threshold_jy=old_prov.source_subtraction_threshold_jy,
-        source_subtraction_freq_hz=old_prov.source_subtraction_freq_hz,
-        source_subtraction_method=old_prov.source_subtraction_method,
-        notes=old_prov.notes,
     )
 
     if sky.healpix is None:

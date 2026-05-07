@@ -1,11 +1,13 @@
 """Tests for sky-model orchestration helpers."""
 
+import logging
+
 import healpy as hp
 import numpy as np
 import pytest
 
 from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import HealpixData
+from rrivis.core.sky import HealpixData, PointSourceData
 from rrivis.core.sky.model import SkyFormat, SkyModel
 from rrivis.core.sky.pipeline import prepare_sky_model
 
@@ -56,3 +58,49 @@ class TestPrepareSkyModel:
                 frequencies=None,
                 obs_frequency_config=obs_frequency_config,
             )
+
+    def test_representation_none_returns_single_model_unchanged(self, precision):
+        sky = make_healpix_model(precision=precision)
+        out = prepare_sky_model([sky])
+        assert out is sky
+
+    def test_representation_none_preserves_hybrid_inputs(self, precision):
+        # One healpix model + one point model → hybrid output preserved.
+        healpix_sky = make_healpix_model(precision=precision)
+        point_sky = SkyModel(
+            point=PointSourceData(
+                ra_rad=np.array([0.5]),
+                dec_rad=np.array([0.1]),
+                flux=np.array([1.0]),
+                spectral_index=np.array([-0.7]),
+                stokes_q=np.array([0.0]),
+                stokes_u=np.array([0.0]),
+                stokes_v=np.array([0.0]),
+                ref_freq=np.array([100e6]),
+            ),
+            reference_frequency=100e6,
+            model_name="src",
+            _precision=precision,
+        )
+        out = prepare_sky_model(
+            [healpix_sky, point_sky],
+            representation=None,
+            mixed_model_policy="allow",
+            precision=precision,
+        )
+        # Hybrid: both formats populated.
+        assert SkyFormat.POINT_SOURCES in out.formats
+        assert SkyFormat.HEALPIX in out.formats
+
+    def test_beam_advisor_fires_for_single_model(self, caplog, precision):
+        """The beam-aware nside advisor must fire even when only one model is
+        passed (the old single-model fast path returned before the check)."""
+        sky = make_healpix_model(precision=precision, nside=4)  # very coarse
+        with caplog.at_level(logging.WARNING, logger="rrivis.core.sky.pipeline"):
+            prepare_sky_model(
+                [sky],
+                representation=SkyFormat.HEALPIX,
+                nside=4,
+                beam_fwhm_rad=np.deg2rad(0.5),  # 0.5 deg beam << pixel size
+            )
+        assert any("nside=4" in rec.message for rec in caplog.records)

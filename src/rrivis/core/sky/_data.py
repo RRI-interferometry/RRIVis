@@ -7,12 +7,16 @@ No imports from model.py, convert.py, combine.py, or loaders.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import healpy as hp
 import numpy as np
+from pydantic import ConfigDict, field_validator, model_validator
+from pydantic.dataclasses import dataclass
+
+_FROZEN_NDARRAY_CONFIG = ConfigDict(arbitrary_types_allowed=True)
 
 # =============================================================================
 # Provenance metadata
@@ -63,7 +67,7 @@ def _normalize_coordinate_frame(coordinate_frame: str) -> str:
     return frame
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
 class SkyFootprint:
     """Sparse HEALPix support mask for a sky product's angular footprint."""
 
@@ -71,31 +75,41 @@ class SkyFootprint:
     hpx_inds: np.ndarray
     coordinate_frame: str = DEFAULT_COVERAGE_FOOTPRINT_COORDINATE_FRAME
 
-    def __post_init__(self) -> None:
-        nside = int(self.nside)
-        if not hp.isnsideok(nside):
-            raise ValueError(f"SkyFootprint.nside must be a valid NSIDE, got {nside}.")
-        object.__setattr__(self, "nside", nside)
-        object.__setattr__(
-            self,
-            "coordinate_frame",
-            _normalize_coordinate_frame(self.coordinate_frame),
-        )
+    @field_validator("nside", mode="before")
+    @classmethod
+    def _validate_nside(cls, value: object) -> int:
+        n = int(value)  # type: ignore[arg-type]
+        if not hp.isnsideok(n):
+            raise ValueError(f"SkyFootprint.nside must be a valid NSIDE, got {n}.")
+        return n
 
-        full_n_pixels = hp.nside2npix(nside)
-        hpx_inds = np.asarray(self.hpx_inds, dtype=np.int64)
-        if hpx_inds.ndim != 1:
+    @field_validator("coordinate_frame", mode="before")
+    @classmethod
+    def _validate_coordinate_frame(cls, value: object) -> str:
+        return _normalize_coordinate_frame(str(value))
+
+    @field_validator("hpx_inds", mode="before")
+    @classmethod
+    def _validate_hpx_inds_shape(cls, value: object) -> np.ndarray:
+        arr = np.asarray(value, dtype=np.int64)
+        if arr.ndim != 1:
             raise ValueError(
                 "SkyFootprint.hpx_inds must be a 1-D integer array of pixel indices."
             )
-        if hpx_inds.size:
-            if np.any(hpx_inds < 0) or np.any(hpx_inds >= full_n_pixels):
+        if arr.size:
+            arr = np.unique(arr)
+        return arr
+
+    @model_validator(mode="after")
+    def _validate_indices_in_range(self) -> SkyFootprint:
+        if self.hpx_inds.size:
+            full_n_pixels = hp.nside2npix(self.nside)
+            if np.any(self.hpx_inds < 0) or np.any(self.hpx_inds >= full_n_pixels):
                 raise ValueError(
                     "SkyFootprint.hpx_inds contains indices outside the valid "
                     f"range [0, {full_n_pixels})."
                 )
-            hpx_inds = np.unique(hpx_inds)
-        object.__setattr__(self, "hpx_inds", hpx_inds)
+        return self
 
     @classmethod
     def from_mask(
@@ -219,7 +233,7 @@ class SkyFootprint:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_FROZEN_NDARRAY_CONFIG)
 class SkyProvenance:
     """Physical-correctness metadata attached to a :class:`SkyModel`.
 
@@ -288,71 +302,121 @@ class SkyProvenance:
     source_subtraction_method: str | None = None
     notes: str | None = None
 
-    def __post_init__(self) -> None:
-        """Coerce string inputs to the declared Enum types."""
-        if isinstance(self.monopole_convention, str) and not isinstance(
-            self.monopole_convention, MonopoleConvention
-        ):
-            object.__setattr__(
-                self,
-                "monopole_convention",
-                MonopoleConvention(self.monopole_convention),
-            )
-        if isinstance(self.sky_coverage, str) and not isinstance(
-            self.sky_coverage, SkyCoverage
-        ):
-            object.__setattr__(
-                self,
-                "sky_coverage",
-                SkyCoverage(self.sky_coverage),
-            )
-        if isinstance(self.source_subtraction, str) and not isinstance(
-            self.source_subtraction, SourceSubtractionStatus
-        ):
-            object.__setattr__(
-                self,
-                "source_subtraction",
-                SourceSubtractionStatus(self.source_subtraction),
-            )
-        if isinstance(self.coverage_footprint, dict):
-            object.__setattr__(
-                self,
-                "coverage_footprint",
-                SkyFootprint(**self.coverage_footprint),
-            )
-        elif self.coverage_footprint is not None and not isinstance(
-            self.coverage_footprint, SkyFootprint
-        ):
-            raise TypeError(
-                "SkyProvenance.coverage_footprint must be a SkyFootprint, a dict "
-                f"of its fields, or None; got "
-                f"{type(self.coverage_footprint).__name__}."
-            )
+    @field_validator("monopole_convention", mode="before")
+    @classmethod
+    def _coerce_monopole_convention(cls, v: object) -> MonopoleConvention:
+        return v if isinstance(v, MonopoleConvention) else MonopoleConvention(v)
 
-        if self.coverage_footprint is not None:
-            footprint_fraction = self.coverage_footprint.coverage_fraction
+    @field_validator("sky_coverage", mode="before")
+    @classmethod
+    def _coerce_sky_coverage(cls, v: object) -> SkyCoverage:
+        return v if isinstance(v, SkyCoverage) else SkyCoverage(v)
+
+    @field_validator("source_subtraction", mode="before")
+    @classmethod
+    def _coerce_source_subtraction(cls, v: object) -> SourceSubtractionStatus:
+        return (
+            v if isinstance(v, SourceSubtractionStatus) else SourceSubtractionStatus(v)
+        )
+
+    @field_validator("coverage_footprint", mode="before")
+    @classmethod
+    def _coerce_coverage_footprint(cls, v: object) -> SkyFootprint | None:
+        if v is None or isinstance(v, SkyFootprint):
+            return v
+        if isinstance(v, dict):
+            return SkyFootprint(**v)
+        raise TypeError(
+            "SkyProvenance.coverage_footprint must be a SkyFootprint, a dict "
+            f"of its fields, or None; got {type(v).__name__}."
+        )
+
+    @field_validator("coverage_fraction", mode="before")
+    @classmethod
+    def _coerce_coverage_fraction(cls, v: object) -> float | None:
+        if v is None:
+            return None
+        coverage_fraction = float(v)  # type: ignore[arg-type]
+        if not np.isfinite(coverage_fraction) or not (0.0 <= coverage_fraction <= 1.0):
+            raise ValueError(
+                f"SkyProvenance: coverage_fraction must lie in [0, 1], got {v!r}."
+            )
+        return coverage_fraction
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_inputs(cls, values: object) -> object:
+        """Cross-field input derivation.
+
+        Pydantic dataclasses pass an ``ArgsKwargs`` object here; BaseModel
+        would pass a dict.  We handle both so this validator is portable.
+        Three derivations happen, all on the input kwargs (no
+        ``object.__setattr__`` needed because we transform values before
+        construction):
+
+        1. ``coverage_footprint`` accepts a dict and is coerced to
+           :class:`SkyFootprint`.
+        2. When a footprint is supplied, ``sky_coverage`` is derived from
+           ``footprint.is_full_sky`` (or validated for consistency) and
+           ``coverage_fraction`` is filled from ``footprint.coverage_fraction``.
+        3. When ``sky_coverage=FULL_SKY`` is supplied without an explicit
+           ``coverage_fraction``, the fraction is filled to 1.0.
+        """
+        kwargs: dict[str, Any]
+        if isinstance(values, dict):
+            kwargs = values
+        elif hasattr(values, "kwargs") and isinstance(values.kwargs, dict):
+            kwargs = values.kwargs
+        else:
+            return values
+        footprint = kwargs.get("coverage_footprint")
+        if isinstance(footprint, dict):
+            footprint = SkyFootprint(**footprint)
+            kwargs["coverage_footprint"] = footprint
+        if isinstance(footprint, SkyFootprint):
             footprint_coverage = (
                 SkyCoverage.FULL_SKY
-                if self.coverage_footprint.is_full_sky
+                if footprint.is_full_sky
                 else SkyCoverage.PARTIAL_SKY
             )
-            if self.sky_coverage == SkyCoverage.UNKNOWN:
-                object.__setattr__(self, "sky_coverage", footprint_coverage)
-            elif self.sky_coverage != footprint_coverage:
+            sky_coverage_raw = kwargs.get("sky_coverage", SkyCoverage.UNKNOWN)
+            sky_coverage = (
+                sky_coverage_raw
+                if isinstance(sky_coverage_raw, SkyCoverage)
+                else SkyCoverage(sky_coverage_raw)
+            )
+            if sky_coverage == SkyCoverage.UNKNOWN:
+                kwargs["sky_coverage"] = footprint_coverage
+            elif sky_coverage != footprint_coverage:
                 raise ValueError(
                     "SkyProvenance: coverage_footprint implies "
                     f"sky_coverage={footprint_coverage.value!r}, got "
-                    f"{self.sky_coverage.value!r}."
+                    f"{sky_coverage.value!r}."
                 )
-            if self.coverage_fraction is None:
-                object.__setattr__(self, "coverage_fraction", footprint_fraction)
-            elif not np.isclose(float(self.coverage_fraction), footprint_fraction):
+            cf_raw = kwargs.get("coverage_fraction")
+            if cf_raw is None:
+                kwargs["coverage_fraction"] = footprint.coverage_fraction
+            elif not np.isclose(float(cf_raw), footprint.coverage_fraction):
                 raise ValueError(
                     "SkyProvenance: coverage_fraction is inconsistent with "
                     "coverage_footprint."
                 )
 
-        # Sanity checks — when a threshold is given, the status must match.
+        # FULL_SKY without an explicit coverage_fraction => derive 1.0.
+        sky_coverage_raw = kwargs.get("sky_coverage")
+        if sky_coverage_raw is not None and kwargs.get("coverage_fraction") is None:
+            sky_coverage = (
+                sky_coverage_raw
+                if isinstance(sky_coverage_raw, SkyCoverage)
+                else SkyCoverage(sky_coverage_raw)
+            )
+            if sky_coverage == SkyCoverage.FULL_SKY:
+                kwargs["coverage_fraction"] = 1.0
+
+        return values
+
+    @model_validator(mode="after")
+    def _validate_consistency(self) -> SkyProvenance:
         if (
             self.source_subtraction_threshold_jy is not None
             and self.source_subtraction == SourceSubtractionStatus.NONE
@@ -369,21 +433,14 @@ class SkyProvenance:
                 "SkyProvenance: source_subtraction=ABOVE_THRESHOLD requires a "
                 "source_subtraction_threshold_jy."
             )
-        if self.coverage_fraction is not None:
-            coverage_fraction = float(self.coverage_fraction)
-            if not np.isfinite(coverage_fraction) or not (
-                0.0 <= coverage_fraction <= 1.0
-            ):
-                raise ValueError(
-                    "SkyProvenance: coverage_fraction must lie in [0, 1], got "
-                    f"{self.coverage_fraction!r}."
-                )
-            object.__setattr__(self, "coverage_fraction", coverage_fraction)
 
         if self.sky_coverage == SkyCoverage.FULL_SKY:
             if self.coverage_fraction is None:
-                object.__setattr__(self, "coverage_fraction", 1.0)
-            elif not np.isclose(self.coverage_fraction, 1.0):
+                raise ValueError(
+                    "SkyProvenance: sky_coverage=FULL_SKY requires "
+                    "coverage_fraction=1.0 (it should have been auto-derived)."
+                )
+            if not np.isclose(self.coverage_fraction, 1.0):
                 raise ValueError(
                     "SkyProvenance: sky_coverage=FULL_SKY requires "
                     "coverage_fraction=1.0."
@@ -401,6 +458,7 @@ class SkyProvenance:
                     "SkyProvenance: monopole_k is a full-sky quantity and must "
                     "be None when sky_coverage=PARTIAL_SKY."
                 )
+        return self
 
     @property
     def has_flux_completeness(self) -> bool:
@@ -432,6 +490,53 @@ class SkyProvenance:
     def is_partial_sky(self) -> bool:
         """True if the payload is declared to cover a sky subset."""
         return self.sky_coverage == SkyCoverage.PARTIAL_SKY
+
+    # -------------------------------------------------------------------------
+    # Validated replacement helper.
+    # -------------------------------------------------------------------------
+    #
+    # Always derive new SkyProvenance instances via this method (or the
+    # constructor).  Never use ``dataclasses.replace`` on a SkyProvenance --
+    # that bypasses ``_derive_inputs`` and ``_validate_consistency`` and can
+    # produce states the validators were written to forbid (e.g. partial-sky
+    # with monopole_k set, or footprint inconsistent with sky_coverage).
+
+    def replace(self, **changes: Any) -> SkyProvenance:
+        """Return a new ``SkyProvenance`` with the given fields replaced.
+
+        Re-runs every Pydantic validator so the result satisfies the same
+        invariants as a freshly constructed instance.
+
+        Special-case: when ``coverage_footprint`` is changed to a non-None
+        footprint and the caller does not also pass ``sky_coverage`` /
+        ``coverage_fraction``, the old derived values are dropped so the
+        constructor can re-derive them from the new footprint.  Pass either
+        explicitly to override that behaviour.
+        """
+        import dataclasses as _dc
+
+        field_names = {field.name for field in _dc.fields(self)}
+        unknown = set(changes) - field_names
+        if unknown:
+            raise TypeError(
+                "SkyProvenance.replace() received unsupported fields: "
+                f"{sorted(unknown)}"
+            )
+
+        data: dict[str, Any] = {name: getattr(self, name) for name in field_names}
+
+        new_footprint = changes.get("coverage_footprint", data["coverage_footprint"])
+        footprint_swapped = (
+            "coverage_footprint" in changes and new_footprint is not None
+        )
+        if footprint_swapped:
+            if "sky_coverage" not in changes:
+                data["sky_coverage"] = SkyCoverage.UNKNOWN
+            if "coverage_fraction" not in changes:
+                data["coverage_fraction"] = None
+
+        data.update(changes)
+        return SkyProvenance(**data)
 
     # -------------------------------------------------------------------------
     # JSON-friendly serialization (used by skyh5 round-trip).
@@ -627,7 +732,7 @@ def empty_source_arrays() -> SourceArrays:
 # =============================================================================
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_FROZEN_NDARRAY_CONFIG)
 class PointSpectrum:
     """Lossless multi-frequency Stokes-flux samples for point sources.
 
@@ -644,18 +749,24 @@ class PointSpectrum:
     stokes_u: np.ndarray | None = None  # shape (n_freq, N)
     stokes_v: np.ndarray | None = None  # shape (n_freq, N)
 
-    def __post_init__(self) -> None:
-        freqs = np.asarray(self.frequencies)
+    @field_validator("frequencies", mode="before")
+    @classmethod
+    def _validate_frequencies(cls, value: object) -> np.ndarray:
+        freqs = np.asarray(value)
         if freqs.ndim != 1 or freqs.size == 0:
             raise ValueError("PointSpectrum.frequencies must be a non-empty 1-D array.")
         if not np.all(np.isfinite(freqs)) or np.any(freqs <= 0):
             raise ValueError("PointSpectrum.frequencies must be finite and positive.")
         if freqs.size > 1 and not np.all(np.diff(freqs) > 0):
             raise ValueError("PointSpectrum.frequencies must be strictly ascending.")
-        if self.flux.ndim != 2 or self.flux.shape[0] != freqs.size:
+        return freqs
+
+    @model_validator(mode="after")
+    def _validate_shapes(self) -> PointSpectrum:
+        if self.flux.ndim != 2 or self.flux.shape[0] != self.frequencies.size:
             raise ValueError(
                 f"PointSpectrum.flux shape {self.flux.shape} does not match "
-                f"frequencies (expected first axis = {freqs.size})."
+                f"frequencies (expected first axis = {self.frequencies.size})."
             )
         if (self.stokes_q is None) != (self.stokes_u is None):
             raise ValueError(
@@ -668,6 +779,7 @@ class PointSpectrum:
                     f"PointSpectrum.{name} shape {arr.shape} does not match "
                     f"flux shape {self.flux.shape}."
                 )
+        return self
 
     @property
     def n_frequencies(self) -> int:
@@ -693,7 +805,7 @@ class PointSpectrum:
 # =============================================================================
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_FROZEN_NDARRAY_CONFIG)
 class PointSourceData:
     """Columnar arrays for point-source sky model.
 
@@ -729,8 +841,36 @@ class PointSourceData:
     # lookup rather than spectral-index extrapolation.
     spectrum: PointSpectrum | None = None
 
-    def __post_init__(self) -> None:
-        """Validate array consistency."""
+    @field_validator("source_name", "source_id", mode="before")
+    @classmethod
+    def _normalize_metadata_array(cls, value: object) -> np.ndarray | None:
+        if value is None:
+            return None
+        return np.asarray(value)
+
+    @field_validator("extra_columns", mode="before")
+    @classmethod
+    def _normalize_extra_columns(cls, value: object) -> dict[str, np.ndarray]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise TypeError(
+                "PointSourceData.extra_columns must be a dict, got "
+                f"{type(value).__name__}."
+            )
+        normalized: dict[str, np.ndarray] = {}
+        for name, arr in value.items():
+            arr_np = np.asarray(arr)
+            if arr_np.ndim != 1:
+                raise ValueError(
+                    f"PointSourceData: extra column {name!r} must be 1-D, "
+                    f"got shape {arr_np.shape}."
+                )
+            normalized[name] = arr_np
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_lengths(self) -> PointSourceData:
         n = len(self.ra_rad)
         core_fields = {
             "ra_rad": self.ra_rad,
@@ -749,7 +889,6 @@ class PointSourceData:
                     f"expected {n} (must match ra_rad)."
                 )
 
-        # Morphology: all-or-none
         morph = (self.major_arcsec, self.minor_arcsec, self.pa_deg)
         morph_present = sum(1 for m in morph if m is not None)
         if morph_present not in (0, 3):
@@ -758,54 +897,37 @@ class PointSourceData:
                 "all set or all None."
             )
 
-        # Optional arrays must match length
         for name, arr in [
             ("rotation_measure", self.rotation_measure),
             ("major_arcsec", self.major_arcsec),
             ("minor_arcsec", self.minor_arcsec),
             ("pa_deg", self.pa_deg),
+            ("source_name", self.source_name),
+            ("source_id", self.source_id),
         ]:
             if arr is not None and len(arr) != n:
                 raise ValueError(
                     f"PointSourceData: {name} has length {len(arr)}, expected {n}."
                 )
-        for name in ("source_name", "source_id"):
-            arr = getattr(self, name)
-            if arr is None:
-                continue
-            arr_np = np.asarray(arr)
-            if len(arr_np) != n:
-                raise ValueError(
-                    f"PointSourceData: {name} has length {len(arr_np)}, expected {n}."
-                )
-            object.__setattr__(self, name, arr_np)
         if self.spectral_coeffs is not None and self.spectral_coeffs.shape[0] != n:
             raise ValueError(
                 f"PointSourceData: spectral_coeffs has {self.spectral_coeffs.shape[0]} "
                 f"rows, expected {n}."
             )
 
-        # Spectrum (per-channel flux table) source-count consistency.
         if self.spectrum is not None and self.spectrum.n_sources != n:
             raise ValueError(
                 f"PointSourceData: spectrum has {self.spectrum.n_sources} "
                 f"sources, expected {n}."
             )
-        normalized_extra: dict[str, np.ndarray] = {}
+
         for name, arr in self.extra_columns.items():
-            arr = np.asarray(arr)
-            if arr.ndim != 1:
-                raise ValueError(
-                    f"PointSourceData: extra column {name!r} must be 1-D, "
-                    f"got shape {arr.shape}."
-                )
             if len(arr) != n:
                 raise ValueError(
                     f"PointSourceData: extra column {name!r} has length {len(arr)}, "
                     f"expected {n}."
                 )
-            normalized_extra[name] = arr
-        object.__setattr__(self, "extra_columns", normalized_extra)
+        return self
 
     @property
     def n_sources(self) -> int:
@@ -984,7 +1106,7 @@ class PointSourceData:
 # =============================================================================
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_FROZEN_NDARRAY_CONFIG)
 class HealpixData:
     """Multi-frequency HEALPix brightness temperature maps.
 
@@ -1025,24 +1147,65 @@ class HealpixData:
     u_brightness_conversion: str = "rayleigh-jeans"
     v_brightness_conversion: str = "rayleigh-jeans"
 
-    def __post_init__(self) -> None:
-        """Validate array shapes."""
-        frame = str(self.coordinate_frame).lower()
+    @field_validator("coordinate_frame", mode="before")
+    @classmethod
+    def _validate_coordinate_frame(cls, value: object) -> str:
+        frame = str(value).lower()
         if frame not in {"icrs", "galactic"}:
             raise ValueError(
                 "HealpixData.coordinate_frame must be 'icrs' or 'galactic', "
-                f"got {self.coordinate_frame!r}."
+                f"got {value!r}."
             )
-        object.__setattr__(self, "coordinate_frame", frame)
+        return frame
 
-        ordering = str(self.ordering).lower()
+    @field_validator("ordering", mode="before")
+    @classmethod
+    def _validate_ordering(cls, value: object) -> str:
+        ordering = str(value).lower()
         if ordering not in {"ring", "nest"}:
             raise ValueError(
-                f"HealpixData.ordering must be 'ring' or 'nest', got {self.ordering!r}."
+                f"HealpixData.ordering must be 'ring' or 'nest', got {value!r}."
             )
-        object.__setattr__(self, "ordering", ordering)
+        return ordering
 
-        expected_npix = hp.nside2npix(self.nside)
+    @field_validator("channel_widths_hz", mode="before")
+    @classmethod
+    def _validate_channel_widths(cls, value: object) -> np.ndarray | None:
+        if value is None:
+            return None
+        widths = np.asarray(value, dtype=np.float64)
+        if widths.ndim != 1:
+            raise ValueError(
+                f"HealpixData: channel_widths_hz must be 1-D, got shape {widths.shape}."
+            )
+        if not np.all(np.isfinite(widths)) or np.any(widths <= 0):
+            raise ValueError(
+                "HealpixData: channel_widths_hz must be finite and strictly positive."
+            )
+        return widths
+
+    @field_validator("hpx_inds", mode="before")
+    @classmethod
+    def _coerce_hpx_inds(cls, value: object) -> np.ndarray | None:
+        if value is None:
+            return None
+        hpx_inds = np.asarray(value)
+        if hpx_inds.ndim != 1:
+            raise ValueError(
+                f"HealpixData: hpx_inds must be 1-D, got shape {hpx_inds.shape}"
+            )
+        return hpx_inds.astype(np.int64, copy=False)
+
+    @field_validator("i_unit", "q_unit", "u_unit", "v_unit", mode="before")
+    @classmethod
+    def _validate_unit(cls, value: object) -> str:
+        unit = str(value) if value is not None else ""
+        if not unit:
+            raise ValueError("HealpixData: unit must be a non-empty string.")
+        return unit
+
+    @model_validator(mode="after")
+    def _validate_shapes(self) -> HealpixData:
         if self.maps.ndim != 2:
             raise ValueError(
                 f"HealpixData: maps must be 2-D (n_freq, npix), "
@@ -1055,44 +1218,31 @@ class HealpixData:
                 f"but maps has {n_freq} frequency channels."
             )
 
-        if self.channel_widths_hz is not None:
-            widths = np.asarray(self.channel_widths_hz, dtype=np.float64)
-            if widths.ndim != 1 or widths.shape[0] != n_freq:
-                raise ValueError(
-                    "HealpixData: channel_widths_hz must be 1-D with the same "
-                    f"length as frequencies ({n_freq}), got shape {widths.shape}."
-                )
-            if not np.all(np.isfinite(widths)) or np.any(widths <= 0):
-                raise ValueError(
-                    "HealpixData: channel_widths_hz must be finite and strictly "
-                    "positive."
-                )
-            object.__setattr__(self, "channel_widths_hz", widths)
+        if (
+            self.channel_widths_hz is not None
+            and self.channel_widths_hz.shape[0] != n_freq
+        ):
+            raise ValueError(
+                "HealpixData: channel_widths_hz must have the same length as "
+                f"frequencies ({n_freq}), got shape {self.channel_widths_hz.shape}."
+            )
 
+        expected_npix = hp.nside2npix(self.nside)
         if self.hpx_inds is not None:
-            hpx_inds = np.asarray(self.hpx_inds)
-            if hpx_inds.ndim != 1:
-                raise ValueError(
-                    f"HealpixData: hpx_inds must be 1-D, got shape {hpx_inds.shape}"
-                )
-            if len(hpx_inds) != self.maps.shape[1]:
+            if len(self.hpx_inds) != self.maps.shape[1]:
                 raise ValueError(
                     "HealpixData: hpx_inds length must match the number of "
-                    f"stored pixels ({len(hpx_inds)} != {self.maps.shape[1]})."
+                    f"stored pixels ({len(self.hpx_inds)} != "
+                    f"{self.maps.shape[1]})."
                 )
-            if np.any(hpx_inds < 0) or np.any(hpx_inds >= expected_npix):
+            if self.hpx_inds.size and (
+                np.any(self.hpx_inds < 0) or np.any(self.hpx_inds >= expected_npix)
+            ):
                 raise ValueError(
                     f"HealpixData: hpx_inds must be in [0, {expected_npix}); "
-                    f"got min={int(np.min(hpx_inds)) if len(hpx_inds) else 'n/a'}, "
-                    f"max={int(np.max(hpx_inds)) if len(hpx_inds) else 'n/a'}."
+                    f"got min={int(np.min(self.hpx_inds))}, "
+                    f"max={int(np.max(self.hpx_inds))}."
                 )
-            if self.maps.shape[1] != len(hpx_inds):
-                raise ValueError(
-                    "HealpixData: maps has "
-                    f"{self.maps.shape[1]} pixels per map, but hpx_inds has "
-                    f"length {len(hpx_inds)}."
-                )
-            object.__setattr__(self, "hpx_inds", hpx_inds.astype(np.int64, copy=False))
         elif self.maps.shape[1] != expected_npix:
             raise ValueError(
                 f"HealpixData: maps has {self.maps.shape[1]} pixels per map, "
@@ -1109,15 +1259,7 @@ class HealpixData:
                     f"HealpixData: {name} shape {arr.shape} does not match "
                     f"maps shape {self.maps.shape}"
                 )
-
-        for name, unit in [
-            ("i_unit", self.i_unit),
-            ("q_unit", self.q_unit),
-            ("u_unit", self.u_unit),
-            ("v_unit", self.v_unit),
-        ]:
-            if not unit:
-                raise ValueError(f"HealpixData: {name} must be a non-empty string.")
+        return self
 
     @property
     def n_frequencies(self) -> int:
@@ -1155,6 +1297,27 @@ class HealpixData:
     def has_polarization(self) -> bool:
         """True if any Stokes Q/U/V maps are populated."""
         return any(m is not None for m in (self.q_maps, self.u_maps, self.v_maps))
+
+    def require_dense(self, operation: str) -> HealpixData:
+        """Return ``self`` if dense, otherwise raise ``ValueError``.
+
+        Sparse ``HealpixData`` is the canonical form for partial-sky inputs
+        and propagates losslessly through load → combine → simulate.
+        Operations that genuinely need a full-sky array (plotting, harmonic
+        regridding, lightcurves, observability projections, bright-source
+        subtraction) call this helper to surface a single, predictable
+        error message rather than silently densifying — densification can
+        balloon memory by orders of magnitude and should be the user's
+        explicit choice.
+        """
+        if not self.is_sparse:
+            return self
+        raise ValueError(
+            f"{operation} requires a dense HEALPix cube; the input has "
+            f"{self.n_pixels}/{self.full_n_pixels} pixels stored. "
+            "Call sky.replace(healpix=sky.healpix.to_dense()) first to opt "
+            "in to densification."
+        )
 
     def to_dense(self) -> HealpixData:
         """Return a dense copy with full-sky arrays."""

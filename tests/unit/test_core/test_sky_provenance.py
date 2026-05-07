@@ -380,3 +380,68 @@ class TestLoaderPopulation:
         assert prov.source_subtraction_threshold_jy == pytest.approx(2.0)
         assert prov.source_subtraction_freq_hz == pytest.approx(408e6)
         assert prov.source_subtraction_method == "gaussian_fit_inpaint"
+
+
+class TestSkyH5ProvenanceRoundTrip:
+    """SkyProvenance must survive a save_skyh5 / load_skyh5 round-trip.
+
+    Without this guarantee, every disjointness check that runs after a
+    SkyH5 save would silently see UNKNOWN provenance and either
+    fail-closed (error policy) or admit double-counting (warn/allow).
+    """
+
+    def test_full_provenance_round_trip(self, precision, tmp_path):
+        from rrivis.core.sky import load_skyh5, save_skyh5
+
+        n = 5
+        provenance = SkyProvenance(
+            flux_completeness_jy=(0.05, 50.0),
+            flux_completeness_freq_hz=200e6,
+            angular_resolution_rad=(1e-4, 0.05),
+            sky_coverage=SkyCoverage.FULL_SKY,
+            coverage_fraction=1.0,
+            monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+            monopole_k=42.0,
+            source_subtraction=SourceSubtractionStatus.ABOVE_THRESHOLD,
+            source_subtraction_threshold_jy=1.5,
+            source_subtraction_freq_hz=200e6,
+            source_subtraction_method="gaussian_fit_inpaint",
+            notes="round-trip-test",
+        )
+        sky = create_from_arrays(
+            ra_rad=np.linspace(0.0, 1.0, n),
+            dec_rad=np.linspace(-0.4, 0.4, n),
+            flux=np.linspace(1.0, 5.0, n),
+            spectral_index=np.full(n, -0.7),
+            reference_frequency=200e6,
+            precision=precision,
+            provenance=provenance,
+        )
+
+        out = tmp_path / "round_trip.skyh5"
+        save_skyh5(sky, str(out))
+        round_tripped = load_skyh5(str(out), precision=precision)
+
+        rt_prov = round_tripped.provenance
+        assert rt_prov.flux_completeness_jy == pytest.approx(
+            provenance.flux_completeness_jy
+        )
+        assert rt_prov.flux_completeness_freq_hz == pytest.approx(
+            provenance.flux_completeness_freq_hz
+        )
+        assert rt_prov.angular_resolution_rad == pytest.approx(
+            provenance.angular_resolution_rad
+        )
+        assert rt_prov.sky_coverage is provenance.sky_coverage
+        assert rt_prov.coverage_fraction == pytest.approx(provenance.coverage_fraction)
+        assert rt_prov.monopole_convention is provenance.monopole_convention
+        assert rt_prov.monopole_k == pytest.approx(provenance.monopole_k)
+        assert rt_prov.source_subtraction is provenance.source_subtraction
+        assert rt_prov.source_subtraction_threshold_jy == pytest.approx(
+            provenance.source_subtraction_threshold_jy
+        )
+        assert rt_prov.source_subtraction_freq_hz == pytest.approx(
+            provenance.source_subtraction_freq_hz
+        )
+        assert rt_prov.source_subtraction_method == provenance.source_subtraction_method
+        assert rt_prov.notes == provenance.notes

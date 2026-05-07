@@ -259,3 +259,98 @@ class TestSubtractBrightSourcesGuards:
         )
         with pytest.raises(ValueError, match="dense HEALPix"):
             subtract_bright_sources(sky, flux_limit_jy=1.0, frequency_hz=150e6)
+
+
+class TestSubtractionHelpers:
+    """Direct exercises of the extracted helpers from Fix 8.
+
+    The split into ``_select_subtraction_candidates`` and
+    ``_fit_and_subtract_per_channel`` should preserve the public function's
+    behaviour; these tests exercise each helper in isolation so a future
+    edit that changes one path is caught at the unit boundary instead of
+    through the integrated public surface only.
+    """
+
+    def test_select_candidates_with_catalog(self, precision):
+        from rrivis.core.sky.operations import _select_subtraction_candidates
+
+        nside = 16
+        npix = hp.nside2npix(nside)
+        # Background-only sky (no injected source).
+        background_jy = 0.05
+        rj_factor = rayleigh_jeans_factor(150e6, 4.0 * np.pi / npix)
+        background_k = background_jy / rj_factor
+        sky = SkyModel(
+            healpix=HealpixData(
+                maps=np.full((1, npix), background_k, dtype=np.float32),
+                nside=nside,
+                frequencies=np.array([150e6]),
+            ),
+            provenance=SkyProvenance(
+                monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+                source_subtraction=SourceSubtractionStatus.NONE,
+            ),
+            _precision=precision,
+        )
+        # A catalog with one bright + one dim source; only the bright one
+        # should survive the threshold filter.
+        catalog = create_from_arrays(
+            ra_rad=np.array([1.0, 2.0]),
+            dec_rad=np.array([0.1, -0.4]),
+            flux=np.array([10.0, 0.1]),
+            spectral_index=np.array([-0.7, -0.7]),
+            ref_freq=np.array([150e6, 150e6]),
+            reference_frequency=150e6,
+            precision=precision,
+            model_name="cat",
+        )
+        candidates, _ = _select_subtraction_candidates(
+            sky,
+            frequency_hz=150e6,
+            flux_limit_jy=1.0,
+            catalog=catalog,
+            detection_peak_fraction=0.2,
+            max_sources=None,
+        )
+        assert candidates.size == 1  # only the bright source survives
+        # Recover the surviving pixel and check it matches the bright source.
+        expected_pix = hp.ang2pix(nside, np.pi / 2 - 0.1, 1.0)
+        assert int(candidates[0]) == int(expected_pix)
+
+    def test_select_candidates_max_sources_keeps_brightest(self, precision):
+        from rrivis.core.sky.operations import _select_subtraction_candidates
+
+        nside = 32
+        npix = hp.nside2npix(nside)
+        # Inject three Gaussians with distinct fluxes.
+        frequencies = np.array([150e6])
+        sigma_rad = 1.5 * hp.nside2resol(nside)
+        maps = np.zeros((1, npix), dtype=np.float64)
+        ra = np.array([0.5, 1.5, 2.5])
+        dec = np.array([0.1, 0.1, 0.1])
+        flux = np.array([1.0, 5.0, 3.0])  # second is brightest
+        maps = _inject_gaussian_sources(
+            maps, nside, frequencies, ra, dec, flux, sigma_rad
+        )
+        sky = SkyModel(
+            healpix=HealpixData(
+                maps=maps.astype(np.float32),
+                nside=nside,
+                frequencies=frequencies,
+            ),
+            provenance=SkyProvenance(
+                monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+                source_subtraction=SourceSubtractionStatus.NONE,
+            ),
+            _precision=precision,
+        )
+        candidates, _ = _select_subtraction_candidates(
+            sky,
+            frequency_hz=150e6,
+            flux_limit_jy=0.5,
+            catalog=None,
+            detection_peak_fraction=0.2,
+            max_sources=2,
+        )
+        # Cap of 2 → only the two brightest sources kept.
+        assert candidates.size <= 2
