@@ -10848,7 +10848,7 @@ packages:
 - pypi: ./
   name: radiosim
   version: 0.2.0
-  sha256: b9f531892a4518f50c06fe926a9a2615ae77bb054be3db9a75e31d72437197d3
+  sha256: d2ddceff9ce9d5aa19ad546de91879aa7f54740e47f84af1fdd58e27bbe013f5
   requires_dist:
   - numpy>=1.24.0
   - astropy>=5.0
