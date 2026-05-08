@@ -112,8 +112,8 @@ sky_model:
       flux_min: 1.0
       flux_max: 5.0
       dec_deg: -30.72
-        dec_range_deg: 10.0
-        spectral_index: 0
+      dec_range_deg: 10.0
+      spectral_index: 0
 telescope:
   telescope_name: HERA
   use_pyuvdata_antennas: false
