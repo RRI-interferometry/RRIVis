@@ -7,7 +7,7 @@
 > Astronomy and Computing 22 (2018) 16–27. <https://doi.org/10.1016/j.ascom.2017.11.003>
 
 This document is an independent, source-derived technical reference for the
-`gpuvmem` package as it appears in this RRIVis submodule. Every claim is cited
+`gpuvmem` package as it appears in this RadioSim submodule. Every claim is cited
 to a path of the form `simulators/gpuvmem/...`. No other `.md` files in
 `simulators/` were consulted.
 

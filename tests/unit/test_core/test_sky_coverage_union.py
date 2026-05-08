@@ -4,8 +4,8 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import (
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import (
     HealpixData,
     MonopoleConvention,
     SkyCoverage,
@@ -14,9 +14,9 @@ from rrivis.core.sky import (
     SourceSubtractionStatus,
     create_from_arrays,
 )
-from rrivis.core.sky.combine import _combine_models
-from rrivis.core.sky.constants import BrightnessConversion
-from rrivis.core.sky.model import SkyModel
+from radiosim.core.sky.combine import _combine_models
+from radiosim.core.sky.constants import BrightnessConversion
+from radiosim.core.sky.model import SkyModel
 
 
 @pytest.fixture

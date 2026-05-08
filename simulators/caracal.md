@@ -17,9 +17,9 @@ WSClean, CubiCal, MeqTrees, DDFacet, SoFiA, PyBDSF, Owlcat/Tigger, shadeMS,
 ragavi, …) through Docker / Podman / Singularity containers using
 [**Stimela**](https://github.com/ratt-ru/Stimela) as the runtime.
 
-It is included in the RRIVis project's `simulators/` folder as a *reference
+It is included in the RadioSim project's `simulators/` folder as a *reference
 implementation* of a real-world MS-driven pipeline that can ingest the MS
-output produced by RRIVis and turn it into images, cubes, calibration tables,
+output produced by RadioSim and turn it into images, cubes, calibration tables,
 and diagnostic notebooks.
 
 | Attribute | Value | Source |
@@ -1149,23 +1149,23 @@ The Sphinx project (`docs/sphinx/conf.py`) uses `recommonmark` and the
 
 ---
 
-## 19. How RRIVis can interact with CARACal
+## 19. How RadioSim can interact with CARACal
 
 CARACal expects MS files at `<msdir>/<dataid>.<extension>` (default `.ms`)
 and a `<msdir>/<dataid>-summary.json` produced by the `cab/msutils command=summary`
 cab.  The `obsconf` worker will auto-categorise calibrator/target fields
-from the MS `STATE` table's intent strings — so RRIVis-produced MS files
+from the MS `STATE` table's intent strings — so RadioSim-produced MS files
 should populate scan intents (`TARGET`, `CALIBRATE_BANDPASS`, …) for fully
 automatic handling.  Alternatively, the user can list field names in
 `obsconf.{target,gcal,bpcal,fcal,xcal}` explicitly (or use the magic
 strings `'all'`, `'longest'`, `'nearest'`).
 
-The minimum config to imaging from a single RRIVis-output MS would be:
+The minimum config to imaging from a single RadioSim-output MS would be:
 
 ```yaml
 schema_version: 1.2.0
 general:
-  prefix: rrivis-test
+  prefix: radiosim-test
 getdata:
   dataid: ['my_simulated_ms']   # expects msdir/my_simulated_ms.ms
   extension: ms

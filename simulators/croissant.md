@@ -2,7 +2,7 @@
 
 > *spheriCal haRmOnics vISibility SimulAtor iN pyThon*
 
-This document is an exhaustive technical reference for the CROISSANT codebase as it exists in `simulators/croissant/` (vendored from `https://github.com/christianhbye/croissant`, package name `croissant-sim`, version **5.2.1**, MIT-licensed, author Christian Hellum Bye, `chbye@berkeley.edu`). It is intended for engineers integrating, comparing, or replacing CROISSANT inside RRIVis. Every public function/class is described with its signature, semantics, side effects, expected shapes, dtypes, and the physics it implements. Where helpful, the relevant test that locks the behavior is named.
+This document is an exhaustive technical reference for the CROISSANT codebase as it exists in `simulators/croissant/` (vendored from `https://github.com/christianhbye/croissant`, package name `croissant-sim`, version **5.2.1**, MIT-licensed, author Christian Hellum Bye, `chbye@berkeley.edu`). It is intended for engineers integrating, comparing, or replacing CROISSANT inside RadioSim. Every public function/class is described with its signature, semantics, side effects, expected shapes, dtypes, and the physics it implements. Where helpful, the relevant test that locks the behavior is named.
 
 ---
 
@@ -559,7 +559,7 @@ CROISSANT differs in three structural ways:
 2. **Antenna temperature, not interferometric V_pq.** No `(u, v, w)` geometry, no fringe term. (multipair gives you `T_pq(t,ν)`, the cross-power-beam-weighted sky.)
 3. **Differentiable.** `jax.grad` flows through every parameter (beam pixel data, sky pixel data, `Tgnd`, frequency, etc.).
 
-For RRIVis users: CROISSANT is the right reference for *single-element / autocorrelation forecasting* and for *gradient-based fits* of beam/sky parameters against an integrated-power dataset. It is the wrong reference for baseline-resolved Stokes-aware simulation — that work is done by `pyuvsim`/`WODEN`/`matvis` etc.
+For RadioSim users: CROISSANT is the right reference for *single-element / autocorrelation forecasting* and for *gradient-based fits* of beam/sky parameters against an integrated-power dataset. It is the wrong reference for baseline-resolved Stokes-aware simulation — that work is done by `pyuvsim`/`WODEN`/`matvis` etc.
 
 ---
 
@@ -630,16 +630,16 @@ vis_pair = cro.multipair.compute_visibilities(beam_alm_pair, sky_alm_eq, phases,
 
 ---
 
-## 19. Gotchas and integration footnotes for RRIVis
+## 19. Gotchas and integration footnotes for RadioSim
 
-1. **Power beams, not voltage beams.** `Beam.data` is `|E|²`, real-valued. RRIVis stores Jones matrices `J(θ,φ)` from FITS or analytic models; to feed CROISSANT you would compute `|E_x|² + |E_y|²` (or per-Stokes coherency element) before constructing `Beam`. There is no Stokes/polarization machinery in CROISSANT — it is implicitly Stokes-I.
-2. **Single antenna, no `(u,v,w)`.** As above. RRIVis's `core/visibility.py` (`V_pq = Σ J_p C J_q^H`) is *strictly* more general; CROISSANT corresponds to the special case `p == q` and `w·n` term collapsed to zero (because there is no baseline geometry).
-3. **Frequency in MHz.** `Simulator.freqs` are MHz. RRIVis tends to use Hz internally (especially in `core/visibility.py`); convert before passing.
-4. **Times in JD.** `Simulator.times_jd` are float JD (TDB or UTC — both are accepted by `astropy.time.Time(format='jd')`; v5.1.1 made the internal phase use `time.tdb.jd` for better accuracy). RRIVis uses `astropy.time.Time` instances.
-5. **HEALPix is the only payload format that survives a SHT cleanly across both pyuvsim/WODEN-style and CROISSANT.** The MWSS grid is the s2fft "best" choice but is not natively supported by RRIVis's diffuse-sky pipeline. If integrating, the easiest path is to push HEALPix into `croissant.Sky(sampling="healpix")` directly.
+1. **Power beams, not voltage beams.** `Beam.data` is `|E|²`, real-valued. RadioSim stores Jones matrices `J(θ,φ)` from FITS or analytic models; to feed CROISSANT you would compute `|E_x|² + |E_y|²` (or per-Stokes coherency element) before constructing `Beam`. There is no Stokes/polarization machinery in CROISSANT — it is implicitly Stokes-I.
+2. **Single antenna, no `(u,v,w)`.** As above. RadioSim's `core/visibility.py` (`V_pq = Σ J_p C J_q^H`) is *strictly* more general; CROISSANT corresponds to the special case `p == q` and `w·n` term collapsed to zero (because there is no baseline geometry).
+3. **Frequency in MHz.** `Simulator.freqs` are MHz. RadioSim tends to use Hz internally (especially in `core/visibility.py`); convert before passing.
+4. **Times in JD.** `Simulator.times_jd` are float JD (TDB or UTC — both are accepted by `astropy.time.Time(format='jd')`; v5.1.1 made the internal phase use `time.tdb.jd` for better accuracy). RadioSim uses `astropy.time.Time` instances.
+5. **HEALPix is the only payload format that survives a SHT cleanly across both pyuvsim/WODEN-style and CROISSANT.** The MWSS grid is the s2fft "best" choice but is not natively supported by RadioSim's diffuse-sky pipeline. If integrating, the easiest path is to push HEALPix into `croissant.Sky(sampling="healpix")` directly.
 6. **Reference epoch on the Moon matters.** `Simulator(world="moon", times_jd=...)` anchors MEPA at `times_jd[0]`. Do *not* mix outputs across simulators that have different start times — see `precompute_sky_alm` docstring and `test_moon_sim_depends_on_start_time`.
 7. **`niter=0` HEALPix SHT is approximate.** When comparing CROISSANT outputs to other simulators with bandlimited-exact SHTs, set `niter=3` or use an MWSS grid — otherwise discrepancies of `~1e-3` are normal at moderate `lmax`.
-8. **Output dtype.** `vis.real` is float32 unless the user enables `jax_enable_x64`. RRIVis tests typically run float64. Set `jax.config.update("jax_enable_x64", True)` before instantiating any CROISSANT object.
+8. **Output dtype.** `vis.real` is float32 unless the user enables `jax_enable_x64`. RadioSim tests typically run float64. Set `jax.config.update("jax_enable_x64", True)` before instantiating any CROISSANT object.
 9. **No backwards compatibility shims for v4.x.** `croissant.alm` and `croissant.jax` exist only for v4→v5 import compat. Anything more substantial than `from croissant.utils import getidx` should not be expected to work.
 10. **Spice kernel files** are pulled by `lunarsky` lazily. First-time MEPA usage will download SPICE kernels (~10 MB) into `~/.spiceypy/` or wherever `spiceypy` keeps them. Run a small Moon test once during environment setup to pre-fetch.
 

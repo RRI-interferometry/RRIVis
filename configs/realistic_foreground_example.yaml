@@ -1,4 +1,4 @@
-# Example RRIVis config demonstrating the strict scientific foreground recipe:
+# Example RadioSim config demonstrating the strict scientific foreground recipe:
 # Haslam (already source-subtracted above 2 Jy @ 408 MHz) + GLEAM catalog
 # above 3.5 Jy @ 200 MHz. The `realistic_foreground` sky spec only accepts
 # diffuse templates that are already scientifically prepared; it then adds
@@ -7,7 +7,7 @@
 
 antenna_layout:
   all_antenna_diameter: 14.0
-  antenna_file_format: rrivis
+  antenna_file_format: radiosim
   antenna_positions_file: ../antenna_layout_examples/hera_5.txt
   diameters: {}
   fixed_HPBW: null

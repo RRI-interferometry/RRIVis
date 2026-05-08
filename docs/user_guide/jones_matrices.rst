@@ -1,7 +1,7 @@
 Jones Matrix Framework
 ======================
 
-RRIvis implements a complete Jones matrix framework for modeling instrumental
+RadioSim implements a complete Jones matrix framework for modeling instrumental
 and propagation effects in radio interferometry.
 
 The RIME Equation
@@ -65,7 +65,7 @@ Creating a Jones Chain
 
 .. code-block:: python
 
-   from rrivis.core.jones import (
+   from radiosim.core.jones import (
        JonesChain,
        GeometricDelayJones,
        BeamJones,
@@ -83,7 +83,7 @@ Creating a Jones Chain
    ])
 
    # Use in simulation
-   from rrivis import Simulator
+   from radiosim import Simulator
 
    sim = Simulator()
    sim.setup(
@@ -102,7 +102,7 @@ Phase delay from geometric path length:
 
 .. code-block:: python
 
-   from rrivis.core.jones import GeometricDelayJones
+   from radiosim.core.jones import GeometricDelayJones
 
    K = GeometricDelayJones()
    # Automatically computed from UVW coordinates
@@ -114,7 +114,7 @@ Direction-dependent antenna response:
 
 .. code-block:: python
 
-   from rrivis.core.jones import BeamJones
+   from radiosim.core.jones import BeamJones
 
    # Analytic beam
    E = BeamJones(beam_type="gaussian", fwhm_deg=10.0)
@@ -129,7 +129,7 @@ Ionospheric Faraday rotation and phase:
 
 .. code-block:: python
 
-   from rrivis.core.jones import IonosphereJones
+   from radiosim.core.jones import IonosphereJones
 
    Z = IonosphereJones(
        tec=10.0,  # TEC units
@@ -143,7 +143,7 @@ Tropospheric amplitude and phase effects:
 
 .. code-block:: python
 
-   from rrivis.core.jones import TroposphereJones
+   from radiosim.core.jones import TroposphereJones
 
    T = TroposphereJones(
        zenith_delay=2.3,  # meters
@@ -157,7 +157,7 @@ Feed rotation with parallactic angle:
 
 .. code-block:: python
 
-   from rrivis.core.jones import ParallacticJones
+   from radiosim.core.jones import ParallacticJones
 
    P = ParallacticJones()
    # Computed from antenna latitude and source position
@@ -169,7 +169,7 @@ Electronic gain errors:
 
 .. code-block:: python
 
-   from rrivis.core.jones import GainJones
+   from radiosim.core.jones import GainJones
    import numpy as np
 
    G = GainJones(
@@ -185,7 +185,7 @@ Frequency-dependent response:
 
 .. code-block:: python
 
-   from rrivis.core.jones import BandpassJones
+   from radiosim.core.jones import BandpassJones
 
    B = BandpassJones(
        ripple_amplitude=0.02,  # 2% ripple
@@ -199,7 +199,7 @@ Polarization leakage (D-terms):
 
 .. code-block:: python
 
-   from rrivis.core.jones import PolarizationLeakageJones
+   from radiosim.core.jones import PolarizationLeakageJones
 
    D = PolarizationLeakageJones(
        d_term_amplitude=0.01,  # 1% leakage
@@ -212,7 +212,7 @@ Create custom Jones terms by subclassing:
 
 .. code-block:: python
 
-   from rrivis.core.jones.base import JonesTerm
+   from radiosim.core.jones.base import JonesTerm
    import numpy as np
 
    class MyJonesTerm(JonesTerm):

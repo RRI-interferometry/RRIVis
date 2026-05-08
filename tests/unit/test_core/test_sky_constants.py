@@ -1,9 +1,9 @@
-"""Tests for rrivis.core.sky.constants — brightness temperature conversion functions."""
+"""Tests for radiosim.core.sky.constants — brightness temperature conversion functions."""
 
 import numpy as np
 import pytest
 
-from rrivis.core.sky.constants import (
+from radiosim.core.sky.constants import (
     C_LIGHT,
     H_PLANCK,
     K_BOLTZMANN,

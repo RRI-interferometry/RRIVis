@@ -4,7 +4,7 @@
 >
 > *GPU Accelerated Library for Analysing Radio Interferometer Observations*
 
-This document is a comprehensive technical reference for the **galario** package as it sits in the RRIVis vendor tree at `simulators/galario/`. It is built only from sources inside that directory: the CMake build files, the C++/CUDA core (`src/`), the Cython/Python bindings (`python/`), the reStructuredText documentation (`docs/`), the GitHub Actions workflow, and the git history. Every concrete claim below traces back to one of those files, with the relative path called out wherever practical.
+This document is a comprehensive technical reference for the **galario** package as it sits in the RadioSim vendor tree at `simulators/galario/`. It is built only from sources inside that directory: the CMake build files, the C++/CUDA core (`src/`), the Cython/Python bindings (`python/`), the reStructuredText documentation (`docs/`), the GitHub Actions workflow, and the git history. Every concrete claim below traces back to one of those files, with the relative path called out wherever practical.
 
 ---
 
@@ -896,7 +896,7 @@ Plain reading of the source and docs gives:
 
 ---
 
-## 18. Integration into RRIVis (or any host project)
+## 18. Integration into RadioSim (or any host project)
 
 galario lives in this tree as a git submodule (the `.git` file in `simulators/galario/` is a one-line gitlink, not a real git directory). A consumer typically picks one of three paths:
 
@@ -911,7 +911,7 @@ galario lives in this tree as a git submodule (the `.git` file in `simulators/ga
    This works inside an active conda env (CMake auto-detects `CONDA_PREFIX`).
 3. **Vendor + symlink**. Keep the source in-tree, build it, and add the resulting `lib/` and `python/<flavour>/libcommon.so` to the project's install steps.
 
-Programmatic integration points relevant to a wider RIME codebase like RRIVis:
+Programmatic integration points relevant to a wider RIME codebase like RadioSim:
 
 * **Inputs:** `(u, v)` in wavelengths, image in Jy/pixel (or radial profile in Jy/sr), `dxy` in radians, `dRA/dDec/PA/inc` in radians.
 * **Outputs:** complex visibilities (Jy) sampled at the same `(u, v)` points, *or* a chi-squared scalar.

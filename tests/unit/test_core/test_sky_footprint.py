@@ -4,7 +4,7 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.sky import SkyCoverage, SkyFootprint, SkyProvenance, SkyRegion
+from radiosim.core.sky import SkyCoverage, SkyFootprint, SkyProvenance, SkyRegion
 
 
 class TestSkyFootprint:

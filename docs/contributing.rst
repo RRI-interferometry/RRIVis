@@ -1,7 +1,7 @@
 Contributing
 ============
 
-We welcome contributions to RRIvis! This guide will help you get started.
+We welcome contributions to RadioSim! This guide will help you get started.
 
 Development Setup
 -----------------
@@ -10,8 +10,8 @@ Development Setup
 
    .. code-block:: bash
 
-      git clone https://github.com/YOUR_USERNAME/RRIvis.git
-      cd RRIvis
+      git clone https://github.com/YOUR_USERNAME/RadioSim.git
+      cd RadioSim
 
 2. Install with pixi:
 
@@ -41,7 +41,7 @@ Run formatting and linting:
 
    ruff format src/ tests/
    ruff check src/ tests/
-   pyright src/rrivis
+   pyright src/radiosim
 
 Testing
 -------
@@ -54,7 +54,7 @@ Write tests for all new functionality:
    pytest
 
    # Run with coverage
-   pytest --cov=rrivis --cov-report=html
+   pytest --cov=radiosim --cov-report=html
 
    # Run specific tests
    pytest tests/unit/test_visibility.py
@@ -165,7 +165,7 @@ Issue Reports
 
 When reporting issues, include:
 
-1. RRIvis version (``rrivis --version``)
+1. RadioSim version (``radiosim --version``)
 2. Python version
 3. Operating system
 4. Minimal reproducible example

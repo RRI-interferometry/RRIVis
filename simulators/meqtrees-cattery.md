@@ -1,11 +1,11 @@
 # MeqTrees Cattery — Exhaustive Reference
 
-This document is an exhaustive technical reference for the **`meqtrees-cattery`** package located at `simulators/meqtrees-cattery/`. It is intended to serve as a single, self-contained guide to every subsystem, module, key class, TDL option, file format, and algorithmic convention found in the codebase. It is purposely long and densely cross-referenced so that future RRIVis development can adopt or interoperate with parts of MeqTrees without re-reading the full source.
+This document is an exhaustive technical reference for the **`meqtrees-cattery`** package located at `simulators/meqtrees-cattery/`. It is intended to serve as a single, self-contained guide to every subsystem, module, key class, TDL option, file format, and algorithmic convention found in the codebase. It is purposely long and densely cross-referenced so that future RadioSim development can adopt or interoperate with parts of MeqTrees without re-reading the full source.
 
 > **Author / upstream**: Oleg Smirnov (osmirnov@gmail.com).
 > **Upstream URL**: https://github.com/ska-sa/meqtrees-cattery
 > **Package version (`setup.py`)**: `meqtrees_cattery 1.8.0`, Python ≥ 3.0.
-> **Folder snapshot scanned**: `/Users/kartikmandar/RRIVis/simulators/meqtrees-cattery/`
+> **Folder snapshot scanned**: `/Users/kartikmandar/RadioSim/simulators/meqtrees-cattery/`
 > **Top-level Python LOC** (excluding tests / blank): ~34 663 lines.
 
 ---
@@ -46,7 +46,7 @@ This document is an exhaustive technical reference for the **`meqtrees-cattery`*
 11. [Cross-cutting File Formats](#11-cross-cutting-file-formats)
 12. [Tests](#12-tests)
 13. [Glossary](#13-glossary)
-14. [Pointers to RRIVis Equivalents](#14-pointers-to-rrivis-equivalents)
+14. [Pointers to RadioSim Equivalents](#14-pointers-to-radiosim-equivalents)
 
 ---
 
@@ -1166,26 +1166,26 @@ Functional tests live in the external Pyxis `meqtrees-batch-test` recipe (refere
 
 ---
 
-## 14. Pointers to RRIVis Equivalents
+## 14. Pointers to RadioSim Equivalents
 
-For convenience while integrating concepts from MeqTrees into RRIVis, here is a cross-reference between Cattery concepts and their nearest RRIVis equivalents (paths relative to `src/rrivis/`):
+For convenience while integrating concepts from MeqTrees into RadioSim, here is a cross-reference between Cattery concepts and their nearest RadioSim equivalents (paths relative to `src/radiosim/`):
 
-| Cattery concept                                  | RRIVis analogue                                                       |
+| Cattery concept                                  | RadioSim analogue                                                       |
 | ------------------------------------------------ | ---------------------------------------------------------------------- |
 | `Meow.Context.array` / `IfrArray`                | `core/antenna.py`, `core/baseline.py`, `core/observation.py`           |
 | `Meow.PointSource` / `GaussianSource` / RM       | `core/sky/model.py` (`SkyModel`), `core/sky/spectral.py` (PointSpectrum, RM) |
 | `MeqMaker` Jones chain (E/G/Z/T/F/W/B/D/G/B)     | `core/jones/*.py` chain (K/Z/T/E/P/D/G/B), see `CLAUDE.md` for layout |
 | `Meow.MSUtils` MS reader/writer                  | `io/measurement_set.py`, `io/readers.py`/`writers.py`                  |
 | `Meow.LSM` / `Cattery.LSM.LSM`                   | `core/sky/loaders/`, `core/sky/_loaders_*.py`, `core/sky/operations.py`|
-| `Meow.MSUtils.MSSelector` / `BITFLAG`            | (No direct equivalent yet — RRIVis writes to a fresh MS via `python-casacore`.) |
-| `Cattery.Calico.OMS.StefCal`                     | (No equivalent — RRIVis is simulation-only at present.)                |
+| `Meow.MSUtils.MSSelector` / `BITFLAG`            | (No direct equivalent yet — RadioSim writes to a fresh MS via `python-casacore`.) |
+| `Cattery.Calico.OMS.StefCal`                     | (No equivalent — RadioSim is simulation-only at present.)                |
 | `Lions` MIMs (Poly/TID/Kolmogorov/KL)            | `core/jones/ionosphere.py` (`IonosphereJones`)                        |
 | `Siamese.OMS.pybeams_fits`                       | `core/jones/beam/fits.py` (`FITSBeamJones`, `BeamFITSHandler`)         |
 | `Siamese.OMS.analytic_beams.WSRT_cos³_beam`      | `core/jones/beam/analytic.py` (`AnalyticBeamJones`, Gaussian only — see `CLAUDE.md`) |
-| `Meow.OptionTools.ListOptionParser`              | (RRIVis uses Pydantic v2 + `io/config.py`.)                            |
+| `Meow.OptionTools.ListOptionParser`              | (RadioSim uses Pydantic v2 + `io/config.py`.)                            |
 | `Meq.PSVTensor` tensor-mode predict              | `simulator/rime.py` (`RIMESimulator`) using NumPy/JAX/Numba backends   |
-| `purr` observing-log integration                 | `utils/logging.py` + standard `rrivis simulate` CLI                    |
-| `Karma .ann` annotation export                   | (No equivalent — RRIVis uses `utils/diagnostics/*` for plots.)         |
+| `purr` observing-log integration                 | `utils/logging.py` + standard `radiosim simulate` CLI                    |
+| `Karma .ann` annotation export                   | (No equivalent — RadioSim uses `utils/diagnostics/*` for plots.)         |
 
-The Cattery is fundamentally a *symbolic* ME builder: trees are constructed in TDL and evaluated lazily by Timba over multidimensional cells. RRIVis instead computes visibilities directly with numpy/jax/numba arrays. Many of the Jones models, beam models, ionosphere models, and sky-loaders described above are conceptually identical to the corresponding RRIVis classes; this document is intended to make those mappings explicit and to preserve the exact mathematical and structural details from the original codebase.
+The Cattery is fundamentally a *symbolic* ME builder: trees are constructed in TDL and evaluated lazily by Timba over multidimensional cells. RadioSim instead computes visibilities directly with numpy/jax/numba arrays. Many of the Jones models, beam models, ionosphere models, and sky-loaders described above are conceptually identical to the corresponding RadioSim classes; this document is intended to make those mappings explicit and to preserve the exact mathematical and structural details from the original codebase.
 

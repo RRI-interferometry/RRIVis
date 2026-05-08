@@ -6,7 +6,7 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.sky import HealpixData
+from radiosim.core.sky import HealpixData
 
 
 def _basic_kwargs(nside: int = 8) -> dict:
@@ -36,8 +36,8 @@ class TestHealpixDataOrdering:
         assert data.ordering == "nest"
 
     def test_ordering_differs_breaks_equality(self) -> None:
-        from rrivis.core.precision import PrecisionConfig
-        from rrivis.core.sky import SkyModel
+        from radiosim.core.precision import PrecisionConfig
+        from radiosim.core.sky import SkyModel
 
         precision = PrecisionConfig.standard()
         a = SkyModel(

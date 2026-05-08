@@ -4,10 +4,10 @@ import numpy as np
 from bokeh.layouts import Column
 from bokeh.models import DataTable, Div, GridPlot
 
-from rrivis.core.observability import ObservabilityPlanner
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import create_from_arrays
-from rrivis.visualization.observability import ObservabilityBokehRenderer
+from radiosim.core.observability import ObservabilityPlanner
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import create_from_arrays
+from radiosim.visualization.observability import ObservabilityBokehRenderer
 
 
 def _point_sky():

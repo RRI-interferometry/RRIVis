@@ -6,10 +6,10 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import HealpixData, PointSourceData
-from rrivis.core.sky.model import SkyFormat, SkyModel
-from rrivis.core.sky.pipeline import prepare_sky_model
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import HealpixData, PointSourceData
+from radiosim.core.sky.model import SkyFormat, SkyModel
+from radiosim.core.sky.pipeline import prepare_sky_model
 
 
 @pytest.fixture
@@ -96,7 +96,7 @@ class TestPrepareSkyModel:
         """The beam-aware nside advisor must fire even when only one model is
         passed (the old single-model fast path returned before the check)."""
         sky = make_healpix_model(precision=precision, nside=4)  # very coarse
-        with caplog.at_level(logging.WARNING, logger="rrivis.core.sky.pipeline"):
+        with caplog.at_level(logging.WARNING, logger="radiosim.core.sky.pipeline"):
             prepare_sky_model(
                 [sky],
                 representation=SkyFormat.HEALPIX,

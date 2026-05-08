@@ -1,7 +1,7 @@
 Changelog
 =========
 
-All notable changes to RRIvis are documented here.
+All notable changes to RadioSim are documented here.
 
 [0.2.0] - 2025-12-15
 --------------------
@@ -11,7 +11,7 @@ Major release with package restructuring and GPU support.
 Added
 ^^^^^
 
-- **Package Structure**: Proper Python package installable via ``pip install rrivis``
+- **Package Structure**: Proper Python package installable via ``pip install radiosim``
 - **GPU Support**: Universal GPU acceleration via JAX and Numba backends
   - NVIDIA (CUDA 12)
   - AMD (ROCm)
@@ -35,12 +35,12 @@ Added
   - Automatic fallback with warnings on unsupported backends
   - YAML configuration support in config files
 - **Pydantic Configuration**: Type-safe configuration with validation
-- **CLI Commands**: ``rrivis`` and ``rrivis-migrate``
+- **CLI Commands**: ``radiosim`` and ``radiosim-migrate``
 - **Measurement Set I/O**: Export to CASA MS format for QuartiCal/WSClean
   - ``write_ms()``: Write visibilities to MS format
   - ``read_ms()``: Read MS files back into memory
   - ``ms_info()``: Quick metadata summary
-  - Install with: ``pip install rrivis[ms]``
+  - Install with: ``pip install radiosim[ms]``
 - **Test Suite**: 376+ tests covering unit, integration, and performance
 - **CI/CD**: GitHub Actions with multi-Python, multi-OS testing
 - **Documentation**: Sphinx documentation with autodoc
@@ -49,7 +49,7 @@ Changed
 ^^^^^^^
 
 - Module structure reorganized into subpackages (``core/``, ``backends/``, ``api/``, etc.)
-- Import paths changed from ``src.*`` to ``rrivis.*``
+- Import paths changed from ``src.*`` to ``radiosim.*``
 - ``file_format`` parameter renamed to ``format_type`` in antenna readers
 
 Fixed

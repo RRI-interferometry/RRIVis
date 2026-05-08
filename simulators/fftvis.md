@@ -29,7 +29,7 @@ package's *raison d'être* is summarized in the README:
 It is heavily co-designed with `matvis`: `fftvis` reuses `matvis`'s
 coordinate-rotation classes, beam-interpolator base class, and CLI
 profiling helpers, and most tests in `tests/test_cpu_simulate.py` cross-
-check `fftvis` outputs against `matvis.simulate_vis(...)`. Inside RRIVis
+check `fftvis` outputs against `matvis.simulate_vis(...)`. Inside RadioSim
 this is the engine to study when you want NUFFT-grade scaling for
 zenith-pointing, mostly-coplanar arrays like HERA.
 
@@ -300,8 +300,8 @@ def simulate_vis(
   In both cases the "input flux" is split equally between the two
   linear feeds via a global `0.5` factor (`cpu/utils.py`:
   `coherency = 0.5 * sky_model`), so `V_XX + V_YY = I` after summation
-  — the same convention as `matvis` and the RRIVis core (see
-  `RRIVis/CLAUDE.md` § "The RIME Equation").
+  — the same convention as `matvis` and the RadioSim core (see
+  `RadioSim/CLAUDE.md` § "The RIME Equation").
 - `ra`, `dec` — ICRS, radians; arrays of length `nsources`. The
   docstring says `ra ∈ [0, 2π], dec ∈ [-π, +π]` but the upstream
   `core.simulate.SimulationEngine` docstring (and basic geometry) imply
@@ -842,8 +842,8 @@ else:
     coherency = np.transpose(coherency, (2, 3, 0, 1))   # (..., 2, 2)
 ```
 
-This matches the `1/2` factor enforced by RRIVis core
-(`RRIVis/CLAUDE.md`: `C = (1/2) × [[I+Q, U-iV], [U+iV, I-Q]]`,
+This matches the `1/2` factor enforced by RadioSim core
+(`RadioSim/CLAUDE.md`: `C = (1/2) × [[I+Q, U-iV], [U+iV, I-Q]]`,
 ensuring `V_XX + V_YY = I`). Note the **sign convention**: `fftvis`
 puts `U+iV` in the off-diagonal `[0,1]`, which is the standard
 linear-feed convention but the conjugate of the convention sometimes
@@ -1351,7 +1351,7 @@ are documentation in their own right.
 ## 17. RIME conventions, in one place
 
 Putting the conventions scattered across the source into one summary,
-because they matter when comparing against `matvis`, `pyuvsim`, RRIVis
+because they matter when comparing against `matvis`, `pyuvsim`, RadioSim
 core, and CASA:
 
 1. **Coordinate frame** — sources are ICRS `(ra, dec)` in radians;
@@ -1361,7 +1361,7 @@ core, and CASA:
 2. **Coherency** — `C = (1/2) * [[I+Q, U+iV], [U-iV, I-Q]]`. The
    `0.5` factor lives in `prepare_source_catalog`. This is the
    `IAU/CASA` linear-feed convention used by `pyuvsim`, `matvis`, and
-   RRIVis.
+   RadioSim.
 3. **Phase factor** — `exp(-2πi · b·X / λ)`. fftvis folds the `2π`
    into the `topo` array (`topo *= 2π`) once per integration, so the
    NUFFT calls themselves see "frequencies" `(u, v) = (b·c/c, b·c/c)
@@ -1390,7 +1390,7 @@ These are not just README claims — they are visible in the code:
    `matvis`, which supports per-antenna beams natively.)
 2. **No diffuse-sky support**. The flux array is a flat
    `(nsources, nfreqs[, 4])` cube. Diffuse skies must be pre-pixelized
-   (e.g. HEALPix → list of equal-flux point sources). RRIVis has
+   (e.g. HEALPix → list of equal-flux point sources). RadioSim has
    `core/visibility_healpix.py` for this, but fftvis itself does not.
 3. **`eps` discrepancy**. `default_accuracy_dict[2] = 1e-13`, but
    the `wrapper.simulate_vis` docstring says `1e-12` for precision=2.
@@ -1437,10 +1437,10 @@ These are not just README claims — they are visible in the code:
 
 ## 19. Comparison vs the rest of the simulators in this repo
 
-For RRIVis purposes, the most useful framing is "how does fftvis
-relate to matvis, pyuvsim, and RRIVis core?"
+For RadioSim purposes, the most useful framing is "how does fftvis
+relate to matvis, pyuvsim, and RadioSim core?"
 
-| Property | fftvis | matvis | pyuvsim | RRIVis core |
+| Property | fftvis | matvis | pyuvsim | RadioSim core |
 |---|---|---|---|---|
 | Algorithm | Type-3 / Type-1 NUFFT (finufft) | Dense matrix RIME (numpy / CUDA) | Brute-force per-source RIME, MPI | Full RIME with Jones chain |
 | Per-antenna beams | **No** | Yes | Yes | Yes |
@@ -1459,9 +1459,9 @@ The intended fit:
 - **For HERA-like arrays with shared beams and many sources** ⇒
   fftvis is the right tool.
 - **For per-antenna beams or per-feed gain studies** ⇒ matvis or
-  RRIVis.
+  RadioSim.
 - **For accuracy-of-record validation** ⇒ pyuvsim.
-- **For full Jones-chain, multi-physics simulations** ⇒ RRIVis core.
+- **For full Jones-chain, multi-physics simulations** ⇒ RadioSim core.
 
 `matvis.md` and `pyuvsim.md` in this directory are the corresponding
 exhaustive references for those simulators.
@@ -1585,9 +1585,9 @@ reduces redundant-baseline cost for HERA-like grids dramatically by
 formulating the whole integration as a single Type-1 NUFFT producing
 a regular Fourier-mode grid that's then index-selected. The GPU
 backend is on the roadmap but currently exists only as scaffolding.
-For RRIVis the relevant integration point is treating fftvis as an
+For RadioSim the relevant integration point is treating fftvis as an
 alternative `RIMESimulator`-style strategy: the input shapes
 (`(nsrc, nfreq[, 4])` flux, `BeamInterface` beam, ENU antennas, ICRS
-sources) are nearly identical to RRIVis's existing point-source RIME,
+sources) are nearly identical to RadioSim's existing point-source RIME,
 so plumbing fftvis in as a `simulator/fftvis.py` strategy is a
 mechanical exercise rather than a re-design.

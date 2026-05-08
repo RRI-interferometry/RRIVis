@@ -1,10 +1,10 @@
-"""Tests for rrivis.utils.device resource detection."""
+"""Tests for radiosim.utils.device resource detection."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rrivis.utils.device import (
+from radiosim.utils.device import (
     CPUInfo,
     DeviceResources,
     GPUInfo,
@@ -51,8 +51,8 @@ class TestDetectMemory:
         assert info.total_gb == pytest.approx(16.0)
         assert info.available_gb == pytest.approx(8.0)
 
-    @patch("rrivis.utils.device.platform.system", return_value="Darwin")
-    @patch("rrivis.utils.device._run_cmd", return_value="17179869184")
+    @patch("radiosim.utils.device.platform.system", return_value="Darwin")
+    @patch("radiosim.utils.device._run_cmd", return_value="17179869184")
     def test_macos_sysctl_fallback(self, mock_cmd, mock_sys):
         """When psutil import fails on macOS, fall back to sysctl."""
         with patch.dict("sys.modules", {"psutil": None}):
@@ -71,7 +71,7 @@ class TestDetectMemory:
 
 
 class TestDetectStorage:
-    @patch("rrivis.utils.device.shutil.disk_usage")
+    @patch("radiosim.utils.device.shutil.disk_usage")
     def test_basic(self, mock_usage):
         mock_usage.return_value = MagicMock(
             total=500 * (1024**3),
@@ -82,7 +82,7 @@ class TestDetectStorage:
         assert info.free_gb == pytest.approx(200.0)
         assert info.path == "/tmp"
 
-    @patch("rrivis.utils.device.shutil.disk_usage", side_effect=OSError("fail"))
+    @patch("radiosim.utils.device.shutil.disk_usage", side_effect=OSError("fail"))
     def test_failure(self, mock_usage):
         info = _detect_storage()
         assert info.total_gb == 0.0
@@ -103,8 +103,8 @@ class TestDetectCPU:
         info = _detect_cpu()
         assert info.architecture in ("x86_64", "arm64", "aarch64", "AMD64", "i386")
 
-    @patch("rrivis.utils.device.platform.system", return_value="Darwin")
-    @patch("rrivis.utils.device._run_cmd")
+    @patch("radiosim.utils.device.platform.system", return_value="Darwin")
+    @patch("radiosim.utils.device._run_cmd")
     def test_macos_model(self, mock_cmd, mock_sys):
         def side_effect(args, timeout=5):
             if "machdep.cpu.brand_string" in args:
@@ -206,15 +206,15 @@ class TestParseXpuSmi:
 
 
 class TestDetectGPUs:
-    @patch("rrivis.utils.device._run_cmd", return_value=None)
-    @patch("rrivis.utils.device._detect_jax_gpus", return_value=[])
+    @patch("radiosim.utils.device._run_cmd", return_value=None)
+    @patch("radiosim.utils.device._detect_jax_gpus", return_value=[])
     def test_no_gpus(self, mock_jax, mock_cmd):
         gpus = _detect_gpus()
         assert gpus == []
 
-    @patch("rrivis.utils.device.platform.system", return_value="Linux")
-    @patch("rrivis.utils.device._detect_jax_gpus", return_value=[])
-    @patch("rrivis.utils.device._run_cmd")
+    @patch("radiosim.utils.device.platform.system", return_value="Linux")
+    @patch("radiosim.utils.device._detect_jax_gpus", return_value=[])
+    @patch("radiosim.utils.device._run_cmd")
     def test_nvidia_on_linux(self, mock_cmd, mock_jax, mock_sys):
         def side_effect(args, timeout=5):
             if "nvidia-smi" in args:

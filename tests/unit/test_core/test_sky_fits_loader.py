@@ -3,8 +3,8 @@
 import numpy as np
 from astropy.io import fits
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky._loaders_fits import load_fits_image
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky._loaders_fits import load_fits_image
 
 
 def test_fits_loader_stokes_i_only_avoids_polarization_allocations(
@@ -12,7 +12,7 @@ def test_fits_loader_stokes_i_only_avoids_polarization_allocations(
 ):
     import reproject
 
-    from rrivis.core.sky import _allocation
+    from radiosim.core.sky import _allocation
 
     def fake_reproject_to_healpix(image_and_wcs, frame, nside, **kwargs):
         image_2d, _wcs = image_and_wcs

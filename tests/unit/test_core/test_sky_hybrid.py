@@ -16,8 +16,8 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import (
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import (
     HealpixData,
     PointSourceData,
     SkyFormat,
@@ -26,8 +26,8 @@ from rrivis.core.sky import (
     materialize_healpix_model,
     materialize_point_sources_model,
 )
-from rrivis.core.sky._serialization import to_pyradiosky
-from rrivis.core.sky.combine import _combine_models
+from radiosim.core.sky._serialization import to_pyradiosky
+from radiosim.core.sky.combine import _combine_models
 
 
 @pytest.fixture

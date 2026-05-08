@@ -1,17 +1,17 @@
-"""Tests for rrivis.core.jones.beam.analysis — radial profile + features."""
+"""Tests for radiosim.core.jones.beam.analysis — radial profile + features."""
 
 import healpy as hp
 import numpy as np
 import pytest
 from scipy.special import j1
 
-from rrivis.core.jones.beam.analysis import (
+from radiosim.core.jones.beam.analysis import (
     BeamFeatures,
     BeamRadialProfile,
     azimuthal_radial_profile,
     detect_beam_features,
 )
-from rrivis.core.observability.geometry import compute_beam_map_on_healpix
+from radiosim.core.observability.geometry import compute_beam_map_on_healpix
 
 # ---------------------------------------------------------------------------
 # Helpers

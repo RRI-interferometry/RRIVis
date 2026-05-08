@@ -13,16 +13,16 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import (
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import (
     SkyFormat,
     SkyModel,
     create_from_arrays,
     materialize_healpix_model,
 )
-from rrivis.core.sky._data import PointSourceData, PointSpectrum
-from rrivis.core.sky.combine import _combine_models
-from rrivis.core.sky.constants import (
+from radiosim.core.sky._data import PointSourceData, PointSpectrum
+from radiosim.core.sky.combine import _combine_models
+from radiosim.core.sky.constants import (
     BrightnessConversion,
     rayleigh_jeans_factor,
 )
@@ -132,7 +132,7 @@ class TestCombineHealpixUsesSpectrumI:
         )
         # Convert the K_RJ map back to Jy at each frequency and read out
         # the source's pixel.
-        from rrivis.core.sky.constants import brightness_temp_to_flux_density
+        from radiosim.core.sky.constants import brightness_temp_to_flux_density
 
         for fi, freq in enumerate(frequencies):
             t_map = combined.healpix.maps[fi]
@@ -266,7 +266,7 @@ class TestCombinePowerLawAndSpectrumDisjointly:
             brightness_conversion=BrightnessConversion.RAYLEIGH_JEANS,
             mixed_model_policy="allow",
         )
-        from rrivis.core.sky.constants import brightness_temp_to_flux_density
+        from radiosim.core.sky.constants import brightness_temp_to_flux_density
 
         expected_pl = np.array([4.0, 2.0])  # alpha=-1 power-law
         for fi, freq in enumerate(frequencies):

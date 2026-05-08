@@ -14,8 +14,8 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import (
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import (
     HealpixData,
     MonopoleConvention,
     SkyModel,
@@ -24,7 +24,7 @@ from rrivis.core.sky import (
     create_from_arrays,
     subtract_bright_sources,
 )
-from rrivis.core.sky.constants import rayleigh_jeans_factor
+from radiosim.core.sky.constants import rayleigh_jeans_factor
 
 
 @pytest.fixture
@@ -230,7 +230,7 @@ class TestSubtractBrightSourcesCatalogPath:
 
 class TestSubtractBrightSourcesGuards:
     def test_point_only_raises(self, precision):
-        from rrivis.core.sky import create_test_sources
+        from radiosim.core.sky import create_test_sources
 
         sky = create_test_sources(
             num_sources=5, precision=precision, reference_frequency=150e6
@@ -272,7 +272,7 @@ class TestSubtractionHelpers:
     """
 
     def test_select_candidates_with_catalog(self, precision):
-        from rrivis.core.sky.operations import _select_subtraction_candidates
+        from radiosim.core.sky.operations import _select_subtraction_candidates
 
         nside = 16
         npix = hp.nside2npix(nside)
@@ -318,7 +318,7 @@ class TestSubtractionHelpers:
         assert int(candidates[0]) == int(expected_pix)
 
     def test_select_candidates_max_sources_keeps_brightest(self, precision):
-        from rrivis.core.sky.operations import _select_subtraction_candidates
+        from radiosim.core.sky.operations import _select_subtraction_candidates
 
         nside = 32
         npix = hp.nside2npix(nside)

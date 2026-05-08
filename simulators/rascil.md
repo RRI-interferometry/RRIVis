@@ -2,7 +2,7 @@
 
 > *Radio Astronomy Simulation, Calibration and Imaging Library — the SKA-SDP reference Python+xarray pipeline for full-Stokes RIME simulation, self-calibration, and Dask-distributed continuum/spectral-line imaging.*
 
-This document is an in-depth, source-grounded reference for the [RASCIL](https://gitlab.com/ska-telescope/external/rascil-main) package as vendored in `simulators/rascil/`. It is written from a complete reading of `rascil/` (74 Python files, ~17.6k LOC), the `apps/` CLI applications, the `workflows/rsexecute/` Dask-distributed orchestration layer, the `processing_components/` libraries, the `pyproject.toml` and `CHANGELOG.md`, the `data/` directory, and the `examples/` notebooks. It is intended as a primary technical companion for integrating RASCIL into other code (e.g. RRIVis simulator/calibration plumbing, SDP pipeline development).
+This document is an in-depth, source-grounded reference for the [RASCIL](https://gitlab.com/ska-telescope/external/rascil-main) package as vendored in `simulators/rascil/`. It is written from a complete reading of `rascil/` (74 Python files, ~17.6k LOC), the `apps/` CLI applications, the `workflows/rsexecute/` Dask-distributed orchestration layer, the `processing_components/` libraries, the `pyproject.toml` and `CHANGELOG.md`, the `data/` directory, and the `examples/` notebooks. It is intended as a primary technical companion for integrating RASCIL into other code (e.g. RadioSim simulator/calibration plumbing, SDP pipeline development).
 
 ---
 
@@ -747,15 +747,15 @@ Outside Dask, set `rsexecute.set_client(use_dask=False)` and the same code runs 
 
 ---
 
-## 16. Mapping to RRIVis concepts
+## 16. Mapping to RadioSim concepts
 
-For cross-referencing while integrating RASCIL into RRIVis (`/Users/kartikmandar/RRIVis/src/rrivis/`):
+For cross-referencing while integrating RASCIL into RadioSim (`/Users/kartikmandar/RadioSim/src/radiosim/`):
 
-| RRIVis concept | RASCIL equivalent | Notes |
+| RadioSim concept | RASCIL equivalent | Notes |
 |---|---|---|
-| `core/visibility.py` (point-source RIME) | `predict_visibility(vis, model, context="2d"\|"ng")` + `dft_skycomponent_visibility` | RASCIL's gridder paths use ng (Nifty-Gridder); RRIVis's RIME is direct sum. |
+| `core/visibility.py` (point-source RIME) | `predict_visibility(vis, model, context="2d"\|"ng")` + `dft_skycomponent_visibility` | RASCIL's gridder paths use ng (Nifty-Gridder); RadioSim's RIME is direct sum. |
 | `core/visibility_healpix.py` | RASCIL has no first-class HEALPix predictor — must convert via `pyradiosky → SkyComponent` or grid the HEALPix into a FITS image first. |
-| `core/sky/SkyModel` | `ska_sdp_datamodels.sky_model.SkyModel(image, components, mask, gaintable)` | Different shape: RASCIL bundles components+image+gaintable+mask; RRIVis splits component vs healpix. |
+| `core/sky/SkyModel` | `ska_sdp_datamodels.sky_model.SkyModel(image, components, mask, gaintable)` | Different shape: RASCIL bundles components+image+gaintable+mask; RadioSim splits component vs healpix. |
 | `core/sky/loaders/_loaders_vizier.py (gleam, mals, ...)` | `create_low_test_skycomponents_from_gleam` | RASCIL hard-codes GLEAM only; lookup is from a local FITS file, not Vizier. |
 | `core/sky/_loaders_diffuse.py` | None — RASCIL has no GSM/PySM3 path. |
 | `core/jones/*` (8-term Jones chain) | `solve_calibrate_chain(calibration_context="TGB...")` + `simulate_gaintable_from_*` | RASCIL only models T/G/B/D explicitly; F/W/Z are folded into screens or predict-side. |
@@ -763,10 +763,10 @@ For cross-referencing while integrating RASCIL into RRIVis (`/Users/kartikmandar
 | `simulator/rime.py` | `simulate_list_rsexecute_workflow` + `predict_list_rsexecute_workflow` | Pure direct-sum RIME requires `context="2d"` and PSWF antialiasing. |
 | `backends/jax_backend.py` etc. | `--imaging_dft_kernel gpu_raw` (single flag) | RASCIL's GPU support is only in `ska-sdp-func` extras; default is NumPy + Nifty-Gridder C++. |
 | `io/measurement_set.py` | `create_visibility_from_ms` / `export_visibility_to_ms` (from `ska-sdp-datamodels`) | Same CASA Table format. |
-| `utils/diagnostics/*` | `simulation_helpers.plot_*` + `apps/imaging_qa/*` | RASCIL has more polished QA than RRIVis but no strip-plotter. |
+| `utils/diagnostics/*` | `simulation_helpers.plot_*` + `apps/imaging_qa/*` | RASCIL has more polished QA than RadioSim but no strip-plotter. |
 | `Simulator.from_config()` | `rascil_imager --config @config.txt` | RASCIL's CLI uses argparse `@` files, not YAML. |
 
-The sweet spot for RRIVis is to **use RASCIL only for**:
+The sweet spot for RadioSim is to **use RASCIL only for**:
 1. AOFlagger and DP3 wrappers (`flagging_aoflagger`, `dp3_gaincal`).
 2. Sensitivity calculations (`rascil_sensitivity` in the apps).
 3. Dish-surface and pointing-error simulators (`simulate_gaintable_from_zernikes`, `simulate_gaintable_from_pointingtable`, `simulate_pointingtable_from_timeseries`).
@@ -774,4 +774,4 @@ The sweet spot for RRIVis is to **use RASCIL only for**:
 5. PyBDSF QA pipeline (`imaging_qa_main`).
 6. Reading FEKO MID/MeerKAT voltage patterns from `data/models/MID_FEKO_VP_*.fits`.
 
-Sky-model loading, RIME execution, and Jones-chain composition are better served by RRIVis's own primitives, which are precision-config-aware (RASCIL implicitly uses float64 throughout) and HEALPix-first.
+Sky-model loading, RIME execution, and Jones-chain composition are better served by RadioSim's own primitives, which are precision-config-aware (RASCIL implicitly uses float64 throughout) and HEALPix-first.

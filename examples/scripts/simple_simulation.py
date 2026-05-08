@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Simple RRIvis visibility simulation example.
+"""Simple RadioSim visibility simulation example.
 
-This script demonstrates the basic usage of RRIvis for simulating
+This script demonstrates the basic usage of RadioSim for simulating
 radio interferometry visibilities using the RIME (Radio Interferometer
 Measurement Equation).
 
@@ -18,7 +18,7 @@ from pathlib import Path
 def main():
     """Run a simple visibility simulation."""
     parser = argparse.ArgumentParser(
-        description="Simple RRIvis visibility simulation example"
+        description="Simple RadioSim visibility simulation example"
     )
     parser.add_argument(
         "--backend",
@@ -46,12 +46,12 @@ def main():
     )
     args = parser.parse_args()
 
-    # Import RRIvis
-    import rrivis
-    from rrivis import Simulator
-    from rrivis.backends import list_backends
+    # Import RadioSim
+    import radiosim
+    from radiosim import Simulator
+    from radiosim.backends import list_backends
 
-    print(f"RRIvis version: {rrivis.__version__}")
+    print(f"RadioSim version: {radiosim.__version__}")
     print(f"Available backends: {list_backends()}")
     print()
 
@@ -66,7 +66,7 @@ def main():
         # Get the antenna layout example path
         examples_dir = Path(__file__).parent.parent.parent
         antenna_file = (
-            examples_dir / "antenna_layout_examples" / "example_rrivis_format.txt"
+            examples_dir / "antenna_layout_examples" / "example_radiosim_format.txt"
         )
 
         if not antenna_file.exists():
@@ -94,7 +94,7 @@ def main():
         if antenna_file is not None:
             config["antenna_layout"] = {
                 "antenna_positions_file": str(antenna_file),
-                "antenna_file_format": "rrivis",
+                "antenna_file_format": "radiosim",
                 "all_antenna_diameter": 14.0,
             }
 

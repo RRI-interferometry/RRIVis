@@ -1,0 +1,759 @@
+"""Command-line interface for RadioSim.
+
+Provides the main entry point for running simulations from the command line.
+"""
+
+# TODO: Future enhancements for v0.3.0+
+# =====================================
+# The following features were present in the legacy src/main.py (v0.1.x)
+# and should be implemented in the new modular CLI/API:
+#
+# 1. Batch Simulation Support
+#    - Run multiple simulations in sequence with automatic naming
+#    - batch_index parameter for output folder organization
+#    - Summary reporting across all batches
+#
+# 3. File-Based Logging
+#    - Log all console output to simulation folder
+#    - Custom stdout/stderr redirection during simulation
+#    - Automatic temp folder cleanup of old simulations
+#
+# 5. Smart Output Folder Management
+#    - Base path selection: Explicit → XDG_DOWNLOAD_DIR → ~/Downloads
+#    - Timestamp-based folder organization (YYYY-MM-DD_HH-MM-SS)
+#    - Auto-save YAML config to simulation folder for reproducibility
+#
+# 6. PyUVData Telescope Integration
+#    - Load known telescope metadata from pyuvdata.Telescope
+#    - Auto-populate location, antennas, diameters, mount types, feeds
+#    - Per-field control flags (use_pyuvdata_location, use_pyuvdata_antennas, etc.)
+#
+# 7. Advanced Baseline Filtering
+#    - Filter by baseline length with tolerance
+#    - Filter by azimuth angle ranges
+#    - Toggle autocorrelations/crosscorrelations
+#
+# See LEGACY_CODE.md in project memory for detailed feature descriptions.
+
+import logging
+import sys
+from pathlib import Path
+
+import click
+import numpy as np
+
+from radiosim.__about__ import __description__, __version__
+
+_BACKEND_CHOICES = click.Choice(["auto", "numpy", "jax", "numba"])
+
+
+@click.group(
+    invoke_without_command=True,
+    help=__description__,
+    epilog=(
+        "Examples:\n\n"
+        "  # Run with config file\n"
+        "  radiosim --config config.yaml\n\n"
+        "  # Run with CLI arguments\n"
+        "  radiosim simulate --antenna-layout HERA65.csv --frequencies 100,150,200\n\n"
+        "  # Show version\n"
+        "  radiosim --version\n\n"
+        "For more information, see https://github.com/kartikmandar/RadioSim"
+    ),
+)
+@click.version_option(version=__version__, prog_name="radiosim")
+@click.option(
+    "--config", "config_flag", type=click.Path(), help="Path to YAML configuration file"
+)
+@click.option(
+    "--antenna-file",
+    type=str,
+    default=None,
+    help="Path to antenna positions file (overrides config)",
+)
+@click.option(
+    "--sim-data-dir",
+    type=str,
+    default=None,
+    help="Directory for simulation output (overrides config)",
+)
+@click.option(
+    "--backend",
+    type=_BACKEND_CHOICES,
+    default="auto",
+    show_default=True,
+    help="Computation backend",
+)
+@click.option(
+    "-v", "--verbose", count=True, help="Increase verbosity (use -vv for debug)"
+)
+@click.option("-q", "--quiet", is_flag=True, help="Suppress non-error output")
+@click.option(
+    "--offline",
+    is_flag=True,
+    default=False,
+    help="Force offline mode (skip all network checks and downloads)",
+)
+@click.pass_context
+def cli(
+    ctx: click.Context,
+    config_flag: str | None,
+    antenna_file: str | None,
+    sim_data_dir: str | None,
+    backend: str,
+    verbose: int,
+    quiet: bool,
+    offline: bool,
+) -> None:
+    """RadioSim — Radio Interferometer Visibility Simulator."""
+    ctx.ensure_object(dict)
+    ctx.obj["verbose"] = verbose
+    ctx.obj["quiet"] = quiet
+    ctx.obj["backend"] = backend
+    ctx.obj["antenna_file"] = antenna_file
+    ctx.obj["sim_data_dir"] = sim_data_dir
+    ctx.obj["offline"] = offline
+
+    if ctx.invoked_subcommand is None:
+        if config_flag:
+            sys.exit(
+                run_config_mode(
+                    config_flag=config_flag,
+                    antenna_file=antenna_file,
+                    sim_data_dir=sim_data_dir,
+                    backend=backend,
+                    verbose=verbose,
+                    quiet=quiet,
+                    offline=offline,
+                )
+            )
+        else:
+            click.echo(ctx.get_help())
+
+
+@cli.command()
+@click.option(
+    "--antenna-layout", required=True, type=str, help="Path to antenna positions file"
+)
+@click.option(
+    "--frequencies",
+    required=True,
+    type=str,
+    help="Frequencies in MHz (comma-separated, e.g., '100,150,200')",
+)
+@click.option(
+    "--sky-model",
+    type=click.Choice(["test", "gleam", "gsm"]),
+    default="test",
+    show_default=True,
+    help="Sky model to use",
+)
+@click.option("--output", default="output/", show_default=True, help="Output directory")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["hdf5", "json", "ms"]),
+    default="hdf5",
+    show_default=True,
+    help="Output format",
+)
+@click.option(
+    "--backend",
+    type=_BACKEND_CHOICES,
+    default="auto",
+    show_default=True,
+    help="Computation backend",
+)
+def simulate(
+    antenna_layout: str,
+    frequencies: str,
+    sky_model: str,
+    output: str,
+    output_format: str,
+    backend: str,
+) -> None:
+    """Run simulation with CLI arguments."""
+    sys.exit(
+        run_simulate_mode(
+            antenna_layout=antenna_layout,
+            frequencies=frequencies,
+            sky_model=sky_model,
+            output=output,
+            output_format=output_format,
+            backend=backend,
+        )
+    )
+
+
+@cli.command()
+@click.option(
+    "-o",
+    "--output",
+    default="config.yaml",
+    show_default=True,
+    help="Output config file path",
+)
+def init(output: str) -> None:
+    """Create a default configuration file."""
+    sys.exit(run_init_mode(output=output))
+
+
+@cli.command()
+@click.argument("config", type=click.Path(exists=True))
+def validate(config: str) -> None:
+    """Validate a configuration file."""
+    sys.exit(run_validate_mode(config=config))
+
+
+@cli.command()
+@click.pass_context
+def status(ctx: click.Context) -> None:
+    """Check network connectivity and service availability."""
+    sys.exit(run_status_mode(verbose=ctx.obj.get("verbose", 0)))
+
+
+# ---------------------------------------------------------------------------
+# Handler functions — logic unchanged, parameters are direct (no Namespace)
+# ---------------------------------------------------------------------------
+
+
+def run_config_mode(
+    config_flag: str | None,
+    antenna_file: str | None,
+    sim_data_dir: str | None,
+    backend: str,
+    verbose: int,
+    quiet: bool,
+    offline: bool = False,
+) -> int:
+    """Run simulation using configuration file (v0.1.x compatible)."""
+    from radiosim.utils.logging import (
+        console,
+        get_logger,
+        print_info,
+        print_success,
+        print_warning,
+        setup_logging,
+    )
+
+    # Setup logging based on verbosity
+    if quiet:
+        level = logging.ERROR
+    elif verbose >= 2:
+        level = logging.DEBUG
+    elif verbose >= 1:
+        level = logging.INFO
+    else:
+        level = logging.INFO
+
+    setup_logging(level=level)
+    logger = get_logger("radiosim.cli")
+
+    if not config_flag:
+        logger.error("No configuration file specified")
+        logger.info("Usage: radiosim config.yaml")
+        logger.info("       radiosim --config config.yaml")
+        logger.info(
+            "       radiosim simulate --antenna-layout file.csv --frequencies 100,200"
+        )
+        return 1
+
+    config_path = Path(config_flag)
+    if not config_path.exists():
+        logger.error(f"Configuration file not found: {config_path}")
+        return 1
+
+    print_info(f"Loading configuration from: {config_path}")
+
+    try:
+        # Load and validate config
+        from pydantic import ValidationError as _PydanticError
+        from rich.panel import Panel
+
+        from radiosim.io.config import RadioSimConfig, load_config
+
+        schema_errors: list[str] = []
+        config = None
+        try:
+            config = load_config(config_path)
+        except _PydanticError as pyd_err:
+            # Pydantic rejected one or more field values — extract all of them
+            import yaml as _yaml
+
+            for err in pyd_err.errors():
+                loc = " -> ".join(str(p) for p in err["loc"])
+                schema_errors.append(f"{loc}: {err['msg']}")
+            # Strip the invalid fields from raw data and build a partial config
+            # so we can also run validate() and show all errors together
+            try:
+                with open(config_path) as _f:
+                    raw_data = _yaml.safe_load(_f) or {}
+                raw_data = RadioSimConfig._preprocess_yaml_data(
+                    raw_data, config_path.resolve().parent
+                )
+                for err in pyd_err.errors():
+                    d = raw_data
+                    for key in err["loc"][:-1]:
+                        if isinstance(key, str) and isinstance(d, dict) and key in d:
+                            d = d[key]
+                        else:
+                            break
+                    last = err["loc"][-1]
+                    if isinstance(d, dict) and last in d:
+                        del d[last]
+                config = RadioSimConfig(**raw_data)
+            except Exception:
+                pass
+        except ValueError as e:
+            console.print()
+            console.print(
+                Panel(
+                    f"  {e}",
+                    title="[bold red]Config invalid[/bold red]",
+                    border_style="red",
+                )
+            )
+            console.print("  Fix the above in your config file and re-run.\n")
+            return 1
+
+        # Pre-flight: collect ALL config errors before doing any work
+        validate_errors: list[str] = config.validate() if config is not None else []
+        errors = schema_errors + validate_errors
+        if errors:
+            console.print()
+            lines = "\n".join(
+                f"  [bold red][{i}][/bold red]  {e}" for i, e in enumerate(errors, 1)
+            )
+            console.print(
+                Panel(
+                    lines,
+                    title=f"[bold red]Config invalid \u2014 {len(errors)} error(s) found[/bold red]",
+                    border_style="red",
+                )
+            )
+            console.print("  Fix the above in your config file and re-run.\n")
+            return 1
+
+        # Apply CLI overrides
+        if offline:
+            config.compute.offline = True
+
+        if antenna_file:
+            config.antenna_layout.antenna_positions_file = antenna_file
+
+        if sim_data_dir:
+            config.output.simulation_data_dir = sim_data_dir
+
+        # Handle output based on config settings
+        output_config = config.output
+
+        # Determine output directory early (before simulation)
+        sim_data_dir_val = output_config.simulation_data_dir or "output"
+        sim_subdir = output_config.simulation_subdir
+
+        # Auto-generate subdirectory name if not specified
+        if not sim_subdir:
+            sim_subdir = config.generate_output_subdir()
+            logger.debug(f"Auto-generated output subdirectory: {sim_subdir}")
+
+        output_dir = Path(sim_data_dir_val) / sim_subdir
+
+        # Handle output folder conflict: prompt whenever the folder already exists
+        any_output = output_config.save_simulation_data or output_config.plot_results
+        do_overwrite = False  # resolved below based on config + user input
+        if any_output and output_dir.exists() and sorted(output_dir.iterdir()):
+            existing_files = sorted(output_dir.iterdir())
+            if (
+                output_config.skip_overwrite_confirmation
+                and not output_config.overwrite_output
+            ):
+                print_warning(
+                    "Conflicting config: overwrite_output is false but skip_overwrite_confirmation is true. "
+                    "Aborting to avoid accidental data loss."
+                )
+                console.print(
+                    "  To overwrite silently:       set [bold]overwrite_output: true[/bold] and [bold]skip_overwrite_confirmation: true[/bold]"
+                )
+                console.print(
+                    "  To get the confirmation prompt: set [bold]overwrite_output: true[/bold] and [bold]skip_overwrite_confirmation: false[/bold]"
+                )
+                return 0
+            elif output_config.skip_overwrite_confirmation:
+                do_overwrite = True
+                print_warning(
+                    "Output folder exists (confirmation skipped). All existing files will be overwritten."
+                )
+            else:
+                print_warning(f"Output folder already exists: {output_dir}")
+                console.print("  Existing files:")
+                for f in existing_files:
+                    console.print(f"    [dim]→[/dim]  [cyan]{f.name}[/cyan]")
+                console.print("\n  [bold]\\[y][/bold] Overwrite existing files")
+                console.print("  [bold]\\[n][/bold] Abort")
+                console.print(
+                    "  [bold]\\[s][/bold] Save to a new folder with a suffix\n"
+                )
+                try:
+                    answer = input("Enter choice [y/n/s]: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    answer = "n"
+                if answer in ("s", "suffix"):
+                    try:
+                        suffix = input(
+                            "Enter suffix to append to folder name: "
+                        ).strip()
+                    except (EOFError, KeyboardInterrupt):
+                        suffix = ""
+                    if not suffix:
+                        print_warning("No suffix entered. Aborted.")
+                        return 0
+                    sim_subdir = f"{sim_subdir}_{suffix}"
+                    output_dir = Path(sim_data_dir_val) / sim_subdir
+                    print_info(f"Saving to new folder: {output_dir}")
+                elif answer in ("y", "yes"):
+                    do_overwrite = True
+                    print_info(
+                        "Proceeding — all existing files in the output directory will be overwritten."
+                    )
+                else:
+                    print_warning("Aborted. No files were modified.")
+                    return 0
+
+        # Set up file logging if save_log_data is enabled
+        log_file: Path | None = None
+        if output_config.save_log_data:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            log_file = output_dir / "simulation.log"
+            setup_logging(
+                level=logging.DEBUG if verbose >= 2 else logging.INFO,
+                log_file=str(log_file),
+            )
+            print_info(f"Logging to: {log_file}")
+
+        # Run simulation — CLI --backend flag overrides config compute.backend
+        effective_backend = backend if backend != "auto" else config.compute.backend
+        from radiosim.api.simulator import Simulator
+
+        sim = Simulator(config=config.to_dict(), backend=effective_backend)
+        sim.run()
+
+        saved_files: list[Path] = []
+        if log_file is not None:
+            saved_files.append(log_file)
+
+        # Always save the config for reproducibility whenever any output is written
+        if any_output:
+            try:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                from radiosim.io.writers import save_config_yaml
+
+                saved_config_path = output_dir / "config.yaml"
+                save_config_yaml(config.to_dict(), saved_config_path)
+                saved_files.append(saved_config_path)
+                logger.debug(f"Config saved to: {saved_config_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save config: {e}")
+
+        # Save simulation data if requested
+        if output_config.save_simulation_data:
+            try:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                data_path = sim.save(
+                    output_dir,
+                    format=(output_config.output_file_format or "HDF5").lower(),
+                    overwrite=do_overwrite,
+                )
+                if data_path:
+                    saved_files.append(data_path)
+            except Exception as e:
+                logger.warning(f"Failed to save results: {e}")
+
+        # Generate plots if requested
+        if output_config.plot_results:
+            try:
+                plot_paths = sim.plot(
+                    plot_type="all",
+                    output_dir=output_dir,
+                    backend=output_config.plotting_backend or "bokeh",
+                    show=output_config.open_plots_in_browser,
+                    overwrite=output_config.overwrite_output,
+                )
+                if plot_paths:
+                    saved_files.extend(plot_paths)
+            except Exception as e:
+                logger.warning(f"Failed to generate plots: {e}")
+
+        # Final output summary panel
+        if saved_files:
+            from rich.panel import Panel
+            from rich.table import Table
+
+            table = Table(show_header=False, box=None, padding=(0, 1))
+            table.add_column("", style="dim")
+            table.add_column("", style="cyan")
+            for f in saved_files:
+                table.add_row("→", str(f))
+            console.print(
+                Panel(table, title="[bold]Output Files[/bold]", border_style="green")
+            )
+
+        print_success("Done.")
+        return 0
+
+    except Exception as e:
+        logger.error(f"Simulation failed: {e}")
+        if verbose >= 2:
+            import traceback
+
+            traceback.print_exc()
+        return 1
+
+
+def run_simulate_mode(
+    antenna_layout: str,
+    frequencies: str,
+    sky_model: str,
+    output: str,
+    output_format: str,
+    backend: str,
+) -> int:
+    """Run simulation using CLI arguments (new mode)."""
+    from radiosim.utils.logging import get_logger, setup_logging
+
+    setup_logging()
+    logger = get_logger("radiosim.cli")
+
+    # Parse frequencies
+    try:
+        freq_list = [float(f.strip()) for f in frequencies.split(",")]
+    except ValueError:
+        logger.error(f"Invalid frequencies format: {frequencies}")
+        logger.info("Expected comma-separated numbers, e.g., '100,150,200'")
+        return 1
+
+    logger.info(f"Running simulation with {len(freq_list)} frequencies")
+    logger.info(f"Antenna layout: {antenna_layout}")
+    logger.info(f"Sky model: {sky_model}")
+
+    try:
+        from radiosim.api.simulator import Simulator
+        from radiosim.core.sky.registry import loader_registry
+
+        loader_name, defaults = loader_registry.resolve_request(sky_model, {})
+        meta = loader_registry.meta(sky_model)
+        config = {
+            "antenna_layout": {
+                "antenna_positions_file": antenna_layout,
+                "antenna_file_format": "radiosim",
+                "all_antenna_diameter": 14.0,
+            },
+            "obs_frequency": {
+                "starting_frequency": float(min(freq_list)),
+                "frequency_bandwidth": float(max(freq_list) - min(freq_list)),
+                "frequency_interval": (
+                    float(np.mean(np.diff(freq_list))) if len(freq_list) > 1 else 1.0
+                ),
+                "frequency_unit": "MHz",
+                "frequencies_hz": (
+                    np.asarray(freq_list, dtype=np.float64) * 1e6
+                ).tolist(),
+            },
+            "sky_model": {
+                "flux_unit": "Jy",
+                "sources": [{"kind": loader_name, **defaults}],
+            },
+            "visibility": {
+                "sky_representation": (
+                    "healpix_map"
+                    if meta["representation"] == "healpix_map"
+                    else "point_sources"
+                )
+            },
+        }
+
+        sim = Simulator(config=config, backend=backend)
+
+        sim.run()
+        sim.save(output, format=output_format)
+
+        logger.info(f"Results saved to: {output}")
+        return 0
+
+    except Exception as e:
+        logger.error(f"Simulation failed: {e}")
+        return 1
+
+
+def run_init_mode(output: str) -> int:
+    """Create default configuration file."""
+    from radiosim.io.config import create_default_config
+
+    output_path = Path(output)
+    if output_path.exists():
+        print(f"File already exists: {output_path}")
+        response = input("Overwrite? [y/N] ")
+        if response.lower() != "y":
+            print("Aborted.")
+            return 1
+
+    create_default_config(output_path)
+    print(f"Created default configuration: {output_path}")
+    return 0
+
+
+def run_validate_mode(config: str) -> int:
+    """Validate configuration file."""
+    from radiosim.io.config import load_config
+
+    config_path = Path(config)
+    if not config_path.exists():
+        print(f"File not found: {config_path}")
+        return 1
+
+    try:
+        loaded = load_config(config_path)
+        print(f"Configuration is valid: {config_path}")
+        print(f"  Telescope: {loaded.telescope.telescope_name}")
+        print(f"  Antenna file: {loaded.antenna_layout.antenna_positions_file}")
+        print(
+            f"  Frequency range: {loaded.obs_frequency.starting_frequency} - "
+            f"{loaded.obs_frequency.starting_frequency + loaded.obs_frequency.frequency_bandwidth} "
+            f"{loaded.obs_frequency.frequency_unit}"
+        )
+        return 0
+    except Exception as e:
+        print(f"Configuration is INVALID: {e}")
+        return 1
+
+
+def run_status_mode(verbose: int = 0) -> int:
+    """Check and display network connectivity status."""
+    from rich.panel import Panel
+    from rich.table import Table
+
+    from radiosim.utils.logging import console, setup_logging
+    from radiosim.utils.network import (
+        SERVICE_DISPLAY_NAMES,
+        SERVICE_ENDPOINTS,
+        check_all_services,
+    )
+
+    setup_logging(level=logging.DEBUG if verbose >= 2 else logging.INFO)
+
+    console.print()
+    with console.status("Checking network connectivity..."):
+        net_status = check_all_services()
+
+    table = Table(show_header=True, header_style="bold cyan", padding=(0, 1))
+    table.add_column("Service", style="white")
+    table.add_column("Endpoint", style="dim")
+    table.add_column("Status")
+
+    # General internet row
+    if net_status.internet:
+        inet_status = "[bold green]Online[/bold green]"
+    else:
+        inet_status = "[bold red]Offline[/bold red]"
+    table.add_row("Internet", "8.8.8.8:53", inet_status)
+
+    # Per-service rows
+    for name, (host, _port) in SERVICE_ENDPOINTS.items():
+        available = net_status.service_available(name)
+        display = SERVICE_DISPLAY_NAMES.get(name, name)
+        if available is True:
+            svc_status = "[green]Reachable[/green]"
+        elif available is False:
+            svc_status = "[red]Unreachable[/red]"
+        else:
+            svc_status = "[dim]Not checked[/dim]"
+        table.add_row(display, host, svc_status)
+
+    console.print(
+        Panel(
+            table,
+            title="[bold]RadioSim Network Status[/bold]",
+            border_style="cyan",
+        )
+    )
+
+    # Device resources panel
+    from radiosim.utils.device import get_device_resources
+
+    with console.status("Detecting device resources..."):
+        dev = get_device_resources()
+
+    dev_table = Table(show_header=True, header_style="bold cyan", padding=(0, 1))
+    dev_table.add_column("Resource", style="white")
+    dev_table.add_column("Value")
+
+    # OS
+    dev_table.add_row(
+        "OS",
+        f"{dev.os_info.name} {dev.os_info.version} "
+        f"({dev.os_info.architecture}, {dev.os_info.bits})",
+    )
+
+    # CPU
+    cores_str = ""
+    if dev.cpu.physical_cores is not None:
+        cores_str = (
+            f"{dev.cpu.physical_cores} physical / {dev.cpu.logical_cores} logical"
+        )
+    else:
+        cores_str = f"{dev.cpu.logical_cores} logical"
+    cpu_label = dev.cpu.model or dev.cpu.architecture
+    dev_table.add_row("CPU", f"{cpu_label} ({dev.cpu.architecture}, {cores_str})")
+
+    # RAM
+    if dev.memory.total_gb is not None:
+        ram_parts = [f"{dev.memory.total_gb:.2f} GB total"]
+        if dev.memory.available_gb is not None:
+            ram_parts.append(f"{dev.memory.available_gb:.2f} GB available")
+        dev_table.add_row("RAM", ", ".join(ram_parts))
+    else:
+        dev_table.add_row("RAM", "[dim]Unknown (install psutil for detection)[/dim]")
+
+    # Storage
+    dev_table.add_row(
+        "Storage",
+        f"{dev.storage.free_gb:.2f} GB free / {dev.storage.total_gb:.2f} GB total",
+    )
+
+    # GPU(s)
+    if dev.gpus:
+        for i, gpu in enumerate(dev.gpus):
+            label = "GPU" if i == 0 else ""
+            parts = [gpu.name or gpu.vendor]
+            details: list[str] = []
+            if gpu.vram_total_gb is not None:
+                details.append(f"{gpu.vram_total_gb:.1f} GB VRAM")
+            if gpu.cores is not None:
+                details.append(f"{gpu.cores} cores")
+            if gpu.metal_support:
+                details.append(gpu.metal_support)
+            if gpu.cuda_driver:
+                details.append(f"Driver {gpu.cuda_driver}")
+            if details:
+                parts.append(f"({', '.join(details)})")
+            dev_table.add_row(label, " ".join(parts))
+    else:
+        dev_table.add_row("GPU", "[dim]None detected[/dim]")
+
+    console.print(
+        Panel(
+            dev_table,
+            title="[bold]RadioSim Device Resources[/bold]",
+            border_style="cyan",
+        )
+    )
+    console.print()
+    return 0
+
+
+def main() -> None:
+    """Main entry point for the CLI."""
+    cli()
+
+
+if __name__ == "__main__":
+    main()

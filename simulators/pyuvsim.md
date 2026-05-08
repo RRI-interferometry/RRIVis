@@ -1253,7 +1253,7 @@ tolerance).
 ## 12. Convention summary (the specifics other simulators get wrong)
 
 This section summarizes the conventions baked into pyuvsim that any
-downstream simulator (RRIVis included) must match to be cross-validated
+downstream simulator (RadioSim included) must match to be cross-validated
 against it.
 
 1. **Coordinate system for beams.** UVBeam stores in `(theta, phi)` =
@@ -1275,7 +1275,7 @@ against it.
 4. **Coherency factor.** `coherency_calc` in pyradiosky returns
    `(1/2) × [[I+Q, U-iV], [U+iV, I-Q]]`. `pyuvsim` multiplies the beam
    responses by this coherency *without* any further scale factor,
-   so `V_XX + V_YY = I` (not `2I`). This matches RRIVis's documented
+   so `V_XX + V_YY = I` (not `2I`). This matches RadioSim's documented
    convention.
 
 5. **Frame.** All catalogs are processed in ICRS internally. If

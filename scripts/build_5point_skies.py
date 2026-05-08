@@ -136,7 +136,7 @@ def build_one_cube(
             i_map[target_arr] = bright_jysr
             new_stokes[0, 0, :] = i_map
             stokes[...] = new_stokes
-            stokes.attrs["rrivis_provenance"] = note
+            stokes.attrs["radiosim_provenance"] = note
         if (i + 1) % 10 == 0 or i + 1 == n:
             print(f"    [{i + 1:3d}/{n}] {dst.name}", flush=True)
 
@@ -347,7 +347,7 @@ def main() -> int:
     if "zenith" in selected_targets:
         print("\nWriting zenith_5_point ...")
         z_note = (
-            f"rrivis 5-source cube: floor=global_min(EOR_sky_222)={floor:.3e} Jy/sr; "
+            f"radiosim 5-source cube: floor=global_min(EOR_sky_222)={floor:.3e} Jy/sr; "
             f"5 bright pixels at Dec={args.lat_deg} deg, RA={args.zenith_ra_offsets} "
             f"each {bright_jysr:.3e} Jy/sr ({args.bright_jy} Jy)."
         )
@@ -363,7 +363,7 @@ def main() -> int:
     if "sidelobe" in selected_targets:
         print("\nWriting sidelobe_5_point ...")
         s_note = (
-            f"rrivis 5-source cube: floor=global_min(EOR_sky_222)={floor:.3e} Jy/sr; "
+            f"radiosim 5-source cube: floor=global_min(EOR_sky_222)={floor:.3e} Jy/sr; "
             f"5 bright pixels on Airy first-sidelobe ring (ZA={za_sl:.4f}°) "
             f"at LST={args.lst_hours} h, AZ={args.sidelobe_az_offsets}; each "
             f"{bright_jysr:.3e} Jy/sr ({args.bright_jy} Jy)."
@@ -381,7 +381,7 @@ def main() -> int:
         print("\nWriting sidelobe_lst_5_point ...")
         sl_dec = sl_sources[0][1] if sl_sources else float("nan")
         sl_note = (
-            f"rrivis 5-source cube: floor=global_min(EOR_sky_222)={floor:.3e} Jy/sr; "
+            f"radiosim 5-source cube: floor=global_min(EOR_sky_222)={floor:.3e} Jy/sr; "
             f"5 bright pixels at Dec={sl_dec:.4f}° (Airy first-sidelobe Dec at "
             f"AZ={args.sidelobe_lst_az_deg}°, ZA={za_sl:.4f}° from HERA); "
             f"RA={args.sidelobe_lst_ra_offsets}; each {bright_jysr:.3e} Jy/sr "

@@ -1,9 +1,9 @@
-"""Tests for rrivis.core.jones.beam.projection — beam sky projection."""
+"""Tests for radiosim.core.jones.beam.projection — beam sky projection."""
 
 import numpy as np
 import pytest
 
-from rrivis.core.jones.beam.projection import (
+from radiosim.core.jones.beam.projection import (
     compute_beam_power_on_radec_grid,
     create_rgba_overlay,
     extract_contours,

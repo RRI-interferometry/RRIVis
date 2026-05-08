@@ -341,7 +341,7 @@ The single-frequency CPU driver. Important details:
   2. `coords = coord_method(flux=√(0.5·I_sky), …, chunk_size=npixc)` —
      note the **`0.5·I_sky`** factor: matvis splits each source's
      Stokes I evenly between feeds, so each feed sees `√(I/2)`. This is
-     the analogue of the RRIVis 1/2 factor in `core/polarization.py`
+     the analogue of the RadioSim 1/2 factor in `core/polarization.py`
      and ensures `V_XX + V_YY = I` rather than `2 I`. Whether
      `polarized=True` or not, this 0.5 split is applied.
   3. `bmfunc = UVBeamInterpolator(beam_list=…, beam_idx=…, polarized=…,
@@ -749,7 +749,7 @@ non-zero in the smallest possible test.
   is identical (up to vectorisation) to `pyradiosky.SkyModel._calc_coherency_rotation`.
 
 The 0.5 factor on `I_sky` (in `cpu/cpu.py`) splits Stokes I evenly
-between feeds. RRIVis applies the analogous 0.5 factor in
+between feeds. RadioSim applies the analogous 0.5 factor in
 `core/polarization.py`. *This means*: feeding `I_sky` directly is the
 standard Stokes-I convention; the resulting `V_XX + V_YY = I` rather
 than `2 I`.
@@ -1092,29 +1092,29 @@ For GPU: install `matvis[gpu]` (`pip install matvis[gpu]`), pass
 
 ---
 
-## 17. Pointers for integrating matvis as a "reference simulator" inside RRIVis
+## 17. Pointers for integrating matvis as a "reference simulator" inside RadioSim
 
 This is opinion based on a read-through; treat as a starting hypothesis
 rather than a settled plan:
 
 * The `Z = √I · A · exp(τ)` factorisation is already conceptually
-  identical to the RIME chain in `rrivis.core.visibility` (both use the
+  identical to the RIME chain in `radiosim.core.visibility` (both use the
   per-source product and a final Hermitian outer product). The only
   immediate difference is that matvis uses `(nfeed·nant, nax·nsrc)`
-  flat layout and a single GEMM, whereas `rrivis` chains separate
+  flat layout and a single GEMM, whereas `radiosim` chains separate
   Jones terms.
 * matvis's `core.coords.CoordinateRotation` registry is a clean pattern
   (`__init_subclass__` registry + string-keyed dispatch) that the
-  rrivis `JonesChain` could borrow if you want pluggable rotation
+  radiosim `JonesChain` could borrow if you want pluggable rotation
   backends.
 * matvis's pre-interpolation in `_wrangle_beams` (interp UVBeams to the
   scalar simulation frequency once, before the time loop) maps directly
-  onto rrivis's `BeamFITSHandler` — verifying that rrivis hits the same
+  onto radiosim's `BeamFITSHandler` — verifying that radiosim hits the same
   fast path (`reuse_spline=True`, `check_azza_domain=False`,
   `interpolation_function="az_za_map_coordinates"`) is a cheap perf win.
 * matvis's `gpu_beam_interpolation` via `cupyx.ndimage.map_coordinates`
   is the cleanest precedent for porting `BeamFITSHandler` to GPU
   without writing custom kernels.
 * The 0.5 Stokes-I split in `cpu/cpu.py` (`np.sqrt(0.5 * I_sky)`) is
-  exactly the convention `rrivis.core.polarization` uses — comparing
+  exactly the convention `radiosim.core.polarization` uses — comparing
   against matvis is a useful regression check.

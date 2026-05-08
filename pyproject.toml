@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rrivis"
+name = "radiosim"
 version = "0.2.0"
 description = "Radio interferometric Visibility Simulator"
 readme = "README.md"
@@ -111,17 +111,17 @@ docs = [
 
 # All extras (development)
 all = [
-    "rrivis[gpu,numba,ms,dev,docs]",
+    "radiosim[gpu,numba,ms,dev,docs]",
 ]
 
 [project.urls]
-Homepage = "https://github.com/kartikmandar/RRIvis"
-Documentation = "https://rrivis.readthedocs.io"
-Repository = "https://github.com/kartikmandar/RRIvis"
-Issues = "https://github.com/kartikmandar/RRIvis/issues"
+Homepage = "https://github.com/kartikmandar/RadioSim"
+Documentation = "https://radiosim.readthedocs.io"
+Repository = "https://github.com/kartikmandar/RadioSim"
+Issues = "https://github.com/kartikmandar/RadioSim/issues"
 
 [project.scripts]
-rrivis = "rrivis.cli.main:main"
+radiosim = "radiosim.cli.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -130,7 +130,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-rrivis = ["py.typed", "core/sky/data/footprints/*.npz"]
+radiosim = ["py.typed", "core/sky/data/footprints/*.npz"]
 
 # Pytest configuration
 [tool.pytest.ini_options]
@@ -185,13 +185,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["rrivis"]
+known-first-party = ["radiosim"]
 
 # Pyright configuration
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
-include = ["src/rrivis"]
+include = ["src/radiosim"]
 exclude = [
     "docs/_build",
     "examples/notebooks",
@@ -207,7 +207,7 @@ reportUnusedCallResult = "error"
 
 # Coverage configuration
 [tool.coverage.run]
-source = ["src/rrivis"]
+source = ["src/radiosim"]
 branch = true
 omit = [
     "*/tests/*",

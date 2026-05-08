@@ -1,7 +1,7 @@
 Quick Start Guide
 =================
 
-This guide will help you get started with RRIvis for radio interferometry
+This guide will help you get started with RadioSim for radio interferometry
 visibility simulations.
 
 Basic Simulation
@@ -11,7 +11,7 @@ The simplest way to run a simulation is using the high-level ``Simulator`` class
 
 .. code-block:: python
 
-   from rrivis import Simulator
+   from radiosim import Simulator
 
    # Create simulator from a tagged config file
    sim = Simulator.from_config("config.yaml")
@@ -54,7 +54,7 @@ Then load and run:
 
 .. code-block:: python
 
-   from rrivis import Simulator
+   from radiosim import Simulator
 
    sim = Simulator.from_config("config.yaml")
    sim.setup()
@@ -67,12 +67,12 @@ Enable GPU acceleration for faster simulations:
 
 .. code-block:: python
 
-   from rrivis import Simulator
+   from radiosim import Simulator
 
    config = {
        "antenna_layout": {
            "antenna_positions_file": "antennas.txt",
-           "antenna_file_format": "rrivis",
+           "antenna_file_format": "radiosim",
            "all_antenna_diameter": 14.0,
        },
        "obs_frequency": {
@@ -96,7 +96,7 @@ Check available backends:
 
 .. code-block:: python
 
-   from rrivis.backends import list_backends
+   from radiosim.backends import list_backends
    print(list_backends())  # ['numpy', 'jax', 'numba']
 
 Accessing Results
@@ -122,8 +122,8 @@ Add instrumental effects using Jones matrices:
 
 .. code-block:: python
 
-   from rrivis import Simulator
-   from rrivis.core.jones import (
+   from radiosim import Simulator
+   from radiosim.core.jones import (
        JonesChain,
        GeometricDelayJones,
        BeamJones,
@@ -150,13 +150,13 @@ Run simulations from the command line:
 .. code-block:: bash
 
    # Basic usage
-   rrivis --config config.yaml --antenna-file antennas.txt
+   radiosim --config config.yaml --antenna-file antennas.txt
 
    # With specific backend
-   rrivis --config config.yaml --backend jax
+   radiosim --config config.yaml --backend jax
 
    # Show help
-   rrivis --help
+   radiosim --help
 
 Low-Level API
 -------------
@@ -165,9 +165,9 @@ For more control, use the low-level API:
 
 .. code-block:: python
 
-   from rrivis.core import calculate_visibility, generate_baselines
-   from rrivis.io import read_antenna_positions
-   from rrivis.backends import get_backend
+   from radiosim.core import calculate_visibility, generate_baselines
+   from radiosim.io import read_antenna_positions
+   from radiosim.backends import get_backend
 
    # Setup
    backend = get_backend("numpy")

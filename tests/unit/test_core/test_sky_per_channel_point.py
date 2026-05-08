@@ -15,9 +15,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rrivis.core.sky._data import PointSourceData, PointSpectrum
-from rrivis.core.sky.convert import bin_sources_to_flux
-from rrivis.core.sky.spectral import (
+from radiosim.core.sky._data import PointSourceData, PointSpectrum
+from radiosim.core.sky.convert import bin_sources_to_flux
+from radiosim.core.sky.spectral import (
     compute_spectral_scale,
     evaluate_point_flux_at_freq,
     nearest_channel_index,

@@ -1,5 +1,5 @@
 [workspace]
-name = "RRIvis"
+name = "RadioSim"
 version = "0.1.0"
 description = "A Python application for simulating and visualizing complex interferometric visibilities."
 authors = ["Kartik Mandar <kartik4321mandar@gmail.com>"]
@@ -8,9 +8,9 @@ platforms = ["linux-64", "osx-64", "osx-arm64"]
 
 [tasks]
 # New CLI entry points (v0.2.0+)
-simulate = "rrivis simulate"
-init = "rrivis init"
-validate = "rrivis validate"
+simulate = "radiosim simulate"
+init = "radiosim init"
+validate = "radiosim validate"
 
 # Development tools
 lint = "ruff check ."
@@ -59,4 +59,4 @@ reproject = ">=0.18.0,<0.20"
 pygdsm = "*"
 pyradiosky = "*"
 pysm3 = "*"
-rrivis = { path = ".", editable = true }
+radiosim = { path = ".", editable = true }

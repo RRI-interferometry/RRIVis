@@ -1,10 +1,10 @@
 Core Module
 ===========
 
-The ``rrivis.core`` module contains the core astronomy calculations including
+The ``radiosim.core`` module contains the core astronomy calculations including
 visibility computation, antenna handling, baseline generation, and beam models.
 
-.. automodule:: rrivis.core
+.. automodule:: radiosim.core
    :members:
    :undoc-members:
    :show-inheritance:
@@ -12,7 +12,7 @@ visibility computation, antenna handling, baseline generation, and beam models.
 Visibility
 ----------
 
-.. automodule:: rrivis.core.visibility
+.. automodule:: radiosim.core.visibility
    :members:
    :undoc-members:
    :show-inheritance:
@@ -20,7 +20,7 @@ Visibility
 Antenna
 -------
 
-.. automodule:: rrivis.core.antenna
+.. automodule:: radiosim.core.antenna
    :members:
    :undoc-members:
    :show-inheritance:
@@ -28,7 +28,7 @@ Antenna
 Baseline
 --------
 
-.. automodule:: rrivis.core.baseline
+.. automodule:: radiosim.core.baseline
    :members:
    :undoc-members:
    :show-inheritance:
@@ -36,7 +36,7 @@ Baseline
 Beams (Analytic)
 ----------------
 
-.. automodule:: rrivis.core.jones.beam.analytic
+.. automodule:: radiosim.core.jones.beam.analytic
    :members:
    :undoc-members:
    :show-inheritance:
@@ -44,7 +44,7 @@ Beams (Analytic)
 Beams (FITS)
 ------------
 
-.. automodule:: rrivis.core.jones.beam.fits
+.. automodule:: radiosim.core.jones.beam.fits
    :members:
    :undoc-members:
    :show-inheritance:
@@ -52,7 +52,7 @@ Beams (FITS)
 Source
 ------
 
-.. automodule:: rrivis.core.source
+.. automodule:: radiosim.core.source
    :members:
    :undoc-members:
    :show-inheritance:
@@ -60,7 +60,7 @@ Source
 Observation
 -----------
 
-.. automodule:: rrivis.core.observation
+.. automodule:: radiosim.core.observation
    :members:
    :undoc-members:
    :show-inheritance:
@@ -68,7 +68,7 @@ Observation
 Polarization
 ------------
 
-.. automodule:: rrivis.core.polarization
+.. automodule:: radiosim.core.polarization
    :members:
    :undoc-members:
    :show-inheritance:

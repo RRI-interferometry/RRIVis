@@ -1,7 +1,7 @@
 # VNSIM — VLBI Network SIMulator
 
 > Exhaustive technical reference for the `VNSIM` package, a git submodule of the
-> RRIVis project located at `simulators/VNSIM/`. Everything below is derived
+> RadioSim project located at `simulators/VNSIM/`. Everything below is derived
 > directly from the source tree at HEAD `ae55b25` (branch `main`, no tags).
 
 ---

@@ -1695,26 +1695,26 @@ External links from the package documentation:
 
 ---
 
-## 16. Quick mapping between OSKAR concepts and RRIVis concepts
+## 16. Quick mapping between OSKAR concepts and RadioSim concepts
 
 For cross-reference when integrating with the rest of the `simulators/` tree:
 
-| OSKAR concept | RRIVis equivalent |
+| OSKAR concept | RadioSim equivalent |
 |---|---|
-| `oskar_Sky` (point + Gaussian, named-column file) | `rrivis.core.sky.SkyModel` (with `PointSourceData` and the `bbs`/`pyradiosky_file` loaders) |
-| `oskar_Telescope` directory tree | RRIVis antenna readers (`io/antenna_readers.py`) + station/element model |
-| Aperture-array `E`-Jones with array factor + element pattern | `rrivis.core.jones.beam.BeamJones` + `AnalyticBeamJones` (with optional `hpbw_per_antenna`) |
+| `oskar_Sky` (point + Gaussian, named-column file) | `radiosim.core.sky.SkyModel` (with `PointSourceData` and the `bbs`/`pyradiosky_file` loaders) |
+| `oskar_Telescope` directory tree | RadioSim antenna readers (`io/antenna_readers.py`) + station/element model |
+| Aperture-array `E`-Jones with array factor + element pattern | `radiosim.core.jones.beam.BeamJones` + `AnalyticBeamJones` (with optional `hpbw_per_antenna`) |
 | Gaussian station beam | `AnalyticBeamJones` with Gaussian preset |
 | `K`-Jones (`exp(-2π i (ul+vm+w(n−1)))`) | `GeometricPhaseJones` |
 | `R`-Jones (parallactic) | `ParallacticAngleJones` |
 | `Z`-Jones (TEC screen) | `IonosphereJones` |
 | `G`-Jones (HDF5 gains) | `GainJones` (and `BandpassJones`) |
 | Cable-length errors | `DelayJones` (Kd term) |
-| HEALPix RING FITS sky | RRIVis `_loaders_diffuse.py` / `_loaders_fits.py` |
+| HEALPix RING FITS sky | RadioSim `_loaders_diffuse.py` / `_loaders_fits.py` |
 | Imager (FFT/DFT/W-projection) | external (`wsclean`, `rascil`, `fftvis` family) |
 | `oskar_VisHeader` / `oskar_VisBlock` binary file | written via `io/writers.py` HDF5 + casacore MS via `io/measurement_set.py` |
 
 This mapping is informational only; OSKAR's semantics (e.g., the
 B = `[[I+Q,U+iV],[U-iV,I-Q]]` convention, no 1/2 factor) differ in places
-from RRIVis (`C = ½[[I+Q,U-iV],[U+iV,I-Q]]`), so visibility scaling differs
+from RadioSim (`C = ½[[I+Q,U-iV],[U+iV,I-Q]]`), so visibility scaling differs
 by a factor of two between the two packages.

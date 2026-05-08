@@ -1,6 +1,6 @@
 antenna_layout:
   all_antenna_diameter: 14.0
-  antenna_file_format: rrivis
+  antenna_file_format: radiosim
   antenna_positions_file: ../antenna_layout_examples/hera_5.txt
   diameters: {}
   fixed_HPBW: null

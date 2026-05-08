@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rrivis.core.sky import (
+from radiosim.core.sky import (
     MonopoleConvention,
     SkyCoverage,
     SkyFootprint,

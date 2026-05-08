@@ -4,8 +4,8 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import (
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import (
     HealpixData,
     SkyModel,
     compute_linear_polarization,

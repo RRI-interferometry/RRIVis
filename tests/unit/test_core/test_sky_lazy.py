@@ -8,13 +8,17 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import HealpixData, create_from_arrays
-from rrivis.core.sky._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
-from rrivis.core.sky.combine import _combine_models
-from rrivis.core.sky.convert import point_sources_to_healpix_maps
-from rrivis.core.sky.model import SkyFormat, SkyModel
-from rrivis.core.sky.operations import materialize_healpix_model
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import HealpixData, create_from_arrays
+from radiosim.core.sky._allocation import (
+    allocate_cube,
+    ensure_scratch_dir,
+    finalize_cube,
+)
+from radiosim.core.sky.combine import _combine_models
+from radiosim.core.sky.convert import point_sources_to_healpix_maps
+from radiosim.core.sky.model import SkyFormat, SkyModel
+from radiosim.core.sky.operations import materialize_healpix_model
 
 
 @pytest.fixture
@@ -86,7 +90,7 @@ class TestAllocationHelpers:
     def test_ensure_scratch_dir_creates_temp(self):
         path = ensure_scratch_dir(None)
         assert os.path.isdir(path)
-        assert "rrivis_sky_" in os.path.basename(path)
+        assert "radiosim_sky_" in os.path.basename(path)
 
 
 class TestPointSourcesToHealpixMemmap:

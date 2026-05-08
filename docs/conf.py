@@ -1,4 +1,4 @@
-"""Sphinx configuration for RRIvis API documentation."""
+"""Sphinx configuration for RadioSim API documentation."""
 
 import os
 import sys
@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath("../src"))
 
 # -- Project information -----------------------------------------------------
 
-project = "RRIvis"
+project = "RadioSim"
 copyright = f"{datetime.now().year}, Kartik Mandar"
 author = "Kartik Mandar"
 release = "0.2.0"
@@ -122,8 +122,8 @@ latex_elements = {
 latex_documents = [
     (
         "index",
-        "RRIvis.tex",
-        "RRIvis Documentation",
+        "RadioSim.tex",
+        "RadioSim Documentation",
         "Kartik Mandar",
         "manual",
     ),

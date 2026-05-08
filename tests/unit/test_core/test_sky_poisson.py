@@ -5,15 +5,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import (
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import (
     MonopoleConvention,
     SkyCoverage,
     SkyRegion,
     SourceSubtractionStatus,
 )
-from rrivis.core.sky._dnds_models import DNDS_MODELS, DNDSModel, resolve_dn_ds
-from rrivis.core.sky._loaders_synthetic import load_poisson_confusion
+from radiosim.core.sky._dnds_models import DNDS_MODELS, DNDSModel, resolve_dn_ds
+from radiosim.core.sky._loaders_synthetic import load_poisson_confusion
 
 
 @pytest.fixture

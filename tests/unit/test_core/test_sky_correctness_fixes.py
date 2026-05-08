@@ -6,8 +6,8 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import (
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import (
     HealpixData,
     MonopoleConvention,
     SkyCoverage,
@@ -19,12 +19,12 @@ from rrivis.core.sky import (
     materialize_point_sources_model,
     with_monopole,
 )
-from rrivis.core.sky._serialization import load_skyh5, save_skyh5
-from rrivis.core.sky.convert import (
+from radiosim.core.sky._serialization import load_skyh5, save_skyh5
+from radiosim.core.sky.convert import (
     healpix_map_to_point_arrays,
     point_sources_to_healpix_maps,
 )
-from rrivis.core.sky.spectral import compute_spectral_scale
+from radiosim.core.sky.spectral import compute_spectral_scale
 
 
 @pytest.fixture

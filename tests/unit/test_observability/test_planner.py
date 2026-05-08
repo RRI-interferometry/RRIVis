@@ -4,10 +4,10 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.observability import ObservabilityPlanner
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import HealpixData, create_from_arrays
-from rrivis.core.sky.model import SkyModel
+from radiosim.core.observability import ObservabilityPlanner
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import HealpixData, create_from_arrays
+from radiosim.core.sky.model import SkyModel
 
 
 @pytest.fixture

@@ -1,14 +1,14 @@
 # Antenna Layout File Formats
 
-This directory contains example antenna layout files in various formats supported by RRIvis. Each format serves different purposes and has specific use cases.
+This directory contains example antenna layout files in various formats supported by RadioSim. Each format serves different purposes and has specific use cases.
 
 ## Supported Formats
 
-### 1. **RRIvis Native Format** (`example_rrivis_format.txt`)
+### 1. **RadioSim Native Format** (`example_radiosim_format.txt`)
 - **Extension**: `.txt` or `.csv`
 - **Coordinate System**: East-North-Up (ENU) in meters
-- **Recommended**: Yes, this is the native RRIvis format
-- **Configuration Key**: `antenna_file_format: "rrivis"`
+- **Recommended**: Yes, this is the native RadioSim format
+- **Configuration Key**: `antenna_file_format: "radiosim"`
 
 **Format**:
 ```
@@ -100,7 +100,7 @@ HH136   136     0       0.0    0.0    0.0    14.0
 ### 4. **PyUVSim Antenna Layout CSV** (`example_antenna_layout.csv`)
 - **Extension**: `.csv`
 - **Coordinate System**: ENU in meters
-- **Tool**: PyUVSim (sister project to RRIvis)
+- **Tool**: PyUVSim (sister project to RadioSim)
 - **Configuration Key**: `antenna_file_format: "pyuvdata"` (uses simple format reader)
 
 **Format**:
@@ -187,7 +187,7 @@ Tile001MWA  4.0  m  +116.40.09.5  -26.32.48.3  -150.16  264.84  376.90
 
 ## Format Comparison Table
 
-| Feature | RRIvis | CASA | PyUVData | MWA |
+| Feature | RadioSim | CASA | PyUVData | MWA |
 |---------|--------|------|----------|-----|
 | **Native Coordinate** | ENU | LOC/XYZ | XYZ/ENU | ENU/DMS |
 | **Diameter Support** | Per-antenna | Per-antenna | None | Optional |
@@ -230,13 +230,13 @@ Tile001MWA  4.0  m  +116.40.09.5  -26.32.48.3  -150.16  264.84  376.90
 
 ## Usage Examples
 
-### Loading in RRIvis
+### Loading in RadioSim
 
 ```python
 from src.antenna import read_antenna_positions
 
-# RRIvis format
-antennas = read_antenna_positions("antenna_layout_examples/example_rrivis_format.txt", "rrivis")
+# RadioSim format
+antennas = read_antenna_positions("antenna_layout_examples/example_radiosim_format.txt", "radiosim")
 
 # CASA format
 antennas = read_antenna_positions("antenna_layout_examples/example_casa_format.cfg", "casa")
@@ -252,8 +252,8 @@ antennas = read_antenna_positions("antenna_layout_examples/example_mwa_metafits.
 
 ```yaml
 antenna_layout:
-  antenna_positions_file: "/path/to/antenna_layout_examples/example_rrivis_format.txt"
-  antenna_file_format: "rrivis"
+  antenna_positions_file: "/path/to/antenna_layout_examples/example_radiosim_format.txt"
+  antenna_file_format: "radiosim"
   use_different_diameters: false
   all_antenna_diameter: 14.0
 ```
@@ -305,4 +305,4 @@ antenna_layout = hera.antenna_positions  # ENU coordinates
 
 - `example_telescope_config.yaml`: Beam and telescope metadata
 - `../../src/antenna.py`: Format reader implementations
-- `../../README.md`: General RRIvis documentation
+- `../../README.md`: General RadioSim documentation

@@ -1,9 +1,9 @@
 I/O Module
 ==========
 
-The ``rrivis.io`` module handles configuration, file I/O, and data persistence.
+The ``radiosim.io`` module handles configuration, file I/O, and data persistence.
 
-.. automodule:: rrivis.io
+.. automodule:: radiosim.io
    :members:
    :undoc-members:
    :show-inheritance:
@@ -13,15 +13,15 @@ Configuration
 
 Pydantic-based configuration models with validation.
 
-.. automodule:: rrivis.io.config
+.. automodule:: radiosim.io.config
    :members:
    :undoc-members:
    :show-inheritance:
 
-RRIvisConfig
+RadioSimConfig
 ^^^^^^^^^^^^
 
-.. autoclass:: rrivis.io.config.RRIvisConfig
+.. autoclass:: radiosim.io.config.RadioSimConfig
    :members:
    :undoc-members:
    :show-inheritance:
@@ -29,7 +29,7 @@ RRIvisConfig
 TelescopeConfig
 ^^^^^^^^^^^^^^^
 
-.. autoclass:: rrivis.io.config.TelescopeConfig
+.. autoclass:: radiosim.io.config.TelescopeConfig
    :members:
    :undoc-members:
    :show-inheritance:
@@ -37,7 +37,7 @@ TelescopeConfig
 AntennaLayoutConfig
 ^^^^^^^^^^^^^^^^^^^
 
-.. autoclass:: rrivis.io.config.AntennaLayoutConfig
+.. autoclass:: radiosim.io.config.AntennaLayoutConfig
    :members:
    :undoc-members:
    :show-inheritance:
@@ -45,7 +45,7 @@ AntennaLayoutConfig
 ObsFrequencyConfig
 ^^^^^^^^^^^^^^^^^^
 
-.. autoclass:: rrivis.io.config.ObsFrequencyConfig
+.. autoclass:: radiosim.io.config.ObsFrequencyConfig
    :members:
    :undoc-members:
    :show-inheritance:
@@ -53,14 +53,14 @@ ObsFrequencyConfig
 Utility Functions
 ^^^^^^^^^^^^^^^^^
 
-.. autofunction:: rrivis.io.config.load_config
+.. autofunction:: radiosim.io.config.load_config
 
-.. autofunction:: rrivis.io.config.create_default_config
+.. autofunction:: radiosim.io.config.create_default_config
 
 Writers
 -------
 
-.. automodule:: rrivis.io.writers
+.. automodule:: radiosim.io.writers
    :members:
    :undoc-members:
    :show-inheritance:
@@ -68,7 +68,7 @@ Writers
 Antenna Readers
 ---------------
 
-.. automodule:: rrivis.io.antenna_readers
+.. automodule:: radiosim.io.antenna_readers
    :members:
    :undoc-members:
    :show-inheritance:
@@ -83,13 +83,13 @@ radio astronomy tools (CASA, QuartiCal, WSClean).
 
    Measurement Set support requires additional dependencies::
 
-       pip install rrivis[ms]
+       pip install radiosim[ms]
 
    Or install python-casacore directly::
 
        pip install python-casacore
 
-.. automodule:: rrivis.io.measurement_set
+.. automodule:: radiosim.io.measurement_set
    :members:
    :undoc-members:
    :show-inheritance:
@@ -97,17 +97,17 @@ radio astronomy tools (CASA, QuartiCal, WSClean).
 write_ms
 ^^^^^^^^
 
-.. autofunction:: rrivis.io.measurement_set.write_ms
+.. autofunction:: radiosim.io.measurement_set.write_ms
 
 read_ms
 ^^^^^^^
 
-.. autofunction:: rrivis.io.measurement_set.read_ms
+.. autofunction:: radiosim.io.measurement_set.read_ms
 
 ms_info
 ^^^^^^^
 
-.. autofunction:: rrivis.io.measurement_set.ms_info
+.. autofunction:: radiosim.io.measurement_set.ms_info
 
 Example Usage
 -------------
@@ -117,7 +117,7 @@ Configuration Loading
 
 .. code-block:: python
 
-   from rrivis.io.config import load_config, RRIvisConfig
+   from radiosim.io.config import load_config, RadioSimConfig
 
    # Load from YAML file
    config = load_config("config.yaml")
@@ -127,7 +127,7 @@ Configuration Loading
    print(config.obs_frequency.n_channels)
 
    # Create programmatically
-   config = RRIvisConfig(
+   config = RadioSimConfig(
        telescope={"telescope_name": "HERA"},
        obs_frequency={"starting_frequency": 100.0},
    )
@@ -140,8 +140,8 @@ Measurement Set Export
 
 .. code-block:: python
 
-   from rrivis import Simulator
-   from rrivis.io import write_ms, read_ms, ms_info, MS_AVAILABLE
+   from radiosim import Simulator
+   from radiosim.io import write_ms, read_ms, ms_info, MS_AVAILABLE
 
    # Check if MS support is available
    if MS_AVAILABLE:

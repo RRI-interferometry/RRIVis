@@ -10845,6 +10845,53 @@ packages:
   purls: []
   size: 52566799
   timestamp: 1756296889250
+- pypi: ./
+  name: radiosim
+  version: 0.2.0
+  sha256: b9f531892a4518f50c06fe926a9a2615ae77bb054be3db9a75e31d72437197d3
+  requires_dist:
+  - numpy>=1.24.0
+  - astropy>=5.0
+  - scipy>=1.10
+  - healpy>=1.16
+  - h5py>=3.8
+  - pyyaml>=6.0
+  - pydantic>=2.0
+  - pydantic-settings>=2.0
+  - astroquery>=0.4
+  - pygdsm>=1.5
+  - pyradiosky>=1.0
+  - pysm3>=3.3
+  - pyuvdata>=2.4
+  - bokeh>=3.0
+  - matplotlib>=3.7
+  - plotly>=5.14
+  - tqdm>=4.65
+  - pympler>=1.0
+  - rich>=13.0
+  - click>=8.0
+  - jax>=0.4.20 ; extra == 'gpu'
+  - jaxlib>=0.4.20 ; extra == 'gpu'
+  - jax[cuda12]>=0.4.20 ; extra == 'gpu-cuda'
+  - jax[rocm]>=0.4.20 ; extra == 'gpu-rocm'
+  - jax[tpu]>=0.4.20 ; extra == 'tpu'
+  - numba>=0.58 ; extra == 'numba'
+  - dask[complete]>=2024.1.0 ; extra == 'numba'
+  - dask-ms>=0.2.20 ; extra == 'ms'
+  - python-casacore>=3.5 ; extra == 'ms'
+  - xarray>=2023.1 ; extra == 'ms'
+  - pytest>=7.4 ; extra == 'dev'
+  - pytest-cov>=4.1 ; extra == 'dev'
+  - ruff>=0.1 ; extra == 'dev'
+  - pyright>=1.1 ; extra == 'dev'
+  - ipython>=8.12 ; extra == 'dev'
+  - jupyter>=1.0 ; extra == 'dev'
+  - sphinx>=7.0 ; extra == 'docs'
+  - sphinx-rtd-theme>=2.0 ; extra == 'docs'
+  - myst-parser>=2.0 ; extra == 'docs'
+  - numpydoc>=1.6 ; extra == 'docs'
+  - radiosim[gpu,numba,ms,dev,docs] ; extra == 'all'
+  requires_python: '>=3.11'
 - conda: https://conda.anaconda.org/conda-forge/linux-64/rav1e-0.8.1-h1fbca29_0.conda
   sha256: cf550bbc8e5ebedb6dba9ccaead3e07bd1cb86b183644a4c853e06e4b3ad5ac7
   md5: d83958768626b3c8471ce032e28afcd3
@@ -11135,53 +11182,6 @@ packages:
   - pkg:pypi/rpds-py?source=hash-mapping
   size: 357600
   timestamp: 1764543142990
-- pypi: ./
-  name: rrivis
-  version: 0.2.0
-  sha256: 240c961a7b5baa02a8c3987ebc89b4d4c8da8afb48fe995b7615d24bf1182b31
-  requires_dist:
-  - numpy>=1.24.0
-  - astropy>=5.0
-  - scipy>=1.10
-  - healpy>=1.16
-  - h5py>=3.8
-  - pyyaml>=6.0
-  - pydantic>=2.0
-  - pydantic-settings>=2.0
-  - astroquery>=0.4
-  - pygdsm>=1.5
-  - pyradiosky>=1.0
-  - pysm3>=3.3
-  - pyuvdata>=2.4
-  - bokeh>=3.0
-  - matplotlib>=3.7
-  - plotly>=5.14
-  - tqdm>=4.65
-  - pympler>=1.0
-  - rich>=13.0
-  - click>=8.0
-  - jax>=0.4.20 ; extra == 'gpu'
-  - jaxlib>=0.4.20 ; extra == 'gpu'
-  - jax[cuda12]>=0.4.20 ; extra == 'gpu-cuda'
-  - jax[rocm]>=0.4.20 ; extra == 'gpu-rocm'
-  - jax[tpu]>=0.4.20 ; extra == 'tpu'
-  - numba>=0.58 ; extra == 'numba'
-  - dask[complete]>=2024.1.0 ; extra == 'numba'
-  - dask-ms>=0.2.20 ; extra == 'ms'
-  - python-casacore>=3.5 ; extra == 'ms'
-  - xarray>=2023.1 ; extra == 'ms'
-  - pytest>=7.4 ; extra == 'dev'
-  - pytest-cov>=4.1 ; extra == 'dev'
-  - ruff>=0.1 ; extra == 'dev'
-  - pyright>=1.1 ; extra == 'dev'
-  - ipython>=8.12 ; extra == 'dev'
-  - jupyter>=1.0 ; extra == 'dev'
-  - sphinx>=7.0 ; extra == 'docs'
-  - sphinx-rtd-theme>=2.0 ; extra == 'docs'
-  - myst-parser>=2.0 ; extra == 'docs'
-  - numpydoc>=1.6 ; extra == 'docs'
-  - rrivis[gpu,numba,ms,dev,docs] ; extra == 'all'
-  requires_python: '>=3.11'
 - conda: https://conda.anaconda.org/conda-forge/linux-64/ruff-0.13.1-ha3a3aed_0.conda
   noarch: python
   sha256: 3dc294dd8a2f1fc614c70eea3ffc8ce911addc6a11e2e3706f9441f4b978c339

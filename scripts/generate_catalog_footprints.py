@@ -12,7 +12,7 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT_DIR = ROOT / "src" / "rrivis" / "core" / "sky" / "data" / "footprints"
+OUT_DIR = ROOT / "src" / "radiosim" / "core" / "sky" / "data" / "footprints"
 NSIDE = 256
 COORDINATE_FRAME = "icrs"
 GENERATOR_VERSION = "catalog_footprints_v1"

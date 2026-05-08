@@ -1,6 +1,6 @@
-# RRIvis Examples
+# RadioSim Examples
 
-This directory contains example scripts and Jupyter notebooks demonstrating how to use RRIvis for radio interferometry visibility simulations.
+This directory contains example scripts and Jupyter notebooks demonstrating how to use RadioSim for radio interferometry visibility simulations.
 
 ## Quick Start
 
@@ -42,21 +42,21 @@ jupyter notebook notebooks/01_basic_usage.ipynb
 
 | Notebook | Description |
 |----------|-------------|
-| `01_basic_usage.ipynb` | Introduction to RRIvis: setup, run, plot, and save |
+| `01_basic_usage.ipynb` | Introduction to RadioSim: setup, run, plot, and save |
 
 ## Prerequisites
 
-Make sure RRIvis is installed:
+Make sure RadioSim is installed:
 
 ```bash
 # CPU-only installation
-pip install rrivis
+pip install radiosim
 
 # With GPU support (NVIDIA)
-pip install rrivis[gpu-cuda]
+pip install radiosim[gpu-cuda]
 
 # With GPU support (Apple Silicon)
-pip install rrivis[gpu]
+pip install radiosim[gpu]
 
 # Development installation
 pip install -e ".[dev]"
@@ -64,7 +64,7 @@ pip install -e ".[dev]"
 
 ## Available Backends
 
-RRIvis supports multiple computation backends:
+RadioSim supports multiple computation backends:
 
 - **numpy**: CPU baseline (always available)
 - **jax**: GPU/TPU acceleration (NVIDIA, AMD, Apple Silicon)
@@ -73,7 +73,7 @@ RRIvis supports multiple computation backends:
 Check available backends:
 
 ```python
-from rrivis.backends import list_backends
+from radiosim.backends import list_backends
 print(list_backends())
 # {'numpy': True, 'jax': True, 'numba': True}
 ```
@@ -92,7 +92,7 @@ Example YAML configuration files are in the `../configs/` directory:
 
 Example antenna position files are in `../antenna_layout_examples/`:
 
-- `example_rrivis_format.txt` - Native RRIvis ENU format
+- `example_radiosim_format.txt` - Native RadioSim ENU format
 - `example_casa_format.cfg` - CASA configuration format
 - `example_pyuvdata_format.txt` - pyuvdata format
 - `example_antenna_layout.csv` - CSV format

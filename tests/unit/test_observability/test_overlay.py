@@ -14,13 +14,13 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
-from rrivis.core.observability import (  # noqa: E402
+from radiosim.core.observability import (  # noqa: E402
     ObservabilityPlanner,
     draw_observability_overlay,
 )
-from rrivis.core.precision import PrecisionConfig  # noqa: E402
-from rrivis.core.sky import HealpixData, SkyPlotter  # noqa: E402
-from rrivis.core.sky.model import SkyModel  # noqa: E402
+from radiosim.core.precision import PrecisionConfig  # noqa: E402
+from radiosim.core.sky import HealpixData, SkyPlotter  # noqa: E402
+from radiosim.core.sky.model import SkyModel  # noqa: E402
 
 
 def _single_channel_sky(nside: int = 16) -> SkyModel:
@@ -127,7 +127,7 @@ class TestObservabilityOverlay:
 
     def test_radec_to_za_az_roundtrip_is_monotonic_in_ra_offset(self):
         """Regression: the outer np.deg2rad double-wrap is gone."""
-        from rrivis.utils.coordinates import radec_to_za_az
+        from radiosim.utils.coordinates import radec_to_za_az
 
         zeniths = [(0.0, -30.72), (90.0, 0.0), (180.0, 45.0)]
         for zra, zdec in zeniths:
@@ -151,7 +151,7 @@ class TestObservabilityOverlay:
         """_fits_beam_power_func_healpix + compute_beam_power_on_full_sky_grid
         give a localised projected beam (not a Dec-only stripe) when fed an
         azimuthally symmetric Gaussian HEALPix map."""
-        from rrivis.core.observability.geometry import (
+        from radiosim.core.observability.geometry import (
             compute_beam_power_on_full_sky_grid,
         )
 

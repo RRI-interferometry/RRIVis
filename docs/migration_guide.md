@@ -2,9 +2,9 @@
 
 ## Overview
 
-Version 0.2.0 introduces major architectural changes that make RRIvis more powerful and easier to use:
+Version 0.2.0 introduces major architectural changes that make RadioSim more powerful and easier to use:
 
-- **Package structure**: Now installable via `pip install rrivis`
+- **Package structure**: Now installable via `pip install radiosim`
 - **GPU support**: Universal GPU acceleration (NVIDIA/AMD/Apple Silicon/TPU)
 - **High-level API**: New `Simulator` class for easy notebook and script usage
 - **Backend abstraction**: Auto-detect and use best available hardware
@@ -24,10 +24,10 @@ python src/main.py --config config.yaml
 **After (v0.2.0):**
 ```python
 # Now importable as a proper Python package
-import rrivis
-from rrivis import Simulator
-from rrivis.core import calculate_visibility
-from rrivis.backends import get_backend
+import radiosim
+from radiosim import Simulator
+from radiosim.core import calculate_visibility
+from radiosim.backends import get_backend
 ```
 
 ### 2. CLI Command Changed
@@ -40,10 +40,10 @@ python src/main.py --config config.yaml --antenna-file antennas.txt
 **After:**
 ```bash
 # Installed CLI command
-rrivis --config config.yaml --antenna-file antennas.txt
+radiosim --config config.yaml --antenna-file antennas.txt
 
 # Or via pixi
-pixi run rrivis --config config.yaml
+pixi run radiosim --config config.yaml
 ```
 
 ### 3. Module Structure Reorganized
@@ -61,7 +61,7 @@ src/
 
 **After (modular package):**
 ```
-src/rrivis/
+src/radiosim/
 ├── core/           # Core astronomy calculations
 │   ├── antenna.py
 │   ├── baseline.py
@@ -86,14 +86,14 @@ config = yaml.safe_load(open("config.yaml"))
 
 **After (Pydantic models):**
 ```python
-from rrivis.io.config import RRIvisConfig, load_config
+from radiosim.io.config import RadioSimConfig, load_config
 
 # Type-safe with validation
 config = load_config("config.yaml")
 print(config.telescope.telescope_name)  # IDE autocomplete works!
 
 # Validation catches errors early
-config = RRIvisConfig(
+config = RadioSimConfig(
     obs_frequency={"starting_frequency": -100}  # ValidationError!
 )
 ```
@@ -103,23 +103,23 @@ config = RRIvisConfig(
 **Before:**
 ```python
 from src.antenna import read_antenna_positions
-antennas = read_antenna_positions("file.txt", file_format="rrivis")
+antennas = read_antenna_positions("file.txt", file_format="radiosim")
 ```
 
 **After:**
 ```python
-from rrivis.io import read_antenna_positions
-antennas = read_antenna_positions("file.txt", format_type="rrivis")
+from radiosim.io import read_antenna_positions
+antennas = read_antenna_positions("file.txt", format_type="radiosim")
 ```
 
 ## New Features
 
 ### GPU Acceleration
 
-RRIvis v0.2.0 supports multiple GPU backends:
+RadioSim v0.2.0 supports multiple GPU backends:
 
 ```python
-from rrivis import Simulator
+from radiosim import Simulator
 
 # Auto-detect best available backend
 sim = Simulator(backend="auto")
@@ -134,16 +134,16 @@ sim = Simulator(backend="numpy")  # CPU baseline
 
 ```bash
 # NVIDIA GPU (CUDA 12)
-pip install rrivis[gpu-cuda]
+pip install radiosim[gpu-cuda]
 
 # AMD GPU (ROCm)
-pip install rrivis[gpu-rocm]
+pip install radiosim[gpu-rocm]
 
 # Apple Silicon (Metal) - auto-detected
-pip install rrivis[gpu]
+pip install radiosim[gpu]
 
 # Google TPU
-pip install rrivis[tpu]
+pip install radiosim[tpu]
 ```
 
 ### High-Level Simulator API
@@ -151,7 +151,7 @@ pip install rrivis[tpu]
 The new `Simulator` class provides a clean, notebook-friendly interface:
 
 ```python
-from rrivis import Simulator
+from radiosim import Simulator
 
 # Create simulator with sensible defaults
 sim = Simulator.from_config("config.yaml")
@@ -169,7 +169,7 @@ sim.save("output.h5")
 Complete polarization support with 8 Jones terms:
 
 ```python
-from rrivis.core.jones import (
+from radiosim.core.jones import (
     GeometricDelayJones,    # K - Geometric phase delay
     BeamJones,              # E - Primary beam (direction-dependent)
     IonosphereJones,        # Z - Ionospheric effects
@@ -181,7 +181,7 @@ from rrivis.core.jones import (
 )
 
 # Create Jones chain
-from rrivis.core.jones import JonesChain
+from radiosim.core.jones import JonesChain
 jones = JonesChain([
     GeometricDelayJones(),
     BeamJones(beam_type="gaussian"),
@@ -197,7 +197,7 @@ vis = calculate_visibility(uvw, sky, jones_chain=jones)
 Write backend-agnostic code that runs on CPU or GPU:
 
 ```python
-from rrivis.backends import get_backend
+from radiosim.backends import get_backend
 
 # Get appropriate backend
 backend = get_backend("auto")  # Auto-detect GPU
@@ -208,7 +208,7 @@ y = backend.sin(x)
 result = backend.sum(y)
 
 # Check what's available
-from rrivis.backends import list_backends
+from radiosim.backends import list_backends
 print(list_backends())  # ['numpy', 'jax', 'numba']
 ```
 
@@ -219,8 +219,8 @@ print(list_backends())  # ['numpy', 'jax', 'numba']
 Use the migration tool to update import statements:
 
 ```bash
-rrivis-migrate --check src/  # Check what needs updating
-rrivis-migrate --apply src/  # Apply changes
+radiosim-migrate --check src/  # Check what needs updating
+radiosim-migrate --apply src/  # Apply changes
 ```
 
 Or manually update:
@@ -231,8 +231,8 @@ from src.antenna import read_antenna_positions
 from src.visibility import calculate_visibility
 
 # New imports
-from rrivis.io import read_antenna_positions
-from rrivis.core import calculate_visibility
+from radiosim.io import read_antenna_positions
+from radiosim.core import calculate_visibility
 ```
 
 ### Step 2: Update Configuration Files
@@ -240,7 +240,7 @@ from rrivis.core import calculate_visibility
 Configuration files remain largely compatible, but you can now use Pydantic validation:
 
 ```python
-from rrivis.io.config import load_config
+from radiosim.io.config import load_config
 
 # Validates and provides helpful error messages
 config = load_config("old_config.yaml")
@@ -252,7 +252,7 @@ For new code, prefer the high-level `Simulator` API:
 
 ```python
 # Old style (still works)
-from rrivis.core import (
+from radiosim.core import (
     read_antenna_positions,
     generate_baselines,
     get_sources,
@@ -265,7 +265,7 @@ sources = get_sources("gleam", flux_limit=1.0)
 vis = calculate_visibility(baselines, sources, frequencies)
 
 # New style (recommended)
-from rrivis import Simulator
+from radiosim import Simulator
 
 sim = Simulator.from_config("config.yaml")
 sim.setup()
@@ -278,11 +278,11 @@ If you have a GPU, enable acceleration:
 
 ```bash
 # Install GPU support
-pip install rrivis[gpu-cuda]  # or gpu-rocm, gpu
+pip install radiosim[gpu-cuda]  # or gpu-rocm, gpu
 ```
 
 ```python
-from rrivis import Simulator
+from radiosim import Simulator
 
 # GPU-accelerated simulation
 sim = Simulator(backend="jax")
@@ -295,19 +295,19 @@ The following features are deprecated and will be removed in v0.3.0:
 
 | Deprecated | Replacement |
 |------------|-------------|
-| `python src/main.py` | `rrivis` CLI command |
-| `from src.* import` | `from rrivis.* import` |
+| `python src/main.py` | `radiosim` CLI command |
+| `from src.* import` | `from radiosim.* import` |
 | `file_format` parameter | `format_type` parameter |
 
 ## Getting Help
 
-- **Documentation**: https://rrivis.readthedocs.io
-- **Issues**: https://github.com/kartikmandar/RRIvis/issues
-- **Migration tool**: `rrivis-migrate --help`
+- **Documentation**: https://radiosim.readthedocs.io
+- **Issues**: https://github.com/kartikmandar/RadioSim/issues
+- **Migration tool**: `radiosim-migrate --help`
 
 ## Version Compatibility
 
-| RRIvis Version | Python | NumPy | Astropy |
+| RadioSim Version | Python | NumPy | Astropy |
 |----------------|--------|-------|---------|
 | 0.1.x | 3.11 | >=1.24 | >=5.0 |
 | 0.2.x | 3.11-3.12 | >=1.24 | >=5.0 |
@@ -317,18 +317,18 @@ The following features are deprecated and will be removed in v0.3.0:
 ### v0.2.0 (2025-12-15)
 
 **Added:**
-- Proper Python package structure (`pip install rrivis`)
+- Proper Python package structure (`pip install radiosim`)
 - GPU support via JAX and Numba backends
 - High-level `Simulator` API class
 - Jones matrix framework (8 terms)
 - Pydantic configuration validation
 - Backend abstraction layer
-- `rrivis` and `rrivis-migrate` CLI commands
+- `radiosim` and `radiosim-migrate` CLI commands
 - Comprehensive test suite (376 tests)
 
 **Changed:**
 - Module structure reorganized into subpackages
-- Import paths changed (`src.*` -> `rrivis.*`)
+- Import paths changed (`src.*` -> `radiosim.*`)
 - `file_format` parameter renamed to `format_type`
 
 **Fixed:**

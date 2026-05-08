@@ -35,7 +35,7 @@ This document is a code-level reference for the `simulators/WODEN/` snapshot in 
 25. [Examples shipped with WODEN](#25-examples-shipped-with-woden)
 26. [Docker / Singularity images](#26-docker--singularity-images)
 27. [Performance, accuracy, known limitations](#27-performance-accuracy-known-limitations)
-28. [Mapping WODEN concepts onto RRIVis](#28-mapping-woden-concepts-onto-rrivis)
+28. [Mapping WODEN concepts onto RadioSim](#28-mapping-woden-concepts-onto-radiosim)
 
 ---
 
@@ -1653,11 +1653,11 @@ The accuracy test machinery is in `test_installation/absolute_accuracy/`. It use
 
 ---
 
-## 28. Mapping WODEN concepts onto RRIVis
+## 28. Mapping WODEN concepts onto RadioSim
 
-This section is included because RRIVis is the parent project for this monorepo. The terminology and architecture are deliberately similar in places, deliberately different in others.
+This section is included because RadioSim is the parent project for this monorepo. The terminology and architecture are deliberately similar in places, deliberately different in others.
 
-| RRIVis concept | WODEN equivalent |
+| RadioSim concept | WODEN equivalent |
 |---|---|
 | `Simulator` (`api/simulator.py`) | `run_woden.py` |
 | `RIMESimulator` (`simulator/rime.py`) | `int run_woden(...)` in `src/woden.c` plus `calculate_visibilities` in `src/calculate_visibilities_common.c` |
@@ -1679,7 +1679,7 @@ This section is included because RRIVis is the parent project for this monorepo.
 | `core/sky/_combine_*.py` | None (no model-combine in WODEN itself; just feed multiple sky model files and add resulting uvfits via `add_woden_uvfits.py`) |
 | `core/sky/region.py` | None (no rectangular SkyRegion masking in WODEN — only horizon cropping) |
 
-If you're porting WODEN-style features into RRIVis, the most directly transferable pieces are:
+If you're porting WODEN-style features into RadioSim, the most directly transferable pieces are:
 
 - The shapelet basis-function lookup table (`wodenpy/use_libwoden/shapelets.py`).
 - The IAU vs MWA polarisation reordering (`make_baseline_date_arrays`, `IAU_order` flag in uvfits writer).
@@ -1687,7 +1687,7 @@ If you're porting WODEN-style features into RRIVis, the most directly transferab
 - The BBS → FITS converter (`scripts/convert_WSClean_list_to_WODEN.py`).
 - The horizon cropping logic (`crop_below_horizon`).
 
-Conversely, things RRIVis already does that WODEN does not:
+Conversely, things RadioSim already does that WODEN does not:
 
 - A full Jones chain with K, Z, T, E, P, D, G, B, plus extended terms (F, W, X, etc.);
 - A native HEALPix sky-model representation that is preserved through the simulation rather than discretised;
@@ -1695,7 +1695,7 @@ Conversely, things RRIVis already does that WODEN does not:
 - Multiple backends (NumPy, JAX, Numba) with auto-selection;
 - A diffuse-sky loader registry (GSM, LFSM, Haslam, PySM3, pyradiosky_file, FITS image, BBS, Vizier point-source catalogues).
 
-In short, WODEN is fast, focused, and proven on real MWA/LOFAR/HERA EoR pipelines; RRIVis is broader-scope and more configurable. The numerical conventions (positive-exponent forward RIME, Stokes-coherency 1/2 factor, IAU `XX = N–S` internally) are aligned between the two projects.
+In short, WODEN is fast, focused, and proven on real MWA/LOFAR/HERA EoR pipelines; RadioSim is broader-scope and more configurable. The numerical conventions (positive-exponent forward RIME, Stokes-coherency 1/2 factor, IAU `XX = N–S` internally) are aligned between the two projects.
 
 ---
 
@@ -1801,4 +1801,4 @@ Total: ~25 kLOC of source (12 kLOC Python + 13 kLOC compiled), plus ~5 kLOC of t
 
 ---
 
-*This reference reflects the snapshot at `simulators/WODEN/` in the RRIVis monorepo, which corresponds to upstream WODEN 2.7-alpha. Always cross-check against the live `https://woden.readthedocs.io/` for the latest CLI flags, especially the EveryBeam path which changed materially between 2.5 and 2.7.*
+*This reference reflects the snapshot at `simulators/WODEN/` in the RadioSim monorepo, which corresponds to upstream WODEN 2.7-alpha. Always cross-check against the live `https://woden.readthedocs.io/` for the latest CLI flags, especially the EveryBeam path which changed materially between 2.5 and 2.7.*

@@ -2,7 +2,7 @@
 
 import pytest
 
-from rrivis.api import Simulator
+from radiosim.api import Simulator
 
 
 def test_simulator_rejects_removed_sky_model_shortcut():

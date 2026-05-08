@@ -9,13 +9,13 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.observability.lightcurves import (
+from radiosim.core.observability.lightcurves import (
     DriftScanLightcurve,
     compute_drift_scan_lightcurve,
     fractional_horizon_excess,
 )
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import HealpixData, SkyModel
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import HealpixData, SkyModel
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def _isotropic_lightcurve(
     isotropic beam_power_func.  Validates the integration step rather than
     the FITS-loading codepath, which the notebook smoke test covers.
     """
-    from rrivis.core.observability.geometry import compute_beam_map_on_healpix
+    from radiosim.core.observability.geometry import compute_beam_map_on_healpix
 
     nside = int(sky.healpix.nside)
     sky_map = sky.healpix.maps[0]
@@ -140,7 +140,7 @@ class TestFractionalHorizonExcess:
 
 class TestComputeDriftScanLightcurveValidation:
     def test_no_healpix_payload_raises(self, precision):
-        from rrivis.core.sky import create_from_arrays
+        from radiosim.core.sky import create_from_arrays
 
         sky = create_from_arrays(
             ra_rad=np.array([0.0]),

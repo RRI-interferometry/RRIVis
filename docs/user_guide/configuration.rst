@@ -1,7 +1,7 @@
 Configuration Guide
 ===================
 
-RRIvis uses Pydantic-based configuration for type-safe, validated settings.
+RadioSim uses Pydantic-based configuration for type-safe, validated settings.
 
 Configuration File Format
 -------------------------
@@ -16,7 +16,7 @@ Configuration files use YAML format:
 
    antenna_layout:
      antenna_positions_file: "antennas.txt"
-     antenna_file_format: "rrivis"
+     antenna_file_format: "radiosim"
      all_antenna_diameter: 14.0
 
    beams:
@@ -125,8 +125,8 @@ Antenna Layout
      - Path to antenna positions file
    * - antenna_file_format
      - str
-     - "rrivis"
-     - File format: rrivis, casa, uvfits, mwa, pyuvdata
+     - "radiosim"
+     - File format: radiosim, casa, uvfits, mwa, pyuvdata
    * - all_antenna_diameter
      - float
      - 14.0
@@ -197,7 +197,7 @@ From YAML file:
 
 .. code-block:: python
 
-   from rrivis.io.config import load_config
+   from radiosim.io.config import load_config
 
    config = load_config("config.yaml")
    print(config.telescope.telescope_name)
@@ -206,9 +206,9 @@ Programmatic creation:
 
 .. code-block:: python
 
-   from rrivis.io.config import RRIvisConfig, TelescopeConfig
+   from radiosim.io.config import RadioSimConfig, TelescopeConfig
 
-   config = RRIvisConfig(
+   config = RadioSimConfig(
        telescope=TelescopeConfig(telescope_name="HERA"),
        obs_frequency={"starting_frequency": 100.0},
    )
@@ -217,7 +217,7 @@ Create default config file:
 
 .. code-block:: python
 
-   from rrivis.io.config import create_default_config
+   from radiosim.io.config import create_default_config
 
    create_default_config("my_config.yaml")
 
@@ -228,11 +228,11 @@ Configuration is validated automatically:
 
 .. code-block:: python
 
-   from rrivis.io.config import RRIvisConfig
+   from radiosim.io.config import RadioSimConfig
    from pydantic import ValidationError
 
    try:
-       config = RRIvisConfig(
+       config = RadioSimConfig(
            obs_frequency={"starting_frequency": -100}  # Invalid!
        )
    except ValidationError as e:

@@ -10,7 +10,7 @@ WSClean is **not a forward simulator** in the same sense as the other tools in `
 1. WSClean's `-predict` mode performs fast image-based visibility prediction (a forward operation that is one of the standard ways to populate `MODEL_DATA` for self-cal or to validate a forward simulator's output).
 2. WSClean's `-draw-model` mode renders sky-model component lists into model FITS images, which can then be predicted from. This is a sub-pixel-accurate image-domain replacement for direct prediction.
 3. WSClean's gridders (w-stacking, w-gridder/DUCC, IDG, w-towers, direct-FT) are reusable libraries that share the same DFT/FFT mathematics that simulators perform in the forward direction.
-4. WSClean is the canonical "ground-truth" tool for converting predicted visibilities back into images, so any RRIVis simulation eventually flows through (or compares against) WSClean output products.
+4. WSClean is the canonical "ground-truth" tool for converting predicted visibilities back into images, so any RadioSim simulation eventually flows through (or compares against) WSClean output products.
 
 The package is written in **C++20** (was C++17 through 3.x, raised to 20 in `CMakeLists.txt`). It links against Casacore (≥2.0), FFTW3 (≥3.3.5), Boost, CFITSIO, GSL, HDF5, BLAS/LAPACK, Python 3, and optionally **EveryBeam** (for primary-beam evaluation: LOFAR/MWA/VLA/SKA/LWA/ATCA/AARTFAAC), **IDG** (image-domain gridder, GPU-capable), **OpenMPI** (for `wsclean-mp`), and **ska-sdp-func** (for the experimental w-towers gridder, gated by `ENABLE_WTOWERS`).
 
@@ -896,7 +896,7 @@ struct InMemoryMs {
 };
 ```
 
-This is the path RRIVis (or any forward simulator) would use to drive WSClean directly with simulated visibilities, avoiding writing a Casacore MS to disk.
+This is the path RadioSim (or any forward simulator) would use to drive WSClean directly with simulated visibilities, avoiding writing a Casacore MS to disk.
 
 ## 8. Python deconvolution interface
 

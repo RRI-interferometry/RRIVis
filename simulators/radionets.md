@@ -1,6 +1,6 @@
 # radionets — Exhaustive Technical Reference
 
-> Source path: `simulators/radionets/` (git submodule of RRIVis).
+> Source path: `simulators/radionets/` (git submodule of RadioSim).
 > All citations below use paths relative to the repository root unless prefixed.
 
 ---

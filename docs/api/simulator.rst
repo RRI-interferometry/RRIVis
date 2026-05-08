@@ -4,7 +4,7 @@ Simulator API
 The high-level ``Simulator`` class provides a simple interface for running
 radio interferometry visibility simulations.
 
-.. automodule:: rrivis.api.simulator
+.. automodule:: radiosim.api.simulator
    :members:
    :undoc-members:
    :show-inheritance:
@@ -12,7 +12,7 @@ radio interferometry visibility simulations.
 Simulator Class
 ---------------
 
-.. autoclass:: rrivis.api.simulator.Simulator
+.. autoclass:: radiosim.api.simulator.Simulator
    :members:
    :undoc-members:
    :show-inheritance:
@@ -25,7 +25,7 @@ Basic simulation:
 
 .. code-block:: python
 
-   from rrivis import Simulator
+   from radiosim import Simulator
 
    sim = Simulator.from_config("config.yaml")
    sim.setup()
@@ -36,8 +36,8 @@ With Jones matrices:
 
 .. code-block:: python
 
-   from rrivis import Simulator
-   from rrivis.core.jones import JonesChain, BeamJones, GainJones
+   from radiosim import Simulator
+   from radiosim.core.jones import JonesChain, BeamJones, GainJones
 
    jones = JonesChain([BeamJones(), GainJones()])
 

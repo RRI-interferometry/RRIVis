@@ -1,12 +1,12 @@
-"""Tests for rrivis.io.config sky-source parsing."""
+"""Tests for radiosim.io.config sky-source parsing."""
 
 from __future__ import annotations
 
 import pytest
 
-from rrivis.io.config import (
+from radiosim.io.config import (
     GleamSourceConfig,
-    RRIvisConfig,
+    RadioSimConfig,
     TestSourcesConfig,
     parse_sky_source_config,
 )
@@ -23,7 +23,7 @@ sky_model:
 """.lstrip()
     )
 
-    config = RRIvisConfig.from_yaml(config_path)
+    config = RadioSimConfig.from_yaml(config_path)
     assert len(config.sky_model.sources) == 1
 
     source = config.sky_model.sources[0]

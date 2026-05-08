@@ -1,7 +1,7 @@
 Beam Models
 ===========
 
-RRIvis supports both analytic and measured beam patterns.
+RadioSim supports both analytic and measured beam patterns.
 
 Beam Modes
 ----------
@@ -76,7 +76,7 @@ Gaussian Beam
 
 .. code-block:: python
 
-   from rrivis.core.beam import gaussian_beam
+   from radiosim.core.beam import gaussian_beam
 
    # Beam response at zenith angle theta
    response = gaussian_beam(theta, fwhm_rad)
@@ -150,7 +150,7 @@ Loading Beam Files
 
 .. code-block:: python
 
-   from rrivis.core.beam import load_beam
+   from radiosim.core.beam import load_beam
 
    beam = load_beam(
        "beam.fits",
@@ -194,7 +194,7 @@ Calculate beam solid angle using HEALPix:
 
 .. code-block:: python
 
-   from rrivis.core.beam import beam_solid_angle
+   from radiosim.core.beam import beam_solid_angle
 
    omega = beam_solid_angle(beam_pattern, nside=256)
    print(f"Beam solid angle: {omega} sr")
@@ -206,7 +206,7 @@ With Simulator class:
 
 .. code-block:: python
 
-   from rrivis import Simulator
+   from radiosim import Simulator
 
    sim = Simulator()
    sim.setup(
@@ -219,7 +219,7 @@ With Jones chain:
 
 .. code-block:: python
 
-   from rrivis.core.jones import BeamJones, JonesChain
+   from radiosim.core.jones import BeamJones, JonesChain
 
    beam = BeamJones(
        beam_type="gaussian",

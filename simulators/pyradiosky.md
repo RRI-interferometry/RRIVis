@@ -2,7 +2,7 @@
 
 > *Python objects and interfaces for representing diffuse, extended and compact astrophysical radio sources.*
 
-This document is an in-depth, source-grounded reference for the [pyradiosky](https://github.com/RadioAstronomySoftwareGroup/pyradiosky) package as vendored in `simulators/pyradiosky/`. It is written from a complete reading of the `src/pyradiosky/` source tree (`skymodel.py`, `utils.py`, `spherical_coords_transforms.py`, `cli.py`, `__init__.py`, the `data/` payload and the `docs/tutorial.rst`), the `CHANGELOG.md`, `README.md`, the JOSS paper, and the test layout. It is intended as a primary technical companion when integrating pyradiosky into other code (e.g., RRIVis sky-model loaders, simulators, calibration tooling).
+This document is an in-depth, source-grounded reference for the [pyradiosky](https://github.com/RadioAstronomySoftwareGroup/pyradiosky) package as vendored in `simulators/pyradiosky/`. It is written from a complete reading of the `src/pyradiosky/` source tree (`skymodel.py`, `utils.py`, `spherical_coords_transforms.py`, `cli.py`, `__init__.py`, the `data/` payload and the `docs/tutorial.rst`), the `CHANGELOG.md`, `README.md`, the JOSS paper, and the test layout. It is intended as a primary technical companion when integrating pyradiosky into other code (e.g., RadioSim sky-model loaders, simulators, calibration tooling).
 
 ---
 
@@ -702,7 +702,7 @@ Behaviour is described in §18.2 — the generated SkyModel is a noise-like, K-u
 
 ### 18.1 The 1/2 coherency factor
 
-`stokes_to_coherency` uses the `1/2` convention so that an unpolarised, 1 Jy source has `frame_coherency = diag(0.5, 0.5)` Jy. Some interferometer codes use a different normalisation — be sure your visibility simulator matches (RRIVis already uses the same convention, see `core/polarization.py`).
+`stokes_to_coherency` uses the `1/2` convention so that an unpolarised, 1 Jy source has `frame_coherency = diag(0.5, 0.5)` Jy. Some interferometer codes use a different normalisation — be sure your visibility simulator matches (RadioSim already uses the same convention, see `core/polarization.py`).
 
 ### 18.2 NaN and negative Stokes values
 
@@ -879,9 +879,9 @@ Beyond ~v0.5 the deprecation warning on `freq_edge_array` for `subband` becomes 
 
 ## 22. Embedding pyradiosky in another simulator
 
-Practical notes for integrators (and specifically for RRIVis-style consumers):
+Practical notes for integrators (and specifically for RadioSim-style consumers):
 
-1. **Carry the unit**: `stokes` is a `Quantity`. For consistent precision (e.g. RRIVis' `PrecisionConfig`-driven dtype), call `.to_value(unit)` after extraction rather than relying on `.value`, and apply the user's chosen dtype via `.astype(precision.real_dtype)`.
+1. **Carry the unit**: `stokes` is a `Quantity`. For consistent precision (e.g. RadioSim' `PrecisionConfig`-driven dtype), call `.to_value(unit)` after extraction rather than relying on `.value`, and apply the user's chosen dtype via `.astype(precision.real_dtype)`.
 2. **Decide the format up-front**: pyradiosky exposes both representations (`point`, `healpix`). Don't mix them in one tile of work — convert with `healpix_to_point()` / `assign_to_healpix()` (with explicit `to_k`/`to_jy` flags so the units stay correct) before passing arrays to the RIME core.
 3. **Use `at_frequencies(...)` early**: collapsing to `spectral_type="full"` yields a clean `(4, Nfreqs, N)` Stokes cube that downstream code can treat as a plain array. Otherwise different code paths must handle four spectral types.
 4. **For polarised work**: pre-call `calc_frame_coherency()` and rely on `coherency_calc()` only when you have a telescope location and time. The Alt/Az coherency depends on the source frame (RA/Dec vs Galactic), so transform first if you mix sky models in different frames.

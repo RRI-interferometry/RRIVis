@@ -1,6 +1,6 @@
 # VisSim — Exhaustive Reference
 
-> Source: `/Users/kartikmandar/RRIVis/simulators/VisSim/` (git submodule, upstream
+> Source: `/Users/kartikmandar/RadioSim/simulators/VisSim/` (git submodule, upstream
 > `https://github.com/samirchoudhuri/VisSim.git`).
 > All claims below are derived directly from the files in that directory.
 
@@ -98,7 +98,7 @@ Seven commits, no tags. The "check image dimension 3" patch (HEAD) added a
 
 ```
 simulators/VisSim/
-├── .git                         # gitdir pointer — submodule of RRIVis
+├── .git                         # gitdir pointer — submodule of RadioSim
 ├── README.md                    # 215 bytes — one paragraph, see §1
 │
 ├── point_src/                   # → builds the `visfits` binary
@@ -904,7 +904,7 @@ talks to other tools strictly through file formats:
 | Diffuse generator → simulator / gridder | FITS image cube produced by `grf` is a drop-in for the `argv[4]` of `visfits`, or the input of `visfitsgrid` | out → in |
 
 Because VisSim writes **standard AIPS-compatible UVFITS**, downstream tools
-that consume UVFITS (AIPS, CASA's `importuvfits`, `pyuvdata`, RRIVis itself
+that consume UVFITS (AIPS, CASA's `importuvfits`, `pyuvdata`, RadioSim itself
 via `pyuvdata`-style readers) can read its output. Caveats listed in §11.
 
 To extend the simulator one would typically:
@@ -957,7 +957,7 @@ To extend the simulator one would typically:
 14. **`cera` vs `ceta` typo** in `funcs_comov.h` — only matters for the
     missing `gen_bubble.c`.
 15. **No Python wrapper.** The package as it stands is not a candidate for
-    direct embedding in RRIVis; integration would have to be at the UVFITS
+    direct embedding in RadioSim; integration would have to be at the UVFITS
     boundary.
 
 ---

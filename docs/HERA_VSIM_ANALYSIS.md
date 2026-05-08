@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document analyzes a HERA (Hydrogen Epoch of Reionization Array) validation simulation run using vsim.py with the matvis simulator. This serves as a reference for creating equivalent configurations in RRIvis.
+This document analyzes a HERA (Hydrogen Epoch of Reionization Array) validation simulation run using vsim.py with the matvis simulator. This serves as a reference for creating equivalent configurations in RadioSim.
 
 ## Command Overview
 
@@ -134,7 +134,7 @@ Duration: 0.08194444 hours (~4.92 minutes = 295.0 seconds)
 **Configuration:**
 - **Point source catalog** with 256 sources (ptsrc256)
 - **File location (original):** `/lustre/aoc/projects/hera/rchandra/H6C_Validation_Stats/validation-sim/sky_models/ptsrc256/*.skyh5`
-- **File location (RRIvis):** `data/fch0227.skyh5` and `data/fch0227_full.skyh5`
+- **File location (RadioSim):** `data/fch0227.skyh5` and `data/fch0227_full.skyh5`
 - **Format:** `.skyh5` (pyradiosky standard format)
 
 **Sky Model Characteristics:**
@@ -182,9 +182,9 @@ Filtered vs Full comparison:
 - Result: High |V| artifacts eliminated in filtered version
 ```
 
-**For RRIvis Implementation:**
+**For RadioSim Implementation:**
 - ✅ Use `data/fch0227.skyh5` (filtered version)
-- Need to convert `.skyh5` to RRIvis source format, OR
+- Need to convert `.skyh5` to RadioSim source format, OR
 - Load directly using pyradiosky and extract:
   - RA, Dec positions (ICRS frame)
   - Stokes I, Q, U, V fluxes
@@ -195,7 +195,7 @@ Filtered vs Full comparison:
 **Configuration:**
 - **Per-antenna beam assignment** from CSV file
 - **Beam file pattern:** `NF_HERA_Vivaldi_efield_beam_extrap_i.fits`
-- **File location (RRIvis):** `data/NF_HERA_Vivaldi_efield_beam_extrap_0.fits` (821 MB)
+- **File location (RadioSim):** `data/NF_HERA_Vivaldi_efield_beam_extrap_0.fits` (821 MB)
 
 **Beam File Components:**
 - **NF:** Nearfield HERA Vivaldi antenna
@@ -234,7 +234,7 @@ antenna_number,beam_file
 - **Position-dependent effects:** Edge antennas vs. interior antennas
 - **Realistic systematics:** Validation requires accurate beam models
 
-**For RRIvis Implementation:**
+**For RadioSim Implementation:**
 - ✅ Beam files available in `data/` folder
 - Requires `beam_mode: "per_antenna"` or `"shared"`
 - For shared mode: All antennas use `beam_extrap_0.fits`
@@ -253,7 +253,7 @@ antenna_number,beam_file
 - Vectorized operations (NumPy/CuPy)
 - Efficient for many sources
 - Well-tested in HERA pipeline
-- Same algorithm as RRIvis polarization module
+- Same algorithm as RadioSim polarization module
 
 ## What This Simulation Represents
 
@@ -293,7 +293,7 @@ This is a **validation simulation** for HERA's H6C data release:
 | **Sky model** | 256 point sources | Fewer bright sources |
 | **Science goal** | Cosmology (EoR) | Ionospheric physics |
 
-## Available Data Files in RRIvis
+## Available Data Files in RadioSim
 
 All necessary files for replicating Rajorshi's HERA validation simulation are available in the `data/` folder.
 
@@ -321,7 +321,7 @@ data/
 │
 └── Configuration
     └── config.yaml                                (495 B)
-        └── Old RRIvis config format (needs updating)
+        └── Old RadioSim config format (needs updating)
 ```
 
 ### Sky Model Files
@@ -408,7 +408,7 @@ Purpose: Full HERA hex-array core
 
 **`data/config.yaml`** (Old format - needs updating)
 ```yaml
-Current format: Legacy RRIvis config
+Current format: Legacy RadioSim config
 Status: Needs updating to new schema
 Contains:
   - Antenna layout file path
@@ -461,9 +461,9 @@ Needs updating to:
 - **Solution:** Use `beam_extrap_0.fits` (already extrapolated)
 - **Benefit:** Smooth beam pattern to horizon
 
-## Requirements for RRIvis Implementation
+## Requirements for RadioSim Implementation
 
-To replicate this simulation in RRIvis, you need:
+To replicate this simulation in RadioSim, you need:
 
 ### 1. Antenna Configuration
 - [x] Parse antenna ENU positions
@@ -525,7 +525,7 @@ To replicate this simulation in RRIvis, you need:
 
 ## Notes for Config Creation
 
-When creating equivalent RRIvis config:
+When creating equivalent RadioSim config:
 
 1. **Start time:** Use LST 0.0833 hrs, convert to UTC given HERA location
 2. **Duration:** 299 seconds (60 samples × 4.986s)
@@ -537,7 +537,7 @@ When creating equivalent RRIvis config:
 
 ## Validation Strategy
 
-To validate RRIvis against vsim.py:
+To validate RadioSim against vsim.py:
 
 1. **Run both simulators** with identical inputs
 2. **Compare visibilities:**
@@ -630,5 +630,5 @@ sky model maps for above frequencies:
 ---
 
 **Created:** 2025-01-22
-**Purpose:** Understanding HERA validation simulation for RRIvis development
+**Purpose:** Understanding HERA validation simulation for RadioSim development
 **Status:** Analysis complete, awaiting config implementation

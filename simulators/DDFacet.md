@@ -6,7 +6,7 @@
 > calibration suite.
 
 This document is a self-contained reference for the version of DDFacet
-vendored under `simulators/DDFacet/` of the RRIVis project. All citations
+vendored under `simulators/DDFacet/` of the RadioSim project. All citations
 point at concrete files and line ranges in that directory.
 
 ---
@@ -72,13 +72,13 @@ into the venv:
 the actual `DDF.py`, `CleanSHM.py`, `MemMonitor.py`, `Restore.py` modules
 on demand.
 
-### 1.2 Where it sits in RRIVis
+### 1.2 Where it sits in RadioSim
 
 The package is checked in as a git submodule at
-`simulators/DDFacet/`. RRIVis itself is a measurement-equation-based
+`simulators/DDFacet/`. RadioSim itself is a measurement-equation-based
 visibility *simulator*; DDFacet is the *imaging* counterpart used for
 gridding/deconvolving simulated visibilities back to images for validation.
-RRIVis does not import DDFacet at runtime.
+RadioSim does not import DDFacet at runtime.
 
 ---
 

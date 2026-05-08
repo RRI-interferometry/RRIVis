@@ -1,15 +1,15 @@
-"""Tests for rrivis.core.sky.convert — bidirectional HEALPix / point-source conversion."""
+"""Tests for radiosim.core.sky.convert — bidirectional HEALPix / point-source conversion."""
 
 import healpy as hp
 import numpy as np
 
-from rrivis.core.sky.constants import (
+from radiosim.core.sky.constants import (
     C_LIGHT,
     K_BOLTZMANN,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
 )
-from rrivis.core.sky.convert import (
+from radiosim.core.sky.convert import (
     healpix_map_to_point_arrays,
     point_sources_to_healpix_maps,
 )
@@ -988,7 +988,7 @@ class TestSourceMergingWarning:
         alpha = np.array([0.0, 0.0])
         freq = np.array([FREQ_100MHZ])
 
-        with caplog.at_level(logging.WARNING, logger="rrivis.core.sky.convert"):
+        with caplog.at_level(logging.WARNING, logger="radiosim.core.sky.convert"):
             point_sources_to_healpix_maps(
                 ra,
                 dec,
@@ -1021,7 +1021,7 @@ class TestSourceMergingWarning:
         alpha = np.array([0.0, 0.0])
         freq = np.array([FREQ_100MHZ])
 
-        with caplog.at_level(logging.WARNING, logger="rrivis.core.sky.convert"):
+        with caplog.at_level(logging.WARNING, logger="radiosim.core.sky.convert"):
             point_sources_to_healpix_maps(
                 ra,
                 dec,

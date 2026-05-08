@@ -1,11 +1,11 @@
-"""Tests for rrivis.core.sky.region — SkyRegion spatial filtering."""
+"""Tests for radiosim.core.sky.region — SkyRegion spatial filtering."""
 
 import healpy as hp
 import numpy as np
 import pytest
 from astropy.coordinates import SkyCoord
 
-from rrivis.core.sky import SkyRegion
+from radiosim.core.sky import SkyRegion
 
 # ---------------------------------------------------------------------------
 # Cone
@@ -108,7 +108,7 @@ class TestUnion:
         outer_union = SkyRegion.union([inner_union, c3])
 
         # All sub-regions should be atomic (cone), not union
-        from rrivis.core.sky.region import UnionRegion
+        from radiosim.core.sky.region import UnionRegion
 
         assert isinstance(outer_union, UnionRegion)
         for sub in outer_union._sub_regions:
@@ -117,7 +117,7 @@ class TestUnion:
 
     def test_union_single(self):
         """Union of a single region returns that region directly."""
-        from rrivis.core.sky.region import ConeRegion
+        from radiosim.core.sky.region import ConeRegion
 
         c1 = SkyRegion.cone(ra_deg=0.0, dec_deg=0.0, radius_deg=5.0)
         result = SkyRegion.union([c1])

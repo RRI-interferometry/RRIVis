@@ -1,10 +1,10 @@
-"""Tests for rrivis.utils.network connectivity detection."""
+"""Tests for radiosim.utils.network connectivity detection."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rrivis.utils.network import (
+from radiosim.utils.network import (
     SERVICE_ENDPOINTS,
     NetworkStatus,
     _check_socket,
@@ -32,7 +32,7 @@ def _clear_network_cache():
 
 
 class TestCheckSocket:
-    @patch("rrivis.utils.network.socket.create_connection")
+    @patch("radiosim.utils.network.socket.create_connection")
     def test_reachable(self, mock_conn):
         mock_sock = MagicMock()
         mock_conn.return_value = mock_sock
@@ -40,12 +40,14 @@ class TestCheckSocket:
         mock_conn.assert_called_once_with(("example.com", 443), timeout=2.0)
         mock_sock.close.assert_called_once()
 
-    @patch("rrivis.utils.network.socket.create_connection", side_effect=OSError("fail"))
+    @patch(
+        "radiosim.utils.network.socket.create_connection", side_effect=OSError("fail")
+    )
     def test_unreachable(self, mock_conn):
         assert _check_socket("example.com", 443, 2.0) is False
 
     @patch(
-        "rrivis.utils.network.socket.create_connection",
+        "radiosim.utils.network.socket.create_connection",
         side_effect=TimeoutError("timed out"),
     )
     def test_timeout(self, mock_conn):
@@ -58,24 +60,24 @@ class TestCheckSocket:
 
 
 class TestIsOnline:
-    @patch("rrivis.utils.network._check_socket", return_value=True)
+    @patch("radiosim.utils.network._check_socket", return_value=True)
     def test_online(self, mock_check):
         assert is_online() is True
         mock_check.assert_called_once()
 
-    @patch("rrivis.utils.network._check_socket", return_value=False)
+    @patch("radiosim.utils.network._check_socket", return_value=False)
     def test_offline(self, mock_check):
         assert is_online() is False
 
-    @patch("rrivis.utils.network._check_socket", return_value=True)
+    @patch("radiosim.utils.network._check_socket", return_value=True)
     def test_cached(self, mock_check):
         assert is_online() is True
         assert is_online() is True
         # Second call should use cache, not check again.
         assert mock_check.call_count == 1
 
-    @patch("rrivis.utils.network._check_socket", return_value=True)
-    @patch("rrivis.utils.network.time.monotonic")
+    @patch("radiosim.utils.network._check_socket", return_value=True)
+    @patch("radiosim.utils.network.time.monotonic")
     def test_cache_expiry(self, mock_time, mock_check):
         mock_time.return_value = 0.0
         assert is_online() is True
@@ -93,12 +95,12 @@ class TestIsOnline:
 
 
 class TestCheckService:
-    @patch("rrivis.utils.network._check_socket", return_value=True)
+    @patch("radiosim.utils.network._check_socket", return_value=True)
     def test_known_service(self, mock_check):
         for name in SERVICE_ENDPOINTS:
             assert check_service(name) is True
 
-    @patch("rrivis.utils.network._check_socket", return_value=False)
+    @patch("radiosim.utils.network._check_socket", return_value=False)
     def test_unreachable_service(self, mock_check):
         assert check_service("vizier") is False
 
@@ -113,7 +115,7 @@ class TestCheckService:
 
 
 class TestCheckAllServices:
-    @patch("rrivis.utils.network._check_socket", return_value=True)
+    @patch("radiosim.utils.network._check_socket", return_value=True)
     def test_all_online(self, mock_check):
         status = check_all_services()
         assert status.internet is True
@@ -126,14 +128,14 @@ class TestCheckAllServices:
         # General + 4 services = 5 calls
         assert mock_check.call_count == 5
 
-    @patch("rrivis.utils.network._check_socket", return_value=False)
+    @patch("radiosim.utils.network._check_socket", return_value=False)
     def test_all_offline(self, mock_check):
         status = check_all_services()
         assert status.internet is False
         assert status.vizier is False
         assert status.is_online is False
 
-    @patch("rrivis.utils.network._check_socket")
+    @patch("radiosim.utils.network._check_socket")
     def test_partial_reachability(self, mock_check):
         def side_effect(host, port, timeout):
             if host == "8.8.8.8":
@@ -158,7 +160,7 @@ class TestCheckAllServices:
 
 
 class TestGetNetworkStatus:
-    @patch("rrivis.utils.network._check_socket", return_value=True)
+    @patch("radiosim.utils.network._check_socket", return_value=True)
     def test_online(self, mock_check):
         status = get_network_status()
         assert status.internet is True
@@ -174,7 +176,7 @@ class TestGetNetworkStatus:
         assert status.forced_offline is True
         # No network I/O should have occurred — nothing to mock.
 
-    @patch("rrivis.utils.network._check_socket", return_value=True)
+    @patch("radiosim.utils.network._check_socket", return_value=True)
     def test_forced_offline_skips_network_io(self, mock_check):
         status = get_network_status(offline=True)
         assert status.forced_offline is True
@@ -282,7 +284,7 @@ class TestGetRequiredServices:
 
 
 class TestClearCache:
-    @patch("rrivis.utils.network._check_socket", return_value=True)
+    @patch("radiosim.utils.network._check_socket", return_value=True)
     def test_clear_forces_recheck(self, mock_check):
         is_online()
         assert mock_check.call_count == 1

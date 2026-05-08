@@ -1,7 +1,7 @@
 Compute Backends
 ================
 
-RRIvis supports multiple compute backends for CPU and GPU execution.
+RadioSim supports multiple compute backends for CPU and GPU execution.
 
 Available Backends
 ------------------
@@ -40,7 +40,7 @@ Auto-detection:
 
 .. code-block:: python
 
-   from rrivis.backends import get_backend
+   from radiosim.backends import get_backend
 
    # Auto-detect best available backend
    backend = get_backend("auto")
@@ -58,7 +58,7 @@ Check available backends:
 
 .. code-block:: python
 
-   from rrivis.backends import list_backends
+   from radiosim.backends import list_backends
 
    available = list_backends()
    print(available)  # ['numpy', 'jax', 'numba']
@@ -70,7 +70,7 @@ Pass backend to Simulator:
 
 .. code-block:: python
 
-   from rrivis import Simulator
+   from radiosim import Simulator
 
    # Auto-detect
    sim = Simulator(backend="auto")
@@ -90,32 +90,32 @@ For NVIDIA GPU (CUDA 12):
 
 .. code-block:: bash
 
-   pip install rrivis[gpu-cuda]
+   pip install radiosim[gpu-cuda]
 
 For AMD GPU (ROCm):
 
 .. code-block:: bash
 
-   pip install rrivis[gpu-rocm]
+   pip install radiosim[gpu-rocm]
 
 For Apple Silicon:
 
 .. code-block:: bash
 
-   pip install rrivis[gpu]
+   pip install radiosim[gpu]
 
 For TPU:
 
 .. code-block:: bash
 
-   pip install rrivis[tpu]
+   pip install radiosim[tpu]
 
 Numba Backend
 ^^^^^^^^^^^^^
 
 .. code-block:: bash
 
-   pip install rrivis[numba]
+   pip install radiosim[numba]
 
 Backend API
 -----------
@@ -124,7 +124,7 @@ All backends implement a common interface:
 
 .. code-block:: python
 
-   from rrivis.backends import get_backend
+   from radiosim.backends import get_backend
 
    backend = get_backend("numpy")
 
@@ -179,7 +179,7 @@ For large simulations, manage GPU memory:
    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
    os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8"
 
-   from rrivis import Simulator
+   from radiosim import Simulator
 
    sim = Simulator(backend="jax")
    # ...

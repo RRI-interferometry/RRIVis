@@ -16,12 +16,12 @@ from astropy.time import Time
 from matplotlib.figure import Figure
 from pyradiosky import SkyModel as PyRadioSkyModel
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import HealpixData, SkyFormat, SkyModel, SkyPlotter
-from rrivis.core.sky._loaders_pyradiosky import _load_pyradiosky_healpix
-from rrivis.core.sky._serialization import to_pyradiosky
-from rrivis.core.sky.operations import materialize_point_sources_model
-from rrivis.core.visibility_healpix import calculate_visibility_healpix
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import HealpixData, SkyFormat, SkyModel, SkyPlotter
+from radiosim.core.sky._loaders_pyradiosky import _load_pyradiosky_healpix
+from radiosim.core.sky._serialization import to_pyradiosky
+from radiosim.core.sky.operations import materialize_point_sources_model
+from radiosim.core.visibility_healpix import calculate_visibility_healpix
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-"""Tests for ``rrivis.utils.healpix`` (NSIDE advisor)."""
+"""Tests for ``radiosim.utils.healpix`` (NSIDE advisor)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.utils.healpix import pixel_too_coarse, recommend_nside_for_beam
+from radiosim.utils.healpix import pixel_too_coarse, recommend_nside_for_beam
 
 
 class TestRecommendNside:
@@ -64,10 +64,10 @@ class TestPipelineAdvisory:
     """Verify prepare_sky_model emits the advisory warning via logger.warning."""
 
     def test_warns_on_too_coarse_nside(self, caplog):
-        from rrivis.core.precision import PrecisionConfig
-        from rrivis.core.sky import create_test_sources
-        from rrivis.core.sky.model import SkyFormat
-        from rrivis.core.sky.pipeline import prepare_sky_model
+        from radiosim.core.precision import PrecisionConfig
+        from radiosim.core.sky import create_test_sources
+        from radiosim.core.sky.model import SkyFormat
+        from radiosim.core.sky.pipeline import prepare_sky_model
 
         precision = PrecisionConfig.standard()
         sky = create_test_sources(
@@ -76,7 +76,7 @@ class TestPipelineAdvisory:
             reference_frequency=150e6,
         )
 
-        with caplog.at_level(logging.WARNING, logger="rrivis.core.sky.pipeline"):
+        with caplog.at_level(logging.WARNING, logger="radiosim.core.sky.pipeline"):
             prepare_sky_model(
                 [sky],
                 representation=SkyFormat.HEALPIX,
@@ -91,10 +91,10 @@ class TestPipelineAdvisory:
         )
 
     def test_silent_when_nside_adequate(self, caplog):
-        from rrivis.core.precision import PrecisionConfig
-        from rrivis.core.sky import create_test_sources
-        from rrivis.core.sky.model import SkyFormat
-        from rrivis.core.sky.pipeline import prepare_sky_model
+        from radiosim.core.precision import PrecisionConfig
+        from radiosim.core.sky import create_test_sources
+        from radiosim.core.sky.model import SkyFormat
+        from radiosim.core.sky.pipeline import prepare_sky_model
 
         precision = PrecisionConfig.standard()
         sky = create_test_sources(
@@ -103,7 +103,7 @@ class TestPipelineAdvisory:
             reference_frequency=150e6,
         )
 
-        with caplog.at_level(logging.WARNING, logger="rrivis.core.sky.pipeline"):
+        with caplog.at_level(logging.WARNING, logger="radiosim.core.sky.pipeline"):
             prepare_sky_model(
                 [sky],
                 representation=SkyFormat.HEALPIX,
@@ -117,10 +117,10 @@ class TestPipelineAdvisory:
 
     def test_silent_when_beam_unknown(self, caplog):
         """Without a declared beam FWHM the advisor stays quiet even at low nside."""
-        from rrivis.core.precision import PrecisionConfig
-        from rrivis.core.sky import create_test_sources
-        from rrivis.core.sky.model import SkyFormat
-        from rrivis.core.sky.pipeline import prepare_sky_model
+        from radiosim.core.precision import PrecisionConfig
+        from radiosim.core.sky import create_test_sources
+        from radiosim.core.sky.model import SkyFormat
+        from radiosim.core.sky.pipeline import prepare_sky_model
 
         precision = PrecisionConfig.standard()
         sky = create_test_sources(
@@ -128,7 +128,7 @@ class TestPipelineAdvisory:
             precision=precision,
             reference_frequency=150e6,
         )
-        with caplog.at_level(logging.WARNING, logger="rrivis.core.sky.pipeline"):
+        with caplog.at_level(logging.WARNING, logger="radiosim.core.sky.pipeline"):
             prepare_sky_model(
                 [sky],
                 representation=SkyFormat.HEALPIX,

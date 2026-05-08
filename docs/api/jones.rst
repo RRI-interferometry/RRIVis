@@ -1,11 +1,11 @@
 Jones Matrix Framework
 ======================
 
-The ``rrivis.core.jones`` module implements the complete Jones matrix framework
+The ``radiosim.core.jones`` module implements the complete Jones matrix framework
 for radio interferometry, providing 8 Jones terms for comprehensive instrumental
 and propagation modeling.
 
-.. automodule:: rrivis.core.jones
+.. automodule:: radiosim.core.jones
    :members:
    :undoc-members:
    :show-inheritance:
@@ -30,12 +30,12 @@ The full Jones chain is:
 Base Classes
 ------------
 
-.. automodule:: rrivis.core.jones.base
+.. automodule:: radiosim.core.jones.base
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: rrivis.core.jones.chain
+.. automodule:: radiosim.core.jones.chain
    :members:
    :undoc-members:
    :show-inheritance:
@@ -45,7 +45,7 @@ K - Geometric Delay
 
 Phase delay due to geometric path length.
 
-.. automodule:: rrivis.core.jones.geometric
+.. automodule:: radiosim.core.jones.geometric
    :members:
    :undoc-members:
    :show-inheritance:
@@ -55,7 +55,7 @@ E - Primary Beam
 
 Direction-dependent antenna response.
 
-.. automodule:: rrivis.core.jones.beam
+.. automodule:: radiosim.core.jones.beam
    :members:
    :undoc-members:
    :show-inheritance:
@@ -65,7 +65,7 @@ Z - Ionosphere
 
 Ionospheric effects including Faraday rotation.
 
-.. automodule:: rrivis.core.jones.ionosphere
+.. automodule:: radiosim.core.jones.ionosphere
    :members:
    :undoc-members:
    :show-inheritance:
@@ -75,7 +75,7 @@ T - Troposphere
 
 Tropospheric phase and amplitude effects.
 
-.. automodule:: rrivis.core.jones.troposphere
+.. automodule:: radiosim.core.jones.troposphere
    :members:
    :undoc-members:
    :show-inheritance:
@@ -85,7 +85,7 @@ P - Parallactic Angle
 
 Feed rotation with parallactic angle.
 
-.. automodule:: rrivis.core.jones.parallactic
+.. automodule:: radiosim.core.jones.parallactic
    :members:
    :undoc-members:
    :show-inheritance:
@@ -95,7 +95,7 @@ G - Gain
 
 Electronic gain errors.
 
-.. automodule:: rrivis.core.jones.gain
+.. automodule:: radiosim.core.jones.gain
    :members:
    :undoc-members:
    :show-inheritance:
@@ -105,7 +105,7 @@ B - Bandpass
 
 Frequency-dependent bandpass response.
 
-.. automodule:: rrivis.core.jones.bandpass
+.. automodule:: radiosim.core.jones.bandpass
    :members:
    :undoc-members:
    :show-inheritance:
@@ -115,7 +115,7 @@ D - Polarization Leakage
 
 Polarization leakage (D-terms).
 
-.. automodule:: rrivis.core.jones.polarization_leakage
+.. automodule:: radiosim.core.jones.polarization_leakage
    :members:
    :undoc-members:
    :show-inheritance:
@@ -127,7 +127,7 @@ Creating a Jones chain:
 
 .. code-block:: python
 
-   from rrivis.core.jones import (
+   from radiosim.core.jones import (
        JonesChain,
        GeometricDelayJones,
        BeamJones,
@@ -146,7 +146,7 @@ Creating a Jones chain:
    ])
 
    # Use in simulation
-   from rrivis import Simulator
+   from radiosim import Simulator
 
    sim = Simulator()
    sim.setup(
@@ -159,7 +159,7 @@ Individual Jones term:
 
 .. code-block:: python
 
-   from rrivis.core.jones import GainJones
+   from radiosim.core.jones import GainJones
    import numpy as np
 
    # Create gain Jones term with 1% amplitude errors

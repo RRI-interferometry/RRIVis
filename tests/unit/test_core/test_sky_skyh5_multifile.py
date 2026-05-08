@@ -17,13 +17,13 @@ import pytest
 from astropy.coordinates import Latitude, Longitude, SkyCoord
 from pyradiosky import SkyModel as PyRadioSkyModel
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky._registry import ensure_default_loaders_registered
-from rrivis.core.sky.model import SkyFormat
-from rrivis.core.sky.region import ConeRegion
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky._registry import ensure_default_loaders_registered
+from radiosim.core.sky.model import SkyFormat
+from radiosim.core.sky.region import ConeRegion
 
 ensure_default_loaders_registered()
-from rrivis.core.sky.registry import loader_registry  # noqa: E402
+from radiosim.core.sky.registry import loader_registry  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # Fixtures

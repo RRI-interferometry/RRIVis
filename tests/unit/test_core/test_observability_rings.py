@@ -1,4 +1,4 @@
-"""Tests for ZA-ring helpers in rrivis.core.observability.overlay."""
+"""Tests for ZA-ring helpers in radiosim.core.observability.overlay."""
 
 import matplotlib
 
@@ -9,11 +9,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from rrivis.core.observability.overlay import (
+from radiosim.core.observability.overlay import (
     draw_za_rings_on_figure,
     za_ring_points,
 )
-from rrivis.utils.coordinates import angular_separation_deg, split_wrapped_path
+from radiosim.utils.coordinates import angular_separation_deg, split_wrapped_path
 
 
 class TestZARingPoints:

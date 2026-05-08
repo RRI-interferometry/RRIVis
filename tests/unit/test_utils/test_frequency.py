@@ -1,9 +1,9 @@
-"""Tests for rrivis.utils.frequency — frequency config parsing."""
+"""Tests for radiosim.utils.frequency — frequency config parsing."""
 
 import numpy as np
 import pytest
 
-from rrivis.utils.frequency import parse_frequency_config
+from radiosim.utils.frequency import parse_frequency_config
 
 # ---------------------------------------------------------------------------
 # Unit scaling

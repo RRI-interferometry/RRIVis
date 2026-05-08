@@ -6,14 +6,14 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import (
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import (
     MonopoleConvention,
     SkyCoverage,
     SkyRegion,
     realistic_foreground_sky,
 )
-from rrivis.core.sky.model import SkyFormat
+from radiosim.core.sky.model import SkyFormat
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def precision() -> PrecisionConfig:
 @pytest.fixture
 def fake_pygdsm(monkeypatch):
     """Install a deterministic fake pygdsm model so recipe tests stay local."""
-    import rrivis.core.sky._loaders_diffuse as diffuse_mod
+    import radiosim.core.sky._loaders_diffuse as diffuse_mod
 
     class _FakePyGDSM:
         def __init__(self, **kwargs):
@@ -151,7 +151,7 @@ class TestThresholdChain:
 
 class TestRegistryIntegration:
     def test_recipe_is_a_registered_loader(self):
-        from rrivis.core.sky._registry import get_loader, get_loader_definition
+        from radiosim.core.sky._registry import get_loader, get_loader_definition
 
         loader = get_loader("realistic_foreground")
         assert loader.__name__ == "realistic_foreground_sky"
@@ -160,7 +160,7 @@ class TestRegistryIntegration:
         assert definition.representations == ("healpix_map",)
 
     def test_yaml_config_parses(self):
-        from rrivis.io.config import parse_sky_source_config
+        from radiosim.io.config import parse_sky_source_config
 
         spec = parse_sky_source_config(
             {
@@ -177,8 +177,8 @@ class TestRegistryIntegration:
 
     def test_provenance_override_in_yaml(self, precision):
         """A provenance_override dict on any SkySourceConfig is forwarded."""
-        from rrivis.core.sky._registry import get_loader
-        from rrivis.io.config import parse_sky_source_config
+        from radiosim.core.sky._registry import get_loader
+        from radiosim.io.config import parse_sky_source_config
 
         spec = parse_sky_source_config(
             {

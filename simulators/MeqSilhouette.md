@@ -8,7 +8,7 @@ polarization, antenna gains, bandpass, thermal noise) to user-supplied sky
 models and writes the result into a CASA Measurement Set (MS).
 
 This document is an exhaustive, source-cited reference compiled by walking the
-repository at `simulators/MeqSilhouette/` (a git submodule of RRIVis).  All
+repository at `simulators/MeqSilhouette/` (a git submodule of RadioSim).  All
 file references are relative to that directory unless noted otherwise.
 
 ---

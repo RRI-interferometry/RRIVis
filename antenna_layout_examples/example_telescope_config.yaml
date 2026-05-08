@@ -1,5 +1,5 @@
 # Example Telescope Configuration File
-# This demonstrates the YAML configuration format for RRIvis
+# This demonstrates the YAML configuration format for RadioSim
 
 telescope:
   name: "Example Array"
@@ -9,8 +9,8 @@ telescope:
     elevation: 1050.0
   
 antenna_layout:
-  file: "example_rrivis_format.txt"
-  format: "rrivis"
+  file: "example_radiosim_format.txt"
+  format: "radiosim"
 
 observation:
   start_time: "2024-01-01T00:00:00"

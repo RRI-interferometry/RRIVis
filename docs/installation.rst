@@ -11,37 +11,37 @@ Requirements
 Basic Installation
 ------------------
 
-Install RRIvis from PyPI:
+Install RadioSim from PyPI:
 
 .. code-block:: bash
 
-   pip install rrivis
+   pip install radiosim
 
 GPU Support
 -----------
 
-RRIvis supports GPU acceleration through JAX and Numba backends.
+RadioSim supports GPU acceleration through JAX and Numba backends.
 
 NVIDIA GPU (CUDA 12)
 ^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: bash
 
-   pip install rrivis[gpu-cuda]
+   pip install radiosim[gpu-cuda]
 
 AMD GPU (ROCm)
 ^^^^^^^^^^^^^^
 
 .. code-block:: bash
 
-   pip install rrivis[gpu-rocm]
+   pip install radiosim[gpu-rocm]
 
 Apple Silicon (Metal)
 ^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: bash
 
-   pip install rrivis[gpu]
+   pip install radiosim[gpu]
 
 This automatically detects and uses Metal on M1/M2/M3/M4 Macs.
 
@@ -50,7 +50,7 @@ Google TPU
 
 .. code-block:: bash
 
-   pip install rrivis[tpu]
+   pip install radiosim[tpu]
 
 Optional Dependencies
 ---------------------
@@ -62,7 +62,7 @@ For the Numba backend with Dask support:
 
 .. code-block:: bash
 
-   pip install rrivis[numba]
+   pip install radiosim[numba]
 
 Measurement Set I/O
 ^^^^^^^^^^^^^^^^^^^
@@ -71,7 +71,7 @@ For CASA Measurement Set support:
 
 .. code-block:: bash
 
-   pip install rrivis[ms]
+   pip install radiosim[ms]
 
 Development
 ^^^^^^^^^^^
@@ -80,7 +80,7 @@ For development tools (pytest, ruff, pyright):
 
 .. code-block:: bash
 
-   pip install rrivis[dev]
+   pip install radiosim[dev]
 
 Documentation
 ^^^^^^^^^^^^^
@@ -89,7 +89,7 @@ For building documentation:
 
 .. code-block:: bash
 
-   pip install rrivis[docs]
+   pip install radiosim[docs]
 
 All Dependencies
 ^^^^^^^^^^^^^^^^
@@ -98,7 +98,7 @@ Install everything:
 
 .. code-block:: bash
 
-   pip install rrivis[all]
+   pip install radiosim[all]
 
 Development Installation
 ------------------------
@@ -108,8 +108,8 @@ For development, use pixi:
 .. code-block:: bash
 
    # Clone repository
-   git clone https://github.com/kartikmandar/RRIvis.git
-   cd RRIvis
+   git clone https://github.com/kartikmandar/RadioSim.git
+   cd RadioSim
 
    # Install with pixi
    pixi install
@@ -127,14 +127,14 @@ Verify your installation:
 
 .. code-block:: python
 
-   import rrivis
-   print(rrivis.__version__)  # Should print "0.2.0"
+   import radiosim
+   print(radiosim.__version__)  # Should print "0.2.0"
 
    # Check available backends
-   from rrivis.backends import list_backends
+   from radiosim.backends import list_backends
    print(list_backends())  # ['numpy', 'jax', 'numba'] depending on install
 
    # Quick test
-   from rrivis import Simulator
+   from radiosim import Simulator
    sim = Simulator()
-   print("RRIvis installed successfully!")
+   print("RadioSim installed successfully!")

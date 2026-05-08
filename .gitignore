@@ -121,7 +121,7 @@ AGENTS.md
 CLAUDE.md
 .roomodes
 .claude
-RRIvis.md
+RadioSim.md
 project.md
 
 # mkdocs documentation
@@ -143,7 +143,7 @@ dmypy.json
 *~
 .DS_Store
 ._*
-RRIVis.code-workspace
+RadioSim.code-workspace
 
 # pixi environment
 .pixi/
@@ -157,13 +157,13 @@ RRIVis.code-workspace
 # Simulation outputs and data files
 simulation_data/
 data/
-!src/rrivis/core/sky/data/
-!src/rrivis/core/sky/data/footprints/
+!src/radiosim/core/sky/data/
+!src/radiosim/core/sky/data/footprints/
 *.h5
 *.fits
 !antenna_layout_examples/1101503312_metafits.fits
 *.npz
-!src/rrivis/core/sky/data/footprints/*.npz
+!src/radiosim/core/sky/data/footprints/*.npz
 *.npy
 
 # Output directories

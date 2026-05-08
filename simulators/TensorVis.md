@@ -1,7 +1,7 @@
 # TensorVis — Exhaustive Technical Reference
 
 > A radio interferometer visibility simulator written for TensorFlow.
-> Vendored as a git submodule of RRIVis at `simulators/TensorVis/`.
+> Vendored as a git submodule of RadioSim at `simulators/TensorVis/`.
 
 ---
 
@@ -448,7 +448,7 @@ A user wanting to validate TensorVis would have to (a) supply their own beamfits
 
 ---
 
-## 10. Integration & Extension Points (for embedding into RRIVis)
+## 10. Integration & Extension Points (for embedding into RadioSim)
 
 TensorVis is intentionally narrow. To embed it as a backend inside a wider simulator one would have to:
 
@@ -590,4 +590,4 @@ tv.vis  (vis.py:172)
 | **Install footprint** | Pure Python + TF + pyuvdata. |
 | **GPU support** | Implicit through TensorFlow device placement; XLA via env var. |
 | **Production-ready?** | No: no tests, scratch code in `coords.py`, single-beam limitation, scalar (no polarisation), no I/O standards. |
-| **Best use inside RRIVis** | As a backend reference for how to express a RIME in pure TF graph mode; not as a drop-in physics engine. |
+| **Best use inside RadioSim** | As a backend reference for how to express a RIME in pure TF graph mode; not as a drop-in physics engine. |

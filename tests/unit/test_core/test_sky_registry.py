@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-import rrivis.core.sky as sky_public
-import rrivis.core.sky.registry as registry_public
-from rrivis.core.sky._registry import _LOADER_META, _LOADERS, _REGISTRY
-from rrivis.core.sky.discovery import get_catalog_info
-from rrivis.core.sky.registry import loader_registry
-from rrivis.io.config import (
+import radiosim.core.sky as sky_public
+import radiosim.core.sky.registry as registry_public
+from radiosim.core.sky._registry import _LOADER_META, _LOADERS, _REGISTRY
+from radiosim.core.sky.discovery import get_catalog_info
+from radiosim.core.sky.registry import loader_registry
+from radiosim.io.config import (
     DiffuseSkySourceConfig,
     GleamSourceConfig,
     PyradioskyFileSourceConfig,

@@ -1,10 +1,10 @@
-"""Tests for rrivis.core.sky.spectral — spectral scaling and Faraday rotation."""
+"""Tests for radiosim.core.sky.spectral — spectral scaling and Faraday rotation."""
 
 import numpy as np
 import pytest
 
-from rrivis.core.sky.constants import C_LIGHT
-from rrivis.core.sky.spectral import (
+from radiosim.core.sky.constants import C_LIGHT
+from radiosim.core.sky.spectral import (
     apply_faraday_rotation,
     compute_spectral_scale,
     evaluate_point_flux_at_freq,
@@ -352,7 +352,7 @@ class TestNearestChannelIndexWithWarning:
 
     def test_silent_when_aligned(self, caplog):
         freqs = np.array([100e6, 110e6, 120e6])
-        with caplog.at_level("WARNING", logger="rrivis.core.sky.spectral"):
+        with caplog.at_level("WARNING", logger="radiosim.core.sky.spectral"):
             idx = nearest_channel_index_with_warning(freqs, 110e6)
         assert idx == 1
         assert caplog.records == []
@@ -360,7 +360,7 @@ class TestNearestChannelIndexWithWarning:
     def test_warns_when_offgrid(self, caplog):
         freqs = np.array([100e6, 110e6, 120e6])
         # 5 MHz off-grid is well above the 0.1 * spacing = 1 MHz threshold.
-        with caplog.at_level("WARNING", logger="rrivis.core.sky.spectral"):
+        with caplog.at_level("WARNING", logger="radiosim.core.sky.spectral"):
             idx = nearest_channel_index_with_warning(
                 freqs, 105e6, label="per-channel flux"
             )
@@ -373,7 +373,7 @@ class TestNearestChannelIndexWithWarning:
     def test_silent_within_tolerance(self, caplog):
         freqs = np.array([100e6, 110e6, 120e6])
         # 100 Hz difference is below the 1 kHz floor.
-        with caplog.at_level("WARNING", logger="rrivis.core.sky.spectral"):
+        with caplog.at_level("WARNING", logger="radiosim.core.sky.spectral"):
             nearest_channel_index_with_warning(freqs, 110e6 + 100.0)
         assert caplog.records == []
 
@@ -388,7 +388,7 @@ class TestEvaluatePointFluxOffGrid:
         per_channel_flux = np.ones((n_chan, n_src))
         zeros = np.zeros(n_src)
 
-        with caplog.at_level("WARNING", logger="rrivis.core.sky.spectral"):
+        with caplog.at_level("WARNING", logger="radiosim.core.sky.spectral"):
             evaluate_point_flux_at_freq(
                 stokes_i=zeros,
                 stokes_q=zeros,
@@ -414,7 +414,7 @@ class TestEvaluatePointFluxOffGrid:
         per_channel_flux = np.ones((n_chan, n_src))
         zeros = np.zeros(n_src)
 
-        with caplog.at_level("WARNING", logger="rrivis.core.sky.spectral"):
+        with caplog.at_level("WARNING", logger="radiosim.core.sky.spectral"):
             evaluate_point_flux_at_freq(
                 stokes_i=zeros,
                 stokes_q=zeros,

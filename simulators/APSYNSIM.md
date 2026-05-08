@@ -547,11 +547,11 @@ The PDF is the canonical pedagogical companion — refer to it when running this
 
 ---
 
-## 14. How APSYNSIM relates to RRIVis
+## 14. How APSYNSIM relates to RadioSim
 
-This package is not used by RRIVis at runtime — it is included as one of many reference simulators inside `simulators/`. Useful comparisons to RRIVis (`src/rrivis/`):
+This package is not used by RadioSim at runtime — it is included as one of many reference simulators inside `simulators/`. Useful comparisons to RadioSim (`src/radiosim/`):
 
-| Aspect | APSYNSIM | RRIVis |
+| Aspect | APSYNSIM | RadioSim |
 |---|---|---|
 | Visibility model | Direct grid-FFT of a model image (no per-source RIME) | Per-source RIME `V_pq = Σ J_p · C · J_q^H` (`core/visibility.py`) |
 | Polarisation | None | Full Stokes via `core/polarization.py` (with the 1/2 coherency factor) |
@@ -559,10 +559,10 @@ This package is not used by RRIVis at runtime — it is included as one of many 
 | Sky model | P/G/D + raster image, max ~tens of components | `SkyModel` dataclass with point-source / HEALPix payloads, multi-catalog loaders, BBS, FITS, PRISim, etc. (`core/sky/`) |
 | Backend | NumPy + scipy.fft | Pluggable: NumPy, JAX, Numba (`backends/`) |
 | Calibration | Manual gain corruption in CLEAN GUI; no calibration solver | Jones-term framework (`core/jones/`) covering the 8 standard terms plus extended F/W/C/H/Ee/etc. |
-| Imaging | Briggs-weighted dirty image + Hogbom CLEAN | RRIVis is a *forward simulator* — imaging is delegated to downstream tools (WSClean, RASCIL, etc.) |
+| Imaging | Briggs-weighted dirty image + Hogbom CLEAN | RadioSim is a *forward simulator* — imaging is delegated to downstream tools (WSClean, RASCIL, etc.) |
 | Output | Tk live plots only | HDF5/CASA Measurement Set/YAML (`io/`) |
 
-The two complement each other: APSYNSIM is a single-file teaching GUI; RRIVis is an installable, scriptable, GPU-capable batch simulator with full polarisation and Jones machinery.
+The two complement each other: APSYNSIM is a single-file teaching GUI; RadioSim is an installable, scriptable, GPU-capable batch simulator with full polarisation and Jones machinery.
 
 ---
 

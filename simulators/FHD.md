@@ -1,7 +1,7 @@
 # FHD — Fast Holographic Deconvolution
 
 > Exhaustive technical reference for the IDL pipeline located at
-> `/Users/kartikmandar/RRIVis/simulators/FHD/`.
+> `/Users/kartikmandar/RadioSim/simulators/FHD/`.
 >
 > All claims below are grounded in the source files inspected inside this
 > submodule. Where something is not present (e.g. there is no Python build

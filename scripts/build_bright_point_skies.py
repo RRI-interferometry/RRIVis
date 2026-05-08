@@ -121,7 +121,7 @@ def build_one_cube(
             i_map[target_pixel] = bright_jysr
             new_stokes[0, 0, :] = i_map
             stokes[...] = new_stokes
-            stokes.attrs["rrivis_provenance"] = note
+            stokes.attrs["radiosim_provenance"] = note
         if (i + 1) % 10 == 0 or i + 1 == n:
             print(f"    [{i + 1:3d}/{n}] {dst.name}", flush=True)
 
@@ -257,7 +257,7 @@ def main() -> int:
         floor_jysr=floor,
         bright_jysr=bright_jysr,
         note=(
-            f"rrivis bright-point cube: floor=global_min(EOR_sky_222)={floor:.3e} Jy/sr, "
+            f"radiosim bright-point cube: floor=global_min(EOR_sky_222)={floor:.3e} Jy/sr, "
             f"bright pixel={bright_jysr:.3e} Jy/sr at HERA zenith "
             f"(RA={ra_z:.4f}, Dec={dec_z:.4f}), "
             f"LST={args.lst_hours} h, lat={args.lat_deg} deg."
@@ -272,7 +272,7 @@ def main() -> int:
         floor_jysr=floor,
         bright_jysr=bright_jysr,
         note=(
-            f"rrivis bright-point cube: floor=global_min(EOR_sky_222)={floor:.3e} Jy/sr, "
+            f"radiosim bright-point cube: floor=global_min(EOR_sky_222)={floor:.3e} Jy/sr, "
             f"bright pixel={bright_jysr:.3e} Jy/sr at Airy 7m first sidelobe "
             f"(AZ={args.airy_az_deg}, ZA={za_sl:.4f})  →  "
             f"ICRS (RA={ra_s:.4f}, Dec={dec_s:.4f}), "

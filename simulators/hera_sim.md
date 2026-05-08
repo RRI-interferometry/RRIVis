@@ -15,7 +15,7 @@ season configs in `src/hera_sim/config/` (`H1C.yaml`, `H2C.yaml`,
 `scripts/` (`hera-sim-simulate.py`, `hera-sim-vis.py`), the
 `pyproject.toml`, the `README.rst`, the `CHANGELOG.rst`, the
 documentation tree under `docs/` (including the `tutorials/`), and the
-test layout under `tests/`. Inside RRIVis this is the engine to read
+test layout under `tests/`. Inside RadioSim this is the engine to read
 when you want **HERA-flavoured systematic and visibility simulation**:
 it is the canonical place where bandpasses, reflections, mutual
 coupling, RFI, EoR-like and foreground visibilities, sigchain and
@@ -1768,7 +1768,7 @@ Recent stable releases:
 
 ## 22. Tracing relationships to the wider HERA software stack
 
-Inside this RRIVis vendor tree, `hera_sim` sits at the apex of
+Inside this RadioSim vendor tree, `hera_sim` sits at the apex of
 several other simulators:
 
 - **`matvis`** — invoked by `hera_sim.visibilities.MatVis` for the
@@ -1790,45 +1790,45 @@ several other simulators:
 - **`bda`** — used optionally by `scripts/hera-sim-simulate.py` for
   baseline-dependent averaging at the end of a rough sim.
 
-When mapping `hera_sim`'s effects into RRIVis's RIME framework
-(`src/rrivis/core/`):
+When mapping `hera_sim`'s effects into RadioSim's RIME framework
+(`src/radiosim/core/`):
 
 - `hera_sim.foregrounds.DiffuseForeground` ↔ a HEALPix sky model
-  multiplied by a Gaussian primary beam in RRIVis (no direct
+  multiplied by a Gaussian primary beam in RadioSim (no direct
   analogue; HERA sky-temperature models lack the spatial structure
-  RRIVis expects).
+  RadioSim expects).
 - `hera_sim.foregrounds.PointSourceForeground` ↔ a synthetic point-
   source catalog in `core/sky/_factories.py`
   (`create_test_sources`), but `hera_sim` bakes in HERA-specific
   geometry (Gaussian beam width, 0.9 NS-component fraction).
-- `hera_sim.eor.NoiselikeEoR` has no direct analogue; RRIVis uses
+- `hera_sim.eor.NoiselikeEoR` has no direct analogue; RadioSim uses
   `core/sky/_loaders_diffuse.py` with PySM3 / PyGDSM diffuse maps.
 - `hera_sim.beams.PolyBeam` / `PerturbedPolyBeam` / `ZernikeBeam`
-  are *not* in the RRIVis Jones-matrix system; the closest
+  are *not* in the RadioSim Jones-matrix system; the closest
   equivalents are `core/jones/beam/analytic.AnalyticBeamJones` and
   `core/jones/beam/fits.FITSBeamJones`. Note the architectural
   difference: `hera_sim` beams are `pyuvdata.AnalyticBeam`
-  subclasses, while RRIVis beams are full Jones operators.
+  subclasses, while RadioSim beams are full Jones operators.
 - `hera_sim.sigchain.MutualCoupling` is roughly comparable to a
-  RRIVis baseline-error term; in RRIVis's framework, mutual
+  RadioSim baseline-error term; in RadioSim's framework, mutual
   coupling would be a `JonesBaselineTerm` (see
   `core/jones/baseline_errors.py`), not a vis-space full-array
   modifier.
 - The `Bandpass` / `Reflections` / `ReflectionSpectrum` /
   `OverAirCrossCoupling` models are *vis-space approximations* of
-  what RRIVis would do as Jones terms in
+  what RadioSim would do as Jones terms in
   `core/jones/{bandpass,gain,polarization_leakage,delay,crosshand}.py`.
   In particular, `hera_sim`'s `Bandpass` is a single multiplicative
-  per-antenna gain spectrum, equivalent to RRIVis's `BandpassJones`
+  per-antenna gain spectrum, equivalent to RadioSim's `BandpassJones`
   ⊗ `GainJones`.
 
-Where RRIVis wants to consume a `hera_sim` simulation, the natural
+Where RadioSim wants to consume a `hera_sim` simulation, the natural
 bridge is:
 - read the `UVData` produced by `hera-sim-vis.py` (visibility
   simulation) or `hera-sim-simulate.py` (rough sim) via
-  `rrivis.io.readers`;
+  `radiosim.io.readers`;
 - treat the bandpass/gain/reflection systematics as already-applied
-  (so RRIVis simulators should run with `JonesChain` containing only
+  (so RadioSim simulators should run with `JonesChain` containing only
   the K (geometric) and E (beam) terms when comparing against
   `hera_sim` outputs).
 
@@ -1918,6 +1918,6 @@ If you need to extend or debug:
 
 *Document compiled by direct read of the vendored
 `simulators/hera_sim/` tree (Python 3.11+, `hera_sim` 4.1.x dev
-branch) on RRIVis main as of 2026-05-04. Cross-checked against
+branch) on RadioSim main as of 2026-05-04. Cross-checked against
 `README.rst`, `CHANGELOG.rst`, `pyproject.toml`, and the entire
 `docs/tutorials/` tree.*

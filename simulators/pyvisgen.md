@@ -147,7 +147,7 @@ producing one complex 2×2 matrix per baseline per frequency channel. Both
 A separate normalization step in `vis_loop` multiplies B by 0.5 if
 `normalize=True` (default), making the Stokes-I image normalize to 1 in
 the final visibilities (the same 1/2 factor used in standard
-RIME conventions; see RRIVis CLAUDE.md note).
+RIME conventions; see RadioSim CLAUDE.md note).
 
 ---
 

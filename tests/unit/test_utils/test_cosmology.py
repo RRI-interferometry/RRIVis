@@ -1,4 +1,4 @@
-"""Tests for rrivis.utils.cosmology — 21 cm helpers."""
+"""Tests for radiosim.utils.cosmology — 21 cm helpers."""
 
 import matplotlib
 
@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from rrivis.utils.cosmology import (
+from radiosim.utils.cosmology import (
     F_21CM_HZ,
     add_redshift_secondary_axis,
     frequency_to_redshift_21cm,

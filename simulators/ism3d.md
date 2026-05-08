@@ -1,7 +1,7 @@
 # ism3d — Interferometric Source Modeling up to 3D
 
 > Exhaustive technical reference for the `ism3d` Python package vendored as a
-> git submodule under `simulators/ism3d/` of the RRIVis project.
+> git submodule under `simulators/ism3d/` of the RadioSim project.
 >
 > All paths in this document are relative to `simulators/ism3d/` unless stated
 > otherwise. Citations point at the file and (where helpful) the line range

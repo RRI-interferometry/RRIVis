@@ -1,7 +1,7 @@
-RRIvis Documentation
+RadioSim Documentation
 ====================
 
-**RRIvis** is a Python package for simulating radio interferometry visibilities
+**RadioSim** is a Python package for simulating radio interferometry visibilities
 with GPU acceleration support. It implements the Radio Interferometer Measurement
 Equation (RIME) with full polarization support.
 
@@ -56,7 +56,7 @@ Quick Example
 
 .. code-block:: python
 
-   from rrivis import Simulator
+   from radiosim import Simulator
 
    # Create simulator from config
    sim = Simulator.from_config("config.yaml")
@@ -74,13 +74,13 @@ Installation
 .. code-block:: bash
 
    # Basic installation
-   pip install rrivis
+   pip install radiosim
 
    # With GPU support (NVIDIA)
-   pip install rrivis[gpu-cuda]
+   pip install radiosim[gpu-cuda]
 
    # With all optional dependencies
-   pip install rrivis[all]
+   pip install radiosim[all]
 
 Indices and tables
 ==================

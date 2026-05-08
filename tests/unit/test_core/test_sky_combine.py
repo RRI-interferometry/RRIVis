@@ -4,15 +4,15 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky import HealpixData, create_from_arrays
-from rrivis.core.sky.combine import (
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import HealpixData, create_from_arrays
+from radiosim.core.sky.combine import (
     _combine_models,
     concat_point_sources,
     regrid_healpix_model,
 )
-from rrivis.core.sky.constants import BrightnessConversion
-from rrivis.core.sky.model import SkyFormat, SkyModel
+from radiosim.core.sky.constants import BrightnessConversion
+from radiosim.core.sky.model import SkyFormat, SkyModel
 
 
 @pytest.fixture

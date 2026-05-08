@@ -1,7 +1,7 @@
 Sky Models
 ==========
 
-RRIvis supports multiple sky models for visibility simulations.
+RadioSim supports multiple sky models for visibility simulations.
 
 Available Sky Models
 --------------------
@@ -14,8 +14,8 @@ point source positions and fluxes.
 
 .. code-block:: python
 
-   from rrivis.core.precision import PrecisionConfig
-   from rrivis.core.sky.loaders import load_gleam
+   from radiosim.core.precision import PrecisionConfig
+   from radiosim.core.sky.loaders import load_gleam
 
    precision = PrecisionConfig.standard()
    sky = load_gleam(flux_limit=1.0, max_rows=10000, precision=precision)
@@ -40,8 +40,8 @@ The Global Sky Model provides diffuse emission.
 .. code-block:: python
 
    import numpy as np
-   from rrivis.core.precision import PrecisionConfig
-   from rrivis.core.sky.loaders import load_diffuse_sky
+   from radiosim.core.precision import PrecisionConfig
+   from radiosim.core.sky.loaders import load_diffuse_sky
 
    precision = PrecisionConfig.standard()
    frequencies = np.linspace(100e6, 200e6, 11)  # Hz
@@ -83,9 +83,9 @@ Combine diffuse and point source emission:
 
 .. code-block:: python
 
-   from rrivis.core.sky import combine_models
-   from rrivis.core.sky.loaders import load_diffuse_sky, load_gleam
-   from rrivis.core.precision import PrecisionConfig
+   from radiosim.core.sky import combine_models
+   from radiosim.core.sky.loaders import load_diffuse_sky, load_gleam
+   from radiosim.core.precision import PrecisionConfig
    import numpy as np
 
    precision = PrecisionConfig.standard()
@@ -119,8 +119,8 @@ Simple point sources for testing:
 
 .. code-block:: python
 
-   from rrivis.core.sky import create_test_sources
-   from rrivis.core.precision import PrecisionConfig
+   from radiosim.core.sky import create_test_sources
+   from radiosim.core.precision import PrecisionConfig
 
    precision = PrecisionConfig.standard()
    sky = create_test_sources(
@@ -149,8 +149,8 @@ Define custom point sources programmatically using ``create_from_arrays()``:
 .. code-block:: python
 
    import numpy as np
-   from rrivis.core.sky import create_from_arrays
-   from rrivis.core.precision import PrecisionConfig
+   from radiosim.core.sky import create_from_arrays
+   from radiosim.core.precision import PrecisionConfig
 
    precision = PrecisionConfig.standard()
    sky = create_from_arrays(
@@ -161,7 +161,7 @@ Define custom point sources programmatically using ``create_from_arrays()``:
        precision=precision,
    )
 
-RRIvis keeps custom catalogs in columnar arrays rather than per-source
+RadioSim keeps custom catalogs in columnar arrays rather than per-source
 dictionaries, so ``create_from_arrays()`` is the direct construction API.
 
 Polarized Sources
@@ -190,7 +190,7 @@ Convert point sources to multi-frequency HEALPix maps:
 .. code-block:: python
 
    import numpy as np
-   from rrivis.core.sky import materialize_healpix_model
+   from radiosim.core.sky import materialize_healpix_model
 
    frequencies = np.linspace(100e6, 200e6, 11)
    sky_healpix = materialize_healpix_model(
@@ -203,7 +203,7 @@ Convert a HEALPix-only model back to a point-source view explicitly:
 
 .. code-block:: python
 
-   from rrivis.core.sky import materialize_point_sources_model
+   from radiosim.core.sky import materialize_point_sources_model
 
    point_view = materialize_point_sources_model(
        sky_healpix,
@@ -219,7 +219,7 @@ HEALPix-only model.
 Public Sky API
 --------------
 
-The root ``rrivis.core.sky`` package is intentionally small. The stable
+The root ``radiosim.core.sky`` package is intentionally small. The stable
 entry points are:
 
 - constructors: ``create_empty()``, ``create_from_arrays()``, ``create_test_sources()``
@@ -291,7 +291,7 @@ For large point-source simulations, use GPU backends:
        config={
            "antenna_layout": {
                "antenna_positions_file": "antennas.txt",
-               "antenna_file_format": "rrivis",
+               "antenna_file_format": "radiosim",
                "all_antenna_diameter": 14.0,
            },
            "obs_frequency": {
@@ -307,5 +307,5 @@ For large point-source simulations, use GPU backends:
    results = sim.run()  # GPU accelerated for point-source visibility
 
 HEALPix direct visibility currently uses a NumPy CPU path. If a GPU backend is
-configured with ``visibility.sky_representation: healpix_map``, RRIVis warns and
+configured with ``visibility.sky_representation: healpix_map``, RadioSim warns and
 runs the HEALPix calculation on CPU.

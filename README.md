@@ -1,10 +1,10 @@
-# RRIvis - Radio Astronomy Visibility Simulator
+# RadioSim - Radio Astronomy Visibility Simulator
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://github.com/kartikmandar/RRIvis/actions/workflows/ci.yml/badge.svg)](https://github.com/kartikmandar/RRIvis/actions)
+[![Tests](https://github.com/kartikmandar/RadioSim/actions/workflows/ci.yml/badge.svg)](https://github.com/kartikmandar/RadioSim/actions)
 
-A Python package for simulating radio interferometry visibilities with GPU acceleration support. RRIvis implements the Radio Interferometer Measurement Equation (RIME) with full polarization support and is designed for 21cm cosmology, EoR research, and general radio astronomy applications.
+A Python package for simulating radio interferometry visibilities with GPU acceleration support. RadioSim implements the Radio Interferometer Measurement Equation (RIME) with full polarization support and is designed for 21cm cosmology, EoR research, and general radio astronomy applications.
 
 ## Features
 
@@ -24,37 +24,37 @@ A Python package for simulating radio interferometry visibilities with GPU accel
 ### Using pip (recommended)
 
 ```bash
-pip install rrivis
+pip install radiosim
 ```
 
 ### With GPU Support
 
 **NVIDIA GPU (CUDA 12):**
 ```bash
-pip install rrivis[gpu-cuda]
+pip install radiosim[gpu-cuda]
 ```
 
 **AMD GPU (ROCm):**
 ```bash
-pip install rrivis[gpu-rocm]
+pip install radiosim[gpu-rocm]
 ```
 
 **Apple Silicon (Metal):**
 ```bash
-pip install rrivis[gpu]  # Auto-detects Metal on M1/M2/M3/M4
+pip install radiosim[gpu]  # Auto-detects Metal on M1/M2/M3/M4
 ```
 
 **Google TPU:**
 ```bash
-pip install rrivis[tpu]
+pip install radiosim[tpu]
 ```
 
 ### Using Pixi (development)
 
 ```bash
 # Clone repository
-git clone https://github.com/kartikmandar/RRIvis.git
-cd RRIvis
+git clone https://github.com/kartikmandar/RadioSim.git
+cd RadioSim
 
 # Install with pixi
 pixi install
@@ -66,7 +66,7 @@ pixi run pytest
 ### All Optional Dependencies
 
 ```bash
-pip install rrivis[all]  # GPU, Numba, MS I/O, dev tools, docs
+pip install radiosim[all]  # GPU, Numba, MS I/O, dev tools, docs
 ```
 
 ## Quick Start
@@ -74,7 +74,7 @@ pip install rrivis[all]  # GPU, Numba, MS I/O, dev tools, docs
 ### High-Level API (Recommended)
 
 ```python
-from rrivis import Simulator
+from radiosim import Simulator
 
 # From configuration file
 sim = Simulator.from_config("config.yaml")
@@ -87,7 +87,7 @@ sim = Simulator(
     config={
         "antenna_layout": {
             "antenna_positions_file": "hera_5.txt",
-            "antenna_file_format": "rrivis",
+            "antenna_file_format": "radiosim",
             "all_antenna_diameter": 14.0,
         },
         "obs_frequency": {
@@ -113,18 +113,18 @@ print(f"Computed {len(results['visibilities'])} baselines")
 ### Low-Level API
 
 ```python
-from rrivis.core import (
+from radiosim.core import (
     calculate_visibility,
     generate_baselines,
     read_antenna_positions,
 )
-from rrivis.backends import get_backend
+from radiosim.backends import get_backend
 
 # Choose backend
 backend = get_backend("jax")  # or "numpy", "numba", "auto"
 
 # Load antennas
-antennas = read_antenna_positions("antennas.txt", format_type="rrivis")
+antennas = read_antenna_positions("antennas.txt", format_type="radiosim")
 
 # Generate baselines
 baselines = generate_baselines(antennas)
@@ -133,8 +133,8 @@ baselines = generate_baselines(antennas)
 ### GPU Acceleration
 
 ```python
-from rrivis import Simulator
-from rrivis.backends import list_backends
+from radiosim import Simulator
+from radiosim.backends import list_backends
 
 # Check available backends
 print(list_backends())  # {'numpy': True, 'jax': bool, 'numba': bool, ...}
@@ -147,7 +147,7 @@ results = sim.run()
 ### Measurement Set Export
 
 ```python
-from rrivis import Simulator
+from radiosim import Simulator
 
 sim = Simulator.from_config("config.yaml")
 results = sim.run()
@@ -161,12 +161,12 @@ sim.save("output/", format="ms")
 # - Image with WSClean: wsclean -name image output/simulation.ms
 ```
 
-**Note:** MS support requires python-casacore: `pip install rrivis[ms]`
+**Note:** MS support requires python-casacore: `pip install radiosim[ms]`
 
 ### Jones Matrix Framework
 
 ```python
-from rrivis.core.jones import (
+from radiosim.core.jones import (
     JonesChain,
     GeometricPhaseJones,
     AnalyticBeamJones,
@@ -193,8 +193,8 @@ jones_chain = JonesChain([
 ### Precision Control
 
 ```python
-from rrivis import Simulator
-from rrivis.core.precision import PrecisionConfig
+from radiosim import Simulator
+from radiosim.core.precision import PrecisionConfig
 
 # Use presets
 sim = Simulator(backend="numpy", precision="fast")      # float32 where safe
@@ -202,7 +202,7 @@ sim = Simulator(backend="numpy", precision="precise")   # float128 for critical 
 sim = Simulator(backend="numpy", precision="standard")  # float64 everywhere (default)
 
 # Granular control
-from rrivis.core.precision import JonesPrecision
+from radiosim.core.precision import JonesPrecision
 
 precision = PrecisionConfig(
     default="float64",
@@ -226,13 +226,13 @@ sim = Simulator(backend="numpy", precision=precision)
 
 ```bash
 # Run simulation from config file (primary mode)
-rrivis --config config.yaml
+radiosim --config config.yaml
 
 # Override antenna file or output dir
-rrivis --config config.yaml --antenna-file antennas.txt --backend jax
+radiosim --config config.yaml --antenna-file antennas.txt --backend jax
 
 # Run simulation with CLI arguments
-rrivis simulate \
+radiosim simulate \
   --antenna-layout hera_5.txt \
   --frequencies 150,160,170 \
   --sky-model test \
@@ -241,18 +241,18 @@ rrivis simulate \
   --backend auto
 
 # Generate a default configuration template
-rrivis init --output config.yaml
+radiosim init --output config.yaml
 
 # Validate a config file
-rrivis validate config.yaml
+radiosim validate config.yaml
 
 # Check version
-rrivis --version
+radiosim --version
 ```
 
 ## Configuration
 
-RRIvis uses YAML configuration files with Pydantic v2 validation:
+RadioSim uses YAML configuration files with Pydantic v2 validation:
 
 ```yaml
 telescope:
@@ -260,7 +260,7 @@ telescope:
 
 antenna_layout:
   antenna_positions_file: "/path/to/antennas.txt"
-  antenna_file_format: "rrivis"
+  antenna_file_format: "radiosim"
   all_antenna_diameter: 14.0
 
 beams:
@@ -300,7 +300,7 @@ output:
 Load and validate configuration:
 
 ```python
-from rrivis.io.config import load_config, create_default_config
+from radiosim.io.config import load_config, create_default_config
 
 # Load existing config (with validation)
 config = load_config("config.yaml")
@@ -316,7 +316,7 @@ print(config.obs_frequency.n_channels)  # Computed property
 ## Package Structure
 
 ```
-rrivis/
+radiosim/
 ├── __init__.py              # Public API exports
 ├── __about__.py             # Version metadata
 ├── api/
@@ -365,7 +365,7 @@ rrivis/
 │   ├── base.py              # VisibilitySimulator ABC
 │   └── rime.py              # RIMESimulator: O(N_src x N_bl x N_freq)
 ├── io/                      # I/O and configuration
-│   ├── config.py            # Pydantic v2 config models (RRIvisConfig)
+│   ├── config.py            # Pydantic v2 config models (RadioSimConfig)
 │   ├── writers.py           # HDF5/YAML output
 │   ├── readers.py           # HDF5 reader
 │   ├── measurement_set.py   # CASA MS read/write
@@ -404,9 +404,9 @@ require a `region`, `max_rows`, or `allow_full_catalog=True` so large surveys ar
 not downloaded accidentally.
 
 ```python
-from rrivis.core.sky import combine_models
-from rrivis.core.sky.loaders import load_gleam, load_lotss, load_racs
-from rrivis.core.precision import PrecisionConfig
+from radiosim.core.sky import combine_models
+from radiosim.core.sky.loaders import load_gleam, load_lotss, load_racs
+from radiosim.core.precision import PrecisionConfig
 
 precision = PrecisionConfig.standard()
 
@@ -432,8 +432,8 @@ combined = combine_models([sky1, sky2], precision=precision)
 
 ```python
 import numpy as np
-from rrivis.core.precision import PrecisionConfig
-from rrivis.core.sky.loaders import load_diffuse_sky, load_pysm3
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky.loaders import load_diffuse_sky, load_pysm3
 
 frequencies = np.array([150e6, 160e6, 170e6])  # Hz
 precision = PrecisionConfig.standard()
@@ -490,8 +490,8 @@ sky = load_pysm3(
 ### Custom Point Sources
 
 ```python
-from rrivis.core.sky import create_from_arrays
-from rrivis.core.precision import PrecisionConfig
+from radiosim.core.sky import create_from_arrays
+from radiosim.core.precision import PrecisionConfig
 import numpy as np
 
 precision = PrecisionConfig.standard()
@@ -544,7 +544,7 @@ beams:
 ### Per-Antenna Analytic Beams
 
 ```python
-from rrivis.core.jones.beam import AnalyticBeamJones
+from radiosim.core.jones.beam import AnalyticBeamJones
 
 # Different HPBW per antenna (e.g., heterogeneous array)
 beam = AnalyticBeamJones(
@@ -564,7 +564,7 @@ beam = AnalyticBeamJones(
 pixi run pytest
 
 # Run with coverage
-pixi run pytest --cov=rrivis --cov-report=html
+pixi run pytest --cov=radiosim --cov-report=html
 
 # Run specific test categories
 pixi run pytest -m "not slow"          # Skip slow/network tests
@@ -588,7 +588,7 @@ Approximate speedups with GPU backends (vs NumPy baseline):
 
 - **Project Documentation**: [project.md](project.md) — complete API and architecture reference
 - **Migration Guide**: [docs/migration_guide.md](docs/migration_guide.md) — v0.1.x to v0.2.0
-- **API Reference**: https://rrivis.readthedocs.io
+- **API Reference**: https://radiosim.readthedocs.io
 - **Config Examples**: [configs/](configs/) — 15+ YAML examples
 - **Antenna Formats**: [antenna_layout_examples/](antenna_layout_examples/)
 
@@ -604,14 +604,14 @@ Contributions are welcome! Please:
 
 ## Citation
 
-If you use RRIvis in your research, please cite:
+If you use RadioSim in your research, please cite:
 
 ```bibtex
-@software{rrivis2025,
+@software{radiosim2025,
   author = {Mandar, Kartik},
-  title = {RRIvis: Radio Astronomy Visibility Simulator},
+  title = {RadioSim: Radio Astronomy Visibility Simulator},
   year = {2025},
-  url = {https://github.com/kartikmandar/RRIvis}
+  url = {https://github.com/kartikmandar/RadioSim}
 }
 ```
 

@@ -1,8 +1,8 @@
 # uvplot — Exhaustive Technical Reference
 
 > Independent technical reference for the **uvplot** package vendored as a git submodule under
-> `simulators/uvplot/` inside the RRIVis repository. Every claim in this document is sourced from
-> the files cited inline (paths are relative to `/Users/kartikmandar/RRIVis/`).
+> `simulators/uvplot/` inside the RadioSim repository. Every claim in this document is sourced from
+> the files cited inline (paths are relative to `/Users/kartikmandar/RadioSim/`).
 
 ---
 

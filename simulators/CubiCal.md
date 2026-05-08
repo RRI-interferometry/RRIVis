@@ -3,7 +3,7 @@
 > A fast complex-Jacobian / Wirtinger-calculus radio-interferometric calibration suite.
 
 This document is an exhaustive, source-grounded reference for the **CubiCal** package as vendored at
-`simulators/CubiCal/` inside the RRIVis repository. All claims are cited to specific files in that
+`simulators/CubiCal/` inside the RadioSim repository. All claims are cited to specific files in that
 checkout. No external documentation has been consulted while authoring this reference.
 
 ---
