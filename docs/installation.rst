@@ -108,7 +108,7 @@ For development, use pixi:
 .. code-block:: bash
 
    # Clone repository
-   git clone https://github.com/kartikmandar/RadioSim.git
+   git clone https://github.com/RRI-interferometry/RadioSim.git
    cd RadioSim
 
    # Install with pixi

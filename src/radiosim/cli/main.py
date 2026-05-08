@@ -58,7 +58,7 @@ _BACKEND_CHOICES = click.Choice(["auto", "numpy", "jax", "numba"])
         "  radiosim simulate --antenna-layout HERA65.csv --frequencies 100,150,200\n\n"
         "  # Show version\n"
         "  radiosim --version\n\n"
-        "For more information, see https://github.com/kartikmandar/RadioSim"
+        "For more information, see https://github.com/RRI-interferometry/RadioSim"
     ),
 )
 @click.version_option(version=__version__, prog_name="radiosim")

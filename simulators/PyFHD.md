@@ -1,7 +1,7 @@
 # PyFHD — Python Fast Holographic Deconvolution
 
 > Exhaustive technical reference for the `PyFHD` git submodule located at
-> `/Users/kartikmandar/RadioSim/simulators/PyFHD/`.
+> `/Users/RRI-interferometry/RadioSim/simulators/PyFHD/`.
 > All citations use repository-relative paths anchored at `simulators/PyFHD/...`.
 > The text below is derived solely from in-tree sources (no other `.md` files in
 > `simulators/` were consulted).

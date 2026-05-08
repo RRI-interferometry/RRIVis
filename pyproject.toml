@@ -115,10 +115,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kartikmandar/RadioSim"
+Homepage = "https://github.com/RRI-interferometry/RadioSim"
 Documentation = "https://radiosim.readthedocs.io"
-Repository = "https://github.com/kartikmandar/RadioSim"
-Issues = "https://github.com/kartikmandar/RadioSim/issues"
+Repository = "https://github.com/RRI-interferometry/RadioSim"
+Issues = "https://github.com/RRI-interferometry/RadioSim/issues"
 
 [project.scripts]
 radiosim = "radiosim.cli.main:main"

@@ -5,7 +5,7 @@ This document is an exhaustive technical reference for the **`meqtrees-cattery`*
 > **Author / upstream**: Oleg Smirnov (osmirnov@gmail.com).
 > **Upstream URL**: https://github.com/ska-sa/meqtrees-cattery
 > **Package version (`setup.py`)**: `meqtrees_cattery 1.8.0`, Python ≥ 3.0.
-> **Folder snapshot scanned**: `/Users/kartikmandar/RadioSim/simulators/meqtrees-cattery/`
+> **Folder snapshot scanned**: `/Users/RRI-interferometry/RadioSim/simulators/meqtrees-cattery/`
 > **Top-level Python LOC** (excluding tests / blank): ~34 663 lines.
 
 ---

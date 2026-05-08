@@ -302,7 +302,7 @@ The following features are deprecated and will be removed in v0.3.0:
 ## Getting Help
 
 - **Documentation**: https://radiosim.readthedocs.io
-- **Issues**: https://github.com/kartikmandar/RadioSim/issues
+- **Issues**: https://github.com/RRI-interferometry/RadioSim/issues
 - **Migration tool**: `radiosim-migrate --help`
 
 ## Version Compatibility

@@ -2,7 +2,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://github.com/kartikmandar/RadioSim/actions/workflows/ci.yml/badge.svg)](https://github.com/kartikmandar/RadioSim/actions)
+[![Tests](https://github.com/RRI-interferometry/RadioSim/actions/workflows/ci.yml/badge.svg)](https://github.com/RRI-interferometry/RadioSim/actions)
 
 A Python package for simulating radio interferometry visibilities with GPU acceleration support. RadioSim implements the Radio Interferometer Measurement Equation (RIME) with full polarization support and is designed for 21cm cosmology, EoR research, and general radio astronomy applications.
 
@@ -53,7 +53,7 @@ pip install radiosim[tpu]
 
 ```bash
 # Clone repository
-git clone https://github.com/kartikmandar/RadioSim.git
+git clone https://github.com/RRI-interferometry/RadioSim.git
 cd RadioSim
 
 # Install with pixi
@@ -611,7 +611,7 @@ If you use RadioSim in your research, please cite:
   author = {Mandar, Kartik},
   title = {RadioSim: Radio Astronomy Visibility Simulator},
   year = {2025},
-  url = {https://github.com/kartikmandar/RadioSim}
+  url = {https://github.com/RRI-interferometry/RadioSim}
 }
 ```
 

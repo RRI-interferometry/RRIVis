@@ -33,7 +33,7 @@ Basic usage:
     ... )
     >>> results = sim.run()
 
-For more information, see https://github.com/kartikmandar/RadioSim
+For more information, see https://github.com/RRI-interferometry/RadioSim
 """
 
 from radiosim.__about__ import (

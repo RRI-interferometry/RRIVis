@@ -1,6 +1,6 @@
 # VisSim — Exhaustive Reference
 
-> Source: `/Users/kartikmandar/RadioSim/simulators/VisSim/` (git submodule, upstream
+> Source: `/Users/RRI-interferometry/RadioSim/simulators/VisSim/` (git submodule, upstream
 > `https://github.com/samirchoudhuri/VisSim.git`).
 > All claims below are derived directly from the files in that directory.
 

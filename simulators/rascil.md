@@ -749,7 +749,7 @@ Outside Dask, set `rsexecute.set_client(use_dask=False)` and the same code runs 
 
 ## 16. Mapping to RadioSim concepts
 
-For cross-referencing while integrating RASCIL into RadioSim (`/Users/kartikmandar/RadioSim/src/radiosim/`):
+For cross-referencing while integrating RASCIL into RadioSim (`/Users/RRI-interferometry/RadioSim/src/radiosim/`):
 
 | RadioSim concept | RASCIL equivalent | Notes |
 |---|---|---|

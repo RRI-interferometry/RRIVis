@@ -2,7 +2,7 @@
 
 > Location of source: `simulators/Obit/` (git submodule).
 > All file paths in this document are given relative to the repository root
-> `/Users/kartikmandar/RadioSim/simulators/Obit/`.
+> `/Users/RRI-interferometry/RadioSim/simulators/Obit/`.
 
 ---
 
