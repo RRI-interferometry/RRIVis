@@ -40,7 +40,6 @@ from ._data import (
     SourceSubtractionStatus,
 )
 from ._factories import create_empty, create_from_arrays
-from ._registry import get_loader, register_loader
 from .catalogs import (
     CASDA_TAP_URL,
     RACS_CATALOGS,
@@ -50,6 +49,7 @@ from .catalogs import (
     load_catalog_footprint_asset,
 )
 from .region import SkyRegion
+from .registry import loader_registry
 
 logger = logging.getLogger(__name__)
 
@@ -542,7 +542,7 @@ def _load_from_vizier_catalog(
 # =========================================================================
 
 
-@register_loader(
+@loader_registry.register(
     "gleam",
     config_section="gleam",
     use_flag="use_gleam",
@@ -597,7 +597,7 @@ def load_gleam(
     )
 
 
-@register_loader(
+@loader_registry.register(
     "mals",
     config_section="mals",
     use_flag="use_mals",
@@ -712,7 +712,7 @@ def _make_simple_vizier_loader(catalog_key: str):
 
 for _key, _config_section in _SIMPLE_VIZIER_CATALOGS.items():
     _fn = _make_simple_vizier_loader(_key)
-    register_loader(
+    loader_registry.register(
         _key,
         config_section=_config_section,
         use_flag=f"use_{_key}",
@@ -725,16 +725,16 @@ for _key, _config_section in _SIMPLE_VIZIER_CATALOGS.items():
     )(_fn)
 
 # Expose as module-level names for direct import
-load_vlssr = get_loader("vlssr")
-load_tgss = get_loader("tgss")
-load_wenss = get_loader("wenss")
-load_sumss = get_loader("sumss")
-load_nvss = get_loader("nvss")
-load_3c = get_loader("3c")
-load_vlass = get_loader("vlass")
+load_vlssr = loader_registry.loader("vlssr")
+load_tgss = loader_registry.loader("tgss")
+load_wenss = loader_registry.loader("wenss")
+load_sumss = loader_registry.loader("sumss")
+load_nvss = loader_registry.loader("nvss")
+load_3c = loader_registry.loader("3c")
+load_vlass = loader_registry.loader("vlass")
 
 
-@register_loader(
+@loader_registry.register(
     "lotss",
     config_section="lotss",
     use_flag="use_lotss",
@@ -891,7 +891,7 @@ def _parse_racs_results_with_fallback(
     return ra_arr, dec_arr, flux_arr, source_name, source_id
 
 
-@register_loader(
+@loader_registry.register(
     "racs",
     config_section="racs",
     use_flag="use_racs",

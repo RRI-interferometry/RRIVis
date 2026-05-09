@@ -151,11 +151,11 @@ class TestThresholdChain:
 
 class TestRegistryIntegration:
     def test_recipe_is_a_registered_loader(self):
-        from radiosim.core.sky._registry import get_loader, get_loader_definition
+        from radiosim.core.sky.registry import loader_registry
 
-        loader = get_loader("realistic_foreground")
+        loader = loader_registry.loader("realistic_foreground")
         assert loader.__name__ == "realistic_foreground_sky"
-        definition = get_loader_definition("realistic_foreground")
+        definition = loader_registry.definition("realistic_foreground")
         assert definition.category == "synthetic"
         assert definition.representations == ("healpix_map",)
 
@@ -177,7 +177,7 @@ class TestRegistryIntegration:
 
     def test_provenance_override_in_yaml(self, precision):
         """A provenance_override dict on any SkySourceConfig is forwarded."""
-        from radiosim.core.sky._registry import get_loader
+        from radiosim.core.sky.registry import loader_registry
         from radiosim.io.config import parse_sky_source_config
 
         spec = parse_sky_source_config(
@@ -195,7 +195,7 @@ class TestRegistryIntegration:
             }
         )
         name, kwargs = spec.to_loader_request()
-        loader = get_loader(name)
+        loader = loader_registry.resolve_callable(name)
         sky = loader(precision=precision, **kwargs)
         assert sky.provenance.notes == "from-yaml"
         assert sky.provenance.monopole_convention is MonopoleConvention.ABSOLUTE_NO_CMB

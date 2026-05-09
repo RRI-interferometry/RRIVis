@@ -26,10 +26,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ._data import SkyCoverage, SourceSubtractionStatus
-from ._registry import get_loader, register_loader
 from .combine import MixedModelPolicy
 from .model import SkyFormat, SkyModel
 from .pipeline import prepare_sky_model
+from .registry import loader_registry
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -73,10 +73,10 @@ def _load_bright_catalog(
     """
     import inspect
 
-    loader = get_loader(name)
+    resolved = loader_registry.resolve_callable(name)
     accepts: set[str]
     try:
-        sig = inspect.signature(loader)
+        sig = inspect.signature(resolved.definition.loader)
         accepts = set(sig.parameters)
     except (TypeError, ValueError):
         accepts = set()
@@ -94,7 +94,7 @@ def _load_bright_catalog(
 
     if extra_kwargs:
         kwargs.update(extra_kwargs)
-    return loader(**kwargs)
+    return resolved(**kwargs)
 
 
 def _load_diffuse(
@@ -108,7 +108,7 @@ def _load_diffuse(
     precision: PrecisionConfig,
     extra_kwargs: dict[str, Any] | None,
 ) -> SkyModel:
-    loader = get_loader(name)
+    loader = loader_registry.resolve_callable(name)
     kwargs: dict[str, Any] = {
         "nside": int(nside),
         "frequencies": np.asarray(frequencies, dtype=np.float64),
@@ -265,7 +265,7 @@ def _check_threshold_chain(
             )
 
 
-@register_loader(
+@loader_registry.register(
     "realistic_foreground",
     config_section="realistic_foreground",
     use_flag="use_realistic_foreground",

@@ -14,9 +14,9 @@ from ._data import (
     SourceSubtractionStatus,
 )
 from ._dnds_models import DNDSModel, resolve_dn_ds
-from ._registry import register_loader
 from .constants import BrightnessConversion
 from .model import SkyFormat, _coerce_format
+from .registry import loader_registry
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@register_loader(
+@loader_registry.register(
     "test_sources",
     config_section="test_sources",
     use_flag="use_test_sources",
@@ -204,7 +204,7 @@ def _sample_points_on_region(
     return accepted_ra[:n], accepted_dec[:n]
 
 
-@register_loader(
+@loader_registry.register(
     "poisson_confusion",
     config_section="poisson_confusion",
     use_flag="use_poisson_confusion",

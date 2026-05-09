@@ -21,8 +21,8 @@ from ._data import (
     SourceSubtractionStatus,
 )
 from ._precision import get_sky_storage_dtype
-from ._registry import register_loader
 from .catalogs import DIFFUSE_MODELS
+from .registry import loader_registry
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -123,7 +123,7 @@ def get_diffuse_model_info(model_name: str) -> dict[str, Any]:
 # =========================================================================
 
 
-@register_loader(
+@loader_registry.register(
     "diffuse_sky",
     config_section="gsm_healpix",
     use_flag="use_gsm",
@@ -497,7 +497,7 @@ def create_gsm_observer(
     return observer
 
 
-@register_loader(
+@loader_registry.register(
     "pysm3",
     config_section="pysm3",
     use_flag="use_pysm3",

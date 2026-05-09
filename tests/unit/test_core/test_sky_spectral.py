@@ -3,12 +3,14 @@
 import numpy as np
 import pytest
 
+from radiosim.core.sky._data import PointSourceData
 from radiosim.core.sky.constants import C_LIGHT
 from radiosim.core.sky.spectral import (
     apply_faraday_rotation,
     compute_spectral_scale,
     evaluate_point_flux_at_freq,
     nearest_channel_index_with_warning,
+    per_source_reference_frequencies,
 )
 
 # ---------------------------------------------------------------------------
@@ -432,3 +434,68 @@ class TestEvaluatePointFluxOffGrid:
                 freq=104e6,  # 4 MHz off-grid
             )
         assert any("per-channel flux" in r.getMessage() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# TestPerSourceReferenceFrequencies
+# ---------------------------------------------------------------------------
+
+
+def _make_point(ref_freq_values: np.ndarray | None) -> PointSourceData:
+    n = 3
+    return PointSourceData(
+        ra_rad=np.zeros(n),
+        dec_rad=np.zeros(n),
+        flux=np.ones(n),
+        spectral_index=np.full(n, -0.7),
+        stokes_q=np.zeros(n),
+        stokes_u=np.zeros(n),
+        stokes_v=np.zeros(n),
+        ref_freq=(
+            np.zeros(n, dtype=np.float64)
+            if ref_freq_values is None
+            else np.asarray(ref_freq_values, dtype=np.float64)
+        ),
+    )
+
+
+class TestPerSourceReferenceFrequencies:
+    """Tests for per_source_reference_frequencies()."""
+
+    def test_per_source_values_when_any_positive(self):
+        """When point.ref_freq has at least one positive value, it wins."""
+        point = _make_point(np.array([100e6, 0.0, 200e6]))
+        out = per_source_reference_frequencies(
+            point,
+            model_reference_frequency=999e6,
+            fallback=888e6,
+        )
+        np.testing.assert_array_equal(out, [100e6, 0.0, 200e6])
+        assert out.dtype == np.float64
+
+    def test_falls_back_to_model_when_all_zero(self):
+        point = _make_point(np.zeros(3))
+        out = per_source_reference_frequencies(
+            point,
+            model_reference_frequency=150e6,
+            fallback=200e6,
+        )
+        np.testing.assert_array_equal(out, [150e6, 150e6, 150e6])
+
+    def test_falls_back_to_fallback_when_no_model_freq(self):
+        point = _make_point(np.zeros(3))
+        out = per_source_reference_frequencies(
+            point,
+            model_reference_frequency=None,
+            fallback=200e6,
+        )
+        np.testing.assert_array_equal(out, [200e6, 200e6, 200e6])
+
+    def test_zero_array_when_nothing_provided(self):
+        point = _make_point(np.zeros(3))
+        out = per_source_reference_frequencies(
+            point,
+            model_reference_frequency=None,
+            fallback=None,
+        )
+        np.testing.assert_array_equal(out, np.zeros(3))

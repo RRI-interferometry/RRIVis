@@ -1,5 +1,12 @@
 # radiosim/core/sky/combine.py
-"""Sky model combination — public dispatcher.
+"""Sky-model combination engine (internal).
+
+User code should call :func:`radiosim.core.sky.prepare_sky_model` — the
+canonical entry point — which wraps this module with the beam-aware
+``nside`` advisor and consistent materialization defaults. The engine
+function ``_combine_models`` exported here is intentionally underscored
+and intended for tests and advanced internal callers; it is **not** part
+of the public surface (notice it is absent from ``__all__``).
 
 The arithmetic, regridding, disjointness, and provenance reduction code
 each live in their own module:
@@ -10,9 +17,9 @@ each live in their own module:
 - ``_combine_disjointness`` — physical disjointness rules and policy enforcement
 - ``_combine_provenance`` — ``SkyProvenance`` reduction across input models
 
-Only ``combine_models`` constructs a :class:`SkyModel` (via a late import to
-avoid the circular dependency through ``_factories``).  The internal helpers
-return raw data dicts.
+Only ``_combine_models`` constructs a :class:`SkyModel` (via a late import
+to avoid the circular dependency through ``_factories``).  The internal
+helpers return raw data dicts.
 """
 
 from __future__ import annotations
@@ -55,11 +62,52 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "CombineHealpixData",
     "MixedModelPolicy",
-    "_combine_models",
     "combine_healpix",
     "concat_point_sources",
     "regrid_healpix_model",
+    "resolve_target_representation",
 ]
+
+
+# =============================================================================
+# Target-representation resolution (shared by prepare_sky_model and
+# _combine_models)
+# =============================================================================
+
+
+def resolve_target_representation(
+    models: list[SkyModel],
+    requested: SkyFormat | str | None,
+) -> SkyFormat | None:
+    """Resolve the output representation for a combine/materialize request.
+
+    * If ``requested`` is provided, it wins (coerced to :class:`SkyFormat`).
+    * Otherwise the inputs decide: returns ``SkyFormat.HEALPIX`` or
+      ``SkyFormat.POINT_SOURCES`` when every populated input shares a single
+      representation; returns ``None`` to signal that hybrid output should
+      be preserved (any input is hybrid, or inputs span both types).
+
+    Single source of truth for the hybrid auto-detection that previously
+    lived in both :func:`prepare_sky_model` and :func:`_combine_models`.
+    """
+    if requested is not None:
+        if isinstance(requested, SkyFormat):
+            return requested
+        return SkyFormat(requested)
+    if not models:
+        return None
+    classifications = [classify_model(m) for m in models]
+    hybrid_set = frozenset({SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX})
+    any_hybrid_input = any(c == hybrid_set for c in classifications)
+    has_point = any(SkyFormat.POINT_SOURCES in c for c in classifications)
+    has_healpix = any(SkyFormat.HEALPIX in c for c in classifications)
+    if any_hybrid_input or (has_point and has_healpix):
+        return None
+    if has_healpix:
+        return SkyFormat.HEALPIX
+    if has_point:
+        return SkyFormat.POINT_SOURCES
+    return None
 
 
 # =============================================================================
@@ -126,6 +174,7 @@ def _combine_as_healpix_merge(
             maps=data["healpix_maps"],
             nside=data["healpix_nside"],
             frequencies=data["observation_frequencies"],
+            channel_widths_hz=data["channel_widths_hz"],
             coordinate_frame=data["coordinate_frame"],
             q_maps=data["healpix_q_maps"],
             u_maps=data["healpix_u_maps"],
@@ -356,17 +405,9 @@ def _combine_models(
         frequencies, obs_frequency_config
     )
 
-    # Hybrid auto-detection: when no representation is specified, preserve
-    # both payloads if any input is hybrid, or if inputs span both types.
-    classifications = [classify_model(m) for m in models]
-    any_hybrid_input = any(
-        c == frozenset({SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX})
-        for c in classifications
-    )
-    has_point = any(SkyFormat.POINT_SOURCES in c for c in classifications)
-    has_healpix = any(SkyFormat.HEALPIX in c for c in classifications)
-
-    if representation is None and (any_hybrid_input or (has_point and has_healpix)):
+    target = resolve_target_representation(models, representation)
+    if target is None:
+        # Hybrid output — at least one input is hybrid or inputs span types.
         return _combine_as_hybrid(
             models,
             freq=frequency,
@@ -377,7 +418,7 @@ def _combine_models(
         )
 
     representation, freq, ref_freq = resolve_combination_params(
-        models, representation, frequency, ref_frequency
+        models, target, frequency, ref_frequency
     )
 
     has_healpix_map = any(m.healpix is not None for m in models)

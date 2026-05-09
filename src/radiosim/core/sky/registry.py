@@ -11,11 +11,26 @@ from ._registry import (
     LoaderDefinition,
     LoaderOutputMode,
     LoaderRepresentation,
+    ResolvedLoader,
 )
 
 
 class SkyLoaderRegistry:
-    """Public facade around the built-in sky-loader registry."""
+    """Public facade around the built-in sky-loader registry.
+
+    Two distinct accessors return the underlying loader callable:
+
+    * :meth:`loader` — returns the **bare canonical** function. Alias-bound
+      default kwargs are NOT applied; the caller supplies every argument.
+    * :meth:`resolve_callable` — returns a :class:`ResolvedLoader` callable
+      that merges any alias-bound defaults under the caller's kwargs.
+
+    Use :meth:`loader` when you want a stable function reference (e.g. to
+    re-export a catalog-specific loader). Use :meth:`resolve_callable`
+    when you accept a name from configuration and need alias defaults
+    (``"gsm"`` → ``load_diffuse_sky(model="gsm2008")``) applied
+    automatically.
+    """
 
     def register(
         self,
@@ -47,8 +62,12 @@ class SkyLoaderRegistry:
         )
 
     def loader(self, name: str) -> Callable[..., Any]:
-        """Return a loader function by canonical name or alias."""
-        return _backend.get_loader(name)
+        """Return the bare canonical loader function (no alias defaults applied)."""
+        return _backend.get_canonical_loader(name)
+
+    def resolve_callable(self, name: str) -> ResolvedLoader:
+        """Return an alias-resolved callable that merges alias defaults on invocation."""
+        return _backend.get_resolved_loader(name)
 
     def definition(self, name: str) -> LoaderDefinition:
         """Return loader metadata by canonical name or alias."""
@@ -96,6 +115,20 @@ class SkyLoaderRegistry:
                 result[definition.name] = definition.network_service
         return result
 
+    def ensure_default_loaders_registered(self) -> None:
+        """Force-import every built-in loader module (idempotent)."""
+        _backend.ensure_default_loaders_registered()
+
+    def unregister(self, name: str) -> None:
+        """Remove a loader and its aliases (intended for tests).
+
+        Production code should not need this — the built-in loaders are
+        permanent.
+        """
+        _backend.ensure_default_loaders_registered()
+        _backend._REGISTRY.unregister(name)
+        _backend._sync_meta_cache()
+
 
 loader_registry = SkyLoaderRegistry()
 
@@ -105,6 +138,7 @@ __all__ = [
     "LoaderDefinition",
     "LoaderOutputMode",
     "LoaderRepresentation",
+    "ResolvedLoader",
     "SkyLoaderRegistry",
     "loader_registry",
 ]

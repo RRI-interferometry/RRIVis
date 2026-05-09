@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ._registry import register_loader
+from .registry import loader_registry
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -189,7 +189,7 @@ def _parse_format_header(line: str) -> tuple[list[str], dict[str, str]]:
 # ============================================================================
 
 
-@register_loader(
+@loader_registry.register(
     "bbs",
     config_section="bbs",
     use_flag="use_bbs",

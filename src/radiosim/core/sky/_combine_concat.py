@@ -11,6 +11,7 @@ import numpy as np
 from ._data import empty_source_arrays
 from .constants import BrightnessConversion
 from .operations import materialize_point_sources_model
+from .spectral import per_source_reference_frequencies
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -214,14 +215,13 @@ def concat_point_sources(
 
     ref_freq_arr = np.concatenate(
         [
-            m.point.ref_freq
-            if m.point is not None and m.point.ref_freq is not None
-            else np.full(
-                m.point.n_sources if m.point is not None else 0,
-                m.reference_frequency or reference_frequency or 0.0,
-                dtype=np.float64,
+            per_source_reference_frequencies(
+                m.point,
+                model_reference_frequency=m.reference_frequency,
+                fallback=reference_frequency,
             )
             for m in populated
+            if m.point is not None
         ]
     )
 

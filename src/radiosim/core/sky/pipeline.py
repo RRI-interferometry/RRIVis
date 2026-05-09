@@ -17,8 +17,9 @@ from .combine import (
     _combine_models,
     _resolve_requested_healpix_frequencies,
     _validate_requested_healpix_grid,
+    resolve_target_representation,
 )
-from .model import SkyFormat, SkyModel, _coerce_format
+from .model import SkyFormat, SkyModel
 from .operations import materialize_healpix_model, materialize_point_sources_model
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,11 @@ def prepare_sky_model(
     if not models:
         raise ValueError("prepare_sky_model requires at least one input model.")
 
-    target = _coerce_format(representation) if representation is not None else None
+    # Single source of truth for hybrid auto-detection. ``target`` is None
+    # when no explicit format is requested AND inputs span both
+    # representations (the hybrid-output signal); otherwise it is the
+    # concrete ``SkyFormat`` to materialize/preserve.
+    target = resolve_target_representation(models, representation)
 
     requested_freqs = _resolve_requested_healpix_frequencies(
         frequencies,

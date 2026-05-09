@@ -17,8 +17,8 @@ from radiosim.utils.frequency import parse_frequency_config
 
 from ._data import HealpixData, PointSourceData
 from ._precision import get_sky_storage_dtype
-from ._registry import register_loader
 from .model import SkyModel
+from .registry import loader_registry
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -33,7 +33,7 @@ class LossyConversionWarning(UserWarning):
     """Warn when pyradiosky import drops higher-order spectral information."""
 
 
-@register_loader(
+@loader_registry.register(
     "pyradiosky_file",
     config_section="pyradiosky",
     use_flag="use_pyradiosky",

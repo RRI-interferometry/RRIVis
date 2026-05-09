@@ -237,6 +237,39 @@ class LoaderRegistry:
     def definitions(self) -> list[LoaderDefinition]:
         return [self._definitions[name] for name in self.list_loaders()]
 
+    def unregister(self, name: str) -> None:
+        """Remove a loader, its definition, and any aliases pointing at it.
+
+        Intended for test cleanup; production code should not call this.
+        """
+        canonical = self.resolve_name(name)
+        self._loaders.pop(canonical, None)
+        self._definitions.pop(canonical, None)
+        for alias in [a for a, c in self._aliases.items() if c == canonical]:
+            self._aliases.pop(alias, None)
+            self._alias_defaults.pop(alias, None)
+
+
+@dataclass(frozen=True)
+class ResolvedLoader:
+    """Alias-resolved invocation of a registered sky loader.
+
+    Calling an instance applies the loader's alias-bound default kwargs
+    (if any) before forwarding to the canonical function. Inspect
+    ``canonical_name`` / ``alias_defaults`` to see what was resolved.
+    """
+
+    canonical_name: str
+    definition: LoaderDefinition
+    alias_defaults: dict[str, Any]
+
+    def __call__(self, **kwargs: Any) -> Any:
+        if not self.alias_defaults:
+            return self.definition.loader(**kwargs)
+        merged = dict(self.alias_defaults)
+        merged.update(kwargs)
+        return self.definition.loader(**merged)
+
 
 _REGISTRY = LoaderRegistry()
 _LOADERS = _REGISTRY._loaders
@@ -305,24 +338,32 @@ def register_loader(
     return decorator
 
 
-def get_loader(name: str) -> Callable[..., Any]:
+def get_canonical_loader(name: str) -> Callable[..., Any]:
+    """Return the bare canonical loader function for ``name`` or its alias.
+
+    Alias-bound default kwargs are NOT merged. Use :func:`get_resolved_loader`
+    when alias defaults must be applied automatically.
+    """
+    ensure_default_loaders_registered()
+    canonical = _REGISTRY.resolve_name(name)
+    return _REGISTRY.get_loader(canonical)
+
+
+def get_resolved_loader(name: str) -> ResolvedLoader:
+    """Return a :class:`ResolvedLoader` that merges alias defaults on call."""
     ensure_default_loaders_registered()
     canonical, defaults = _REGISTRY.resolve_request(name)
-    loader = _REGISTRY.get_loader(canonical)
-    if not defaults:
-        return loader
-
-    def _loader_with_alias_defaults(**kwargs: Any) -> Any:
-        merged = dict(defaults)
-        merged.update(kwargs)
-        return loader(**merged)
-
-    _loader_with_alias_defaults.__name__ = getattr(loader, "__name__", canonical)
-    _loader_with_alias_defaults.__qualname__ = getattr(
-        loader, "__qualname__", _loader_with_alias_defaults.__name__
+    return ResolvedLoader(
+        canonical_name=canonical,
+        definition=_REGISTRY.get_definition(canonical),
+        alias_defaults=defaults,
     )
-    _loader_with_alias_defaults.__doc__ = getattr(loader, "__doc__", None)
-    return _loader_with_alias_defaults
+
+
+# Legacy helper retained as a thin alias for ``get_canonical_loader`` so that
+# any out-of-tree caller importing ``get_loader`` still gets a bare callable.
+def get_loader(name: str) -> Callable[..., Any]:
+    return get_canonical_loader(name)
 
 
 def get_loader_definition(name: str) -> LoaderDefinition:

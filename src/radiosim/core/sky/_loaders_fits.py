@@ -15,8 +15,8 @@ import numpy as np
 
 from ._data import HealpixData
 from ._precision import get_sky_storage_dtype
-from ._registry import register_loader
 from .constants import flux_density_to_brightness_temp, rayleigh_jeans_factor
+from .registry import loader_registry
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -44,7 +44,7 @@ def _axis_values(header: Any, axis: int, n: int) -> np.ndarray:
     return crval + (np.arange(n) + 1 - crpix) * cdelt
 
 
-@register_loader(
+@loader_registry.register(
     "fits_image",
     config_section="fits_image",
     use_flag="use_fits_image",

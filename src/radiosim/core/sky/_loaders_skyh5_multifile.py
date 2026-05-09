@@ -30,8 +30,8 @@ from pyradiosky import SkyModel as PyRadioSkyModel
 from ._allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ._data import HealpixData, PointSourceData
 from ._precision import get_sky_storage_dtype
-from ._registry import register_loader
 from .model import SkyModel
+from .registry import loader_registry
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -184,7 +184,7 @@ def _maybe_cross_check_frequencies(
         )
 
 
-@register_loader(
+@loader_registry.register(
     "skyh5_multifile",
     representations=("point_sources", "healpix_map"),
     config_section="skyh5_multifile",
