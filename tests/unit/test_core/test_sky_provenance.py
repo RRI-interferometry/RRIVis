@@ -186,10 +186,10 @@ class TestLoaderPopulation:
 
     def test_vizier_helper_builds_catalog_provenance(self):
         # Exercise the helper directly so we don't hit the VizieR network.
-        from radiosim.core.sky._loaders_vizier import (
+        from radiosim.core.sky.loaders.vizier import (
             _build_point_catalog_provenance,
         )
-        from radiosim.core.sky.catalogs import VIZIER_POINT_CATALOGS
+        from radiosim.core.sky.registry.catalogs import VIZIER_POINT_CATALOGS
 
         info = VIZIER_POINT_CATALOGS["nvss"]
         flux = np.array([2.0, 5.0, 10.0])
@@ -218,10 +218,10 @@ class TestLoaderPopulation:
         assert beam_rad_hi == pytest.approx(np.pi)
 
     def test_vizier_helper_without_curated_footprint_uses_unknown_fraction(self):
-        from radiosim.core.sky._loaders_vizier import (
+        from radiosim.core.sky.loaders.vizier import (
             _build_point_catalog_provenance,
         )
-        from radiosim.core.sky.catalogs import VIZIER_POINT_CATALOGS
+        from radiosim.core.sky.registry.catalogs import VIZIER_POINT_CATALOGS
 
         prov = _build_point_catalog_provenance(
             info=VIZIER_POINT_CATALOGS["gleam_egc"],
@@ -235,10 +235,10 @@ class TestLoaderPopulation:
         assert prov.coverage_footprint is None
 
     def test_racs_helper_builds_catalog_provenance(self):
-        from radiosim.core.sky._loaders_vizier import (
+        from radiosim.core.sky.loaders.vizier import (
             _build_point_catalog_provenance,
         )
-        from radiosim.core.sky.catalogs import RACS_CATALOGS
+        from radiosim.core.sky.registry.catalogs import RACS_CATALOGS
 
         prov = _build_point_catalog_provenance(
             info=RACS_CATALOGS["mid"],
@@ -254,14 +254,14 @@ class TestLoaderPopulation:
 
     def test_diffuse_catalog_metadata_is_complete(self):
         """Every registered diffuse model carries the new metadata fields."""
-        from radiosim.core.sky.catalogs import DIFFUSE_MODELS
+        from radiosim.core.sky.registry.catalogs import DIFFUSE_MODELS
 
         for name, entry in DIFFUSE_MODELS.items():
             assert entry.native_resolution_arcmin is not None, name
             assert entry.default_monopole_convention is not None, name
 
     def test_haslam_is_tagged_source_subtracted(self):
-        from radiosim.core.sky.catalogs import DIFFUSE_MODELS
+        from radiosim.core.sky.registry.catalogs import DIFFUSE_MODELS
 
         haslam = DIFFUSE_MODELS["haslam"]
         assert haslam.source_subtracted_above_jy == pytest.approx(2.0)
@@ -270,8 +270,8 @@ class TestLoaderPopulation:
     def test_diffuse_loader_provenance_via_fake_pygdsm(self, precision, monkeypatch):
         """Drive load_diffuse_sky against a fake pygdsm class to exercise the
         provenance-population branch without a network fetch."""
-        from radiosim.core.sky import _loaders_diffuse as diffuse_mod
-        from radiosim.core.sky._loaders_diffuse import load_diffuse_sky
+        from radiosim.core.sky.loaders import diffuse as diffuse_mod
+        from radiosim.core.sky.loaders.diffuse import load_diffuse_sky
 
         nside = 4
         npix = hp.nside2npix(nside)
@@ -319,8 +319,8 @@ class TestLoaderPopulation:
         )
 
     def test_diffuse_loader_region_clears_monopole(self, precision, monkeypatch):
-        from radiosim.core.sky import _loaders_diffuse as diffuse_mod
-        from radiosim.core.sky._loaders_diffuse import load_diffuse_sky
+        from radiosim.core.sky.loaders import diffuse as diffuse_mod
+        from radiosim.core.sky.loaders.diffuse import load_diffuse_sky
 
         nside = 8
         npix = hp.nside2npix(nside)
@@ -352,8 +352,8 @@ class TestLoaderPopulation:
     def test_haslam_loader_provenance_tagged_source_subtracted(
         self, precision, monkeypatch
     ):
-        from radiosim.core.sky import _loaders_diffuse as diffuse_mod
-        from radiosim.core.sky._loaders_diffuse import load_diffuse_sky
+        from radiosim.core.sky.loaders import diffuse as diffuse_mod
+        from radiosim.core.sky.loaders.diffuse import load_diffuse_sky
 
         nside = 4
         npix = hp.nside2npix(nside)

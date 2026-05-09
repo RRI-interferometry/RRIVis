@@ -20,12 +20,12 @@ from radiosim.core.sky import (
     create_from_arrays,
     materialize_healpix_model,
 )
-from radiosim.core.sky._data import PointSourceData, PointSpectrum
-from radiosim.core.sky.combine import _combine_models
-from radiosim.core.sky.constants import (
+from radiosim.core.sky.combine.engine import _combine_models
+from radiosim.core.sky.containers.constants import (
     BrightnessConversion,
     rayleigh_jeans_factor,
 )
+from radiosim.core.sky.containers.data import PointSourceData, PointSpectrum
 
 # --------------------------------------------------------------------------- #
 # Fixtures
@@ -132,7 +132,9 @@ class TestCombineHealpixUsesSpectrumI:
         )
         # Convert the K_RJ map back to Jy at each frequency and read out
         # the source's pixel.
-        from radiosim.core.sky.constants import brightness_temp_to_flux_density
+        from radiosim.core.sky.containers.constants import (
+            brightness_temp_to_flux_density,
+        )
 
         for fi, freq in enumerate(frequencies):
             t_map = combined.healpix.maps[fi]
@@ -266,7 +268,9 @@ class TestCombinePowerLawAndSpectrumDisjointly:
             brightness_conversion=BrightnessConversion.RAYLEIGH_JEANS,
             mixed_model_policy="allow",
         )
-        from radiosim.core.sky.constants import brightness_temp_to_flux_density
+        from radiosim.core.sky.containers.constants import (
+            brightness_temp_to_flux_density,
+        )
 
         expected_pl = np.array([4.0, 2.0])  # alpha=-1 power-law
         for fi, freq in enumerate(frequencies):

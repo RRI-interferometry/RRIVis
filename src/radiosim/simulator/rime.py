@@ -17,7 +17,7 @@ Where:
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from radiosim.core.sky.model import SourceArrays
+    from radiosim.core.sky.containers.model import SourceArrays
 
 import numpy as np
 

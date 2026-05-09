@@ -66,8 +66,8 @@ class TestPipelineAdvisory:
     def test_warns_on_too_coarse_nside(self, caplog):
         from radiosim.core.precision import PrecisionConfig
         from radiosim.core.sky import create_test_sources
-        from radiosim.core.sky.model import SkyFormat
-        from radiosim.core.sky.pipeline import prepare_sky_model
+        from radiosim.core.sky.combine.pipeline import prepare_sky_model
+        from radiosim.core.sky.containers.model import SkyFormat
 
         precision = PrecisionConfig.standard()
         sky = create_test_sources(
@@ -76,7 +76,9 @@ class TestPipelineAdvisory:
             reference_frequency=150e6,
         )
 
-        with caplog.at_level(logging.WARNING, logger="radiosim.core.sky.pipeline"):
+        with caplog.at_level(
+            logging.WARNING, logger="radiosim.core.sky.combine.pipeline"
+        ):
             prepare_sky_model(
                 [sky],
                 representation=SkyFormat.HEALPIX,
@@ -93,8 +95,8 @@ class TestPipelineAdvisory:
     def test_silent_when_nside_adequate(self, caplog):
         from radiosim.core.precision import PrecisionConfig
         from radiosim.core.sky import create_test_sources
-        from radiosim.core.sky.model import SkyFormat
-        from radiosim.core.sky.pipeline import prepare_sky_model
+        from radiosim.core.sky.combine.pipeline import prepare_sky_model
+        from radiosim.core.sky.containers.model import SkyFormat
 
         precision = PrecisionConfig.standard()
         sky = create_test_sources(
@@ -103,7 +105,9 @@ class TestPipelineAdvisory:
             reference_frequency=150e6,
         )
 
-        with caplog.at_level(logging.WARNING, logger="radiosim.core.sky.pipeline"):
+        with caplog.at_level(
+            logging.WARNING, logger="radiosim.core.sky.combine.pipeline"
+        ):
             prepare_sky_model(
                 [sky],
                 representation=SkyFormat.HEALPIX,
@@ -119,8 +123,8 @@ class TestPipelineAdvisory:
         """Without a declared beam FWHM the advisor stays quiet even at low nside."""
         from radiosim.core.precision import PrecisionConfig
         from radiosim.core.sky import create_test_sources
-        from radiosim.core.sky.model import SkyFormat
-        from radiosim.core.sky.pipeline import prepare_sky_model
+        from radiosim.core.sky.combine.pipeline import prepare_sky_model
+        from radiosim.core.sky.containers.model import SkyFormat
 
         precision = PrecisionConfig.standard()
         sky = create_test_sources(
@@ -128,7 +132,9 @@ class TestPipelineAdvisory:
             precision=precision,
             reference_frequency=150e6,
         )
-        with caplog.at_level(logging.WARNING, logger="radiosim.core.sky.pipeline"):
+        with caplog.at_level(
+            logging.WARNING, logger="radiosim.core.sky.combine.pipeline"
+        ):
             prepare_sky_model(
                 [sky],
                 representation=SkyFormat.HEALPIX,

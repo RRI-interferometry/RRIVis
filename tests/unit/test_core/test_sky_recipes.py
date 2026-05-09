@@ -13,7 +13,7 @@ from radiosim.core.sky import (
     SkyRegion,
     realistic_foreground_sky,
 )
-from radiosim.core.sky.model import SkyFormat
+from radiosim.core.sky.containers.model import SkyFormat
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def precision() -> PrecisionConfig:
 @pytest.fixture
 def fake_pygdsm(monkeypatch):
     """Install a deterministic fake pygdsm model so recipe tests stay local."""
-    import radiosim.core.sky._loaders_diffuse as diffuse_mod
+    import radiosim.core.sky.loaders.diffuse as diffuse_mod
 
     class _FakePyGDSM:
         def __init__(self, **kwargs):
@@ -151,7 +151,7 @@ class TestThresholdChain:
 
 class TestRegistryIntegration:
     def test_recipe_is_a_registered_loader(self):
-        from radiosim.core.sky.registry import loader_registry
+        from radiosim.core.sky.registry.facade import loader_registry
 
         loader = loader_registry.loader("realistic_foreground")
         assert loader.__name__ == "realistic_foreground_sky"
@@ -177,7 +177,7 @@ class TestRegistryIntegration:
 
     def test_provenance_override_in_yaml(self, precision):
         """A provenance_override dict on any SkySourceConfig is forwarded."""
-        from radiosim.core.sky.registry import loader_registry
+        from radiosim.core.sky.registry.facade import loader_registry
         from radiosim.io.config import parse_sky_source_config
 
         spec = parse_sky_source_config(

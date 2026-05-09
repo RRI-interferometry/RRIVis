@@ -1,11 +1,11 @@
-"""Tests for radiosim.core.sky.spectral — spectral scaling and Faraday rotation."""
+"""Tests for radiosim.core.sky.containers.spectral — spectral scaling and Faraday rotation."""
 
 import numpy as np
 import pytest
 
-from radiosim.core.sky._data import PointSourceData
-from radiosim.core.sky.constants import C_LIGHT
-from radiosim.core.sky.spectral import (
+from radiosim.core.sky.containers.constants import C_LIGHT
+from radiosim.core.sky.containers.data import PointSourceData
+from radiosim.core.sky.containers.spectral import (
     apply_faraday_rotation,
     compute_spectral_scale,
     evaluate_point_flux_at_freq,
@@ -354,7 +354,7 @@ class TestNearestChannelIndexWithWarning:
 
     def test_silent_when_aligned(self, caplog):
         freqs = np.array([100e6, 110e6, 120e6])
-        with caplog.at_level("WARNING", logger="radiosim.core.sky.spectral"):
+        with caplog.at_level("WARNING", logger="radiosim.core.sky.containers.spectral"):
             idx = nearest_channel_index_with_warning(freqs, 110e6)
         assert idx == 1
         assert caplog.records == []
@@ -362,7 +362,7 @@ class TestNearestChannelIndexWithWarning:
     def test_warns_when_offgrid(self, caplog):
         freqs = np.array([100e6, 110e6, 120e6])
         # 5 MHz off-grid is well above the 0.1 * spacing = 1 MHz threshold.
-        with caplog.at_level("WARNING", logger="radiosim.core.sky.spectral"):
+        with caplog.at_level("WARNING", logger="radiosim.core.sky.containers.spectral"):
             idx = nearest_channel_index_with_warning(
                 freqs, 105e6, label="per-channel flux"
             )
@@ -375,7 +375,7 @@ class TestNearestChannelIndexWithWarning:
     def test_silent_within_tolerance(self, caplog):
         freqs = np.array([100e6, 110e6, 120e6])
         # 100 Hz difference is below the 1 kHz floor.
-        with caplog.at_level("WARNING", logger="radiosim.core.sky.spectral"):
+        with caplog.at_level("WARNING", logger="radiosim.core.sky.containers.spectral"):
             nearest_channel_index_with_warning(freqs, 110e6 + 100.0)
         assert caplog.records == []
 
@@ -390,7 +390,7 @@ class TestEvaluatePointFluxOffGrid:
         per_channel_flux = np.ones((n_chan, n_src))
         zeros = np.zeros(n_src)
 
-        with caplog.at_level("WARNING", logger="radiosim.core.sky.spectral"):
+        with caplog.at_level("WARNING", logger="radiosim.core.sky.containers.spectral"):
             evaluate_point_flux_at_freq(
                 stokes_i=zeros,
                 stokes_q=zeros,
@@ -416,7 +416,7 @@ class TestEvaluatePointFluxOffGrid:
         per_channel_flux = np.ones((n_chan, n_src))
         zeros = np.zeros(n_src)
 
-        with caplog.at_level("WARNING", logger="radiosim.core.sky.spectral"):
+        with caplog.at_level("WARNING", logger="radiosim.core.sky.containers.spectral"):
             evaluate_point_flux_at_freq(
                 stokes_i=zeros,
                 stokes_q=zeros,

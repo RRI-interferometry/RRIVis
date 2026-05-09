@@ -6,13 +6,13 @@ import pytest
 
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import HealpixData, create_from_arrays
-from radiosim.core.sky.combine import (
+from radiosim.core.sky.combine.engine import (
     _combine_models,
     concat_point_sources,
     regrid_healpix_model,
 )
-from radiosim.core.sky.constants import BrightnessConversion
-from radiosim.core.sky.model import SkyFormat, SkyModel
+from radiosim.core.sky.containers.constants import BrightnessConversion
+from radiosim.core.sky.containers.model import SkyFormat, SkyModel
 
 
 @pytest.fixture

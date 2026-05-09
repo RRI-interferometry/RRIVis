@@ -14,7 +14,18 @@ explicitly with ``sky.replace(healpix=sky.healpix.to_dense())`` rather than
 relying on implicit densification.
 """
 
-from ._data import (
+from .combine.engine import regrid_healpix_model
+from .combine.pipeline import prepare_sky_model
+from .containers.constants import (
+    C_LIGHT,
+    H_PLANCK,
+    K_BOLTZMANN,
+    BrightnessConversion,
+    brightness_temp_to_flux_density,
+    flux_density_to_brightness_temp,
+    rayleigh_jeans_factor,
+)
+from .containers.data import (
     HealpixData,
     MonopoleConvention,
     PointSourceData,
@@ -25,20 +36,18 @@ from ._data import (
     SourceArrays,
     SourceSubtractionStatus,
 )
-from ._factories import create_empty, create_from_arrays, create_test_sources
-from ._loaders_bbs import write_bbs
-from ._serialization import load_skyh5, save_skyh5, to_pyradiosky
-from .combine import regrid_healpix_model
-from .constants import (
-    C_LIGHT,
-    H_PLANCK,
-    K_BOLTZMANN,
-    BrightnessConversion,
-    brightness_temp_to_flux_density,
-    flux_density_to_brightness_temp,
-    rayleigh_jeans_factor,
+from .containers.model import (
+    SkyFormat,
+    SkyModel,
 )
-from .discovery import estimate_healpix_memory, get_catalog_info, list_all_models
+from .containers.spectral import apply_faraday_rotation, compute_spectral_scale
+from .diagnostics.discovery import (
+    estimate_healpix_memory,
+    get_catalog_info,
+    list_all_models,
+)
+from .io.plotter.facade import SkyPlotter
+from .io.serialization import load_skyh5, save_skyh5, to_pyradiosky
 from .loaders import (
     load_3c,
     load_bbs,
@@ -58,11 +67,9 @@ from .loaders import (
     load_vlssr,
     load_wenss,
 )
-from .model import (
-    SkyFormat,
-    SkyModel,
-)
-from .operations import (
+from .loaders.bbs import write_bbs
+from .operations.factories import create_empty, create_from_arrays, create_test_sources
+from .operations.operations import (
     compute_linear_polarization,
     materialize_healpix_model,
     materialize_point_sources_model,
@@ -71,11 +78,8 @@ from .operations import (
     with_monopole,
     with_monopole_subtracted,
 )
-from .pipeline import prepare_sky_model
-from .plotter import SkyPlotter
-from .recipes import realistic_foreground_sky
-from .region import BoxRegion, ConeRegion, SkyRegion, UnionRegion
-from .spectral import apply_faraday_rotation, compute_spectral_scale
+from .operations.region import BoxRegion, ConeRegion, SkyRegion, UnionRegion
+from .recipes.realistic_foreground import realistic_foreground_sky
 
 __all__ = [
     "SkyModel",

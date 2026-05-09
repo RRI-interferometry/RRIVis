@@ -12,7 +12,7 @@ from matplotlib.figure import Figure
 
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import HealpixData, SkyPlotter, create_test_sources
-from radiosim.core.sky.model import SkyModel
+from radiosim.core.sky.containers.model import SkyModel
 
 
 @pytest.fixture

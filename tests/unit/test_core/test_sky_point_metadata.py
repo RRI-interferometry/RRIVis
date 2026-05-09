@@ -9,11 +9,11 @@ from astropy.coordinates import SkyCoord
 
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import create_from_arrays
-from radiosim.core.sky._loaders_pyradiosky import (
+from radiosim.core.sky.io.serialization import to_pyradiosky
+from radiosim.core.sky.loaders.pyradiosky import (
     LossyConversionWarning,
     load_pyradiosky_file,
 )
-from radiosim.core.sky._serialization import to_pyradiosky
 
 
 @pytest.fixture
@@ -89,7 +89,7 @@ def test_load_pyradiosky_warns_and_preserves_point_metadata(
     monkeypatch,
     tmp_path,
 ):
-    import radiosim.core.sky._loaders_pyradiosky as module
+    import radiosim.core.sky.loaders.pyradiosky as module
 
     monkeypatch.setattr(module, "PyRadioSkyModel", FakePyRadioSkyPointModel)
     filename = tmp_path / "fake.skyh5"
@@ -112,7 +112,7 @@ def test_load_pyradiosky_can_reject_lossy_point_spectrum(
     monkeypatch,
     tmp_path,
 ):
-    import radiosim.core.sky._loaders_pyradiosky as module
+    import radiosim.core.sky.loaders.pyradiosky as module
 
     monkeypatch.setattr(module, "PyRadioSkyModel", FakePyRadioSkyPointModel)
     filename = tmp_path / "fake.skyh5"

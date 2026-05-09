@@ -20,7 +20,7 @@ from radiosim.core.observability import (  # noqa: E402
 )
 from radiosim.core.precision import PrecisionConfig  # noqa: E402
 from radiosim.core.sky import HealpixData, SkyPlotter  # noqa: E402
-from radiosim.core.sky.model import SkyModel  # noqa: E402
+from radiosim.core.sky.containers.model import SkyModel  # noqa: E402
 
 
 def _single_channel_sky(nside: int = 16) -> SkyModel:

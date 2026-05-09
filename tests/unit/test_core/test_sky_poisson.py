@@ -12,8 +12,8 @@ from radiosim.core.sky import (
     SkyRegion,
     SourceSubtractionStatus,
 )
-from radiosim.core.sky._dnds_models import DNDS_MODELS, DNDSModel, resolve_dn_ds
-from radiosim.core.sky._loaders_synthetic import load_poisson_confusion
+from radiosim.core.sky.loaders.synthetic import load_poisson_confusion
+from radiosim.core.sky.recipes.dnds_models import DNDS_MODELS, DNDSModel, resolve_dn_ds
 
 
 @pytest.fixture

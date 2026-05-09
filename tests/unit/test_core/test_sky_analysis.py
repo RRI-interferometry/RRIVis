@@ -1,10 +1,10 @@
-"""Tests for radiosim.core.sky._analysis — pure compute functions."""
+"""Tests for radiosim.core.sky.diagnostics.analysis — pure compute functions."""
 
 import healpy as hp
 import numpy as np
 import pytest
 
-from radiosim.core.sky._analysis import (
+from radiosim.core.sky.diagnostics.analysis import (
     F_21_HZ,
     compute_angular_power_spectrum,
     compute_cross_cell,

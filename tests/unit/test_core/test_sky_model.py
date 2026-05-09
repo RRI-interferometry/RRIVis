@@ -17,9 +17,9 @@ from radiosim.core.sky import (
     materialize_point_sources_model,
     with_memmap_backing,
 )
-from radiosim.core.sky.discovery import estimate_healpix_memory
+from radiosim.core.sky.containers.model import SkyFormat, SkyModel
+from radiosim.core.sky.diagnostics.discovery import estimate_healpix_memory
 from radiosim.core.sky.loaders import load_test_sources
-from radiosim.core.sky.model import SkyFormat, SkyModel
 
 
 @pytest.fixture

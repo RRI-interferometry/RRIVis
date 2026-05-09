@@ -14,9 +14,9 @@ from radiosim.core.sky import (
     SourceSubtractionStatus,
     create_from_arrays,
 )
-from radiosim.core.sky.combine import _combine_models
-from radiosim.core.sky.constants import BrightnessConversion
-from radiosim.core.sky.model import SkyModel
+from radiosim.core.sky.combine.engine import _combine_models
+from radiosim.core.sky.containers.constants import BrightnessConversion
+from radiosim.core.sky.containers.model import SkyModel
 
 
 @pytest.fixture

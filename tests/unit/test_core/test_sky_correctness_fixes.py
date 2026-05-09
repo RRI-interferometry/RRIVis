@@ -19,12 +19,12 @@ from radiosim.core.sky import (
     materialize_point_sources_model,
     with_monopole,
 )
-from radiosim.core.sky._serialization import load_skyh5, save_skyh5
-from radiosim.core.sky.convert import (
+from radiosim.core.sky.containers.spectral import compute_spectral_scale
+from radiosim.core.sky.io.serialization import load_skyh5, save_skyh5
+from radiosim.core.sky.operations.convert import (
     healpix_map_to_point_arrays,
     point_sources_to_healpix_maps,
 )
-from radiosim.core.sky.spectral import compute_spectral_scale
 
 
 @pytest.fixture

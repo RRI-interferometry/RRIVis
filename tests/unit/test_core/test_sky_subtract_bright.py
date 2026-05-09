@@ -24,7 +24,7 @@ from radiosim.core.sky import (
     create_from_arrays,
     subtract_bright_sources,
 )
-from radiosim.core.sky.constants import rayleigh_jeans_factor
+from radiosim.core.sky.containers.constants import rayleigh_jeans_factor
 
 
 @pytest.fixture
@@ -299,7 +299,9 @@ class TestSubtractionHelpers:
     """
 
     def test_select_candidates_with_catalog(self, precision):
-        from radiosim.core.sky.operations import _select_subtraction_candidates
+        from radiosim.core.sky.operations.operations import (
+            _select_subtraction_candidates,
+        )
 
         nside = 16
         npix = hp.nside2npix(nside)
@@ -345,7 +347,9 @@ class TestSubtractionHelpers:
         assert int(candidates[0]) == int(expected_pix)
 
     def test_select_candidates_max_sources_keeps_brightest(self, precision):
-        from radiosim.core.sky.operations import _select_subtraction_candidates
+        from radiosim.core.sky.operations.operations import (
+            _select_subtraction_candidates,
+        )
 
         nside = 32
         npix = hp.nside2npix(nside)

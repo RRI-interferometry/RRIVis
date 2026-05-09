@@ -15,13 +15,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from radiosim.core.sky._data import PointSourceData, PointSpectrum
-from radiosim.core.sky.convert import bin_sources_to_flux
-from radiosim.core.sky.spectral import (
+from radiosim.core.sky.containers.data import PointSourceData, PointSpectrum
+from radiosim.core.sky.containers.spectral import (
     compute_spectral_scale,
     evaluate_point_flux_at_freq,
     nearest_channel_index,
 )
+from radiosim.core.sky.operations.convert import bin_sources_to_flux
 
 # --------------------------------------------------------------------------- #
 # PointSourceData invariants

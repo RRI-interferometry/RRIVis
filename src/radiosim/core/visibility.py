@@ -14,7 +14,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from radiosim.core.sky.model import SourceArrays
+    from radiosim.core.sky.containers.model import SourceArrays
 
 import astropy.units as u
 import numpy as np
@@ -309,7 +309,9 @@ def calculate_visibility(
             # Resolve Stokes at this observation frequency. Short-circuits to
             # nearest-channel lookup when per_channel_flux is populated;
             # otherwise applies spectral-index extrapolation + Faraday rotation.
-            from radiosim.core.sky.spectral import evaluate_point_flux_at_freq
+            from radiosim.core.sky.containers.spectral import (
+                evaluate_point_flux_at_freq,
+            )
 
             I_scaled, Q_scaled, U_scaled, V_scaled = evaluate_point_flux_at_freq(
                 source_stokes_I_t,

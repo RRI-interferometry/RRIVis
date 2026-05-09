@@ -10,15 +10,15 @@ import pytest
 
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import HealpixData, create_from_arrays
-from radiosim.core.sky._allocation import (
+from radiosim.core.sky.combine.engine import _combine_models
+from radiosim.core.sky.containers.model import SkyFormat, SkyModel
+from radiosim.core.sky.operations.convert import point_sources_to_healpix_maps
+from radiosim.core.sky.operations.operations import materialize_healpix_model
+from radiosim.core.sky.support.allocation import (
     allocate_cube,
     ensure_scratch_dir,
     finalize_cube,
 )
-from radiosim.core.sky.combine import _combine_models
-from radiosim.core.sky.convert import point_sources_to_healpix_maps
-from radiosim.core.sky.model import SkyFormat, SkyModel
-from radiosim.core.sky.operations import materialize_healpix_model
 
 
 @pytest.fixture

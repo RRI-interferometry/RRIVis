@@ -27,7 +27,7 @@ from radiosim.core.sky import (
     SourceSubtractionStatus,
     create_from_arrays,
 )
-from radiosim.core.sky.combine import _combine_models
+from radiosim.core.sky.combine.engine import _combine_models
 
 
 @pytest.fixture
@@ -427,7 +427,7 @@ class TestMergeProvenanceMonopoleDoubleCount:
     """
 
     def test_two_with_cmb_drops_monopole_k(self, precision):
-        from radiosim.core.sky._combine_provenance import merge_provenance
+        from radiosim.core.sky.combine.provenance import merge_provenance
 
         a = _diffuse(
             precision=precision,
@@ -448,7 +448,7 @@ class TestMergeProvenanceMonopoleDoubleCount:
         assert "double-count the CMB" in merged.notes
 
     def test_with_cmb_plus_no_cmb_still_sums(self, precision):
-        from radiosim.core.sky._combine_provenance import merge_provenance
+        from radiosim.core.sky.combine.provenance import merge_provenance
 
         a = _diffuse(
             precision=precision,
@@ -468,7 +468,7 @@ class TestMergeProvenanceMonopoleDoubleCount:
         assert merged.monopole_k == pytest.approx(2.725 + 12.0)
 
     def test_unknown_alongside_absolute_drops_monopole_k(self, precision):
-        from radiosim.core.sky._combine_provenance import merge_provenance
+        from radiosim.core.sky.combine.provenance import merge_provenance
 
         a = _diffuse(
             precision=precision,

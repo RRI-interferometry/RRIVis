@@ -272,7 +272,7 @@ def build_sky_region(
     if config is None:
         return None
 
-    from radiosim.core.sky.region import SkyRegion
+    from radiosim.core.sky.operations.region import SkyRegion
 
     def _build_one(entry: SkyRegionEntryConfig | dict[str, Any]) -> Any:
         if not isinstance(entry, SkyRegionEntryConfig):
@@ -350,7 +350,7 @@ class SkySourceConfig(BaseModel):
         memmap_path: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """Build a resolved loader request for this source spec."""
-        from radiosim.core.sky.registry import loader_registry
+        from radiosim.core.sky.registry.facade import loader_registry
 
         context = SkyLoaderRequestContext(
             flux_multiplier=flux_multiplier,
@@ -402,7 +402,7 @@ class SkySourceConfig(BaseModel):
             kwargs["memmap_path"] = context.memmap_path
 
         if self.provenance_override is not None:
-            from radiosim.core.sky._data import SkyProvenance
+            from radiosim.core.sky.containers.data import SkyProvenance
 
             kwargs["provenance"] = SkyProvenance(**self.provenance_override)
         return kwargs
@@ -911,7 +911,7 @@ class CustomRegisteredSourceConfig(SkySourceConfig):
         self,
         context: SkyLoaderRequestContext,
     ) -> tuple[str, dict[str, Any]]:
-        from radiosim.core.sky.registry import loader_registry
+        from radiosim.core.sky.registry.facade import loader_registry
 
         definition = loader_registry.definition(self.kind)
         kwargs = self._common_kwargs(
@@ -1716,7 +1716,7 @@ class RadioSimConfig(BaseModel):
                 "{'kind': 'gleam'}, or {'kind': 'diffuse_sky'})."
             )
         else:
-            from radiosim.core.sky.registry import loader_registry
+            from radiosim.core.sky.registry.facade import loader_registry
 
             for idx, source in enumerate(sm.sources):
                 try:

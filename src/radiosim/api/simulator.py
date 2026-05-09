@@ -548,7 +548,7 @@ class Simulator:
 
         # Collect all requested sky models
         sky_models = []
-        from radiosim.core.sky.registry import loader_registry
+        from radiosim.core.sky.registry.facade import loader_registry
 
         obs_freq_config = self.config.get("obs_frequency", {})
         loader_requests: list[tuple[str, dict[str, Any]]] = []
@@ -566,7 +566,7 @@ class Simulator:
             )
 
         if loader_requests:
-            from radiosim.core.sky._factories import (
+            from radiosim.core.sky.operations.factories import (
                 load_models_parallel,
                 recommend_executor_for_loaders,
             )
@@ -590,7 +590,7 @@ class Simulator:
                 "in the sky_model section of your config."
             )
 
-        from radiosim.core.sky.pipeline import prepare_sky_model
+        from radiosim.core.sky.combine.pipeline import prepare_sky_model
 
         # Compute an approximate primary-beam FWHM for the nside advisor.
         # Uses the standard uniform-aperture rule `λ/D · 1.22` at the lowest
@@ -625,7 +625,7 @@ class Simulator:
         )
 
         # Get point source arrays for RIME calculator (only in point_sources mode)
-        from radiosim.core.sky.model import SkyFormat
+        from radiosim.core.sky.containers.model import SkyFormat
 
         sky_mode = SkyFormat(sky_representation)
         if sky_mode == SkyFormat.HEALPIX:
@@ -690,7 +690,7 @@ class Simulator:
         t_setup = time.perf_counter() - t_start
 
         if progress:
-            from radiosim.core.sky.model import SkyFormat as _SF
+            from radiosim.core.sky.containers.model import SkyFormat as _SF
 
             # Print configuration table (after setup, needs backend/sky_model info)
             _sky_mode = _SF(
@@ -723,7 +723,7 @@ class Simulator:
             print_table("Simulation Configuration", config_data)
             console.print()  # Add spacing
 
-        from radiosim.core.sky.model import SkyFormat
+        from radiosim.core.sky.containers.model import SkyFormat
 
         _sky_mode = SkyFormat(
             self.config.get("visibility", {}).get("sky_representation", "point_sources")

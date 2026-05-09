@@ -26,8 +26,8 @@ from radiosim.core.sky import (
     materialize_healpix_model,
     materialize_point_sources_model,
 )
-from radiosim.core.sky._serialization import to_pyradiosky
-from radiosim.core.sky.combine import _combine_models
+from radiosim.core.sky.combine.engine import _combine_models
+from radiosim.core.sky.io.serialization import to_pyradiosky
 
 
 @pytest.fixture

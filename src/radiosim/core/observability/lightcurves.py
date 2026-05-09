@@ -15,7 +15,7 @@ import numpy as np
 from .geometry import compute_beam_map_on_healpix
 
 if TYPE_CHECKING:
-    from radiosim.core.sky.model import SkyModel
+    from radiosim.core.sky.containers.model import SkyModel
 
 
 @dataclass(frozen=True)
