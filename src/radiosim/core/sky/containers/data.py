@@ -27,7 +27,15 @@ from .footprint import (
     _normalize_coordinate_frame,
 )
 from .healpix import HealpixData
-from .point import PointSourceData, PointSpectrum, SourceArrays, empty_source_arrays
+from .point import (
+    PointMetadata,
+    PointMorphology,
+    PointPolarization,
+    PointSourceData,
+    PointSpectrum,
+    SourceArrays,
+    empty_source_arrays,
+)
 from .provenance import SkyProvenance
 
 __all__ = [
@@ -35,6 +43,9 @@ __all__ = [
     "DEFAULT_COVERAGE_FOOTPRINT_NSIDE",
     "HealpixData",
     "MonopoleConvention",
+    "PointMetadata",
+    "PointMorphology",
+    "PointPolarization",
     "PointSourceData",
     "PointSpectrum",
     "SkyCoverage",

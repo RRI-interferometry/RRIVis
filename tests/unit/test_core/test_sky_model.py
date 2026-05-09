@@ -135,7 +135,7 @@ class TestPostInitValidation:
             )
 
     def test_point_metadata_validation_is_strict(self):
-        with pytest.raises(ValueError, match="extra column 'catalog' has length 4"):
+        with pytest.raises(ValueError, match="metadata has 4 sources, expected 5"):
             PointSourceData(
                 ra_rad=np.zeros(5),
                 dec_rad=np.zeros(5),

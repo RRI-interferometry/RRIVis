@@ -5,12 +5,21 @@ and :class:`PointSpectrum` (lossless per-channel flux samples, used by
 catalogues that supply tabulated spectra rather than spectral indices).
 
 ``SourceArrays`` is the flat-dict view consumed by the visibility code.
+
+The optional per-source extension fields (Gaussian morphology, rotation
+measure, source name/id, extra columns) live in dedicated frozen
+sub-dataclasses (:class:`PointMorphology`, :class:`PointPolarization`,
+:class:`PointMetadata`) so each block carries its own all-or-nothing
+shape rules and so adding a future field — e.g. an RM uncertainty — is
+local. Read-back-compat ``@property`` accessors (``point.major_arcsec``,
+``point.rotation_measure``, ``point.source_name`` …) expose the flat
+view existing callers expect.
 """
 
 from __future__ import annotations
 
 from dataclasses import field
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import numpy as np
 from pydantic import field_validator, model_validator
@@ -26,8 +35,9 @@ from ._shared import _FROZEN_NDARRAY_CONFIG, _arrays_equal
 class SourceArrays(TypedDict):
     """Return type for point-source array extraction.
 
-    Keys match the interface consumed by ``visibility.py`` and align with
-    ``PointSourceData`` field names.
+    Keys match the interface consumed by ``visibility.py``. The flat
+    layout is preserved on purpose so the visibility code does not need
+    to traverse the nested PointSourceData sub-objects.
     """
 
     ra_rad: np.ndarray
@@ -177,45 +187,122 @@ class PointSpectrum:
 
 
 # =============================================================================
-# PointSourceData
+# Per-source extension sub-dataclasses
 # =============================================================================
 
 
 @dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
-class PointSourceData:
-    """Columnar arrays for point-source sky model.
+class PointMorphology:
+    """Gaussian morphology per source (all three axes are mandatory).
 
-    All core arrays have shape ``(N,)``.  This is always fully populated
-    (even if zero-length for an empty sky).  No field is ever None for
-    the core arrays — an empty model uses zero-length arrays.
-
-    Optional extension arrays (rotation_measure, morphology, spectral_coeffs)
-    are None when that feature is absent for ALL sources.
+    ``major_arcsec``, ``minor_arcsec`` are FWHMs along the major and
+    minor axes; ``pa_deg`` is the position angle of the major axis east
+    of north in degrees. The all-or-nothing rule (a source either has
+    Gaussian morphology fully specified or is treated as a delta function)
+    is enforced here so callers cannot construct a half-specified state.
     """
 
-    ra_rad: np.ndarray
-    dec_rad: np.ndarray
-    flux: np.ndarray
-    spectral_index: np.ndarray
-    stokes_q: np.ndarray
-    stokes_u: np.ndarray
-    stokes_v: np.ndarray
-    ref_freq: np.ndarray
+    major_arcsec: np.ndarray  # shape (N,), FWHM in arcsec
+    minor_arcsec: np.ndarray  # shape (N,), FWHM in arcsec
+    pa_deg: np.ndarray  # shape (N,), position angle in degrees
 
-    # Optional per-source extensions
-    rotation_measure: np.ndarray | None = None
-    major_arcsec: np.ndarray | None = None
-    minor_arcsec: np.ndarray | None = None
-    pa_deg: np.ndarray | None = None
-    spectral_coeffs: np.ndarray | None = None  # shape (N, N_terms) or None
+    @model_validator(mode="after")
+    def _validate_lengths(self) -> PointMorphology:
+        n = len(self.major_arcsec)
+        for name, arr in (
+            ("minor_arcsec", self.minor_arcsec),
+            ("pa_deg", self.pa_deg),
+        ):
+            if len(arr) != n:
+                raise ValueError(
+                    f"PointMorphology: {name} has length {len(arr)}, "
+                    f"expected {n} (must match major_arcsec)."
+                )
+        return self
+
+    @property
+    def n_sources(self) -> int:
+        return int(len(self.major_arcsec))
+
+    def masked(self, mask: np.ndarray) -> PointMorphology:
+        return PointMorphology(
+            major_arcsec=self.major_arcsec[mask],
+            minor_arcsec=self.minor_arcsec[mask],
+            pa_deg=self.pa_deg[mask],
+        )
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def _compare(
+        self, other: PointMorphology, *, close: bool, rtol: float, atol: float
+    ) -> bool:
+        for name in ("major_arcsec", "minor_arcsec", "pa_deg"):
+            if not _arrays_equal(
+                getattr(self, name),
+                getattr(other, name),
+                close=close,
+                rtol=rtol,
+                atol=atol,
+            ):
+                return False
+        return True
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PointMorphology):
+            return NotImplemented
+        return self._compare(other, close=False, rtol=0.0, atol=0.0)
+
+
+@dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
+class PointPolarization:
+    """Polarisation extras per source.
+
+    Currently only ``rotation_measure`` lives here. The block exists so
+    future polarisation-specific fields (RM uncertainties, depolarisation
+    parameters) can be added without disturbing the rest of
+    :class:`PointSourceData`.
+    """
+
+    rotation_measure: np.ndarray  # shape (N,), rad/m^2
+
+    @property
+    def n_sources(self) -> int:
+        return int(len(self.rotation_measure))
+
+    def masked(self, mask: np.ndarray) -> PointPolarization:
+        return PointPolarization(rotation_measure=self.rotation_measure[mask])
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def _compare(
+        self, other: PointPolarization, *, close: bool, rtol: float, atol: float
+    ) -> bool:
+        return _arrays_equal(
+            self.rotation_measure,
+            other.rotation_measure,
+            close=close,
+            rtol=rtol,
+            atol=atol,
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PointPolarization):
+            return NotImplemented
+        return self._compare(other, close=False, rtol=0.0, atol=0.0)
+
+
+@dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
+class PointMetadata:
+    """Free-form per-source metadata: source_name, source_id, extra_columns.
+
+    Each field is independently optional (no all-or-nothing rule); if
+    nothing is set, callers should pass ``metadata=None`` rather than an
+    empty PointMetadata.
+    """
+
     source_name: np.ndarray | None = None
     source_id: np.ndarray | None = None
     extra_columns: dict[str, np.ndarray] = field(default_factory=dict)
-
-    # Optional lossless multi-frequency Stokes-flux table. When populated,
-    # consumers evaluate flux at an observation frequency via nearest-channel
-    # lookup rather than spectral-index extrapolation.
-    spectrum: PointSpectrum | None = None
 
     @field_validator("source_name", "source_id", mode="before")
     @classmethod
@@ -231,7 +318,7 @@ class PointSourceData:
             return {}
         if not isinstance(value, dict):
             raise TypeError(
-                "PointSourceData.extra_columns must be a dict, got "
+                "PointMetadata.extra_columns must be a dict, got "
                 f"{type(value).__name__}."
             )
         normalized: dict[str, np.ndarray] = {}
@@ -239,71 +326,309 @@ class PointSourceData:
             arr_np = np.asarray(arr)
             if arr_np.ndim != 1:
                 raise ValueError(
-                    f"PointSourceData: extra column {name!r} must be 1-D, "
+                    f"PointMetadata: extra column {name!r} must be 1-D, "
                     f"got shape {arr_np.shape}."
                 )
             normalized[name] = arr_np
         return normalized
 
     @model_validator(mode="after")
+    def _validate_lengths(self) -> PointMetadata:
+        """Every populated field must have the same per-source length."""
+        observed_lengths: dict[str, int] = {}
+        if self.source_name is not None:
+            observed_lengths["source_name"] = len(self.source_name)
+        if self.source_id is not None:
+            observed_lengths["source_id"] = len(self.source_id)
+        for name, arr in self.extra_columns.items():
+            observed_lengths[f"extra_columns[{name!r}]"] = len(arr)
+        if not observed_lengths:
+            return self
+        unique_lengths = set(observed_lengths.values())
+        if len(unique_lengths) > 1:
+            details = ", ".join(
+                f"{name}={length}" for name, length in sorted(observed_lengths.items())
+            )
+            raise ValueError(
+                "PointMetadata: populated fields disagree on per-source length: "
+                f"{details}."
+            )
+        return self
+
+    def n_sources(self) -> int | None:
+        """Return the per-source length implied by populated fields, or None.
+
+        Returns ``None`` when nothing is populated — used by
+        :class:`PointSourceData` to decide whether to skip the
+        length-check.
+        """
+        for arr in (self.source_name, self.source_id):
+            if arr is not None:
+                return int(len(arr))
+        for arr in self.extra_columns.values():
+            return int(len(arr))
+        return None
+
+    def masked(self, mask: np.ndarray) -> PointMetadata:
+        return PointMetadata(
+            source_name=self.source_name[mask]
+            if self.source_name is not None
+            else None,
+            source_id=self.source_id[mask] if self.source_id is not None else None,
+            extra_columns={name: arr[mask] for name, arr in self.extra_columns.items()},
+        )
+
+    @property
+    def is_empty(self) -> bool:
+        return (
+            self.source_name is None
+            and self.source_id is None
+            and not self.extra_columns
+        )
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def _compare(
+        self, other: PointMetadata, *, close: bool, rtol: float, atol: float
+    ) -> bool:
+        for name in ("source_name", "source_id"):
+            if not _arrays_equal(
+                getattr(self, name),
+                getattr(other, name),
+                close=close,
+                rtol=rtol,
+                atol=atol,
+            ):
+                return False
+        if self.extra_columns.keys() != other.extra_columns.keys():
+            return False
+        for name in sorted(self.extra_columns):
+            if not _arrays_equal(
+                self.extra_columns[name],
+                other.extra_columns[name],
+                close=close,
+                rtol=rtol,
+                atol=atol,
+            ):
+                return False
+        return True
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PointMetadata):
+            return NotImplemented
+        return self._compare(other, close=False, rtol=0.0, atol=0.0)
+
+
+# =============================================================================
+# PointSourceData
+# =============================================================================
+
+
+_FLAT_MORPHOLOGY_FIELDS = ("major_arcsec", "minor_arcsec", "pa_deg")
+_FLAT_POLARIZATION_FIELDS = ("rotation_measure",)
+_FLAT_METADATA_FIELDS = ("source_name", "source_id", "extra_columns")
+
+
+@dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
+class PointSourceData:
+    """Columnar arrays for point-source sky model.
+
+    Core arrays (always populated, possibly zero-length) carry RA/Dec,
+    Stokes I/Q/U/V at the reference frequency, the spectral index and
+    reference-frequency value. Extension blocks
+    (:class:`PointMorphology`, :class:`PointPolarization`,
+    :class:`PointMetadata`) are independently optional and grouped so
+    each block validates its own shape rules in isolation.
+
+    The constructor accepts both nested objects and the historical flat
+    kwargs (e.g. ``major_arcsec=…``); a pre-validator packs flat kwargs
+    into the matching sub-dataclass before the dataclass is built.
+    Read-back accessors (``point.major_arcsec``, ``point.rotation_measure``,
+    ``point.source_name`` …) make the flat view available again.
+    """
+
+    ra_rad: np.ndarray
+    dec_rad: np.ndarray
+    flux: np.ndarray
+    spectral_index: np.ndarray
+    stokes_q: np.ndarray
+    stokes_u: np.ndarray
+    stokes_v: np.ndarray
+    ref_freq: np.ndarray
+
+    spectral_coeffs: np.ndarray | None = None  # shape (N, N_terms) or None
+
+    morphology: PointMorphology | None = None
+    polarization: PointPolarization | None = None
+    metadata: PointMetadata | None = None
+
+    # Optional lossless multi-frequency Stokes-flux table. When populated,
+    # consumers evaluate flux at an observation frequency via nearest-channel
+    # lookup rather than spectral-index extrapolation.
+    spectrum: PointSpectrum | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _pack_flat_kwargs(cls, values: object) -> object:
+        """Accept legacy flat kwargs and pack them into nested sub-dataclasses.
+
+        ``major_arcsec``/``minor_arcsec``/``pa_deg`` collapse into a
+        :class:`PointMorphology`; ``rotation_measure`` into
+        :class:`PointPolarization`; ``source_name``/``source_id``/
+        ``extra_columns`` into :class:`PointMetadata`. Already-nested
+        kwargs win over flat ones (passing both is a TypeError).
+        """
+        if isinstance(values, dict):
+            kwargs = values
+        elif hasattr(values, "kwargs") and isinstance(values.kwargs, dict):
+            kwargs = values.kwargs
+        else:
+            return values
+
+        def _pop_flat(names: tuple[str, ...]) -> dict[str, Any]:
+            popped: dict[str, Any] = {}
+            for name in names:
+                if name in kwargs:
+                    popped[name] = kwargs.pop(name)
+            return popped
+
+        morph_flat = _pop_flat(_FLAT_MORPHOLOGY_FIELDS)
+        if morph_flat:
+            if kwargs.get("morphology") is not None:
+                raise TypeError(
+                    "PointSourceData: pass either 'morphology' or the flat "
+                    "morphology kwargs (major_arcsec/minor_arcsec/pa_deg), "
+                    "not both."
+                )
+            present = {k for k, v in morph_flat.items() if v is not None}
+            if present and len(present) != 3:
+                raise ValueError(
+                    "PointSourceData: major_arcsec, minor_arcsec, pa_deg must "
+                    "be all set or all None."
+                )
+            if present:
+                kwargs["morphology"] = PointMorphology(
+                    major_arcsec=morph_flat["major_arcsec"],
+                    minor_arcsec=morph_flat["minor_arcsec"],
+                    pa_deg=morph_flat["pa_deg"],
+                )
+
+        pol_flat = _pop_flat(_FLAT_POLARIZATION_FIELDS)
+        if pol_flat:
+            if kwargs.get("polarization") is not None:
+                raise TypeError(
+                    "PointSourceData: pass either 'polarization' or the flat "
+                    "rotation_measure kwarg, not both."
+                )
+            rm = pol_flat["rotation_measure"]
+            if rm is not None:
+                kwargs["polarization"] = PointPolarization(rotation_measure=rm)
+
+        meta_flat = _pop_flat(_FLAT_METADATA_FIELDS)
+        if meta_flat:
+            if kwargs.get("metadata") is not None:
+                raise TypeError(
+                    "PointSourceData: pass either 'metadata' or the flat "
+                    "metadata kwargs (source_name/source_id/extra_columns), "
+                    "not both."
+                )
+            non_empty = (
+                meta_flat.get("source_name") is not None
+                or meta_flat.get("source_id") is not None
+                or meta_flat.get("extra_columns")
+            )
+            if non_empty:
+                kwargs["metadata"] = PointMetadata(
+                    source_name=meta_flat.get("source_name"),
+                    source_id=meta_flat.get("source_id"),
+                    extra_columns=meta_flat.get("extra_columns") or {},
+                )
+
+        return values
+
+    @model_validator(mode="after")
     def _validate_lengths(self) -> PointSourceData:
         n = len(self.ra_rad)
-        core_fields = {
-            "ra_rad": self.ra_rad,
-            "dec_rad": self.dec_rad,
-            "flux": self.flux,
-            "spectral_index": self.spectral_index,
-            "stokes_q": self.stokes_q,
-            "stokes_u": self.stokes_u,
-            "stokes_v": self.stokes_v,
-            "ref_freq": self.ref_freq,
-        }
-        for name, arr in core_fields.items():
+        for name, arr in (
+            ("dec_rad", self.dec_rad),
+            ("flux", self.flux),
+            ("spectral_index", self.spectral_index),
+            ("stokes_q", self.stokes_q),
+            ("stokes_u", self.stokes_u),
+            ("stokes_v", self.stokes_v),
+            ("ref_freq", self.ref_freq),
+        ):
             if len(arr) != n:
                 raise ValueError(
                     f"PointSourceData: {name} has length {len(arr)}, "
                     f"expected {n} (must match ra_rad)."
                 )
 
-        morph = (self.major_arcsec, self.minor_arcsec, self.pa_deg)
-        morph_present = sum(1 for m in morph if m is not None)
-        if morph_present not in (0, 3):
-            raise ValueError(
-                "PointSourceData: major_arcsec, minor_arcsec, pa_deg must be "
-                "all set or all None."
-            )
-
-        for name, arr in [
-            ("rotation_measure", self.rotation_measure),
-            ("major_arcsec", self.major_arcsec),
-            ("minor_arcsec", self.minor_arcsec),
-            ("pa_deg", self.pa_deg),
-            ("source_name", self.source_name),
-            ("source_id", self.source_id),
-        ]:
-            if arr is not None and len(arr) != n:
-                raise ValueError(
-                    f"PointSourceData: {name} has length {len(arr)}, expected {n}."
-                )
         if self.spectral_coeffs is not None and self.spectral_coeffs.shape[0] != n:
             raise ValueError(
                 f"PointSourceData: spectral_coeffs has {self.spectral_coeffs.shape[0]} "
                 f"rows, expected {n}."
             )
 
+        if self.morphology is not None and self.morphology.n_sources != n:
+            raise ValueError(
+                f"PointSourceData: morphology has {self.morphology.n_sources} "
+                f"sources, expected {n}."
+            )
+        if self.polarization is not None and self.polarization.n_sources != n:
+            raise ValueError(
+                f"PointSourceData: polarization has {self.polarization.n_sources} "
+                f"sources, expected {n}."
+            )
+        if self.metadata is not None:
+            meta_n = self.metadata.n_sources()
+            if meta_n is not None and meta_n != n:
+                raise ValueError(
+                    f"PointSourceData: metadata has {meta_n} sources, expected {n}."
+                )
+
         if self.spectrum is not None and self.spectrum.n_sources != n:
             raise ValueError(
                 f"PointSourceData: spectrum has {self.spectrum.n_sources} "
                 f"sources, expected {n}."
             )
-
-        for name, arr in self.extra_columns.items():
-            if len(arr) != n:
-                raise ValueError(
-                    f"PointSourceData: extra column {name!r} has length {len(arr)}, "
-                    f"expected {n}."
-                )
         return self
+
+    # =========================================================================
+    # Read-back-compat accessors (flat view of nested storage)
+    # =========================================================================
+
+    @property
+    def major_arcsec(self) -> np.ndarray | None:
+        return self.morphology.major_arcsec if self.morphology is not None else None
+
+    @property
+    def minor_arcsec(self) -> np.ndarray | None:
+        return self.morphology.minor_arcsec if self.morphology is not None else None
+
+    @property
+    def pa_deg(self) -> np.ndarray | None:
+        return self.morphology.pa_deg if self.morphology is not None else None
+
+    @property
+    def rotation_measure(self) -> np.ndarray | None:
+        return (
+            self.polarization.rotation_measure
+            if self.polarization is not None
+            else None
+        )
+
+    @property
+    def source_name(self) -> np.ndarray | None:
+        return self.metadata.source_name if self.metadata is not None else None
+
+    @property
+    def source_id(self) -> np.ndarray | None:
+        return self.metadata.source_id if self.metadata is not None else None
+
+    @property
+    def extra_columns(self) -> dict[str, np.ndarray]:
+        return self.metadata.extra_columns if self.metadata is not None else {}
 
     @property
     def n_sources(self) -> int:
@@ -331,17 +656,7 @@ class PointSourceData:
         )
 
     def masked(self, mask: np.ndarray) -> PointSourceData:
-        """Return new instance with boolean mask applied to all arrays.
-
-        Parameters
-        ----------
-        mask : np.ndarray
-            Boolean mask of shape ``(n_sources,)``.
-
-        Returns
-        -------
-        PointSourceData
-        """
+        """Return new instance with boolean mask applied to all arrays."""
         return PointSourceData(
             ra_rad=self.ra_rad[mask],
             dec_rad=self.dec_rad[mask],
@@ -351,29 +666,25 @@ class PointSourceData:
             stokes_u=self.stokes_u[mask],
             stokes_v=self.stokes_v[mask],
             ref_freq=self.ref_freq[mask],
-            rotation_measure=(
-                self.rotation_measure[mask]
-                if self.rotation_measure is not None
-                else None
-            ),
-            major_arcsec=(
-                self.major_arcsec[mask] if self.major_arcsec is not None else None
-            ),
-            minor_arcsec=(
-                self.minor_arcsec[mask] if self.minor_arcsec is not None else None
-            ),
-            pa_deg=self.pa_deg[mask] if self.pa_deg is not None else None,
             spectral_coeffs=(
                 self.spectral_coeffs[mask] if self.spectral_coeffs is not None else None
             ),
-            source_name=(
-                self.source_name[mask] if self.source_name is not None else None
+            morphology=(
+                self.morphology.masked(mask) if self.morphology is not None else None
             ),
-            source_id=self.source_id[mask] if self.source_id is not None else None,
-            extra_columns={name: arr[mask] for name, arr in self.extra_columns.items()},
-            spectrum=self.spectrum.masked_sources(mask)
-            if self.spectrum is not None
-            else None,
+            polarization=(
+                self.polarization.masked(mask)
+                if self.polarization is not None
+                else None
+            ),
+            metadata=(
+                self.metadata.masked(mask) if self.metadata is not None else None
+            ),
+            spectrum=(
+                self.spectrum.masked_sources(mask)
+                if self.spectrum is not None
+                else None
+            ),
         )
 
     def as_source_arrays(
@@ -387,10 +698,6 @@ class PointSourceData:
             Minimum flux in Jy.
         reference_frequency : float, default 0.0
             Fallback reference frequency (used only if ref_freq is all-zero).
-
-        Returns
-        -------
-        SourceArrays
         """
         if self.is_empty:
             return empty_source_arrays()
@@ -408,6 +715,11 @@ class PointSourceData:
         if reference_frequency and np.all(ref_freq == 0):
             ref_freq = np.full(n, reference_frequency, dtype=ref_freq.dtype)
 
+        rotation_measure = self.rotation_measure
+        major_arcsec = self.major_arcsec
+        minor_arcsec = self.minor_arcsec
+        pa_deg = self.pa_deg
+
         return {
             "ra_rad": self.ra_rad[mask],
             "dec_rad": self.dec_rad[mask],
@@ -418,17 +730,11 @@ class PointSourceData:
             "stokes_v": self.stokes_v[mask],
             "ref_freq": ref_freq,
             "rotation_measure": (
-                self.rotation_measure[mask]
-                if self.rotation_measure is not None
-                else None
+                rotation_measure[mask] if rotation_measure is not None else None
             ),
-            "major_arcsec": (
-                self.major_arcsec[mask] if self.major_arcsec is not None else None
-            ),
-            "minor_arcsec": (
-                self.minor_arcsec[mask] if self.minor_arcsec is not None else None
-            ),
-            "pa_deg": self.pa_deg[mask] if self.pa_deg is not None else None,
+            "major_arcsec": major_arcsec[mask] if major_arcsec is not None else None,
+            "minor_arcsec": minor_arcsec[mask] if minor_arcsec is not None else None,
+            "pa_deg": pa_deg[mask] if pa_deg is not None else None,
             "spectral_coeffs": (
                 self.spectral_coeffs[mask] if self.spectral_coeffs is not None else None
             ),
@@ -455,7 +761,7 @@ class PointSourceData:
             ),
         }
 
-    # Tuple of all per-source 1-D array field names (for iteration).
+    # Tuple of all per-source 1-D core array field names (for iteration).
     _CORE_FIELDS: tuple[str, ...] = (
         "ra_rad",
         "dec_rad",
@@ -467,27 +773,12 @@ class PointSourceData:
         "ref_freq",
     )
 
-    _OPTIONAL_FIELDS: tuple[str, ...] = (
-        "rotation_measure",
-        "major_arcsec",
-        "minor_arcsec",
-        "pa_deg",
-    )
-
-    _METADATA_FIELDS: tuple[str, ...] = ("source_name", "source_id")
-
     __hash__ = None  # type: ignore[assignment]
 
     def _compare(
         self, other: PointSourceData, *, close: bool, rtol: float, atol: float
     ) -> bool:
-        array_fields = (
-            *self._CORE_FIELDS,
-            *self._OPTIONAL_FIELDS,
-            *self._METADATA_FIELDS,
-            "spectral_coeffs",
-        )
-        for name in array_fields:
+        for name in (*self._CORE_FIELDS, "spectral_coeffs"):
             if not _arrays_equal(
                 getattr(self, name),
                 getattr(other, name),
@@ -496,22 +787,13 @@ class PointSourceData:
                 atol=atol,
             ):
                 return False
-        if self.extra_columns.keys() != other.extra_columns.keys():
-            return False
-        for name in sorted(self.extra_columns):
-            if not _arrays_equal(
-                self.extra_columns[name],
-                other.extra_columns[name],
-                close=close,
-                rtol=rtol,
-                atol=atol,
-            ):
+        for name in ("morphology", "polarization", "metadata", "spectrum"):
+            mine = getattr(self, name)
+            theirs = getattr(other, name)
+            if (mine is None) != (theirs is None):
                 return False
-        if (self.spectrum is None) != (other.spectrum is None):
-            return False
-        if self.spectrum is not None and other.spectrum is not None:
-            if not self.spectrum._compare(
-                other.spectrum, close=close, rtol=rtol, atol=atol
+            if mine is not None and not mine._compare(
+                theirs, close=close, rtol=rtol, atol=atol
             ):
                 return False
         return True
@@ -527,8 +809,3 @@ class PointSourceData:
         if not isinstance(other, PointSourceData):
             return False
         return self._compare(other, close=True, rtol=rtol, atol=atol)
-
-
-# =============================================================================
-# HealpixData
-# =============================================================================
