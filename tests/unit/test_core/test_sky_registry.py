@@ -7,7 +7,6 @@ from pydantic import ValidationError
 import radiosim.core.sky as sky_public
 import radiosim.core.sky.registry.facade as registry_public
 from radiosim.core.sky.diagnostics.discovery import get_catalog_info
-from radiosim.core.sky.registry.core import _LOADER_META
 from radiosim.core.sky.registry.facade import loader_registry
 from radiosim.io.config import (
     DiffuseSkySourceConfig,
@@ -83,10 +82,10 @@ class TestRegistry:
         definitions = {
             definition.name: definition for definition in loader_registry.definitions()
         }
-        for name, meta in _LOADER_META.items():
-            definition = definitions[name]
+        for name, definition in definitions.items():
             if definition.requires_file:
                 continue
+            meta = loader_registry.meta(name)
             assert definition.config_section == meta["config_section"]
             assert (definition.use_flag or f"use_{definition.name}") == meta["use_flag"]
             assert list(definition.representations) == meta["representations"]

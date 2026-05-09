@@ -49,7 +49,7 @@ class SkyLoaderRegistry:
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Register a loader function."""
 
-        return _backend.register_loader(
+        return _backend._register_loader(
             name,
             config_section=config_section,
             use_flag=use_flag,
@@ -63,23 +63,23 @@ class SkyLoaderRegistry:
 
     def loader(self, name: str) -> Callable[..., Any]:
         """Return the bare canonical loader function (no alias defaults applied)."""
-        return _backend.get_canonical_loader(name)
+        return _backend._get_canonical_loader(name)
 
     def resolve_callable(self, name: str) -> ResolvedLoader:
         """Return an alias-resolved callable that merges alias defaults on invocation."""
-        return _backend.get_resolved_loader(name)
+        return _backend._get_resolved_loader(name)
 
     def definition(self, name: str) -> LoaderDefinition:
         """Return loader metadata by canonical name or alias."""
-        return _backend.get_loader_definition(name)
+        return _backend._get_loader_definition(name)
 
     def meta(self, name: str) -> dict[str, Any]:
         """Return a serializable metadata dict for one loader."""
-        return _backend.loader_metadata(name)
+        return _backend._loader_metadata(name)
 
     def resolve_name(self, name: str) -> str:
         """Resolve a canonical loader name from an alias or canonical name."""
-        return _backend.resolve_loader_name(name)
+        return _backend._resolve_loader_name(name)
 
     def resolve_request(
         self,
@@ -87,24 +87,24 @@ class SkyLoaderRegistry:
         kwargs: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """Resolve a loader request and merge alias-bound default kwargs."""
-        return _backend.resolve_loader_request(name, kwargs)
+        return _backend._resolve_loader_request(name, kwargs)
 
     def names(self) -> list[str]:
         """Return registered canonical loader names."""
-        return _backend.list_loaders()
+        return _backend._list_loaders()
 
     def definitions(self) -> list[LoaderDefinition]:
         """Return registered loader definitions."""
-        return _backend.list_loader_definitions()
+        return _backend._list_loader_definitions()
 
     def aliases(self) -> dict[str, str]:
         """Return alias -> canonical loader mappings."""
-        _backend.ensure_default_loaders_registered()
+        _backend._ensure_default_loaders_registered()
         return _backend._REGISTRY.alias_map()
 
     def alias_defaults(self) -> dict[str, dict[str, Any]]:
         """Return alias-bound default kwargs."""
-        _backend.ensure_default_loaders_registered()
+        _backend._ensure_default_loaders_registered()
         return _backend._REGISTRY.alias_defaults_map()
 
     def network_services(self) -> dict[str, str]:
@@ -117,7 +117,7 @@ class SkyLoaderRegistry:
 
     def ensure_default_loaders_registered(self) -> None:
         """Force-import every built-in loader module (idempotent)."""
-        _backend.ensure_default_loaders_registered()
+        _backend._ensure_default_loaders_registered()
 
     def unregister(self, name: str) -> None:
         """Remove a loader and its aliases (intended for tests).
@@ -125,7 +125,7 @@ class SkyLoaderRegistry:
         Production code should not need this — the built-in loaders are
         permanent.
         """
-        _backend.ensure_default_loaders_registered()
+        _backend._ensure_default_loaders_registered()
         _backend._REGISTRY.unregister(name)
         _backend._sync_meta_cache()
 

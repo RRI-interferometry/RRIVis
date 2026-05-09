@@ -287,7 +287,7 @@ _DEFAULT_LOADER_MODULES = (
 _DEFAULT_LOADERS_IMPORTED = False
 
 
-def ensure_default_loaders_registered() -> None:
+def _ensure_default_loaders_registered() -> None:
     """Import built-in loader modules exactly once."""
     global _DEFAULT_LOADERS_IMPORTED
     if _DEFAULT_LOADERS_IMPORTED:
@@ -303,7 +303,7 @@ def _sync_meta_cache() -> None:
         _LOADER_META[definition.name] = definition.meta_dict()
 
 
-def register_loader(
+def _register_loader(
     name: str,
     *,
     config_section: str | None = None,
@@ -317,7 +317,11 @@ def register_loader(
     ) = None,
     config_fields: dict[str, str] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator used by loader modules to register themselves."""
+    """Decorator used by loader modules to register themselves.
+
+    Internal helper — call ``loader_registry.register(...)`` from the
+    public facade rather than importing this directly.
+    """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         _REGISTRY.register(
@@ -338,20 +342,20 @@ def register_loader(
     return decorator
 
 
-def get_canonical_loader(name: str) -> Callable[..., Any]:
+def _get_canonical_loader(name: str) -> Callable[..., Any]:
     """Return the bare canonical loader function for ``name`` or its alias.
 
-    Alias-bound default kwargs are NOT merged. Use :func:`get_resolved_loader`
+    Alias-bound default kwargs are NOT merged. Use :func:`_get_resolved_loader`
     when alias defaults must be applied automatically.
     """
-    ensure_default_loaders_registered()
+    _ensure_default_loaders_registered()
     canonical = _REGISTRY.resolve_name(name)
     return _REGISTRY.get_loader(canonical)
 
 
-def get_resolved_loader(name: str) -> ResolvedLoader:
+def _get_resolved_loader(name: str) -> ResolvedLoader:
     """Return a :class:`ResolvedLoader` that merges alias defaults on call."""
-    ensure_default_loaders_registered()
+    _ensure_default_loaders_registered()
     canonical, defaults = _REGISTRY.resolve_request(name)
     return ResolvedLoader(
         canonical_name=canonical,
@@ -360,43 +364,37 @@ def get_resolved_loader(name: str) -> ResolvedLoader:
     )
 
 
-# Legacy helper retained as a thin alias for ``get_canonical_loader`` so that
-# any out-of-tree caller importing ``get_loader`` still gets a bare callable.
-def get_loader(name: str) -> Callable[..., Any]:
-    return get_canonical_loader(name)
-
-
-def get_loader_definition(name: str) -> LoaderDefinition:
-    ensure_default_loaders_registered()
+def _get_loader_definition(name: str) -> LoaderDefinition:
+    _ensure_default_loaders_registered()
     return _REGISTRY.get_definition(name)
 
 
-def resolve_loader_name(name: str) -> str:
-    ensure_default_loaders_registered()
+def _resolve_loader_name(name: str) -> str:
+    _ensure_default_loaders_registered()
     return _REGISTRY.resolve_name(name)
 
 
-def resolve_loader_request(
+def _resolve_loader_request(
     name: str,
     kwargs: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    ensure_default_loaders_registered()
+    _ensure_default_loaders_registered()
     return _REGISTRY.resolve_request(name, kwargs)
 
 
-def list_loader_definitions() -> list[LoaderDefinition]:
-    ensure_default_loaders_registered()
+def _list_loader_definitions() -> list[LoaderDefinition]:
+    _ensure_default_loaders_registered()
     return _REGISTRY.definitions()
 
 
-def loader_metadata(name: str) -> dict[str, Any]:
+def _loader_metadata(name: str) -> dict[str, Any]:
     """Return resolved metadata for a loader or alias.
 
     Alias-bound defaults are applied when they affect the representation
     capability view, so callers see the actual loader request they asked for.
     """
 
-    ensure_default_loaders_registered()
+    _ensure_default_loaders_registered()
     canonical, defaults = _REGISTRY.resolve_request(name, {})
     definition = _REGISTRY.get_definition(canonical)
     meta = definition.meta_dict()
@@ -418,6 +416,6 @@ def loader_metadata(name: str) -> dict[str, Any]:
     return meta
 
 
-def list_loaders() -> list[str]:
-    ensure_default_loaders_registered()
+def _list_loaders() -> list[str]:
+    _ensure_default_loaders_registered()
     return _REGISTRY.list_loaders()
