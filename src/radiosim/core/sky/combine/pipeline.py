@@ -10,20 +10,18 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import numpy as np
-
 from ..containers.model import SkyFormat, SkyModel
 from ..operations.operations import (
     materialize_healpix_model,
     materialize_point_sources_model,
 )
 from .engine import (
-    MixedModelPolicy,
     _combine_models,
     _resolve_requested_healpix_frequencies,
     _validate_requested_healpix_grid,
     resolve_target_representation,
 )
+from .options import PrepareSkyOptions
 
 logger = logging.getLogger(__name__)
 
@@ -31,18 +29,8 @@ logger = logging.getLogger(__name__)
 def prepare_sky_model(
     models: list[SkyModel],
     *,
-    representation: SkyFormat | str | None = None,
-    nside: int | None = None,
-    frequencies: np.ndarray | None = None,
-    frequency: float | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
-    allow_lossy: bool = False,
-    mixed_model_policy: MixedModelPolicy = "error",
-    brightness_conversion: Any = None,
-    precision: Any = None,
-    memmap_path: str | None = None,
-    beam_fwhm_rad: float | None = None,
-    nside_safety_factor: float = 5.0,
+    options: PrepareSkyOptions | None = None,
+    **overrides: Any,
 ) -> SkyModel:
     """Combine and materialize sky models into a usable representation.
 
@@ -50,25 +38,38 @@ def prepare_sky_model(
     physical-disjointness check, combines the models, and materializes the
     result into the requested ``representation``.
 
-    Parameters
-    ----------
-    representation
-        ``"point_sources"``, ``"healpix_map"``, ``SkyFormat.POINT_SOURCES``,
-        ``SkyFormat.HEALPIX``, or ``None`` to auto-detect.  When ``None``,
-        a hybrid model is returned if inputs span both formats; otherwise
-        the input format is preserved.
-    beam_fwhm_rad
-        Optional primary-beam FWHM (radians).  When provided together with a
-        ``HEALPIX`` representation request, an advisory warning is logged
-        if the chosen ``nside`` gives a pixel size larger than
-        ``beam_fwhm_rad / nside_safety_factor`` (the "five pixels across
-        the beam" rule of thumb).  Purely advisory — never raises.
-    nside_safety_factor
-        Target ratio of ``beam_fwhm`` to pixel scale for the advisor.
-        Defaults to 5.
+    Two equivalent calling styles:
+
+    1. Build a :class:`PrepareSkyOptions` once (and serialise it for run
+       reproducibility) and pass it via ``options=...``.
+    2. Pass any combination of options-fields directly as keyword
+       arguments. They are applied as overrides on top of the supplied
+       (or default) options object.
+
+    Cross-field rules — e.g. ``frequencies`` xor ``obs_frequency_config``
+    — are validated at the :class:`PrepareSkyOptions` constructor before
+    any combine work runs.
+
+    See :class:`PrepareSkyOptions` for the full field catalogue.
     """
     if not models:
         raise ValueError("prepare_sky_model requires at least one input model.")
+
+    base = options if options is not None else PrepareSkyOptions()
+    opts = base.merged(**overrides) if overrides else base
+
+    representation = opts.representation
+    nside = opts.nside
+    frequencies = opts.frequencies
+    frequency = opts.frequency
+    obs_frequency_config = opts.obs_frequency_config
+    allow_lossy = opts.allow_lossy
+    mixed_model_policy = opts.mixed_model_policy
+    brightness_conversion = opts.brightness_conversion
+    precision = opts.precision
+    memmap_path = opts.memmap_path
+    beam_fwhm_rad = opts.beam_fwhm_rad
+    nside_safety_factor = opts.nside_safety_factor
 
     # Single source of truth for hybrid auto-detection. ``target`` is None
     # when no explicit format is requested AND inputs span both

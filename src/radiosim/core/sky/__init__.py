@@ -15,6 +15,7 @@ relying on implicit densification.
 """
 
 from .combine.engine import regrid_healpix_model
+from .combine.options import PrepareSkyOptions
 from .combine.pipeline import prepare_sky_model
 from .containers.constants import (
     C_LIGHT,
@@ -144,6 +145,7 @@ __all__ = [
     "load_bbs",
     "load_test_sources",
     # Orchestration
+    "PrepareSkyOptions",
     "prepare_sky_model",
     "regrid_healpix_model",
 ]
