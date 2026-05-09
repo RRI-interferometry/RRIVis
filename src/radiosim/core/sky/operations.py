@@ -6,6 +6,7 @@ operations outside ``SkyModel`` itself.
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 import warnings
@@ -27,9 +28,12 @@ from .constants import (
     flux_density_to_brightness_temp,
 )
 from .convert import healpix_map_to_point_arrays, point_sources_to_healpix_maps
+from .spectral import per_source_reference_frequencies
 
 if TYPE_CHECKING:
     from .model import SkyModel
+
+logger = logging.getLogger(__name__)
 
 
 def materialize_healpix_model(
@@ -41,7 +45,6 @@ def materialize_healpix_model(
     ref_frequency: float | None = None,
     memmap_path: str | None = None,
     clear_other: bool = False,
-    polarization_brightness_conversion: str = "rayleigh-jeans",
 ) -> SkyModel:
     """Materialize a HEALPix payload from a point-source payload.
 
@@ -49,11 +52,12 @@ def materialize_healpix_model(
     point payload and the new HEALPix payload. Pass ``clear_other=True``
     to drop the source point payload (pure point→HEALPix conversion).
 
-    Stokes I uses ``sky.brightness_conversion``.  Stokes Q/U/V default to
-    Rayleigh-Jeans because polarized brightness can be negative; pass
-    ``polarization_brightness_conversion="planck"`` to use Planck for
-    Q/U/V too (requires every binned per-pixel Q/U/V flux to be strictly
-    positive).
+    Stokes I uses ``sky.brightness_conversion``.  Stokes Q/U/V use
+    ``sky.polarization_brightness_conversion`` (defaults to Rayleigh-Jeans
+    because polarized brightness can be negative; the Planck inverse is
+    undefined for non-positive arguments).  Set the policy on the model
+    itself via ``sky.replace(polarization_brightness_conversion="planck")``
+    when you need Stokes-I-style non-linear conversion for polarised maps.
     """
     if sky.point is None:
         raise ValueError(
@@ -74,20 +78,21 @@ def materialize_healpix_model(
             "(dict) is required."
         )
 
-    effective_ref_freq: float | np.ndarray | None = None
-    if sky.point.ref_freq is not None and np.any(sky.point.ref_freq > 0):
-        effective_ref_freq = sky.point.ref_freq
-    else:
-        effective_ref_freq = ref_frequency or sky.reference_frequency
-        if effective_ref_freq is None:
-            raise ValueError(
-                "ref_frequency must be provided when this SkyModel has no "
-                "per-source ref_freq values and no reference_frequency. "
-                "Set it via with_reference_frequency() or pass ref_frequency "
-                "explicitly."
-            )
+    effective_ref_freq = per_source_reference_frequencies(
+        sky.point,
+        model_reference_frequency=sky.reference_frequency,
+        fallback=ref_frequency,
+    )
+    if not np.any(effective_ref_freq > 0):
+        raise ValueError(
+            "ref_frequency must be provided when this SkyModel has no "
+            "per-source ref_freq values and no reference_frequency. "
+            "Set it via with_reference_frequency() or pass ref_frequency "
+            "explicitly."
+        )
 
     spectrum = sky.point.spectrum
+    pol_method = sky.polarization_brightness_conversion.value
     i_maps, q_maps, u_maps, v_maps, collision_stats = point_sources_to_healpix_maps(
         ra_rad=sky.point.ra_rad,
         dec_rad=sky.point.dec_rad,
@@ -110,7 +115,7 @@ def materialize_healpix_model(
         per_channel_stokes_u=spectrum.stokes_u if spectrum is not None else None,
         per_channel_stokes_v=spectrum.stokes_v if spectrum is not None else None,
         channel_frequencies=spectrum.frequencies if spectrum is not None else None,
-        polarization_brightness_conversion=polarization_brightness_conversion,
+        polarization_brightness_conversion=pol_method,
     )
 
     new_healpix = HealpixData(
@@ -122,9 +127,9 @@ def materialize_healpix_model(
         u_maps=u_maps,
         v_maps=v_maps,
         i_brightness_conversion=sky.brightness_conversion.value,
-        q_brightness_conversion=polarization_brightness_conversion,
-        u_brightness_conversion=polarization_brightness_conversion,
-        v_brightness_conversion=polarization_brightness_conversion,
+        q_brightness_conversion=pol_method,
+        u_brightness_conversion=pol_method,
+        v_brightness_conversion=pol_method,
     )
 
     # Record pixel collisions in provenance.notes so a downstream consumer
@@ -154,7 +159,6 @@ def materialize_point_sources_model(
     *,
     lossy: bool = False,
     clear_other: bool = False,
-    polarization_brightness_conversion: str = "rayleigh-jeans",
 ) -> SkyModel:
     """Materialize a point-source payload from a HEALPix payload.
 
@@ -162,10 +166,12 @@ def materialize_point_sources_model(
     HEALPix payload and the new point payload. Pass ``clear_other=True``
     to drop the source HEALPix payload (pure HEALPix→point conversion).
 
-    Stokes I uses ``sky.brightness_conversion``.  Stokes Q/U/V default to
-    Rayleigh-Jeans because polarized brightness can be negative; pass
-    ``polarization_brightness_conversion="planck"`` to use Planck for
-    Q/U/V too (requires every Q/U/V pixel to be strictly positive).
+    Stokes I uses ``sky.brightness_conversion``.  Stokes Q/U/V use
+    ``sky.polarization_brightness_conversion`` (defaults to Rayleigh-Jeans
+    because polarized brightness can be negative).  Set the policy on the
+    model itself via
+    ``sky.replace(polarization_brightness_conversion="planck")`` when you
+    need Stokes-I-style non-linear conversion for polarised maps.
     """
     if sky.point is not None:
         return sky
@@ -196,7 +202,7 @@ def materialize_point_sources_model(
         raise ValueError(
             "frequency is required for HEALPix-to-point-source conversion."
         )
-    fi = sky.resolve_frequency_index(resolve_freq)
+    fi = healpix.resolve_frequency_index(resolve_freq)
     temp_map = healpix.maps[fi]
     arrays = healpix_map_to_point_arrays(
         temp_map,
@@ -210,7 +216,9 @@ def materialize_point_sources_model(
         healpix_maps=healpix.maps,
         coordinate_frame=healpix.coordinate_frame,
         ref_freq_out=resolve_freq,
-        polarization_brightness_conversion=polarization_brightness_conversion,
+        polarization_brightness_conversion=(
+            sky.polarization_brightness_conversion.value
+        ),
         warn=False,
     )
     if flux_limit > 0:
@@ -319,6 +327,12 @@ def with_memmap_backing(
 # the candidate list; the integrated fitted flux is then compared to the full
 # threshold before subtraction.  0.2 mirrors the Remazeilles 2015 §3 setup.
 _DEFAULT_DETECTION_PEAK_FRACTION: float = 0.2
+
+# Cost-warning threshold: subtract_bright_sources runs one
+# scipy.optimize.curve_fit per candidate × per channel.  At ~5 ms / fit
+# this caps the warned regime to ≲ 5 s worth of fitting; users hitting
+# thousands of fits get a heads-up so they can cap with ``max_sources``.
+_SUBTRACT_FIT_COUNT_WARN_THRESHOLD: int = 1000
 
 # Stop criteria for the harmonic-space inpaint loop.  80 iterations is more
 # than sufficient for an ℓ_max ≈ 2·nside band-limited fill at the rtol below;
@@ -571,7 +585,7 @@ def _select_subtraction_candidates(
     nside = sky.healpix.nside
     pixel_area_sr = 4.0 * np.pi / hp.nside2npix(nside)
 
-    idx = sky.resolve_frequency_index(frequency_hz)
+    idx = sky.healpix.resolve_frequency_index(frequency_hz)
     reference_map_k = np.asarray(sky.healpix.maps[idx], dtype=np.float64)
     use_rj = sky.brightness_conversion.value == "rayleigh-jeans" or np.any(
         reference_map_k <= 0.0
@@ -816,6 +830,14 @@ def subtract_bright_sources(
     threshold within the band) require either per-frequency repetition
     of this routine or a multi-frequency catalog evaluated at each
     output frequency.
+
+    **Cost.** This routine runs one ``scipy.optimize.curve_fit`` call per
+    candidate per frequency channel — i.e. ``O(N_candidates × N_freq)``
+    nonlinear fits.  At dense HEALPix with broad bands this can stretch
+    into minutes-to-hours.  Cap the candidate list with ``max_sources=...``
+    or pre-filter with a higher ``flux_limit_jy`` when many candidates are
+    expected; a logger warning is emitted when the predicted fit count
+    exceeds 1000.
     """
     if sky.healpix is None:
         raise ValueError(
@@ -840,6 +862,21 @@ def subtract_bright_sources(
         detection_peak_fraction=detection_peak_fraction,
         max_sources=max_sources,
     )
+
+    n_freq_total = int(sky.healpix.frequencies.size)
+    n_fits_total = int(candidate_pix.size) * n_freq_total
+    if n_fits_total > _SUBTRACT_FIT_COUNT_WARN_THRESHOLD:
+        logger.warning(
+            "subtract_bright_sources: about to run %d × %d = %d "
+            "scipy.optimize.curve_fit calls (one per candidate per "
+            "channel) — this is O(N_candidates × N_freq) and can be "
+            "minutes-to-hours at large nside / wide bands. Pass "
+            "max_sources=... to cap the candidate list, or filter by "
+            "flux_limit_jy first.",
+            int(candidate_pix.size),
+            n_freq_total,
+            n_fits_total,
+        )
 
     if candidate_pix.size == 0:
         new_prov = sky.provenance.replace(
@@ -962,7 +999,7 @@ def compute_linear_polarization(
             q_maps = sky.healpix.q_maps
             u_maps = sky.healpix.u_maps
         else:
-            idx = sky.resolve_frequency_index(float(frequency))
+            idx = sky.healpix.resolve_frequency_index(float(frequency))
             i_maps = sky.healpix.maps[idx]
             q_maps = sky.healpix.q_maps[idx]
             u_maps = sky.healpix.u_maps[idx]
