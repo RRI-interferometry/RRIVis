@@ -13,7 +13,7 @@ the frequency axis.
 """
 
 import logging
-from dataclasses import field, replace
+from dataclasses import field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -353,23 +353,39 @@ class SkyModel:
     # Immutable Replace Helper
     # =========================================================================
 
+    _REPLACE_FIELDS: tuple[str, ...] = (
+        "point",
+        "healpix",
+        "reference_frequency",
+        "model_name",
+        "brightness_conversion",
+        "polarization_brightness_conversion",
+        "provenance",
+        "precision",
+    )
+
     def replace(self, **changes: Any) -> "SkyModel":
         """Return a new ``SkyModel`` with the given fields replaced.
 
-        Wraps ``dataclasses.replace`` with precision-aware payload casting and
-        a field whitelist. Always use this instead of ``dataclasses.replace``
-        on a SkyModel — direct calls bypass dtype coercion.
+        Constructs a fresh instance via ``SkyModel(**data)`` so every
+        pydantic validator (precision-aware dtype casting, payload-shape
+        consistency, monopole/footprint invariants on provenance) re-runs.
+        Always use this instead of ``dataclasses.replace`` — direct calls
+        bypass the validators.
         """
-        import dataclasses
+        unknown = set(changes) - set(self._REPLACE_FIELDS)
+        if unknown:
+            raise TypeError(
+                f"SkyModel.replace() received unsupported fields: {sorted(unknown)}"
+            )
 
-        precision = changes.pop("precision", self.precision)
+        precision = changes.get("precision", self.precision)
         if precision is None:
             raise ValueError(
                 "SkyModel.replace(): precision must not be None. "
                 "This is a bug -- all factory methods should set precision."
             )
 
-        field_changes: dict[str, Any] = {"precision": precision}
         brightness_conversion = changes.get(
             "brightness_conversion",
             self.brightness_conversion,
@@ -377,35 +393,25 @@ class SkyModel:
         if not isinstance(brightness_conversion, BrightnessConversion):
             brightness_conversion = BrightnessConversion(brightness_conversion)
 
-        if "point" in changes:
-            field_changes["point"] = self._cast_point_data(
-                changes.pop("point"), precision
-            )
+        data: dict[str, Any] = {
+            name: getattr(self, name) for name in self._REPLACE_FIELDS
+        }
+        data["precision"] = precision
+        data.update(changes)
 
+        # Payload casts run through the precision-aware helpers so the
+        # constructor's coerce_inputs validator does not need to re-cast
+        # already-cast arrays.
+        if "point" in changes:
+            data["point"] = self._cast_point_data(changes["point"], precision)
         if "healpix" in changes:
-            field_changes["healpix"] = self._cast_healpix_data(
-                changes.pop("healpix"),
+            data["healpix"] = self._cast_healpix_data(
+                changes["healpix"],
                 precision,
                 brightness_conversion,
             )
 
-        for key in (
-            "reference_frequency",
-            "model_name",
-            "brightness_conversion",
-            "polarization_brightness_conversion",
-            "provenance",
-        ):
-            if key in changes:
-                field_changes[key] = changes.pop(key)
-
-        if changes:
-            unknown = ", ".join(sorted(changes))
-            raise TypeError(
-                f"SkyModel.replace() received unsupported fields: {unknown}"
-            )
-
-        return dataclasses.replace(self, **field_changes)
+        return SkyModel(**data)
 
     # =========================================================================
     # Per-Source Field Helpers
@@ -545,8 +551,7 @@ class SkyModel:
             else None
         )
 
-        provenance = replace(
-            self.provenance,
+        provenance = self.provenance.replace(
             sky_coverage=SkyCoverage.PARTIAL_SKY,
             coverage_fraction=coverage_fraction,
             coverage_footprint=coverage_footprint,

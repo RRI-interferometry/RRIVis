@@ -20,7 +20,6 @@ double-counting and the combined sky carries a coherent monopole.
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -149,8 +148,7 @@ def _apply_recipe_coverage(
     coverage_fraction = (
         coverage_footprint.coverage_fraction if coverage_footprint is not None else None
     )
-    provenance = replace(
-        sky.provenance,
+    provenance = sky.provenance.replace(
         sky_coverage=SkyCoverage.PARTIAL_SKY,
         coverage_fraction=coverage_fraction,
         coverage_footprint=coverage_footprint,
