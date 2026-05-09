@@ -113,7 +113,7 @@ def _diffuse(
                 "gaussian_fit_inpaint" if threshold_jy is not None else None
             ),
         ),
-        _precision=precision,
+        precision=precision,
     )
 
 

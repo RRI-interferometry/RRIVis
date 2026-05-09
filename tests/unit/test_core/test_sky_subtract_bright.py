@@ -101,7 +101,7 @@ def _make_synthetic_diffuse_with_sources(
             monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
             source_subtraction=SourceSubtractionStatus.NONE,
         ),
-        _precision=precision,
+        precision=precision,
     )
     return sky, src_ra_rad, src_dec_rad, flux_arr
 
@@ -255,7 +255,7 @@ class TestSubtractBrightSourcesGuards:
                 monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
                 source_subtraction=SourceSubtractionStatus.NONE,
             ),
-            _precision=precision,
+            precision=precision,
         )
         with pytest.raises(ValueError, match="dense HEALPix"):
             subtract_bright_sources(sky, flux_limit_jy=1.0, frequency_hz=150e6)
@@ -290,7 +290,7 @@ class TestSubtractionHelpers:
                 monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
                 source_subtraction=SourceSubtractionStatus.NONE,
             ),
-            _precision=precision,
+            precision=precision,
         )
         # A catalog with one bright + one dim source; only the bright one
         # should survive the threshold filter.
@@ -342,7 +342,7 @@ class TestSubtractionHelpers:
                 monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
                 source_subtraction=SourceSubtractionStatus.NONE,
             ),
-            _precision=precision,
+            precision=precision,
         )
         candidates, _ = _select_subtraction_candidates(
             sky,

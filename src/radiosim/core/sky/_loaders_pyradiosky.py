@@ -307,7 +307,7 @@ def load_pyradiosky_file(
         model_name=model_name,
         reference_frequency=ref_freq_hz,
         brightness_conversion=brightness_conversion,
-        _precision=precision,
+        precision=precision,
     )
     if provenance is not None:
         sky_model = sky_model.replace(provenance=provenance)
@@ -585,5 +585,5 @@ def _load_pyradiosky_healpix(
         ),
         model_name=model_name,
         brightness_conversion=brightness_conversion,
-        _precision=precision,
+        precision=precision,
     )

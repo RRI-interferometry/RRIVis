@@ -48,7 +48,7 @@ def make_sparse_healpix_model(
         ),
         reference_frequency=float(freqs[0]),
         model_name="sparse-healpix",
-        _precision=precision,
+        precision=precision,
     )
     return sky, hpx_inds, freqs
 
@@ -74,7 +74,7 @@ def make_dense_equivalent(
         ),
         reference_frequency=float(freqs[0]),
         model_name="dense-healpix",
-        _precision=precision,
+        precision=precision,
     )
     return dense, hpx_inds, freqs
 

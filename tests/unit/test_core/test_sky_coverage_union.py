@@ -72,7 +72,7 @@ def _make_full_diffuse_model(precision: PrecisionConfig) -> SkyModel:
             source_subtraction=SourceSubtractionStatus.ALL,
             notes="diffuse",
         ),
-        _precision=precision,
+        precision=precision,
     )
 
 

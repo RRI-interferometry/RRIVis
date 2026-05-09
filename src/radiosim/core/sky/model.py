@@ -13,13 +13,18 @@ the frequency axis.
 """
 
 import logging
-from dataclasses import dataclass, field, replace
+from dataclasses import field, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from pydantic import model_validator
+from pydantic.dataclasses import dataclass
+
+from radiosim.core.precision import PrecisionConfig
 
 from ._data import (
+    _FROZEN_NDARRAY_CONFIG,
     HealpixData,
     PointSourceData,
     PointSpectrum,
@@ -30,8 +35,6 @@ from ._data import (
 from .constants import BrightnessConversion
 
 if TYPE_CHECKING:
-    from radiosim.core.precision import PrecisionConfig
-
     from .region import SkyRegion
 
 logger = logging.getLogger(__name__)
@@ -67,7 +70,7 @@ def _coerce_format(representation: "SkyFormat | str") -> SkyFormat:
 # =============================================================================
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
 class SkyModel:
     """Unified sky model built from typed payloads.
 
@@ -95,73 +98,85 @@ class SkyModel:
         BrightnessConversion.RAYLEIGH_JEANS
     )
     provenance: SkyProvenance = field(default_factory=SkyProvenance)
-    _precision: "PrecisionConfig | None" = field(default=None, repr=False)
+    precision: PrecisionConfig | None = field(default=None, repr=False)
 
-    def __post_init__(self) -> None:
-        """Validate payload presence and precision."""
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_inputs(cls, values: object) -> object:
+        """Coerce input kwargs (string enums, dict provenance, dtype-cast payloads).
+
+        Mirrors the :meth:`SkyProvenance._derive_inputs` pattern: we
+        peek at the input dict / ``ArgsKwargs``, mutate it in place, and
+        return the original handle.  Pydantic constructs the frozen
+        instance from the transformed inputs — no ``object.__setattr__``
+        gymnastics.
+        """
+        if isinstance(values, dict):
+            kwargs = values
+        elif hasattr(values, "kwargs") and isinstance(values.kwargs, dict):
+            kwargs = values.kwargs
+        else:
+            return values
+
+        bc = kwargs.get("brightness_conversion")
+        if bc is not None and not isinstance(bc, BrightnessConversion):
+            try:
+                kwargs["brightness_conversion"] = BrightnessConversion(bc)
+            except (ValueError, KeyError):
+                raise ValueError(
+                    f"brightness_conversion must be 'planck' or 'rayleigh-jeans', "
+                    f"got '{bc}'"
+                ) from None
+
+        pbc = kwargs.get("polarization_brightness_conversion")
+        if pbc is not None and not isinstance(pbc, BrightnessConversion):
+            try:
+                kwargs["polarization_brightness_conversion"] = BrightnessConversion(pbc)
+            except (ValueError, KeyError):
+                raise ValueError(
+                    "polarization_brightness_conversion must be 'planck' or "
+                    f"'rayleigh-jeans', got '{pbc}'"
+                ) from None
+
+        prov = kwargs.get("provenance")
+        if isinstance(prov, dict):
+            kwargs["provenance"] = SkyProvenance(**prov)
+        elif prov is not None and not isinstance(prov, SkyProvenance):
+            raise TypeError(
+                "SkyModel.provenance must be a SkyProvenance or a dict of its "
+                f"fields, got {type(prov).__name__}."
+            )
+
+        precision = kwargs.get("precision")
+        if precision is not None:
+            bc_for_cast = kwargs.get(
+                "brightness_conversion", BrightnessConversion.PLANCK
+            )
+            point = kwargs.get("point")
+            if point is not None:
+                kwargs["point"] = cls._cast_point_data(point, precision)
+            healpix = kwargs.get("healpix")
+            if healpix is not None:
+                kwargs["healpix"] = cls._cast_healpix_data(
+                    healpix, precision, bc_for_cast
+                )
+
+        return values
+
+    @model_validator(mode="after")
+    def _validate_state(self) -> "SkyModel":
+        """Cross-field invariants applied after construction."""
         if self.point is None and self.healpix is None:
             raise ValueError(
                 "SkyModel requires at least one payload. "
                 "Use create_empty() for an empty point-source model."
             )
-
-        if not isinstance(self.brightness_conversion, BrightnessConversion):
-            try:
-                object.__setattr__(
-                    self,
-                    "brightness_conversion",
-                    BrightnessConversion(self.brightness_conversion),
-                )
-            except (ValueError, KeyError):
-                raise ValueError(
-                    f"brightness_conversion must be 'planck' or 'rayleigh-jeans', "
-                    f"got '{self.brightness_conversion}'"
-                ) from None
-
-        if not isinstance(
-            self.polarization_brightness_conversion, BrightnessConversion
-        ):
-            try:
-                object.__setattr__(
-                    self,
-                    "polarization_brightness_conversion",
-                    BrightnessConversion(self.polarization_brightness_conversion),
-                )
-            except (ValueError, KeyError):
-                raise ValueError(
-                    "polarization_brightness_conversion must be 'planck' or "
-                    f"'rayleigh-jeans', got "
-                    f"'{self.polarization_brightness_conversion}'"
-                ) from None
-
-        if isinstance(self.provenance, dict):
-            object.__setattr__(self, "provenance", SkyProvenance(**self.provenance))
-        elif not isinstance(self.provenance, SkyProvenance):
-            raise TypeError(
-                "SkyModel.provenance must be a SkyProvenance or a dict of its "
-                f"fields, got {type(self.provenance).__name__}."
-            )
-
-        if self._precision is None:
+        if self.precision is None:
             raise ValueError(
                 "SkyModel requires an explicit PrecisionConfig. "
                 "Pass precision=... to a loader or constructor."
             )
-
-        if self.point is not None:
-            object.__setattr__(
-                self, "point", self._cast_point_data(self.point, self._precision)
-            )
-        if self.healpix is not None:
-            object.__setattr__(
-                self,
-                "healpix",
-                self._cast_healpix_data(
-                    self.healpix,
-                    self._precision,
-                    self.brightness_conversion,
-                ),
-            )
+        return self
 
     @classmethod
     def _cast_point_data(
@@ -286,19 +301,19 @@ class SkyModel:
 
     def _source_dtype(self) -> np.dtype:
         """Get dtype for source position arrays (RA/Dec)."""
-        return self._precision.sky_model.get_dtype("source_positions")
+        return self.precision.sky_model.get_dtype("source_positions")
 
     def _flux_dtype(self) -> np.dtype:
         """Get dtype for flux and Stokes arrays."""
-        return self._precision.sky_model.get_dtype("flux")
+        return self.precision.sky_model.get_dtype("flux")
 
     def _spectral_index_dtype(self) -> np.dtype:
         """Get dtype for spectral index arrays."""
-        return self._precision.sky_model.get_dtype("spectral_index")
+        return self.precision.sky_model.get_dtype("spectral_index")
 
     def _healpix_dtype(self) -> np.dtype:
         """Get dtype for HEALPix brightness temperature maps."""
-        return self._precision.sky_model.get_dtype("healpix_maps")
+        return self.precision.sky_model.get_dtype("healpix_maps")
 
     @staticmethod
     def deg_to_rad_at_precision(
@@ -359,14 +374,14 @@ class SkyModel:
         """
         import dataclasses
 
-        precision = changes.pop("_precision", self._precision)
+        precision = changes.pop("precision", self.precision)
         if precision is None:
             raise ValueError(
-                "SkyModel.replace(): _precision must not be None. "
+                "SkyModel.replace(): precision must not be None. "
                 "This is a bug -- all factory methods should set precision."
             )
 
-        field_changes: dict[str, Any] = {"_precision": precision}
+        field_changes: dict[str, Any] = {"precision": precision}
         brightness_conversion = changes.get(
             "brightness_conversion",
             self.brightness_conversion,
@@ -475,11 +490,6 @@ class SkyModel:
         """Return True if columnar point-source arrays are populated and non-empty."""
         return self.point is not None and not self.point.is_empty
 
-    @property
-    def precision(self) -> "PrecisionConfig | None":
-        """Precision configuration for this model."""
-        return self._precision
-
     # =========================================================================
     # Region Filtering
     # =========================================================================
@@ -562,7 +572,7 @@ class SkyModel:
             reference_frequency=self.reference_frequency,
             brightness_conversion=self.brightness_conversion,
             provenance=provenance,
-            _precision=self._precision,
+            precision=self.precision,
         )
 
     # =========================================================================

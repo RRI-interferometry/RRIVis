@@ -399,7 +399,7 @@ def load_diffuse_sky(
         model_name=model,
         brightness_conversion=brightness_conversion,
         provenance=provenance,
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -731,5 +731,5 @@ def load_pysm3(
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         provenance=provenance,
-        _precision=precision,
+        precision=precision,
     )

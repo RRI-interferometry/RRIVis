@@ -61,7 +61,7 @@ def make_healpix_model(
             u_maps=u_maps,
         ),
         model_name="hp",
-        _precision=precision,
+        precision=precision,
     )
 
 

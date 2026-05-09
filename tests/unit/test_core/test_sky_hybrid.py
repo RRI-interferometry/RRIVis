@@ -62,7 +62,7 @@ def hybrid_sky(precision: PrecisionConfig) -> SkyModel:
         healpix=healpix,
         model_name="hybrid",
         reference_frequency=150e6,
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -146,7 +146,7 @@ class TestCombineModelsHybridAuto:
                 frequencies=freqs,
                 coordinate_frame="icrs",
             ),
-            _precision=precision,
+            precision=precision,
         )
 
         combined = _combine_models(

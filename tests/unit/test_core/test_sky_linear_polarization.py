@@ -36,7 +36,7 @@ def _polarised_healpix(
             frequencies=np.array([150e6]),
         ),
         model_name="test_pol",
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -75,7 +75,7 @@ class TestLinearPolHealpix:
                 frequencies=np.array([150e6]),
             ),
             model_name="i_only",
-            _precision=precision,
+            precision=precision,
         )
         with pytest.raises(ValueError, match="Stokes Q and U"):
             compute_linear_polarization(sky)

@@ -89,7 +89,7 @@ def make_healpix_model(
         ),
         reference_frequency=float(freqs[0]),
         model_name=model_name,
-        _precision=precision,
+        precision=precision,
     )
 
 

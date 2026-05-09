@@ -49,7 +49,7 @@ def _combined_sky(precision, *, coordinate_frame: str = "icrs"):
         ),
         reference_frequency=150e6,
         model_name="combined_sky",
-        _precision=precision,
+        precision=precision,
     )
 
 

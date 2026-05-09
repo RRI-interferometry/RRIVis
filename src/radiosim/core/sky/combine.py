@@ -185,7 +185,7 @@ def _combine_as_healpix_merge(
         model_name="combined",
         brightness_conversion=brightness_conversion,
         provenance=provenance,
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -229,7 +229,7 @@ def _combine_as_point_sources(
         reference_frequency=data["reference_frequency"],
         brightness_conversion=brightness_conversion,
         provenance=provenance,
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -313,7 +313,7 @@ def _combine_as_hybrid(
         reference_frequency=point_ref_freq if point_ref_freq is not None else ref_freq,
         brightness_conversion=brightness_conversion,
         provenance=provenance,
-        _precision=precision,
+        precision=precision,
     )
 
 

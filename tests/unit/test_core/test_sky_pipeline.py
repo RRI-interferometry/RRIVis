@@ -34,7 +34,7 @@ def make_healpix_model(
         ),
         reference_frequency=float(freqs[0]),
         model_name="diffuse",
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -80,7 +80,7 @@ class TestPrepareSkyModel:
             ),
             reference_frequency=100e6,
             model_name="src",
-            _precision=precision,
+            precision=precision,
         )
         out = prepare_sky_model(
             [healpix_sky, point_sky],

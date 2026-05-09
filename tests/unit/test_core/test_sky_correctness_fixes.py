@@ -54,7 +54,7 @@ def _full_sky_diffuse(precision: PrecisionConfig, *, nside: int = 8) -> SkyModel
             monopole_k=100.0,
             source_subtraction=SourceSubtractionStatus.NONE,
         ),
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -95,7 +95,7 @@ def test_materialize_point_sources_updates_angular_resolution(
             monopole_k=1.0,
             source_subtraction=SourceSubtractionStatus.NONE,
         ),
-        _precision=precision,
+        precision=precision,
     )
     point = materialize_point_sources_model(sky, frequency=150e6, lossy=True)
     assert point.provenance.angular_resolution_rad is not None
@@ -175,7 +175,7 @@ def test_save_and_load_skyh5_preserves_provenance(
         ),
         model_name="rt",
         provenance=prov,
-        _precision=precision,
+        precision=precision,
     )
 
     path = tmp_path / "rt.skyh5"

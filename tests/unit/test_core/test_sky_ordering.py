@@ -42,10 +42,10 @@ class TestHealpixDataOrdering:
         precision = PrecisionConfig.standard()
         a = SkyModel(
             healpix=HealpixData(ordering="ring", **_basic_kwargs()),
-            _precision=precision,
+            precision=precision,
         )
         b = SkyModel(
             healpix=HealpixData(ordering="nest", **_basic_kwargs()),
-            _precision=precision,
+            precision=precision,
         )
         assert a != b

@@ -50,7 +50,7 @@ def _healpix_sky(
             monopole_k=monopole_k if monopole_k is not None else float(value_k),
             source_subtraction=SourceSubtractionStatus.NONE,
         ),
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -76,7 +76,7 @@ class TestWithMonopole:
                 coverage_fraction=1.0,
                 monopole_k=1.0,
             ),
-            _precision=precision,
+            precision=precision,
         )
         shifted = with_monopole(sky, 5.0)
         assert shifted.healpix.maps[0].mean() == pytest.approx(6.0)
@@ -162,7 +162,7 @@ class TestWithMonopoleSubtracted:
                 monopole_k=float(values.mean()),
                 source_subtraction=SourceSubtractionStatus.NONE,
             ),
-            _precision=precision,
+            precision=precision,
         )
         zeroed = with_monopole_subtracted(sky)
         # The shape (up to a DC offset) is the same.

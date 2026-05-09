@@ -41,7 +41,7 @@ def healpix_sky(precision):
         healpix=HealpixData(maps=maps, nside=nside, frequencies=freqs),
         reference_frequency=100e6,
         model_name="healpix_test",
-        _precision=precision,
+        precision=precision,
     )
 
 

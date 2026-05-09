@@ -60,7 +60,7 @@ def make_healpix_model(
         ),
         reference_frequency=float(freqs[0]),
         model_name="diffuse",
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -88,7 +88,7 @@ def make_sparse_healpix_model(
         ),
         reference_frequency=float(freqs[0]),
         model_name="sparse-diffuse",
-        _precision=precision,
+        precision=precision,
     )
 
 
@@ -416,7 +416,7 @@ class TestCombineModels:
                 ),
                 reference_frequency=float(freqs[0]),
                 model_name="diffuse",
-                _precision=precision,
+                precision=precision,
             )
 
         sky_a = _model_with_widths(100.0)
@@ -445,7 +445,7 @@ class TestCombineModels:
                 ),
                 reference_frequency=float(freqs[0]),
                 model_name="diffuse",
-                _precision=precision,
+                precision=precision,
             )
 
         sky_a = _model(np.array([1e6, 1e6]), value=100.0)
@@ -470,7 +470,7 @@ class TestCombineModels:
             ),
             reference_frequency=float(freqs[0]),
             model_name="diffuse-with-widths",
-            _precision=precision,
+            precision=precision,
         )
         sky_without = make_healpix_model(
             freqs=freqs,

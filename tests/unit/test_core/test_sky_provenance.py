@@ -95,7 +95,7 @@ class TestSkyModelProvenanceField:
     def test_dict_coercion_at_construction(self, precision):
         sky = SkyModel(
             point=PointSourceData.empty(),
-            _precision=precision,
+            precision=precision,
             provenance={
                 "monopole_convention": "absolute_no_cmb",
                 "source_subtraction": "none",
@@ -109,7 +109,7 @@ class TestSkyModelProvenanceField:
         with pytest.raises(TypeError, match="must be a SkyProvenance or a dict"):
             SkyModel(
                 point=PointSourceData.empty(),
-                _precision=precision,
+                precision=precision,
                 provenance="bogus",
             )
 

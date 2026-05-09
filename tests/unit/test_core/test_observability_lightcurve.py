@@ -34,7 +34,7 @@ def _uniform_sky(
             frequencies=np.array([150e6]),
         ),
         model_name="uniform_sky",
-        _precision=precision,
+        precision=precision,
     )
 
 

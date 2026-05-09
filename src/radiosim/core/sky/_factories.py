@@ -98,7 +98,7 @@ def create_empty(
         point=PointSourceData.empty(),
         model_name=model_name,
         brightness_conversion=brightness_conversion,
-        _precision=precision,
+        precision=precision,
         reference_frequency=reference_frequency,
         provenance=provenance if provenance is not None else SkyProvenance(),
     )
@@ -179,7 +179,7 @@ def create_from_arrays(
         model_name=model_name,
         reference_frequency=reference_frequency,
         brightness_conversion=brightness_conversion,
-        _precision=precision,
+        precision=precision,
         provenance=provenance if provenance is not None else SkyProvenance(),
     )
 
@@ -197,9 +197,7 @@ def create_from_freq_dict_maps(
     Standard constructor for loaders that build dict[float, ndarray]
     during generation (pygdsm, pysm3, etc.).
     """
-    precision = _require_precision(
-        kwargs.pop("precision", kwargs.pop("_precision", None))
-    )
+    precision = _require_precision(kwargs.pop("precision", None))
 
     sorted_freqs = np.sort(np.array(list(i_maps.keys()), dtype=np.float64))
     i_arr = np.stack([i_maps[f] for f in sorted_freqs])
@@ -221,7 +219,7 @@ def create_from_freq_dict_maps(
     kwargs.pop("source_format", None)  # legacy kwarg, no longer used
     return SkyModel(
         healpix=healpix,
-        _precision=precision,
+        precision=precision,
         **kwargs,
     )
 

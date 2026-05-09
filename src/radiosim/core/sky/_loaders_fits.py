@@ -409,7 +409,7 @@ def load_fits_image(
         ),
         model_name=f"fits:{filename.split('/')[-1]}",
         brightness_conversion=brightness_conversion,
-        _precision=precision,
+        precision=precision,
     )
 
     if region is not None:

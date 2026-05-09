@@ -487,7 +487,7 @@ def _load_healpix_branch(
         ),
         model_name=model_name,
         brightness_conversion=brightness_conversion,
-        _precision=precision,
+        precision=precision,
     )
     if provenance is not None:
         sky = sky.replace(provenance=provenance)
@@ -676,7 +676,7 @@ def _load_point_branch(
         ),
         model_name=model_name,
         reference_frequency=ref_freq_hz,
-        _precision=precision,
+        precision=precision,
     )
     if provenance is not None:
         sky = sky.replace(provenance=provenance)

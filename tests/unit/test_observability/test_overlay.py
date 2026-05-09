@@ -35,7 +35,7 @@ def _single_channel_sky(nside: int = 16) -> SkyModel:
         ),
         model_name="overlay-test",
         brightness_conversion="rayleigh-jeans",
-        _precision=PrecisionConfig.standard(),
+        precision=PrecisionConfig.standard(),
     )
 
 
