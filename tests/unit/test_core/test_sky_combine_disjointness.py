@@ -488,3 +488,66 @@ class TestMergeProvenanceMonopoleDoubleCount:
         assert merged.monopole_k is None
         assert merged.notes is not None
         assert "UNKNOWN" in merged.notes
+
+
+# =============================================================================
+# UNKNOWN monopole convention policy (PR 11)
+# =============================================================================
+
+
+class TestUnknownMonopolePolicy:
+    """``mixed_model_policy`` controls whether UNKNOWN monopole_convention
+    is a hard error, a warning, or silently allowed."""
+
+    def _two_unknown_diffuse(self, precision):
+        a = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.ALL,
+            monopole_convention=MonopoleConvention.UNKNOWN,
+            monopole_k=None,
+            model_name="a",
+        )
+        b = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.ALL,
+            monopole_convention=MonopoleConvention.UNKNOWN,
+            monopole_k=None,
+            model_name="b",
+        )
+        return a, b
+
+    def test_default_error_policy_rejects_unknown(self, precision):
+        from radiosim.core.sky.combine.disjointness import (
+            check_physical_disjointness,
+        )
+
+        a, b = self._two_unknown_diffuse(precision)
+        with pytest.raises(ValueError, match="monopole_convention=UNKNOWN"):
+            check_physical_disjointness([a, b], "error")
+
+    def test_warn_policy_emits_warning(self, precision):
+        import warnings
+
+        from radiosim.core.sky.combine.disjointness import (
+            check_physical_disjointness,
+        )
+
+        a, b = self._two_unknown_diffuse(precision)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            check_physical_disjointness([a, b], "warn")
+        assert any("monopole_convention=UNKNOWN" in str(w.message) for w in caught)
+
+    def test_allow_policy_passes_silently(self, precision):
+        import warnings
+
+        from radiosim.core.sky.combine.disjointness import (
+            check_physical_disjointness,
+        )
+
+        a, b = self._two_unknown_diffuse(precision)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            check_physical_disjointness([a, b], "allow")
+        # No UNKNOWN-monopole warning under allow.
+        assert not any("monopole_convention=UNKNOWN" in str(w.message) for w in caught)

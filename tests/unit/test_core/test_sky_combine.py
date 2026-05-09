@@ -5,7 +5,12 @@ import numpy as np
 import pytest
 
 from radiosim.core.precision import PrecisionConfig
-from radiosim.core.sky import HealpixData, create_from_arrays
+from radiosim.core.sky import (
+    HealpixData,
+    MonopoleConvention,
+    SkyProvenance,
+    create_from_arrays,
+)
 from radiosim.core.sky.combine.engine import (
     _combine_models,
     concat_point_sources,
@@ -37,6 +42,9 @@ def make_point_model(
         reference_frequency=150e6,
         model_name=f"point_{n}_{seed}",
         precision=precision,
+        provenance=SkyProvenance(
+            monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+        ),
     )
 
 
@@ -61,6 +69,9 @@ def make_healpix_model(
         reference_frequency=float(freqs[0]),
         model_name="diffuse",
         precision=precision,
+        provenance=SkyProvenance(
+            monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+        ),
     )
 
 
@@ -89,6 +100,9 @@ def make_sparse_healpix_model(
         reference_frequency=float(freqs[0]),
         model_name="sparse-diffuse",
         precision=precision,
+        provenance=SkyProvenance(
+            monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+        ),
     )
 
 
@@ -417,6 +431,9 @@ class TestCombineModels:
                 reference_frequency=float(freqs[0]),
                 model_name="diffuse",
                 precision=precision,
+                provenance=SkyProvenance(
+                    monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+                ),
             )
 
         sky_a = _model_with_widths(100.0)
@@ -446,6 +463,9 @@ class TestCombineModels:
                 reference_frequency=float(freqs[0]),
                 model_name="diffuse",
                 precision=precision,
+                provenance=SkyProvenance(
+                    monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+                ),
             )
 
         sky_a = _model(np.array([1e6, 1e6]), value=100.0)
@@ -471,6 +491,9 @@ class TestCombineModels:
             reference_frequency=float(freqs[0]),
             model_name="diffuse-with-widths",
             precision=precision,
+            provenance=SkyProvenance(
+                monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+            ),
         )
         sky_without = make_healpix_model(
             freqs=freqs,
@@ -498,6 +521,7 @@ class TestCombineModels:
         assert combined.healpix.channel_widths_hz is None
 
     def test_per_source_reference_frequencies_are_preserved(self, precision):
+        prov = SkyProvenance(monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB)
         sky_a = create_from_arrays(
             ra_rad=np.array([0.1]),
             dec_rad=np.array([0.2]),
@@ -506,6 +530,7 @@ class TestCombineModels:
             ref_freq=np.array([200e6]),
             reference_frequency=200e6,
             precision=precision,
+            provenance=prov,
         )
         sky_b = create_from_arrays(
             ra_rad=np.array([0.3]),
@@ -515,6 +540,7 @@ class TestCombineModels:
             ref_freq=np.array([1400e6]),
             reference_frequency=1400e6,
             precision=precision,
+            provenance=prov,
         )
         combined = _combine_models([sky_a, sky_b], precision=precision)
         np.testing.assert_array_equal(
@@ -522,6 +548,7 @@ class TestCombineModels:
         )
 
     def test_mixed_brightness_conversions_require_explicit_target(self, precision):
+        prov = SkyProvenance(monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB)
         sky_a = create_from_arrays(
             ra_rad=np.array([0.1]),
             dec_rad=np.array([0.2]),
@@ -530,6 +557,7 @@ class TestCombineModels:
             reference_frequency=150e6,
             brightness_conversion=BrightnessConversion.PLANCK,
             precision=precision,
+            provenance=prov,
         )
         sky_b = create_from_arrays(
             ra_rad=np.array([0.3]),
@@ -539,6 +567,7 @@ class TestCombineModels:
             reference_frequency=150e6,
             brightness_conversion=BrightnessConversion.RAYLEIGH_JEANS,
             precision=precision,
+            provenance=prov,
         )
 
         with pytest.raises(ValueError, match="brightness_conversion"):

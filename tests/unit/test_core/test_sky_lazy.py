@@ -9,7 +9,12 @@ import numpy as np
 import pytest
 
 from radiosim.core.precision import PrecisionConfig
-from radiosim.core.sky import HealpixData, create_from_arrays
+from radiosim.core.sky import (
+    HealpixData,
+    MonopoleConvention,
+    SkyProvenance,
+    create_from_arrays,
+)
 from radiosim.core.sky.combine.engine import _combine_models
 from radiosim.core.sky.containers.model import SkyFormat, SkyModel
 from radiosim.core.sky.operations.convert import point_sources_to_healpix_maps
@@ -62,6 +67,9 @@ def make_healpix_model(
         ),
         model_name="hp",
         precision=precision,
+        provenance=SkyProvenance(
+            monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+        ),
     )
 
 

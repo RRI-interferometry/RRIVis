@@ -55,6 +55,11 @@ def _make_spectrum_sky(
     only have done so by reading the per-channel table, not the reference
     arrays.
     """
+    from radiosim.core.sky import (
+        MonopoleConvention,
+        SkyProvenance,
+    )
+
     sky = create_from_arrays(
         ra_rad=np.array([ra_rad]),
         dec_rad=np.array([dec_rad]),
@@ -67,6 +72,9 @@ def _make_spectrum_sky(
         reference_frequency=float(frequencies[0]),
         precision=precision,
         model_name=model_name,
+        provenance=SkyProvenance(
+            monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+        ),
     )
     n_src = 1
     spectrum = PointSpectrum(
@@ -246,6 +254,8 @@ class TestCombinePowerLawAndSpectrumDisjointly:
         )
         # A plain power-law model: flux 4 Jy at ref_freq=100 MHz, alpha=-1
         # so at 200 MHz the flux is 2 Jy.
+        from radiosim.core.sky import MonopoleConvention, SkyProvenance
+
         pl_sky = create_from_arrays(
             ra_rad=np.array([2.0]),
             dec_rad=np.array([-0.4]),
@@ -258,6 +268,9 @@ class TestCombinePowerLawAndSpectrumDisjointly:
             reference_frequency=100e6,
             precision=precision,
             model_name="pl",
+            provenance=SkyProvenance(
+                monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+            ),
         )
         combined = _combine_models(
             [spec_sky, pl_sky],

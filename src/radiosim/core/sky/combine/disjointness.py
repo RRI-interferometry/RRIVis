@@ -140,13 +140,23 @@ def _disjoint_pair_failures(
     return reasons
 
 
-def _check_monopole_consistency(models: list[SkyModel]) -> None:
-    """Raise if ``monopole_convention`` is incompatible across inputs.
+def _check_monopole_consistency(
+    models: list[SkyModel], mixed_model_policy: MixedModelPolicy = "error"
+) -> None:
+    """Raise / warn if ``monopole_convention`` is incompatible across inputs.
 
-    Incompatible = two conventions drawn from
-    ``{ABSOLUTE_WITH_CMB, ABSOLUTE_NO_CMB, MEAN_SUBTRACTED}`` such that their
-    combination is mathematically wrong.  ``UNKNOWN`` is tolerated here and
-    flagged separately by the disjointness checker.
+    Two failure modes:
+
+    - **Numerically wrong** — combining
+      ``{ABSOLUTE_WITH_CMB | ABSOLUTE_NO_CMB}`` with ``MEAN_SUBTRACTED``
+      always raises regardless of policy. The result of summing those is
+      undefined.
+    - **Cannot verify** — at least one model has
+      ``MonopoleConvention.UNKNOWN``. Under ``mixed_model_policy="error"``
+      (the default) this also raises, since silently combining models
+      that did not declare their monopole convention produces an
+      undefined sky-mean. ``"warn"`` emits a ``UserWarning`` and
+      ``"allow"`` suppresses.
     """
     declared = [
         m.provenance.monopole_convention
@@ -168,6 +178,26 @@ def _check_monopole_consistency(models: list[SkyModel]) -> None:
                     "or add the monopole back to the mean-subtracted model "
                     "(with_monopole) before combining."
                 )
+
+    unknown_models = [
+        m
+        for m in models
+        if m.provenance.monopole_convention == MonopoleConvention.UNKNOWN
+    ]
+    if not unknown_models:
+        return
+    names = ", ".join(repr(m.model_name) for m in unknown_models)
+    msg = (
+        "Sky model(s) "
+        f"{names} have monopole_convention=UNKNOWN. Combining without "
+        "declaring the convention produces an undefined sky-mean — set "
+        "provenance.monopole_convention before combining, or pass "
+        "mixed_model_policy='warn' / 'allow' to override."
+    )
+    if mixed_model_policy == "error":
+        raise ValueError(msg)
+    if mixed_model_policy == "warn":
+        warnings.warn(msg, UserWarning, stacklevel=3)
 
 
 def check_physical_disjointness(
@@ -208,8 +238,9 @@ def check_physical_disjointness(
         between the diffuse-map reference frequency and the catalog's
         completeness frequency.  Default −0.7.
     """
-    # Monopole consistency is unambiguously wrong — always enforce.
-    _check_monopole_consistency(models)
+    # Monopole consistency: incompatible-known pairs always raise (those
+    # are numerically wrong), and UNKNOWN escalates per ``mixed_model_policy``.
+    _check_monopole_consistency(models, mixed_model_policy)
 
     if mixed_model_policy == "allow":
         return
