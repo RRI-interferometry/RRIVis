@@ -108,76 +108,92 @@ def list_all_models() -> dict[str, dict[str, str]]:
 
 
 def get_catalog_info(catalog_key: str, live: bool = False) -> dict[str, Any]:
-    """Get metadata for any supported catalog or model.
+    """Resolve a catalog/model identifier to its registry metadata.
+
+    Every supported identifier — canonical loader name (``"gleam"``,
+    ``"diffuse_sky"``), alias (``"gsm2016"``, ``"racs_low"``,
+    ``"gleam_egc"``, ``"lotss_dr1"``, ``"mals_dr2"``) — resolves through
+    the loader registry. Sub-catalog keys are registered as
+    alias-with-bound-defaults (e.g. ``gleam_egc`` →
+    ``gleam(catalog="gleam_egc")``); RACS bands likewise.
 
     Parameters
     ----------
     catalog_key : str
-        Catalog or model identifier (e.g. ``"gleam_egc"``, ``"racs_low"``,
-        ``"gsm2008"``).
+        Catalog or model identifier.
     live : bool, default=False
-        If True, query VizieR/CASDA TAP for live column information.
+        If True, augment the registry metadata with live VizieR / CASDA
+        column information for VizieR catalogs and RACS bands. Network
+        I/O — falls back to cached metadata silently on failure.
     """
     from ._loaders_diffuse import get_diffuse_model_info
-    from ._loaders_vizier import (
-        get_catalog_columns,
-        get_point_catalog_metadata,
-        get_racs_columns,
-        get_racs_metadata,
-    )
-    from .catalogs import DIFFUSE_MODELS, RACS_CATALOGS, VIZIER_POINT_CATALOGS
+    from .catalogs import DIFFUSE_MODELS
     from .registry import loader_registry
 
     try:
         loader_name, resolved_kwargs = loader_registry.resolve_request(catalog_key, {})
-        definition = loader_registry.definition(loader_name)
-        meta = loader_registry.meta(catalog_key)
-        info = {
-            "name": catalog_key,
-            "loader": definition.name,
-            "resolved_loader": loader_name,
-            "resolved_kwargs": dict(resolved_kwargs),
-            "category": definition.category,
-            "representation": meta["representation"],
-            "representations": meta["representations"],
-            "output_mode": meta["output_mode"],
-            "primary_representation": meta["primary_representation"],
-            "supports_point_sources": meta["supports_point_sources"],
-            "supports_healpix_map": meta["supports_healpix_map"],
-            "network_service": definition.network_service,
-            "requires_file": definition.requires_file,
-            "aliases": list(definition.aliases),
-            "config_fields": dict(definition.config_fields),
-        }
-        model_name = resolved_kwargs.get("model")
-        if isinstance(model_name, str) and model_name in DIFFUSE_MODELS:
-            info["diffuse_model"] = model_name
-            info["diffuse_model_info"] = get_diffuse_model_info(model_name)
-        return info
-    except ValueError:
-        pass
+    except ValueError as exc:
+        raise ValueError(
+            f"Unknown catalog key '{catalog_key}'. Use loader_registry.names() "
+            f"or loader_registry.aliases() to list valid identifiers."
+        ) from exc
 
-    if catalog_key in VIZIER_POINT_CATALOGS:
-        return (
-            get_catalog_columns(catalog_key)
-            if live
-            else get_point_catalog_metadata(catalog_key)
-        )
+    definition = loader_registry.definition(loader_name)
+    meta = loader_registry.meta(catalog_key)
+    info: dict[str, Any] = {
+        "name": catalog_key,
+        "loader": definition.name,
+        "resolved_loader": loader_name,
+        "resolved_kwargs": dict(resolved_kwargs),
+        "category": definition.category,
+        "representation": meta["representation"],
+        "representations": meta["representations"],
+        "output_mode": meta["output_mode"],
+        "primary_representation": meta["primary_representation"],
+        "supports_point_sources": meta["supports_point_sources"],
+        "supports_healpix_map": meta["supports_healpix_map"],
+        "network_service": definition.network_service,
+        "requires_file": definition.requires_file,
+        "aliases": list(definition.aliases),
+        "config_fields": dict(definition.config_fields),
+    }
+    model_name = resolved_kwargs.get("model")
+    if isinstance(model_name, str) and model_name in DIFFUSE_MODELS:
+        info["diffuse_model"] = model_name
+        info["diffuse_model_info"] = get_diffuse_model_info(model_name)
 
-    if catalog_key.startswith("racs_"):
-        band = catalog_key[5:]
-        if band in RACS_CATALOGS:
-            return get_racs_columns(band) if live else get_racs_metadata(band)
+    if live:
+        info.update(_fetch_live_columns(loader_name, resolved_kwargs))
+    return info
 
-    if catalog_key in RACS_CATALOGS:
-        return get_racs_columns(catalog_key) if live else get_racs_metadata(catalog_key)
 
-    if catalog_key in DIFFUSE_MODELS:
-        return get_diffuse_model_info(catalog_key)
+def _fetch_live_columns(
+    loader_name: str, resolved_kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    """Augment registry metadata with live VizieR / CASDA column info.
 
-    all_keys = (
-        sorted(VIZIER_POINT_CATALOGS.keys())
-        + [f"racs_{b}" for b in sorted(RACS_CATALOGS.keys())]
-        + sorted(DIFFUSE_MODELS.keys())
+    Best-effort: returns an empty dict if the loader has no live source
+    or the network call fails. Pulled out of ``get_catalog_info`` so the
+    primary path stays a single registry lookup.
+    """
+    from ._loaders_vizier import (
+        get_catalog_columns,
+        get_racs_columns,
     )
-    raise ValueError(f"Unknown catalog key '{catalog_key}'. Available: {all_keys}")
+
+    try:
+        if loader_name in ("gleam", "mals", "lotss"):
+            sub_key = resolved_kwargs.get("catalog") or resolved_kwargs.get("release")
+            if sub_key is None:
+                return {}
+            if loader_name in ("mals", "lotss"):
+                sub_key = f"{loader_name}_{sub_key.lower()}"
+            return {"live_columns": get_catalog_columns(sub_key)}
+        if loader_name == "racs":
+            band = resolved_kwargs.get("band")
+            if band is None:
+                return {}
+            return {"live_columns": get_racs_columns(band)}
+    except Exception:
+        return {}
+    return {}

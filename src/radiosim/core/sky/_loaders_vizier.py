@@ -547,6 +547,12 @@ def _load_from_vizier_catalog(
     config_section="gleam",
     use_flag="use_gleam",
     network_service="vizier",
+    aliases={
+        "gleam_egc": {"catalog": "gleam_egc"},
+        "gleam_x_dr1": {"catalog": "gleam_x_dr1"},
+        "gleam_x_dr2": {"catalog": "gleam_x_dr2"},
+        "gleam_gal": {"catalog": "gleam_gal"},
+    },
     config_fields={
         "flux_limit": "flux_limit",
         "catalog": "catalog",
@@ -602,6 +608,10 @@ def load_gleam(
     config_section="mals",
     use_flag="use_mals",
     network_service="vizier",
+    aliases={
+        "mals_dr1": {"release": "dr1"},
+        "mals_dr2": {"release": "dr2"},
+    },
     config_fields={
         "flux_limit": "flux_limit",
         "release": "release",
@@ -739,6 +749,10 @@ load_vlass = loader_registry.loader("vlass")
     config_section="lotss",
     use_flag="use_lotss",
     network_service="vizier",
+    aliases={
+        "lotss_dr1": {"release": "dr1"},
+        "lotss_dr2": {"release": "dr2"},
+    },
     config_fields={
         "flux_limit": "flux_limit",
         "release": "release",
@@ -896,6 +910,11 @@ def _parse_racs_results_with_fallback(
     config_section="racs",
     use_flag="use_racs",
     network_service="casda",
+    aliases={
+        "racs_low": {"band": "low"},
+        "racs_mid": {"band": "mid"},
+        "racs_high": {"band": "high"},
+    },
     config_fields={
         "flux_limit": "flux_limit",
         "band": "band",

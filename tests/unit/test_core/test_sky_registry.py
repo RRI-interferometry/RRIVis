@@ -157,6 +157,34 @@ class TestRegistryMetadata:
         assert info["diffuse_model"] == "gsm2016"
         assert info["diffuse_model_info"]["class_name"] == "GlobalSkyModel16"
 
+    def test_discovery_catalog_info_resolves_gleam_subcatalog(self):
+        info = get_catalog_info("gleam_egc")
+        assert info["loader"] == "gleam"
+        assert info["resolved_loader"] == "gleam"
+        assert info["resolved_kwargs"] == {"catalog": "gleam_egc"}
+        assert info["category"] == "catalog"
+
+    def test_discovery_catalog_info_resolves_racs_band(self):
+        info = get_catalog_info("racs_low")
+        assert info["loader"] == "racs"
+        assert info["resolved_loader"] == "racs"
+        assert info["resolved_kwargs"] == {"band": "low"}
+        assert info["network_service"] == "casda"
+
+    def test_discovery_catalog_info_resolves_lotss_release(self):
+        info = get_catalog_info("lotss_dr2")
+        assert info["loader"] == "lotss"
+        assert info["resolved_kwargs"] == {"release": "dr2"}
+
+    def test_discovery_catalog_info_resolves_mals_release(self):
+        info = get_catalog_info("mals_dr1")
+        assert info["loader"] == "mals"
+        assert info["resolved_kwargs"] == {"release": "dr1"}
+
+    def test_discovery_catalog_info_unknown_key_raises_with_hint(self):
+        with pytest.raises(ValueError, match="loader_registry"):
+            get_catalog_info("__unknown_catalog_xyz__")
+
     def test_resolve_loader_request_merges_alias_defaults(self):
         kind, kwargs = loader_registry.resolve_request("gsm2016", {"nside": 128})
         assert kind == "diffuse_sky"
