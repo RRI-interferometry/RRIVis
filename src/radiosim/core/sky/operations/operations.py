@@ -511,6 +511,201 @@ def _evaluate_elliptical_gaussian(
     return amp * np.exp(-0.5 * (xr**2 / sigma_M**2 + yr**2 / sigma_m**2))
 
 
+def _fit_multifreq_gaussian(
+    x: np.ndarray,
+    y: np.ndarray,
+    z_per_channel: np.ndarray,
+    sigma_init_rad: float,
+) -> tuple[dict[str, np.ndarray | float], bool]:
+    """Joint multi-frequency elliptical-Gaussian + planar-baseline fit.
+
+    Geometry parameters ``(x0, y0, sigma_major, sigma_minor, pa)`` are
+    shared across every channel; amplitude ``A_i`` and planar baseline
+    ``(bx_i, by_i, c_i)`` are per-channel. For steep-spectrum sources
+    σ and (x0, y0) move only weakly with frequency, so a single
+    multi-frequency fit is more stable in low-SNR channels and ~``N_freq``×
+    cheaper than running one per-channel ``curve_fit`` per candidate.
+
+    Parameters
+    ----------
+    x, y : np.ndarray, shape (N,)
+        Tangent-plane coordinates of every patch pixel (radians).
+    z_per_channel : np.ndarray, shape (N_freq, N)
+        Flux on the same patch pixels at each channel.
+    sigma_init_rad : float
+        Initial σ guess (single-pixel resolution scale, radians).
+
+    Returns
+    -------
+    fit : dict
+        Keys: ``"x0"``, ``"y0"``, ``"sigma_major"``, ``"sigma_minor"``,
+        ``"pa"`` (scalars); ``"amplitudes"`` (shape ``(N_freq,)``);
+        ``"baselines"`` (shape ``(N_freq, 3)``: ``[bx, by, c]`` per row).
+        Always returned — populated with seed values if ``ok`` is False.
+    ok : bool
+        ``False`` when the joint fit failed or produced non-physical
+        geometry.
+    """
+    from scipy.optimize import least_squares
+
+    z_per_channel = np.asarray(z_per_channel, dtype=np.float64)
+    if z_per_channel.ndim != 2:
+        raise ValueError(
+            "_fit_multifreq_gaussian: z_per_channel must be (N_freq, N), "
+            f"got shape {z_per_channel.shape}."
+        )
+    n_freq, n_pix = z_per_channel.shape
+    if n_pix != x.size:
+        raise ValueError(
+            "_fit_multifreq_gaussian: patch pixel count mismatch: "
+            f"x={x.size}, z_per_channel rows={n_pix}."
+        )
+
+    # Initialise geometry from the brightest channel — Remazeilles 2015 §3
+    # uses the same one-channel seed in their bootstrap.
+    bright_ch = int(np.argmax(np.ptp(z_per_channel, axis=1)))
+    seed_z = z_per_channel[bright_ch]
+    peak_idx = int(np.argmax(seed_z))
+    medians = np.median(z_per_channel, axis=1)
+    amps_init = np.maximum(z_per_channel.max(axis=1) - medians, np.abs(medians) * 1e-3)
+    x0_init = float(x[peak_idx])
+    y0_init = float(y[peak_idx])
+
+    # Pack: [x0, y0, sigma_M, sigma_m, pa, A_0, ..., A_{n-1},
+    #        bx_0, ..., bx_{n-1}, by_0, ..., by_{n-1}, c_0, ..., c_{n-1}]
+    n_params = 5 + 4 * n_freq
+    p0 = np.zeros(n_params, dtype=np.float64)
+    p0[0] = x0_init
+    p0[1] = y0_init
+    p0[2] = sigma_init_rad
+    p0[3] = sigma_init_rad
+    p0[4] = 0.0
+    p0[5 : 5 + n_freq] = amps_init
+    # bx, by start at 0; c starts at the per-channel median.
+    p0[5 + 3 * n_freq : 5 + 4 * n_freq] = medians
+
+    lower = np.full(n_params, -np.inf)
+    upper = np.full(n_params, np.inf)
+    lower[0] = float(x.min())
+    upper[0] = float(x.max())
+    lower[1] = float(y.min())
+    upper[1] = float(y.max())
+    lower[2] = sigma_init_rad * 0.2
+    upper[2] = sigma_init_rad * 5.0
+    lower[3] = sigma_init_rad * 0.2
+    upper[3] = sigma_init_rad * 5.0
+    lower[4] = -np.pi / 2.0
+    upper[4] = np.pi / 2.0
+    lower[5 : 5 + n_freq] = 0.0  # amplitudes non-negative
+
+    # Cache geometry-dependent terms once per evaluation; per-channel work is O(N).
+    def _residuals(params: np.ndarray) -> np.ndarray:
+        x0, y0, sigma_M, sigma_m, pa = params[:5]
+        amps = params[5 : 5 + n_freq]
+        bxs = params[5 + n_freq : 5 + 2 * n_freq]
+        bys = params[5 + 2 * n_freq : 5 + 3 * n_freq]
+        cs = params[5 + 3 * n_freq : 5 + 4 * n_freq]
+        cos_pa = np.cos(pa)
+        sin_pa = np.sin(pa)
+        xr = (x - x0) * cos_pa + (y - y0) * sin_pa
+        yr = -(x - x0) * sin_pa + (y - y0) * cos_pa
+        gauss_shape = np.exp(-0.5 * (xr**2 / sigma_M**2 + yr**2 / sigma_m**2))
+        # Vectorise across channels: model_per_channel = amps[:, None] * gauss + ...
+        model = (
+            amps[:, None] * gauss_shape[None, :]
+            + bxs[:, None] * x[None, :]
+            + bys[:, None] * y[None, :]
+            + cs[:, None]
+        )
+        return (model - z_per_channel).ravel()
+
+    seed_dict: dict[str, np.ndarray | float] = {
+        "x0": float(p0[0]),
+        "y0": float(p0[1]),
+        "sigma_major": float(p0[2]),
+        "sigma_minor": float(p0[3]),
+        "pa": float(p0[4]),
+        "amplitudes": p0[5 : 5 + n_freq].copy(),
+        "baselines": np.column_stack(
+            [
+                p0[5 + n_freq : 5 + 2 * n_freq],
+                p0[5 + 2 * n_freq : 5 + 3 * n_freq],
+                p0[5 + 3 * n_freq : 5 + 4 * n_freq],
+            ]
+        ),
+    }
+
+    try:
+        result = least_squares(
+            _residuals,
+            p0,
+            bounds=(lower, upper),
+            max_nfev=2000,
+        )
+    except (RuntimeError, ValueError):
+        return seed_dict, False
+
+    if not result.success:
+        return seed_dict, False
+
+    popt = result.x
+    sigma_M_fit = float(popt[2])
+    sigma_m_fit = float(popt[3])
+    pa_fit = float(popt[4])
+    amps_fit = popt[5 : 5 + n_freq]
+    bxs_fit = popt[5 + n_freq : 5 + 2 * n_freq]
+    bys_fit = popt[5 + 2 * n_freq : 5 + 3 * n_freq]
+    cs_fit = popt[5 + 3 * n_freq : 5 + 4 * n_freq]
+
+    # Reject geometry collapses below the resolution floor (matches the
+    # single-channel fit's guard at sigma_min <= sigma_init * 0.25).
+    if min(sigma_M_fit, sigma_m_fit) <= sigma_init_rad * 0.25:
+        return seed_dict, False
+    # At least one channel must have a positive integrated flux for the
+    # fit to be useful.
+    if not np.any(amps_fit > 0):
+        return seed_dict, False
+
+    # Canonicalise so sigma_major is the larger axis (matches single-channel
+    # fitter convention so downstream consumers can read sigma_major directly).
+    if sigma_m_fit > sigma_M_fit:
+        sigma_M_fit, sigma_m_fit = sigma_m_fit, sigma_M_fit
+        pa_fit = (pa_fit + np.pi / 2.0 + np.pi / 2.0) % np.pi - np.pi / 2.0
+
+    return {
+        "x0": float(popt[0]),
+        "y0": float(popt[1]),
+        "sigma_major": sigma_M_fit,
+        "sigma_minor": sigma_m_fit,
+        "pa": pa_fit,
+        "amplitudes": amps_fit.copy(),
+        "baselines": np.column_stack([bxs_fit, bys_fit, cs_fit]),
+    }, True
+
+
+def _multifreq_fit_to_channel_params(
+    fit: dict[str, np.ndarray | float], channel_index: int
+) -> np.ndarray:
+    """Assemble the 9-vector channel-specific param array used by
+    :func:`_evaluate_elliptical_gaussian` from a multi-freq fit dict.
+    """
+    amps = np.asarray(fit["amplitudes"])
+    baselines = np.asarray(fit["baselines"])
+    return np.asarray(
+        [
+            float(amps[channel_index]),
+            float(fit["x0"]),
+            float(fit["y0"]),
+            float(fit["sigma_major"]),
+            float(fit["sigma_minor"]),
+            float(fit["pa"]),
+            float(baselines[channel_index, 0]),
+            float(baselines[channel_index, 1]),
+            float(baselines[channel_index, 2]),
+        ]
+    )
+
+
 def _inpaint_by_alm(
     maps: np.ndarray,
     nside: int,
@@ -624,21 +819,22 @@ def _select_subtraction_candidates(
     return candidate_pix, flux_per_pixel_jy
 
 
-def _fit_one_candidate(
+def _fit_one_candidate_multifreq(
     center: int,
-    flux_ch_jy: np.ndarray,
+    flux_per_channel_jy: np.ndarray,
     *,
     nside: int,
     patch_radius: float,
     sigma_init: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool] | None:
-    """Compute the patch geometry + Gaussian fit for one candidate pixel.
+) -> (
+    tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, np.ndarray | float], bool]
+    | None
+):
+    """One candidate's patch + multi-frequency joint Gaussian fit.
 
-    Pure read of ``flux_ch_jy``; safe to call concurrently for distinct
-    candidates. Returns ``None`` for patches that are too small to fit
-    (matches the ``patch.size < 8`` skip in the sequential path).
-
-    Returns ``(patch, px, py, params, ok)``.
+    Returns ``(patch_indices, px, py, fit_dict, ok)`` or ``None`` when the
+    patch is too small to fit. Pure read of ``flux_per_channel_jy``, so
+    multiple candidates can be fit in parallel safely.
     """
     patch = hp.query_disc(
         nside, hp.pix2vec(nside, center), patch_radius, inclusive=True
@@ -646,54 +842,65 @@ def _fit_one_candidate(
     if patch.size < 8:
         return None
     px, py = _gnomonic_patch_coords(int(center), patch, nside)
-    pz = flux_ch_jy[patch]
-    params, ok = _fit_elliptical_gaussian(px, py, pz, sigma_init_rad=sigma_init)
-    return patch, px, py, params, ok
+    pz_per_channel = flux_per_channel_jy[:, patch]
+    fit, ok = _fit_multifreq_gaussian(px, py, pz_per_channel, sigma_init_rad=sigma_init)
+    return patch, px, py, fit, ok
 
 
-def _apply_fit_to_buffer(
-    fit: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool] | None,
+def _apply_multifreq_fit_to_buffers(
+    candidate_fit: (
+        tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, np.ndarray | float], bool]
+        | None
+    ),
     *,
-    flux_ch_jy: np.ndarray,
+    flux_per_channel_jy: np.ndarray,
     pixel_area_sr: float,
     inpaint_mask_sigma: float,
     flux_limit_jy: float,
     catalog_present: bool,
     inpaint_mask: set[int],
 ) -> tuple[int, int]:
-    """Apply one Gaussian fit to ``flux_ch_jy`` and update the inpaint mask.
+    """Apply one multi-freq fit to every channel buffer.
 
-    Subtracts the fitted model on the patch, accumulates pixel indices
-    within ``inpaint_mask_sigma × σ_fit`` of the centre into
-    ``inpaint_mask``, and returns ``(n_ok_delta, n_failed_delta)`` for the
-    caller to tally.
+    Subtracts the per-channel Gaussian + planar baseline using the
+    shared geometry and the channel-specific amplitude. Updates
+    ``inpaint_mask`` once (geometry is shared across channels).
 
-    No-op + ``(0, 0)`` when the fit was skipped (``patch.size < 8``).
-    No-op + ``(0, 1)`` when curve_fit failed or the integrated flux fell
-    below ``flux_limit_jy`` in auto-detect mode.
+    Returns ``(n_channel_ok, n_channel_failed)`` summed across channels.
+    The integrated-flux gate is applied per channel using that channel's
+    fitted amplitude — a candidate may pass the gate at one frequency
+    and be skipped at another.
     """
-    if fit is None:
+    if candidate_fit is None:
         return 0, 0
-    patch, px, py, params, ok = fit
+    patch, px, py, fit, ok = candidate_fit
     if not ok:
-        return 0, 1
-    # Reject fits whose integrated flux is below the catalog-style
-    # threshold so we don't subtract noise-level bumps.  Integral of
-    # A·exp(-½(x'²/σ_M² + y'²/σ_m²)) over the plane is 2π·A·σ_M·σ_m;
-    # divide by pixel area to convert from Jy/sr back to a Jy total.
-    amp_fit = float(params[0])
-    sigma_M_fit = float(params[3])
-    sigma_m_fit = float(params[4])
-    integrated_flux_jy = (
-        amp_fit * 2.0 * np.pi * sigma_M_fit * sigma_m_fit / pixel_area_sr
+        return 0, flux_per_channel_jy.shape[0]
+
+    sigma_M_fit = float(fit["sigma_major"])
+    sigma_m_fit = float(fit["sigma_minor"])
+    amps = np.asarray(fit["amplitudes"])
+    n_freq = flux_per_channel_jy.shape[0]
+    n_ok = 0
+    n_failed = 0
+
+    integrated_flux_per_channel = (
+        amps * 2.0 * np.pi * sigma_M_fit * sigma_m_fit / pixel_area_sr
     )
-    if not catalog_present and integrated_flux_jy < flux_limit_jy:
-        return 0, 1
 
-    model_vals = _evaluate_elliptical_gaussian(params, px, py)
-    flux_ch_jy[patch] -= model_vals
+    for ch in range(n_freq):
+        if not catalog_present and integrated_flux_per_channel[ch] < flux_limit_jy:
+            n_failed += 1
+            continue
+        params = _multifreq_fit_to_channel_params(fit, ch)
+        model_vals = _evaluate_elliptical_gaussian(params, px, py)
+        flux_per_channel_jy[ch, patch] -= model_vals
+        n_ok += 1
 
-    x0_fit, y0_fit, pa_fit = params[1], params[2], params[5]
+    # Inpaint mask uses shared geometry — same pixels for every channel.
+    x0_fit = float(fit["x0"])
+    y0_fit = float(fit["y0"])
+    pa_fit = float(fit["pa"])
     cos_pa = np.cos(pa_fit)
     sin_pa = np.sin(pa_fit)
     xr = (px - x0_fit) * cos_pa + (py - y0_fit) * sin_pa
@@ -702,7 +909,8 @@ def _apply_fit_to_buffer(
     core_mask = ellipse_r2 <= inpaint_mask_sigma**2
     for p in patch[core_mask]:
         inpaint_mask.add(int(p))
-    return 1, 0
+
+    return n_ok, n_failed
 
 
 def _fit_and_subtract_per_channel(
@@ -716,27 +924,31 @@ def _fit_and_subtract_per_channel(
     catalog_present: bool,
     n_workers: int = 1,
 ) -> tuple[np.ndarray, set[int], int, int]:
-    """Run the per-channel Gaussian-fit-and-subtract loop.
+    """Multi-frequency joint Gaussian fit per candidate, then per-channel subtract.
 
-    For each channel: convert the cube slice to Jy, fit an elliptical
-    Gaussian + planar baseline at every candidate pixel, reject fits whose
-    integrated flux lies below ``flux_limit_jy`` (auto-detect mode only),
-    subtract the model on the patch, and accumulate the inpaint mask
-    (pixels within ``inpaint_mask_sigma × σ_fit`` of each centre).
-    Converts each modified channel back to brightness temperature.
+    For each candidate, geometry parameters ``(x0, y0, sigma_M, sigma_m, pa)``
+    are fit jointly across every frequency channel; amplitudes and planar
+    baselines are per-channel. For steep-spectrum sources σ and the
+    centroid move only weakly with frequency, so a single multi-freq fit
+    is more stable in low-SNR channels and ~``N_freq``× cheaper than the
+    older one-curve-fit-per-(candidate, channel) loop.
 
-    When ``n_workers > 1``, the per-candidate fits within a channel run in
-    parallel via :class:`concurrent.futures.ThreadPoolExecutor`.  Every
-    parallel fit sees the same starting flux buffer (no inter-candidate
-    coupling); subtractions are then applied serially in the input
-    ``candidate_pix`` order, so the result is deterministic for any fixed
-    candidate set.  Sequential mode (``n_workers == 1``) preserves the
-    historical contract where a candidate's fit sees the partially-
-    subtracted flux of any previously-processed candidate within the same
-    channel; the two modes therefore agree only when candidate patches do
-    not overlap (the common case at typical bright-source separations).
+    Subtractions are applied per channel using the channel-specific
+    amplitude. The integrated-flux gate (auto-detect mode only) is also
+    per channel — a candidate that drops below ``flux_limit_jy`` at one
+    frequency stays untouched there but can still be subtracted at the
+    frequencies where it remains bright.
+
+    When ``n_workers > 1``, the per-candidate joint fits run in parallel
+    on a :class:`ThreadPoolExecutor` (scipy MINPACK / pure-numpy model
+    release the GIL). Subtractions are applied serially in the input
+    ``candidate_pix`` order, so results are deterministic for any fixed
+    candidate set. ``n_workers == 1`` is the sequential default.
 
     Returns ``(new_maps_K, inpaint_mask_pixels, n_fits_ok, n_fits_failed)``.
+    ``n_fits_ok`` / ``n_fits_failed`` count per-(candidate, channel)
+    application outcomes so the totals are comparable to the old
+    per-channel implementation.
     """
     nside = sky.healpix.nside
     pixel_area_sr = 4.0 * np.pi / hp.nside2npix(nside)
@@ -747,78 +959,70 @@ def _fit_and_subtract_per_channel(
     n_fits_ok = 0
     n_fits_failed = 0
 
+    # Pre-convert the entire cube K → Jy so the joint fit sees one
+    # consistent flux array. Per-channel rj/planck choice is made once
+    # per channel based on whether that channel has any non-positive
+    # pixels (matches the original per-channel logic).
+    flux_per_channel_jy = np.empty((n_freq, new_maps.shape[1]), dtype=np.float64)
+    rj_per_channel = np.zeros(n_freq, dtype=bool)
     for fi in range(n_freq):
-        freq_ch = float(cube_freqs[fi])
-        use_rj_ch = sky.brightness_conversion.value == "rayleigh-jeans" or np.any(
-            new_maps[fi] <= 0.0
+        rj_per_channel[fi] = sky.brightness_conversion.value == "rayleigh-jeans" or (
+            bool(np.any(new_maps[fi] <= 0.0))
         )
-        method_ch = "rayleigh-jeans" if use_rj_ch else "planck"
-        flux_ch_jy = brightness_temp_to_flux_density(
+        method_ch = "rayleigh-jeans" if rj_per_channel[fi] else "planck"
+        flux_per_channel_jy[fi] = brightness_temp_to_flux_density(
             new_maps[fi].copy(),
-            frequency=freq_ch,
+            frequency=float(cube_freqs[fi]),
             solid_angle=pixel_area_sr,
             method=method_ch,
         )
 
-        if n_workers > 1:
-            # Parallel fit phase: every candidate reads the same buffer.
-            # ``functools.partial`` binds the shared kwargs once; ``pool.map``
-            # passes each candidate index in as the leading positional arg.
-            fit_call = functools.partial(
-                _fit_one_candidate,
-                flux_ch_jy=flux_ch_jy,
+    if n_workers > 1:
+        # Parallel fit phase: every candidate reads the same buffer.
+        fit_call = functools.partial(
+            _fit_one_candidate_multifreq,
+            flux_per_channel_jy=flux_per_channel_jy,
+            nside=nside,
+            patch_radius=patch_radius,
+            sigma_init=sigma_init,
+        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
+            fit_results = list(pool.map(fit_call, candidate_pix.tolist()))
+    else:
+        fit_results = [
+            _fit_one_candidate_multifreq(
+                int(center),
+                flux_per_channel_jy,
                 nside=nside,
                 patch_radius=patch_radius,
                 sigma_init=sigma_init,
             )
-            with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
-                fit_results = list(pool.map(fit_call, candidate_pix.tolist()))
-        else:
-            # Sequential fit phase: applied inline so the next fit sees
-            # residuals from prior subtractions in the same channel.
-            fit_results = []
-            for center in candidate_pix:
-                fit = _fit_one_candidate(
-                    int(center),
-                    flux_ch_jy,
-                    nside=nside,
-                    patch_radius=patch_radius,
-                    sigma_init=sigma_init,
-                )
-                fit_results.append(fit)
-                ok_delta, failed_delta = _apply_fit_to_buffer(
-                    fit,
-                    flux_ch_jy=flux_ch_jy,
-                    pixel_area_sr=pixel_area_sr,
-                    inpaint_mask_sigma=inpaint_mask_sigma,
-                    flux_limit_jy=flux_limit_jy,
-                    catalog_present=catalog_present,
-                    inpaint_mask=inpaint_mask,
-                )
-                n_fits_ok += ok_delta
-                n_fits_failed += failed_delta
+            for center in candidate_pix
+        ]
 
-        if n_workers > 1:
-            # Serial subtraction in deterministic candidate order.
-            for fit in fit_results:
-                ok_delta, failed_delta = _apply_fit_to_buffer(
-                    fit,
-                    flux_ch_jy=flux_ch_jy,
-                    pixel_area_sr=pixel_area_sr,
-                    inpaint_mask_sigma=inpaint_mask_sigma,
-                    flux_limit_jy=flux_limit_jy,
-                    catalog_present=catalog_present,
-                    inpaint_mask=inpaint_mask,
-                )
-                n_fits_ok += ok_delta
-                n_fits_failed += failed_delta
+    # Apply subtractions in deterministic candidate order. Each fit
+    # touches one patch across every channel.
+    for fit in fit_results:
+        ok_delta, failed_delta = _apply_multifreq_fit_to_buffers(
+            fit,
+            flux_per_channel_jy=flux_per_channel_jy,
+            pixel_area_sr=pixel_area_sr,
+            inpaint_mask_sigma=inpaint_mask_sigma,
+            flux_limit_jy=flux_limit_jy,
+            catalog_present=catalog_present,
+            inpaint_mask=inpaint_mask,
+        )
+        n_fits_ok += ok_delta
+        n_fits_failed += failed_delta
 
-        flux_positive = flux_ch_jy.copy()
+    # Convert each modified channel back to brightness temperature.
+    for fi in range(n_freq):
+        flux_positive = flux_per_channel_jy[fi].copy()
         flux_positive[flux_positive <= 0] = np.finfo(np.float64).tiny
-        method_back = "rayleigh-jeans" if use_rj_ch else "planck"
+        method_back = "rayleigh-jeans" if rj_per_channel[fi] else "planck"
         new_maps[fi] = flux_density_to_brightness_temp(
             flux_positive,
-            frequency=freq_ch,
+            frequency=float(cube_freqs[fi]),
             solid_angle=pixel_area_sr,
             method=method_back,
         )
@@ -972,18 +1176,15 @@ def subtract_bright_sources(
     )
 
     n_freq_total = int(sky.healpix.frequencies.size)
-    n_fits_total = int(candidate_pix.size) * n_freq_total
-    if n_fits_total > _SUBTRACT_FIT_COUNT_WARN_THRESHOLD:
+    if int(candidate_pix.size) > _SUBTRACT_FIT_COUNT_WARN_THRESHOLD:
         logger.warning(
-            "subtract_bright_sources: about to run %d × %d = %d "
-            "scipy.optimize.curve_fit calls (one per candidate per "
-            "channel) — this is O(N_candidates × N_freq) and can be "
-            "minutes-to-hours at large nside / wide bands. Pass "
-            "max_sources=... to cap the candidate list, or filter by "
+            "subtract_bright_sources: about to run %d joint multi-frequency "
+            "scipy.optimize.least_squares fits (one per candidate; geometry "
+            "is shared across %d channel(s), amplitudes are per-channel). "
+            "Pass max_sources=... to cap the candidate list, or filter by "
             "flux_limit_jy first.",
             int(candidate_pix.size),
             n_freq_total,
-            n_fits_total,
         )
 
     if candidate_pix.size == 0:

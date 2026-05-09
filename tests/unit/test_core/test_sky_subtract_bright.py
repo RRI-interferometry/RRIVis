@@ -149,6 +149,32 @@ class TestSubtractBrightSourcesDetection:
         assert result.provenance.source_subtraction_method == "gaussian_fit_inpaint"
         assert "subtracted>2.5Jy@150.0MHz" in (result.provenance.notes or "")
 
+    def test_multifreq_fit_subtracts_at_every_channel(self, precision):
+        """Joint multi-frequency fit must subtract the source at every
+        channel — not just the reference frequency. Each channel's peak
+        flux must drop after the subtract pass.
+        """
+        sky, _, _, _ = _make_synthetic_diffuse_with_sources(precision)
+        assert sky.healpix is not None and sky.healpix.maps.shape[0] >= 2, (
+            "fixture must build a multi-frequency cube"
+        )
+        injected_peaks = sky.healpix.maps.max(axis=1)
+        cleaned = subtract_bright_sources(
+            sky,
+            flux_limit_jy=2.5,
+            frequency_hz=float(sky.healpix.frequencies[0]),
+        )
+        assert cleaned.healpix is not None
+        residual_peaks = cleaned.healpix.maps.max(axis=1)
+        # Every channel's peak must drop after subtraction.
+        assert np.all(residual_peaks < injected_peaks), (
+            f"residual peaks {residual_peaks} not all below injected {injected_peaks}"
+        )
+        # The provenance freq-of-record stays at the detection channel.
+        assert cleaned.provenance.source_subtraction_freq_hz == pytest.approx(
+            float(sky.healpix.frequencies[0])
+        )
+
     def test_n_workers_matches_serial_for_disjoint_candidates(self, precision):
         """``n_workers > 1`` matches the sequential result when candidate
         patches do not overlap.  The synthetic fixture's three sources are
