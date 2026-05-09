@@ -228,7 +228,10 @@ class TestMaterialization:
         self, test_sky, obs_freq_config
     ):
         sky = materialize_healpix_model(
-            test_sky, nside=16, obs_frequency_config=obs_freq_config
+            test_sky,
+            nside=16,
+            obs_frequency_config=obs_freq_config,
+            clear_other=False,
         )
         assert sky is not test_sky
         assert sky.point is not None
@@ -270,7 +273,10 @@ class TestMaterialization:
 
     def test_counts_per_representation(self, test_sky, obs_freq_config):
         hp_sky = materialize_healpix_model(
-            test_sky, nside=8, obs_frequency_config=obs_freq_config
+            test_sky,
+            nside=8,
+            obs_frequency_config=obs_freq_config,
+            clear_other=False,
         )
         assert hp_sky.n_point_sources == test_sky.n_point_sources
         assert hp_sky.n_healpix_pixels == hp_sky.n_pixels
@@ -284,7 +290,9 @@ class TestMaterialization:
 
     def test_materialize_point_sources_from_healpix(self, precision):
         sky = make_healpix_model(precision=precision, include_pol=True)
-        point = materialize_point_sources_model(sky, frequency=100e6, lossy=True)
+        point = materialize_point_sources_model(
+            sky, frequency=100e6, lossy=True, clear_other=False
+        )
         assert point.formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
         assert point.point is not None
         assert point.healpix is not None
@@ -306,7 +314,10 @@ class TestMaterialization:
 class TestFilteringAndAccessors:
     def test_filter_region_filters_both_payloads(self, test_sky, obs_freq_config):
         hp_sky = materialize_healpix_model(
-            test_sky, nside=8, obs_frequency_config=obs_freq_config
+            test_sky,
+            nside=8,
+            obs_frequency_config=obs_freq_config,
+            clear_other=False,
         )
         region = SkyRegion.cone(
             np.rad2deg(test_sky.point.ra_rad[0]),

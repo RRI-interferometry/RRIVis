@@ -146,6 +146,7 @@ def prepare_sky_model(
             frequencies=requested_freqs,
             ref_frequency=frequency,
             memmap_path=memmap_path,
+            clear_other=True,
         )
 
     if sky.point is not None:
@@ -155,4 +156,6 @@ def prepare_sky_model(
             "Requested point-source sky representation for a HEALPix-only model. "
             "Set allow_lossy=True to opt in to lossy HEALPix-to-point conversion."
         )
-    return materialize_point_sources_model(sky, frequency=frequency, lossy=True)
+    return materialize_point_sources_model(
+        sky, frequency=frequency, lossy=True, clear_other=True
+    )

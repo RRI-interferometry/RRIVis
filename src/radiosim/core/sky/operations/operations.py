@@ -46,13 +46,14 @@ def materialize_healpix_model(
     obs_frequency_config: dict[str, Any] | None = None,
     ref_frequency: float | None = None,
     memmap_path: str | None = None,
-    clear_other: bool = False,
+    clear_other: bool = True,
 ) -> SkyModel:
     """Materialize a HEALPix payload from a point-source payload.
 
-    By default the result is a hybrid model carrying both the original
-    point payload and the new HEALPix payload. Pass ``clear_other=True``
-    to drop the source point payload (pure point→HEALPix conversion).
+    By default the result is a HEALPix-only model — the original point
+    payload is dropped so the simulator and downstream code see exactly
+    one representation. Pass ``clear_other=False`` to keep the point
+    payload alongside the new HEALPix payload (a hybrid model).
 
     Stokes I uses ``sky.brightness_conversion``.  Stokes Q/U/V use
     ``sky.polarization_brightness_conversion`` (defaults to Rayleigh-Jeans
@@ -160,13 +161,14 @@ def materialize_point_sources_model(
     flux_limit: float = 0.0,
     *,
     lossy: bool = False,
-    clear_other: bool = False,
+    clear_other: bool = True,
 ) -> SkyModel:
     """Materialize a point-source payload from a HEALPix payload.
 
-    By default the result is a hybrid model carrying both the original
-    HEALPix payload and the new point payload. Pass ``clear_other=True``
-    to drop the source HEALPix payload (pure HEALPix→point conversion).
+    By default the result is a point-only model — the original HEALPix
+    payload is dropped so the simulator and downstream code see exactly
+    one representation. Pass ``clear_other=False`` to keep the HEALPix
+    payload alongside the new point payload (a hybrid model).
 
     Stokes I uses ``sky.brightness_conversion``.  Stokes Q/U/V use
     ``sky.polarization_brightness_conversion`` (defaults to Rayleigh-Jeans

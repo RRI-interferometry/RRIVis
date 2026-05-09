@@ -83,7 +83,7 @@ class TestHybridConstruction:
 
 
 class TestMaterializeClearOther:
-    def test_materialize_healpix_default_keeps_point(
+    def test_materialize_healpix_default_drops_point(
         self, precision: PrecisionConfig
     ) -> None:
         sky = create_from_arrays(
@@ -94,9 +94,10 @@ class TestMaterializeClearOther:
             precision=precision,
         )
         out = materialize_healpix_model(sky, nside=8, frequencies=np.asarray([150e6]))
-        assert out.formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
+        assert out.formats == {SkyFormat.HEALPIX}
+        assert out.point is None
 
-    def test_materialize_healpix_clear_other_drops_point(
+    def test_materialize_healpix_keep_other_keeps_point(
         self, precision: PrecisionConfig
     ) -> None:
         sky = create_from_arrays(
@@ -107,21 +108,26 @@ class TestMaterializeClearOther:
             precision=precision,
         )
         out = materialize_healpix_model(
-            sky, nside=8, frequencies=np.asarray([150e6]), clear_other=True
+            sky, nside=8, frequencies=np.asarray([150e6]), clear_other=False
         )
-        assert out.formats == {SkyFormat.HEALPIX}
-        assert out.point is None
+        assert out.formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
 
-    def test_materialize_point_clear_other_drops_healpix(
+    def test_materialize_point_default_drops_healpix(
         self, hybrid_sky: SkyModel
     ) -> None:
-        # Start from a healpix-only derivative so materialize actually runs.
         healpix_only = hybrid_sky.replace(point=None)
-        out = materialize_point_sources_model(
-            healpix_only, frequency=100e6, lossy=True, clear_other=True
-        )
+        out = materialize_point_sources_model(healpix_only, frequency=100e6, lossy=True)
         assert out.formats == {SkyFormat.POINT_SOURCES}
         assert out.healpix is None
+
+    def test_materialize_point_keep_other_keeps_healpix(
+        self, hybrid_sky: SkyModel
+    ) -> None:
+        healpix_only = hybrid_sky.replace(point=None)
+        out = materialize_point_sources_model(
+            healpix_only, frequency=100e6, lossy=True, clear_other=False
+        )
+        assert out.formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
 
 
 class TestCombineModelsHybridAuto:

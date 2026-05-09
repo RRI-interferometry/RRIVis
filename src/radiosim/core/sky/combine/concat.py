@@ -189,6 +189,7 @@ def concat_point_sources(
                 m,
                 frequency=reference_frequency,
                 lossy=True,
+                clear_other=True,
             )
         if m.point is not None and not m.point.is_empty:
             populated.append(m)

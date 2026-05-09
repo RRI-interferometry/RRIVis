@@ -125,6 +125,7 @@ def load_test_sources(
             obs_frequency_config=obs_frequency_config,
             ref_frequency=ref_frequency,
             memmap_path=memmap_path,
+            clear_other=True,
         )
 
     return sky
@@ -429,6 +430,7 @@ def load_poisson_confusion(
             frequencies=np.asarray(frequencies, dtype=np.float64),
             ref_frequency=float(reference_frequency),
             memmap_path=memmap_path,
+            clear_other=True,
         )
 
     return sky
