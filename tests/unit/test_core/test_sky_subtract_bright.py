@@ -149,6 +149,33 @@ class TestSubtractBrightSourcesDetection:
         assert result.provenance.source_subtraction_method == "gaussian_fit_inpaint"
         assert "subtracted>2.5Jy@150.0MHz" in (result.provenance.notes or "")
 
+    def test_n_workers_matches_serial_for_disjoint_candidates(self, precision):
+        """``n_workers > 1`` matches the sequential result when candidate
+        patches do not overlap.  The synthetic fixture's three sources are
+        at >> patch_radius separations, so the two contracts agree.
+        """
+        sky, _, _, _ = _make_synthetic_diffuse_with_sources(precision)
+        serial = subtract_bright_sources(
+            sky, flux_limit_jy=2.5, frequency_hz=150e6, n_workers=1
+        )
+        parallel = subtract_bright_sources(
+            sky, flux_limit_jy=2.5, frequency_hz=150e6, n_workers=4
+        )
+        assert serial.healpix is not None
+        assert parallel.healpix is not None
+        np.testing.assert_allclose(
+            parallel.healpix.maps,
+            serial.healpix.maps,
+            rtol=1e-9,
+            atol=1e-9,
+        )
+        # Provenance / monopole bookkeeping must also match.
+        assert (
+            parallel.provenance.source_subtraction
+            == serial.provenance.source_subtraction
+        )
+        assert parallel.provenance.notes == serial.provenance.notes
+
 
 class TestSubtractBrightSourcesCatalogPath:
     def test_uses_catalog_positions_when_supplied(self, precision):

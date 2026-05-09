@@ -6,6 +6,8 @@ operations outside ``SkyModel`` itself.
 
 from __future__ import annotations
 
+import concurrent.futures
+import functools
 import logging
 import os
 import tempfile
@@ -633,6 +635,87 @@ def _select_subtraction_candidates(
     return candidate_pix, flux_per_pixel_jy
 
 
+def _fit_one_candidate(
+    center: int,
+    flux_ch_jy: np.ndarray,
+    *,
+    nside: int,
+    patch_radius: float,
+    sigma_init: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool] | None:
+    """Compute the patch geometry + Gaussian fit for one candidate pixel.
+
+    Pure read of ``flux_ch_jy``; safe to call concurrently for distinct
+    candidates. Returns ``None`` for patches that are too small to fit
+    (matches the ``patch.size < 8`` skip in the sequential path).
+
+    Returns ``(patch, px, py, params, ok)``.
+    """
+    patch = hp.query_disc(
+        nside, hp.pix2vec(nside, center), patch_radius, inclusive=True
+    )
+    if patch.size < 8:
+        return None
+    px, py = _gnomonic_patch_coords(int(center), patch, nside)
+    pz = flux_ch_jy[patch]
+    params, ok = _fit_elliptical_gaussian(px, py, pz, sigma_init_rad=sigma_init)
+    return patch, px, py, params, ok
+
+
+def _apply_fit_to_buffer(
+    fit: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool] | None,
+    *,
+    flux_ch_jy: np.ndarray,
+    pixel_area_sr: float,
+    inpaint_mask_sigma: float,
+    flux_limit_jy: float,
+    catalog_present: bool,
+    inpaint_mask: set[int],
+) -> tuple[int, int]:
+    """Apply one Gaussian fit to ``flux_ch_jy`` and update the inpaint mask.
+
+    Subtracts the fitted model on the patch, accumulates pixel indices
+    within ``inpaint_mask_sigma × σ_fit`` of the centre into
+    ``inpaint_mask``, and returns ``(n_ok_delta, n_failed_delta)`` for the
+    caller to tally.
+
+    No-op + ``(0, 0)`` when the fit was skipped (``patch.size < 8``).
+    No-op + ``(0, 1)`` when curve_fit failed or the integrated flux fell
+    below ``flux_limit_jy`` in auto-detect mode.
+    """
+    if fit is None:
+        return 0, 0
+    patch, px, py, params, ok = fit
+    if not ok:
+        return 0, 1
+    # Reject fits whose integrated flux is below the catalog-style
+    # threshold so we don't subtract noise-level bumps.  Integral of
+    # A·exp(-½(x'²/σ_M² + y'²/σ_m²)) over the plane is 2π·A·σ_M·σ_m;
+    # divide by pixel area to convert from Jy/sr back to a Jy total.
+    amp_fit = float(params[0])
+    sigma_M_fit = float(params[3])
+    sigma_m_fit = float(params[4])
+    integrated_flux_jy = (
+        amp_fit * 2.0 * np.pi * sigma_M_fit * sigma_m_fit / pixel_area_sr
+    )
+    if not catalog_present and integrated_flux_jy < flux_limit_jy:
+        return 0, 1
+
+    model_vals = _evaluate_elliptical_gaussian(params, px, py)
+    flux_ch_jy[patch] -= model_vals
+
+    x0_fit, y0_fit, pa_fit = params[1], params[2], params[5]
+    cos_pa = np.cos(pa_fit)
+    sin_pa = np.sin(pa_fit)
+    xr = (px - x0_fit) * cos_pa + (py - y0_fit) * sin_pa
+    yr = -(px - x0_fit) * sin_pa + (py - y0_fit) * cos_pa
+    ellipse_r2 = (xr / sigma_M_fit) ** 2 + (yr / sigma_m_fit) ** 2
+    core_mask = ellipse_r2 <= inpaint_mask_sigma**2
+    for p in patch[core_mask]:
+        inpaint_mask.add(int(p))
+    return 1, 0
+
+
 def _fit_and_subtract_per_channel(
     sky: SkyModel,
     candidate_pix: np.ndarray,
@@ -642,6 +725,7 @@ def _fit_and_subtract_per_channel(
     inpaint_mask_sigma: float,
     flux_limit_jy: float,
     catalog_present: bool,
+    n_workers: int = 1,
 ) -> tuple[np.ndarray, set[int], int, int]:
     """Run the per-channel Gaussian-fit-and-subtract loop.
 
@@ -651,6 +735,17 @@ def _fit_and_subtract_per_channel(
     subtract the model on the patch, and accumulate the inpaint mask
     (pixels within ``inpaint_mask_sigma × σ_fit`` of each centre).
     Converts each modified channel back to brightness temperature.
+
+    When ``n_workers > 1``, the per-candidate fits within a channel run in
+    parallel via :class:`concurrent.futures.ThreadPoolExecutor`.  Every
+    parallel fit sees the same starting flux buffer (no inter-candidate
+    coupling); subtractions are then applied serially in the input
+    ``candidate_pix`` order, so the result is deterministic for any fixed
+    candidate set.  Sequential mode (``n_workers == 1``) preserves the
+    historical contract where a candidate's fit sees the partially-
+    subtracted flux of any previously-processed candidate within the same
+    channel; the two modes therefore agree only when candidate patches do
+    not overlap (the common case at typical bright-source separations).
 
     Returns ``(new_maps_K, inpaint_mask_pixels, n_fits_ok, n_fits_failed)``.
     """
@@ -676,48 +771,58 @@ def _fit_and_subtract_per_channel(
             method=method_ch,
         )
 
-        for center in candidate_pix:
-            patch = hp.query_disc(
-                nside, hp.pix2vec(nside, center), patch_radius, inclusive=True
+        if n_workers > 1:
+            # Parallel fit phase: every candidate reads the same buffer.
+            # ``functools.partial`` binds the shared kwargs once; ``pool.map``
+            # passes each candidate index in as the leading positional arg.
+            fit_call = functools.partial(
+                _fit_one_candidate,
+                flux_ch_jy=flux_ch_jy,
+                nside=nside,
+                patch_radius=patch_radius,
+                sigma_init=sigma_init,
             )
-            if patch.size < 8:
-                continue
+            with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
+                fit_results = list(pool.map(fit_call, candidate_pix.tolist()))
+        else:
+            # Sequential fit phase: applied inline so the next fit sees
+            # residuals from prior subtractions in the same channel.
+            fit_results = []
+            for center in candidate_pix:
+                fit = _fit_one_candidate(
+                    int(center),
+                    flux_ch_jy,
+                    nside=nside,
+                    patch_radius=patch_radius,
+                    sigma_init=sigma_init,
+                )
+                fit_results.append(fit)
+                ok_delta, failed_delta = _apply_fit_to_buffer(
+                    fit,
+                    flux_ch_jy=flux_ch_jy,
+                    pixel_area_sr=pixel_area_sr,
+                    inpaint_mask_sigma=inpaint_mask_sigma,
+                    flux_limit_jy=flux_limit_jy,
+                    catalog_present=catalog_present,
+                    inpaint_mask=inpaint_mask,
+                )
+                n_fits_ok += ok_delta
+                n_fits_failed += failed_delta
 
-            px, py = _gnomonic_patch_coords(int(center), patch, nside)
-            pz = flux_ch_jy[patch]
-            params, ok = _fit_elliptical_gaussian(px, py, pz, sigma_init_rad=sigma_init)
-            if not ok:
-                n_fits_failed += 1
-                continue
-
-            # Reject fits whose integrated flux is below the catalog-style
-            # threshold so we don't subtract noise-level bumps.
-            # Integral of A·exp(-½(x'²/σ_M² + y'²/σ_m²)) over the plane is
-            # 2π·A·σ_M·σ_m; divide by pixel area to convert from Jy/sr
-            # back to a Jy total.
-            amp_fit = float(params[0])
-            sigma_M_fit = float(params[3])
-            sigma_m_fit = float(params[4])
-            integrated_flux_jy = (
-                amp_fit * 2.0 * np.pi * sigma_M_fit * sigma_m_fit / pixel_area_sr
-            )
-            if not catalog_present and integrated_flux_jy < flux_limit_jy:
-                n_fits_failed += 1
-                continue
-            n_fits_ok += 1
-
-            model_vals = _evaluate_elliptical_gaussian(params, px, py)
-            flux_ch_jy[patch] -= model_vals
-
-            x0_fit, y0_fit, pa_fit = params[1], params[2], params[5]
-            cos_pa = np.cos(pa_fit)
-            sin_pa = np.sin(pa_fit)
-            xr = (px - x0_fit) * cos_pa + (py - y0_fit) * sin_pa
-            yr = -(px - x0_fit) * sin_pa + (py - y0_fit) * cos_pa
-            ellipse_r2 = (xr / sigma_M_fit) ** 2 + (yr / sigma_m_fit) ** 2
-            core_mask = ellipse_r2 <= inpaint_mask_sigma**2
-            for p in patch[core_mask]:
-                inpaint_mask.add(int(p))
+        if n_workers > 1:
+            # Serial subtraction in deterministic candidate order.
+            for fit in fit_results:
+                ok_delta, failed_delta = _apply_fit_to_buffer(
+                    fit,
+                    flux_ch_jy=flux_ch_jy,
+                    pixel_area_sr=pixel_area_sr,
+                    inpaint_mask_sigma=inpaint_mask_sigma,
+                    flux_limit_jy=flux_limit_jy,
+                    catalog_present=catalog_present,
+                    inpaint_mask=inpaint_mask,
+                )
+                n_fits_ok += ok_delta
+                n_fits_failed += failed_delta
 
         flux_positive = flux_ch_jy.copy()
         flux_positive[flux_positive <= 0] = np.finfo(np.float64).tiny
@@ -744,6 +849,7 @@ def subtract_bright_sources(
     inpaint_rtol: float = _DEFAULT_INPAINT_RTOL,
     max_sources: int | None = None,
     detection_peak_fraction: float = _DEFAULT_DETECTION_PEAK_FRACTION,
+    n_workers: int = 1,
 ) -> SkyModel:
     """Remove bright point sources from a HEALPix diffuse map.
 
@@ -838,6 +944,19 @@ def subtract_bright_sources(
     or pre-filter with a higher ``flux_limit_jy`` when many candidates are
     expected; a logger warning is emitted when the predicted fit count
     exceeds 1000.
+
+    **Parallelism (``n_workers``).** When ``n_workers > 1``, per-candidate
+    fits within each channel run on a :class:`ThreadPoolExecutor`.  ``scipy``
+    MINPACK and the pure-numpy model evaluator both release the GIL during
+    the actual minimisation, so each thread runs effectively in parallel
+    on CPU-bound work.  Subtractions are applied serially in the input
+    candidate order after the parallel fits return, so results are
+    deterministic for any fixed candidate set.  Sequential mode
+    (``n_workers == 1``, default) preserves the historical contract where
+    a candidate's fit sees the partially-subtracted flux of any
+    previously-processed candidate within the same channel; the two modes
+    therefore agree numerically only when candidate patches do not overlap
+    (the common case at typical bright-source separations).
     """
     if sky.healpix is None:
         raise ValueError(
@@ -895,6 +1014,7 @@ def subtract_bright_sources(
         inpaint_mask_sigma=inpaint_mask_sigma,
         flux_limit_jy=flux_limit_jy,
         catalog_present=catalog is not None,
+        n_workers=int(n_workers),
     )
 
     if inpaint_mask:
