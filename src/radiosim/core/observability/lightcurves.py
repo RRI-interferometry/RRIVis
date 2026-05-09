@@ -111,7 +111,7 @@ def compute_drift_scan_lightcurve(
 
     nside = int(sky.healpix.nside)
     healpix = sky.healpix.require_dense("compute_drift_scan_lightcurve")
-    freq_idx = sky.resolve_frequency_index(float(frequency_hz))
+    freq_idx = sky.healpix.resolve_frequency_index(float(frequency_hz))
     selected_freq_hz = float(healpix.frequencies[freq_idx])
     sky_map = np.asarray(healpix.maps[freq_idx], dtype=float)
 

@@ -8,12 +8,44 @@ visibility calculation engine (``visibility.py``).
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .constants import C_LIGHT
 
+if TYPE_CHECKING:
+    from ._data import PointSourceData
+
 logger = logging.getLogger(__name__)
+
+
+def per_source_reference_frequencies(
+    point: PointSourceData,
+    *,
+    model_reference_frequency: float | None = None,
+    fallback: float | None = None,
+) -> np.ndarray:
+    """Resolve a per-source reference-frequency array of shape ``(n_sources,)``.
+
+    Resolution order, first match wins:
+
+    1. ``point.ref_freq`` cast to float64 — when it is not None and contains
+       at least one positive value.
+    2. ``model_reference_frequency`` if truthy (broadcast to every source).
+    3. ``fallback`` if truthy.
+    4. ``0.0`` — downstream spectral code (``compute_spectral_scale``,
+       ``apply_faraday_rotation``) treats values <= 0 as "no extrapolation".
+
+    This consolidates the previously-duplicated fallback chains in
+    ``operations.materialize_healpix_model``,
+    ``_combine_concat.concat_point_sources``, and
+    ``_combine_healpix.combine_healpix`` so they cannot drift.
+    """
+    if point.ref_freq is not None and np.any(point.ref_freq > 0):
+        return point.ref_freq.astype(np.float64, copy=False)
+    fill = model_reference_frequency or fallback or 0.0
+    return np.full(point.n_sources, float(fill), dtype=np.float64)
 
 
 def compute_spectral_scale(
@@ -163,7 +195,7 @@ def nearest_channel_index_with_warning(
 
     Off-grid threshold is ``max(1 kHz, 0.1 * median(|diff|))`` of the channel
     grid spacing. This matches the UX of
-    :meth:`SkyModel.resolve_frequency_index` so user-supplied frequencies get
+    :meth:`HealpixData.resolve_frequency_index` so user-supplied frequencies get
     a uniform "off-grid" experience whether they enter via the SkyModel API
     or via per-channel point-source flux evaluation.
 

@@ -7,6 +7,7 @@ from astropy.coordinates import SkyCoord
 
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import (
+    BrightnessConversion,
     HealpixData,
     PointSourceData,
     SkyRegion,
@@ -328,22 +329,24 @@ class TestFilteringAndAccessors:
     def test_frequency_accessors(self, precision):
         freqs = np.array([100e6, 102e6], dtype=np.float64)
         sky = make_healpix_model(freqs=freqs, precision=precision)
-        idx = sky.resolve_frequency_index(101.9e6)
+        idx = sky.healpix.resolve_frequency_index(101.9e6)
         assert idx == 1
         np.testing.assert_array_equal(
-            sky.get_map_at_frequency(100e6), sky.healpix.maps[0]
+            sky.healpix.get_map_at_frequency(100e6), sky.healpix.maps[0]
         )
-        maps, nside, returned_freqs = sky.get_multifreq_maps()
-        assert nside == 8
+        maps, returned_freqs = sky.healpix.get_multifreq_maps()
+        assert sky.healpix.nside == 8
         np.testing.assert_array_equal(maps, sky.healpix.maps)
         np.testing.assert_array_equal(returned_freqs, freqs)
 
     def test_pixel_helpers(self, precision):
         sky = make_healpix_model(nside=4, precision=precision)
-        coords = sky.pixel_coords
+        coords = sky.healpix.pixel_coords
         assert isinstance(coords, SkyCoord)
         assert len(coords) == hp.nside2npix(4)
-        assert sky.pixel_solid_angle == pytest.approx(4 * np.pi / hp.nside2npix(4))
+        assert sky.healpix.pixel_solid_angle == pytest.approx(
+            4 * np.pi / hp.nside2npix(4)
+        )
 
     def test_pixel_helpers_honor_galactic_frame(self, precision):
         sky = make_healpix_model(
@@ -351,7 +354,7 @@ class TestFilteringAndAccessors:
             precision=precision,
             coordinate_frame="galactic",
         )
-        coords = sky.pixel_coords
+        coords = sky.healpix.pixel_coords
 
         assert coords.frame.name == "galactic"
         assert len(coords) == hp.nside2npix(4)
@@ -422,3 +425,34 @@ class TestMemmapAndEquality:
         """A no-op ``replace`` must produce an instance that compares equal."""
         sky = make_point_model(n=4, precision=precision, seed=7)
         assert sky == sky.replace()
+
+    def test_polarization_brightness_conversion_defaults_to_rj(self, precision):
+        sky = make_point_model(n=2, precision=precision, seed=1)
+        assert (
+            sky.polarization_brightness_conversion
+            is BrightnessConversion.RAYLEIGH_JEANS
+        )
+
+    def test_polarization_brightness_conversion_round_trips(self, precision):
+        sky = make_point_model(n=2, precision=precision, seed=1)
+        flipped = sky.replace(
+            polarization_brightness_conversion=BrightnessConversion.PLANCK
+        )
+        assert flipped.polarization_brightness_conversion is BrightnessConversion.PLANCK
+        # Original is untouched.
+        assert (
+            sky.polarization_brightness_conversion
+            is BrightnessConversion.RAYLEIGH_JEANS
+        )
+
+    def test_polarization_brightness_conversion_string_is_coerced(self, precision):
+        """Strings are coerced to the BrightnessConversion enum."""
+        sky_pol = make_point_model(n=2, precision=precision, seed=1).replace(
+            polarization_brightness_conversion="planck"
+        )
+        assert sky_pol.polarization_brightness_conversion is BrightnessConversion.PLANCK
+
+    def test_polarization_brightness_conversion_rejects_unknown(self, precision):
+        sky = make_point_model(n=2, precision=precision, seed=1)
+        with pytest.raises(ValueError, match="polarization_brightness_conversion"):
+            sky.replace(polarization_brightness_conversion="bogus")

@@ -302,9 +302,9 @@ def calculate_visibility_healpix(
     use_polarization = include_polarization and sky_model.has_polarized_healpix_maps
 
     # Get multi-frequency map metadata
-    _, nside, _ = sky_model.get_multifreq_maps()
-    omega_pixel = sky_model.pixel_solid_angle
-    pixel_coords = sky_model.pixel_coords
+    nside = sky_model.healpix.nside
+    omega_pixel = sky_model.healpix.pixel_solid_angle
+    pixel_coords = sky_model.healpix.pixel_coords
     n_pixels = len(pixel_coords)
 
     pol_label = "polarized (2x2 RIME)" if use_polarization else "scalar"
@@ -400,8 +400,8 @@ def calculate_visibility_healpix(
             if use_polarization:
                 # ----- POLARIZED PATH -----
                 # Get all Stokes maps at this frequency
-                I_map, Q_map, U_map, V_map = sky_model.get_stokes_maps_at_frequency(
-                    freq
+                I_map, Q_map, U_map, V_map = (
+                    sky_model.healpix.get_stokes_maps_at_frequency(freq)
                 )
 
                 I_vis = I_map[above_horizon].astype(np.float64)
@@ -490,7 +490,7 @@ def calculate_visibility_healpix(
 
             else:
                 # ----- SCALAR PATH (unchanged) -----
-                full_temp_map = sky_model.get_map_at_frequency(freq)
+                full_temp_map = sky_model.healpix.get_map_at_frequency(freq)
                 temp_vis = full_temp_map[above_horizon]
 
                 if output_units == "Jy":

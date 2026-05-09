@@ -400,7 +400,7 @@ class ObservabilityPlanner:
 
         healpix = sky.healpix.require_dense("ObservabilityPlanner.background_layer")
         coordinate_frame = getattr(healpix, "coordinate_frame", "icrs")
-        freq_idx = sky.resolve_frequency_index(self.frequency_hz)
+        freq_idx = sky.healpix.resolve_frequency_index(self.frequency_hz)
         healpix_map = np.asarray(healpix.maps[freq_idx], dtype=float)
 
         if coordinate_frame.lower() == "galactic":

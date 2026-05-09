@@ -18,6 +18,29 @@ from pydantic.dataclasses import dataclass
 
 _FROZEN_NDARRAY_CONFIG = ConfigDict(arbitrary_types_allowed=True)
 
+
+def _arrays_equal(
+    a: np.ndarray | None,
+    b: np.ndarray | None,
+    *,
+    close: bool = False,
+    rtol: float = 0.0,
+    atol: float = 0.0,
+) -> bool:
+    """Array-aware equality: ``np.array_equal`` (strict) or ``np.allclose``.
+
+    Used by container ``__eq__`` / ``is_close`` methods to compare optional
+    numpy fields without falling into the "broadcasts to ndarray" trap.
+    """
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    if close:
+        return bool(np.allclose(a, b, rtol=rtol, atol=atol, equal_nan=True))
+    return bool(np.array_equal(a, b))
+
+
 # =============================================================================
 # Provenance metadata
 # =============================================================================
@@ -732,7 +755,7 @@ def empty_source_arrays() -> SourceArrays:
 # =============================================================================
 
 
-@dataclass(frozen=True, config=_FROZEN_NDARRAY_CONFIG)
+@dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
 class PointSpectrum:
     """Lossless multi-frequency Stokes-flux samples for point sources.
 
@@ -799,13 +822,41 @@ class PointSpectrum:
             stokes_v=self.stokes_v[:, mask] if self.stokes_v is not None else None,
         )
 
+    __hash__ = None  # type: ignore[assignment]
+
+    def _compare(
+        self, other: PointSpectrum, *, close: bool, rtol: float, atol: float
+    ) -> bool:
+        for name in ("flux", "frequencies", "stokes_q", "stokes_u", "stokes_v"):
+            if not _arrays_equal(
+                getattr(self, name),
+                getattr(other, name),
+                close=close,
+                rtol=rtol,
+                atol=atol,
+            ):
+                return False
+        return True
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PointSpectrum):
+            return NotImplemented
+        return self._compare(other, close=False, rtol=0.0, atol=0.0)
+
+    def is_close(
+        self, other: PointSpectrum, *, rtol: float = 1e-7, atol: float = 0.0
+    ) -> bool:
+        if not isinstance(other, PointSpectrum):
+            return False
+        return self._compare(other, close=True, rtol=rtol, atol=atol)
+
 
 # =============================================================================
 # PointSourceData
 # =============================================================================
 
 
-@dataclass(frozen=True, config=_FROZEN_NDARRAY_CONFIG)
+@dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
 class PointSourceData:
     """Columnar arrays for point-source sky model.
 
@@ -1100,13 +1151,65 @@ class PointSourceData:
 
     _METADATA_FIELDS: tuple[str, ...] = ("source_name", "source_id")
 
+    __hash__ = None  # type: ignore[assignment]
+
+    def _compare(
+        self, other: PointSourceData, *, close: bool, rtol: float, atol: float
+    ) -> bool:
+        array_fields = (
+            *self._CORE_FIELDS,
+            *self._OPTIONAL_FIELDS,
+            *self._METADATA_FIELDS,
+            "spectral_coeffs",
+        )
+        for name in array_fields:
+            if not _arrays_equal(
+                getattr(self, name),
+                getattr(other, name),
+                close=close,
+                rtol=rtol,
+                atol=atol,
+            ):
+                return False
+        if self.extra_columns.keys() != other.extra_columns.keys():
+            return False
+        for name in sorted(self.extra_columns):
+            if not _arrays_equal(
+                self.extra_columns[name],
+                other.extra_columns[name],
+                close=close,
+                rtol=rtol,
+                atol=atol,
+            ):
+                return False
+        if (self.spectrum is None) != (other.spectrum is None):
+            return False
+        if self.spectrum is not None and other.spectrum is not None:
+            if not self.spectrum._compare(
+                other.spectrum, close=close, rtol=rtol, atol=atol
+            ):
+                return False
+        return True
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PointSourceData):
+            return NotImplemented
+        return self._compare(other, close=False, rtol=0.0, atol=0.0)
+
+    def is_close(
+        self, other: PointSourceData, *, rtol: float = 1e-7, atol: float = 0.0
+    ) -> bool:
+        if not isinstance(other, PointSourceData):
+            return False
+        return self._compare(other, close=True, rtol=rtol, atol=atol)
+
 
 # =============================================================================
 # HealpixData
 # =============================================================================
 
 
-@dataclass(frozen=True, config=_FROZEN_NDARRAY_CONFIG)
+@dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
 class HealpixData:
     """Multi-frequency HEALPix brightness temperature maps.
 
@@ -1298,6 +1401,86 @@ class HealpixData:
         """True if any Stokes Q/U/V maps are populated."""
         return any(m is not None for m in (self.q_maps, self.u_maps, self.v_maps))
 
+    @property
+    def pixel_coords(self) -> Any:
+        """:class:`astropy.coordinates.SkyCoord` of the stored pixel centres.
+
+        Returned in the stored ``coordinate_frame`` (ICRS or Galactic).
+        For dense maps this is the full HEALPix grid; for sparse maps it
+        is only the retained pixels.
+        """
+        from astropy.coordinates import SkyCoord
+
+        theta, phi = hp.pix2ang(self.nside, self.pixel_indices)
+        lat_rad = np.pi / 2 - theta
+        if self.coordinate_frame == "galactic":
+            return SkyCoord(l=phi, b=lat_rad, unit="rad", frame="galactic")
+        return SkyCoord(ra=phi, dec=lat_rad, unit="rad", frame="icrs")
+
+    def resolve_frequency_index(self, frequency: float) -> int:
+        """Return the index of the channel nearest to ``frequency`` in Hz.
+
+        Logs a warning when the request is far enough off-grid that the
+        nearest channel is unlikely to be what the caller intended (uses
+        the same threshold as user-facing entry points).
+        """
+        # Lazy import: ``_data.py`` is a leaf module; ``spectral`` is loaded
+        # on demand to keep the dependency graph tight.
+        from .spectral import nearest_channel_index_with_warning
+
+        return nearest_channel_index_with_warning(
+            self.frequencies, frequency, label="resolve_frequency_index"
+        )
+
+    def get_map_at_frequency(self, frequency: float) -> np.ndarray:
+        """Return the Stokes-I map at ``frequency`` (nearest channel)."""
+        return self.maps[self.resolve_frequency_index(frequency)]
+
+    def get_multifreq_maps(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return ``(maps, frequencies)`` for the Stokes-I cube.
+
+        Read :attr:`nside` directly when needed.
+        """
+        return self.maps, self.frequencies
+
+    def get_stokes_maps_at_frequency(
+        self, frequency: float
+    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+        """Return ``(I, Q, U, V)`` maps at the channel nearest ``frequency``."""
+        idx = self.resolve_frequency_index(frequency)
+        i_map = self.maps[idx]
+        q_map = self.q_maps[idx] if self.q_maps is not None else None
+        u_map = self.u_maps[idx] if self.u_maps is not None else None
+        v_map = self.v_maps[idx] if self.v_maps is not None else None
+        return i_map, q_map, u_map, v_map
+
+    def get_multifreq_stokes_maps(
+        self,
+    ) -> tuple[
+        np.ndarray,
+        np.ndarray | None,
+        np.ndarray | None,
+        np.ndarray | None,
+        np.ndarray,
+    ]:
+        """Return ``(I_maps, Q_maps, U_maps, V_maps, frequencies)``.
+
+        Read :attr:`nside` directly when needed.
+        """
+        return self.maps, self.q_maps, self.u_maps, self.v_maps, self.frequencies
+
+    def iter_frequency_maps(self):
+        """Yield ``(freq_hz, I_map, Q_map, U_map, V_map)`` per channel.
+
+        Useful for memory-efficient processing when the full
+        ``(n_freq, npix)`` cube is not needed at once.
+        """
+        for i, freq in enumerate(self.frequencies):
+            s_q = self.q_maps[i] if self.q_maps is not None else None
+            s_u = self.u_maps[i] if self.u_maps is not None else None
+            s_v = self.v_maps[i] if self.v_maps is not None else None
+            yield float(freq), self.maps[i], s_q, s_u, s_v
+
     def require_dense(self, operation: str) -> HealpixData:
         """Return ``self`` if dense, otherwise raise ``ValueError``.
 
@@ -1354,54 +1537,73 @@ class HealpixData:
             v_brightness_conversion=self.v_brightness_conversion,
         )
 
-    def masked_region(self, healpix_mask: np.ndarray) -> HealpixData:
-        """Return new HealpixData masked to a sky region.
-
-        Parameters
-        ----------
-        healpix_mask : np.ndarray
-            Boolean mask of shape ``(npix,)`` — True for pixels to keep.
-
-        Returns
-        -------
-        HealpixData
-        """
+    def _validate_full_grid_mask(self, healpix_mask: np.ndarray) -> np.ndarray:
+        """Coerce and shape-check a boolean mask defined on the full HEALPix grid."""
         healpix_mask = np.asarray(healpix_mask, dtype=bool)
         if len(healpix_mask) != self.full_n_pixels:
             raise ValueError(
-                "HealpixData.masked_region: mask length must match the full "
-                f"HEALPix grid ({len(healpix_mask)} != {self.full_n_pixels})."
+                "HealpixData mask length must match the full HEALPix grid "
+                f"({len(healpix_mask)} != {self.full_n_pixels})."
             )
+        return healpix_mask
+
+    def cropped_to_mask(self, healpix_mask: np.ndarray) -> HealpixData:
+        """Return a new sparse :class:`HealpixData` keeping only mask=True pixels.
+
+        Works for both sparse and dense input. The result is always sparse:
+        ``hpx_inds`` is set to the indices of mask=True pixels intersected
+        with currently-stored pixels, and the ``maps`` arrays are sliced
+        accordingly.
+
+        For a fully-dense input where every mask=True pixel is stored, the
+        result drops to ``maps.shape == (n_freq, mask.sum())`` with
+        matching ``hpx_inds``.
+        """
+        healpix_mask = self._validate_full_grid_mask(healpix_mask)
 
         if self.is_sparse:
             keep = healpix_mask[self.hpx_inds]
             if np.all(keep):
                 return self
-
-            new_maps = self.maps[:, keep]
-            new_q = self.q_maps[:, keep] if self.q_maps is not None else None
-            new_u = self.u_maps[:, keep] if self.u_maps is not None else None
-            new_v = self.v_maps[:, keep] if self.v_maps is not None else None
             new_inds = self.hpx_inds[keep]
-            return HealpixData(
-                maps=new_maps,
-                nside=self.nside,
-                frequencies=self.frequencies,
-                channel_widths_hz=self.channel_widths_hz,
-                coordinate_frame=self.coordinate_frame,
-                hpx_inds=new_inds,
-                q_maps=new_q,
-                u_maps=new_u,
-                v_maps=new_v,
-                i_unit=self.i_unit,
-                q_unit=self.q_unit,
-                u_unit=self.u_unit,
-                v_unit=self.v_unit,
-                i_brightness_conversion=self.i_brightness_conversion,
-                q_brightness_conversion=self.q_brightness_conversion,
-                u_brightness_conversion=self.u_brightness_conversion,
-                v_brightness_conversion=self.v_brightness_conversion,
-            )
+        else:
+            keep = healpix_mask
+            new_inds = np.flatnonzero(keep).astype(np.int64, copy=False)
+
+        new_maps = self.maps[:, keep]
+        new_q = self.q_maps[:, keep] if self.q_maps is not None else None
+        new_u = self.u_maps[:, keep] if self.u_maps is not None else None
+        new_v = self.v_maps[:, keep] if self.v_maps is not None else None
+
+        return HealpixData(
+            maps=new_maps,
+            nside=self.nside,
+            frequencies=self.frequencies,
+            channel_widths_hz=self.channel_widths_hz,
+            coordinate_frame=self.coordinate_frame,
+            hpx_inds=new_inds,
+            q_maps=new_q,
+            u_maps=new_u,
+            v_maps=new_v,
+            i_unit=self.i_unit,
+            q_unit=self.q_unit,
+            u_unit=self.u_unit,
+            v_unit=self.v_unit,
+            i_brightness_conversion=self.i_brightness_conversion,
+            q_brightness_conversion=self.q_brightness_conversion,
+            u_brightness_conversion=self.u_brightness_conversion,
+            v_brightness_conversion=self.v_brightness_conversion,
+        )
+
+    def zero_outside_mask(self, healpix_mask: np.ndarray) -> HealpixData:
+        """Return a new dense :class:`HealpixData` with mask=False pixels zeroed.
+
+        Requires a dense input (call :meth:`to_dense` first if sparse —
+        zero-filling a sparse cube would force materialization of every
+        un-stored pixel and balloon memory).  Shape is preserved.
+        """
+        self.require_dense("zero_outside_mask")
+        healpix_mask = self._validate_full_grid_mask(healpix_mask)
 
         if np.all(healpix_mask):
             return self
@@ -1441,3 +1643,57 @@ class HealpixData:
             u_brightness_conversion=self.u_brightness_conversion,
             v_brightness_conversion=self.v_brightness_conversion,
         )
+
+    __hash__ = None  # type: ignore[assignment]
+
+    _ARRAY_FIELDS: tuple[str, ...] = (
+        "maps",
+        "frequencies",
+        "channel_widths_hz",
+        "hpx_inds",
+        "q_maps",
+        "u_maps",
+        "v_maps",
+    )
+    _SCALAR_FIELDS: tuple[str, ...] = (
+        "nside",
+        "coordinate_frame",
+        "ordering",
+        "i_unit",
+        "q_unit",
+        "u_unit",
+        "v_unit",
+        "i_brightness_conversion",
+        "q_brightness_conversion",
+        "u_brightness_conversion",
+        "v_brightness_conversion",
+    )
+
+    def _compare(
+        self, other: HealpixData, *, close: bool, rtol: float, atol: float
+    ) -> bool:
+        for name in self._SCALAR_FIELDS:
+            if getattr(self, name) != getattr(other, name):
+                return False
+        for name in self._ARRAY_FIELDS:
+            if not _arrays_equal(
+                getattr(self, name),
+                getattr(other, name),
+                close=close,
+                rtol=rtol,
+                atol=atol,
+            ):
+                return False
+        return True
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, HealpixData):
+            return NotImplemented
+        return self._compare(other, close=False, rtol=0.0, atol=0.0)
+
+    def is_close(
+        self, other: HealpixData, *, rtol: float = 1e-7, atol: float = 0.0
+    ) -> bool:
+        if not isinstance(other, HealpixData):
+            return False
+        return self._compare(other, close=True, rtol=rtol, atol=atol)
