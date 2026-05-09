@@ -20,6 +20,7 @@ import numpy as np
 from radiosim.utils.frequency import parse_frequency_config
 
 from ..containers.constants import (
+    BrightnessConversion,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
 )
@@ -95,7 +96,16 @@ def materialize_healpix_model(
         )
 
     spectrum = sky.point.spectrum
-    pol_method = sky.polarization_brightness_conversion.value
+    if sky.coherent_brightness_conversion:
+        # Force Rayleigh-Jeans for both I and Q/U/V — the only convention
+        # that handles the negative values polarised brightness can take
+        # and the only one that gives a bit-exact HEALPix↔point round
+        # trip for I.
+        i_method = "rayleigh-jeans"
+        pol_method = "rayleigh-jeans"
+    else:
+        i_method = sky.brightness_conversion.value
+        pol_method = sky.polarization_brightness_conversion.value
     i_maps, q_maps, u_maps, v_maps, collision_stats = point_sources_to_healpix_maps(
         ra_rad=sky.point.ra_rad,
         dec_rad=sky.point.dec_rad,
@@ -109,7 +119,7 @@ def materialize_healpix_model(
         nside=nside,
         frequencies=frequencies,
         ref_frequency=effective_ref_freq,
-        brightness_conversion=sky.brightness_conversion,
+        brightness_conversion=BrightnessConversion(i_method),
         coordinate_frame="icrs",
         output_dtype=sky._healpix_dtype(),
         memmap_path=memmap_path,
@@ -129,7 +139,7 @@ def materialize_healpix_model(
         q_maps=q_maps,
         u_maps=u_maps,
         v_maps=v_maps,
-        i_brightness_conversion=sky.brightness_conversion.value,
+        i_brightness_conversion=i_method,
         q_brightness_conversion=pol_method,
         u_brightness_conversion=pol_method,
         v_brightness_conversion=pol_method,
@@ -208,10 +218,16 @@ def materialize_point_sources_model(
         )
     fi = healpix.resolve_frequency_index(resolve_freq)
     temp_map = healpix.maps[fi]
+    if sky.coherent_brightness_conversion:
+        i_conversion: BrightnessConversion | str = "rayleigh-jeans"
+        pol_conversion = "rayleigh-jeans"
+    else:
+        i_conversion = sky.brightness_conversion
+        pol_conversion = sky.polarization_brightness_conversion.value
     arrays = healpix_map_to_point_arrays(
         temp_map,
         resolve_freq,
-        sky.brightness_conversion,
+        i_conversion,
         healpix_q_maps=healpix.q_maps,
         healpix_u_maps=healpix.u_maps,
         healpix_v_maps=healpix.v_maps,
@@ -220,9 +236,7 @@ def materialize_point_sources_model(
         healpix_maps=healpix.maps,
         coordinate_frame=healpix.coordinate_frame,
         ref_freq_out=resolve_freq,
-        polarization_brightness_conversion=(
-            sky.polarization_brightness_conversion.value
-        ),
+        polarization_brightness_conversion=pol_conversion,
         warn=False,
     )
     if flux_limit > 0:

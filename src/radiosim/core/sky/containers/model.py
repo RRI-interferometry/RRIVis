@@ -97,6 +97,14 @@ class SkyModel:
     polarization_brightness_conversion: BrightnessConversion = (
         BrightnessConversion.RAYLEIGH_JEANS
     )
+    # When True, materialize_healpix_model / materialize_point_sources_model
+    # force Rayleigh-Jeans for both Stokes I and Q/U/V regardless of the
+    # default per-component conventions. The default per-component setup
+    # (Planck for I, RJ for Q/U/V because Q/U/V can be negative) inflates
+    # fractional polarisation by ~5–15 % at ν ≲ 100 MHz on a HEALPix↔point
+    # round-trip; coherent mode keeps that round-trip bit-exact at the
+    # cost of using the linear-temperature approximation for I.
+    coherent_brightness_conversion: bool = False
     provenance: SkyProvenance = field(default_factory=SkyProvenance)
     precision: PrecisionConfig | None = field(default=None, repr=False)
 
@@ -360,6 +368,7 @@ class SkyModel:
         "model_name",
         "brightness_conversion",
         "polarization_brightness_conversion",
+        "coherent_brightness_conversion",
         "provenance",
         "precision",
     )

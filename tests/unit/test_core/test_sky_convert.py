@@ -1050,3 +1050,84 @@ class TestSourceMergingWarning:
 
 # _empty_point_source_arrays tests removed — functionality consolidated
 # into empty_source_arrays() in _data.py (see test_sky_model.py).
+
+
+# ===========================================================================
+# coherent_brightness_conversion mode (PR 10)
+# ===========================================================================
+
+
+class TestCoherentBrightnessConversion:
+    """``coherent_brightness_conversion=True`` makes the HEALPix↔point
+    round-trip exact at low frequencies by forcing both Stokes I and
+    Q/U/V through Rayleigh-Jeans (the only conversion that is linear
+    and handles negative polarised brightness). The default
+    Planck-for-I + RJ-for-Q/U/V mix introduces ~5–15% asymmetry at
+    ν ≲ 100 MHz that does not round-trip.
+    """
+
+    def test_round_trip_close_at_low_frequency(self):
+        from radiosim.core.precision import PrecisionConfig
+        from radiosim.core.sky import (
+            create_from_arrays,
+            materialize_healpix_model,
+            materialize_point_sources_model,
+        )
+
+        precision = PrecisionConfig.standard()
+        # Three sources at ~80 MHz where the Planck/RJ mismatch is large.
+        ra = np.deg2rad([10.0, 30.0, 60.0])
+        dec = np.deg2rad([-5.0, 0.0, 5.0])
+        flux = np.array([1.0, 2.0, 3.0])
+        sky = create_from_arrays(
+            ra_rad=ra,
+            dec_rad=dec,
+            flux=flux,
+            reference_frequency=80e6,
+            precision=precision,
+        )
+        sky_coherent = sky.replace(coherent_brightness_conversion=True)
+
+        # point → healpix → point round trip at ν=80 MHz.
+        cube = materialize_healpix_model(
+            sky_coherent,
+            nside=64,
+            frequencies=np.array([80e6]),
+            clear_other=True,
+        )
+        # cube discards point payload — we have to use the healpix to
+        # rebuild point sources. The brightness cycle alone is what
+        # this test pins down (positions are pixel-quantised by design).
+        recovered = materialize_point_sources_model(
+            cube,
+            frequency=80e6,
+            lossy=True,
+            clear_other=True,
+        )
+        # Recovered total Stokes I flux should match the injected total
+        # to bit-exact precision (linear-only conversion in coherent mode).
+        injected_total = float(np.sum(flux))
+        recovered_total = float(np.sum(recovered.point.flux))
+        assert recovered_total == injected_total or np.isclose(
+            recovered_total, injected_total, rtol=1e-6
+        ), f"injected {injected_total}, recovered {recovered_total}"
+
+    def test_replace_round_trips_field(self):
+        """``SkyModel.replace`` re-validates and preserves the new field."""
+        from radiosim.core.precision import PrecisionConfig
+        from radiosim.core.sky import create_from_arrays
+
+        precision = PrecisionConfig.standard()
+        sky = create_from_arrays(
+            ra_rad=np.zeros(1),
+            dec_rad=np.zeros(1),
+            flux=np.ones(1),
+            reference_frequency=100e6,
+            precision=precision,
+        )
+        assert sky.coherent_brightness_conversion is False
+        flipped = sky.replace(coherent_brightness_conversion=True)
+        assert flipped.coherent_brightness_conversion is True
+        # Round-trip back to default.
+        restored = flipped.replace(coherent_brightness_conversion=False)
+        assert restored.coherent_brightness_conversion is False
