@@ -1518,23 +1518,12 @@ class HealpixData:
             dense_arr[:, self.hpx_inds] = arr
             return dense_arr
 
-        return HealpixData(
+        return self.replace(
             maps=dense_maps,
-            nside=self.nside,
-            frequencies=self.frequencies,
-            channel_widths_hz=self.channel_widths_hz,
-            coordinate_frame=self.coordinate_frame,
+            hpx_inds=None,
             q_maps=_dense_copy(self.q_maps),
             u_maps=_dense_copy(self.u_maps),
             v_maps=_dense_copy(self.v_maps),
-            i_unit=self.i_unit,
-            q_unit=self.q_unit,
-            u_unit=self.u_unit,
-            v_unit=self.v_unit,
-            i_brightness_conversion=self.i_brightness_conversion,
-            q_brightness_conversion=self.q_brightness_conversion,
-            u_brightness_conversion=self.u_brightness_conversion,
-            v_brightness_conversion=self.v_brightness_conversion,
         )
 
     def _validate_full_grid_mask(self, healpix_mask: np.ndarray) -> np.ndarray:
@@ -1575,24 +1564,12 @@ class HealpixData:
         new_u = self.u_maps[:, keep] if self.u_maps is not None else None
         new_v = self.v_maps[:, keep] if self.v_maps is not None else None
 
-        return HealpixData(
+        return self.replace(
             maps=new_maps,
-            nside=self.nside,
-            frequencies=self.frequencies,
-            channel_widths_hz=self.channel_widths_hz,
-            coordinate_frame=self.coordinate_frame,
             hpx_inds=new_inds,
             q_maps=new_q,
             u_maps=new_u,
             v_maps=new_v,
-            i_unit=self.i_unit,
-            q_unit=self.q_unit,
-            u_unit=self.u_unit,
-            v_unit=self.v_unit,
-            i_brightness_conversion=self.i_brightness_conversion,
-            q_brightness_conversion=self.q_brightness_conversion,
-            u_brightness_conversion=self.u_brightness_conversion,
-            v_brightness_conversion=self.v_brightness_conversion,
         )
 
     def zero_outside_mask(self, healpix_mask: np.ndarray) -> HealpixData:
@@ -1625,24 +1602,51 @@ class HealpixData:
             new_v = self.v_maps.copy()
             new_v[:, inv_mask] = 0.0
 
-        return HealpixData(
+        return self.replace(
             maps=new_maps,
-            nside=self.nside,
-            frequencies=self.frequencies,
-            channel_widths_hz=self.channel_widths_hz,
-            coordinate_frame=self.coordinate_frame,
             q_maps=new_q,
             u_maps=new_u,
             v_maps=new_v,
-            i_unit=self.i_unit,
-            q_unit=self.q_unit,
-            u_unit=self.u_unit,
-            v_unit=self.v_unit,
-            i_brightness_conversion=self.i_brightness_conversion,
-            q_brightness_conversion=self.q_brightness_conversion,
-            u_brightness_conversion=self.u_brightness_conversion,
-            v_brightness_conversion=self.v_brightness_conversion,
         )
+
+    _REPLACE_FIELDS: tuple[str, ...] = (
+        "maps",
+        "nside",
+        "frequencies",
+        "channel_widths_hz",
+        "coordinate_frame",
+        "ordering",
+        "hpx_inds",
+        "q_maps",
+        "u_maps",
+        "v_maps",
+        "i_unit",
+        "q_unit",
+        "u_unit",
+        "v_unit",
+        "i_brightness_conversion",
+        "q_brightness_conversion",
+        "u_brightness_conversion",
+        "v_brightness_conversion",
+    )
+
+    def replace(self, **changes: Any) -> HealpixData:
+        """Return a new ``HealpixData`` with the given fields replaced.
+
+        Always use this instead of ``dataclasses.replace`` — direct calls
+        bypass the pydantic field validators that enforce shape, ordering,
+        coordinate-frame, and ``hpx_inds`` invariants.
+
+        Unknown field names raise :class:`TypeError`.
+        """
+        unknown = set(changes) - set(self._REPLACE_FIELDS)
+        if unknown:
+            raise TypeError(
+                f"HealpixData.replace() received unsupported fields: {sorted(unknown)}"
+            )
+        data = {name: getattr(self, name) for name in self._REPLACE_FIELDS}
+        data.update(changes)
+        return HealpixData(**data)
 
     __hash__ = None  # type: ignore[assignment]
 

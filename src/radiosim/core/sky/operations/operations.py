@@ -284,13 +284,8 @@ def with_memmap_backing(
         mm.flush()
         return np.memmap(fpath, dtype=arr.dtype, mode="r", shape=arr.shape)
 
-    healpix = HealpixData(
+    healpix = sky.healpix.replace(
         maps=_to_memmap(sky.healpix.maps, "i_maps"),
-        nside=sky.healpix.nside,
-        frequencies=sky.healpix.frequencies,
-        channel_widths_hz=sky.healpix.channel_widths_hz,
-        coordinate_frame=sky.healpix.coordinate_frame,
-        hpx_inds=sky.healpix.hpx_inds,
         q_maps=(
             _to_memmap(sky.healpix.q_maps, "q_maps")
             if sky.healpix.q_maps is not None
@@ -306,14 +301,6 @@ def with_memmap_backing(
             if sky.healpix.v_maps is not None
             else None
         ),
-        i_unit=sky.healpix.i_unit,
-        q_unit=sky.healpix.q_unit,
-        u_unit=sky.healpix.u_unit,
-        v_unit=sky.healpix.v_unit,
-        i_brightness_conversion=sky.healpix.i_brightness_conversion,
-        q_brightness_conversion=sky.healpix.q_brightness_conversion,
-        u_brightness_conversion=sky.healpix.u_brightness_conversion,
-        v_brightness_conversion=sky.healpix.v_brightness_conversion,
     )
 
     return sky.replace(healpix=healpix)
@@ -1027,24 +1014,8 @@ def subtract_bright_sources(
             rtol=inpaint_rtol,
         )
 
-    new_healpix = HealpixData(
+    new_healpix = sky.healpix.replace(
         maps=new_maps.astype(sky.healpix.maps.dtype, copy=False),
-        nside=sky.healpix.nside,
-        frequencies=sky.healpix.frequencies,
-        channel_widths_hz=sky.healpix.channel_widths_hz,
-        coordinate_frame=sky.healpix.coordinate_frame,
-        hpx_inds=sky.healpix.hpx_inds,
-        q_maps=sky.healpix.q_maps,
-        u_maps=sky.healpix.u_maps,
-        v_maps=sky.healpix.v_maps,
-        i_unit=sky.healpix.i_unit,
-        q_unit=sky.healpix.q_unit,
-        u_unit=sky.healpix.u_unit,
-        v_unit=sky.healpix.v_unit,
-        i_brightness_conversion=sky.healpix.i_brightness_conversion,
-        q_brightness_conversion=sky.healpix.q_brightness_conversion,
-        u_brightness_conversion=sky.healpix.u_brightness_conversion,
-        v_brightness_conversion=sky.healpix.v_brightness_conversion,
     )
 
     old_prov = sky.provenance
@@ -1226,25 +1197,7 @@ def with_monopole(
         return sky.replace(provenance=new_prov)
 
     new_maps = sky.healpix.maps + np.asarray(value_k, dtype=sky.healpix.maps.dtype)
-    new_healpix = HealpixData(
-        maps=new_maps,
-        nside=sky.healpix.nside,
-        frequencies=sky.healpix.frequencies,
-        channel_widths_hz=sky.healpix.channel_widths_hz,
-        coordinate_frame=sky.healpix.coordinate_frame,
-        hpx_inds=sky.healpix.hpx_inds,
-        q_maps=sky.healpix.q_maps,
-        u_maps=sky.healpix.u_maps,
-        v_maps=sky.healpix.v_maps,
-        i_unit=sky.healpix.i_unit,
-        q_unit=sky.healpix.q_unit,
-        u_unit=sky.healpix.u_unit,
-        v_unit=sky.healpix.v_unit,
-        i_brightness_conversion=sky.healpix.i_brightness_conversion,
-        q_brightness_conversion=sky.healpix.q_brightness_conversion,
-        u_brightness_conversion=sky.healpix.u_brightness_conversion,
-        v_brightness_conversion=sky.healpix.v_brightness_conversion,
-    )
+    new_healpix = sky.healpix.replace(maps=new_maps)
     return sky.replace(healpix=new_healpix, provenance=new_prov)
 
 
@@ -1290,23 +1243,5 @@ def with_monopole_subtracted(sky: SkyModel) -> SkyModel:
     means = maps.mean(axis=1, keepdims=True)
     new_maps = maps - means.astype(maps.dtype)
 
-    new_healpix = HealpixData(
-        maps=new_maps,
-        nside=sky.healpix.nside,
-        frequencies=sky.healpix.frequencies,
-        channel_widths_hz=sky.healpix.channel_widths_hz,
-        coordinate_frame=sky.healpix.coordinate_frame,
-        hpx_inds=sky.healpix.hpx_inds,
-        q_maps=sky.healpix.q_maps,
-        u_maps=sky.healpix.u_maps,
-        v_maps=sky.healpix.v_maps,
-        i_unit=sky.healpix.i_unit,
-        q_unit=sky.healpix.q_unit,
-        u_unit=sky.healpix.u_unit,
-        v_unit=sky.healpix.v_unit,
-        i_brightness_conversion=sky.healpix.i_brightness_conversion,
-        q_brightness_conversion=sky.healpix.q_brightness_conversion,
-        u_brightness_conversion=sky.healpix.u_brightness_conversion,
-        v_brightness_conversion=sky.healpix.v_brightness_conversion,
-    )
+    new_healpix = sky.healpix.replace(maps=new_maps)
     return sky.replace(healpix=new_healpix, provenance=new_prov)

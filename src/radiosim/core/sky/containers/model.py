@@ -272,27 +272,15 @@ class SkyModel:
                 return None
             return arr if arr.dtype == hp_dt else arr.astype(hp_dt, copy=False)
 
-        return HealpixData(
+        return healpix_data.replace(
             maps=_cast_map(healpix_data.maps),
-            nside=healpix_data.nside,
             frequencies=np.asarray(healpix_data.frequencies, dtype=flux_dt),
-            channel_widths_hz=healpix_data.channel_widths_hz,
-            coordinate_frame=healpix_data.coordinate_frame,
-            ordering=healpix_data.ordering,
-            hpx_inds=healpix_data.hpx_inds,
             q_maps=_cast_map(healpix_data.q_maps),
             u_maps=_cast_map(healpix_data.u_maps),
             v_maps=_cast_map(healpix_data.v_maps),
-            i_unit=healpix_data.i_unit,
-            q_unit=healpix_data.q_unit,
-            u_unit=healpix_data.u_unit,
-            v_unit=healpix_data.v_unit,
             i_brightness_conversion=(
                 healpix_data.i_brightness_conversion or str(brightness_conversion.value)
             ),
-            q_brightness_conversion=healpix_data.q_brightness_conversion,
-            u_brightness_conversion=healpix_data.u_brightness_conversion,
-            v_brightness_conversion=healpix_data.v_brightness_conversion,
         )
 
     # =========================================================================

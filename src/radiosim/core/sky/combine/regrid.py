@@ -10,7 +10,7 @@ import numpy as np
 
 from radiosim.utils.frequency import parse_frequency_config
 
-from ..containers.data import HealpixData, PointSourceData
+from ..containers.data import PointSourceData
 
 if TYPE_CHECKING:
     from ..containers.model import SkyModel
@@ -151,25 +151,7 @@ def regrid_healpix_model(
         if requested_freqs is None or np.array_equal(requested_freqs, current_freqs):
             return model
         return model.replace(
-            healpix=HealpixData(
-                maps=source_healpix.maps,
-                nside=source_healpix.nside,
-                frequencies=requested_freqs,
-                channel_widths_hz=source_healpix.channel_widths_hz,
-                coordinate_frame=source_healpix.coordinate_frame,
-                hpx_inds=source_healpix.hpx_inds,
-                q_maps=source_healpix.q_maps,
-                u_maps=source_healpix.u_maps,
-                v_maps=source_healpix.v_maps,
-                i_unit=source_healpix.i_unit,
-                q_unit=source_healpix.q_unit,
-                u_unit=source_healpix.u_unit,
-                v_unit=source_healpix.v_unit,
-                i_brightness_conversion=source_healpix.i_brightness_conversion,
-                q_brightness_conversion=source_healpix.q_brightness_conversion,
-                u_brightness_conversion=source_healpix.u_brightness_conversion,
-                v_brightness_conversion=source_healpix.v_brightness_conversion,
-            )
+            healpix=source_healpix.replace(frequencies=requested_freqs)
         )
 
     def _regrid_rows(arr: np.ndarray) -> np.ndarray:
@@ -189,22 +171,12 @@ def regrid_healpix_model(
     )
 
     return model.replace(
-        healpix=HealpixData(
+        healpix=source_healpix.replace(
             maps=_regrid_rows(source_healpix.maps),
             nside=target_nside,
             frequencies=current_freqs if requested_freqs is None else requested_freqs,
-            channel_widths_hz=source_healpix.channel_widths_hz,
-            coordinate_frame=source_healpix.coordinate_frame,
             q_maps=q_maps,
             u_maps=u_maps,
             v_maps=v_maps,
-            i_unit=source_healpix.i_unit,
-            q_unit=source_healpix.q_unit,
-            u_unit=source_healpix.u_unit,
-            v_unit=source_healpix.v_unit,
-            i_brightness_conversion=source_healpix.i_brightness_conversion,
-            q_brightness_conversion=source_healpix.q_brightness_conversion,
-            u_brightness_conversion=source_healpix.u_brightness_conversion,
-            v_brightness_conversion=source_healpix.v_brightness_conversion,
         )
     )
