@@ -566,7 +566,10 @@ class Simulator:
             )
 
         if loader_requests:
-            from radiosim.core.sky._factories import load_models_parallel
+            from radiosim.core.sky._factories import (
+                load_models_parallel,
+                recommend_executor_for_loaders,
+            )
 
             sky_models.extend(
                 load_models_parallel(
@@ -574,6 +577,7 @@ class Simulator:
                     max_workers=8,
                     precision=_precision,
                     strict=True,
+                    executor=recommend_executor_for_loaders(loader_requests),
                 )
             )
 

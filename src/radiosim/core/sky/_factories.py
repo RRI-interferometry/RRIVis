@@ -23,9 +23,9 @@ from ._data import (
     SkyProvenance,
     SourceSubtractionStatus,
 )
-from ._registry import get_loader
 from .constants import BrightnessConversion
 from .model import SkyModel
+from .registry import loader_registry
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -317,7 +317,51 @@ def create_test_sources(
 
 def _run_one_loader(method_name: str, kw: dict) -> SkyModel:
     """Worker entry point reused by both thread and process executors."""
-    return get_loader(method_name)(**kw)
+    return loader_registry.resolve_callable(method_name)(**kw)
+
+
+# Loaders known to hold the GIL during heavy CPU work (PCA reconstruction,
+# pygdsm spectral interpolation, Stokes cube allocation, ...). Used by
+# :func:`recommend_executor_for_loaders` so the simulator picks a process
+# pool when at least one of these is requested.
+_GIL_BOUND_LOADERS: frozenset[str] = frozenset(
+    {
+        "diffuse_sky",
+        "pysm3",
+        "pyradiosky_file",
+        "skyh5_multifile",
+        "fits_image",
+    }
+)
+
+
+def recommend_executor_for_loaders(
+    loaders: list[tuple[str, dict[str, Any]]],
+) -> Literal["thread", "process"]:
+    """Recommend an executor class for :func:`load_models_parallel`.
+
+    Returns ``"process"`` when any requested loader is GIL-bound (diffuse
+    map regrid / PCA, pyradiosky parsing, FITS image ingest) — those run
+    effectively serially under a thread pool because they hold the GIL.
+    Returns ``"thread"`` otherwise: catalog loaders (Vizier / CASDA TAP)
+    are I/O-bound and benefit from concurrent threads.
+
+    The simulator wires this into :func:`load_models_parallel` so users
+    do not have to think about executor choice; explicit overrides are
+    still honoured.
+    """
+    for name, _kwargs in loaders:
+        try:
+            canonical = loader_registry.resolve_name(name)
+            definition = loader_registry.definition(canonical)
+        except ValueError:
+            # Unknown loader; let load_models_parallel surface the error.
+            continue
+        if canonical in _GIL_BOUND_LOADERS:
+            return "process"
+        if definition.category in ("diffuse", "synthetic"):
+            return "process"
+    return "thread"
 
 
 def _kwargs_picklable(

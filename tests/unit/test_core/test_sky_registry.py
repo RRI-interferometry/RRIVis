@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 import radiosim.core.sky as sky_public
 import radiosim.core.sky.registry as registry_public
-from radiosim.core.sky._registry import _LOADER_META, _LOADERS, _REGISTRY
+from radiosim.core.sky._registry import _LOADER_META
 from radiosim.core.sky.discovery import get_catalog_info
 from radiosim.core.sky.registry import loader_registry
 from radiosim.io.config import (
@@ -34,19 +34,7 @@ class TestRegistry:
             assert retrieved is _dummy_loader
             assert retrieved() == "dummy"
         finally:
-            _LOADERS.pop("_test_dummy_loader", None)
-            _LOADER_META.pop("_test_dummy_loader", None)
-            _REGISTRY._definitions.pop("_test_dummy_loader", None)
-            _REGISTRY._aliases = {
-                alias: canonical
-                for alias, canonical in _REGISTRY._aliases.items()
-                if canonical != "_test_dummy_loader"
-            }
-            _REGISTRY._alias_defaults = {
-                alias: defaults
-                for alias, defaults in _REGISTRY._alias_defaults.items()
-                if _REGISTRY._aliases.get(alias) != "_test_dummy_loader"
-            }
+            loader_registry.unregister("_test_dummy_loader")
 
     def test_get_unknown_loader_raises(self):
         with pytest.raises(ValueError, match="Unknown sky model loader"):
@@ -356,3 +344,36 @@ class TestPublicBoundary:
     def test_config_models_expose_new_policy_fields(self):
         assert "mixed_model_policy" in SkyModelConfig.model_fields
         assert "allow_lossy_point_materialization" in VisibilityConfig.model_fields
+
+
+class TestExecutorRecommendation:
+    def test_thread_for_pure_catalog_loads(self):
+        from radiosim.core.sky._factories import recommend_executor_for_loaders
+
+        assert recommend_executor_for_loaders([("gleam", {}), ("nvss", {})]) == "thread"
+
+    def test_process_when_any_diffuse_requested(self):
+        from radiosim.core.sky._factories import recommend_executor_for_loaders
+
+        assert (
+            recommend_executor_for_loaders([("gleam", {}), ("diffuse_sky", {})])
+            == "process"
+        )
+
+    def test_process_for_pyradiosky_file(self):
+        from radiosim.core.sky._factories import recommend_executor_for_loaders
+
+        assert (
+            recommend_executor_for_loaders([("pyradiosky_file", {"filename": "x"})])
+            == "process"
+        )
+
+    def test_unknown_loader_is_skipped_gracefully(self):
+        from radiosim.core.sky._factories import recommend_executor_for_loaders
+
+        # Unknown loader should not crash the recommender; the surrounding
+        # ``load_models_parallel`` call will raise the actual error later.
+        assert (
+            recommend_executor_for_loaders([("__no_such_loader__", {}), ("gleam", {})])
+            == "thread"
+        )
