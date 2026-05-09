@@ -185,7 +185,7 @@ class _SkyPlotterBase:
         if stokes == "I":
             if healpix is None:
                 return None, "Stokes I"
-            idx = self._sky.resolve_frequency_index(frequency)
+            idx = self._sky.healpix.resolve_frequency_index(frequency)
             return healpix.maps[idx], "Stokes I"
         if healpix is None:
             return None, f"Stokes {stokes}"
@@ -203,7 +203,7 @@ class _SkyPlotterBase:
         if stokes_maps is None:
             return None, f"Stokes {stokes}"
 
-        idx = self._sky.resolve_frequency_index(frequency)
+        idx = self._sky.healpix.resolve_frequency_index(frequency)
         if idx < len(stokes_maps):
             return stokes_maps[idx], f"Stokes {stokes}"
         return None, f"Stokes {stokes}"

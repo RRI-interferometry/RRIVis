@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 
-class _SkyPlotterHealpixMixin(_SkyPlotterBase):
+class HealpixPlotter(_SkyPlotterBase):
     """HEALPix plot family."""
 
     def healpix_map(

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 
-class _SkyPlotterStatisticsMixin(_SkyPlotterBase):
+class StatisticsPlotter(_SkyPlotterBase):
     """Statistical plot family for HEALPix cubes."""
 
     def pixel_histogram(

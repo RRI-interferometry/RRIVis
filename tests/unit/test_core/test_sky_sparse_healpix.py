@@ -80,17 +80,68 @@ def make_dense_equivalent(
 
 
 class TestSparseHealpixData:
-    def test_masked_region_drops_sparse_pixels(self, precision):
+    def test_cropped_to_mask_drops_sparse_pixels(self, precision):
         sky, hpx_inds, freqs = make_sparse_healpix_model(precision)
         mask = np.zeros(hp.nside2npix(sky.healpix.nside), dtype=bool)
         mask[hpx_inds[:2]] = True
 
-        masked = sky.healpix.masked_region(mask)
+        cropped = sky.healpix.cropped_to_mask(mask)
 
-        assert masked.is_sparse
-        np.testing.assert_array_equal(masked.hpx_inds, hpx_inds[:2])
-        assert masked.maps.shape == (len(freqs), 2)
-        np.testing.assert_array_equal(masked.maps[0], sky.healpix.maps[0, :2])
+        assert cropped.is_sparse
+        np.testing.assert_array_equal(cropped.hpx_inds, hpx_inds[:2])
+        assert cropped.maps.shape == (len(freqs), 2)
+        np.testing.assert_array_equal(cropped.maps[0], sky.healpix.maps[0, :2])
+
+    def test_cropped_to_mask_on_dense_returns_sparse(self, precision):
+        nside = 8
+        npix = hp.nside2npix(nside)
+        freqs = np.array([100e6, 101e6])
+        from radiosim.core.sky import HealpixData
+
+        dense = HealpixData(
+            maps=np.arange(len(freqs) * npix, dtype=np.float32).reshape(
+                len(freqs), npix
+            ),
+            nside=nside,
+            frequencies=freqs,
+        )
+        mask = np.zeros(npix, dtype=bool)
+        kept = np.array([0, 5, 11], dtype=np.int64)
+        mask[kept] = True
+
+        cropped = dense.cropped_to_mask(mask)
+        assert cropped.is_sparse
+        np.testing.assert_array_equal(cropped.hpx_inds, kept)
+        assert cropped.maps.shape == (len(freqs), kept.size)
+        np.testing.assert_array_equal(cropped.maps[0], dense.maps[0, kept])
+
+    def test_zero_outside_mask_requires_dense(self, precision):
+        sky, hpx_inds, _ = make_sparse_healpix_model(precision)
+        mask = np.zeros(hp.nside2npix(sky.healpix.nside), dtype=bool)
+        mask[hpx_inds[:2]] = True
+        with pytest.raises(ValueError, match="dense HEALPix cube"):
+            sky.healpix.zero_outside_mask(mask)
+
+    def test_zero_outside_mask_zeroes_pixels(self, precision):
+        nside = 8
+        npix = hp.nside2npix(nside)
+        freqs = np.array([100e6])
+        from radiosim.core.sky import HealpixData
+
+        dense = HealpixData(
+            maps=np.full((1, npix), 7.0, dtype=np.float32),
+            nside=nside,
+            frequencies=freqs,
+        )
+        mask = np.zeros(npix, dtype=bool)
+        mask[[3, 4]] = True
+
+        zeroed = dense.zero_outside_mask(mask)
+        assert not zeroed.is_sparse
+        assert zeroed.maps.shape == dense.maps.shape
+        assert zeroed.maps[0, 3] == 7.0
+        assert zeroed.maps[0, 4] == 7.0
+        assert zeroed.maps[0, 0] == 0.0
 
     def test_to_dense_expands_sparse_maps(self, precision):
         sky, hpx_inds, _ = make_sparse_healpix_model(precision)
@@ -175,7 +226,7 @@ class TestSparseSkyModelBehavior:
             coordinate_frame="galactic",
         )
 
-        coords = sky.pixel_coords
+        coords = sky.healpix.pixel_coords
         assert len(coords) == len(hpx_inds)
         assert coords.frame.name == "galactic"
 
@@ -192,10 +243,10 @@ class TestSparseSkyModelBehavior:
         and the user must densify themselves; a dense follow-up succeeds."""
         sky, _, _ = make_sparse_healpix_model(precision)
         with pytest.raises(ValueError, match="SkyPlotter"):
-            SkyPlotter(sky).healpix_map()
+            SkyPlotter(sky).healpix.healpix_map()
 
         dense_sky = sky.replace(healpix=sky.healpix.to_dense())
-        assert isinstance(SkyPlotter(dense_sky).healpix_map(), Figure)
+        assert isinstance(SkyPlotter(dense_sky).healpix.healpix_map(), Figure)
 
 
 class TestSparseVisibility:

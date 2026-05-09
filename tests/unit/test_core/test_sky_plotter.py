@@ -53,53 +53,51 @@ def _close_figures():
 
 class TestPointPlots:
     def test_source_positions_returns_figure(self, test_sky):
-        assert isinstance(SkyPlotter(test_sky).source_positions(), Figure)
+        assert isinstance(SkyPlotter(test_sky).point.source_positions(), Figure)
 
     @pytest.mark.parametrize(
         "projection", ["mollweide", "aitoff", "hammer", "cartesian"]
     )
     def test_source_positions_projection_variants(self, test_sky, projection):
         assert isinstance(
-            SkyPlotter(test_sky).source_positions(projection=projection),
+            SkyPlotter(test_sky).point.source_positions(projection=projection),
             Figure,
         )
 
     def test_flux_histogram_returns_figure(self, test_sky):
-        assert isinstance(SkyPlotter(test_sky).flux_histogram(), Figure)
+        assert isinstance(SkyPlotter(test_sky).point.flux_histogram(), Figure)
 
     def test_spectral_index_sky_map_returns_figure(self, test_sky):
         assert isinstance(
-            SkyPlotter(test_sky).spectral_index(plot_type="sky_map"),
+            SkyPlotter(test_sky).point.spectral_index(plot_type="sky_map"),
             Figure,
         )
 
 
 class TestHealpixPlots:
     def test_healpix_map_returns_figure(self, healpix_sky):
-        assert isinstance(SkyPlotter(healpix_sky).healpix_map(), Figure)
-
-    def test_auto_dispatch(self, test_sky, healpix_sky):
-        assert isinstance(SkyPlotter(test_sky)("auto"), Figure)
-        assert isinstance(SkyPlotter(healpix_sky)("auto"), Figure)
+        assert isinstance(SkyPlotter(healpix_sky).healpix.healpix_map(), Figure)
 
 
 class TestPlotterErrors:
     def test_invalid_color_by_raises(self, test_sky):
         with pytest.raises(ValueError, match="Unknown color_by"):
-            SkyPlotter(test_sky).source_positions(color_by="nonexistent")
+            SkyPlotter(test_sky).point.source_positions(color_by="nonexistent")
 
     def test_invalid_projection_raises(self, test_sky):
         with pytest.raises(ValueError, match="Unknown projection"):
-            SkyPlotter(test_sky).source_positions(projection="lambert")
+            SkyPlotter(test_sky).point.source_positions(projection="lambert")
 
     def test_point_plot_on_healpix_raises(self, healpix_sky):
         with pytest.raises(ValueError, match="point-source data"):
-            SkyPlotter(healpix_sky).source_positions()
+            SkyPlotter(healpix_sky).point.source_positions()
 
     def test_healpix_plot_on_point_model_raises(self, test_sky):
         with pytest.raises(ValueError, match="HEALPix maps"):
-            SkyPlotter(test_sky).healpix_map()
+            SkyPlotter(test_sky).healpix.healpix_map()
 
-    def test_invalid_plot_type_raises(self, test_sky):
-        with pytest.raises(ValueError, match="Unknown plot_type"):
-            SkyPlotter(test_sky)("nonexistent_type")
+    def test_dispatcher_no_longer_callable(self, test_sky):
+        """The string-dispatch __call__ has been removed in favour of
+        explicit ``plotter.point.X`` / ``plotter.healpix.X`` / etc."""
+        with pytest.raises(TypeError):
+            SkyPlotter(test_sky)("auto")

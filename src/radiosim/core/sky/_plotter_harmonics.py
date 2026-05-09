@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 
-class _SkyPlotterHarmonicMixin(_SkyPlotterBase):
+class HarmonicsPlotter(_SkyPlotterBase):
     """Harmonic-analysis plot family for HEALPix cubes."""
 
     def angular_power_spectrum(
@@ -140,7 +140,7 @@ class _SkyPlotterHarmonicMixin(_SkyPlotterBase):
             if ref_frequency is not None
             else float(freq_arr[0])
         )
-        ref_idx = self._sky.resolve_frequency_index(ref_freq)
+        ref_idx = self._sky.healpix.resolve_frequency_index(ref_freq)
         ref_map, _ = self._get_stokes_map(stokes, ref_freq)
         if ref_map is None:
             raise ValueError(f"Stokes {stokes} not available for reference frequency.")

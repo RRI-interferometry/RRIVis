@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 
-class _SkyPlotterPointMixin(_SkyPlotterBase):
+class PointPlotter(_SkyPlotterBase):
     """Point-source plot family."""
 
     def source_positions(

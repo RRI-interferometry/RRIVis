@@ -78,7 +78,7 @@ class TestObservabilityOverlay:
     def test_overlay_adds_lines_to_single_mollweide(self):
         sky = _single_channel_sky()
         plotter = SkyPlotter(sky)
-        fig = plotter.healpix_map(frequency=80e6, log_scale=False)
+        fig = plotter.healpix.healpix_map(frequency=80e6, log_scale=False)
         n_before = _count_projection_lines(fig)
         draw_observability_overlay(fig, _hera_plan())
         n_after = _count_projection_lines(fig)
@@ -88,7 +88,7 @@ class TestObservabilityOverlay:
     def test_overlay_adds_lines_to_multipole_bands_grid(self):
         sky = _single_channel_sky(nside=32)
         plotter = SkyPlotter(sky)
-        fig = plotter.multipole_bands(
+        fig = plotter.harmonics.multipole_bands(
             frequency=80e6,
             bands=[(5, 10), (20, 40)],
             ncols=2,
@@ -110,7 +110,7 @@ class TestObservabilityOverlay:
     def test_overlay_with_tracks_adds_marker_set(self):
         sky = _single_channel_sky()
         plotter = SkyPlotter(sky)
-        fig = plotter.healpix_map(frequency=80e6, log_scale=False)
+        fig = plotter.healpix.healpix_map(frequency=80e6, log_scale=False)
         collections_before = sum(
             len(ax.collections)
             for ax in fig.axes
@@ -210,7 +210,7 @@ class TestObservabilityOverlay:
         ).build()
         assert plan.beam_contours, "beam_contours should be populated"
 
-        fig = plotter.healpix_map(frequency=80e6, log_scale=False)
+        fig = plotter.healpix.healpix_map(frequency=80e6, log_scale=False)
         n_lines_before = _count_projection_lines(fig)
         draw_observability_overlay(fig, plan)
         n_lines_after = _count_projection_lines(fig)
