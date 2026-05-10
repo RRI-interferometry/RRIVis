@@ -328,6 +328,7 @@ def calculate_visibility(
                 source_per_channel_v_t,
                 source_channel_frequencies,
                 freq,
+                xp=xp,
             )
 
             # Coherency matrices: (n_sources, 2, 2)

@@ -499,3 +499,83 @@ class TestPerSourceReferenceFrequencies:
             fallback=None,
         )
         np.testing.assert_array_equal(out, np.zeros(3))
+
+
+# =============================================================================
+# Backend-aware xp dispatch (PR 15)
+# =============================================================================
+
+
+class TestXpDispatch:
+    """compute_spectral_scale / apply_faraday_rotation / evaluate_point_flux_at_freq
+    accept an ``xp=`` keyword (default numpy). The default path stays bit-exact;
+    a JAX-aware path is exercised when JAX is importable.
+    """
+
+    def test_compute_spectral_scale_default_numpy(self):
+        from radiosim.core.sky.containers.spectral import compute_spectral_scale
+
+        alpha = np.array([-0.7, -1.0, 0.5])
+        ref_freq = np.array([100e6, 150e6, 1400e6])
+        out = compute_spectral_scale(alpha, None, 200e6, ref_freq)
+        expected = (200e6 / ref_freq) ** alpha
+        np.testing.assert_allclose(out, expected, rtol=1e-12)
+
+    def test_compute_spectral_scale_branchless_handles_invalid_ref_freq(self):
+        """Invalid ref_freq (zero, negative) yields scale 1.0 — no exception,
+        no NaN — while valid sources scale normally."""
+        from radiosim.core.sky.containers.spectral import compute_spectral_scale
+
+        alpha = np.array([-0.7, -0.7, -0.7, -0.7])
+        ref_freq = np.array([100e6, 0.0, -1.0, 200e6])
+        out = compute_spectral_scale(alpha, None, 200e6, ref_freq)
+        # Valid sources: standard power-law
+        assert np.isfinite(out).all()
+        np.testing.assert_allclose(out[0], (200e6 / 100e6) ** -0.7, rtol=1e-12)
+        np.testing.assert_allclose(out[3], 1.0, rtol=1e-12)
+        # Invalid sources: scale = 1.0 (no extrapolation)
+        np.testing.assert_allclose(out[1], 1.0, rtol=1e-12)
+        np.testing.assert_allclose(out[2], 1.0, rtol=1e-12)
+
+    def test_apply_faraday_rotation_zero_rm_is_identity(self):
+        """rm=0 must give identity rotation (branchless path)."""
+        from radiosim.core.sky.containers.spectral import apply_faraday_rotation
+
+        q = np.array([1.0, 2.0, 3.0])
+        u = np.array([0.5, 1.0, 1.5])
+        rm = np.zeros(3)
+        ref_freq = np.array([100e6, 100e6, 100e6])
+        scale = np.ones(3)
+        q_out, u_out = apply_faraday_rotation(q, u, rm, 200e6, ref_freq, scale)
+        np.testing.assert_allclose(q_out, q, rtol=1e-12, atol=1e-15)
+        np.testing.assert_allclose(u_out, u, rtol=1e-12, atol=1e-15)
+
+    def test_jax_dispatch_keeps_arrays_on_device(self):
+        """JAX backend should keep spectral arithmetic on-device (no
+        forced numpy round-trip per frequency in the visibility hot loop)."""
+        jax = pytest.importorskip("jax")
+        import jax.numpy as jnp
+
+        from radiosim.core.sky.containers.spectral import (
+            apply_faraday_rotation,
+            compute_spectral_scale,
+        )
+
+        alpha = jnp.array([-0.7, -1.0, 0.5])
+        ref_freq = jnp.array([100e6, 150e6, 1400e6])
+        scale = compute_spectral_scale(alpha, None, 200e6, ref_freq, xp=jnp)
+        # The result must be a JAX array (not a numpy round-trip)
+        assert isinstance(scale, jax.Array), type(scale)
+
+        q = jnp.array([1.0, 2.0, 3.0])
+        u = jnp.array([0.5, 1.0, 1.5])
+        rm = jnp.array([1e-3, 0.0, 5e-3])
+        q_out, u_out = apply_faraday_rotation(q, u, rm, 200e6, ref_freq, scale, xp=jnp)
+        assert isinstance(q_out, jax.Array)
+        assert isinstance(u_out, jax.Array)
+
+        # And the JAX result should match the numpy reference within fp tolerance.
+        scale_np = compute_spectral_scale(
+            np.asarray(alpha), None, 200e6, np.asarray(ref_freq)
+        )
+        np.testing.assert_allclose(np.asarray(scale), scale_np, rtol=1e-6)
