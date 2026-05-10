@@ -33,16 +33,6 @@ class HealpixData:
     maps: np.ndarray  # Stokes I, shape (n_freq, npix), in Kelvin
     nside: int
     frequencies: np.ndarray  # shape (n_freq,), in Hz
-    channel_widths_hz: np.ndarray | None = None
-    """Per-channel bandwidth in Hz, shape ``(n_freq,)``, strictly positive.
-
-    Encodes the bandwidth that each ``frequencies`` sample integrates over.
-    ``None`` means the source data does not carry channel-width information
-    (do **not** synthesise this from frequency spacing — adjacent samples
-    can be far apart while individual channels remain narrow).  Downstream
-    visibility code may use this to integrate steep-spectrum sources over
-    the channel rather than evaluating at the centre frequency.
-    """
     coordinate_frame: str = "icrs"
     ordering: str = "ring"  # "ring" or "nest" — HEALPix pixel ordering scheme
     hpx_inds: np.ndarray | None = None
@@ -81,22 +71,6 @@ class HealpixData:
             )
         return ordering
 
-    @field_validator("channel_widths_hz", mode="before")
-    @classmethod
-    def _validate_channel_widths(cls, value: object) -> np.ndarray | None:
-        if value is None:
-            return None
-        widths = np.asarray(value, dtype=np.float64)
-        if widths.ndim != 1:
-            raise ValueError(
-                f"HealpixData: channel_widths_hz must be 1-D, got shape {widths.shape}."
-            )
-        if not np.all(np.isfinite(widths)) or np.any(widths <= 0):
-            raise ValueError(
-                "HealpixData: channel_widths_hz must be finite and strictly positive."
-            )
-        return widths
-
     @field_validator("hpx_inds", mode="before")
     @classmethod
     def _coerce_hpx_inds(cls, value: object) -> np.ndarray | None:
@@ -129,15 +103,6 @@ class HealpixData:
             raise ValueError(
                 f"HealpixData: frequencies has {len(self.frequencies)} entries "
                 f"but maps has {n_freq} frequency channels."
-            )
-
-        if (
-            self.channel_widths_hz is not None
-            and self.channel_widths_hz.shape[0] != n_freq
-        ):
-            raise ValueError(
-                "HealpixData: channel_widths_hz must have the same length as "
-                f"frequencies ({n_freq}), got shape {self.channel_widths_hz.shape}."
             )
 
         expected_npix = hp.nside2npix(self.nside)
@@ -423,7 +388,6 @@ class HealpixData:
         "maps",
         "nside",
         "frequencies",
-        "channel_widths_hz",
         "coordinate_frame",
         "ordering",
         "hpx_inds",
@@ -463,7 +427,6 @@ class HealpixData:
     _ARRAY_FIELDS: tuple[str, ...] = (
         "maps",
         "frequencies",
-        "channel_widths_hz",
         "hpx_inds",
         "q_maps",
         "u_maps",

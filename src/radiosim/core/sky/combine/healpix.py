@@ -97,44 +97,8 @@ class CombineHealpixData(TypedDict):
     healpix_v_maps: np.ndarray | None
     healpix_nside: int
     observation_frequencies: np.ndarray
-    channel_widths_hz: np.ndarray | None
     coordinate_frame: str
     reference_frequency: float | None
-
-
-def _resolve_combined_channel_widths(
-    healpix_models: list[SkyModel],
-) -> np.ndarray | None:
-    """Resolve ``channel_widths_hz`` for a HEALPix combine.
-
-    All HEALPix-bearing inputs must agree: either every input declares the
-    same widths array (positional equality on the already-validated common
-    frequency grid), or none declares one. A partial declaration is an
-    asymmetric-metadata error and raises.
-    """
-    widths_seen: list[np.ndarray | None] = [
-        m.healpix.channel_widths_hz for m in healpix_models if m.healpix is not None
-    ]
-    if not widths_seen:
-        return None
-    have = [w for w in widths_seen if w is not None]
-    if not have:
-        return None
-    if len(have) != len(widths_seen):
-        raise ValueError(
-            "Cannot combine HEALPix models with asymmetric channel_widths_hz: "
-            "some inputs declare per-channel bandwidths and others do not. "
-            "Either declare widths on every input or on none of them."
-        )
-    reference = have[0]
-    for widths in have[1:]:
-        if not np.array_equal(widths, reference):
-            raise ValueError(
-                "Cannot combine HEALPix models with mismatched channel_widths_hz. "
-                "Frequency grids agree but per-channel bandwidth declarations do "
-                "not; align them before combining."
-            )
-    return reference
 
 
 def combine_healpix(
@@ -215,8 +179,6 @@ def combine_healpix(
                 "Frequency interpolation is not implemented; align the grids "
                 "exactly before combining."
             )
-
-    channel_widths_hz = _resolve_combined_channel_widths(healpix_models)
 
     npix = hp.nside2npix(ref_nside)
     n_freq = len(ref_freqs)
@@ -454,7 +416,6 @@ def combine_healpix(
         "healpix_v_maps": combined_V,
         "healpix_nside": ref_nside,
         "observation_frequencies": ref_freqs,
-        "channel_widths_hz": channel_widths_hz,
         "coordinate_frame": coordinate_frame,
         "reference_frequency": None,
     }

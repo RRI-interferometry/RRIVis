@@ -174,7 +174,6 @@ def _combine_as_healpix_merge(
             maps=data["healpix_maps"],
             nside=data["healpix_nside"],
             frequencies=data["observation_frequencies"],
-            channel_widths_hz=data["channel_widths_hz"],
             coordinate_frame=data["coordinate_frame"],
             q_maps=data["healpix_q_maps"],
             u_maps=data["healpix_u_maps"],
