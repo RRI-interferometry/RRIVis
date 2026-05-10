@@ -17,7 +17,7 @@ from matplotlib.figure import Figure
 from pyradiosky import SkyModel as PyRadioSkyModel
 
 from radiosim.core.precision import PrecisionConfig
-from radiosim.core.sky import HealpixData, SkyFormat, SkyModel, SkyPlotter
+from radiosim.core.sky import HealpixData, SkyFormat, SkyModel, plot_healpix_map
 from radiosim.core.sky.io.serialization import to_pyradiosky
 from radiosim.core.sky.loaders.pyradiosky import _load_pyradiosky_healpix
 from radiosim.core.sky.operations.operations import materialize_point_sources_model
@@ -242,11 +242,11 @@ class TestSparseSkyModelBehavior:
         """Per the sparse-HEALPix doctrine, plotting raises on sparse input
         and the user must densify themselves; a dense follow-up succeeds."""
         sky, _, _ = make_sparse_healpix_model(precision)
-        with pytest.raises(ValueError, match="SkyPlotter"):
-            SkyPlotter(sky).healpix.healpix_map()
+        with pytest.raises(ValueError, match="plotter"):
+            plot_healpix_map(sky)
 
         dense_sky = sky.replace(healpix=sky.healpix.to_dense())
-        assert isinstance(SkyPlotter(dense_sky).healpix.healpix_map(), Figure)
+        assert isinstance(plot_healpix_map(dense_sky), Figure)
 
 
 class TestSparseVisibility:

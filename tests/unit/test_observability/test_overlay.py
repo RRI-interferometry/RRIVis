@@ -19,7 +19,11 @@ from radiosim.core.observability import (  # noqa: E402
     draw_observability_overlay,
 )
 from radiosim.core.precision import PrecisionConfig  # noqa: E402
-from radiosim.core.sky import HealpixData, SkyPlotter  # noqa: E402
+from radiosim.core.sky import (  # noqa: E402
+    HealpixData,
+    plot_healpix_map,
+    plot_multipole_bands,
+)
 from radiosim.core.sky.containers.model import SkyModel  # noqa: E402
 
 
@@ -77,8 +81,7 @@ class TestObservabilityOverlay:
 
     def test_overlay_adds_lines_to_single_mollweide(self):
         sky = _single_channel_sky()
-        plotter = SkyPlotter(sky)
-        fig = plotter.healpix.healpix_map(frequency=80e6, log_scale=False)
+        fig = plot_healpix_map(sky, frequency=80e6, log_scale=False)
         n_before = _count_projection_lines(fig)
         draw_observability_overlay(fig, _hera_plan())
         n_after = _count_projection_lines(fig)
@@ -87,8 +90,8 @@ class TestObservabilityOverlay:
 
     def test_overlay_adds_lines_to_multipole_bands_grid(self):
         sky = _single_channel_sky(nside=32)
-        plotter = SkyPlotter(sky)
-        fig = plotter.harmonics.multipole_bands(
+        fig = plot_multipole_bands(
+            sky,
             frequency=80e6,
             bands=[(5, 10), (20, 40)],
             ncols=2,
@@ -109,8 +112,7 @@ class TestObservabilityOverlay:
 
     def test_overlay_with_tracks_adds_marker_set(self):
         sky = _single_channel_sky()
-        plotter = SkyPlotter(sky)
-        fig = plotter.healpix.healpix_map(frequency=80e6, log_scale=False)
+        fig = plot_healpix_map(sky, frequency=80e6, log_scale=False)
         collections_before = sum(
             len(ax.collections)
             for ax in fig.axes
@@ -194,7 +196,6 @@ class TestObservabilityOverlay:
             pytest.skip("Vivaldi FITS not mounted")
 
         sky = _single_channel_sky()
-        plotter = SkyPlotter(sky)
         plan = ObservabilityPlanner(
             latitude_deg=-30.72,
             longitude_deg=21.43,
@@ -210,7 +211,7 @@ class TestObservabilityOverlay:
         ).build()
         assert plan.beam_contours, "beam_contours should be populated"
 
-        fig = plotter.healpix.healpix_map(frequency=80e6, log_scale=False)
+        fig = plot_healpix_map(sky, frequency=80e6, log_scale=False)
         n_lines_before = _count_projection_lines(fig)
         draw_observability_overlay(fig, plan)
         n_lines_after = _count_projection_lines(fig)
