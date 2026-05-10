@@ -175,26 +175,24 @@ class TestSubtractBrightSourcesDetection:
             float(sky.healpix.frequencies[0])
         )
 
-    def test_n_workers_matches_serial_for_disjoint_candidates(self, precision):
-        """``n_workers > 1`` matches the sequential result when candidate
-        patches do not overlap.  The synthetic fixture's three sources are
-        at >> patch_radius separations, so the two contracts agree.
+    def test_parallel_matches_serial_bit_identically(self, precision):
+        """``parallel=True`` produces bit-identical output to ``parallel=False``.
+
+        Post-PR-9 the joint multi-frequency fit makes every candidate's fit
+        independent of every other (no inter-candidate flux coupling), so the
+        parallel path is purely a wall-clock speedup with no semantic
+        divergence — even with overlapping patches.
         """
         sky, _, _, _ = _make_synthetic_diffuse_with_sources(precision)
         serial = subtract_bright_sources(
-            sky, flux_limit_jy=2.5, frequency_hz=150e6, n_workers=1
+            sky, flux_limit_jy=2.5, frequency_hz=150e6, parallel=False
         )
         parallel = subtract_bright_sources(
-            sky, flux_limit_jy=2.5, frequency_hz=150e6, n_workers=4
+            sky, flux_limit_jy=2.5, frequency_hz=150e6, parallel=True
         )
         assert serial.healpix is not None
         assert parallel.healpix is not None
-        np.testing.assert_allclose(
-            parallel.healpix.maps,
-            serial.healpix.maps,
-            rtol=1e-9,
-            atol=1e-9,
-        )
+        np.testing.assert_array_equal(parallel.healpix.maps, serial.healpix.maps)
         # Provenance / monopole bookkeeping must also match.
         assert (
             parallel.provenance.source_subtraction

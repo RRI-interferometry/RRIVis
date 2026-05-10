@@ -936,7 +936,7 @@ def _fit_and_subtract_per_channel(
     inpaint_mask_sigma: float,
     flux_limit_jy: float,
     catalog_present: bool,
-    n_workers: int = 1,
+    parallel: bool = False,
 ) -> tuple[np.ndarray, set[int], int, int]:
     """Multi-frequency joint Gaussian fit per candidate, then per-channel subtract.
 
@@ -953,11 +953,12 @@ def _fit_and_subtract_per_channel(
     frequency stays untouched there but can still be subtracted at the
     frequencies where it remains bright.
 
-    When ``n_workers > 1``, the per-candidate joint fits run in parallel
-    on a :class:`ThreadPoolExecutor` (scipy MINPACK / pure-numpy model
+    When ``parallel=True``, the per-candidate joint fits run on a
+    :class:`ThreadPoolExecutor` (scipy MINPACK / pure-numpy model
     release the GIL). Subtractions are applied serially in the input
-    ``candidate_pix`` order, so results are deterministic for any fixed
-    candidate set. ``n_workers == 1`` is the sequential default.
+    ``candidate_pix`` order regardless of ``parallel``, so the two modes
+    produce bit-identical results — ``parallel`` is purely a wall-clock
+    speedup, never a semantic switch.
 
     Returns ``(new_maps_K, inpaint_mask_pixels, n_fits_ok, n_fits_failed)``.
     ``n_fits_ok`` / ``n_fits_failed`` count per-(candidate, channel)
@@ -991,8 +992,9 @@ def _fit_and_subtract_per_channel(
             method=method_ch,
         )
 
-    if n_workers > 1:
+    if parallel:
         # Parallel fit phase: every candidate reads the same buffer.
+        n_threads = min(os.cpu_count() or 4, 8)
         fit_call = functools.partial(
             _fit_one_candidate_multifreq,
             flux_per_channel_jy=flux_per_channel_jy,
@@ -1000,7 +1002,7 @@ def _fit_and_subtract_per_channel(
             patch_radius=patch_radius,
             sigma_init=sigma_init,
         )
-        with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as pool:
             fit_results = list(pool.map(fit_call, candidate_pix.tolist()))
     else:
         fit_results = [
@@ -1056,7 +1058,7 @@ def subtract_bright_sources(
     inpaint_rtol: float = _DEFAULT_INPAINT_RTOL,
     max_sources: int | None = None,
     detection_peak_fraction: float = _DEFAULT_DETECTION_PEAK_FRACTION,
-    n_workers: int = 1,
+    parallel: bool = False,
 ) -> SkyModel:
     """Remove bright point sources from a HEALPix diffuse map.
 
@@ -1144,26 +1146,22 @@ def subtract_bright_sources(
     of this routine or a multi-frequency catalog evaluated at each
     output frequency.
 
-    **Cost.** This routine runs one ``scipy.optimize.curve_fit`` call per
-    candidate per frequency channel — i.e. ``O(N_candidates × N_freq)``
-    nonlinear fits.  At dense HEALPix with broad bands this can stretch
-    into minutes-to-hours.  Cap the candidate list with ``max_sources=...``
-    or pre-filter with a higher ``flux_limit_jy`` when many candidates are
-    expected; a logger warning is emitted when the predicted fit count
-    exceeds 1000.
+    **Cost.** This routine runs one joint multi-frequency
+    ``scipy.optimize.least_squares`` call per candidate (geometry shared
+    across channels, amplitudes per-channel) — i.e. ``O(N_candidates)``
+    nonlinear fits, not the ``O(N_candidates × N_freq)`` cost of the
+    older per-channel implementation.  Cap the candidate list with
+    ``max_sources=...`` or pre-filter with a higher ``flux_limit_jy``
+    when many candidates are expected; a logger warning is emitted when
+    the candidate count exceeds 1000.
 
-    **Parallelism (``n_workers``).** When ``n_workers > 1``, per-candidate
-    fits within each channel run on a :class:`ThreadPoolExecutor`.  ``scipy``
-    MINPACK and the pure-numpy model evaluator both release the GIL during
-    the actual minimisation, so each thread runs effectively in parallel
-    on CPU-bound work.  Subtractions are applied serially in the input
-    candidate order after the parallel fits return, so results are
-    deterministic for any fixed candidate set.  Sequential mode
-    (``n_workers == 1``, default) preserves the historical contract where
-    a candidate's fit sees the partially-subtracted flux of any
-    previously-processed candidate within the same channel; the two modes
-    therefore agree numerically only when candidate patches do not overlap
-    (the common case at typical bright-source separations).
+    **Parallelism (``parallel``).** ``parallel=True`` runs the
+    per-candidate joint fits on a :class:`ThreadPoolExecutor`
+    (``min(os.cpu_count(), 8)`` threads); scipy MINPACK and the pure-numpy
+    model evaluator both release the GIL.  Subtractions are applied
+    serially in the input candidate order regardless of ``parallel``, so
+    the two modes produce **bit-identical results** — ``parallel`` is
+    purely a wall-clock speedup.
     """
     if sky.healpix is None:
         raise ValueError(
@@ -1218,7 +1216,7 @@ def subtract_bright_sources(
         inpaint_mask_sigma=inpaint_mask_sigma,
         flux_limit_jy=flux_limit_jy,
         catalog_present=catalog is not None,
-        n_workers=int(n_workers),
+        parallel=parallel,
     )
 
     if inpaint_mask:
