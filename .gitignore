@@ -184,3 +184,6 @@ temp/
 
 # Bokeh HTML outputs
 *.html
+
+# ASI 2026 poster sources (built locally, not part of the package)
+poster/
