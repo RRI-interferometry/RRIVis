@@ -8,16 +8,15 @@ A Python package for simulating radio interferometry visibilities with GPU accel
 
 ## Features
 
-- **GPU Acceleration**: Universal GPU support via JAX (NVIDIA/AMD/Apple Silicon/TPU) and Numba (CUDA/ROCm)
 - **Full Polarization**: Complete RIME implementation with 2x2 Jones matrices and coherency matrices
-- **Jones Matrix Framework**: 46 exported classes across 17 files covering K, E, Z, T, P, D, G, B, F, W, C, H and more
-- **20+ Sky Catalogs**: 20 VizieR catalogs (GLEAM, MALS, VLSSr, TGSS, WENSS, SUMSS, NVSS, FIRST, LoTSS, AT20G, 3CR, GB6) + RACS via CASDA TAP + GSM/LFSM/Haslam diffuse models + PySM3
-- **Flexible Beam Models**: Analytic (Gaussian, Airy, cosine, exponential, short dipole) and FITS-based beam patterns with per-antenna support
+- **Jones Matrix Framework**: 46 Jones classes spanning K, E, Z, T, P, D, G, B, F, W, C, H and more. ⚠️ **Status:** only **K** (geometric phase) and **E** (primary beam) compute real effects today; the remaining terms are scaffolded and currently return identity.
+- **Sky Catalogs**: 10 VizieR point-source catalogs (GLEAM, MALS, LoTSS, VLSSr, TGSS, WENSS, SUMSS, NVSS, 3C, VLASS) + RACS via CASDA TAP + GSM/GSM2016/LFSM/Haslam diffuse models + PySM3
+- **Flexible Beam Models**: Composable analytic beams (aperture shape × illumination taper × feed/reflector model) and FITS-based (pyuvdata UVBeam) patterns, with per-antenna support
 - **Measurement Set I/O**: Export to CASA MS format for QuartiCal, WSClean, and CASA calibration
 - **High-Level API**: Simple `Simulator` class for notebooks and scripts
-- **Backend Abstraction**: Write once, run on CPU or GPU
 - **Type-Safe Configuration**: Pydantic v2-based validation with helpful error messages
 - **Precision Control**: Granular per-component precision (float32/float64/float128)
+- **Backend Abstraction**: `ArrayBackend` interface with NumPy, JAX, and Numba implementations. ⚠️ **Status:** the RIME solver currently computes on NumPy; JAX/Numba GPU acceleration is on the roadmap (see [Backends & GPU status](#backends--gpu-status)).
 
 ## Installation
 
@@ -28,6 +27,8 @@ pip install radiosim
 ```
 
 ### With GPU Support
+
+> ⚠️ **Status:** these extras install the JAX/GPU stack, but the RIME solver does not yet dispatch to it — simulations currently run on NumPy regardless of the selected backend. GPU acceleration is in progress.
 
 **NVIDIA GPU (CUDA 12):**
 ```bash
@@ -60,7 +61,7 @@ cd RadioSim
 pixi install
 
 # Run tests
-pixi run pytest
+pixi run test
 ```
 
 ### All Optional Dependencies
@@ -130,19 +131,18 @@ antennas = read_antenna_positions("antennas.txt", format_type="radiosim")
 baselines = generate_baselines(antennas)
 ```
 
-### GPU Acceleration
+### Backends & GPU status
 
 ```python
-from radiosim import Simulator
-from radiosim.backends import list_backends
+from radiosim.backends import list_backends, get_backend
 
-# Check available backends
+# Discover what's installed
 print(list_backends())  # {'numpy': True, 'jax': bool, 'numba': bool, ...}
 
-# Use GPU (10-50x faster for large simulations)
-sim = Simulator.from_config("config.yaml")
-results = sim.run()
+backend = get_backend("auto")  # "numpy" | "jax" | "numba" | "auto"
 ```
+
+> ⚠️ **Status:** the `ArrayBackend` abstraction, backend selection, and discovery are complete, but the RIME solver in `core/visibility.py` / `core/visibility_healpix.py` currently computes with NumPy directly and does **not** yet dispatch through the selected backend. Choosing `jax`/`numba` will not accelerate a simulation today (and the point-source path may error under JAX). GPU acceleration is actively being wired up.
 
 ### Measurement Set Export
 
@@ -165,30 +165,30 @@ sim.save("output/", format="ms")
 
 ### Jones Matrix Framework
 
+> ⚠️ **Status:** of the 46 Jones classes, only `GeometricPhaseJones` (K) and the beam classes (E) currently compute real effects; the other terms are scaffolded and return identity. The API below is stable, but adding the stub terms does not change the output yet.
+
 ```python
-from radiosim.core.jones import (
-    JonesChain,
-    GeometricPhaseJones,
-    AnalyticBeamJones,
-    IonosphereJones,
-    GainJones,
-    BandpassJones,
-    FaradayRotationJones,
+from radiosim.backends import get_backend
+from radiosim.core.jones import JonesChain, AnalyticBeamJones
+
+backend = get_backend("numpy")
+
+# Terms are added to a chain (canonical order K -> Z -> T -> E -> P -> D -> G -> B;
+# the chain applies them in reverse, sky-side first). K is applied separately by the
+# RIME solver, so a typical chain configures the primary beam (E):
+chain = JonesChain(backend)
+chain.add_term(
+    AnalyticBeamJones(
+        source_altaz=source_altaz,
+        frequencies=frequencies,
+        diameter=14.0,
+        aperture_shape="circular",   # circular | rectangular | elliptical
+        taper="gaussian",            # uniform | gaussian | parabolic | parabolic_squared | cosine
+    )
 )
-
-# Standard 8-term chain: K -> Z -> T -> E -> P -> D -> G -> B
-jones_chain = JonesChain([
-    GeometricPhaseJones(),                   # K - Geometric phase
-    IonosphereJones(tec=10.0),               # Z - Ionosphere
-    AnalyticBeamJones(..., beam_type="gaussian"),  # E - Primary beam
-    GainJones(amplitude_std=0.01),           # G - Gain errors
-    BandpassJones(),                          # B - Bandpass
-])
-
-# Extended terms also available:
-# FaradayRotationJones, WPhaseJones, DelayJones,
-# CrosshandPhaseJones, ElementBeamJones, ...
 ```
+
+In practice you rarely build chains by hand — `Simulator` / `RIMESimulator` assemble the beam term from your config's `beams:` section.
 
 ### Precision Control
 
@@ -265,8 +265,8 @@ antenna_layout:
 
 beams:
   beam_mode: "analytic"
-  all_beam_response: "gaussian"   # gaussian, airy, cosine, exponential, short_dipole
-  beam_peak_normalize: true       # normalize FITS beams to peak
+  aperture_shape: "circular"      # circular, rectangular, elliptical
+  taper: "gaussian"               # uniform, gaussian, parabolic, parabolic_squared, cosine
 
 location:
   lat: -30.72
@@ -321,11 +321,11 @@ radiosim/
 ├── __about__.py             # Version metadata
 ├── api/
 │   └── simulator.py         # Simulator class (recommended entry point)
-├── backends/                # Compute backends
+├── backends/                # Compute backends (ArrayBackend abstraction)
 │   ├── base.py              # ArrayBackend ABC
-│   ├── numpy_backend.py     # CPU (always available)
-│   ├── jax_backend.py       # GPU via JAX (CUDA/ROCm/Metal/TPU)
-│   └── numba_backend.py     # JIT via Numba + Dask distributed
+│   ├── numpy_backend.py     # CPU — the active compute path
+│   ├── jax_backend.py       # JAX (CUDA/ROCm/Metal/TPU) — not yet wired into the RIME
+│   └── numba_backend.py     # Numba + Dask — not yet wired into the RIME
 ├── core/                    # Core astronomy modules
 │   ├── antenna.py           # Multi-format antenna readers (6 formats)
 │   ├── baseline.py          # Baseline generation
@@ -334,33 +334,35 @@ radiosim/
 │   ├── precision.py         # PrecisionConfig + presets
 │   ├── visibility.py        # Core RIME (point sources)
 │   ├── visibility_healpix.py # RIME for HEALPix diffuse maps
-│   ├── jones/               # Jones matrix framework (46 classes)
+│   ├── jones/               # Jones matrix framework (46 classes; only K + E implemented)
 │   │   ├── base.py          # JonesTerm ABC
 │   │   ├── chain.py         # JonesChain orchestrator
-│   │   ├── geometric.py     # K: GeometricPhaseJones
-│   │   ├── ionosphere.py    # Z: IonosphereJones + variants
-│   │   ├── troposphere.py   # T: TroposphereJones + variants
-│   │   ├── parallactic.py   # P: ParallacticAngleJones + variants
-│   │   ├── gain.py          # G: GainJones, ElevationGainJones
-│   │   ├── bandpass.py      # B: BandpassJones + variants
-│   │   ├── polarization_leakage.py  # D: PolarizationLeakageJones + variants
-│   │   ├── faraday.py       # F: FaradayRotationJones
-│   │   ├── wterm.py         # W: WPhaseJones, WProjectionJones
-│   │   ├── receptor.py      # C/H: ReceptorConfigJones, BasisTransformJones
-│   │   ├── element_beam.py  # Ee/a/dE: ElementBeamJones, ArrayFactorJones
-│   │   ├── delay.py         # Kd/Rc/ff: DelayJones, CableReflectionJones
-│   │   ├── crosshand.py     # X/Kx/DF: CrosshandPhaseJones + variants
-│   │   ├── baseline_errors.py  # M/Q: JonesBaselineTerm ABC + baseline terms
-│   │   └── beam/            # Primary beam (E term)
-│   │       ├── analytic.py  # Gaussian, Airy, cosine, exponential, short_dipole
-│   │       └── fits.py      # BeamFITSHandler, BeamManager
-│   └── sky/                 # Sky model system
-│       ├── model.py         # SkyModel dataclass (main class)
-│       ├── catalogs.py      # Catalog metadata (20 VizieR, 3 RACS, 4 diffuse)
-│       ├── constants.py     # Physical constants + T_b/Jy conversions
-│       ├── _loaders_vizier.py   # VizieR catalog loader mixin
-│       ├── _loaders_diffuse.py  # Diffuse sky loader mixin (pygdsm, pysm3)
-│       └── _loaders_pyradiosky.py  # PyRadioSky file loader mixin
+│   │   ├── geometric.py     # K: GeometricPhaseJones (implemented)
+│   │   ├── ionosphere.py    # Z: IonosphereJones + variants (stub)
+│   │   ├── troposphere.py   # T: TroposphereJones + variants (stub)
+│   │   ├── parallactic.py   # P: ParallacticAngleJones + variants (stub)
+│   │   ├── gain.py          # G: GainJones, ElevationGainJones (stub)
+│   │   ├── bandpass.py      # B: BandpassJones + variants (stub)
+│   │   ├── polarization_leakage.py  # D: PolarizationLeakageJones + variants (stub)
+│   │   ├── faraday.py       # F: FaradayRotationJones (stub)
+│   │   ├── wterm.py         # W: WPhaseJones, WProjectionJones (stub)
+│   │   ├── receptor.py      # C/H: ReceptorConfigJones, BasisTransformJones (stub)
+│   │   ├── element_beam.py  # Ee/a/dE: ElementBeamJones, ArrayFactorJones (stub)
+│   │   ├── delay.py         # Kd/Rc/ff: DelayJones, CableReflectionJones (stub)
+│   │   ├── crosshand.py     # X/Kx/DF: CrosshandPhaseJones + variants (stub)
+│   │   ├── baseline_errors.py  # M/Q: JonesBaselineTerm ABC (Hadamard, not the chain)
+│   │   └── beam/            # Primary beam (E term) — implemented
+│   │       ├── analytic/    # composable analytic beam (aperture × taper × feed/reflector)
+│   │       └── fits/        # BeamFITSHandler, BeamManager (pyuvdata UVBeam)
+│   └── sky/                 # Sky model system (subpackages)
+│       ├── containers/      # SkyModel, PointSourceData, HealpixData, SkyProvenance
+│       ├── loaders/         # VizieR / diffuse / FITS / BBS / pyradiosky / synthetic
+│       ├── registry/        # loader registry + catalog metadata (catalogs.py)
+│       ├── operations/      # transforms, factories, point<->healpix conversion, regions
+│       ├── combine/         # prepare_sky_model() + physical-disjointness checks
+│       ├── recipes/         # realistic_foreground, dN/dS source counts
+│       ├── diagnostics/     # power/delay spectra, statistics
+│       └── io/              # SkyH5 serialization + module-level plot_* functions
 ├── simulator/               # RIME simulator (Strategy pattern)
 │   ├── base.py              # VisibilitySimulator ABC
 │   └── rime.py              # RIMESimulator: O(N_src x N_bl x N_freq)
@@ -371,10 +373,10 @@ radiosim/
 │   ├── measurement_set.py   # CASA MS read/write
 │   ├── antenna_readers.py   # Re-exports from core.antenna
 │   └── fits_utils.py        # FITS file inspector
-├── utils/
+├── utils/                   # coordinates, precision plumbing, device/network, validation
 │   ├── validation.py        # Pre-flight config validator
 │   └── logging.py           # Rich-based logging
-├── visualization/           # Plotting
+├── visualization/           # Plotting (Bokeh/Plotly)
 │   ├── bokeh_plots.py       # Interactive Bokeh/Plotly plots
 │   └── gsm_plots.py         # GSM sky model plotting
 └── cli/
@@ -404,17 +406,17 @@ require a `region`, `max_rows`, or `allow_full_catalog=True` so large surveys ar
 not downloaded accidentally.
 
 ```python
-from radiosim.core.sky import combine_models
+from radiosim.core.sky import prepare_sky_model
 from radiosim.core.sky.loaders import load_gleam, load_lotss, load_racs
 from radiosim.core.precision import PrecisionConfig
 
 precision = PrecisionConfig.standard()
 
 # Load GLEAM EGC catalog (sources > 1 Jy)
-sky = load_gleam(flux_limit=1.0, max_rows=10000, precision=precision)
+sky1 = load_gleam(flux_limit=1.0, max_rows=10000, precision=precision)
 
 # Load LoTSS DR2
-sky = load_lotss(
+sky2 = load_lotss(
     release="dr2",
     flux_limit=0.001,
     max_rows=10000,
@@ -422,10 +424,10 @@ sky = load_lotss(
 )
 
 # Load RACS-Low via CASDA TAP
-sky = load_racs(band="low", flux_limit=1.0, max_rows=10000, precision=precision)
+sky3 = load_racs(band="low", flux_limit=1.0, max_rows=10000, precision=precision)
 
-# Combine multiple catalogs
-combined = combine_models([sky1, sky2], precision=precision)
+# Combine multiple catalogs (runs physical-disjointness checks)
+combined = prepare_sky_model([sky1, sky2, sky3], precision=precision)
 ```
 
 ### Diffuse Sky Models
@@ -510,23 +512,33 @@ sky = create_from_arrays(
 
 ### Analytic Beams
 
+The analytic beam is composable: an **aperture shape** × an **illumination taper**, optionally driven by a **feed** and **reflector** model.
+
 ```yaml
 beams:
   beam_mode: "analytic"
-  all_beam_response: "gaussian"
+  aperture_shape: "circular"    # circular | rectangular | elliptical
+  taper: "gaussian"             # uniform | gaussian | parabolic | parabolic_squared | cosine
+  edge_taper_dB: 10.0
+  feed_model: "none"            # none | corrugated_horn | open_waveguide | dipole_ground_plane
+  reflector_type: "prime_focus" # prime_focus | cassegrain
 ```
 
-| Pattern | Description | Best For |
-|---------|-------------|----------|
-| `gaussian` | Gaussian approximation, fast | Standard simulations |
+| Field | Options |
+|-------|---------|
+| `aperture_shape` | `circular` (Airy), `rectangular` (sinc), `elliptical` |
+| `taper` | `uniform`, `gaussian`, `parabolic`, `parabolic_squared`, `cosine` |
+| `feed_model` | `none`, `corrugated_horn`, `open_waveguide`, `dipole_ground_plane` |
+| `reflector_type` | `prime_focus`, `cassegrain` |
 
-### FITS Beam Files
+### FITS Beam Files (shared)
 
 ```yaml
 beams:
-  beam_mode: "shared"
-  beam_file: "/path/to/beam.fits"   # pyuvdata UVBeam format
-  beam_peak_normalize: true         # normalize to peak (recommended)
+  beam_mode: "fits"
+  per_antenna: false
+  beam_file: "/path/to/beam.fits"       # pyuvdata UVBeam format
+  beam_peak_normalize: true             # normalize to peak (recommended)
   beam_interp_function: "az_za_simple"  # interpolation function
 ```
 
@@ -534,55 +546,52 @@ beams:
 
 ```yaml
 beams:
-  beam_mode: "per_antenna"
-  beam_assignment: "from_config"
-  antenna_beam_map:
-    "ANT001": "/path/to/beam1.fits"
-    "ANT002": "/path/to/beam2.fits"
+  beam_mode: "fits"          # or "mixed" to combine FITS + analytic
+  per_antenna: true
+  antenna_beam_map:          # keyed by antenna number (string)
+    "0": "/path/to/beam0.fits"
+    "1": "/path/to/beam1.fits"
+    "2": "analytic"          # this antenna uses the analytic beam
 ```
 
-### Per-Antenna Analytic Beams
+### Per-Antenna Analytic Beams (heterogeneous arrays)
 
 ```python
 from radiosim.core.jones.beam import AnalyticBeamJones
 
-# Different HPBW per antenna (e.g., heterogeneous array)
+# Different dish diameter per antenna (looked up by antenna number)
 beam = AnalyticBeamJones(
     source_altaz=source_altaz,
     frequencies=frequencies,
-    hpbw_radians=0.2,                  # default for all
-    beam_type="gaussian",
-    hpbw_per_antenna={0: 0.15, 1: 0.25},      # per-antenna override
-    beam_type_per_antenna={2: "short_dipole"},  # per-antenna pattern
+    diameter=14.0,                            # default for all antennas
+    aperture_shape="circular",
+    taper="gaussian",
+    diameter_per_antenna={0: 12.0, 1: 25.0},  # per-antenna override
 )
 ```
 
 ## Testing
 
 ```bash
-# Run all tests
-pixi run pytest
+# Run all tests (NOTE: `pixi run pytest` does NOT work — use the `test` task)
+pixi run test
 
 # Run with coverage
-pixi run pytest --cov=radiosim --cov-report=html
+pixi run test -- --cov=radiosim --cov-report=html
 
-# Run specific test categories
-pixi run pytest -m "not slow"          # Skip slow/network tests
-pixi run pytest -m "not gpu"           # Skip GPU tests
-pixi run pytest tests/unit/            # Unit tests only
-pixi run pytest tests/integration/     # Integration tests only
-pixi run pytest tests/unit/test_jones/ # Jones matrix tests only
+# Run specific test categories (pass pytest args after `--`)
+pixi run test -- -m "not slow"          # Skip slow/network tests
+pixi run test -- -m "not gpu"           # Skip GPU tests
+pixi run test -- tests/unit/            # Unit tests only
+pixi run test -- tests/integration/     # Integration tests only
+pixi run test -- tests/unit/test_jones/ # Jones matrix tests only
 ```
 
 ## Performance
 
-Approximate speedups with GPU backends (vs NumPy baseline):
+The simulator currently runs on NumPy (see [Backends & GPU status](#backends--gpu-status)). The point-source RIME is `O(N_src × N_bl × N_freq)`, vectorized over sources, with per-antenna Jones caching to avoid recomputing the chain across baselines that share an antenna.
 
-| Simulation Size | JAX (GPU) | Numba (GPU) |
-|-----------------|-----------|-------------|
-| 100 antennas, 100 sources | 5x | 3x |
-| 500 antennas, 1000 sources | 20x | 15x |
-| 1000 antennas, 10000 sources | 50x | 40x |
+GPU acceleration via JAX/Numba is on the roadmap; benchmarked speedup numbers will be published once backend dispatch is wired into the solver.
 
 ## Documentation
 
@@ -599,7 +608,7 @@ Contributions are welcome! Please:
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make changes and add tests
-4. Ensure tests pass (`pixi run pytest`)
+4. Ensure tests pass (`pixi run test`)
 5. Submit a pull request
 
 ## Citation
