@@ -323,7 +323,7 @@ class TestSubtractionHelpers:
     """
 
     def test_select_candidates_with_catalog(self, precision):
-        from radiosim.core.sky.operations.operations import (
+        from radiosim.core.sky.operations.subtraction import (
             _select_subtraction_candidates,
         )
 
@@ -371,7 +371,7 @@ class TestSubtractionHelpers:
         assert int(candidates[0]) == int(expected_pix)
 
     def test_select_candidates_max_sources_keeps_brightest(self, precision):
-        from radiosim.core.sky.operations.operations import (
+        from radiosim.core.sky.operations.subtraction import (
             _select_subtraction_candidates,
         )
 

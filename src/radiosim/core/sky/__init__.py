@@ -92,12 +92,12 @@ from .operations.operations import (
     compute_linear_polarization,
     materialize_healpix_model,
     materialize_point_sources_model,
-    subtract_bright_sources,
     with_memmap_backing,
     with_monopole,
     with_monopole_subtracted,
 )
 from .operations.region import BoxRegion, ConeRegion, SkyRegion, UnionRegion
+from .operations.subtraction import subtract_bright_sources
 from .recipes.realistic_foreground import realistic_foreground_sky
 
 __all__ = [
