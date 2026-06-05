@@ -17,14 +17,14 @@ from ..containers.constants import (
     flux_density_to_brightness_temp,
     rayleigh_jeans_factor,
 )
-from ..containers.data import HealpixData
 from ..registry.facade import loader_registry
-from ..support.precision import get_sky_storage_dtype
+from ._healpix_builder import build_healpix_from_stokes_cube
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
     from ..containers.data import SkyProvenance
+    from ..containers.model import SkyModel
     from ..operations.region import SkyRegion
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ def load_fits_image(
     precision: PrecisionConfig,
     memmap_path: str | None = None,
     provenance: SkyProvenance | None = None,
-) -> Any:
+) -> SkyModel:
     """Load a FITS image and reproject to HEALPix multi-frequency maps.
 
     Supports 2D images (single frequency, Stokes I), 3D cubes
@@ -107,7 +107,12 @@ def load_fits_image(
     from astropy.io import fits
     from astropy.wcs import WCS
 
-    with fits.open(filename) as hdul:
+    try:
+        hdul = fits.open(filename)
+    except OSError as e:
+        raise OSError(f"Could not open FITS image file {filename!r}: {e}") from e
+
+    with hdul:
         # Find the image HDU
         hdu = hdul[0]
         if hdu.data is None:
@@ -194,8 +199,6 @@ def load_fits_image(
     npix = hp.nside2npix(nside)
     omega_pixel = 4 * np.pi / npix
 
-    from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
-
     # Determine the final output frequency grid up front so we can allocate
     # the final-shape cube directly and write rows into their sorted
     # position — no post-hoc sort reindex, no broadcast-and-copy.
@@ -220,31 +223,6 @@ def load_fits_image(
         src_row_for_out = sort_idx.tolist()
 
     n_freq_out = len(final_freqs)
-    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
-    hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
-    present_stokes = {int(code) for code in np.atleast_1d(stokes_vals)}
-    has_q_input = 2 in present_stokes
-    has_u_input = 3 in present_stokes
-    has_v_input = 4 in present_stokes
-    i_arr = allocate_cube((n_freq_out, npix), hp_dtype, scratch, "i_maps")
-    q_arr = (
-        allocate_cube((n_freq_out, npix), hp_dtype, scratch, "q_maps")
-        if has_q_input
-        else None
-    )
-    u_arr = (
-        allocate_cube((n_freq_out, npix), hp_dtype, scratch, "u_maps")
-        if has_u_input
-        else None
-    )
-    v_arr = (
-        allocate_cube((n_freq_out, npix), hp_dtype, scratch, "v_maps")
-        if has_v_input
-        else None
-    )
-    has_q = False
-    has_u = False
-    has_v = False
 
     def _get_slice(stokes_idx: int | None, freq_idx: int | None) -> np.ndarray:
         """Extract a 2D spatial slice from the data cube."""
@@ -289,133 +267,112 @@ def load_fits_image(
         hp_array[~np.isfinite(hp_array)] = 0.0
         return hp_array
 
-    i_has_data = False
     # Cache reprojected + unit-converted slices for single-freq replication
     # so we don't redo the reprojection work for each replicated row.
-    cache_i: np.ndarray | None = None
-    cache_q: np.ndarray | None = None
-    cache_u: np.ndarray | None = None
-    cache_v: np.ndarray | None = None
+    cached_stokes_row: (
+        tuple[
+            np.ndarray,
+            np.ndarray | None,
+            np.ndarray | None,
+            np.ndarray | None,
+        ]
+        | None
+    ) = None
 
-    for out_fi in range(n_freq_out):
-        src_fi = src_row_for_out[out_fi]
-        freq_hz = float(final_freqs[out_fi])
+    def _iter_stokes_rows():
+        nonlocal cached_stokes_row
+        for out_fi in range(n_freq_out):
+            src_fi = src_row_for_out[out_fi]
+            freq_hz = float(final_freqs[out_fi])
 
-        if single_freq_replicate and cache_i is not None:
-            # Replicate cached FITS slice.  Memmap-safe: row-by-row copy,
-            # no broadcast-then-copy allocation of the full cube.
-            i_arr[out_fi] = cache_i
-            if cache_q is not None:
-                assert q_arr is not None
-                q_arr[out_fi] = cache_q
-            if cache_u is not None:
-                assert u_arr is not None
-                u_arr[out_fi] = cache_u
-            if cache_v is not None:
-                assert v_arr is not None
-                v_arr[out_fi] = cache_v
-            continue
+            if single_freq_replicate and cached_stokes_row is not None:
+                yield cached_stokes_row
+                continue
 
-        for si, stokes_code in enumerate(stokes_vals):
-            if si >= n_stokes:
-                break
+            i_row: np.ndarray | None = None
+            q_row: np.ndarray | None = None
+            u_row: np.ndarray | None = None
+            v_row: np.ndarray | None = None
 
-            fits_fi = src_fi if freq_ax is not None else None
-            fits_si = si if stokes_ax is not None else None
+            for si, stokes_code in enumerate(stokes_vals):
+                if si >= n_stokes:
+                    break
 
-            image_2d = _get_slice(fits_si, fits_fi)
-            hp_map = _reproject_slice(image_2d)
+                fits_fi = src_fi if freq_ax is not None else None
+                fits_si = si if stokes_ax is not None else None
 
-            # Unit conversion. Stokes Q/U/V are signed linear components, so
-            # convert them with the signed Rayleigh-Jeans relation even when
-            # Stokes I uses the positive-only Planck inversion.
-            if is_jy_beam:
-                assert pixel_area_sr is not None
-                assert beam_area_sr is not None
-                hp_map *= pixel_area_sr / beam_area_sr
+                image_2d = _get_slice(fits_si, fits_fi)
+                hp_map = _reproject_slice(image_2d)
 
-            flux_map: np.ndarray | None = None
-            if is_jy_beam or is_jy_pixel:
-                flux_map = hp_map
-            elif is_jy_sr:
-                flux_map = hp_map * omega_pixel
+                # Unit conversion. Stokes Q/U/V are signed linear components, so
+                # convert them with the signed Rayleigh-Jeans relation even when
+                # Stokes I uses the positive-only Planck inversion.
+                if is_jy_beam:
+                    assert pixel_area_sr is not None
+                    assert beam_area_sr is not None
+                    hp_map *= pixel_area_sr / beam_area_sr
 
-            is_stokes_i = stokes_code == 1 or n_stokes == 1
-            if flux_map is not None:
+                flux_map: np.ndarray | None = None
+                if is_jy_beam or is_jy_pixel:
+                    flux_map = hp_map
+                elif is_jy_sr:
+                    flux_map = hp_map * omega_pixel
+
+                is_stokes_i = stokes_code == 1 or n_stokes == 1
+                if flux_map is not None:
+                    if is_stokes_i:
+                        pos = flux_map > 0
+                        temp_map = np.zeros_like(hp_map)
+                        if np.any(pos):
+                            temp_map[pos] = flux_density_to_brightness_temp(
+                                flux_map[pos],
+                                freq_hz,
+                                omega_pixel,
+                                method=brightness_conversion,
+                            )
+                        hp_map = temp_map
+                    else:
+                        hp_map = flux_map / rayleigh_jeans_factor(freq_hz, omega_pixel)
+
+                # Stokes mapping: I=1, Q=2, U=3, V=4
                 if is_stokes_i:
-                    pos = flux_map > 0
-                    temp_map = np.zeros_like(hp_map)
-                    if np.any(pos):
-                        temp_map[pos] = flux_density_to_brightness_temp(
-                            flux_map[pos],
-                            freq_hz,
-                            omega_pixel,
-                            method=brightness_conversion,
-                        )
-                    hp_map = temp_map
-                else:
-                    hp_map = flux_map / rayleigh_jeans_factor(freq_hz, omega_pixel)
+                    i_row = hp_map
+                elif stokes_code == 2:
+                    q_row = hp_map
+                elif stokes_code == 3:
+                    u_row = hp_map
+                elif stokes_code == 4:
+                    v_row = hp_map
 
-            hp_map_cast = hp_map.astype(hp_dtype)
-
-            # Stokes mapping: I=1, Q=2, U=3, V=4
-            if is_stokes_i:
-                i_arr[out_fi] = hp_map_cast
-                i_has_data = True
-                if single_freq_replicate:
-                    cache_i = hp_map_cast
-            elif stokes_code == 2:
-                assert q_arr is not None
-                q_arr[out_fi] = hp_map_cast
-                has_q = True
-                if single_freq_replicate:
-                    cache_q = hp_map_cast
-            elif stokes_code == 3:
-                assert u_arr is not None
-                u_arr[out_fi] = hp_map_cast
-                has_u = True
-                if single_freq_replicate:
-                    cache_u = hp_map_cast
-            elif stokes_code == 4:
-                assert v_arr is not None
-                v_arr[out_fi] = hp_map_cast
-                has_v = True
-                if single_freq_replicate:
-                    cache_v = hp_map_cast
-
-    if not i_has_data:
-        raise ValueError(f"No Stokes I data found in {filename}")
+            if i_row is None:
+                raise ValueError(f"No Stokes I data found in {filename}")
+            stokes_row = (i_row, q_row, u_row, v_row)
+            if single_freq_replicate:
+                cached_stokes_row = stokes_row
+            yield stokes_row
 
     obs_freqs = final_freqs
 
-    # Flush and re-open read-only if memmap-backed.
-    i_arr = finalize_cube(i_arr, scratch, "i_maps")
-    if has_q:
-        assert q_arr is not None
-        q_arr = finalize_cube(q_arr, scratch, "q_maps")
-    if has_u:
-        assert u_arr is not None
-        u_arr = finalize_cube(u_arr, scratch, "u_maps")
-    if has_v:
-        assert v_arr is not None
-        v_arr = finalize_cube(v_arr, scratch, "v_maps")
+    healpix = build_healpix_from_stokes_cube(
+        stokes_rows=_iter_stokes_rows(),
+        nside=nside,
+        frequencies=obs_freqs,
+        coordinate_frame="icrs",
+        region=None,
+        precision=precision,
+        memmap_dir=memmap_path,
+    )
 
     sky = SkyModel(
-        healpix=HealpixData(
-            maps=i_arr,
-            nside=nside,
-            frequencies=obs_freqs,
-            coordinate_frame="icrs",
-            q_maps=q_arr if has_q else None,
-            u_maps=u_arr if has_u else None,
-            v_maps=v_arr if has_v else None,
-        ),
+        healpix=healpix,
         model_name=f"fits:{filename.split('/')[-1]}",
         brightness_conversion=brightness_conversion,
         precision=precision,
     )
 
     if region is not None:
+        # FITS reprojection always builds the full ICRS HEALPix grid first;
+        # keep the single existing model-level crop here to avoid double-cropping.
         sky = sky.filter_region(region)
 
     logger.info(

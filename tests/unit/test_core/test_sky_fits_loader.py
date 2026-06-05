@@ -1,10 +1,22 @@
 """Tests for FITS sky loader edge cases."""
 
 import numpy as np
+import pytest
 from astropy.io import fits
 
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.loaders.fits import load_fits_image
+
+
+def test_fits_loader_missing_file_has_actionable_error(tmp_path):
+    missing = tmp_path / "missing.fits"
+
+    with pytest.raises(OSError, match="Could not open FITS image file"):
+        load_fits_image(
+            str(missing),
+            nside=1,
+            precision=PrecisionConfig.standard(),
+        )
 
 
 def test_fits_loader_stokes_i_only_avoids_polarization_allocations(

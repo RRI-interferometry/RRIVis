@@ -10,7 +10,7 @@ import healpy as hp
 import numpy as np
 
 from ..containers import HealpixData
-from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+from ..support import allocation as _allocation
 from ..support.precision import get_sky_storage_dtype
 
 if TYPE_CHECKING:
@@ -147,11 +147,13 @@ def build_healpix_from_stokes_cube(
     )
     input_npix = hp.nside2npix(nside) if hpx_inds is None else len(hpx_inds)
 
-    scratch = ensure_scratch_dir(memmap_dir) if memmap_dir is not None else None
+    scratch = (
+        _allocation.ensure_scratch_dir(memmap_dir) if memmap_dir is not None else None
+    )
     hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
     shape = (n_freq, n_output_pix)
 
-    i_arr = allocate_cube(shape, hp_dtype, scratch, "i_maps")
+    i_arr = _allocation.allocate_cube(shape, hp_dtype, scratch, "i_maps")
     q_arr: np.ndarray | None = None
     u_arr: np.ndarray | None = None
     v_arr: np.ndarray | None = None
@@ -176,7 +178,9 @@ def build_healpix_from_stokes_cube(
 
             if len(row) > 1 and row[1] is not None:
                 if q_arr is None:
-                    q_arr = allocate_cube(shape, hp_dtype, scratch, "q_maps")
+                    q_arr = _allocation.allocate_cube(
+                        shape, hp_dtype, scratch, "q_maps"
+                    )
                 q_arr[fi] = _selected_row(
                     row[1],
                     keep=keep,
@@ -186,7 +190,9 @@ def build_healpix_from_stokes_cube(
 
             if len(row) > 2 and row[2] is not None:
                 if u_arr is None:
-                    u_arr = allocate_cube(shape, hp_dtype, scratch, "u_maps")
+                    u_arr = _allocation.allocate_cube(
+                        shape, hp_dtype, scratch, "u_maps"
+                    )
                 u_arr[fi] = _selected_row(
                     row[2],
                     keep=keep,
@@ -196,7 +202,9 @@ def build_healpix_from_stokes_cube(
 
             if len(row) > 3 and row[3] is not None:
                 if v_arr is None:
-                    v_arr = allocate_cube(shape, hp_dtype, scratch, "v_maps")
+                    v_arr = _allocation.allocate_cube(
+                        shape, hp_dtype, scratch, "v_maps"
+                    )
                 v_arr[fi] = _selected_row(
                     row[3],
                     keep=keep,
@@ -211,13 +219,13 @@ def build_healpix_from_stokes_cube(
                 f"({rows_seen} != {n_freq})."
             )
 
-        i_arr = finalize_cube(i_arr, scratch, "i_maps")
+        i_arr = _allocation.finalize_cube(i_arr, scratch, "i_maps")
         if q_arr is not None:
-            q_arr = finalize_cube(q_arr, scratch, "q_maps")
+            q_arr = _allocation.finalize_cube(q_arr, scratch, "q_maps")
         if u_arr is not None:
-            u_arr = finalize_cube(u_arr, scratch, "u_maps")
+            u_arr = _allocation.finalize_cube(u_arr, scratch, "u_maps")
         if v_arr is not None:
-            v_arr = finalize_cube(v_arr, scratch, "v_maps")
+            v_arr = _allocation.finalize_cube(v_arr, scratch, "v_maps")
     except Exception:
         for arr in (i_arr, q_arr, u_arr, v_arr):
             if isinstance(arr, np.memmap):

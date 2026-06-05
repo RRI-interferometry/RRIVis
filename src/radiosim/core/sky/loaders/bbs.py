@@ -247,7 +247,12 @@ def load_bbs(
     has_gaussian = False
     has_spectral_coeffs = False
 
-    with open(filename) as f:
+    try:
+        source_file = open(filename)
+    except OSError as e:
+        raise OSError(f"Could not open BBS sky model file {filename!r}: {e}") from e
+
+    with source_file as f:
         for line in f:
             line = line.strip()
             if not line:
