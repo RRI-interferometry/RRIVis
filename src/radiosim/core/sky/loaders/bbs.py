@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
     from ..containers import SkyProvenance
+    from ..containers.model import SkyModel
     from ..operations.region import SkyRegion
 
 logger = logging.getLogger(__name__)
@@ -425,7 +426,7 @@ def _build_bbs_sky(
     precision: PrecisionConfig,
     brightness_conversion: str,
     provenance: SkyProvenance | None,
-) -> Any:
+) -> SkyModel:
     n_parsed = len(parsed.flux)
     ra_deg_arr = parsed.ra_deg
     dec_deg_arr = parsed.dec_deg
@@ -539,7 +540,7 @@ def load_bbs(
     precision: PrecisionConfig,
     brightness_conversion: str = "planck",
     provenance: SkyProvenance | None = None,
-) -> Any:
+) -> SkyModel:
     """Load a sky model from BBS/DP3/WSClean format.
 
     Supports both BBS ``# (...) = format`` and WSClean ``Format = ...``
@@ -579,7 +580,7 @@ def load_bbs(
 
 
 def write_bbs(
-    sky_model: SkyModel,  # noqa: F821
+    sky_model: SkyModel,
     filename: str,
     *,
     reference_frequency_hz: float | None = None,
