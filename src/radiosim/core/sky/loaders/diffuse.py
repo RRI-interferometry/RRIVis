@@ -122,7 +122,7 @@ def get_diffuse_model_info(model_name: str) -> dict[str, Any]:
 # =========================================================================
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "diffuse_sky",
     config_section="gsm_healpix",
     use_flag="use_gsm",
@@ -495,7 +495,7 @@ def create_gsm_observer(
     return observer
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "pysm3",
     config_section="pysm3",
     use_flag="use_pysm3",

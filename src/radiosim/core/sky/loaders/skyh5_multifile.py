@@ -185,7 +185,7 @@ def _maybe_cross_check_frequencies(
         )
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "skyh5_multifile",
     representations=("point_sources", "healpix_map"),
     config_section="skyh5_multifile",

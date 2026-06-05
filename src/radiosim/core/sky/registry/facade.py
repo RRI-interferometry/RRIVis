@@ -32,7 +32,7 @@ class SkyLoaderRegistry:
     automatically.
     """
 
-    def register(
+    def register_loader(
         self,
         name: str,
         *,
@@ -47,7 +47,7 @@ class SkyLoaderRegistry:
         ) = None,
         config_fields: dict[str, str] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        """Register a loader function."""
+        """Return a decorator that registers a loader function."""
 
         return _backend._register_loader(
             name,

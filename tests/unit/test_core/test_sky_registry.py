@@ -27,7 +27,7 @@ class TestRegistry:
     def test_register_and_get_loader(self):
         """A registered loader is retrievable from the public registry surface."""
 
-        @loader_registry.register("_test_dummy_loader")
+        @loader_registry.register_loader("_test_dummy_loader")
         def _dummy_loader(**kwargs):
             return "dummy"
 

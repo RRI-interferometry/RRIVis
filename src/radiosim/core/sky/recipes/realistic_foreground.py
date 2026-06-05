@@ -263,7 +263,7 @@ def _check_threshold_chain(
             )
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "realistic_foreground",
     config_section="realistic_foreground",
     use_flag="use_realistic_foreground",

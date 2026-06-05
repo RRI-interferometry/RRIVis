@@ -522,7 +522,7 @@ def _build_bbs_sky(
     return sky
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "bbs",
     config_section="bbs",
     use_flag="use_bbs",

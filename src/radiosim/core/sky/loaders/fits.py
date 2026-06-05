@@ -319,7 +319,7 @@ def _reproject_fits_stokes(
     return final_freqs, _iter_stokes_rows()
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "fits_image",
     config_section="fits_image",
     use_flag="use_fits_image",

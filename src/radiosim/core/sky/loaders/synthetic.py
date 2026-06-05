@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "test_sources",
     config_section="test_sources",
     use_flag="use_test_sources",
@@ -205,7 +205,7 @@ def _sample_points_on_region(
     return accepted_ra[:n], accepted_dec[:n]
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "poisson_confusion",
     config_section="poisson_confusion",
     use_flag="use_poisson_confusion",

@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "gleam",
     config_section="gleam",
     use_flag="use_gleam",
@@ -87,7 +87,7 @@ def load_gleam(
     )
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "mals",
     config_section="mals",
     use_flag="use_mals",
@@ -206,7 +206,7 @@ def _make_simple_vizier_loader(catalog_key: str):
 
 for _key, _config_section in _SIMPLE_VIZIER_CATALOGS.items():
     _fn = _make_simple_vizier_loader(_key)
-    loader_registry.register(
+    loader_registry.register_loader(
         _key,
         config_section=_config_section,
         use_flag=f"use_{_key}",
@@ -228,7 +228,7 @@ load_3c = loader_registry.loader("3c")
 load_vlass = loader_registry.loader("vlass")
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "lotss",
     config_section="lotss",
     use_flag="use_lotss",

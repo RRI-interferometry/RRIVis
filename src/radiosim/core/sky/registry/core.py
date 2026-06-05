@@ -319,7 +319,7 @@ def _register_loader(
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator used by loader modules to register themselves.
 
-    Internal helper — call ``loader_registry.register(...)`` from the
+    Internal helper — call ``loader_registry.register_loader(...)`` from the
     public facade rather than importing this directly.
     """
 

@@ -33,7 +33,7 @@ class LossyConversionWarning(UserWarning):
     """Warn when pyradiosky import drops higher-order spectral information."""
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "pyradiosky_file",
     config_section="pyradiosky",
     use_flag="use_pyradiosky",

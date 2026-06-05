@@ -126,7 +126,7 @@ def _parse_racs_results_with_fallback(
     return ra_arr, dec_arr, flux_arr, source_name, source_id
 
 
-@loader_registry.register(
+@loader_registry.register_loader(
     "racs",
     config_section="racs",
     use_flag="use_racs",
