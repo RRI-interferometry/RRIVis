@@ -14,7 +14,6 @@ from radiosim.utils.frequency import parse_frequency_config
 from radiosim.utils.network import require_service
 
 from ..containers.data import (
-    HealpixData,
     MonopoleConvention,
     SkyCoverage,
     SkyProvenance,
@@ -22,7 +21,7 @@ from ..containers.data import (
 )
 from ..registry.catalogs import DIFFUSE_MODELS
 from ..registry.facade import loader_registry
-from ..support.precision import get_sky_storage_dtype
+from ._healpix_builder import build_healpix_from_stokes_cube
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -305,31 +304,35 @@ def load_diffuse_sky(
             "Zenodo (zenodo.org) is reachable."
         ) from e
 
-    from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
-
     npix = hp.nside2npix(nside)
-    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
-    hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
-    i_arr = allocate_cube((n_freq, npix), hp_dtype, scratch, "i_maps")
     rot = Rotator(coord=["G", "C"])
-    for fi, freq in enumerate(frequencies):
-        temp_map = pygdsm_instance.generate(freq)
-        if hp.get_nside(temp_map) != nside:
-            temp_map = hp.ud_grade(temp_map, nside_out=nside)
-        temp_map = rot.rotate_map_pixel(temp_map)
-        i_arr[fi] = temp_map.astype(hp_dtype)
+    first_full_sky_mean: float | None = None
 
-    # Apply region mask (zero out-of-region pixels)
-    if region is not None:
-        mask = region.healpix_mask(nside)
-        n_retained = int(mask.sum())
-        i_arr[:, ~mask] = 0.0
-        logger.info(f"Region mask applied: {n_retained}/{npix} pixels retained")
+    def _iter_stokes_rows():
+        nonlocal first_full_sky_mean
+        for fi, freq in enumerate(frequencies):
+            temp_map = pygdsm_instance.generate(freq)
+            if hp.get_nside(temp_map) != nside:
+                temp_map = hp.ud_grade(temp_map, nside_out=nside)
+            temp_map = rot.rotate_map_pixel(temp_map)
+            if fi == 0:
+                first_full_sky_mean = float(np.mean(temp_map))
+            yield (temp_map,)
 
-    logger.info(f"{model.upper()} loaded: {npix} pixels \u00d7 {n_freq} frequencies")
+    healpix = build_healpix_from_stokes_cube(
+        stokes_rows=_iter_stokes_rows(),
+        nside=nside,
+        frequencies=frequencies,
+        coordinate_frame="icrs",
+        region=region,
+        precision=precision,
+        memmap_dir=memmap_path,
+    )
 
-    # Flush and re-open read-only if memmap-backed.
-    i_arr = finalize_cube(i_arr, scratch, "i_maps")
+    logger.info(
+        f"{model.upper()} loaded: {healpix.n_pixels}/{npix} pixels "
+        f"\u00d7 {n_freq} frequencies"
+    )
 
     # Build provenance from DIFFUSE_MODELS metadata + runtime include_cmb choice.
     resolved_include_cmb = init_kwargs.get("include_cmb", False)
@@ -366,7 +369,7 @@ def load_diffuse_sky(
     if region is None:
         sky_coverage = SkyCoverage.FULL_SKY
         coverage_fraction = 1.0
-        monopole_k = float(np.mean(i_arr[0])) if n_freq > 0 else None
+        monopole_k = first_full_sky_mean
     else:
         assert coverage_footprint is not None
         sky_coverage = SkyCoverage.PARTIAL_SKY
@@ -390,12 +393,7 @@ def load_diffuse_sky(
     )
 
     return SkyModel(
-        healpix=HealpixData(
-            maps=i_arr,
-            nside=nside,
-            frequencies=frequencies,
-            coordinate_frame="icrs",
-        ),
+        healpix=healpix,
         model_name=model,
         brightness_conversion=brightness_conversion,
         provenance=provenance,
@@ -612,75 +610,64 @@ def load_pysm3(
             "first use. Check your network connection, or verify that "
             "NERSC portal (portal.nersc.gov) is reachable."
         ) from e
-    from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
-
     npix = hp.nside2npix(nside)
-    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
-    hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
-    i_arr = allocate_cube((n_freq, npix), hp_dtype, scratch, "i_maps")
-    q_arr = (
-        allocate_cube((n_freq, npix), hp_dtype, scratch, "q_maps")
-        if include_polarization
-        else None
-    )
-    u_arr = (
-        allocate_cube((n_freq, npix), hp_dtype, scratch, "u_maps")
-        if include_polarization
-        else None
-    )
-
     rot = Rotator(coord=["G", "C"])
-    for fi, freq in enumerate(frequencies):
-        emission = pysm_sky.get_emission(freq * pysm3_u.Hz)
-        emission_krj = emission.to(
-            pysm3_u.K_RJ,
-            equivalencies=pysm3_u.cmb_equivalencies(freq * pysm3_u.Hz),
-        )
+    first_full_sky_mean: float | None = None
 
-        if include_polarization and emission_krj.shape[0] >= 3:
-            i_map = np.array(emission_krj[0])
-            q_map = np.array(emission_krj[1])
-            u_map = np.array(emission_krj[2])
-            current_nside = hp.get_nside(i_map)
-            if current_nside != nside:
-                i_map = hp.ud_grade(i_map, nside_out=nside)
-                q_map = hp.ud_grade(q_map, nside_out=nside)
-                u_map = hp.ud_grade(u_map, nside_out=nside)
-            iqu_rot = rot.rotate_map_alms(np.array([i_map, q_map, u_map]))
-            i_arr[fi] = iqu_rot[0].astype(hp_dtype)
-            q_arr[fi] = iqu_rot[1].astype(hp_dtype)
-            u_arr[fi] = iqu_rot[2].astype(hp_dtype)
-        else:
-            temp_map = np.array(emission_krj[0])
-            if hp.get_nside(temp_map) != nside:
-                temp_map = hp.ud_grade(temp_map, nside_out=nside)
-            temp_map = rot.rotate_map_pixel(temp_map)
-            i_arr[fi] = temp_map.astype(hp_dtype)
+    def _iter_stokes_rows():
+        nonlocal first_full_sky_mean
+        for fi, freq in enumerate(frequencies):
+            emission = pysm_sky.get_emission(freq * pysm3_u.Hz)
+            emission_krj = emission.to(
+                pysm3_u.K_RJ,
+                equivalencies=pysm3_u.cmb_equivalencies(freq * pysm3_u.Hz),
+            )
 
-    # Apply region mask (zero out-of-region pixels)
-    if region is not None:
-        mask = region.healpix_mask(nside)
-        n_retained = int(mask.sum())
-        i_arr[:, ~mask] = 0.0
-        if q_arr is not None:
-            q_arr[:, ~mask] = 0.0
-        if u_arr is not None:
-            u_arr[:, ~mask] = 0.0
-        logger.info(f"Region mask applied: {n_retained}/{npix} pixels retained")
+            if include_polarization and emission_krj.shape[0] >= 3:
+                i_map = np.array(emission_krj[0])
+                q_map = np.array(emission_krj[1])
+                u_map = np.array(emission_krj[2])
+                current_nside = hp.get_nside(i_map)
+                if current_nside != nside:
+                    i_map = hp.ud_grade(i_map, nside_out=nside)
+                    q_map = hp.ud_grade(q_map, nside_out=nside)
+                    u_map = hp.ud_grade(u_map, nside_out=nside)
+                iqu_rot = rot.rotate_map_alms(np.array([i_map, q_map, u_map]))
+                i_row = iqu_rot[0]
+                q_row = iqu_rot[1]
+                u_row = iqu_rot[2]
+            else:
+                i_row = np.array(emission_krj[0])
+                if hp.get_nside(i_row) != nside:
+                    i_row = hp.ud_grade(i_row, nside_out=nside)
+                i_row = rot.rotate_map_pixel(i_row)
+                if include_polarization:
+                    q_row = np.zeros_like(i_row)
+                    u_row = np.zeros_like(i_row)
+                else:
+                    q_row = None
+                    u_row = None
+
+            if fi == 0:
+                first_full_sky_mean = float(np.mean(i_row))
+            yield (i_row, q_row, u_row, None)
+
+    healpix = build_healpix_from_stokes_cube(
+        stokes_rows=_iter_stokes_rows(),
+        nside=nside,
+        frequencies=frequencies,
+        coordinate_frame="icrs",
+        region=region,
+        precision=precision,
+        memmap_dir=memmap_path,
+    )
 
     model_name = f"pysm3:{'+'.join(components_list)}"
     logger.info(
-        f"PySM3 {components_list} loaded: {npix} pixels "
+        f"PySM3 {components_list} loaded: {healpix.n_pixels}/{npix} pixels "
         f"\u00d7 {n_freq} frequencies"
         f"{', stokes=IQU' if include_polarization else ''}"
     )
-
-    # Flush and re-open read-only if memmap-backed.
-    i_arr = finalize_cube(i_arr, scratch, "i_maps")
-    if q_arr is not None:
-        q_arr = finalize_cube(q_arr, scratch, "q_maps")
-    if u_arr is not None:
-        u_arr = finalize_cube(u_arr, scratch, "u_maps")
 
     # PySM3 components are absolute, CMB-free brightness templates (unless "c1"
     # is requested, which adds CMB).  Detect the CMB component to set the
@@ -701,7 +688,7 @@ def load_pysm3(
     if region is None:
         sky_coverage = SkyCoverage.FULL_SKY
         coverage_fraction = 1.0
-        monopole_k = float(np.mean(i_arr[0])) if n_freq > 0 else None
+        monopole_k = first_full_sky_mean
     else:
         assert coverage_footprint is not None
         sky_coverage = SkyCoverage.PARTIAL_SKY
@@ -720,14 +707,7 @@ def load_pysm3(
     )
 
     return SkyModel(
-        healpix=HealpixData(
-            maps=i_arr,
-            nside=nside,
-            frequencies=frequencies,
-            coordinate_frame="icrs",
-            q_maps=q_arr,
-            u_maps=u_arr,
-        ),
+        healpix=healpix,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         provenance=provenance,

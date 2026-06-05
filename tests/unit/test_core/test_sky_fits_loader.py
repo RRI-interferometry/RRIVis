@@ -5,6 +5,7 @@ import pytest
 from astropy.io import fits
 
 from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky import SkyRegion
 from radiosim.core.sky.loaders.fits import load_fits_image
 
 
@@ -64,6 +65,38 @@ def test_fits_loader_stokes_i_only_avoids_polarization_allocations(
     assert sky.healpix.q_maps is None
     assert sky.healpix.u_maps is None
     assert sky.healpix.v_maps is None
+
+
+def test_fits_loader_region_filter_returns_sparse_healpix(monkeypatch, tmp_path):
+    import reproject
+
+    def fake_reproject_to_healpix(image_and_wcs, frame, nside, **kwargs):
+        npix = 12 * nside**2
+        return np.arange(npix, dtype=np.float64), np.ones(npix)
+
+    monkeypatch.setattr(reproject, "reproject_to_healpix", fake_reproject_to_healpix)
+
+    data = np.ones((2, 2), dtype=np.float64)
+    hdu = fits.PrimaryHDU(data)
+    header = hdu.header
+    header["CTYPE1"] = "RA---TAN"
+    header["CTYPE2"] = "DEC--TAN"
+    header["RESTFRQ"] = 100e6
+    header["BUNIT"] = "K"
+
+    fits_path = tmp_path / "region_filtered.fits"
+    hdu.writeto(fits_path)
+
+    sky = load_fits_image(
+        str(fits_path),
+        nside=4,
+        region=SkyRegion.cone(180.0, -30.0, 20.0),
+        precision=PrecisionConfig.standard(),
+    )
+
+    assert sky.healpix is not None
+    assert sky.healpix.is_sparse
+    assert sky.healpix.n_pixels < sky.healpix.full_n_pixels
 
 
 def test_fits_loader_preserves_signed_polarized_stokes(monkeypatch, tmp_path):

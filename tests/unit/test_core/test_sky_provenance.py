@@ -348,6 +348,9 @@ class TestLoaderPopulation:
         assert sky.provenance.coverage_footprint is not None
         assert 0.0 < sky.provenance.coverage_fraction < 1.0
         assert sky.provenance.monopole_k is None
+        assert sky.healpix is not None
+        assert sky.healpix.is_sparse
+        assert sky.healpix.n_pixels < sky.healpix.full_n_pixels
 
     def test_haslam_loader_provenance_tagged_source_subtracted(
         self, precision, monkeypatch
