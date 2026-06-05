@@ -163,8 +163,7 @@ def calculate_visibility(
     # Initialize visibilities dictionary with time dimension
     # Each baseline gets a (N_times, N_freq, 2, 2) array for visibility matrices
     visibilities_matrices = {
-        key: xp.zeros((n_times, n_freq, 2, 2), dtype=complex)
-        for key in baselines.keys()
+        key: backend.zeros_complex((n_times, n_freq, 2, 2)) for key in baselines.keys()
     }
 
     # Handle empty source arrays
@@ -299,6 +298,52 @@ def calculate_visibility(
         l_np = np.cos(alt_rad_t) * np.sin(az_rad_t)
         m_np = np.cos(alt_rad_t) * np.cos(az_rad_t)
         n_np = np.sin(alt_rad_t)
+        l_dir = backend.asarray(l_np, dtype=backend.default_real_dtype)
+        m_dir = backend.asarray(m_np, dtype=backend.default_real_dtype)
+        n_dir = backend.asarray(n_np, dtype=backend.default_real_dtype)
+        source_stokes_I_t = backend.asarray(
+            source_stokes_I_t, dtype=backend.default_real_dtype
+        )
+        source_stokes_Q_t = backend.asarray(
+            source_stokes_Q_t, dtype=backend.default_real_dtype
+        )
+        source_stokes_U_t = backend.asarray(
+            source_stokes_U_t, dtype=backend.default_real_dtype
+        )
+        source_stokes_V_t = backend.asarray(
+            source_stokes_V_t, dtype=backend.default_real_dtype
+        )
+        source_spectral_indices_t = backend.asarray(
+            source_spectral_indices_t, dtype=backend.default_real_dtype
+        )
+        source_ref_freq_t = backend.asarray(
+            source_ref_freq_t, dtype=backend.default_real_dtype
+        )
+        source_rm_t = backend.asarray(source_rm_t, dtype=backend.default_real_dtype)
+        if source_spectral_coeffs_t is not None:
+            source_spectral_coeffs_t = backend.asarray(
+                source_spectral_coeffs_t, dtype=backend.default_real_dtype
+            )
+        if source_per_channel_flux_t is not None:
+            source_per_channel_flux_t = backend.asarray(
+                source_per_channel_flux_t, dtype=backend.default_real_dtype
+            )
+        if source_per_channel_q_t is not None:
+            source_per_channel_q_t = backend.asarray(
+                source_per_channel_q_t, dtype=backend.default_real_dtype
+            )
+        if source_per_channel_u_t is not None:
+            source_per_channel_u_t = backend.asarray(
+                source_per_channel_u_t, dtype=backend.default_real_dtype
+            )
+        if source_per_channel_v_t is not None:
+            source_per_channel_v_t = backend.asarray(
+                source_per_channel_v_t, dtype=backend.default_real_dtype
+            )
+        if has_gaussians:
+            gauss_a_t = backend.asarray(gauss_a_t, dtype=backend.default_real_dtype)
+            gauss_b_t = backend.asarray(gauss_b_t, dtype=backend.default_real_dtype)
+            gauss_c_t = backend.asarray(gauss_c_t, dtype=backend.default_real_dtype)
 
         # Build antenna index mapping
         ant_keys = list(antennas.keys())
@@ -333,13 +378,13 @@ def calculate_visibility(
 
             # Coherency matrices: (n_sources, 2, 2)
             coherency_matrices = stokes_to_coherency(
-                I_scaled, Q_scaled, U_scaled, V_scaled
+                I_scaled, Q_scaled, U_scaled, V_scaled, xp=xp
             )
 
-            is_unpolarized = (
-                np.all(Q_scaled == 0)
-                and np.all(U_scaled == 0)
-                and np.all(V_scaled == 0)
+            is_unpolarized = bool(
+                backend.to_numpy(
+                    xp.all((Q_scaled == 0) & (U_scaled == 0) & (V_scaled == 0))
+                )
             )
 
             # Build JonesChain (without K — K is applied separately)
@@ -377,14 +422,18 @@ def calculate_visibility(
 
                 # Geometric phase (K) applied separately
                 bl_u, bl_v, bl_w = (
-                    np.array(baseline["BaselineVector"]) / wavelength.value
+                    backend.asarray(
+                        baseline["BaselineVector"],
+                        dtype=backend.default_real_dtype,
+                    )
+                    / wavelength.value
                 )
-                b_dot_s = bl_u * l_np + bl_v * m_np + bl_w * (n_np - 1.0)
-                phase = np.exp(-2j * np.pi * b_dot_s)
+                b_dot_s = bl_u * l_dir + bl_v * m_dir + bl_w * (n_dir - 1.0)
+                phase = backend.exp(-2j * np.pi * b_dot_s)
 
                 # Gaussian envelope: scalar attenuation per source
                 if has_gaussians:
-                    envelope = np.exp(
+                    envelope = backend.exp(
                         -(
                             gauss_a_t * bl_u**2
                             + 2 * gauss_b_t * bl_u * bl_v
@@ -395,21 +444,22 @@ def calculate_visibility(
                     envelope = 1.0
 
                 # Vectorized RIME: V = sum_s phase_s * J_p[s] @ C[s] @ J_q_H[s]
-                J_q_H = np.conj(np.swapaxes(J_q, -2, -1))
+                J_q_H = backend.conjugate_transpose(J_q)
 
                 if is_unpolarized:
-                    V_all = J_p @ J_q_H
-                    V_all = (
-                        V_all
-                        * (I_scaled * phase * envelope / 2.0)[:, np.newaxis, np.newaxis]
-                    )
+                    V_all = backend.matmul(J_p, J_q_H)
+                    V_all = V_all * (I_scaled * phase * envelope / 2.0)[:, None, None]
                 else:
-                    V_all = J_p @ coherency_matrices @ J_q_H
-                    V_all = V_all * (phase * envelope)[:, np.newaxis, np.newaxis]
+                    V_all = backend.matmul(
+                        backend.matmul(J_p, coherency_matrices), J_q_H
+                    )
+                    V_all = V_all * (phase * envelope)[:, None, None]
 
-                visibility_matrix = V_all.sum(axis=0)
-                visibilities_matrices[(ant1, ant2)][time_idx, freq_idx] = (
-                    visibility_matrix
+                visibility_matrix = backend.sum(V_all, axis=0)
+                visibilities_matrices[(ant1, ant2)] = backend.set_at(
+                    visibilities_matrices[(ant1, ant2)],
+                    (time_idx, freq_idx),
+                    visibility_matrix,
                 )
 
     # Convert backend arrays to numpy for output

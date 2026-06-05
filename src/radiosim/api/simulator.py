@@ -741,12 +741,6 @@ class Simulator:
                 self._sky_model is not None
                 and self._sky_model.has_polarized_healpix_maps
             )
-            if self._backend.name != "numpy":
-                print_warning(
-                    "HEALPix visibility simulation uses the NumPy CPU path; "
-                    f"configured backend '{self._backend.name}' applies to "
-                    "point-source visibility mode only."
-                )
 
             healpix_result = calculate_visibility_healpix(
                 sky_model=self._sky_model,
@@ -762,6 +756,7 @@ class Simulator:
                 output_units="Jy",
                 beam_config=self._beam_config,
                 include_polarization=use_pol,
+                backend=self._backend,
             )
 
             # Convert healpix result format to match RIME format for compatibility

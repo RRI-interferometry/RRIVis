@@ -297,6 +297,17 @@ class ArrayBackend(ABC):
         eye = self.eye(n, dtype=diagonal_array.dtype)
         return diagonal_array[..., :, None] * eye
 
+    def set_at(self, arr: Any, index: Any, value: Any) -> Any:
+        """Return ``arr`` with ``value`` set at ``index``.
+
+        NumPy/Numba arrays are updated in place. Immutable backends such as
+        JAX use their functional ``.at[index].set(...)`` update API.
+        """
+        if hasattr(arr, "at"):
+            return arr.at[index].set(value)
+        arr[index] = value
+        return arr
+
     # =========================================================================
     # Mathematical Operations
     # =========================================================================

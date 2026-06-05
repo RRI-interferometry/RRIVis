@@ -26,6 +26,7 @@ import numpy as np
 from astropy.coordinates import AltAz
 from astropy.time import TimeDelta
 
+from radiosim.backends import ArrayBackend, get_backend
 from radiosim.core.polarization import stokes_to_coherency
 from radiosim.core.sky import (
     SkyModel,
@@ -227,6 +228,7 @@ def calculate_visibility_healpix(
     output_units: str = "Jy",
     beam_config: dict | None = None,
     include_polarization: bool = False,
+    backend: ArrayBackend | None = None,
 ) -> dict:
     """
     Calculate visibility directly from HEALPix brightness temperature map.
@@ -297,6 +299,9 @@ def calculate_visibility_healpix(
             "Materialize a HEALPix payload first (for point-source catalogs) "
             "or load a diffuse HEALPix model with frequencies=...."
         )
+    if backend is None:
+        backend = get_backend("numpy")
+    xp = backend.xp
 
     # Determine if we should use the polarized path
     use_polarization = include_polarization and sky_model.has_polarized_healpix_maps
@@ -325,17 +330,20 @@ def calculate_visibility_healpix(
     n_freqs = len(freqs)
 
     # Pre-compute baseline vectors in local ENU
-    baseline_vectors = np.array(
-        [baselines[bl]["BaselineVector"] for bl in baseline_keys]
+    baseline_vectors = backend.asarray(
+        np.array([baselines[bl]["BaselineVector"] for bl in baseline_keys]),
+        dtype=backend.default_real_dtype,
     )
 
     # Initialize output array
     if use_polarization:
-        visibilities = np.zeros(
+        visibilities = backend.zeros_complex(
             (n_baselines, n_times, n_freqs, 2, 2), dtype=np.complex128
         )
     else:
-        visibilities = np.zeros((n_baselines, n_times, n_freqs), dtype=np.complex128)
+        visibilities = backend.zeros_complex(
+            (n_baselines, n_times, n_freqs), dtype=np.complex128
+        )
 
     logger.info(
         f"Computing visibilities: {n_times} times \u00d7 {n_freqs} freqs "
@@ -373,6 +381,9 @@ def calculate_visibility_healpix(
         dir_l = np.cos(alt_vis) * np.sin(az_vis)
         dir_m = np.cos(alt_vis) * np.cos(az_vis)
         dir_n = np.sin(alt_vis)
+        dir_l_xp = backend.asarray(dir_l, dtype=backend.default_real_dtype)
+        dir_m_xp = backend.asarray(dir_m, dtype=backend.default_real_dtype)
+        dir_n_xp = backend.asarray(dir_n, dtype=backend.default_real_dtype)
 
         # Zenith angles for beam computation
         za_vis = np.pi / 2 - alt_vis
@@ -425,7 +436,10 @@ def calculate_visibility_healpix(
                 conversion = getattr(sky_model, "brightness_conversion", "planck")
                 if conversion == "rayleigh-jeans":
                     rj_factor_I = rayleigh_jeans_factor(freq, omega_pixel)
-                    I_jy = I_vis * rj_factor_I
+                    I_jy = (
+                        backend.asarray(I_vis, dtype=backend.default_real_dtype)
+                        * rj_factor_I
+                    )
                 else:
                     I_jy = np.zeros(len(I_vis))
                     pos = I_vis > 0
@@ -436,36 +450,46 @@ def calculate_visibility_healpix(
                             omega_pixel,
                             method="planck",
                         )
+                    I_jy = backend.asarray(I_jy, dtype=backend.default_real_dtype)
 
                 # Stokes Q/U/V: always RJ (can be negative, RJ is linear)
                 rj_factor_pol = rayleigh_jeans_factor(freq, omega_pixel)
-                Q_jy = Q_vis * rj_factor_pol
-                U_jy = U_vis * rj_factor_pol
-                V_jy = V_vis * rj_factor_pol
+                Q_jy = backend.asarray(Q_vis, dtype=backend.default_real_dtype) * (
+                    rj_factor_pol
+                )
+                U_jy = backend.asarray(U_vis, dtype=backend.default_real_dtype) * (
+                    rj_factor_pol
+                )
+                V_jy = backend.asarray(V_vis, dtype=backend.default_real_dtype) * (
+                    rj_factor_pol
+                )
 
                 # Build per-pixel coherency matrices: (n_visible, 2, 2)
-                coherency = stokes_to_coherency(I_jy, Q_jy, U_jy, V_jy)
+                coherency = stokes_to_coherency(I_jy, Q_jy, U_jy, V_jy, xp=xp)
 
                 # Compute per-antenna Jones matrices
-                jones_cache: dict[Any, np.ndarray] = {}
+                jones_cache: dict[Any, Any] = {}
                 for ant_num in ant_nums:
                     ant_diameter = antennas.get(ant_num, {}).get("diameter", 14.0)
-                    jones_cache[ant_num] = _compute_beam_jones_matrix(
-                        zenith_angles=za_vis,
-                        diameter=ant_diameter,
-                        frequency=freq,
-                        beam_manager=beam_manager if has_beam_manager else None,
-                        antenna_number=ant_num,
-                        azimuth=az_vis,
-                        aperture_shape=bcfg.get("aperture_shape", "circular"),
-                        taper=bcfg.get("taper", "gaussian"),
-                        edge_taper_dB=bcfg.get("edge_taper_dB", 10.0),
-                        feed_model=bcfg.get("feed_model", "none"),
-                        feed_params=bcfg.get("feed_params"),
-                        feed_computation=bcfg.get("feed_computation", "analytical"),
-                        reflector_type=bcfg.get("reflector_type", "prime_focus"),
-                        magnification=bcfg.get("magnification", 1.0),
-                        aperture_params=bcfg.get("aperture_params"),
+                    jones_cache[ant_num] = backend.asarray(
+                        _compute_beam_jones_matrix(
+                            zenith_angles=za_vis,
+                            diameter=ant_diameter,
+                            frequency=freq,
+                            beam_manager=beam_manager if has_beam_manager else None,
+                            antenna_number=ant_num,
+                            azimuth=az_vis,
+                            aperture_shape=bcfg.get("aperture_shape", "circular"),
+                            taper=bcfg.get("taper", "gaussian"),
+                            edge_taper_dB=bcfg.get("edge_taper_dB", 10.0),
+                            feed_model=bcfg.get("feed_model", "none"),
+                            feed_params=bcfg.get("feed_params"),
+                            feed_computation=bcfg.get("feed_computation", "analytical"),
+                            reflector_type=bcfg.get("reflector_type", "prime_focus"),
+                            magnification=bcfg.get("magnification", 1.0),
+                            aperture_params=bcfg.get("aperture_params"),
+                        ),
+                        dtype=np.complex128,
                     )
 
                 # Compute visibility for each baseline
@@ -474,19 +498,21 @@ def calculate_visibility_healpix(
                     zip(baseline_keys, baseline_vectors, strict=False)
                 ):
                     bl_u, bl_v, bl_w = bl_vec / wavelength_m
-                    delay = bl_u * dir_l + bl_v * dir_m + bl_w * (dir_n - 1.0)
-                    phase = np.exp(-2j * np.pi * delay)
+                    delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)
+                    phase = backend.exp(-2j * np.pi * delay)
 
                     J_p = jones_cache[ant1]  # (n_vis, 2, 2)
-                    J_q_H = np.conj(
-                        np.swapaxes(jones_cache[ant2], -2, -1)
-                    )  # (n_vis, 2, 2)
+                    J_q_H = backend.conjugate_transpose(jones_cache[ant2])
 
                     # V_all: (n_vis, 2, 2) = J_p @ C @ J_q^H * phase
-                    V_all = J_p @ coherency @ J_q_H
-                    V_all = V_all * phase[:, np.newaxis, np.newaxis]
+                    V_all = backend.matmul(backend.matmul(J_p, coherency), J_q_H)
+                    V_all = V_all * phase[:, None, None]
 
-                    visibilities[bl_idx, time_idx, freq_idx] = V_all.sum(axis=0)
+                    visibilities = backend.set_at(
+                        visibilities,
+                        (bl_idx, time_idx, freq_idx),
+                        backend.sum(V_all, axis=0),
+                    )
 
             else:
                 # ----- SCALAR PATH (unchanged) -----
@@ -497,40 +523,52 @@ def calculate_visibility_healpix(
                     conversion = getattr(sky_model, "brightness_conversion", "planck")
                     if conversion == "rayleigh-jeans":
                         rj_factor = rayleigh_jeans_factor(freq, omega_pixel)
-                        signal = temp_vis * rj_factor
+                        signal = (
+                            backend.asarray(temp_vis, dtype=backend.default_real_dtype)
+                            * rj_factor
+                        )
                     else:
                         pos = temp_vis > 0
-                        signal = np.zeros(len(temp_vis))
+                        signal_np = np.zeros(len(temp_vis))
                         if np.any(pos):
-                            signal[pos] = brightness_temp_to_flux_density(
+                            signal_np[pos] = brightness_temp_to_flux_density(
                                 temp_vis[pos].astype(np.float64),
                                 freq,
                                 omega_pixel,
                                 method="planck",
                             )
+                        signal = backend.asarray(
+                            signal_np, dtype=backend.default_real_dtype
+                        )
                 else:
-                    signal = temp_vis * omega_pixel
+                    signal = (
+                        backend.asarray(temp_vis, dtype=backend.default_real_dtype)
+                        * omega_pixel
+                    )
 
                 # Compute per-antenna beam power patterns for this frequency
-                beam_patterns: dict[Any, np.ndarray] = {}
+                beam_patterns: dict[Any, Any] = {}
                 for ant_num in ant_nums:
                     ant_diameter = antennas.get(ant_num, {}).get("diameter", 14.0)
-                    beam_patterns[ant_num] = _compute_beam_power_pattern(
-                        zenith_angles=za_vis,
-                        diameter=ant_diameter,
-                        frequency=freq,
-                        beam_manager=beam_manager if has_beam_manager else None,
-                        antenna_number=ant_num,
-                        azimuth=az_vis,
-                        aperture_shape=bcfg.get("aperture_shape", "circular"),
-                        taper=bcfg.get("taper", "gaussian"),
-                        edge_taper_dB=bcfg.get("edge_taper_dB", 10.0),
-                        feed_model=bcfg.get("feed_model", "none"),
-                        feed_params=bcfg.get("feed_params"),
-                        feed_computation=bcfg.get("feed_computation", "analytical"),
-                        reflector_type=bcfg.get("reflector_type", "prime_focus"),
-                        magnification=bcfg.get("magnification", 1.0),
-                        aperture_params=bcfg.get("aperture_params"),
+                    beam_patterns[ant_num] = backend.asarray(
+                        _compute_beam_power_pattern(
+                            zenith_angles=za_vis,
+                            diameter=ant_diameter,
+                            frequency=freq,
+                            beam_manager=beam_manager if has_beam_manager else None,
+                            antenna_number=ant_num,
+                            azimuth=az_vis,
+                            aperture_shape=bcfg.get("aperture_shape", "circular"),
+                            taper=bcfg.get("taper", "gaussian"),
+                            edge_taper_dB=bcfg.get("edge_taper_dB", 10.0),
+                            feed_model=bcfg.get("feed_model", "none"),
+                            feed_params=bcfg.get("feed_params"),
+                            feed_computation=bcfg.get("feed_computation", "analytical"),
+                            reflector_type=bcfg.get("reflector_type", "prime_focus"),
+                            magnification=bcfg.get("magnification", 1.0),
+                            aperture_params=bcfg.get("aperture_params"),
+                        ),
+                        dtype=backend.default_real_dtype,
                     )
 
                 # V = Σ B_pq * signal × exp(-2πi (ul + vm + w(n-1)))
@@ -538,14 +576,16 @@ def calculate_visibility_healpix(
                     zip(baseline_keys, baseline_vectors, strict=False)
                 ):
                     bl_u, bl_v, bl_w = bl_vec / wavelength_m
-                    delay = bl_u * dir_l + bl_v * dir_m + bl_w * (dir_n - 1.0)
-                    phase = np.exp(-2j * np.pi * delay)
+                    delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)
+                    phase = backend.exp(-2j * np.pi * delay)
 
-                    B_pq = np.sqrt(beam_patterns[ant1] * beam_patterns[ant2])
+                    B_pq = backend.sqrt(beam_patterns[ant1] * beam_patterns[ant2])
                     beamed_signal = signal * B_pq
 
-                    vis = np.sum(beamed_signal * phase)
-                    visibilities[bl_idx, time_idx, freq_idx] = vis
+                    vis = backend.sum(beamed_signal * phase)
+                    visibilities = backend.set_at(
+                        visibilities, (bl_idx, time_idx, freq_idx), vis
+                    )
 
         if time_idx % 10 == 0 or time_idx == n_times - 1:
             logger.debug(
@@ -554,7 +594,7 @@ def calculate_visibility_healpix(
 
     # Prepare output
     result = {
-        "visibilities": visibilities,
+        "visibilities": backend.to_numpy(visibilities),
         "times": times,
         "frequencies": freqs,
         "baseline_keys": baseline_keys,

@@ -46,7 +46,7 @@ References:
 import numpy as np
 
 
-def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0):
+def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
     """
     Convert Stokes parameters to 2×2 coherency matrix.
 
@@ -103,27 +103,28 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0):
     >>> C = stokes_to_coherency(stokes_I=5.0, stokes_V=2.0)
     >>> C[0, 1].imag  # → -1.0 (Africanus: U-iV → -iV)
     """
-    # Convert to arrays for consistent handling
-    stokes_I = np.asarray(stokes_I, dtype=float)
-    stokes_Q = np.asarray(stokes_Q, dtype=float)
-    stokes_U = np.asarray(stokes_U, dtype=float)
-    stokes_V = np.asarray(stokes_V, dtype=float)
+    # Convert to arrays for consistent handling.
+    stokes_I = xp.asarray(stokes_I, dtype=float)
+    stokes_Q = xp.asarray(stokes_Q, dtype=float)
+    stokes_U = xp.asarray(stokes_U, dtype=float)
+    stokes_V = xp.asarray(stokes_V, dtype=float)
 
-    # Broadcast to common shape
-    stokes_I, stokes_Q, stokes_U, stokes_V = np.broadcast_arrays(
-        stokes_I, stokes_Q, stokes_U, stokes_V
+    # Fill coherency matrix with Africanus/half-power convention.
+    row_x = xp.stack(
+        [
+            stokes_I + stokes_Q,
+            stokes_U - 1j * stokes_V,
+        ],
+        axis=-1,
     )
-
-    # Initialize coherency matrix
-    # Shape: (..., 2, 2) for array inputs, (2, 2) for scalars
-    shape = stokes_I.shape + (2, 2)
-    coherency = np.zeros(shape, dtype=complex)
-
-    # Fill coherency matrix with Africanus/half-power convention
-    coherency[..., 0, 0] = stokes_I + stokes_Q  # XX: (I+Q) before normalization
-    coherency[..., 0, 1] = stokes_U - 1j * stokes_V  # XY: U - iV (Africanus)
-    coherency[..., 1, 0] = stokes_U + 1j * stokes_V  # YX: U + iV (conjugate)
-    coherency[..., 1, 1] = stokes_I - stokes_Q  # YY: (I-Q) before normalization
+    row_y = xp.stack(
+        [
+            stokes_U + 1j * stokes_V,
+            stokes_I - stokes_Q,
+        ],
+        axis=-1,
+    )
+    coherency = xp.stack([row_x, row_y], axis=-2)
 
     # Normalize: Divide by 2 for density matrix / half-power convention
     # CRITICAL: This ensures Tr(C) = I, not 2I (energy conservation)
