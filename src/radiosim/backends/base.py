@@ -308,6 +308,36 @@ class ArrayBackend(ABC):
         arr[index] = value
         return arr
 
+    def bincount(
+        self,
+        x: Any,
+        weights: Any | None = None,
+        minlength: int = 0,
+    ) -> Any:
+        """Count/bin values using the backend namespace."""
+        x_backend = self.asarray(x)
+        weights_backend = None if weights is None else self.asarray(weights)
+        if self.xp is np:
+            return np.bincount(
+                np.asarray(x_backend),
+                weights=(
+                    None if weights_backend is None else np.asarray(weights_backend)
+                ),
+                minlength=minlength,
+            )
+        try:
+            return self.xp.bincount(
+                x_backend,
+                weights=weights_backend,
+                length=minlength,
+            )
+        except TypeError:
+            return self.xp.bincount(
+                x_backend,
+                weights=weights_backend,
+                minlength=minlength,
+            )
+
     # =========================================================================
     # Mathematical Operations
     # =========================================================================

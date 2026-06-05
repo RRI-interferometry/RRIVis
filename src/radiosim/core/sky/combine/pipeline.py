@@ -67,6 +67,7 @@ def prepare_sky_model(
     mixed_model_policy = opts.mixed_model_policy
     brightness_conversion = opts.brightness_conversion
     precision = opts.precision
+    backend = opts.backend
     memmap_path = opts.memmap_path
     beam_fwhm_rad = opts.beam_fwhm_rad
     nside_safety_factor = opts.nside_safety_factor
@@ -129,6 +130,7 @@ def prepare_sky_model(
             allow_lossy_point_materialization=allow_lossy,
             mixed_model_policy=mixed_model_policy,
             precision=precision,
+            backend=backend,
             memmap_path=memmap_path,
         )
 
@@ -148,6 +150,7 @@ def prepare_sky_model(
             ref_frequency=frequency,
             memmap_path=memmap_path,
             clear_other=True,
+            backend=backend,
         )
 
     if sky.point is not None:
@@ -158,5 +161,5 @@ def prepare_sky_model(
             "Set allow_lossy=True to opt in to lossy HEALPix-to-point conversion."
         )
     return materialize_point_sources_model(
-        sky, frequency=frequency, lossy=True, clear_other=True
+        sky, frequency=frequency, lossy=True, clear_other=True, backend=backend
     )

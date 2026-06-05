@@ -47,6 +47,7 @@ class PrepareSkyOptions:
     mixed_model_policy: MixedModelPolicy = "error"
     brightness_conversion: BrightnessConversion | str | None = None
     precision: Any = None
+    backend: Any = None
     memmap_path: str | None = None
     beam_fwhm_rad: float | None = None
     nside_safety_factor: float = 5.0

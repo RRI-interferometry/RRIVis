@@ -7,6 +7,7 @@ Pure functions that accept and return raw numpy arrays. No SkyModel dependency.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import healpy as hp
 import numpy as np
@@ -25,6 +26,9 @@ from ..containers.spectral import (
 )
 from ..diagnostics.discovery import estimate_healpix_memory
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+
+if TYPE_CHECKING:
+    from radiosim.backends import ArrayBackend
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +154,7 @@ def healpix_map_to_point_arrays(
     *,
     polarization_brightness_conversion: str = "rayleigh-jeans",
     warn: bool = True,
+    backend: ArrayBackend | None = None,
 ) -> dict[str, np.ndarray]:
     """Convert a HEALPix brightness temperature map to columnar point-source arrays.
 
@@ -394,6 +399,7 @@ def bin_sources_to_flux(
     scale: np.ndarray | None = None,
     per_channel_flux: np.ndarray | None = None,
     channel_frequencies: np.ndarray | None = None,
+    backend: ArrayBackend | None = None,
 ) -> np.ndarray:
     """Bin point sources into a HEALPix flux density map at a given frequency.
 
@@ -425,16 +431,19 @@ def bin_sources_to_flux(
     np.ndarray
         Flux density map in Jy, shape ``(npix,)``.
     """
+    xp = np if backend is None else backend.xp
     if per_channel_flux is not None and channel_frequencies is not None:
         idx = nearest_channel_index(channel_frequencies, freq)
-        flux_f = per_channel_flux[idx].astype(np.float64, copy=False)
+        flux_f = xp.asarray(per_channel_flux[idx], dtype=np.float64)
     else:
         if scale is None:
             scale = compute_spectral_scale(
-                spectral_index, spectral_coeffs, freq, ref_frequency
+                spectral_index, spectral_coeffs, freq, ref_frequency, xp=xp
             )
-        flux_f = flux * scale
-    return np.bincount(ipix, weights=flux_f, minlength=npix)
+        flux_f = xp.asarray(flux, dtype=np.float64) * scale
+    if backend is None:
+        return np.bincount(ipix, weights=flux_f, minlength=npix)
+    return backend.bincount(ipix, weights=flux_f, minlength=npix)
 
 
 def point_sources_to_healpix_maps(
@@ -461,6 +470,7 @@ def point_sources_to_healpix_maps(
     channel_frequencies: np.ndarray | None = None,
     *,
     polarization_brightness_conversion: str = "rayleigh-jeans",
+    backend: ArrayBackend | None = None,
 ) -> tuple[
     np.ndarray,
     np.ndarray | None,
@@ -543,6 +553,8 @@ def point_sources_to_healpix_maps(
             "polarization_brightness_conversion must be 'rayleigh-jeans' or "
             f"'planck', got {polarization_brightness_conversion!r}."
         )
+    xp = np if backend is None else backend.xp
+    to_numpy = np.asarray if backend is None else backend.to_numpy
 
     npix = hp.nside2npix(nside)
     n_freq = len(frequencies)
@@ -635,40 +647,89 @@ def point_sources_to_healpix_maps(
     )
 
     use_per_channel = per_channel_flux is not None and channel_frequencies is not None
+    flux_backend = xp.asarray(flux, dtype=np.float64)
+    spectral_index_backend = xp.asarray(spectral_index, dtype=np.float64)
+    spectral_coeffs_backend = (
+        None
+        if spectral_coeffs is None
+        else xp.asarray(spectral_coeffs, dtype=np.float64)
+    )
+    ref_frequency_backend = xp.asarray(ref_frequency, dtype=np.float64)
+    stokes_q_backend = (
+        None if stokes_q is None else xp.asarray(stokes_q, dtype=np.float64)
+    )
+    stokes_u_backend = (
+        None if stokes_u is None else xp.asarray(stokes_u, dtype=np.float64)
+    )
+    stokes_v_backend = (
+        None if stokes_v is None else xp.asarray(stokes_v, dtype=np.float64)
+    )
+    rotation_measure_backend = (
+        None
+        if rotation_measure is None
+        else xp.asarray(rotation_measure, dtype=np.float64)
+    )
+    per_channel_flux_backend = (
+        None
+        if per_channel_flux is None
+        else xp.asarray(per_channel_flux, dtype=np.float64)
+    )
+    per_channel_stokes_q_backend = (
+        None
+        if per_channel_stokes_q is None
+        else xp.asarray(per_channel_stokes_q, dtype=np.float64)
+    )
+    per_channel_stokes_u_backend = (
+        None
+        if per_channel_stokes_u is None
+        else xp.asarray(per_channel_stokes_u, dtype=np.float64)
+    )
+    per_channel_stokes_v_backend = (
+        None
+        if per_channel_stokes_v is None
+        else xp.asarray(per_channel_stokes_v, dtype=np.float64)
+    )
     for fi, freq in enumerate(frequencies):
         if use_per_channel:
             scale = None  # unused on per-channel path
             flux_map = bin_sources_to_flux(
                 ipix,
-                flux,
-                spectral_index,
-                spectral_coeffs,
+                flux_backend,
+                spectral_index_backend,
+                spectral_coeffs_backend,
                 float(freq),
-                ref_frequency,
+                ref_frequency_backend,
                 npix,
-                per_channel_flux=per_channel_flux,
+                per_channel_flux=per_channel_flux_backend,
                 channel_frequencies=channel_frequencies,
+                backend=backend,
             )
         else:
             scale = compute_spectral_scale(
-                spectral_index, spectral_coeffs, float(freq), ref_frequency
+                spectral_index_backend,
+                spectral_coeffs_backend,
+                float(freq),
+                ref_frequency_backend,
+                xp=xp,
             )
             flux_map = bin_sources_to_flux(
                 ipix,
-                flux,
-                spectral_index,
-                spectral_coeffs,
+                flux_backend,
+                spectral_index_backend,
+                spectral_coeffs_backend,
                 float(freq),
-                ref_frequency,
+                ref_frequency_backend,
                 npix,
                 scale=scale,
+                backend=backend,
             )
 
         temp_out = np.zeros(npix, dtype=output_dtype)
-        occupied = flux_map > 0
+        flux_map_np = to_numpy(flux_map)
+        occupied = flux_map_np > 0
         if np.any(occupied):
             temp_out[occupied] = flux_density_to_brightness_temp(
-                flux_map[occupied],
+                flux_map_np[occupied],
                 float(freq),
                 omega_pixel,
                 method=brightness_conversion,
@@ -688,8 +749,9 @@ def point_sources_to_healpix_maps(
                 _freq_hz: float = freq_hz,
                 _rj_inv: float = rj_inv,
             ) -> np.ndarray:
+                flux_map_np = to_numpy(flux_map)
                 if pol_method == "planck":
-                    if np.any(flux_map <= 0):
+                    if np.any(flux_map_np <= 0):
                         raise ValueError(
                             "polarization_brightness_conversion='planck' "
                             f"requires strictly positive {name} flux per "
@@ -699,54 +761,73 @@ def point_sources_to_healpix_maps(
                             "conversion."
                         )
                     return flux_density_to_brightness_temp(
-                        flux_map, _freq_hz, omega_pixel, method="planck"
+                        flux_map_np, _freq_hz, omega_pixel, method="planck"
                     )
-                return flux_map * _rj_inv
+                return flux_map_np * _rj_inv
 
             if use_per_channel:
                 ch_idx = nearest_channel_index(channel_frequencies, float(freq))
                 if (
-                    per_channel_stokes_q is not None
-                    and per_channel_stokes_u is not None
+                    per_channel_stokes_q_backend is not None
+                    and per_channel_stokes_u_backend is not None
                 ):
-                    q_flux = per_channel_stokes_q[ch_idx].astype(np.float64, copy=False)
-                    u_flux = per_channel_stokes_u[ch_idx].astype(np.float64, copy=False)
+                    q_flux = xp.asarray(
+                        per_channel_stokes_q_backend[ch_idx], dtype=np.float64
+                    )
+                    u_flux = xp.asarray(
+                        per_channel_stokes_u_backend[ch_idx], dtype=np.float64
+                    )
                 else:
                     q_flux = (
-                        stokes_q.astype(np.float64, copy=False)
-                        if stokes_q is not None
-                        else np.zeros(n_sources)
+                        stokes_q_backend
+                        if stokes_q_backend is not None
+                        else xp.zeros(n_sources)
                     )
                     u_flux = (
-                        stokes_u.astype(np.float64, copy=False)
-                        if stokes_u is not None
-                        else np.zeros(n_sources)
+                        stokes_u_backend
+                        if stokes_u_backend is not None
+                        else xp.zeros(n_sources)
                     )
-                if per_channel_stokes_v is not None:
-                    v_flux = per_channel_stokes_v[ch_idx].astype(np.float64, copy=False)
+                if per_channel_stokes_v_backend is not None:
+                    v_flux = xp.asarray(
+                        per_channel_stokes_v_backend[ch_idx], dtype=np.float64
+                    )
                 else:
                     v_flux = (
-                        stokes_v.astype(np.float64, copy=False)
-                        if stokes_v is not None
-                        else np.zeros(n_sources)
+                        stokes_v_backend
+                        if stokes_v_backend is not None
+                        else xp.zeros(n_sources)
                     )
             else:
                 q_flux, u_flux = apply_faraday_rotation(
-                    stokes_q,
-                    stokes_u,
-                    rotation_measure,
+                    stokes_q_backend,
+                    stokes_u_backend,
+                    rotation_measure_backend,
                     float(freq),
-                    ref_frequency,
+                    ref_frequency_backend,
                     scale,
+                    xp=xp,
                 )
-                v_flux = stokes_v * scale
-            q_map = np.bincount(ipix, weights=q_flux, minlength=npix)
+                v_flux = stokes_v_backend * scale
+            q_map = (
+                np.bincount(ipix, weights=q_flux, minlength=npix)
+                if backend is None
+                else backend.bincount(ipix, weights=q_flux, minlength=npix)
+            )
             q_arr[fi] = _pol_flux_to_K(q_map, "Stokes Q").astype(output_dtype)
 
-            u_map = np.bincount(ipix, weights=u_flux, minlength=npix)
+            u_map = (
+                np.bincount(ipix, weights=u_flux, minlength=npix)
+                if backend is None
+                else backend.bincount(ipix, weights=u_flux, minlength=npix)
+            )
             u_arr[fi] = _pol_flux_to_K(u_map, "Stokes U").astype(output_dtype)
 
-            v_map = np.bincount(ipix, weights=v_flux, minlength=npix)
+            v_map = (
+                np.bincount(ipix, weights=v_flux, minlength=npix)
+                if backend is None
+                else backend.bincount(ipix, weights=v_flux, minlength=npix)
+            )
             v_arr[fi] = _pol_flux_to_K(v_map, "Stokes V").astype(output_dtype)
 
     logger.info(

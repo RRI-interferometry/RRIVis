@@ -624,6 +624,7 @@ class Simulator:
             mixed_model_policy=mixed_model_policy,
             brightness_conversion=_brightness_conv,
             precision=_precision,
+            backend=self._backend,
             beam_fwhm_rad=beam_fwhm_rad,
         )
 

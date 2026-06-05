@@ -28,6 +28,7 @@ from .regrid import (
 )
 
 if TYPE_CHECKING:
+    from radiosim.backends import ArrayBackend
     from radiosim.core.precision import PrecisionConfig
 
     from ..containers.model import SkyModel
@@ -40,6 +41,7 @@ def _point_contributions_at_freq(
     ref_freq: float | np.ndarray,
     freq_hz: float,
     npix: int,
+    backend: ArrayBackend | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Bin a point-source model's I/Q/U/V into HEALPix flux-density (Jy) maps.
 
@@ -49,38 +51,107 @@ def _point_contributions_at_freq(
     behaviour of :func:`evaluate_point_flux_at_freq`, then accumulates by
     pixel via :func:`np.bincount`.
     """
+    xp = np if backend is None else backend.xp
+    stokes_i = point.flux if backend is None else backend.asarray(point.flux)
+    stokes_q = point.stokes_q if backend is None else backend.asarray(point.stokes_q)
+    stokes_u = point.stokes_u if backend is None else backend.asarray(point.stokes_u)
+    stokes_v = point.stokes_v if backend is None else backend.asarray(point.stokes_v)
+    spectral_index = (
+        point.spectral_index
+        if backend is None
+        else backend.asarray(point.spectral_index)
+    )
+    spectral_coeffs = (
+        None
+        if point.spectral_coeffs is None
+        else (
+            point.spectral_coeffs
+            if backend is None
+            else backend.asarray(point.spectral_coeffs)
+        )
+    )
+    ref_freq_eval = ref_freq if backend is None else backend.asarray(ref_freq)
+    rotation_measure = (
+        point.polarization.rotation_measure if point.polarization is not None else None
+    )
+    rotation_measure = (
+        None
+        if rotation_measure is None
+        else (
+            rotation_measure if backend is None else backend.asarray(rotation_measure)
+        )
+    )
+    per_channel_flux = (
+        None
+        if spectrum is None
+        else (spectrum.flux if backend is None else backend.asarray(spectrum.flux))
+    )
+    per_channel_stokes_q = (
+        spectrum.stokes_q
+        if spectrum is not None and spectrum.stokes_q is not None
+        else None
+    )
+    per_channel_stokes_q = (
+        None
+        if per_channel_stokes_q is None
+        else (
+            per_channel_stokes_q
+            if backend is None
+            else backend.asarray(per_channel_stokes_q)
+        )
+    )
+    per_channel_stokes_u = (
+        spectrum.stokes_u
+        if spectrum is not None and spectrum.stokes_u is not None
+        else None
+    )
+    per_channel_stokes_u = (
+        None
+        if per_channel_stokes_u is None
+        else (
+            per_channel_stokes_u
+            if backend is None
+            else backend.asarray(per_channel_stokes_u)
+        )
+    )
+    per_channel_stokes_v = (
+        spectrum.stokes_v
+        if spectrum is not None and spectrum.stokes_v is not None
+        else None
+    )
+    per_channel_stokes_v = (
+        None
+        if per_channel_stokes_v is None
+        else (
+            per_channel_stokes_v
+            if backend is None
+            else backend.asarray(per_channel_stokes_v)
+        )
+    )
     i_f, q_f, u_f, v_f = evaluate_point_flux_at_freq(
-        stokes_i=point.flux,
-        stokes_q=point.stokes_q,
-        stokes_u=point.stokes_u,
-        stokes_v=point.stokes_v,
-        spectral_index=point.spectral_index,
-        spectral_coeffs=point.spectral_coeffs,
-        ref_freq=ref_freq,
-        rotation_measure=(
-            point.polarization.rotation_measure
-            if point.polarization is not None
-            else None
-        ),
-        per_channel_flux=spectrum.flux if spectrum is not None else None,
-        per_channel_stokes_q=(
-            spectrum.stokes_q
-            if spectrum is not None and spectrum.stokes_q is not None
-            else None
-        ),
-        per_channel_stokes_u=(
-            spectrum.stokes_u
-            if spectrum is not None and spectrum.stokes_u is not None
-            else None
-        ),
-        per_channel_stokes_v=(
-            spectrum.stokes_v
-            if spectrum is not None and spectrum.stokes_v is not None
-            else None
-        ),
+        stokes_i=stokes_i,
+        stokes_q=stokes_q,
+        stokes_u=stokes_u,
+        stokes_v=stokes_v,
+        spectral_index=spectral_index,
+        spectral_coeffs=spectral_coeffs,
+        ref_freq=ref_freq_eval,
+        rotation_measure=rotation_measure,
+        per_channel_flux=per_channel_flux,
+        per_channel_stokes_q=per_channel_stokes_q,
+        per_channel_stokes_u=per_channel_stokes_u,
+        per_channel_stokes_v=per_channel_stokes_v,
         channel_frequencies=spectrum.frequencies if spectrum is not None else None,
         freq=freq_hz,
+        xp=xp,
     )
+    if backend is not None:
+        return (
+            backend.bincount(ipix, weights=i_f, minlength=npix),
+            backend.bincount(ipix, weights=q_f, minlength=npix),
+            backend.bincount(ipix, weights=u_f, minlength=npix),
+            backend.bincount(ipix, weights=v_f, minlength=npix),
+        )
     return (
         np.bincount(ipix, weights=i_f, minlength=npix),
         np.bincount(ipix, weights=q_f, minlength=npix),
@@ -113,6 +184,7 @@ def combine_healpix(
     brightness_conversion: str = "planck",
     precision: PrecisionConfig | None = None,
     memmap_path: str | None = None,
+    backend: ArrayBackend | None = None,
 ) -> CombineHealpixData:
     """Combine models by element-wise addition in Jy space per frequency channel.
 
@@ -288,7 +360,13 @@ def combine_healpix(
                     ps_ref_freq,
                     float(freq_hz),
                     npix,
+                    backend=backend,
                 )
+                if backend is not None:
+                    i_map = backend.to_numpy(i_map)
+                    q_map = backend.to_numpy(q_map)
+                    u_map = backend.to_numpy(u_map)
+                    v_map = backend.to_numpy(v_map)
                 # Jy → K_RJ: divide by RJ factor
                 combined_T_b += i_map * rj_inv
                 if any_pol:
@@ -373,7 +451,13 @@ def combine_healpix(
                     ps_ref_freq,
                     float(freq_hz),
                     npix,
+                    backend=backend,
                 )
+                if backend is not None:
+                    i_map = backend.to_numpy(i_map)
+                    q_map = backend.to_numpy(q_map)
+                    u_map = backend.to_numpy(u_map)
+                    v_map = backend.to_numpy(v_map)
                 combined_flux += i_map
                 if any_pol:
                     combined_q_flux += q_map

@@ -26,6 +26,8 @@ from ..containers.spectral import per_source_reference_frequencies
 from .convert import healpix_map_to_point_arrays, point_sources_to_healpix_maps
 
 if TYPE_CHECKING:
+    from radiosim.backends import ArrayBackend
+
     from ..containers.model import SkyModel
 
 
@@ -38,6 +40,7 @@ def materialize_healpix_model(
     ref_frequency: float | None = None,
     memmap_path: str | None = None,
     clear_other: bool = True,
+    backend: ArrayBackend | None = None,
 ) -> SkyModel:
     """Materialize a HEALPix payload from a point-source payload.
 
@@ -123,6 +126,7 @@ def materialize_healpix_model(
         per_channel_stokes_v=spectrum.stokes_v if spectrum is not None else None,
         channel_frequencies=spectrum.frequencies if spectrum is not None else None,
         polarization_brightness_conversion=pol_method,
+        backend=backend,
     )
 
     new_healpix = HealpixData(
@@ -166,6 +170,7 @@ def materialize_point_sources_model(
     *,
     lossy: bool = False,
     clear_other: bool = True,
+    backend: ArrayBackend | None = None,
 ) -> SkyModel:
     """Materialize a point-source payload from a HEALPix payload.
 
@@ -232,6 +237,7 @@ def materialize_point_sources_model(
         ref_freq_out=resolve_freq,
         polarization_brightness_conversion=pol_conversion,
         warn=False,
+        backend=backend,
     )
     if flux_limit > 0:
         mask = arrays["flux"] >= flux_limit

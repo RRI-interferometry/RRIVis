@@ -54,6 +54,7 @@ from .regrid import (
 )
 
 if TYPE_CHECKING:
+    from radiosim.backends import ArrayBackend
     from radiosim.core.precision import PrecisionConfig
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,7 @@ def _combine_as_healpix_merge(
     nside: int | None = None,
     frequencies: np.ndarray | None = None,
     memmap_path: str | None = None,
+    backend: ArrayBackend | None = None,
 ) -> SkyModel:
     """Combine models into a HEALPix cube via Jy-space addition.
 
@@ -156,6 +158,7 @@ def _combine_as_healpix_merge(
         brightness_conversion=brightness_conversion,
         precision=precision,
         memmap_path=memmap_path,
+        backend=backend,
     )
 
     provenance = merge_provenance(models)
@@ -240,6 +243,7 @@ def _combine_as_hybrid(
     brightness_conversion: BrightnessConversion,
     precision: PrecisionConfig | None,
     memmap_path: str | None,
+    backend: ArrayBackend | None = None,
 ) -> SkyModel:
     """Build a hybrid SkyModel preserving both point and HEALPix payloads.
 
@@ -294,6 +298,7 @@ def _combine_as_hybrid(
             brightness_conversion,
             precision,
             memmap_path=memmap_path,
+            backend=backend,
         )
         healpix_payload = merged.healpix
 
@@ -339,6 +344,7 @@ def _combine_models(
     mixed_model_policy: MixedModelPolicy = "error",
     precision: PrecisionConfig | None = None,
     memmap_path: str | None = None,
+    backend: ArrayBackend | None = None,
 ) -> SkyModel:
     """Combine multiple sky models into one (internal building block).
 
@@ -414,6 +420,7 @@ def _combine_models(
             brightness_conversion=brightness_conversion,
             precision=precision,
             memmap_path=memmap_path,
+            backend=backend,
         )
 
     representation, freq, ref_freq = resolve_combination_params(
@@ -438,6 +445,7 @@ def _combine_models(
             nside=nside,
             frequencies=requested_freqs,
             memmap_path=memmap_path,
+            backend=backend,
         )
 
     # Point-source output: concatenate as point sources.
