@@ -14,12 +14,14 @@ from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import (
     HealpixData,
     create_test_sources,
+)
+from radiosim.core.sky.containers.model import SkyModel
+from radiosim.visualization import (
     plot_flux_histogram,
     plot_healpix_map,
     plot_source_positions,
     plot_spectral_index,
 )
-from radiosim.core.sky.containers.model import SkyModel
 
 
 @pytest.fixture

@@ -18,7 +18,7 @@ from .common import (
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
-    from ...containers.model import SkyModel
+    from radiosim.core.sky.containers.model import SkyModel
 
 
 def plot_source_positions(

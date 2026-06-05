@@ -15,7 +15,7 @@ import numpy as np
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
-    from ...containers.model import SkyModel
+    from radiosim.core.sky.containers.model import SkyModel
 
 
 _COLORBAR_LABELS = {

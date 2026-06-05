@@ -17,7 +17,7 @@ from .common import (
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
-    from ...containers.model import SkyModel
+    from radiosim.core.sky.containers.model import SkyModel
 
 
 def plot_pixel_histogram(
@@ -33,7 +33,7 @@ def plot_pixel_histogram(
     """Histogram of HEALPix pixel values at a single frequency."""
     from scipy import stats as _stats
 
-    from ...diagnostics.analysis import gaussianity_stats
+    from radiosim.core.sky.diagnostics.analysis import gaussianity_stats
 
     _validate_plot_mode(sky, "healpix")
     freq = _resolve_plot_frequency(sky, frequency)

@@ -19,7 +19,7 @@ from .common import (
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
-    from ...containers.model import SkyModel
+    from radiosim.core.sky.containers.model import SkyModel
 
 
 def plot_healpix_map(
@@ -294,7 +294,7 @@ def plot_linear_polarization(
     """
     import matplotlib.pyplot as plt
 
-    from ...operations.operations import compute_linear_polarization
+    from radiosim.core.sky.operations.operations import compute_linear_polarization
 
     _validate_plot_mode(sky, "healpix")
     freq = _resolve_plot_frequency(sky, frequency)

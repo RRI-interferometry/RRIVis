@@ -19,7 +19,7 @@ from .common import (
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
-    from ...containers.model import SkyModel
+    from radiosim.core.sky.containers.model import SkyModel
 
 
 def plot_angular_power_spectrum(
@@ -35,7 +35,7 @@ def plot_angular_power_spectrum(
     title: str | None = None,
 ) -> Figure:
     """Angular power spectrum ``C_ell`` or ``D_ell`` at one or more frequencies."""
-    from ...diagnostics.analysis import compute_angular_power_spectrum
+    from radiosim.core.sky.diagnostics.analysis import compute_angular_power_spectrum
 
     _validate_plot_mode(sky, "healpix")
 
@@ -131,7 +131,7 @@ def plot_cross_frequency_cell(
     title: str | None = None,
 ) -> Figure:
     """Cross-power spectrum ``C_ell(nu_ref, nu_target)`` vs target frequency."""
-    from ...diagnostics.analysis import (
+    from radiosim.core.sky.diagnostics.analysis import (
         compute_angular_power_spectrum,
         compute_cross_cell,
     )
@@ -225,7 +225,7 @@ def plot_multipole_bands(
     title: str | None = None,
 ) -> Figure:
     """Decompose a HEALPix map into ell bands and show each as a panel."""
-    from ...diagnostics.analysis import filter_ell_band
+    from radiosim.core.sky.diagnostics.analysis import filter_ell_band
 
     _validate_plot_mode(sky, "healpix")
     freq = _resolve_plot_frequency(sky, frequency)
@@ -307,7 +307,7 @@ def plot_frequency_correlation(
     title: str | None = None,
 ) -> Figure:
     """Cross-frequency Pearson correlation matrix plus decorrelation curve."""
-    from ...diagnostics.analysis import compute_frequency_correlation
+    from radiosim.core.sky.diagnostics.analysis import compute_frequency_correlation
 
     _validate_plot_mode(sky, "healpix")
     if sky.healpix is None or len(sky.healpix.frequencies) < 2:
@@ -400,7 +400,7 @@ def plot_delay_spectrum(
     title: str | None = None,
 ) -> Figure:
     """Line-of-sight delay spectrum and optional ``P(k_parallel)``."""
-    from ...diagnostics.analysis import (
+    from radiosim.core.sky.diagnostics.analysis import (
         F_21_HZ,
         compute_delay_spectrum,
         compute_kparallel,
