@@ -103,6 +103,11 @@ class JAXBackend(ArrayBackend):
                 "  pip install radiosim[tpu]        # Google TPU"
             )
 
+        # RadioSim's standard precision is float64/complex128. JAX disables
+        # x64 by default, so enable it before creating backend arrays to honor
+        # the dtype contract instead of silently truncating requested dtypes.
+        jax.config.update("jax_enable_x64", True)
+
         self._device_type = device
         self._xp = jnp
 
