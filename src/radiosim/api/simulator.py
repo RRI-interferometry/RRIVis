@@ -185,7 +185,7 @@ class Simulator:
 
         # Build configuration from arguments
         if config is not None:
-            self.config = config
+            self.config = dict(config)
         else:
             self.config = self._build_config(
                 antenna_layout=antenna_layout,
@@ -193,6 +193,11 @@ class Simulator:
                 location=location,
                 start_time=start_time,
             )
+        from radiosim.io.config import DEFAULT_SKY_REPRESENTATION
+
+        visibility_config = dict(self.config.get("visibility") or {})
+        visibility_config.setdefault("sky_representation", DEFAULT_SKY_REPRESENTATION)
+        self.config["visibility"] = visibility_config
 
     def _build_config(
         self,
@@ -453,9 +458,7 @@ class Simulator:
         # Get visibility configuration
         visibility_config = self.config.get("visibility", {})
         calculation_type = visibility_config.get("calculation_type", "direct_sum")
-        sky_representation = visibility_config.get(
-            "sky_representation", "point_sources"
-        )
+        sky_representation = visibility_config["sky_representation"]
         allow_lossy_point_materialization = visibility_config.get(
             "allow_lossy_point_materialization", False
         )
@@ -693,11 +696,7 @@ class Simulator:
             from radiosim.core.sky.containers.model import SkyFormat as _SF
 
             # Print configuration table (after setup, needs backend/sky_model info)
-            _sky_mode = _SF(
-                self.config.get("visibility", {}).get(
-                    "sky_representation", "point_sources"
-                )
-            )
+            _sky_mode = _SF(self.config["visibility"]["sky_representation"])
             n_sky = (
                 self._sky_model.n_sky_elements_for(_sky_mode) if self._sky_model else 0
             )
@@ -725,9 +724,7 @@ class Simulator:
 
         from radiosim.core.sky.containers.model import SkyFormat
 
-        _sky_mode = SkyFormat(
-            self.config.get("visibility", {}).get("sky_representation", "point_sources")
-        )
+        _sky_mode = SkyFormat(self.config["visibility"]["sky_representation"])
         print_info(f"Running visibility simulation ({_sky_mode.value} mode)...")
 
         # Calculate visibilities based on sky representation

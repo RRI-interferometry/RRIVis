@@ -6,16 +6,19 @@ from pydantic import ValidationError
 
 import radiosim.core.sky as sky_public
 import radiosim.core.sky.registry.facade as registry_public
+from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.diagnostics.discovery import get_catalog_info
+from radiosim.core.sky.loaders.vizier.core import _load_from_vizier_catalog
+from radiosim.core.sky.loaders.vizier.point_catalogs import VIZIER_POINT_CATALOGS
 from radiosim.core.sky.registry.facade import loader_registry
 from radiosim.io.config import (
+    CustomRegisteredSourceConfig,
     DiffuseSkySourceConfig,
     GleamSourceConfig,
     PyradioskyFileSourceConfig,
     SkyModelConfig,
     TestSourcesConfig,
     VisibilityConfig,
-    VlssrSourceConfig,
     parse_sky_source_config,
 )
 
@@ -222,7 +225,7 @@ class TestSourceSpecs:
         spec = parse_sky_source_config(
             {"kind": "vlssr", "flux_limit": 2.0, "max_rows": 1000}
         )
-        assert isinstance(spec, VlssrSourceConfig)
+        assert isinstance(spec, CustomRegisteredSourceConfig)
         assert spec.kind == "vlssr"
 
         kind, kwargs = spec.to_loader_request(
@@ -235,6 +238,24 @@ class TestSourceSpecs:
         assert kwargs["max_rows"] == 1000
         assert kwargs["region"] == "mock_region"
         assert kwargs["brightness_conversion"] == "rayleigh-jeans"
+
+    def test_simple_catalog_request_uses_loader_signature_default(self):
+        spec = parse_sky_source_config({"kind": "nvss", "max_rows": 10})
+        assert isinstance(spec, CustomRegisteredSourceConfig)
+
+        kind, kwargs = spec.to_loader_request()
+
+        assert kind == "nvss"
+        assert kwargs["max_rows"] == 10
+        assert "flux_limit" not in kwargs
+        assert VIZIER_POINT_CATALOGS["nvss"].default_flux_limit == pytest.approx(0.0025)
+
+    def test_simple_catalog_loader_requires_download_bound(self):
+        with pytest.raises(ValueError, match="region=.*max_rows=.*allow_full_catalog"):
+            _load_from_vizier_catalog(
+                "nvss",
+                precision=PrecisionConfig.standard(),
+            )
 
     def test_diffuse_request_uses_explicit_frequencies(self):
         freqs = np.array([100e6, 101e6])

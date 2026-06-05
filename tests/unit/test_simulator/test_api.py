@@ -21,3 +21,9 @@ def test_simulator_accepts_tagged_sky_model_config():
     )
 
     assert sim.config["sky_model"]["sources"][0]["kind"] == "test_sources"
+
+
+def test_simulator_defaults_visibility_sky_representation():
+    sim = Simulator(config={"sky_model": {"sources": [{"kind": "test_sources"}]}})
+
+    assert sim.config["visibility"]["sky_representation"] == "point_sources"

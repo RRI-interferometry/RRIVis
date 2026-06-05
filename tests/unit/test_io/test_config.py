@@ -5,9 +5,11 @@ from __future__ import annotations
 import pytest
 
 from radiosim.io.config import (
+    CustomRegisteredSourceConfig,
     GleamSourceConfig,
     RadioSimConfig,
     TestSourcesConfig,
+    VisibilityConfig,
     parse_sky_source_config,
 )
 
@@ -55,6 +57,28 @@ def test_alias_kind_source_config_resolves_loader_defaults():
     assert kind == "diffuse_sky"
     assert kwargs["model"] == "gsm2016"
     assert kwargs["nside"] == 128
+
+
+def test_from_yaml_accepts_generic_simple_catalog_source(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+sky_model:
+  sources:
+    - kind: nvss
+      max_rows: 5
+""".lstrip()
+    )
+
+    config = RadioSimConfig.from_yaml(config_path)
+    source = config.sky_model.sources[0]
+
+    assert isinstance(source, CustomRegisteredSourceConfig)
+    assert source.kind == "nvss"
+    kind, kwargs = source.to_loader_request()
+    assert kind == "nvss"
+    assert kwargs["max_rows"] == 5
+    assert "flux_limit" not in kwargs
 
 
 def test_alias_kind_source_config_keeps_explicit_override():
@@ -110,3 +134,11 @@ def test_pyradiosky_file_source_exposes_spectral_loss_policy():
 
     assert kind == "pyradiosky_file"
     assert kwargs["spectral_loss_policy"] == "error"
+
+
+def test_visibility_config_defaults_to_point_sources():
+    config = RadioSimConfig(sky_model={"sources": [{"kind": "test_sources"}]})
+
+    assert VisibilityConfig().sky_representation == "point_sources"
+    assert config.visibility.sky_representation == "point_sources"
+    assert not any("visibility.sky_representation" in err for err in config.validate())

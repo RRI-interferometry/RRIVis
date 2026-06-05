@@ -2,7 +2,7 @@
 
 Carries flux completeness, angular resolution, sky coverage (full/partial,
 sparse footprint), monopole convention, source-subtraction status — all
-the information :func:`combine_models` needs to verify that two inputs
+the information :func:`prepare_sky_model` needs to verify that two inputs
 are physically disjoint before summing them.
 """
 
@@ -28,7 +28,7 @@ from .footprint import (
 class SkyProvenance:
     """Physical-correctness metadata attached to a :class:`SkyModel`.
 
-    Used by ``combine_models`` to verify that models being summed are
+    Used by ``prepare_sky_model`` to verify that models being summed are
     physically disjoint (no double-counting).  Every field is optional and
     defaults to an ``UNKNOWN`` sentinel so that user code that does not
     declare provenance keeps working until it crosses the disjointness

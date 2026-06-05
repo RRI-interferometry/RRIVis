@@ -56,7 +56,9 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
+
+DEFAULT_SKY_REPRESENTATION: Literal["point_sources"] = "point_sources"
 
 
 class TelescopeConfig(BaseModel):
@@ -825,83 +827,6 @@ class RacsSourceConfig(PointCatalogSourceConfig):
         return self.kind, kwargs
 
 
-class ThreeCSourceConfig(PointCatalogSourceConfig):
-    kind: Literal["3c"] = "3c"
-    flux_limit: float = Field(1.0, ge=0.0, description="Minimum flux limit")
-
-    def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
-    ) -> tuple[str, dict[str, Any]]:
-        return self.kind, self._build_catalog_kwargs(context)
-
-
-class NvssSourceConfig(PointCatalogSourceConfig):
-    kind: Literal["nvss"] = "nvss"
-    flux_limit: float = Field(0.0025, ge=0.0, description="Minimum flux limit")
-
-    def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
-    ) -> tuple[str, dict[str, Any]]:
-        return self.kind, self._build_catalog_kwargs(context)
-
-
-class SumssSourceConfig(PointCatalogSourceConfig):
-    kind: Literal["sumss"] = "sumss"
-    flux_limit: float = Field(0.008, ge=0.0, description="Minimum flux limit")
-
-    def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
-    ) -> tuple[str, dict[str, Any]]:
-        return self.kind, self._build_catalog_kwargs(context)
-
-
-class TgssSourceConfig(PointCatalogSourceConfig):
-    kind: Literal["tgss"] = "tgss"
-    flux_limit: float = Field(0.1, ge=0.0, description="Minimum flux limit")
-
-    def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
-    ) -> tuple[str, dict[str, Any]]:
-        return self.kind, self._build_catalog_kwargs(context)
-
-
-class VlassSourceConfig(PointCatalogSourceConfig):
-    kind: Literal["vlass"] = "vlass"
-    flux_limit: float = Field(0.001, ge=0.0, description="Minimum flux limit")
-
-    def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
-    ) -> tuple[str, dict[str, Any]]:
-        return self.kind, self._build_catalog_kwargs(context)
-
-
-class VlssrSourceConfig(PointCatalogSourceConfig):
-    kind: Literal["vlssr"] = "vlssr"
-    flux_limit: float = Field(1.0, ge=0.0, description="Minimum flux limit")
-
-    def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
-    ) -> tuple[str, dict[str, Any]]:
-        return self.kind, self._build_catalog_kwargs(context)
-
-
-class WenssSourceConfig(PointCatalogSourceConfig):
-    kind: Literal["wenss"] = "wenss"
-    flux_limit: float = Field(0.05, ge=0.0, description="Minimum flux limit")
-
-    def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
-    ) -> tuple[str, dict[str, Any]]:
-        return self.kind, self._build_catalog_kwargs(context)
-
-
 class CustomRegisteredSourceConfig(SkySourceConfig):
     """Fallback for ad-hoc registered loaders used outside the built-in union."""
 
@@ -943,13 +868,6 @@ _SKY_SOURCE_CONFIG_UNION = Annotated[
         | MalsSourceConfig
         | LotssSourceConfig
         | RacsSourceConfig
-        | ThreeCSourceConfig
-        | NvssSourceConfig
-        | SumssSourceConfig
-        | TgssSourceConfig
-        | VlassSourceConfig
-        | VlssrSourceConfig
-        | WenssSourceConfig
         | DiffuseSkySourceConfig
         | Pysm3SourceConfig
         | PyradioskyFileSourceConfig
@@ -968,13 +886,6 @@ _BUILTIN_SKY_SOURCE_KINDS = {
     "mals",
     "lotss",
     "racs",
-    "3c",
-    "nvss",
-    "sumss",
-    "tgss",
-    "vlass",
-    "vlssr",
-    "wenss",
     "diffuse_sky",
     "pysm3",
     "pyradiosky_file",
@@ -1027,7 +938,7 @@ class SkyModelConfig(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    sources: list[_SKY_SOURCE_CONFIG_UNION] = Field(
+    sources: list[SkySourceConfig] = Field(
         default_factory=list,
         description="List of sky-model source specs to load and combine",
     )
@@ -1068,6 +979,20 @@ class SkyModelConfig(BaseModel):
                 "Rewrite each enabled section as an entry under sky_model.sources."
             )
         return data
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def parse_source_specs(cls, sources: Any) -> Any:
+        if sources is None:
+            return []
+        if not isinstance(sources, list):
+            return sources
+        return [
+            source
+            if isinstance(source, SkySourceConfig)
+            else parse_sky_source_config(source)
+            for source in sources
+        ]
 
 
 class ObsTimeConfig(BaseModel):
@@ -1180,8 +1105,12 @@ class VisibilityConfig(BaseModel):
         "direct_sum",
         description="Visibility calculation algorithm: 'direct_sum' (implemented) or 'spherical_harmonic' (future)",
     )
-    sky_representation: Literal["point_sources", "healpix_map"] | None = Field(
-        None, description="Sky model representation: 'point_sources' or 'healpix_map'"
+    sky_representation: Literal["point_sources", "healpix_map"] = Field(
+        DEFAULT_SKY_REPRESENTATION,
+        description=(
+            "Sky model representation: 'point_sources' or 'healpix_map'. "
+            "Defaults to 'point_sources'."
+        ),
     )
     allow_lossy_point_materialization: bool = Field(
         False,
@@ -1700,13 +1629,6 @@ class RadioSimConfig(BaseModel):
                     "Map each antenna number to a FITS file path or 'analytic'."
                 )
 
-        # --- Visibility sky representation ---
-        if self.visibility.sky_representation is None:
-            errors.append(
-                "visibility.sky_representation: required but not set. "
-                "Choose 'point_sources' (catalogs) or 'healpix_map' (diffuse emission)."
-            )
-
         # --- Sky model: at least one source spec must be present ---
         sm = self.sky_model
         if not sm.sources:
@@ -1725,7 +1647,7 @@ class RadioSimConfig(BaseModel):
                     errors.append(f"sky_model.sources[{idx}]: {exc}")
                     continue
                 if definition.requires_file:
-                    fname = source.filename or ""
+                    fname = getattr(source, "filename", "") or ""
                     if not fname:
                         errors.append(
                             f"sky_model.sources[{idx}].filename: required for "

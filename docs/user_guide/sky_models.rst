@@ -83,7 +83,7 @@ Combine diffuse and point source emission:
 
 .. code-block:: python
 
-   from radiosim.core.sky import combine_models
+   from radiosim.core.sky import prepare_sky_model
    from radiosim.core.sky.loaders import load_diffuse_sky, load_gleam
    from radiosim.core.precision import PrecisionConfig
    import numpy as np
@@ -98,7 +98,7 @@ Combine diffuse and point source emission:
        nside=64,
        precision=precision,
    )
-   combined = combine_models(
+   combined = prepare_sky_model(
        [gleam, gsm],
        representation="healpix_map",
        nside=64,
@@ -223,7 +223,7 @@ The root ``radiosim.core.sky`` package is intentionally small. The stable
 entry points are:
 
 - constructors: ``create_empty()``, ``create_from_arrays()``, ``create_test_sources()``
-- transforms: ``combine_models()``, ``materialize_healpix_model()``,
+- transforms: ``prepare_sky_model()``, ``materialize_healpix_model()``,
   ``materialize_point_sources_model()``, ``with_memmap_backing()``
 - IO: ``load_skyh5()``, ``save_skyh5()``, ``to_pyradiosky()``, ``write_bbs()``
 - discovery: ``estimate_healpix_memory()``, ``list_all_models()``,
@@ -272,7 +272,7 @@ Sky Model Selection Guide
    * - Diffuse emission
      - ``load_diffuse_sky(model="gsm2008")``
    * - Full sky simulation
-     - ``combine_models([gleam, gsm])``
+     - ``prepare_sky_model([gleam, gsm])``
    * - Custom science
      - ``create_from_arrays()``
 
