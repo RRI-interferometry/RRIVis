@@ -169,10 +169,7 @@ class GeometricPhaseJones(JonesTerm):
 
         if baseline_uvw is None:
             # No baseline info: return batch identity
-            result = xp.zeros((n_sources, 2, 2), dtype=np.complex128)
-            result[:, 0, 0] = 1.0
-            result[:, 1, 1] = 1.0
-            return result
+            return backend.batch_eye((n_sources,), 2, dtype=np.complex128)
 
         # Vectorized phase for all sources
         lmn = self.source_lmn[:n_sources]  # (n_sources, 3)
@@ -187,10 +184,8 @@ class GeometricPhaseJones(JonesTerm):
         phase_term = xp.exp(1j * phase)  # (n_sources,)
 
         # Scalar matrix: phase * I for each source
-        result = xp.zeros((n_sources, 2, 2), dtype=np.complex128)
-        result[:, 0, 0] = phase_term
-        result[:, 1, 1] = phase_term
-        return result
+        diagonal = xp.stack([phase_term, phase_term], axis=-1)
+        return backend.diagonal_matrix(diagonal, dtype=np.complex128)
 
     def get_config(self) -> dict[str, Any]:
         config = super().get_config()

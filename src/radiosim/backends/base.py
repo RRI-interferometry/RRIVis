@@ -276,6 +276,27 @@ class ArrayBackend(ABC):
             dtype = self.default_complex_dtype
         return self.xp.eye(n, dtype=dtype)
 
+    def batch_eye(
+        self,
+        batch_shape: tuple[int, ...],
+        n: int,
+        dtype: Any | None = None,
+    ) -> Any:
+        """Create a batch of identity matrices without item assignment.
+
+        This helper avoids in-place diagonal writes, which are illegal for
+        immutable array backends such as JAX.
+        """
+        identity = self.eye(n, dtype=dtype)
+        return self.xp.broadcast_to(identity, (*batch_shape, n, n)).copy()
+
+    def diagonal_matrix(self, diagonal: Any, dtype: Any | None = None) -> Any:
+        """Create batched diagonal matrices from trailing-axis diagonals."""
+        diagonal_array = self.asarray(diagonal, dtype=dtype)
+        n = int(diagonal_array.shape[-1])
+        eye = self.eye(n, dtype=diagonal_array.dtype)
+        return diagonal_array[..., :, None] * eye
+
     # =========================================================================
     # Mathematical Operations
     # =========================================================================

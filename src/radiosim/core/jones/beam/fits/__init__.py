@@ -118,10 +118,7 @@ class FITSBeamJones(BeamJones):
         )
 
         if jones is None:
-            result = np.zeros((n_sources, 2, 2), dtype=np.complex128)
-            result[:, 0, 0] = 1.0
-            result[:, 1, 1] = 1.0
-            return backend.asarray(result, dtype=np.complex128)
+            return backend.batch_eye((n_sources,), 2, dtype=np.complex128)
 
         if jones.ndim == 2:
             jones = np.tile(jones, (n_sources, 1, 1))

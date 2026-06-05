@@ -211,12 +211,8 @@ class JonesChain:
         Returns:
             Complex array of shape (n_sources, 2, 2)
         """
-        xp = self.backend.xp
-
         # Start with batch identity: (n_sources, 2, 2)
-        J_total = xp.zeros((n_sources, 2, 2), dtype=np.complex128)
-        J_total[:, 0, 0] = 1.0
-        J_total[:, 1, 1] = 1.0
+        J_total = self.backend.batch_eye((n_sources,), 2, dtype=np.complex128)
 
         if not self.terms:
             return J_total
@@ -242,10 +238,12 @@ class JonesChain:
                     self.backend,
                     **kwargs,
                 )
-                J_term = xp.broadcast_to(J_single[np.newaxis], (n_sources, 2, 2)).copy()
+                J_term = self.backend.xp.broadcast_to(
+                    J_single[None, ...], (n_sources, 2, 2)
+                )
 
             # Batched matmul: J_total = J_term @ J_total
-            J_total = J_term @ J_total
+            J_total = self.backend.matmul(J_term, J_total)
 
         return J_total
 

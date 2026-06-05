@@ -222,12 +222,13 @@ class JonesTerm(ABC):
             Complex array of shape (n_sources, 2, 2)
         """
         xp = backend.xp
-        result = xp.zeros((n_sources, 2, 2), dtype=np.complex128)
-        for s in range(n_sources):
-            result[s] = self.compute_jones(
-                antenna_idx, s, freq_idx, time_idx, backend, **kwargs
-            )
-        return result
+        matrices = [
+            self.compute_jones(antenna_idx, s, freq_idx, time_idx, backend, **kwargs)
+            for s in range(n_sources)
+        ]
+        if not matrices:
+            return backend.zeros_complex((0, 2, 2), dtype=np.complex128)
+        return xp.stack(matrices, axis=0)
 
     def get_config(self) -> dict[str, Any]:
         """Get configuration dictionary for this Jones term.
