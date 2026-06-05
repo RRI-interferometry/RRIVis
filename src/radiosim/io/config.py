@@ -404,7 +404,7 @@ class SkySourceConfig(BaseModel):
             kwargs["memmap_path"] = context.memmap_path
 
         if self.provenance_override is not None:
-            from radiosim.core.sky.containers.data import SkyProvenance
+            from radiosim.core.sky.containers import SkyProvenance
 
             kwargs["provenance"] = SkyProvenance(**self.provenance_override)
         return kwargs

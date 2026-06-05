@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
+from radiosim.core.sky.containers import PointSourceData
 from radiosim.core.sky.containers.constants import C_LIGHT
-from radiosim.core.sky.containers.data import PointSourceData
 from radiosim.core.sky.containers.spectral import (
     apply_faraday_rotation,
     compute_spectral_scale,

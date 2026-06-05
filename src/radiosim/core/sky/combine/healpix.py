@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING, TypedDict
 import healpy as hp
 import numpy as np
 
+from ..containers import PointSourceData, PointSpectrum
 from ..containers.constants import (
     BrightnessConversion,
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
     rayleigh_jeans_factor,
 )
-from ..containers.data import PointSourceData, PointSpectrum
 from ..containers.spectral import (
     evaluate_point_flux_at_freq,
     per_source_reference_frequencies,

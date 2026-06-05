@@ -13,7 +13,7 @@ from importlib import resources
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
 
-from ..containers.data import MonopoleConvention, SkyFootprint
+from ..containers import MonopoleConvention, SkyFootprint
 
 # Conversion factor from a catalog's native flux unit to Jy.  Catalogs that
 # report flux in mJy multiply by 1e-3; ``Jy``/``Jy/beam`` use 1.0.

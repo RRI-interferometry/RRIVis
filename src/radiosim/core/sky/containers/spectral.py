@@ -25,7 +25,7 @@ import numpy as np
 from .constants import C_LIGHT
 
 if TYPE_CHECKING:
-    from .data import PointSourceData
+    from .point import PointSourceData
 
 logger = logging.getLogger(__name__)
 

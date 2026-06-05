@@ -29,12 +29,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..containers.constants import BrightnessConversion
-from ..containers.data import (
+from ..containers import (
     HealpixData,
     PointSourceData,
     SkyCoverage,
 )
+from ..containers.constants import BrightnessConversion
 from ..containers.model import SkyFormat, SkyModel
 from ..operations.factories import create_empty
 from .concat import concat_point_sources

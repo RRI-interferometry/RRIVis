@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ...containers.data import (
+from ...containers import (
     MonopoleConvention,
     SkyCoverage,
     SkyProvenance,

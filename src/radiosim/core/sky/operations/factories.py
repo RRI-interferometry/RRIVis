@@ -15,8 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from ..containers.constants import BrightnessConversion
-from ..containers.data import (
+from ..containers import (
     HealpixData,
     MonopoleConvention,
     PointSourceData,
@@ -24,6 +23,7 @@ from ..containers.data import (
     SkyProvenance,
     SourceSubtractionStatus,
 )
+from ..containers.constants import BrightnessConversion
 from ..containers.model import SkyModel
 from ..registry.facade import loader_registry
 

@@ -264,7 +264,7 @@ def _read_skyh5_provenance(filename: str):  # type: ignore[no-untyped-def]
 
     import h5py
 
-    from ..containers.data import SkyProvenance
+    from ..containers import SkyProvenance
 
     try:
         with h5py.File(filename, "r") as fh:

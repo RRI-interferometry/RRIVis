@@ -16,11 +16,11 @@ from typing import TYPE_CHECKING
 import healpy as hp
 import numpy as np
 
+from ..containers import SourceSubtractionStatus
 from ..containers.constants import (
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
 )
-from ..containers.data import SourceSubtractionStatus
 
 if TYPE_CHECKING:
     from ..containers.model import SkyModel

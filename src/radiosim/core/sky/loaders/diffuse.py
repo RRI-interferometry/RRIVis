@@ -13,7 +13,7 @@ from healpy.rotator import Rotator
 from radiosim.utils.frequency import parse_frequency_config
 from radiosim.utils.network import require_service
 
-from ..containers.data import (
+from ..containers import (
     MonopoleConvention,
     SkyCoverage,
     SkyProvenance,

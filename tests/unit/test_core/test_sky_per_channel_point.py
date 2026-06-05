@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from radiosim.core.sky.containers.data import PointSourceData, PointSpectrum
+from radiosim.core.sky.containers import PointSourceData, PointSpectrum
 from radiosim.core.sky.containers.spectral import (
     compute_spectral_scale,
     evaluate_point_flux_at_freq,

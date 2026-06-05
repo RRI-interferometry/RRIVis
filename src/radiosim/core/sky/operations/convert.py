@@ -11,13 +11,13 @@ import logging
 import healpy as hp
 import numpy as np
 
+from ..containers import empty_source_arrays as _empty_source_arrays
 from ..containers.constants import (
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
     rayleigh_jeans_factor,
 )
-from ..containers.data import _normalize_coordinate_frame
-from ..containers.data import empty_source_arrays as _empty_source_arrays
+from ..containers.footprint import _normalize_coordinate_frame
 from ..containers.spectral import (
     apply_faraday_rotation,
     compute_spectral_scale,

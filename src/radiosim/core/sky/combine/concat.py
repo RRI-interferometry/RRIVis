@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ..containers import empty_source_arrays
 from ..containers.constants import BrightnessConversion
-from ..containers.data import empty_source_arrays
 from ..containers.spectral import per_source_reference_frequencies
 from ..operations.operations import materialize_point_sources_model
 

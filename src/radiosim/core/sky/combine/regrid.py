@@ -10,7 +10,7 @@ import numpy as np
 
 from radiosim.utils.frequency import parse_frequency_config
 
-from ..containers.data import PointSourceData
+from ..containers import PointSourceData
 
 if TYPE_CHECKING:
     from ..containers.model import SkyModel

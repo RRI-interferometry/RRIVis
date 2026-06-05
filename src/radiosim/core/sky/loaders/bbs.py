@@ -24,7 +24,7 @@ from ..registry.facade import loader_registry
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
-    from ..containers.data import SkyProvenance
+    from ..containers import SkyProvenance
     from ..operations.region import SkyRegion
 
 logger = logging.getLogger(__name__)

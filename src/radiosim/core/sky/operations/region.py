@@ -10,7 +10,7 @@ import healpy as hp
 import numpy as np
 from astropy.coordinates import Angle, SkyCoord
 
-from ..containers.data import (
+from ..containers.footprint import (
     DEFAULT_COVERAGE_FOOTPRINT_COORDINATE_FRAME,
     DEFAULT_COVERAGE_FOOTPRINT_NSIDE,
     SkyFootprint,

@@ -15,7 +15,7 @@ from pyradiosky import SkyModel as PyRadioSkyModel
 
 from radiosim.utils.frequency import parse_frequency_config
 
-from ..containers.data import PointSourceData
+from ..containers import PointSourceData
 from ..containers.model import SkyModel
 from ..registry.facade import loader_registry
 from ._healpix_builder import build_healpix_from_stokes_cube, extract_stokes_component
@@ -23,7 +23,7 @@ from ._healpix_builder import build_healpix_from_stokes_cube, extract_stokes_com
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
-    from ..containers.data import SkyProvenance
+    from ..containers import SkyProvenance
     from ..operations.region import SkyRegion
 
 logger = logging.getLogger(__name__)

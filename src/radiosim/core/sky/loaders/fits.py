@@ -24,7 +24,7 @@ from ._healpix_builder import build_healpix_from_stokes_cube
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
-    from ..containers.data import SkyProvenance
+    from ..containers import SkyProvenance
     from ..containers.model import SkyModel
     from ..operations.region import SkyRegion
 

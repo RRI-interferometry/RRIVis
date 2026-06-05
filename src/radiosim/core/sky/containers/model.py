@@ -23,16 +23,12 @@ from pydantic.dataclasses import dataclass
 
 from radiosim.core.precision import PrecisionConfig
 
+from ._shared import _FROZEN_NDARRAY_CONFIG
 from .constants import BrightnessConversion
-from .data import (
-    _FROZEN_NDARRAY_CONFIG,
-    HealpixData,
-    PointSourceData,
-    PointSpectrum,
-    SkyCoverage,
-    SkyProvenance,
-    SourceArrays,
-)
+from .footprint import SkyCoverage
+from .healpix import HealpixData
+from .point import PointSourceData, PointSpectrum, SourceArrays
+from .provenance import SkyProvenance
 
 if TYPE_CHECKING:
     from ..operations.region import SkyRegion

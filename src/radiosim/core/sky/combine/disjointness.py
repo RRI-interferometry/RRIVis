@@ -11,8 +11,8 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING, Literal
 
+from ..containers import MonopoleConvention, SourceSubtractionStatus
 from ..containers.constants import BrightnessConversion
-from ..containers.data import MonopoleConvention, SourceSubtractionStatus
 from ..containers.model import SkyFormat
 
 if TYPE_CHECKING:

@@ -26,7 +26,7 @@ import numpy as np
 
 from ..combine.engine import MixedModelPolicy
 from ..combine.pipeline import prepare_sky_model
-from ..containers.data import SkyCoverage, SourceSubtractionStatus
+from ..containers import SkyCoverage, SourceSubtractionStatus
 from ..containers.model import SkyFormat, SkyModel
 from ..registry.facade import loader_registry
 
