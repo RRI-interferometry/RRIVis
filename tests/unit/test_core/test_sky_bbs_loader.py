@@ -38,13 +38,16 @@ def test_bbs_loader_parses_wsclean_format_with_metadata(tmp_path):
     np.testing.assert_allclose(sky.point.flux, [2.5])
     np.testing.assert_allclose(sky.point.stokes_q, [0.2])
     np.testing.assert_allclose(sky.point.stokes_u, [0.1])
-    np.testing.assert_allclose(sky.point.rotation_measure, [1.5])
+    assert sky.point.polarization is not None
+    np.testing.assert_allclose(sky.point.polarization.rotation_measure, [1.5])
     np.testing.assert_allclose(sky.point.ref_freq, [150_000_000.0])
-    np.testing.assert_allclose(sky.point.major_arcsec, [30.0])
-    np.testing.assert_allclose(sky.point.minor_arcsec, [20.0])
-    np.testing.assert_allclose(sky.point.pa_deg, [45.0])
+    assert sky.point.morphology is not None
+    np.testing.assert_allclose(sky.point.morphology.major_arcsec, [30.0])
+    np.testing.assert_allclose(sky.point.morphology.minor_arcsec, [20.0])
+    np.testing.assert_allclose(sky.point.morphology.pa_deg, [45.0])
     np.testing.assert_allclose(sky.point.spectral_coeffs, [[-0.7, -0.05]])
-    np.testing.assert_array_equal(sky.point.source_name, np.array(["bright"]))
+    assert sky.point.metadata is not None
+    np.testing.assert_array_equal(sky.point.metadata.source_name, np.array(["bright"]))
 
 
 def test_bbs_loader_missing_file_has_actionable_error(tmp_path):

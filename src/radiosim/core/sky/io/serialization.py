@@ -147,9 +147,11 @@ def to_pyradiosky(sky: SkyModel, representation: Any = None) -> Any:
     if sky.point is not None and not sky.point.is_empty:
         point = sky.point
         n = point.n_sources
-        if point.source_name is not None:
+        metadata = point.metadata
+        source_name = metadata.source_name if metadata is not None else None
+        if source_name is not None:
             names = np.asarray(
-                ["" if value is None else str(value) for value in point.source_name],
+                ["" if value is None else str(value) for value in source_name],
                 dtype=str,
             )
         else:
@@ -174,10 +176,13 @@ def to_pyradiosky(sky: SkyModel, representation: Any = None) -> Any:
 
         extra_column_dict = {
             name: _sanitize_extra_column(values)
-            for name, values in point.extra_columns.items()
+            for name, values in (
+                metadata.extra_columns.items() if metadata is not None else ()
+            )
         }
-        if point.source_id is not None and "source_id" not in extra_column_dict:
-            extra_column_dict["source_id"] = _sanitize_extra_column(point.source_id)
+        source_id = metadata.source_id if metadata is not None else None
+        if source_id is not None and "source_id" not in extra_column_dict:
+            extra_column_dict["source_id"] = _sanitize_extra_column(source_id)
 
         return PyRadioSkyModel(
             name=names,
@@ -220,8 +225,16 @@ def save_skyh5(
     """
     lost = []
     point = sky.point
-    rotation_measure = point.rotation_measure if point is not None else None
-    major_arcsec = point.major_arcsec if point is not None else None
+    rotation_measure = (
+        point.polarization.rotation_measure
+        if point is not None and point.polarization is not None
+        else None
+    )
+    major_arcsec = (
+        point.morphology.major_arcsec
+        if point is not None and point.morphology is not None
+        else None
+    )
     spectral_coeffs = point.spectral_coeffs if point is not None else None
     if rotation_measure is not None and np.any(rotation_measure != 0):
         lost.append("rotation measure")

@@ -105,7 +105,11 @@ def materialize_healpix_model(
         stokes_q=sky.point.stokes_q,
         stokes_u=sky.point.stokes_u,
         stokes_v=sky.point.stokes_v,
-        rotation_measure=sky.point.rotation_measure,
+        rotation_measure=(
+            sky.point.polarization.rotation_measure
+            if sky.point.polarization is not None
+            else None
+        ),
         nside=nside,
         frequencies=frequencies,
         ref_frequency=effective_ref_freq,

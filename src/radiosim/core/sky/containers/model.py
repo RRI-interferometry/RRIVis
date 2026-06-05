@@ -27,7 +27,14 @@ from ._shared import _FROZEN_NDARRAY_CONFIG
 from .constants import BrightnessConversion
 from .footprint import SkyCoverage
 from .healpix import HealpixData
-from .point import PointSourceData, PointSpectrum, SourceArrays
+from .point import (
+    PointMetadata,
+    PointMorphology,
+    PointPolarization,
+    PointSourceData,
+    PointSpectrum,
+    SourceArrays,
+)
 from .provenance import SkyProvenance
 
 if TYPE_CHECKING:
@@ -193,6 +200,9 @@ class SkyModel:
         src_dt = precision.sky_model.get_dtype("source_positions")
         flux_dt = precision.sky_model.get_dtype("flux")
         si_dt = precision.sky_model.get_dtype("spectral_index")
+        morphology = point.morphology
+        polarization = point.polarization
+        metadata = point.metadata
         return PointSourceData(
             ra_rad=np.asarray(point.ra_rad, dtype=src_dt),
             dec_rad=np.asarray(point.dec_rad, dtype=src_dt),
@@ -202,36 +212,50 @@ class SkyModel:
             stokes_u=np.asarray(point.stokes_u, dtype=flux_dt),
             stokes_v=np.asarray(point.stokes_v, dtype=flux_dt),
             ref_freq=np.asarray(point.ref_freq, dtype=flux_dt),
-            rotation_measure=(
+            polarization=(
                 None
-                if point.rotation_measure is None
-                else np.asarray(point.rotation_measure, dtype=flux_dt)
+                if polarization is None
+                else PointPolarization(
+                    rotation_measure=np.asarray(
+                        polarization.rotation_measure,
+                        dtype=flux_dt,
+                    )
+                )
             ),
-            major_arcsec=(
+            morphology=(
                 None
-                if point.major_arcsec is None
-                else np.asarray(point.major_arcsec, dtype=src_dt)
+                if morphology is None
+                else PointMorphology(
+                    major_arcsec=np.asarray(morphology.major_arcsec, dtype=src_dt),
+                    minor_arcsec=np.asarray(morphology.minor_arcsec, dtype=src_dt),
+                    pa_deg=np.asarray(morphology.pa_deg, dtype=src_dt),
+                )
             ),
-            minor_arcsec=(
-                None
-                if point.minor_arcsec is None
-                else np.asarray(point.minor_arcsec, dtype=src_dt)
-            ),
-            pa_deg=None
-            if point.pa_deg is None
-            else np.asarray(point.pa_deg, dtype=src_dt),
             spectral_coeffs=(
                 None
                 if point.spectral_coeffs is None
                 else np.asarray(point.spectral_coeffs, dtype=si_dt)
             ),
-            source_name=(
-                None if point.source_name is None else np.asarray(point.source_name)
+            metadata=(
+                None
+                if metadata is None
+                else PointMetadata(
+                    source_name=(
+                        None
+                        if metadata.source_name is None
+                        else np.asarray(metadata.source_name)
+                    ),
+                    source_id=(
+                        None
+                        if metadata.source_id is None
+                        else np.asarray(metadata.source_id)
+                    ),
+                    extra_columns={
+                        name: np.asarray(values)
+                        for name, values in metadata.extra_columns.items()
+                    },
+                )
             ),
-            source_id=None if point.source_id is None else np.asarray(point.source_id),
-            extra_columns={
-                name: np.asarray(values) for name, values in point.extra_columns.items()
-            },
             spectrum=(
                 None
                 if point.spectrum is None
@@ -631,14 +655,12 @@ class SkyModel:
         # Point-source info
         if self.point is not None and not self.point.is_empty:
             extras = []
-            if self.point.rotation_measure is not None and np.any(
-                self.point.rotation_measure != 0
-            ):
+            polarization = self.point.polarization
+            if polarization is not None and np.any(polarization.rotation_measure != 0):
                 extras.append("RM")
-            if self.point.major_arcsec is not None and np.any(
-                self.point.major_arcsec > 0
-            ):
-                n_gauss = int(np.sum(self.point.major_arcsec > 0))
+            morphology = self.point.morphology
+            if morphology is not None and np.any(morphology.major_arcsec > 0):
+                n_gauss = int(np.sum(morphology.major_arcsec > 0))
                 extras.append(f"gaussian={n_gauss}")
             if (
                 self.point.spectral_coeffs is not None

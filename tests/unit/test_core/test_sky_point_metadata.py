@@ -99,10 +99,14 @@ def test_load_pyradiosky_warns_and_preserves_point_metadata(
         sky = load_pyradiosky_file(str(filename), precision=precision)
 
     assert sky.point is not None
-    np.testing.assert_array_equal(sky.point.source_name, np.array(["src-a", "src-b"]))
-    np.testing.assert_array_equal(sky.point.source_id, np.array(["A", "B"]))
+    assert sky.point.metadata is not None
     np.testing.assert_array_equal(
-        sky.point.extra_columns["catalog"],
+        sky.point.metadata.source_name,
+        np.array(["src-a", "src-b"]),
+    )
+    np.testing.assert_array_equal(sky.point.metadata.source_id, np.array(["A", "B"]))
+    np.testing.assert_array_equal(
+        sky.point.metadata.extra_columns["catalog"],
         np.array(["gleam", "nvss"]),
     )
 

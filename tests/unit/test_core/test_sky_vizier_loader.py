@@ -47,8 +47,10 @@ def test_vizier_loader_extracts_sources_from_fetched_catalog(monkeypatch):
     np.testing.assert_allclose(np.rad2deg(sky.point.ra_rad), [180.0])
     np.testing.assert_allclose(np.rad2deg(sky.point.dec_rad), [-30.0])
     np.testing.assert_allclose(sky.point.flux, [2.5])
-    np.testing.assert_allclose(sky.point.major_arcsec, [30.0])
-    np.testing.assert_allclose(sky.point.minor_arcsec, [20.0])
-    np.testing.assert_allclose(sky.point.pa_deg, [45.0])
-    np.testing.assert_array_equal(sky.point.source_name, np.array(["src-a"]))
-    np.testing.assert_array_equal(sky.point.source_id, np.array(["id-a"]))
+    assert sky.point.morphology is not None
+    np.testing.assert_allclose(sky.point.morphology.major_arcsec, [30.0])
+    np.testing.assert_allclose(sky.point.morphology.minor_arcsec, [20.0])
+    np.testing.assert_allclose(sky.point.morphology.pa_deg, [45.0])
+    assert sky.point.metadata is not None
+    np.testing.assert_array_equal(sky.point.metadata.source_name, np.array(["src-a"]))
+    np.testing.assert_array_equal(sky.point.metadata.source_id, np.array(["id-a"]))

@@ -444,9 +444,11 @@ class ObservabilityPlanner:
         ra_deg = np.degrees(point.ra_rad[order])
         dec_deg = np.degrees(point.dec_rad[order])
         flux_jy = np.asarray(point.flux[order], dtype=float)
+        metadata = point.metadata
+        source_names = metadata.source_name if metadata is not None else None
         source_name = (
-            np.asarray(point.source_name[order]).astype(str)
-            if point.source_name is not None
+            np.asarray(source_names[order]).astype(str)
+            if source_names is not None
             else None
         )
 

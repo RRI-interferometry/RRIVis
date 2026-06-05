@@ -11,9 +11,7 @@ measure, source name/id, extra columns) live in dedicated frozen
 sub-dataclasses (:class:`PointMorphology`, :class:`PointPolarization`,
 :class:`PointMetadata`) so each block carries its own all-or-nothing
 shape rules and so adding a future field — e.g. an RM uncertainty — is
-local. Read-back-compat ``@property`` accessors (``point.major_arcsec``,
-``point.rotation_measure``, ``point.source_name`` …) expose the flat
-view existing callers expect.
+local.
 """
 
 from __future__ import annotations
@@ -443,8 +441,6 @@ class PointSourceData:
     The constructor accepts both nested objects and the historical flat
     kwargs (e.g. ``major_arcsec=…``); a pre-validator packs flat kwargs
     into the matching sub-dataclass before the dataclass is built.
-    Read-back accessors (``point.major_arcsec``, ``point.rotation_measure``,
-    ``point.source_name`` …) make the flat view available again.
     """
 
     ra_rad: np.ndarray
@@ -594,42 +590,6 @@ class PointSourceData:
             )
         return self
 
-    # =========================================================================
-    # Read-back-compat accessors (flat view of nested storage)
-    # =========================================================================
-
-    @property
-    def major_arcsec(self) -> np.ndarray | None:
-        return self.morphology.major_arcsec if self.morphology is not None else None
-
-    @property
-    def minor_arcsec(self) -> np.ndarray | None:
-        return self.morphology.minor_arcsec if self.morphology is not None else None
-
-    @property
-    def pa_deg(self) -> np.ndarray | None:
-        return self.morphology.pa_deg if self.morphology is not None else None
-
-    @property
-    def rotation_measure(self) -> np.ndarray | None:
-        return (
-            self.polarization.rotation_measure
-            if self.polarization is not None
-            else None
-        )
-
-    @property
-    def source_name(self) -> np.ndarray | None:
-        return self.metadata.source_name if self.metadata is not None else None
-
-    @property
-    def source_id(self) -> np.ndarray | None:
-        return self.metadata.source_id if self.metadata is not None else None
-
-    @property
-    def extra_columns(self) -> dict[str, np.ndarray]:
-        return self.metadata.extra_columns if self.metadata is not None else {}
-
     @property
     def n_sources(self) -> int:
         """Number of point sources."""
@@ -715,10 +675,18 @@ class PointSourceData:
         if reference_frequency and np.all(ref_freq == 0):
             ref_freq = np.full(n, reference_frequency, dtype=ref_freq.dtype)
 
-        rotation_measure = self.rotation_measure
-        major_arcsec = self.major_arcsec
-        minor_arcsec = self.minor_arcsec
-        pa_deg = self.pa_deg
+        rotation_measure = (
+            self.polarization.rotation_measure
+            if self.polarization is not None
+            else None
+        )
+        major_arcsec = (
+            self.morphology.major_arcsec if self.morphology is not None else None
+        )
+        minor_arcsec = (
+            self.morphology.minor_arcsec if self.morphology is not None else None
+        )
+        pa_deg = self.morphology.pa_deg if self.morphology is not None else None
 
         return {
             "ra_rad": self.ra_rad[mask],

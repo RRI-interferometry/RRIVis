@@ -17,8 +17,22 @@ if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
     from ..containers.model import SkyModel
+    from ..containers.point import PointSourceData
 
 logger = logging.getLogger(__name__)
+
+
+def _metadata_field(
+    point: PointSourceData,
+    field_name: str,
+) -> np.ndarray | None:
+    if point.metadata is None:
+        return None
+    return getattr(point.metadata, field_name)
+
+
+def _extra_columns(point: PointSourceData) -> dict[str, np.ndarray]:
+    return point.metadata.extra_columns if point.metadata is not None else {}
 
 
 def _concat_string_metadata(
@@ -27,14 +41,15 @@ def _concat_string_metadata(
 ) -> np.ndarray | None:
     """Concatenate per-source string metadata, filling missing values with blanks."""
     if not any(
-        m.point is not None and getattr(m.point, field_name) is not None for m in models
+        m.point is not None and _metadata_field(m.point, field_name) is not None
+        for m in models
     ):
         return None
     parts: list[np.ndarray] = []
     for model in models:
         if model.point is None:
             continue
-        values = getattr(model.point, field_name)
+        values = _metadata_field(model.point, field_name)
         if values is None:
             parts.append(np.full(model.point.n_sources, "", dtype=str))
             continue
@@ -48,14 +63,15 @@ def _concat_object_metadata(
 ) -> np.ndarray | None:
     """Concatenate per-source metadata with a permissive object dtype."""
     if not any(
-        m.point is not None and getattr(m.point, field_name) is not None for m in models
+        m.point is not None and _metadata_field(m.point, field_name) is not None
+        for m in models
     ):
         return None
     parts: list[np.ndarray] = []
     for model in models:
         if model.point is None:
             continue
-        values = getattr(model.point, field_name)
+        values = _metadata_field(model.point, field_name)
         if values is None:
             parts.append(np.full(model.point.n_sources, None, dtype=object))
             continue
@@ -78,7 +94,7 @@ def _concat_extra_columns(models: list[SkyModel]) -> dict[str, np.ndarray]:
             key
             for model in models
             if model.point is not None
-            for key in model.point.extra_columns
+            for key in _extra_columns(model.point)
         }
     )
     if not keys:
@@ -93,7 +109,7 @@ def _concat_extra_columns(models: list[SkyModel]) -> dict[str, np.ndarray]:
             if model.point is None:
                 continue
             contributing_models.append(model)
-            values = model.point.extra_columns.get(key)
+            values = _extra_columns(model.point).get(key)
             if values is None:
                 any_missing = True
                 continue
@@ -126,7 +142,7 @@ def _concat_extra_columns(models: list[SkyModel]) -> dict[str, np.ndarray]:
         parts: list[np.ndarray] = []
         present_iter = iter(present_arrays)
         for model in contributing_models:
-            values = model.point.extra_columns.get(key)
+            values = _extra_columns(model.point).get(key)
             if values is None:
                 parts.append(
                     np.full(model.point.n_sources, fill_value, dtype=common_dtype)
@@ -230,13 +246,11 @@ def concat_point_sources(
 
     # --- Optional: rotation measure ---
     rm: np.ndarray | None = None
-    if any(
-        m.point is not None and m.point.rotation_measure is not None for m in populated
-    ):
+    if any(m.point is not None and m.point.polarization is not None for m in populated):
         rm = np.concatenate(
             [
-                m.point.rotation_measure
-                if m.point is not None and m.point.rotation_measure is not None
+                m.point.polarization.rotation_measure
+                if m.point is not None and m.point.polarization is not None
                 else np.zeros(
                     m.point.n_sources if m.point is not None else 0, dtype=np.float64
                 )
@@ -248,11 +262,11 @@ def concat_point_sources(
     major: np.ndarray | None = None
     minor: np.ndarray | None = None
     pa: np.ndarray | None = None
-    if any(m.point is not None and m.point.major_arcsec is not None for m in populated):
+    if any(m.point is not None and m.point.morphology is not None for m in populated):
         major = np.concatenate(
             [
-                m.point.major_arcsec
-                if m.point is not None and m.point.major_arcsec is not None
+                m.point.morphology.major_arcsec
+                if m.point is not None and m.point.morphology is not None
                 else np.zeros(
                     m.point.n_sources if m.point is not None else 0, dtype=np.float64
                 )
@@ -261,8 +275,8 @@ def concat_point_sources(
         )
         minor = np.concatenate(
             [
-                m.point.minor_arcsec
-                if m.point is not None and m.point.minor_arcsec is not None
+                m.point.morphology.minor_arcsec
+                if m.point is not None and m.point.morphology is not None
                 else np.zeros(
                     m.point.n_sources if m.point is not None else 0, dtype=np.float64
                 )
@@ -271,8 +285,8 @@ def concat_point_sources(
         )
         pa = np.concatenate(
             [
-                m.point.pa_deg
-                if m.point is not None and m.point.pa_deg is not None
+                m.point.morphology.pa_deg
+                if m.point is not None and m.point.morphology is not None
                 else np.zeros(
                     m.point.n_sources if m.point is not None else 0, dtype=np.float64
                 )

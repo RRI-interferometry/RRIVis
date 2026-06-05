@@ -57,7 +57,11 @@ def _point_contributions_at_freq(
         spectral_index=point.spectral_index,
         spectral_coeffs=point.spectral_coeffs,
         ref_freq=ref_freq,
-        rotation_measure=point.rotation_measure,
+        rotation_measure=(
+            point.polarization.rotation_measure
+            if point.polarization is not None
+            else None
+        ),
         per_channel_flux=spectrum.flux if spectrum is not None else None,
         per_channel_stokes_q=(
             spectrum.stokes_q

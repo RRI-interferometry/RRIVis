@@ -603,8 +603,15 @@ def write_bbs(
     n = point.n_sources
     prefix = sky_model.model_name or "src"
 
-    has_rm = point.rotation_measure is not None and np.any(point.rotation_measure != 0)
-    has_gauss = point.major_arcsec is not None and np.any(point.major_arcsec > 0)
+    polarization = point.polarization
+    rotation_measure = (
+        polarization.rotation_measure if polarization is not None else None
+    )
+    morphology = point.morphology
+    metadata = point.metadata
+
+    has_rm = rotation_measure is not None and np.any(rotation_measure != 0)
+    has_gauss = morphology is not None and np.any(morphology.major_arcsec > 0)
     has_pol = np.any(point.stokes_q != 0) or np.any(point.stokes_u != 0)
 
     # Build format header
@@ -630,15 +637,19 @@ def write_bbs(
 
         ra_deg = np.rad2deg(point.ra_rad)
         dec_deg = np.rad2deg(point.dec_rad)
+        source_name = metadata.source_name if metadata is not None else None
+        source_id = metadata.source_id if metadata is not None else None
 
         for i in range(n):
-            if point.source_name is not None and point.source_name[i]:
-                name = str(point.source_name[i])
-            elif point.source_id is not None and point.source_id[i] is not None:
-                name = str(point.source_id[i])
+            if source_name is not None and source_name[i]:
+                name = str(source_name[i])
+            elif source_id is not None and source_id[i] is not None:
+                name = str(source_id[i])
             else:
                 name = f"{prefix}_{i}"
-            is_gauss = has_gauss and point.major_arcsec[i] > 0
+            is_gauss = (
+                morphology is not None and has_gauss and morphology.major_arcsec[i] > 0
+            )
             src_type = "GAUSSIAN" if is_gauss else "POINT"
             ra_str = _format_ra_bbs(ra_deg[i])
             dec_str = _format_dec_bbs(dec_deg[i])
@@ -665,17 +676,14 @@ def write_bbs(
             parts.extend(["", si_str, "true"])
 
             if has_gauss:
-                maj = point.major_arcsec[i] if is_gauss else 0.0
-                mi = point.minor_arcsec[i] if is_gauss else 0.0
-                pa = point.pa_deg[i] if is_gauss else 0.0
+                assert morphology is not None
+                maj = morphology.major_arcsec[i] if is_gauss else 0.0
+                mi = morphology.minor_arcsec[i] if is_gauss else 0.0
+                pa = morphology.pa_deg[i] if is_gauss else 0.0
                 parts.extend([f"{maj}", f"{mi}", f"{pa}"])
 
             if has_rm:
-                rm_val = (
-                    point.rotation_measure[i]
-                    if point.rotation_measure is not None
-                    else 0.0
-                )
+                rm_val = rotation_measure[i] if rotation_measure is not None else 0.0
                 parts.append(f"{rm_val}")
 
             f.write(", ".join(parts) + "\n")
