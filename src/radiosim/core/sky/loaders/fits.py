@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import healpy as hp
@@ -45,6 +46,277 @@ def _axis_values(header: Any, axis: int, n: int) -> np.ndarray:
     cdelt = header.get(f"CDELT{axis}", 1.0)
     crpix = header.get(f"CRPIX{axis}", 1.0)
     return crval + (np.arange(n) + 1 - crpix) * cdelt
+
+
+@dataclass(frozen=True)
+class _FitsAxesAndUnits:
+    ndim: int
+    freq_ax: int | None
+    stokes_ax: int | None
+    freq_vals: np.ndarray
+    stokes_vals: np.ndarray
+    n_stokes: int
+    wcs_2d: Any
+    is_jy_beam: bool
+    is_jy_pixel: bool
+    is_jy_sr: bool
+    beam_area_sr: float | None
+    pixel_area_sr: float | None
+    omega_pixel: float
+
+
+def _fits_to_python_axis(ndim: int, fits_ax: int) -> int:
+    """Map a 1-based FITS axis number onto NumPy's 0-based array axis."""
+    return ndim - fits_ax
+
+
+def _parse_fits_axes_and_units(
+    *,
+    header: Any,
+    data: np.ndarray,
+    frequencies: np.ndarray | None,
+    nside: int,
+) -> _FitsAxesAndUnits:
+    from astropy.wcs import WCS
+
+    full_wcs = WCS(header)
+    ndim = data.ndim
+    freq_ax = _find_axis(header, "FREQ")
+    stokes_ax = _find_axis(header, "STOKES")
+
+    if freq_ax is not None:
+        n_freq = header[f"NAXIS{freq_ax}"]
+        freq_vals = _axis_values(header, freq_ax, n_freq)
+        cunit = header.get(f"CUNIT{freq_ax}", "Hz").strip().upper()
+        unit_scale = {"HZ": 1.0, "KHZ": 1e3, "MHZ": 1e6, "GHZ": 1e9}
+        freq_vals *= unit_scale.get(cunit, 1.0)
+    elif frequencies is not None:
+        freq_vals = np.asarray(frequencies, dtype=np.float64)
+    else:
+        restfrq = header.get("RESTFRQ") or header.get("RESTFREQ")
+        if restfrq:
+            freq_vals = np.array([float(restfrq)])
+        else:
+            raise ValueError(
+                "Cannot determine frequency from FITS header. "
+                "Provide the 'frequencies' parameter."
+            )
+
+    if stokes_ax is not None:
+        n_stokes = header[f"NAXIS{stokes_ax}"]
+        stokes_vals = _axis_values(header, stokes_ax, n_stokes)
+        stokes_vals = np.round(stokes_vals).astype(int)
+    else:
+        stokes_vals = np.array([1])
+        n_stokes = 1
+
+    bunit = header.get("BUNIT", "").strip().upper()
+    is_jy_beam = "JY/BEAM" in bunit
+    is_jy_pixel = "JY/PIX" in bunit or "JY/PIXEL" in bunit
+    is_jy_sr = "JY/SR" in bunit
+
+    beam_area_sr = None
+    pixel_area_sr = None
+    if is_jy_beam:
+        bmaj = header.get("BMAJ")
+        bmin = header.get("BMIN")
+        if bmaj is None or bmin is None:
+            raise ValueError(
+                f"BUNIT='{bunit}' but BMAJ/BMIN not found in header. "
+                "Cannot convert Jy/beam to Jy/pixel."
+            )
+        bmaj_rad = np.deg2rad(bmaj)
+        bmin_rad = np.deg2rad(bmin)
+        beam_area_sr = math.pi * bmaj_rad * bmin_rad / (4 * math.log(2))
+        cdelt1 = abs(header.get("CDELT1", 1.0))
+        cdelt2 = abs(header.get("CDELT2", 1.0))
+        pixel_area_sr = np.deg2rad(cdelt1) * np.deg2rad(cdelt2)
+
+    npix = hp.nside2npix(nside)
+    return _FitsAxesAndUnits(
+        ndim=ndim,
+        freq_ax=freq_ax,
+        stokes_ax=stokes_ax,
+        freq_vals=np.asarray(freq_vals, dtype=np.float64),
+        stokes_vals=stokes_vals,
+        n_stokes=n_stokes,
+        wcs_2d=full_wcs.celestial,
+        is_jy_beam=is_jy_beam,
+        is_jy_pixel=is_jy_pixel,
+        is_jy_sr=is_jy_sr,
+        beam_area_sr=beam_area_sr,
+        pixel_area_sr=pixel_area_sr,
+        omega_pixel=4 * np.pi / npix,
+    )
+
+
+def _extract_fits_spatial_slice(
+    data: np.ndarray,
+    spec: _FitsAxesAndUnits,
+    *,
+    stokes_idx: int | None,
+    freq_idx: int | None,
+) -> np.ndarray:
+    """Extract a 2D spatial image from a FITS image or cube."""
+    if spec.ndim == 2:
+        return data
+    if spec.ndim == 3:
+        if spec.freq_ax is not None:
+            py_axis = _fits_to_python_axis(spec.ndim, spec.freq_ax)
+            return np.take(data, freq_idx or 0, axis=py_axis)
+        if spec.stokes_ax is not None:
+            py_axis = _fits_to_python_axis(spec.ndim, spec.stokes_ax)
+            return np.take(data, stokes_idx or 0, axis=py_axis)
+        return data[freq_idx or 0]
+    if spec.ndim == 4:
+        si = stokes_idx or 0
+        fi = freq_idx or 0
+        if spec.stokes_ax and spec.freq_ax:
+            stokes_py = _fits_to_python_axis(spec.ndim, spec.stokes_ax)
+            freq_py = _fits_to_python_axis(spec.ndim, spec.freq_ax)
+            stokes_slice = np.take(data, si, axis=stokes_py)
+            freq_py_adjusted = freq_py if freq_py < stokes_py else freq_py - 1
+            return np.take(stokes_slice, fi, axis=freq_py_adjusted)
+        return data[si, fi]
+
+    spatial_slice = data
+    while spatial_slice.ndim > 2:
+        spatial_slice = spatial_slice[0]
+    return spatial_slice
+
+
+def _resolve_fits_output_frequencies(
+    spec: _FitsAxesAndUnits,
+    frequencies: np.ndarray | None,
+) -> tuple[np.ndarray, list[int], bool]:
+    freq_vals_raw = np.asarray(spec.freq_vals, dtype=np.float64)
+    single_freq_replicate = (
+        spec.freq_ax is None and frequencies is not None and len(freq_vals_raw) == 1
+    )
+    if single_freq_replicate:
+        final_freqs = np.asarray(frequencies, dtype=np.float64)
+        sort_idx = np.argsort(final_freqs)
+        final_freqs = final_freqs[sort_idx]
+        src_row_for_out = [0] * len(final_freqs)
+    else:
+        sort_idx = np.argsort(freq_vals_raw)
+        final_freqs = freq_vals_raw[sort_idx]
+        src_row_for_out = sort_idx.tolist()
+    return final_freqs, src_row_for_out, single_freq_replicate
+
+
+def _reproject_fits_stokes(
+    *,
+    data: np.ndarray,
+    spec: _FitsAxesAndUnits,
+    nside: int,
+    frequencies: np.ndarray | None,
+    brightness_conversion: str,
+    filename: str,
+    reproject_to_healpix: Any,
+):
+    final_freqs, src_row_for_out, single_freq_replicate = (
+        _resolve_fits_output_frequencies(spec, frequencies)
+    )
+
+    def _reproject_slice(image_2d: np.ndarray) -> np.ndarray:
+        hp_array, _footprint = reproject_to_healpix(
+            (image_2d.astype(np.float64), spec.wcs_2d),
+            "icrs",
+            nside=nside,
+            order="bilinear",
+            nested=False,
+        )
+        hp_array = np.asarray(hp_array, dtype=np.float64)
+        hp_array[~np.isfinite(hp_array)] = 0.0
+        return hp_array
+
+    cached_stokes_row: (
+        tuple[
+            np.ndarray,
+            np.ndarray | None,
+            np.ndarray | None,
+            np.ndarray | None,
+        ]
+        | None
+    ) = None
+
+    def _iter_stokes_rows():
+        nonlocal cached_stokes_row
+        for out_fi, src_fi in enumerate(src_row_for_out):
+            freq_hz = float(final_freqs[out_fi])
+
+            if single_freq_replicate and cached_stokes_row is not None:
+                yield cached_stokes_row
+                continue
+
+            i_row: np.ndarray | None = None
+            q_row: np.ndarray | None = None
+            u_row: np.ndarray | None = None
+            v_row: np.ndarray | None = None
+
+            for si, stokes_code in enumerate(spec.stokes_vals):
+                if si >= spec.n_stokes:
+                    break
+
+                fits_fi = src_fi if spec.freq_ax is not None else None
+                fits_si = si if spec.stokes_ax is not None else None
+
+                image_2d = _extract_fits_spatial_slice(
+                    data,
+                    spec,
+                    stokes_idx=fits_si,
+                    freq_idx=fits_fi,
+                )
+                hp_map = _reproject_slice(image_2d)
+
+                if spec.is_jy_beam:
+                    assert spec.pixel_area_sr is not None
+                    assert spec.beam_area_sr is not None
+                    hp_map *= spec.pixel_area_sr / spec.beam_area_sr
+
+                flux_map: np.ndarray | None = None
+                if spec.is_jy_beam or spec.is_jy_pixel:
+                    flux_map = hp_map
+                elif spec.is_jy_sr:
+                    flux_map = hp_map * spec.omega_pixel
+
+                is_stokes_i = stokes_code == 1 or spec.n_stokes == 1
+                if flux_map is not None:
+                    if is_stokes_i:
+                        pos = flux_map > 0
+                        temp_map = np.zeros_like(hp_map)
+                        if np.any(pos):
+                            temp_map[pos] = flux_density_to_brightness_temp(
+                                flux_map[pos],
+                                freq_hz,
+                                spec.omega_pixel,
+                                method=brightness_conversion,
+                            )
+                        hp_map = temp_map
+                    else:
+                        hp_map = flux_map / rayleigh_jeans_factor(
+                            freq_hz,
+                            spec.omega_pixel,
+                        )
+
+                if is_stokes_i:
+                    i_row = hp_map
+                elif stokes_code == 2:
+                    q_row = hp_map
+                elif stokes_code == 3:
+                    u_row = hp_map
+                elif stokes_code == 4:
+                    v_row = hp_map
+
+            if i_row is None:
+                raise ValueError(f"No Stokes I data found in {filename}")
+            stokes_row = (i_row, q_row, u_row, v_row)
+            if single_freq_replicate:
+                cached_stokes_row = stokes_row
+            yield stokes_row
+
+    return final_freqs, _iter_stokes_rows()
 
 
 @loader_registry.register(
@@ -105,7 +377,6 @@ def load_fits_image(
         ) from e
 
     from astropy.io import fits
-    from astropy.wcs import WCS
 
     try:
         hdul = fits.open(filename)
@@ -126,235 +397,24 @@ def load_fits_image(
         data = np.array(hdu.data, dtype=np.float64)
         header = hdu.header
 
-    full_wcs = WCS(header)
-    ndim = data.ndim
-
-    # Identify axes
-    freq_ax = _find_axis(header, "FREQ")
-    stokes_ax = _find_axis(header, "STOKES")
-
-    # Map to 0-based Python axis indices (FITS is 1-based, reversed)
-    def _py_ax(fits_ax: int) -> int:
-        return ndim - fits_ax
-
-    # Determine frequency array
-    if freq_ax is not None:
-        n_freq = header[f"NAXIS{freq_ax}"]
-        freq_vals = _axis_values(header, freq_ax, n_freq)
-        # Convert to Hz if needed
-        cunit = header.get(f"CUNIT{freq_ax}", "Hz").strip().upper()
-        unit_scale = {"HZ": 1.0, "KHZ": 1e3, "MHZ": 1e6, "GHZ": 1e9}
-        freq_vals *= unit_scale.get(cunit, 1.0)
-    elif frequencies is not None:
-        freq_vals = np.asarray(frequencies, dtype=np.float64)
-    else:
-        # Try RESTFRQ or CRVAL3
-        restfrq = header.get("RESTFRQ") or header.get("RESTFREQ")
-        if restfrq:
-            freq_vals = np.array([float(restfrq)])
-        else:
-            raise ValueError(
-                "Cannot determine frequency from FITS header. "
-                "Provide the 'frequencies' parameter."
-            )
-
-    # Determine Stokes indices
-    if stokes_ax is not None:
-        n_stokes = header[f"NAXIS{stokes_ax}"]
-        stokes_vals = _axis_values(header, stokes_ax, n_stokes)
-        stokes_vals = np.round(stokes_vals).astype(int)
-    else:
-        stokes_vals = np.array([1])  # Stokes I only
-        n_stokes = 1
-
-    # Handle BUNIT
-    bunit = header.get("BUNIT", "").strip().upper()
-    is_jy_beam = "JY/BEAM" in bunit
-    is_jy_pixel = "JY/PIX" in bunit or "JY/PIXEL" in bunit
-    is_jy_sr = "JY/SR" in bunit
-
-    beam_area_sr = None
-    pixel_area_sr = None
-    if is_jy_beam:
-        bmaj = header.get("BMAJ")
-        bmin = header.get("BMIN")
-        if bmaj is None or bmin is None:
-            raise ValueError(
-                f"BUNIT='{bunit}' but BMAJ/BMIN not found in header. "
-                "Cannot convert Jy/beam to Jy/pixel."
-            )
-        # Beam area in steradians
-        bmaj_rad = np.deg2rad(bmaj)
-        bmin_rad = np.deg2rad(bmin)
-        beam_area_sr = math.pi * bmaj_rad * bmin_rad / (4 * math.log(2))
-        # Pixel area in steradians
-        cdelt1 = abs(header.get("CDELT1", 1.0))
-        cdelt2 = abs(header.get("CDELT2", 1.0))
-        pixel_area_sr = np.deg2rad(cdelt1) * np.deg2rad(cdelt2)
-
-    # Build 2D spatial WCS (drop non-spatial axes)
-    wcs_2d = full_wcs.celestial
-
-    # Reproject each frequency channel and Stokes to HEALPix
-    npix = hp.nside2npix(nside)
-    omega_pixel = 4 * np.pi / npix
-
-    # Determine the final output frequency grid up front so we can allocate
-    # the final-shape cube directly and write rows into their sorted
-    # position — no post-hoc sort reindex, no broadcast-and-copy.
-    freq_vals_raw = np.asarray(freq_vals, dtype=np.float64)
-    single_freq_replicate = (
-        freq_ax is None and frequencies is not None and len(freq_vals_raw) == 1
+    spec = _parse_fits_axes_and_units(
+        header=header,
+        data=data,
+        frequencies=frequencies,
+        nside=nside,
     )
-    if single_freq_replicate:
-        # Replicate the single FITS slice across the caller-supplied
-        # frequency grid.  The sort below is a no-op because the grid
-        # is written in its final order.
-        final_freqs = np.asarray(frequencies, dtype=np.float64)
-        sort_idx = np.argsort(final_freqs)
-        final_freqs = final_freqs[sort_idx]
-        # The source FITS slice index for each output row is always 0
-        # because there is only one slice to replicate.
-        src_row_for_out = [0] * len(final_freqs)
-    else:
-        sort_idx = np.argsort(freq_vals_raw)
-        final_freqs = freq_vals_raw[sort_idx]
-        # Map each output row to its source row (inverse of sort).
-        src_row_for_out = sort_idx.tolist()
-
-    n_freq_out = len(final_freqs)
-
-    def _get_slice(stokes_idx: int | None, freq_idx: int | None) -> np.ndarray:
-        """Extract a 2D spatial slice from the data cube."""
-        if ndim == 2:
-            return data
-        if ndim == 3:
-            if freq_ax is not None:
-                py = _py_ax(freq_ax)
-                return np.take(data, freq_idx or 0, axis=py)
-            if stokes_ax is not None:
-                py = _py_ax(stokes_ax)
-                return np.take(data, stokes_idx or 0, axis=py)
-            return data[freq_idx or 0]
-        if ndim == 4:
-            # Standard: (Stokes, Freq, Dec, RA) or (Freq, Stokes, Dec, RA)
-            si = stokes_idx or 0
-            fi = freq_idx or 0
-            if stokes_ax and freq_ax:
-                s_py = _py_ax(stokes_ax)
-                f_py = _py_ax(freq_ax)
-                slc = np.take(data, si, axis=s_py)
-                # After taking one axis, adjust the other
-                f_py_adj = f_py if f_py < s_py else f_py - 1
-                return np.take(slc, fi, axis=f_py_adj)
-            return data[si, fi]
-        # Fallback for higher dimensions: take first slices
-        slc = data
-        while slc.ndim > 2:
-            slc = slc[0]
-        return slc
-
-    def _reproject_slice(image_2d: np.ndarray) -> np.ndarray:
-        """Reproject a 2D image to HEALPix."""
-        hp_array, _footprint = reproject_to_healpix(
-            (image_2d.astype(np.float64), wcs_2d),
-            "icrs",
-            nside=nside,
-            order="bilinear",
-            nested=False,
-        )
-        hp_array = np.asarray(hp_array, dtype=np.float64)
-        hp_array[~np.isfinite(hp_array)] = 0.0
-        return hp_array
-
-    # Cache reprojected + unit-converted slices for single-freq replication
-    # so we don't redo the reprojection work for each replicated row.
-    cached_stokes_row: (
-        tuple[
-            np.ndarray,
-            np.ndarray | None,
-            np.ndarray | None,
-            np.ndarray | None,
-        ]
-        | None
-    ) = None
-
-    def _iter_stokes_rows():
-        nonlocal cached_stokes_row
-        for out_fi in range(n_freq_out):
-            src_fi = src_row_for_out[out_fi]
-            freq_hz = float(final_freqs[out_fi])
-
-            if single_freq_replicate and cached_stokes_row is not None:
-                yield cached_stokes_row
-                continue
-
-            i_row: np.ndarray | None = None
-            q_row: np.ndarray | None = None
-            u_row: np.ndarray | None = None
-            v_row: np.ndarray | None = None
-
-            for si, stokes_code in enumerate(stokes_vals):
-                if si >= n_stokes:
-                    break
-
-                fits_fi = src_fi if freq_ax is not None else None
-                fits_si = si if stokes_ax is not None else None
-
-                image_2d = _get_slice(fits_si, fits_fi)
-                hp_map = _reproject_slice(image_2d)
-
-                # Unit conversion. Stokes Q/U/V are signed linear components, so
-                # convert them with the signed Rayleigh-Jeans relation even when
-                # Stokes I uses the positive-only Planck inversion.
-                if is_jy_beam:
-                    assert pixel_area_sr is not None
-                    assert beam_area_sr is not None
-                    hp_map *= pixel_area_sr / beam_area_sr
-
-                flux_map: np.ndarray | None = None
-                if is_jy_beam or is_jy_pixel:
-                    flux_map = hp_map
-                elif is_jy_sr:
-                    flux_map = hp_map * omega_pixel
-
-                is_stokes_i = stokes_code == 1 or n_stokes == 1
-                if flux_map is not None:
-                    if is_stokes_i:
-                        pos = flux_map > 0
-                        temp_map = np.zeros_like(hp_map)
-                        if np.any(pos):
-                            temp_map[pos] = flux_density_to_brightness_temp(
-                                flux_map[pos],
-                                freq_hz,
-                                omega_pixel,
-                                method=brightness_conversion,
-                            )
-                        hp_map = temp_map
-                    else:
-                        hp_map = flux_map / rayleigh_jeans_factor(freq_hz, omega_pixel)
-
-                # Stokes mapping: I=1, Q=2, U=3, V=4
-                if is_stokes_i:
-                    i_row = hp_map
-                elif stokes_code == 2:
-                    q_row = hp_map
-                elif stokes_code == 3:
-                    u_row = hp_map
-                elif stokes_code == 4:
-                    v_row = hp_map
-
-            if i_row is None:
-                raise ValueError(f"No Stokes I data found in {filename}")
-            stokes_row = (i_row, q_row, u_row, v_row)
-            if single_freq_replicate:
-                cached_stokes_row = stokes_row
-            yield stokes_row
-
-    obs_freqs = final_freqs
+    obs_freqs, stokes_rows = _reproject_fits_stokes(
+        data=data,
+        spec=spec,
+        nside=nside,
+        frequencies=frequencies,
+        brightness_conversion=brightness_conversion,
+        filename=filename,
+        reproject_to_healpix=reproject_to_healpix,
+    )
 
     healpix = build_healpix_from_stokes_cube(
-        stokes_rows=_iter_stokes_rows(),
+        stokes_rows=stokes_rows,
         nside=nside,
         frequencies=obs_freqs,
         coordinate_frame="icrs",

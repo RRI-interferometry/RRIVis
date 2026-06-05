@@ -9,6 +9,7 @@ behaviour lives in this function's branches keyed off
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import astropy.units as u
@@ -129,6 +130,313 @@ def _extract_text_column(catalog, col_name: str) -> np.ndarray:
     )
 
 
+@dataclass(frozen=True)
+class _VizierSources:
+    ra_rad: np.ndarray
+    dec_rad: np.ndarray
+    flux_jy: np.ndarray
+    spectral_index: np.ndarray
+    source_name: np.ndarray | None
+    source_id: np.ndarray | None
+    major_arcsec: np.ndarray | None
+    minor_arcsec: np.ndarray | None
+    pa_deg: np.ndarray | None
+
+    @property
+    def n_sources(self) -> int:
+        return len(self.flux_jy)
+
+
+def _empty_vizier_sources() -> _VizierSources:
+    empty = np.array([], dtype=np.float64)
+    return _VizierSources(
+        ra_rad=empty,
+        dec_rad=empty,
+        flux_jy=empty,
+        spectral_index=empty,
+        source_name=None,
+        source_id=None,
+        major_arcsec=None,
+        minor_arcsec=None,
+        pa_deg=None,
+    )
+
+
+def _empty_vizier_sky(
+    *,
+    info: VizierCatalogEntry,
+    catalog_key: str,
+    flux_limit: float,
+    brightness_conversion: str,
+    precision: PrecisionConfig | None,
+    region: SkyRegion | None,
+):
+    provenance = _build_point_catalog_provenance(
+        info=info,
+        flux_limit_jy=flux_limit,
+        flux_jy=None,
+        catalog_key=catalog_key,
+        region=region,
+    )
+    return create_empty(
+        catalog_key,
+        brightness_conversion,
+        precision=precision,
+        reference_frequency=info.freq_mhz * 1e6,
+        provenance=provenance,
+    )
+
+
+def _fetch_vizier_catalog(
+    *,
+    catalog_key: str,
+    info: VizierCatalogEntry,
+    flux_limit: float,
+    region: SkyRegion | None,
+    max_rows: int | None,
+    allow_full_catalog: bool,
+):
+    if region is None and max_rows is None and not allow_full_catalog:
+        raise ValueError(
+            f"Catalog '{catalog_key}' requires region=..., max_rows=..., or "
+            "allow_full_catalog=True before downloading from VizieR."
+        )
+
+    logger.info(f"Fetching {info.description}")
+    require_service("vizier", f"download catalog '{catalog_key}' from VizieR")
+    logger.info("Downloading from VizieR...")
+
+    try:
+        needed_cols = [info.ra_col, info.dec_col, info.flux_col]
+        if info.spindex_col:
+            needed_cols.append(info.spindex_col)
+        if info.major_col:
+            needed_cols.extend([info.major_col, info.minor_col, info.pa_col])
+        v = Vizier(columns=needed_cols, row_limit=max_rows or -1)
+
+        limit_in_catalog_units = flux_limit / info.flux_unit_conversion_factor
+        v.column_filters = {info.flux_col: f">={limit_in_catalog_units}"}
+
+        if region is not None:
+            from astropy.table import vstack
+
+            all_tables = []
+            from ...operations.region import ConeRegion
+
+            for sub in region._iter_atomic():
+                if isinstance(sub, ConeRegion):
+                    tables = v.query_region(
+                        sub.center,
+                        radius=sub.radius,
+                        catalog=[info.vizier_id],
+                    )
+                else:
+                    tables = v.query_region(
+                        sub.center,
+                        width=sub.width,
+                        height=sub.height,
+                        catalog=[info.vizier_id],
+                    )
+                if tables:
+                    table = _select_table(tables, info)
+                    if table is not None:
+                        all_tables.append(table)
+            if not all_tables:
+                raise ValueError("No tables returned from VizieR")
+            return vstack(all_tables) if len(all_tables) > 1 else all_tables[0]
+
+        tables = v.get_catalogs(info.vizier_id)
+        if not tables:
+            raise ValueError("No tables returned from VizieR")
+        catalog = _select_table(tables, info)
+        return catalog if catalog is not None else tables[0]
+    except ConnectionError:
+        raise
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to fetch catalog '{catalog_key}' from VizieR: {e}\n"
+            f"If this is a network issue, check your connection. "
+            f"If the error persists, the VizieR schema may have changed -- "
+            f"please report at https://github.com/RRI-interferometry/RadioSim/issues"
+        ) from e
+
+
+def _extract_vizier_sources(
+    *,
+    catalog_key: str,
+    info: VizierCatalogEntry,
+    catalog: Any,
+    flux_limit: float,
+) -> _VizierSources:
+    n_rows = len(catalog)
+    logger.info(f"Downloaded {n_rows:,} rows, processing...")
+
+    if n_rows > 1_000_000:
+        logger.warning(
+            f"Catalog '{catalog_key}' has {n_rows:,} rows. "
+            "This may require significant memory. "
+            "Consider increasing flux_limit to reduce the source count."
+        )
+
+    is_sexagesimal = info.coords_sexagesimal
+    coord_frame = info.coord_frame
+
+    if not is_sexagesimal and len(catalog) > 0:
+        sample_ra = catalog[0][info.ra_col]
+        if isinstance(sample_ra, (str, np.str_)):
+            try:
+                float(sample_ra)
+            except ValueError:
+                is_sexagesimal = True
+                logger.debug(f"{catalog_key}: auto-detected sexagesimal coordinates")
+
+    flux_raw = _extract_masked_column(catalog, info.flux_col)
+    flux_jy_raw = flux_raw * info.flux_unit_conversion_factor
+    flux_valid = np.isfinite(flux_jy_raw) & (flux_jy_raw >= flux_limit)
+
+    if not np.any(flux_valid):
+        logger.info(
+            f"{catalog_key.upper()}: no sources above flux limit {flux_limit} Jy"
+        )
+        return _empty_vizier_sources()
+
+    if is_sexagesimal:
+        ra_strs = [str(value) for value in catalog[info.ra_col][flux_valid]]
+        dec_strs = [str(value) for value in catalog[info.dec_col][flux_valid]]
+        sc = SkyCoord(ra_strs, dec_strs, unit=(u.hourangle, u.deg), frame=coord_frame)
+    else:
+        ra_raw = _extract_masked_column(catalog, info.ra_col)
+        dec_raw = _extract_masked_column(catalog, info.dec_col)
+        coord_ok = flux_valid & np.isfinite(ra_raw) & np.isfinite(dec_raw)
+        sc = SkyCoord(
+            ra=ra_raw[coord_ok] * u.deg,
+            dec=dec_raw[coord_ok] * u.deg,
+            frame=coord_frame,
+        )
+        flux_valid = coord_ok
+
+    if coord_frame != "icrs":
+        sc = sc.icrs
+
+    flux_jy = flux_jy_raw[flux_valid]
+    n = len(flux_jy)
+    if n == 0:
+        return _empty_vizier_sources()
+
+    valid_indices = np.where(flux_valid)[0]
+    alpha_arr = np.full(n, info.default_spindex, dtype=np.float64)
+    name_col = _find_name_column(catalog)
+    source_name = (
+        _extract_text_column(catalog, name_col)[valid_indices]
+        if name_col is not None
+        else None
+    )
+    id_col = _find_id_column(catalog)
+    source_id = (
+        _extract_text_column(catalog, id_col)[valid_indices]
+        if id_col is not None
+        else None
+    )
+    if source_id is None and source_name is not None:
+        source_id = source_name.copy()
+
+    if info.spindex_col and info.spindex_col in catalog.colnames:
+        spindex_raw = _extract_masked_column(catalog, info.spindex_col)
+        spindex_valid = spindex_raw[valid_indices]
+        finite_mask = np.isfinite(spindex_valid)
+        alpha_arr[finite_mask] = spindex_valid[finite_mask]
+
+    gauss_major = None
+    gauss_minor = None
+    gauss_pa = None
+    if (
+        info.major_col
+        and info.minor_col
+        and info.pa_col
+        and info.major_col in catalog.colnames
+    ):
+        raw_maj = _extract_masked_column(catalog, info.major_col)[valid_indices]
+        raw_min = _extract_masked_column(catalog, info.minor_col)[valid_indices]
+        raw_pa = _extract_masked_column(catalog, info.pa_col)[valid_indices]
+        gauss_major = np.where(np.isfinite(raw_maj), raw_maj, 0.0)
+        gauss_minor = np.where(np.isfinite(raw_min), raw_min, 0.0)
+        gauss_pa = np.where(np.isfinite(raw_pa), raw_pa, 0.0)
+
+    return _VizierSources(
+        ra_rad=sc.ra.rad,
+        dec_rad=sc.dec.rad,
+        flux_jy=flux_jy,
+        spectral_index=alpha_arr,
+        source_name=source_name,
+        source_id=source_id,
+        major_arcsec=gauss_major,
+        minor_arcsec=gauss_minor,
+        pa_deg=gauss_pa,
+    )
+
+
+def _apply_region_and_dedup(
+    *,
+    sources: _VizierSources,
+    region: SkyRegion | None,
+) -> _VizierSources:
+    if region is None or sources.n_sources == 0:
+        return sources
+
+    in_region = region.contains(sources.ra_rad, sources.dec_rad)
+    ra_rad = sources.ra_rad[in_region]
+    dec_rad = sources.dec_rad[in_region]
+    flux_jy = sources.flux_jy[in_region]
+    alpha_arr = sources.spectral_index[in_region]
+    source_name = (
+        sources.source_name[in_region] if sources.source_name is not None else None
+    )
+    source_id = sources.source_id[in_region] if sources.source_id is not None else None
+    gauss_major = (
+        sources.major_arcsec[in_region] if sources.major_arcsec is not None else None
+    )
+    gauss_minor = (
+        sources.minor_arcsec[in_region] if sources.minor_arcsec is not None else None
+    )
+    gauss_pa = sources.pa_deg[in_region] if sources.pa_deg is not None else None
+
+    n = len(flux_jy)
+    if n > 0 and len(region._iter_atomic()) > 1:
+        unique_idx = None
+        if source_id is not None and np.all(source_id != ""):
+            _, unique_idx = np.unique(source_id, return_index=True)
+        elif source_name is not None and np.all(source_name != ""):
+            _, unique_idx = np.unique(source_name, return_index=True)
+        else:
+            coords_key = np.round(np.column_stack([ra_rad, dec_rad]), decimals=8)
+            _, unique_idx = np.unique(coords_key, axis=0, return_index=True)
+        unique_idx = np.sort(unique_idx)
+        ra_rad = ra_rad[unique_idx]
+        dec_rad = dec_rad[unique_idx]
+        flux_jy = flux_jy[unique_idx]
+        alpha_arr = alpha_arr[unique_idx]
+        if source_name is not None:
+            source_name = source_name[unique_idx]
+        if source_id is not None:
+            source_id = source_id[unique_idx]
+        if gauss_major is not None:
+            gauss_major = gauss_major[unique_idx]
+            gauss_minor = gauss_minor[unique_idx]
+            gauss_pa = gauss_pa[unique_idx]
+
+    return _VizierSources(
+        ra_rad=ra_rad,
+        dec_rad=dec_rad,
+        flux_jy=flux_jy,
+        spectral_index=alpha_arr,
+        source_name=source_name,
+        source_id=source_id,
+        major_arcsec=gauss_major,
+        minor_arcsec=gauss_minor,
+        pa_deg=gauss_pa,
+    )
+
+
 # =========================================================================
 # Core VizieR loader (module-level function)
 # =========================================================================
@@ -180,251 +488,48 @@ def _load_from_vizier_catalog(
         )
 
     info = VIZIER_POINT_CATALOGS[catalog_key]
+    catalog = _fetch_vizier_catalog(
+        catalog_key=catalog_key,
+        info=info,
+        flux_limit=flux_limit,
+        region=region,
+        max_rows=max_rows,
+        allow_full_catalog=allow_full_catalog,
+    )
+    sources = _extract_vizier_sources(
+        catalog_key=catalog_key,
+        info=info,
+        catalog=catalog,
+        flux_limit=flux_limit,
+    )
+    sources = _apply_region_and_dedup(sources=sources, region=region)
 
-    def _empty():
-        provenance = _build_point_catalog_provenance(
+    if sources.n_sources == 0:
+        return _empty_vizier_sky(
             info=info,
-            flux_limit_jy=flux_limit,
-            flux_jy=None,
             catalog_key=catalog_key,
+            flux_limit=flux_limit,
+            brightness_conversion=brightness_conversion,
+            precision=precision,
             region=region,
         )
-        return create_empty(
-            catalog_key,
-            brightness_conversion,
-            precision=precision,
-            reference_frequency=info.freq_mhz * 1e6,
-            provenance=provenance,
-        )
-
-    if region is None and max_rows is None and not allow_full_catalog:
-        raise ValueError(
-            f"Catalog '{catalog_key}' requires region=..., max_rows=..., or "
-            "allow_full_catalog=True before downloading from VizieR."
-        )
-    logger.info(f"Fetching {info.description}")
-
-    require_service("vizier", f"download catalog '{catalog_key}' from VizieR")
-    logger.info("Downloading from VizieR...")
-
-    try:
-        needed_cols = [info.ra_col, info.dec_col, info.flux_col]
-        if info.spindex_col:
-            needed_cols.append(info.spindex_col)
-        # Optional Gaussian morphology columns
-        _major_col = info.major_col
-        _minor_col = info.minor_col
-        _pa_col = info.pa_col
-        if _major_col:
-            needed_cols.extend([_major_col, _minor_col, _pa_col])
-        v = Vizier(columns=needed_cols, row_limit=max_rows or -1)
-
-        # Push flux_limit filter to VizieR server to reduce download size.
-        # Convert the user's Jy threshold into the catalog's native unit
-        # via the table-driven factor in catalogs.py.
-        limit_in_catalog_units = flux_limit / info.flux_unit_conversion_factor
-        v.column_filters = {info.flux_col: f">={limit_in_catalog_units}"}
-
-        if region is not None:
-            # Server-side spatial query -- one per atomic sub-region
-            from astropy.table import vstack
-
-            all_tables = []
-            from ...operations.region import ConeRegion
-
-            for sub in region._iter_atomic():
-                if isinstance(sub, ConeRegion):
-                    t = v.query_region(
-                        sub.center,
-                        radius=sub.radius,
-                        catalog=[info.vizier_id],
-                    )
-                else:  # box
-                    t = v.query_region(
-                        sub.center,
-                        width=sub.width,
-                        height=sub.height,
-                        catalog=[info.vizier_id],
-                    )
-                if t:
-                    tbl = _select_table(t, info)
-                    if tbl is not None:
-                        all_tables.append(tbl)
-            if not all_tables:
-                raise ValueError("No tables returned from VizieR")
-            catalog = vstack(all_tables) if len(all_tables) > 1 else all_tables[0]
-        else:
-            tables = v.get_catalogs(info.vizier_id)
-            if not tables:
-                raise ValueError("No tables returned from VizieR")
-            catalog = _select_table(tables, info)
-            if catalog is None:
-                catalog = tables[0]
-    except ConnectionError:
-        raise  # Network issues already have good messages from require_service
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to fetch catalog '{catalog_key}' from VizieR: {e}\n"
-            f"If this is a network issue, check your connection. "
-            f"If the error persists, the VizieR schema may have changed -- "
-            f"please report at https://github.com/RRI-interferometry/RadioSim/issues"
-        ) from e
-
-    n_rows = len(catalog)
-    logger.info(f"Downloaded {n_rows:,} rows, processing...")
-
-    if n_rows > 1_000_000:
-        logger.warning(
-            f"Catalog '{catalog_key}' has {n_rows:,} rows. "
-            "This may require significant memory. "
-            "Consider increasing flux_limit to reduce the source count."
-        )
-
-    is_sexagesimal = info.coords_sexagesimal
-    coord_frame = info.coord_frame
-
-    # Auto-detect sexagesimal coordinates: if the first valid RA value is a
-    # string that can't be parsed as a float, treat coords as sexagesimal.
-    if not is_sexagesimal and len(catalog) > 0:
-        sample_ra = catalog[0][info.ra_col]
-        if isinstance(sample_ra, (str, np.str_)):
-            try:
-                float(sample_ra)
-            except ValueError:
-                is_sexagesimal = True
-                logger.debug(f"{catalog_key}: auto-detected sexagesimal coordinates")
-
-    flux_col = info.flux_col
-    flux_raw = _extract_masked_column(catalog, flux_col)
-    flux_jy_raw = flux_raw * info.flux_unit_conversion_factor
-    flux_valid = np.isfinite(flux_jy_raw) & (flux_jy_raw >= flux_limit)
-
-    if not np.any(flux_valid):
-        logger.info(
-            f"{catalog_key.upper()}: no sources above flux limit {flux_limit} Jy"
-        )
-        return _empty()
-
-    if is_sexagesimal:
-        ra_strs = [str(v) for v in catalog[info.ra_col][flux_valid]]
-        dec_strs = [str(v) for v in catalog[info.dec_col][flux_valid]]
-        sc = SkyCoord(ra_strs, dec_strs, unit=(u.hourangle, u.deg), frame=coord_frame)
-    else:
-        ra_raw = _extract_masked_column(catalog, info.ra_col)
-        dec_raw = _extract_masked_column(catalog, info.dec_col)
-        coord_ok = flux_valid & np.isfinite(ra_raw) & np.isfinite(dec_raw)
-        sc = SkyCoord(
-            ra=ra_raw[coord_ok] * u.deg,
-            dec=dec_raw[coord_ok] * u.deg,
-            frame=coord_frame,
-        )
-        flux_valid = coord_ok
-
-    if coord_frame != "icrs":
-        sc = sc.icrs
-
-    ra_rad = sc.ra.rad
-    dec_rad = sc.dec.rad
-    flux_jy = flux_jy_raw[flux_valid]
-    n = len(flux_jy)
-
-    valid_indices = np.where(flux_valid)[0]
-    default_spindex = info.default_spindex
-    alpha_arr = np.full(n, default_spindex, dtype=np.float64)
-    name_col = _find_name_column(catalog)
-    source_name = (
-        _extract_text_column(catalog, name_col)[valid_indices]
-        if name_col is not None
-        else None
-    )
-    id_col = _find_id_column(catalog)
-    source_id = (
-        _extract_text_column(catalog, id_col)[valid_indices]
-        if id_col is not None
-        else None
-    )
-    if source_id is None and source_name is not None:
-        source_id = source_name.copy()
-
-    if info.spindex_col and info.spindex_col in catalog.colnames:
-        spindex_raw = _extract_masked_column(catalog, info.spindex_col)
-        spindex_valid = spindex_raw[valid_indices]
-        finite_mask = np.isfinite(spindex_valid)
-        alpha_arr[finite_mask] = spindex_valid[finite_mask]
-
-    # Extract Gaussian morphology columns if available
-    _gauss_major = None
-    _gauss_minor = None
-    _gauss_pa = None
-    if _major_col and _major_col in catalog.colnames:
-        _raw_maj = _extract_masked_column(catalog, _major_col)[valid_indices]
-        _raw_min = _extract_masked_column(catalog, _minor_col)[valid_indices]
-        _raw_pa = _extract_masked_column(catalog, _pa_col)[valid_indices]
-        # Replace NaN with 0 (unresolved -> point source)
-        _gauss_major = np.where(np.isfinite(_raw_maj), _raw_maj, 0.0)
-        _gauss_minor = np.where(np.isfinite(_raw_min), _raw_min, 0.0)
-        _gauss_pa = np.where(np.isfinite(_raw_pa), _raw_pa, 0.0)
-
-    # Client-side region trim (catches VizieR edge cases) + dedup
-    if region is not None:
-        in_region = region.contains(ra_rad, dec_rad)
-        ra_rad = ra_rad[in_region]
-        dec_rad = dec_rad[in_region]
-        flux_jy = flux_jy[in_region]
-        alpha_arr = alpha_arr[in_region]
-        if source_name is not None:
-            source_name = source_name[in_region]
-        if source_id is not None:
-            source_id = source_id[in_region]
-        if _gauss_major is not None:
-            _gauss_major = _gauss_major[in_region]
-            _gauss_minor = _gauss_minor[in_region]
-            _gauss_pa = _gauss_pa[in_region]
-        n = len(flux_jy)
-
-        # Dedup overlapping sub-region results
-        if n > 0 and len(region._iter_atomic()) > 1:
-            unique_idx = None
-            if source_id is not None and np.all(source_id != ""):
-                _, unique_idx = np.unique(source_id, return_index=True)
-            elif source_name is not None and np.all(source_name != ""):
-                _, unique_idx = np.unique(source_name, return_index=True)
-            else:
-                coords_key = np.round(np.column_stack([ra_rad, dec_rad]), decimals=8)
-                _, unique_idx = np.unique(coords_key, axis=0, return_index=True)
-            unique_idx = np.sort(unique_idx)
-            ra_rad = ra_rad[unique_idx]
-            dec_rad = dec_rad[unique_idx]
-            flux_jy = flux_jy[unique_idx]
-            alpha_arr = alpha_arr[unique_idx]
-            if source_name is not None:
-                source_name = source_name[unique_idx]
-            if source_id is not None:
-                source_id = source_id[unique_idx]
-            if _gauss_major is not None:
-                _gauss_major = _gauss_major[unique_idx]
-                _gauss_minor = _gauss_minor[unique_idx]
-                _gauss_pa = _gauss_pa[unique_idx]
-            n = len(flux_jy)
-
-    if n == 0:
-        return _empty()
 
     logger.info(
-        f"{catalog_key.upper()} loaded: {n:,} sources (flux >= {flux_limit} Jy)"
+        f"{catalog_key.upper()} loaded: {sources.n_sources:,} sources "
+        f"(flux >= {flux_limit} Jy)"
     )
 
     sky = create_from_arrays(
-        ra_rad=ra_rad,
-        dec_rad=dec_rad,
-        flux=flux_jy,
-        spectral_index=alpha_arr,
-        ref_freq=np.full(n, info.freq_mhz * 1e6, dtype=np.float64),
-        major_arcsec=_gauss_major,
-        minor_arcsec=_gauss_minor,
-        pa_deg=_gauss_pa,
-        source_name=source_name,
-        source_id=source_id,
+        ra_rad=sources.ra_rad,
+        dec_rad=sources.dec_rad,
+        flux=sources.flux_jy,
+        spectral_index=sources.spectral_index,
+        ref_freq=np.full(sources.n_sources, info.freq_mhz * 1e6, dtype=np.float64),
+        major_arcsec=sources.major_arcsec,
+        minor_arcsec=sources.minor_arcsec,
+        pa_deg=sources.pa_deg,
+        source_name=sources.source_name,
+        source_id=sources.source_id,
         model_name=catalog_key,
         reference_frequency=info.freq_mhz * 1e6,
         brightness_conversion=brightness_conversion,
@@ -433,7 +538,7 @@ def _load_from_vizier_catalog(
     provenance = _build_point_catalog_provenance(
         info=info,
         flux_limit_jy=flux_limit,
-        flux_jy=flux_jy,
+        flux_jy=sources.flux_jy,
         catalog_key=catalog_key,
         region=region,
     )

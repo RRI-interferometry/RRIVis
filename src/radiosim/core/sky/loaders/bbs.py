@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -184,52 +185,36 @@ def _parse_format_header(line: str) -> tuple[list[str], dict[str, str]]:
     return cols, defaults
 
 
+@dataclass(frozen=True)
+class _BbsParsedSources:
+    ref_freq_from_header: float
+    ra_deg: np.ndarray
+    dec_deg: np.ndarray
+    flux: np.ndarray
+    spectral_index: np.ndarray
+    stokes_q: np.ndarray
+    stokes_u: np.ndarray
+    stokes_v: np.ndarray
+    rotation_measure: np.ndarray
+    ref_freq: np.ndarray
+    major_arcsec: np.ndarray
+    minor_arcsec: np.ndarray
+    pa_deg: np.ndarray
+    spectral_coeffs: list[list[float]]
+    source_name: np.ndarray | None
+    has_gaussian: bool
+    has_spectral_coeffs: bool
+
+
 # ============================================================================
 # BBS Loader and Writer (standalone functions)
 # ============================================================================
 
 
-@loader_registry.register(
-    "bbs",
-    config_section="bbs",
-    use_flag="use_bbs",
-    category="file",
-    requires_file=True,
-    network_service=None,
-    config_fields={"filename": "filename", "flux_limit": "flux_limit"},
-)
-def load_bbs(
-    filename: str,
-    *,
-    flux_limit: float = 0.0,
-    region: SkyRegion | None = None,
-    precision: PrecisionConfig,
-    brightness_conversion: str = "planck",
-    provenance: SkyProvenance | None = None,
-) -> Any:
-    """Load a sky model from BBS/DP3/WSClean format.
-
-    Supports both BBS ``# (...) = format`` and WSClean ``Format = ...``
-    header syntax.  POINT and GAUSSIAN source types are supported;
-    SHAPELET sources are skipped with a warning.
-
-    Parameters
-    ----------
-    filename : str
-        Path to the sky model file.
-    flux_limit : float, default 0.0
-        Minimum Stokes I flux in Jy.
-    region : SkyRegion, optional
-        Spatial filter.
-    precision : PrecisionConfig
-        Precision configuration.
-    brightness_conversion : str, default ``"planck"``
-        Brightness conversion method: ``"planck"`` or ``"rayleigh-jeans"``.
-    """
+def _parse_bbs_lines(lines, *, filename: str) -> _BbsParsedSources:
     columns, defaults = None, {}
     ref_freq_from_header: float = 0.0
 
-    # Accumulate per-source arrays directly (avoids SkyCoord round-trip)
     ra_deg_list: list[float] = []
     dec_deg_list: list[float] = []
     flux_list: list[float] = []
@@ -247,195 +232,217 @@ def load_bbs(
     has_gaussian = False
     has_spectral_coeffs = False
 
-    try:
-        source_file = open(filename)
-    except OSError as e:
-        raise OSError(f"Could not open BBS sky model file {filename!r}: {e}") from e
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
 
-    with source_file as f:
-        for line in f:
-            line = line.strip()
-            if not line:
+        # Detect format header
+        if columns is None:
+            low = line.lower()
+            if "= format" in low or low.startswith("format"):
+                columns, defaults = _parse_format_header(line)
+                ref_freq_from_header = float(defaults.get("referencefrequency", "0"))
                 continue
-
-            # Detect format header
-            if columns is None:
-                low = line.lower()
-                if "= format" in low or low.startswith("format"):
-                    columns, defaults = _parse_format_header(line)
-                    ref_freq_from_header = float(
-                        defaults.get("referencefrequency", "0")
-                    )
-                    continue
-                if line.startswith("#"):
-                    continue
-                # Fixed-format (no header) -- legacy OSKAR 12-column
-                columns = [
-                    "Ra",
-                    "Dec",
-                    "I",
-                    "Q",
-                    "U",
-                    "V",
-                    "ReferenceFrequency",
-                    "SpectralIndex",
-                    "RotationMeasure",
-                    "MajorAxis",
-                    "MinorAxis",
-                    "Orientation",
-                ]
-
             if line.startswith("#"):
                 continue
+            # Fixed-format (no header) -- legacy OSKAR 12-column
+            columns = [
+                "Ra",
+                "Dec",
+                "I",
+                "Q",
+                "U",
+                "V",
+                "ReferenceFrequency",
+                "SpectralIndex",
+                "RotationMeasure",
+                "MajorAxis",
+                "MinorAxis",
+                "Orientation",
+            ]
 
-            # Build column index (case-insensitive)
-            col_lower = [c.lower() for c in columns]
+        if line.startswith("#"):
+            continue
 
-            # Split data line by comma (BBS) or whitespace (fixed-format)
-            # Must handle bracket-delimited arrays like [-0.7,-0.05]
-            if "," in line:
-                fields = []
-                current = ""
-                depth = 0
-                for ch in line:
-                    if ch == "[":
-                        depth += 1
-                    elif ch == "]":
-                        depth -= 1
-                    if ch == "," and depth == 0:
-                        fields.append(current.strip())
-                        current = ""
-                    else:
-                        current += ch
-                fields.append(current.strip())
-            else:
-                fields = line.split()
+        # Build column index (case-insensitive)
+        col_lower = [c.lower() for c in columns]
 
-            # Check for patch definition (empty Name and Type)
-            name_idx = col_lower.index("name") if "name" in col_lower else -1
-            type_idx = col_lower.index("type") if "type" in col_lower else -1
-            if name_idx >= 0 and type_idx >= 0:
-                name_val = fields[name_idx] if name_idx < len(fields) else ""
-                type_val = fields[type_idx] if type_idx < len(fields) else ""
-                if not name_val.strip() and not type_val.strip():
-                    continue  # patch definition line -- skip
+        # Split data line by comma (BBS) or whitespace (fixed-format)
+        # Must handle bracket-delimited arrays like [-0.7,-0.05]
+        if "," in line:
+            fields = []
+            current = ""
+            depth = 0
+            for ch in line:
+                if ch == "[":
+                    depth += 1
+                elif ch == "]":
+                    depth -= 1
+                if ch == "," and depth == 0:
+                    fields.append(current.strip())
+                    current = ""
+                else:
+                    current += ch
+            fields.append(current.strip())
+        else:
+            fields = line.split()
 
-            # Helper to get field value with default
-            def _get(
-                col_name: str,
-                default: str = "0",
-                _cl: list[str] = col_lower,
-                _fl: list[str] = fields,
-                _df: dict[str, str] = defaults,
-            ) -> str:
-                cn = col_name.lower()
-                if cn in _cl:
-                    idx = _cl.index(cn)
-                    if idx < len(_fl) and _fl[idx].strip():
-                        return _fl[idx].strip()
-                return _df.get(cn, default)
-
-            # Source type
-            src_type = _get("type", "POINT").upper()
-            if src_type == "SHAPELET":
-                logger.warning("Skipping SHAPELET source (not supported)")
+        # Check for patch definition (empty Name and Type)
+        name_idx = col_lower.index("name") if "name" in col_lower else -1
+        type_idx = col_lower.index("type") if "type" in col_lower else -1
+        if name_idx >= 0 and type_idx >= 0:
+            name_val = fields[name_idx] if name_idx < len(fields) else ""
+            type_val = fields[type_idx] if type_idx < len(fields) else ""
+            if not name_val.strip() and not type_val.strip():
                 continue
 
-            # Coordinates
-            ra_deg = _parse_bbs_ra(_get("ra"))
-            dec_deg = _parse_bbs_dec(_get("dec"))
+        # Helper to get field value with default
+        def _get(
+            col_name: str,
+            default: str = "0",
+            _cl: list[str] = col_lower,
+            _fl: list[str] = fields,
+            _df: dict[str, str] = defaults,
+        ) -> str:
+            cn = col_name.lower()
+            if cn in _cl:
+                idx = _cl.index(cn)
+                if idx < len(_fl) and _fl[idx].strip():
+                    return _fl[idx].strip()
+            return _df.get(cn, default)
 
-            # Stokes I
-            stokes_i = float(_get("i", "0"))
-            if stokes_i <= 0:
-                continue
+        # Source type
+        src_type = _get("type", "POINT").upper()
+        if src_type == "SHAPELET":
+            logger.warning("Skipping SHAPELET source (not supported)")
+            continue
 
-            # Stokes Q, U, V
-            stokes_q = float(_get("q", "0"))
-            stokes_u = float(_get("u", "0"))
-            stokes_v = float(_get("v", "0"))
+        # Coordinates
+        ra_deg = _parse_bbs_ra(_get("ra"))
+        dec_deg = _parse_bbs_dec(_get("dec"))
 
-            # Spectral index (bracket array or single value)
-            si_str = _get("spectralindex", "[]")
-            si_str = si_str.strip("[]")
-            if si_str:
-                si_coeffs = [float(x) for x in si_str.split(",") if x.strip()]
-            else:
-                si_coeffs = [-0.7]
-            alpha = si_coeffs[0] if si_coeffs else -0.7
+        # Stokes I
+        stokes_i = float(_get("i", "0"))
+        if stokes_i <= 0:
+            continue
 
-            # Rotation measure
-            rm = float(_get("rotationmeasure", "0"))
+        # Stokes Q, U, V
+        stokes_q = float(_get("q", "0"))
+        stokes_u = float(_get("u", "0"))
+        stokes_v = float(_get("v", "0"))
 
-            # Polarization from angle/fraction (if Q/U not set)
-            pol_angle = float(_get("polarizationangle", "0"))
-            pol_frac = float(_get("polarizedfraction", "0"))
-            if stokes_q == 0 and stokes_u == 0 and pol_frac > 0:
-                chi0 = np.deg2rad(pol_angle)
-                stokes_q = pol_frac * stokes_i * np.cos(2 * chi0)
-                stokes_u = pol_frac * stokes_i * np.sin(2 * chi0)
+        # Spectral index (bracket array or single value)
+        si_str = _get("spectralindex", "[]").strip("[]")
+        if si_str:
+            si_coeffs = [float(x) for x in si_str.split(",") if x.strip()]
+        else:
+            si_coeffs = [-0.7]
+        alpha = si_coeffs[0] if si_coeffs else -0.7
 
-            # Gaussian morphology
-            major = float(_get("majoraxis", "0"))
-            minor = float(_get("minoraxis", "0"))
-            orientation = float(_get("orientation", "0"))
+        # Rotation measure
+        rm = float(_get("rotationmeasure", "0"))
 
-            # Also accept OSKAR-style aliases
-            if major == 0:
-                major = float(_get("major_ax", "0"))
-            if minor == 0:
-                minor = float(_get("minor_ax", "0"))
-            if orientation == 0:
-                orientation = float(_get("positionangle", "0"))
+        # Polarization from angle/fraction (if Q/U not set)
+        pol_angle = float(_get("polarizationangle", "0"))
+        pol_frac = float(_get("polarizedfraction", "0"))
+        if stokes_q == 0 and stokes_u == 0 and pol_frac > 0:
+            chi0 = np.deg2rad(pol_angle)
+            stokes_q = pol_frac * stokes_i * np.cos(2 * chi0)
+            stokes_u = pol_frac * stokes_i * np.sin(2 * chi0)
 
-            src_ref_freq = float(
-                _get(
-                    "referencefrequency",
-                    str(ref_freq_from_header) if ref_freq_from_header > 0 else "0",
-                )
+        # Gaussian morphology
+        major = float(_get("majoraxis", "0"))
+        minor = float(_get("minoraxis", "0"))
+        orientation = float(_get("orientation", "0"))
+
+        # Also accept OSKAR-style aliases
+        if major == 0:
+            major = float(_get("major_ax", "0"))
+        if minor == 0:
+            minor = float(_get("minor_ax", "0"))
+        if orientation == 0:
+            orientation = float(_get("positionangle", "0"))
+
+        src_ref_freq = float(
+            _get(
+                "referencefrequency",
+                str(ref_freq_from_header) if ref_freq_from_header > 0 else "0",
             )
-            source_name = _get("name", "").strip()
+        )
+        source_name = _get("name", "").strip()
 
-            # Accumulate into parallel lists
-            ra_deg_list.append(ra_deg)
-            dec_deg_list.append(dec_deg)
-            flux_list.append(stokes_i)
-            alpha_list.append(alpha)
-            sq_list.append(stokes_q)
-            su_list.append(stokes_u)
-            sv_list.append(stokes_v)
-            rm_list.append(rm)
-            ref_freq_list.append(src_ref_freq)
-            major_list.append(major)
-            minor_list.append(minor)
-            pa_list.append(orientation)
-            name_list.append(source_name)
+        ra_deg_list.append(ra_deg)
+        dec_deg_list.append(dec_deg)
+        flux_list.append(stokes_i)
+        alpha_list.append(alpha)
+        sq_list.append(stokes_q)
+        su_list.append(stokes_u)
+        sv_list.append(stokes_v)
+        rm_list.append(rm)
+        ref_freq_list.append(src_ref_freq)
+        major_list.append(major)
+        minor_list.append(minor)
+        pa_list.append(orientation)
+        name_list.append(source_name)
 
-            if major > 0:
-                has_gaussian = True
+        if major > 0:
+            has_gaussian = True
+        if len(si_coeffs) > 1:
+            has_spectral_coeffs = True
+        sp_coeffs_list.append(si_coeffs)
 
-            if len(si_coeffs) > 1:
-                has_spectral_coeffs = True
-            sp_coeffs_list.append(si_coeffs)
-
-    n_parsed = len(flux_list)
-    if n_parsed == 0:
+    if not flux_list:
         logger.warning(f"No sources found in {filename}")
 
-    # Convert all accumulation lists to numpy arrays
-    ra_deg_arr = np.array(ra_deg_list, dtype=np.float64)
-    dec_deg_arr = np.array(dec_deg_list, dtype=np.float64)
-    flux_arr = np.array(flux_list, dtype=np.float64)
-    alpha_arr = np.array(alpha_list, dtype=np.float64)
-    sq_arr = np.array(sq_list, dtype=np.float64)
-    su_arr = np.array(su_list, dtype=np.float64)
-    sv_arr = np.array(sv_list, dtype=np.float64)
-    rm_arr = np.array(rm_list, dtype=np.float64)
-    ref_freq_arr = np.array(ref_freq_list, dtype=np.float64)
-    major_arr = np.array(major_list, dtype=np.float64)
-    minor_arr = np.array(minor_list, dtype=np.float64)
-    pa_arr = np.array(pa_list, dtype=np.float64)
-    source_name_arr = np.array(name_list, dtype=str) if name_list else None
+    return _BbsParsedSources(
+        ref_freq_from_header=ref_freq_from_header,
+        ra_deg=np.array(ra_deg_list, dtype=np.float64),
+        dec_deg=np.array(dec_deg_list, dtype=np.float64),
+        flux=np.array(flux_list, dtype=np.float64),
+        spectral_index=np.array(alpha_list, dtype=np.float64),
+        stokes_q=np.array(sq_list, dtype=np.float64),
+        stokes_u=np.array(su_list, dtype=np.float64),
+        stokes_v=np.array(sv_list, dtype=np.float64),
+        rotation_measure=np.array(rm_list, dtype=np.float64),
+        ref_freq=np.array(ref_freq_list, dtype=np.float64),
+        major_arcsec=np.array(major_list, dtype=np.float64),
+        minor_arcsec=np.array(minor_list, dtype=np.float64),
+        pa_deg=np.array(pa_list, dtype=np.float64),
+        spectral_coeffs=sp_coeffs_list,
+        source_name=np.array(name_list, dtype=str) if name_list else None,
+        has_gaussian=has_gaussian,
+        has_spectral_coeffs=has_spectral_coeffs,
+    )
+
+
+def _build_bbs_sky(
+    *,
+    parsed: _BbsParsedSources,
+    filename: str,
+    flux_limit: float,
+    region: SkyRegion | None,
+    precision: PrecisionConfig,
+    brightness_conversion: str,
+    provenance: SkyProvenance | None,
+) -> Any:
+    n_parsed = len(parsed.flux)
+    ra_deg_arr = parsed.ra_deg
+    dec_deg_arr = parsed.dec_deg
+    flux_arr = parsed.flux
+    alpha_arr = parsed.spectral_index
+    sq_arr = parsed.stokes_q
+    su_arr = parsed.stokes_u
+    sv_arr = parsed.stokes_v
+    rm_arr = parsed.rotation_measure
+    ref_freq_arr = parsed.ref_freq
+    major_arr = parsed.major_arcsec
+    minor_arr = parsed.minor_arcsec
+    pa_arr = parsed.pa_deg
+    sp_coeffs_list = parsed.spectral_coeffs
+    source_name_arr = parsed.source_name
+    has_gaussian = parsed.has_gaussian
+    has_spectral_coeffs = parsed.has_spectral_coeffs
 
     # Apply flux limit as a vectorized mask
     if flux_limit > 0 and n_parsed > 0:
@@ -503,9 +510,8 @@ def load_bbs(
         precision=precision,
     )
 
-    # Apply reference frequency from file header
-    if ref_freq_from_header > 0:
-        sky = sky.with_reference_frequency(ref_freq_from_header)
+    if parsed.ref_freq_from_header > 0:
+        sky = sky.with_reference_frequency(parsed.ref_freq_from_header)
 
     if region is not None:
         sky = sky.filter_region(region)
@@ -514,6 +520,62 @@ def load_bbs(
     if provenance is not None:
         sky = sky.replace(provenance=provenance)
     return sky
+
+
+@loader_registry.register(
+    "bbs",
+    config_section="bbs",
+    use_flag="use_bbs",
+    category="file",
+    requires_file=True,
+    network_service=None,
+    config_fields={"filename": "filename", "flux_limit": "flux_limit"},
+)
+def load_bbs(
+    filename: str,
+    *,
+    flux_limit: float = 0.0,
+    region: SkyRegion | None = None,
+    precision: PrecisionConfig,
+    brightness_conversion: str = "planck",
+    provenance: SkyProvenance | None = None,
+) -> Any:
+    """Load a sky model from BBS/DP3/WSClean format.
+
+    Supports both BBS ``# (...) = format`` and WSClean ``Format = ...``
+    header syntax.  POINT and GAUSSIAN source types are supported;
+    SHAPELET sources are skipped with a warning.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the sky model file.
+    flux_limit : float, default 0.0
+        Minimum Stokes I flux in Jy.
+    region : SkyRegion, optional
+        Spatial filter.
+    precision : PrecisionConfig
+        Precision configuration.
+    brightness_conversion : str, default ``"planck"``
+        Brightness conversion method: ``"planck"`` or ``"rayleigh-jeans"``.
+    """
+    try:
+        source_file = open(filename)
+    except OSError as e:
+        raise OSError(f"Could not open BBS sky model file {filename!r}: {e}") from e
+
+    with source_file as f:
+        parsed = _parse_bbs_lines(f, filename=filename)
+
+    return _build_bbs_sky(
+        parsed=parsed,
+        filename=filename,
+        flux_limit=flux_limit,
+        region=region,
+        brightness_conversion=brightness_conversion,
+        precision=precision,
+        provenance=provenance,
+    )
 
 
 def write_bbs(
