@@ -15,10 +15,10 @@ from pyradiosky import SkyModel as PyRadioSkyModel
 
 from radiosim.utils.frequency import parse_frequency_config
 
-from ..containers.data import HealpixData, PointSourceData
+from ..containers.data import PointSourceData
 from ..containers.model import SkyModel
 from ..registry.facade import loader_registry
-from ..support.precision import get_sky_storage_dtype
+from ._healpix_builder import build_healpix_from_stokes_cube, extract_stokes_component
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -412,9 +412,6 @@ def _load_pyradiosky_healpix(
     if hasattr(psky_eval, "hpx_inds") and psky_eval.hpx_inds is not None:
         hpx_inds = np.asarray(psky_eval.hpx_inds)
 
-    npix = hp.nside2npix(nside)
-    is_sparse = hpx_inds is not None and len(hpx_inds) < npix
-
     # --- Extract Stokes and build full-sky maps ---
     # psky_eval.stokes shape: (n_stokes, Nfreqs, Ncomponents)
     stokes_data = np.asarray(psky_eval.stokes.value)
@@ -434,155 +431,69 @@ def _load_pyradiosky_healpix(
         if is_nested:
             pix = hp.nest2ring(nside, pix)
 
-    if region is not None:
-        region_mask = region.healpix_mask(
-            nside,
-            coordinate_frame=coordinate_frame,
-        )
-        if is_sparse and pix is not None:
-            keep_mask = region_mask[pix]
-            pix = pix[keep_mask]
-            stokes_data = stokes_data[:, :, keep_mask]
-            logger.info(
-                f"Region mask applied: {int(keep_mask.sum())}/{len(keep_mask)} "
-                "stored pixels retained"
-            )
-        else:
-            logger.info("Region mask will be applied to the full-sky HEALPix cube.")
+    npix = hp.nside2npix(nside)
+    builder_hpx_inds = (
+        pix if pix is not None and (len(pix) < npix or region is not None) else None
+    )
 
-    from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
-
-    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
-    hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
-    if is_sparse:
-        stored_npix = 0 if pix is None else len(pix)
-        i_arr = allocate_cube((n_freq, stored_npix), hp_dtype, scratch, "i_maps")
-        q_arr = (
-            allocate_cube((n_freq, stored_npix), hp_dtype, scratch, "q_maps")
-            if has_pol
-            else None
-        )
-        u_arr = (
-            allocate_cube((n_freq, stored_npix), hp_dtype, scratch, "u_maps")
-            if has_pol
-            else None
-        )
-        v_arr = (
-            allocate_cube((n_freq, stored_npix), hp_dtype, scratch, "v_maps")
-            if n_stokes_avail >= 4
-            else None
-        )
-    else:
-
-        def _build_full_map(data_1d: np.ndarray) -> np.ndarray:
-            """Build a full-sky RING-ordered map from raw Stokes data."""
-            if pix is not None:
-                full = np.zeros(npix, dtype=np.float64)
-                full[pix] = data_1d
-                return full
-            full = np.array(data_1d, dtype=np.float64)
-            if is_nested:
-                full = hp.reorder(full, n2r=True)
+    def _ring_ordered_row(data_1d: np.ndarray) -> np.ndarray:
+        row = np.asarray(data_1d, dtype=np.float64)
+        if builder_hpx_inds is not None:
+            return row
+        if pix is not None:
+            full = np.zeros(npix, dtype=np.float64)
+            full[pix] = row
             return full
+        if is_nested:
+            return hp.reorder(row, n2r=True)
+        return row
 
-        i_arr = allocate_cube((n_freq, npix), hp_dtype, scratch, "i_maps")
-        q_arr = (
-            allocate_cube((n_freq, npix), hp_dtype, scratch, "q_maps")
-            if has_pol
-            else None
-        )
-        u_arr = (
-            allocate_cube((n_freq, npix), hp_dtype, scratch, "u_maps")
-            if has_pol
-            else None
-        )
-        v_arr = (
-            allocate_cube((n_freq, npix), hp_dtype, scratch, "v_maps")
-            if n_stokes_avail >= 4
-            else None
-        )
+    def _iter_stokes_rows():
+        for fi in range(n_freq):
+            i_row = extract_stokes_component(stokes_data[:, fi, :], "I", n_stokes_avail)
+            if i_row is None:
+                raise ValueError("pyradiosky HEALPix data is missing Stokes I.")
+            i_map = _ring_ordered_row(i_row)
+            q_map = (
+                _ring_ordered_row(
+                    extract_stokes_component(stokes_data[:, fi, :], "Q", n_stokes_avail)
+                )
+                if has_pol
+                else None
+            )
+            u_map = (
+                _ring_ordered_row(
+                    extract_stokes_component(stokes_data[:, fi, :], "U", n_stokes_avail)
+                )
+                if has_pol
+                else None
+            )
+            v_row = extract_stokes_component(stokes_data[:, fi, :], "V", n_stokes_avail)
+            v_map = _ring_ordered_row(v_row) if v_row is not None else None
+            yield (i_map, q_map, u_map, v_map)
 
-    for fi in range(n_freq):
-        if is_sparse:
-            i_map = np.asarray(stokes_data[0, fi, :], dtype=np.float64)
-            if has_pol:
-                q_map = np.asarray(stokes_data[1, fi, :], dtype=np.float64)
-                u_map = np.asarray(stokes_data[2, fi, :], dtype=np.float64)
-            if n_stokes_avail >= 4:
-                v_map = np.asarray(stokes_data[3, fi, :], dtype=np.float64)
-
-            if pix is not None:
-                i_map = i_map[: len(pix)]
-                if has_pol:
-                    q_map = q_map[: len(pix)]
-                    u_map = u_map[: len(pix)]
-                if n_stokes_avail >= 4:
-                    v_map = v_map[: len(pix)]
-
-            i_arr[fi] = i_map.astype(hp_dtype)
-            if has_pol:
-                q_arr[fi] = q_map.astype(hp_dtype)
-                u_arr[fi] = u_map.astype(hp_dtype)
-            if n_stokes_avail >= 4:
-                v_arr[fi] = v_map.astype(hp_dtype)
-        else:
-            i_map = _build_full_map(stokes_data[0, fi, :])
-
-            if has_pol:
-                q_map = _build_full_map(stokes_data[1, fi, :])
-                u_map = _build_full_map(stokes_data[2, fi, :])
-
-                i_arr[fi] = i_map.astype(hp_dtype)
-                q_arr[fi] = q_map.astype(hp_dtype)
-                u_arr[fi] = u_map.astype(hp_dtype)
-
-                if n_stokes_avail >= 4:
-                    v_map = _build_full_map(stokes_data[3, fi, :])
-                    v_arr[fi] = v_map.astype(hp_dtype)
-            else:
-                i_arr[fi] = i_map.astype(hp_dtype)
-
-    if region is not None and not is_sparse:
-        mask = region.healpix_mask(
-            nside,
-            coordinate_frame=coordinate_frame,
-        )
-        n_retained = int(mask.sum())
-        i_arr[:, ~mask] = 0.0
-        for arr in (q_arr, u_arr, v_arr):
-            if arr is not None:
-                arr[:, ~mask] = 0.0
-        logger.info(f"Region mask applied: {n_retained}/{npix} pixels retained")
+    healpix = build_healpix_from_stokes_cube(
+        stokes_rows=_iter_stokes_rows(),
+        nside=nside,
+        frequencies=obs_freqs,
+        coordinate_frame=coordinate_frame,
+        hpx_inds=builder_hpx_inds,
+        region=region,
+        precision=precision,
+        memmap_dir=memmap_path,
+    )
 
     model_name = f"pyradiosky:{os.path.basename(filename)}"
     stokes_label = "I"
     if has_pol:
         stokes_label = "IQU" + ("V" if n_stokes_avail >= 4 else "")
     logger.info(
-        f"pyradiosky HEALPix loaded: {i_arr.shape[1]} pixels \u00d7 {n_freq} frequencies, "
+        f"pyradiosky HEALPix loaded: {healpix.n_pixels} pixels \u00d7 {n_freq} frequencies, "
         f"stokes={stokes_label}"
     )
 
-    # Flush and re-open read-only if memmap-backed.
-    i_arr = finalize_cube(i_arr, scratch, "i_maps")
-    if q_arr is not None:
-        q_arr = finalize_cube(q_arr, scratch, "q_maps")
-    if u_arr is not None:
-        u_arr = finalize_cube(u_arr, scratch, "u_maps")
-    if v_arr is not None:
-        v_arr = finalize_cube(v_arr, scratch, "v_maps")
-
     return SkyModel(
-        healpix=HealpixData(
-            maps=i_arr,
-            nside=nside,
-            frequencies=obs_freqs,
-            coordinate_frame=coordinate_frame,
-            hpx_inds=pix if is_sparse else None,
-            q_maps=q_arr,
-            u_maps=u_arr,
-            v_maps=v_arr,
-        ),
+        healpix=healpix,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         precision=precision,

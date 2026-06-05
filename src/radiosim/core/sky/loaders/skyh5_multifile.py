@@ -27,11 +27,12 @@ import healpy as hp
 import numpy as np
 from pyradiosky import SkyModel as PyRadioSkyModel
 
-from ..containers.data import HealpixData, PointSourceData
+from ..containers.data import PointSourceData
 from ..containers.model import SkyModel
 from ..registry.facade import loader_registry
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ..support.precision import get_sky_storage_dtype
+from ._healpix_builder import build_healpix_from_stokes_cube, extract_stokes_component
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -357,111 +358,75 @@ def _load_healpix_branch(
         pix = hp.nest2ring(nside, hpx_inds_ref) if is_nested else hpx_inds_ref.copy()
     else:
         pix = None
-
-    # Region masking: apply once at the stored-axis level (identical across
-    # files because all hpx_inds are validated identical).
-    region_mask: np.ndarray | None = None
-    sparse_keep_mask: np.ndarray | None = None
-    if region is not None:
-        region_mask = region.healpix_mask(nside, coordinate_frame=coordinate_frame)
-        if is_sparse and pix is not None:
-            sparse_keep_mask = region_mask[pix]
-            pix = pix[sparse_keep_mask]
-            logger.info(
-                "load_skyh5_multifile: region retained %d/%d stored pixels",
-                int(sparse_keep_mask.sum()),
-                len(sparse_keep_mask),
+        if region is not None:
+            pix = (
+                hp.nest2ring(nside, hpx_inds_ref) if is_nested else hpx_inds_ref.copy()
             )
 
-    if is_sparse:
-        n_stored = 0 if pix is None else int(len(pix))
-    else:
-        n_stored = npix
-
-    n_freq = len(sorted_paths)
-    hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
-    scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
-
-    i_arr = allocate_cube((n_freq, n_stored), hp_dtype, scratch, "i_maps")
-    q_arr = (
-        allocate_cube((n_freq, n_stored), hp_dtype, scratch, "q_maps")
-        if has_pol
-        else None
-    )
-    u_arr = (
-        allocate_cube((n_freq, n_stored), hp_dtype, scratch, "u_maps")
-        if has_pol
-        else None
-    )
-    v_arr = (
-        allocate_cube((n_freq, n_stored), hp_dtype, scratch, "v_maps")
-        if has_v
-        else None
+    builder_hpx_inds = (
+        pix if pix is not None and (is_sparse or region is not None) else None
     )
 
-    for fi, path in enumerate(sorted_paths):
-        with h5py.File(path, "r") as f:
-            stokes = f["Data/stokes"]
-            unit = _decode_bytes(stokes.attrs.get("unit", ""))
-            stokes_slice = np.asarray(stokes[:, 0, :], dtype=np.float64)
-        # Convert Jy/sr -> K via Rayleigh-Jeans.  I[Jy/sr] * 1e-26 gives SI
-        # (W/m^2/Hz/sr); then T_RJ = I_SI * c^2 / (2 k_B nu^2).
-        if unit == "Jy / sr":
-            from ..containers.constants import C_LIGHT, K_BOLTZMANN
+    def _ring_ordered_row(row: np.ndarray) -> np.ndarray:
+        row = np.asarray(row, dtype=np.float64)
+        if builder_hpx_inds is not None:
+            return row
+        if is_nested:
+            return hp.reorder(row, n2r=True)
+        return row
 
-            freq_hz = float(sorted_freqs[fi])
-            conv = 1e-26 * (C_LIGHT**2) / (2.0 * K_BOLTZMANN * freq_hz**2)
-            stokes_slice = stokes_slice * conv
+    def _iter_stokes_rows():
+        for fi, path in enumerate(sorted_paths):
+            with h5py.File(path, "r") as f:
+                stokes = f["Data/stokes"]
+                unit = _decode_bytes(stokes.attrs.get("unit", ""))
+                stokes_slice = np.asarray(stokes[:, 0, :], dtype=np.float64)
+            # Convert Jy/sr -> K via Rayleigh-Jeans. I[Jy/sr] * 1e-26 gives SI
+            # (W/m^2/Hz/sr); then T_RJ = I_SI * c^2 / (2 k_B nu^2).
+            if unit == "Jy / sr":
+                from ..containers.constants import C_LIGHT, K_BOLTZMANN
 
-        i_row = stokes_slice[0]
-        q_row = stokes_slice[1] if has_pol else None
-        u_row = stokes_slice[2] if has_pol else None
-        v_row = stokes_slice[3] if has_v else None
+                freq_hz = float(sorted_freqs[fi])
+                conv = 1e-26 * (C_LIGHT**2) / (2.0 * K_BOLTZMANN * freq_hz**2)
+                stokes_slice = stokes_slice * conv
 
-        if is_sparse:
-            # File rows are in file-stored order; if region masked, drop the
-            # same positions from every file using the precomputed mask.
-            if sparse_keep_mask is not None:
-                i_row = i_row[sparse_keep_mask]
-                if q_row is not None:
-                    q_row = q_row[sparse_keep_mask]
-                if u_row is not None:
-                    u_row = u_row[sparse_keep_mask]
-                if v_row is not None:
-                    v_row = v_row[sparse_keep_mask]
-        else:
-            if is_nested:
-                i_row = hp.reorder(i_row, n2r=True)
-                if q_row is not None:
-                    q_row = hp.reorder(q_row, n2r=True)
-                if u_row is not None:
-                    u_row = hp.reorder(u_row, n2r=True)
-                if v_row is not None:
-                    v_row = hp.reorder(v_row, n2r=True)
-            if region_mask is not None:
-                i_row = np.where(region_mask, i_row, 0.0)
-                if q_row is not None:
-                    q_row = np.where(region_mask, q_row, 0.0)
-                if u_row is not None:
-                    u_row = np.where(region_mask, u_row, 0.0)
-                if v_row is not None:
-                    v_row = np.where(region_mask, v_row, 0.0)
+            i_row = extract_stokes_component(stokes_slice, "I", n_stokes_avail)
+            if i_row is None:
+                raise ValueError(
+                    "load_skyh5_multifile: HEALPix data is missing Stokes I."
+                )
+            q_row = (
+                extract_stokes_component(stokes_slice, "Q", n_stokes_avail)
+                if has_pol
+                else None
+            )
+            u_row = (
+                extract_stokes_component(stokes_slice, "U", n_stokes_avail)
+                if has_pol
+                else None
+            )
+            v_row = (
+                extract_stokes_component(stokes_slice, "V", n_stokes_avail)
+                if has_v
+                else None
+            )
+            yield (
+                _ring_ordered_row(i_row),
+                _ring_ordered_row(q_row) if q_row is not None else None,
+                _ring_ordered_row(u_row) if u_row is not None else None,
+                _ring_ordered_row(v_row) if v_row is not None else None,
+            )
 
-        i_arr[fi] = i_row.astype(hp_dtype)
-        if q_arr is not None and q_row is not None:
-            q_arr[fi] = q_row.astype(hp_dtype)
-        if u_arr is not None and u_row is not None:
-            u_arr[fi] = u_row.astype(hp_dtype)
-        if v_arr is not None and v_row is not None:
-            v_arr[fi] = v_row.astype(hp_dtype)
-
-    i_arr = finalize_cube(i_arr, scratch, "i_maps")
-    if q_arr is not None:
-        q_arr = finalize_cube(q_arr, scratch, "q_maps")
-    if u_arr is not None:
-        u_arr = finalize_cube(u_arr, scratch, "u_maps")
-    if v_arr is not None:
-        v_arr = finalize_cube(v_arr, scratch, "v_maps")
+    healpix = build_healpix_from_stokes_cube(
+        stokes_rows=_iter_stokes_rows(),
+        nside=nside,
+        frequencies=sorted_freqs,
+        coordinate_frame=coordinate_frame,
+        hpx_inds=builder_hpx_inds,
+        region=region,
+        precision=precision,
+        memmap_dir=memmap_path,
+    )
 
     stokes_label = "I" + ("QU" if has_pol else "") + ("V" if has_v else "")
     model_name = "skyh5_multifile:" + os.path.basename(
@@ -469,22 +434,13 @@ def _load_healpix_branch(
     )
     logger.info(
         "load_skyh5_multifile: HEALPix cube %d freq x %d pix, stokes=%s",
-        n_freq,
-        n_stored,
+        len(sorted_paths),
+        healpix.n_pixels,
         stokes_label,
     )
 
     sky = SkyModel(
-        healpix=HealpixData(
-            maps=i_arr,
-            nside=nside,
-            frequencies=sorted_freqs,
-            coordinate_frame=coordinate_frame,
-            hpx_inds=pix if is_sparse else None,
-            q_maps=q_arr,
-            u_maps=u_arr,
-            v_maps=v_arr,
-        ),
+        healpix=healpix,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
         precision=precision,
