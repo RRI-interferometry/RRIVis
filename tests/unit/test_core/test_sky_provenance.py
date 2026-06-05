@@ -352,6 +352,48 @@ class TestLoaderPopulation:
         assert sky.healpix.is_sparse
         assert sky.healpix.n_pixels < sky.healpix.full_n_pixels
 
+    def test_diffuse_loader_provenance_override_with_region(
+        self, precision, monkeypatch
+    ):
+        from radiosim.core.sky.loaders import diffuse as diffuse_mod
+        from radiosim.core.sky.loaders.diffuse import load_diffuse_sky
+
+        nside = 8
+        npix = hp.nside2npix(nside)
+
+        class FakePyGDSM:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def generate(self, freq):
+                return np.full(npix, 30.0, dtype=np.float64)
+
+        monkeypatch.setattr(
+            diffuse_mod, "_resolve_model_class", lambda _path: FakePyGDSM
+        )
+
+        region = SkyRegion.cone(180.0, -30.0, 10.0)
+        override = SkyProvenance(
+            coverage_footprint=region.footprint(),
+            monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+            source_subtraction=SourceSubtractionStatus.NONE,
+            notes="manual-override",
+        )
+
+        sky = load_diffuse_sky(
+            model="gsm2008",
+            nside=nside,
+            frequencies=np.array([150e6]),
+            region=region,
+            precision=precision,
+            provenance=override,
+        )
+
+        assert sky.provenance == override
+        assert sky.healpix is not None
+        assert sky.healpix.is_sparse
+        assert sky.healpix.n_pixels < sky.healpix.full_n_pixels
+
     def test_haslam_loader_provenance_tagged_source_subtracted(
         self, precision, monkeypatch
     ):

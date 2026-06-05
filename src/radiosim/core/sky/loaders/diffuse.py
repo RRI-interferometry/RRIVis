@@ -152,11 +152,12 @@ def load_diffuse_sky(
     include_cmb: bool | None = None,
     basemap: str | None = None,
     interpolation: str | None = None,
-    brightness_conversion: str = "planck",
     *,
     precision: PrecisionConfig,
     region: SkyRegion | None = None,
     memmap_path: str | None = None,
+    brightness_conversion: str = "planck",
+    provenance: SkyProvenance | None = None,
 ) -> SkyModel:  # noqa: F821
     """
     Load a diffuse sky model (GSM, LFSM, Haslam) as multi-frequency HEALPix maps.
@@ -195,6 +196,9 @@ def load_diffuse_sky(
         When None, uses the default from ``DIFFUSE_MODELS`` (``"pchip"``).
     brightness_conversion : str, default="planck"
         Conversion method for T_b -> Jy: "planck" (exact) or "rayleigh-jeans".
+    provenance : SkyProvenance, optional
+        Explicit provenance override. When omitted, provenance is generated
+        from diffuse-catalog metadata and the selected region.
 
     Returns
     -------
@@ -376,7 +380,7 @@ def load_diffuse_sky(
         coverage_fraction = coverage_footprint.coverage_fraction
         monopole_k = None
 
-    provenance = SkyProvenance(
+    generated_provenance = SkyProvenance(
         flux_completeness_jy=None,
         flux_completeness_freq_hz=None,
         angular_resolution_rad=angular_resolution_rad,
@@ -391,12 +395,13 @@ def load_diffuse_sky(
         source_subtraction_method=src_sub_method,
         notes=f"pygdsm/{model}",
     )
+    model_provenance = generated_provenance if provenance is None else provenance
 
     return SkyModel(
         healpix=healpix,
         model_name=model,
         brightness_conversion=brightness_conversion,
-        provenance=provenance,
+        provenance=model_provenance,
         precision=precision,
     )
 
@@ -514,11 +519,12 @@ def load_pysm3(
     frequencies: np.ndarray | None = None,
     obs_frequency_config: dict[str, Any] | None = None,
     include_polarization: bool = False,
-    brightness_conversion: str = "planck",
     *,
     precision: PrecisionConfig,
     region: SkyRegion | None = None,
     memmap_path: str | None = None,
+    brightness_conversion: str = "planck",
+    provenance: SkyProvenance | None = None,
 ) -> SkyModel:  # noqa: F821
     """
     Load a PySM3 diffuse sky model as multi-frequency HEALPix maps.
@@ -551,6 +557,9 @@ def load_pysm3(
         Conversion method for T_b -> Jy: ``"planck"`` or
         ``"rayleigh-jeans"``. Overridden to ``"rayleigh-jeans"`` when
         ``include_polarization=True``.
+    provenance : SkyProvenance, optional
+        Explicit provenance override. When omitted, provenance is generated
+        from PySM component metadata and the selected region.
 
     Returns
     -------
@@ -695,7 +704,7 @@ def load_pysm3(
         coverage_fraction = coverage_footprint.coverage_fraction
         monopole_k = None
 
-    provenance = SkyProvenance(
+    generated_provenance = SkyProvenance(
         angular_resolution_rad=angular_resolution_rad,
         sky_coverage=sky_coverage,
         coverage_fraction=coverage_fraction,
@@ -705,11 +714,12 @@ def load_pysm3(
         source_subtraction=SourceSubtractionStatus.NONE,
         notes=f"pysm3:{'+'.join(components_list)}",
     )
+    model_provenance = generated_provenance if provenance is None else provenance
 
     return SkyModel(
         healpix=healpix,
         model_name=model_name,
         brightness_conversion=brightness_conversion,
-        provenance=provenance,
+        provenance=model_provenance,
         precision=precision,
     )

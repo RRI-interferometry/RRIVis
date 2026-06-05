@@ -9,7 +9,13 @@ import healpy as hp
 import numpy as np
 
 from radiosim.core.precision import PrecisionConfig
-from radiosim.core.sky import SkyCoverage, SkyRegion
+from radiosim.core.sky import (
+    MonopoleConvention,
+    SkyCoverage,
+    SkyProvenance,
+    SkyRegion,
+    SourceSubtractionStatus,
+)
 from radiosim.core.sky.loaders.diffuse import load_pysm3
 
 
@@ -84,3 +90,26 @@ def test_pysm3_full_sky_monopole_uses_full_map(monkeypatch):
     assert not sky.healpix.is_sparse
     assert sky.provenance.sky_coverage is SkyCoverage.FULL_SKY
     assert sky.provenance.monopole_k == 37.0
+
+
+def test_pysm3_accepts_provenance_override(monkeypatch):
+    _install_fake_pysm3(monkeypatch, map_value=37.0)
+    precision = PrecisionConfig.standard()
+    override = SkyProvenance(
+        sky_coverage=SkyCoverage.FULL_SKY,
+        monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+        source_subtraction=SourceSubtractionStatus.NONE,
+        notes="manual-pysm3",
+    )
+
+    sky = load_pysm3(
+        components="s1",
+        nside=4,
+        frequencies=np.array([150e6]),
+        precision=precision,
+        provenance=override,
+    )
+
+    assert sky.healpix is not None
+    assert not sky.healpix.is_sparse
+    assert sky.provenance == override
