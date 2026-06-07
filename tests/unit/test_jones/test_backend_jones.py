@@ -6,6 +6,8 @@ import pytest
 from radiosim.backends import get_backend
 from radiosim.backends.base import BackendNotAvailableError
 from radiosim.core.jones import JonesChain, JonesTerm
+from radiosim.core.jones.beam.analytic import AnalyticBeamJones
+from radiosim.core.jones.beam.analytic.composed import compute_aperture_beam
 from radiosim.core.jones.beam.fits import FITSBeamJones
 from radiosim.core.jones.geometric import GeometricPhaseJones
 
@@ -148,3 +150,59 @@ def test_jax_chain_all_source_construction_is_functional():
     )
 
     np.testing.assert_allclose(result[:, 0, 0], [1, 2])
+
+
+def test_compute_aperture_beam_builds_on_backend():
+    """The analytic E-Jones builder must construct on the given backend device
+    (functional, immutable-safe) instead of via host-NumPy in-place assignment."""
+    backend = _get_optional_backend("jax")
+    theta = np.linspace(0.0, 0.05, 6)
+    phi = np.zeros_like(theta)
+
+    jones = compute_aperture_beam(
+        theta=theta,
+        phi=phi,
+        frequency=100e6,
+        diameter=14.0,
+        backend=backend,
+    )
+
+    # Built on the backend device, not as a host NumPy array.
+    assert not isinstance(jones, np.ndarray)
+    assert tuple(jones.shape) == (6, 2, 2)
+
+    jones_np = backend.to_numpy(jones)
+    # Diagonal beam: zero off-diagonals, equal on-diagonals.
+    np.testing.assert_allclose(jones_np[:, 0, 1], 0)
+    np.testing.assert_allclose(jones_np[:, 1, 0], 0)
+    np.testing.assert_allclose(jones_np[:, 0, 0], jones_np[:, 1, 1])
+    # Matches the host-NumPy reference (default backend=None path).
+    ref = compute_aperture_beam(theta=theta, phi=phi, frequency=100e6, diameter=14.0)
+    np.testing.assert_allclose(jones_np, ref, rtol=1e-6, atol=1e-9)
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "numba", "jax"])
+def test_analytic_beam_jones_all_sources_matches_numpy(backend_name: str):
+    """AnalyticBeamJones (E-term) yields matching Jones across backends and,
+    for device backends, returns an on-device array (beam-inclusive parity)."""
+    reference = _get_optional_backend("numpy")
+    backend = _get_optional_backend(backend_name)
+
+    n = 5
+    alts = np.linspace(np.pi / 2, np.pi / 2 - 0.05, n)
+    azs = np.linspace(0.0, 1.0, n)
+    source_altaz = np.column_stack([alts, azs])
+    freqs = np.array([100e6], dtype=np.float64)
+
+    def _beam() -> AnalyticBeamJones:
+        return AnalyticBeamJones(
+            source_altaz=source_altaz, frequencies=freqs, diameter=14.0
+        )
+
+    expected = reference.to_numpy(
+        _beam().compute_jones_all_sources(0, n, 0, 0, reference)
+    )
+    actual = backend.to_numpy(_beam().compute_jones_all_sources(0, n, 0, 0, backend))
+
+    assert actual.shape == (n, 2, 2)
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-9)

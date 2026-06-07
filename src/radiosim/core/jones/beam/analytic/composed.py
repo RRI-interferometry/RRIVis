@@ -17,6 +17,8 @@ References
        Section 2.3: The E-Jones (primary beam)
 """
 
+from typing import Any
+
 import numpy as np
 
 # Speed of light in vacuum (m/s)
@@ -37,7 +39,8 @@ def compute_aperture_beam(
     reflector_type: str = "prime_focus",
     magnification: float = 1.0,
     aperture_params: dict | None = None,
-) -> np.ndarray:
+    backend: Any | None = None,
+) -> Any:
     """Compute the composed beam Jones matrix.
 
     Combines aperture shape, illumination taper, optional feed model,
@@ -86,10 +89,14 @@ def compute_aperture_beam(
     aperture_params : dict or None
         Aperture-specific parameters (``length_x``/``length_y`` for
         rectangular, ``diameter_x``/``diameter_y`` for elliptical).
+    backend : ArrayBackend or None
+        If given, the diagonal Jones matrix is assembled on the backend
+        device via ``backend.diagonal_matrix`` (functional, immutable-safe).
+        When ``None`` the result is a host NumPy array.
 
     Returns
     -------
-    ndarray
+    ndarray or backend array
         Jones matrix, shape ``(2, 2)`` for scalar input or
         ``(N, 2, 2)`` for array input, dtype ``complex128``.
     """
@@ -182,16 +189,18 @@ def compute_aperture_beam(
         else:
             co_pol = taper_func(u_beam)
 
-    # Step 3: Build diagonal Jones matrix: [[co, 0], [0, co]]
+    # Step 3: Build the diagonal Jones matrix [[co, 0], [0, co]] functionally
+    # (no in-place item assignment) so the construction is valid for immutable
+    # array backends such as JAX. With a backend, assemble on its device.
     if input_is_scalar:
-        jones = np.zeros((2, 2), dtype=np.complex128)
-        jones[0, 0] = co_pol[0] if co_pol.ndim > 0 else co_pol
-        jones[1, 1] = co_pol[0] if co_pol.ndim > 0 else co_pol
-        return jones
-    jones = np.zeros((len(co_pol), 2, 2), dtype=np.complex128)
-    jones[:, 0, 0] = co_pol
-    jones[:, 1, 1] = co_pol
-    return jones
+        co = co_pol[0] if co_pol.ndim > 0 else co_pol
+        diagonal = np.asarray([co, co], dtype=np.complex128)
+    else:
+        diagonal = np.stack([co_pol, co_pol], axis=-1).astype(np.complex128)
+
+    if backend is not None:
+        return backend.diagonal_matrix(diagonal, dtype=np.complex128)
+    return diagonal[..., :, None] * np.eye(2, dtype=np.complex128)
 
 
 __all__ = [

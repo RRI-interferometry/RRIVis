@@ -169,6 +169,7 @@ class AnalyticBeamJones(BeamJones):
             reflector_type=self.reflector_type,
             magnification=self.magnification,
             aperture_params=self.aperture_params,
+            backend=backend,
         )
 
         return backend.asarray(jones, dtype=np.complex128)

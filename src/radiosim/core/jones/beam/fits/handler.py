@@ -355,15 +355,18 @@ class BeamFITSHandler:
                 dtype=complex,
             )
         else:
-            # Multiple points
-            Npoints = interp_data.shape[-1]
-            jones = np.zeros((Npoints, 2, 2), dtype=complex)
-
-            # Fill with correct index order: [source, feed, basis]
-            jones[:, 0, 0] = interp_data[0, 0, 0, 0, :]  # X feed, basis 0
-            jones[:, 0, 1] = interp_data[1, 0, 0, 0, :]  # X feed, basis 1
-            jones[:, 1, 0] = interp_data[0, 0, 1, 0, :]  # Y feed, basis 0
-            jones[:, 1, 1] = interp_data[1, 0, 1, 0, :]  # Y feed, basis 1
+            # Multiple points — assemble functionally (no in-place item
+            # assignment) so the construction stays valid for immutable array
+            # backends. Index order is [source, feed, basis].
+            row_x = np.stack(
+                [interp_data[0, 0, 0, 0, :], interp_data[1, 0, 0, 0, :]],
+                axis=-1,
+            )  # X feed: responses to basis 0 and basis 1
+            row_y = np.stack(
+                [interp_data[0, 0, 1, 0, :], interp_data[1, 0, 1, 0, :]],
+                axis=-1,
+            )  # Y feed: responses to basis 0 and basis 1
+            jones = np.stack([row_x, row_y], axis=-2).astype(complex)
 
         return jones
 
