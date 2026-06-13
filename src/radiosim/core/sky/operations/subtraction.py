@@ -294,16 +294,27 @@ def _fit_multifreq_gaussian(
 
     # Pack: [x0, y0, sigma_M, sigma_m, pa, A_0, ..., A_{n-1},
     #        bx_0, ..., bx_{n-1}, by_0, ..., by_{n-1}, c_0, ..., c_{n-1}]
+    # Named slices defined once so every pack/unpack site shares the same
+    # offsets (a mismatched ``5 + k*n_freq`` was a silent-wrong-fit footgun).
     n_params = 5 + 4 * n_freq
+    AMP = slice(5, 5 + n_freq)
+    BX = slice(5 + n_freq, 5 + 2 * n_freq)
+    BY = slice(5 + 2 * n_freq, 5 + 3 * n_freq)
+    C = slice(5 + 3 * n_freq, 5 + 4 * n_freq)
+
+    def _baseline_rows(params: np.ndarray) -> np.ndarray:
+        """``(n_freq, 3)`` array of ``[bx, by, c]`` per channel."""
+        return np.column_stack([params[BX], params[BY], params[C]])
+
     p0 = np.zeros(n_params, dtype=np.float64)
     p0[0] = x0_init
     p0[1] = y0_init
     p0[2] = sigma_init_rad
     p0[3] = sigma_init_rad
     p0[4] = 0.0
-    p0[5 : 5 + n_freq] = amps_init
+    p0[AMP] = amps_init
     # bx, by start at 0; c starts at the per-channel median.
-    p0[5 + 3 * n_freq : 5 + 4 * n_freq] = medians
+    p0[C] = medians
 
     lower = np.full(n_params, -np.inf)
     upper = np.full(n_params, np.inf)
@@ -317,15 +328,15 @@ def _fit_multifreq_gaussian(
     upper[3] = sigma_init_rad * 5.0
     lower[4] = -np.pi / 2.0
     upper[4] = np.pi / 2.0
-    lower[5 : 5 + n_freq] = 0.0  # amplitudes non-negative
+    lower[AMP] = 0.0  # amplitudes non-negative
 
     # Cache geometry-dependent terms once per evaluation; per-channel work is O(N).
     def _residuals(params: np.ndarray) -> np.ndarray:
         x0, y0, sigma_M, sigma_m, pa = params[:5]
-        amps = params[5 : 5 + n_freq]
-        bxs = params[5 + n_freq : 5 + 2 * n_freq]
-        bys = params[5 + 2 * n_freq : 5 + 3 * n_freq]
-        cs = params[5 + 3 * n_freq : 5 + 4 * n_freq]
+        amps = params[AMP]
+        bxs = params[BX]
+        bys = params[BY]
+        cs = params[C]
         cos_pa = np.cos(pa)
         sin_pa = np.sin(pa)
         xr = (x - x0) * cos_pa + (y - y0) * sin_pa
@@ -346,14 +357,8 @@ def _fit_multifreq_gaussian(
         "sigma_major": float(p0[2]),
         "sigma_minor": float(p0[3]),
         "pa": float(p0[4]),
-        "amplitudes": p0[5 : 5 + n_freq].copy(),
-        "baselines": np.column_stack(
-            [
-                p0[5 + n_freq : 5 + 2 * n_freq],
-                p0[5 + 2 * n_freq : 5 + 3 * n_freq],
-                p0[5 + 3 * n_freq : 5 + 4 * n_freq],
-            ]
-        ),
+        "amplitudes": p0[AMP].copy(),
+        "baselines": _baseline_rows(p0),
     }
 
     try:
@@ -373,10 +378,7 @@ def _fit_multifreq_gaussian(
     sigma_M_fit = float(popt[2])
     sigma_m_fit = float(popt[3])
     pa_fit = float(popt[4])
-    amps_fit = popt[5 : 5 + n_freq]
-    bxs_fit = popt[5 + n_freq : 5 + 2 * n_freq]
-    bys_fit = popt[5 + 2 * n_freq : 5 + 3 * n_freq]
-    cs_fit = popt[5 + 3 * n_freq : 5 + 4 * n_freq]
+    amps_fit = popt[AMP]
 
     # Reject geometry collapses below the resolution floor (matches the
     # single-channel fit's guard at sigma_min <= sigma_init * 0.25).
@@ -400,7 +402,7 @@ def _fit_multifreq_gaussian(
         "sigma_minor": sigma_m_fit,
         "pa": pa_fit,
         "amplitudes": amps_fit.copy(),
-        "baselines": np.column_stack([bxs_fit, bys_fit, cs_fit]),
+        "baselines": _baseline_rows(popt),
     }, True
 
 

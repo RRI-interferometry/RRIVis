@@ -692,6 +692,26 @@ def point_sources_to_healpix_maps(
         if per_channel_stokes_v is None
         else xp.asarray(per_channel_stokes_v, dtype=np.float64)
     )
+
+    # Defined once (was redefined every loop iteration): convert a per-pixel
+    # Stokes Q/U/V flux map (Jy) to brightness temperature (K) at one channel.
+    def _pol_flux_to_K(
+        flux_map: np.ndarray, name: str, freq_hz: float, rj_inv: float
+    ) -> np.ndarray:
+        flux_map_np = to_numpy(flux_map)
+        if pol_method == "planck":
+            if np.any(flux_map_np <= 0):
+                raise ValueError(
+                    "polarization_brightness_conversion='planck' requires "
+                    f"strictly positive {name} flux per pixel; got values <= 0 "
+                    f"after binning at {freq_hz / 1e6:.3f} MHz. Use "
+                    "'rayleigh-jeans' for sign-preserving linear conversion."
+                )
+            return flux_density_to_brightness_temp(
+                flux_map_np, freq_hz, omega_pixel, method="planck"
+            )
+        return flux_map_np * rj_inv
+
     for fi, freq in enumerate(frequencies):
         if use_per_channel:
             scale = None  # unused on per-channel path
@@ -746,28 +766,6 @@ def point_sources_to_healpix_maps(
             freq_hz = float(freq)
             rj_inv = 1.0 / rayleigh_jeans_factor(freq_hz, omega_pixel)
 
-            def _pol_flux_to_K(
-                flux_map: np.ndarray,
-                name: str,
-                _freq_hz: float = freq_hz,
-                _rj_inv: float = rj_inv,
-            ) -> np.ndarray:
-                flux_map_np = to_numpy(flux_map)
-                if pol_method == "planck":
-                    if np.any(flux_map_np <= 0):
-                        raise ValueError(
-                            "polarization_brightness_conversion='planck' "
-                            f"requires strictly positive {name} flux per "
-                            "pixel; got values <= 0 after binning at "
-                            f"{_freq_hz / 1e6:.3f} MHz.  Use "
-                            "'rayleigh-jeans' for sign-preserving linear "
-                            "conversion."
-                        )
-                    return flux_density_to_brightness_temp(
-                        flux_map_np, _freq_hz, omega_pixel, method="planck"
-                    )
-                return flux_map_np * _rj_inv
-
             if use_per_channel:
                 ch_idx = nearest_channel_index_with_warning(
                     channel_frequencies, float(freq), label="per-channel polarization"
@@ -819,21 +817,27 @@ def point_sources_to_healpix_maps(
                 if backend is None
                 else backend.bincount(ipix, weights=q_flux, minlength=npix)
             )
-            q_arr[fi] = _pol_flux_to_K(q_map, "Stokes Q").astype(output_dtype)
+            q_arr[fi] = _pol_flux_to_K(q_map, "Stokes Q", freq_hz, rj_inv).astype(
+                output_dtype
+            )
 
             u_map = (
                 np.bincount(ipix, weights=u_flux, minlength=npix)
                 if backend is None
                 else backend.bincount(ipix, weights=u_flux, minlength=npix)
             )
-            u_arr[fi] = _pol_flux_to_K(u_map, "Stokes U").astype(output_dtype)
+            u_arr[fi] = _pol_flux_to_K(u_map, "Stokes U", freq_hz, rj_inv).astype(
+                output_dtype
+            )
 
             v_map = (
                 np.bincount(ipix, weights=v_flux, minlength=npix)
                 if backend is None
                 else backend.bincount(ipix, weights=v_flux, minlength=npix)
             )
-            v_arr[fi] = _pol_flux_to_K(v_map, "Stokes V").astype(output_dtype)
+            v_arr[fi] = _pol_flux_to_K(v_map, "Stokes V", freq_hz, rj_inv).astype(
+                output_dtype
+            )
 
     logger.info(
         f"Converted {n_sources} point sources to {n_freq} HEALPix maps "
