@@ -292,6 +292,56 @@ class TestRngSeedProvenance:
         assert isinstance(sky.provenance.rng_seed, int)
 
 
+class TestSkyModelCheck:
+    def test_check_passes_on_valid_model(self, precision):
+        sky = _point(precision=precision)
+        sky.check()  # should not raise
+
+    def test_check_collects_acceptability_problems(self, precision):
+        sky = _point(precision=precision)
+        bad = PointSourceData(
+            ra_rad=np.array([0.0]),
+            dec_rad=np.array([0.0]),
+            flux=np.array([-5.0]),  # negative
+            spectral_index=np.array([np.nan]),  # non-finite
+            stokes_q=np.zeros(1),
+            stokes_u=np.zeros(1),
+            stokes_v=np.zeros(1),
+            ref_freq=np.array([100e6]),
+        )
+        bad_sky = sky.replace(point=bad)
+        with pytest.raises(ValueError, match=r"check\(\) found"):
+            bad_sky.check()
+
+
+class TestSpectralType:
+    def test_power_law_default(self, precision):
+        from radiosim.core.sky import SpectralType
+
+        sky = _point(precision=precision)
+        assert sky.point.spectral_type is SpectralType.POWER_LAW
+
+    def test_per_channel_when_spectrum_present(self, precision):
+        from radiosim.core.sky import SpectralType
+        from radiosim.core.sky.containers.point import PointSpectrum
+
+        sky = _point(n=2, precision=precision)
+        spec = PointSpectrum(flux=np.ones((2, 2)), frequencies=np.array([100e6, 200e6]))
+        p = sky.point
+        new_point = PointSourceData(
+            ra_rad=p.ra_rad,
+            dec_rad=p.dec_rad,
+            flux=p.flux,
+            spectral_index=p.spectral_index,
+            stokes_q=p.stokes_q,
+            stokes_u=p.stokes_u,
+            stokes_v=p.stokes_v,
+            ref_freq=p.ref_freq,
+            spectrum=spec,
+        )
+        assert new_point.spectral_type is SpectralType.PER_CHANNEL
+
+
 class TestPointNdim:
     def test_2d_core_array_rejected(self):
         with pytest.raises(ValueError, match="1-D"):

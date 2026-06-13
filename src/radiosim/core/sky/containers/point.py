@@ -30,6 +30,7 @@ from ._shared import (
     _validate_mask,
     validate_frequency_axis,
 )
+from .constants import SpectralType
 
 # =============================================================================
 # SourceArrays TypedDict
@@ -631,6 +632,19 @@ class PointSourceData:
     def n_sources(self) -> int:
         """Number of point sources."""
         return len(self.ra_rad)
+
+    @property
+    def spectral_type(self) -> SpectralType:
+        """Which spectral model drives flux evaluation (see :class:`SpectralType`).
+
+        Precedence: per-channel ``spectrum`` > log-polynomial
+        ``spectral_coeffs`` (>1 term) > power-law ``spectral_index``.
+        """
+        if self.spectrum is not None:
+            return SpectralType.PER_CHANNEL
+        if self.spectral_coeffs is not None and self.spectral_coeffs.shape[1] > 1:
+            return SpectralType.LOG_POLYNOMIAL
+        return SpectralType.POWER_LAW
 
     @property
     def is_empty(self) -> bool:

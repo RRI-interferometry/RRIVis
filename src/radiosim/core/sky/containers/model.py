@@ -189,6 +189,58 @@ class SkyModel:
             )
         return self
 
+    def check(self, *, run_check_acceptability: bool = True) -> None:
+        """Re-validate the model, aggregating every problem into one error.
+
+        Construction already enforces structural invariants, but ``check()``
+        gives a user a single explicit entry point — mirroring pyradiosky's
+        ``check()`` and the project's pre-flight collector — that gathers all
+        issues at once instead of failing on the first.  Structural problems
+        (missing payload, shape/length mismatches) are always checked; value
+        *acceptability* problems (non-finite or negative flux, non-positive
+        reference frequencies in use) are checked when ``run_check_acceptability``
+        is True.
+
+        Raises
+        ------
+        ValueError
+            If any problem is found; the message lists every problem.
+        """
+        problems: list[str] = []
+
+        # Structural: re-run the constructor validators by rebuilding. With
+        # frozen, read-only arrays this normally cannot fail, but it is the
+        # authoritative structural gate.
+        try:
+            self.replace()
+        except (ValueError, TypeError) as exc:
+            problems.append(f"structural: {exc}")
+
+        if run_check_acceptability:
+            point = self.point
+            if point is not None and not point.is_empty:
+                if not np.all(np.isfinite(point.flux)):
+                    problems.append("point.flux contains non-finite values")
+                if np.any(point.flux < 0):
+                    problems.append("point.flux contains negative values")
+                for name in ("ra_rad", "dec_rad", "spectral_index"):
+                    if not np.all(np.isfinite(getattr(point, name))):
+                        problems.append(f"point.{name} contains non-finite values")
+                if np.any(point.ref_freq < 0):
+                    problems.append("point.ref_freq contains negative values")
+            healpix = self.healpix
+            if healpix is not None:
+                if not np.all(np.isfinite(healpix.frequencies)):
+                    problems.append("healpix.frequencies contains non-finite values")
+                if np.any(healpix.frequencies <= 0):
+                    problems.append("healpix.frequencies contains non-positive values")
+
+        if problems:
+            raise ValueError(
+                "SkyModel.check() found "
+                f"{len(problems)} problem(s):\n  - " + "\n  - ".join(problems)
+            )
+
     @classmethod
     def _cast_point_data(
         cls,

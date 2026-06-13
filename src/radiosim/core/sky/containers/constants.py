@@ -24,6 +24,21 @@ class BrightnessConversion(str, Enum):
     RAYLEIGH_JEANS = "rayleigh-jeans"
 
 
+class SpectralType(str, Enum):
+    """Active spectral model for a point-source payload.
+
+    The representations are layered, not mutually exclusive (``spectral_index``
+    is term 0 of ``spectral_coeffs``); this enum names which one *drives*
+    flux evaluation, using the same precedence as the materialization path:
+    a per-channel ``spectrum`` wins over a log-polynomial, which wins over a
+    bare power law.
+    """
+
+    POWER_LAW = "power_law"
+    LOG_POLYNOMIAL = "log_polynomial"
+    PER_CHANNEL = "per_channel"
+
+
 # =============================================================================
 # Physical Constants
 # =============================================================================
