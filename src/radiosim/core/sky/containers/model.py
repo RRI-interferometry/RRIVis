@@ -1,4 +1,3 @@
-# radiosim/core/sky/containers/model.py
 """
 Unified SkyModel dataclass.
 

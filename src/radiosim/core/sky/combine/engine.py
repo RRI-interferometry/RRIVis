@@ -1,4 +1,3 @@
-# radiosim/core/sky/combine.py
 """Sky-model combination engine (internal).
 
 User code should call :func:`radiosim.core.sky.prepare_sky_model` — the

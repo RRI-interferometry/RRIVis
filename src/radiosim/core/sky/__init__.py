@@ -1,4 +1,3 @@
-# radiosim/core/sky/__init__.py
 """Unified sky model package for RadioSim.
 
 Use :func:`prepare_sky_model` as the canonical user entry point for combining

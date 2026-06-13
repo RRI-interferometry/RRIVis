@@ -1,4 +1,3 @@
-# radiosim/core/sky/spectral.py
 """Spectral scaling and Faraday rotation helpers for sky models.
 
 These functions are used by both the sky-model conversion code and the

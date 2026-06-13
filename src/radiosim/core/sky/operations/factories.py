@@ -1,4 +1,3 @@
-# radiosim/core/sky/_factories.py
 """Factory functions for SkyModel creation.
 
 Extracted from model.py to keep SkyModel focused on data access and conversion.

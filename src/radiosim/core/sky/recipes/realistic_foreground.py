@@ -1,4 +1,3 @@
-# radiosim/core/sky/recipes.py
 """High-level sky-model recipes that compose the RadioSim primitives into
 physically-disjoint combinations suitable for visibility simulation.
 

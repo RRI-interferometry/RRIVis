@@ -1,4 +1,3 @@
-# radiosim/core/sky/constants.py
 """Physical constants and unit-conversion helpers for sky models."""
 
 from __future__ import annotations

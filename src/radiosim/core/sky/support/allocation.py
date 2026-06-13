@@ -1,4 +1,3 @@
-# radiosim/core/sky/_allocation.py
 """Memory-mapped HEALPix cube allocation helpers.
 
 This is a LEAF module — imports only stdlib (`os`, `shutil`, `tempfile`,

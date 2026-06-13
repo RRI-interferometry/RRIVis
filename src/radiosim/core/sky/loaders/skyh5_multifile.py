@@ -1,4 +1,3 @@
-# radiosim/core/sky/_loaders_skyh5_multifile.py
 """Multi-file skyh5 loader.
 
 Reads a set of single-frequency skyh5 files (each representing one channel

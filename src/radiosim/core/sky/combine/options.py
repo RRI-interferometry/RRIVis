@@ -46,6 +46,10 @@ class PrepareSkyOptions:
     allow_lossy: bool = False
     mixed_model_policy: MixedModelPolicy = "error"
     brightness_conversion: BrightnessConversion | str | None = None
+    # Typed Any deliberately: this is a pydantic dataclass, and importing
+    # PrecisionConfig / ArrayBackend at runtime here would create an import
+    # cycle (they cannot be TYPE_CHECKING-only because pydantic must resolve
+    # the annotation to build the validation schema).
     precision: Any = None
     backend: Any = None
     memmap_path: str | None = None

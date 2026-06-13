@@ -1,4 +1,3 @@
-# radiosim/core/sky/_combine_disjointness.py
 """Physical disjointness rules for combined sky models.
 
 These checks live in their own module because the rule set is the most

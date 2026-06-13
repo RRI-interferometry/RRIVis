@@ -1,4 +1,3 @@
-# radiosim/core/sky/catalogs.py
 """Catalog metadata for VizieR, CASDA TAP, and diffuse sky models.
 
 Each catalog entry is a frozen Pydantic model that validates required

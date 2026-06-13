@@ -1,4 +1,3 @@
-# radiosim/core/sky/discovery.py
 """Catalog discovery and memory estimation utilities.
 
 Module-level functions for listing available sky models, querying catalog

@@ -1,4 +1,3 @@
-# radiosim/core/sky/_combine_provenance.py
 """Provenance merge logic for combined sky models.
 
 Extracted from ``combine.py`` so the provenance reduction rules can evolve

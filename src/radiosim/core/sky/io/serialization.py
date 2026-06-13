@@ -1,4 +1,3 @@
-# radiosim/core/sky/_serialization.py
 """Serialization helpers for SkyModel (SkyH5 via pyradiosky).
 
 Extracted from model.py to keep SkyModel focused on data access.

@@ -1,4 +1,3 @@
-# radiosim/core/sky/support/dnds.py
 """Validated differential-source-count ``dN/dS`` models.
 
 The scientific confusion workflow only accepts literature-traceable presets

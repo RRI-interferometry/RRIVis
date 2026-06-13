@@ -1,4 +1,3 @@
-# radiosim/core/sky/_loaders_pyradiosky.py
 """Pyradiosky file loader functions for SkyModel."""
 
 from __future__ import annotations

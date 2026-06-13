@@ -1,4 +1,3 @@
-# radiosim/core/sky/_combine_regrid.py
 """HEALPix regridding and shared frequency-grid helpers."""
 
 from __future__ import annotations

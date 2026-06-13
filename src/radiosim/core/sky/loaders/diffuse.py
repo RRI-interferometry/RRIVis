@@ -1,4 +1,3 @@
-# radiosim/core/sky/_loaders_diffuse.py
 """Diffuse sky model loader functions (pygdsm, PySM3) for SkyModel."""
 
 from __future__ import annotations

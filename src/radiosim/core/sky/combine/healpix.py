@@ -1,4 +1,3 @@
-# radiosim/core/sky/_combine_healpix.py
 """HEALPix map combination — RJ fast path and Planck round-trip path."""
 
 from __future__ import annotations

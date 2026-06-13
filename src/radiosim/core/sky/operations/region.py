@@ -1,4 +1,3 @@
-# radiosim/core/sky/region.py
 """Sky region filter for spatial subsetting of sky models."""
 
 from __future__ import annotations

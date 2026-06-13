@@ -1,4 +1,3 @@
-# radiosim/core/sky/convert.py
 """Bidirectional conversion between point-source and HEALPix representations.
 
 Pure functions that accept and return raw numpy arrays. No SkyModel dependency.

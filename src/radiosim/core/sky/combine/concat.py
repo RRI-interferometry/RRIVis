@@ -1,4 +1,3 @@
-# radiosim/core/sky/_combine_concat.py
 """Point-source concatenation and extra-column metadata helpers."""
 
 from __future__ import annotations
