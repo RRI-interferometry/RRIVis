@@ -16,7 +16,12 @@ import numpy as np
 from pydantic import field_validator, model_validator
 from pydantic.dataclasses import dataclass
 
-from ._shared import _FROZEN_NDARRAY_CONFIG, _arrays_equal
+from ._shared import (
+    _FROZEN_NDARRAY_CONFIG,
+    _arrays_equal,
+    _freeze,
+    validate_frequency_axis,
+)
 
 
 @dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
@@ -50,6 +55,29 @@ class HealpixData:
     u_brightness_conversion: str = "rayleigh-jeans"
     v_brightness_conversion: str = "rayleigh-jeans"
 
+    @field_validator("nside", mode="before")
+    @classmethod
+    def _validate_nside(cls, value: object) -> int:
+        n = int(value)  # type: ignore[arg-type]
+        # nest=True enforces power-of-two, the standard HEALPix constraint and a
+        # hard requirement now that NESTED ordering is supported.
+        if not hp.isnsideok(n, nest=True):
+            raise ValueError(
+                f"HealpixData.nside must be a valid HEALPix NSIDE (power of 2), "
+                f"got {value!r}."
+            )
+        return n
+
+    @field_validator("frequencies", mode="before")
+    @classmethod
+    def _validate_frequencies(cls, value: object) -> np.ndarray:
+        # Finite + positive, but not strictly-ascending: HEALPix cubes can be
+        # assembled from out-of-order multi-file inputs and the channel order is
+        # carried verbatim alongside the maps.
+        return validate_frequency_axis(
+            value, label="HealpixData.frequencies", ascending=False
+        )
+
     @field_validator("coordinate_frame", mode="before")
     @classmethod
     def _validate_coordinate_frame(cls, value: object) -> str:
@@ -81,7 +109,74 @@ class HealpixData:
             raise ValueError(
                 f"HealpixData: hpx_inds must be 1-D, got shape {hpx_inds.shape}"
             )
-        return hpx_inds.astype(np.int64, copy=False)
+        hpx_inds = hpx_inds.astype(np.int64, copy=False)
+        # Reject duplicates: indices align positionally with the columns of
+        # ``maps``, so a duplicate would make ``to_dense()`` last-write-wins and
+        # silently drop a stored pixel's flux. (Do NOT np.unique() — that would
+        # desync indices from maps; an error is the correct contract.)
+        if hpx_inds.size and np.unique(hpx_inds).size != hpx_inds.size:
+            raise ValueError(
+                "HealpixData: hpx_inds must be unique (each stored pixel maps to "
+                "a distinct full-sky HEALPix index); got duplicates."
+            )
+        return hpx_inds
+
+    #: Brightness units accepted on input. ``"Jy/sr"`` maps are converted to
+    #: Kelvin at construction (see :meth:`_normalize_units_to_kelvin`) so that
+    #: stored maps are always brightness temperature — the unit field is
+    #: load-bearing: it drives that conversion rather than being ignored.
+    ALLOWED_UNITS: tuple[str, ...] = ("K", "Jy/sr")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_units_to_kelvin(cls, values: object) -> object:
+        """Convert any ``Jy/sr`` Stokes map to Kelvin before construction.
+
+        Runs before the field validators, so by the time ``_validate_unit``
+        and the shape checks see the data, every map is in Kelvin and every
+        unit is ``"K"``.  A map declared ``Jy/sr`` is therefore *handled*
+        (converted via the Rayleigh-Jeans law at each channel frequency)
+        rather than silently mis-read as brightness temperature.
+        """
+        if isinstance(values, dict):
+            kwargs = values
+        elif hasattr(values, "kwargs") and isinstance(values.kwargs, dict):
+            kwargs = values.kwargs
+        else:
+            return values
+
+        freqs = kwargs.get("frequencies")
+        if freqs is None:
+            return values
+        freqs = np.asarray(freqs, dtype=np.float64)
+
+        from .constants import flux_density_to_brightness_temp
+
+        def _convert(map_key: str, unit_key: str) -> None:
+            arr = kwargs.get(map_key)
+            unit = kwargs.get(unit_key, "K")
+            if arr is None or unit is None or str(unit) != "Jy/sr":
+                return
+            arr = np.asarray(arr)
+            if arr.ndim != 2 or arr.shape[0] != freqs.size:
+                return  # shape validator will report the mismatch
+            out = np.empty(arr.shape, dtype=arr.dtype)
+            for i in range(arr.shape[0]):
+                # solid_angle=1 sr → surface-brightness (Jy/sr) to T_b.
+                out[i] = flux_density_to_brightness_temp(
+                    arr[i].astype(np.float64),
+                    float(freqs[i]),
+                    1.0,
+                    method="rayleigh-jeans",
+                )
+            kwargs[map_key] = out
+            kwargs[unit_key] = "K"
+
+        _convert("maps", "i_unit")
+        _convert("q_maps", "q_unit")
+        _convert("u_maps", "u_unit")
+        _convert("v_maps", "v_unit")
+        return values
 
     @field_validator("i_unit", "q_unit", "u_unit", "v_unit", mode="before")
     @classmethod
@@ -89,6 +184,11 @@ class HealpixData:
         unit = str(value) if value is not None else ""
         if not unit:
             raise ValueError("HealpixData: unit must be a non-empty string.")
+        if unit not in cls.ALLOWED_UNITS:
+            raise ValueError(
+                f"HealpixData: unit must be one of {cls.ALLOWED_UNITS}, got "
+                f"{unit!r}. (Jy/sr maps are converted to Kelvin at construction.)"
+            )
         return unit
 
     @model_validator(mode="after")
@@ -137,7 +237,24 @@ class HealpixData:
                     f"HealpixData: {name} shape {arr.shape} does not match "
                     f"maps shape {self.maps.shape}"
                 )
+
+        # Lock every stored buffer read-only — enforces the copy-on-write
+        # contract (see _shared._freeze).
+        for arr in (
+            self.maps,
+            self.frequencies,
+            self.hpx_inds,
+            self.q_maps,
+            self.u_maps,
+            self.v_maps,
+        ):
+            _freeze(arr)
         return self
+
+    @property
+    def is_nested(self) -> bool:
+        """True when pixels are stored in NESTED ordering (else RING)."""
+        return self.ordering == "nest"
 
     @property
     def n_frequencies(self) -> int:
@@ -186,7 +303,7 @@ class HealpixData:
         """
         from astropy.coordinates import SkyCoord
 
-        theta, phi = hp.pix2ang(self.nside, self.pixel_indices)
+        theta, phi = hp.pix2ang(self.nside, self.pixel_indices, nest=self.is_nested)
         lat_rad = np.pi / 2 - theta
         if self.coordinate_frame == "galactic":
             return SkyCoord(l=phi, b=lat_rad, unit="rad", frame="galactic")
@@ -278,7 +395,14 @@ class HealpixData:
         )
 
     def to_dense(self) -> HealpixData:
-        """Return a dense copy with full-sky arrays."""
+        """Return a dense copy with full-sky arrays.
+
+        Pixels not present in the sparse ``hpx_inds`` are filled with exactly
+        ``0.0`` (Kelvin / the map dtype's zero). This fill is indistinguishable
+        from a measured zero, so monopole / power-spectrum statistics computed
+        over a densified partial-sky map include the un-observed region as
+        zero — mask or weight by the original footprint when that matters.
+        """
         if not self.is_sparse:
             return self
 
@@ -299,6 +423,40 @@ class HealpixData:
             q_maps=_dense_copy(self.q_maps),
             u_maps=_dense_copy(self.u_maps),
             v_maps=_dense_copy(self.v_maps),
+        )
+
+    def reordered(self, target_ordering: str) -> HealpixData:
+        """Return a copy with maps converted to ``target_ordering``.
+
+        Uses ``healpy.reorder`` to convert between RING and NESTED pixel
+        ordering, updating every Stokes map and the ``ordering`` field.
+        Requires a dense cube (reordering only makes sense full-sky); call
+        :meth:`to_dense` first for sparse inputs.  Returns ``self`` unchanged
+        when already in the requested ordering.
+        """
+        target = str(target_ordering).lower()
+        if target not in {"ring", "nest"}:
+            raise ValueError(
+                f"target_ordering must be 'ring' or 'nest', got {target_ordering!r}."
+            )
+        if target == self.ordering:
+            return self
+        self.require_dense("reordered")
+        r2n = target == "nest"
+
+        def _re(arr: np.ndarray | None) -> np.ndarray | None:
+            if arr is None:
+                return None
+            return np.stack(
+                [hp.reorder(row, r2n=r2n, n2r=not r2n) for row in arr], axis=0
+            )
+
+        return self.replace(
+            maps=_re(self.maps),
+            q_maps=_re(self.q_maps),
+            u_maps=_re(self.u_maps),
+            v_maps=_re(self.v_maps),
+            ordering=target,
         )
 
     def _validate_full_grid_mask(self, healpix_mask: np.ndarray) -> np.ndarray:

@@ -15,8 +15,8 @@ from ..containers import (
 )
 from ..containers.constants import BrightnessConversion
 from ..containers.model import SkyFormat, _coerce_format
-from ..recipes.dnds_models import DNDSModel, resolve_dn_ds
 from ..registry.facade import loader_registry
+from ..support.dnds import DNDSModel, resolve_dn_ds
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -117,7 +117,9 @@ def load_test_sources(
             else None
         )
         if ref_frequency is not None:
-            sky = sky.with_reference_frequency(ref_frequency)
+            # Record the reference frequency as metadata (the synthesized
+            # fluxes are already defined at it) — not a flux re-anchor.
+            sky = sky.replace(reference_frequency=ref_frequency)
         sky = materialize_healpix_model(
             sky,
             nside=nside,
@@ -320,7 +322,10 @@ def load_poisson_confusion(
         float(model.integrated_counts(flux_range_jy[0], flux_range_jy[1]))
         * effective_area
     )
-    rng = np.random.default_rng(seed)
+    # Resolve seed=None to a concrete drawn seed *before* use so the resulting
+    # realization is reproducible from its own recorded provenance.
+    resolved_seed = seed if seed is not None else int(np.random.SeedSequence().entropy)
+    rng = np.random.default_rng(resolved_seed)
     n = int(rng.poisson(expected_n))
     logger.info(
         "load_poisson_confusion: dn_ds=%s, band=%.3g–%.3g Jy, area=%.3g sr, "
@@ -359,6 +364,7 @@ def load_poisson_confusion(
             monopole_k=None,
             source_subtraction=SourceSubtractionStatus.NONE,
             notes=f"poisson_{model.name}",
+            rng_seed=resolved_seed,
         )
         return create_empty(
             f"poisson_{model.name}",
@@ -413,6 +419,7 @@ def load_poisson_confusion(
         monopole_k=None,
         source_subtraction=SourceSubtractionStatus.NONE,
         notes=f"poisson_{model.name} (λ={expected_n:.1f}, N={n})",
+        rng_seed=resolved_seed,
     )
     sky = sky.replace(provenance=provenance)
 

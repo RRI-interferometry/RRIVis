@@ -381,14 +381,17 @@ def _load_healpix_branch(
                 stokes = f["Data/stokes"]
                 unit = _decode_bytes(stokes.attrs.get("unit", ""))
                 stokes_slice = np.asarray(stokes[:, 0, :], dtype=np.float64)
-            # Convert Jy/sr -> K via Rayleigh-Jeans. I[Jy/sr] * 1e-26 gives SI
-            # (W/m^2/Hz/sr); then T_RJ = I_SI * c^2 / (2 k_B nu^2).
+            # Convert Jy/sr -> K via the shared Rayleigh-Jeans helper
+            # (solid_angle=1 sr gives the surface-brightness conversion).
             if unit == "Jy / sr":
-                from ..containers.constants import C_LIGHT, K_BOLTZMANN
+                from ..containers.constants import flux_density_to_brightness_temp
 
-                freq_hz = float(sorted_freqs[fi])
-                conv = 1e-26 * (C_LIGHT**2) / (2.0 * K_BOLTZMANN * freq_hz**2)
-                stokes_slice = stokes_slice * conv
+                stokes_slice = flux_density_to_brightness_temp(
+                    stokes_slice,
+                    float(sorted_freqs[fi]),
+                    1.0,
+                    method="rayleigh-jeans",
+                )
 
             i_row = extract_stokes_component(stokes_slice, "I", n_stokes_avail)
             if i_row is None:

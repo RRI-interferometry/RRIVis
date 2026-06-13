@@ -6,7 +6,8 @@ from .bbs import load_bbs
 from .diffuse import load_diffuse_sky, load_pysm3
 from .fits import load_fits_image
 from .pyradiosky import load_pyradiosky_file
-from .synthetic import load_test_sources
+from .skyh5_multifile import load_skyh5_multifile
+from .synthetic import load_poisson_confusion, load_test_sources
 from .vizier import (
     load_3c,
     load_gleam,
@@ -23,6 +24,8 @@ from .vizier import (
 
 __all__ = [
     "load_test_sources",
+    "load_poisson_confusion",
+    "load_skyh5_multifile",
     "load_diffuse_sky",
     "load_pysm3",
     "load_fits_image",

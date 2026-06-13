@@ -17,6 +17,7 @@ from radiosim.utils.frequency import parse_frequency_config
 
 from ..containers import PointSourceData
 from ..containers.model import SkyModel
+from ..containers.point import PointSpectrum
 from ..registry.facade import loader_registry
 from ._healpix_builder import build_healpix_from_stokes_cube, extract_stokes_component
 
@@ -40,6 +41,10 @@ class LossyConversionWarning(UserWarning):
     category="file",
     requires_file=True,
     network_service=None,
+    # pyradiosky files can carry point or HEALPix payloads; declare both
+    # explicitly rather than relying on a loader-name special-case in the
+    # registry.
+    representations=("point_sources", "healpix_map"),
     aliases=["pyradiosky"],
     config_fields={
         "filename": "filename",
@@ -193,43 +198,68 @@ def load_pyradiosky_file(
         else np.zeros_like(stokes_i_ref)
     )
 
+    point_spectrum: PointSpectrum | None = None
     if sky.spectral_type == "spectral_index":
         spectral_indices = np.asarray(sky.spectral_index, dtype=np.float64)
     elif sky.spectral_type == "flat":
         spectral_indices = np.zeros(sky.Ncomponents, dtype=np.float64)
     else:
-        message = (
-            "Loading a pyradiosky point file with spectral_type="
-            f"{sky.spectral_type!r} collapses the per-channel spectrum to a single "
-            "fitted spectral index. Set spectral_loss_policy='error' to reject "
-            "this import."
-        )
-        if spectral_loss_policy == "error":
-            raise ValueError(message)
-        warnings.warn(message, LossyConversionWarning, stacklevel=2)
-
-        # "full" or "subband": log power-law fit between first and last channel
+        # "full" / "subband": preserve the per-channel spectrum losslessly in a
+        # PointSpectrum (downstream materialization uses nearest-channel lookup)
+        # rather than collapsing it to a single fitted index. A fitted index is
+        # still stored as a fallback for code paths that ignore the spectrum.
         if sky.freq_array is not None and len(sky.freq_array) >= 2:
-            s_first = np.array(stokes[0, 0, :], dtype=np.float64)
-            s_last = np.array(stokes[0, -1, :], dtype=np.float64)
-            freq_first = float(
-                sky.freq_array[0].to_value(u.Hz)
+            freq_vals = (
+                sky.freq_array.to_value(u.Hz)
                 if hasattr(sky.freq_array, "to_value")
-                else sky.freq_array[0]
+                else np.asarray(sky.freq_array, dtype=np.float64)
             )
-            freq_last = float(
-                sky.freq_array[-1].to_value(u.Hz)
-                if hasattr(sky.freq_array, "to_value")
-                else sky.freq_array[-1]
+            freq_vals = np.asarray(freq_vals, dtype=np.float64)
+            order = np.argsort(freq_vals)  # PointSpectrum requires ascending
+            sorted_freqs = freq_vals[order]
+            spec_i = np.asarray(stokes[0], dtype=np.float64)[order]
+            spec_q = (
+                np.asarray(stokes[1], dtype=np.float64)[order] if n_stokes > 1 else None
             )
+            spec_u = (
+                np.asarray(stokes[2], dtype=np.float64)[order] if n_stokes > 2 else None
+            )
+            spec_v = (
+                np.asarray(stokes[3], dtype=np.float64)[order] if n_stokes > 3 else None
+            )
+            # PointSpectrum pairs Q and U (both or neither).
+            if (spec_q is None) != (spec_u is None):
+                spec_q = spec_u = None
+            point_spectrum = PointSpectrum(
+                flux=spec_i,
+                frequencies=sorted_freqs,
+                stokes_q=spec_q,
+                stokes_u=spec_u,
+                stokes_v=spec_v,
+            )
+
+            s_first = spec_i[0]
+            s_last = spec_i[-1]
             spectral_indices = np.zeros(sky.Ncomponents, dtype=np.float64)
-            valid = (s_first > 0) & (s_last > 0)
-            if np.any(valid):
-                spectral_indices[valid] = np.log(
-                    s_first[valid] / s_last[valid]
-                ) / np.log(freq_first / freq_last)
+            si_valid = (s_first > 0) & (s_last > 0)
+            if np.any(si_valid):
+                spectral_indices[si_valid] = np.log(
+                    s_first[si_valid] / s_last[si_valid]
+                ) / np.log(sorted_freqs[0] / sorted_freqs[-1])
         else:
             spectral_indices = np.zeros(sky.Ncomponents, dtype=np.float64)
+
+        if point_spectrum is None:
+            # No usable channel axis to preserve — this is the genuinely lossy
+            # case the policy guards.
+            message = (
+                "Loading a pyradiosky point file with spectral_type="
+                f"{sky.spectral_type!r} but no usable multi-channel frequency "
+                "axis; the spectrum cannot be preserved."
+            )
+            if spectral_loss_policy == "error":
+                raise ValueError(message)
+            warnings.warn(message, LossyConversionWarning, stacklevel=2)
 
     # Build per-source reference frequency array
     per_source_ref_freq = None
@@ -303,6 +333,11 @@ def load_pyradiosky_file(
             extra_columns={
                 name: values[valid] for name, values in extra_columns.items()
             },
+            spectrum=(
+                point_spectrum.masked_sources(valid)
+                if point_spectrum is not None
+                else None
+            ),
         ),
         model_name=model_name,
         reference_frequency=ref_freq_hz,

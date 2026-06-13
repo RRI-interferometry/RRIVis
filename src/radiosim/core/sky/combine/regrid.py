@@ -154,9 +154,18 @@ def regrid_healpix_model(
             healpix=source_healpix.replace(frequencies=requested_freqs)
         )
 
+    hp_order = "NESTED" if source_healpix.is_nested else "RING"
+
     def _regrid_rows(arr: np.ndarray) -> np.ndarray:
         rows = [
-            hp.ud_grade(row, nside_out=target_nside, power=0) for row in np.asarray(arr)
+            hp.ud_grade(
+                row,
+                nside_out=target_nside,
+                power=0,
+                order_in=hp_order,
+                order_out=hp_order,
+            )
+            for row in np.asarray(arr)
         ]
         return np.stack(rows, axis=0)
 

@@ -115,8 +115,17 @@ def _parse_fits_axes_and_units(
     is_jy_pixel = "JY/PIX" in bunit or "JY/PIXEL" in bunit
     is_jy_sr = "JY/SR" in bunit
 
+    # Input FITS pixel solid angle (steradians), computed unconditionally so
+    # Jy/pixel and Jy/beam can be normalized to surface brightness (Jy/sr)
+    # before reprojection — bilinear resampling conserves surface brightness
+    # but NOT flux-per-pixel when the input and output pixel areas differ.
+    from astropy.wcs.utils import proj_plane_pixel_area
+
+    pixel_area_sr = float(
+        proj_plane_pixel_area(full_wcs.celestial) * (np.pi / 180.0) ** 2
+    )
+
     beam_area_sr = None
-    pixel_area_sr = None
     if is_jy_beam:
         bmaj = header.get("BMAJ")
         bmin = header.get("BMIN")
@@ -128,9 +137,6 @@ def _parse_fits_axes_and_units(
         bmaj_rad = np.deg2rad(bmaj)
         bmin_rad = np.deg2rad(bmin)
         beam_area_sr = math.pi * bmaj_rad * bmin_rad / (4 * math.log(2))
-        cdelt1 = abs(header.get("CDELT1", 1.0))
-        cdelt2 = abs(header.get("CDELT2", 1.0))
-        pixel_area_sr = np.deg2rad(cdelt1) * np.deg2rad(cdelt2)
 
     npix = hp.nside2npix(nside)
     return _FitsAxesAndUnits(
@@ -268,17 +274,25 @@ def _reproject_fits_stokes(
                     stokes_idx=fits_si,
                     freq_idx=fits_fi,
                 )
-                hp_map = _reproject_slice(image_2d)
 
+                # Convert the input image to surface brightness (Jy/sr) on its
+                # native FITS pixel grid *before* reprojecting, so bilinear
+                # resampling conserves total flux regardless of the input-vs-
+                # HEALPix pixel-area ratio.
+                sb_2d = image_2d
                 if spec.is_jy_beam:
-                    assert spec.pixel_area_sr is not None
                     assert spec.beam_area_sr is not None
-                    hp_map *= spec.pixel_area_sr / spec.beam_area_sr
+                    sb_2d = image_2d / spec.beam_area_sr  # Jy/beam -> Jy/sr
+                elif spec.is_jy_pixel:
+                    assert spec.pixel_area_sr is not None
+                    sb_2d = image_2d / spec.pixel_area_sr  # Jy/pixel -> Jy/sr
+
+                hp_map = _reproject_slice(sb_2d)
 
                 flux_map: np.ndarray | None = None
-                if spec.is_jy_beam or spec.is_jy_pixel:
-                    flux_map = hp_map
-                elif spec.is_jy_sr:
+                if spec.is_jy_beam or spec.is_jy_pixel or spec.is_jy_sr:
+                    # hp_map is now Jy/sr on the HEALPix grid; flux per HEALPix
+                    # pixel is surface brightness times the pixel solid angle.
                     flux_map = hp_map * spec.omega_pixel
 
                 is_stokes_i = stokes_code == 1 or spec.n_stokes == 1

@@ -23,7 +23,13 @@ import numpy as np
 from pydantic import field_validator, model_validator
 from pydantic.dataclasses import dataclass
 
-from ._shared import _FROZEN_NDARRAY_CONFIG, _arrays_equal
+from ._shared import (
+    _FROZEN_NDARRAY_CONFIG,
+    _arrays_equal,
+    _freeze,
+    _validate_mask,
+    validate_frequency_axis,
+)
 
 # =============================================================================
 # SourceArrays TypedDict
@@ -108,14 +114,9 @@ class PointSpectrum:
     @field_validator("frequencies", mode="before")
     @classmethod
     def _validate_frequencies(cls, value: object) -> np.ndarray:
-        freqs = np.asarray(value)
-        if freqs.ndim != 1 or freqs.size == 0:
-            raise ValueError("PointSpectrum.frequencies must be a non-empty 1-D array.")
-        if not np.all(np.isfinite(freqs)) or np.any(freqs <= 0):
-            raise ValueError("PointSpectrum.frequencies must be finite and positive.")
-        if freqs.size > 1 and not np.all(np.diff(freqs) > 0):
-            raise ValueError("PointSpectrum.frequencies must be strictly ascending.")
-        return freqs
+        return validate_frequency_axis(
+            value, label="PointSpectrum.frequencies", ascending=True
+        )
 
     @model_validator(mode="after")
     def _validate_shapes(self) -> PointSpectrum:
@@ -135,6 +136,14 @@ class PointSpectrum:
                     f"PointSpectrum.{name} shape {arr.shape} does not match "
                     f"flux shape {self.flux.shape}."
                 )
+        for arr in (
+            self.flux,
+            self.frequencies,
+            self.stokes_q,
+            self.stokes_u,
+            self.stokes_v,
+        ):
+            _freeze(arr)
         return self
 
     @property
@@ -147,6 +156,7 @@ class PointSpectrum:
 
     def masked_sources(self, mask: np.ndarray) -> PointSpectrum:
         """Return a new PointSpectrum with a boolean mask applied along sources."""
+        mask = _validate_mask(mask, self.n_sources, label="PointSpectrum mask")
         return PointSpectrum(
             flux=self.flux[:, mask],
             frequencies=self.frequencies,
@@ -216,6 +226,8 @@ class PointMorphology:
                     f"PointMorphology: {name} has length {len(arr)}, "
                     f"expected {n} (must match major_arcsec)."
                 )
+        for arr in (self.major_arcsec, self.minor_arcsec, self.pa_deg):
+            _freeze(arr)
         return self
 
     @property
@@ -223,6 +235,7 @@ class PointMorphology:
         return int(len(self.major_arcsec))
 
     def masked(self, mask: np.ndarray) -> PointMorphology:
+        mask = _validate_mask(mask, self.n_sources, label="PointMorphology mask")
         return PointMorphology(
             major_arcsec=self.major_arcsec[mask],
             minor_arcsec=self.minor_arcsec[mask],
@@ -263,11 +276,17 @@ class PointPolarization:
 
     rotation_measure: np.ndarray  # shape (N,), rad/m^2
 
+    @model_validator(mode="after")
+    def _freeze_arrays(self) -> PointPolarization:
+        _freeze(self.rotation_measure)
+        return self
+
     @property
     def n_sources(self) -> int:
         return int(len(self.rotation_measure))
 
     def masked(self, mask: np.ndarray) -> PointPolarization:
+        mask = _validate_mask(mask, self.n_sources, label="PointPolarization mask")
         return PointPolarization(rotation_measure=self.rotation_measure[mask])
 
     __hash__ = None  # type: ignore[assignment]
@@ -351,6 +370,10 @@ class PointMetadata:
                 "PointMetadata: populated fields disagree on per-source length: "
                 f"{details}."
             )
+        for arr in (self.source_name, self.source_id):
+            _freeze(arr)
+        for arr in self.extra_columns.values():
+            _freeze(arr)
         return self
 
     def n_sources(self) -> int | None:
@@ -368,6 +391,9 @@ class PointMetadata:
         return None
 
     def masked(self, mask: np.ndarray) -> PointMetadata:
+        n = self.n_sources()
+        if n is not None:
+            mask = _validate_mask(mask, n, label="PointMetadata mask")
         return PointMetadata(
             source_name=self.source_name[mask]
             if self.source_name is not None
@@ -544,6 +570,10 @@ class PointSourceData:
 
     @model_validator(mode="after")
     def _validate_lengths(self) -> PointSourceData:
+        if self.ra_rad.ndim != 1:
+            raise ValueError(
+                f"PointSourceData: ra_rad must be 1-D, got shape {self.ra_rad.shape}."
+            )
         n = len(self.ra_rad)
         for name, arr in (
             ("dec_rad", self.dec_rad),
@@ -554,6 +584,10 @@ class PointSourceData:
             ("stokes_v", self.stokes_v),
             ("ref_freq", self.ref_freq),
         ):
+            if arr.ndim != 1:
+                raise ValueError(
+                    f"PointSourceData: {name} must be 1-D, got shape {arr.shape}."
+                )
             if len(arr) != n:
                 raise ValueError(
                     f"PointSourceData: {name} has length {len(arr)}, "
@@ -588,6 +622,9 @@ class PointSourceData:
                 f"PointSourceData: spectrum has {self.spectrum.n_sources} "
                 f"sources, expected {n}."
             )
+
+        for name in (*self._CORE_FIELDS, "spectral_coeffs"):
+            _freeze(getattr(self, name))
         return self
 
     @property
@@ -617,6 +654,7 @@ class PointSourceData:
 
     def masked(self, mask: np.ndarray) -> PointSourceData:
         """Return new instance with boolean mask applied to all arrays."""
+        mask = _validate_mask(mask, self.n_sources, label="PointSourceData mask")
         return PointSourceData(
             ra_rad=self.ra_rad[mask],
             dec_rad=self.dec_rad[mask],

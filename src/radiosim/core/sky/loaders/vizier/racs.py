@@ -79,6 +79,11 @@ def _parse_racs_results_with_fallback(
         if source_id is None and source_name is not None:
             source_id = source_name.copy()
         return ra_arr, dec_arr, flux_arr, source_name, source_id
+    except (TypeError, AttributeError, NameError):
+        # Programming errors in the fast path must not be silently swallowed by
+        # the row-by-row fallback — they indicate a logic bug, not malformed
+        # data, so let them surface.
+        raise
     except Exception as e:
         logger.warning(
             f"Vectorized extraction failed for RACS-{band}, "
@@ -90,6 +95,7 @@ def _parse_racs_results_with_fallback(
     source_id_list: list[str] = []
     id_col = _find_id_column(result)
     name_col = _find_name_column(result)
+    n_rows_skipped = 0
     for row in result:
         try:
             flux_native = row[info.flux_col]
@@ -114,8 +120,23 @@ def _parse_racs_results_with_fallback(
                     "" if np.ma.is_masked(row[id_col]) else str(row[id_col])
                 )
         except Exception as row_err:
+            n_rows_skipped += 1
             logger.debug(f"Skipping RACS row: {row_err}")
             continue
+    if n_rows_skipped:
+        total = len(result)
+        level = (
+            logging.WARNING if n_rows_skipped > 0.1 * max(total, 1) else logging.INFO
+        )
+        logger.log(
+            level,
+            "RACS-%s row-by-row parse skipped %d/%d rows. A large fraction "
+            "usually means a systematic schema/column issue, not isolated "
+            "bad rows.",
+            band,
+            n_rows_skipped,
+            total,
+        )
     ra_arr = np.array(ra_list, dtype=np.float64)
     dec_arr = np.array(dec_list, dtype=np.float64)
     flux_arr = np.array(flux_list, dtype=np.float64)
@@ -229,7 +250,9 @@ def load_racs(
         job = tap.launch_job(adql)
         result = job.get_results()
 
-    except ConnectionError:
+    except (ConnectionError, TypeError, AttributeError, NameError):
+        # Network errors propagate as-is; programming errors are not relabeled
+        # as a CASDA schema change.
         raise
     except Exception as e:
         raise RuntimeError(

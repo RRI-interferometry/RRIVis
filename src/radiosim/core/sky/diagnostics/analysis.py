@@ -244,7 +244,21 @@ def compute_delay_spectrum(
             f"does not match cube first axis {n_freq}"
         )
 
-    dfreq = float(np.diff(frequencies_hz).mean())
+    # The delay axis assumes a uniform, strictly-increasing frequency grid;
+    # a non-monotonic or non-uniform axis would silently produce a wrong
+    # delay/k_parallel scale.
+    diffs = np.diff(frequencies_hz)
+    if n_freq > 1:
+        if np.any(diffs <= 0):
+            raise ValueError(
+                "compute_delay_spectrum requires a strictly increasing frequency axis."
+            )
+        if not np.allclose(diffs, diffs[0], rtol=1e-3):
+            raise ValueError(
+                "compute_delay_spectrum requires a uniformly-spaced frequency "
+                f"axis; spacing ranges {diffs.min():.6g}–{diffs.max():.6g} Hz."
+            )
+    dfreq = float(diffs.mean())
     w = _get_window(window, n_freq)
 
     data = cube

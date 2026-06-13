@@ -20,6 +20,7 @@ from ..containers import SourceSubtractionStatus
 from ..containers.constants import (
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
+    pixel_solid_angle,
 )
 
 if TYPE_CHECKING:
@@ -489,7 +490,7 @@ def _select_subtraction_candidates(
     rank candidates.
     """
     nside = sky.healpix.nside
-    pixel_area_sr = 4.0 * np.pi / hp.nside2npix(nside)
+    pixel_area_sr = pixel_solid_angle(nside)
 
     idx = sky.healpix.resolve_frequency_index(frequency_hz)
     reference_map_k = np.asarray(sky.healpix.maps[idx], dtype=np.float64)
@@ -672,7 +673,7 @@ def _fit_and_subtract_per_channel(
     per-channel implementation.
     """
     nside = sky.healpix.nside
-    pixel_area_sr = 4.0 * np.pi / hp.nside2npix(nside)
+    pixel_area_sr = pixel_solid_angle(nside)
     new_maps = np.array(sky.healpix.maps, dtype=np.float64, copy=True)
     n_freq = new_maps.shape[0]
     cube_freqs = sky.healpix.frequencies
@@ -876,6 +877,13 @@ def subtract_bright_sources(
         )
     sky.healpix.require_dense("subtract_bright_sources")
 
+    # The fitting geometry and the alm-based inpainting (map2alm) assume RING
+    # ordering. Normalize NESTED inputs to RING for the duration, then restore
+    # the caller's ordering on the result.
+    restore_ordering = sky.healpix.ordering
+    if sky.healpix.is_nested:
+        sky = sky.replace(healpix=sky.healpix.reordered("ring"))
+
     nside = sky.healpix.nside
     sigma_init = hp.nside2resol(nside) / _GAUSSIAN_FWHM_TO_SIGMA
     patch_radius = (
@@ -938,6 +946,8 @@ def subtract_bright_sources(
     new_healpix = sky.healpix.replace(
         maps=new_maps.astype(sky.healpix.maps.dtype, copy=False),
     )
+    if restore_ordering != new_healpix.ordering:
+        new_healpix = new_healpix.reordered(restore_ordering)
 
     old_prov = sky.provenance
     new_monopole = None

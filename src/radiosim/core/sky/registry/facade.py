@@ -127,7 +127,6 @@ class SkyLoaderRegistry:
         """
         _backend._ensure_default_loaders_registered()
         _backend._REGISTRY.unregister(name)
-        _backend._sync_meta_cache()
 
 
 loader_registry = SkyLoaderRegistry()

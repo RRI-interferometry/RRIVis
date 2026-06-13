@@ -235,6 +235,7 @@ def materialize_point_sources_model(
         healpix_maps=healpix.maps,
         coordinate_frame=healpix.coordinate_frame,
         ref_freq_out=resolve_freq,
+        nest=healpix.is_nested,
         polarization_brightness_conversion=pol_conversion,
         warn=False,
         backend=backend,
@@ -523,6 +524,11 @@ def with_monopole_subtracted(sky: SkyModel) -> SkyModel:
 
     if sky.healpix is None:
         return sky.replace(provenance=new_prov)
+
+    # A plain mean over stored pixels equals the solid-angle average only on a
+    # full-sky grid (HEALPix pixels are equal-area). Reject sparse cubes rather
+    # than silently averaging over a pixel subset.
+    sky.healpix.require_dense("with_monopole_subtracted")
 
     maps = sky.healpix.maps
     # Per-channel pixel-area-weighted mean: pixels are equal-area on the HEALPix

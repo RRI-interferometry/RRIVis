@@ -232,6 +232,7 @@ def _parse_bbs_lines(lines, *, filename: str) -> _BbsParsedSources:
     name_list: list[str] = []
     has_gaussian = False
     has_spectral_coeffs = False
+    n_dropped_nonpositive = 0
 
     for line in lines:
         line = line.strip()
@@ -325,7 +326,11 @@ def _parse_bbs_lines(lines, *, filename: str) -> _BbsParsedSources:
 
         # Stokes I
         stokes_i = float(_get("i", "0"))
-        if stokes_i <= 0:
+        if not np.isfinite(stokes_i) or stokes_i <= 0:
+            # Non-positive / non-finite Stokes I is dropped (negative CLEAN
+            # components are not representable as catalog flux). Counted and
+            # reported below so the drop is never fully silent.
+            n_dropped_nonpositive += 1
             continue
 
         # Stokes Q, U, V
@@ -393,6 +398,14 @@ def _parse_bbs_lines(lines, *, filename: str) -> _BbsParsedSources:
             has_spectral_coeffs = True
         sp_coeffs_list.append(si_coeffs)
 
+    if n_dropped_nonpositive:
+        logger.warning(
+            "%s: dropped %d component(s) with non-positive or non-finite "
+            "Stokes I (e.g. negative CLEAN components, which are not "
+            "representable as catalog flux).",
+            filename,
+            n_dropped_nonpositive,
+        )
     if not flux_list:
         logger.warning(f"No sources found in {filename}")
 
@@ -512,7 +525,9 @@ def _build_bbs_sky(
     )
 
     if parsed.ref_freq_from_header > 0:
-        sky = sky.with_reference_frequency(parsed.ref_freq_from_header)
+        # The BBS fluxes are already defined at the header reference frequency;
+        # record it as metadata rather than re-anchoring the flux.
+        sky = sky.replace(reference_frequency=parsed.ref_freq_from_header)
 
     if region is not None:
         sky = sky.filter_region(region)

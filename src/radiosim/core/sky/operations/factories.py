@@ -251,8 +251,12 @@ def create_test_sources(
 
     n = num_sources
 
+    resolved_seed: int | None = None
     if distribution == "random":
-        rng = np.random.default_rng(seed)
+        resolved_seed = (
+            seed if seed is not None else int(np.random.SeedSequence().entropy)
+        )
+        rng = np.random.default_rng(resolved_seed)
         ra_deg_arr = rng.uniform(0.0, 360.0, size=n)
         half_width = dec_range_deg if dec_range_deg is not None else 10.0
         dec_lo = max(-90.0, dec_deg - half_width)
@@ -295,6 +299,7 @@ def create_test_sources(
             monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
             source_subtraction=SourceSubtractionStatus.NONE,
             notes="synthetic/test_sources",
+            rng_seed=resolved_seed,
         )
 
     return create_from_arrays(

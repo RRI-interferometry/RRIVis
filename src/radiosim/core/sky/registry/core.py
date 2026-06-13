@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import import_module
@@ -29,7 +30,6 @@ def _normalize_representations(
     representations: (Sequence[LoaderRepresentation] | None) = None,
     *,
     loader: Callable[..., Any] | None = None,
-    name: str | None = None,
     config_fields: Mapping[str, str] | None = None,
 ) -> tuple[LoaderRepresentation, ...]:
     """Normalize explicit or inferred representation hints into one tuple."""
@@ -56,9 +56,6 @@ def _normalize_representations(
     if "representation" in param_names or (
         config_fields is not None and "representation" in config_fields
     ):
-        return _ALL_REPRESENTATIONS
-
-    if name == "pyradiosky_file":
         return _ALL_REPRESENTATIONS
 
     return ("point_sources",)
@@ -132,6 +129,9 @@ class LoaderRegistry:
         self._definitions: dict[str, LoaderDefinition] = {}
         self._aliases: dict[str, str] = {}
         self._alias_defaults: dict[str, dict[str, Any]] = {}
+        # Guards the four mutable dicts against concurrent register/unregister
+        # (the advertised parallel-loading path can register from threads).
+        self._lock = threading.Lock()
 
     @staticmethod
     def _normalize_aliases(
@@ -170,7 +170,6 @@ class LoaderRegistry:
         normalized_representations = _normalize_representations(
             representations,
             loader=loader,
-            name=name,
             config_fields=config_fields,
         )
         definition = LoaderDefinition(
@@ -186,11 +185,14 @@ class LoaderRegistry:
             alias_defaults=alias_defaults,
             config_fields=dict(config_fields or {}),
         )
-        self._loaders[name] = loader
-        self._definitions[name] = definition
-        for alias in definition.aliases:
-            self._aliases[alias] = name
-            self._alias_defaults[alias] = dict(definition.alias_defaults.get(alias, {}))
+        with self._lock:
+            self._loaders[name] = loader
+            self._definitions[name] = definition
+            for alias in definition.aliases:
+                self._aliases[alias] = name
+                self._alias_defaults[alias] = dict(
+                    definition.alias_defaults.get(alias, {})
+                )
         return loader
 
     def resolve_name(self, name: str) -> str:
@@ -243,11 +245,12 @@ class LoaderRegistry:
         Intended for test cleanup; production code should not call this.
         """
         canonical = self.resolve_name(name)
-        self._loaders.pop(canonical, None)
-        self._definitions.pop(canonical, None)
-        for alias in [a for a, c in self._aliases.items() if c == canonical]:
-            self._aliases.pop(alias, None)
-            self._alias_defaults.pop(alias, None)
+        with self._lock:
+            self._loaders.pop(canonical, None)
+            self._definitions.pop(canonical, None)
+            for alias in [a for a, c in self._aliases.items() if c == canonical]:
+                self._aliases.pop(alias, None)
+                self._alias_defaults.pop(alias, None)
 
 
 @dataclass(frozen=True)
@@ -272,8 +275,6 @@ class ResolvedLoader:
 
 
 _REGISTRY = LoaderRegistry()
-_LOADERS = _REGISTRY._loaders
-_LOADER_META: dict[str, dict[str, Any]] = {}
 _DEFAULT_LOADER_MODULES = (
     "radiosim.core.sky.loaders.bbs",
     "radiosim.core.sky.loaders.diffuse",
@@ -285,22 +286,20 @@ _DEFAULT_LOADER_MODULES = (
     "radiosim.core.sky.recipes.realistic_foreground",
 )
 _DEFAULT_LOADERS_IMPORTED = False
+_DEFAULT_LOADERS_LOCK = threading.Lock()
 
 
 def _ensure_default_loaders_registered() -> None:
-    """Import built-in loader modules exactly once."""
+    """Import built-in loader modules exactly once (thread-safe)."""
     global _DEFAULT_LOADERS_IMPORTED
     if _DEFAULT_LOADERS_IMPORTED:
         return
-    for module_name in _DEFAULT_LOADER_MODULES:
-        import_module(module_name)
-    _DEFAULT_LOADERS_IMPORTED = True
-
-
-def _sync_meta_cache() -> None:
-    _LOADER_META.clear()
-    for definition in _REGISTRY.definitions():
-        _LOADER_META[definition.name] = definition.meta_dict()
+    with _DEFAULT_LOADERS_LOCK:
+        if _DEFAULT_LOADERS_IMPORTED:
+            return
+        for module_name in _DEFAULT_LOADER_MODULES:
+            import_module(module_name)
+        _DEFAULT_LOADERS_IMPORTED = True
 
 
 def _register_loader(
@@ -336,7 +335,6 @@ def _register_loader(
             aliases=aliases,
             config_fields=config_fields,
         )
-        _sync_meta_cache()
         return func
 
     return decorator

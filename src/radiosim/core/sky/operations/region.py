@@ -10,6 +10,7 @@ import healpy as hp
 import numpy as np
 from astropy.coordinates import Angle, SkyCoord
 
+from ..containers.constants import pixel_solid_angle
 from ..containers.footprint import (
     DEFAULT_COVERAGE_FOOTPRINT_COORDINATE_FRAME,
     DEFAULT_COVERAGE_FOOTPRINT_NSIDE,
@@ -25,8 +26,9 @@ def _healpix_pixel_centers(
     pixel_indices: np.ndarray,
     *,
     coordinate_frame: str,
+    nest: bool = False,
 ) -> SkyCoord:
-    theta, phi = hp.pix2ang(nside, pixel_indices)
+    theta, phi = hp.pix2ang(nside, pixel_indices, nest=nest)
     lat_rad = np.pi / 2 - theta
     if coordinate_frame == "galactic":
         return SkyCoord(l=phi, b=lat_rad, unit="rad", frame="galactic")
@@ -131,6 +133,8 @@ class SkyRegion(ABC):
         self,
         nside: int,
         coordinate_frame: str = "icrs",
+        *,
+        nest: bool = False,
     ) -> np.ndarray:
         """Boolean mask for HEALPix pixels inside the region.
 
@@ -140,11 +144,16 @@ class SkyRegion(ABC):
             HEALPix NSIDE parameter.
         coordinate_frame : {"icrs", "galactic"}, default "icrs"
             Coordinate frame used by the HEALPix pixel indexing.
+        nest : bool, default False
+            HEALPix pixel ordering of the returned mask: RING when False,
+            NESTED when True. Must match the ordering of the data the mask
+            will index.
 
         Returns
         -------
         np.ndarray[bool]
-            Length ``hp.nside2npix(nside)`` boolean mask.
+            Length ``hp.nside2npix(nside)`` boolean mask, indexed in the
+            requested ordering.
         """
 
     @abstractmethod
@@ -190,6 +199,8 @@ class ConeRegion(SkyRegion):
         self,
         nside: int,
         coordinate_frame: str = "icrs",
+        *,
+        nest: bool = False,
     ) -> np.ndarray:
         npix = hp.nside2npix(nside)
         frame = _normalize_coordinate_frame(coordinate_frame)
@@ -197,7 +208,7 @@ class ConeRegion(SkyRegion):
         lon_rad = center.spherical.lon.rad
         lat_rad = center.spherical.lat.rad
         vec = hp.ang2vec(np.pi / 2 - lat_rad, lon_rad)
-        ipix = hp.query_disc(nside, vec, self.radius.rad)
+        ipix = hp.query_disc(nside, vec, self.radius.rad, nest=nest)
         mask = np.zeros(npix, dtype=bool)
         mask[ipix] = True
         return mask
@@ -262,6 +273,8 @@ class BoxRegion(SkyRegion):
         self,
         nside: int,
         coordinate_frame: str = "icrs",
+        *,
+        nest: bool = False,
     ) -> np.ndarray:
         frame = _normalize_coordinate_frame(coordinate_frame)
         npix = hp.nside2npix(nside)
@@ -276,6 +289,7 @@ class BoxRegion(SkyRegion):
                     nside,
                     np.pi / 2 - dec_max,
                     np.pi / 2 - dec_min,
+                    nest=nest,
                 ),
                 dtype=np.int64,
             )
@@ -285,6 +299,7 @@ class BoxRegion(SkyRegion):
                 nside,
                 ipix,
                 coordinate_frame="icrs",
+                nest=nest,
             )
             keep = self.contains(centers.ra.rad, centers.dec.rad)
             mask[ipix[keep]] = True
@@ -295,6 +310,7 @@ class BoxRegion(SkyRegion):
             nside,
             pixel_indices,
             coordinate_frame="galactic",
+            nest=nest,
         )
         icrs = galactic.icrs
         mask[:] = self.contains(icrs.ra.rad, icrs.dec.rad)
@@ -350,11 +366,15 @@ class UnionRegion(SkyRegion):
         self,
         nside: int,
         coordinate_frame: str = "icrs",
+        *,
+        nest: bool = False,
     ) -> np.ndarray:
         npix = hp.nside2npix(nside)
         mask = np.zeros(npix, dtype=bool)
         for sub in self._sub_regions:
-            mask |= sub.healpix_mask(nside, coordinate_frame=coordinate_frame)
+            mask |= sub.healpix_mask(
+                nside, coordinate_frame=coordinate_frame, nest=nest
+            )
         return mask
 
     def _iter_atomic(self) -> list[SkyRegion]:
@@ -375,5 +395,4 @@ class UnionRegion(SkyRegion):
             is sufficient for large unions and runs faster. Defaults to 512.
         """
         mask = self.healpix_mask(nside)
-        pixel_sr = 4.0 * np.pi / hp.nside2npix(nside)
-        return float(int(mask.sum()) * pixel_sr)
+        return float(int(mask.sum()) * pixel_solid_angle(nside))

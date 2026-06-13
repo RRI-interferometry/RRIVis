@@ -112,7 +112,10 @@ def to_pyradiosky(sky: SkyModel, representation: Any = None) -> Any:
         sorted_freqs = observation_frequencies[sorted_indices]
         n_freq = len(sorted_freqs)
 
-        stokes_arr = np.zeros((4, n_freq, npix), dtype=np.float32)
+        # Honor the model's storage precision instead of forcing float32 — a
+        # user on PrecisionConfig.precise()/ultra() would otherwise silently
+        # lose half their mantissa on every HEALPix round-trip.
+        stokes_arr = np.zeros((4, n_freq, npix), dtype=healpix_maps.dtype)
         q_maps = healpix.q_maps
         u_maps = healpix.u_maps
         v_maps = healpix.v_maps
@@ -171,7 +174,16 @@ def to_pyradiosky(sky: SkyModel, representation: Any = None) -> Any:
         if ref_freq is not None and len(ref_freq) == n:
             ref_freq_arr = ref_freq * u.Hz
         else:
-            scalar_ref_freq = sky.reference_frequency or 1e8
+            scalar_ref_freq = sky.reference_frequency
+            if scalar_ref_freq is None:
+                scalar_ref_freq = 1e8
+                warnings.warn(
+                    "to_pyradiosky: no per-source ref_freq and no model "
+                    "reference_frequency; falling back to 100 MHz for the "
+                    "exported reference frequency. Set reference_frequency "
+                    "explicitly to avoid a silent assumption.",
+                    stacklevel=2,
+                )
             ref_freq_arr = np.full(n, scalar_ref_freq) * u.Hz
 
         extra_column_dict = {

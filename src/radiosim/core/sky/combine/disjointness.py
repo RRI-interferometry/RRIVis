@@ -12,7 +12,7 @@ import warnings
 from typing import TYPE_CHECKING, Literal
 
 from ..containers import MonopoleConvention, SourceSubtractionStatus
-from ..containers.constants import BrightnessConversion
+from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX, BrightnessConversion
 from ..containers.model import SkyFormat
 
 if TYPE_CHECKING:
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 MixedModelPolicy = Literal["error", "warn", "allow"]
 
 
-_DEFAULT_SUBTRACTION_SCALING_ALPHA = -0.7
+_DEFAULT_SUBTRACTION_SCALING_ALPHA = SYNCHROTRON_SPECTRAL_INDEX
 
 
 def _scale_threshold_to_frequency(

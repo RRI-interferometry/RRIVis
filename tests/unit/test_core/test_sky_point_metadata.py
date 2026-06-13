@@ -10,10 +10,7 @@ from astropy.coordinates import SkyCoord
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import create_from_arrays
 from radiosim.core.sky.io.serialization import to_pyradiosky
-from radiosim.core.sky.loaders.pyradiosky import (
-    LossyConversionWarning,
-    load_pyradiosky_file,
-)
+from radiosim.core.sky.loaders.pyradiosky import load_pyradiosky_file
 
 
 @pytest.fixture
@@ -84,7 +81,7 @@ def test_to_pyradiosky_preserves_point_metadata(precision):
     np.testing.assert_array_equal(psky.extra_columns["source_id"], ["A", "B"])
 
 
-def test_load_pyradiosky_warns_and_preserves_point_metadata(
+def test_load_pyradiosky_preserves_point_spectrum_and_metadata(
     precision,
     monkeypatch,
     tmp_path,
@@ -95,10 +92,17 @@ def test_load_pyradiosky_warns_and_preserves_point_metadata(
     filename = tmp_path / "fake.skyh5"
     filename.write_text("placeholder")
 
-    with pytest.warns(LossyConversionWarning, match="collapses the per-channel"):
-        sky = load_pyradiosky_file(str(filename), precision=precision)
+    # spectral_type="full" with a real channel axis is now preserved losslessly
+    # via PointSpectrum — no lossy warning.
+    sky = load_pyradiosky_file(str(filename), precision=precision)
 
     assert sky.point is not None
+    assert sky.point.spectrum is not None
+    np.testing.assert_allclose(sky.point.spectrum.frequencies, [100e6, 200e6])
+    np.testing.assert_allclose(
+        sky.point.spectrum.flux, np.array([[1.0, 2.0], [2.0, 4.0]])
+    )
+
     assert sky.point.metadata is not None
     np.testing.assert_array_equal(
         sky.point.metadata.source_name,
@@ -111,7 +115,7 @@ def test_load_pyradiosky_warns_and_preserves_point_metadata(
     )
 
 
-def test_load_pyradiosky_can_reject_lossy_point_spectrum(
+def test_load_pyradiosky_error_policy_accepts_preserved_spectrum(
     precision,
     monkeypatch,
     tmp_path,
@@ -122,9 +126,12 @@ def test_load_pyradiosky_can_reject_lossy_point_spectrum(
     filename = tmp_path / "fake.skyh5"
     filename.write_text("placeholder")
 
-    with pytest.raises(ValueError, match="collapses the per-channel spectrum"):
-        load_pyradiosky_file(
-            str(filename),
-            spectral_loss_policy="error",
-            precision=precision,
-        )
+    # The spectrum is preserved (not lossy), so spectral_loss_policy="error"
+    # no longer rejects a full/subband file that has a usable channel axis.
+    sky = load_pyradiosky_file(
+        str(filename),
+        spectral_loss_policy="error",
+        precision=precision,
+    )
+    assert sky.point is not None
+    assert sky.point.spectrum is not None

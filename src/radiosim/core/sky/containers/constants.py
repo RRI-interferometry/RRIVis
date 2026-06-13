@@ -32,6 +32,23 @@ K_BOLTZMANN = 1.380649e-23  # Boltzmann constant (J/K)
 C_LIGHT = 299792458  # Speed of light (m/s)
 H_PLANCK = 6.62607015e-34  # Planck constant (J·s)
 
+#: Canonical synchrotron spectral index used as the default scaling exponent
+#: for flux-completeness/threshold extrapolation across frequency. A single
+#: source of truth so the sharp accept/reject boundaries in the disjointness
+#: checks and the realistic-foreground recipe cannot drift apart.
+SYNCHROTRON_SPECTRAL_INDEX = -0.7
+
+
+def pixel_solid_angle(nside: int) -> float:
+    """Return the HEALPix pixel solid angle in steradians: ``4π / npix``.
+
+    Single definition shared by every consumer instead of re-deriving
+    ``4 * np.pi / hp.nside2npix(nside)`` at each call site.
+    """
+    import healpy as hp
+
+    return float(4.0 * np.pi / hp.nside2npix(int(nside)))
+
 
 def brightness_temp_to_flux_density(
     temperature: np.ndarray,

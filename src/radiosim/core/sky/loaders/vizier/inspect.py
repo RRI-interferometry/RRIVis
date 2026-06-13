@@ -190,7 +190,11 @@ def get_catalog_columns(catalog_key: str) -> dict[str, Any]:
         - ``"flux_unit"`` : str -- unit of the flux column
         - ``"description"`` : str -- catalog description
 
-        If the query fails, the dict contains an ``"error"`` key instead.
+    Raises
+    ------
+    RuntimeError
+        If the VizieR query fails (network error or schema drift). The
+        failure is not cached, so a later call retries cleanly.
 
     Examples
     --------
@@ -216,7 +220,7 @@ def get_catalog_columns(catalog_key: str) -> dict[str, Any]:
         v = Vizier(columns=["**"], row_limit=1)
         tables = v.get_catalogs(info.vizier_id)
         if not tables:
-            return {"error": f"No tables returned from VizieR for '{catalog_key}'"}
+            raise RuntimeError(f"No tables returned from VizieR for '{catalog_key}'.")
 
         catalog = None
         if info.table is not None:
@@ -237,8 +241,13 @@ def get_catalog_columns(catalog_key: str) -> dict[str, Any]:
                 "unit": str(col.unit) if col.unit else None,
             }
     except Exception as e:
-        logger.error(f"Failed to query VizieR columns for {catalog_key}: {e}")
-        return {"error": str(e)}
+        # Raise (do not return an error dict): this function is @lru_cache'd,
+        # and a cached error dict would permanently poison the cache after a
+        # single transient network failure. A raised exception is not cached,
+        # so the next call retries cleanly.
+        raise RuntimeError(
+            f"Failed to query VizieR columns for '{catalog_key}': {e}"
+        ) from e
 
     return {
         "columns": columns,
@@ -276,7 +285,10 @@ def get_racs_columns(band: str) -> dict[str, Any]:
         - ``"freq_mhz"`` : float -- survey frequency
         - ``"description"`` : str -- band description
 
-        If the query fails, the dict contains an ``"error"`` key instead.
+    Raises
+    ------
+    RuntimeError
+        If the CASDA TAP query fails. The failure is not cached.
 
     Examples
     --------
@@ -312,8 +324,10 @@ def get_racs_columns(band: str) -> dict[str, Any]:
                 "unit": str(row["unit"]) if row["unit"] else None,
             }
     except Exception as e:
-        logger.error(f"Failed to query CASDA TAP columns for RACS-{band}: {e}")
-        return {"error": str(e)}
+        # Raise rather than return a cached error dict (see get_catalog_columns).
+        raise RuntimeError(
+            f"Failed to query CASDA TAP columns for RACS-{band}: {e}"
+        ) from e
 
     return {
         "columns": columns,

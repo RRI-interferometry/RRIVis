@@ -250,7 +250,10 @@ def _fetch_vizier_catalog(
             raise ValueError("No tables returned from VizieR")
         catalog = _select_table(tables, info)
         return catalog if catalog is not None else tables[0]
-    except ConnectionError:
+    except (ConnectionError, TypeError, AttributeError, NameError):
+        # Network errors propagate as-is; programming errors (TypeError/
+        # AttributeError/NameError) are NOT relabeled as "schema may have
+        # changed" — they should surface as the real bug they are.
         raise
     except Exception as e:
         raise RuntimeError(

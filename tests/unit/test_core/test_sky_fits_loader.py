@@ -152,3 +152,66 @@ def test_fits_loader_preserves_signed_polarized_stokes(monkeypatch, tmp_path):
     assert np.all(sky.healpix.q_maps[0] < 0)
     assert np.all(sky.healpix.u_maps[0] > 0)
     assert np.all(sky.healpix.v_maps[0] < 0)
+
+
+def _uniform_fits(tmp_path, *, bunit, value, cdelt_deg=2.0):
+    """Write a uniform 16x16 TAN image and return its path."""
+    data = np.full((16, 16), value, dtype=np.float64)
+    hdu = fits.PrimaryHDU(data)
+    h = hdu.header
+    h["CTYPE1"] = "RA---TAN"
+    h["CTYPE2"] = "DEC--TAN"
+    h["CRVAL1"] = 0.0
+    h["CRVAL2"] = 0.0
+    h["CRPIX1"] = 8.0
+    h["CRPIX2"] = 8.0
+    h["CDELT1"] = -cdelt_deg
+    h["CDELT2"] = cdelt_deg
+    h["RESTFRQ"] = 100e6
+    h["BUNIT"] = bunit
+    path = tmp_path / f"uniform_{bunit.replace('/', '_')}.fits"
+    hdu.writeto(path)
+    return str(path)
+
+
+def test_fits_jy_pixel_and_jy_sr_are_physically_consistent(tmp_path):
+    """A Jy/pixel image and the physically-identical Jy/sr image must produce
+    the same HEALPix map — i.e. Jy/pixel is normalized by the input pixel
+    solid angle before reprojection (flux conservation), not treated as flux.
+    """
+    from astropy.wcs import WCS
+    from astropy.wcs.utils import proj_plane_pixel_area
+
+    cdelt_deg = 2.0
+    # Reconstruct the input FITS pixel solid angle exactly as the loader does.
+    wcs = WCS(naxis=2)
+    wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+    wcs.wcs.crval = [0.0, 0.0]
+    wcs.wcs.crpix = [8.0, 8.0]
+    wcs.wcs.cdelt = [-cdelt_deg, cdelt_deg]
+    pixel_area_sr = float(proj_plane_pixel_area(wcs) * (np.pi / 180.0) ** 2)
+
+    brightness = 7.0  # Jy/sr
+    jy_sr = load_fits_image(
+        _uniform_fits(tmp_path, bunit="Jy/sr", value=brightness, cdelt_deg=cdelt_deg),
+        nside=16,
+        brightness_conversion="rayleigh-jeans",
+        precision=PrecisionConfig.standard(),
+    )
+    jy_pixel = load_fits_image(
+        _uniform_fits(
+            tmp_path,
+            bunit="Jy/pixel",
+            value=brightness * pixel_area_sr,  # same physical sky
+            cdelt_deg=cdelt_deg,
+        ),
+        nside=16,
+        brightness_conversion="rayleigh-jeans",
+        precision=PrecisionConfig.standard(),
+    )
+
+    m_sr = jy_sr.healpix.maps[0]
+    m_pix = jy_pixel.healpix.maps[0]
+    covered = (m_sr != 0) & (m_pix != 0)
+    assert covered.sum() > 10
+    np.testing.assert_allclose(m_pix[covered], m_sr[covered], rtol=1e-6)

@@ -300,6 +300,11 @@ def load_diffuse_sky(
 
     try:
         pygdsm_instance = model_class(**init_kwargs)
+    except (TypeError, ValueError, KeyError, ImportError):
+        # Bad basemap/version/argument or a missing optional dependency is a
+        # configuration error, not a network failure — surface it as-is rather
+        # than mislabeling it as a ConnectionError.
+        raise
     except Exception as e:
         raise ConnectionError(
             f"Failed to initialize {model.upper()}: {e}\n"

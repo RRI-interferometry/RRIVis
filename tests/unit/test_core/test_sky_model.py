@@ -237,7 +237,7 @@ class TestMaterialization:
         assert sky.point is not None
         assert sky.healpix is not None
         assert sky.formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
-        assert sky.n_pixels == hp.nside2npix(16)
+        assert sky.n_healpix_pixels == hp.nside2npix(16)
 
     def test_materialize_healpix_requires_reference_frequency(self, precision):
         sky = make_point_model(n=5, precision=precision, reference_frequency=None)
@@ -279,9 +279,8 @@ class TestMaterialization:
             clear_other=False,
         )
         assert hp_sky.n_point_sources == test_sky.n_point_sources
-        assert hp_sky.n_healpix_pixels == hp_sky.n_pixels
         assert hp_sky.n_sky_elements_for("point_sources") == test_sky.n_point_sources
-        assert hp_sky.n_sky_elements_for("healpix_map") == hp_sky.n_pixels
+        assert hp_sky.n_sky_elements_for("healpix_map") == hp_sky.n_healpix_pixels
 
     def test_materialize_point_sources_requires_explicit_lossy_opt_in(self, precision):
         sky = make_healpix_model(precision=precision)

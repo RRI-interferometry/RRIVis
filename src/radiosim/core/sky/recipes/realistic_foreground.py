@@ -27,6 +27,7 @@ import numpy as np
 from ..combine.engine import MixedModelPolicy
 from ..combine.pipeline import prepare_sky_model
 from ..containers import SkyCoverage, SourceSubtractionStatus
+from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX
 from ..containers.model import SkyFormat, SkyModel
 from ..registry.facade import loader_registry
 
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_ALPHA_FOR_THRESHOLD_SCALING = -0.7
+_DEFAULT_ALPHA_FOR_THRESHOLD_SCALING = SYNCHROTRON_SPECTRAL_INDEX
 
 
 def _scale_flux_with_alpha(

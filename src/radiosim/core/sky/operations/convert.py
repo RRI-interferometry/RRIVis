@@ -22,7 +22,7 @@ from ..containers.footprint import _normalize_coordinate_frame
 from ..containers.spectral import (
     apply_faraday_rotation,
     compute_spectral_scale,
-    nearest_channel_index,
+    nearest_channel_index_with_warning,
 )
 from ..diagnostics.discovery import estimate_healpix_memory
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
@@ -152,6 +152,7 @@ def healpix_map_to_point_arrays(
     coordinate_frame: str = "icrs",
     ref_freq_out: float | None = None,
     *,
+    nest: bool = False,
     polarization_brightness_conversion: str = "rayleigh-jeans",
     warn: bool = True,
     backend: ArrayBackend | None = None,
@@ -250,7 +251,7 @@ def healpix_map_to_point_arrays(
         logger.warning("No pixels with positive flux in HEALPix map")
         return _empty_source_arrays()
 
-    theta, phi = hp.pix2ang(nside, valid_idx)
+    theta, phi = hp.pix2ang(nside, valid_idx, nest=nest)
     lat_rad = np.pi / 2 - theta
     if frame == "galactic":
         from astropy.coordinates import SkyCoord
@@ -433,7 +434,9 @@ def bin_sources_to_flux(
     """
     xp = np if backend is None else backend.xp
     if per_channel_flux is not None and channel_frequencies is not None:
-        idx = nearest_channel_index(channel_frequencies, freq)
+        idx = nearest_channel_index_with_warning(
+            channel_frequencies, freq, label="per-channel flux binning"
+        )
         flux_f = xp.asarray(per_channel_flux[idx], dtype=np.float64)
     else:
         if scale is None:
@@ -766,7 +769,9 @@ def point_sources_to_healpix_maps(
                 return flux_map_np * _rj_inv
 
             if use_per_channel:
-                ch_idx = nearest_channel_index(channel_frequencies, float(freq))
+                ch_idx = nearest_channel_index_with_warning(
+                    channel_frequencies, float(freq), label="per-channel polarization"
+                )
                 if (
                     per_channel_stokes_q_backend is not None
                     and per_channel_stokes_u_backend is not None

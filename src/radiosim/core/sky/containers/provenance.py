@@ -92,6 +92,10 @@ class SkyProvenance:
     source_subtraction_freq_hz: float | None = None
     source_subtraction_method: str | None = None
     notes: str | None = None
+    rng_seed: int | None = None
+    """Seed of the random generator used to draw a stochastic payload
+    (e.g. Poisson confusion). Recorded so a realization is reproducible from
+    its own metadata. ``None`` for deterministic models."""
 
     @field_validator("monopole_convention", mode="before")
     @classmethod
@@ -386,6 +390,7 @@ class SkyProvenance:
             ),
             "source_subtraction_method": self.source_subtraction_method,
             "notes": self.notes,
+            "rng_seed": self.rng_seed,
         }
 
     @classmethod
@@ -458,4 +463,5 @@ class SkyProvenance:
             ),
             source_subtraction_method=data.get("source_subtraction_method"),
             notes=data.get("notes"),
+            rng_seed=data.get("rng_seed"),
         )

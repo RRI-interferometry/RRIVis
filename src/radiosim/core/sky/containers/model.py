@@ -415,31 +415,16 @@ class SkyModel:
                 "This is a bug -- all factory methods should set precision."
             )
 
-        brightness_conversion = changes.get(
-            "brightness_conversion",
-            self.brightness_conversion,
-        )
-        if not isinstance(brightness_conversion, BrightnessConversion):
-            brightness_conversion = BrightnessConversion(brightness_conversion)
-
         data: dict[str, Any] = {
             name: getattr(self, name) for name in self._REPLACE_FIELDS
         }
         data["precision"] = precision
         data.update(changes)
 
-        # Payload casts run through the precision-aware helpers so the
-        # constructor's coerce_inputs validator does not need to re-cast
-        # already-cast arrays.
-        if "point" in changes:
-            data["point"] = self._cast_point_data(changes["point"], precision)
-        if "healpix" in changes:
-            data["healpix"] = self._cast_healpix_data(
-                changes["healpix"],
-                precision,
-                brightness_conversion,
-            )
-
+        # The constructor's _coerce_inputs validator casts point/healpix
+        # payloads to ``precision`` exactly once. Pre-casting here as well would
+        # rebuild the nested payloads twice on every .replace() — so we let the
+        # constructor own the single cast.
         return SkyModel(**data)
 
     # =========================================================================
@@ -455,11 +440,6 @@ class SkyModel:
     # =========================================================================
     # Properties
     # =========================================================================
-
-    @property
-    def has_multifreq_maps(self) -> bool:
-        """Return True if multi-frequency HEALPix maps are available."""
-        return self.healpix is not None
 
     @property
     def formats(self) -> set[SkyFormat]:
@@ -499,11 +479,6 @@ class SkyModel:
         return self.healpix.n_pixels if self.healpix is not None else 0
 
     @property
-    def n_pixels(self) -> int:
-        """Return the number of HEALPix pixels (0 if no maps)."""
-        return self.healpix.n_pixels if self.healpix is not None else 0
-
-    @property
     def has_polarized_healpix_maps(self) -> bool:
         """Return True if any polarization (Q/U/V) HEALPix maps are populated."""
         return self.healpix is not None and self.healpix.has_polarization
@@ -524,6 +499,7 @@ class SkyModel:
         hp_mask = region.healpix_mask(
             self.healpix.nside,
             coordinate_frame=self.healpix.coordinate_frame,
+            nest=self.healpix.is_nested,
         )
         return self.healpix.cropped_to_mask(hp_mask)
 
@@ -556,6 +532,7 @@ class SkyModel:
             hp_mask = region.healpix_mask(
                 self.healpix.nside,
                 coordinate_frame=self.healpix.coordinate_frame,
+                nest=self.healpix.is_nested,
             )
             healpix = self.healpix.cropped_to_mask(hp_mask)
 
@@ -602,7 +579,22 @@ class SkyModel:
     # =========================================================================
 
     def with_reference_frequency(self, reference_frequency: float) -> "SkyModel":
-        """Return a new SkyModel with the reference frequency changed.
+        """Return a new SkyModel re-anchored to a new reference frequency.
+
+        For a point-source payload this **re-anchors the flux**: every Stokes
+        array (I/Q/U/V) is rescaled by the power-law factor
+        ``(new_freq / old_ref) ** spectral_index`` evaluated from each source's
+        own reference frequency, and ``ref_freq`` is overwritten with
+        ``new_freq``.  The result describes the same physical sky with its
+        reference point moved — not merely a metadata relabel.
+
+        Sources carrying log-polynomial ``spectral_coeffs`` cannot be
+        re-anchored unambiguously (the coefficients are defined relative to the
+        original reference frequency); a :class:`NotImplementedError` is raised
+        for that case.
+
+        For a HEALPix-only payload the maps carry their own frequency axis, so
+        only the model-level ``reference_frequency`` metadata is updated.
 
         Parameters
         ----------
@@ -612,9 +604,60 @@ class SkyModel:
         Returns
         -------
         SkyModel
-            Copy with updated ``reference_frequency``.
+            Re-anchored copy.
         """
-        return self.replace(reference_frequency=reference_frequency)
+        new_freq = float(reference_frequency)
+        if new_freq <= 0:
+            raise ValueError(
+                f"reference_frequency must be positive, got {reference_frequency!r}."
+            )
+
+        point = self.point
+        if point is None or point.is_empty:
+            return self.replace(reference_frequency=new_freq)
+
+        if point.spectral_coeffs is not None:
+            raise NotImplementedError(
+                "with_reference_frequency cannot re-anchor sources carrying "
+                "log-polynomial spectral_coeffs: the coefficients are defined "
+                "relative to the original reference frequency. Re-anchor "
+                "power-law catalogs, or refit the polynomial to the new "
+                "reference frequency first."
+            )
+
+        from .spectral import (
+            compute_spectral_scale,
+            per_source_reference_frequencies,
+        )
+
+        old_ref = per_source_reference_frequencies(
+            point, model_reference_frequency=self.reference_frequency
+        )
+        if np.any(old_ref <= 0):
+            raise ValueError(
+                "with_reference_frequency requires a positive reference "
+                "frequency for every source (set per-source ref_freq or the "
+                "model reference_frequency before re-anchoring)."
+            )
+
+        scale = compute_spectral_scale(point.spectral_index, None, new_freq, old_ref)
+        new_ref = np.full(point.n_sources, new_freq, dtype=point.ref_freq.dtype)
+        new_point = PointSourceData(
+            ra_rad=point.ra_rad,
+            dec_rad=point.dec_rad,
+            flux=point.flux * scale,
+            spectral_index=point.spectral_index,
+            stokes_q=point.stokes_q * scale,
+            stokes_u=point.stokes_u * scale,
+            stokes_v=point.stokes_v * scale,
+            ref_freq=new_ref,
+            spectral_coeffs=None,
+            morphology=point.morphology,
+            polarization=point.polarization,
+            metadata=point.metadata,
+            spectrum=point.spectrum,
+        )
+        return self.replace(point=new_point, reference_frequency=new_freq)
 
     def as_point_source_arrays(
         self,
