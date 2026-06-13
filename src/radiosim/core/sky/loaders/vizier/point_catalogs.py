@@ -245,8 +245,8 @@ load_vlass = loader_registry.loader("vlass")
     },
 )
 def load_lotss(
-    release: str = "dr2",
     flux_limit: float = 0.001,
+    release: str = "dr2",
     brightness_conversion: str = "planck",
     *,
     precision: PrecisionConfig,

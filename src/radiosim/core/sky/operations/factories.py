@@ -67,7 +67,7 @@ def _require_precision(precision: PrecisionConfig | None) -> PrecisionConfig:
 
 def create_empty(
     model_name: str,
-    brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK,
+    brightness_conversion: BrightnessConversion | str = BrightnessConversion.PLANCK,
     *,
     precision: PrecisionConfig,
     reference_frequency: float | None = None,
@@ -93,6 +93,7 @@ def create_empty(
     SkyModel
     """
     precision = _require_precision(precision)
+    brightness_conversion = BrightnessConversion(brightness_conversion)
 
     return SkyModel(
         point=PointSourceData.empty(),
@@ -123,7 +124,7 @@ def create_from_arrays(
     extra_columns: dict[str, np.ndarray] | None = None,
     model_name: str = "custom",
     reference_frequency: float | None = None,
-    brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK,
+    brightness_conversion: BrightnessConversion | str = BrightnessConversion.PLANCK,
     *,
     precision: PrecisionConfig,
     provenance: SkyProvenance | None = None,
@@ -135,6 +136,7 @@ def create_from_arrays(
     completeness, angular resolution, monopole convention).
     """
     precision = _require_precision(precision)
+    brightness_conversion = BrightnessConversion(brightness_conversion)
 
     # Resolve dtypes from precision config
     src_dt = precision.sky_model.get_dtype("source_positions")
@@ -232,7 +234,7 @@ def create_test_sources(
     distribution: str = "uniform",
     seed: int | None = None,
     dec_range_deg: float | None = None,
-    brightness_conversion: BrightnessConversion = BrightnessConversion.PLANCK,
+    brightness_conversion: BrightnessConversion | str = BrightnessConversion.PLANCK,
     *,
     precision: PrecisionConfig,
     polarization_fraction: float = 0.0,
@@ -243,6 +245,7 @@ def create_test_sources(
 ) -> SkyModel:
     """Generate synthetic test sources."""
     precision = _require_precision(precision)
+    brightness_conversion = BrightnessConversion(brightness_conversion)
 
     if distribution not in ("uniform", "random"):
         raise ValueError(
