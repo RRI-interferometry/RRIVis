@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Literal
 import astropy.units as u
 import healpy as hp
 import numpy as np
-from pyradiosky import SkyModel as PyRadioSkyModel
 
 from radiosim.utils.frequency import parse_frequency_config
 
@@ -28,6 +27,26 @@ if TYPE_CHECKING:
     from ..operations.region import SkyRegion
 
 logger = logging.getLogger(__name__)
+
+#: Lazily-populated ``pyradiosky.SkyModel`` class. Kept as a module attribute
+#: (not a top-level import) so the sky package imports cleanly even when the
+#: optional ``pyradiosky`` dependency is absent; tests may monkeypatch this.
+PyRadioSkyModel: Any = None
+
+
+def _pyradiosky_cls() -> Any:
+    """Return the ``pyradiosky.SkyModel`` class, importing it on first use."""
+    global PyRadioSkyModel
+    if PyRadioSkyModel is None:
+        try:
+            from pyradiosky import SkyModel as _cls
+        except ImportError as exc:
+            raise ImportError(
+                "Reading pyradiosky files requires the optional 'pyradiosky' "
+                "package. Install it with `pip install pyradiosky`."
+            ) from exc
+        PyRadioSkyModel = _cls
+    return PyRadioSkyModel
 
 
 class LossyConversionWarning(UserWarning):
@@ -121,7 +140,7 @@ def load_pyradiosky_file(
     if not os.path.exists(filename):
         raise FileNotFoundError(f"Sky model file not found: {filename}")
 
-    sky = PyRadioSkyModel()
+    sky = _pyradiosky_cls()()
     sky.read(filename, filetype=filetype)
 
     if sky.component_type == "healpix":

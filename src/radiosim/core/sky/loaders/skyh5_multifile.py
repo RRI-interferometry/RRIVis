@@ -22,10 +22,8 @@ import os
 from typing import TYPE_CHECKING, Any
 
 import astropy.units as u
-import h5py
 import healpy as hp
 import numpy as np
-from pyradiosky import SkyModel as PyRadioSkyModel
 
 from ..containers import PointSourceData
 from ..containers.model import SkyModel
@@ -45,6 +43,30 @@ logger = logging.getLogger(__name__)
 _FREQ_DUPLICATE_TOL_HZ = 1.0
 
 
+def _h5py() -> Any:
+    """Import ``h5py`` on demand with a friendly error (optional dependency)."""
+    try:
+        import h5py
+    except ImportError as exc:
+        raise ImportError(
+            "Reading skyh5 files requires the optional 'h5py' package. "
+            "Install it with `pip install h5py`."
+        ) from exc
+    return h5py
+
+
+def _pyradiosky_cls() -> Any:
+    """Import ``pyradiosky.SkyModel`` on demand with a friendly error."""
+    try:
+        from pyradiosky import SkyModel as _cls
+    except ImportError as exc:
+        raise ImportError(
+            "Reading skyh5 multi-file sets requires the optional 'pyradiosky' "
+            "package. Install it with `pip install pyradiosky`."
+        ) from exc
+    return _cls
+
+
 def _decode_bytes(value: Any) -> Any:
     """Decode numpy/HDF5 bytes scalars to ``str`` when applicable."""
     if isinstance(value, bytes):
@@ -57,7 +79,7 @@ def _decode_bytes(value: Any) -> Any:
 def _read_header(filename: str) -> dict[str, Any]:
     """Peek at a skyh5 file's Header group without a full pyradiosky read."""
     info: dict[str, Any] = {"filename": filename}
-    with h5py.File(filename, "r") as f:
+    with _h5py().File(filename, "r") as f:
         header = f["Header"]
         info["component_type"] = _decode_bytes(header["component_type"][()])
         info["spectral_type"] = _decode_bytes(header["spectral_type"][()])
@@ -377,7 +399,7 @@ def _load_healpix_branch(
 
     def _iter_stokes_rows():
         for fi, path in enumerate(sorted_paths):
-            with h5py.File(path, "r") as f:
+            with _h5py().File(path, "r") as f:
                 stokes = f["Data/stokes"]
                 unit = _decode_bytes(stokes.attrs.get("unit", ""))
                 stokes_slice = np.asarray(stokes[:, 0, :], dtype=np.float64)
@@ -464,7 +486,7 @@ def _load_point_branch(
     memmap_path: str | None,
     provenance: SkyProvenance | None,
 ) -> SkyModel:
-    ref_psky = PyRadioSkyModel()
+    ref_psky = _pyradiosky_cls()()
     ref_psky.read(sorted_paths[0])
     n_components = int(ref_psky.Ncomponents)
     ra_rad = np.array(
@@ -509,7 +531,7 @@ def _load_point_branch(
 
     # First file already loaded as ref_psky; iterate for consistency.
     for fi, path in enumerate(sorted_paths):
-        psky = ref_psky if fi == 0 else PyRadioSkyModel()
+        psky = ref_psky if fi == 0 else _pyradiosky_cls()()
         if fi != 0:
             psky.read(path)
         if int(psky.Ncomponents) != n_components:
