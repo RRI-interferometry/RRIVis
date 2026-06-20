@@ -187,3 +187,6 @@ temp/
 
 # ASI 2026 poster sources (built locally, not part of the package)
 poster/
+
+# Superpowers brainstorming/planning working docs (local only)
+docs/superpowers/
