@@ -296,7 +296,6 @@ For large point-source simulations, use GPU backends:
            },
            "obs_frequency": {
                "frequencies_hz": [100e6, 150e6],
-               "frequency_unit": "MHz",
            },
            "sky_model": {"sources": [{"kind": "gleam"}]},
            "visibility": {"sky_representation": "point_sources"},
@@ -304,7 +303,9 @@ For large point-source simulations, use GPU backends:
        backend="jax",
    )
    sim.setup()
-   results = sim.run()  # GPU accelerated for point-source visibility
+   results = sim.run()  # backend is wired through the matmul, but the loop is
+   # still host-side (per-time/-freq/-baseline Python + astropy), so GPU speedup
+   # is a roadmap item rather than something realized today.
 
 HEALPix direct visibility currently uses a NumPy CPU path. If a GPU backend is
 configured with ``visibility.sky_representation: healpix_map``, RadioSim warns and
