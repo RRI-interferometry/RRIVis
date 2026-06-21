@@ -14,17 +14,18 @@ from typing import TYPE_CHECKING, Any
 import healpy as hp
 import numpy as np
 
+from ..containers import SkyProvenance
 from ..containers.constants import (
     flux_density_to_brightness_temp,
     rayleigh_jeans_factor,
 )
 from ..registry.facade import loader_registry
+from ..support.provenance_coverage import coverage_provenance
 from ._healpix_builder import build_healpix_from_stokes_cube
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
-    from ..containers import SkyProvenance
     from ..containers.model import SkyModel
     from ..operations.region import SkyRegion
 
@@ -333,6 +334,61 @@ def _reproject_fits_stokes(
     return final_freqs, _iter_stokes_rows()
 
 
+def _infer_fits_provenance(
+    *,
+    header: Any,
+    spec: _FitsAxesAndUnits,
+    filename: str,
+) -> SkyProvenance:
+    """Infer basic provenance from the FITS WCS / beam metadata.
+
+    A FITS image is reprojected onto a full ICRS HEALPix grid, so coverage
+    is recorded as full-sky. The angular resolution is taken from the
+    restoring beam (``BMAJ``/``BMIN``) when present, otherwise from the
+    native pixel scale; ``theta_max`` is ``pi`` (full sky). The source
+    coordinate frame and file origin are recorded in ``notes``.
+
+    Parameters
+    ----------
+    header : astropy FITS header
+        The image HDU header.
+    spec : _FitsAxesAndUnits
+        Parsed axis/unit metadata (carries beam and pixel solid angles).
+    filename : str
+        Source file path (recorded in ``notes``).
+
+    Returns
+    -------
+    SkyProvenance
+        Inferred provenance for the reprojected HEALPix model.
+    """
+    import os
+
+    # Angular resolution: prefer the restoring-beam geometric mean, else the
+    # native pixel scale. Both are stored as solid angles; convert to a linear
+    # angular scale via sqrt(Omega).
+    if spec.beam_area_sr is not None:
+        theta_min = float(np.sqrt(spec.beam_area_sr))
+    elif spec.pixel_area_sr is not None:
+        theta_min = float(np.sqrt(spec.pixel_area_sr))
+    else:
+        theta_min = None
+    angular_resolution_rad = (
+        (theta_min, float(np.pi)) if theta_min is not None else None
+    )
+
+    # Source coordinate frame (informational; the payload itself is ICRS).
+    radesys = header.get("RADESYS") or header.get("RADECSYS") or "ICRS"
+    frame = str(radesys).strip().upper() or "ICRS"
+
+    return SkyProvenance(
+        angular_resolution_rad=angular_resolution_rad,
+        sky_coverage=coverage_provenance(is_full_sky=True, region=None).sky_coverage,
+        coverage_fraction=1.0,
+        notes=f"fits:{os.path.basename(filename)} (source frame {frame})",
+    )
+
+
 @loader_registry.register_loader(
     "fits_image",
     config_section="fits_image",
@@ -453,6 +509,20 @@ def load_fits_image(
         f"Loaded FITS image {filename} -> HEALPix nside={nside}, "
         f"{len(obs_freqs)} freq channels"
     )
-    if provenance is not None:
-        sky = sky.replace(provenance=provenance)
+
+    if provenance is None:
+        inferred = _infer_fits_provenance(header=header, spec=spec, filename=filename)
+        if region is not None:
+            # The crop above made this partial-sky; align the coverage fields.
+            coverage = coverage_provenance(is_full_sky=False, region=region)
+            inferred = SkyProvenance(
+                angular_resolution_rad=inferred.angular_resolution_rad,
+                sky_coverage=coverage.sky_coverage,
+                coverage_fraction=coverage.coverage_fraction,
+                coverage_footprint=coverage.coverage_footprint,
+                notes=inferred.notes,
+            )
+        provenance = inferred
+
+    sky = sky.replace(provenance=provenance)
     return sky

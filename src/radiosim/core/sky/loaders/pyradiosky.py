@@ -11,12 +11,13 @@ import astropy.units as u
 import healpy as hp
 import numpy as np
 
-from radiosim.utils.frequency import parse_frequency_config
-
 from ..containers import PointSourceData
 from ..containers.model import SkyModel
 from ..containers.point import PointSpectrum
 from ..registry.facade import loader_registry
+from ..support.frequencies import resolve_frequency_config
+from ..support.healpix_geometry import ring_ordered_row
+from ..support.quantities import to_value
 from ._healpix_builder import build_healpix_from_stokes_cube, extract_stokes_component
 
 if TYPE_CHECKING:
@@ -165,18 +166,10 @@ def load_pyradiosky_file(
     ref_freq_hz = reference_frequency_hz
     if ref_freq_hz is None:
         if sky.freq_array is not None and len(sky.freq_array) > 0:
-            freq_arr = sky.freq_array
-            if hasattr(freq_arr, "to_value"):
-                ref_freq_hz = float(freq_arr[0].to_value(u.Hz))
-            else:
-                ref_freq_hz = float(freq_arr[0])
+            ref_freq_hz = float(to_value(sky.freq_array, u.Hz)[0])
         elif sky.reference_frequency is not None and len(sky.reference_frequency) > 0:
             # spectral_index type: frequency stored per-component
-            rf = sky.reference_frequency
-            if hasattr(rf, "to_value"):
-                ref_freq_hz = float(rf[0].to_value(u.Hz))
-            else:
-                ref_freq_hz = float(rf[0])
+            ref_freq_hz = float(to_value(sky.reference_frequency, u.Hz)[0])
         else:
             raise ValueError(
                 "Cannot determine reference frequency. "
@@ -184,19 +177,13 @@ def load_pyradiosky_file(
             )
 
     if sky.freq_array is not None and len(sky.freq_array) > 1:
-        freq_vals = (
-            sky.freq_array.to_value(u.Hz)
-            if hasattr(sky.freq_array, "to_value")
-            else np.asarray(sky.freq_array, dtype=np.float64)
-        )
+        freq_vals = np.asarray(to_value(sky.freq_array, u.Hz), dtype=np.float64)
         ref_chan_idx = int(np.argmin(np.abs(freq_vals - ref_freq_hz)))
     else:
         ref_chan_idx = 0
 
     # stokes shape: (4, Nfreqs, Ncomponents) or (4, 1, Ncomponents)
-    stokes = sky.stokes
-    if hasattr(stokes, "to_value"):
-        stokes = stokes.to_value(u.Jy)
+    stokes = np.asarray(to_value(sky.stokes, u.Jy), dtype=np.float64)
     stokes_i_ref = np.array(stokes[0, ref_chan_idx, :], dtype=np.float64)
 
     n_stokes = stokes.shape[0]
@@ -227,12 +214,7 @@ def load_pyradiosky_file(
         # rather than collapsing it to a single fitted index. A fitted index is
         # still stored as a fallback for code paths that ignore the spectrum.
         if sky.freq_array is not None and len(sky.freq_array) >= 2:
-            freq_vals = (
-                sky.freq_array.to_value(u.Hz)
-                if hasattr(sky.freq_array, "to_value")
-                else np.asarray(sky.freq_array, dtype=np.float64)
-            )
-            freq_vals = np.asarray(freq_vals, dtype=np.float64)
+            freq_vals = np.asarray(to_value(sky.freq_array, u.Hz), dtype=np.float64)
             order = np.argsort(freq_vals)  # PointSpectrum requires ascending
             sorted_freqs = freq_vals[order]
             spec_i = np.asarray(stokes[0], dtype=np.float64)[order]
@@ -282,19 +264,12 @@ def load_pyradiosky_file(
     # Build per-source reference frequency array
     per_source_ref_freq = None
     if sky.spectral_type == "spectral_index" and sky.reference_frequency is not None:
-        rf = sky.reference_frequency
-        per_source_ref_freq = (
-            rf.to_value(u.Hz).astype(np.float64)
-            if hasattr(rf, "to_value")
-            else np.asarray(rf, dtype=np.float64)
+        per_source_ref_freq = np.asarray(
+            to_value(sky.reference_frequency, u.Hz), dtype=np.float64
         )
 
-    ra_arr = np.array(
-        sky.ra.rad if hasattr(sky.ra, "rad") else sky.ra, dtype=np.float64
-    )
-    dec_arr = np.array(
-        sky.dec.rad if hasattr(sky.dec, "rad") else sky.dec, dtype=np.float64
-    )
+    ra_arr = np.array(to_value(sky.ra, u.rad), dtype=np.float64)
+    dec_arr = np.array(to_value(sky.dec, u.rad), dtype=np.float64)
     source_name = None
     if getattr(sky, "name", None) is not None:
         source_name = np.asarray(sky.name)
@@ -409,16 +384,18 @@ def _load_pyradiosky_healpix(
         If frequencies cannot be determined.
     """
     # --- Determine observation frequencies ---
-    if frequencies is not None:
-        obs_freqs = np.asarray(frequencies, dtype=np.float64)
-    elif obs_frequency_config is not None:
-        obs_freqs = parse_frequency_config(obs_frequency_config)
+    # When the caller supplies an explicit grid (either form), the shared
+    # resolver enforces the "exactly one of" contract and returns ascending
+    # Hz. The file's own freq_array is the local fallback when neither is
+    # given.
+    if frequencies is not None or obs_frequency_config is not None:
+        obs_freqs = resolve_frequency_config(frequencies, obs_frequency_config)
     elif (
         psky.spectral_type in ("full", "subband")
         and psky.freq_array is not None
         and len(psky.freq_array) > 0
     ):
-        obs_freqs = np.asarray(psky.freq_array.to(u.Hz).value, dtype=np.float64)
+        obs_freqs = np.asarray(to_value(psky.freq_array, u.Hz), dtype=np.float64)
     else:
         raise ValueError(
             f"Cannot determine observation frequencies for HEALPix file "
@@ -494,9 +471,7 @@ def _load_pyradiosky_healpix(
         if builder_hpx_inds is not None:
             return row
         if pix is not None:
-            full = np.zeros(npix, dtype=np.float64)
-            full[pix] = row
-            return full
+            return ring_ordered_row(row, pix, npix)
         if is_nested:
             return hp.reorder(row, n2r=True)
         return row

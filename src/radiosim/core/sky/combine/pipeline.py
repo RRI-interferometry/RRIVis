@@ -71,6 +71,7 @@ def prepare_sky_model(
     memmap_path = opts.memmap_path
     beam_fwhm_rad = opts.beam_fwhm_rad
     nside_safety_factor = opts.nside_safety_factor
+    subtraction_scaling_alpha = opts.subtraction_scaling_alpha
 
     # Single source of truth for hybrid auto-detection. ``target`` is None
     # when no explicit format is requested AND inputs span both
@@ -132,6 +133,7 @@ def prepare_sky_model(
             precision=precision,
             backend=backend,
             memmap_path=memmap_path,
+            subtraction_scaling_alpha=subtraction_scaling_alpha,
         )
 
     # When target is None (auto-detect), accept whatever combine produced —

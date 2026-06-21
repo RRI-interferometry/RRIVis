@@ -104,10 +104,18 @@ class PointSpectrum:
     ascending, finite, and positive. When attached to a
     :class:`PointSourceData`, ``N`` matches the source count and consumers
     use nearest-channel lookup at observation frequencies.
+
+    Frequency-axis dtype policy
+    ---------------------------
+    ``frequencies`` is **always stored as float64**, independent of the flux
+    precision (which governs the ``flux`` / ``stokes_*`` arrays). This is the
+    same policy as :class:`~.healpix.HealpixData.frequencies`, so a
+    HEALPix↔point round-trip leaves the frequency-axis dtype unchanged. The
+    policy is enforced by :func:`._shared.validate_frequency_axis`.
     """
 
     flux: np.ndarray  # shape (n_freq, N), Stokes I in Jy
-    frequencies: np.ndarray  # shape (n_freq,), Hz, ascending
+    frequencies: np.ndarray  # shape (n_freq,), Hz, ascending, always float64
     stokes_q: np.ndarray | None = None  # shape (n_freq, N)
     stokes_u: np.ndarray | None = None  # shape (n_freq, N)
     stokes_v: np.ndarray | None = None  # shape (n_freq, N)
@@ -465,9 +473,13 @@ class PointSourceData:
     :class:`PointMetadata`) are independently optional and grouped so
     each block validates its own shape rules in isolation.
 
-    The constructor accepts both nested objects and the historical flat
-    kwargs (e.g. ``major_arcsec=…``); a pre-validator packs flat kwargs
-    into the matching sub-dataclass before the dataclass is built.
+    The constructor accepts both nested objects and flat per-source kwargs
+    (e.g. ``major_arcsec=…``); a pre-validator (:meth:`_pack_flat_kwargs`)
+    packs flat kwargs into the matching sub-dataclass before the dataclass
+    is built.  The flat path is the live column-oriented construction route
+    used by :func:`create_from_arrays`,
+    :func:`support.point_builder.point_source_data_from_mapping`, and
+    ``combine/engine.py``; it is **not** a deprecated shim.
     """
 
     ra_rad: np.ndarray
@@ -493,13 +505,21 @@ class PointSourceData:
     @model_validator(mode="before")
     @classmethod
     def _pack_flat_kwargs(cls, values: object) -> object:
-        """Accept legacy flat kwargs and pack them into nested sub-dataclasses.
+        """Pack flat per-source kwargs into the nested sub-dataclasses.
 
         ``major_arcsec``/``minor_arcsec``/``pa_deg`` collapse into a
         :class:`PointMorphology`; ``rotation_measure`` into
         :class:`PointPolarization`; ``source_name``/``source_id``/
         ``extra_columns`` into :class:`PointMetadata`. Already-nested
         kwargs win over flat ones (passing both is a TypeError).
+
+        This is a **live** construction path, not a deprecated shim: it is
+        how :func:`create_from_arrays`,
+        :func:`support.point_builder.point_source_data_from_mapping`, and
+        ``combine/engine.py`` build a ``PointSourceData`` from their column
+        dicts.  It runs on a copy of the incoming kwargs (pydantic passes a
+        fresh ``ArgsKwargs``/dict per construction), so popping a flat key
+        does not leak back to the caller's mapping.
         """
         if isinstance(values, dict):
             kwargs = values

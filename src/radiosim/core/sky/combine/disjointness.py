@@ -89,15 +89,20 @@ def _disjoint_pair_failures(
             and nu_p is not None
         ):
             t_d_at_p = _scale_threshold_to_frequency(t_d, nu_d, nu_p, alpha=alpha)
-            if t_d_at_p <= completeness[0]:
+            # ``flux_completeness_jy`` is a (lo, hi) band; the layers tile the
+            # flux axis disjointly only when the (frequency-scaled) diffuse
+            # subtraction threshold sits at or below the *faint* edge of the
+            # catalog's completeness band, not merely the first tuple element.
+            completeness_min = float(min(completeness))
+            if t_d_at_p <= completeness_min:
                 return []  # diffuse subtraction tiles the flux axis below catalog
             reasons.append(
                 f"diffuse '{diffuse.model_name}' is source-subtracted at "
                 f"{t_d:g} Jy@{nu_d / 1e6:.1f} MHz "
                 f"(scaled α={alpha:+.2f} to {t_d_at_p:g} Jy @ "
                 f"{nu_p / 1e6:.1f} MHz), but catalog '{point.model_name}' "
-                f"completeness starts at {completeness[0]:g} Jy — sources in "
-                f"({completeness[0]:g}, {t_d_at_p:g}] Jy are double-counted."
+                f"completeness starts at {completeness_min:g} Jy — sources in "
+                f"({completeness_min:g}, {t_d_at_p:g}] Jy are double-counted."
             )
         else:
             reasons.append(
@@ -162,14 +167,29 @@ def _check_monopole_consistency(
         for m in models
         if m.provenance.monopole_convention != MonopoleConvention.UNKNOWN
     ]
-    incompat_pairs = {
-        (MonopoleConvention.ABSOLUTE_WITH_CMB, MonopoleConvention.MEAN_SUBTRACTED),
-        (MonopoleConvention.ABSOLUTE_NO_CMB, MonopoleConvention.MEAN_SUBTRACTED),
-    }
+    # Order-independent set of incompatible convention pairs. Using a
+    # frozenset-of-frozensets (rather than ordered tuples keyed on
+    # ``.value``) means an enum rename or reordering cannot silently break the
+    # membership test.
+    incompat_pairs = frozenset(
+        {
+            frozenset(
+                {
+                    MonopoleConvention.ABSOLUTE_WITH_CMB,
+                    MonopoleConvention.MEAN_SUBTRACTED,
+                }
+            ),
+            frozenset(
+                {
+                    MonopoleConvention.ABSOLUTE_NO_CMB,
+                    MonopoleConvention.MEAN_SUBTRACTED,
+                }
+            ),
+        }
+    )
     for i, conv_i in enumerate(declared):
         for conv_j in declared[i + 1 :]:
-            pair = tuple(sorted((conv_i, conv_j), key=lambda c: c.value))
-            if tuple(pair) in incompat_pairs:
+            if frozenset({conv_i, conv_j}) in incompat_pairs:
                 raise ValueError(
                     "Cannot combine sky models with incompatible monopole "
                     f"conventions: {conv_i.value!r} and {conv_j.value!r}. "

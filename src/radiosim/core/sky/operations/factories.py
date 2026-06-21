@@ -5,12 +5,8 @@ Extracted from model.py to keep SkyModel focused on data access and conversion.
 
 from __future__ import annotations
 
-import concurrent.futures
 import logging
-import pickle
-import traceback
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -24,35 +20,11 @@ from ..containers import (
 )
 from ..containers.constants import BrightnessConversion
 from ..containers.model import SkyModel
-from ..registry.facade import loader_registry
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class SkyLoadError:
-    """Context for one failed sky-loader request."""
-
-    loader_name: str
-    kwargs: dict[str, Any]
-    exception: Exception
-    traceback_text: str
-
-
-class SkyLoadAggregateError(RuntimeError):
-    """Raised when strict parallel sky loading has one or more failures."""
-
-    def __init__(self, failures: list[SkyLoadError]) -> None:
-        self.failures = failures
-        details = "\n".join(
-            f"- {failure.loader_name}: {failure.exception}" for failure in failures
-        )
-        super().__init__(
-            f"load_parallel: {len(failures)} loader(s) failed (strict=True):\n{details}"
-        )
 
 
 def _require_precision(precision: PrecisionConfig | None) -> PrecisionConfig:
@@ -191,21 +163,47 @@ def create_from_freq_dict_maps(
     u_maps: dict[float, np.ndarray] | None,
     v_maps: dict[float, np.ndarray] | None,
     nside: int,
-    **kwargs: Any,
+    *,
+    precision: PrecisionConfig,
+    coordinate_frame: str = "icrs",
+    model_name: str | None = None,
+    reference_frequency: float | None = None,
+    brightness_conversion: BrightnessConversion | str = BrightnessConversion.PLANCK,
+    provenance: SkyProvenance | None = None,
 ) -> SkyModel:
     """Create a SkyModel from frequency-keyed dicts of HEALPix maps.
 
     Standard constructor for loaders that build dict[float, ndarray]
     during generation (pygdsm, pysm3, etc.).
+
+    Parameters
+    ----------
+    i_maps, q_maps, u_maps, v_maps : dict[float, np.ndarray] or None
+        Frequency-keyed HEALPix maps (Kelvin). ``i_maps`` is required;
+        the polarized cubes are optional.
+    nside : int
+        HEALPix NSIDE resolution of the maps.
+    precision : PrecisionConfig
+        Precision configuration.
+    coordinate_frame : str, default "icrs"
+        Coordinate frame of the HEALPix pixelization.
+    model_name : str, optional
+        Name for the model.
+    reference_frequency : float, optional
+        Reference frequency in Hz.
+    brightness_conversion : BrightnessConversion or str
+        Brightness conversion method for Stokes I.
+    provenance : SkyProvenance, optional
+        Physical-correctness metadata. Defaults to an UNKNOWN sentinel.
     """
-    precision = _require_precision(kwargs.pop("precision", None))
+    precision = _require_precision(precision)
+    brightness_conversion = BrightnessConversion(brightness_conversion)
 
     sorted_freqs = np.sort(np.array(list(i_maps.keys()), dtype=np.float64))
     i_arr = np.stack([i_maps[f] for f in sorted_freqs])
     q_arr = np.stack([q_maps[f] for f in sorted_freqs]) if q_maps else None
     u_arr = np.stack([u_maps[f] for f in sorted_freqs]) if u_maps else None
     v_arr = np.stack([v_maps[f] for f in sorted_freqs]) if v_maps else None
-    coordinate_frame = kwargs.pop("coordinate_frame", "icrs")
 
     healpix = HealpixData(
         maps=i_arr,
@@ -217,11 +215,13 @@ def create_from_freq_dict_maps(
         v_maps=v_arr,
     )
 
-    kwargs.pop("source_format", None)  # legacy kwarg, no longer used
     return SkyModel(
         healpix=healpix,
         precision=precision,
-        **kwargs,
+        model_name=model_name,
+        reference_frequency=reference_frequency,
+        brightness_conversion=brightness_conversion,
+        provenance=provenance if provenance is not None else SkyProvenance(),
     )
 
 
@@ -318,173 +318,3 @@ def create_test_sources(
         precision=precision,
         provenance=provenance,
     )
-
-
-def _run_one_loader(method_name: str, kw: dict) -> SkyModel:
-    """Worker entry point reused by both thread and process executors."""
-    return loader_registry.resolve_callable(method_name)(**kw)
-
-
-# Loaders known to hold the GIL during heavy CPU work (PCA reconstruction,
-# pygdsm spectral interpolation, Stokes cube allocation, ...). Used by
-# :func:`recommend_executor_for_loaders` so the simulator picks a process
-# pool when at least one of these is requested.
-_GIL_BOUND_LOADERS: frozenset[str] = frozenset(
-    {
-        "diffuse_sky",
-        "pysm3",
-        "pyradiosky_file",
-        "skyh5_multifile",
-        "fits_image",
-    }
-)
-
-
-def recommend_executor_for_loaders(
-    loaders: list[tuple[str, dict[str, Any]]],
-) -> Literal["thread", "process"]:
-    """Recommend an executor class for :func:`load_models_parallel`.
-
-    Returns ``"process"`` when any requested loader is GIL-bound (diffuse
-    map regrid / PCA, pyradiosky parsing, FITS image ingest) — those run
-    effectively serially under a thread pool because they hold the GIL.
-    Returns ``"thread"`` otherwise: catalog loaders (Vizier / CASDA TAP)
-    are I/O-bound and benefit from concurrent threads.
-
-    The simulator wires this into :func:`load_models_parallel` so users
-    do not have to think about executor choice; explicit overrides are
-    still honoured.
-    """
-    for name, _kwargs in loaders:
-        try:
-            canonical = loader_registry.resolve_name(name)
-            definition = loader_registry.definition(canonical)
-        except ValueError:
-            # Unknown loader; let load_models_parallel surface the error.
-            continue
-        if canonical in _GIL_BOUND_LOADERS:
-            return "process"
-        if definition.category in ("diffuse", "synthetic"):
-            return "process"
-    return "thread"
-
-
-def _kwargs_picklable(
-    loaders: list[tuple[str, dict[str, Any]]],
-    precision: PrecisionConfig | None,
-) -> bool:
-    """Return True if every loader request can survive ProcessPoolExecutor IPC."""
-    for method_name, kwargs in loaders:
-        kw = dict(kwargs)
-        if precision is not None and "precision" not in kw:
-            kw["precision"] = precision
-        try:
-            pickle.dumps((method_name, kw))
-        except (pickle.PicklingError, TypeError, AttributeError):
-            return False
-    return True
-
-
-def load_models_parallel(
-    loaders: list[tuple[str, dict[str, Any]]],
-    max_workers: int = 8,
-    precision: PrecisionConfig | None = None,
-    strict: bool = True,
-    executor: Literal["thread", "process"] = "thread",
-) -> list[SkyModel]:
-    """Load multiple sky models in parallel.
-
-    Each loader is a (method_name, kwargs) tuple identifying a registered
-    loader function.
-
-    Performance notes
-    -----------------
-    The default ``executor="thread"`` uses :class:`ThreadPoolExecutor`,
-    which is appropriate for I/O-bound loaders that release the GIL
-    (Vizier / TAP queries, FITS file reads). Several built-in loaders are
-    CPU-bound and hold the GIL — notably ``diffuse_sky`` (pygdsm regrid +
-    log-poly scaling), ``pyradiosky_file`` parsing, and large
-    ``healpy.ud_grade`` calls. Those will run effectively serially under
-    the thread pool.
-
-    Pass ``executor="process"`` to dispatch via
-    :class:`ProcessPoolExecutor` instead. The loader name and kwargs must
-    be picklable; this is true for the current loader registry (kwargs
-    are dicts of primitives, numpy arrays, and ``PrecisionConfig``).  If
-    a kwarg fails the pickle check, the call falls back to threads with a
-    warning rather than raising.
-
-    Parameters
-    ----------
-    loaders
-        ``(loader_name, kwargs)`` tuples.
-    max_workers
-        Worker pool size (capped to ``len(loaders)``).
-    precision
-        Default precision injected into any loader missing one.
-    strict
-        Raise :class:`SkyLoadAggregateError` if any loader failed.
-    executor
-        ``"thread"`` (default) or ``"process"``. See above.
-    """
-    n = min(len(loaders), max_workers)
-    results: list[SkyModel | None] = [None] * len(loaders)
-    failures: list[SkyLoadError] = []
-
-    pool_cls: type[concurrent.futures.Executor]
-    if executor == "process":
-        if not _kwargs_picklable(loaders, precision):
-            logger.warning(
-                "load_models_parallel: requested executor='process' but loader "
-                "kwargs failed the pickle check. Falling back to thread pool."
-            )
-            pool_cls = concurrent.futures.ThreadPoolExecutor
-        else:
-            pool_cls = concurrent.futures.ProcessPoolExecutor
-    else:
-        pool_cls = concurrent.futures.ThreadPoolExecutor
-
-    with pool_cls(max_workers=n) as pool:
-        future_to_loader: dict[concurrent.futures.Future, tuple[int, str]] = {}
-        for index, (method_name, kwargs) in enumerate(loaders):
-            kw = dict(kwargs)
-            if precision is not None and "precision" not in kw:
-                kw["precision"] = precision
-            f = pool.submit(_run_one_loader, method_name, kw)
-            future_to_loader[f] = (index, method_name)
-
-        for future in concurrent.futures.as_completed(future_to_loader):
-            index, name = future_to_loader[future]
-            try:
-                sky = future.result()
-                if sky.formats:
-                    results[index] = sky
-                    n_elements = (
-                        sky.n_healpix_pixels
-                        if sky.healpix is not None
-                        else sky.n_point_sources
-                    )
-                    logger.info(
-                        f"Parallel load complete: {name} ({n_elements:,} sky elements)"
-                    )
-                else:
-                    logger.info(f"Parallel load: {name} returned empty model")
-            except Exception as e:
-                failures.append(
-                    SkyLoadError(
-                        loader_name=name,
-                        kwargs=loaders[index][1],
-                        exception=e,
-                        traceback_text=traceback.format_exc(),
-                    )
-                )
-                logger.warning(f"Parallel load failed for {name}: {e}")
-
-    loaded = [sky for sky in results if sky is not None]
-
-    logger.info(f"load_parallel: {len(loaded)}/{len(loaders)} loaders succeeded")
-
-    if failures and strict:
-        raise SkyLoadAggregateError(failures)
-
-    return loaded

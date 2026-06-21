@@ -61,6 +61,46 @@ def _normalize_representations(
     return ("point_sources",)
 
 
+def _assert_config_fields_match_signature(
+    name: str,
+    loader: Callable[..., Any],
+    config_fields: Mapping[str, str] | None,
+) -> None:
+    """Assert every ``config_fields`` key is an accepted loader argument.
+
+    The keys of ``config_fields`` are loader argument names that
+    :mod:`radiosim.io.config` forwards as keyword arguments. A typo there
+    would silently drop a config field, so we fail loudly at registration
+    time instead. Loaders that accept ``**kwargs`` accept any name and are
+    therefore exempt.
+    """
+    if not config_fields:
+        return
+    try:
+        signature = inspect.signature(loader)
+    except (TypeError, ValueError):
+        return
+    parameters = signature.parameters.values()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters):
+        return
+    accepted = {
+        p.name
+        for p in parameters
+        if p.kind
+        in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    }
+    unknown = sorted(key for key in config_fields if key not in accepted)
+    if unknown:
+        raise ValueError(
+            f"Loader '{name}' declares config_fields {unknown} that are not "
+            f"parameters of {getattr(loader, '__qualname__', loader)!r}. "
+            f"Accepted parameters: {sorted(accepted)}."
+        )
+
+
 @dataclass(frozen=True)
 class LoaderDefinition:
     """Metadata describing a registered sky loader."""
@@ -96,20 +136,19 @@ class LoaderDefinition:
         return self.representations[0]
 
     def meta_dict(self) -> dict[str, Any]:
+        """Serializable metadata with a single canonical representation set.
+
+        ``representations`` is the one source of truth for what this loader
+        can emit; ``output_mode`` is its derived label. Callers that want the
+        boolean ``supports_*`` views or the ``primary_representation`` read the
+        corresponding :class:`LoaderDefinition` properties rather than relying
+        on denormalized copies in this dict.
+        """
         return {
             "config_section": self.config_section or self.name,
             "use_flag": self.use_flag or f"use_{self.name}",
             "representations": list(self.representations),
-            "representation": self.primary_representation,
             "output_mode": self.output_mode,
-            "primary_representation": self.primary_representation,
-            "supports_point_sources": self.supports_point_sources,
-            "supports_healpix_map": self.supports_healpix_map,
-            "capabilities": {
-                "supports_point_sources": self.supports_point_sources,
-                "supports_healpix_map": self.supports_healpix_map,
-                "output_mode": self.output_mode,
-            },
             "category": self.category,
             "requires_file": self.requires_file,
             "network_service": self.network_service,
@@ -167,6 +206,7 @@ class LoaderRegistry:
         config_fields: dict[str, str] | None = None,
     ) -> Callable[..., Any]:
         alias_names, alias_defaults = self._normalize_aliases(aliases)
+        _assert_config_fields_match_signature(name, loader, config_fields)
         normalized_representations = _normalize_representations(
             representations,
             loader=loader,
@@ -302,7 +342,7 @@ def _ensure_default_loaders_registered() -> None:
         _DEFAULT_LOADERS_IMPORTED = True
 
 
-def _register_loader(
+def register_loader(
     name: str,
     *,
     config_section: str | None = None,
@@ -388,8 +428,10 @@ def _list_loader_definitions() -> list[LoaderDefinition]:
 def _loader_metadata(name: str) -> dict[str, Any]:
     """Return resolved metadata for a loader or alias.
 
-    Alias-bound defaults are applied when they affect the representation
-    capability view, so callers see the actual loader request they asked for.
+    Alias-bound defaults are applied when they pin a single representation,
+    so callers see the actual loader request they asked for. The returned
+    dict carries one canonical ``representations`` set plus the derived
+    ``output_mode`` — no denormalized ``supports_*`` / ``primary_*`` copies.
     """
 
     _ensure_default_loaders_registered()
@@ -399,21 +441,27 @@ def _loader_metadata(name: str) -> dict[str, Any]:
     representation = defaults.get("representation")
     if representation in _ALL_REPRESENTATIONS:
         meta["representations"] = [representation]
-        meta["representation"] = representation
-        meta["primary_representation"] = representation
-        meta["supports_point_sources"] = representation == "point_sources"
-        meta["supports_healpix_map"] = representation == "healpix_map"
-        meta["capabilities"] = {
-            "supports_point_sources": meta["supports_point_sources"],
-            "supports_healpix_map": meta["supports_healpix_map"],
-            "output_mode": (
-                "point_only" if representation == "point_sources" else "healpix_only"
-            ),
-        }
-        meta["output_mode"] = meta["capabilities"]["output_mode"]
+        meta["output_mode"] = _REPRESENTATION_TO_OUTPUT_MODE[
+            frozenset({representation})
+        ]
     return meta
 
 
 def _list_loaders() -> list[str]:
     _ensure_default_loaders_registered()
     return _REGISTRY.list_loaders()
+
+
+def _alias_map() -> dict[str, str]:
+    _ensure_default_loaders_registered()
+    return _REGISTRY.alias_map()
+
+
+def _alias_defaults_map() -> dict[str, dict[str, Any]]:
+    _ensure_default_loaders_registered()
+    return _REGISTRY.alias_defaults_map()
+
+
+def _unregister_loader(name: str) -> None:
+    _ensure_default_loaders_registered()
+    _REGISTRY.unregister(name)

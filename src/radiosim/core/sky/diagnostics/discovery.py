@@ -139,18 +139,19 @@ def get_catalog_info(catalog_key: str, live: bool = False) -> dict[str, Any]:
 
     definition = loader_registry.definition(loader_name)
     meta = loader_registry.meta(catalog_key)
+    reps = meta["representations"]
     info: dict[str, Any] = {
         "name": catalog_key,
         "loader": definition.name,
         "resolved_loader": loader_name,
         "resolved_kwargs": dict(resolved_kwargs),
         "category": definition.category,
-        "representation": meta["representation"],
-        "representations": meta["representations"],
+        "representation": reps[0],
+        "representations": reps,
         "output_mode": meta["output_mode"],
-        "primary_representation": meta["primary_representation"],
-        "supports_point_sources": meta["supports_point_sources"],
-        "supports_healpix_map": meta["supports_healpix_map"],
+        "primary_representation": reps[0],
+        "supports_point_sources": "point_sources" in reps,
+        "supports_healpix_map": "healpix_map" in reps,
         "network_service": definition.network_service,
         "requires_file": definition.requires_file,
         "aliases": list(definition.aliases),

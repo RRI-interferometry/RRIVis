@@ -1,8 +1,18 @@
-"""HEALPix map combination — RJ fast path and Planck round-trip path."""
+"""HEALPix map combination — one accumulation loop, two brightness strategies.
+
+Both the Rayleigh-Jeans (linear, T_b additive) and Planck (non-linear, must
+round-trip through Jy) cases share a single per-channel accumulation loop. The
+only thing that differs between them is *how a diffuse Stokes-I map enters the
+accumulator*, *how the accumulator is read back as brightness temperature*, and
+the working space (T_b vs Jy). Those three operations are bundled into a
+:class:`_BrightnessStrategy`; the loop is written once.
+"""
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict
 
 import healpy as hp
@@ -20,6 +30,8 @@ from ..containers.spectral import (
     per_source_reference_frequencies,
 )
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+from ..support.backend_helpers import maybe_asarray
+from ..support.precision import get_sky_storage_dtype
 from .regrid import (
     _format_healpix_freq_grid,
     _point_source_healpix_indices,
@@ -51,81 +63,28 @@ def _point_contributions_at_freq(
     pixel via :func:`np.bincount`.
     """
     xp = np if backend is None else backend.xp
-    stokes_i = point.flux if backend is None else backend.asarray(point.flux)
-    stokes_q = point.stokes_q if backend is None else backend.asarray(point.stokes_q)
-    stokes_u = point.stokes_u if backend is None else backend.asarray(point.stokes_u)
-    stokes_v = point.stokes_v if backend is None else backend.asarray(point.stokes_v)
-    spectral_index = (
-        point.spectral_index
-        if backend is None
-        else backend.asarray(point.spectral_index)
-    )
-    spectral_coeffs = (
-        None
-        if point.spectral_coeffs is None
-        else (
-            point.spectral_coeffs
-            if backend is None
-            else backend.asarray(point.spectral_coeffs)
-        )
-    )
-    ref_freq_eval = ref_freq if backend is None else backend.asarray(ref_freq)
+    stokes_i = maybe_asarray(backend, point.flux)
+    stokes_q = maybe_asarray(backend, point.stokes_q)
+    stokes_u = maybe_asarray(backend, point.stokes_u)
+    stokes_v = maybe_asarray(backend, point.stokes_v)
+    spectral_index = maybe_asarray(backend, point.spectral_index)
+    spectral_coeffs = maybe_asarray(backend, point.spectral_coeffs)
+    ref_freq_eval = maybe_asarray(backend, ref_freq)
     rotation_measure = (
         point.polarization.rotation_measure if point.polarization is not None else None
     )
-    rotation_measure = (
-        None
-        if rotation_measure is None
-        else (
-            rotation_measure if backend is None else backend.asarray(rotation_measure)
-        )
+    rotation_measure = maybe_asarray(backend, rotation_measure)
+    per_channel_flux = maybe_asarray(
+        backend, None if spectrum is None else spectrum.flux
     )
-    per_channel_flux = (
-        None
-        if spectrum is None
-        else (spectrum.flux if backend is None else backend.asarray(spectrum.flux))
+    per_channel_stokes_q = maybe_asarray(
+        backend, spectrum.stokes_q if spectrum is not None else None
     )
-    per_channel_stokes_q = (
-        spectrum.stokes_q
-        if spectrum is not None and spectrum.stokes_q is not None
-        else None
+    per_channel_stokes_u = maybe_asarray(
+        backend, spectrum.stokes_u if spectrum is not None else None
     )
-    per_channel_stokes_q = (
-        None
-        if per_channel_stokes_q is None
-        else (
-            per_channel_stokes_q
-            if backend is None
-            else backend.asarray(per_channel_stokes_q)
-        )
-    )
-    per_channel_stokes_u = (
-        spectrum.stokes_u
-        if spectrum is not None and spectrum.stokes_u is not None
-        else None
-    )
-    per_channel_stokes_u = (
-        None
-        if per_channel_stokes_u is None
-        else (
-            per_channel_stokes_u
-            if backend is None
-            else backend.asarray(per_channel_stokes_u)
-        )
-    )
-    per_channel_stokes_v = (
-        spectrum.stokes_v
-        if spectrum is not None and spectrum.stokes_v is not None
-        else None
-    )
-    per_channel_stokes_v = (
-        None
-        if per_channel_stokes_v is None
-        else (
-            per_channel_stokes_v
-            if backend is None
-            else backend.asarray(per_channel_stokes_v)
-        )
+    per_channel_stokes_v = maybe_asarray(
+        backend, spectrum.stokes_v if spectrum is not None else None
     )
     i_f, q_f, u_f, v_f = evaluate_point_flux_at_freq(
         stokes_i=stokes_i,
@@ -144,18 +103,12 @@ def _point_contributions_at_freq(
         freq=freq_hz,
         xp=xp,
     )
-    if backend is not None:
-        return (
-            backend.bincount(ipix, weights=i_f, minlength=npix),
-            backend.bincount(ipix, weights=q_f, minlength=npix),
-            backend.bincount(ipix, weights=u_f, minlength=npix),
-            backend.bincount(ipix, weights=v_f, minlength=npix),
-        )
+    bincount = np.bincount if backend is None else backend.bincount
     return (
-        np.bincount(ipix, weights=i_f, minlength=npix),
-        np.bincount(ipix, weights=q_f, minlength=npix),
-        np.bincount(ipix, weights=u_f, minlength=npix),
-        np.bincount(ipix, weights=v_f, minlength=npix),
+        bincount(ipix, weights=i_f, minlength=npix),
+        bincount(ipix, weights=q_f, minlength=npix),
+        bincount(ipix, weights=u_f, minlength=npix),
+        bincount(ipix, weights=v_f, minlength=npix),
     )
 
 
@@ -175,6 +128,116 @@ class CombineHealpixData(TypedDict):
     reference_frequency: float | None
 
 
+@dataclass(frozen=True)
+class _BrightnessStrategy:
+    """Per-channel accumulation policy for one brightness convention.
+
+    Both the Stokes-I and the polarization accumulators work in *brightness
+    temperature* (Kelvin) for the Rayleigh-Jeans case (T_b is linearly additive)
+    and in *flux density* (Jy) for the Planck case (Stokes I must round-trip
+    through Jy because the T_b ↔ Jy map is non-linear; polarization shares the
+    same Jy working space). Keeping the RJ path entirely in Kelvin makes its
+    output bit-exact (no ``rj_factor * 1/rj_factor`` round-trip noise).
+
+    Attributes
+    ----------
+    diffuse_i_to_accum : callable
+        Map a diffuse Stokes-I brightness-temperature array (K) onto the I
+        accumulator's working units, given ``(t_map, freq_hz, omega_pixel,
+        rj_factor)``.
+    point_i_scale : callable
+        Given the RJ factor, return the multiplier applied to a point source's
+        binned Stokes-I flux (Jy) before adding it to the I accumulator
+        (``1`` for the Jy-space Planck path, ``1/rj_factor`` for the K-space
+        RJ path).
+    accum_i_to_tb : callable
+        Convert the finished I accumulator back to brightness temperature (K),
+        given ``(accum, freq_hz, omega_pixel, rj_factor)``.
+    diffuse_pol_scale : callable
+        Given the RJ factor, return the multiplier applied to a diffuse
+        polarized map (K_RJ) before adding it to the pol accumulator (``1`` for
+        the K-space RJ path, ``rj_factor`` for the Jy-space Planck path).
+    point_pol_scale : callable
+        Given the RJ factor, return the multiplier applied to a point source's
+        binned polarized flux (Jy) before adding it to the pol accumulator
+        (``1/rj_factor`` for the K-space RJ path, ``1`` for the Jy-space Planck
+        path).
+    pol_accum_to_k : callable
+        Given the RJ factor, return the multiplier converting the finished pol
+        accumulator back to K_RJ (``1`` for the K-space RJ path, ``1/rj_factor``
+        for the Jy-space Planck path).
+    """
+
+    diffuse_i_to_accum: Callable[[np.ndarray, float, float, float], np.ndarray]
+    point_i_scale: Callable[[float], float]
+    accum_i_to_tb: Callable[[np.ndarray, float, float, float], np.ndarray]
+    diffuse_pol_scale: Callable[[float], float]
+    point_pol_scale: Callable[[float], float]
+    pol_accum_to_k: Callable[[float], float]
+
+
+def _rj_inv(rj_factor: float) -> float:
+    return 1.0 / rj_factor if rj_factor != 0 else 0.0
+
+
+def _make_strategy(brightness_conversion: str) -> _BrightnessStrategy:
+    """Return the accumulation strategy for the requested conversion."""
+    is_rj = brightness_conversion == BrightnessConversion.RAYLEIGH_JEANS or (
+        isinstance(brightness_conversion, str)
+        and brightness_conversion == "rayleigh-jeans"
+    )
+    if is_rj:
+        # RJ: accumulate directly in T_b (Kelvin). Diffuse maps pass through;
+        # point flux (Jy) is divided by the RJ factor; the accumulator already
+        # *is* brightness temperature.
+        return _BrightnessStrategy(
+            diffuse_i_to_accum=lambda t_map, freq, omega, rj: t_map,
+            point_i_scale=_rj_inv,
+            accum_i_to_tb=lambda accum, freq, omega, rj: accum,
+            # Polarization stays in K_RJ: diffuse maps pass through, point flux
+            # (Jy) is divided by the RJ factor, output is already K.
+            diffuse_pol_scale=lambda rj: 1.0,
+            point_pol_scale=_rj_inv,
+            pol_accum_to_k=lambda rj: 1.0,
+        )
+
+    # Planck: accumulate in Jy. Diffuse maps convert T_b → Jy (positive pixels
+    # only); point flux (Jy) is added unscaled; the accumulator converts Jy → T_b
+    # (positive pixels only) for output.
+    def _diffuse_to_jy(
+        t_map: np.ndarray, freq: float, omega: float, rj: float
+    ) -> np.ndarray:
+        out = np.zeros_like(t_map)
+        pos = t_map > 0
+        if np.any(pos):
+            out[pos] = brightness_temp_to_flux_density(
+                t_map[pos], freq, omega, method=brightness_conversion
+            )
+        return out
+
+    def _jy_to_tb(
+        accum: np.ndarray, freq: float, omega: float, rj: float
+    ) -> np.ndarray:
+        out = np.zeros_like(accum)
+        pos = accum > 0
+        if np.any(pos):
+            out[pos] = flux_density_to_brightness_temp(
+                accum[pos], freq, omega, method=brightness_conversion
+            )
+        return out
+
+    return _BrightnessStrategy(
+        diffuse_i_to_accum=_diffuse_to_jy,
+        point_i_scale=lambda rj: 1.0,
+        accum_i_to_tb=_jy_to_tb,
+        # Polarization works in Jy: diffuse maps (K_RJ) convert via the RJ
+        # factor, point flux (Jy) is unscaled, output divides back to K_RJ.
+        diffuse_pol_scale=lambda rj: rj,
+        point_pol_scale=lambda rj: 1.0,
+        pol_accum_to_k=_rj_inv,
+    )
+
+
 def combine_healpix(
     models: list[SkyModel],
     ref_nside: int,
@@ -189,9 +252,9 @@ def combine_healpix(
 
     All ``healpix_map`` models must share the same nside and frequency
     grid.  Point-source models are binned into the same grid via
-    ``np.bincount``.  Stokes I is converted T_b -> Jy -> T_b so that
-    addition is physically correct under both Planck and Rayleigh-Jeans
-    conversions.
+    ``np.bincount``.  Stokes I is accumulated either directly in brightness
+    temperature (Rayleigh-Jeans, linear) or via a Jy round-trip (Planck,
+    non-linear) so that addition is physically correct under both conventions.
 
     Parameters
     ----------
@@ -202,22 +265,22 @@ def combine_healpix(
     ref_freqs : np.ndarray
         Common frequency grid in Hz, shape ``(n_freq,)``.
     ref_frequency : float or None
-        Reference frequency for spectral extrapolation of point sources.
+        Reference frequency for spectral extrapolation of point sources; also
+        surfaced in the returned ``reference_frequency``.
     brightness_conversion : str, default ``"planck"``
         Brightness conversion method.
     precision : PrecisionConfig, optional
         Precision configuration.  Controls the output dtype of HEALPix
-        arrays via ``precision.sky_model.get_dtype("healpix_maps")``.
+        arrays via the shared ``get_sky_storage_dtype`` helper.
 
     Returns
     -------
     dict
-        Raw data dict with keys: ``_healpix_maps`` (``np.ndarray`` of
-        shape ``(n_freq, npix)``), ``_healpix_q_maps``,
-        ``_healpix_u_maps``, ``_healpix_v_maps`` (same shape or
-        ``None``), ``_healpix_nside`` (int),
-        ``_observation_frequencies`` (``np.ndarray``), ``frequency``
-        (``float | None``).
+        Raw data dict with keys: ``healpix_maps`` (``np.ndarray`` of shape
+        ``(n_freq, npix)``), ``healpix_q_maps``, ``healpix_u_maps``,
+        ``healpix_v_maps`` (same shape or ``None``), ``healpix_nside`` (int),
+        ``observation_frequencies`` (``np.ndarray``), ``coordinate_frame``
+        (str), and ``reference_frequency`` (``float | None``).
 
     Raises
     ------
@@ -301,12 +364,8 @@ def combine_healpix(
         for m in point_only_models
     )
 
-    # Resolve output dtype from precision config
-    hp_dtype = (
-        precision.sky_model.get_dtype("healpix_maps")
-        if precision is not None
-        else np.float32
-    )
+    # Resolve output dtype from precision config (single source of truth).
+    hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
 
     scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
     combined_I = allocate_cube((n_freq, npix), hp_dtype, scratch, "i_maps")
@@ -320,166 +379,84 @@ def combine_healpix(
         allocate_cube((n_freq, npix), hp_dtype, scratch, "v_maps") if any_pol else None
     )
 
-    # Determine if we can use the RJ fast path (T_b linearly additive)
-    is_rj = brightness_conversion == BrightnessConversion.RAYLEIGH_JEANS or (
-        isinstance(brightness_conversion, str)
-        and brightness_conversion == "rayleigh-jeans"
-    )
+    strategy = _make_strategy(brightness_conversion)
 
     for freq_idx, freq_hz in enumerate(ref_freqs):
-        rj_factor = rayleigh_jeans_factor(freq_hz, omega_pixel)
+        freq = float(freq_hz)
+        rj_factor = rayleigh_jeans_factor(freq, omega_pixel)
+        point_i_scale = strategy.point_i_scale(rj_factor)
+        diffuse_pol_scale = strategy.diffuse_pol_scale(rj_factor)
+        point_pol_scale = strategy.point_pol_scale(rj_factor)
 
-        if is_rj:
-            # --- RJ fast path: T_b is linearly additive ---
-            combined_T_b = np.zeros(npix, dtype=np.float64)
+        # The accumulators work in the strategy's units: Kelvin for the RJ path
+        # (bit-exact, no round-trip) and Jy for the Planck path.
+        accum_i = np.zeros(npix, dtype=np.float64)
+        accum_q = np.zeros(npix, dtype=np.float64) if any_pol else None
+        accum_u = np.zeros(npix, dtype=np.float64) if any_pol else None
+        accum_v = np.zeros(npix, dtype=np.float64) if any_pol else None
 
-            # Add healpix T_b maps directly
-            for m in healpix_models:
-                if m.healpix is not None:
-                    pixel_indices = m.healpix.pixel_indices
-                    combined_T_b[pixel_indices] += m.healpix.maps[freq_idx].astype(
-                        np.float64
+        # --- Diffuse HEALPix maps ---
+        for m in healpix_models:
+            if m.healpix is None:
+                continue
+            pixel_indices = m.healpix.pixel_indices
+            t_map = m.healpix.maps[freq_idx].astype(np.float64)
+            accum_i[pixel_indices] += strategy.diffuse_i_to_accum(
+                t_map, freq, omega_pixel, rj_factor
+            )
+            if any_pol and m.has_polarized_healpix_maps:
+                # Polarized diffuse maps are in K_RJ; the strategy scales them
+                # into the pol accumulator's working units (K for RJ, Jy for
+                # Planck).
+                if m.healpix.q_maps is not None:
+                    accum_q[pixel_indices] += (
+                        m.healpix.q_maps[freq_idx].astype(np.float64)
+                        * diffuse_pol_scale
+                    )
+                if m.healpix.u_maps is not None:
+                    accum_u[pixel_indices] += (
+                        m.healpix.u_maps[freq_idx].astype(np.float64)
+                        * diffuse_pol_scale
+                    )
+                if m.healpix.v_maps is not None:
+                    accum_v[pixel_indices] += (
+                        m.healpix.v_maps[freq_idx].astype(np.float64)
+                        * diffuse_pol_scale
                     )
 
-            # Polarization buffers allocated up-front so the I and Q/U/V
-            # contributions for a given point model are produced in a single
-            # call to _point_contributions_at_freq.
-            combined_q_T = np.zeros(npix, dtype=np.float64) if any_pol else None
-            combined_u_T = np.zeros(npix, dtype=np.float64) if any_pol else None
-            combined_v_T = np.zeros(npix, dtype=np.float64) if any_pol else None
-
-            # Add point-source contributions (flux → T_b via RJ factor),
-            # using PointSpectrum per-channel lookup when available.
-            rj_inv = 1.0 / rj_factor if rj_factor != 0 else 0.0
-            for ipix_m, point_m, spectrum_m, ps_ref_freq in ps_models_data:
-                i_map, q_map, u_map, v_map = _point_contributions_at_freq(
-                    ipix_m,
-                    point_m,
-                    spectrum_m,
-                    ps_ref_freq,
-                    float(freq_hz),
-                    npix,
-                    backend=backend,
-                )
-                if backend is not None:
-                    i_map = backend.to_numpy(i_map)
-                    q_map = backend.to_numpy(q_map)
-                    u_map = backend.to_numpy(u_map)
-                    v_map = backend.to_numpy(v_map)
-                # Jy → K_RJ: divide by RJ factor
-                combined_T_b += i_map * rj_inv
-                if any_pol:
-                    combined_q_T += q_map * rj_inv
-                    combined_u_T += u_map * rj_inv
-                    combined_v_T += v_map * rj_inv
-
-            combined_I[freq_idx] = combined_T_b.astype(hp_dtype)
-
-            # Add polarized HEALPix contributions (already in K_RJ).
+        # --- Point-source contributions (binned flux in Jy) ---
+        for ipix_m, point_m, spectrum_m, ps_ref_freq in ps_models_data:
+            i_map, q_map, u_map, v_map = _point_contributions_at_freq(
+                ipix_m,
+                point_m,
+                spectrum_m,
+                ps_ref_freq,
+                freq,
+                npix,
+                backend=backend,
+            )
+            if backend is not None:
+                i_map = backend.to_numpy(i_map)
+                q_map = backend.to_numpy(q_map)
+                u_map = backend.to_numpy(u_map)
+                v_map = backend.to_numpy(v_map)
+            accum_i += i_map * point_i_scale
             if any_pol:
-                for m in healpix_models:
-                    if m.has_polarized_healpix_maps:
-                        pixel_indices = m.healpix.pixel_indices
-                        if m.healpix.q_maps is not None:
-                            combined_q_T[pixel_indices] += m.healpix.q_maps[
-                                freq_idx
-                            ].astype(np.float64)
-                        if m.healpix.u_maps is not None:
-                            combined_u_T[pixel_indices] += m.healpix.u_maps[
-                                freq_idx
-                            ].astype(np.float64)
-                        if m.healpix.v_maps is not None:
-                            combined_v_T[pixel_indices] += m.healpix.v_maps[
-                                freq_idx
-                            ].astype(np.float64)
+                accum_q += q_map * point_pol_scale
+                accum_u += u_map * point_pol_scale
+                accum_v += v_map * point_pol_scale
 
-                combined_Q[freq_idx] = combined_q_T.astype(hp_dtype)
-                combined_U[freq_idx] = combined_u_T.astype(hp_dtype)
-                combined_V[freq_idx] = combined_v_T.astype(hp_dtype)
+        # --- Read back Stokes I as brightness temperature ---
+        combined_I[freq_idx] = strategy.accum_i_to_tb(
+            accum_i, freq, omega_pixel, rj_factor
+        ).astype(hp_dtype)
 
-        else:
-            # --- Planck path: must round-trip through Jy (non-linear) ---
-            combined_flux = np.zeros(npix, dtype=np.float64)
-            combined_q_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
-            combined_u_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
-            combined_v_flux = np.zeros(npix, dtype=np.float64) if any_pol else None
-
-            # Add healpix_map models
-            for m in healpix_models:
-                if m.healpix is not None:
-                    t_map = m.healpix.maps[freq_idx].astype(np.float64)
-                    pixel_indices = m.healpix.pixel_indices
-                    pos = t_map > 0
-                    if np.any(pos):
-                        combined_flux[pixel_indices[pos]] += (
-                            brightness_temp_to_flux_density(
-                                t_map[pos],
-                                freq_hz,
-                                omega_pixel,
-                                method=brightness_conversion,
-                            )
-                        )
-
-                    if any_pol and m.has_polarized_healpix_maps:
-                        if m.healpix.q_maps is not None:
-                            q_t = m.healpix.q_maps[freq_idx]
-                            if q_t is not None:
-                                combined_q_flux[pixel_indices] += (
-                                    q_t.astype(np.float64) * rj_factor
-                                )
-                        if m.healpix.u_maps is not None:
-                            u_t = m.healpix.u_maps[freq_idx]
-                            if u_t is not None:
-                                combined_u_flux[pixel_indices] += (
-                                    u_t.astype(np.float64) * rj_factor
-                                )
-                        if m.healpix.v_maps is not None:
-                            v_t = m.healpix.v_maps[freq_idx]
-                            if v_t is not None:
-                                combined_v_flux[pixel_indices] += (
-                                    v_t.astype(np.float64) * rj_factor
-                                )
-
-            # Add point-source models via bincount, using PointSpectrum
-            # per-channel lookup when available.
-            for ipix_m, point_m, spectrum_m, ps_ref_freq in ps_models_data:
-                i_map, q_map, u_map, v_map = _point_contributions_at_freq(
-                    ipix_m,
-                    point_m,
-                    spectrum_m,
-                    ps_ref_freq,
-                    float(freq_hz),
-                    npix,
-                    backend=backend,
-                )
-                if backend is not None:
-                    i_map = backend.to_numpy(i_map)
-                    q_map = backend.to_numpy(q_map)
-                    u_map = backend.to_numpy(u_map)
-                    v_map = backend.to_numpy(v_map)
-                combined_flux += i_map
-                if any_pol:
-                    combined_q_flux += q_map
-                    combined_u_flux += u_map
-                    combined_v_flux += v_map
-
-            # Convert combined flux back to brightness temperature
-            combined_T_b = np.zeros(npix, dtype=np.float64)
-            pos_flux = combined_flux > 0
-            if np.any(pos_flux):
-                combined_T_b[pos_flux] = flux_density_to_brightness_temp(
-                    combined_flux[pos_flux],
-                    freq_hz,
-                    omega_pixel,
-                    method=brightness_conversion,
-                )
-            combined_I[freq_idx] = combined_T_b.astype(hp_dtype)
-
-            if any_pol:
-                rj_inv = 1.0 / rj_factor if rj_factor != 0 else 0.0
-                combined_Q[freq_idx] = (combined_q_flux * rj_inv).astype(hp_dtype)
-                combined_U[freq_idx] = (combined_u_flux * rj_inv).astype(hp_dtype)
-                combined_V[freq_idx] = (combined_v_flux * rj_inv).astype(hp_dtype)
+        # --- Polarization: accumulator → K_RJ (identity for RJ, ÷rj for Planck)
+        if any_pol:
+            pol_to_k = strategy.pol_accum_to_k(rj_factor)
+            combined_Q[freq_idx] = (accum_q * pol_to_k).astype(hp_dtype)
+            combined_U[freq_idx] = (accum_u * pol_to_k).astype(hp_dtype)
+            combined_V[freq_idx] = (accum_v * pol_to_k).astype(hp_dtype)
 
     logger.info(
         f"Combined {len(models)} models into healpix_map "
@@ -504,5 +481,5 @@ def combine_healpix(
         "healpix_nside": ref_nside,
         "observation_frequencies": ref_freqs,
         "coordinate_frame": coordinate_frame,
-        "reference_frequency": None,
+        "reference_frequency": ref_frequency,
     }

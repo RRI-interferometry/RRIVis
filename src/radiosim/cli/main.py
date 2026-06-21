@@ -565,7 +565,7 @@ def run_simulate_mode(
             "visibility": {
                 "sky_representation": (
                     "healpix_map"
-                    if meta["representation"] == "healpix_map"
+                    if meta["representations"][0] == "healpix_map"
                     else "point_sources"
                 )
             },

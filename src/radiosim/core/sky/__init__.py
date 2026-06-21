@@ -47,6 +47,7 @@ from .diagnostics.discovery import (
     get_catalog_info,
     list_all_models,
 )
+from .diagnostics.polarization import compute_linear_polarization
 from .io.serialization import load_skyh5, save_skyh5, to_pyradiosky
 from .loaders import (
     load_3c,
@@ -72,7 +73,6 @@ from .loaders import (
 from .loaders.bbs import write_bbs
 from .operations.factories import create_empty, create_from_arrays, create_test_sources
 from .operations.operations import (
-    compute_linear_polarization,
     materialize_healpix_model,
     materialize_point_sources_model,
     with_memmap_backing,

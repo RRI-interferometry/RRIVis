@@ -64,6 +64,35 @@ def _parse_bbs_ra(ra_str: str) -> float:
     return float(ra_str)
 
 
+def _classify_dec_format(dec_str: str) -> str:
+    """Explicitly classify a BBS Dec string's coordinate format.
+
+    Returns one of ``"deg"``, ``"rad"``, ``"dms"`` (``d``/``m``/``s``
+    letter-delimited sexagesimal), ``"dotted"`` (``dd.mm.ss[.sss]``
+    dot-delimited sexagesimal), or ``"decimal"`` (plain decimal degrees).
+
+    This replaces the previous dot-counting heuristic with an explicit
+    rule set so the decimal-vs-sexagesimal decision is unambiguous:
+
+    * a ``deg``/``rad`` suffix wins;
+    * a non-numeric ``d`` letter (e.g. ``+48d13m02``) is ``dms``;
+    * a value whose numeric body contains two or more ``.`` separators
+      (``dd.mm.ss`` or ``dd.mm.ss.sss``) is dotted sexagesimal;
+    * anything else (at most one ``.``) is plain decimal.
+    """
+    if dec_str.endswith("deg"):
+        return "deg"
+    if dec_str.endswith("rad"):
+        return "rad"
+    body = dec_str.lstrip("+-")
+    has_letter_d = "d" in dec_str.lower() and not body.replace(".", "").isdigit()
+    if has_letter_d:
+        return "dms"
+    if body.count(".") >= 2:
+        return "dotted"
+    return "decimal"
+
+
 def _parse_bbs_dec(dec_str: str) -> float:
     """Parse BBS Dec string to degrees.
 
@@ -71,40 +100,39 @@ def _parse_bbs_dec(dec_str: str) -> float:
       - Sexagesimal with dots: ``+48.13.02.25`` (degrees)
       - Sexagesimal with d/m/s: ``+48d13m02.25``
       - Decimal with suffix: ``-30.5deg``, ``-0.53rad``
+      - Plain decimal degrees: ``-30.25``
+
+    The decimal-vs-sexagesimal decision is made by explicit format
+    detection (:func:`_classify_dec_format`), not by counting dots.
     """
     dec_str = dec_str.strip()
-    if dec_str.endswith("deg"):
+    fmt = _classify_dec_format(dec_str)
+
+    if fmt == "deg":
         return float(dec_str[:-3])
-    if dec_str.endswith("rad"):
+    if fmt == "rad":
         return np.degrees(float(dec_str[:-3]))
-    if (
-        "d" in dec_str.lower()
-        and not dec_str.replace("-", "").replace("+", "").replace(".", "").isdigit()
-    ):
+    if fmt == "dms":
         parts = re.split(r"[dDmMsS]", dec_str)
         parts = [p for p in parts if p.strip()]
         d = float(parts[0])
         m = float(parts[1]) if len(parts) > 1 else 0.0
         s = float(parts[2]) if len(parts) > 2 else 0.0
-        sign = -1 if d < 0 or dec_str.strip().startswith("-") else 1
+        sign = -1 if d < 0 or dec_str.startswith("-") else 1
         return sign * (abs(d) + m / 60.0 + s / 3600.0)
-    if "." in dec_str:
-        # Count dots to distinguish decimal from sexagesimal
-        ndots = dec_str.count(".")
-        if ndots >= 2:
-            # Sexagesimal: +48.13.02.25 or -48.13.02
-            sign = -1 if dec_str.startswith("-") else 1
-            clean = dec_str.lstrip("+-")
-            parts = clean.split(".")
-            d = float(parts[0])
-            m = float(parts[1]) if len(parts) > 1 else 0.0
-            # parts[2:] are seconds (possibly with fractional part)
-            if len(parts) > 2:
-                sec_str = ".".join(parts[2:])
-                s = float(sec_str) if sec_str else 0.0
-            else:
-                s = 0.0
-            return sign * (d + m / 60.0 + s / 3600.0)
+    if fmt == "dotted":
+        # Sexagesimal: +48.13.02.25 or -48.13.02
+        sign = -1 if dec_str.startswith("-") else 1
+        parts = dec_str.lstrip("+-").split(".")
+        d = float(parts[0])
+        m = float(parts[1]) if len(parts) > 1 else 0.0
+        # parts[2:] are seconds (possibly with fractional part)
+        if len(parts) > 2:
+            sec_str = ".".join(parts[2:])
+            s = float(sec_str) if sec_str else 0.0
+        else:
+            s = 0.0
+        return sign * (d + m / 60.0 + s / 3600.0)
     return float(dec_str)
 
 
@@ -186,6 +214,198 @@ def _parse_format_header(line: str) -> tuple[list[str], dict[str, str]]:
     return cols, defaults
 
 
+_FIXED_FORMAT_COLUMNS = [
+    "Ra",
+    "Dec",
+    "I",
+    "Q",
+    "U",
+    "V",
+    "ReferenceFrequency",
+    "SpectralIndex",
+    "RotationMeasure",
+    "MajorAxis",
+    "MinorAxis",
+    "Orientation",
+]
+
+
+def _tokenize_data_line(line: str) -> list[str]:
+    """Split a BBS data line into its column fields.
+
+    Comma-separated (BBS/WSClean) lines are split on top-level commas only,
+    so bracket-delimited arrays such as ``[-0.7,-0.05]`` are kept intact as a
+    single field.  Whitespace-separated (legacy fixed-format) lines are split
+    on whitespace.
+    """
+    if "," not in line:
+        return line.split()
+
+    fields: list[str] = []
+    current = ""
+    depth = 0
+    for ch in line:
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            fields.append(current.strip())
+            current = ""
+        else:
+            current += ch
+    fields.append(current.strip())
+    return fields
+
+
+def _make_field_getter(
+    columns: list[str],
+    fields: list[str],
+    defaults: dict[str, str],
+):
+    """Build a case-insensitive ``get(col_name, default)`` accessor for a row.
+
+    Resolves a value from the row's ``fields`` by column name, falling back to
+    the header ``defaults`` and then the supplied literal default.
+    """
+    col_lower = [c.lower() for c in columns]
+
+    def get(col_name: str, default: str = "0") -> str:
+        cn = col_name.lower()
+        if cn in col_lower:
+            idx = col_lower.index(cn)
+            if idx < len(fields) and fields[idx].strip():
+                return fields[idx].strip()
+        return defaults.get(cn, default)
+
+    return get
+
+
+@dataclass(frozen=True)
+class _BbsRow:
+    """A single parsed BBS component row."""
+
+    ra_deg: float
+    dec_deg: float
+    flux: float
+    spectral_coeffs: list[float]
+    stokes_q: float
+    stokes_u: float
+    stokes_v: float
+    rotation_measure: float
+    ref_freq: float
+    major_arcsec: float
+    minor_arcsec: float
+    pa_deg: float
+    source_name: str
+
+
+# Skip-reason sentinels returned by ``_parse_bbs_row`` alongside ``None``.
+_SKIP_PATCH = "patch"
+_SKIP_SHAPELET = "shapelet"
+_SKIP_NONPOSITIVE = "nonpositive"
+
+
+def _parse_bbs_row(
+    columns: list[str],
+    fields: list[str],
+    defaults: dict[str, str],
+    *,
+    ref_freq_from_header: float,
+) -> tuple[_BbsRow | None, str | None]:
+    """Parse one tokenized BBS data row.
+
+    Returns ``(row, None)`` for a kept component, or ``(None, reason)`` for a
+    skipped one, where *reason* is one of ``_SKIP_PATCH`` (patch definition
+    with empty Name and Type), ``_SKIP_SHAPELET`` (unsupported SHAPELET), or
+    ``_SKIP_NONPOSITIVE`` (non-positive / non-finite Stokes I).
+    """
+    get = _make_field_getter(columns, fields, defaults)
+    col_lower = [c.lower() for c in columns]
+
+    # Patch definition (empty Name and Type) -> skip.
+    if "name" in col_lower and "type" in col_lower:
+        name_idx = col_lower.index("name")
+        type_idx = col_lower.index("type")
+        name_val = fields[name_idx] if name_idx < len(fields) else ""
+        type_val = fields[type_idx] if type_idx < len(fields) else ""
+        if not name_val.strip() and not type_val.strip():
+            return None, _SKIP_PATCH
+
+    src_type = get("type", "POINT").upper()
+    if src_type == "SHAPELET":
+        logger.warning("Skipping SHAPELET source (not supported)")
+        return None, _SKIP_SHAPELET
+
+    stokes_i = float(get("i", "0"))
+    if not np.isfinite(stokes_i) or stokes_i <= 0:
+        # Non-positive / non-finite Stokes I is dropped (negative CLEAN
+        # components are not representable as catalog flux); the caller
+        # counts and reports these.
+        return None, _SKIP_NONPOSITIVE
+
+    ra_deg = _parse_bbs_ra(get("ra"))
+    dec_deg = _parse_bbs_dec(get("dec"))
+
+    stokes_q = float(get("q", "0"))
+    stokes_u = float(get("u", "0"))
+    stokes_v = float(get("v", "0"))
+
+    # Spectral index (bracket array or single value).
+    si_str = get("spectralindex", "[]").strip("[]")
+    if si_str:
+        si_coeffs = [float(x) for x in si_str.split(",") if x.strip()]
+    else:
+        si_coeffs = [-0.7]
+    if not si_coeffs:
+        si_coeffs = [-0.7]
+
+    rm = float(get("rotationmeasure", "0"))
+
+    # Polarization from angle/fraction (only when Q/U not already set).
+    pol_angle = float(get("polarizationangle", "0"))
+    pol_frac = float(get("polarizedfraction", "0"))
+    if stokes_q == 0 and stokes_u == 0 and pol_frac > 0:
+        chi0 = np.deg2rad(pol_angle)
+        stokes_q = pol_frac * stokes_i * np.cos(2 * chi0)
+        stokes_u = pol_frac * stokes_i * np.sin(2 * chi0)
+
+    # Gaussian morphology (with OSKAR-style aliases).
+    major = float(get("majoraxis", "0"))
+    minor = float(get("minoraxis", "0"))
+    orientation = float(get("orientation", "0"))
+    if major == 0:
+        major = float(get("major_ax", "0"))
+    if minor == 0:
+        minor = float(get("minor_ax", "0"))
+    if orientation == 0:
+        orientation = float(get("positionangle", "0"))
+
+    src_ref_freq = float(
+        get(
+            "referencefrequency",
+            str(ref_freq_from_header) if ref_freq_from_header > 0 else "0",
+        )
+    )
+
+    row = _BbsRow(
+        ra_deg=ra_deg,
+        dec_deg=dec_deg,
+        flux=stokes_i,
+        spectral_coeffs=si_coeffs,
+        stokes_q=stokes_q,
+        stokes_u=stokes_u,
+        stokes_v=stokes_v,
+        rotation_measure=rm,
+        ref_freq=src_ref_freq,
+        major_arcsec=major,
+        minor_arcsec=minor,
+        pa_deg=orientation,
+        source_name=get("name", "").strip(),
+    )
+    return row, None
+
+
 @dataclass(frozen=True)
 class _BbsParsedSources:
     ref_freq_from_header: float
@@ -249,154 +469,42 @@ def _parse_bbs_lines(lines, *, filename: str) -> _BbsParsedSources:
             if line.startswith("#"):
                 continue
             # Fixed-format (no header) -- legacy OSKAR 12-column
-            columns = [
-                "Ra",
-                "Dec",
-                "I",
-                "Q",
-                "U",
-                "V",
-                "ReferenceFrequency",
-                "SpectralIndex",
-                "RotationMeasure",
-                "MajorAxis",
-                "MinorAxis",
-                "Orientation",
-            ]
+            columns = list(_FIXED_FORMAT_COLUMNS)
 
         if line.startswith("#"):
             continue
 
-        # Build column index (case-insensitive)
-        col_lower = [c.lower() for c in columns]
-
-        # Split data line by comma (BBS) or whitespace (fixed-format)
-        # Must handle bracket-delimited arrays like [-0.7,-0.05]
-        if "," in line:
-            fields = []
-            current = ""
-            depth = 0
-            for ch in line:
-                if ch == "[":
-                    depth += 1
-                elif ch == "]":
-                    depth -= 1
-                if ch == "," and depth == 0:
-                    fields.append(current.strip())
-                    current = ""
-                else:
-                    current += ch
-            fields.append(current.strip())
-        else:
-            fields = line.split()
-
-        # Check for patch definition (empty Name and Type)
-        name_idx = col_lower.index("name") if "name" in col_lower else -1
-        type_idx = col_lower.index("type") if "type" in col_lower else -1
-        if name_idx >= 0 and type_idx >= 0:
-            name_val = fields[name_idx] if name_idx < len(fields) else ""
-            type_val = fields[type_idx] if type_idx < len(fields) else ""
-            if not name_val.strip() and not type_val.strip():
-                continue
-
-        # Helper to get field value with default
-        def _get(
-            col_name: str,
-            default: str = "0",
-            _cl: list[str] = col_lower,
-            _fl: list[str] = fields,
-            _df: dict[str, str] = defaults,
-        ) -> str:
-            cn = col_name.lower()
-            if cn in _cl:
-                idx = _cl.index(cn)
-                if idx < len(_fl) and _fl[idx].strip():
-                    return _fl[idx].strip()
-            return _df.get(cn, default)
-
-        # Source type
-        src_type = _get("type", "POINT").upper()
-        if src_type == "SHAPELET":
-            logger.warning("Skipping SHAPELET source (not supported)")
-            continue
-
-        # Coordinates
-        ra_deg = _parse_bbs_ra(_get("ra"))
-        dec_deg = _parse_bbs_dec(_get("dec"))
-
-        # Stokes I
-        stokes_i = float(_get("i", "0"))
-        if not np.isfinite(stokes_i) or stokes_i <= 0:
-            # Non-positive / non-finite Stokes I is dropped (negative CLEAN
-            # components are not representable as catalog flux). Counted and
-            # reported below so the drop is never fully silent.
-            n_dropped_nonpositive += 1
-            continue
-
-        # Stokes Q, U, V
-        stokes_q = float(_get("q", "0"))
-        stokes_u = float(_get("u", "0"))
-        stokes_v = float(_get("v", "0"))
-
-        # Spectral index (bracket array or single value)
-        si_str = _get("spectralindex", "[]").strip("[]")
-        if si_str:
-            si_coeffs = [float(x) for x in si_str.split(",") if x.strip()]
-        else:
-            si_coeffs = [-0.7]
-        alpha = si_coeffs[0] if si_coeffs else -0.7
-
-        # Rotation measure
-        rm = float(_get("rotationmeasure", "0"))
-
-        # Polarization from angle/fraction (if Q/U not set)
-        pol_angle = float(_get("polarizationangle", "0"))
-        pol_frac = float(_get("polarizedfraction", "0"))
-        if stokes_q == 0 and stokes_u == 0 and pol_frac > 0:
-            chi0 = np.deg2rad(pol_angle)
-            stokes_q = pol_frac * stokes_i * np.cos(2 * chi0)
-            stokes_u = pol_frac * stokes_i * np.sin(2 * chi0)
-
-        # Gaussian morphology
-        major = float(_get("majoraxis", "0"))
-        minor = float(_get("minoraxis", "0"))
-        orientation = float(_get("orientation", "0"))
-
-        # Also accept OSKAR-style aliases
-        if major == 0:
-            major = float(_get("major_ax", "0"))
-        if minor == 0:
-            minor = float(_get("minor_ax", "0"))
-        if orientation == 0:
-            orientation = float(_get("positionangle", "0"))
-
-        src_ref_freq = float(
-            _get(
-                "referencefrequency",
-                str(ref_freq_from_header) if ref_freq_from_header > 0 else "0",
-            )
+        fields = _tokenize_data_line(line)
+        row, skip_reason = _parse_bbs_row(
+            columns,
+            fields,
+            defaults,
+            ref_freq_from_header=ref_freq_from_header,
         )
-        source_name = _get("name", "").strip()
+        if row is None:
+            if skip_reason == _SKIP_NONPOSITIVE:
+                n_dropped_nonpositive += 1
+            continue
 
-        ra_deg_list.append(ra_deg)
-        dec_deg_list.append(dec_deg)
-        flux_list.append(stokes_i)
-        alpha_list.append(alpha)
-        sq_list.append(stokes_q)
-        su_list.append(stokes_u)
-        sv_list.append(stokes_v)
-        rm_list.append(rm)
-        ref_freq_list.append(src_ref_freq)
-        major_list.append(major)
-        minor_list.append(minor)
-        pa_list.append(orientation)
-        name_list.append(source_name)
+        ra_deg_list.append(row.ra_deg)
+        dec_deg_list.append(row.dec_deg)
+        flux_list.append(row.flux)
+        alpha_list.append(row.spectral_coeffs[0])
+        sq_list.append(row.stokes_q)
+        su_list.append(row.stokes_u)
+        sv_list.append(row.stokes_v)
+        rm_list.append(row.rotation_measure)
+        ref_freq_list.append(row.ref_freq)
+        major_list.append(row.major_arcsec)
+        minor_list.append(row.minor_arcsec)
+        pa_list.append(row.pa_deg)
+        name_list.append(row.source_name)
 
-        if major > 0:
+        if row.major_arcsec > 0:
             has_gaussian = True
-        if len(si_coeffs) > 1:
+        if len(row.spectral_coeffs) > 1:
             has_spectral_coeffs = True
-        sp_coeffs_list.append(si_coeffs)
+        sp_coeffs_list.append(row.spectral_coeffs)
 
     if n_dropped_nonpositive:
         logger.warning(

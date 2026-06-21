@@ -9,13 +9,13 @@ import healpy as hp
 import numpy as np
 from astropy.coordinates import Angle, SkyCoord
 
-from ..containers.constants import pixel_solid_angle
 from ..containers.footprint import (
     DEFAULT_COVERAGE_FOOTPRINT_COORDINATE_FRAME,
     DEFAULT_COVERAGE_FOOTPRINT_NSIDE,
     SkyFootprint,
     _normalize_coordinate_frame,
 )
+from ..support.healpix_geometry import pixel_solid_angle
 
 logger = logging.getLogger(__name__)
 
@@ -238,10 +238,14 @@ class BoxRegion(SkyRegion):
                 f"width_deg and height_deg must be positive, "
                 f"got width={width_deg}, height={height_deg}"
             )
+        # Out-of-range extents are clamped symmetrically: a width spanning
+        # more than the full RA circle saturates at 360 deg, and a height
+        # spanning more than pole-to-pole saturates at 180 deg. Both
+        # dimensions are handled the same way (clamp, not raise).
         if width_deg > 360:
             width_deg = 360.0
         if height_deg > 180:
-            raise ValueError(f"height_deg must be <= 180, got {height_deg}")
+            height_deg = 180.0
         self.center = SkyCoord(ra=ra_deg, dec=dec_deg, unit="deg", frame="icrs")
         self.width = Angle(width_deg, unit="deg")
         self.height = Angle(height_deg, unit="deg")

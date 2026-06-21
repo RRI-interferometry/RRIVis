@@ -18,17 +18,21 @@ from __future__ import annotations
 import glob as _glob
 import logging
 import os
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import astropy.units as u
 import healpy as hp
 import numpy as np
 
+from radiosim.utils.frequency import parse_frequency_config
+
 from ..containers import PointSourceData
 from ..containers.model import SkyModel
 from ..registry.facade import loader_registry
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ..support.precision import get_sky_storage_dtype
+from ..support.quantities import to_value
 from ._healpix_builder import build_healpix_from_stokes_cube, extract_stokes_component
 
 if TYPE_CHECKING:
@@ -189,13 +193,43 @@ def _sort_and_validate_frequencies(headers: list[dict[str, Any]]) -> list[int]:
     return [int(i) for i in order]
 
 
+def _resolve_expected_frequency_grid(
+    frequencies: np.ndarray | None,
+    obs_frequency_config: dict[str, Any] | None,
+) -> np.ndarray | None:
+    """Resolve the caller-supplied cross-check frequency grid.
+
+    The multi-file loader never resamples: an explicit grid (either an
+    array via ``frequencies`` or a config dict via ``obs_frequency_config``)
+    is only used to assert that the file-derived channel grid matches. When
+    neither is supplied the file grid is authoritative (returns ``None``).
+
+    Raises
+    ------
+    ValueError
+        If both ``frequencies`` and ``obs_frequency_config`` are supplied.
+    """
+    if frequencies is not None and obs_frequency_config is not None:
+        raise ValueError(
+            "load_skyh5_multifile: provide at most one of 'frequencies' or "
+            "'obs_frequency_config' (got both)."
+        )
+    if frequencies is not None:
+        return np.asarray(frequencies, dtype=np.float64)
+    if obs_frequency_config is not None:
+        return np.asarray(
+            parse_frequency_config(obs_frequency_config), dtype=np.float64
+        )
+    return None
+
+
 def _maybe_cross_check_frequencies(
     sorted_freqs: np.ndarray,
     frequencies: np.ndarray | None,
 ) -> None:
     if frequencies is None:
         return
-    requested = np.asarray(frequencies, dtype=np.float64)
+    requested = np.sort(np.asarray(frequencies, dtype=np.float64))
     if requested.shape != sorted_freqs.shape or not np.allclose(
         requested, sorted_freqs, atol=_FREQ_DUPLICATE_TOL_HZ
     ):
@@ -230,7 +264,7 @@ def load_skyh5_multifile(
     *,
     precision: PrecisionConfig,
     frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,  # noqa: ARG001
+    obs_frequency_config: dict[str, Any] | None = None,
     region: SkyRegion | None = None,
     memmap_path: str | None = None,
     provenance: SkyProvenance | None = None,
@@ -259,6 +293,16 @@ def load_skyh5_multifile(
         Observation frequency to use as the reference channel for
         ``PointSourceData.flux`` / ``ref_freq``.  Defaults to the lowest
         channel frequency.
+    frequencies : np.ndarray, optional
+        Explicit observation-frequency grid (Hz). When given, it is
+        cross-checked against the file-derived channel grid (must match
+        within 1 Hz); it does not resample the data.
+    obs_frequency_config : dict, optional
+        Frequency-configuration dict (e.g. ``starting_frequency`` /
+        ``frequency_interval`` / ``frequency_bandwidth`` / ``frequency_unit``
+        or a raw ``frequencies_hz`` array). Used as the cross-check grid when
+        ``frequencies`` is not supplied. Mutually exclusive with
+        ``frequencies``.
 
     Returns
     -------
@@ -282,7 +326,8 @@ def load_skyh5_multifile(
     sorted_freqs = np.array(
         [h["freq_array"][0] for h in sorted_headers], dtype=np.float64
     )
-    _maybe_cross_check_frequencies(sorted_freqs, frequencies)
+    expected_grid = _resolve_expected_frequency_grid(frequencies, obs_frequency_config)
+    _maybe_cross_check_frequencies(sorted_freqs, expected_grid)
 
     component_type = shared["component_type"]
     n_stokes_avail = int(shared["stokes_shape"][0])
@@ -474,40 +519,59 @@ def _load_healpix_branch(
     return sky
 
 
-def _load_point_branch(
-    *,
-    sorted_paths: list[str],
-    sorted_freqs: np.ndarray,
-    n_stokes_avail: int,
-    reference_frequency_hz: float | None,
-    precision: PrecisionConfig,
-    region: SkyRegion | None,
-    memmap_path: str | None,
-    provenance: SkyProvenance | None,
-) -> SkyModel:
-    ref_psky = _pyradiosky_cls()()
-    ref_psky.read(sorted_paths[0])
-    n_components = int(ref_psky.Ncomponents)
-    ra_rad = np.array(
-        ref_psky.ra.rad if hasattr(ref_psky.ra, "rad") else ref_psky.ra,
-        dtype=np.float64,
-    )
-    dec_rad = np.array(
-        ref_psky.dec.rad if hasattr(ref_psky.dec, "rad") else ref_psky.dec,
-        dtype=np.float64,
-    )
+@dataclass
+class _PointChannelCubes:
+    """Per-channel Stokes cubes plus the shared source geometry.
+
+    ``flux``/``q``/``u``/``v`` are ``(n_freq, n_components)`` arrays (Q/U/V
+    are ``None`` when the inputs carry no polarization). ``ra_rad`` /
+    ``dec_rad`` / ``source_name`` describe the (shared) source list.
+    """
+
+    ra_rad: np.ndarray
+    dec_rad: np.ndarray
+    source_name: np.ndarray | None
+    flux: np.ndarray
+    q: np.ndarray | None
+    u: np.ndarray | None
+    v: np.ndarray | None
+
+
+def _read_point_geometry(
+    ref_psky: Any,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    """Extract the shared (ra, dec, name) source list from the first file."""
+    ra_rad = np.array(to_value(ref_psky.ra, u.rad), dtype=np.float64)
+    dec_rad = np.array(to_value(ref_psky.dec, u.rad), dtype=np.float64)
     source_name = (
         np.asarray(ref_psky.name)
         if getattr(ref_psky, "name", None) is not None
         else None
     )
+    return ra_rad, dec_rad, source_name
+
+
+def _read_point_channel_cubes(
+    *,
+    sorted_paths: list[str],
+    n_stokes_avail: int,
+    precision: PrecisionConfig,
+    memmap_path: str | None,
+) -> _PointChannelCubes:
+    """Read every channel file into per-frequency Stokes cubes.
+
+    Validates that all files share the same source list (Ncomponents +
+    RA/Dec) and stacks the per-channel Stokes tables along the freq axis.
+    """
+    ref_psky = _pyradiosky_cls()()
+    ref_psky.read(sorted_paths[0])
+    n_components = int(ref_psky.Ncomponents)
+    ra_rad, dec_rad, source_name = _read_point_geometry(ref_psky)
 
     has_pol = n_stokes_avail >= 3
     has_v = n_stokes_avail >= 4
 
     flux_dt = get_sky_storage_dtype(precision, "flux")
-    src_dt = get_sky_storage_dtype(precision, "source_positions")
-    si_dt = get_sky_storage_dtype(precision, "spectral_index")
     n_freq = len(sorted_paths)
 
     scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
@@ -539,12 +603,8 @@ def _load_point_branch(
                 f"{sorted_paths[0]} ({n_components}) and {path} "
                 f"({int(psky.Ncomponents)})."
             )
-        ra_f = np.array(
-            psky.ra.rad if hasattr(psky.ra, "rad") else psky.ra, dtype=np.float64
-        )
-        dec_f = np.array(
-            psky.dec.rad if hasattr(psky.dec, "rad") else psky.dec, dtype=np.float64
-        )
+        ra_f = np.array(to_value(psky.ra, u.rad), dtype=np.float64)
+        dec_f = np.array(to_value(psky.dec, u.rad), dtype=np.float64)
         if not np.allclose(ra_f, ra_rad, atol=1e-9) or not np.allclose(
             dec_f, dec_rad, atol=1e-9
         ):
@@ -553,10 +613,9 @@ def _load_point_branch(
                 f"{sorted_paths[0]} and {path}. All point-source files must "
                 "share the same source list."
             )
-        stokes = psky.stokes
-        if hasattr(stokes, "to_value"):
-            stokes = stokes.to_value(u.Jy)
-        stokes_arr = np.asarray(stokes, dtype=np.float64)  # (n_stokes, 1, N)
+        stokes_arr = np.asarray(
+            to_value(psky.stokes, u.Jy), dtype=np.float64
+        )  # (n_stokes, 1, N)
         pc_flux[fi] = stokes_arr[0, 0, :].astype(flux_dt)
         if pc_q is not None:
             pc_q[fi] = stokes_arr[1, 0, :].astype(flux_dt)
@@ -573,85 +632,104 @@ def _load_point_branch(
     if pc_v is not None:
         pc_v = finalize_cube(pc_v, scratch, "pc_v")
 
-    # Reference channel (for PointSourceData.flux / ref_freq).
+    return _PointChannelCubes(
+        ra_rad=ra_rad,
+        dec_rad=dec_rad,
+        source_name=source_name,
+        flux=pc_flux,
+        q=pc_q,
+        u=pc_u,
+        v=pc_v,
+    )
+
+
+def _select_reference_channel(
+    sorted_freqs: np.ndarray,
+    reference_frequency_hz: float | None,
+) -> tuple[int, float]:
+    """Return the (index, frequency) of the reference channel."""
     if reference_frequency_hz is None:
         ref_idx = 0
     else:
         ref_idx = int(np.argmin(np.abs(sorted_freqs - float(reference_frequency_hz))))
-    ref_freq_hz = float(sorted_freqs[ref_idx])
+    return ref_idx, float(sorted_freqs[ref_idx])
 
-    flux_ref = np.asarray(pc_flux[ref_idx], dtype=flux_dt)
-    q_ref = (
-        np.asarray(pc_q[ref_idx], dtype=flux_dt)
-        if pc_q is not None
-        else np.zeros(n_components, dtype=flux_dt)
-    )
-    u_ref = (
-        np.asarray(pc_u[ref_idx], dtype=flux_dt)
-        if pc_u is not None
-        else np.zeros(n_components, dtype=flux_dt)
-    )
-    v_ref = (
-        np.asarray(pc_v[ref_idx], dtype=flux_dt)
-        if pc_v is not None
-        else np.zeros(n_components, dtype=flux_dt)
-    )
 
+def _point_region_mask(
+    cubes: _PointChannelCubes,
+    region: SkyRegion | None,
+) -> np.ndarray:
+    """Boolean keep-mask over sources for an optional spatial region."""
     if region is not None:
-        mask = region.contains(ra_rad, dec_rad)
-    else:
-        mask = np.ones(n_components, dtype=bool)
+        return np.asarray(region.contains(cubes.ra_rad, cubes.dec_rad), dtype=bool)
+    return np.ones(cubes.ra_rad.shape[0], dtype=bool)
 
-    ra_rad = ra_rad[mask].astype(src_dt, copy=False)
-    dec_rad = dec_rad[mask].astype(src_dt, copy=False)
-    flux_ref = flux_ref[mask]
-    q_ref = q_ref[mask]
-    u_ref = u_ref[mask]
-    v_ref = v_ref[mask]
-    pc_flux_out = np.ascontiguousarray(np.asarray(pc_flux)[:, mask])
-    pc_q_out = (
-        np.ascontiguousarray(np.asarray(pc_q)[:, mask]) if pc_q is not None else None
-    )
-    pc_u_out = (
-        np.ascontiguousarray(np.asarray(pc_u)[:, mask]) if pc_u is not None else None
-    )
-    pc_v_out = (
-        np.ascontiguousarray(np.asarray(pc_v)[:, mask]) if pc_v is not None else None
-    )
-    source_name = source_name[mask] if source_name is not None else None
+
+def _assemble_point_sky(
+    *,
+    cubes: _PointChannelCubes,
+    sorted_freqs: np.ndarray,
+    ref_idx: int,
+    ref_freq_hz: float,
+    mask: np.ndarray,
+    sorted_paths: list[str],
+    precision: PrecisionConfig,
+    provenance: SkyProvenance | None,
+) -> SkyModel:
+    """Mask the cubes and build the final point-source :class:`SkyModel`."""
+    from ..containers import PointSpectrum
+
+    flux_dt = get_sky_storage_dtype(precision, "flux")
+    src_dt = get_sky_storage_dtype(precision, "source_positions")
+    si_dt = get_sky_storage_dtype(precision, "spectral_index")
+    n_components = cubes.ra_rad.shape[0]
+
+    def _ref_row(cube: np.ndarray | None) -> np.ndarray:
+        if cube is not None:
+            return np.asarray(cube[ref_idx], dtype=flux_dt)
+        return np.zeros(n_components, dtype=flux_dt)
+
+    flux_ref = _ref_row(cubes.flux)
+    q_ref = _ref_row(cubes.q)
+    u_ref = _ref_row(cubes.u)
+    v_ref = _ref_row(cubes.v)
+
+    def _masked_cube(cube: np.ndarray | None) -> np.ndarray | None:
+        if cube is None:
+            return None
+        return np.ascontiguousarray(np.asarray(cube)[:, mask])
+
+    ra_rad = cubes.ra_rad[mask].astype(src_dt, copy=False)
+    dec_rad = cubes.dec_rad[mask].astype(src_dt, copy=False)
+    source_name = cubes.source_name[mask] if cubes.source_name is not None else None
     n_kept = int(mask.sum())
-
-    ref_freq_arr = np.full(n_kept, ref_freq_hz, dtype=flux_dt)
-    spectral_index = np.zeros(n_kept, dtype=si_dt)
 
     model_name = "skyh5_multifile:" + os.path.basename(
         os.path.dirname(sorted_paths[0]) or sorted_paths[0]
     )
     logger.info(
         "load_skyh5_multifile: point cube %d freq x %d sources",
-        n_freq,
+        len(sorted_paths),
         n_kept,
     )
-
-    from ..containers import PointSpectrum
 
     sky = SkyModel(
         point=PointSourceData(
             ra_rad=ra_rad,
             dec_rad=dec_rad,
-            flux=flux_ref,
-            spectral_index=spectral_index,
-            stokes_q=q_ref,
-            stokes_u=u_ref,
-            stokes_v=v_ref,
-            ref_freq=ref_freq_arr,
+            flux=flux_ref[mask],
+            spectral_index=np.zeros(n_kept, dtype=si_dt),
+            stokes_q=q_ref[mask],
+            stokes_u=u_ref[mask],
+            stokes_v=v_ref[mask],
+            ref_freq=np.full(n_kept, ref_freq_hz, dtype=flux_dt),
             source_name=source_name,
             spectrum=PointSpectrum(
-                flux=pc_flux_out,
+                flux=_masked_cube(cubes.flux),
                 frequencies=sorted_freqs.astype(np.float64),
-                stokes_q=pc_q_out,
-                stokes_u=pc_u_out,
-                stokes_v=pc_v_out,
+                stokes_q=_masked_cube(cubes.q),
+                stokes_u=_masked_cube(cubes.u),
+                stokes_v=_masked_cube(cubes.v),
             ),
         ),
         model_name=model_name,
@@ -661,3 +739,36 @@ def _load_point_branch(
     if provenance is not None:
         sky = sky.replace(provenance=provenance)
     return sky
+
+
+def _load_point_branch(
+    *,
+    sorted_paths: list[str],
+    sorted_freqs: np.ndarray,
+    n_stokes_avail: int,
+    reference_frequency_hz: float | None,
+    precision: PrecisionConfig,
+    region: SkyRegion | None,
+    memmap_path: str | None,
+    provenance: SkyProvenance | None,
+) -> SkyModel:
+    cubes = _read_point_channel_cubes(
+        sorted_paths=sorted_paths,
+        n_stokes_avail=n_stokes_avail,
+        precision=precision,
+        memmap_path=memmap_path,
+    )
+    ref_idx, ref_freq_hz = _select_reference_channel(
+        sorted_freqs, reference_frequency_hz
+    )
+    mask = _point_region_mask(cubes, region)
+    return _assemble_point_sky(
+        cubes=cubes,
+        sorted_freqs=sorted_freqs,
+        ref_idx=ref_idx,
+        ref_freq_hz=ref_freq_hz,
+        mask=mask,
+        sorted_paths=sorted_paths,
+        precision=precision,
+        provenance=provenance,
+    )

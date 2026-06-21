@@ -49,7 +49,7 @@ class SkyLoaderRegistry:
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Return a decorator that registers a loader function."""
 
-        return _backend._register_loader(
+        return _backend.register_loader(
             name,
             config_section=config_section,
             use_flag=use_flag,
@@ -99,13 +99,11 @@ class SkyLoaderRegistry:
 
     def aliases(self) -> dict[str, str]:
         """Return alias -> canonical loader mappings."""
-        _backend._ensure_default_loaders_registered()
-        return _backend._REGISTRY.alias_map()
+        return _backend._alias_map()
 
     def alias_defaults(self) -> dict[str, dict[str, Any]]:
         """Return alias-bound default kwargs."""
-        _backend._ensure_default_loaders_registered()
-        return _backend._REGISTRY.alias_defaults_map()
+        return _backend._alias_defaults_map()
 
     def network_services(self) -> dict[str, str]:
         """Return loader name -> required network service."""
@@ -125,8 +123,7 @@ class SkyLoaderRegistry:
         Production code should not need this — the built-in loaders are
         permanent.
         """
-        _backend._ensure_default_loaders_registered()
-        _backend._REGISTRY.unregister(name)
+        _backend._unregister_loader(name)
 
 
 loader_registry = SkyLoaderRegistry()

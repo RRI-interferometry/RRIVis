@@ -9,7 +9,6 @@ import numpy as np
 
 from ..containers import (
     MonopoleConvention,
-    SkyCoverage,
     SkyProvenance,
     SourceSubtractionStatus,
 )
@@ -17,6 +16,7 @@ from ..containers.constants import BrightnessConversion
 from ..containers.model import SkyFormat, _coerce_format
 from ..registry.facade import loader_registry
 from ..support.dnds import DNDSModel, resolve_dn_ds
+from ..support.provenance_coverage import coverage_provenance
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -139,11 +139,11 @@ def load_test_sources(
 
 
 def _approximate_region_area_sr(region: SkyRegion | None) -> float:
-    """Return an approximate solid angle (sr) covered by ``region``.
+    """Return the solid angle (sr) covered by ``region``.
 
-    Uses cone / box closed-form formulas when possible; falls back to a
-    nside=256 HEALPix mask count for unions or custom regions.  When
-    ``region`` is None, returns 4π.
+    Delegates to ``region.area_sr()`` (which itself uses closed-form cone /
+    box formulas where available and a HEALPix mask count otherwise).  When
+    ``region`` is None, returns the full-sphere ``4π`` sr.
     """
     if region is None:
         return 4.0 * np.pi
@@ -342,24 +342,14 @@ def load_poisson_confusion(
         # Empty realisation — build an empty point catalog with provenance.
         from ..operations.factories import create_empty
 
-        coverage_footprint = region.footprint() if region is not None else None
+        coverage = coverage_provenance(is_full_sky=region is None, region=region)
         empty_prov = SkyProvenance(
             flux_completeness_jy=flux_range_jy,
             flux_completeness_freq_hz=float(reference_frequency),
             angular_resolution_rad=(0.0, float(np.pi)),
-            sky_coverage=(
-                SkyCoverage.FULL_SKY if region is None else SkyCoverage.PARTIAL_SKY
-            ),
-            coverage_fraction=(
-                1.0
-                if region is None
-                else (
-                    coverage_footprint.coverage_fraction
-                    if coverage_footprint is not None
-                    else None
-                )
-            ),
-            coverage_footprint=coverage_footprint,
+            sky_coverage=coverage.sky_coverage,
+            coverage_fraction=coverage.coverage_fraction,
+            coverage_footprint=coverage.coverage_footprint,
             monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
             monopole_k=None,
             source_subtraction=SourceSubtractionStatus.NONE,
@@ -397,24 +387,14 @@ def load_poisson_confusion(
         precision=precision,
     )
 
-    coverage_footprint = region.footprint() if region is not None else None
+    coverage = coverage_provenance(is_full_sky=region is None, region=region)
     provenance = SkyProvenance(
         flux_completeness_jy=(float(flux_range_jy[0]), float(flux_range_jy[1])),
         flux_completeness_freq_hz=float(reference_frequency),
         angular_resolution_rad=(0.0, float(np.pi)),
-        sky_coverage=(
-            SkyCoverage.FULL_SKY if region is None else SkyCoverage.PARTIAL_SKY
-        ),
-        coverage_fraction=(
-            1.0
-            if region is None
-            else (
-                coverage_footprint.coverage_fraction
-                if coverage_footprint is not None
-                else None
-            )
-        ),
-        coverage_footprint=coverage_footprint,
+        sky_coverage=coverage.sky_coverage,
+        coverage_fraction=coverage.coverage_fraction,
+        coverage_footprint=coverage.coverage_footprint,
         monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
         monopole_k=None,
         source_subtraction=SourceSubtractionStatus.NONE,

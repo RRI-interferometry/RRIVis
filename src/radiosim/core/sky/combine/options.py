@@ -13,7 +13,10 @@ import numpy as np
 from pydantic import ConfigDict, model_validator
 from pydantic.dataclasses import dataclass
 
-from ..containers.constants import BrightnessConversion
+from radiosim.backends import ArrayBackend
+from radiosim.core.precision import PrecisionConfig
+
+from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX, BrightnessConversion
 from ..containers.model import SkyFormat
 from .disjointness import MixedModelPolicy
 
@@ -46,15 +49,20 @@ class PrepareSkyOptions:
     allow_lossy: bool = False
     mixed_model_policy: MixedModelPolicy = "error"
     brightness_conversion: BrightnessConversion | str | None = None
-    # Typed Any deliberately: this is a pydantic dataclass, and importing
-    # PrecisionConfig / ArrayBackend at runtime here would create an import
-    # cycle (they cannot be TYPE_CHECKING-only because pydantic must resolve
-    # the annotation to build the validation schema).
-    precision: Any = None
-    backend: Any = None
+    # ``PrecisionConfig`` / ``ArrayBackend`` are concrete here: neither
+    # ``radiosim.core.precision`` nor ``radiosim.backends`` imports the sky
+    # package at module load, so importing them eagerly does not create a
+    # cycle, and pydantic (with ``arbitrary_types_allowed=True``) resolves the
+    # annotations to build the validation schema.
+    precision: PrecisionConfig | None = None
+    backend: ArrayBackend | None = None
     memmap_path: str | None = None
     beam_fwhm_rad: float | None = None
     nside_safety_factor: float = 5.0
+    # Power-law spectral index used to scale a diffuse model's
+    # source-subtraction threshold to a point catalog's completeness frequency
+    # in the physical-disjointness check. Default −0.7 (synchrotron).
+    subtraction_scaling_alpha: float = SYNCHROTRON_SPECTRAL_INDEX
 
     @model_validator(mode="after")
     def _validate_state(self) -> PrepareSkyOptions:

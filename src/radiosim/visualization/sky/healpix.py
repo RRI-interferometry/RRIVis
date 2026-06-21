@@ -294,7 +294,9 @@ def plot_linear_polarization(
     """
     import matplotlib.pyplot as plt
 
-    from radiosim.core.sky.operations.operations import compute_linear_polarization
+    from radiosim.core.sky.diagnostics.polarization import (
+        compute_linear_polarization,
+    )
 
     _validate_plot_mode(sky, "healpix")
     freq = _resolve_plot_frequency(sky, frequency)

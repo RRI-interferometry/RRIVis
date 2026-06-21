@@ -11,6 +11,7 @@ import concurrent.futures
 import functools
 import logging
 import os
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import healpy as hp
@@ -20,8 +21,8 @@ from ..containers import SourceSubtractionStatus
 from ..containers.constants import (
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
-    pixel_solid_angle,
 )
+from ..support.healpix_geometry import gnomonic_rotate, pixel_solid_angle
 
 if TYPE_CHECKING:
     from ..containers.model import SkyModel
@@ -93,16 +94,7 @@ def _gnomonic_patch_coords(
     """
     theta0, phi0 = hp.pix2ang(nside, center_pix)
     theta, phi = hp.pix2ang(nside, patch_pix)
-
-    lat0 = np.pi / 2.0 - theta0
-    lat = np.pi / 2.0 - theta
-    dlon = phi - phi0
-
-    cos_c = np.sin(lat0) * np.sin(lat) + np.cos(lat0) * np.cos(lat) * np.cos(dlon)
-    cos_c = np.where(cos_c <= 1e-12, 1e-12, cos_c)
-    x = np.cos(lat) * np.sin(dlon) / cos_c
-    y = (np.cos(lat0) * np.sin(lat) - np.sin(lat0) * np.cos(lat) * np.cos(dlon)) / cos_c
-    return x, y
+    return gnomonic_rotate(phi, np.pi / 2.0 - theta, phi0, np.pi / 2.0 - theta0)
 
 
 def _fit_elliptical_gaussian(
@@ -134,7 +126,18 @@ def _fit_elliptical_gaussian(
     """
     from scipy.optimize import curve_fit
 
-    def _model(xy, amp, x0, y0, sigma_M, sigma_m, pa, bx, by, c):
+    def _model(
+        xy: tuple[np.ndarray, np.ndarray],
+        amp: float,
+        x0: float,
+        y0: float,
+        sigma_M: float,
+        sigma_m: float,
+        pa: float,
+        bx: float,
+        by: float,
+        c: float,
+    ) -> np.ndarray:
         xx, yy = xy
         cos_pa = np.cos(pa)
         sin_pa = np.sin(pa)
@@ -232,6 +235,60 @@ def _evaluate_elliptical_gaussian(
     return amp * np.exp(-0.5 * (xr**2 / sigma_M**2 + yr**2 / sigma_m**2))
 
 
+@dataclass(frozen=True)
+class _MultifreqParamLayout:
+    """Flat parameter-vector layout for the joint multi-frequency fit.
+
+    The parameter vector is::
+
+        [x0, y0, sigma_M, sigma_m, pa,
+         A_0..A_{n-1}, bx_0..bx_{n-1}, by_0..by_{n-1}, c_0..c_{n-1}]
+
+    Geometry (the leading five entries) is shared across channels; the
+    amplitude and the planar-baseline coefficients are per-channel. Owning
+    the offsets in one place removes the silent-wrong-fit footgun of a
+    mismatched ``5 + k*n_freq`` at separate pack/unpack sites.
+    """
+
+    n_freq: int
+
+    @property
+    def n_params(self) -> int:
+        return 5 + 4 * self.n_freq
+
+    @property
+    def amp(self) -> slice:
+        return slice(5, 5 + self.n_freq)
+
+    @property
+    def bx(self) -> slice:
+        return slice(5 + self.n_freq, 5 + 2 * self.n_freq)
+
+    @property
+    def by(self) -> slice:
+        return slice(5 + 2 * self.n_freq, 5 + 3 * self.n_freq)
+
+    @property
+    def c(self) -> slice:
+        return slice(5 + 3 * self.n_freq, 5 + 4 * self.n_freq)
+
+    def baseline_rows(self, params: np.ndarray) -> np.ndarray:
+        """``(n_freq, 3)`` array of ``[bx, by, c]`` per channel."""
+        return np.column_stack([params[self.bx], params[self.by], params[self.c]])
+
+    def to_fit_dict(self, params: np.ndarray) -> dict[str, np.ndarray | float]:
+        """Assemble the canonical fit dict from a packed parameter vector."""
+        return {
+            "x0": float(params[0]),
+            "y0": float(params[1]),
+            "sigma_major": float(params[2]),
+            "sigma_minor": float(params[3]),
+            "pa": float(params[4]),
+            "amplitudes": np.asarray(params[self.amp]).copy(),
+            "baselines": self.baseline_rows(params),
+        }
+
+
 def _fit_multifreq_gaussian(
     x: np.ndarray,
     y: np.ndarray,
@@ -282,42 +339,33 @@ def _fit_multifreq_gaussian(
             f"x={x.size}, z_per_channel rows={n_pix}."
         )
 
-    # Initialise geometry from the brightest channel — Remazeilles 2015 §3
-    # uses the same one-channel seed in their bootstrap.
-    bright_ch = int(np.argmax(np.ptp(z_per_channel, axis=1)))
-    seed_z = z_per_channel[bright_ch]
+    # Initialise geometry from the channel with the highest peak brightness —
+    # Remazeilles 2015 §3 uses a one-channel seed in their bootstrap. Using
+    # ``argmax`` of the per-channel maximum (rather than the peak-to-peak
+    # range) seeds on the channel where the source itself is brightest, which
+    # is the relevant quantity for the centroid guess.
+    brightest_channel = int(np.argmax(z_per_channel.max(axis=1)))
+    seed_z = z_per_channel[brightest_channel]
     peak_idx = int(np.argmax(seed_z))
     medians = np.median(z_per_channel, axis=1)
     amps_init = np.maximum(z_per_channel.max(axis=1) - medians, np.abs(medians) * 1e-3)
     x0_init = float(x[peak_idx])
     y0_init = float(y[peak_idx])
 
-    # Pack: [x0, y0, sigma_M, sigma_m, pa, A_0, ..., A_{n-1},
-    #        bx_0, ..., bx_{n-1}, by_0, ..., by_{n-1}, c_0, ..., c_{n-1}]
-    # Named slices defined once so every pack/unpack site shares the same
-    # offsets (a mismatched ``5 + k*n_freq`` was a silent-wrong-fit footgun).
-    n_params = 5 + 4 * n_freq
-    AMP = slice(5, 5 + n_freq)
-    BX = slice(5 + n_freq, 5 + 2 * n_freq)
-    BY = slice(5 + 2 * n_freq, 5 + 3 * n_freq)
-    C = slice(5 + 3 * n_freq, 5 + 4 * n_freq)
+    layout = _MultifreqParamLayout(n_freq=n_freq)
 
-    def _baseline_rows(params: np.ndarray) -> np.ndarray:
-        """``(n_freq, 3)`` array of ``[bx, by, c]`` per channel."""
-        return np.column_stack([params[BX], params[BY], params[C]])
-
-    p0 = np.zeros(n_params, dtype=np.float64)
+    p0 = np.zeros(layout.n_params, dtype=np.float64)
     p0[0] = x0_init
     p0[1] = y0_init
     p0[2] = sigma_init_rad
     p0[3] = sigma_init_rad
     p0[4] = 0.0
-    p0[AMP] = amps_init
+    p0[layout.amp] = amps_init
     # bx, by start at 0; c starts at the per-channel median.
-    p0[C] = medians
+    p0[layout.c] = medians
 
-    lower = np.full(n_params, -np.inf)
-    upper = np.full(n_params, np.inf)
+    lower = np.full(layout.n_params, -np.inf)
+    upper = np.full(layout.n_params, np.inf)
     lower[0] = float(x.min())
     upper[0] = float(x.max())
     lower[1] = float(y.min())
@@ -328,15 +376,15 @@ def _fit_multifreq_gaussian(
     upper[3] = sigma_init_rad * 5.0
     lower[4] = -np.pi / 2.0
     upper[4] = np.pi / 2.0
-    lower[AMP] = 0.0  # amplitudes non-negative
+    lower[layout.amp] = 0.0  # amplitudes non-negative
 
     # Cache geometry-dependent terms once per evaluation; per-channel work is O(N).
     def _residuals(params: np.ndarray) -> np.ndarray:
         x0, y0, sigma_M, sigma_m, pa = params[:5]
-        amps = params[AMP]
-        bxs = params[BX]
-        bys = params[BY]
-        cs = params[C]
+        amps = params[layout.amp]
+        bxs = params[layout.bx]
+        bys = params[layout.by]
+        cs = params[layout.c]
         cos_pa = np.cos(pa)
         sin_pa = np.sin(pa)
         xr = (x - x0) * cos_pa + (y - y0) * sin_pa
@@ -351,15 +399,7 @@ def _fit_multifreq_gaussian(
         )
         return (model - z_per_channel).ravel()
 
-    seed_dict: dict[str, np.ndarray | float] = {
-        "x0": float(p0[0]),
-        "y0": float(p0[1]),
-        "sigma_major": float(p0[2]),
-        "sigma_minor": float(p0[3]),
-        "pa": float(p0[4]),
-        "amplitudes": p0[AMP].copy(),
-        "baselines": _baseline_rows(p0),
-    }
+    seed_dict = layout.to_fit_dict(p0)
 
     try:
         result = least_squares(
@@ -377,8 +417,7 @@ def _fit_multifreq_gaussian(
     popt = result.x
     sigma_M_fit = float(popt[2])
     sigma_m_fit = float(popt[3])
-    pa_fit = float(popt[4])
-    amps_fit = popt[AMP]
+    amps_fit = popt[layout.amp]
 
     # Reject geometry collapses below the resolution floor (matches the
     # single-channel fit's guard at sigma_min <= sigma_init * 0.25).
@@ -389,21 +428,17 @@ def _fit_multifreq_gaussian(
     if not np.any(amps_fit > 0):
         return seed_dict, False
 
+    fit = layout.to_fit_dict(popt)
+
     # Canonicalise so sigma_major is the larger axis (matches single-channel
     # fitter convention so downstream consumers can read sigma_major directly).
     if sigma_m_fit > sigma_M_fit:
-        sigma_M_fit, sigma_m_fit = sigma_m_fit, sigma_M_fit
-        pa_fit = (pa_fit + np.pi / 2.0 + np.pi / 2.0) % np.pi - np.pi / 2.0
+        pa_fit = float(popt[4])
+        fit["sigma_major"] = sigma_m_fit
+        fit["sigma_minor"] = sigma_M_fit
+        fit["pa"] = (pa_fit + np.pi / 2.0 + np.pi / 2.0) % np.pi - np.pi / 2.0
 
-    return {
-        "x0": float(popt[0]),
-        "y0": float(popt[1]),
-        "sigma_major": sigma_M_fit,
-        "sigma_minor": sigma_m_fit,
-        "pa": pa_fit,
-        "amplitudes": amps_fit.copy(),
-        "baselines": _baseline_rows(popt),
-    }, True
+    return fit, True
 
 
 def _multifreq_fit_to_channel_params(

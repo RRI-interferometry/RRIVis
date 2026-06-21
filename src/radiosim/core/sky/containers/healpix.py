@@ -33,11 +33,21 @@ class HealpixData:
     ``(n_freq, n_stored_pix)`` with ``hpx_inds`` giving the full-sky
     HEALPix indices for each stored pixel.  The ``frequencies`` array
     provides the frequency axis in Hz.
+
+    Frequency-axis dtype policy
+    ---------------------------
+    ``frequencies`` is **always stored as float64**, independent of the
+    flux/storage precision (which governs the brightness ``maps``). This
+    matches :class:`~.point.PointSpectrum.frequencies` so a HEALPix↔point
+    round-trip never changes the frequency-axis dtype. The policy is enforced
+    by :func:`._shared.validate_frequency_axis` (a ``mode="before"`` field
+    validator), so even a flux-dtype cast applied upstream is normalized back
+    to float64 here.
     """
 
     maps: np.ndarray  # Stokes I, shape (n_freq, npix), in Kelvin
     nside: int
-    frequencies: np.ndarray  # shape (n_freq,), in Hz
+    frequencies: np.ndarray  # shape (n_freq,), in Hz, always float64
     coordinate_frame: str = "icrs"
     ordering: str = "ring"  # "ring" or "nest" — HEALPix pixel ordering scheme
     hpx_inds: np.ndarray | None = None
@@ -394,31 +404,43 @@ class HealpixData:
             "in to densification."
         )
 
-    def to_dense(self) -> HealpixData:
+    def to_dense(self, fill: float = 0.0) -> HealpixData:
         """Return a dense copy with full-sky arrays.
 
-        Pixels not present in the sparse ``hpx_inds`` are filled with exactly
-        ``0.0`` (Kelvin / the map dtype's zero). This fill is indistinguishable
-        from a measured zero, so monopole / power-spectrum statistics computed
-        over a densified partial-sky map include the un-observed region as
-        zero — mask or weight by the original footprint when that matters.
+        Pixels not present in the sparse ``hpx_inds`` are set to ``fill``
+        (cast to each Stokes map's dtype). The same ``fill`` is applied to
+        every Stokes map (I and any Q/U/V).
+
+        Partial-sky fill semantics
+        --------------------------
+        The default ``fill=0.0`` is **indistinguishable from a measured
+        zero**, so monopole / power-spectrum statistics computed over a
+        densified partial-sky map include the un-observed region as zero —
+        mask or weight by the original footprint when that matters.
+
+        Pass ``fill=np.nan`` to make the un-observed region explicit: NaN
+        pixels are then distinguishable from measured zeros and propagate
+        through ``np.nanmean`` / ``np.nansum`` style reductions instead of
+        silently biasing them toward zero. (NaN requires a floating-point map
+        dtype, which brightness-temperature maps always are.)
+
+        A dense input has no un-observed pixels, so ``fill`` is irrelevant and
+        ``self`` is returned unchanged.
         """
         if not self.is_sparse:
             return self
 
         dense_shape = (self.n_frequencies, self.full_n_pixels)
-        dense_maps = np.zeros(dense_shape, dtype=self.maps.dtype)
-        dense_maps[:, self.hpx_inds] = self.maps
 
         def _dense_copy(arr: np.ndarray | None) -> np.ndarray | None:
             if arr is None:
                 return None
-            dense_arr = np.zeros(dense_shape, dtype=arr.dtype)
+            dense_arr = np.full(dense_shape, fill, dtype=arr.dtype)
             dense_arr[:, self.hpx_inds] = arr
             return dense_arr
 
         return self.replace(
-            maps=dense_maps,
+            maps=_dense_copy(self.maps),
             hpx_inds=None,
             q_maps=_dense_copy(self.q_maps),
             u_maps=_dense_copy(self.u_maps),

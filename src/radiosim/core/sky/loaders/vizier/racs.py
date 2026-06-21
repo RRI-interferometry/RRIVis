@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -29,6 +30,89 @@ if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
 logger = logging.getLogger(__name__)
+
+# ADQL bare table/column identifiers: dotted alphanumerics with underscores.
+# TAP does not support bound parameters for identifiers, so the only safe way
+# to interpolate a table/column name is to validate it against a strict
+# allowlist pattern before it can reach the query string.
+_ADQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+
+
+def _validate_adql_identifier(identifier: str, *, kind: str) -> str:
+    """Return *identifier* if it is a safe ADQL table/column name, else raise.
+
+    Guards against ADQL injection through catalog-metadata identifiers: only
+    dotted alphanumeric-with-underscore names are accepted (no quotes, spaces,
+    parentheses, or statement separators).
+    """
+    if not isinstance(identifier, str) or not _ADQL_IDENTIFIER_RE.match(identifier):
+        raise ValueError(
+            f"Unsafe ADQL {kind} identifier {identifier!r}; expected a dotted "
+            "alphanumeric/underscore name."
+        )
+    return identifier
+
+
+def _adql_number(value: float) -> str:
+    """Return a finite numeric *value* formatted as a safe ADQL literal."""
+    num = float(value)
+    if not np.isfinite(num):
+        raise ValueError(f"Non-finite ADQL numeric literal: {value!r}.")
+    return repr(num)
+
+
+def _build_racs_adql(
+    *,
+    info: Any,
+    max_rows: int,
+    flux_limit_mjy: float,
+    region: SkyRegion | None,
+) -> str:
+    """Assemble the RACS CASDA TAP query from validated identifiers/literals.
+
+    All table and column names are validated against
+    :data:`_ADQL_IDENTIFIER_RE`, and every numeric value is rendered through
+    :func:`_adql_number`, so no raw caller- or metadata-supplied string is
+    interpolated unchecked.
+    """
+    ra_col = _validate_adql_identifier(info.ra_col, kind="column")
+    dec_col = _validate_adql_identifier(info.dec_col, kind="column")
+    flux_col = _validate_adql_identifier(info.flux_col, kind="column")
+    tap_table = _validate_adql_identifier(info.tap_table, kind="table")
+
+    top_n = int(max_rows)
+    if top_n <= 0:
+        raise ValueError(f"max_rows must be a positive integer, got {max_rows!r}.")
+
+    adql = (
+        f"SELECT TOP {top_n} "
+        f"{ra_col}, {dec_col}, {flux_col} "
+        f"FROM {tap_table} "
+        f"WHERE {flux_col} >= {_adql_number(flux_limit_mjy)}"
+    )
+    if region is not None:
+        from ...operations.region import ConeRegion
+
+        pt = f"POINT('ICRS', {ra_col}, {dec_col})"
+        spatial_parts = []
+        for sub in region._iter_atomic():
+            if isinstance(sub, ConeRegion):
+                spatial_parts.append(
+                    f"CONTAINS({pt}, CIRCLE('ICRS', "
+                    f"{_adql_number(sub.center.ra.deg)}, "
+                    f"{_adql_number(sub.center.dec.deg)}, "
+                    f"{_adql_number(sub.radius.deg)})) = 1"
+                )
+            else:  # box
+                spatial_parts.append(
+                    f"CONTAINS({pt}, BOX('ICRS', "
+                    f"{_adql_number(sub.center.ra.deg)}, "
+                    f"{_adql_number(sub.center.dec.deg)}, "
+                    f"{_adql_number(sub.width.deg)}, "
+                    f"{_adql_number(sub.height.deg)})) = 1"
+                )
+        adql += " AND (" + " OR ".join(spatial_parts) + ")"
+    return adql
 
 
 def _parse_racs_results_with_fallback(
@@ -220,33 +304,15 @@ def load_racs(
 
     require_service("casda", f"download RACS-{band} catalog from CASDA")
 
+    adql = _build_racs_adql(
+        info=info,
+        max_rows=max_rows,
+        flux_limit_mjy=flux_limit_mjy,
+        region=region,
+    )
+
     try:
         tap = TapPlus(url=CASDA_TAP_URL)
-        adql = (
-            f"SELECT TOP {max_rows} "
-            f"{info.ra_col}, {info.dec_col}, {info.flux_col} "
-            f"FROM {info.tap_table} "
-            f"WHERE {info.flux_col} >= {flux_limit_mjy}"
-        )
-        if region is not None:
-            spatial_parts = []
-            pt = f"POINT('ICRS', {info.ra_col}, {info.dec_col})"
-            from ...operations.region import ConeRegion
-
-            for sub in region._iter_atomic():
-                if isinstance(sub, ConeRegion):
-                    spatial_parts.append(
-                        f"CONTAINS({pt}, CIRCLE('ICRS', "
-                        f"{sub.center.ra.deg}, {sub.center.dec.deg}, "
-                        f"{sub.radius.deg})) = 1"
-                    )
-                else:  # box
-                    spatial_parts.append(
-                        f"CONTAINS({pt}, BOX('ICRS', "
-                        f"{sub.center.ra.deg}, {sub.center.dec.deg}, "
-                        f"{sub.width.deg}, {sub.height.deg})) = 1"
-                    )
-            adql += " AND (" + " OR ".join(spatial_parts) + ")"
         job = tap.launch_job(adql)
         result = job.get_results()
 

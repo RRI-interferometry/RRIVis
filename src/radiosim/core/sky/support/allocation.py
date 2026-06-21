@@ -68,11 +68,21 @@ def _cleanup_scratch_dirs() -> None:
         shutil.rmtree(d, ignore_errors=True)
 
 
+# Platforms on which a freshly-grown ``np.memmap("w+")`` file is guaranteed to
+# read back as zeros without an explicit write.  POSIX ``ftruncate`` (used by
+# numpy to size the backing file) zero-fills the grown region, so the eager
+# ``mm[:] = 0`` pass is pure redundant disk IO there.  Windows offers no such
+# guarantee for sparse/grown files, so we keep the eager fill on by default.
+_ZERO_FILL_GUARANTEED_BY_PLATFORM = os.name == "posix"
+
+
 def allocate_cube(
     shape: tuple[int, int],
     dtype: np.dtype | type,
     memmap_dir: str | None,
     name: str,
+    *,
+    zero_fill: bool | None = None,
 ) -> np.ndarray:
     """Allocate a zero-initialised (n_freq, npix) cube in RAM or on disk.
 
@@ -85,17 +95,33 @@ def allocate_cube(
     memmap_dir : str or None
         If ``None``, returns ``np.zeros(shape, dtype=dtype)`` (RAM-backed).
         If a directory path, returns ``np.memmap`` at
-        ``<memmap_dir>/<name>.dat``, mode ``w+``, zero-filled.
+        ``<memmap_dir>/<name>.dat``, mode ``w+``.
     name : str
         Logical map name (``"i_maps"``, ``"q_maps"``, ``"u_maps"``,
         ``"v_maps"``).  Used as the filename stem under ``memmap_dir``.
+    zero_fill : bool or None, default None
+        Controls the up-front zero-fill of the memmap backing file:
+
+        * ``None`` (default) — lazy/platform-aware.  The eager ``mm[:] = 0``
+          pass is **skipped** when the platform guarantees a grown ``w+``
+          memmap reads back as zeros (POSIX ``ftruncate``), and performed
+          otherwise (e.g. Windows).  This avoids a full-cube disk write on
+          the common path while preserving the zero guarantee everywhere.
+        * ``True`` — always perform the eager zero-fill (use when the caller
+          requires the cross-platform zero guarantee regardless of platform).
+        * ``False`` — never perform the eager zero-fill (opt-out; the caller
+          promises to fully populate the cube before reading it).
+
+        Ignored for RAM-backed allocations (``memmap_dir is None``), which are
+        always zero via ``np.zeros``.
 
     Returns
     -------
     np.ndarray
         ``np.ndarray`` for in-memory allocation, ``np.memmap`` (which is
-        an ``ndarray`` subclass) for disk-backed allocation.  In both
-        cases the array is zero-filled.
+        an ``ndarray`` subclass) for disk-backed allocation.  In-memory
+        allocations are always zero-filled; memmap allocations read as zero
+        wherever the platform or ``zero_fill`` guarantees it.
     """
     if memmap_dir is None:
         return np.zeros(shape, dtype=dtype)
@@ -103,9 +129,12 @@ def allocate_cube(
     fpath = os.path.join(memmap_dir, f"{name}.dat")
     mm = np.memmap(fpath, dtype=dtype, mode="w+", shape=shape)
     # ``np.memmap`` with mode="w+" allocates the file but zero-fill is not
-    # guaranteed on all platforms when the file is grown.  Explicitly zero
-    # the memory to match ``np.zeros`` semantics.
-    mm[:] = 0
+    # guaranteed on all platforms when the file is grown.  Only pay for the
+    # explicit zero-fill when it is actually needed (see ``zero_fill``).
+    if zero_fill is None:
+        zero_fill = not _ZERO_FILL_GUARANTEED_BY_PLATFORM
+    if zero_fill:
+        mm[:] = 0
     return mm
 
 

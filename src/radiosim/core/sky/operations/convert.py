@@ -6,10 +6,12 @@ Pure functions that accept and return raw numpy arrays. No SkyModel dependency.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import healpy as hp
 import numpy as np
+import numpy.typing as npt
 
 from ..containers import empty_source_arrays as _empty_source_arrays
 from ..containers.constants import (
@@ -25,11 +27,20 @@ from ..containers.spectral import (
 )
 from ..diagnostics.discovery import estimate_healpix_memory
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+from ..support.backend_helpers import maybe_asarray
+from ..support.healpix_geometry import pixel_solid_angle
+from ..support.precision import get_sky_storage_dtype
 
 if TYPE_CHECKING:
     from radiosim.backends import ArrayBackend
+    from radiosim.core.precision import PrecisionConfig
 
 logger = logging.getLogger(__name__)
+
+#: Polarization values whose magnitude is below this (Jy) are treated as
+#: unpolarized when deciding whether to allocate Q/U/V maps. Replaces the
+#: brittle ``!= 0.0`` float comparison (spec item F5).
+_POLARIZATION_PRESENCE_ATOL: float = 1e-20
 
 
 def _fit_pixel_spectral_indices(
@@ -155,6 +166,7 @@ def healpix_map_to_point_arrays(
     polarization_brightness_conversion: str = "rayleigh-jeans",
     warn: bool = True,
     backend: ArrayBackend | None = None,
+    precision: PrecisionConfig | None = None,
 ) -> dict[str, np.ndarray]:
     """Convert a HEALPix brightness temperature map to columnar point-source arrays.
 
@@ -214,6 +226,12 @@ def healpix_map_to_point_arrays(
         Defaults to ``frequency`` if not given.
     polarization_brightness_conversion : {"rayleigh-jeans", "planck"}, default "rayleigh-jeans"
         Brightness-conversion method for Stokes Q/U/V.  See the note above.
+    precision : PrecisionConfig or None
+        Storage precision for the returned point arrays. When ``None`` the
+        arrays are float64 (positions, flux, Stokes, ref_freq). When given,
+        positions use ``precision.sky_model.source_positions`` and
+        flux/Stokes/ref_freq use ``precision.sky_model.flux`` so a
+        point→HEALPix→point round-trip preserves the caller's dtype policy.
 
     Returns
     -------
@@ -229,9 +247,13 @@ def healpix_map_to_point_arrays(
             "polarization_brightness_conversion must be 'rayleigh-jeans' or "
             f"'planck', got {polarization_brightness_conversion!r}."
         )
+    pos_dtype = get_sky_storage_dtype(precision, "source_positions", np.float64)
+    flux_dtype = get_sky_storage_dtype(precision, "flux", np.float64)
+    si_dtype = get_sky_storage_dtype(precision, "spectral_index", np.float64)
+
     npix = len(temp_map)
     nside = hp.npix2nside(npix)
-    omega = 4 * np.pi / npix
+    omega = pixel_solid_angle(nside)
     ref_freq_val = ref_freq_out if ref_freq_out is not None else frequency
     frame = _normalize_coordinate_frame(coordinate_frame)
 
@@ -282,7 +304,7 @@ def healpix_map_to_point_arrays(
         )
         logger.info(
             "Fitted per-pixel spectral indices from %d frequency channels "
-            "(%.1f\u2013%.1f MHz). Median alpha=%.3f.",
+            "(%.1f–%.1f MHz). Median alpha=%.3f.",
             len(observation_frequencies),
             observation_frequencies[0] / 1e6,
             observation_frequencies[-1] / 1e6,
@@ -295,7 +317,7 @@ def healpix_map_to_point_arrays(
         )
         if warn and n_freq <= 1:
             logger.warning(
-                "Only %d frequency channel available \u2014 cannot fit spectral "
+                "Only %d frequency channel available — cannot fit spectral "
                 "index. All pixels assigned alpha=0 (flat spectrum). For "
                 "accurate multi-frequency results, use 'healpix_map' "
                 "representation directly.",
@@ -366,14 +388,14 @@ def healpix_map_to_point_arrays(
         stokes_v = np.zeros(n, dtype=np.float64)
 
     return {
-        "ra_rad": ra_rad,
-        "dec_rad": dec_rad,
-        "flux": flux_ref,
-        "spectral_index": alpha,
-        "ref_freq": np.full(n, ref_freq_val, dtype=np.float64),
-        "stokes_q": stokes_q,
-        "stokes_u": stokes_u,
-        "stokes_v": stokes_v,
+        "ra_rad": ra_rad.astype(pos_dtype),
+        "dec_rad": dec_rad.astype(pos_dtype),
+        "flux": flux_ref.astype(flux_dtype),
+        "spectral_index": alpha.astype(si_dtype),
+        "ref_freq": np.full(n, ref_freq_val, dtype=flux_dtype),
+        "stokes_q": stokes_q.astype(flux_dtype),
+        "stokes_u": stokes_u.astype(flux_dtype),
+        "stokes_v": stokes_v.astype(flux_dtype),
         "rotation_measure": None,
         "major_arcsec": None,
         "minor_arcsec": None,
@@ -448,6 +470,312 @@ def bin_sources_to_flux(
     return backend.bincount(ipix, weights=flux_f, minlength=npix)
 
 
+# =============================================================================
+# point_sources_to_healpix_maps — grouped inputs + per-channel helpers
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class _SourceInputs:
+    """Reference-frequency per-source arrays cast to the active backend.
+
+    All arrays are backend arrays (float64); the optional ones stay ``None``
+    when the caller supplied nothing. ``ipix`` is the HEALPix pixel index of
+    each source. ``ref_frequency`` is scalar-or-per-source.
+    """
+
+    ipix: np.ndarray
+    flux: np.ndarray
+    spectral_index: np.ndarray
+    spectral_coeffs: np.ndarray | None
+    ref_frequency: np.ndarray
+    stokes_q: np.ndarray | None
+    stokes_u: np.ndarray | None
+    stokes_v: np.ndarray | None
+    rotation_measure: np.ndarray | None
+    n_sources: int
+
+
+@dataclass(frozen=True)
+class _PerChannelInputs:
+    """Per-channel (spectrum table) per-source arrays cast to the backend.
+
+    All entries are ``None`` unless the caller supplied a per-channel
+    spectrum. ``channel_frequencies`` stays numpy (used only for nearest-
+    channel lookups, not arithmetic on the backend).
+    """
+
+    flux: np.ndarray | None
+    stokes_q: np.ndarray | None
+    stokes_u: np.ndarray | None
+    stokes_v: np.ndarray | None
+    channel_frequencies: np.ndarray | None
+
+    @property
+    def active(self) -> bool:
+        return self.flux is not None and self.channel_frequencies is not None
+
+
+@dataclass(frozen=True)
+class _ChannelConfig:
+    """Shared geometry / method configuration for one HEALPix channel build."""
+
+    nside: int
+    npix: int
+    omega_pixel: float
+    output_dtype: npt.DTypeLike
+    brightness_conversion: str
+    pol_method: str
+
+
+def _cast_inputs_to_backend(
+    *,
+    ipix: np.ndarray,
+    flux: np.ndarray,
+    spectral_index: np.ndarray,
+    spectral_coeffs: np.ndarray | None,
+    ref_frequency: float | np.ndarray,
+    stokes_q: np.ndarray | None,
+    stokes_u: np.ndarray | None,
+    stokes_v: np.ndarray | None,
+    rotation_measure: np.ndarray | None,
+    per_channel_flux: np.ndarray | None,
+    per_channel_stokes_q: np.ndarray | None,
+    per_channel_stokes_u: np.ndarray | None,
+    per_channel_stokes_v: np.ndarray | None,
+    channel_frequencies: np.ndarray | None,
+    n_sources: int,
+    backend: ArrayBackend | None,
+) -> tuple[_SourceInputs, _PerChannelInputs]:
+    """Cast every per-source array to the active backend once.
+
+    Routes the repeated ``None if x is None else backend.asarray(x)`` ternary
+    through :func:`maybe_asarray` (spec item B1) and packs the result into the
+    two grouped-input dataclasses consumed by the channel builders.
+    """
+    sources = _SourceInputs(
+        ipix=ipix,
+        flux=maybe_asarray(backend, flux, dtype=np.float64),
+        spectral_index=maybe_asarray(backend, spectral_index, dtype=np.float64),
+        spectral_coeffs=maybe_asarray(backend, spectral_coeffs, dtype=np.float64),
+        ref_frequency=maybe_asarray(backend, ref_frequency, dtype=np.float64),
+        stokes_q=maybe_asarray(backend, stokes_q, dtype=np.float64),
+        stokes_u=maybe_asarray(backend, stokes_u, dtype=np.float64),
+        stokes_v=maybe_asarray(backend, stokes_v, dtype=np.float64),
+        rotation_measure=maybe_asarray(backend, rotation_measure, dtype=np.float64),
+        n_sources=n_sources,
+    )
+    per_channel = _PerChannelInputs(
+        flux=maybe_asarray(backend, per_channel_flux, dtype=np.float64),
+        stokes_q=maybe_asarray(backend, per_channel_stokes_q, dtype=np.float64),
+        stokes_u=maybe_asarray(backend, per_channel_stokes_u, dtype=np.float64),
+        stokes_v=maybe_asarray(backend, per_channel_stokes_v, dtype=np.float64),
+        channel_frequencies=channel_frequencies,
+    )
+    return sources, per_channel
+
+
+def _compute_stokes_i_channel(
+    freq: float,
+    sources: _SourceInputs,
+    per_channel: _PerChannelInputs,
+    cfg: _ChannelConfig,
+    backend: ArrayBackend | None,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Build the Stokes-I brightness-temperature row for one channel.
+
+    Returns ``(temp_out, scale)`` where ``temp_out`` is the length-``npix``
+    K row (``cfg.output_dtype``) and ``scale`` is the per-source spectral
+    scale used by the polarization builder (``None`` on the per-channel path,
+    which does not share a scale).
+    """
+    xp = np if backend is None else backend.xp
+    to_numpy = np.asarray if backend is None else backend.to_numpy
+
+    if per_channel.active:
+        scale = None
+        flux_map = bin_sources_to_flux(
+            sources.ipix,
+            sources.flux,
+            sources.spectral_index,
+            sources.spectral_coeffs,
+            float(freq),
+            sources.ref_frequency,
+            cfg.npix,
+            per_channel_flux=per_channel.flux,
+            channel_frequencies=per_channel.channel_frequencies,
+            backend=backend,
+        )
+    else:
+        scale = compute_spectral_scale(
+            sources.spectral_index,
+            sources.spectral_coeffs,
+            float(freq),
+            sources.ref_frequency,
+            xp=xp,
+        )
+        flux_map = bin_sources_to_flux(
+            sources.ipix,
+            sources.flux,
+            sources.spectral_index,
+            sources.spectral_coeffs,
+            float(freq),
+            sources.ref_frequency,
+            cfg.npix,
+            scale=scale,
+            backend=backend,
+        )
+
+    temp_out = np.zeros(cfg.npix, dtype=cfg.output_dtype)
+    flux_map_np = to_numpy(flux_map)
+    occupied = flux_map_np > 0
+    if np.any(occupied):
+        temp_out[occupied] = flux_density_to_brightness_temp(
+            flux_map_np[occupied],
+            float(freq),
+            cfg.omega_pixel,
+            method=cfg.brightness_conversion,
+        ).astype(cfg.output_dtype)
+    return temp_out, scale
+
+
+def _pol_flux_map_to_K(
+    flux_map: np.ndarray,
+    name: str,
+    freq_hz: float,
+    rj_inv: float,
+    cfg: _ChannelConfig,
+    backend: ArrayBackend | None,
+) -> np.ndarray:
+    """Convert a per-pixel Stokes Q/U/V flux map (Jy) to brightness T (K).
+
+    Default Rayleigh-Jeans is linear and sign-preserving; ``"planck"``
+    matches Stokes I but requires the per-pixel binned flux to be strictly
+    positive.
+    """
+    to_numpy = np.asarray if backend is None else backend.to_numpy
+    flux_map_np = to_numpy(flux_map)
+    if cfg.pol_method == "planck":
+        if np.any(flux_map_np <= 0):
+            raise ValueError(
+                "polarization_brightness_conversion='planck' requires "
+                f"strictly positive {name} flux per pixel; got values <= 0 "
+                f"after binning at {freq_hz / 1e6:.3f} MHz. Use "
+                "'rayleigh-jeans' for sign-preserving linear conversion."
+            )
+        return flux_density_to_brightness_temp(
+            flux_map_np, freq_hz, cfg.omega_pixel, method="planck"
+        )
+    return flux_map_np * rj_inv
+
+
+def _bincount(
+    ipix: np.ndarray,
+    weights: np.ndarray,
+    npix: int,
+    backend: ArrayBackend | None,
+) -> np.ndarray:
+    if backend is None:
+        return np.bincount(ipix, weights=weights, minlength=npix)
+    return backend.bincount(ipix, weights=weights, minlength=npix)
+
+
+def _compute_stokes_pol_channel(
+    freq: float,
+    scale: np.ndarray | None,
+    sources: _SourceInputs,
+    per_channel: _PerChannelInputs,
+    cfg: _ChannelConfig,
+    backend: ArrayBackend | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Build the Stokes Q/U/V brightness-temperature rows for one channel.
+
+    Returns ``(q_row, u_row, v_row)``, each length-``npix`` in
+    ``cfg.output_dtype``. ``scale`` is the per-source Stokes-I spectral scale
+    (used by the Faraday-rotation path); it is ``None`` on the per-channel
+    path which reads flux directly from the spectrum table.
+    """
+    xp = np if backend is None else backend.xp
+    freq_hz = float(freq)
+    rj_inv = 1.0 / rayleigh_jeans_factor(freq_hz, cfg.omega_pixel)
+
+    if per_channel.active:
+        ch_idx = nearest_channel_index_with_warning(
+            per_channel.channel_frequencies,
+            freq_hz,
+            label="per-channel polarization",
+        )
+        if per_channel.stokes_q is not None and per_channel.stokes_u is not None:
+            q_flux = xp.asarray(per_channel.stokes_q[ch_idx], dtype=np.float64)
+            u_flux = xp.asarray(per_channel.stokes_u[ch_idx], dtype=np.float64)
+        else:
+            q_flux = (
+                sources.stokes_q
+                if sources.stokes_q is not None
+                else xp.zeros(sources.n_sources)
+            )
+            u_flux = (
+                sources.stokes_u
+                if sources.stokes_u is not None
+                else xp.zeros(sources.n_sources)
+            )
+        if per_channel.stokes_v is not None:
+            v_flux = xp.asarray(per_channel.stokes_v[ch_idx], dtype=np.float64)
+        else:
+            v_flux = (
+                sources.stokes_v
+                if sources.stokes_v is not None
+                else xp.zeros(sources.n_sources)
+            )
+    else:
+        q_flux, u_flux = apply_faraday_rotation(
+            sources.stokes_q,
+            sources.stokes_u,
+            sources.rotation_measure,
+            freq_hz,
+            sources.ref_frequency,
+            scale,
+            xp=xp,
+        )
+        v_flux = sources.stokes_v * scale
+
+    q_map = _bincount(sources.ipix, q_flux, cfg.npix, backend)
+    u_map = _bincount(sources.ipix, u_flux, cfg.npix, backend)
+    v_map = _bincount(sources.ipix, v_flux, cfg.npix, backend)
+
+    q_row = _pol_flux_map_to_K(q_map, "Stokes Q", freq_hz, rj_inv, cfg, backend).astype(
+        cfg.output_dtype
+    )
+    u_row = _pol_flux_map_to_K(u_map, "Stokes U", freq_hz, rj_inv, cfg, backend).astype(
+        cfg.output_dtype
+    )
+    v_row = _pol_flux_map_to_K(v_map, "Stokes V", freq_hz, rj_inv, cfg, backend).astype(
+        cfg.output_dtype
+    )
+    return q_row, u_row, v_row
+
+
+def _has_polarization(
+    stokes_q: np.ndarray | None,
+    stokes_u: np.ndarray | None,
+    stokes_v: np.ndarray | None,
+) -> bool:
+    """Decide whether any source carries meaningful polarization.
+
+    Uses a magnitude tolerance (:data:`_POLARIZATION_PRESENCE_ATOL`) instead
+    of a brittle ``!= 0.0`` exact comparison (spec item F5), so floating-point
+    dust (e.g. a ``1e-30`` Stokes Q) does not force a full Q/U/V allocation.
+    """
+    if stokes_q is None or stokes_u is None or stokes_v is None:
+        return False
+    atol = _POLARIZATION_PRESENCE_ATOL
+    return bool(
+        np.any(np.abs(stokes_q) > atol)
+        or np.any(np.abs(stokes_u) > atol)
+        or np.any(np.abs(stokes_v) > atol)
+    )
+
+
 def point_sources_to_healpix_maps(
     ra_rad: np.ndarray,
     dec_rad: np.ndarray,
@@ -463,7 +791,7 @@ def point_sources_to_healpix_maps(
     ref_frequency: float | np.ndarray,
     brightness_conversion: str,
     coordinate_frame: str = "icrs",
-    output_dtype: np.dtype = np.float32,
+    output_dtype: npt.DTypeLike = np.float32,
     memmap_path: str | None = None,
     per_channel_flux: np.ndarray | None = None,
     per_channel_stokes_q: np.ndarray | None = None,
@@ -512,7 +840,7 @@ def point_sources_to_healpix_maps(
     coordinate_frame : {"icrs", "galactic"}, default "icrs"
         Coordinate frame of the target HEALPix pixel indexing. Input point
         coordinates are always interpreted as ICRS.
-    output_dtype : np.dtype, default np.float32
+    output_dtype : DTypeLike, default np.float32
         Dtype for output HEALPix arrays. Use ``precision.sky_model.get_dtype("healpix_maps")``
         to respect the user's precision configuration.
 
@@ -555,8 +883,6 @@ def point_sources_to_healpix_maps(
             "polarization_brightness_conversion must be 'rayleigh-jeans' or "
             f"'planck', got {polarization_brightness_conversion!r}."
         )
-    xp = np if backend is None else backend.xp
-    to_numpy = np.asarray if backend is None else backend.to_numpy
 
     npix = hp.nside2npix(nside)
     n_freq = len(frequencies)
@@ -569,24 +895,13 @@ def point_sources_to_healpix_maps(
             None,
             None,
             None,
-            {
-                "n_sources": 0,
-                "n_collisions": 0,
-                "n_merged": 0,
-            },
+            {"n_sources": 0, "n_collisions": 0, "n_merged": 0},
         )
 
-    omega_pixel = 4 * np.pi / npix
+    omega_pixel = pixel_solid_angle(nside)
     frame = _normalize_coordinate_frame(coordinate_frame)
 
-    # Check if any source has non-zero polarization
-    has_pol = (
-        stokes_q is not None
-        and stokes_u is not None
-        and stokes_v is not None
-        and (np.any(stokes_q != 0) or np.any(stokes_u != 0) or np.any(stokes_v != 0))
-    )
-
+    has_pol = _has_polarization(stokes_q, stokes_u, stokes_v)
     n_stokes = 4 if has_pol else 1
     mem_info = estimate_healpix_memory(nside, n_freq, output_dtype, n_stokes)
     logger.info(
@@ -606,29 +921,34 @@ def point_sources_to_healpix_maps(
         lat_rad = dec_rad
 
     ipix = hp.ang2pix(nside, np.pi / 2 - lat_rad, lon_rad)
+    collision_stats = _collision_stats(ipix, n_sources, nside)
 
-    # Detect pixel collisions (multiple sources in one pixel) and capture
-    # counts so the caller can record them in SkyProvenance.notes.
-    _unique_pixels, _counts = np.unique(ipix, return_counts=True)
-    _multi = _counts > 1
-    n_collisions = int(np.sum(_multi))
-    n_merged = int(np.sum(_counts[_multi])) if n_collisions else 0
-    if n_collisions:
-        logger.warning(
-            "HEALPix pixelization: %d sources were merged into %d pixels "
-            "(out of %d total sources). Individual source identities and "
-            "per-source spectral indices are irreversibly combined. "
-            "Increase nside (currently %d) to reduce merging.",
-            n_merged,
-            n_collisions,
-            n_sources,
-            nside,
-        )
-    collision_stats: dict[str, int] = {
-        "n_sources": int(n_sources),
-        "n_collisions": n_collisions,
-        "n_merged": n_merged,
-    }
+    cfg = _ChannelConfig(
+        nside=nside,
+        npix=npix,
+        omega_pixel=omega_pixel,
+        output_dtype=output_dtype,
+        brightness_conversion=brightness_conversion,
+        pol_method=pol_method,
+    )
+    sources, per_channel = _cast_inputs_to_backend(
+        ipix=ipix,
+        flux=flux,
+        spectral_index=spectral_index,
+        spectral_coeffs=spectral_coeffs,
+        ref_frequency=ref_frequency,
+        stokes_q=stokes_q,
+        stokes_u=stokes_u,
+        stokes_v=stokes_v,
+        rotation_measure=rotation_measure,
+        per_channel_flux=per_channel_flux,
+        per_channel_stokes_q=per_channel_stokes_q,
+        per_channel_stokes_u=per_channel_stokes_u,
+        per_channel_stokes_v=per_channel_stokes_v,
+        channel_frequencies=channel_frequencies,
+        n_sources=n_sources,
+        backend=backend,
+    )
 
     scratch = ensure_scratch_dir(memmap_path) if memmap_path is not None else None
     i_arr = allocate_cube((n_freq, npix), output_dtype, scratch, "i_maps")
@@ -648,195 +968,18 @@ def point_sources_to_healpix_maps(
         else None
     )
 
-    use_per_channel = per_channel_flux is not None and channel_frequencies is not None
-    flux_backend = xp.asarray(flux, dtype=np.float64)
-    spectral_index_backend = xp.asarray(spectral_index, dtype=np.float64)
-    spectral_coeffs_backend = (
-        None
-        if spectral_coeffs is None
-        else xp.asarray(spectral_coeffs, dtype=np.float64)
-    )
-    ref_frequency_backend = xp.asarray(ref_frequency, dtype=np.float64)
-    stokes_q_backend = (
-        None if stokes_q is None else xp.asarray(stokes_q, dtype=np.float64)
-    )
-    stokes_u_backend = (
-        None if stokes_u is None else xp.asarray(stokes_u, dtype=np.float64)
-    )
-    stokes_v_backend = (
-        None if stokes_v is None else xp.asarray(stokes_v, dtype=np.float64)
-    )
-    rotation_measure_backend = (
-        None
-        if rotation_measure is None
-        else xp.asarray(rotation_measure, dtype=np.float64)
-    )
-    per_channel_flux_backend = (
-        None
-        if per_channel_flux is None
-        else xp.asarray(per_channel_flux, dtype=np.float64)
-    )
-    per_channel_stokes_q_backend = (
-        None
-        if per_channel_stokes_q is None
-        else xp.asarray(per_channel_stokes_q, dtype=np.float64)
-    )
-    per_channel_stokes_u_backend = (
-        None
-        if per_channel_stokes_u is None
-        else xp.asarray(per_channel_stokes_u, dtype=np.float64)
-    )
-    per_channel_stokes_v_backend = (
-        None
-        if per_channel_stokes_v is None
-        else xp.asarray(per_channel_stokes_v, dtype=np.float64)
-    )
-
-    # Defined once (was redefined every loop iteration): convert a per-pixel
-    # Stokes Q/U/V flux map (Jy) to brightness temperature (K) at one channel.
-    def _pol_flux_to_K(
-        flux_map: np.ndarray, name: str, freq_hz: float, rj_inv: float
-    ) -> np.ndarray:
-        flux_map_np = to_numpy(flux_map)
-        if pol_method == "planck":
-            if np.any(flux_map_np <= 0):
-                raise ValueError(
-                    "polarization_brightness_conversion='planck' requires "
-                    f"strictly positive {name} flux per pixel; got values <= 0 "
-                    f"after binning at {freq_hz / 1e6:.3f} MHz. Use "
-                    "'rayleigh-jeans' for sign-preserving linear conversion."
-                )
-            return flux_density_to_brightness_temp(
-                flux_map_np, freq_hz, omega_pixel, method="planck"
-            )
-        return flux_map_np * rj_inv
-
     for fi, freq in enumerate(frequencies):
-        if use_per_channel:
-            scale = None  # unused on per-channel path
-            flux_map = bin_sources_to_flux(
-                ipix,
-                flux_backend,
-                spectral_index_backend,
-                spectral_coeffs_backend,
-                float(freq),
-                ref_frequency_backend,
-                npix,
-                per_channel_flux=per_channel_flux_backend,
-                channel_frequencies=channel_frequencies,
-                backend=backend,
-            )
-        else:
-            scale = compute_spectral_scale(
-                spectral_index_backend,
-                spectral_coeffs_backend,
-                float(freq),
-                ref_frequency_backend,
-                xp=xp,
-            )
-            flux_map = bin_sources_to_flux(
-                ipix,
-                flux_backend,
-                spectral_index_backend,
-                spectral_coeffs_backend,
-                float(freq),
-                ref_frequency_backend,
-                npix,
-                scale=scale,
-                backend=backend,
-            )
-
-        temp_out = np.zeros(npix, dtype=output_dtype)
-        flux_map_np = to_numpy(flux_map)
-        occupied = flux_map_np > 0
-        if np.any(occupied):
-            temp_out[occupied] = flux_density_to_brightness_temp(
-                flux_map_np[occupied],
-                float(freq),
-                omega_pixel,
-                method=brightness_conversion,
-            ).astype(output_dtype)
+        temp_out, scale = _compute_stokes_i_channel(
+            freq, sources, per_channel, cfg, backend
+        )
         i_arr[fi] = temp_out
-
         if has_pol:
-            # Jy -> K conversion for Q/U/V.  Default Rayleigh-Jeans is
-            # linear and sign-preserving; "planck" matches Stokes I but
-            # requires the per-pixel binned flux to be strictly positive.
-            freq_hz = float(freq)
-            rj_inv = 1.0 / rayleigh_jeans_factor(freq_hz, omega_pixel)
-
-            if use_per_channel:
-                ch_idx = nearest_channel_index_with_warning(
-                    channel_frequencies, float(freq), label="per-channel polarization"
-                )
-                if (
-                    per_channel_stokes_q_backend is not None
-                    and per_channel_stokes_u_backend is not None
-                ):
-                    q_flux = xp.asarray(
-                        per_channel_stokes_q_backend[ch_idx], dtype=np.float64
-                    )
-                    u_flux = xp.asarray(
-                        per_channel_stokes_u_backend[ch_idx], dtype=np.float64
-                    )
-                else:
-                    q_flux = (
-                        stokes_q_backend
-                        if stokes_q_backend is not None
-                        else xp.zeros(n_sources)
-                    )
-                    u_flux = (
-                        stokes_u_backend
-                        if stokes_u_backend is not None
-                        else xp.zeros(n_sources)
-                    )
-                if per_channel_stokes_v_backend is not None:
-                    v_flux = xp.asarray(
-                        per_channel_stokes_v_backend[ch_idx], dtype=np.float64
-                    )
-                else:
-                    v_flux = (
-                        stokes_v_backend
-                        if stokes_v_backend is not None
-                        else xp.zeros(n_sources)
-                    )
-            else:
-                q_flux, u_flux = apply_faraday_rotation(
-                    stokes_q_backend,
-                    stokes_u_backend,
-                    rotation_measure_backend,
-                    float(freq),
-                    ref_frequency_backend,
-                    scale,
-                    xp=xp,
-                )
-                v_flux = stokes_v_backend * scale
-            q_map = (
-                np.bincount(ipix, weights=q_flux, minlength=npix)
-                if backend is None
-                else backend.bincount(ipix, weights=q_flux, minlength=npix)
+            q_row, u_row, v_row = _compute_stokes_pol_channel(
+                freq, scale, sources, per_channel, cfg, backend
             )
-            q_arr[fi] = _pol_flux_to_K(q_map, "Stokes Q", freq_hz, rj_inv).astype(
-                output_dtype
-            )
-
-            u_map = (
-                np.bincount(ipix, weights=u_flux, minlength=npix)
-                if backend is None
-                else backend.bincount(ipix, weights=u_flux, minlength=npix)
-            )
-            u_arr[fi] = _pol_flux_to_K(u_map, "Stokes U", freq_hz, rj_inv).astype(
-                output_dtype
-            )
-
-            v_map = (
-                np.bincount(ipix, weights=v_flux, minlength=npix)
-                if backend is None
-                else backend.bincount(ipix, weights=v_flux, minlength=npix)
-            )
-            v_arr[fi] = _pol_flux_to_K(v_map, "Stokes V", freq_hz, rj_inv).astype(
-                output_dtype
-            )
+            q_arr[fi] = q_row
+            u_arr[fi] = u_row
+            v_arr[fi] = v_row
 
     logger.info(
         f"Converted {n_sources} point sources to {n_freq} HEALPix maps "
@@ -853,3 +996,27 @@ def point_sources_to_healpix_maps(
         v_arr = finalize_cube(v_arr, scratch, "v_maps")
 
     return i_arr, q_arr, u_arr, v_arr, collision_stats
+
+
+def _collision_stats(ipix: np.ndarray, n_sources: int, nside: int) -> dict[str, int]:
+    """Count pixel collisions and warn when source identities are merged."""
+    _unique_pixels, _counts = np.unique(ipix, return_counts=True)
+    _multi = _counts > 1
+    n_collisions = int(np.sum(_multi))
+    n_merged = int(np.sum(_counts[_multi])) if n_collisions else 0
+    if n_collisions:
+        logger.warning(
+            "HEALPix pixelization: %d sources were merged into %d pixels "
+            "(out of %d total sources). Individual source identities and "
+            "per-source spectral indices are irreversibly combined. "
+            "Increase nside (currently %d) to reduce merging.",
+            n_merged,
+            n_collisions,
+            n_sources,
+            nside,
+        )
+    return {
+        "n_sources": int(n_sources),
+        "n_collisions": n_collisions,
+        "n_merged": n_merged,
+    }

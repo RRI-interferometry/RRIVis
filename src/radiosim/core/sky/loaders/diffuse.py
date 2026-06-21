@@ -9,25 +9,48 @@ import healpy as hp
 import numpy as np
 from healpy.rotator import Rotator
 
-from radiosim.utils.frequency import parse_frequency_config
 from radiosim.utils.network import require_service
 
 from ..containers import (
     MonopoleConvention,
-    SkyCoverage,
     SkyProvenance,
     SourceSubtractionStatus,
 )
 from ..registry.catalogs import DIFFUSE_MODELS
 from ..registry.facade import loader_registry
+from ..support.frequencies import resolve_frequency_config
+from ..support.provenance_coverage import coverage_provenance
 from ._healpix_builder import build_healpix_from_stokes_cube
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
     from ..operations.region import SkyRegion
+    from ..registry.catalogs import DiffuseModelEntry
 
 logger = logging.getLogger(__name__)
+
+
+def _pysm3() -> Any:
+    """Import ``pysm3`` (and its units) on demand with a friendly error.
+
+    PySM3 is an optional dependency; this lazy helper keeps the sky package
+    importable without it and mirrors ``_pyradiosky_cls()``/``_h5py()``.
+
+    Returns
+    -------
+    tuple
+        ``(pysm3, pysm3.units)``.
+    """
+    try:
+        import pysm3
+        import pysm3.units as pysm3_units
+    except ImportError as exc:
+        raise ImportError(
+            "Loading PySM3 sky models requires the optional 'pysm3' package. "
+            "Install it with `pip install pysm3`."
+        ) from exc
+    return pysm3, pysm3_units
 
 
 def _resolve_model_class(class_path: str) -> type:
@@ -250,34 +273,9 @@ def load_diffuse_sky(
     from ..containers.model import SkyModel
 
     model = model.lower()
-    if model not in DIFFUSE_MODELS:
-        raise ValueError(
-            f"Unknown model '{model}'. Available: {list(DIFFUSE_MODELS.keys())}"
-        )
+    info = _validate_diffuse_model_args(model, basemap, interpolation)
+    frequencies = resolve_frequency_config(frequencies, obs_frequency_config)
 
-    if basemap is not None and model != "gsm2008":
-        raise ValueError(
-            f"'basemap' is only supported for gsm2008, not '{model}'. "
-            f"Remove the basemap parameter or use model='gsm2008'."
-        )
-    if interpolation is not None and model != "gsm2008":
-        raise ValueError(
-            f"'interpolation' is only supported for gsm2008, not '{model}'. "
-            f"Remove the interpolation parameter or use model='gsm2008'."
-        )
-
-    if frequencies is None and obs_frequency_config is None:
-        raise ValueError(
-            "Either 'frequencies' or 'obs_frequency_config' must be provided. "
-            "Example: load_diffuse_sky(model='gsm2008', nside=32, "
-            "frequencies=np.linspace(100e6, 120e6, 20), precision=...)"
-        )
-
-    if frequencies is None:
-        frequencies = parse_frequency_config(obs_frequency_config)
-    frequencies = np.asarray(frequencies, dtype=np.float64)
-
-    info = DIFFUSE_MODELS[model]
     model_class = _resolve_model_class(info.class_path)
     n_freq = len(frequencies)
 
@@ -296,21 +294,7 @@ def load_diffuse_sky(
         init_kwargs["interpolation"] = interpolation
 
     require_service("pygdsm_data", f"load {model.upper()}", strict=False)
-
-    try:
-        pygdsm_instance = model_class(**init_kwargs)
-    except (TypeError, ValueError, KeyError, ImportError):
-        # Bad basemap/version/argument or a missing optional dependency is a
-        # configuration error, not a network failure — surface it as-is rather
-        # than mislabeling it as a ConnectionError.
-        raise
-    except Exception as e:
-        raise ConnectionError(
-            f"Failed to initialize {model.upper()}: {e}\n"
-            "This model requires internet access to download data files "
-            "on first use. Check your network connection, or verify that "
-            "Zenodo (zenodo.org) is reachable."
-        ) from e
+    pygdsm_instance = _instantiate_pygdsm(model, model_class, init_kwargs)
 
     npix = hp.nside2npix(nside)
     rot = Rotator(coord=["G", "C"])
@@ -342,9 +326,75 @@ def load_diffuse_sky(
         f"\u00d7 {n_freq} frequencies"
     )
 
-    # Build provenance from DIFFUSE_MODELS metadata + runtime include_cmb choice.
-    resolved_include_cmb = init_kwargs.get("include_cmb", False)
-    if resolved_include_cmb:
+    if provenance is None:
+        provenance = _build_diffuse_provenance(
+            model=model,
+            info=info,
+            init_kwargs=init_kwargs,
+            region=region,
+            first_full_sky_mean=first_full_sky_mean,
+        )
+
+    return SkyModel(
+        healpix=healpix,
+        model_name=model,
+        brightness_conversion=brightness_conversion,
+        provenance=provenance,
+        precision=precision,
+    )
+
+
+def _validate_diffuse_model_args(
+    model: str,
+    basemap: str | None,
+    interpolation: str | None,
+) -> DiffuseModelEntry:
+    """Validate the model name and GSM2008-only options; return its entry."""
+    if model not in DIFFUSE_MODELS:
+        raise ValueError(
+            f"Unknown model '{model}'. Available: {list(DIFFUSE_MODELS.keys())}"
+        )
+    if basemap is not None and model != "gsm2008":
+        raise ValueError(
+            f"'basemap' is only supported for gsm2008, not '{model}'. "
+            f"Remove the basemap parameter or use model='gsm2008'."
+        )
+    if interpolation is not None and model != "gsm2008":
+        raise ValueError(
+            f"'interpolation' is only supported for gsm2008, not '{model}'. "
+            f"Remove the interpolation parameter or use model='gsm2008'."
+        )
+    return DIFFUSE_MODELS[model]
+
+
+def _instantiate_pygdsm(model: str, model_class: type, init_kwargs: dict) -> Any:
+    """Construct a pygdsm model instance, mapping network failures cleanly."""
+    try:
+        return model_class(**init_kwargs)
+    except (TypeError, ValueError, KeyError, ImportError):
+        # Bad basemap/version/argument or a missing optional dependency is a
+        # configuration error, not a network failure: surface it as-is rather
+        # than mislabeling it as a ConnectionError.
+        raise
+    except Exception as e:
+        raise ConnectionError(
+            f"Failed to initialize {model.upper()}: {e}\n"
+            "This model requires internet access to download data files "
+            "on first use. Check your network connection, or verify that "
+            "Zenodo (zenodo.org) is reachable."
+        ) from e
+
+
+def _build_diffuse_provenance(
+    *,
+    model: str,
+    info: DiffuseModelEntry,
+    init_kwargs: dict,
+    region: SkyRegion | None,
+    first_full_sky_mean: float | None,
+) -> SkyProvenance:
+    """Assemble pygdsm provenance from catalog metadata + runtime choices."""
+    if init_kwargs.get("include_cmb", False):
         monopole_convention = MonopoleConvention.ABSOLUTE_WITH_CMB
     else:
         monopole_convention = info.default_monopole_convention
@@ -373,24 +423,16 @@ def load_diffuse_sky(
         src_sub_freq = None
         src_sub_method = None
 
-    coverage_footprint = region.footprint() if region is not None else None
-    if region is None:
-        sky_coverage = SkyCoverage.FULL_SKY
-        coverage_fraction = 1.0
-        monopole_k = first_full_sky_mean
-    else:
-        assert coverage_footprint is not None
-        sky_coverage = SkyCoverage.PARTIAL_SKY
-        coverage_fraction = coverage_footprint.coverage_fraction
-        monopole_k = None
+    coverage = coverage_provenance(is_full_sky=True, region=region)
+    monopole_k = first_full_sky_mean if region is None else None
 
-    generated_provenance = SkyProvenance(
+    return SkyProvenance(
         flux_completeness_jy=None,
         flux_completeness_freq_hz=None,
         angular_resolution_rad=angular_resolution_rad,
-        sky_coverage=sky_coverage,
-        coverage_fraction=coverage_fraction,
-        coverage_footprint=coverage_footprint,
+        sky_coverage=coverage.sky_coverage,
+        coverage_fraction=coverage.coverage_fraction,
+        coverage_footprint=coverage.coverage_footprint,
         monopole_convention=monopole_convention,
         monopole_k=monopole_k,
         source_subtraction=src_sub,
@@ -398,15 +440,6 @@ def load_diffuse_sky(
         source_subtraction_freq_hz=src_sub_freq,
         source_subtraction_method=src_sub_method,
         notes=f"pygdsm/{model}",
-    )
-    model_provenance = generated_provenance if provenance is None else provenance
-
-    return SkyModel(
-        healpix=healpix,
-        model_name=model,
-        brightness_conversion=brightness_conversion,
-        provenance=model_provenance,
-        precision=precision,
     )
 
 
@@ -575,21 +608,11 @@ def load_pysm3(
     ValueError
         If neither ``frequencies`` nor ``obs_frequency_config`` is provided.
     """
-    import pysm3
-    import pysm3.units as pysm3_u
+    pysm3, pysm3_u = _pysm3()
 
     from ..containers.model import SkyModel
 
-    if frequencies is None and obs_frequency_config is None:
-        raise ValueError(
-            "Either 'frequencies' or 'obs_frequency_config' must be provided. "
-            "Example: load_pysm3(components='s1', nside=64, "
-            "frequencies=np.linspace(100e6, 120e6, 20), precision=...)"
-        )
-
-    if frequencies is None:
-        frequencies = parse_frequency_config(obs_frequency_config)
-    frequencies = np.asarray(frequencies, dtype=np.float64)
+    frequencies = resolve_frequency_config(frequencies, obs_frequency_config)
 
     if include_polarization:
         if brightness_conversion != "rayleigh-jeans":
@@ -697,22 +720,14 @@ def load_pysm3(
     pixel_res_rad = float(hp.nside2resol(nside))
     angular_resolution_rad = (pixel_res_rad, float(np.pi))
 
-    coverage_footprint = region.footprint() if region is not None else None
-    if region is None:
-        sky_coverage = SkyCoverage.FULL_SKY
-        coverage_fraction = 1.0
-        monopole_k = first_full_sky_mean
-    else:
-        assert coverage_footprint is not None
-        sky_coverage = SkyCoverage.PARTIAL_SKY
-        coverage_fraction = coverage_footprint.coverage_fraction
-        monopole_k = None
+    coverage = coverage_provenance(is_full_sky=True, region=region)
+    monopole_k = first_full_sky_mean if region is None else None
 
     generated_provenance = SkyProvenance(
         angular_resolution_rad=angular_resolution_rad,
-        sky_coverage=sky_coverage,
-        coverage_fraction=coverage_fraction,
-        coverage_footprint=coverage_footprint,
+        sky_coverage=coverage.sky_coverage,
+        coverage_fraction=coverage.coverage_fraction,
+        coverage_footprint=coverage.coverage_footprint,
         monopole_convention=monopole_convention,
         monopole_k=monopole_k,
         source_subtraction=SourceSubtractionStatus.NONE,

@@ -569,7 +569,7 @@ class Simulator:
             )
 
         if loader_requests:
-            from radiosim.core.sky.operations.factories import (
+            from radiosim.core.sky.operations.parallel import (
                 load_models_parallel,
                 recommend_executor_for_loaders,
             )

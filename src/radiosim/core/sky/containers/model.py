@@ -115,16 +115,21 @@ class SkyModel:
     def _coerce_inputs(cls, values: object) -> object:
         """Coerce input kwargs (string enums, dict provenance, dtype-cast payloads).
 
-        Mirrors the :meth:`SkyProvenance._derive_inputs` pattern: we
-        peek at the input dict / ``ArgsKwargs``, mutate it in place, and
-        return the original handle.  Pydantic constructs the frozen
-        instance from the transformed inputs — no ``object.__setattr__``
-        gymnastics.
+        Peeks at the input dict / ``ArgsKwargs``, normalizes a **shallow
+        copy** of the kwargs mapping (string enums → ``BrightnessConversion``,
+        dict provenance → :class:`SkyProvenance`, precision-aware dtype casting
+        of the payloads), and returns a fresh handle built from that copy.
+        The caller's own mapping is never mutated — constructing a model from
+        a dict and then reusing that dict yields the same model again (see the
+        E4 round-trip test).  Pydantic constructs the frozen instance from the
+        transformed inputs, so no ``object.__setattr__`` gymnastics are needed.
         """
         if isinstance(values, dict):
-            kwargs = values
+            kwargs = dict(values)
+            is_argskwargs = False
         elif hasattr(values, "kwargs") and isinstance(values.kwargs, dict):
-            kwargs = values.kwargs
+            kwargs = dict(values.kwargs)
+            is_argskwargs = True
         else:
             return values
 
@@ -171,7 +176,11 @@ class SkyModel:
                     healpix, precision, bc_for_cast
                 )
 
-        return values
+        if is_argskwargs:
+            from pydantic_core import ArgsKwargs
+
+            return ArgsKwargs(values.args, kwargs)
+        return kwargs
 
     @model_validator(mode="after")
     def _validate_state(self) -> "SkyModel":
@@ -344,16 +353,22 @@ class SkyModel:
         if healpix_data is None or precision is None:
             return healpix_data
         hp_dt = precision.sky_model.get_dtype("healpix_maps")
-        flux_dt = precision.sky_model.get_dtype("flux")
 
         def _cast_map(arr: np.ndarray | None) -> np.ndarray | None:
             if arr is None:
                 return None
             return arr if arr.dtype == hp_dt else arr.astype(hp_dt, copy=False)
 
+        # Frequency-axis dtype policy (E5): the frequency *axis* is always
+        # float64 regardless of the flux/storage precision — both
+        # HealpixData.frequencies and PointSpectrum.frequencies enforce this
+        # via validate_frequency_axis. Map *brightness* follows the storage
+        # precision (hp_dt); only the axis is pinned to float64. We pass
+        # float64 explicitly here so the cast is honest rather than relying on
+        # the field validator to silently override a flux-dtype cast.
         return healpix_data.replace(
             maps=_cast_map(healpix_data.maps),
-            frequencies=np.asarray(healpix_data.frequencies, dtype=flux_dt),
+            frequencies=np.asarray(healpix_data.frequencies, dtype=np.float64),
             q_maps=_cast_map(healpix_data.q_maps),
             u_maps=_cast_map(healpix_data.u_maps),
             v_maps=_cast_map(healpix_data.v_maps),
@@ -513,11 +528,17 @@ class SkyModel:
         return 0
 
     def n_sky_elements_for(self, representation: "SkyFormat | str") -> int:
-        """Return the element count for an explicit representation (0 if absent)."""
+        """Return the element count for an explicit representation (0 if absent).
+
+        Dispatches to the canonical per-representation accessors
+        (:attr:`n_healpix_pixels` / :attr:`n_point_sources`) so there is a
+        single source of truth for each count; this method only resolves the
+        runtime ``representation`` to one of them.
+        """
         target = _coerce_format(representation)
         if target == SkyFormat.HEALPIX:
-            return self.healpix.n_pixels if self.healpix is not None else 0
-        return self.point.n_sources if self.point is not None else 0
+            return self.n_healpix_pixels
+        return self.n_point_sources
 
     @property
     def n_point_sources(self) -> int:
@@ -615,14 +636,14 @@ class SkyModel:
             monopole_k=None,
         )
 
+        # Only point/healpix/provenance change; replace() defaults every other
+        # field to the current value, so forwarding model_name /
+        # reference_frequency / brightness_conversion / precision would be
+        # redundant no-ops.
         return self.replace(
             point=point,
             healpix=healpix,
-            model_name=self.model_name,
-            reference_frequency=self.reference_frequency,
-            brightness_conversion=self.brightness_conversion,
             provenance=provenance,
-            precision=self.precision,
         )
 
     # =========================================================================

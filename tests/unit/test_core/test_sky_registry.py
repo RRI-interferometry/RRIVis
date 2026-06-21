@@ -76,8 +76,6 @@ class TestRegistry:
             assert "use_flag" in meta
             assert "representations" in meta
             assert "output_mode" in meta
-            assert "supports_point_sources" in meta
-            assert "supports_healpix_map" in meta
             assert "requires_file" in meta
             assert loader_registry.definition(name).name == name
 
@@ -93,8 +91,12 @@ class TestRegistry:
             assert (definition.use_flag or f"use_{definition.name}") == meta["use_flag"]
             assert list(definition.representations) == meta["representations"]
             assert definition.output_mode == meta["output_mode"]
-            assert definition.supports_point_sources == meta["supports_point_sources"]
-            assert definition.supports_healpix_map == meta["supports_healpix_map"]
+            assert definition.supports_point_sources == (
+                "point_sources" in meta["representations"]
+            )
+            assert definition.supports_healpix_map == (
+                "healpix_map" in meta["representations"]
+            )
 
     def test_file_loaders_are_explicitly_marked(self):
         definitions = {
@@ -131,15 +133,15 @@ class TestRegistryMetadata:
         meta = loader_registry.meta("test_sources")
         assert meta["representations"] == ["point_sources", "healpix_map"]
         assert meta["output_mode"] == "polymorphic"
-        assert meta["supports_point_sources"] is True
-        assert meta["supports_healpix_map"] is True
+        assert "point_sources" in meta["representations"]
+        assert "healpix_map" in meta["representations"]
 
     def test_alias_metadata_reflects_aliased_representation(self):
         meta = loader_registry.meta("test_healpix")
         assert meta["representations"] == ["healpix_map"]
         assert meta["output_mode"] == "healpix_only"
-        assert meta["supports_point_sources"] is False
-        assert meta["supports_healpix_map"] is True
+        assert "point_sources" not in meta["representations"]
+        assert "healpix_map" in meta["representations"]
 
     def test_discovery_catalog_info_exposes_capabilities(self):
         info = get_catalog_info("test_healpix")
@@ -396,14 +398,14 @@ class TestPublicBoundary:
 
 class TestExecutorRecommendation:
     def test_thread_for_pure_catalog_loads(self):
-        from radiosim.core.sky.operations.factories import (
+        from radiosim.core.sky.operations.parallel import (
             recommend_executor_for_loaders,
         )
 
         assert recommend_executor_for_loaders([("gleam", {}), ("nvss", {})]) == "thread"
 
     def test_process_when_any_diffuse_requested(self):
-        from radiosim.core.sky.operations.factories import (
+        from radiosim.core.sky.operations.parallel import (
             recommend_executor_for_loaders,
         )
 
@@ -413,7 +415,7 @@ class TestExecutorRecommendation:
         )
 
     def test_process_for_pyradiosky_file(self):
-        from radiosim.core.sky.operations.factories import (
+        from radiosim.core.sky.operations.parallel import (
             recommend_executor_for_loaders,
         )
 
@@ -423,7 +425,7 @@ class TestExecutorRecommendation:
         )
 
     def test_unknown_loader_is_skipped_gracefully(self):
-        from radiosim.core.sky.operations.factories import (
+        from radiosim.core.sky.operations.parallel import (
             recommend_executor_for_loaders,
         )
 

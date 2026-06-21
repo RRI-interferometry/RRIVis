@@ -14,7 +14,7 @@ each live in their own module:
 - ``_combine_regrid`` — HEALPix nside regridding + grid validators
 - ``_combine_healpix`` — element-wise HEALPix map combination
 - ``_combine_disjointness`` — physical disjointness rules and policy enforcement
-- ``_combine_provenance`` — ``SkyProvenance`` reduction across input models
+- ``_combine_merge`` — ``SkyProvenance`` reduction across input models
 
 Only ``_combine_models`` constructs a :class:`SkyModel` (via a late import
 to avoid the circular dependency through ``_factories``).  The internal
@@ -33,9 +33,10 @@ from ..containers import (
     PointSourceData,
     SkyCoverage,
 )
-from ..containers.constants import BrightnessConversion
+from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX, BrightnessConversion
 from ..containers.model import SkyFormat, SkyModel
 from ..operations.factories import create_empty
+from ..support.point_builder import point_source_data_from_mapping
 from .concat import concat_point_sources
 from .disjointness import (
     MixedModelPolicy,
@@ -45,7 +46,7 @@ from .disjointness import (
     resolve_combination_params,
 )
 from .healpix import CombineHealpixData, combine_healpix
-from .provenance import merge_provenance
+from .merge import merge_provenance
 from .regrid import (
     _resolve_requested_healpix_frequencies,
     _validate_requested_healpix_grid,
@@ -208,24 +209,7 @@ def _combine_as_point_sources(
 
     provenance = merge_provenance(models)
     return SkyModel(
-        point=PointSourceData(
-            ra_rad=data["ra_rad"],
-            dec_rad=data["dec_rad"],
-            flux=data["flux"],
-            spectral_index=data["spectral_index"],
-            stokes_q=data["stokes_q"],
-            stokes_u=data["stokes_u"],
-            stokes_v=data["stokes_v"],
-            ref_freq=data["ref_freq"],
-            rotation_measure=data["rotation_measure"],
-            major_arcsec=data["major_arcsec"],
-            minor_arcsec=data["minor_arcsec"],
-            pa_deg=data["pa_deg"],
-            spectral_coeffs=data["spectral_coeffs"],
-            source_name=data["source_name"],
-            source_id=data["source_id"],
-            extra_columns=data["extra_columns"],
-        ),
+        point=point_source_data_from_mapping(data, precision),
         model_name="combined",
         reference_frequency=data["reference_frequency"],
         brightness_conversion=brightness_conversion,
@@ -263,24 +247,7 @@ def _combine_as_hybrid(
             allow_lossy_point_materialization=False,
         )
         if data["ra_rad"].size:
-            point_payload = PointSourceData(
-                ra_rad=data["ra_rad"],
-                dec_rad=data["dec_rad"],
-                flux=data["flux"],
-                spectral_index=data["spectral_index"],
-                stokes_q=data["stokes_q"],
-                stokes_u=data["stokes_u"],
-                stokes_v=data["stokes_v"],
-                ref_freq=data["ref_freq"],
-                rotation_measure=data["rotation_measure"],
-                major_arcsec=data["major_arcsec"],
-                minor_arcsec=data["minor_arcsec"],
-                pa_deg=data["pa_deg"],
-                spectral_coeffs=data["spectral_coeffs"],
-                source_name=data["source_name"],
-                source_id=data["source_id"],
-                extra_columns=data["extra_columns"],
-            )
+            point_payload = point_source_data_from_mapping(data, precision)
             point_ref_freq = data["reference_frequency"]
         else:
             point_ref_freq = None
@@ -344,6 +311,7 @@ def _combine_models(
     precision: PrecisionConfig | None = None,
     memmap_path: str | None = None,
     backend: ArrayBackend | None = None,
+    subtraction_scaling_alpha: float = SYNCHROTRON_SPECTRAL_INDEX,
 ) -> SkyModel:
     """Combine multiple sky models into one (internal building block).
 
@@ -386,6 +354,10 @@ def _combine_models(
         If given, stream the combined HEALPix cube to memory-mapped files
         at this directory (created if needed) rather than allocating it
         in RAM.  Only affects HEALPix output paths.
+    subtraction_scaling_alpha : float, default −0.7
+        Power-law spectral index used to scale a diffuse model's
+        source-subtraction threshold to a point catalog's completeness
+        frequency in the physical-disjointness check.
 
     Returns
     -------
@@ -404,7 +376,9 @@ def _combine_models(
         )
 
     brightness_conversion = resolve_brightness_conversion(models, brightness_conversion)
-    check_physical_disjointness(models, mixed_model_policy)
+    check_physical_disjointness(
+        models, mixed_model_policy, alpha=subtraction_scaling_alpha
+    )
     requested_freqs = _resolve_requested_healpix_frequencies(
         frequencies, obs_frequency_config
     )

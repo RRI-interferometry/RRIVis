@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
         "catalog": "catalog",
         "max_rows": "max_rows",
         "allow_full_catalog": "allow_full_catalog",
-    },
+    },  # common fields + "catalog"
 )
 def load_gleam(
     flux_limit: float = 1.0,
@@ -149,7 +149,17 @@ def load_mals(
 # Data-driven registration of simple VizieR loaders
 # =========================================================================
 
-# Catalog keys with only flux_limit as their config-driven parameter.
+# Config-driven parameters shared by every VizieR point-source loader. The
+# map is an identity (config key == loader kwarg); hoisted here so the simple
+# loaders and the explicit ones (gleam/mals/lotss) declare the same base set
+# rather than repeating it inline.
+_VIZIER_COMMON_CONFIG_FIELDS = {
+    "flux_limit": "flux_limit",
+    "max_rows": "max_rows",
+    "allow_full_catalog": "allow_full_catalog",
+}
+
+# Catalog keys with only the common config-driven parameters.
 # Complex loaders (gleam, mals, lotss, racs) are kept as explicit functions.
 _SIMPLE_VIZIER_CATALOGS = {
     "vlssr": "vlssr",
@@ -211,11 +221,7 @@ for _key, _config_section in _SIMPLE_VIZIER_CATALOGS.items():
         config_section=_config_section,
         use_flag=f"use_{_key}",
         network_service="vizier",
-        config_fields={
-            "flux_limit": "flux_limit",
-            "max_rows": "max_rows",
-            "allow_full_catalog": "allow_full_catalog",
-        },
+        config_fields=dict(_VIZIER_COMMON_CONFIG_FIELDS),
     )(_fn)
 
 # Expose as module-level names for direct import

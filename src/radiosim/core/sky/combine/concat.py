@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -11,6 +12,7 @@ from ..containers import empty_source_arrays
 from ..containers.constants import BrightnessConversion
 from ..containers.spectral import per_source_reference_frequencies
 from ..operations.operations import materialize_point_sources_model
+from ..support.precision import get_sky_storage_dtype
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -32,6 +34,34 @@ def _metadata_field(
 
 def _extra_columns(point: PointSourceData) -> dict[str, np.ndarray]:
     return point.metadata.extra_columns if point.metadata is not None else {}
+
+
+def _concat_optional_field(
+    models: list[SkyModel],
+    extractor: Callable[[PointSourceData], np.ndarray | None],
+    *,
+    dtype: np.dtype,
+) -> np.ndarray | None:
+    """Concatenate an optional per-source column across models.
+
+    Returns ``None`` when no model carries the column (so the caller can leave
+    the corresponding payload sub-block unpopulated). When at least one model
+    carries it, models that lack it contribute a zero-filled block of their own
+    source count, cast to ``dtype`` (the precision dtype), so the result is
+    always full length and precision-consistent.
+    """
+    if not any(m.point is not None and extractor(m.point) is not None for m in models):
+        return None
+    parts: list[np.ndarray] = []
+    for model in models:
+        if model.point is None:
+            continue
+        values = extractor(model.point)
+        if values is None:
+            parts.append(np.zeros(model.point.n_sources, dtype=dtype))
+            continue
+        parts.append(np.asarray(values, dtype=dtype))
+    return np.concatenate(parts) if parts else None
 
 
 def _concat_string_metadata(
@@ -86,7 +116,8 @@ def _concat_extra_columns(models: list[SkyModel]) -> dict[str, np.ndarray]:
     represented in that dtype (i.e. floating: filled with NaN), the resulting
     column keeps its native dtype. When a column is absent from any contributing
     model and the resolved dtype cannot represent a sentinel (e.g. integer,
-    bool), the column falls back to ``dtype=object`` filled with ``None``.
+    bool), the column falls back to ``dtype=object`` filled with ``None`` at the
+    full combined length.
     """
     keys = sorted(
         {
@@ -98,6 +129,9 @@ def _concat_extra_columns(models: list[SkyModel]) -> dict[str, np.ndarray]:
     )
     if not keys:
         return {}
+
+    # Full combined source count, used to size a fully-missing column correctly.
+    total_n = sum(model.point.n_sources for model in models if model.point is not None)
 
     extra_columns: dict[str, np.ndarray] = {}
     for key in keys:
@@ -115,7 +149,10 @@ def _concat_extra_columns(models: list[SkyModel]) -> dict[str, np.ndarray]:
             present_arrays.append(np.asarray(values))
 
         if not present_arrays:
-            extra_columns[key] = np.zeros(0)
+            # No model actually carries data for this key. Size the sentinel to
+            # the full combined length (a ``np.zeros(0)`` here was a footgun:
+            # it produced a length-0 column misattributed against ``total_n``).
+            extra_columns[key] = np.full(total_n, None, dtype=object)
             continue
 
         try:
@@ -149,7 +186,9 @@ def _concat_extra_columns(models: list[SkyModel]) -> dict[str, np.ndarray]:
                 continue
             parts.append(next(present_iter).astype(common_dtype, copy=False))
 
-        extra_columns[key] = np.concatenate(parts) if parts else np.zeros(0)
+        extra_columns[key] = (
+            np.concatenate(parts) if parts else np.full(total_n, None, dtype=object)
+        )
     return extra_columns
 
 
@@ -175,21 +214,25 @@ def concat_point_sources(
     brightness_conversion : str, default ``"planck"``
         Brightness conversion method (carried through to the result).
     precision : PrecisionConfig, optional
-        Precision configuration (not applied here -- the caller handles
-        dtype casting via the SkyModel constructor).
+        Precision configuration. Core columns (positions, flux/Stokes,
+        spectral index) and the optional float fallbacks are cast to the
+        corresponding precision dtypes.
 
     Returns
     -------
     dict
-        Raw data dict with keys matching SkyModel property names:
-        ``ra_rad``, ``dec_rad``, ``flux``, ``spectral_index``,
-        ``stokes_q``, ``stokes_u``, ``stokes_v``,
-        ``rotation_measure``, ``major_arcsec``, ``minor_arcsec``,
-        ``pa_deg``, ``spectral_coeffs``, ``reference_frequency``.
-        Array values are ``np.ndarray``; optional fields are ``None``
-        when no model contributes data.  An empty-model result has
-        zero-length arrays.
+        Raw data dict with keys ``ra_rad``, ``dec_rad``, ``flux``,
+        ``spectral_index``, ``stokes_q``, ``stokes_u``, ``stokes_v``,
+        ``ref_freq``, ``rotation_measure``, ``major_arcsec``,
+        ``minor_arcsec``, ``pa_deg``, ``spectral_coeffs``, ``source_name``,
+        ``source_id``, ``extra_columns``, and ``reference_frequency``.
+        Array values are ``np.ndarray``; optional fields are ``None`` when no
+        model contributes data.  An empty-model result has zero-length arrays.
     """
+    src_dt = get_sky_storage_dtype(precision, "source_positions")
+    flux_dt = get_sky_storage_dtype(precision, "flux")
+    si_dt = get_sky_storage_dtype(precision, "spectral_index")
+
     # Ensure each model has point-source arrays populated; skip empties
     populated: list[SkyModel] = []
     for m in models:
@@ -218,16 +261,28 @@ def concat_point_sources(
             "reference_frequency": None,
         }
 
-    # --- Required arrays ---
-    ra = np.concatenate([m.point.ra_rad for m in populated if m.point is not None])
-    dec = np.concatenate([m.point.dec_rad for m in populated if m.point is not None])
-    flux = np.concatenate([m.point.flux for m in populated if m.point is not None])
+    # --- Required arrays (cast to precision dtypes) ---
+    ra = np.concatenate(
+        [m.point.ra_rad for m in populated if m.point is not None]
+    ).astype(src_dt)
+    dec = np.concatenate(
+        [m.point.dec_rad for m in populated if m.point is not None]
+    ).astype(src_dt)
+    flux = np.concatenate(
+        [m.point.flux for m in populated if m.point is not None]
+    ).astype(flux_dt)
     si = np.concatenate(
         [m.point.spectral_index for m in populated if m.point is not None]
-    )
-    sq = np.concatenate([m.point.stokes_q for m in populated if m.point is not None])
-    su = np.concatenate([m.point.stokes_u for m in populated if m.point is not None])
-    sv = np.concatenate([m.point.stokes_v for m in populated if m.point is not None])
+    ).astype(si_dt)
+    sq = np.concatenate(
+        [m.point.stokes_q for m in populated if m.point is not None]
+    ).astype(flux_dt)
+    su = np.concatenate(
+        [m.point.stokes_u for m in populated if m.point is not None]
+    ).astype(flux_dt)
+    sv = np.concatenate(
+        [m.point.stokes_v for m in populated if m.point is not None]
+    ).astype(flux_dt)
 
     ref_freq_arr = np.concatenate(
         [
@@ -239,59 +294,35 @@ def concat_point_sources(
             for m in populated
             if m.point is not None
         ]
-    )
+    ).astype(flux_dt)
 
     n = len(ra)
 
     # --- Optional: rotation measure ---
-    rm: np.ndarray | None = None
-    if any(m.point is not None and m.point.polarization is not None for m in populated):
-        rm = np.concatenate(
-            [
-                m.point.polarization.rotation_measure
-                if m.point is not None and m.point.polarization is not None
-                else np.zeros(
-                    m.point.n_sources if m.point is not None else 0, dtype=np.float64
-                )
-                for m in populated
-            ]
-        )
+    rm = _concat_optional_field(
+        populated,
+        lambda p: (
+            p.polarization.rotation_measure if p.polarization is not None else None
+        ),
+        dtype=flux_dt,
+    )
 
     # --- Optional: Gaussian morphology ---
-    major: np.ndarray | None = None
-    minor: np.ndarray | None = None
-    pa: np.ndarray | None = None
-    if any(m.point is not None and m.point.morphology is not None for m in populated):
-        major = np.concatenate(
-            [
-                m.point.morphology.major_arcsec
-                if m.point is not None and m.point.morphology is not None
-                else np.zeros(
-                    m.point.n_sources if m.point is not None else 0, dtype=np.float64
-                )
-                for m in populated
-            ]
-        )
-        minor = np.concatenate(
-            [
-                m.point.morphology.minor_arcsec
-                if m.point is not None and m.point.morphology is not None
-                else np.zeros(
-                    m.point.n_sources if m.point is not None else 0, dtype=np.float64
-                )
-                for m in populated
-            ]
-        )
-        pa = np.concatenate(
-            [
-                m.point.morphology.pa_deg
-                if m.point is not None and m.point.morphology is not None
-                else np.zeros(
-                    m.point.n_sources if m.point is not None else 0, dtype=np.float64
-                )
-                for m in populated
-            ]
-        )
+    major = _concat_optional_field(
+        populated,
+        lambda p: p.morphology.major_arcsec if p.morphology is not None else None,
+        dtype=flux_dt,
+    )
+    minor = _concat_optional_field(
+        populated,
+        lambda p: p.morphology.minor_arcsec if p.morphology is not None else None,
+        dtype=flux_dt,
+    )
+    pa = _concat_optional_field(
+        populated,
+        lambda p: p.morphology.pa_deg if p.morphology is not None else None,
+        dtype=flux_dt,
+    )
 
     # --- Optional: spectral coefficients (may differ in N_terms) ---
     sp_coeffs: np.ndarray | None = None
@@ -309,14 +340,14 @@ def concat_point_sources(
                 continue
             n_m = m.point.n_sources
             if m.point.spectral_coeffs is not None:
-                arr = m.point.spectral_coeffs
+                arr = np.asarray(m.point.spectral_coeffs, dtype=flux_dt)
                 if arr.shape[1] < max_terms:
-                    pad = np.zeros((n_m, max_terms - arr.shape[1]), dtype=arr.dtype)
+                    pad = np.zeros((n_m, max_terms - arr.shape[1]), dtype=flux_dt)
                     arr = np.concatenate([arr, pad], axis=1)
                 parts.append(arr)
             else:
                 # Default: column 0 = alpha, rest zero
-                fallback = np.zeros((n_m, max_terms), dtype=np.float64)
+                fallback = np.zeros((n_m, max_terms), dtype=flux_dt)
                 fallback[:, 0] = m.point.spectral_index
                 parts.append(fallback)
         sp_coeffs = np.concatenate(parts, axis=0)

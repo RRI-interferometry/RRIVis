@@ -6,13 +6,13 @@ fields at import time rather than raising runtime ``KeyError``s.
 
 from __future__ import annotations
 
-from functools import cache
-from importlib import resources
-
-import numpy as np
 from pydantic import BaseModel, Field, model_validator
 
-from ..containers import MonopoleConvention, SkyFootprint
+from ..containers import MonopoleConvention
+
+# Re-exported here so existing import sites keep working; the filesystem IO
+# itself lives in ``registry.footprint_assets`` (no IO in this metadata module).
+from .footprint_assets import load_catalog_footprint_asset
 
 # Conversion factor from a catalog's native flux unit to Jy.  Catalogs that
 # report flux in mJy multiply by 1e-3; ``Jy``/``Jy/beam`` use 1.0.
@@ -21,6 +21,31 @@ _FLUX_UNIT_TO_JY: dict[str, float] = {
     "Jy/beam": 1.0,
     "mJy": 1e-3,
 }
+
+
+def _check_flux_unit(flux_unit: str, entry_type_name: str) -> None:
+    """Raise ``ValueError`` if ``flux_unit`` is not a known catalog flux unit.
+
+    Shared by every catalog entry's ``flux_unit`` validator so the supported-
+    unit set lives in exactly one place (:data:`_FLUX_UNIT_TO_JY`).
+    """
+    if flux_unit not in _FLUX_UNIT_TO_JY:
+        raise ValueError(
+            f"{entry_type_name}: unknown flux_unit {flux_unit!r}; "
+            f"supported: {sorted(_FLUX_UNIT_TO_JY)}"
+        )
+
+
+__all__ = [
+    "CASDA_TAP_URL",
+    "DIFFUSE_MODELS",
+    "RACS_CATALOGS",
+    "VIZIER_POINT_CATALOGS",
+    "DiffuseModelEntry",
+    "RacsCatalogEntry",
+    "VizierCatalogEntry",
+    "load_catalog_footprint_asset",
+]
 
 
 class _CatalogBase(BaseModel):
@@ -98,15 +123,6 @@ class DiffuseModelEntry(_CatalogBase):
 class VizierCatalogEntry(_CatalogBase):
     """Metadata for a VizieR point-source catalog."""
 
-    @model_validator(mode="after")
-    def _validate_flux_unit(self) -> VizierCatalogEntry:
-        if self.flux_unit not in _FLUX_UNIT_TO_JY:
-            raise ValueError(
-                f"VizierCatalogEntry: unknown flux_unit {self.flux_unit!r}; "
-                f"supported: {sorted(_FLUX_UNIT_TO_JY)}"
-            )
-        return self
-
     vizier_id: str = Field(
         ..., description="VizieR catalog identifier (e.g. 'VIII/97')"
     )
@@ -168,18 +184,14 @@ class VizierCatalogEntry(_CatalogBase):
         ),
     )
 
+    @model_validator(mode="after")
+    def _validate_flux_unit(self) -> VizierCatalogEntry:
+        _check_flux_unit(self.flux_unit, "VizierCatalogEntry")
+        return self
+
 
 class RacsCatalogEntry(_CatalogBase):
     """Metadata for a RACS catalog accessed via CASDA TAP."""
-
-    @model_validator(mode="after")
-    def _validate_flux_unit(self) -> RacsCatalogEntry:
-        if self.flux_unit not in _FLUX_UNIT_TO_JY:
-            raise ValueError(
-                f"RacsCatalogEntry: unknown flux_unit {self.flux_unit!r}; "
-                f"supported: {sorted(_FLUX_UNIT_TO_JY)}"
-            )
-        return self
 
     freq_mhz: float = Field(..., description="Survey frequency in MHz")
     tap_table: str = Field(..., description="CASDA TAP table name")
@@ -212,6 +224,11 @@ class RacsCatalogEntry(_CatalogBase):
             "loader attaches it as ``SkyProvenance.coverage_footprint``."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_flux_unit(self) -> RacsCatalogEntry:
+        _check_flux_unit(self.flux_unit, "RacsCatalogEntry")
+        return self
 
 
 # =============================================================================
@@ -290,25 +307,6 @@ DIFFUSE_MODELS: dict[str, DiffuseModelEntry] = {
 
 # CASDA TAP endpoint for RACS catalogs
 CASDA_TAP_URL = "https://casda.csiro.au/casda_vo_tools/tap"
-_FOOTPRINT_RESOURCE_PATH = ("core", "sky", "data", "footprints")
-
-
-@cache
-def load_catalog_footprint_asset(asset_name: str) -> SkyFootprint:
-    """Load a packaged catalog footprint asset."""
-    resource = resources.files("radiosim")
-    for part in _FOOTPRINT_RESOURCE_PATH:
-        resource = resource.joinpath(part)
-    resource = resource.joinpath(asset_name)
-    with resource.open("rb") as handle, np.load(handle, allow_pickle=False) as payload:
-        nside = int(payload["nside"])
-        coordinate_frame = str(np.asarray(payload["coordinate_frame"]).item())
-        hpx_inds = np.asarray(payload["hpx_inds"], dtype=np.int64)
-    return SkyFootprint(
-        nside=nside,
-        coordinate_frame=coordinate_frame,
-        hpx_inds=hpx_inds,
-    )
 
 
 # =============================================================================

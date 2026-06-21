@@ -354,10 +354,12 @@ class TestBoxWidthHeightValidation:
         )
         assert region.width.deg == 360.0
 
-    def test_box_height_over_180_raises(self):
-        """BoxRegion with height_deg > 180 raises ValueError (line 180)."""
-        with pytest.raises(ValueError, match="height_deg must be <= 180"):
-            SkyRegion.box(ra_deg=180.0, dec_deg=0.0, width_deg=10.0, height_deg=200.0)
+    def test_box_height_over_180_clamped(self):
+        """BoxRegion with height_deg > 180 is clamped to 180 (symmetric)."""
+        region = SkyRegion.box(
+            ra_deg=180.0, dec_deg=0.0, width_deg=10.0, height_deg=200.0
+        )
+        assert region.height.deg == 180.0
 
 
 class TestBoxRaNegativeWrap:
