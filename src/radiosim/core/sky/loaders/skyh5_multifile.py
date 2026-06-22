@@ -27,10 +27,11 @@ import numpy as np
 
 from radiosim.utils.frequency import parse_frequency_config
 
-from ..containers import PointSourceData
 from ..containers.model import SkyModel
 from ..registry.facade import loader_registry
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+from ..support.healpix_geometry import ordered_row
+from ..support.point_builder import point_source_data_from_mapping
 from ..support.precision import get_sky_storage_dtype
 from ..support.quantities import to_value
 from ._healpix_builder import build_healpix_from_stokes_cube, extract_stokes_component
@@ -259,7 +260,7 @@ def _maybe_cross_check_frequencies(
 def load_skyh5_multifile(
     file_glob: str | None = None,
     filenames: list[str] | None = None,
-    brightness_conversion: str = "rayleigh-jeans",
+    brightness_conversion: str = "planck",
     reference_frequency_hz: float | None = None,
     *,
     precision: PrecisionConfig,
@@ -286,9 +287,10 @@ def load_skyh5_multifile(
     filenames : list[str], optional
         Explicit list of file paths (mutually exclusive with
         ``file_glob``).
-    brightness_conversion : str, default ``"rayleigh-jeans"``
-        Brightness conversion for HEALPix data. Forced to
-        ``"rayleigh-jeans"`` when polarization is present.
+    brightness_conversion : str, default ``"planck"``
+        Brightness conversion for HEALPix data (matching the sibling
+        loaders). Forced to ``"rayleigh-jeans"`` when polarization is
+        present.
     reference_frequency_hz : float, optional
         Observation frequency to use as the reference channel for
         ``PointSourceData.flux`` / ``ref_freq``.  Defaults to the lowest
@@ -434,12 +436,16 @@ def _load_healpix_branch(
     )
 
     def _ring_ordered_row(row: np.ndarray) -> np.ndarray:
-        row = np.asarray(row, dtype=np.float64)
-        if builder_hpx_inds is not None:
-            return row
-        if is_nested:
-            return hp.reorder(row, n2r=True)
-        return row
+        # skyh5 never reaches the dense-scatter branch: sparse maps always set
+        # ``builder_hpx_inds`` (the cube builder owns the scatter), so ``pix`` is
+        # left ``None`` here and reordering is the only non-builder path.
+        return ordered_row(
+            row,
+            builder_handles_scatter=builder_hpx_inds is not None,
+            pix=None,
+            npix=npix,
+            is_nested=is_nested,
+        )
 
     def _iter_stokes_rows():
         for fi, path in enumerate(sorted_paths):
@@ -714,23 +720,26 @@ def _assemble_point_sky(
     )
 
     sky = SkyModel(
-        point=PointSourceData(
-            ra_rad=ra_rad,
-            dec_rad=dec_rad,
-            flux=flux_ref[mask],
-            spectral_index=np.zeros(n_kept, dtype=si_dt),
-            stokes_q=q_ref[mask],
-            stokes_u=u_ref[mask],
-            stokes_v=v_ref[mask],
-            ref_freq=np.full(n_kept, ref_freq_hz, dtype=flux_dt),
-            source_name=source_name,
-            spectrum=PointSpectrum(
-                flux=_masked_cube(cubes.flux),
-                frequencies=sorted_freqs.astype(np.float64),
-                stokes_q=_masked_cube(cubes.q),
-                stokes_u=_masked_cube(cubes.u),
-                stokes_v=_masked_cube(cubes.v),
-            ),
+        point=point_source_data_from_mapping(
+            {
+                "ra_rad": ra_rad,
+                "dec_rad": dec_rad,
+                "flux": flux_ref[mask],
+                "spectral_index": np.zeros(n_kept, dtype=si_dt),
+                "stokes_q": q_ref[mask],
+                "stokes_u": u_ref[mask],
+                "stokes_v": v_ref[mask],
+                "ref_freq": np.full(n_kept, ref_freq_hz, dtype=flux_dt),
+                "source_name": source_name,
+                "spectrum": PointSpectrum(
+                    flux=_masked_cube(cubes.flux),
+                    frequencies=sorted_freqs.astype(np.float64),
+                    stokes_q=_masked_cube(cubes.q),
+                    stokes_u=_masked_cube(cubes.u),
+                    stokes_v=_masked_cube(cubes.v),
+                ),
+            },
+            precision=precision,
         ),
         model_name=model_name,
         reference_frequency=ref_freq_hz,

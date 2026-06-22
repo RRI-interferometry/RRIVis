@@ -11,12 +11,12 @@ import astropy.units as u
 import healpy as hp
 import numpy as np
 
-from ..containers import PointSourceData
 from ..containers.model import SkyModel
 from ..containers.point import PointSpectrum
 from ..registry.facade import loader_registry
 from ..support.frequencies import resolve_frequency_config
-from ..support.healpix_geometry import ring_ordered_row
+from ..support.healpix_geometry import ordered_row
+from ..support.point_builder import point_source_data_from_mapping
 from ..support.quantities import to_value
 from ._healpix_builder import build_healpix_from_stokes_cube, extract_stokes_component
 
@@ -308,29 +308,34 @@ def load_pyradiosky_file(
         )
 
     sky_model = SkyModel(
-        point=PointSourceData(
-            ra_rad=ra_arr[valid],
-            dec_rad=dec_arr[valid],
-            flux=stokes_i_ref[valid],
-            spectral_index=spectral_indices[valid],
-            stokes_q=stokes_q[valid],
-            stokes_u=stokes_u[valid],
-            stokes_v=stokes_v[valid],
-            ref_freq=(
-                per_source_ref_freq[valid]
-                if per_source_ref_freq is not None
-                else np.full(n, ref_freq_hz, dtype=np.float64)
-            ),
-            source_name=source_name[valid] if source_name is not None else None,
-            source_id=source_id[valid] if source_id is not None else None,
-            extra_columns={
-                name: values[valid] for name, values in extra_columns.items()
+        point=point_source_data_from_mapping(
+            {
+                "ra_rad": ra_arr[valid],
+                "dec_rad": dec_arr[valid],
+                "flux": stokes_i_ref[valid],
+                "spectral_index": spectral_indices[valid],
+                "stokes_q": stokes_q[valid],
+                "stokes_u": stokes_u[valid],
+                "stokes_v": stokes_v[valid],
+                "ref_freq": (
+                    per_source_ref_freq[valid]
+                    if per_source_ref_freq is not None
+                    else np.full(n, ref_freq_hz, dtype=np.float64)
+                ),
+                "source_name": (
+                    source_name[valid] if source_name is not None else None
+                ),
+                "source_id": source_id[valid] if source_id is not None else None,
+                "extra_columns": {
+                    name: values[valid] for name, values in extra_columns.items()
+                },
+                "spectrum": (
+                    point_spectrum.masked_sources(valid)
+                    if point_spectrum is not None
+                    else None
+                ),
             },
-            spectrum=(
-                point_spectrum.masked_sources(valid)
-                if point_spectrum is not None
-                else None
-            ),
+            precision=precision,
         ),
         model_name=model_name,
         reference_frequency=ref_freq_hz,
@@ -467,14 +472,13 @@ def _load_pyradiosky_healpix(
     )
 
     def _ring_ordered_row(data_1d: np.ndarray) -> np.ndarray:
-        row = np.asarray(data_1d, dtype=np.float64)
-        if builder_hpx_inds is not None:
-            return row
-        if pix is not None:
-            return ring_ordered_row(row, pix, npix)
-        if is_nested:
-            return hp.reorder(row, n2r=True)
-        return row
+        return ordered_row(
+            data_1d,
+            builder_handles_scatter=builder_hpx_inds is not None,
+            pix=pix,
+            npix=npix,
+            is_nested=is_nested,
+        )
 
     def _iter_stokes_rows():
         for fi in range(n_freq):

@@ -52,7 +52,8 @@ def fast_precision() -> PrecisionConfig:
 
 
 # ---------------------------------------------------------------------------
-# E1 -- flat-kwargs construction is live and equivalent to nested construction
+# E1 -- flat-kwargs construction routes through point_source_data_from_mapping
+# and is equivalent to nested construction
 # ---------------------------------------------------------------------------
 
 
@@ -69,7 +70,15 @@ class TestFlatKwargsConstruction:
             "ref_freq": np.full(n, 100e6),
         }
 
-    def test_flat_and_nested_are_equal(self) -> None:
+    def test_flat_and_nested_are_equal(self, precision) -> None:
+        # The flat column-dict path now lives in point_source_data_from_mapping:
+        # flat morphology/polarization/metadata keys get packed into the nested
+        # sub-blocks there, producing the same object as direct nested
+        # construction of PointSourceData.
+        from radiosim.core.sky.support.point_builder import (
+            point_source_data_from_mapping,
+        )
+
         n = 3
         core = self._core(n)
         major = np.full(n, 10.0)
@@ -78,21 +87,27 @@ class TestFlatKwargsConstruction:
         rm = np.full(n, 1.5)
         names = np.array(["a", "b", "c"])
 
-        flat = PointSourceData(
-            **core,
-            major_arcsec=major,
-            minor_arcsec=minor,
-            pa_deg=pa,
-            rotation_measure=rm,
-            source_name=names,
+        flat = point_source_data_from_mapping(
+            {
+                **core,
+                "major_arcsec": major,
+                "minor_arcsec": minor,
+                "pa_deg": pa,
+                "rotation_measure": rm,
+                "source_name": names,
+            },
+            precision=precision,
         )
-        nested = PointSourceData(
-            **core,
-            morphology=PointMorphology(
-                major_arcsec=major, minor_arcsec=minor, pa_deg=pa
-            ),
-            polarization=PointPolarization(rotation_measure=rm),
-            metadata=PointMetadata(source_name=names),
+        nested = point_source_data_from_mapping(
+            {
+                **core,
+                "morphology": PointMorphology(
+                    major_arcsec=major, minor_arcsec=minor, pa_deg=pa
+                ),
+                "polarization": PointPolarization(rotation_measure=rm),
+                "metadata": PointMetadata(source_name=names),
+            },
+            precision=precision,
         )
         assert flat == nested
         # The flat path actually populated the nested sub-blocks.
@@ -105,7 +120,8 @@ class TestFlatKwargsConstruction:
 
     def test_create_from_arrays_uses_flat_path(self, precision) -> None:
         # create_from_arrays forwards flat morphology/polarization/metadata
-        # kwargs -- the live consumer of _pack_flat_kwargs.
+        # kwargs through point_source_data_from_mapping, which packs them into
+        # the nested sub-blocks.
         n = 4
         sky = create_from_arrays(
             ra_rad=np.linspace(0.0, 1.0, n),
@@ -121,20 +137,35 @@ class TestFlatKwargsConstruction:
         assert sky.point.morphology is not None
         assert sky.point.polarization is not None
 
-    def test_flat_and_nested_morphology_conflict_raises(self) -> None:
+    def test_constructor_is_nested_only(self, precision) -> None:
+        # The raw PointSourceData constructor no longer accepts flat per-source
+        # kwargs: packing was centralized in point_source_data_from_mapping, so
+        # the constructor forbids extras and rejects a flat morphology kwarg
+        # (pydantic raises ValidationError, a ValueError subclass) instead of
+        # silently dropping the column.
         n = 2
         core = self._core(n)
-        with pytest.raises(TypeError):
+        with pytest.raises(ValueError, match="[Uu]nexpected keyword"):
             PointSourceData(
                 **core,
                 major_arcsec=np.full(n, 1.0),
                 minor_arcsec=np.full(n, 1.0),
                 pa_deg=np.full(n, 1.0),
-                morphology=PointMorphology(
-                    major_arcsec=np.full(n, 2.0),
-                    minor_arcsec=np.full(n, 2.0),
-                    pa_deg=np.full(n, 2.0),
-                ),
+            )
+
+    def test_morphology_all_or_none_enforced_in_builder(self, precision) -> None:
+        # The morphology all-or-none rule survives the centralization: passing a
+        # partial flat morphology (only major_arcsec) through the builder raises.
+        from radiosim.core.sky.support.point_builder import (
+            point_source_data_from_mapping,
+        )
+
+        n = 2
+        core = self._core(n)
+        with pytest.raises(ValueError, match="all set or all None"):
+            point_source_data_from_mapping(
+                {**core, "major_arcsec": np.full(n, 1.0)},
+                precision=precision,
             )
 
 

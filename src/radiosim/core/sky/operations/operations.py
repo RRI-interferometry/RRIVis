@@ -20,10 +20,10 @@ from radiosim.utils.frequency import parse_frequency_config
 from ..containers import (
     HealpixData,
     MonopoleConvention,
-    PointSourceData,
 )
 from ..containers.constants import BrightnessConversion
 from ..containers.spectral import per_source_reference_frequencies
+from ..support.point_builder import point_source_data_from_mapping
 from .convert import healpix_map_to_point_arrays, point_sources_to_healpix_maps
 
 if TYPE_CHECKING:
@@ -255,20 +255,23 @@ def materialize_point_sources_model(
             for key, value in arrays.items()
         }
 
-    new_point = PointSourceData(
-        ra_rad=arrays["ra_rad"],
-        dec_rad=arrays["dec_rad"],
-        flux=arrays["flux"],
-        spectral_index=arrays["spectral_index"],
-        stokes_q=arrays["stokes_q"],
-        stokes_u=arrays["stokes_u"],
-        stokes_v=arrays["stokes_v"],
-        ref_freq=arrays["ref_freq"],
-        rotation_measure=arrays["rotation_measure"],
-        major_arcsec=arrays["major_arcsec"],
-        minor_arcsec=arrays["minor_arcsec"],
-        pa_deg=arrays["pa_deg"],
-        spectral_coeffs=arrays["spectral_coeffs"],
+    new_point = point_source_data_from_mapping(
+        {
+            "ra_rad": arrays["ra_rad"],
+            "dec_rad": arrays["dec_rad"],
+            "flux": arrays["flux"],
+            "spectral_index": arrays["spectral_index"],
+            "stokes_q": arrays["stokes_q"],
+            "stokes_u": arrays["stokes_u"],
+            "stokes_v": arrays["stokes_v"],
+            "ref_freq": arrays["ref_freq"],
+            "rotation_measure": arrays["rotation_measure"],
+            "major_arcsec": arrays["major_arcsec"],
+            "minor_arcsec": arrays["minor_arcsec"],
+            "pa_deg": arrays["pa_deg"],
+            "spectral_coeffs": arrays["spectral_coeffs"],
+        },
+        precision=sky.precision,
     )
 
     # Update provenance: the new point catalog has *no* sub-pixel positional

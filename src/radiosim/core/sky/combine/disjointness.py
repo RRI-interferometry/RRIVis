@@ -294,8 +294,14 @@ def check_physical_disjointness(
         "\nFix: (a) use a source-subtracted diffuse template "
         "(radiosim.core.sky.operations.subtract_bright_sources or a "
         "pre-subtracted catalog like 'haslam'), (b) raise the catalog's "
-        "flux_limit above the diffuse threshold, (c) declare disjointness "
-        "via SkyProvenance on each model, or (d) set "
+        "flux_limit above the diffuse threshold, or (c) declare the exact "
+        "disjointness provenance fields on each model. For a source-subtracted "
+        "diffuse map, set SkyProvenance(source_subtraction=ABOVE_THRESHOLD, "
+        "source_subtraction_threshold_jy=..., source_subtraction_freq_hz=..., "
+        "angular_resolution_rad=(..., ...)); for the point catalog, set "
+        "SkyProvenance(flux_completeness_jy=(S_min, S_max), "
+        "flux_completeness_freq_hz=..., angular_resolution_rad=(..., ...)). "
+        "If the models are known-disjoint out of band, set "
         "sky_model.mixed_model_policy='warn' or 'allow' to override."
     )
     message = header + "\n  - " + "\n  - ".join(all_reasons) + hint

@@ -242,6 +242,32 @@ class TestDisjointnessFailures:
                 frequencies=np.asarray([150e6, 160e6]),
             )
 
+    def test_error_message_names_actionable_provenance_fields(self, precision):
+        d = _diffuse(precision=precision)
+        d = d.replace(
+            provenance=SkyProvenance(
+                monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
+            )
+        )  # source-subtraction / scale provenance UNKNOWN, but monopole is declared
+        p = _point(precision=precision)
+
+        with pytest.raises(ValueError) as exc_info:
+            _combine_models(
+                [d, p],
+                precision=precision,
+                nside=8,
+                frequencies=np.asarray([150e6, 160e6]),
+            )
+
+        message = str(exc_info.value)
+        assert "source_subtraction" in message
+        assert "source_subtraction_threshold_jy" in message
+        assert "source_subtraction_freq_hz" in message
+        assert "flux_completeness_jy" in message
+        assert "flux_completeness_freq_hz" in message
+        assert "angular_resolution_rad" in message
+        assert "SkyProvenance(" in message
+
     def test_threshold_above_catalog_min_fails(self, precision):
         """Diffuse subtracted at 10 Jy @ 150 MHz, catalog S_min = 5 Jy ⇒ overlap."""
         d = _diffuse(

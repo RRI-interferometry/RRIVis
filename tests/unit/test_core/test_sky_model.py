@@ -18,6 +18,7 @@ from radiosim.core.sky import (
     with_memmap_backing,
 )
 from radiosim.core.sky.containers.model import SkyFormat, SkyModel
+from radiosim.core.sky.containers.point import PointMetadata, PointMorphology
 from radiosim.core.sky.diagnostics.discovery import estimate_healpix_memory
 from radiosim.core.sky.loaders import load_test_sources
 
@@ -121,7 +122,7 @@ class TestPostInitValidation:
             )
 
     def test_morphology_validation_is_strict(self):
-        with pytest.raises(ValueError, match="all set or all None"):
+        with pytest.raises(ValueError, match="morphology has 4 sources, expected 5"):
             PointSourceData(
                 ra_rad=np.zeros(5),
                 dec_rad=np.zeros(5),
@@ -131,7 +132,11 @@ class TestPostInitValidation:
                 stokes_u=np.zeros(5),
                 stokes_v=np.zeros(5),
                 ref_freq=np.full(5, 100e6),
-                major_arcsec=np.ones(5),
+                morphology=PointMorphology(
+                    major_arcsec=np.ones(4),
+                    minor_arcsec=np.ones(4),
+                    pa_deg=np.zeros(4),
+                ),
             )
 
     def test_point_metadata_validation_is_strict(self):
@@ -145,7 +150,9 @@ class TestPostInitValidation:
                 stokes_u=np.zeros(5),
                 stokes_v=np.zeros(5),
                 ref_freq=np.full(5, 100e6),
-                extra_columns={"catalog": np.array(["a", "b", "c", "d"])},
+                metadata=PointMetadata(
+                    extra_columns={"catalog": np.array(["a", "b", "c", "d"])},
+                ),
             )
 
     def test_healpix_requires_matching_frequency_axis(self):

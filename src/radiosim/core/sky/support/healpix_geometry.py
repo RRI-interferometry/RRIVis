@@ -16,6 +16,7 @@ package:
 
 from __future__ import annotations
 
+import healpy as hp
 import numpy as np
 
 #: Clamp floor for the angular-distance cosine in the gnomonic projection.
@@ -115,3 +116,58 @@ def ring_ordered_row(
     full = np.full(int(npix), fill, dtype=np.float64)
     full[np.asarray(hpx_inds)] = row
     return full
+
+
+def ordered_row(
+    values: np.ndarray,
+    *,
+    builder_handles_scatter: bool,
+    pix: np.ndarray | None,
+    npix: int,
+    is_nested: bool,
+) -> np.ndarray:
+    """Map a stored Stokes row into the RING-ordered dense layout the builder expects.
+
+    Single shared replacement for the two ``_ring_ordered_row`` closures that
+    were duplicated in the pyradiosky and skyh5 HEALPix loaders (spec item B8).
+    The branch precedence is, in order:
+
+    1. **builder** — when ``builder_handles_scatter`` is true the downstream
+       ``build_healpix_from_stokes_cube`` performs the sparse scatter itself
+       (it is handed ``hpx_inds``), so the stored row is returned unchanged.
+    2. **pix** — otherwise, when an explicit RING-ordered pixel-index array
+       ``pix`` is given, the row is densely scattered via
+       :func:`ring_ordered_row` (``full[pix] = row``).
+    3. **nest** — otherwise, when the input is NEST-ordered, it is reordered to
+       RING with ``healpy.reorder(..., n2r=True)``.
+    4. **passthrough** — otherwise the row is already dense and RING-ordered and
+       is returned as-is.
+
+    Parameters
+    ----------
+    values : np.ndarray
+        Stored Stokes values for one channel (file order).
+    builder_handles_scatter : bool
+        True when the downstream cube builder owns the sparse scatter
+        (``builder_hpx_inds is not None`` at the call site).
+    pix : np.ndarray, optional
+        RING-ordered HEALPix pixel index for each stored value, or ``None``.
+        Used only when ``builder_handles_scatter`` is false.
+    npix : int
+        Length of the dense output row (``12 * nside**2``).
+    is_nested : bool
+        Whether a dense input row is NEST-ordered (reordered to RING when so).
+
+    Returns
+    -------
+    np.ndarray
+        The row in the RING-ordered layout the cube builder consumes (float64).
+    """
+    row = np.asarray(values, dtype=np.float64)
+    if builder_handles_scatter:
+        return row
+    if pix is not None:
+        return ring_ordered_row(row, pix, npix)
+    if is_nested:
+        return hp.reorder(row, n2r=True)
+    return row

@@ -17,10 +17,10 @@ local.
 from __future__ import annotations
 
 from dataclasses import field
-from typing import Any, TypedDict
+from typing import TypedDict
 
 import numpy as np
-from pydantic import field_validator, model_validator
+from pydantic import ConfigDict, field_validator, model_validator
 from pydantic.dataclasses import dataclass
 
 from ._shared import (
@@ -31,6 +31,12 @@ from ._shared import (
     validate_frequency_axis,
 )
 from .constants import SpectralType
+
+#: PointSourceData is nested-only: flat per-source column dicts are packed into
+#: the nested sub-blocks by support.point_builder.point_source_data_from_mapping
+#: *before* construction. Forbidding extras turns a stray flat kwarg passed to
+#: the raw constructor into a loud error instead of a silently-dropped column.
+_POINT_SOURCE_DATA_CONFIG = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 # =============================================================================
 # SourceArrays TypedDict
@@ -457,12 +463,7 @@ class PointMetadata:
 # =============================================================================
 
 
-_FLAT_MORPHOLOGY_FIELDS = ("major_arcsec", "minor_arcsec", "pa_deg")
-_FLAT_POLARIZATION_FIELDS = ("rotation_measure",)
-_FLAT_METADATA_FIELDS = ("source_name", "source_id", "extra_columns")
-
-
-@dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
+@dataclass(frozen=True, eq=False, config=_POINT_SOURCE_DATA_CONFIG)
 class PointSourceData:
     """Columnar arrays for point-source sky model.
 
@@ -473,13 +474,14 @@ class PointSourceData:
     :class:`PointMetadata`) are independently optional and grouped so
     each block validates its own shape rules in isolation.
 
-    The constructor accepts both nested objects and flat per-source kwargs
-    (e.g. ``major_arcsec=…``); a pre-validator (:meth:`_pack_flat_kwargs`)
-    packs flat kwargs into the matching sub-dataclass before the dataclass
-    is built.  The flat path is the live column-oriented construction route
-    used by :func:`create_from_arrays`,
-    :func:`support.point_builder.point_source_data_from_mapping`, and
-    ``combine/engine.py``; it is **not** a deprecated shim.
+    The constructor is **nested-only**: it accepts the core/spectral arrays
+    plus pre-built :class:`PointMorphology` / :class:`PointPolarization` /
+    :class:`PointMetadata` / :class:`PointSpectrum` blocks. Flat per-source
+    column dicts (e.g. ``major_arcsec=…``, ``rotation_measure=…``,
+    ``source_name=…``) are packed into the nested blocks by
+    :func:`support.point_builder.point_source_data_from_mapping`, which is the
+    single column-oriented construction route used by
+    :func:`create_from_arrays` and ``combine/engine.py``.
     """
 
     ra_rad: np.ndarray
@@ -501,93 +503,6 @@ class PointSourceData:
     # consumers evaluate flux at an observation frequency via nearest-channel
     # lookup rather than spectral-index extrapolation.
     spectrum: PointSpectrum | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _pack_flat_kwargs(cls, values: object) -> object:
-        """Pack flat per-source kwargs into the nested sub-dataclasses.
-
-        ``major_arcsec``/``minor_arcsec``/``pa_deg`` collapse into a
-        :class:`PointMorphology`; ``rotation_measure`` into
-        :class:`PointPolarization`; ``source_name``/``source_id``/
-        ``extra_columns`` into :class:`PointMetadata`. Already-nested
-        kwargs win over flat ones (passing both is a TypeError).
-
-        This is a **live** construction path, not a deprecated shim: it is
-        how :func:`create_from_arrays`,
-        :func:`support.point_builder.point_source_data_from_mapping`, and
-        ``combine/engine.py`` build a ``PointSourceData`` from their column
-        dicts.  It runs on a copy of the incoming kwargs (pydantic passes a
-        fresh ``ArgsKwargs``/dict per construction), so popping a flat key
-        does not leak back to the caller's mapping.
-        """
-        if isinstance(values, dict):
-            kwargs = values
-        elif hasattr(values, "kwargs") and isinstance(values.kwargs, dict):
-            kwargs = values.kwargs
-        else:
-            return values
-
-        def _pop_flat(names: tuple[str, ...]) -> dict[str, Any]:
-            popped: dict[str, Any] = {}
-            for name in names:
-                if name in kwargs:
-                    popped[name] = kwargs.pop(name)
-            return popped
-
-        morph_flat = _pop_flat(_FLAT_MORPHOLOGY_FIELDS)
-        if morph_flat:
-            if kwargs.get("morphology") is not None:
-                raise TypeError(
-                    "PointSourceData: pass either 'morphology' or the flat "
-                    "morphology kwargs (major_arcsec/minor_arcsec/pa_deg), "
-                    "not both."
-                )
-            present = {k for k, v in morph_flat.items() if v is not None}
-            if present and len(present) != 3:
-                raise ValueError(
-                    "PointSourceData: major_arcsec, minor_arcsec, pa_deg must "
-                    "be all set or all None."
-                )
-            if present:
-                kwargs["morphology"] = PointMorphology(
-                    major_arcsec=morph_flat["major_arcsec"],
-                    minor_arcsec=morph_flat["minor_arcsec"],
-                    pa_deg=morph_flat["pa_deg"],
-                )
-
-        pol_flat = _pop_flat(_FLAT_POLARIZATION_FIELDS)
-        if pol_flat:
-            if kwargs.get("polarization") is not None:
-                raise TypeError(
-                    "PointSourceData: pass either 'polarization' or the flat "
-                    "rotation_measure kwarg, not both."
-                )
-            rm = pol_flat["rotation_measure"]
-            if rm is not None:
-                kwargs["polarization"] = PointPolarization(rotation_measure=rm)
-
-        meta_flat = _pop_flat(_FLAT_METADATA_FIELDS)
-        if meta_flat:
-            if kwargs.get("metadata") is not None:
-                raise TypeError(
-                    "PointSourceData: pass either 'metadata' or the flat "
-                    "metadata kwargs (source_name/source_id/extra_columns), "
-                    "not both."
-                )
-            non_empty = (
-                meta_flat.get("source_name") is not None
-                or meta_flat.get("source_id") is not None
-                or meta_flat.get("extra_columns")
-            )
-            if non_empty:
-                kwargs["metadata"] = PointMetadata(
-                    source_name=meta_flat.get("source_name"),
-                    source_id=meta_flat.get("source_id"),
-                    extra_columns=meta_flat.get("extra_columns") or {},
-                )
-
-        return values
 
     @model_validator(mode="after")
     def _validate_lengths(self) -> PointSourceData:
@@ -665,6 +580,55 @@ class PointSourceData:
         if self.spectral_coeffs is not None and self.spectral_coeffs.shape[1] > 1:
             return SpectralType.LOG_POLYNOMIAL
         return SpectralType.POWER_LAW
+
+    @property
+    def populated_spectral_fields(self) -> frozenset[SpectralType]:
+        """Every spectral representation actually carried by this payload.
+
+        Unlike :attr:`spectral_type` (which names only the *driving*
+        representation by precedence), this lists *all* populated ones. The
+        power law (``spectral_index``) is always term 0 of any spectral model,
+        so :attr:`SpectralType.POWER_LAW` is always present.
+        :attr:`SpectralType.LOG_POLYNOMIAL` is added when ``spectral_coeffs``
+        carries more than one term, and :attr:`SpectralType.PER_CHANNEL` when a
+        :class:`PointSpectrum` is attached.
+
+        This is the introspection surface for the opt-in exclusivity gate
+        :meth:`assert_single_spectral_representation`.
+        """
+        present = {SpectralType.POWER_LAW}
+        if self.spectral_coeffs is not None and self.spectral_coeffs.shape[1] > 1:
+            present.add(SpectralType.LOG_POLYNOMIAL)
+        if self.spectrum is not None:
+            present.add(SpectralType.PER_CHANNEL)
+        return frozenset(present)
+
+    def assert_single_spectral_representation(self) -> None:
+        """Assert at most one higher-order spectral representation is populated.
+
+        Opt-in exclusivity gate for callers that require single-representation
+        mode. The bare power law (``spectral_index``) is always allowed; this
+        only forbids co-populating more than one of the *higher-order*
+        representations (log-polynomial ``spectral_coeffs`` and per-channel
+        ``spectrum``). Construction itself never enforces this — the layered
+        design permits co-population — so call this explicitly where a single
+        representation is contractually required.
+
+        Raises
+        ------
+        ValueError
+            If more than one higher-order representation is populated, naming
+            the co-populated representations.
+        """
+        extra = self.populated_spectral_fields - {SpectralType.POWER_LAW}
+        if len(extra) > 1:
+            names = ", ".join(sorted(member.value for member in extra))
+            raise ValueError(
+                "PointSourceData carries multiple higher-order spectral "
+                f"representations ({names}); only one higher-order "
+                "representation may be populated in single-representation mode. "
+                "Use populated_spectral_fields to inspect which are present."
+            )
 
     @property
     def is_empty(self) -> bool:

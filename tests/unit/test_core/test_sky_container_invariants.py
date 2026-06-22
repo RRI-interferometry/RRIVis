@@ -355,3 +355,53 @@ class TestPointNdim:
                 stokes_v=np.zeros(2),
                 ref_freq=np.full(2, 100e6),
             )
+
+
+class TestSpectralRepresentationLayering:
+    def _dual(self, precision):
+        # A source carrying BOTH a higher-order log-polynomial (spectral_coeffs
+        # with >1 term) AND a per-channel PointSpectrum.
+        from radiosim.core.sky.containers.point import PointSpectrum
+
+        sky = _point(n=2, precision=precision)
+        p = sky.point
+        spec = PointSpectrum(flux=np.ones((2, 2)), frequencies=np.array([100e6, 200e6]))
+        return PointSourceData(
+            ra_rad=p.ra_rad,
+            dec_rad=p.dec_rad,
+            flux=p.flux,
+            spectral_index=p.spectral_index,
+            stokes_q=p.stokes_q,
+            stokes_u=p.stokes_u,
+            stokes_v=p.stokes_v,
+            ref_freq=p.ref_freq,
+            spectral_coeffs=np.array([[-0.7, 0.1, 0.01], [-0.7, 0.1, 0.01]]),
+            spectrum=spec,
+        )
+
+    def test_populated_spectral_fields_lists_all_present(self, precision):
+        from radiosim.core.sky import SpectralType
+
+        dual = self._dual(precision)
+        assert dual.populated_spectral_fields == frozenset(
+            {
+                SpectralType.POWER_LAW,
+                SpectralType.LOG_POLYNOMIAL,
+                SpectralType.PER_CHANNEL,
+            }
+        )
+
+    def test_assert_single_representation_raises_on_overlap(self, precision):
+        dual = self._dual(precision)
+        with pytest.raises(ValueError):
+            dual.assert_single_spectral_representation()
+
+    def test_assert_single_representation_passes_power_law_only(self, precision):
+        sky = _point(precision=precision)
+        from radiosim.core.sky import SpectralType
+
+        assert sky.point.populated_spectral_fields == frozenset(
+            {SpectralType.POWER_LAW}
+        )
+        # No raise for the plain power-law-only source.
+        sky.point.assert_single_spectral_representation()

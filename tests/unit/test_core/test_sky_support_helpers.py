@@ -26,6 +26,7 @@ from radiosim.core.sky.support.backend_helpers import maybe_asarray
 from radiosim.core.sky.support.frequencies import resolve_frequency_config
 from radiosim.core.sky.support.healpix_geometry import (
     gnomonic_rotate,
+    ordered_row,
     pixel_solid_angle,
     ring_ordered_row,
 )
@@ -171,6 +172,89 @@ def test_ring_ordered_row_matches_legacy_pyradiosky_scatter():
     legacy[pix] = values
     out = ring_ordered_row(values, pix, npix=npix, fill=0.0)
     np.testing.assert_array_equal(out, legacy)
+    assert out.dtype == np.float64
+
+
+# ---------------------------------------------------------------------------
+# healpix_geometry.ordered_row
+#
+# The shared closure consolidating the two pyradiosky / skyh5
+# ``_ring_ordered_row`` closures (spec item B8). Branch precedence is
+# builder > pix > nest > passthrough.
+# ---------------------------------------------------------------------------
+
+
+def test_ordered_row_builder_branch_returns_input_unchanged():
+    # When the cube builder owns the sparse scatter, the row is returned as-is,
+    # even if pix / is_nested would otherwise apply (builder wins).
+    values = np.array([3.0, 1.0, 4.0, 1.0, 5.0])
+    out = ordered_row(
+        values,
+        builder_handles_scatter=True,
+        pix=np.array([2, 0, 1, 4, 3]),
+        npix=12 * 4**2,
+        is_nested=True,
+    )
+    np.testing.assert_array_equal(out, values)
+    assert out.dtype == np.float64
+
+
+def test_ordered_row_pix_branch_equals_ring_ordered_row():
+    npix = 12 * 4**2
+    pix = np.array([0, 5, 17, 100, npix - 1])
+    values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    out = ordered_row(
+        values,
+        builder_handles_scatter=False,
+        pix=pix,
+        npix=npix,
+        is_nested=False,
+    )
+    np.testing.assert_array_equal(out, ring_ordered_row(values, pix, npix))
+
+
+def test_ordered_row_pix_branch_takes_precedence_over_nest():
+    # pix is checked before is_nested; with both set, the scatter path is used.
+    npix = 12 * 4**2
+    pix = np.array([0, 5, 17, 100, npix - 1])
+    values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    out = ordered_row(
+        values,
+        builder_handles_scatter=False,
+        pix=pix,
+        npix=npix,
+        is_nested=True,
+    )
+    np.testing.assert_array_equal(out, ring_ordered_row(values, pix, npix))
+
+
+def test_ordered_row_nest_branch_equals_hp_reorder():
+    nside = 8
+    npix = hp.nside2npix(nside)
+    rng = np.random.default_rng(0)
+    values = rng.standard_normal(npix)
+    out = ordered_row(
+        values,
+        builder_handles_scatter=False,
+        pix=None,
+        npix=npix,
+        is_nested=True,
+    )
+    np.testing.assert_array_equal(out, hp.reorder(values, n2r=True))
+
+
+def test_ordered_row_passthrough_branch_returns_input():
+    npix = 12 * 4**2
+    rng = np.random.default_rng(1)
+    values = rng.standard_normal(npix)
+    out = ordered_row(
+        values,
+        builder_handles_scatter=False,
+        pix=None,
+        npix=npix,
+        is_nested=False,
+    )
+    np.testing.assert_array_equal(out, values)
     assert out.dtype == np.float64
 
 

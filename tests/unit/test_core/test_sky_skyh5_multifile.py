@@ -18,6 +18,7 @@ from astropy.coordinates import Latitude, Longitude, SkyCoord
 from pyradiosky import SkyModel as PyRadioSkyModel
 
 from radiosim.core.precision import PrecisionConfig
+from radiosim.core.sky.containers.constants import BrightnessConversion
 from radiosim.core.sky.containers.model import SkyFormat
 from radiosim.core.sky.operations.region import ConeRegion
 from radiosim.core.sky.registry.facade import loader_registry
@@ -368,6 +369,65 @@ class TestPointBranch:
         assert sky.point.n_sources == 1
         assert sky.point.spectrum is not None
         assert sky.point.spectrum.flux.shape == (2, 1)
+
+
+# --------------------------------------------------------------------------- #
+# Brightness conversion default
+# --------------------------------------------------------------------------- #
+
+
+class TestBrightnessConversionDefault:
+    def test_unpolarized_uses_planck_by_default(
+        self,
+        tmp_path: Path,
+        precision: PrecisionConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Unpolarized (Stokes I only) HEALPix input must adopt the package-wide
+        # planck default, matching every sibling loader. pyradiosky writes a
+        # 4-row Stokes dataset even when Q/U/V are zero, so patch the header peek
+        # to exercise the loader's Stokes-I-only branch without hand-writing the
+        # full skyh5 schema.
+        from radiosim.core.sky.loaders import skyh5_multifile as mf
+
+        _write_healpix_skyh5(tmp_path / "a.skyh5", 100e6, include_pol=False)
+        _write_healpix_skyh5(tmp_path / "b.skyh5", 200e6, include_pol=False)
+        original_read_header = mf._read_header
+
+        def _read_unpolarized_header(filename: str):
+            header = original_read_header(filename)
+            header["stokes_shape"] = (
+                1,
+                header["stokes_shape"][1],
+                header["stokes_shape"][2],
+            )
+            return header
+
+        monkeypatch.setattr(mf, "_read_header", _read_unpolarized_header)
+        loader = loader_registry.loader("skyh5_multifile")
+        sky = loader(
+            filenames=[str(tmp_path / "a.skyh5"), str(tmp_path / "b.skyh5")],
+            precision=precision,
+        )
+        assert sky.healpix is not None
+        assert not sky.healpix.has_polarization
+        assert sky.brightness_conversion == BrightnessConversion.PLANCK
+
+    def test_polarized_forces_rayleigh_jeans(
+        self, tmp_path: Path, precision: PrecisionConfig
+    ) -> None:
+        # Polarized (>=3 Stokes) HEALPix input must still be forced to
+        # rayleigh-jeans even though the default is now planck.
+        _write_healpix_skyh5(tmp_path / "a.skyh5", 100e6, include_pol=True)
+        _write_healpix_skyh5(tmp_path / "b.skyh5", 200e6, include_pol=True)
+        loader = loader_registry.loader("skyh5_multifile")
+        sky = loader(
+            filenames=[str(tmp_path / "a.skyh5"), str(tmp_path / "b.skyh5")],
+            precision=precision,
+        )
+        assert sky.healpix is not None
+        assert sky.healpix.has_polarization
+        assert sky.brightness_conversion == BrightnessConversion.RAYLEIGH_JEANS
 
 
 # --------------------------------------------------------------------------- #

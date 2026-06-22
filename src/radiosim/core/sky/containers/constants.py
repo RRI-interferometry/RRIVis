@@ -31,6 +31,18 @@ class SpectralType(str, Enum):
     flux evaluation, using the same precedence as the materialization path:
     a per-channel ``spectrum`` wins over a log-polynomial, which wins over a
     bare power law.
+
+    Introspection and exclusivity
+    -----------------------------
+    To inspect *all* populated representations (not just the driving one) use
+    :attr:`PointSourceData.populated_spectral_fields`, which returns the
+    ``frozenset`` of :class:`SpectralType` members actually carried by a
+    payload. Construction permits co-population (the layered design is
+    intentional); callers that contractually require a single representation
+    opt in to the exclusivity gate via
+    :meth:`PointSourceData.assert_single_spectral_representation`, which raises
+    when more than one *higher-order* representation (log-polynomial /
+    per-channel) is populated. The bare power law is always allowed.
     """
 
     POWER_LAW = "power_law"

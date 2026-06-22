@@ -20,6 +20,7 @@ from ..containers import (
 )
 from ..containers.constants import BrightnessConversion
 from ..containers.model import SkyModel
+from ..support.point_builder import point_source_data_from_mapping
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -109,8 +110,8 @@ def create_from_arrays(
     precision = _require_precision(precision)
     brightness_conversion = BrightnessConversion(brightness_conversion)
 
-    # Resolve dtypes from precision config
-    src_dt = precision.sky_model.get_dtype("source_positions")
+    # Resolve dtypes from precision config (defaults for omitted columns; the
+    # core-column recast is applied centrally by point_source_data_from_mapping).
     flux_dt = precision.sky_model.get_dtype("flux")
     si_dt = precision.sky_model.get_dtype("spectral_index")
 
@@ -128,23 +129,26 @@ def create_from_arrays(
     if ref_freq is None:
         ref_freq = np.full(n, reference_frequency or 0.0, dtype=flux_dt)
 
-    point = PointSourceData(
-        ra_rad=np.asarray(ra_rad, dtype=src_dt),
-        dec_rad=np.asarray(dec_rad, dtype=src_dt),
-        flux=np.asarray(flux, dtype=flux_dt),
-        spectral_index=np.asarray(spectral_index, dtype=si_dt),
-        stokes_q=np.asarray(stokes_q, dtype=flux_dt),
-        stokes_u=np.asarray(stokes_u, dtype=flux_dt),
-        stokes_v=np.asarray(stokes_v, dtype=flux_dt),
-        ref_freq=np.asarray(ref_freq, dtype=flux_dt),
-        rotation_measure=rotation_measure,
-        major_arcsec=major_arcsec,
-        minor_arcsec=minor_arcsec,
-        pa_deg=pa_deg,
-        spectral_coeffs=spectral_coeffs,
-        source_name=source_name,
-        source_id=source_id,
-        extra_columns={} if extra_columns is None else extra_columns,
+    point = point_source_data_from_mapping(
+        {
+            "ra_rad": ra_rad,
+            "dec_rad": dec_rad,
+            "flux": flux,
+            "spectral_index": spectral_index,
+            "stokes_q": stokes_q,
+            "stokes_u": stokes_u,
+            "stokes_v": stokes_v,
+            "ref_freq": ref_freq,
+            "rotation_measure": rotation_measure,
+            "major_arcsec": major_arcsec,
+            "minor_arcsec": minor_arcsec,
+            "pa_deg": pa_deg,
+            "spectral_coeffs": spectral_coeffs,
+            "source_name": source_name,
+            "source_id": source_id,
+            "extra_columns": {} if extra_columns is None else extra_columns,
+        },
+        precision=precision,
     )
 
     return SkyModel(
