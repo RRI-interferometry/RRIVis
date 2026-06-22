@@ -160,3 +160,57 @@ def test_memmap_output_is_finalized_read_only(tmp_path):
     assert healpix.maps.mode == "r"
     with pytest.raises(ValueError, match="read-only"):
         healpix.maps[0, 0] = 2.0
+
+
+class TestBuilderInputValidation:
+    def test_rejects_empty_frequency_axis_before_consuming_rows(self):
+        consumed = False
+
+        def rows():
+            nonlocal consumed
+            consumed = True
+            yield (np.ones(12), None, None, None)
+
+        with pytest.raises(ValueError, match="non-empty"):
+            build_healpix_from_stokes_cube(
+                stokes_rows=rows(),
+                nside=1,
+                frequencies=np.array([], dtype=np.float64),
+                coordinate_frame="icrs",
+            )
+        assert consumed is False
+
+    @pytest.mark.parametrize(
+        "frequencies",
+        [np.array([np.nan]), np.array([np.inf]), np.array([0.0]), np.array([-1.0])],
+    )
+    def test_rejects_non_finite_or_non_positive_frequencies(self, frequencies):
+        with pytest.raises(ValueError, match="finite and positive"):
+            build_healpix_from_stokes_cube(
+                stokes_rows=[(np.ones(12), None, None, None)],
+                nside=1,
+                frequencies=frequencies,
+                coordinate_frame="icrs",
+            )
+
+    def test_rejects_duplicate_hpx_inds_early(self):
+        with pytest.raises(ValueError, match="unique"):
+            build_healpix_from_stokes_cube(
+                stokes_rows=[(np.ones(3), None, None, None)],
+                nside=1,
+                frequencies=np.array([100e6]),
+                coordinate_frame="icrs",
+                hpx_inds=np.array([0, 0, 1]),
+            )
+
+    def test_out_of_order_frequencies_remain_allowed_by_builder(self):
+        hpx = build_healpix_from_stokes_cube(
+            stokes_rows=[
+                (np.ones(12), None, None, None),
+                (np.full(12, 2.0), None, None, None),
+            ],
+            nside=1,
+            frequencies=np.array([200e6, 100e6]),
+            coordinate_frame="icrs",
+        )
+        np.testing.assert_allclose(hpx.frequencies, np.array([200e6, 100e6]))

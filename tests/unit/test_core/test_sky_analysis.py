@@ -227,3 +227,15 @@ class TestGaussianityStats:
 def test_f21_constant():
     # 21cm rest frequency (Hz)
     assert abs(F_21_HZ - 1420.4057e6) < 1e3
+
+
+def test_delay_spectrum_rejects_non_positive_frequency_axis():
+    cube = np.ones((2, 3))
+    with pytest.raises(ValueError, match="finite and positive"):
+        compute_delay_spectrum(cube, np.array([100e6, 0.0]))
+
+
+def test_delay_spectrum_rejects_non_finite_frequency_axis():
+    cube = np.ones((2, 3))
+    with pytest.raises(ValueError, match="finite and positive"):
+        compute_delay_spectrum(cube, np.array([100e6, np.inf]))

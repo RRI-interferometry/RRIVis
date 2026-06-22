@@ -10,6 +10,7 @@ import healpy as hp
 import numpy as np
 
 from ..containers import HealpixData
+from ..containers._shared import validate_frequency_axis
 from ..support import allocation as _allocation
 from ..support.precision import get_sky_storage_dtype
 
@@ -61,6 +62,22 @@ def _prepare_pixel_selection(
     full_npix = hp.nside2npix(nside)
     if hpx_inds is not None:
         input_hpx_inds = np.asarray(hpx_inds, dtype=np.int64)
+        if input_hpx_inds.ndim != 1:
+            raise ValueError(
+                f"hpx_inds must be a 1-D array, got shape {input_hpx_inds.shape}."
+            )
+        if (
+            input_hpx_inds.size
+            and np.unique(input_hpx_inds).size != input_hpx_inds.size
+        ):
+            raise ValueError("hpx_inds must be unique; duplicate HEALPix pixels found.")
+        if input_hpx_inds.size and (
+            input_hpx_inds.min() < 0 or input_hpx_inds.max() >= full_npix
+        ):
+            raise ValueError(
+                f"hpx_inds must lie within [0, {full_npix}); got range "
+                f"[{input_hpx_inds.min()}, {input_hpx_inds.max()}]."
+            )
         input_npix = len(input_hpx_inds)
     else:
         input_hpx_inds = None
@@ -137,7 +154,9 @@ def build_healpix_from_stokes_cube(
     Stokes I is required for every row; Q/U/V arrays are allocated lazily
     only when the corresponding component appears.
     """
-    frequencies = np.asarray(frequencies, dtype=np.float64)
+    frequencies = validate_frequency_axis(
+        frequencies, label="HEALPix builder frequencies", ascending=False
+    )
     n_freq = len(frequencies)
     output_hpx_inds, keep, n_output_pix = _prepare_pixel_selection(
         nside=nside,

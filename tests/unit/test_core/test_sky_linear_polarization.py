@@ -112,3 +112,16 @@ class TestLinearPolPoint:
         out = compute_linear_polarization(sky)
         np.testing.assert_allclose(out["P"], 0.0)
         np.testing.assert_allclose(out["frac_pol"], 0.0)
+
+
+def test_fractional_polarization_near_zero_i_is_nan():
+    from radiosim.core.sky.diagnostics.polarization import _linear_pol_arrays
+
+    result = _linear_pol_arrays(
+        np.array([1e-14, 1.0]),
+        np.array([1.0, 0.3]),
+        np.array([0.0, 0.4]),
+    )
+
+    assert np.isnan(result["frac_pol"][0])
+    assert result["frac_pol"][1] == pytest.approx(0.5)

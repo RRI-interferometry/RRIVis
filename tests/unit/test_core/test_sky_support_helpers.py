@@ -299,6 +299,21 @@ def test_resolve_frequency_config_from_raw_frequencies_hz():
     assert out.tolist() == [100e6, 120e6, 150e6]
 
 
+@pytest.mark.parametrize(
+    "frequencies",
+    [
+        np.array([]),
+        np.array([100e6, np.nan]),
+        np.array([100e6, np.inf]),
+        np.array([0.0, 100e6]),
+        np.array([-1.0, 100e6]),
+    ],
+)
+def test_resolve_frequency_config_rejects_invalid_explicit_axis(frequencies):
+    with pytest.raises(ValueError, match="resolve_frequency_config frequencies"):
+        resolve_frequency_config(frequencies=frequencies)
+
+
 # ---------------------------------------------------------------------------
 # quantities.to_value
 # ---------------------------------------------------------------------------

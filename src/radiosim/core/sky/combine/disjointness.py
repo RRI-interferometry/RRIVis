@@ -93,17 +93,29 @@ def _disjoint_pair_failures(
             # flux axis disjointly only when the (frequency-scaled) diffuse
             # subtraction threshold sits at or below the *faint* edge of the
             # catalog's completeness band, not merely the first tuple element.
-            completeness_min = float(min(completeness))
+            completeness_min = float(completeness[0])
+            completeness_max = float(completeness[1])
             if t_d_at_p <= completeness_min:
-                return []  # diffuse subtraction tiles the flux axis below catalog
-            reasons.append(
-                f"diffuse '{diffuse.model_name}' is source-subtracted at "
-                f"{t_d:g} Jy@{nu_d / 1e6:.1f} MHz "
-                f"(scaled α={alpha:+.2f} to {t_d_at_p:g} Jy @ "
-                f"{nu_p / 1e6:.1f} MHz), but catalog '{point.model_name}' "
-                f"completeness starts at {completeness_min:g} Jy — sources in "
-                f"({completeness_min:g}, {t_d_at_p:g}] Jy are double-counted."
-            )
+                if completeness_max >= t_d_at_p:
+                    return []  # diffuse subtraction tiles below catalog coverage
+                reasons.append(
+                    f"diffuse '{diffuse.model_name}' is source-subtracted at "
+                    f"{t_d:g} Jy@{nu_d / 1e6:.1f} MHz "
+                    f"(scaled α={alpha:+.2f} to {t_d_at_p:g} Jy @ "
+                    f"{nu_p / 1e6:.1f} MHz), but catalog '{point.model_name}' "
+                    f"completeness ends at {completeness_max:g} Jy — sources in "
+                    f"({completeness_max:g}, {t_d_at_p:g}] Jy are present in "
+                    "neither layer (coverage gap)."
+                )
+            else:
+                reasons.append(
+                    f"diffuse '{diffuse.model_name}' is source-subtracted at "
+                    f"{t_d:g} Jy@{nu_d / 1e6:.1f} MHz "
+                    f"(scaled α={alpha:+.2f} to {t_d_at_p:g} Jy @ "
+                    f"{nu_p / 1e6:.1f} MHz), but catalog '{point.model_name}' "
+                    f"completeness starts at {completeness_min:g} Jy — sources in "
+                    f"({completeness_min:g}, {t_d_at_p:g}] Jy are double-counted."
+                )
         else:
             reasons.append(
                 f"diffuse '{diffuse.model_name}' declares ABOVE_THRESHOLD but "

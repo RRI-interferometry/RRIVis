@@ -268,6 +268,39 @@ class TestDisjointnessFailures:
         assert "angular_resolution_rad" in message
         assert "SkyProvenance(" in message
 
+    def test_threshold_above_catalog_upper_edge_fails_as_coverage_gap(self, precision):
+        d = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.ABOVE_THRESHOLD,
+            threshold_jy=4.0,
+            threshold_freq_hz=150e6,
+        )
+        p = _point(precision=precision, flux_min_jy=5.0, flux_max_jy=3.0)
+        p = p.replace(provenance=p.provenance.replace(flux_completeness_jy=(5.0, 3.0)))
+        with pytest.raises(ValueError, match="coverage gap"):
+            _combine_models(
+                [d, p],
+                precision=precision,
+                nside=8,
+                frequencies=np.asarray([150e6, 160e6]),
+            )
+
+    def test_infinite_catalog_upper_edge_passes(self, precision):
+        d = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.ABOVE_THRESHOLD,
+            threshold_jy=4.0,
+            threshold_freq_hz=150e6,
+        )
+        p = _point(precision=precision, flux_min_jy=5.0, flux_max_jy=np.inf)
+        combined = _combine_models(
+            [d, p],
+            precision=precision,
+            nside=8,
+            frequencies=np.asarray([150e6, 160e6]),
+        )
+        assert combined.healpix is not None
+
     def test_threshold_above_catalog_min_fails(self, precision):
         """Diffuse subtracted at 10 Jy @ 150 MHz, catalog S_min = 5 Jy ⇒ overlap."""
         d = _diffuse(

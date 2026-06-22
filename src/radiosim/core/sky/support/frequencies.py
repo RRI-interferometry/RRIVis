@@ -14,6 +14,8 @@ import numpy as np
 
 from radiosim.utils.frequency import parse_frequency_config
 
+from ..containers._shared import validate_frequency_axis
+
 
 def resolve_frequency_config(
     frequencies: np.ndarray | None = None,
@@ -59,4 +61,8 @@ def resolve_frequency_config(
             parse_frequency_config(obs_frequency_config), dtype=np.float64
         )
 
-    return np.sort(resolved)
+    return validate_frequency_axis(
+        np.sort(resolved),
+        label="resolve_frequency_config frequencies",
+        ascending=True,
+    )

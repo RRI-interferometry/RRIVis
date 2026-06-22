@@ -200,3 +200,72 @@ class TestRegistryIntegration:
         assert sky.provenance.notes == "from-yaml"
         assert sky.provenance.monopole_convention is MonopoleConvention.ABSOLUTE_NO_CMB
         assert sky.provenance.sky_coverage is SkyCoverage.FULL_SKY
+
+
+class TestBrightCatalogFluxFloorDispatch:
+    def test_loader_without_flux_floor_rejected_without_explicit_equivalent(
+        self, precision, monkeypatch
+    ):
+        from radiosim.core.sky.recipes import realistic_foreground as recipe_mod
+
+        def fake_loader(*, precision, brightness_conversion):
+            raise AssertionError("loader should not be called")
+
+        class _Resolved:
+            definition = type("Definition", (), {"loader": staticmethod(fake_loader)})
+
+            def __call__(self, **kwargs):
+                return fake_loader(**kwargs)
+
+        monkeypatch.setattr(
+            recipe_mod.loader_registry, "resolve_callable", lambda name: _Resolved()
+        )
+
+        with pytest.raises(
+            ValueError, match="does not accept 'flux_limit' or 'flux_min'"
+        ):
+            recipe_mod._load_bright_catalog(
+                "fake",
+                3.5,
+                region=None,
+                precision=precision,
+                brightness_conversion="rayleigh-jeans",
+                extra_kwargs=None,
+            )
+
+    def test_loader_without_flux_floor_allows_explicit_equivalent(
+        self, precision, monkeypatch
+    ):
+        from radiosim.core.sky.recipes import realistic_foreground as recipe_mod
+
+        seen = {}
+
+        def fake_loader(*, precision, brightness_conversion, min_flux_jy):
+            seen.update(
+                precision=precision,
+                brightness_conversion=brightness_conversion,
+                min_flux_jy=min_flux_jy,
+            )
+            return object()
+
+        class _Resolved:
+            definition = type("Definition", (), {"loader": staticmethod(fake_loader)})
+
+            def __call__(self, **kwargs):
+                return fake_loader(**kwargs)
+
+        monkeypatch.setattr(
+            recipe_mod.loader_registry, "resolve_callable", lambda name: _Resolved()
+        )
+
+        result = recipe_mod._load_bright_catalog(
+            "fake",
+            3.5,
+            region=None,
+            precision=precision,
+            brightness_conversion="rayleigh-jeans",
+            extra_kwargs={"min_flux_jy": 4.0},
+        )
+
+        assert result is not None
+        assert seen["min_flux_jy"] == pytest.approx(4.0)

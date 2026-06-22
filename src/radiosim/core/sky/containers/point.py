@@ -38,6 +38,19 @@ from .constants import SpectralType
 #: the raw constructor into a loud error instead of a silently-dropped column.
 _POINT_SOURCE_DATA_CONFIG = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
+
+def _require_floating_array(arr: np.ndarray | None, *, label: str) -> None:
+    """Reject non-floating raw point-source arrays without coercion."""
+    if arr is None:
+        return
+    if not np.issubdtype(arr.dtype, np.floating):
+        raise ValueError(
+            f"{label} must have a floating dtype; got {arr.dtype}. "
+            "Integer, complex, and object arrays are rejected by the raw "
+            "PointSourceData container."
+        )
+
+
 # =============================================================================
 # SourceArrays TypedDict
 # =============================================================================
@@ -506,6 +519,14 @@ class PointSourceData:
 
     @model_validator(mode="after")
     def _validate_lengths(self) -> PointSourceData:
+        for name in self._CORE_FIELDS:
+            _require_floating_array(
+                getattr(self, name), label=f"PointSourceData.{name}"
+            )
+        _require_floating_array(
+            self.spectral_coeffs, label="PointSourceData.spectral_coeffs"
+        )
+
         if self.ra_rad.ndim != 1:
             raise ValueError(
                 f"PointSourceData: ra_rad must be 1-D, got shape {self.ra_rad.shape}."

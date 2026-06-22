@@ -86,13 +86,34 @@ def _load_bright_catalog(
     }
     if region is not None and "region" in accepts:
         kwargs["region"] = region
+
+    extra_kwargs = dict(extra_kwargs or {})
+    explicit_flux_floor_keys = {
+        "flux_limit",
+        "flux_min",
+        "min_flux",
+        "flux_floor",
+        "flux_min_jy",
+        "min_flux_jy",
+        "bright_catalog_flux_min_jy",
+    }
+    has_explicit_flux_floor = any(
+        key in extra_kwargs for key in explicit_flux_floor_keys
+    )
     if "flux_limit" in accepts:
         kwargs["flux_limit"] = float(flux_min_jy)
     elif "flux_min" in accepts:
         kwargs["flux_min"] = float(flux_min_jy)
+    elif not has_explicit_flux_floor:
+        raise ValueError(
+            f"Bright catalog loader '{name}' does not accept 'flux_limit' or "
+            "'flux_min', so realistic_foreground cannot enforce "
+            f"bright_catalog_flux_min_jy={flux_min_jy:g}. Provide an explicit "
+            "equivalent flux floor in bright_catalog_kwargs or choose a loader "
+            "with a supported flux-floor parameter."
+        )
 
-    if extra_kwargs:
-        kwargs.update(extra_kwargs)
+    kwargs.update(extra_kwargs)
     return resolved(**kwargs)
 
 

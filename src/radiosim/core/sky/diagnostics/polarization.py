@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+_FRACTIONAL_POL_I_ATOL = 1e-12
+
 if TYPE_CHECKING:
     from ..containers.model import SkyModel
 
@@ -100,5 +102,9 @@ def _linear_pol_arrays(
     chi_deg = np.degrees(chi_rad)
     with np.errstate(divide="ignore", invalid="ignore"):
         frac_pol = p / np.abs(i_arr)
-    frac_pol = np.where(i_arr == 0.0, np.nan, frac_pol)
+    frac_pol = np.where(
+        np.isclose(i_arr, 0.0, rtol=0.0, atol=_FRACTIONAL_POL_I_ATOL),
+        np.nan,
+        frac_pol,
+    )
     return {"P": p, "chi_deg": chi_deg, "frac_pol": frac_pol}

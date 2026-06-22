@@ -405,3 +405,37 @@ class TestSpectralRepresentationLayering:
         )
         # No raise for the plain power-law-only source.
         sky.point.assert_single_spectral_representation()
+
+
+class TestPointSourceDataDtypes:
+    def _valid_kwargs(self):
+        return {
+            "ra_rad": np.array([0.0, 1.0], dtype=np.float64),
+            "dec_rad": np.array([0.0, 0.5], dtype=np.float64),
+            "flux": np.array([1.0, 2.0], dtype=np.float64),
+            "spectral_index": np.array([-0.7, -0.8], dtype=np.float64),
+            "stokes_q": np.zeros(2, dtype=np.float64),
+            "stokes_u": np.zeros(2, dtype=np.float64),
+            "stokes_v": np.zeros(2, dtype=np.float64),
+            "ref_freq": np.full(2, 100e6, dtype=np.float64),
+        }
+
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_core_float_dtypes_pass(self, dtype):
+        kwargs = {name: arr.astype(dtype) for name, arr in self._valid_kwargs().items()}
+        point = PointSourceData(**kwargs)
+        assert point.flux.dtype == dtype
+
+    @pytest.mark.parametrize("dtype", [np.int64, np.complex128, object])
+    def test_core_non_float_dtypes_rejected(self, dtype):
+        kwargs = self._valid_kwargs()
+        kwargs["flux"] = np.array([1, 2], dtype=dtype)
+        with pytest.raises(ValueError, match="floating dtype"):
+            PointSourceData(**kwargs)
+
+    @pytest.mark.parametrize("dtype", [np.int64, np.complex128, object])
+    def test_spectral_coeffs_non_float_dtypes_rejected(self, dtype):
+        kwargs = self._valid_kwargs()
+        kwargs["spectral_coeffs"] = np.array([[1, 2], [3, 4]], dtype=dtype)
+        with pytest.raises(ValueError, match="spectral_coeffs.*floating dtype"):
+            PointSourceData(**kwargs)

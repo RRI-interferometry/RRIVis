@@ -27,6 +27,8 @@ from typing import Any
 import healpy as hp
 import numpy as np
 
+from ..containers._shared import validate_frequency_axis
+
 logger = logging.getLogger(__name__)
 
 #: 21 cm rest frequency (Hz)
@@ -238,27 +240,27 @@ def compute_delay_spectrum(
         raise ValueError(f"cube must be 2-D (n_freq, n_pix), got {cube.shape}")
     n_freq, n_pix = cube.shape
 
+    frequencies_hz = validate_frequency_axis(
+        frequencies_hz, label="compute_delay_spectrum frequencies_hz", ascending=True
+    )
     if frequencies_hz.shape != (n_freq,):
         raise ValueError(
             f"frequencies_hz shape {frequencies_hz.shape} "
             f"does not match cube first axis {n_freq}"
         )
 
-    # The delay axis assumes a uniform, strictly-increasing frequency grid;
-    # a non-monotonic or non-uniform axis would silently produce a wrong
-    # delay/k_parallel scale.
+    # The delay axis assumes a uniform frequency grid; finite, positive,
+    # strictly-increasing validation is shared with the sky containers.
     diffs = np.diff(frequencies_hz)
     if n_freq > 1:
-        if np.any(diffs <= 0):
-            raise ValueError(
-                "compute_delay_spectrum requires a strictly increasing frequency axis."
-            )
         if not np.allclose(diffs, diffs[0], rtol=1e-3):
             raise ValueError(
                 "compute_delay_spectrum requires a uniformly-spaced frequency "
                 f"axis; spacing ranges {diffs.min():.6g}–{diffs.max():.6g} Hz."
             )
-    dfreq = float(diffs.mean())
+        dfreq = float(diffs.mean())
+    else:
+        dfreq = 1.0
     w = _get_window(window, n_freq)
 
     data = cube
