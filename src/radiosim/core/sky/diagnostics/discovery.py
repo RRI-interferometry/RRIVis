@@ -12,6 +12,8 @@ from typing import Any
 import healpy as hp
 import numpy as np
 
+from ..support.healpix_geometry import pixel_solid_angle
+
 
 def estimate_healpix_memory(
     nside: int,
@@ -61,7 +63,7 @@ def estimate_healpix_memory(
     total_bytes = bytes_per_map * n_frequencies * n_stokes
 
     # Approximate resolution in arcminutes
-    resolution_arcmin = np.sqrt(4 * np.pi / npix) * (180 / np.pi) * 60
+    resolution_arcmin = np.sqrt(pixel_solid_angle(nside)) * (180 / np.pi) * 60
 
     return {
         "npix": npix,

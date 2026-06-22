@@ -25,6 +25,7 @@ from radiosim.core.sky.operations.region import BoxRegion
 from radiosim.core.sky.support.backend_helpers import maybe_asarray
 from radiosim.core.sky.support.frequencies import resolve_frequency_config
 from radiosim.core.sky.support.healpix_geometry import (
+    close_memmap,
     gnomonic_rotate,
     ordered_row,
     pixel_solid_angle,
@@ -86,6 +87,54 @@ def test_pixel_solid_angle_matches_constants_helper():
 
     for nside in (8, 16, 32, 64, 128):
         assert pixel_solid_angle(nside) == pytest.approx(constants_psa(nside))
+
+
+def test_pixel_solid_angle_is_used_by_combine_and_diagnostics(monkeypatch):
+    import radiosim.core.sky.combine.healpix as combine_healpix
+    import radiosim.core.sky.diagnostics.discovery as discovery
+
+    calls: list[int] = []
+
+    def spy_pixel_solid_angle(nside: int) -> float:
+        calls.append(nside)
+        return 4.0 * np.pi / (12.0 * nside**2)
+
+    monkeypatch.setattr(combine_healpix, "pixel_solid_angle", spy_pixel_solid_angle)
+    monkeypatch.setattr(discovery, "pixel_solid_angle", spy_pixel_solid_angle)
+
+    info = discovery.estimate_healpix_memory(nside=8, n_frequencies=2)
+    assert info["resolution_arcmin"] == pytest.approx(
+        np.sqrt(spy_pixel_solid_angle(8)) * (180 / np.pi) * 60
+    )
+
+    npix = hp.nside2npix(8)
+    freqs = np.array([100e6])
+    model = combine_healpix.combine_healpix(
+        [],
+        ref_nside=8,
+        ref_freqs=freqs,
+        ref_frequency=100e6,
+        brightness_conversion="rayleigh-jeans",
+        precision=PrecisionConfig.standard(),
+    )
+    assert model["healpix_maps"].shape == (1, npix)
+    assert calls == [8, 8, 8]
+
+
+# ---------------------------------------------------------------------------
+# healpix_geometry.close_memmap
+# ---------------------------------------------------------------------------
+
+
+def test_close_memmap_flushes_visible_data(tmp_path):
+    path = tmp_path / "cube.dat"
+    mm = np.memmap(path, dtype=np.float64, mode="w+", shape=(2,))
+    mm[:] = [1.0, 2.0]
+
+    close_memmap(mm)
+
+    reopened = np.memmap(path, dtype=np.float64, mode="r", shape=(2,))
+    np.testing.assert_array_equal(reopened, [1.0, 2.0])
 
 
 # ---------------------------------------------------------------------------

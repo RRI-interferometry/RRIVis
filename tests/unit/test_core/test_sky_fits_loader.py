@@ -71,6 +71,7 @@ def test_fits_loader_region_filter_returns_sparse_healpix(monkeypatch, tmp_path)
     import reproject
 
     def fake_reproject_to_healpix(image_and_wcs, frame, nside, **kwargs):
+        assert kwargs["nested"] is False
         npix = 12 * nside**2
         return np.arange(npix, dtype=np.float64), np.ones(npix)
 
@@ -97,6 +98,43 @@ def test_fits_loader_region_filter_returns_sparse_healpix(monkeypatch, tmp_path)
     assert sky.healpix is not None
     assert sky.healpix.is_sparse
     assert sky.healpix.n_pixels < sky.healpix.full_n_pixels
+
+
+def test_fits_loader_can_return_nested_healpix_order(monkeypatch, tmp_path):
+    import healpy as hp
+    import reproject
+
+    calls: list[bool] = []
+
+    def fake_reproject_to_healpix(image_and_wcs, frame, nside, **kwargs):
+        calls.append(kwargs["nested"])
+        npix = hp.nside2npix(nside)
+        return np.arange(npix, dtype=np.float64), np.ones(npix)
+
+    monkeypatch.setattr(reproject, "reproject_to_healpix", fake_reproject_to_healpix)
+
+    data = np.ones((2, 2), dtype=np.float64)
+    hdu = fits.PrimaryHDU(data)
+    header = hdu.header
+    header["CTYPE1"] = "RA---TAN"
+    header["CTYPE2"] = "DEC--TAN"
+    header["RESTFRQ"] = 100e6
+    header["BUNIT"] = "K"
+
+    fits_path = tmp_path / "nested.fits"
+    hdu.writeto(fits_path)
+
+    sky = load_fits_image(
+        str(fits_path),
+        nside=4,
+        nested=True,
+        precision=PrecisionConfig.standard(),
+    )
+
+    assert calls == [True]
+    assert sky.healpix is not None
+    assert sky.healpix.is_nested
+    np.testing.assert_array_equal(sky.healpix.maps[0], np.arange(hp.nside2npix(4)))
 
 
 def test_fits_loader_preserves_signed_polarized_stokes(monkeypatch, tmp_path):

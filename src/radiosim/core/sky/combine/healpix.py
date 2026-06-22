@@ -31,6 +31,7 @@ from ..containers.spectral import (
 )
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ..support.backend_helpers import maybe_asarray
+from ..support.healpix_geometry import pixel_solid_angle
 from ..support.precision import get_sky_storage_dtype
 from .regrid import (
     _format_healpix_freq_grid,
@@ -320,7 +321,7 @@ def combine_healpix(
 
     npix = hp.nside2npix(ref_nside)
     n_freq = len(ref_freqs)
-    omega_pixel = 4 * np.pi / npix
+    omega_pixel = pixel_solid_angle(ref_nside)
 
     # Collect point-source data for pixel-binning. Each entry carries the
     # pre-computed pixel indices, a stable handle to the PointSourceData, the

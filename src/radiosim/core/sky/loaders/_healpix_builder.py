@@ -12,6 +12,7 @@ import numpy as np
 from ..containers import HealpixData
 from ..containers._shared import validate_frequency_axis
 from ..support import allocation as _allocation
+from ..support.healpix_geometry import close_memmap
 from ..support.precision import get_sky_storage_dtype
 
 if TYPE_CHECKING:
@@ -147,6 +148,7 @@ def build_healpix_from_stokes_cube(
     region: SkyRegion | None = None,
     precision: PrecisionConfig | None = None,
     memmap_dir: str | None = None,
+    ordering: str = "ring",
 ) -> HealpixData:
     """Build a :class:`HealpixData` from per-frequency Stokes rows.
 
@@ -247,8 +249,7 @@ def build_healpix_from_stokes_cube(
             v_arr = _allocation.finalize_cube(v_arr, scratch, "v_maps")
     except Exception:
         for arr in (i_arr, q_arr, u_arr, v_arr):
-            if isinstance(arr, np.memmap):
-                arr._mmap.close()
+            close_memmap(arr)
         raise
 
     return HealpixData(
@@ -256,6 +257,7 @@ def build_healpix_from_stokes_cube(
         nside=nside,
         frequencies=frequencies,
         coordinate_frame=coordinate_frame,
+        ordering=ordering,
         hpx_inds=output_hpx_inds,
         q_maps=q_arr,
         u_maps=u_arr,

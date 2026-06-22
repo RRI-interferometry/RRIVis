@@ -20,6 +20,7 @@ from ..containers.constants import (
     rayleigh_jeans_factor,
 )
 from ..registry.facade import loader_registry
+from ..support.healpix_geometry import pixel_solid_angle
 from ..support.provenance_coverage import coverage_provenance
 from ._healpix_builder import build_healpix_from_stokes_cube
 
@@ -139,7 +140,6 @@ def _parse_fits_axes_and_units(
         bmin_rad = np.deg2rad(bmin)
         beam_area_sr = math.pi * bmaj_rad * bmin_rad / (4 * math.log(2))
 
-    npix = hp.nside2npix(nside)
     return _FitsAxesAndUnits(
         ndim=ndim,
         freq_ax=freq_ax,
@@ -153,7 +153,7 @@ def _parse_fits_axes_and_units(
         is_jy_sr=is_jy_sr,
         beam_area_sr=beam_area_sr,
         pixel_area_sr=pixel_area_sr,
-        omega_pixel=4 * np.pi / npix,
+        omega_pixel=pixel_solid_angle(nside),
     )
 
 
@@ -221,6 +221,7 @@ def _reproject_fits_stokes(
     brightness_conversion: str,
     filename: str,
     reproject_to_healpix: Any,
+    nested: bool,
 ):
     final_freqs, src_row_for_out, single_freq_replicate = (
         _resolve_fits_output_frequencies(spec, frequencies)
@@ -232,7 +233,7 @@ def _reproject_fits_stokes(
             "icrs",
             nside=nside,
             order="bilinear",
-            nested=False,
+            nested=nested,
         )
         hp_array = np.asarray(hp_array, dtype=np.float64)
         hp_array[~np.isfinite(hp_array)] = 0.0
@@ -409,6 +410,7 @@ def load_fits_image(
     precision: PrecisionConfig,
     memmap_path: str | None = None,
     provenance: SkyProvenance | None = None,
+    nested: bool = False,
 ) -> SkyModel:
     """Load a FITS image and reproject to HEALPix multi-frequency maps.
 
@@ -430,6 +432,9 @@ def load_fits_image(
         Conversion method: "planck" or "rayleigh-jeans".
     precision : PrecisionConfig
         Precision configuration.
+    nested : bool, default False
+        Return the output HEALPix payload in NEST order. The default remains
+        RING order.
 
     Returns
     -------
@@ -481,16 +486,20 @@ def load_fits_image(
         brightness_conversion=brightness_conversion,
         filename=filename,
         reproject_to_healpix=reproject_to_healpix,
+        nested=nested,
     )
 
+    hpx_inds = np.arange(hp.nside2npix(nside), dtype=np.int64) if nested else None
     healpix = build_healpix_from_stokes_cube(
         stokes_rows=stokes_rows,
         nside=nside,
         frequencies=obs_freqs,
         coordinate_frame="icrs",
+        hpx_inds=hpx_inds,
         region=None,
         precision=precision,
         memmap_dir=memmap_path,
+        ordering="nest" if nested else "ring",
     )
 
     sky = SkyModel(

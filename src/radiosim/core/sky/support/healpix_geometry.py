@@ -16,6 +16,8 @@ package:
 
 from __future__ import annotations
 
+import gc
+
 import healpy as hp
 import numpy as np
 
@@ -43,6 +45,25 @@ def pixel_solid_angle(nside: int) -> float:
         Solid angle subtended by one pixel, in steradians.
     """
     return float(4.0 * np.pi / (12.0 * int(nside) ** 2))
+
+
+def close_memmap(arr: np.ndarray) -> None:
+    """Flush and release a NumPy memmap without directly closing ``arr._mmap``.
+
+    NumPy does not expose a public close method on ``memmap``.  The least
+    private cleanup path is to flush the memmap and drop references to the
+    mapping-owning object so the mmap finalizer can run.  This is intended for
+    exception cleanup where the array will not be returned to callers.
+    """
+    if not isinstance(arr, np.memmap):
+        return
+    arr.flush()
+    root: np.ndarray = arr
+    while isinstance(getattr(root, "base", None), np.ndarray):
+        root = root.base
+    if isinstance(root, np.memmap):
+        root.flush()
+    gc.collect()
 
 
 def gnomonic_rotate(
