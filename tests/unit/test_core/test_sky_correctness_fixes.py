@@ -22,6 +22,8 @@ from radiosim.core.sky import (
 from radiosim.core.sky.containers.spectral import compute_spectral_scale
 from radiosim.core.sky.io.serialization import load_skyh5, save_skyh5
 from radiosim.core.sky.operations.convert import (
+    HealpixConversionConfig,
+    PointSourceHealpixInputs,
     healpix_map_to_point_arrays,
     point_sources_to_healpix_maps,
 )
@@ -263,20 +265,23 @@ def test_point_to_healpix_planck_pol_rejects_negative_binned_pixels() -> None:
     stokes_q = np.array([-0.2, -0.2])  # negative Q
     stokes_u = np.zeros(2)
     stokes_v = np.zeros(2)
+    sources = PointSourceHealpixInputs(
+        ra_rad=ra,
+        dec_rad=dec,
+        flux=flux,
+        spectral_index=alpha,
+        spectral_coeffs=None,
+        stokes_q=stokes_q,
+        stokes_u=stokes_u,
+        stokes_v=stokes_v,
+        rotation_measure=None,
+        ref_frequency=150e6,
+    )
+    config = HealpixConversionConfig(
+        nside=16,
+        frequencies=np.array([150e6]),
+        brightness_conversion="planck",
+        polarization_brightness_conversion="planck",
+    )
     with pytest.raises(ValueError, match="strictly positive Stokes Q"):
-        point_sources_to_healpix_maps(
-            ra,
-            dec,
-            flux,
-            alpha,
-            spectral_coeffs=None,
-            stokes_q=stokes_q,
-            stokes_u=stokes_u,
-            stokes_v=stokes_v,
-            rotation_measure=None,
-            nside=16,
-            frequencies=np.array([150e6]),
-            ref_frequency=150e6,
-            brightness_conversion="planck",
-            polarization_brightness_conversion="planck",
-        )
+        point_sources_to_healpix_maps(sources, config)

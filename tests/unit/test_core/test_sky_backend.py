@@ -9,6 +9,8 @@ from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import create_from_arrays
 from radiosim.core.sky.combine.pipeline import prepare_sky_model
 from radiosim.core.sky.operations.convert import (
+    HealpixConversionConfig,
+    PointSourceHealpixInputs,
     bin_sources_to_flux,
     point_sources_to_healpix_maps,
 )
@@ -50,6 +52,26 @@ def _source_kwargs() -> dict:
         "brightness_conversion": "rayleigh-jeans",
         "polarization_brightness_conversion": "rayleigh-jeans",
     }
+
+
+def _grouped_point_kwargs(kwargs: dict):
+    return PointSourceHealpixInputs(
+        ra_rad=kwargs["ra_rad"],
+        dec_rad=kwargs["dec_rad"],
+        flux=kwargs["flux"],
+        spectral_index=kwargs["spectral_index"],
+        spectral_coeffs=kwargs["spectral_coeffs"],
+        stokes_q=kwargs["stokes_q"],
+        stokes_u=kwargs["stokes_u"],
+        stokes_v=kwargs["stokes_v"],
+        rotation_measure=kwargs["rotation_measure"],
+        ref_frequency=kwargs["ref_frequency"],
+    ), HealpixConversionConfig(
+        nside=kwargs["nside"],
+        frequencies=kwargs["frequencies"],
+        brightness_conversion=kwargs["brightness_conversion"],
+        polarization_brightness_conversion=kwargs["polarization_brightness_conversion"],
+    )
 
 
 def _point_model():
@@ -119,8 +141,9 @@ def test_point_sources_to_healpix_maps_numba_matches_numpy():
     backend = _get_optional_backend("numba")
     kwargs = _source_kwargs()
 
-    expected = point_sources_to_healpix_maps(**kwargs)
-    actual = point_sources_to_healpix_maps(**kwargs, backend=backend)
+    sources, config = _grouped_point_kwargs(kwargs)
+    expected = point_sources_to_healpix_maps(sources, config)
+    actual = point_sources_to_healpix_maps(sources, config, backend=backend)
 
     for actual_arr, expected_arr in zip(actual[:4], expected[:4], strict=True):
         if expected_arr is None:

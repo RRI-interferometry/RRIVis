@@ -21,10 +21,26 @@ import gc
 import healpy as hp
 import numpy as np
 
+from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX
+
 #: Clamp floor for the angular-distance cosine in the gnomonic projection.
 #: Preserved verbatim from ``subtraction._gnomonic_patch_coords`` so the
 #: extracted helper reproduces the original convention exactly.
 _GNOMONIC_COS_C_FLOOR: float = 1e-12
+
+
+def scale_flux_power_law(
+    flux_jy: float,
+    from_freq_hz: float | None,
+    to_freq_hz: float | None,
+    alpha: float = SYNCHROTRON_SPECTRAL_INDEX,
+) -> float:
+    """Scale a flux density between reference frequencies with a power law."""
+    if from_freq_hz is None or to_freq_hz is None:
+        return float(flux_jy)
+    if from_freq_hz <= 0.0 or to_freq_hz <= 0.0:
+        return float(flux_jy)
+    return float(flux_jy) * (float(to_freq_hz) / float(from_freq_hz)) ** float(alpha)
 
 
 def pixel_solid_angle(nside: int) -> float:

@@ -29,6 +29,7 @@ from ..containers import SkyCoverage, SourceSubtractionStatus
 from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX
 from ..containers.model import SkyFormat, SkyModel
 from ..registry.facade import loader_registry
+from ..support.healpix_geometry import scale_flux_power_law
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -48,9 +49,7 @@ def _scale_flux_with_alpha(
 ) -> float:
     """Power-law flux scaling ``S · (ν_to / ν_from)^α``.  Clamps to input on
     non-positive frequencies."""
-    if from_freq_hz <= 0.0 or to_freq_hz <= 0.0:
-        return float(flux_jy)
-    return float(flux_jy) * (to_freq_hz / from_freq_hz) ** alpha
+    return scale_flux_power_law(flux_jy, from_freq_hz, to_freq_hz, alpha)
 
 
 def _load_bright_catalog(

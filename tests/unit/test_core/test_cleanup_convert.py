@@ -19,9 +19,14 @@ import pytest
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.containers.constants import rayleigh_jeans_factor
 from radiosim.core.sky.operations.convert import (
+    HealpixConversionConfig,
+    PointSourceHealpixInputs,
+    SpectralFluxMode,
     bin_sources_to_flux,
     healpix_map_to_point_arrays,
-    point_sources_to_healpix_maps,
+)
+from radiosim.core.sky.operations.convert import (
+    point_sources_to_healpix_maps as _point_sources_to_healpix_maps,
 )
 from radiosim.core.sky.operations.subtraction import _fit_multifreq_gaussian
 from radiosim.core.sky.support.healpix_geometry import (
@@ -50,6 +55,96 @@ def _single_source_inputs(nside=8, ra=0.5, dec=0.3, flux=10.0):
         "ref_frequency": 150e6,
         "brightness_conversion": "rayleigh-jeans",
     }
+
+
+def point_sources_to_healpix_maps(
+    ra_rad=None,
+    dec_rad=None,
+    flux=None,
+    spectral_index=None,
+    *,
+    spectral_coeffs=None,
+    stokes_q=None,
+    stokes_u=None,
+    stokes_v=None,
+    rotation_measure=None,
+    nside=None,
+    frequencies=None,
+    ref_frequency=None,
+    brightness_conversion=None,
+    coordinate_frame="icrs",
+    output_dtype=np.float32,
+    memmap_path=None,
+    per_channel_flux=None,
+    per_channel_stokes_q=None,
+    per_channel_stokes_u=None,
+    per_channel_stokes_v=None,
+    channel_frequencies=None,
+    polarization_brightness_conversion="rayleigh-jeans",
+    backend=None,
+):
+    sources = PointSourceHealpixInputs(
+        ra_rad=ra_rad,
+        dec_rad=dec_rad,
+        flux=flux,
+        spectral_index=spectral_index,
+        spectral_coeffs=spectral_coeffs,
+        stokes_q=stokes_q,
+        stokes_u=stokes_u,
+        stokes_v=stokes_v,
+        rotation_measure=rotation_measure,
+        ref_frequency=ref_frequency,
+        per_channel_flux=per_channel_flux,
+        per_channel_stokes_q=per_channel_stokes_q,
+        per_channel_stokes_u=per_channel_stokes_u,
+        per_channel_stokes_v=per_channel_stokes_v,
+        channel_frequencies=channel_frequencies,
+    )
+    config = HealpixConversionConfig(
+        nside=nside,
+        frequencies=frequencies,
+        brightness_conversion=brightness_conversion,
+        coordinate_frame=coordinate_frame,
+        output_dtype=output_dtype,
+        memmap_path=memmap_path,
+        polarization_brightness_conversion=polarization_brightness_conversion,
+    )
+    return _point_sources_to_healpix_maps(sources, config, backend=backend)
+
+
+def test_point_sources_to_healpix_maps_accepts_grouped_inputs():
+    kw = _single_source_inputs(nside=8, flux=10.0)
+    sources = PointSourceHealpixInputs(
+        ra_rad=kw["ra_rad"],
+        dec_rad=kw["dec_rad"],
+        flux=kw["flux"],
+        spectral_index=kw["spectral_index"],
+        spectral_coeffs=kw["spectral_coeffs"],
+        stokes_q=kw["stokes_q"],
+        stokes_u=kw["stokes_u"],
+        stokes_v=kw["stokes_v"],
+        rotation_measure=kw["rotation_measure"],
+        ref_frequency=kw["ref_frequency"],
+    )
+    config = HealpixConversionConfig(
+        nside=kw["nside"],
+        frequencies=kw["frequencies"],
+        brightness_conversion=kw["brightness_conversion"],
+    )
+
+    i_maps, q_maps, u_maps, v_maps, stats = _point_sources_to_healpix_maps(
+        sources, config
+    )
+
+    npix = hp.nside2npix(kw["nside"])
+    assert i_maps.shape == (1, npix)
+    assert q_maps is None and u_maps is None and v_maps is None
+    occupied = np.flatnonzero(i_maps[0] > 0)
+    assert occupied.size == 1
+    omega = pixel_solid_angle(kw["nside"])
+    jy = float(i_maps[0, occupied[0]]) * rayleigh_jeans_factor(150e6, omega)
+    assert jy == pytest.approx(10.0, rel=1e-6)
+    assert stats["n_sources"] == 1
 
 
 def test_i_only_single_source_single_freq_flux_conserved():
@@ -170,6 +265,57 @@ def test_bin_sources_to_flux_conserves_total():
     assert out[3] == pytest.approx(3.0)
     assert out[100] == pytest.approx(4.0)
     assert out.sum() == pytest.approx(7.0)
+
+
+def test_bin_sources_to_flux_rejects_scale_with_per_channel_flux():
+    npix = hp.nside2npix(8)
+    with pytest.raises(ValueError, match="scale.*per-channel flux"):
+        bin_sources_to_flux(
+            np.array([3]),
+            np.array([1.0]),
+            np.array([0.0]),
+            None,
+            150e6,
+            150e6,
+            npix,
+            scale=np.array([2.0]),
+            per_channel_flux=np.array([[5.0]]),
+            channel_frequencies=np.array([150e6]),
+            mode=SpectralFluxMode.PER_CHANNEL,
+        )
+
+
+def test_bin_sources_to_flux_rejects_spectral_model_with_per_channel_flux():
+    npix = hp.nside2npix(8)
+    with pytest.raises(ValueError, match="spectral_index.*per-channel flux"):
+        bin_sources_to_flux(
+            np.array([3]),
+            np.array([1.0]),
+            np.array([-0.7]),
+            None,
+            150e6,
+            150e6,
+            npix,
+            per_channel_flux=np.array([[5.0]]),
+            channel_frequencies=np.array([150e6]),
+            mode=SpectralFluxMode.PER_CHANNEL,
+        )
+
+
+def test_bin_sources_to_flux_requires_channel_frequencies_with_per_channel_flux():
+    npix = hp.nside2npix(8)
+    with pytest.raises(ValueError, match="channel_frequencies"):
+        bin_sources_to_flux(
+            np.array([3]),
+            np.array([1.0]),
+            np.array([0.0]),
+            None,
+            150e6,
+            150e6,
+            npix,
+            per_channel_flux=np.array([[5.0]]),
+            mode=SpectralFluxMode.PER_CHANNEL,
+        )
 
 
 # ---------------------------------------------------------------------------

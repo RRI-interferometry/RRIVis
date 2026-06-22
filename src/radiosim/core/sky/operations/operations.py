@@ -24,7 +24,12 @@ from ..containers import (
 from ..containers.constants import BrightnessConversion
 from ..containers.spectral import per_source_reference_frequencies
 from ..support.point_builder import point_source_data_from_mapping
-from .convert import healpix_map_to_point_arrays, point_sources_to_healpix_maps
+from .convert import (
+    HealpixConversionConfig,
+    PointSourceHealpixInputs,
+    healpix_map_to_point_arrays,
+    point_sources_to_healpix_maps,
+)
 
 if TYPE_CHECKING:
     from radiosim.backends import ArrayBackend
@@ -102,7 +107,7 @@ def materialize_healpix_model(
     else:
         i_method = sky.brightness_conversion.value
         pol_method = sky.polarization_brightness_conversion.value
-    i_maps, q_maps, u_maps, v_maps, collision_stats = point_sources_to_healpix_maps(
+    conversion_sources = PointSourceHealpixInputs(
         ra_rad=sky.point.ra_rad,
         dec_rad=sky.point.dec_rad,
         flux=sky.point.flux,
@@ -116,19 +121,25 @@ def materialize_healpix_model(
             if sky.point.polarization is not None
             else None
         ),
-        nside=nside,
-        frequencies=frequencies,
         ref_frequency=effective_ref_freq,
-        brightness_conversion=BrightnessConversion(i_method),
-        coordinate_frame="icrs",
-        output_dtype=sky._healpix_dtype(),
-        memmap_path=memmap_path,
         per_channel_flux=spectrum.flux if spectrum is not None else None,
         per_channel_stokes_q=spectrum.stokes_q if spectrum is not None else None,
         per_channel_stokes_u=spectrum.stokes_u if spectrum is not None else None,
         per_channel_stokes_v=spectrum.stokes_v if spectrum is not None else None,
         channel_frequencies=spectrum.frequencies if spectrum is not None else None,
+    )
+    conversion_config = HealpixConversionConfig(
+        nside=nside,
+        frequencies=frequencies,
+        brightness_conversion=BrightnessConversion(i_method),
+        coordinate_frame="icrs",
+        output_dtype=sky._healpix_dtype(),
+        memmap_path=memmap_path,
         polarization_brightness_conversion=pol_method,
+    )
+    i_maps, q_maps, u_maps, v_maps, collision_stats = point_sources_to_healpix_maps(
+        conversion_sources,
+        conversion_config,
         backend=backend,
     )
 

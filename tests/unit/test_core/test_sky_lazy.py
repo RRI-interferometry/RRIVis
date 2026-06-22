@@ -17,7 +17,11 @@ from radiosim.core.sky import (
 )
 from radiosim.core.sky.combine.engine import _combine_models
 from radiosim.core.sky.containers.model import SkyFormat, SkyModel
-from radiosim.core.sky.operations.convert import point_sources_to_healpix_maps
+from radiosim.core.sky.operations.convert import (
+    HealpixConversionConfig,
+    PointSourceHealpixInputs,
+    point_sources_to_healpix_maps,
+)
 from radiosim.core.sky.operations.operations import materialize_healpix_model
 from radiosim.core.sky.support.allocation import (
     allocate_cube,
@@ -119,10 +123,34 @@ class TestPointSourcesToHealpixMemmap:
             "ref_frequency": 100e6,
             "brightness_conversion": "planck",
         }
-        i_ram, q_ram, u_ram, v_ram, _ = point_sources_to_healpix_maps(**kwargs)
-        i_mm, q_mm, u_mm, v_mm, _ = point_sources_to_healpix_maps(
-            **kwargs,
+        sources = PointSourceHealpixInputs(
+            ra_rad=kwargs["ra_rad"],
+            dec_rad=kwargs["dec_rad"],
+            flux=kwargs["flux"],
+            spectral_index=kwargs["spectral_index"],
+            spectral_coeffs=kwargs["spectral_coeffs"],
+            stokes_q=kwargs["stokes_q"],
+            stokes_u=kwargs["stokes_u"],
+            stokes_v=kwargs["stokes_v"],
+            rotation_measure=kwargs["rotation_measure"],
+            ref_frequency=kwargs["ref_frequency"],
+        )
+        ram_config = HealpixConversionConfig(
+            nside=kwargs["nside"],
+            frequencies=kwargs["frequencies"],
+            brightness_conversion=kwargs["brightness_conversion"],
+        )
+        memmap_config = HealpixConversionConfig(
+            nside=kwargs["nside"],
+            frequencies=kwargs["frequencies"],
+            brightness_conversion=kwargs["brightness_conversion"],
             memmap_path=str(tmp_path),
+        )
+        i_ram, q_ram, u_ram, v_ram, _ = point_sources_to_healpix_maps(
+            sources, ram_config
+        )
+        i_mm, q_mm, u_mm, v_mm, _ = point_sources_to_healpix_maps(
+            sources, memmap_config
         )
         np.testing.assert_array_equal(i_ram, i_mm)
         assert q_ram is None and q_mm is None

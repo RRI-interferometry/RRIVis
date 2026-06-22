@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Literal
 from ..containers import MonopoleConvention, SourceSubtractionStatus
 from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX, BrightnessConversion
 from ..containers.model import SkyFormat
+from ..support.healpix_geometry import scale_flux_power_law
 
 if TYPE_CHECKING:
     from ..containers.model import SkyModel
@@ -36,9 +37,7 @@ def _scale_threshold_to_frequency(
     threshold unchanged if either frequency is non-positive (robust
     fallback).
     """
-    if from_freq_hz <= 0.0 or to_freq_hz <= 0.0:
-        return float(threshold_jy)
-    return float(threshold_jy) * (to_freq_hz / from_freq_hz) ** alpha
+    return scale_flux_power_law(threshold_jy, from_freq_hz, to_freq_hz, alpha)
 
 
 def classify_model(sky: SkyModel) -> frozenset[SkyFormat]:

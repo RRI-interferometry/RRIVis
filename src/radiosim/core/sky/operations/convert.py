@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING
 
 import healpy as hp
@@ -409,6 +410,13 @@ def healpix_map_to_point_arrays(
     }
 
 
+class SpectralFluxMode(Enum):
+    """How :func:`bin_sources_to_flux` obtains flux at the requested channel."""
+
+    SPECTRAL_MODEL = "spectral_model"
+    PER_CHANNEL = "per_channel"
+
+
 def bin_sources_to_flux(
     ipix: np.ndarray,
     flux: np.ndarray,
@@ -418,6 +426,7 @@ def bin_sources_to_flux(
     ref_frequency: float | np.ndarray,
     npix: int,
     *,
+    mode: SpectralFluxMode = SpectralFluxMode.SPECTRAL_MODEL,
     scale: np.ndarray | None = None,
     per_channel_flux: np.ndarray | None = None,
     channel_frequencies: np.ndarray | None = None,
@@ -454,12 +463,31 @@ def bin_sources_to_flux(
         Flux density map in Jy, shape ``(npix,)``.
     """
     xp = np if backend is None else backend.xp
-    if per_channel_flux is not None and channel_frequencies is not None:
+    mode = SpectralFluxMode(mode)
+    if mode is SpectralFluxMode.PER_CHANNEL:
+        if scale is not None:
+            raise ValueError("scale is incompatible with per-channel flux binning.")
+        if np.any(np.asarray(spectral_index) != 0) or spectral_coeffs is not None:
+            raise ValueError(
+                "spectral_index/spectral_coeffs are incompatible with "
+                "per-channel flux binning; per-channel values are already "
+                "evaluated at channel frequencies."
+            )
+        if per_channel_flux is None or channel_frequencies is None:
+            raise ValueError(
+                "per-channel flux binning requires both per_channel_flux and "
+                "channel_frequencies."
+            )
         idx = nearest_channel_index_with_warning(
             channel_frequencies, freq, label="per-channel flux binning"
         )
         flux_f = xp.asarray(per_channel_flux[idx], dtype=np.float64)
     else:
+        if per_channel_flux is not None or channel_frequencies is not None:
+            raise ValueError(
+                "per_channel_flux/channel_frequencies require "
+                "mode=SpectralFluxMode.PER_CHANNEL."
+            )
         if scale is None:
             scale = compute_spectral_scale(
                 spectral_index, spectral_coeffs, freq, ref_frequency, xp=xp
@@ -473,6 +501,40 @@ def bin_sources_to_flux(
 # =============================================================================
 # point_sources_to_healpix_maps — grouped inputs + per-channel helpers
 # =============================================================================
+
+
+@dataclass(frozen=True)
+class PointSourceHealpixInputs:
+    """Point-source arrays and spectral data for point-to-HEALPix conversion."""
+
+    ra_rad: np.ndarray
+    dec_rad: np.ndarray
+    flux: np.ndarray
+    spectral_index: np.ndarray
+    spectral_coeffs: np.ndarray | None
+    stokes_q: np.ndarray | None
+    stokes_u: np.ndarray | None
+    stokes_v: np.ndarray | None
+    rotation_measure: np.ndarray | None
+    ref_frequency: float | np.ndarray
+    per_channel_flux: np.ndarray | None = None
+    per_channel_stokes_q: np.ndarray | None = None
+    per_channel_stokes_u: np.ndarray | None = None
+    per_channel_stokes_v: np.ndarray | None = None
+    channel_frequencies: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
+class HealpixConversionConfig:
+    """HEALPix geometry and output policy for point-source conversion."""
+
+    nside: int
+    frequencies: np.ndarray
+    brightness_conversion: str
+    coordinate_frame: str = "icrs"
+    output_dtype: npt.DTypeLike = np.float32
+    memmap_path: str | None = None
+    polarization_brightness_conversion: str = "rayleigh-jeans"
 
 
 @dataclass(frozen=True)
@@ -597,11 +659,12 @@ def _compute_stokes_i_channel(
         flux_map = bin_sources_to_flux(
             sources.ipix,
             sources.flux,
-            sources.spectral_index,
-            sources.spectral_coeffs,
+            xp.zeros(sources.n_sources),
+            None,
             float(freq),
             sources.ref_frequency,
             cfg.npix,
+            mode=SpectralFluxMode.PER_CHANNEL,
             per_channel_flux=per_channel.flux,
             channel_frequencies=per_channel.channel_frequencies,
             backend=backend,
@@ -776,30 +839,10 @@ def _has_polarization(
     )
 
 
-def point_sources_to_healpix_maps(
-    ra_rad: np.ndarray,
-    dec_rad: np.ndarray,
-    flux: np.ndarray,
-    spectral_index: np.ndarray,
-    spectral_coeffs: np.ndarray | None,
-    stokes_q: np.ndarray | None,
-    stokes_u: np.ndarray | None,
-    stokes_v: np.ndarray | None,
-    rotation_measure: np.ndarray | None,
-    nside: int,
-    frequencies: np.ndarray,
-    ref_frequency: float | np.ndarray,
-    brightness_conversion: str,
-    coordinate_frame: str = "icrs",
-    output_dtype: npt.DTypeLike = np.float32,
-    memmap_path: str | None = None,
-    per_channel_flux: np.ndarray | None = None,
-    per_channel_stokes_q: np.ndarray | None = None,
-    per_channel_stokes_u: np.ndarray | None = None,
-    per_channel_stokes_v: np.ndarray | None = None,
-    channel_frequencies: np.ndarray | None = None,
+def _point_sources_to_healpix_maps_impl(
+    sources: PointSourceHealpixInputs,
+    config: HealpixConversionConfig,
     *,
-    polarization_brightness_conversion: str = "rayleigh-jeans",
     backend: ArrayBackend | None = None,
 ) -> tuple[
     np.ndarray,
@@ -877,11 +920,57 @@ def point_sources_to_healpix_maps(
         (``n_merged``).  Both are ``0`` when every source landed in its
         own pixel.  Useful for downstream provenance tagging.
     """
-    pol_method = str(polarization_brightness_conversion).lower()
+    ra_rad = sources.ra_rad
+    dec_rad = sources.dec_rad
+    flux = sources.flux
+    spectral_index = sources.spectral_index
+    spectral_coeffs = sources.spectral_coeffs
+    stokes_q = sources.stokes_q
+    stokes_u = sources.stokes_u
+    stokes_v = sources.stokes_v
+    rotation_measure = sources.rotation_measure
+    ref_frequency = sources.ref_frequency
+    per_channel_flux = sources.per_channel_flux
+    per_channel_stokes_q = sources.per_channel_stokes_q
+    per_channel_stokes_u = sources.per_channel_stokes_u
+    per_channel_stokes_v = sources.per_channel_stokes_v
+    channel_frequencies = sources.channel_frequencies
+
+    nside = config.nside
+    frequencies = config.frequencies
+    brightness_conversion = config.brightness_conversion
+    coordinate_frame = config.coordinate_frame
+    output_dtype = config.output_dtype
+    memmap_path = config.memmap_path
+
+    ra_rad = sources.ra_rad
+    dec_rad = sources.dec_rad
+    flux = sources.flux
+    spectral_index = sources.spectral_index
+    spectral_coeffs = sources.spectral_coeffs
+    stokes_q = sources.stokes_q
+    stokes_u = sources.stokes_u
+    stokes_v = sources.stokes_v
+    rotation_measure = sources.rotation_measure
+    ref_frequency = sources.ref_frequency
+    per_channel_flux = sources.per_channel_flux
+    per_channel_stokes_q = sources.per_channel_stokes_q
+    per_channel_stokes_u = sources.per_channel_stokes_u
+    per_channel_stokes_v = sources.per_channel_stokes_v
+    channel_frequencies = sources.channel_frequencies
+
+    nside = config.nside
+    frequencies = config.frequencies
+    brightness_conversion = config.brightness_conversion
+    coordinate_frame = config.coordinate_frame
+    output_dtype = config.output_dtype
+    memmap_path = config.memmap_path
+
+    pol_method = str(config.polarization_brightness_conversion).lower()
     if pol_method not in {"rayleigh-jeans", "planck"}:
         raise ValueError(
             "polarization_brightness_conversion must be 'rayleigh-jeans' or "
-            f"'planck', got {polarization_brightness_conversion!r}."
+            f"'planck', got {config.polarization_brightness_conversion!r}."
         )
 
     npix = hp.nside2npix(nside)
@@ -996,6 +1085,22 @@ def point_sources_to_healpix_maps(
         v_arr = finalize_cube(v_arr, scratch, "v_maps")
 
     return i_arr, q_arr, u_arr, v_arr, collision_stats
+
+
+def point_sources_to_healpix_maps(
+    sources: PointSourceHealpixInputs,
+    config: HealpixConversionConfig,
+    *,
+    backend: ArrayBackend | None = None,
+) -> tuple[
+    np.ndarray,
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
+    dict[str, int],
+]:
+    """Convert point sources to HEALPix maps using grouped inputs."""
+    return _point_sources_to_healpix_maps_impl(sources, config, backend=backend)
 
 
 def _collision_stats(ipix: np.ndarray, n_sources: int, nside: int) -> dict[str, int]:

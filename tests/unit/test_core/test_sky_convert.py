@@ -10,8 +10,12 @@ from radiosim.core.sky.containers.constants import (
     flux_density_to_brightness_temp,
 )
 from radiosim.core.sky.operations.convert import (
+    HealpixConversionConfig,
+    PointSourceHealpixInputs,
     healpix_map_to_point_arrays,
-    point_sources_to_healpix_maps,
+)
+from radiosim.core.sky.operations.convert import (
+    point_sources_to_healpix_maps as _point_sources_to_healpix_maps,
 )
 
 # ---------------------------------------------------------------------------
@@ -21,6 +25,61 @@ from radiosim.core.sky.operations.convert import (
 FREQ_408MHZ = 408e6  # Hz
 FREQ_100MHZ = 100e6
 FREQ_200MHZ = 200e6
+
+
+def point_sources_to_healpix_maps(
+    ra_rad=None,
+    dec_rad=None,
+    flux=None,
+    spectral_index=None,
+    *,
+    spectral_coeffs=None,
+    stokes_q=None,
+    stokes_u=None,
+    stokes_v=None,
+    rotation_measure=None,
+    nside=None,
+    frequencies=None,
+    ref_frequency=None,
+    brightness_conversion=None,
+    coordinate_frame="icrs",
+    output_dtype=np.float32,
+    memmap_path=None,
+    per_channel_flux=None,
+    per_channel_stokes_q=None,
+    per_channel_stokes_u=None,
+    per_channel_stokes_v=None,
+    channel_frequencies=None,
+    polarization_brightness_conversion="rayleigh-jeans",
+    backend=None,
+):
+    sources = PointSourceHealpixInputs(
+        ra_rad=ra_rad,
+        dec_rad=dec_rad,
+        flux=flux,
+        spectral_index=spectral_index,
+        spectral_coeffs=spectral_coeffs,
+        stokes_q=stokes_q,
+        stokes_u=stokes_u,
+        stokes_v=stokes_v,
+        rotation_measure=rotation_measure,
+        ref_frequency=ref_frequency,
+        per_channel_flux=per_channel_flux,
+        per_channel_stokes_q=per_channel_stokes_q,
+        per_channel_stokes_u=per_channel_stokes_u,
+        per_channel_stokes_v=per_channel_stokes_v,
+        channel_frequencies=channel_frequencies,
+    )
+    config = HealpixConversionConfig(
+        nside=nside,
+        frequencies=frequencies,
+        brightness_conversion=brightness_conversion,
+        coordinate_frame=coordinate_frame,
+        output_dtype=output_dtype,
+        memmap_path=memmap_path,
+        polarization_brightness_conversion=polarization_brightness_conversion,
+    )
+    return _point_sources_to_healpix_maps(sources, config, backend=backend)
 
 
 def _omega(nside: int) -> float:

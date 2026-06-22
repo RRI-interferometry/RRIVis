@@ -21,7 +21,7 @@ from radiosim.core.sky.containers.spectral import (
     evaluate_point_flux_at_freq,
     nearest_channel_index,
 )
-from radiosim.core.sky.operations.convert import bin_sources_to_flux
+from radiosim.core.sky.operations.convert import SpectralFluxMode, bin_sources_to_flux
 
 # --------------------------------------------------------------------------- #
 # PointSourceData invariants
@@ -253,11 +253,12 @@ class TestBinSourcesShortCircuit:
         out = bin_sources_to_flux(
             ipix,
             flux=np.array([0.0, 0.0, 0.0]),  # would produce zero via scale path
-            spectral_index=np.full(3, -0.7),
+            spectral_index=np.zeros(3),
             spectral_coeffs=None,
             freq=200e6,
             ref_frequency=100e6,
             npix=4,
+            mode=SpectralFluxMode.PER_CHANNEL,
             per_channel_flux=pc_flux,
             channel_frequencies=freqs,
         )
