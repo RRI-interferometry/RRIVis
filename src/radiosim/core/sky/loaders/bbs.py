@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -432,7 +433,7 @@ class _BbsParsedSources:
 # ============================================================================
 
 
-def _parse_bbs_lines(lines, *, filename: str) -> _BbsParsedSources:
+def _parse_bbs_lines(lines: Iterable[str], *, filename: str) -> _BbsParsedSources:
     columns, defaults = None, {}
     ref_freq_from_header: float = 0.0
 

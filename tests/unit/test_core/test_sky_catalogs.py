@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+import radiosim.core.sky.loaders.vizier.racs as racs_mod
 from radiosim.core.sky.registry.catalogs import (
     CASDA_TAP_URL,
     DIFFUSE_MODELS,
@@ -243,6 +244,30 @@ class TestDefaults:
 
 def test_casda_tap_url():
     assert CASDA_TAP_URL.startswith("https://")
+
+
+def test_run_racs_tap_job_classifies_errors(monkeypatch):
+    class ConnectionFailingTap:
+        def __init__(self, url):
+            self.url = url
+
+        def launch_job(self, adql):
+            raise ConnectionError("network down")
+
+    monkeypatch.setattr(racs_mod, "TapPlus", ConnectionFailingTap)
+    with pytest.raises(ConnectionError, match="network down"):
+        racs_mod._run_racs_tap_job("SELECT 1")
+
+    class GenericFailingTap:
+        def __init__(self, url):
+            self.url = url
+
+        def launch_job(self, adql):
+            raise ValueError("schema changed")
+
+    monkeypatch.setattr(racs_mod, "TapPlus", GenericFailingTap)
+    with pytest.raises(RuntimeError, match="Failed to fetch RACS"):
+        racs_mod._run_racs_tap_job("SELECT 1")
 
 
 class TestFootprintAssets:

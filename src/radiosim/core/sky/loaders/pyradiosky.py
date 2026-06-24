@@ -353,7 +353,7 @@ def _load_pyradiosky_healpix(
     frequencies: np.ndarray | None,
     obs_frequency_config: dict[str, Any] | None,
     brightness_conversion: str,
-    precision: PrecisionConfig | None,
+    precision: PrecisionConfig,
     region: SkyRegion | None = None,
     memmap_path: str | None = None,
 ) -> SkyModel:
@@ -375,7 +375,7 @@ def _load_pyradiosky_healpix(
         Frequency configuration dict.
     brightness_conversion : str
         Conversion method: "planck" or "rayleigh-jeans".
-    precision : Any
+    precision : PrecisionConfig
         Precision configuration.
 
     Returns
@@ -512,7 +512,7 @@ def _load_pyradiosky_healpix(
         hpx_inds=builder_hpx_inds,
         region=region,
         precision=precision,
-        memmap_dir=memmap_path,
+        memmap_path=memmap_path,
     )
 
     model_name = f"pyradiosky:{os.path.basename(filename)}"

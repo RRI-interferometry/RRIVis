@@ -241,6 +241,25 @@ def _maybe_cross_check_frequencies(
         )
 
 
+def _stokes_slice_to_kelvin(
+    stokes_slice: np.ndarray,
+    *,
+    unit: str,
+    freq_hz: float,
+) -> np.ndarray:
+    """Convert a skyh5 Stokes slice from Jy/sr to K_RJ when required."""
+    if unit != "Jy / sr":
+        return stokes_slice
+    from ..containers.constants import flux_density_to_brightness_temp
+
+    return flux_density_to_brightness_temp(
+        stokes_slice,
+        freq_hz,
+        1.0,
+        method="rayleigh-jeans",
+    )
+
+
 @loader_registry.register_loader(
     "skyh5_multifile",
     representations=("point_sources", "healpix_map"),
@@ -453,17 +472,11 @@ def _load_healpix_branch(
                 stokes = f["Data/stokes"]
                 unit = _decode_bytes(stokes.attrs.get("unit", ""))
                 stokes_slice = np.asarray(stokes[:, 0, :], dtype=np.float64)
-            # Convert Jy/sr -> K via the shared Rayleigh-Jeans helper
-            # (solid_angle=1 sr gives the surface-brightness conversion).
-            if unit == "Jy / sr":
-                from ..containers.constants import flux_density_to_brightness_temp
-
-                stokes_slice = flux_density_to_brightness_temp(
-                    stokes_slice,
-                    float(sorted_freqs[fi]),
-                    1.0,
-                    method="rayleigh-jeans",
-                )
+            stokes_slice = _stokes_slice_to_kelvin(
+                stokes_slice,
+                unit=unit,
+                freq_hz=float(sorted_freqs[fi]),
+            )
 
             i_row = extract_stokes_component(stokes_slice, "I", n_stokes_avail)
             if i_row is None:
@@ -500,7 +513,7 @@ def _load_healpix_branch(
         hpx_inds=builder_hpx_inds,
         region=region,
         precision=precision,
-        memmap_dir=memmap_path,
+        memmap_path=memmap_path,
     )
 
     stokes_label = "I" + ("QU" if has_pol else "") + ("V" if has_v else "")

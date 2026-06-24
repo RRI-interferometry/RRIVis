@@ -6,7 +6,47 @@ from astropy.io import fits
 
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import SkyRegion
-from radiosim.core.sky.loaders.fits import load_fits_image
+from radiosim.core.sky.containers.constants import (
+    flux_density_to_brightness_temp,
+    rayleigh_jeans_factor,
+)
+from radiosim.core.sky.loaders.fits import _slice_to_brightness_temp, load_fits_image
+
+
+def test_slice_to_brightness_temp_converts_positive_stokes_i_with_planck():
+    hp_map = np.array([-2.0, 0.0, 3.0], dtype=np.float64)
+    omega_pixel = 0.25
+    converted = _slice_to_brightness_temp(
+        hp_map,
+        freq_hz=100e6,
+        omega_pixel=omega_pixel,
+        is_stokes_i=True,
+        is_flux_unit=True,
+        brightness_conversion="planck",
+    )
+    expected = np.zeros_like(hp_map)
+    expected[2] = flux_density_to_brightness_temp(
+        hp_map[2] * omega_pixel,
+        100e6,
+        omega_pixel,
+        method="planck",
+    )
+    np.testing.assert_allclose(converted, expected)
+
+
+def test_slice_to_brightness_temp_uses_rayleigh_jeans_for_polarization():
+    hp_map = np.array([-2.0, 0.0, 3.0], dtype=np.float64)
+    omega_pixel = 0.25
+    converted = _slice_to_brightness_temp(
+        hp_map,
+        freq_hz=100e6,
+        omega_pixel=omega_pixel,
+        is_stokes_i=False,
+        is_flux_unit=True,
+        brightness_conversion="planck",
+    )
+    expected = (hp_map * omega_pixel) / rayleigh_jeans_factor(100e6, omega_pixel)
+    np.testing.assert_allclose(converted, expected)
 
 
 def test_fits_loader_missing_file_has_actionable_error(tmp_path):

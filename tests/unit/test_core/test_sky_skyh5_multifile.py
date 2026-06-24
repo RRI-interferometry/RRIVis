@@ -18,8 +18,12 @@ from astropy.coordinates import Latitude, Longitude, SkyCoord
 from pyradiosky import SkyModel as PyRadioSkyModel
 
 from radiosim.core.precision import PrecisionConfig
-from radiosim.core.sky.containers.constants import BrightnessConversion
+from radiosim.core.sky.containers.constants import (
+    BrightnessConversion,
+    flux_density_to_brightness_temp,
+)
 from radiosim.core.sky.containers.model import SkyFormat
+from radiosim.core.sky.loaders.skyh5_multifile import _stokes_slice_to_kelvin
 from radiosim.core.sky.operations.region import ConeRegion
 from radiosim.core.sky.registry.facade import loader_registry
 
@@ -110,6 +114,22 @@ def _write_point_skyh5(
         freq_array=np.array([freq_hz]) * u.Hz,
     )
     sky.write_skyh5(str(path), clobber=True)
+
+
+def test_stokes_slice_to_kelvin_converts_jy_per_sr_with_rayleigh_jeans():
+    stokes_slice = np.array([[1.0, 2.0], [0.1, 0.2]], dtype=np.float64)
+    converted = _stokes_slice_to_kelvin(
+        stokes_slice,
+        unit="Jy / sr",
+        freq_hz=150e6,
+    )
+    expected = flux_density_to_brightness_temp(
+        stokes_slice,
+        150e6,
+        1.0,
+        method="rayleigh-jeans",
+    )
+    np.testing.assert_allclose(converted, expected)
 
 
 # --------------------------------------------------------------------------- #

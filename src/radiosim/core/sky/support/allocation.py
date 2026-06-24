@@ -79,7 +79,7 @@ _ZERO_FILL_GUARANTEED_BY_PLATFORM = os.name == "posix"
 def allocate_cube(
     shape: tuple[int, int],
     dtype: np.dtype | type,
-    memmap_dir: str | None,
+    memmap_path: str | None,
     name: str,
     *,
     zero_fill: bool | None = None,
@@ -92,13 +92,13 @@ def allocate_cube(
         ``(n_freq, npix)`` shape.
     dtype : np.dtype or type
         Element dtype.
-    memmap_dir : str or None
+    memmap_path : str or None
         If ``None``, returns ``np.zeros(shape, dtype=dtype)`` (RAM-backed).
         If a directory path, returns ``np.memmap`` at
-        ``<memmap_dir>/<name>.dat``, mode ``w+``.
+        ``<memmap_path>/<name>.dat``, mode ``w+``.
     name : str
         Logical map name (``"i_maps"``, ``"q_maps"``, ``"u_maps"``,
-        ``"v_maps"``).  Used as the filename stem under ``memmap_dir``.
+        ``"v_maps"``).  Used as the filename stem under ``memmap_path``.
     zero_fill : bool or None, default None
         Controls the up-front zero-fill of the memmap backing file:
 
@@ -112,7 +112,7 @@ def allocate_cube(
         * ``False`` — never perform the eager zero-fill (opt-out; the caller
           promises to fully populate the cube before reading it).
 
-        Ignored for RAM-backed allocations (``memmap_dir is None``), which are
+        Ignored for RAM-backed allocations (``memmap_path is None``), which are
         always zero via ``np.zeros``.
 
     Returns
@@ -123,10 +123,10 @@ def allocate_cube(
         allocations are always zero-filled; memmap allocations read as zero
         wherever the platform or ``zero_fill`` guarantees it.
     """
-    if memmap_dir is None:
+    if memmap_path is None:
         return np.zeros(shape, dtype=dtype)
 
-    fpath = os.path.join(memmap_dir, f"{name}.dat")
+    fpath = os.path.join(memmap_path, f"{name}.dat")
     mm = np.memmap(fpath, dtype=dtype, mode="w+", shape=shape)
     # ``np.memmap`` with mode="w+" allocates the file but zero-fill is not
     # guaranteed on all platforms when the file is grown.  Only pay for the
@@ -140,12 +140,12 @@ def allocate_cube(
 
 def finalize_cube(
     arr: np.ndarray,
-    memmap_dir: str | None,
+    memmap_path: str | None,
     name: str,
 ) -> np.ndarray:
     """Flush and re-open a memmap-backed cube read-only.
 
-    For in-memory arrays (``memmap_dir is None`` or ``arr`` is a plain
+    For in-memory arrays (``memmap_path is None`` or ``arr`` is a plain
     ndarray), returns ``arr`` unchanged.
 
     For memmap-backed arrays, calls ``arr.flush()`` and returns a new
@@ -156,7 +156,7 @@ def finalize_cube(
     ----------
     arr : np.ndarray
         Array returned by ``allocate_cube`` and subsequently filled.
-    memmap_dir : str or None
+    memmap_path : str or None
         Same value passed to ``allocate_cube``.
     name : str
         Same logical name passed to ``allocate_cube``.
@@ -165,8 +165,8 @@ def finalize_cube(
     -------
     np.ndarray
     """
-    if memmap_dir is None or not isinstance(arr, np.memmap):
+    if memmap_path is None or not isinstance(arr, np.memmap):
         return arr
     arr.flush()
-    fpath = os.path.join(memmap_dir, f"{name}.dat")
+    fpath = os.path.join(memmap_path, f"{name}.dat")
     return np.memmap(fpath, dtype=arr.dtype, mode="r", shape=arr.shape)

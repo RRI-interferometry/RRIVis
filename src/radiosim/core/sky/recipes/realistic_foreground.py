@@ -26,8 +26,13 @@ import numpy as np
 from ..combine.engine import MixedModelPolicy
 from ..combine.pipeline import prepare_sky_model
 from ..containers import SkyCoverage, SourceSubtractionStatus
-from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX
+from ..containers.constants import (
+    DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY,
+    DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
+    SYNCHROTRON_SPECTRAL_INDEX,
+)
 from ..containers.model import SkyFormat, SkyModel
+from ..loaders.synthetic import load_poisson_confusion
 from ..registry.facade import loader_registry
 from ..support.healpix_geometry import scale_flux_power_law
 
@@ -310,10 +315,12 @@ def realistic_foreground_sky(
     diffuse_kwargs: dict[str, Any] | None = None,
     bright_catalogs: str = "gleam",
     bright_catalog_kwargs: dict[str, Any] | None = None,
-    bright_catalog_flux_min_jy: float = 2.0,
+    bright_catalog_flux_min_jy: float = DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY,
     confusion_flux_range_jy: tuple[float, float] | None = None,
     confusion_dn_ds: str = "franzen2019_gleam_154mhz",
-    confusion_spectral_index_dist: tuple[float, float] = (-0.8, 0.2),
+    confusion_spectral_index_dist: tuple[
+        float, float
+    ] = DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
     frequencies: np.ndarray,
     nside: int = 128,
     region: SkyRegion | None = None,
@@ -443,8 +450,6 @@ def realistic_foreground_sky(
         # Use the first catalog's reference frequency as the confusion
         # reference — simplest and most physically meaningful choice.
         conf_freq = catalog_freqs[0]
-        from ..loaders.synthetic import load_poisson_confusion
-
         conf_sky = load_poisson_confusion(
             flux_range_jy=tuple(confusion_flux_range_jy),
             reference_frequency=conf_freq,

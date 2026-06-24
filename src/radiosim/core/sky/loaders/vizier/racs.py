@@ -18,6 +18,7 @@ from ...registry.catalogs import (
     RACS_CATALOGS,
 )
 from ...registry.facade import loader_registry
+from ...support.region_filter import apply_point_region_filter
 from .core import (
     _extract_masked_column,
     _extract_text_column,
@@ -113,6 +114,26 @@ def _build_racs_adql(
                 )
         adql += " AND (" + " OR ".join(spatial_parts) + ")"
     return adql
+
+
+def _run_racs_tap_job(adql: str, *, band: str | None = None) -> Any:
+    """Run one CASDA TAP query and classify network/schema failures."""
+    try:
+        tap = TapPlus(url=CASDA_TAP_URL)
+        job = tap.launch_job(adql)
+        return job.get_results()
+    except (ConnectionError, TypeError, AttributeError, NameError):
+        # Network errors propagate as-is; programming errors are not relabeled
+        # as a CASDA schema change.
+        raise
+    except Exception as e:
+        label = "RACS" if band is None else f"RACS-{band}"
+        raise RuntimeError(
+            f"Failed to fetch {label} from CASDA TAP: {e}\n"
+            f"If this is a network issue, check your connection. "
+            f"If the error persists, the CASDA schema may have changed -- "
+            f"please report at https://github.com/RRI-interferometry/RadioSim/issues"
+        ) from e
 
 
 def _parse_racs_results_with_fallback(
@@ -311,22 +332,7 @@ def load_racs(
         region=region,
     )
 
-    try:
-        tap = TapPlus(url=CASDA_TAP_URL)
-        job = tap.launch_job(adql)
-        result = job.get_results()
-
-    except (ConnectionError, TypeError, AttributeError, NameError):
-        # Network errors propagate as-is; programming errors are not relabeled
-        # as a CASDA schema change.
-        raise
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to fetch RACS-{band} from CASDA TAP: {e}\n"
-            f"If this is a network issue, check your connection. "
-            f"If the error persists, the CASDA schema may have changed -- "
-            f"please report at https://github.com/RRI-interferometry/RadioSim/issues"
-        ) from e
+    result = _run_racs_tap_job(adql, band=band)
 
     freq_hz = info.freq_mhz * 1e6
 
@@ -334,16 +340,24 @@ def load_racs(
         _parse_racs_results_with_fallback(result, info, flux_limit, band=band)
     )
 
-    # Client-side region trim
     if region is not None and len(flux_arr) > 0:
-        in_region = region.contains(np.deg2rad(ra_arr), np.deg2rad(dec_arr))
-        ra_arr = ra_arr[in_region]
-        dec_arr = dec_arr[in_region]
-        flux_arr = flux_arr[in_region]
-        if source_name is not None:
-            source_name = source_name[in_region]
-        if source_id is not None:
-            source_id = source_id[in_region]
+        filtered = apply_point_region_filter(
+            {
+                "ra_rad": np.deg2rad(ra_arr),
+                "dec_rad": np.deg2rad(dec_arr),
+                "ra_deg": ra_arr,
+                "dec_deg": dec_arr,
+                "flux": flux_arr,
+                "source_name": source_name,
+                "source_id": source_id,
+            },
+            region,
+        )
+        ra_arr = filtered["ra_deg"]
+        dec_arr = filtered["dec_deg"]
+        flux_arr = filtered["flux"]
+        source_name = filtered["source_name"]
+        source_id = filtered["source_id"]
 
     n = len(flux_arr)
     logger.info(

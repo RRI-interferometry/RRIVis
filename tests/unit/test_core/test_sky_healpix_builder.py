@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.loaders._healpix_builder import (
     build_healpix_from_stokes_cube,
     extract_stokes_component,
@@ -44,6 +45,7 @@ def test_build_dense_full_sky_healpix_data():
         nside=nside,
         frequencies=frequencies,
         coordinate_frame="icrs",
+        precision=PrecisionConfig.fast(),
     )
 
     assert not healpix.is_sparse
@@ -63,6 +65,7 @@ def test_build_sparse_healpix_data_preserves_indices():
         nside=1,
         frequencies=frequencies,
         coordinate_frame="galactic",
+        precision=PrecisionConfig.fast(),
         hpx_inds=hpx_inds,
     )
 
@@ -84,6 +87,7 @@ def test_region_crop_dense_input_builds_sparse_output():
         nside=nside,
         frequencies=np.array([100e6]),
         coordinate_frame="icrs",
+        precision=PrecisionConfig.fast(),
         region=MaskRegion(mask),
     )
 
@@ -103,6 +107,7 @@ def test_region_crop_sparse_input_builds_sparse_output():
         nside=1,
         frequencies=np.array([100e6]),
         coordinate_frame="icrs",
+        precision=PrecisionConfig.fast(),
         hpx_inds=hpx_inds,
         region=MaskRegion(mask),
     )
@@ -126,6 +131,7 @@ def test_build_iquv_allocates_present_polarization_maps():
         nside=1,
         frequencies=np.array([100e6]),
         coordinate_frame="icrs",
+        precision=PrecisionConfig.fast(),
     )
 
     assert np.array_equal(healpix.maps, np.full((1, npix), 1.0, dtype=np.float32))
@@ -140,11 +146,22 @@ def test_i_only_leaves_polarization_maps_absent():
         nside=1,
         frequencies=np.array([100e6]),
         coordinate_frame="icrs",
+        precision=PrecisionConfig.fast(),
     )
 
     assert healpix.q_maps is None
     assert healpix.u_maps is None
     assert healpix.v_maps is None
+
+
+def test_build_healpix_requires_precision():
+    with pytest.raises(TypeError, match="precision"):
+        build_healpix_from_stokes_cube(
+            stokes_rows=[(np.ones(12),)],
+            nside=1,
+            frequencies=np.array([100e6]),
+            coordinate_frame="icrs",
+        )
 
 
 def test_memmap_output_is_finalized_read_only(tmp_path):
@@ -153,7 +170,8 @@ def test_memmap_output_is_finalized_read_only(tmp_path):
         nside=1,
         frequencies=np.array([100e6]),
         coordinate_frame="icrs",
-        memmap_dir=str(tmp_path),
+        precision=PrecisionConfig.fast(),
+        memmap_path=str(tmp_path),
     )
 
     assert isinstance(healpix.maps, np.memmap)
@@ -177,6 +195,7 @@ class TestBuilderInputValidation:
                 nside=1,
                 frequencies=np.array([], dtype=np.float64),
                 coordinate_frame="icrs",
+                precision=PrecisionConfig.fast(),
             )
         assert consumed is False
 
@@ -191,6 +210,7 @@ class TestBuilderInputValidation:
                 nside=1,
                 frequencies=frequencies,
                 coordinate_frame="icrs",
+                precision=PrecisionConfig.fast(),
             )
 
     def test_rejects_duplicate_hpx_inds_early(self):
@@ -200,6 +220,7 @@ class TestBuilderInputValidation:
                 nside=1,
                 frequencies=np.array([100e6]),
                 coordinate_frame="icrs",
+                precision=PrecisionConfig.fast(),
                 hpx_inds=np.array([0, 0, 1]),
             )
 
@@ -212,5 +233,6 @@ class TestBuilderInputValidation:
             nside=1,
             frequencies=np.array([200e6, 100e6]),
             coordinate_frame="icrs",
+            precision=PrecisionConfig.fast(),
         )
         np.testing.assert_allclose(hpx.frequencies, np.array([200e6, 100e6]))

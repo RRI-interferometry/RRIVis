@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
+import inspect
+
 import healpy as hp
 import numpy as np
 import pytest
@@ -13,7 +16,12 @@ from radiosim.core.sky import (
     SkyRegion,
     realistic_foreground_sky,
 )
+from radiosim.core.sky.containers.constants import (
+    DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY,
+    DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
+)
 from radiosim.core.sky.containers.model import SkyFormat
+from radiosim.io.config import RealisticForegroundSourceConfig
 
 
 @pytest.fixture
@@ -37,6 +45,33 @@ def fake_pygdsm(monkeypatch):
             return np.full(hp.nside2npix(32), base, dtype=np.float64)
 
     monkeypatch.setattr(diffuse_mod, "_resolve_model_class", lambda _p: _FakePyGDSM)
+
+
+def test_recipe_defaults_reference_named_constants():
+    sig = inspect.signature(realistic_foreground_sky)
+    assert (
+        sig.parameters["bright_catalog_flux_min_jy"].default
+        == DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY
+    )
+    assert (
+        sig.parameters["confusion_spectral_index_dist"].default
+        == DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST
+    )
+
+
+def test_config_and_recipe_defaults_agree():
+    config = RealisticForegroundSourceConfig(
+        kind="realistic_foreground",
+        diffuse="haslam",
+        bright_catalogs="gleam",
+    )
+    assert config.bright_catalog_flux_min_jy == DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY
+    assert config.confusion_spectral_index_dist == DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST
+
+
+def test_recipe_module_imports_without_cycle():
+    module = importlib.import_module("radiosim.core.sky.recipes.realistic_foreground")
+    assert hasattr(module, "load_poisson_confusion")
 
 
 def _catalog_kwargs(**overrides):

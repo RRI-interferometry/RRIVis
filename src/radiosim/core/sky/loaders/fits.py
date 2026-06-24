@@ -212,6 +212,35 @@ def _resolve_fits_output_frequencies(
     return final_freqs, src_row_for_out, single_freq_replicate
 
 
+def _slice_to_brightness_temp(
+    hp_map: np.ndarray,
+    *,
+    freq_hz: float,
+    omega_pixel: float,
+    is_stokes_i: bool,
+    is_flux_unit: bool,
+    brightness_conversion: str,
+) -> np.ndarray:
+    """Convert one HEALPix-projected FITS Stokes row to brightness temperature."""
+    if not is_flux_unit:
+        return hp_map
+
+    flux_map = hp_map * omega_pixel
+    if is_stokes_i:
+        pos = flux_map > 0
+        temp_map = np.zeros_like(hp_map)
+        if np.any(pos):
+            temp_map[pos] = flux_density_to_brightness_temp(
+                flux_map[pos],
+                freq_hz,
+                omega_pixel,
+                method=brightness_conversion,
+            )
+        return temp_map
+
+    return flux_map / rayleigh_jeans_factor(freq_hz, omega_pixel)
+
+
 def _reproject_fits_stokes(
     *,
     data: np.ndarray,
@@ -291,30 +320,15 @@ def _reproject_fits_stokes(
 
                 hp_map = _reproject_slice(sb_2d)
 
-                flux_map: np.ndarray | None = None
-                if spec.is_jy_beam or spec.is_jy_pixel or spec.is_jy_sr:
-                    # hp_map is now Jy/sr on the HEALPix grid; flux per HEALPix
-                    # pixel is surface brightness times the pixel solid angle.
-                    flux_map = hp_map * spec.omega_pixel
-
                 is_stokes_i = stokes_code == 1 or spec.n_stokes == 1
-                if flux_map is not None:
-                    if is_stokes_i:
-                        pos = flux_map > 0
-                        temp_map = np.zeros_like(hp_map)
-                        if np.any(pos):
-                            temp_map[pos] = flux_density_to_brightness_temp(
-                                flux_map[pos],
-                                freq_hz,
-                                spec.omega_pixel,
-                                method=brightness_conversion,
-                            )
-                        hp_map = temp_map
-                    else:
-                        hp_map = flux_map / rayleigh_jeans_factor(
-                            freq_hz,
-                            spec.omega_pixel,
-                        )
+                hp_map = _slice_to_brightness_temp(
+                    hp_map,
+                    freq_hz=freq_hz,
+                    omega_pixel=spec.omega_pixel,
+                    is_stokes_i=is_stokes_i,
+                    is_flux_unit=spec.is_jy_beam or spec.is_jy_pixel or spec.is_jy_sr,
+                    brightness_conversion=brightness_conversion,
+                )
 
                 if is_stokes_i:
                     i_row = hp_map
@@ -498,7 +512,7 @@ def load_fits_image(
         hpx_inds=hpx_inds,
         region=None,
         precision=precision,
-        memmap_dir=memmap_path,
+        memmap_path=memmap_path,
         ordering="nest" if nested else "ring",
     )
 

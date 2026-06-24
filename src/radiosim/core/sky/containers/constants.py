@@ -64,6 +64,17 @@ H_PLANCK = 6.62607015e-34  # Planck constant (J·s)
 #: checks and the realistic-foreground recipe cannot drift apart.
 SYNCHROTRON_SPECTRAL_INDEX = -0.7
 
+#: Default flux floor (Jy) for the bright point-source catalog layer of
+#: ``realistic_foreground_sky``. This is a low-frequency foreground recipe
+#: convention, not a measured constant; override it per array and band as
+#: needed.
+DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY = 2.0
+
+#: Default ``(mean, sigma)`` for per-source spectral-index draws in the Poisson
+#: sub-threshold confusion layer. The steeper mean reflects the conventional
+#: faint, synchrotron-dominated low-frequency source population assumption.
+DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST = (-0.8, 0.2)
+
 
 def pixel_solid_angle(nside: int) -> float:
     """Return the HEALPix pixel solid angle in steradians: ``4π / npix``.

@@ -12,7 +12,10 @@ from ..containers import (
     SkyProvenance,
     SourceSubtractionStatus,
 )
-from ..containers.constants import BrightnessConversion
+from ..containers.constants import (
+    DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
+    BrightnessConversion,
+)
 from ..containers.model import SkyFormat, _coerce_format
 from ..registry.facade import loader_registry
 from ..support.dnds import DNDSModel, resolve_dn_ds
@@ -236,7 +239,7 @@ def load_poisson_confusion(
     frequencies: np.ndarray | None = None,
     obs_frequency_config: dict[str, Any] | None = None,
     seed: int | None = None,
-    spectral_index_dist: tuple[float, float] = (-0.8, 0.2),
+    spectral_index_dist: tuple[float, float] = DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
     brightness_conversion: str = "planck",
     precision: PrecisionConfig,
     memmap_path: str | None = None,

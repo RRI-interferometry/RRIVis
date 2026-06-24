@@ -146,15 +146,16 @@ def build_healpix_from_stokes_cube(
     coordinate_frame: str,
     hpx_inds: np.ndarray | None = None,
     region: SkyRegion | None = None,
-    precision: PrecisionConfig | None = None,
-    memmap_dir: str | None = None,
+    precision: PrecisionConfig,
+    memmap_path: str | None = None,
     ordering: str = "ring",
 ) -> HealpixData:
     """Build a :class:`HealpixData` from per-frequency Stokes rows.
 
     ``stokes_rows`` must yield one sequence per frequency in I/Q/U/V order.
     Stokes I is required for every row; Q/U/V arrays are allocated lazily
-    only when the corresponding component appears.
+    only when the corresponding component appears. ``precision`` is required
+    so storage dtype always follows the caller's precision configuration.
     """
     frequencies = validate_frequency_axis(
         frequencies, label="HEALPix builder frequencies", ascending=False
@@ -169,7 +170,7 @@ def build_healpix_from_stokes_cube(
     input_npix = hp.nside2npix(nside) if hpx_inds is None else len(hpx_inds)
 
     scratch = (
-        _allocation.ensure_scratch_dir(memmap_dir) if memmap_dir is not None else None
+        _allocation.ensure_scratch_dir(memmap_path) if memmap_path is not None else None
     )
     hp_dtype = get_sky_storage_dtype(precision, "healpix_maps")
     shape = (n_freq, n_output_pix)

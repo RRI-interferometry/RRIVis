@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import astropy.units as u
 import numpy as np
@@ -25,6 +25,8 @@ from ...registry.catalogs import VIZIER_POINT_CATALOGS, VizierCatalogEntry
 from .provenance import _build_point_catalog_provenance
 
 if TYPE_CHECKING:
+    from astropy.table import Table, TableList
+
     from radiosim.core.precision import PrecisionConfig
 
 logger = logging.getLogger(__name__)
@@ -35,7 +37,11 @@ logger = logging.getLogger(__name__)
 # =========================================================================
 
 
-def _extract_masked_column(catalog, col_name: str, dtype=np.float64) -> np.ndarray:
+def _extract_masked_column(
+    catalog: Table,
+    col_name: str,
+    dtype: np.dtype | type = np.float64,
+) -> np.ndarray:
     """Extract an astropy Table column as a plain ndarray, masked entries -> NaN.
 
     Uses ``np.ma.filled`` instead of ``np.array`` to avoid astropy's
@@ -66,7 +72,10 @@ def _extract_masked_column(catalog, col_name: str, dtype=np.float64) -> np.ndarr
     return arr
 
 
-def _select_table(tables, info: VizierCatalogEntry) -> Any:
+def _select_table(
+    tables: TableList | list[Table],
+    info: VizierCatalogEntry,
+) -> Table | None:
     """Select the correct table from a VizieR TableList.
 
     If the catalog metadata specifies a ``table`` name, search for it;
@@ -82,7 +91,7 @@ def _select_table(tables, info: VizierCatalogEntry) -> Any:
     return tables[0]
 
 
-def _find_name_column(catalog) -> str | None:
+def _find_name_column(catalog: Table) -> str | None:
     """Best-effort lookup for a stable source-name column."""
     lowered = {name.lower(): name for name in catalog.colnames}
     exact = (
@@ -101,7 +110,7 @@ def _find_name_column(catalog) -> str | None:
     return None
 
 
-def _find_id_column(catalog) -> str | None:
+def _find_id_column(catalog: Table) -> str | None:
     """Best-effort lookup for a stable source-identifier column."""
     lowered = {name.lower(): name for name in catalog.colnames}
     exact = (
@@ -122,7 +131,7 @@ def _find_id_column(catalog) -> str | None:
     return None
 
 
-def _extract_text_column(catalog, col_name: str) -> np.ndarray:
+def _extract_text_column(catalog: Table, col_name: str) -> np.ndarray:
     """Extract a text-like astropy column as a plain string ndarray."""
     return np.asarray(
         np.ma.filled(np.ma.array(catalog[col_name]), fill_value=""),
@@ -168,7 +177,7 @@ def _empty_vizier_sky(
     catalog_key: str,
     flux_limit: float,
     brightness_conversion: str,
-    precision: PrecisionConfig | None,
+    precision: PrecisionConfig,
     region: SkyRegion | None,
 ):
     provenance = _build_point_catalog_provenance(
@@ -268,7 +277,7 @@ def _extract_vizier_sources(
     *,
     catalog_key: str,
     info: VizierCatalogEntry,
-    catalog: Any,
+    catalog: Table,
     flux_limit: float,
 ) -> _VizierSources:
     n_rows = len(catalog)
@@ -449,7 +458,8 @@ def _load_from_vizier_catalog(
     catalog_key: str,
     flux_limit: float = 1.0,
     brightness_conversion: str = "planck",
-    precision: PrecisionConfig | None = None,
+    *,
+    precision: PrecisionConfig,
     region: SkyRegion | None = None,
     max_rows: int | None = None,
     allow_full_catalog: bool = False,

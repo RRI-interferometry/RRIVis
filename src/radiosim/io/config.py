@@ -58,6 +58,11 @@ from typing import Annotated, Any, Literal
 import yaml
 from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
+from radiosim.core.sky.containers.constants import (
+    DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY,
+    DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
+)
+
 DEFAULT_SKY_REPRESENTATION: Literal["point_sources"] = "point_sources"
 
 
@@ -702,7 +707,7 @@ class RealisticForegroundSourceConfig(SkySourceConfig):
         description="Extra kwargs forwarded to the bright-catalog loader.",
     )
     bright_catalog_flux_min_jy: float = Field(
-        2.0,
+        DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY,
         ge=0.0,
         description="Flux floor (Jy) for the bright catalog(s).",
     )
@@ -720,7 +725,7 @@ class RealisticForegroundSourceConfig(SkySourceConfig):
         description="Validated dN/dS preset identifier.",
     )
     confusion_spectral_index_dist: tuple[float, float] = Field(
-        (-0.8, 0.2),
+        DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
         description="(mean, σ) for Poisson spectral-index draw.",
     )
     nside: int = Field(128, ge=1, description="Output HEALPix NSIDE.")

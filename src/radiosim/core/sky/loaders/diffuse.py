@@ -318,7 +318,7 @@ def load_diffuse_sky(
         coordinate_frame="icrs",
         region=region,
         precision=precision,
-        memmap_dir=memmap_path,
+        memmap_path=memmap_path,
     )
 
     logger.info(
@@ -695,7 +695,7 @@ def load_pysm3(
         coordinate_frame="icrs",
         region=region,
         precision=precision,
-        memmap_dir=memmap_path,
+        memmap_path=memmap_path,
     )
 
     model_name = f"pysm3:{'+'.join(components_list)}"
