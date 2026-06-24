@@ -57,6 +57,23 @@ class _CatalogBase(BaseModel):
         ..., description="Short catalog description (1-2 sentences)"
     )
     reference_url: str = Field("", description="ADS or documentation URL")
+    loader_name: str = Field(..., description="Canonical registry loader name")
+    alias: str | None = Field(
+        default=None, description="Registry alias for this catalog entry"
+    )
+    alias_defaults: dict[str, object] = Field(
+        default_factory=dict, description="Registry defaults bound to the alias"
+    )
+    representations: tuple[str, ...] = Field(
+        default=("point_sources",), description="Canonical loader representations"
+    )
+    category: str = Field("catalog", description="Registry loader category")
+    network_service: str | None = Field(
+        default=None, description="Network service required by this catalog loader"
+    )
+    config_fields: dict[str, str] = Field(
+        default_factory=dict, description="Config field to loader kwarg mapping"
+    )
 
     @property
     def flux_unit_conversion_factor(self) -> float:
@@ -84,6 +101,26 @@ class _CatalogBase(BaseModel):
 class DiffuseModelEntry(_CatalogBase):
     """Metadata for a diffuse sky model (pygdsm)."""
 
+    loader_name: str = Field(
+        "diffuse_sky", description="Canonical registry loader name"
+    )
+    representations: tuple[str, ...] = Field(
+        ("healpix_map",), description="Canonical loader representations"
+    )
+    category: str = Field("diffuse", description="Registry loader category")
+    network_service: str | None = Field(
+        "pygdsm_data", description="Network service required by this catalog loader"
+    )
+    config_fields: dict[str, str] = Field(
+        default_factory=lambda: {
+            "model": "model",
+            "nside": "nside",
+            "include_cmb": "include_cmb",
+            "basemap": "basemap",
+            "interpolation": "interpolation",
+        },
+        description="Config field to loader kwarg mapping",
+    )
     class_path: str = Field(..., description="Fully qualified Python class path")
     freq_range: tuple[float, float] = Field(
         ..., description="Valid frequency range in Hz (min, max)"
@@ -123,8 +160,32 @@ class DiffuseModelEntry(_CatalogBase):
 class VizierCatalogEntry(_CatalogBase):
     """Metadata for a VizieR point-source catalog."""
 
+    model_config = {"frozen": True}
+
     vizier_id: str = Field(
         ..., description="VizieR catalog identifier (e.g. 'VIII/97')"
+    )
+    description: str = Field(
+        ..., description="Short catalog description (1-2 sentences)"
+    )
+    reference_url: str = Field("", description="ADS or documentation URL")
+    loader_name: str = Field("custom", description="Canonical registry loader name")
+    alias: str | None = Field(
+        default=None, description="Registry alias for this catalog entry"
+    )
+    alias_defaults: dict[str, object] = Field(
+        default_factory=dict, description="Registry defaults bound to the alias"
+    )
+    network_service: str | None = Field(
+        "vizier", description="Network service required by this catalog loader"
+    )
+    config_fields: dict[str, str] = Field(
+        default_factory=lambda: {
+            "flux_limit": "flux_limit",
+            "max_rows": "max_rows",
+            "allow_full_catalog": "allow_full_catalog",
+        },
+        description="Config field to loader kwarg mapping",
     )
     table: str | None = Field(
         default=None, description="VizieR table name (None = first table)"
@@ -193,6 +254,18 @@ class VizierCatalogEntry(_CatalogBase):
 class RacsCatalogEntry(_CatalogBase):
     """Metadata for a RACS catalog accessed via CASDA TAP."""
 
+    loader_name: str = Field("racs", description="Canonical registry loader name")
+    network_service: str | None = Field(
+        "casda", description="Network service required by this catalog loader"
+    )
+    config_fields: dict[str, str] = Field(
+        default_factory=lambda: {
+            "flux_limit": "flux_limit",
+            "band": "band",
+            "max_rows": "max_rows",
+        },
+        description="Config field to loader kwarg mapping",
+    )
     freq_mhz: float = Field(..., description="Survey frequency in MHz")
     tap_table: str = Field(..., description="CASDA TAP table name")
     ra_col: str = Field(..., description="RA column name")
@@ -231,12 +304,56 @@ class RacsCatalogEntry(_CatalogBase):
         return self
 
 
+def _vizier_registry_identity(catalog_key: str) -> dict[str, object]:
+    if catalog_key.startswith("gleam"):
+        return {
+            "loader_name": "gleam",
+            "alias": catalog_key,
+            "alias_defaults": {"catalog": catalog_key},
+            "config_fields": {
+                "flux_limit": "flux_limit",
+                "catalog": "catalog",
+                "max_rows": "max_rows",
+                "allow_full_catalog": "allow_full_catalog",
+            },
+        }
+    if catalog_key.startswith("mals_"):
+        release = catalog_key.removeprefix("mals_")
+        return {
+            "loader_name": "mals",
+            "alias": catalog_key,
+            "alias_defaults": {"release": release.removeprefix("dr")},
+            "config_fields": {
+                "flux_limit": "flux_limit",
+                "release": "release",
+                "max_rows": "max_rows",
+                "allow_full_catalog": "allow_full_catalog",
+            },
+        }
+    if catalog_key.startswith("lotss_"):
+        release = catalog_key.removeprefix("lotss_")
+        return {
+            "loader_name": "lotss",
+            "alias": catalog_key,
+            "alias_defaults": {"release": release.removeprefix("dr")},
+            "config_fields": {
+                "flux_limit": "flux_limit",
+                "release": "release",
+                "max_rows": "max_rows",
+                "allow_full_catalog": "allow_full_catalog",
+            },
+        }
+    return {"loader_name": catalog_key, "alias": catalog_key}
+
+
 # =============================================================================
 # Diffuse sky model metadata (pygdsm)
 # =============================================================================
 
 DIFFUSE_MODELS: dict[str, DiffuseModelEntry] = {
     "gsm2008": DiffuseModelEntry(
+        alias="gsm2008",
+        alias_defaults={"model": "gsm2008"},
         class_path="pygdsm.GlobalSkyModel",
         description=(
             "Global Sky Model 2008 (de Oliveira-Costa et al. 2008). "
@@ -255,6 +372,8 @@ DIFFUSE_MODELS: dict[str, DiffuseModelEntry] = {
         default_monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
     ),
     "gsm2016": DiffuseModelEntry(
+        alias="gsm2016",
+        alias_defaults={"model": "gsm2016"},
         class_path="pygdsm.GlobalSkyModel16",
         description=(
             "Global Sky Model 2016 (Zheng et al. 2017). "
@@ -268,6 +387,8 @@ DIFFUSE_MODELS: dict[str, DiffuseModelEntry] = {
         default_monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
     ),
     "lfsm": DiffuseModelEntry(
+        alias="lfsm",
+        alias_defaults={"model": "lfsm"},
         class_path="pygdsm.LowFrequencySkyModel",
         description=(
             "Low Frequency Sky Model (Dowell et al. 2017). "
@@ -281,6 +402,8 @@ DIFFUSE_MODELS: dict[str, DiffuseModelEntry] = {
         default_monopole_convention=MonopoleConvention.ABSOLUTE_NO_CMB,
     ),
     "haslam": DiffuseModelEntry(
+        alias="haslam",
+        alias_defaults={"model": "haslam"},
         class_path="pygdsm.HaslamSkyModel",
         description=(
             "Haslam 408 MHz all-sky survey (Haslam et al. 1982, "
@@ -318,6 +441,7 @@ CASDA_TAP_URL = "https://casda.csiro.au/casda_vo_tools/tap"
 # vlssr, lotss_dr2, gleam_*, and mals_*.
 VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
     "vlssr": VizierCatalogEntry(
+        **_vizier_registry_identity("vlssr"),
         vizier_id="VIII/97",
         description=(
             "VLSSr: VLA Low-Frequency Sky Survey Redux (Lane et al. 2014). "
@@ -334,7 +458,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         beam_fwhm_arcsec=75.0,
     ),
     "tgss": VizierCatalogEntry(
-        default_flux_limit=0.1,
+        **_vizier_registry_identity("tgss"),
         vizier_id="J/A+A/598/A78",
         description=(
             "TGSS ADR1: GMRT 150 MHz Sky Survey (Intema et al. 2017). "
@@ -354,8 +478,9 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         footprint_asset="tgss.npz",
     ),
     "wenss": VizierCatalogEntry(
-        default_flux_limit=0.05,
+        **_vizier_registry_identity("wenss"),
         vizier_id="VIII/62",
+        default_flux_limit=0.1,
         description=(
             "WENSS: Westerbork Northern Sky Survey (Rengelink et al. 1997). "
             "325 MHz, ~229k sources, dec >= +30 deg."
@@ -372,8 +497,9 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         footprint_asset="wenss.npz",
     ),
     "sumss": VizierCatalogEntry(
-        default_flux_limit=0.008,
+        **_vizier_registry_identity("sumss"),
         vizier_id="VIII/81B",
+        default_flux_limit=0.008,
         description=(
             "SUMSS: Sydney University Molonglo Sky Survey (Mauch et al. 2003). "
             "843 MHz, ~211k sources, dec < -30 deg."
@@ -392,8 +518,9 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         footprint_asset="sumss.npz",
     ),
     "nvss": VizierCatalogEntry(
-        default_flux_limit=0.0025,
+        **_vizier_registry_identity("nvss"),
         vizier_id="VIII/65",
+        default_flux_limit=0.0025,
         description=(
             "NVSS: NRAO VLA Sky Survey (Condon et al. 1998). "
             "1.4 GHz, ~1.8M sources, 45 arcsec resolution."
@@ -412,8 +539,9 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         footprint_asset="nvss.npz",
     ),
     "vlass": VizierCatalogEntry(
-        default_flux_limit=0.001,
+        **_vizier_registry_identity("vlass"),
         vizier_id="J/ApJS/255/30",
+        default_flux_limit=0.0025,
         table="comp",
         description=(
             "VLASS QL Ep.1: VLA Sky Survey Quick Look (Gordon et al. 2021). "
@@ -433,6 +561,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         footprint_asset="vlass.npz",
     ),
     "lotss_dr1": VizierCatalogEntry(
+        **_vizier_registry_identity("lotss_dr1"),
         vizier_id="J/A+A/622/A1",
         description=(
             "LoTSS DR1: LOFAR Two-metre Sky Survey (Shimwell et al. 2019). "
@@ -449,6 +578,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         footprint_asset="lotss_dr1.npz",
     ),
     "lotss_dr2": VizierCatalogEntry(
+        **_vizier_registry_identity("lotss_dr2"),
         vizier_id="J/A+A/659/A1",
         description=(
             "LoTSS DR2: LOFAR Two-metre Sky Survey (Shimwell et al. 2022). "
@@ -464,6 +594,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         beam_fwhm_arcsec=6.0,
     ),
     "3c": VizierCatalogEntry(
+        **_vizier_registry_identity("3c"),
         vizier_id="VIII/1",
         table="3cr",
         description=(
@@ -483,6 +614,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
     ),
     # --- GLEAM family ---
     "gleam_egc": VizierCatalogEntry(
+        **_vizier_registry_identity("gleam_egc"),
         vizier_id="VIII/100/gleamegc",
         description=(
             "GLEAM EGC: MWA Extragalactic Catalogue (Hurley-Walker et al. 2017). "
@@ -499,6 +631,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         beam_fwhm_arcsec=120.0,
     ),
     "gleam_x_dr1": VizierCatalogEntry(
+        **_vizier_registry_identity("gleam_x_dr1"),
         vizier_id="VIII/110/catalog",
         description=(
             "GLEAM-X DR1: MWA Extended DR1 (Hurley-Walker et al. 2022). "
@@ -515,6 +648,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         beam_fwhm_arcsec=45.0,
     ),
     "gleam_x_dr2": VizierCatalogEntry(
+        **_vizier_registry_identity("gleam_x_dr2"),
         vizier_id="VIII/113/catalog2",
         description=(
             "GLEAM-X DR2: MWA Extended DR2 (Ross et al. 2024). "
@@ -531,6 +665,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         beam_fwhm_arcsec=45.0,
     ),
     "gleam_gal": VizierCatalogEntry(
+        **_vizier_registry_identity("gleam_gal"),
         vizier_id="VIII/102/gleamgal",
         description=(
             "GLEAM Galactic Plane: MWA Galactic component (Hurley-Walker et al. 2019). "
@@ -548,6 +683,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
     ),
     # --- MALS family ---
     "mals_dr1": VizierCatalogEntry(
+        **_vizier_registry_identity("mals_dr1"),
         vizier_id="J/ApJS/270/33",
         table="catalog",
         description=(
@@ -565,7 +701,9 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         beam_fwhm_arcsec=8.0,
     ),
     "mals_dr2": VizierCatalogEntry(
+        **_vizier_registry_identity("mals_dr2"),
         vizier_id="J/A+A/690/A163",
+        default_flux_limit=0.001,
         table="all",
         description=(
             "MALS DR2: MeerKAT Wideband Continuum (Wagenveld et al. 2024). "
@@ -589,6 +727,8 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
 
 RACS_CATALOGS: dict[str, RacsCatalogEntry] = {
     "low": RacsCatalogEntry(
+        alias="racs_low",
+        alias_defaults={"band": "low"},
         freq_mhz=887.5,
         tap_table="casda.racs_dr1_sources_v2021_08_v01",
         description=(
@@ -603,6 +743,8 @@ RACS_CATALOGS: dict[str, RacsCatalogEntry] = {
         footprint_asset="racs_low.npz",
     ),
     "mid": RacsCatalogEntry(
+        alias="racs_mid",
+        alias_defaults={"band": "mid"},
         freq_mhz=1367.5,
         tap_table="casda.racs_mid_dr1_components_v01",
         description=(
@@ -617,6 +759,8 @@ RACS_CATALOGS: dict[str, RacsCatalogEntry] = {
         footprint_asset="racs_mid.npz",
     ),
     "high": RacsCatalogEntry(
+        alias="racs_high",
+        alias_defaults={"band": "high"},
         freq_mhz=1655.5,
         tap_table="casda.racs_high_dr1_components_v01",
         description=(

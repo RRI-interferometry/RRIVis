@@ -87,7 +87,7 @@ def list_all_models() -> dict[str, dict[str, str]]:
         Nested mapping: category -> {name: description}.
         Categories: "diffuse", "point_catalogs", "racs".
     """
-    from ..registry.facade import loader_registry
+    from ..registry import loader_registry
 
     groups: dict[str, dict[str, str]] = {
         "diffuse": {},
@@ -128,8 +128,8 @@ def get_catalog_info(catalog_key: str, live: bool = False) -> dict[str, Any]:
         I/O — falls back to cached metadata silently on failure.
     """
     from ..loaders.diffuse import get_diffuse_model_info
+    from ..registry import loader_registry
     from ..registry.catalogs import DIFFUSE_MODELS
-    from ..registry.facade import loader_registry
 
     try:
         loader_name, resolved_kwargs = loader_registry.resolve_request(catalog_key, {})

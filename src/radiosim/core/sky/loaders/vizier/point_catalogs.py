@@ -14,8 +14,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...operations.region import SkyRegion
+from ...registry import loader_registry
 from ...registry.catalogs import VIZIER_POINT_CATALOGS
-from ...registry.facade import loader_registry
 from .core import (
     _load_from_vizier_catalog,
 )
@@ -37,12 +37,7 @@ logger = logging.getLogger(__name__)
         "gleam_x_dr2": {"catalog": "gleam_x_dr2"},
         "gleam_gal": {"catalog": "gleam_gal"},
     },
-    config_fields={
-        "flux_limit": "flux_limit",
-        "catalog": "catalog",
-        "max_rows": "max_rows",
-        "allow_full_catalog": "allow_full_catalog",
-    },  # common fields + "catalog"
+    config_fields=VIZIER_POINT_CATALOGS["gleam_egc"].config_fields,
 )
 def load_gleam(
     flux_limit: float = 1.0,
@@ -96,12 +91,7 @@ def load_gleam(
         "mals_dr1": {"release": "dr1"},
         "mals_dr2": {"release": "dr2"},
     },
-    config_fields={
-        "flux_limit": "flux_limit",
-        "release": "release",
-        "max_rows": "max_rows",
-        "allow_full_catalog": "allow_full_catalog",
-    },
+    config_fields=VIZIER_POINT_CATALOGS["mals_dr1"].config_fields,
 )
 def load_mals(
     flux_limit: float = 1.0,
@@ -148,16 +138,6 @@ def load_mals(
 # =========================================================================
 # Data-driven registration of simple VizieR loaders
 # =========================================================================
-
-# Config-driven parameters shared by every VizieR point-source loader. The
-# map is an identity (config key == loader kwarg); hoisted here so the simple
-# loaders and the explicit ones (gleam/mals/lotss) declare the same base set
-# rather than repeating it inline.
-_VIZIER_COMMON_CONFIG_FIELDS = {
-    "flux_limit": "flux_limit",
-    "max_rows": "max_rows",
-    "allow_full_catalog": "allow_full_catalog",
-}
 
 # Catalog keys with only the common config-driven parameters.
 # Complex loaders (gleam, mals, lotss, racs) are kept as explicit functions.
@@ -220,8 +200,8 @@ for _key, _config_section in _SIMPLE_VIZIER_CATALOGS.items():
         _key,
         config_section=_config_section,
         use_flag=f"use_{_key}",
-        network_service="vizier",
-        config_fields=dict(_VIZIER_COMMON_CONFIG_FIELDS),
+        network_service=VIZIER_POINT_CATALOGS[_key].network_service,
+        config_fields=VIZIER_POINT_CATALOGS[_key].config_fields,
     )(_fn)
 
 # Expose as module-level names for direct import
@@ -243,12 +223,7 @@ load_vlass = loader_registry.loader("vlass")
         "lotss_dr1": {"release": "dr1"},
         "lotss_dr2": {"release": "dr2"},
     },
-    config_fields={
-        "flux_limit": "flux_limit",
-        "release": "release",
-        "max_rows": "max_rows",
-        "allow_full_catalog": "allow_full_catalog",
-    },
+    config_fields=VIZIER_POINT_CATALOGS["lotss_dr1"].config_fields,
 )
 def load_lotss(
     flux_limit: float = 0.001,

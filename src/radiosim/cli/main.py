@@ -537,7 +537,7 @@ def run_simulate_mode(
 
     try:
         from radiosim.api.simulator import Simulator
-        from radiosim.core.sky.registry.facade import loader_registry
+        from radiosim.core.sky.registry import loader_registry
 
         loader_name, defaults = loader_registry.resolve_request(sky_model, {})
         meta = loader_registry.meta(sky_model)

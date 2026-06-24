@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from . import core as _backend
@@ -45,7 +45,7 @@ class SkyLoaderRegistry:
         aliases: (
             list[str] | tuple[str, ...] | dict[str, dict[str, Any] | None] | None
         ) = None,
-        config_fields: dict[str, str] | None = None,
+        config_fields: Mapping[str, str] | Sequence[str] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Return a decorator that registers a loader function."""
 

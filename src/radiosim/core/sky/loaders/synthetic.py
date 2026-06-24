@@ -17,7 +17,7 @@ from ..containers.constants import (
     BrightnessConversion,
 )
 from ..containers.model import SkyFormat, _coerce_format
-from ..registry.facade import loader_registry
+from ..registry import loader_registry
 from ..support.dnds import DNDSModel, resolve_dn_ds
 from ..support.provenance_coverage import coverage_provenance
 

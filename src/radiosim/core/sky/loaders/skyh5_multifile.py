@@ -28,7 +28,7 @@ import numpy as np
 from radiosim.utils.frequency import parse_frequency_config
 
 from ..containers.model import SkyModel
-from ..registry.facade import loader_registry
+from ..registry import loader_registry
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ..support.healpix_geometry import ordered_row
 from ..support.point_builder import point_source_data_from_mapping

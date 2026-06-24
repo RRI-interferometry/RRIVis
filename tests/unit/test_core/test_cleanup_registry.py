@@ -35,12 +35,27 @@ from radiosim.core.sky.registry.facade import loader_registry
 
 
 def test_registry_package_reexports_facade_symbols():
-    from radiosim.core.sky.registry import LoaderDefinition, loader_registry
+    from radiosim.core.sky.registry import (
+        LoaderDefinition,
+        SkyLoaderRegistry,
+        loader_registry,
+    )
 
     assert loader_registry is registry_facade.loader_registry
     assert LoaderDefinition is registry_facade.LoaderDefinition
+    assert SkyLoaderRegistry is registry_facade.SkyLoaderRegistry
     assert "loader_registry" in registry_pkg.__all__
     assert "LoaderDefinition" in registry_pkg.__all__
+    assert "SkyLoaderRegistry" in registry_pkg.__all__
+
+
+def test_registry_package_is_canonical_import_surface_for_consumers():
+    assert "registry.facade import loader_registry" not in inspect.getsource(
+        __import__("radiosim.core.sky.loaders.diffuse", fromlist=["dummy"])
+    )
+    assert "registry.facade import loader_registry" not in inspect.getsource(
+        __import__("radiosim.io.config", fromlist=["dummy"])
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +191,28 @@ def test_registration_accepts_matching_config_fields():
         loader_registry.unregister("_d3_good_loader")
 
 
+def test_registration_accepts_identity_config_field_shorthand():
+    def _loader(flux_limit: float = 1.0, *, max_rows: int | None = None):
+        return "ok"
+
+    decorated = loader_registry.register_loader(
+        "_d3_shorthand_loader",
+        config_fields=("flux_limit", "max_rows"),
+    )(_loader)
+    try:
+        assert decorated is _loader
+        assert loader_registry.definition("_d3_shorthand_loader").config_fields == {
+            "flux_limit": "flux_limit",
+            "max_rows": "max_rows",
+        }
+        assert loader_registry.meta("_d3_shorthand_loader")["config_fields"] == {
+            "flux_limit": "flux_limit",
+            "max_rows": "max_rows",
+        }
+    finally:
+        loader_registry.unregister("_d3_shorthand_loader")
+
+
 def test_registration_allows_var_keyword_loader():
     def _loader(**kwargs):
         return "ok"
@@ -272,6 +309,43 @@ def test_registry_catalog_aliases_resolve_to_real_entries():
                 assert defaults["band"] in RACS_CATALOGS
             if "release" in defaults:
                 assert f"{definition.name}_{defaults['release']}" in all_keys
+
+
+def test_catalog_entries_carry_registry_identity_metadata():
+    gleam = VIZIER_POINT_CATALOGS["gleam_egc"]
+    assert gleam.loader_name == "gleam"
+    assert gleam.alias_defaults == {"catalog": "gleam_egc"}
+    assert gleam.network_service == "vizier"
+    assert gleam.config_fields == {
+        "flux_limit": "flux_limit",
+        "catalog": "catalog",
+        "max_rows": "max_rows",
+        "allow_full_catalog": "allow_full_catalog",
+    }
+
+    lfsm = DIFFUSE_MODELS["lfsm"]
+    assert lfsm.loader_name == "diffuse_sky"
+    assert lfsm.alias_defaults == {"model": "lfsm"}
+    assert lfsm.network_service == "pygdsm_data"
+
+    racs_low = RACS_CATALOGS["low"]
+    assert racs_low.loader_name == "racs"
+    assert racs_low.alias == "racs_low"
+    assert racs_low.alias_defaults == {"band": "low"}
+    assert racs_low.network_service == "casda"
+
+
+def test_vizier_catalog_model_field_order_starts_with_identity():
+    source = inspect.getsource(
+        __import__("radiosim.core.sky.registry.catalogs", fromlist=["dummy"])
+    )
+    entry_source = source[
+        source.index('"tgss": VizierCatalogEntry(') : source.index(
+            '"wenss": VizierCatalogEntry('
+        )
+    ]
+    assert entry_source.index("vizier_id=") < entry_source.index("description=")
+    assert "default_flux_limit=" not in entry_source
 
 
 # ---------------------------------------------------------------------------

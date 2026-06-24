@@ -39,7 +39,7 @@ def get_sky_model_services() -> dict[str, str]:
     """Return the source-kind -> network-service mapping."""
     global _SKY_MODEL_SERVICES_CACHE
     if _SKY_MODEL_SERVICES_CACHE is None:
-        from radiosim.core.sky.registry.facade import loader_registry
+        from radiosim.core.sky.registry import loader_registry
 
         _SKY_MODEL_SERVICES_CACHE = loader_registry.network_services()
     return _SKY_MODEL_SERVICES_CACHE
@@ -306,7 +306,7 @@ def get_required_services(sky_config: dict) -> dict[str, list[str]]:
     required: dict[str, list[str]] = {}
     sources = sky_config.get("sources")
     if isinstance(sources, list):
-        from radiosim.core.sky.registry.facade import loader_registry
+        from radiosim.core.sky.registry import loader_registry
 
         services = get_sky_model_services()
         for entry in sources:

@@ -16,7 +16,7 @@ import traceback
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from ..registry.facade import loader_registry
+from ..registry import loader_registry
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig

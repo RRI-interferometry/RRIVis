@@ -33,7 +33,7 @@ from ..containers.constants import (
 )
 from ..containers.model import SkyFormat, SkyModel
 from ..loaders.synthetic import load_poisson_confusion
-from ..registry.facade import loader_registry
+from ..registry import loader_registry
 from ..support.healpix_geometry import scale_flux_power_law
 
 if TYPE_CHECKING:

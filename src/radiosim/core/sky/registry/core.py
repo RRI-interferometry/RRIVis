@@ -61,6 +61,18 @@ def _normalize_representations(
     return ("point_sources",)
 
 
+def _normalize_config_fields(
+    config_fields: Mapping[str, str] | Sequence[str] | None,
+) -> dict[str, str]:
+    """Normalize config field metadata to loader-kwarg mapping form."""
+
+    if config_fields is None:
+        return {}
+    if isinstance(config_fields, Mapping):
+        return dict(config_fields)
+    return {field: field for field in config_fields}
+
+
 def _assert_config_fields_match_signature(
     name: str,
     loader: Callable[..., Any],
@@ -203,14 +215,15 @@ class LoaderRegistry:
         aliases: (
             list[str] | tuple[str, ...] | Mapping[str, Mapping[str, Any] | None] | None
         ) = None,
-        config_fields: dict[str, str] | None = None,
+        config_fields: Mapping[str, str] | Sequence[str] | None = None,
     ) -> Callable[..., Any]:
         alias_names, alias_defaults = self._normalize_aliases(aliases)
-        _assert_config_fields_match_signature(name, loader, config_fields)
+        normalized_config_fields = _normalize_config_fields(config_fields)
+        _assert_config_fields_match_signature(name, loader, normalized_config_fields)
         normalized_representations = _normalize_representations(
             representations,
             loader=loader,
-            config_fields=config_fields,
+            config_fields=normalized_config_fields,
         )
         definition = LoaderDefinition(
             name=name,
@@ -223,7 +236,7 @@ class LoaderRegistry:
             network_service=network_service,
             aliases=alias_names,
             alias_defaults=alias_defaults,
-            config_fields=dict(config_fields or {}),
+            config_fields=normalized_config_fields,
         )
         with self._lock:
             self._loaders[name] = loader
@@ -354,7 +367,7 @@ def register_loader(
     aliases: (
         list[str] | tuple[str, ...] | Mapping[str, Mapping[str, Any] | None] | None
     ) = None,
-    config_fields: dict[str, str] | None = None,
+    config_fields: Mapping[str, str] | Sequence[str] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator used by loader modules to register themselves.
 

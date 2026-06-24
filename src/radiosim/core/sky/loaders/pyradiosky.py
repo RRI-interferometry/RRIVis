@@ -13,7 +13,7 @@ import numpy as np
 
 from ..containers.model import SkyModel
 from ..containers.point import PointSpectrum
-from ..registry.facade import loader_registry
+from ..registry import loader_registry
 from ..support.frequencies import resolve_frequency_config
 from ..support.healpix_geometry import ordered_row
 from ..support.point_builder import point_source_data_from_mapping

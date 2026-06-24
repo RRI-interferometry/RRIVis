@@ -551,7 +551,7 @@ class Simulator:
 
         # Collect all requested sky models
         sky_models = []
-        from radiosim.core.sky.registry.facade import loader_registry
+        from radiosim.core.sky.registry import loader_registry
 
         obs_freq_config = self.config.get("obs_frequency", {})
         loader_requests: list[tuple[str, dict[str, Any]]] = []

@@ -16,8 +16,8 @@ from ..containers import (
     SkyProvenance,
     SourceSubtractionStatus,
 )
+from ..registry import loader_registry
 from ..registry.catalogs import DIFFUSE_MODELS
-from ..registry.facade import loader_registry
 from ..support.frequencies import resolve_frequency_config
 from ..support.provenance_coverage import coverage_provenance
 from ._healpix_builder import build_healpix_from_stokes_cube
@@ -148,23 +148,18 @@ def get_diffuse_model_info(model_name: str) -> dict[str, Any]:
     "diffuse_sky",
     config_section="gsm_healpix",
     use_flag="use_gsm",
-    representations=("healpix_map",),
+    representations=DIFFUSE_MODELS["gsm2008"].representations,
     category="diffuse",
-    network_service="pygdsm_data",
+    network_service=DIFFUSE_MODELS["gsm2008"].network_service,
     aliases={
         "gsm": {"model": "gsm2008"},
-        "gsm2008": {"model": "gsm2008"},
-        "gsm2016": {"model": "gsm2016"},
-        "lfsm": {"model": "lfsm"},
-        "haslam": {"model": "haslam"},
+        **{
+            info.alias: info.alias_defaults
+            for info in DIFFUSE_MODELS.values()
+            if info.alias is not None
+        },
     },
-    config_fields={
-        "model": "model",
-        "nside": "nside",
-        "include_cmb": "include_cmb",
-        "basemap": "basemap",
-        "interpolation": "interpolation",
-    },
+    config_fields=DIFFUSE_MODELS["gsm2008"].config_fields,
 )
 def load_diffuse_sky(
     model: str = "gsm2008",

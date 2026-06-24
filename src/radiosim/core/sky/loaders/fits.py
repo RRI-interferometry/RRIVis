@@ -19,7 +19,7 @@ from ..containers.constants import (
     flux_density_to_brightness_temp,
     rayleigh_jeans_factor,
 )
-from ..registry.facade import loader_registry
+from ..registry import loader_registry
 from ..support.healpix_geometry import pixel_solid_angle
 from ..support.provenance_coverage import coverage_provenance
 from ._healpix_builder import build_healpix_from_stokes_cube
