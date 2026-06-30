@@ -37,6 +37,7 @@ from .regrid import (
     _format_healpix_freq_grid,
     _point_source_healpix_indices,
     _resolve_common_healpix_frame,
+    _resolve_common_healpix_ordering,
 )
 
 if TYPE_CHECKING:
@@ -126,6 +127,7 @@ class CombineHealpixData(TypedDict):
     healpix_nside: int
     observation_frequencies: np.ndarray
     coordinate_frame: str
+    ordering: str
     reference_frequency: float | None
 
 
@@ -292,6 +294,8 @@ def combine_healpix(
     # frequency grid before doing element-wise arithmetic.
     healpix_models = [m for m in models if m.healpix is not None]
     coordinate_frame = _resolve_common_healpix_frame(healpix_models)
+    ordering = _resolve_common_healpix_ordering(healpix_models)
+    nest = ordering == "nest"
     point_only_models = [
         m
         for m in models
@@ -336,6 +340,7 @@ def combine_healpix(
                 m.point,
                 ref_nside,
                 coordinate_frame=coordinate_frame,
+                nest=nest,
             )
             ps_ref_freq = per_source_reference_frequencies(
                 m.point,
@@ -482,5 +487,6 @@ def combine_healpix(
         "healpix_nside": ref_nside,
         "observation_frequencies": ref_freqs,
         "coordinate_frame": coordinate_frame,
+        "ordering": ordering,
         "reference_frequency": ref_frequency,
     }

@@ -62,6 +62,8 @@ def _detect_local_maxima_above(
     flux_per_pixel_jy: np.ndarray,
     nside: int,
     flux_limit_jy: float,
+    *,
+    nest: bool = False,
 ) -> np.ndarray:
     """Return the HEALPix pixel indices of local maxima above ``flux_limit_jy``.
 
@@ -74,7 +76,7 @@ def _detect_local_maxima_above(
     if candidates.size == 0:
         return candidates
 
-    neighbours = hp.get_all_neighbours(nside, candidates)  # shape (8, N)
+    neighbours = hp.get_all_neighbours(nside, candidates, nest=nest)  # shape (8, N)
     safe_idx = np.where(neighbours >= 0, neighbours, 0)
     neighbour_flux = flux_per_pixel_jy[safe_idx]
     neighbour_flux = np.where(neighbours >= 0, neighbour_flux, -np.inf)
@@ -88,12 +90,14 @@ def _gnomonic_patch_coords(
     center_pix: int,
     patch_pix: np.ndarray,
     nside: int,
+    *,
+    nest: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Gnomonic (tangent-plane) ``(x, y)`` coordinates in radians for each
     pixel in ``patch_pix`` relative to the tangent point at ``center_pix``.
     """
-    theta0, phi0 = hp.pix2ang(nside, center_pix)
-    theta, phi = hp.pix2ang(nside, patch_pix)
+    theta0, phi0 = hp.pix2ang(nside, center_pix, nest=nest)
+    theta, phi = hp.pix2ang(nside, patch_pix, nest=nest)
     return gnomonic_rotate(phi, np.pi / 2.0 - theta, phi0, np.pi / 2.0 - theta0)
 
 
@@ -510,6 +514,7 @@ def _select_subtraction_candidates(
     catalog: SkyModel | None,
     detection_peak_fraction: float,
     max_sources: int | None,
+    nest: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Pick the HEALPix pixel indices to attempt subtraction at.
 
@@ -561,13 +566,13 @@ def _select_subtraction_candidates(
         else:
             theta = np.pi / 2.0 - catalog.point.dec_rad[keep].astype(np.float64)
             phi = catalog.point.ra_rad[keep].astype(np.float64)
-            candidate_pix = np.unique(hp.ang2pix(nside, theta, phi))
+            candidate_pix = np.unique(hp.ang2pix(nside, theta, phi, nest=nest))
     else:
         detection_threshold_jy = max(
             flux_limit_jy * float(detection_peak_fraction), 0.0
         )
         candidate_pix = _detect_local_maxima_above(
-            flux_per_pixel_jy, nside, detection_threshold_jy
+            flux_per_pixel_jy, nside, detection_threshold_jy, nest=nest
         )
 
     if max_sources is not None and candidate_pix.size > max_sources:
@@ -584,6 +589,7 @@ def _fit_one_candidate_multifreq(
     nside: int,
     patch_radius: float,
     sigma_init: float,
+    nest: bool = False,
 ) -> (
     tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, np.ndarray | float], bool]
     | None
@@ -595,11 +601,15 @@ def _fit_one_candidate_multifreq(
     multiple candidates can be fit in parallel safely.
     """
     patch = hp.query_disc(
-        nside, hp.pix2vec(nside, center), patch_radius, inclusive=True
+        nside,
+        hp.pix2vec(nside, center, nest=nest),
+        patch_radius,
+        inclusive=True,
+        nest=nest,
     )
     if patch.size < 8:
         return None
-    px, py = _gnomonic_patch_coords(int(center), patch, nside)
+    px, py = _gnomonic_patch_coords(int(center), patch, nside, nest=nest)
     pz_per_channel = flux_per_channel_jy[:, patch]
     fit, ok = _fit_multifreq_gaussian(px, py, pz_per_channel, sigma_init_rad=sigma_init)
     return patch, px, py, fit, ok
@@ -745,6 +755,7 @@ def _fit_and_subtract_per_channel(
             nside=nside,
             patch_radius=patch_radius,
             sigma_init=sigma_init,
+            nest=False,
         )
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as pool:
             fit_results = list(pool.map(fit_call, candidate_pix.tolist()))
@@ -756,6 +767,7 @@ def _fit_and_subtract_per_channel(
                 nside=nside,
                 patch_radius=patch_radius,
                 sigma_init=sigma_init,
+                nest=False,
             )
             for center in candidate_pix
         ]
@@ -914,9 +926,9 @@ def subtract_bright_sources(
         )
     sky.healpix.require_dense("subtract_bright_sources")
 
-    # The fitting geometry and the alm-based inpainting (map2alm) assume RING
-    # ordering. Normalize NESTED inputs to RING for the duration, then restore
-    # the caller's ordering on the result.
+    # Fitting geometry and alm-based inpainting (map2alm/alm2map) require RING-
+    # ordered map rows. Normalize NEST inputs to RING for the duration; all
+    # healpy calls below use nest=False explicitly, then restore ordering.
     restore_ordering = sky.healpix.ordering
     if sky.healpix.is_nested:
         sky = sky.replace(healpix=sky.healpix.reordered("ring"))
@@ -936,6 +948,7 @@ def subtract_bright_sources(
         catalog=catalog,
         detection_peak_fraction=detection_peak_fraction,
         max_sources=max_sources,
+        nest=False,
     )
 
     n_freq_total = int(sky.healpix.frequencies.size)
@@ -957,7 +970,10 @@ def subtract_bright_sources(
             source_subtraction_freq_hz=float(frequency_hz),
             source_subtraction_method="gaussian_fit_inpaint",
         )
-        return sky.replace(provenance=new_prov)
+        healpix_out = sky.healpix
+        if restore_ordering != healpix_out.ordering:
+            healpix_out = healpix_out.reordered(restore_ordering)
+        return sky.replace(healpix=healpix_out, provenance=new_prov)
 
     new_maps, inpaint_mask, n_fits_ok, n_fits_failed = _fit_and_subtract_per_channel(
         sky,

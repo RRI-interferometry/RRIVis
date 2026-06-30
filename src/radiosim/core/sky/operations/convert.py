@@ -20,7 +20,7 @@ from ..containers.constants import (
     flux_density_to_brightness_temp,
     rayleigh_jeans_factor,
 )
-from ..containers.footprint import _normalize_coordinate_frame
+from ..containers.footprint import _normalize_coordinate_frame, _normalize_ordering
 from ..containers.spectral import (
     apply_faraday_rotation,
     compute_spectral_scale,
@@ -532,6 +532,7 @@ class HealpixConversionConfig:
     frequencies: np.ndarray
     brightness_conversion: str
     coordinate_frame: str = "icrs"
+    ordering: str = "ring"
     output_dtype: npt.DTypeLike = np.float32
     memmap_path: str | None = None
     polarization_brightness_conversion: str = "rayleigh-jeans"
@@ -883,6 +884,8 @@ def _point_sources_to_healpix_maps_impl(
     coordinate_frame : {"icrs", "galactic"}, default "icrs"
         Coordinate frame of the target HEALPix pixel indexing. Input point
         coordinates are always interpreted as ICRS.
+    ordering : {"ring", "nest"}, default "ring"
+        HEALPix pixel ordering for ``ang2pix`` and the output map layout.
     output_dtype : DTypeLike, default np.float32
         Dtype for output HEALPix arrays. Use ``precision.sky_model.get_dtype("healpix_maps")``
         to respect the user's precision configuration.
@@ -989,6 +992,8 @@ def _point_sources_to_healpix_maps_impl(
 
     omega_pixel = pixel_solid_angle(nside)
     frame = _normalize_coordinate_frame(coordinate_frame)
+    ordering = _normalize_ordering(config.ordering)
+    nest = ordering == "nest"
 
     has_pol = _has_polarization(stokes_q, stokes_u, stokes_v)
     n_stokes = 4 if has_pol else 1
@@ -1009,7 +1014,7 @@ def _point_sources_to_healpix_maps_impl(
         lon_rad = ra_rad
         lat_rad = dec_rad
 
-    ipix = hp.ang2pix(nside, np.pi / 2 - lat_rad, lon_rad)
+    ipix = hp.ang2pix(nside, np.pi / 2 - lat_rad, lon_rad, nest=nest)
     collision_stats = _collision_stats(ipix, n_sources, nside)
 
     cfg = _ChannelConfig(

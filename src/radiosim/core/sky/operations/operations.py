@@ -46,6 +46,7 @@ def materialize_healpix_model(
     frequencies: np.ndarray | None = None,
     obs_frequency_config: dict[str, Any] | None = None,
     ref_frequency: float | None = None,
+    ordering: str = "ring",
     memmap_path: str | None = None,
     clear_other: bool = True,
     backend: ArrayBackend | None = None,
@@ -63,6 +64,10 @@ def materialize_healpix_model(
     undefined for non-positive arguments).  Set the policy on the model
     itself via ``sky.replace(polarization_brightness_conversion="planck")``
     when you need Stokes-I-style non-linear conversion for polarised maps.
+
+    ``ordering`` selects RING (default) or NEST pixel indexing for the
+    output cube; it is threaded through ``ang2pix`` and stored on the
+    resulting :class:`~.containers.HealpixData`.
     """
     if sky.point is None:
         raise ValueError(
@@ -133,6 +138,7 @@ def materialize_healpix_model(
         frequencies=frequencies,
         brightness_conversion=BrightnessConversion(i_method),
         coordinate_frame="icrs",
+        ordering=ordering,
         output_dtype=sky._healpix_dtype(),
         memmap_path=memmap_path,
         polarization_brightness_conversion=pol_method,
@@ -148,6 +154,7 @@ def materialize_healpix_model(
         nside=nside,
         frequencies=frequencies,
         coordinate_frame="icrs",
+        ordering=ordering,
         q_maps=q_maps,
         u_maps=u_maps,
         v_maps=v_maps,

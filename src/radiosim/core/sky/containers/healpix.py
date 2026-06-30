@@ -49,7 +49,10 @@ class HealpixData:
     nside: int
     frequencies: np.ndarray  # shape (n_freq,), in Hz, always float64
     coordinate_frame: str = "icrs"
-    ordering: str = "ring"  # "ring" or "nest" — HEALPix pixel ordering scheme
+    # HEALPix pixel ordering. NEST is fully supported: all sky ops thread
+    # nest= / order_in/out through ang2pix, regrid, combine, subtract, and
+    # point↔HEALPix conversion. Diffuse loaders remain ring-native inputs.
+    ordering: str = "ring"
     hpx_inds: np.ndarray | None = None
 
     q_maps: np.ndarray | None = None

@@ -300,7 +300,12 @@ def load_diffuse_sky(
         for fi, freq in enumerate(frequencies):
             temp_map = pygdsm_instance.generate(freq)
             if hp.get_nside(temp_map) != nside:
-                temp_map = hp.ud_grade(temp_map, nside_out=nside)
+                temp_map = hp.ud_grade(
+                    temp_map,
+                    nside_out=nside,
+                    order_in="RING",
+                    order_out="RING",
+                )
             temp_map = rot.rotate_map_pixel(temp_map)
             if fi == 0:
                 first_full_sky_mean = float(np.mean(temp_map))
@@ -314,6 +319,7 @@ def load_diffuse_sky(
         region=region,
         precision=precision,
         memmap_path=memmap_path,
+        ordering="ring",
     )
 
     logger.info(
@@ -660,9 +666,24 @@ def load_pysm3(
                 u_map = np.array(emission_krj[2])
                 current_nside = hp.get_nside(i_map)
                 if current_nside != nside:
-                    i_map = hp.ud_grade(i_map, nside_out=nside)
-                    q_map = hp.ud_grade(q_map, nside_out=nside)
-                    u_map = hp.ud_grade(u_map, nside_out=nside)
+                    i_map = hp.ud_grade(
+                        i_map,
+                        nside_out=nside,
+                        order_in="RING",
+                        order_out="RING",
+                    )
+                    q_map = hp.ud_grade(
+                        q_map,
+                        nside_out=nside,
+                        order_in="RING",
+                        order_out="RING",
+                    )
+                    u_map = hp.ud_grade(
+                        u_map,
+                        nside_out=nside,
+                        order_in="RING",
+                        order_out="RING",
+                    )
                 iqu_rot = rot.rotate_map_alms(np.array([i_map, q_map, u_map]))
                 i_row = iqu_rot[0]
                 q_row = iqu_rot[1]
@@ -670,7 +691,12 @@ def load_pysm3(
             else:
                 i_row = np.array(emission_krj[0])
                 if hp.get_nside(i_row) != nside:
-                    i_row = hp.ud_grade(i_row, nside_out=nside)
+                    i_row = hp.ud_grade(
+                        i_row,
+                        nside_out=nside,
+                        order_in="RING",
+                        order_out="RING",
+                    )
                 i_row = rot.rotate_map_pixel(i_row)
                 if include_polarization:
                     q_row = np.zeros_like(i_row)
@@ -691,6 +717,7 @@ def load_pysm3(
         region=region,
         precision=precision,
         memmap_path=memmap_path,
+        ordering="ring",
     )
 
     model_name = f"pysm3:{'+'.join(components_list)}"

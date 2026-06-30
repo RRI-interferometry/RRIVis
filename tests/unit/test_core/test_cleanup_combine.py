@@ -143,6 +143,7 @@ def test_combine_healpix_shapes_and_keys(conversion, n_freq):
         "healpix_nside",
         "observation_frequencies",
         "coordinate_frame",
+        "ordering",
         "reference_frequency",
     ):
         assert key in out

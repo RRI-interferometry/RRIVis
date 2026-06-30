@@ -54,11 +54,26 @@ def _resolve_common_healpix_frame(models: list[SkyModel]) -> str:
     return next(iter(frames))
 
 
+def _resolve_common_healpix_ordering(models: list[SkyModel]) -> str:
+    """Return the shared HEALPix ordering or raise on mismatches."""
+    orderings = {m.healpix.ordering for m in models if m.healpix is not None}
+    if not orderings:
+        return "ring"
+    if len(orderings) != 1:
+        raise ValueError(
+            "Cannot combine HEALPix models with different ordering "
+            f"values: {sorted(orderings)}. Reorder one model with "
+            "``HealpixData.reordered(...)`` before combining."
+        )
+    return next(iter(orderings))
+
+
 def _point_source_healpix_indices(
     point: PointSourceData,
     nside: int,
     *,
     coordinate_frame: str,
+    nest: bool = False,
 ) -> np.ndarray:
     if coordinate_frame == "galactic":
         from astropy.coordinates import SkyCoord
@@ -74,7 +89,7 @@ def _point_source_healpix_indices(
     else:
         lon_rad = point.ra_rad
         lat_rad = point.dec_rad
-    return hp.ang2pix(nside, np.pi / 2 - lat_rad, lon_rad)
+    return hp.ang2pix(nside, np.pi / 2 - lat_rad, lon_rad, nest=nest)
 
 
 def _validate_requested_healpix_grid(

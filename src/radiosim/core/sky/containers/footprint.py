@@ -60,6 +60,14 @@ def _normalize_coordinate_frame(coordinate_frame: str) -> str:
     return frame
 
 
+def _normalize_ordering(ordering: str) -> str:
+    """Lowercase an ordering name and validate it is 'ring' or 'nest'."""
+    scheme = str(ordering).lower()
+    if scheme not in {"ring", "nest"}:
+        raise ValueError(f"ordering must be 'ring' or 'nest', got {ordering!r}.")
+    return scheme
+
+
 @dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
 class SkyFootprint:
     """Sparse HEALPix support mask for a sky product's angular footprint."""
