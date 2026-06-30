@@ -393,7 +393,17 @@ class TestPublicBoundary:
 
     def test_config_models_expose_new_policy_fields(self):
         assert "mixed_model_policy" in SkyModelConfig.model_fields
+        assert "assume_disjoint" in SkyModelConfig.model_fields
         assert "allow_lossy_point_materialization" in VisibilityConfig.model_fields
+
+    def test_sky_model_config_accepts_assume_disjoint(self):
+        cfg = SkyModelConfig.model_validate(
+            {
+                "sources": [{"kind": "test_sources"}],
+                "assume_disjoint": True,
+            }
+        )
+        assert cfg.assume_disjoint is True
 
 
 class TestExecutorRecommendation:

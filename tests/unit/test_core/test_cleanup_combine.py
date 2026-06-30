@@ -594,3 +594,43 @@ def test_prepare_sky_model_exposes_subtraction_alpha():
     # The option must exist on PrepareSkyOptions (threaded through pipeline).
     opts = PrepareSkyOptions(subtraction_scaling_alpha=-1.5)
     assert opts.subtraction_scaling_alpha == -1.5
+
+
+def test_assume_disjoint_skips_double_count_but_keeps_monopole():
+    """assume_disjoint bypasses double-count rules but not monopole checks."""
+    nside = 8
+    freqs = np.array([150e6])
+    diffuse = _healpix_sky(nside=nside, frequencies=freqs, fill=2.0, name="d")
+    diffuse = diffuse.replace(
+        provenance=diffuse.provenance.replace(
+            source_subtraction=SourceSubtractionStatus.NONE,
+        )
+    )
+    catalog = _catalog_with_completeness(0.7, nu_hz=60e6, name="c")
+    models = [diffuse, catalog]
+
+    with pytest.raises(ValueError):
+        check_physical_disjointness(models, "error")
+
+    with pytest.warns(UserWarning, match="assume_disjoint"):
+        check_physical_disjointness(models, "error", assume_disjoint=True)
+
+    catalog_bad = catalog.replace(
+        provenance=catalog.provenance.replace(
+            monopole_convention=MonopoleConvention.MEAN_SUBTRACTED,
+        )
+    )
+    with pytest.raises(ValueError, match="monopole conventions"):
+        check_physical_disjointness(
+            [diffuse, catalog_bad],
+            "error",
+            assume_disjoint=True,
+        )
+
+
+def test_prepare_sky_model_exposes_assume_disjoint():
+    """assume_disjoint is a prepare_sky_model tunable on PrepareSkyOptions."""
+    from radiosim.core.sky import PrepareSkyOptions
+
+    opts = PrepareSkyOptions(assume_disjoint=True)
+    assert opts.assume_disjoint is True

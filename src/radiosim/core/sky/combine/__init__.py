@@ -4,7 +4,9 @@ Public entry points:
 
 - :func:`prepare_sky_model` — the canonical user-facing combine/materialize
   orchestrator (see :mod:`.pipeline`).
-- :class:`PrepareSkyOptions` — the validated options bundle for it.
+- :class:`PrepareSkyOptions` — the validated options bundle for it
+  (including ``assume_disjoint`` and ``mixed_model_policy`` disjointness
+  controls).
 
 The lower-level engine (``_combine_models``) and the per-strategy building
 blocks (``combine_healpix``, ``concat_point_sources``, ``merge_provenance``,

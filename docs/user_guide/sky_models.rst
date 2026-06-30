@@ -108,9 +108,12 @@ Combine diffuse and point source emission:
    )
 
 Mixing point catalogs with diffuse HEALPix models is blocked by default
-because it can double-count bright sources. Set
-``mixed_model_policy="warn"`` or ``"allow"`` only when that tradeoff is
-intentional.
+because it can double-count bright sources. If disjointness was verified
+out of band, pass ``assume_disjoint=True`` (or ``sky_model.assume_disjoint:
+true`` in YAML) to skip only the double-counting rules while keeping
+monopole checks. Set ``mixed_model_policy="warn"`` or ``"allow"`` only
+when you need the broader override that also relaxes UNKNOWN monopole
+escalation.
 
 Test Sources
 ^^^^^^^^^^^^

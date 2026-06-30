@@ -526,6 +526,7 @@ class Simulator:
         # Brightness conversion method (applies to all loaders)
         _brightness_conv = sky_config.get("brightness_conversion", "planck")
         mixed_model_policy = sky_config.get("mixed_model_policy", "error")
+        assume_disjoint = bool(sky_config.get("assume_disjoint", False))
 
         from radiosim.io.config import (
             SkySourceConfig,
@@ -622,6 +623,7 @@ class Simulator:
             obs_frequency_config=self.config.get("obs_frequency", {}),
             allow_lossy=allow_lossy_point_materialization,
             mixed_model_policy=mixed_model_policy,
+            assume_disjoint=assume_disjoint,
             brightness_conversion=_brightness_conv,
             precision=_precision,
             backend=self._backend,

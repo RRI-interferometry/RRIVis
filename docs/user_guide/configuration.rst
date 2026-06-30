@@ -77,6 +77,10 @@ Two policy fields are especially important:
 
 - ``sky_model.mixed_model_policy`` controls whether point catalogs may be
   combined with diffuse HEALPix models. The default is ``"error"``.
+- ``sky_model.assume_disjoint`` skips only the double-counting rules while
+  still enforcing monopole consistency. The default is ``false``. Use this
+  narrower override instead of ``mixed_model_policy: allow`` when disjointness
+  was verified out of band.
 - ``visibility.allow_lossy_point_materialization`` controls whether the
   simulator may convert HEALPix maps into point sources when
   ``visibility.sky_representation`` is ``"point_sources"``. The default

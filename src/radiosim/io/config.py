@@ -965,6 +965,14 @@ class SkyModelConfig(BaseModel):
             "HEALPix models: error, warn, or allow."
         ),
     )
+    assume_disjoint: bool = Field(
+        False,
+        description=(
+            "Forwarded to prepare_sky_model. When True, skip point-vs-diffuse "
+            "double-counting rules while still enforcing monopole consistency. "
+            "Narrower than mixed_model_policy='allow'."
+        ),
+    )
     region: SkyRegionEntryConfig | list[SkyRegionEntryConfig] | None = Field(
         None,
         description="Sky region filter(s). Single region or list for union of regions.",
