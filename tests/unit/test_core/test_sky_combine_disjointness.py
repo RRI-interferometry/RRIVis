@@ -183,7 +183,7 @@ class TestDisjointnessFailures:
             source_subtraction=SourceSubtractionStatus.NONE,
         )
         p = _point(precision=precision)
-        with pytest.raises(ValueError, match="double-counting"):
+        with pytest.raises(ValueError, match="double-counting") as exc_info:
             _combine_models(
                 [d, p],
                 precision=precision,
@@ -191,6 +191,15 @@ class TestDisjointnessFailures:
                 nside=8,
                 frequencies=np.asarray([150e6, 160e6]),
             )
+        message = str(exc_info.value)
+        for field in (
+            "source_subtraction_threshold_jy",
+            "source_subtraction_freq_hz",
+            "flux_completeness_jy",
+            "flux_completeness_freq_hz",
+            "angular_resolution_rad",
+        ):
+            assert field in message
 
     def test_none_subtraction_warns_under_warn(self, precision):
         d = _diffuse(
@@ -547,6 +556,87 @@ class TestMergeProvenanceMonopoleDoubleCount:
         assert merged.monopole_k is None
         assert merged.notes is not None
         assert "UNKNOWN" in merged.notes
+
+
+class TestDisjointnessOverride:
+    """``assume_disjoint`` skips double-count rules but keeps monopole checks."""
+
+    def test_assume_disjoint_skips_double_count_with_warning(self, precision):
+        import warnings
+
+        d = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.NONE,
+        )
+        p = _point(precision=precision)
+        freqs = np.asarray([150e6, 160e6])
+
+        with pytest.raises(ValueError, match="double-counting"):
+            _combine_models(
+                [d, p],
+                precision=precision,
+                nside=8,
+                frequencies=freqs,
+            )
+
+        with pytest.warns(UserWarning, match="assume_disjoint"):
+            combined = _combine_models(
+                [d, p],
+                precision=precision,
+                assume_disjoint=True,
+                nside=8,
+                frequencies=freqs,
+            )
+        assert combined.healpix is not None
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            combined = _combine_models(
+                [d, p],
+                precision=precision,
+                assume_disjoint=True,
+                mixed_model_policy="error",
+                nside=8,
+                frequencies=freqs,
+            )
+        assert combined.healpix is not None
+
+    def test_assume_disjoint_does_not_bypass_incompatible_monopole(self, precision):
+        d = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.NONE,
+            monopole_convention=MonopoleConvention.ABSOLUTE_WITH_CMB,
+        )
+        p = _point(
+            precision=precision,
+            monopole_convention=MonopoleConvention.MEAN_SUBTRACTED,
+        )
+        with pytest.raises(ValueError, match="monopole conventions"):
+            _combine_models(
+                [d, p],
+                precision=precision,
+                assume_disjoint=True,
+                nside=8,
+                frequencies=np.asarray([150e6, 160e6]),
+            )
+
+    def test_assume_disjoint_via_prepare_sky_model(self, precision):
+        from radiosim.core.sky import prepare_sky_model
+
+        d = _diffuse(
+            precision=precision,
+            source_subtraction=SourceSubtractionStatus.NONE,
+        )
+        p = _point(precision=precision)
+        with pytest.warns(UserWarning, match="assume_disjoint"):
+            combined = prepare_sky_model(
+                [d, p],
+                precision=precision,
+                assume_disjoint=True,
+                nside=8,
+                frequencies=np.asarray([150e6, 160e6]),
+            )
+        assert combined.healpix is not None
 
 
 # =============================================================================

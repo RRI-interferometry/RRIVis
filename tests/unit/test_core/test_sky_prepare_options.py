@@ -14,6 +14,7 @@ class TestValidation:
         assert opts.representation is None
         assert opts.nside_safety_factor == 5.0
         assert opts.mixed_model_policy == "error"
+        assert opts.assume_disjoint is False
 
     def test_frequencies_xor_obs_freq_config(self) -> None:
         with pytest.raises(ValueError, match="mutually exclusive"):

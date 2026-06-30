@@ -39,6 +39,8 @@ class PrepareSkyOptions:
       positive.
     - ``nside_safety_factor`` must be strictly positive.
     - ``mixed_model_policy`` is one of ``"error"``, ``"warn"``, ``"allow"``.
+    - ``assume_disjoint`` defaults to ``False``; when ``True``, only
+      double-count rules are skipped (monopole checks still run).
     """
 
     representation: SkyFormat | str | None = None
@@ -48,6 +50,10 @@ class PrepareSkyOptions:
     obs_frequency_config: dict[str, Any] | None = None
     allow_lossy: bool = False
     mixed_model_policy: MixedModelPolicy = "error"
+    # When True, skip point-vs-diffuse double-counting rules in the
+    # physical-disjointness check while still enforcing monopole consistency.
+    # Emits a UserWarning; narrower than mixed_model_policy="allow".
+    assume_disjoint: bool = False
     brightness_conversion: BrightnessConversion | str | None = None
     # ``PrecisionConfig`` / ``ArrayBackend`` are concrete here: neither
     # ``radiosim.core.precision`` nor ``radiosim.backends`` imports the sky

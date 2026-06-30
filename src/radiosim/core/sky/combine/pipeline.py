@@ -35,8 +35,9 @@ def prepare_sky_model(
     """Combine and materialize sky models into a usable representation.
 
     This is the canonical user entry point.  It validates inputs, runs the
-    physical-disjointness check, combines the models, and materializes the
-    result into the requested ``representation``.
+    physical-disjointness check (see :attr:`PrepareSkyOptions.assume_disjoint`
+    for a narrow escape that skips only double-count rules), combines the
+    models, and materializes the result into the requested ``representation``.
 
     Two equivalent calling styles:
 
@@ -65,6 +66,7 @@ def prepare_sky_model(
     obs_frequency_config = opts.obs_frequency_config
     allow_lossy = opts.allow_lossy
     mixed_model_policy = opts.mixed_model_policy
+    assume_disjoint = opts.assume_disjoint
     brightness_conversion = opts.brightness_conversion
     precision = opts.precision
     backend = opts.backend
@@ -130,6 +132,7 @@ def prepare_sky_model(
             brightness_conversion=brightness_conversion,
             allow_lossy_point_materialization=allow_lossy,
             mixed_model_policy=mixed_model_policy,
+            assume_disjoint=assume_disjoint,
             precision=precision,
             backend=backend,
             memmap_path=memmap_path,

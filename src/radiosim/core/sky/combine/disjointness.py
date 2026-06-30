@@ -235,6 +235,7 @@ def check_physical_disjointness(
     mixed_model_policy: MixedModelPolicy,
     *,
     alpha: float = _DEFAULT_SUBTRACTION_SCALING_ALPHA,
+    assume_disjoint: bool = False,
 ) -> None:
     """Validate that ``models`` can be physically summed without double-counting.
 
@@ -255,24 +256,44 @@ def check_physical_disjointness(
     - ``"error"`` — raise ``ValueError`` with the full diagnostic.  Unknown
       provenance on any cross-type pair counts as a failure (fail-closed).
     - ``"warn"``  — emit a ``UserWarning`` with the diagnostic and continue.
-    - ``"allow"`` — suppress (caller asserts responsibility).
+    - ``"allow"`` — suppress double-count checks and monopole UNKNOWN
+      escalation (caller asserts responsibility).
+
+    ``assume_disjoint=True`` is a narrower escape: it skips only the
+    point-vs-diffuse double-counting rules (after monopole checks) and
+    emits a ``UserWarning``. Monopole consistency is never bypassed.
 
     Parameters
     ----------
     models
         Models about to be combined.
     mixed_model_policy
-        Enforcement level.
+        Enforcement level for double-count failures and UNKNOWN monopole
+        conventions.
     alpha
         Power-law spectral index used to scale source-subtraction thresholds
         between the diffuse-map reference frequency and the catalog's
         completeness frequency.  Default −0.7.
+    assume_disjoint
+        When True, skip double-counting rules after monopole checks.
     """
     # Monopole consistency: incompatible-known pairs always raise (those
     # are numerically wrong), and UNKNOWN escalates per ``mixed_model_policy``.
     _check_monopole_consistency(models, mixed_model_policy)
 
-    if mixed_model_policy == "allow":
+    if mixed_model_policy == "allow" or assume_disjoint:
+        if assume_disjoint:
+            warnings.warn(
+                "assume_disjoint=True: skipping point-vs-diffuse "
+                "double-counting checks. Monopole consistency was still "
+                "enforced. Declare SkyProvenance fields "
+                "(source_subtraction, source_subtraction_threshold_jy, "
+                "source_subtraction_freq_hz, flux_completeness_jy, "
+                "flux_completeness_freq_hz, angular_resolution_rad) when "
+                "possible instead of relying on this override.",
+                UserWarning,
+                stacklevel=3,
+            )
         return
 
     # Pair each diffuse model against each point model and collect failures.
@@ -302,18 +323,26 @@ def check_physical_disjointness(
         "angular disjoint OR fully subtracted):"
     )
     hint = (
-        "\nFix: (a) use a source-subtracted diffuse template "
+        "\nFix: declare the exact provenance fields on each model so the "
+        "checker can verify disjointness:\n"
+        "  • Diffuse HEALPix — SkyProvenance(\n"
+        "      source_subtraction=SourceSubtractionStatus.ABOVE_THRESHOLD "
+        "or ALL,\n"
+        "      source_subtraction_threshold_jy=<S*> Jy,\n"
+        "      source_subtraction_freq_hz=<nu> Hz,\n"
+        "      angular_resolution_rad=(theta_min, theta_max) rad,\n"
+        "    )\n"
+        "  • Point catalog — SkyProvenance(\n"
+        "      flux_completeness_jy=(S_min, S_max) Jy,\n"
+        "      flux_completeness_freq_hz=<nu> Hz,\n"
+        "      angular_resolution_rad=(theta_min, theta_max) rad,\n"
+        "    )\n"
+        "Alternatively: (a) use a source-subtracted diffuse template "
         "(radiosim.core.sky.operations.subtract_bright_sources or a "
-        "pre-subtracted catalog like 'haslam'), (b) raise the catalog's "
-        "flux_limit above the diffuse threshold, or (c) declare the exact "
-        "disjointness provenance fields on each model. For a source-subtracted "
-        "diffuse map, set SkyProvenance(source_subtraction=ABOVE_THRESHOLD, "
-        "source_subtraction_threshold_jy=..., source_subtraction_freq_hz=..., "
-        "angular_resolution_rad=(..., ...)); for the point catalog, set "
-        "SkyProvenance(flux_completeness_jy=(S_min, S_max), "
-        "flux_completeness_freq_hz=..., angular_resolution_rad=(..., ...)). "
-        "If the models are known-disjoint out of band, set "
-        "sky_model.mixed_model_policy='warn' or 'allow' to override."
+        "pre-subtracted catalog like 'haslam'), or (b) raise the catalog's "
+        "flux_limit above the diffuse threshold. If disjointness was verified "
+        "out of band, pass assume_disjoint=True (keeps monopole checks) or set "
+        "sky_model.mixed_model_policy='warn' / 'allow' (broader override)."
     )
     message = header + "\n  - " + "\n  - ".join(all_reasons) + hint
     if mixed_model_policy == "error":

@@ -309,6 +309,7 @@ def _combine_models(
     brightness_conversion: BrightnessConversion | str | None = None,
     allow_lossy_point_materialization: bool = False,
     mixed_model_policy: MixedModelPolicy = "error",
+    assume_disjoint: bool = False,
     precision: PrecisionConfig | None = None,
     memmap_path: str | None = None,
     backend: ArrayBackend | None = None,
@@ -349,6 +350,12 @@ def _combine_models(
         is requested.
     mixed_model_policy : {"error", "warn", "allow"}, default "error"
         Policy for combining point catalogs with diffuse HEALPix models.
+    assume_disjoint : bool, default False
+        When True, skip point-vs-diffuse double-counting rules in the
+        physical-disjointness check while still enforcing monopole
+        consistency. Emits a ``UserWarning``. Narrower than
+        ``mixed_model_policy="allow"``, which also suppresses monopole
+        UNKNOWN escalation.
     precision : PrecisionConfig, optional
         Precision configuration for the combined model.
     memmap_path : str or None, optional
@@ -378,7 +385,10 @@ def _combine_models(
 
     brightness_conversion = resolve_brightness_conversion(models, brightness_conversion)
     check_physical_disjointness(
-        models, mixed_model_policy, alpha=subtraction_scaling_alpha
+        models,
+        mixed_model_policy,
+        alpha=subtraction_scaling_alpha,
+        assume_disjoint=assume_disjoint,
     )
     requested_freqs = _resolve_requested_healpix_frequencies(
         frequencies, obs_frequency_config
