@@ -117,12 +117,16 @@ venv.bak
 .ropeproject
 
 # Non useful files
+.cursor/
 AGENTS.md
 CLAUDE.md
 .roomodes
 .claude
 RadioSim.md
 project.md
+CurrentIssues.md
+FIX.md
+SkyRemediationPlan.md
 
 # mkdocs documentation
 /site
