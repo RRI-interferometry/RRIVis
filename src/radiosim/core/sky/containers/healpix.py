@@ -34,6 +34,16 @@ class HealpixData:
     HEALPix indices for each stored pixel.  The ``frequencies`` array
     provides the frequency axis in Hz.
 
+    Pixel ordering (RING / NEST)
+    ----------------------------
+    ``ordering`` may be ``'ring'`` (default) or ``'nest'``.  NEST support is
+    complete across the sky stack: ang2pix/pix2ang, ud_grade (regrid),
+    query_disc, get_all_neighbours, region filtering, point↔HEALPix
+    conversion, combine point-binning, and subtract_bright_sources all thread
+    ``nest=`` / ``order_in`` / ``order_out`` from this field.  Diffuse loaders
+    (GSM, PySM, etc.) remain ring-native inputs and always emit
+    ``ordering='ring'``; FITS and programmatic builders accept ``ordering=``.
+
     Frequency-axis dtype policy
     ---------------------------
     ``frequencies`` is **always stored as float64**, independent of the

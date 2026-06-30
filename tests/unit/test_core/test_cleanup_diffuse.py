@@ -54,6 +54,59 @@ def patched_diffuse(monkeypatch):
     return nside
 
 
+def test_load_diffuse_sky_emits_ring_ordering(patched_diffuse):
+    """Diffuse loaders are ring-native; output must declare ordering='ring'."""
+    from radiosim.core.sky.loaders.diffuse import load_diffuse_sky
+
+    sky = load_diffuse_sky(
+        model="gsm2008",
+        nside=patched_diffuse,
+        frequencies=np.array([100e6]),
+        precision=PrecisionConfig.standard(),
+    )
+    assert sky.healpix is not None
+    assert sky.healpix.ordering == "ring"
+    assert not sky.healpix.is_nested
+
+
+def test_load_diffuse_sky_ud_grade_uses_ring_order_in_out(monkeypatch, patched_diffuse):
+    """When pygdsm returns a coarser map, ud_grade must stay RING throughout."""
+    import healpy as hp
+
+    from radiosim.core.sky.loaders import diffuse as diffuse_mod
+    from radiosim.core.sky.loaders.diffuse import load_diffuse_sky
+
+    target_nside = patched_diffuse
+    source_nside = max(4, target_nside // 2)
+    captured: list[dict] = []
+    real_ud_grade = hp.ud_grade
+
+    def _recording_ud_grade(arr, **kwargs):
+        captured.append(dict(kwargs))
+        return real_ud_grade(arr, **kwargs)
+
+    monkeypatch.setattr(hp, "ud_grade", _recording_ud_grade)
+    monkeypatch.setattr(
+        diffuse_mod,
+        "_resolve_model_class",
+        lambda _path: (lambda **kw: _FakeGSM(nside=source_nside, **kw)),
+    )
+    monkeypatch.setattr(diffuse_mod, "require_service", lambda *a, **k: None)
+
+    sky = load_diffuse_sky(
+        model="gsm2008",
+        nside=target_nside,
+        frequencies=np.array([100e6]),
+        precision=PrecisionConfig.standard(),
+    )
+    assert sky.healpix is not None
+    assert sky.healpix.ordering == "ring"
+    assert captured, "expected ud_grade when source nside < target nside"
+    for call in captured:
+        assert call.get("order_in") == "RING"
+        assert call.get("order_out") == "RING"
+
+
 def test_load_diffuse_sky_full_sky_invariants(patched_diffuse):
     from radiosim.core.sky.loaders.diffuse import load_diffuse_sky
 
