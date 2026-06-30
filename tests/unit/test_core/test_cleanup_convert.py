@@ -12,6 +12,8 @@ Owner: operations-heavy (Phase 2, Task 2.4).
 
 from __future__ import annotations
 
+import inspect
+
 import healpy as hp
 import numpy as np
 import pytest
@@ -21,8 +23,8 @@ from radiosim.core.sky.containers.constants import rayleigh_jeans_factor
 from radiosim.core.sky.operations.convert import (
     HealpixConversionConfig,
     PointSourceHealpixInputs,
-    SpectralFluxMode,
-    bin_sources_to_flux,
+    bin_per_channel_flux,
+    bin_scaled_flux,
     healpix_map_to_point_arrays,
 )
 from radiosim.core.sky.operations.convert import (
@@ -251,71 +253,49 @@ def test_meaningful_q_does_trigger_iquv_allocation():
 
 
 # ---------------------------------------------------------------------------
-# bin_sources_to_flux (B3 routing target)
+# bin_scaled_flux / bin_per_channel_flux (B3 routing target)
 # ---------------------------------------------------------------------------
 
 
-def test_bin_sources_to_flux_conserves_total():
+def test_bin_scaled_flux_conserves_total():
     nside = 8
     npix = hp.nside2npix(nside)
     ipix = np.array([3, 3, 100])
     flux = np.array([1.0, 2.0, 4.0])
-    out = bin_sources_to_flux(ipix, flux, np.zeros(3), None, 150e6, 150e6, npix)
+    out = bin_scaled_flux(ipix, flux, np.zeros(3), None, 150e6, 150e6, npix)
     assert out.shape == (npix,)
     assert out[3] == pytest.approx(3.0)
     assert out[100] == pytest.approx(4.0)
     assert out.sum() == pytest.approx(7.0)
 
 
-def test_bin_sources_to_flux_rejects_scale_with_per_channel_flux():
-    npix = hp.nside2npix(8)
-    with pytest.raises(ValueError, match="scale.*per-channel flux"):
-        bin_sources_to_flux(
-            np.array([3]),
-            np.array([1.0]),
-            np.array([0.0]),
-            None,
-            150e6,
-            150e6,
-            npix,
-            scale=np.array([2.0]),
-            per_channel_flux=np.array([[5.0]]),
-            channel_frequencies=np.array([150e6]),
-            mode=SpectralFluxMode.PER_CHANNEL,
-        )
-
-
-def test_bin_sources_to_flux_rejects_spectral_model_with_per_channel_flux():
-    npix = hp.nside2npix(8)
-    with pytest.raises(ValueError, match="spectral_index.*per-channel flux"):
-        bin_sources_to_flux(
-            np.array([3]),
-            np.array([1.0]),
-            np.array([-0.7]),
-            None,
-            150e6,
-            150e6,
-            npix,
-            per_channel_flux=np.array([[5.0]]),
-            channel_frequencies=np.array([150e6]),
-            mode=SpectralFluxMode.PER_CHANNEL,
-        )
-
-
-def test_bin_sources_to_flux_requires_channel_frequencies_with_per_channel_flux():
+def test_bin_per_channel_flux_requires_channel_frequencies():
     npix = hp.nside2npix(8)
     with pytest.raises(ValueError, match="channel_frequencies"):
-        bin_sources_to_flux(
+        bin_per_channel_flux(
             np.array([3]),
-            np.array([1.0]),
-            np.array([0.0]),
+            np.array([[5.0]]),
             None,
             150e6,
-            150e6,
             npix,
-            per_channel_flux=np.array([[5.0]]),
-            mode=SpectralFluxMode.PER_CHANNEL,
         )
+
+
+def test_bin_scaled_flux_signature_excludes_per_channel_params():
+    params = inspect.signature(bin_scaled_flux).parameters
+    assert "per_channel_flux" not in params
+    assert "channel_frequencies" not in params
+    assert "mode" not in params
+
+
+def test_bin_per_channel_flux_signature_excludes_spectral_params():
+    params = inspect.signature(bin_per_channel_flux).parameters
+    assert "flux" not in params
+    assert "spectral_index" not in params
+    assert "spectral_coeffs" not in params
+    assert "ref_frequency" not in params
+    assert "scale" not in params
+    assert "mode" not in params
 
 
 # ---------------------------------------------------------------------------

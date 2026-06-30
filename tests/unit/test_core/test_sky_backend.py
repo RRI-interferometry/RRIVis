@@ -11,7 +11,7 @@ from radiosim.core.sky.combine.pipeline import prepare_sky_model
 from radiosim.core.sky.operations.convert import (
     HealpixConversionConfig,
     PointSourceHealpixInputs,
-    bin_sources_to_flux,
+    bin_scaled_flux,
     point_sources_to_healpix_maps,
 )
 from radiosim.core.sky.operations.operations import materialize_healpix_model
@@ -90,13 +90,13 @@ def _point_model():
     )
 
 
-def test_bin_sources_to_flux_numba_matches_numpy():
+def test_bin_scaled_flux_numba_matches_numpy():
     backend = _get_optional_backend("numba")
     ipix = np.array([0, 1, 0], dtype=np.int64)
     flux = np.array([1.0, 2.0, 3.0], dtype=np.float64)
     alpha = np.array([-0.7, -0.8, -0.9], dtype=np.float64)
 
-    expected = bin_sources_to_flux(
+    expected = bin_scaled_flux(
         ipix,
         flux,
         alpha,
@@ -105,7 +105,7 @@ def test_bin_sources_to_flux_numba_matches_numpy():
         100e6,
         4,
     )
-    actual = bin_sources_to_flux(
+    actual = bin_scaled_flux(
         ipix,
         flux,
         alpha,
@@ -119,11 +119,11 @@ def test_bin_sources_to_flux_numba_matches_numpy():
     np.testing.assert_allclose(actual, expected)
 
 
-def test_bin_sources_to_flux_jax_returns_backend_array():
+def test_bin_scaled_flux_jax_returns_backend_array():
     jax = pytest.importorskip("jax")
     backend = _get_optional_backend("jax")
 
-    result = bin_sources_to_flux(
+    result = bin_scaled_flux(
         np.array([0, 1], dtype=np.int64),
         np.array([1.0, 2.0], dtype=np.float64),
         np.array([-0.7, -0.8], dtype=np.float64),

@@ -6,8 +6,7 @@ Covers:
   field and its paired Stokes tables.
 * ``spectral.evaluate_point_flux_at_freq`` nearest-channel behaviour and
   consistency with the extrapolation path when per-channel data is absent.
-* ``convert.bin_sources_to_flux`` short-circuit when per-channel inputs are
-  supplied.
+* ``convert.bin_per_channel_flux`` when per-channel inputs are supplied.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ from radiosim.core.sky.containers.spectral import (
     evaluate_point_flux_at_freq,
     nearest_channel_index,
 )
-from radiosim.core.sky.operations.convert import SpectralFluxMode, bin_sources_to_flux
+from radiosim.core.sky.operations.convert import bin_per_channel_flux
 
 # --------------------------------------------------------------------------- #
 # PointSourceData invariants
@@ -235,11 +234,11 @@ class TestEvaluateAtFreq:
 
 
 # --------------------------------------------------------------------------- #
-# bin_sources_to_flux short-circuit
+# bin_per_channel_flux
 # --------------------------------------------------------------------------- #
 
 
-class TestBinSourcesShortCircuit:
+class TestBinPerChannelFlux:
     def test_per_channel_bin_uses_channel_row(self) -> None:
         ipix = np.array([0, 1, 0], dtype=np.int64)
         pc_flux = np.array(
@@ -250,17 +249,12 @@ class TestBinSourcesShortCircuit:
             dtype=np.float64,
         )
         freqs = np.array([100e6, 200e6])
-        out = bin_sources_to_flux(
+        out = bin_per_channel_flux(
             ipix,
-            flux=np.array([0.0, 0.0, 0.0]),  # would produce zero via scale path
-            spectral_index=np.zeros(3),
-            spectral_coeffs=None,
-            freq=200e6,
-            ref_frequency=100e6,
-            npix=4,
-            mode=SpectralFluxMode.PER_CHANNEL,
-            per_channel_flux=pc_flux,
-            channel_frequencies=freqs,
+            pc_flux,
+            freqs,
+            200e6,
+            4,
         )
         # Row at 200 MHz = [10, 20, 30]; bin into pixels [0, 1, 0] => pix 0 = 40, pix 1 = 20
         np.testing.assert_array_equal(out, [40.0, 20.0, 0.0, 0.0])

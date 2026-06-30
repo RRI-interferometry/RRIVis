@@ -12,7 +12,8 @@ polarisation diagnostic now lives in
 from __future__ import annotations
 
 from .convert import (
-    bin_sources_to_flux,
+    bin_per_channel_flux,
+    bin_scaled_flux,
     healpix_map_to_point_arrays,
     point_sources_to_healpix_maps,
 )
@@ -51,7 +52,8 @@ __all__ = [
     "with_monopole",
     "with_monopole_subtracted",
     # conversion
-    "bin_sources_to_flux",
+    "bin_per_channel_flux",
+    "bin_scaled_flux",
     "healpix_map_to_point_arrays",
     "point_sources_to_healpix_maps",
     # regions

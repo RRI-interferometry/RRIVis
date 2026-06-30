@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING
 
 import healpy as hp
@@ -410,14 +409,52 @@ def healpix_map_to_point_arrays(
     }
 
 
-class SpectralFluxMode(Enum):
-    """How :func:`bin_sources_to_flux` obtains flux at the requested channel."""
+def bin_per_channel_flux(
+    ipix: np.ndarray,
+    per_channel_flux: np.ndarray,
+    channel_frequencies: np.ndarray | None,
+    freq: float,
+    npix: int,
+    *,
+    backend: ArrayBackend | None = None,
+) -> np.ndarray:
+    """Bin per-channel flux tables into a HEALPix flux density map.
 
-    SPECTRAL_MODEL = "spectral_model"
-    PER_CHANNEL = "per_channel"
+    Selects the nearest tabulated channel for ``freq`` and accumulates the
+    resulting per-source flux into HEALPix pixels via ``bincount``.
+
+    Parameters
+    ----------
+    ipix : np.ndarray
+        HEALPix pixel index for each source, shape ``(N_sources,)``.
+    per_channel_flux : np.ndarray
+        Flux density in Jy at each tabulated channel, shape
+        ``(N_channels, N_sources)``.
+    channel_frequencies : np.ndarray or None
+        Tabulated channel frequencies in Hz, shape ``(N_channels,)``.
+    freq : float
+        Observation frequency in Hz.
+    npix : int
+        Total number of HEALPix pixels.
+
+    Returns
+    -------
+    np.ndarray
+        Flux density map in Jy, shape ``(npix,)``.
+    """
+    if channel_frequencies is None:
+        raise ValueError("per-channel flux binning requires channel_frequencies.")
+    xp = np if backend is None else backend.xp
+    idx = nearest_channel_index_with_warning(
+        channel_frequencies, freq, label="per-channel flux binning"
+    )
+    flux_f = xp.asarray(per_channel_flux[idx], dtype=np.float64)
+    if backend is None:
+        return np.bincount(ipix, weights=flux_f, minlength=npix)
+    return backend.bincount(ipix, weights=flux_f, minlength=npix)
 
 
-def bin_sources_to_flux(
+def bin_scaled_flux(
     ipix: np.ndarray,
     flux: np.ndarray,
     spectral_index: np.ndarray,
@@ -426,16 +463,14 @@ def bin_sources_to_flux(
     ref_frequency: float | np.ndarray,
     npix: int,
     *,
-    mode: SpectralFluxMode = SpectralFluxMode.SPECTRAL_MODEL,
     scale: np.ndarray | None = None,
-    per_channel_flux: np.ndarray | None = None,
-    channel_frequencies: np.ndarray | None = None,
     backend: ArrayBackend | None = None,
 ) -> np.ndarray:
-    """Bin point sources into a HEALPix flux density map at a given frequency.
+    """Bin spectrally scaled point sources into a HEALPix flux density map.
 
-    Computes the spectral scaling factor for each source and accumulates
-    the scaled flux into HEALPix pixels via ``np.bincount``.
+    Computes the spectral scaling factor for each source (or uses a
+    pre-computed ``scale``) and accumulates the scaled flux into HEALPix
+    pixels via ``bincount``.
 
     Parameters
     ----------
@@ -463,36 +498,11 @@ def bin_sources_to_flux(
         Flux density map in Jy, shape ``(npix,)``.
     """
     xp = np if backend is None else backend.xp
-    mode = SpectralFluxMode(mode)
-    if mode is SpectralFluxMode.PER_CHANNEL:
-        if scale is not None:
-            raise ValueError("scale is incompatible with per-channel flux binning.")
-        if np.any(np.asarray(spectral_index) != 0) or spectral_coeffs is not None:
-            raise ValueError(
-                "spectral_index/spectral_coeffs are incompatible with "
-                "per-channel flux binning; per-channel values are already "
-                "evaluated at channel frequencies."
-            )
-        if per_channel_flux is None or channel_frequencies is None:
-            raise ValueError(
-                "per-channel flux binning requires both per_channel_flux and "
-                "channel_frequencies."
-            )
-        idx = nearest_channel_index_with_warning(
-            channel_frequencies, freq, label="per-channel flux binning"
+    if scale is None:
+        scale = compute_spectral_scale(
+            spectral_index, spectral_coeffs, freq, ref_frequency, xp=xp
         )
-        flux_f = xp.asarray(per_channel_flux[idx], dtype=np.float64)
-    else:
-        if per_channel_flux is not None or channel_frequencies is not None:
-            raise ValueError(
-                "per_channel_flux/channel_frequencies require "
-                "mode=SpectralFluxMode.PER_CHANNEL."
-            )
-        if scale is None:
-            scale = compute_spectral_scale(
-                spectral_index, spectral_coeffs, freq, ref_frequency, xp=xp
-            )
-        flux_f = xp.asarray(flux, dtype=np.float64) * scale
+    flux_f = xp.asarray(flux, dtype=np.float64) * scale
     if backend is None:
         return np.bincount(ipix, weights=flux_f, minlength=npix)
     return backend.bincount(ipix, weights=flux_f, minlength=npix)
@@ -657,17 +667,12 @@ def _compute_stokes_i_channel(
 
     if per_channel.active:
         scale = None
-        flux_map = bin_sources_to_flux(
+        flux_map = bin_per_channel_flux(
             sources.ipix,
-            sources.flux,
-            xp.zeros(sources.n_sources),
-            None,
+            per_channel.flux,
+            per_channel.channel_frequencies,
             float(freq),
-            sources.ref_frequency,
             cfg.npix,
-            mode=SpectralFluxMode.PER_CHANNEL,
-            per_channel_flux=per_channel.flux,
-            channel_frequencies=per_channel.channel_frequencies,
             backend=backend,
         )
     else:
@@ -678,7 +683,7 @@ def _compute_stokes_i_channel(
             sources.ref_frequency,
             xp=xp,
         )
-        flux_map = bin_sources_to_flux(
+        flux_map = bin_scaled_flux(
             sources.ipix,
             sources.flux,
             sources.spectral_index,
