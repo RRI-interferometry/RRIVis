@@ -13,9 +13,9 @@ explicitly with ``sky.replace(healpix=sky.healpix.to_dense())`` rather than
 relying on implicit densification.
 """
 
-from .combine.engine import regrid_healpix_model
 from .combine.options import PrepareSkyOptions
 from .combine.pipeline import prepare_sky_model
+from .combine.regrid import regrid_healpix_model
 from .containers import (
     HealpixData,
     MonopoleConvention,

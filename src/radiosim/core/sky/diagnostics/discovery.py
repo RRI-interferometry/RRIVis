@@ -63,7 +63,7 @@ def estimate_healpix_memory(
     total_bytes = bytes_per_map * n_frequencies * n_stokes
 
     # Approximate resolution in arcminutes
-    resolution_arcmin = np.sqrt(pixel_solid_angle(nside)) * (180 / np.pi) * 60
+    resolution_arcmin = np.degrees(np.sqrt(pixel_solid_angle(nside))) * 60
 
     return {
         "npix": npix,

@@ -29,7 +29,6 @@ from ..containers import SkyCoverage, SourceSubtractionStatus
 from ..containers.constants import (
     DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY,
     DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
-    SYNCHROTRON_SPECTRAL_INDEX,
 )
 from ..containers.model import SkyFormat, SkyModel
 from ..loaders.synthetic import load_poisson_confusion
@@ -42,19 +41,6 @@ if TYPE_CHECKING:
     from ..operations.region import SkyRegion
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_ALPHA_FOR_THRESHOLD_SCALING = SYNCHROTRON_SPECTRAL_INDEX
-
-
-def _scale_flux_with_alpha(
-    flux_jy: float,
-    from_freq_hz: float,
-    to_freq_hz: float,
-    alpha: float = _DEFAULT_ALPHA_FOR_THRESHOLD_SCALING,
-) -> float:
-    """Power-law flux scaling ``S · (ν_to / ν_from)^α``.  Clamps to input on
-    non-positive frequencies."""
-    return scale_flux_power_law(flux_jy, from_freq_hz, to_freq_hz, alpha)
 
 
 def _load_bright_catalog(
@@ -269,12 +255,12 @@ def _check_threshold_chain(
         else None
     )
     if diffuse_subtraction_threshold_jy is not None:
-        thresh_at_cat = _scale_flux_with_alpha(
+        thresh_at_cat = scale_flux_power_law(
             diffuse_subtraction_threshold_jy,
-            from_freq_hz=diffuse_subtraction_freq_hz
+            diffuse_subtraction_freq_hz
             if diffuse_subtraction_freq_hz is not None
             else bright_catalog_freq_hz,
-            to_freq_hz=bright_catalog_freq_hz,
+            bright_catalog_freq_hz,
         )
         if bright_catalog_flux_min_jy < thresh_at_cat - 1e-12:
             raise ValueError(

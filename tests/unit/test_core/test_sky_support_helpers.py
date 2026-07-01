@@ -21,6 +21,7 @@ from radiosim.core.sky.containers import (
     SkyCoverage,
     SkyFootprint,
 )
+from radiosim.core.sky.containers.constants import SYNCHROTRON_SPECTRAL_INDEX
 from radiosim.core.sky.operations.region import BoxRegion
 from radiosim.core.sky.support.backend_helpers import maybe_asarray
 from radiosim.core.sky.support.frequencies import resolve_frequency_config
@@ -30,6 +31,7 @@ from radiosim.core.sky.support.healpix_geometry import (
     ordered_row,
     pixel_solid_angle,
     ring_ordered_row,
+    scale_flux_power_law,
 )
 from radiosim.core.sky.support.point_builder import point_source_data_from_mapping
 from radiosim.core.sky.support.provenance_coverage import coverage_provenance
@@ -80,13 +82,32 @@ def test_pixel_solid_angle_matches_formula():
     assert pixel_solid_angle(64) == pytest.approx(4 * np.pi / (12 * 64**2))
 
 
-def test_pixel_solid_angle_matches_constants_helper():
-    from radiosim.core.sky.containers.constants import (
-        pixel_solid_angle as constants_psa,
+def test_constants_module_has_no_pixel_solid_angle():
+    import radiosim.core.sky.containers.constants as constants
+
+    assert not hasattr(constants, "pixel_solid_angle")
+
+
+def test_healpix_data_pixel_solid_angle_delegates_to_support(monkeypatch):
+    calls: list[int] = []
+
+    def spy(nside: int) -> float:
+        calls.append(nside)
+        return 4.0 * np.pi / (12.0 * nside**2)
+
+    monkeypatch.setattr(
+        "radiosim.core.sky.support.healpix_geometry.pixel_solid_angle", spy
     )
 
-    for nside in (8, 16, 32, 64, 128):
-        assert pixel_solid_angle(nside) == pytest.approx(constants_psa(nside))
+    from radiosim.core.sky.containers import HealpixData
+
+    data = HealpixData(
+        maps=np.zeros((1, hp.nside2npix(16))),
+        nside=16,
+        frequencies=np.array([150e6]),
+    )
+    assert data.pixel_solid_angle == pytest.approx(pixel_solid_angle(16))
+    assert calls == [16]
 
 
 def test_pixel_solid_angle_is_used_by_combine_and_diagnostics(monkeypatch):
@@ -104,7 +125,7 @@ def test_pixel_solid_angle_is_used_by_combine_and_diagnostics(monkeypatch):
 
     info = discovery.estimate_healpix_memory(nside=8, n_frequencies=2)
     assert info["resolution_arcmin"] == pytest.approx(
-        np.sqrt(spy_pixel_solid_angle(8)) * (180 / np.pi) * 60
+        np.degrees(np.sqrt(spy_pixel_solid_angle(8))) * 60
     )
 
     npix = hp.nside2npix(8)
@@ -119,6 +140,37 @@ def test_pixel_solid_angle_is_used_by_combine_and_diagnostics(monkeypatch):
     )
     assert model["healpix_maps"].shape == (1, npix)
     assert calls == [8, 8, 8]
+
+
+# ---------------------------------------------------------------------------
+# healpix_geometry.scale_flux_power_law
+# ---------------------------------------------------------------------------
+
+
+def test_scale_flux_power_law_power_law_scaling():
+    out = scale_flux_power_law(1.0, 150e6, 60e6, alpha=-0.7)
+    expected = (60e6 / 150e6) ** -0.7
+    assert out == pytest.approx(expected)
+
+
+def test_scale_flux_power_law_default_alpha_is_synchrotron():
+    explicit = scale_flux_power_law(1.0, 150e6, 60e6, alpha=SYNCHROTRON_SPECTRAL_INDEX)
+    implicit = scale_flux_power_law(1.0, 150e6, 60e6)
+    assert explicit == pytest.approx(implicit)
+
+
+@pytest.mark.parametrize(
+    "from_hz,to_hz",
+    [
+        (None, 150e6),
+        (150e6, None),
+        (0.0, 150e6),
+        (-1.0, 150e6),
+        (150e6, 0.0),
+    ],
+)
+def test_scale_flux_power_law_non_positive_or_none_returns_input(from_hz, to_hz):
+    assert scale_flux_power_law(2.5, from_hz, to_hz, alpha=-1.0) == pytest.approx(2.5)
 
 
 # ---------------------------------------------------------------------------

@@ -76,17 +76,6 @@ DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY = 2.0
 DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST = (-0.8, 0.2)
 
 
-def pixel_solid_angle(nside: int) -> float:
-    """Return the HEALPix pixel solid angle in steradians: ``4π / npix``.
-
-    Single definition shared by every consumer instead of re-deriving
-    ``4 * np.pi / hp.nside2npix(nside)`` at each call site.
-    """
-    import healpy as hp
-
-    return float(4.0 * np.pi / hp.nside2npix(int(nside)))
-
-
 def brightness_temp_to_flux_density(
     temperature: np.ndarray,
     frequency: float,

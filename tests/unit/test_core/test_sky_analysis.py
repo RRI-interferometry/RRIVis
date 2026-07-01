@@ -239,3 +239,35 @@ def test_delay_spectrum_rejects_non_finite_frequency_axis():
     cube = np.ones((2, 3))
     with pytest.raises(ValueError, match="finite and positive"):
         compute_delay_spectrum(cube, np.array([100e6, np.inf]))
+
+
+def test_delay_spectrum_rejects_non_ascending_frequency_axis():
+    cube = np.ones((3, 2))
+    with pytest.raises(ValueError, match="strictly ascending"):
+        compute_delay_spectrum(cube, np.array([100e6, 90e6, 110e6]))
+
+
+def test_delay_spectrum_rejects_non_uniform_frequency_spacing():
+    cube = np.ones((3, 2))
+    with pytest.raises(ValueError, match="uniformly-spaced"):
+        compute_delay_spectrum(cube, np.array([100e6, 101e6, 103e6]))
+
+
+def test_delay_spectrum_uses_shared_frequency_validator(monkeypatch):
+    import radiosim.core.sky.diagnostics.analysis as analysis
+
+    calls: list[tuple[object, ...]] = []
+    original = analysis.validate_frequency_axis
+
+    def spy_validate(value, *, label, ascending=True):
+        calls.append((value, label, ascending))
+        return original(value, label=label, ascending=ascending)
+
+    monkeypatch.setattr(analysis, "validate_frequency_axis", spy_validate)
+
+    cube = np.ones((4, 2))
+    freqs = np.linspace(80e6, 83e6, 4)
+    compute_delay_spectrum(cube, freqs)
+    assert len(calls) == 1
+    assert calls[0][1] == "compute_delay_spectrum frequencies_hz"
+    assert calls[0][2] is True

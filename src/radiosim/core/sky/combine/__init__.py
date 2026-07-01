@@ -25,11 +25,10 @@ from .disjointness import (
     resolve_combination_params,
 )
 from .engine import (
-    CombineHealpixData,
     _combine_models,
     resolve_target_representation,
 )
-from .healpix import combine_healpix
+from .healpix import CombineHealpixData, combine_healpix
 from .merge import merge_provenance
 from .options import PrepareSkyOptions
 from .pipeline import prepare_sky_model

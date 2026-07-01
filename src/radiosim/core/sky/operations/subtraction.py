@@ -481,9 +481,12 @@ def _inpaint_by_alm(
     :func:`healpy.map2alm` and :func:`alm2map` — which implicitly
     band-limits at ``ℓ_max = 2·nside`` — and the *masked* pixels are
     replaced by the smoothed values.  Unmasked pixels stay untouched.
+
+    Returns a fresh array in all cases; the input ``maps`` is never
+    returned or mutated in place.
     """
     if mask_pixels.size == 0:
-        return maps
+        return maps.astype(maps.dtype, copy=True)
 
     working = maps.astype(np.float64, copy=True)
     for fi in range(working.shape[0]):

@@ -634,3 +634,46 @@ def test_prepare_sky_model_exposes_assume_disjoint():
 
     opts = PrepareSkyOptions(assume_disjoint=True)
     assert opts.assume_disjoint is True
+
+
+def test_combine_engine_has_no_all_block():
+    import ast
+    from pathlib import Path
+
+    source = Path("src/radiosim/core/sky/combine/engine.py").read_text()
+    tree = ast.parse(source)
+    assert not any(
+        isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets)
+        for node in tree.body
+    )
+
+
+def test_prepare_sky_model_resolves_target_once(monkeypatch):
+    """Pipeline resolves target representation once and threads it through."""
+    import radiosim.core.sky.combine.engine as engine
+    import radiosim.core.sky.combine.pipeline as pipeline
+
+    calls: list[tuple[object, object]] = []
+    original = engine.resolve_target_representation
+
+    def spy_resolve(models, requested):
+        calls.append((models, requested))
+        return original(models, requested)
+
+    monkeypatch.setattr(engine, "resolve_target_representation", spy_resolve)
+    monkeypatch.setattr(pipeline, "resolve_target_representation", spy_resolve)
+
+    freqs = np.array([150e6])
+    a = _healpix_sky(nside=8, frequencies=freqs, fill=2.0, name="a")
+    b = _healpix_sky(nside=8, frequencies=freqs, fill=3.0, name="b")
+
+    from radiosim.core.sky import prepare_sky_model
+
+    prepare_sky_model(
+        [a, b],
+        representation="healpix_map",
+        nside=8,
+        precision=_precision(),
+    )
+    assert len(calls) == 1

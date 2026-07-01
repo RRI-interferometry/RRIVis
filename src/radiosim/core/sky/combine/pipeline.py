@@ -17,11 +17,13 @@ from ..operations.operations import (
 )
 from .engine import (
     _combine_models,
-    _resolve_requested_healpix_frequencies,
-    _validate_requested_healpix_grid,
     resolve_target_representation,
 )
 from .options import PrepareSkyOptions
+from .regrid import (
+    _resolve_requested_healpix_frequencies,
+    _validate_requested_healpix_grid,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +127,7 @@ def prepare_sky_model(
         sky = _combine_models(
             models,
             representation=target,
+            _target_resolved=True,
             nside=nside,
             frequency=frequency,
             frequencies=requested_freqs,

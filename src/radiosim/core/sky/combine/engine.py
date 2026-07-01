@@ -5,7 +5,7 @@ canonical entry point — which wraps this module with the beam-aware
 ``nside`` advisor and consistent materialization defaults. The engine
 function ``_combine_models`` exported here is intentionally underscored
 and intended for tests and advanced internal callers; it is **not** part
-of the public surface (notice it is absent from ``__all__``).
+of the public surface.
 
 The arithmetic, regridding, disjointness, and provenance reduction code
 each live in their own module:
@@ -45,12 +45,11 @@ from .disjointness import (
     resolve_brightness_conversion,
     resolve_combination_params,
 )
-from .healpix import CombineHealpixData, combine_healpix
+from .healpix import combine_healpix
 from .merge import merge_provenance
 from .regrid import (
     _resolve_requested_healpix_frequencies,
     _validate_requested_healpix_grid,
-    regrid_healpix_model,
 )
 
 if TYPE_CHECKING:
@@ -58,16 +57,6 @@ if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
 logger = logging.getLogger(__name__)
-
-
-__all__ = [
-    "CombineHealpixData",
-    "MixedModelPolicy",
-    "combine_healpix",
-    "concat_point_sources",
-    "regrid_healpix_model",
-    "resolve_target_representation",
-]
 
 
 # =============================================================================
@@ -314,6 +303,7 @@ def _combine_models(
     memmap_path: str | None = None,
     backend: ArrayBackend | None = None,
     subtraction_scaling_alpha: float = SYNCHROTRON_SPECTRAL_INDEX,
+    _target_resolved: bool = False,
 ) -> SkyModel:
     """Combine multiple sky models into one (internal building block).
 
@@ -394,7 +384,10 @@ def _combine_models(
         frequencies, obs_frequency_config
     )
 
-    target = resolve_target_representation(models, representation)
+    if _target_resolved:
+        target = representation
+    else:
+        target = resolve_target_representation(models, representation)
     if target is None:
         # Hybrid output — at least one input is hybrid or inputs span types.
         return _combine_as_hybrid(

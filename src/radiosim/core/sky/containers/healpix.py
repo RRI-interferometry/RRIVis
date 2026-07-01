@@ -297,7 +297,9 @@ class HealpixData:
     @property
     def pixel_solid_angle(self) -> float:
         """Solid angle per pixel in steradians."""
-        return 4 * np.pi / self.full_n_pixels
+        from ..support.healpix_geometry import pixel_solid_angle
+
+        return pixel_solid_angle(self.nside)
 
     @property
     def is_sparse(self) -> bool:

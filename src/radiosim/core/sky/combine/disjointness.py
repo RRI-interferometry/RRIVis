@@ -22,24 +22,6 @@ if TYPE_CHECKING:
 MixedModelPolicy = Literal["error", "warn", "allow"]
 
 
-_DEFAULT_SUBTRACTION_SCALING_ALPHA = SYNCHROTRON_SPECTRAL_INDEX
-
-
-def _scale_threshold_to_frequency(
-    threshold_jy: float,
-    from_freq_hz: float,
-    to_freq_hz: float,
-    alpha: float = _DEFAULT_SUBTRACTION_SCALING_ALPHA,
-) -> float:
-    """Scale a flux threshold from one reference frequency to another.
-
-    Uses a simple power-law ``(to_freq/from_freq)**alpha``.  Returns the
-    threshold unchanged if either frequency is non-positive (robust
-    fallback).
-    """
-    return scale_flux_power_law(threshold_jy, from_freq_hz, to_freq_hz, alpha)
-
-
 def classify_model(sky: SkyModel) -> frozenset[SkyFormat]:
     """Return the set of populated payloads on this model.
 
@@ -87,7 +69,7 @@ def _disjoint_pair_failures(
             and nu_d is not None
             and nu_p is not None
         ):
-            t_d_at_p = _scale_threshold_to_frequency(t_d, nu_d, nu_p, alpha=alpha)
+            t_d_at_p = scale_flux_power_law(t_d, nu_d, nu_p, alpha=alpha)
             # ``flux_completeness_jy`` is a (lo, hi) band; the layers tile the
             # flux axis disjointly only when the (frequency-scaled) diffuse
             # subtraction threshold sits at or below the *faint* edge of the
@@ -234,7 +216,7 @@ def check_physical_disjointness(
     models: list[SkyModel],
     mixed_model_policy: MixedModelPolicy,
     *,
-    alpha: float = _DEFAULT_SUBTRACTION_SCALING_ALPHA,
+    alpha: float = SYNCHROTRON_SPECTRAL_INDEX,
     assume_disjoint: bool = False,
 ) -> None:
     """Validate that ``models`` can be physically summed without double-counting.
