@@ -186,7 +186,7 @@ class TestThresholdChain:
 
 class TestRegistryIntegration:
     def test_recipe_is_a_registered_loader(self):
-        from radiosim.core.sky.registry.facade import loader_registry
+        from radiosim.core.sky.registry import loader_registry
 
         loader = loader_registry.loader("realistic_foreground")
         assert loader.__name__ == "realistic_foreground_sky"
@@ -212,7 +212,7 @@ class TestRegistryIntegration:
 
     def test_provenance_override_in_yaml(self, precision):
         """A provenance_override dict on any SkySourceConfig is forwarded."""
-        from radiosim.core.sky.registry.facade import loader_registry
+        from radiosim.core.sky.registry import loader_registry
         from radiosim.io.config import parse_sky_source_config
 
         spec = parse_sky_source_config(

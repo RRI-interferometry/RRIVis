@@ -11,7 +11,7 @@ from ...containers import (
     SourceSubtractionStatus,
 )
 from ...operations.region import SkyRegion
-from ...registry.catalogs import (
+from ...registry import (
     RacsCatalogEntry,
     VizierCatalogEntry,
     load_catalog_footprint_asset,

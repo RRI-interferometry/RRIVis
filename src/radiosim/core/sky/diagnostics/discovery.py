@@ -128,8 +128,7 @@ def get_catalog_info(catalog_key: str, live: bool = False) -> dict[str, Any]:
         I/O — falls back to cached metadata silently on failure.
     """
     from ..loaders.diffuse import get_diffuse_model_info
-    from ..registry import loader_registry
-    from ..registry.catalogs import DIFFUSE_MODELS
+    from ..registry import DIFFUSE_MODELS, loader_registry
 
     try:
         loader_name, resolved_kwargs = loader_registry.resolve_request(catalog_key, {})

@@ -21,7 +21,7 @@ from radiosim.utils.network import require_service
 
 from ...operations.factories import create_empty, create_from_arrays
 from ...operations.region import SkyRegion
-from ...registry.catalogs import VIZIER_POINT_CATALOGS, VizierCatalogEntry
+from ...registry import VIZIER_POINT_CATALOGS, VizierCatalogEntry
 from .provenance import _build_point_catalog_provenance
 
 if TYPE_CHECKING:

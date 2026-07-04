@@ -16,18 +16,20 @@ These pin the new registry contract:
 from __future__ import annotations
 
 import inspect
+import re
+from pathlib import Path
 
 import pytest
 
 import radiosim.core.sky.registry as registry_pkg
 import radiosim.core.sky.registry.core as registry_core
 import radiosim.core.sky.registry.facade as registry_facade
-from radiosim.core.sky.registry.catalogs import (
+from radiosim.core.sky.registry import (
     DIFFUSE_MODELS,
     RACS_CATALOGS,
     VIZIER_POINT_CATALOGS,
+    loader_registry,
 )
-from radiosim.core.sky.registry.facade import loader_registry
 
 # ---------------------------------------------------------------------------
 # D6 - package re-exports
@@ -55,6 +57,63 @@ def test_registry_package_is_canonical_import_surface_for_consumers():
     )
     assert "registry.facade import loader_registry" not in inspect.getsource(
         __import__("radiosim.io.config", fromlist=["dummy"])
+    )
+
+
+def test_registry_package_reexports_catalog_symbols():
+    import radiosim.core.sky.registry.catalogs as catalogs_mod
+    from radiosim.core.sky.registry import (
+        CASDA_TAP_URL,
+        DIFFUSE_MODELS,
+        RACS_CATALOGS,
+        VIZIER_POINT_CATALOGS,
+        DiffuseModelEntry,
+        RacsCatalogEntry,
+        VizierCatalogEntry,
+        load_catalog_footprint_asset,
+    )
+
+    assert CASDA_TAP_URL is catalogs_mod.CASDA_TAP_URL
+    assert DIFFUSE_MODELS is catalogs_mod.DIFFUSE_MODELS
+    assert RACS_CATALOGS is catalogs_mod.RACS_CATALOGS
+    assert VIZIER_POINT_CATALOGS is catalogs_mod.VIZIER_POINT_CATALOGS
+    assert DiffuseModelEntry is catalogs_mod.DiffuseModelEntry
+    assert RacsCatalogEntry is catalogs_mod.RacsCatalogEntry
+    assert VizierCatalogEntry is catalogs_mod.VizierCatalogEntry
+    assert load_catalog_footprint_asset is catalogs_mod.load_catalog_footprint_asset
+
+    catalog_symbols = (
+        "CASDA_TAP_URL",
+        "DIFFUSE_MODELS",
+        "RACS_CATALOGS",
+        "VIZIER_POINT_CATALOGS",
+        "DiffuseModelEntry",
+        "RacsCatalogEntry",
+        "VizierCatalogEntry",
+        "load_catalog_footprint_asset",
+    )
+    for name in catalog_symbols:
+        assert name in registry_pkg.__all__
+
+
+def test_no_src_imports_registry_submodule():
+    src_root = Path(__file__).resolve().parents[3] / "src" / "radiosim"
+    import_pattern = re.compile(
+        r"(?:from|import)\s+[\w.]+\.registry\.(?:facade|catalogs|core)\b"
+    )
+    violations: list[str] = []
+    for path in sorted(src_root.rglob("*.py")):
+        rel = path.relative_to(src_root)
+        if rel.parts[:3] == ("core", "sky", "registry"):
+            continue
+        for line_no, line in enumerate(path.read_text().splitlines(), start=1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if import_pattern.search(line):
+                violations.append(f"{rel}:{line_no}: {stripped}")
+    assert not violations, "Registry submodule imports in src:\n" + "\n".join(
+        violations
     )
 
 

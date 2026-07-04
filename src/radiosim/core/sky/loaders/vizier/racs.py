@@ -13,11 +13,7 @@ from radiosim.utils.network import require_service
 
 from ...operations.factories import create_empty, create_from_arrays
 from ...operations.region import SkyRegion
-from ...registry import loader_registry
-from ...registry.catalogs import (
-    CASDA_TAP_URL,
-    RACS_CATALOGS,
-)
+from ...registry import CASDA_TAP_URL, RACS_CATALOGS, loader_registry
 from ...support.region_filter import apply_point_region_filter
 from .core import (
     _extract_masked_column,

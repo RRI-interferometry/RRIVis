@@ -16,8 +16,7 @@ from ..containers import (
     SkyProvenance,
     SourceSubtractionStatus,
 )
-from ..registry import loader_registry
-from ..registry.catalogs import DIFFUSE_MODELS
+from ..registry import DIFFUSE_MODELS, loader_registry
 from ..support.frequencies import resolve_frequency_config
 from ..support.provenance_coverage import coverage_provenance
 from ._healpix_builder import build_healpix_from_stokes_cube
@@ -26,7 +25,7 @@ if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
     from ..operations.region import SkyRegion
-    from ..registry.catalogs import DiffuseModelEntry
+    from ..registry import DiffuseModelEntry
 
 logger = logging.getLogger(__name__)
 

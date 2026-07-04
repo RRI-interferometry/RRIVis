@@ -189,7 +189,7 @@ class TestLoaderPopulation:
         from radiosim.core.sky.loaders.vizier import (
             _build_point_catalog_provenance,
         )
-        from radiosim.core.sky.registry.catalogs import VIZIER_POINT_CATALOGS
+        from radiosim.core.sky.registry import VIZIER_POINT_CATALOGS
 
         info = VIZIER_POINT_CATALOGS["nvss"]
         flux = np.array([2.0, 5.0, 10.0])
@@ -221,7 +221,7 @@ class TestLoaderPopulation:
         from radiosim.core.sky.loaders.vizier import (
             _build_point_catalog_provenance,
         )
-        from radiosim.core.sky.registry.catalogs import VIZIER_POINT_CATALOGS
+        from radiosim.core.sky.registry import VIZIER_POINT_CATALOGS
 
         prov = _build_point_catalog_provenance(
             info=VIZIER_POINT_CATALOGS["gleam_egc"],
@@ -238,7 +238,7 @@ class TestLoaderPopulation:
         from radiosim.core.sky.loaders.vizier import (
             _build_point_catalog_provenance,
         )
-        from radiosim.core.sky.registry.catalogs import RACS_CATALOGS
+        from radiosim.core.sky.registry import RACS_CATALOGS
 
         prov = _build_point_catalog_provenance(
             info=RACS_CATALOGS["mid"],
@@ -254,14 +254,14 @@ class TestLoaderPopulation:
 
     def test_diffuse_catalog_metadata_is_complete(self):
         """Every registered diffuse model carries the new metadata fields."""
-        from radiosim.core.sky.registry.catalogs import DIFFUSE_MODELS
+        from radiosim.core.sky.registry import DIFFUSE_MODELS
 
         for name, entry in DIFFUSE_MODELS.items():
             assert entry.native_resolution_arcmin is not None, name
             assert entry.default_monopole_convention is not None, name
 
     def test_haslam_is_tagged_source_subtracted(self):
-        from radiosim.core.sky.registry.catalogs import DIFFUSE_MODELS
+        from radiosim.core.sky.registry import DIFFUSE_MODELS
 
         haslam = DIFFUSE_MODELS["haslam"]
         assert haslam.source_subtracted_above_jy == pytest.approx(2.0)

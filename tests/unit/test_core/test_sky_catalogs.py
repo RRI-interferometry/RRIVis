@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 import radiosim.core.sky.loaders.vizier.racs as racs_mod
-from radiosim.core.sky.registry.catalogs import (
+from radiosim.core.sky.registry import (
     CASDA_TAP_URL,
     DIFFUSE_MODELS,
     RACS_CATALOGS,
@@ -338,7 +338,7 @@ class TestSimpleVizierLoaderRegistration:
         ["vlssr", "tgss", "wenss", "sumss", "nvss", "3c", "vlass"],
     )
     def test_loader_callable_via_registry(self, name):
-        from radiosim.core.sky.registry.facade import loader_registry
+        from radiosim.core.sky.registry import loader_registry
 
         loader = loader_registry.loader(name)
         assert callable(loader)

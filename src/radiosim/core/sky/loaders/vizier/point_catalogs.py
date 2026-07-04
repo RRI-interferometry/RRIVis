@@ -14,8 +14,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...operations.region import SkyRegion
-from ...registry import loader_registry
-from ...registry.catalogs import VIZIER_POINT_CATALOGS
+from ...registry import VIZIER_POINT_CATALOGS, loader_registry
 from .core import (
     _load_from_vizier_catalog,
 )

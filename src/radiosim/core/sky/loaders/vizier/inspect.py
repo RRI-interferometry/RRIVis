@@ -11,7 +11,7 @@ from astroquery.vizier import Vizier
 
 from radiosim.utils.network import require_service
 
-from ...registry.catalogs import CASDA_TAP_URL, RACS_CATALOGS, VIZIER_POINT_CATALOGS
+from ...registry import CASDA_TAP_URL, RACS_CATALOGS, VIZIER_POINT_CATALOGS
 
 logger = logging.getLogger(__name__)
 

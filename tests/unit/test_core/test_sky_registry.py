@@ -10,7 +10,7 @@ from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.diagnostics.discovery import get_catalog_info
 from radiosim.core.sky.loaders.vizier.core import _load_from_vizier_catalog
 from radiosim.core.sky.loaders.vizier.point_catalogs import VIZIER_POINT_CATALOGS
-from radiosim.core.sky.registry.facade import loader_registry
+from radiosim.core.sky.registry import loader_registry
 from radiosim.io.config import (
     CustomRegisteredSourceConfig,
     DiffuseSkySourceConfig,
