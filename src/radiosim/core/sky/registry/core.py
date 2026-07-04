@@ -284,11 +284,6 @@ class LoaderRegistry:
     def alias_map(self) -> dict[str, str]:
         return dict(self._aliases)
 
-    def alias_defaults_map(self) -> dict[str, dict[str, Any]]:
-        return {
-            alias: dict(defaults) for alias, defaults in self._alias_defaults.items()
-        }
-
     def definitions(self) -> list[LoaderDefinition]:
         return [self._definitions[name] for name in self.list_loaders()]
 
