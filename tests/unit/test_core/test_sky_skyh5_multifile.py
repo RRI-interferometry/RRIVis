@@ -27,8 +27,8 @@ from radiosim.core.sky.loaders.skyh5_multifile import _stokes_slice_to_kelvin
 from radiosim.core.sky.operations.region import ConeRegion
 from radiosim.core.sky.registry import loader_registry
 
-loader_registry.ensure_default_loaders_registered()
-from radiosim.core.sky.registry import loader_registry  # noqa: E402
+# Trigger lazy registration of built-in loaders (including skyh5_multifile).
+loader_registry.names()
 
 # --------------------------------------------------------------------------- #
 # Fixtures

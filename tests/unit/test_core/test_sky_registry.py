@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 import radiosim.core.sky as sky_public
+import radiosim.core.sky.registry.core as registry_core
 import radiosim.core.sky.registry.facade as registry_public
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.diagnostics.discovery import get_catalog_info
@@ -36,7 +37,7 @@ class TestRegistry:
             assert retrieved is _dummy_loader
             assert retrieved() == "dummy"
         finally:
-            loader_registry.unregister("_test_dummy_loader")
+            registry_core._REGISTRY.unregister("_test_dummy_loader")
 
     def test_get_unknown_loader_raises(self):
         with pytest.raises(ValueError, match="Unknown sky model loader"):
@@ -123,11 +124,14 @@ class TestRegistryMetadata:
         for name in loader_registry.names():
             assert name not in alias_map
 
-    def test_alias_defaults_map(self):
-        defaults = loader_registry.alias_defaults()
-        assert defaults["gsm"] == {"model": "gsm2008"}
-        assert defaults["gsm2016"] == {"model": "gsm2016"}
-        assert defaults["test_healpix"] == {"representation": "healpix_map"}
+    def test_alias_defaults_via_definition(self):
+        diffuse = loader_registry.definition("diffuse_sky")
+        assert diffuse.alias_defaults["gsm"] == {"model": "gsm2008"}
+        assert diffuse.alias_defaults["gsm2016"] == {"model": "gsm2016"}
+        test_src = loader_registry.definition("test_sources")
+        assert test_src.alias_defaults["test_healpix"] == {
+            "representation": "healpix_map"
+        }
 
     def test_canonical_loader_metadata_reports_all_capabilities(self):
         meta = loader_registry.meta("test_sources")

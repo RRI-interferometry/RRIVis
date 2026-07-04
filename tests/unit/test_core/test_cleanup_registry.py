@@ -3,7 +3,7 @@
 These pin the new registry contract:
 
 * D1 - ``meta_dict``/``meta`` expose a single canonical representation set.
-* D2 - the facade no longer reaches into ``core._REGISTRY``.
+* D2 - the facade calls ``core._REGISTRY`` directly (no ``core._get_*`` middle hop).
 * D3 - registration rejects ``config_fields`` keys not on the loader signature.
 * D4 - every registered catalog identity has a matching ``catalogs.py`` entry
   and vice versa.
@@ -196,24 +196,37 @@ def test_meta_keys_are_a_stable_canonical_set():
 
 
 # ---------------------------------------------------------------------------
-# D2 - facade does not reach into core._REGISTRY
+# D2 - facade collapses to core._REGISTRY (no middle-hop wrappers)
 # ---------------------------------------------------------------------------
 
 
-def test_facade_does_not_reference_backend_registry_singleton():
+def test_facade_methods_have_at_most_one_indirection():
+    """Facade methods use _REGISTRY directly, not core._get_* wrappers."""
     source = inspect.getsource(registry_facade)
-    assert "_REGISTRY" not in source, (
-        "facade must delegate via core module functions, not reach into "
-        "core._REGISTRY directly"
-    )
+    assert "_REGISTRY" in source
+    assert "_backend._" not in source
+    for stale in (
+        "_get_canonical_loader",
+        "_get_resolved_loader",
+        "_list_loaders",
+        "_alias_map",
+        "_alias_defaults_map",
+        "_unregister_loader",
+    ):
+        assert stale not in source
+
+
+def test_unused_facade_methods_removed():
+    for name in ("alias_defaults", "ensure_default_loaders_registered", "unregister"):
+        assert not hasattr(loader_registry, name)
 
 
 def test_facade_alias_accessors_delegate():
-    """The de-leaked accessors still return correct data."""
+    """Alias map and per-definition defaults remain correct after collapse."""
     aliases = loader_registry.aliases()
     assert aliases["gsm2016"] == "diffuse_sky"
-    defaults = loader_registry.alias_defaults()
-    assert defaults["gsm2016"] == {"model": "gsm2016"}
+    diffuse = loader_registry.definition("diffuse_sky")
+    assert diffuse.alias_defaults["gsm2016"] == {"model": "gsm2016"}
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +260,7 @@ def test_registration_accepts_matching_config_fields():
             "max_rows": "max_rows",
         }
     finally:
-        loader_registry.unregister("_d3_good_loader")
+        registry_core._REGISTRY.unregister("_d3_good_loader")
 
 
 def test_registration_accepts_identity_config_field_shorthand():
@@ -269,7 +282,7 @@ def test_registration_accepts_identity_config_field_shorthand():
             "max_rows": "max_rows",
         }
     finally:
-        loader_registry.unregister("_d3_shorthand_loader")
+        registry_core._REGISTRY.unregister("_d3_shorthand_loader")
 
 
 def test_registration_allows_var_keyword_loader():
@@ -283,7 +296,7 @@ def test_registration_allows_var_keyword_loader():
     try:
         assert decorated is _loader
     finally:
-        loader_registry.unregister("_d3_kwargs_loader")
+        registry_core._REGISTRY.unregister("_d3_kwargs_loader")
 
 
 def test_all_builtin_loaders_pass_config_field_check():
