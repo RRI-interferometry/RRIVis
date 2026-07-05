@@ -13,7 +13,7 @@ from ..containers import HealpixData
 from ..containers._shared import validate_frequency_axis
 from ..support import allocation as _allocation
 from ..support.healpix_geometry import close_memmap
-from ..support.precision import get_sky_storage_dtype
+from ..support.precision import get_sky_storage_dtype, require_precision
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -157,6 +157,7 @@ def build_healpix_from_stokes_cube(
     only when the corresponding component appears. ``precision`` is required
     so storage dtype always follows the caller's precision configuration.
     """
+    precision = require_precision(precision)
     frequencies = validate_frequency_axis(
         frequencies, label="HEALPix builder frequencies", ascending=False
     )

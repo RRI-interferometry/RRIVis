@@ -1,4 +1,9 @@
-"""Diffuse sky model loader functions (pygdsm, PySM3) for SkyModel."""
+"""Diffuse sky model loader functions (pygdsm, PySM3) for SkyModel.
+
+Spatial ``region`` arguments use the client-side convention: maps are built
+(or reprojected) first, then cropped to in-region HEALPix pixels via mask
+selection in :mod:`radiosim.core.sky.loaders._healpix_builder`.
+"""
 
 from __future__ import annotations
 
@@ -533,11 +538,7 @@ def create_gsm_observer(
     representations=("healpix_map",),
     category="diffuse",
     network_service="pysm3_data",
-    config_fields={
-        "components": "components",
-        "nside": "nside",
-        "include_polarization": "include_polarization",
-    },
+    config_fields=["components", "nside", "include_polarization"],
 )
 def load_pysm3(
     components: str | list[str] = "s1",

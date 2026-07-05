@@ -11,6 +11,9 @@ nearest-channel lookup instead of spectral-index extrapolation.
 
 HEALPix branch: mirrors the behaviour of ``load_pyradiosky_file`` but
 stacks multiple single-frequency files into one ``(n_files, npix)`` cube.
+
+Spatial ``region`` filtering follows the file-loader client-side convention
+(see :mod:`radiosim.core.sky.support.region_filter`).
 """
 
 from __future__ import annotations

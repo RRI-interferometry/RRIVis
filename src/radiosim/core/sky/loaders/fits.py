@@ -2,6 +2,10 @@
 
 Reads WCS-projected FITS images (2D, 3D frequency cubes, or 4D Stokes+freq)
 and reprojects them onto HEALPix maps using the ``reproject`` package.
+
+Spatial ``region`` filtering follows the file-loader convention documented in
+:mod:`radiosim.core.sky.support.region_filter`: the image is reprojected
+first, then HEALPix pixels outside the region are dropped.
 """
 
 from __future__ import annotations

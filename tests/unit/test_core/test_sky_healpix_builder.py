@@ -22,6 +22,17 @@ class MaskRegion:
         return self._mask
 
 
+def test_build_healpix_from_stokes_cube_requires_precision():
+    with pytest.raises(ValueError, match="explicit PrecisionConfig"):
+        build_healpix_from_stokes_cube(
+            stokes_rows=[(np.zeros(12),)],
+            nside=1,
+            frequencies=np.array([100e6]),
+            coordinate_frame="icrs",
+            precision=None,
+        )
+
+
 def test_extract_stokes_component_returns_none_when_missing():
     stokes = np.arange(2 * 3).reshape(2, 3)
 

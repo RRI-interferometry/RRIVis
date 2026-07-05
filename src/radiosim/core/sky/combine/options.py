@@ -60,6 +60,9 @@ class PrepareSkyOptions:
     # package at module load, so importing them eagerly does not create a
     # cycle, and pydantic (with ``arbitrary_types_allowed=True``) resolves the
     # annotations to build the validation schema.
+    # Resolved early in :func:`prepare_sky_model` via
+    # :func:`~radiosim.core.sky.support.precision.resolve_combine_precision`
+    # (explicit value, else first input model, else error).
     precision: PrecisionConfig | None = None
     backend: ArrayBackend | None = None
     memmap_path: str | None = None

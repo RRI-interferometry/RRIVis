@@ -1,4 +1,9 @@
-"""Pyradiosky file loader functions for SkyModel."""
+"""Pyradiosky file loader functions for SkyModel.
+
+Point-source ``region`` filtering uses the client-side convention documented
+in :mod:`radiosim.core.sky.support.region_filter`. HEALPix payloads crop to
+region masks during cube assembly in :mod:`radiosim.core.sky.loaders._healpix_builder`.
+"""
 
 from __future__ import annotations
 

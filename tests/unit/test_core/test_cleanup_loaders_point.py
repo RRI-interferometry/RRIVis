@@ -64,6 +64,40 @@ def test_adql_number_formats_and_rejects_nonfinite():
             _adql_number(bad)
 
 
+def test_parse_tap_point_catalog_results_vectorized_path():
+    from astropy.table import Table
+
+    from radiosim.core.sky.loaders.vizier.catalog_results import (
+        parse_tap_point_catalog_results,
+    )
+
+    info = types.SimpleNamespace(
+        ra_col="ra",
+        dec_col="dec",
+        flux_col="flux",
+        flux_unit_conversion_factor=1e-3,
+    )
+    table = Table(
+        {
+            "ra": [10.0, 20.0],
+            "dec": [-5.0, 1.0],
+            "flux": [5000.0, 100.0],
+            "source_name": ["a", "b"],
+        }
+    )
+    ra, dec, flux, names, ids = parse_tap_point_catalog_results(
+        table,
+        info,
+        flux_limit=1.0,
+        catalog_label="TEST",
+    )
+    assert ra.tolist() == [10.0]
+    assert dec.tolist() == [-5.0]
+    assert flux[0] == pytest.approx(5.0)
+    assert names.tolist() == ["a"]
+    assert ids.tolist() == ["a"]
+
+
 def test_build_racs_adql_no_region():
     from radiosim.core.sky.loaders.vizier.racs import _build_racs_adql
 

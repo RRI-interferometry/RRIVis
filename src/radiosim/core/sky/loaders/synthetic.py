@@ -1,4 +1,8 @@
-"""Synthetic sky-model loaders."""
+"""Synthetic sky-model loaders.
+
+Optional ``region`` arguments use the client-side convention: sources or
+maps are generated first, then trimmed to the requested sky region.
+"""
 
 from __future__ import annotations
 

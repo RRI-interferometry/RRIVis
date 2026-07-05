@@ -15,6 +15,7 @@ from ..operations.operations import (
     materialize_healpix_model,
     materialize_point_sources_model,
 )
+from ..support.precision import resolve_combine_precision
 from .engine import (
     _combine_models,
     resolve_target_representation,
@@ -70,7 +71,7 @@ def prepare_sky_model(
     mixed_model_policy = opts.mixed_model_policy
     assume_disjoint = opts.assume_disjoint
     brightness_conversion = opts.brightness_conversion
-    precision = opts.precision
+    precision = resolve_combine_precision(opts.precision, models)
     backend = opts.backend
     memmap_path = opts.memmap_path
     beam_fwhm_rad = opts.beam_fwhm_rad

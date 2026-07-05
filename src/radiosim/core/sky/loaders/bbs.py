@@ -8,6 +8,10 @@ Reference:
   - LOFAR wiki: makesourcedb format string
   - OSKAR sky model format documentation
   - WSClean component list documentation
+
+Point-source ``region`` filtering uses the client-side convention (parse the
+file, then trim via
+:func:`~radiosim.core.sky.support.region_filter.apply_point_region_filter`).
 """
 
 from __future__ import annotations
