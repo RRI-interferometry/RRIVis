@@ -20,6 +20,7 @@ from ._shared import (
     _FROZEN_NDARRAY_CONFIG,
     _arrays_equal,
     _freeze,
+    _require_floating_array,
     validate_frequency_axis,
 )
 
@@ -53,6 +54,14 @@ class HealpixData:
     by :func:`._shared.validate_frequency_axis` (a ``mode="before"`` field
     validator), so even a flux-dtype cast applied upstream is normalized back
     to float64 here.
+
+    Brightness-map dtype policy
+    ---------------------------
+    ``maps`` and optional ``q_maps`` / ``u_maps`` / ``v_maps`` must use a
+    floating dtype (``float32`` or ``float64``). Integer, complex, and object
+    arrays are rejected at construction via
+    :func:`._shared._require_floating_array`, matching the core point-source
+    column contract in :class:`~.point.PointSourceData`.
     """
 
     maps: np.ndarray  # Stokes I, shape (n_freq, npix), in Kelvin
@@ -216,6 +225,9 @@ class HealpixData:
 
     @model_validator(mode="after")
     def _validate_shapes(self) -> HealpixData:
+        _require_floating_array(self.maps, label="HealpixData.maps")
+        for name in ("q_maps", "u_maps", "v_maps"):
+            _require_floating_array(getattr(self, name), label=f"HealpixData.{name}")
         if self.maps.ndim != 2:
             raise ValueError(
                 f"HealpixData: maps must be 2-D (n_freq, npix), "

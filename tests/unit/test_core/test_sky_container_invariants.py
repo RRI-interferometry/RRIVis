@@ -16,6 +16,11 @@ from radiosim.core.sky import (
     SkyRegion,
     create_from_arrays,
 )
+from radiosim.core.sky.containers.point import (
+    PointMorphology,
+    PointPolarization,
+    empty_source_arrays,
+)
 
 
 @pytest.fixture
@@ -439,3 +444,162 @@ class TestPointSourceDataDtypes:
         kwargs["spectral_coeffs"] = np.array([[1, 2], [3, 4]], dtype=dtype)
         with pytest.raises(ValueError, match="spectral_coeffs.*floating dtype"):
             PointSourceData(**kwargs)
+
+    @pytest.mark.parametrize("dtype", [np.int64, np.complex128, object])
+    def test_morphology_non_float_dtypes_rejected(self, dtype):
+        with pytest.raises(ValueError, match="PointMorphology.major_arcsec.*floating"):
+            PointMorphology(
+                major_arcsec=np.array([1, 2], dtype=dtype),
+                minor_arcsec=np.array([1.0, 1.0]),
+                pa_deg=np.array([0.0, 45.0]),
+            )
+
+    @pytest.mark.parametrize("dtype", [np.int64, np.complex128, object])
+    def test_polarization_non_float_dtypes_rejected(self, dtype):
+        with pytest.raises(ValueError, match="rotation_measure.*floating dtype"):
+            PointPolarization(rotation_measure=np.array([0, 1], dtype=dtype))
+
+
+class TestHealpixMapDtypes:
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_floating_map_dtypes_pass(self, dtype):
+        nside = 4
+        npix = hp.nside2npix(nside)
+        hpx = HealpixData(
+            maps=np.ones((1, npix), dtype=dtype),
+            nside=nside,
+            frequencies=np.array([100e6]),
+        )
+        assert hpx.maps.dtype == dtype
+
+    @pytest.mark.parametrize("dtype", [np.int64, np.complex128, object])
+    def test_non_float_maps_rejected(self, dtype):
+        nside = 4
+        npix = hp.nside2npix(nside)
+        with pytest.raises(ValueError, match="HealpixData.maps.*floating dtype"):
+            HealpixData(
+                maps=np.ones((1, npix), dtype=dtype),
+                nside=nside,
+                frequencies=np.array([100e6]),
+            )
+
+
+class TestEmptyAndZeroLengthPaths:
+    def test_point_source_data_empty_factory(self):
+        from radiosim.core.sky import SpectralType
+
+        point = PointSourceData.empty()
+        assert point.is_empty
+        assert point.n_sources == 0
+        assert point.populated_spectral_fields == frozenset({SpectralType.POWER_LAW})
+
+    def test_empty_point_as_source_arrays(self):
+        point = PointSourceData.empty()
+        arrays = point.as_source_arrays()
+        assert len(arrays["ra_rad"]) == 0
+        assert arrays["rotation_measure"] is None
+
+    def test_zero_length_morphology_and_polarization_attach_cleanly(self):
+        z = np.zeros(0, dtype=np.float64)
+        point = PointSourceData(
+            ra_rad=z.copy(),
+            dec_rad=z.copy(),
+            flux=z.copy(),
+            spectral_index=z.copy(),
+            stokes_q=z.copy(),
+            stokes_u=z.copy(),
+            stokes_v=z.copy(),
+            ref_freq=z.copy(),
+            morphology=PointMorphology(
+                major_arcsec=z.copy(),
+                minor_arcsec=z.copy(),
+                pa_deg=z.copy(),
+            ),
+            polarization=PointPolarization(rotation_measure=z.copy()),
+        )
+        assert point.is_empty
+        assert point.morphology is not None
+        assert point.polarization is not None
+
+    def test_flux_limit_masking_all_sources_returns_empty_arrays(self, precision):
+        sky = create_from_arrays(
+            ra_rad=np.array([0.0, 1.0]),
+            dec_rad=np.zeros(2),
+            flux=np.array([0.01, 0.02]),
+            spectral_index=np.full(2, -0.7),
+            stokes_q=np.zeros(2),
+            stokes_u=np.zeros(2),
+            stokes_v=np.zeros(2),
+            reference_frequency=100e6,
+            precision=precision,
+        )
+        arrays = sky.point.as_source_arrays(flux_limit=1.0)
+        empty = empty_source_arrays()
+        assert len(arrays["ra_rad"]) == 0
+        assert arrays["rotation_measure"] is empty["rotation_measure"]
+
+    def test_sparse_healpix_zero_stored_pixels(self):
+        hpx = HealpixData(
+            maps=np.zeros((1, 0), dtype=np.float64),
+            nside=4,
+            frequencies=np.array([100e6]),
+            hpx_inds=np.zeros(0, dtype=np.int64),
+        )
+        assert hpx.n_pixels == 0
+        assert hpx.is_sparse
+
+
+class TestSpectralFieldsWithExtensions:
+    def test_populated_spectral_fields_unchanged_with_morphology(self, precision):
+        from radiosim.core.sky import SpectralType
+
+        sky = _point(n=2, precision=precision)
+        p = sky.point
+        morph = PointMorphology(
+            major_arcsec=np.array([10.0, 20.0]),
+            minor_arcsec=np.array([5.0, 10.0]),
+            pa_deg=np.array([0.0, 45.0]),
+        )
+        point = PointSourceData(
+            ra_rad=p.ra_rad,
+            dec_rad=p.dec_rad,
+            flux=p.flux,
+            spectral_index=p.spectral_index,
+            stokes_q=p.stokes_q,
+            stokes_u=p.stokes_u,
+            stokes_v=p.stokes_v,
+            ref_freq=p.ref_freq,
+            morphology=morph,
+            polarization=PointPolarization(rotation_measure=np.array([1.0, 2.0])),
+        )
+        assert point.populated_spectral_fields == frozenset({SpectralType.POWER_LAW})
+        point.assert_single_spectral_representation()
+
+
+class TestSubpackageImportSmoke:
+    def test_support_reexports(self):
+        from radiosim.core.sky.support import (
+            apply_point_region_filter,
+            get_sky_storage_dtype,
+            pixel_solid_angle,
+            point_source_data_from_mapping,
+            validate_frequency_axis,
+        )
+
+        assert callable(apply_point_region_filter)
+        assert callable(get_sky_storage_dtype)
+        assert callable(pixel_solid_angle)
+        assert callable(point_source_data_from_mapping)
+        assert callable(validate_frequency_axis)
+
+    def test_recipes_reexport(self):
+        from radiosim.core.sky.recipes import realistic_foreground_sky
+
+        assert callable(realistic_foreground_sky)
+
+    def test_io_reexports(self):
+        from radiosim.core.sky.io import load_skyh5, save_skyh5, to_pyradiosky
+
+        assert callable(load_skyh5)
+        assert callable(save_skyh5)
+        assert callable(to_pyradiosky)

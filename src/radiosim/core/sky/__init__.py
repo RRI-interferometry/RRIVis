@@ -11,6 +11,10 @@ genuinely need a full-sky array (plotting, harmonic regridding, lightcurves,
 observability projections, bright-source subtraction) raise — densify
 explicitly with ``sky.replace(healpix=sky.healpix.to_dense())`` rather than
 relying on implicit densification.
+
+Subpackages :mod:`.support`, :mod:`.recipes`, and :mod:`.io` expose selective
+re-exports of their most useful helpers; the imports below remain the canonical
+top-level public surface.
 """
 
 from .combine.options import PrepareSkyOptions
@@ -48,7 +52,7 @@ from .diagnostics.discovery import (
     list_all_models,
 )
 from .diagnostics.polarization import compute_linear_polarization
-from .io.serialization import load_skyh5, save_skyh5, to_pyradiosky
+from .io import load_skyh5, save_skyh5, to_pyradiosky
 from .loaders import (
     load_3c,
     load_bbs,
@@ -81,7 +85,7 @@ from .operations.operations import (
 )
 from .operations.region import BoxRegion, ConeRegion, SkyRegion, UnionRegion
 from .operations.subtraction import subtract_bright_sources
-from .recipes.realistic_foreground import realistic_foreground_sky
+from .recipes import realistic_foreground_sky
 
 __all__ = [
     "SkyModel",

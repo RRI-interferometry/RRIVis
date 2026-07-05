@@ -54,6 +54,18 @@ def _validate_mask(mask: object, n: int, *, label: str = "mask") -> np.ndarray:
     return mask_arr
 
 
+def _require_floating_array(arr: np.ndarray | None, *, label: str) -> None:
+    """Reject non-floating container arrays without silent coercion."""
+    if arr is None:
+        return
+    if not np.issubdtype(arr.dtype, np.floating):
+        raise ValueError(
+            f"{label} must have a floating dtype; got {arr.dtype}. "
+            "Integer, complex, and object arrays are rejected by the raw "
+            "sky container."
+        )
+
+
 def validate_frequency_axis(
     value: object, *, label: str = "frequencies", ascending: bool = True
 ) -> np.ndarray:

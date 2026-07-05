@@ -11,6 +11,13 @@ rewritten as branchless masks so the bodies are JAX-traceable.
 ``np.<name>`` is still used for dtype literals and for warning side
 effects (warnings stay numpy-only — they fire once during tracing on
 CPU, not on every per-frequency call).
+
+Spectral representation introspection (which of power-law / log-polynomial /
+per-channel is populated on a :class:`~.point.PointSourceData` payload) lives
+on the container: :attr:`~.point.PointSourceData.populated_spectral_fields` and
+:meth:`~.point.PointSourceData.assert_single_spectral_representation`. These
+helpers only evaluate flux at runtime and do not enforce representation
+exclusivity.
 """
 
 from __future__ import annotations

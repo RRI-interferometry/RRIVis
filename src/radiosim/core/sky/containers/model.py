@@ -89,6 +89,13 @@ class SkyModel:
 
     For tolerant comparisons, call :meth:`is_close`, which accepts ``rtol`` /
     ``atol`` and is the appropriate tool for round-trip and precision tests.
+
+    Point-source spectral introspection
+    -----------------------------------
+    When a :class:`~.point.PointSourceData` payload is populated, use
+    :attr:`~.point.PointSourceData.populated_spectral_fields` and
+    :meth:`~.point.PointSourceData.assert_single_spectral_representation` on
+    ``sky.point`` to inspect or gate higher-order spectral representations.
     """
 
     point: PointSourceData | None = field(default=None, repr=False)

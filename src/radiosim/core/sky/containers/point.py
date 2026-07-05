@@ -27,6 +27,7 @@ from ._shared import (
     _FROZEN_NDARRAY_CONFIG,
     _arrays_equal,
     _freeze,
+    _require_floating_array,
     _validate_mask,
     validate_frequency_axis,
 )
@@ -37,18 +38,6 @@ from .constants import SpectralType
 #: *before* construction. Forbidding extras turns a stray flat kwarg passed to
 #: the raw constructor into a loud error instead of a silently-dropped column.
 _POINT_SOURCE_DATA_CONFIG = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
-
-
-def _require_floating_array(arr: np.ndarray | None, *, label: str) -> None:
-    """Reject non-floating raw point-source arrays without coercion."""
-    if arr is None:
-        return
-    if not np.issubdtype(arr.dtype, np.floating):
-        raise ValueError(
-            f"{label} must have a floating dtype; got {arr.dtype}. "
-            "Integer, complex, and object arrays are rejected by the raw "
-            "PointSourceData container."
-        )
 
 
 # =============================================================================
@@ -148,6 +137,9 @@ class PointSpectrum:
 
     @model_validator(mode="after")
     def _validate_shapes(self) -> PointSpectrum:
+        _require_floating_array(self.flux, label="PointSpectrum.flux")
+        for name in ("stokes_q", "stokes_u", "stokes_v"):
+            _require_floating_array(getattr(self, name), label=f"PointSpectrum.{name}")
         if self.flux.ndim != 2 or self.flux.shape[0] != self.frequencies.size:
             raise ValueError(
                 f"PointSpectrum.flux shape {self.flux.shape} does not match "
@@ -244,6 +236,12 @@ class PointMorphology:
 
     @model_validator(mode="after")
     def _validate_lengths(self) -> PointMorphology:
+        for name, arr in (
+            ("major_arcsec", self.major_arcsec),
+            ("minor_arcsec", self.minor_arcsec),
+            ("pa_deg", self.pa_deg),
+        ):
+            _require_floating_array(arr, label=f"PointMorphology.{name}")
         n = len(self.major_arcsec)
         for name, arr in (
             ("minor_arcsec", self.minor_arcsec),
@@ -306,6 +304,9 @@ class PointPolarization:
 
     @model_validator(mode="after")
     def _freeze_arrays(self) -> PointPolarization:
+        _require_floating_array(
+            self.rotation_measure, label="PointPolarization.rotation_measure"
+        )
         _freeze(self.rotation_measure)
         return self
 
