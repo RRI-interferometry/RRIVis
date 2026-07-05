@@ -19,6 +19,7 @@ from radiosim.core.sky import (
 from radiosim.core.sky.containers.point import (
     PointMorphology,
     PointPolarization,
+    PointSpectrum,
     empty_source_arrays,
 )
 
@@ -460,6 +461,34 @@ class TestPointSourceDataDtypes:
             PointPolarization(rotation_measure=np.array([0, 1], dtype=dtype))
 
 
+class TestPointSpectrumDtypes:
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_floating_flux_dtypes_pass(self, dtype):
+        spec = PointSpectrum(
+            flux=np.ones((2, 2), dtype=dtype),
+            frequencies=np.array([100e6, 200e6]),
+        )
+        assert spec.flux.dtype == dtype
+
+    @pytest.mark.parametrize("dtype", [np.int64, np.complex128, object])
+    def test_non_float_flux_rejected(self, dtype):
+        with pytest.raises(ValueError, match="PointSpectrum.flux.*floating dtype"):
+            PointSpectrum(
+                flux=np.ones((2, 2), dtype=dtype),
+                frequencies=np.array([100e6, 200e6]),
+            )
+
+    @pytest.mark.parametrize("dtype", [np.int64, np.complex128, object])
+    def test_non_float_stokes_rejected(self, dtype):
+        with pytest.raises(ValueError, match="PointSpectrum.stokes_q.*floating dtype"):
+            PointSpectrum(
+                flux=np.ones((2, 2), dtype=np.float64),
+                frequencies=np.array([100e6, 200e6]),
+                stokes_q=np.ones((2, 2), dtype=dtype),
+                stokes_u=np.ones((2, 2), dtype=np.float64),
+            )
+
+
 class TestHealpixMapDtypes:
     @pytest.mark.parametrize("dtype", [np.float32, np.float64])
     def test_floating_map_dtypes_pass(self, dtype):
@@ -547,6 +576,84 @@ class TestEmptyAndZeroLengthPaths:
         )
         assert hpx.n_pixels == 0
         assert hpx.is_sparse
+
+
+class TestSpectralOptInReplaceMaterialize:
+    def _point_with_spectrum(self, precision):
+        sky = _point(n=2, precision=precision)
+        p = sky.point
+        spec = PointSpectrum(
+            flux=np.ones((2, 2), dtype=np.float64),
+            frequencies=np.array([100e6, 200e6]),
+        )
+        return PointSourceData(
+            ra_rad=p.ra_rad,
+            dec_rad=p.dec_rad,
+            flux=p.flux,
+            spectral_index=p.spectral_index,
+            stokes_q=p.stokes_q,
+            stokes_u=p.stokes_u,
+            stokes_v=p.stokes_v,
+            ref_freq=p.ref_freq,
+            spectrum=spec,
+        )
+
+    def test_replace_point_with_spectrum_preserves_opt_in_introspection(
+        self, precision
+    ):
+        from radiosim.core.sky import SpectralType
+
+        sky = _point(n=2, precision=precision)
+        point = self._point_with_spectrum(precision)
+        replaced = sky.replace(point=point)
+
+        assert replaced.point.populated_spectral_fields == frozenset(
+            {SpectralType.POWER_LAW, SpectralType.PER_CHANNEL}
+        )
+        replaced.point.assert_single_spectral_representation()
+
+    def test_replace_point_dual_representation_raises_on_opt_in_gate(self, precision):
+        sky = _point(n=2, precision=precision)
+        p = sky.point
+        spec = PointSpectrum(
+            flux=np.ones((2, 2)),
+            frequencies=np.array([100e6, 200e6]),
+        )
+        dual = PointSourceData(
+            ra_rad=p.ra_rad,
+            dec_rad=p.dec_rad,
+            flux=p.flux,
+            spectral_index=p.spectral_index,
+            stokes_q=p.stokes_q,
+            stokes_u=p.stokes_u,
+            stokes_v=p.stokes_v,
+            ref_freq=p.ref_freq,
+            spectral_coeffs=np.array([[-0.7, 0.1], [-0.7, 0.1]]),
+            spectrum=spec,
+        )
+        replaced = sky.replace(point=dual)
+        with pytest.raises(ValueError):
+            replaced.point.assert_single_spectral_representation()
+
+    def test_materialize_point_sources_yields_power_law_only_spectral_fields(
+        self, precision
+    ):
+        from radiosim.core.sky import SpectralType, materialize_point_sources_model
+        from radiosim.core.sky.containers.model import SkyModel
+
+        nside = 8
+        npix = hp.nside2npix(nside)
+        ring_maps = np.zeros((1, npix), dtype=np.float64)
+        ring_maps[0, 42] = 25.0
+        hpx = HealpixData(maps=ring_maps, nside=nside, frequencies=np.array([100e6]))
+        sky = SkyModel(healpix=hpx, reference_frequency=100e6, precision=precision)
+        point_sky = materialize_point_sources_model(sky, frequency=100e6, lossy=True)
+
+        assert point_sky.point.spectrum is None
+        assert point_sky.point.populated_spectral_fields == frozenset(
+            {SpectralType.POWER_LAW}
+        )
+        point_sky.point.assert_single_spectral_representation()
 
 
 class TestSpectralFieldsWithExtensions:

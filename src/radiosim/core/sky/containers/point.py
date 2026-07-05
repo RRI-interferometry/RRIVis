@@ -120,6 +120,12 @@ class PointSpectrum:
     same policy as :class:`~.healpix.HealpixData.frequencies`, so a
     HEALPix↔point round-trip leaves the frequency-axis dtype unchanged. The
     policy is enforced by :func:`._shared.validate_frequency_axis`.
+
+    Flux-table dtype policy
+    -----------------------
+    ``flux`` and optional ``stokes_*`` tables must use a floating dtype
+    (``float32`` or ``float64``). Integer, complex, and object arrays are
+    rejected at construction via :func:`._shared._require_floating_array`.
     """
 
     flux: np.ndarray  # shape (n_freq, N), Stokes I in Jy
