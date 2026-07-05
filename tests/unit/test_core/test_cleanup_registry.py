@@ -15,6 +15,7 @@ These pin the new registry contract:
 
 from __future__ import annotations
 
+import ast
 import inspect
 import re
 from pathlib import Path
@@ -386,6 +387,8 @@ def test_registry_catalog_aliases_resolve_to_real_entries():
 def test_catalog_entries_carry_registry_identity_metadata():
     gleam = VIZIER_POINT_CATALOGS["gleam_egc"]
     assert gleam.loader_name == "gleam"
+    assert gleam.config_section == "gleam"
+    assert gleam.use_flag == "use_gleam"
     assert gleam.alias_defaults == {"catalog": "gleam_egc"}
     assert gleam.network_service == "vizier"
     assert gleam.config_fields == {
@@ -402,22 +405,113 @@ def test_catalog_entries_carry_registry_identity_metadata():
 
     racs_low = RACS_CATALOGS["low"]
     assert racs_low.loader_name == "racs"
+    assert racs_low.config_section == "racs"
+    assert racs_low.use_flag == "use_racs"
     assert racs_low.alias == "racs_low"
     assert racs_low.alias_defaults == {"band": "low"}
     assert racs_low.network_service == "casda"
 
+    three_c = VIZIER_POINT_CATALOGS["3c"]
+    assert three_c.config_section == "three_c"
+    assert three_c.use_flag == "use_3c"
 
-def test_vizier_catalog_model_field_order_starts_with_identity():
-    source = inspect.getsource(
-        __import__("radiosim.core.sky.registry.catalogs", fromlist=["dummy"])
-    )
-    entry_source = source[
-        source.index('"tgss": VizierCatalogEntry(') : source.index(
-            '"wenss": VizierCatalogEntry('
+
+def test_vizier_catalog_entries_lead_with_vizier_id():
+    """Every VizierCatalogEntry literal leads with vizier_id after any ** unpack."""
+    import radiosim.core.sky.registry.catalogs as catalogs_mod
+
+    tree = ast.parse(inspect.getsource(catalogs_mod))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if getattr(node.func, "id", "") != "VizierCatalogEntry":
+            continue
+        named = [kw for kw in node.keywords if kw.arg is not None]
+        assert named, f"VizierCatalogEntry near line {node.lineno} has no named kwargs"
+        assert named[0].arg == "vizier_id", (
+            f"VizierCatalogEntry near line {node.lineno} must lead with "
+            f"vizier_id=, got {named[0].arg!r}"
         )
-    ]
-    assert entry_source.index("vizier_id=") < entry_source.index("description=")
-    assert "default_flux_limit=" not in entry_source
+
+
+@pytest.mark.parametrize(
+    "loader_name",
+    ["gleam", "mals", "lotss"],
+)
+def test_vizier_family_aliases_are_single_sourced(loader_name: str):
+    """Family loader aliases must match catalog entries, not hard-coded decorator lists."""
+    from radiosim.core.sky.registry.catalogs import build_vizier_family_aliases
+
+    definition = loader_registry.definition(loader_name)
+    expected = build_vizier_family_aliases(loader_name)
+    assert set(definition.aliases) == set(expected)
+    assert definition.alias_defaults == expected
+
+
+def test_racs_aliases_are_single_sourced():
+    from radiosim.core.sky.registry.catalogs import build_racs_aliases
+
+    definition = loader_registry.definition("racs")
+    expected = build_racs_aliases()
+    assert set(definition.aliases) == set(expected)
+    assert definition.alias_defaults == expected
+
+
+def test_diffuse_sky_aliases_are_single_sourced():
+    from radiosim.core.sky.registry.catalogs import build_diffuse_sky_aliases
+
+    definition = loader_registry.definition("diffuse_sky")
+    expected = build_diffuse_sky_aliases()
+    assert set(definition.aliases) == set(expected)
+    assert definition.alias_defaults == expected
+
+
+@pytest.mark.parametrize(
+    ("loader_name", "catalog_keys"),
+    [
+        ("gleam", [k for k in VIZIER_POINT_CATALOGS if k.startswith("gleam")]),
+        ("mals", [k for k in VIZIER_POINT_CATALOGS if k.startswith("mals_")]),
+        ("lotss", [k for k in VIZIER_POINT_CATALOGS if k.startswith("lotss_")]),
+        ("racs", list(RACS_CATALOGS)),
+        ("diffuse_sky", list(DIFFUSE_MODELS)),
+    ],
+)
+def test_family_loader_registry_metadata_matches_catalog_entries(
+    loader_name: str, catalog_keys: list[str]
+):
+    from radiosim.core.sky.registry.catalogs import (
+        diffuse_sky_loader_registration,
+        racs_loader_registration,
+        vizier_family_loader_registration,
+    )
+
+    definition = loader_registry.definition(loader_name)
+    if loader_name in {"gleam", "mals", "lotss"}:
+        expected = vizier_family_loader_registration(loader_name)
+    elif loader_name == "racs":
+        expected = racs_loader_registration()
+    elif loader_name == "diffuse_sky":
+        expected = diffuse_sky_loader_registration()
+    else:
+        pytest.fail(f"unexpected loader {loader_name!r}")
+
+    for field in ("config_section", "use_flag", "network_service", "category"):
+        assert getattr(definition, field) == expected[field], field
+    assert set(definition.aliases) == set(expected["aliases"])
+    assert definition.alias_defaults == expected["aliases"]
+
+    if loader_name in {"gleam", "mals", "lotss", "racs", "diffuse_sky"}:
+        representative = (
+            VIZIER_POINT_CATALOGS[catalog_keys[0]]
+            if loader_name in {"gleam", "mals", "lotss"}
+            else (
+                RACS_CATALOGS[catalog_keys[0]]
+                if loader_name == "racs"
+                else DIFFUSE_MODELS[catalog_keys[0]]
+            )
+        )
+        assert definition.network_service == representative.network_service
+        assert definition.category == representative.category
 
 
 # ---------------------------------------------------------------------------

@@ -39,12 +39,20 @@ def _check_flux_unit(flux_unit: str, entry_type_name: str) -> None:
 __all__ = [
     "CASDA_TAP_URL",
     "DIFFUSE_MODELS",
+    "DIFFUSE_SKY_LOADER_REGISTRY",
     "RACS_CATALOGS",
     "VIZIER_POINT_CATALOGS",
     "DiffuseModelEntry",
     "RacsCatalogEntry",
     "VizierCatalogEntry",
+    "build_diffuse_sky_aliases",
+    "build_racs_aliases",
+    "build_vizier_family_aliases",
+    "diffuse_sky_loader_registration",
     "load_catalog_footprint_asset",
+    "racs_loader_registration",
+    "vizier_family_loader_registration",
+    "vizier_simple_loader_registration",
 ]
 
 
@@ -58,6 +66,14 @@ class _CatalogBase(BaseModel):
     )
     reference_url: str = Field("", description="ADS or documentation URL")
     loader_name: str = Field(..., description="Canonical registry loader name")
+    config_section: str | None = Field(
+        default=None,
+        description="YAML config section (defaults to loader_name)",
+    )
+    use_flag: str | None = Field(
+        default=None,
+        description="Config enable flag (defaults to use_{loader_name})",
+    )
     alias: str | None = Field(
         default=None, description="Registry alias for this catalog entry"
     )
@@ -255,6 +271,12 @@ class RacsCatalogEntry(_CatalogBase):
     """Metadata for a RACS catalog accessed via CASDA TAP."""
 
     loader_name: str = Field("racs", description="Canonical registry loader name")
+    config_section: str | None = Field(
+        "racs", description="YAML config section (defaults to loader_name)"
+    )
+    use_flag: str | None = Field(
+        "use_racs", description="Config enable flag (defaults to use_{loader_name})"
+    )
     network_service: str | None = Field(
         "casda", description="Network service required by this catalog loader"
     )
@@ -304,10 +326,20 @@ class RacsCatalogEntry(_CatalogBase):
         return self
 
 
+def _effective_config_section(entry: _CatalogBase) -> str:
+    return entry.config_section or entry.loader_name
+
+
+def _effective_use_flag(entry: _CatalogBase) -> str:
+    return entry.use_flag or f"use_{entry.loader_name}"
+
+
 def _vizier_registry_identity(catalog_key: str) -> dict[str, object]:
     if catalog_key.startswith("gleam"):
         return {
             "loader_name": "gleam",
+            "config_section": "gleam",
+            "use_flag": "use_gleam",
             "alias": catalog_key,
             "alias_defaults": {"catalog": catalog_key},
             "config_fields": {
@@ -321,8 +353,10 @@ def _vizier_registry_identity(catalog_key: str) -> dict[str, object]:
         release = catalog_key.removeprefix("mals_")
         return {
             "loader_name": "mals",
+            "config_section": "mals",
+            "use_flag": "use_mals",
             "alias": catalog_key,
-            "alias_defaults": {"release": release.removeprefix("dr")},
+            "alias_defaults": {"release": release},
             "config_fields": {
                 "flux_limit": "flux_limit",
                 "release": "release",
@@ -334,8 +368,10 @@ def _vizier_registry_identity(catalog_key: str) -> dict[str, object]:
         release = catalog_key.removeprefix("lotss_")
         return {
             "loader_name": "lotss",
+            "config_section": "lotss",
+            "use_flag": "use_lotss",
             "alias": catalog_key,
-            "alias_defaults": {"release": release.removeprefix("dr")},
+            "alias_defaults": {"release": release},
             "config_fields": {
                 "flux_limit": "flux_limit",
                 "release": "release",
@@ -343,7 +379,127 @@ def _vizier_registry_identity(catalog_key: str) -> dict[str, object]:
                 "allow_full_catalog": "allow_full_catalog",
             },
         }
-    return {"loader_name": catalog_key, "alias": catalog_key}
+    return {
+        "loader_name": catalog_key,
+        "config_section": "three_c" if catalog_key == "3c" else catalog_key,
+        "use_flag": f"use_{catalog_key}",
+        "alias": catalog_key,
+    }
+
+
+def _vizier_entries_for_loader(loader_name: str) -> list[VizierCatalogEntry]:
+    return [
+        entry
+        for entry in VIZIER_POINT_CATALOGS.values()
+        if entry.loader_name == loader_name
+    ]
+
+
+def build_vizier_family_aliases(loader_name: str) -> dict[str, dict[str, object]]:
+    """Build registry alias defaults for a VizieR family loader from catalog entries."""
+    aliases: dict[str, dict[str, object]] = {}
+    for entry in _vizier_entries_for_loader(loader_name):
+        if entry.alias is None:
+            continue
+        aliases[entry.alias] = dict(entry.alias_defaults)
+    return aliases
+
+
+def vizier_family_loader_registration(
+    loader_name: str,
+    *,
+    config_fields: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Registry kwargs for gleam/mals/lotss derived from catalog metadata."""
+    entries = _vizier_entries_for_loader(loader_name)
+    if not entries:
+        raise KeyError(f"No VizieR catalog entries for loader {loader_name!r}")
+    representative = entries[0]
+    fields = config_fields or dict(representative.config_fields)
+    aliases = build_vizier_family_aliases(loader_name)
+    return {
+        "config_section": _effective_config_section(representative),
+        "use_flag": _effective_use_flag(representative),
+        "network_service": representative.network_service,
+        "category": representative.category,
+        "aliases": aliases,
+        "config_fields": fields,
+    }
+
+
+def vizier_simple_loader_registration(catalog_key: str) -> dict[str, object]:
+    """Registry kwargs for a single-key VizieR loader derived from its catalog entry."""
+    entry = VIZIER_POINT_CATALOGS[catalog_key]
+    return {
+        "config_section": _effective_config_section(entry),
+        "use_flag": _effective_use_flag(entry),
+        "network_service": entry.network_service,
+        "category": entry.category,
+        "config_fields": dict(entry.config_fields),
+    }
+
+
+def build_racs_aliases() -> dict[str, dict[str, object]]:
+    aliases: dict[str, dict[str, object]] = {}
+    for entry in RACS_CATALOGS.values():
+        if entry.alias is None:
+            continue
+        aliases[entry.alias] = dict(entry.alias_defaults)
+    return aliases
+
+
+def racs_loader_registration(
+    *,
+    config_fields: dict[str, str] | None = None,
+) -> dict[str, object]:
+    representative = next(iter(RACS_CATALOGS.values()))
+    fields = config_fields or dict(representative.config_fields)
+    aliases = build_racs_aliases()
+    return {
+        "config_section": _effective_config_section(representative),
+        "use_flag": _effective_use_flag(representative),
+        "network_service": representative.network_service,
+        "category": representative.category,
+        "aliases": aliases,
+        "config_fields": fields,
+    }
+
+
+DIFFUSE_SKY_LOADER_REGISTRY: dict[str, object] = {
+    "loader_name": "diffuse_sky",
+    "config_section": "gsm_healpix",
+    "use_flag": "use_gsm",
+    "category": "diffuse",
+    "network_service": "pygdsm_data",
+    "representations": ("healpix_map",),
+}
+
+
+def build_diffuse_sky_aliases() -> dict[str, dict[str, object]]:
+    aliases: dict[str, dict[str, object]] = {"gsm": {"model": "gsm2008"}}
+    for entry in DIFFUSE_MODELS.values():
+        if entry.alias is None:
+            continue
+        aliases[entry.alias] = dict(entry.alias_defaults)
+    return aliases
+
+
+def diffuse_sky_loader_registration(
+    *,
+    config_fields: dict[str, str] | None = None,
+) -> dict[str, object]:
+    representative = DIFFUSE_MODELS["gsm2008"]
+    fields = config_fields or dict(representative.config_fields)
+    aliases = build_diffuse_sky_aliases()
+    return {
+        "config_section": DIFFUSE_SKY_LOADER_REGISTRY["config_section"],
+        "use_flag": DIFFUSE_SKY_LOADER_REGISTRY["use_flag"],
+        "network_service": DIFFUSE_SKY_LOADER_REGISTRY["network_service"],
+        "category": DIFFUSE_SKY_LOADER_REGISTRY["category"],
+        "representations": DIFFUSE_SKY_LOADER_REGISTRY["representations"],
+        "aliases": aliases,
+        "config_fields": fields,
+    }
 
 
 # =============================================================================
@@ -480,7 +636,6 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
     "wenss": VizierCatalogEntry(
         **_vizier_registry_identity("wenss"),
         vizier_id="VIII/62",
-        default_flux_limit=0.1,
         description=(
             "WENSS: Westerbork Northern Sky Survey (Rengelink et al. 1997). "
             "325 MHz, ~229k sources, dec >= +30 deg."
@@ -493,13 +648,13 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         default_spindex=-0.7,
         freq_mhz=325.0,
         coords_sexagesimal=True,
+        default_flux_limit=0.1,
         beam_fwhm_arcsec=54.0,
         footprint_asset="wenss.npz",
     ),
     "sumss": VizierCatalogEntry(
         **_vizier_registry_identity("sumss"),
         vizier_id="VIII/81B",
-        default_flux_limit=0.008,
         description=(
             "SUMSS: Sydney University Molonglo Sky Survey (Mauch et al. 2003). "
             "843 MHz, ~211k sources, dec < -30 deg."
@@ -514,13 +669,13 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         major_col="dMajAxis",
         minor_col="dMinAxis",
         pa_col="dPA",
+        default_flux_limit=0.008,
         beam_fwhm_arcsec=45.0,
         footprint_asset="sumss.npz",
     ),
     "nvss": VizierCatalogEntry(
         **_vizier_registry_identity("nvss"),
         vizier_id="VIII/65",
-        default_flux_limit=0.0025,
         description=(
             "NVSS: NRAO VLA Sky Survey (Condon et al. 1998). "
             "1.4 GHz, ~1.8M sources, 45 arcsec resolution."
@@ -535,13 +690,13 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         major_col="MajAxis",
         minor_col="MinAxis",
         pa_col="PA",
+        default_flux_limit=0.0025,
         beam_fwhm_arcsec=45.0,
         footprint_asset="nvss.npz",
     ),
     "vlass": VizierCatalogEntry(
         **_vizier_registry_identity("vlass"),
         vizier_id="J/ApJS/255/30",
-        default_flux_limit=0.0025,
         table="comp",
         description=(
             "VLASS QL Ep.1: VLA Sky Survey Quick Look (Gordon et al. 2021). "
@@ -557,6 +712,7 @@ VIZIER_POINT_CATALOGS: dict[str, VizierCatalogEntry] = {
         major_col="DCMaj",
         minor_col="DCMin",
         pa_col="DCPA",
+        default_flux_limit=0.0025,
         beam_fwhm_arcsec=2.5,
         footprint_asset="vlass.npz",
     ),

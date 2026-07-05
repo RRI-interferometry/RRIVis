@@ -13,7 +13,12 @@ from radiosim.utils.network import require_service
 
 from ...operations.factories import create_empty, create_from_arrays
 from ...operations.region import SkyRegion
-from ...registry import CASDA_TAP_URL, RACS_CATALOGS, loader_registry
+from ...registry import (
+    CASDA_TAP_URL,
+    RACS_CATALOGS,
+    loader_registry,
+    racs_loader_registration,
+)
 from ...support.region_filter import apply_point_region_filter
 from .core import (
     _extract_masked_column,
@@ -250,15 +255,9 @@ def _parse_racs_results_with_fallback(
 
 @loader_registry.register_loader(
     "racs",
-    config_section="racs",
-    use_flag="use_racs",
-    network_service=RACS_CATALOGS["low"].network_service,
-    aliases={
-        info.alias: info.alias_defaults
-        for info in RACS_CATALOGS.values()
-        if info.alias is not None
-    },
-    config_fields=RACS_CATALOGS["low"].config_fields,
+    **racs_loader_registration(
+        config_fields=RACS_CATALOGS["low"].config_fields,
+    ),
 )
 def load_racs(
     band: str = "low",

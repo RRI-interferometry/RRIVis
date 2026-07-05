@@ -14,7 +14,12 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...operations.region import SkyRegion
-from ...registry import VIZIER_POINT_CATALOGS, loader_registry
+from ...registry import (
+    VIZIER_POINT_CATALOGS,
+    loader_registry,
+    vizier_family_loader_registration,
+    vizier_simple_loader_registration,
+)
 from .core import (
     _load_from_vizier_catalog,
 )
@@ -27,16 +32,10 @@ logger = logging.getLogger(__name__)
 
 @loader_registry.register_loader(
     "gleam",
-    config_section="gleam",
-    use_flag="use_gleam",
-    network_service="vizier",
-    aliases={
-        "gleam_egc": {"catalog": "gleam_egc"},
-        "gleam_x_dr1": {"catalog": "gleam_x_dr1"},
-        "gleam_x_dr2": {"catalog": "gleam_x_dr2"},
-        "gleam_gal": {"catalog": "gleam_gal"},
-    },
-    config_fields=VIZIER_POINT_CATALOGS["gleam_egc"].config_fields,
+    **vizier_family_loader_registration(
+        "gleam",
+        config_fields=VIZIER_POINT_CATALOGS["gleam_egc"].config_fields,
+    ),
 )
 def load_gleam(
     flux_limit: float = 1.0,
@@ -83,14 +82,10 @@ def load_gleam(
 
 @loader_registry.register_loader(
     "mals",
-    config_section="mals",
-    use_flag="use_mals",
-    network_service="vizier",
-    aliases={
-        "mals_dr1": {"release": "dr1"},
-        "mals_dr2": {"release": "dr2"},
-    },
-    config_fields=VIZIER_POINT_CATALOGS["mals_dr1"].config_fields,
+    **vizier_family_loader_registration(
+        "mals",
+        config_fields=VIZIER_POINT_CATALOGS["mals_dr1"].config_fields,
+    ),
 )
 def load_mals(
     flux_limit: float = 1.0,
@@ -140,15 +135,15 @@ def load_mals(
 
 # Catalog keys with only the common config-driven parameters.
 # Complex loaders (gleam, mals, lotss, racs) are kept as explicit functions.
-_SIMPLE_VIZIER_CATALOGS = {
-    "vlssr": "vlssr",
-    "tgss": "tgss",
-    "wenss": "wenss",
-    "sumss": "sumss",
-    "nvss": "nvss",
-    "3c": "three_c",  # config_section differs from loader name
-    "vlass": "vlass",
-}
+_SIMPLE_VIZIER_CATALOGS = (
+    "vlssr",
+    "tgss",
+    "wenss",
+    "sumss",
+    "nvss",
+    "3c",
+    "vlass",
+)
 
 
 def _make_simple_vizier_loader(catalog_key: str):
@@ -193,14 +188,11 @@ def _make_simple_vizier_loader(catalog_key: str):
     return loader
 
 
-for _key, _config_section in _SIMPLE_VIZIER_CATALOGS.items():
+for _key in _SIMPLE_VIZIER_CATALOGS:
     _fn = _make_simple_vizier_loader(_key)
     loader_registry.register_loader(
         _key,
-        config_section=_config_section,
-        use_flag=f"use_{_key}",
-        network_service=VIZIER_POINT_CATALOGS[_key].network_service,
-        config_fields=VIZIER_POINT_CATALOGS[_key].config_fields,
+        **vizier_simple_loader_registration(_key),
     )(_fn)
 
 # Expose as module-level names for direct import
@@ -215,14 +207,10 @@ load_vlass = loader_registry.loader("vlass")
 
 @loader_registry.register_loader(
     "lotss",
-    config_section="lotss",
-    use_flag="use_lotss",
-    network_service="vizier",
-    aliases={
-        "lotss_dr1": {"release": "dr1"},
-        "lotss_dr2": {"release": "dr2"},
-    },
-    config_fields=VIZIER_POINT_CATALOGS["lotss_dr1"].config_fields,
+    **vizier_family_loader_registration(
+        "lotss",
+        config_fields=VIZIER_POINT_CATALOGS["lotss_dr1"].config_fields,
+    ),
 )
 def load_lotss(
     flux_limit: float = 0.001,
