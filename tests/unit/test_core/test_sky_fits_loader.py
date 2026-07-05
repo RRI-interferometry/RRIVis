@@ -10,13 +10,14 @@ from radiosim.core.sky.containers.constants import (
     flux_density_to_brightness_temp,
     rayleigh_jeans_factor,
 )
-from radiosim.core.sky.loaders.fits import _slice_to_brightness_temp, load_fits_image
+from radiosim.core.sky.loaders.fits import load_fits_image
+from radiosim.core.sky.support.brightness import healpix_flux_row_to_brightness_temp
 
 
 def test_slice_to_brightness_temp_converts_positive_stokes_i_with_planck():
     hp_map = np.array([-2.0, 0.0, 3.0], dtype=np.float64)
     omega_pixel = 0.25
-    converted = _slice_to_brightness_temp(
+    converted = healpix_flux_row_to_brightness_temp(
         hp_map,
         freq_hz=100e6,
         omega_pixel=omega_pixel,
@@ -37,7 +38,7 @@ def test_slice_to_brightness_temp_converts_positive_stokes_i_with_planck():
 def test_slice_to_brightness_temp_uses_rayleigh_jeans_for_polarization():
     hp_map = np.array([-2.0, 0.0, 3.0], dtype=np.float64)
     omega_pixel = 0.25
-    converted = _slice_to_brightness_temp(
+    converted = healpix_flux_row_to_brightness_temp(
         hp_map,
         freq_hz=100e6,
         omega_pixel=omega_pixel,

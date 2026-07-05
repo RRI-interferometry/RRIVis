@@ -21,14 +21,46 @@ only provides the ``precision is None`` fallback and a uniform return type.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
-__all__ = ["get_sky_storage_dtype"]
+__all__ = [
+    "get_sky_storage_dtype",
+    "require_precision",
+    "resolve_combine_precision",
+]
+
+
+def require_precision(precision: PrecisionConfig | None) -> PrecisionConfig:
+    """Require an explicit :class:`~radiosim.core.precision.PrecisionConfig`.
+
+    Call at loader, combine, and ops boundaries so ``None`` is not propagated
+    into builders or dtype resolution helpers.
+    """
+    if precision is None:
+        raise ValueError(
+            "Sky model construction requires an explicit PrecisionConfig. "
+            "Pass precision=... at the loader or constructor boundary."
+        )
+    return precision
+
+
+def resolve_combine_precision(
+    precision: PrecisionConfig | None,
+    models: list[Any],
+) -> PrecisionConfig:
+    """Resolve combine-path precision from an explicit value or input models."""
+    if precision is not None:
+        return precision
+    for model in models:
+        model_precision = getattr(model, "precision", None)
+        if model_precision is not None:
+            return model_precision
+    return require_precision(None)
 
 
 def get_sky_storage_dtype(

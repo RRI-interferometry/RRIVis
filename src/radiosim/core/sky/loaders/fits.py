@@ -15,11 +15,8 @@ import healpy as hp
 import numpy as np
 
 from ..containers import SkyProvenance
-from ..containers.constants import (
-    flux_density_to_brightness_temp,
-    rayleigh_jeans_factor,
-)
 from ..registry import loader_registry
+from ..support.brightness import healpix_flux_row_to_brightness_temp
 from ..support.healpix_geometry import pixel_solid_angle
 from ..support.provenance_coverage import coverage_provenance
 from ._healpix_builder import build_healpix_from_stokes_cube
@@ -212,35 +209,6 @@ def _resolve_fits_output_frequencies(
     return final_freqs, src_row_for_out, single_freq_replicate
 
 
-def _slice_to_brightness_temp(
-    hp_map: np.ndarray,
-    *,
-    freq_hz: float,
-    omega_pixel: float,
-    is_stokes_i: bool,
-    is_flux_unit: bool,
-    brightness_conversion: str,
-) -> np.ndarray:
-    """Convert one HEALPix-projected FITS Stokes row to brightness temperature."""
-    if not is_flux_unit:
-        return hp_map
-
-    flux_map = hp_map * omega_pixel
-    if is_stokes_i:
-        pos = flux_map > 0
-        temp_map = np.zeros_like(hp_map)
-        if np.any(pos):
-            temp_map[pos] = flux_density_to_brightness_temp(
-                flux_map[pos],
-                freq_hz,
-                omega_pixel,
-                method=brightness_conversion,
-            )
-        return temp_map
-
-    return flux_map / rayleigh_jeans_factor(freq_hz, omega_pixel)
-
-
 def _reproject_fits_stokes(
     *,
     data: np.ndarray,
@@ -321,7 +289,7 @@ def _reproject_fits_stokes(
                 hp_map = _reproject_slice(sb_2d)
 
                 is_stokes_i = stokes_code == 1 or spec.n_stokes == 1
-                hp_map = _slice_to_brightness_temp(
+                hp_map = healpix_flux_row_to_brightness_temp(
                     hp_map,
                     freq_hz=freq_hz,
                     omega_pixel=spec.omega_pixel,
@@ -412,7 +380,7 @@ def _infer_fits_provenance(
     category="file",
     requires_file=True,
     network_service=None,
-    config_fields={"filename": "filename", "nside": "nside"},
+    config_fields=["filename", "nside"],
 )
 def load_fits_image(
     filename: str,

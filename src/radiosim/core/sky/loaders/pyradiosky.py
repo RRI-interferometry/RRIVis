@@ -18,6 +18,7 @@ from ..support.frequencies import resolve_frequency_config
 from ..support.healpix_geometry import ordered_row
 from ..support.point_builder import point_source_data_from_mapping
 from ..support.quantities import to_value
+from ..support.region_filter import apply_point_region_filter
 from ._healpix_builder import build_healpix_from_stokes_cube, extract_stokes_component
 
 if TYPE_CHECKING:
@@ -65,13 +66,13 @@ class LossyConversionWarning(UserWarning):
     # registry.
     representations=("point_sources", "healpix_map"),
     aliases=["pyradiosky"],
-    config_fields={
-        "filename": "filename",
-        "filetype": "filetype",
-        "flux_limit": "flux_limit",
-        "reference_frequency_hz": "reference_frequency_hz",
-        "spectral_loss_policy": "spectral_loss_policy",
-    },
+    config_fields=[
+        "filename",
+        "filetype",
+        "flux_limit",
+        "reference_frequency_hz",
+        "spectral_loss_policy",
+    ],
 )
 def load_pyradiosky_file(
     filename: str,
@@ -285,14 +286,30 @@ def load_pyradiosky_file(
             else:
                 extra_columns[name] = values
 
-    valid = np.isfinite(stokes_i_ref) & (stokes_i_ref >= flux_limit)
-
-    # Client-side region filter
-    if region is not None:
-        in_region = region.contains(ra_arr, dec_arr)
-        valid = valid & in_region
-
-    n = int(valid.sum())
+    flux_valid = np.isfinite(stokes_i_ref) & (stokes_i_ref >= flux_limit)
+    cols = apply_point_region_filter(
+        {
+            "ra_rad": ra_arr[flux_valid],
+            "dec_rad": dec_arr[flux_valid],
+            "flux": stokes_i_ref[flux_valid],
+            "spectral_index": spectral_indices[flux_valid],
+            "stokes_q": stokes_q[flux_valid],
+            "stokes_u": stokes_u[flux_valid],
+            "stokes_v": stokes_v[flux_valid],
+            "ref_freq": (
+                per_source_ref_freq[flux_valid]
+                if per_source_ref_freq is not None
+                else np.full(int(flux_valid.sum()), ref_freq_hz, dtype=np.float64)
+            ),
+            "source_name": (
+                source_name[flux_valid] if source_name is not None else None
+            ),
+            "source_id": source_id[flux_valid] if source_id is not None else None,
+            **{name: values[flux_valid] for name, values in extra_columns.items()},
+        },
+        region,
+    )
+    n = len(cols["flux"])
 
     model_name = f"pyradiosky:{os.path.basename(filename)}"
     logger.info(f"pyradiosky file loaded: {n:,} sources from {filename}")
@@ -307,33 +324,28 @@ def load_pyradiosky_file(
             reference_frequency=ref_freq_hz,
         )
 
+    spectrum = None
+    if point_spectrum is not None:
+        spectrum = point_spectrum.masked_sources(flux_valid)
+        if region is not None and n < len(spectrum.flux):
+            region_on_flux = region.contains(ra_arr[flux_valid], dec_arr[flux_valid])
+            spectrum = spectrum.masked_sources(region_on_flux)
+
     sky_model = SkyModel(
         point=point_source_data_from_mapping(
             {
-                "ra_rad": ra_arr[valid],
-                "dec_rad": dec_arr[valid],
-                "flux": stokes_i_ref[valid],
-                "spectral_index": spectral_indices[valid],
-                "stokes_q": stokes_q[valid],
-                "stokes_u": stokes_u[valid],
-                "stokes_v": stokes_v[valid],
-                "ref_freq": (
-                    per_source_ref_freq[valid]
-                    if per_source_ref_freq is not None
-                    else np.full(n, ref_freq_hz, dtype=np.float64)
-                ),
-                "source_name": (
-                    source_name[valid] if source_name is not None else None
-                ),
-                "source_id": source_id[valid] if source_id is not None else None,
-                "extra_columns": {
-                    name: values[valid] for name, values in extra_columns.items()
-                },
-                "spectrum": (
-                    point_spectrum.masked_sources(valid)
-                    if point_spectrum is not None
-                    else None
-                ),
+                "ra_rad": cols["ra_rad"],
+                "dec_rad": cols["dec_rad"],
+                "flux": cols["flux"],
+                "spectral_index": cols["spectral_index"],
+                "stokes_q": cols["stokes_q"],
+                "stokes_u": cols["stokes_u"],
+                "stokes_v": cols["stokes_v"],
+                "ref_freq": cols["ref_freq"],
+                "source_name": cols["source_name"],
+                "source_id": cols["source_id"],
+                "extra_columns": {name: cols[name] for name in extra_columns},
+                "spectrum": spectrum,
             },
             precision=precision,
         ),

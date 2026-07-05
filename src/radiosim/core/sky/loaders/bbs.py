@@ -654,7 +654,7 @@ def _build_bbs_sky(
     category="file",
     requires_file=True,
     network_service=None,
-    config_fields={"filename": "filename", "flux_limit": "flux_limit"},
+    config_fields=["filename", "flux_limit"],
 )
 def load_bbs(
     filename: str,

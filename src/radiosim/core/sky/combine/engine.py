@@ -37,6 +37,7 @@ from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX, BrightnessConvers
 from ..containers.model import SkyFormat, SkyModel
 from ..operations.factories import create_empty
 from ..support.point_builder import point_source_data_from_mapping
+from ..support.precision import resolve_combine_precision
 from .concat import concat_point_sources
 from .disjointness import (
     MixedModelPolicy,
@@ -109,7 +110,7 @@ def _combine_as_healpix_merge(
     models: list[SkyModel],
     ref_frequency: float | None,
     brightness_conversion: BrightnessConversion,
-    precision: PrecisionConfig | None,
+    precision: PrecisionConfig,
     *,
     nside: int | None = None,
     frequencies: np.ndarray | None = None,
@@ -185,7 +186,7 @@ def _combine_as_point_sources(
     models: list[SkyModel],
     frequency: float | None,
     brightness_conversion: BrightnessConversion,
-    precision: PrecisionConfig | None,
+    precision: PrecisionConfig,
     allow_lossy_point_materialization: bool,
 ) -> SkyModel:
     """Combine models by concatenating point-source arrays."""
@@ -214,7 +215,7 @@ def _combine_as_hybrid(
     freq: float | None,
     ref_freq: float | None,
     brightness_conversion: BrightnessConversion,
-    precision: PrecisionConfig | None,
+    precision: PrecisionConfig,
     memmap_path: str | None,
     backend: ArrayBackend | None = None,
 ) -> SkyModel:
@@ -362,6 +363,8 @@ def _combine_models(
     SkyModel
         Combined sky model.
     """
+    precision = resolve_combine_precision(precision, models)
+
     if not models:
         return create_empty(
             model_name="combined_empty",

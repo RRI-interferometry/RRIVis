@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from ..registry import loader_registry
+from ..support.precision import require_precision
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -154,6 +155,7 @@ def load_models_parallel(
     executor
         ``"thread"`` (default) or ``"process"``. See above.
     """
+    precision = require_precision(precision)
     n = min(len(loaders), max_workers)
     results: list[SkyModel | None] = [None] * len(loaders)
     failures: list[SkyLoadError] = []

@@ -23,9 +23,9 @@ from radiosim.core.sky.containers.constants import (
     flux_density_to_brightness_temp,
 )
 from radiosim.core.sky.containers.model import SkyFormat
-from radiosim.core.sky.loaders.skyh5_multifile import _stokes_slice_to_kelvin
 from radiosim.core.sky.operations.region import ConeRegion
 from radiosim.core.sky.registry import loader_registry
+from radiosim.core.sky.support.brightness import skyh5_stokes_slice_to_kelvin
 
 # Trigger lazy registration of built-in loaders (including skyh5_multifile).
 loader_registry.names()
@@ -118,7 +118,7 @@ def _write_point_skyh5(
 
 def test_stokes_slice_to_kelvin_converts_jy_per_sr_with_rayleigh_jeans():
     stokes_slice = np.array([[1.0, 2.0], [0.1, 0.2]], dtype=np.float64)
-    converted = _stokes_slice_to_kelvin(
+    converted = skyh5_stokes_slice_to_kelvin(
         stokes_slice,
         unit="Jy / sr",
         freq_hz=150e6,

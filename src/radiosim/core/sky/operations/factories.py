@@ -21,20 +21,12 @@ from ..containers import (
 from ..containers.constants import BrightnessConversion
 from ..containers.model import SkyModel
 from ..support.point_builder import point_source_data_from_mapping
+from ..support.precision import require_precision as _require_precision
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
 logger = logging.getLogger(__name__)
-
-
-def _require_precision(precision: PrecisionConfig | None) -> PrecisionConfig:
-    if precision is None:
-        raise ValueError(
-            "Sky model construction requires an explicit PrecisionConfig. "
-            "Pass precision=... at the loader or constructor boundary."
-        )
-    return precision
 
 
 def create_empty(

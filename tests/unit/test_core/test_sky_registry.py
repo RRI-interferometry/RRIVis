@@ -410,6 +410,32 @@ class TestPublicBoundary:
         assert cfg.assume_disjoint is True
 
 
+class TestConfigFieldsListShorthand:
+    def test_list_shorthand_normalizes_to_identity_mapping(self):
+        @loader_registry.register_loader(
+            "_test_list_fields",
+            config_fields=["filename", "nside"],
+        )
+        def _dummy(**kwargs):
+            return kwargs
+
+        try:
+            definition = loader_registry.definition("_test_list_fields")
+            assert definition.config_fields == {
+                "filename": "filename",
+                "nside": "nside",
+            }
+        finally:
+            registry_core._REGISTRY.unregister("_test_list_fields")
+
+    def test_builtin_fits_loader_uses_list_shorthand(self):
+        definition = loader_registry.definition("fits_image")
+        assert definition.config_fields == {
+            "filename": "filename",
+            "nside": "nside",
+        }
+
+
 class TestExecutorRecommendation:
     def test_thread_for_pure_catalog_loads(self):
         from radiosim.core.sky.operations.parallel import (

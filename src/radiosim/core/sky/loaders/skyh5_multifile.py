@@ -30,6 +30,7 @@ from radiosim.utils.frequency import parse_frequency_config
 from ..containers.model import SkyModel
 from ..registry import loader_registry
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
+from ..support.brightness import skyh5_stokes_slice_to_kelvin
 from ..support.healpix_geometry import ordered_row
 from ..support.point_builder import point_source_data_from_mapping
 from ..support.precision import get_sky_storage_dtype
@@ -241,25 +242,6 @@ def _maybe_cross_check_frequencies(
         )
 
 
-def _stokes_slice_to_kelvin(
-    stokes_slice: np.ndarray,
-    *,
-    unit: str,
-    freq_hz: float,
-) -> np.ndarray:
-    """Convert a skyh5 Stokes slice from Jy/sr to K_RJ when required."""
-    if unit != "Jy / sr":
-        return stokes_slice
-    from ..containers.constants import flux_density_to_brightness_temp
-
-    return flux_density_to_brightness_temp(
-        stokes_slice,
-        freq_hz,
-        1.0,
-        method="rayleigh-jeans",
-    )
-
-
 @loader_registry.register_loader(
     "skyh5_multifile",
     representations=("point_sources", "healpix_map"),
@@ -269,12 +251,12 @@ def _stokes_slice_to_kelvin(
     requires_file=True,
     network_service=None,
     aliases=["pyradiosky_multifile"],
-    config_fields={
-        "file_glob": "file_glob",
-        "filenames": "filenames",
-        "brightness_conversion": "brightness_conversion",
-        "reference_frequency_hz": "reference_frequency_hz",
-    },
+    config_fields=[
+        "file_glob",
+        "filenames",
+        "brightness_conversion",
+        "reference_frequency_hz",
+    ],
 )
 def load_skyh5_multifile(
     file_glob: str | None = None,
@@ -472,7 +454,7 @@ def _load_healpix_branch(
                 stokes = f["Data/stokes"]
                 unit = _decode_bytes(stokes.attrs.get("unit", ""))
                 stokes_slice = np.asarray(stokes[:, 0, :], dtype=np.float64)
-            stokes_slice = _stokes_slice_to_kelvin(
+            stokes_slice = skyh5_stokes_slice_to_kelvin(
                 stokes_slice,
                 unit=unit,
                 freq_hz=float(sorted_freqs[fi]),

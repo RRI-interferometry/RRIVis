@@ -1,4 +1,19 @@
-"""Sky region filter for spatial subsetting of sky models."""
+"""Sky region filter for spatial subsetting of sky models.
+
+Loader integration follows a dual convention (see
+:mod:`radiosim.core.sky.support.region_filter`):
+
+- **Network catalogs** (VizieR, RACS) push spatial constraints into the
+  remote query, then apply a client-side trim so results match RadioSim
+  region semantics exactly.
+- **File and synthetic loaders** apply client-side filtering after the
+  table or map is built (point paths via
+  :func:`~radiosim.core.sky.support.region_filter.apply_point_region_filter`,
+  HEALPix paths via mask cropping).
+
+Use :meth:`~radiosim.core.sky.containers.model.SkyModel.filter_region` to
+subset an already-built model with the same semantics.
+"""
 
 from __future__ import annotations
 

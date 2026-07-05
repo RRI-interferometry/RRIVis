@@ -241,6 +241,10 @@ def healpix_map_to_point_arrays(
         ``"stokes_v"``.
         All arrays have shape ``(N,)`` where N is the number of valid pixels.
     """
+    if precision is None:
+        from radiosim.core.precision import PrecisionConfig
+
+        precision = PrecisionConfig.standard()
     pol_method = str(polarization_brightness_conversion).lower()
     if pol_method not in {"rayleigh-jeans", "planck"}:
         raise ValueError(

@@ -24,6 +24,10 @@ from radiosim.core.sky.containers import (
 from radiosim.core.sky.containers.constants import SYNCHROTRON_SPECTRAL_INDEX
 from radiosim.core.sky.operations.region import BoxRegion
 from radiosim.core.sky.support.backend_helpers import maybe_asarray
+from radiosim.core.sky.support.brightness import (
+    healpix_flux_row_to_brightness_temp,
+    skyh5_stokes_slice_to_kelvin,
+)
 from radiosim.core.sky.support.frequencies import resolve_frequency_config
 from radiosim.core.sky.support.healpix_geometry import (
     close_memmap,
@@ -34,8 +38,16 @@ from radiosim.core.sky.support.healpix_geometry import (
     scale_flux_power_law,
 )
 from radiosim.core.sky.support.point_builder import point_source_data_from_mapping
+from radiosim.core.sky.support.precision import (
+    require_precision,
+    resolve_combine_precision,
+)
 from radiosim.core.sky.support.provenance_coverage import coverage_provenance
 from radiosim.core.sky.support.quantities import to_value
+from radiosim.core.sky.support.region_filter import (
+    apply_point_region_filter,
+    deduplicate_union_point_sources,
+)
 
 # ---------------------------------------------------------------------------
 # backend_helpers.maybe_asarray
@@ -536,6 +548,165 @@ def test_point_source_data_from_mapping_optional_sub_blocks():
     assert psd.morphology is not None
     assert psd.metadata is not None
     np.testing.assert_array_equal(psd.morphology.major_arcsec, [10.0, 10.0, 10.0])
+
+
+# ---------------------------------------------------------------------------
+# precision.require_precision / resolve_combine_precision
+# ---------------------------------------------------------------------------
+
+
+def test_require_precision_raises_on_none():
+    with pytest.raises(ValueError, match="explicit PrecisionConfig"):
+        require_precision(None)
+
+
+def test_resolve_combine_precision_from_models():
+    from radiosim.core.sky.operations.factories import create_from_arrays
+
+    precision = PrecisionConfig.standard()
+    model = create_from_arrays(
+        ra_rad=[0.1],
+        dec_rad=[0.2],
+        flux=[1.0],
+        precision=precision,
+    )
+    resolved = resolve_combine_precision(None, [model])
+    assert resolved is precision
+
+
+def test_combine_models_empty_without_precision_raises():
+    from radiosim.core.sky.combine.engine import _combine_models
+
+    with pytest.raises(ValueError, match="explicit PrecisionConfig"):
+        _combine_models([], precision=None)
+
+
+def test_resolve_combine_precision_prefers_explicit():
+    from radiosim.core.sky.operations.factories import create_from_arrays
+
+    precision = PrecisionConfig.standard()
+    fast = PrecisionConfig.fast()
+    model = create_from_arrays(
+        ra_rad=[0.1],
+        dec_rad=[0.2],
+        flux=[1.0],
+        precision=fast,
+    )
+    resolved = resolve_combine_precision(precision, [model])
+    assert resolved is precision
+
+
+# ---------------------------------------------------------------------------
+# region_filter.apply_point_region_filter / deduplicate_union_point_sources
+# ---------------------------------------------------------------------------
+
+
+def test_apply_point_region_filter_matches_manual_mask():
+    region = BoxRegion(ra_deg=180.0, dec_deg=0.0, width_deg=20.0, height_deg=20.0)
+    ra = np.deg2rad(np.array([170.0, 180.0, 190.0]))
+    dec = np.deg2rad(np.array([0.0, 0.0, 0.0]))
+    flux = np.array([1.0, 2.0, 3.0])
+    manual = region.contains(ra, dec)
+    filtered = apply_point_region_filter(
+        {"ra_rad": ra, "dec_rad": dec, "flux": flux},
+        region,
+    )
+    np.testing.assert_array_equal(filtered["ra_rad"], ra[manual])
+    np.testing.assert_array_equal(filtered["dec_rad"], dec[manual])
+    np.testing.assert_array_equal(filtered["flux"], flux[manual])
+
+
+def test_deduplicate_union_point_sources_prefers_source_id():
+    arrays = {
+        "ra_rad": np.array([0.1, 0.2, 0.1]),
+        "dec_rad": np.array([0.3, 0.4, 0.3]),
+        "flux": np.array([1.0, 2.0, 3.0]),
+        "source_id": np.array(["a", "b", "a"]),
+    }
+    deduped = deduplicate_union_point_sources(arrays)
+    assert deduped["flux"].tolist() == [1.0, 2.0]
+
+
+def test_vizier_region_filter_equivalent_to_shared_helper():
+    from radiosim.core.sky.loaders.vizier.core import (
+        _apply_region_and_dedup,
+        _VizierSources,
+    )
+    from radiosim.core.sky.operations.region import SkyRegion
+
+    ra = np.deg2rad(np.array([10.0, 20.0, 30.0]))
+    dec = np.deg2rad(np.array([-10.0, 0.0, 10.0]))
+    sources = _VizierSources(
+        ra_rad=ra,
+        dec_rad=dec,
+        flux_jy=np.array([1.0, 2.0, 3.0]),
+        spectral_index=np.full(3, -0.7),
+        source_name=np.array(["s1", "s2", "s3"]),
+        source_id=np.array(["id1", "id2", "id3"]),
+        major_arcsec=None,
+        minor_arcsec=None,
+        pa_deg=None,
+    )
+    region = SkyRegion.union(
+        [
+            SkyRegion.cone(10.0, -10.0, 5.0),
+            SkyRegion.cone(30.0, 10.0, 5.0),
+        ]
+    )
+    via_helper = _apply_region_and_dedup(sources=sources, region=region)
+    manual = apply_point_region_filter(
+        {
+            "ra_rad": sources.ra_rad,
+            "dec_rad": sources.dec_rad,
+            "flux_jy": sources.flux_jy,
+            "spectral_index": sources.spectral_index,
+            "source_name": sources.source_name,
+            "source_id": sources.source_id,
+            "major_arcsec": sources.major_arcsec,
+            "minor_arcsec": sources.minor_arcsec,
+            "pa_deg": sources.pa_deg,
+        },
+        region,
+    )
+    manual = deduplicate_union_point_sources(manual)
+    assert via_helper.n_sources == len(manual["flux_jy"])
+    np.testing.assert_array_equal(via_helper.flux_jy, manual["flux_jy"])
+
+
+# ---------------------------------------------------------------------------
+# brightness conversion helpers
+# ---------------------------------------------------------------------------
+
+
+def test_healpix_flux_row_to_brightness_temp_stokes_i():
+    freq = 150e6
+    omega = 1.0
+    hp_map = np.array([0.0, 1.0, 2.0])
+    out = healpix_flux_row_to_brightness_temp(
+        hp_map,
+        freq_hz=freq,
+        omega_pixel=omega,
+        is_stokes_i=True,
+        is_flux_unit=True,
+        brightness_conversion="rayleigh-jeans",
+    )
+    assert out[0] == 0.0
+    assert out[1] > 0.0
+    assert out[2] > out[1]
+
+
+def test_skyh5_stokes_slice_to_kelvin_passthrough_non_jy_per_sr():
+    data = np.array([1.0, 2.0])
+    np.testing.assert_array_equal(
+        skyh5_stokes_slice_to_kelvin(data, unit="K", freq_hz=150e6),
+        data,
+    )
+
+
+def test_skyh5_stokes_slice_to_kelvin_converts_jy_per_sr():
+    data = np.array([1.0])
+    out = skyh5_stokes_slice_to_kelvin(data, unit="Jy / sr", freq_hz=150e6)
+    assert out[0] > 0.0
 
 
 def test_point_source_data_from_mapping_matches_create_from_arrays():

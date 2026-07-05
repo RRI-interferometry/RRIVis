@@ -579,10 +579,15 @@ class SkyModel:
         """Return a new SkyModel containing only sources/pixels within *region*.
 
         For point-source data, applies a boolean mask to all columnar
-        arrays.  For HEALPix data, crops to a sparse representation that
-        stores only the in-region pixels (use ``healpix.to_dense()``
-        afterwards if a full-grid array is required).
+        arrays (same semantics as
+        :func:`~radiosim.core.sky.support.region_filter.apply_point_region_filter`
+        used by file loaders).  For HEALPix data, crops to a sparse
+        representation that stores only the in-region pixels (use
+        ``healpix.to_dense()`` afterwards if a full-grid array is required).
         When both representations are present, both are filtered.
+
+        Network catalog loaders may pre-filter at the server; this method is
+        the client-side post-build convention for models already in memory.
 
         Does **not** mutate ``self`` -- always returns a new instance.
 

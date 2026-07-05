@@ -32,7 +32,7 @@ from ..containers.spectral import (
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ..support.backend_helpers import maybe_asarray
 from ..support.healpix_geometry import pixel_solid_angle
-from ..support.precision import get_sky_storage_dtype
+from ..support.precision import get_sky_storage_dtype, resolve_combine_precision
 from .regrid import (
     _format_healpix_freq_grid,
     _point_source_healpix_indices,
@@ -290,6 +290,7 @@ def combine_healpix(
     ValueError
         If HEALPix models have mismatched nside or frequency grids.
     """
+    precision = resolve_combine_precision(precision, models)
     # Validate all healpix_map models share the same nside and
     # frequency grid before doing element-wise arithmetic.
     healpix_models = [m for m in models if m.healpix is not None]

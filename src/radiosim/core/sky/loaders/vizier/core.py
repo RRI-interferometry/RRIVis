@@ -22,6 +22,10 @@ from radiosim.utils.network import require_service
 from ...operations.factories import create_empty, create_from_arrays
 from ...operations.region import SkyRegion
 from ...registry import VIZIER_POINT_CATALOGS, VizierCatalogEntry
+from ...support.region_filter import (
+    apply_point_region_filter,
+    deduplicate_union_point_sources,
+)
 from .provenance import _build_point_catalog_provenance
 
 if TYPE_CHECKING:
@@ -395,57 +399,33 @@ def _apply_region_and_dedup(
     if region is None or sources.n_sources == 0:
         return sources
 
-    in_region = region.contains(sources.ra_rad, sources.dec_rad)
-    ra_rad = sources.ra_rad[in_region]
-    dec_rad = sources.dec_rad[in_region]
-    flux_jy = sources.flux_jy[in_region]
-    alpha_arr = sources.spectral_index[in_region]
-    source_name = (
-        sources.source_name[in_region] if sources.source_name is not None else None
+    filtered = apply_point_region_filter(
+        {
+            "ra_rad": sources.ra_rad,
+            "dec_rad": sources.dec_rad,
+            "flux_jy": sources.flux_jy,
+            "spectral_index": sources.spectral_index,
+            "source_name": sources.source_name,
+            "source_id": sources.source_id,
+            "major_arcsec": sources.major_arcsec,
+            "minor_arcsec": sources.minor_arcsec,
+            "pa_deg": sources.pa_deg,
+        },
+        region,
     )
-    source_id = sources.source_id[in_region] if sources.source_id is not None else None
-    gauss_major = (
-        sources.major_arcsec[in_region] if sources.major_arcsec is not None else None
-    )
-    gauss_minor = (
-        sources.minor_arcsec[in_region] if sources.minor_arcsec is not None else None
-    )
-    gauss_pa = sources.pa_deg[in_region] if sources.pa_deg is not None else None
-
-    n = len(flux_jy)
-    if n > 0 and len(region._iter_atomic()) > 1:
-        unique_idx = None
-        if source_id is not None and np.all(source_id != ""):
-            _, unique_idx = np.unique(source_id, return_index=True)
-        elif source_name is not None and np.all(source_name != ""):
-            _, unique_idx = np.unique(source_name, return_index=True)
-        else:
-            coords_key = np.round(np.column_stack([ra_rad, dec_rad]), decimals=8)
-            _, unique_idx = np.unique(coords_key, axis=0, return_index=True)
-        unique_idx = np.sort(unique_idx)
-        ra_rad = ra_rad[unique_idx]
-        dec_rad = dec_rad[unique_idx]
-        flux_jy = flux_jy[unique_idx]
-        alpha_arr = alpha_arr[unique_idx]
-        if source_name is not None:
-            source_name = source_name[unique_idx]
-        if source_id is not None:
-            source_id = source_id[unique_idx]
-        if gauss_major is not None:
-            gauss_major = gauss_major[unique_idx]
-            gauss_minor = gauss_minor[unique_idx]
-            gauss_pa = gauss_pa[unique_idx]
+    if len(region._iter_atomic()) > 1:
+        filtered = deduplicate_union_point_sources(filtered)
 
     return _VizierSources(
-        ra_rad=ra_rad,
-        dec_rad=dec_rad,
-        flux_jy=flux_jy,
-        spectral_index=alpha_arr,
-        source_name=source_name,
-        source_id=source_id,
-        major_arcsec=gauss_major,
-        minor_arcsec=gauss_minor,
-        pa_deg=gauss_pa,
+        ra_rad=filtered["ra_rad"],
+        dec_rad=filtered["dec_rad"],
+        flux_jy=filtered["flux_jy"],
+        spectral_index=filtered["spectral_index"],
+        source_name=filtered["source_name"],
+        source_id=filtered["source_id"],
+        major_arcsec=filtered["major_arcsec"],
+        minor_arcsec=filtered["minor_arcsec"],
+        pa_deg=filtered["pa_deg"],
     )
 
 
@@ -482,7 +462,9 @@ def _load_from_vizier_catalog(
     region : SkyRegion, optional
         If given, only sources inside this sky region are loaded.
         Uses VizieR ``query_region()`` for server-side spatial
-        filtering, then applies a client-side trim.
+        filtering, then applies a client-side trim via
+        :func:`~radiosim.core.sky.support.region_filter.apply_point_region_filter`
+        (and union deduplication when the region is a multi-cone union).
 
     Returns
     -------

@@ -64,7 +64,14 @@ def _normalize_representations(
 def _normalize_config_fields(
     config_fields: Mapping[str, str] | Sequence[str] | None,
 ) -> dict[str, str]:
-    """Normalize config field metadata to loader-kwarg mapping form."""
+    """Normalize config field metadata to loader-kwarg mapping form.
+
+    ``config_fields`` accepts either an explicit ``{loader_kwarg: config_key}``
+    mapping or a **list shorthand**: a sequence of loader argument names where
+    each name is also the YAML config key (``["filename", "nside"]`` →
+    ``{"filename": "filename", "nside": "nside"}``). Use the list form when
+    the mapping is identity to reduce registration boilerplate.
+    """
 
     if config_fields is None:
         return {}
@@ -365,6 +372,10 @@ def register_loader(
     config_fields: Mapping[str, str] | Sequence[str] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator used by loader modules to register themselves.
+
+    ``config_fields`` may be a mapping or a **list shorthand** of loader
+    argument names (each name doubles as the YAML config key). See
+    :func:`_normalize_config_fields`.
 
     Internal helper — call ``loader_registry.register_loader(...)`` from the
     public facade rather than importing this directly.

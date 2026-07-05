@@ -12,7 +12,7 @@ from ..containers import empty_source_arrays
 from ..containers.constants import BrightnessConversion
 from ..containers.spectral import per_source_reference_frequencies
 from ..operations.operations import materialize_point_sources_model
-from ..support.precision import get_sky_storage_dtype
+from ..support.precision import get_sky_storage_dtype, resolve_combine_precision
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
@@ -229,6 +229,7 @@ def concat_point_sources(
         Array values are ``np.ndarray``; optional fields are ``None`` when no
         model contributes data.  An empty-model result has zero-length arrays.
     """
+    precision = resolve_combine_precision(precision, models)
     src_dt = get_sky_storage_dtype(precision, "source_positions")
     flux_dt = get_sky_storage_dtype(precision, "flux")
     si_dt = get_sky_storage_dtype(precision, "spectral_index")
