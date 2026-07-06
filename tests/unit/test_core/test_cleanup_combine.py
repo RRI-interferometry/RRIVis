@@ -677,3 +677,35 @@ def test_prepare_sky_model_resolves_target_once(monkeypatch):
         precision=_precision(),
     )
     assert len(calls) == 1
+
+
+def test_prepare_sky_model_resolves_target_once_hybrid_path(monkeypatch):
+    """Auto-detect hybrid combine resolves target representation only once."""
+    import radiosim.core.sky.combine.engine as engine
+    import radiosim.core.sky.combine.pipeline as pipeline
+
+    calls: list[tuple[object, object]] = []
+    original = engine.resolve_target_representation
+
+    def spy_resolve(models, requested):
+        calls.append((models, requested))
+        return original(models, requested)
+
+    monkeypatch.setattr(engine, "resolve_target_representation", spy_resolve)
+    monkeypatch.setattr(pipeline, "resolve_target_representation", spy_resolve)
+
+    freqs = np.array([150e6])
+    diffuse = _healpix_sky(nside=8, frequencies=freqs, fill=2.0, name="d")
+    catalog = _point_sky(ra=0.3, dec=0.2, flux=1.0, ref_freq=150e6, name="c")
+
+    from radiosim.core.sky import prepare_sky_model
+
+    result = prepare_sky_model(
+        [diffuse, catalog],
+        assume_disjoint=True,
+        precision=_precision(),
+    )
+    assert len(calls) == 1
+    assert calls[0][1] is None
+    assert result.point is not None
+    assert result.healpix is not None
