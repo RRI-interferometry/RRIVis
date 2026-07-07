@@ -24,10 +24,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import healpy as hp
 import numpy as np
 
 from ..containers._shared import validate_frequency_axis
+from ..support.healpy import lazy_healpy as hp
 
 logger = logging.getLogger(__name__)
 

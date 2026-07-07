@@ -10,6 +10,7 @@ module paths.
 from __future__ import annotations
 
 from ..containers._shared import validate_frequency_axis
+from . import healpix_geometry
 from .frequencies import resolve_frequency_config
 from .healpix_geometry import pixel_solid_angle
 from .point_builder import point_source_data_from_mapping
@@ -17,6 +18,7 @@ from .precision import get_sky_storage_dtype, require_precision
 from .region_filter import apply_point_region_filter
 
 __all__ = [
+    "healpix_geometry",
     "apply_point_region_filter",
     "get_sky_storage_dtype",
     "pixel_solid_angle",

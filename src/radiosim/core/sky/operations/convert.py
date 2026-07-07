@@ -9,7 +9,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import healpy as hp
 import numpy as np
 import numpy.typing as npt
 
@@ -29,6 +28,7 @@ from ..diagnostics.discovery import estimate_healpix_memory
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ..support.backend_helpers import maybe_asarray
 from ..support.healpix_geometry import pixel_solid_angle
+from ..support.healpy import lazy_healpy as hp
 from ..support.precision import get_sky_storage_dtype
 
 if TYPE_CHECKING:

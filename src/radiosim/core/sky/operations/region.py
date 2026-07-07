@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 
-import healpy as hp
 import numpy as np
 from astropy.coordinates import Angle, SkyCoord
 
@@ -31,6 +30,7 @@ from ..containers.footprint import (
     _normalize_coordinate_frame,
 )
 from ..support.healpix_geometry import pixel_solid_angle
+from ..support.healpy import lazy_healpy as hp
 
 logger = logging.getLogger(__name__)
 

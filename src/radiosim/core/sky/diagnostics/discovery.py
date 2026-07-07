@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import healpy as hp
 import numpy as np
 
 from ..support.healpix_geometry import pixel_solid_angle
+from ..support.healpy import lazy_healpy as hp
 
 
 def estimate_healpix_memory(

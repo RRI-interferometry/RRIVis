@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import gc
 
-import healpy as hp
 import numpy as np
 
 from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX
+from .healpy import lazy_healpy as hp
 
 #: Clamp floor for the angular-distance cosine in the gnomonic projection.
 #: Preserved verbatim from ``subtraction._gnomonic_patch_coords`` so the

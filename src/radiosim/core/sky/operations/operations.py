@@ -12,7 +12,6 @@ import tempfile
 import warnings
 from typing import TYPE_CHECKING, Any
 
-import healpy as hp
 import numpy as np
 
 from radiosim.utils.frequency import parse_frequency_config
@@ -23,6 +22,7 @@ from ..containers import (
 )
 from ..containers.constants import BrightnessConversion
 from ..containers.spectral import per_source_reference_frequencies
+from ..support.healpy import lazy_healpy as hp
 from ..support.point_builder import point_source_data_from_mapping
 from .convert import (
     HealpixConversionConfig,

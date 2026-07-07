@@ -25,7 +25,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import astropy.units as u
-import healpy as hp
 import numpy as np
 
 from radiosim.utils.frequency import parse_frequency_config
@@ -35,6 +34,7 @@ from ..registry import loader_registry
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ..support.brightness import skyh5_stokes_slice_to_kelvin
 from ..support.healpix_geometry import ordered_row
+from ..support.healpy import lazy_healpy as hp
 from ..support.point_builder import point_source_data_from_mapping
 from ..support.precision import get_sky_storage_dtype
 from ..support.quantities import to_value

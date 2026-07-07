@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import healpy as hp
 import numpy as np
 
 from radiosim.utils.frequency import parse_frequency_config
 
 from ..containers import PointSourceData
+from ..support.healpy import lazy_healpy as hp
 
 if TYPE_CHECKING:
     from ..containers.model import SkyModel

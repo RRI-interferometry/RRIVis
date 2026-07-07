@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import healpy as hp
 import numpy as np
 from pydantic import field_validator, model_validator
 from pydantic.dataclasses import dataclass
 
+from ..support.healpy import lazy_healpy as hp
 from ._shared import (
     _FROZEN_NDARRAY_CONFIG,
     _arrays_equal,

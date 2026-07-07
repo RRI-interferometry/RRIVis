@@ -6,13 +6,13 @@ import logging
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Literal
 
-import healpy as hp
 import numpy as np
 
 from ..containers import HealpixData
 from ..containers._shared import validate_frequency_axis
 from ..support import allocation as _allocation
 from ..support.healpix_geometry import close_memmap
+from ..support.healpy import lazy_healpy as hp
 from ..support.precision import get_sky_storage_dtype, require_precision
 
 if TYPE_CHECKING:

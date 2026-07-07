@@ -14,7 +14,6 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import healpy as hp
 import numpy as np
 
 from ..containers import SourceSubtractionStatus
@@ -23,6 +22,7 @@ from ..containers.constants import (
     flux_density_to_brightness_temp,
 )
 from ..support.healpix_geometry import gnomonic_rotate, pixel_solid_angle
+from ..support.healpy import lazy_healpy as hp
 
 if TYPE_CHECKING:
     from ..containers.model import SkyModel

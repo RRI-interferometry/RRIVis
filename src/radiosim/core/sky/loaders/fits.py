@@ -15,13 +15,13 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import healpy as hp
 import numpy as np
 
 from ..containers import SkyProvenance
 from ..registry import loader_registry
 from ..support.brightness import healpix_flux_row_to_brightness_temp
 from ..support.healpix_geometry import pixel_solid_angle
+from ..support.healpy import lazy_healpy as hp
 from ..support.provenance_coverage import coverage_provenance
 from ._healpix_builder import build_healpix_from_stokes_cube
 

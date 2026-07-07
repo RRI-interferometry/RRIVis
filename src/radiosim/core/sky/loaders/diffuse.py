@@ -10,9 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-import healpy as hp
 import numpy as np
-from healpy.rotator import Rotator
 
 from radiosim.utils.network import require_service
 
@@ -23,6 +21,8 @@ from ..containers import (
 )
 from ..registry import DIFFUSE_MODELS, diffuse_sky_loader_registration, loader_registry
 from ..support.frequencies import resolve_frequency_config
+from ..support.healpy import healpy_rotator
+from ..support.healpy import lazy_healpy as hp
 from ..support.provenance_coverage import coverage_provenance
 from ._healpix_builder import build_healpix_from_stokes_cube
 
@@ -285,7 +285,7 @@ def load_diffuse_sky(
     pygdsm_instance = _instantiate_pygdsm(model, model_class, init_kwargs)
 
     npix = hp.nside2npix(nside)
-    rot = Rotator(coord=["G", "C"])
+    rot = healpy_rotator(coord=["G", "C"])
     first_full_sky_mean: float | None = None
 
     def _iter_stokes_rows():
@@ -637,7 +637,7 @@ def load_pysm3(
             "NERSC portal (portal.nersc.gov) is reachable."
         ) from e
     npix = hp.nside2npix(nside)
-    rot = Rotator(coord=["G", "C"])
+    rot = healpy_rotator(coord=["G", "C"])
     first_full_sky_mean: float | None = None
 
     def _iter_stokes_rows():
