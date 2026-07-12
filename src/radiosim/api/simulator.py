@@ -620,7 +620,9 @@ class Simulator:
             nside=nside,
             frequency=frequency,
             frequencies=self._frequencies_hz,
-            obs_frequency_config=self.config.get("obs_frequency", {}),
+            # Frequencies are already resolved from obs_frequency above;
+            # passing the config dict too violates PrepareSkyOptions XOR rule.
+            obs_frequency_config=None,
             allow_lossy=allow_lossy_point_materialization,
             mixed_model_policy=mixed_model_policy,
             assume_disjoint=assume_disjoint,
