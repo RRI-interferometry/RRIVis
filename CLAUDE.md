@@ -176,6 +176,15 @@ To add a new Jones term: extend `JonesTerm` (or `JonesBaselineTerm`), implement 
 - **Type checker**: MyPy (check_untyped_defs=true, ignore_missing_imports=true)
 - **Commits**: Conventional format (`feat:`, `fix:`, `refactor:`, `test:`, `chore:`). Never include co-authored-by lines.
 
+### Git workflow
+
+After completing and verifying any small, coherent task that changes repository
+files, create a local commit automatically before handing the work back. Do not
+wait for a separate request to commit. Keep each commit narrowly scoped and use
+the conventional message format above. Never push, create a pull request, or
+otherwise publish commits without first asking the user and receiving explicit
+approval.
+
 ## Configuration
 
 YAML config validated by Pydantic. See `configs/` for examples. Sections checked by `RadioSimConfig.validate()` (the pre-flight collector): `telescope`, `antenna_layout`, `beams` (`beam_mode`), `location`, `obs_time`, `obs_frequency`, `sky_model`, `visibility` (`sky_representation`), `output`. **`sky_model.flux_unit`** is required (Jy/mJy/uJy) — all flux limits in config use this unit. Config classes in `io/config.py`, top-level is `RadioSimConfig`.
