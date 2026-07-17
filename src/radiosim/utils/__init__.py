@@ -11,7 +11,6 @@ from radiosim.utils.cosmology import (
     redshift_to_frequency_21cm,
 )
 from radiosim.utils.device import DeviceResources, get_device_resources
-from radiosim.utils.frequency import parse_frequency_config
 from radiosim.utils.logging import get_logger, setup_logging
 from radiosim.utils.network import (
     NetworkStatus,
@@ -19,19 +18,16 @@ from radiosim.utils.network import (
     check_service,
     is_online,
 )
-from radiosim.utils.validation import validate_config
 
 __all__ = [
     "setup_logging",
     "get_logger",
-    "validate_config",
     "NetworkStatus",
     "is_online",
     "check_service",
     "check_all_services",
     "DeviceResources",
     "get_device_resources",
-    "parse_frequency_config",
     "F_21CM_HZ",
     "frequency_to_redshift_21cm",
     "redshift_to_frequency_21cm",

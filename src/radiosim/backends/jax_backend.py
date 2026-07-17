@@ -1,19 +1,14 @@
-"""JAX-based GPU/TPU backend.
+"""Lower-level JAX array backend.
 
-This backend supports automatic differentiation and universal hardware acceleration:
-- NVIDIA GPUs (CUDA)
-- AMD GPUs (ROCm)
-- Apple Silicon (Metal)
-- Google TPUs
-- Intel GPUs (OneAPI, experimental)
-
-JAX automatically detects and uses the best available hardware.
+Available devices depend on the installed JAX build and local runtime. Selecting
+this backend controls its array operations; it does not establish that every
+high-level Simulator kernel remains on that device.
 
 Usage:
     >>> from radiosim.backends import get_backend
-    >>> backend = get_backend("jax")  # Auto-detect GPU/TPU
+    >>> backend = get_backend("jax", device="cpu")
     >>> backend.name
-    'jax-gpu-cuda'  # or 'jax-gpu-metal', 'jax-tpu', etc.
+    'jax-cpu-cpu'
 
 With precision control:
     >>> from radiosim.core.precision import PrecisionConfig
@@ -45,25 +40,25 @@ except ImportError:
 
 
 class JAXBackend(ArrayBackend):
-    """JAX-based universal GPU/TPU backend.
+    """JAX array backend for a requested available device.
 
-    This backend uses JAX for hardware-accelerated array operations.
+    This backend uses JAX for its own array operations. Device availability and
+    behavior come from the installed JAX runtime.
     JAX provides:
     - Automatic differentiation (for Bayesian inference workflows)
-    - JIT compilation (for performance)
-    - Universal hardware support (NVIDIA, AMD, Apple, Google TPU)
+    - JIT compilation
+    - Vectorization
 
     Features:
     - Automatic device detection
-    - XLA compilation for optimal performance
+    - XLA compilation
     - Gradient computation for optimization
-    - Multi-device support (pmap)
     - Precision control (float32/float64 only; float128 falls back to float64)
 
     Example:
-        >>> backend = JAXBackend(device="gpu")
+        >>> backend = JAXBackend(device="cpu")
         >>> arr = backend.asarray([1, 2, 3], dtype=jnp.float32)
-        >>> result = backend.exp(arr)  # Runs on GPU
+        >>> result = backend.exp(arr)
 
         # With precision control:
         >>> from radiosim.core.precision import PrecisionConfig
@@ -193,12 +188,7 @@ class JAXBackend(ArrayBackend):
     # =========================================================================
 
     def matmul(self, a: Any, b: Any) -> Any:
-        """Matrix multiplication (GPU-accelerated).
-
-        Uses optimized libraries:
-        - cuBLAS (NVIDIA)
-        - rocBLAS (AMD)
-        - Metal Performance Shaders (Apple)
+        """Matrix multiplication on the selected JAX device.
 
         Args:
             a: First matrix

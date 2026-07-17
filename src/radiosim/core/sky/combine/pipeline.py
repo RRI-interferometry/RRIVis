@@ -50,9 +50,8 @@ def prepare_sky_model(
        arguments. They are applied as overrides on top of the supplied
        (or default) options object.
 
-    Cross-field rules — e.g. ``frequencies`` xor ``obs_frequency_config``
-    — are validated at the :class:`PrepareSkyOptions` constructor before
-    any combine work runs.
+    Frequency arrays and other cross-field rules are validated at the
+    :class:`PrepareSkyOptions` constructor before any combine work runs.
 
     See :class:`PrepareSkyOptions` for the full field catalogue.
     """
@@ -66,7 +65,6 @@ def prepare_sky_model(
     nside = opts.nside
     frequencies = opts.frequencies
     frequency = opts.frequency
-    obs_frequency_config = opts.obs_frequency_config
     allow_lossy = opts.allow_lossy
     mixed_model_policy = opts.mixed_model_policy
     assume_disjoint = opts.assume_disjoint
@@ -84,10 +82,7 @@ def prepare_sky_model(
     # concrete ``SkyFormat`` to materialize/preserve.
     target = resolve_target_representation(models, representation)
 
-    requested_freqs = _resolve_requested_healpix_frequencies(
-        frequencies,
-        obs_frequency_config,
-    )
+    requested_freqs = _resolve_requested_healpix_frequencies(frequencies)
 
     # Beam-aware nside advisor: warn (advisory only, never raise) when the
     # user-chosen nside is too coarse relative to the primary-beam FWHM.
@@ -132,7 +127,6 @@ def prepare_sky_model(
             nside=nside,
             frequency=frequency,
             frequencies=requested_freqs,
-            obs_frequency_config=None,
             brightness_conversion=brightness_conversion,
             allow_lossy_point_materialization=allow_lossy,
             mixed_model_policy=mixed_model_policy,

@@ -16,12 +16,17 @@ class TestValidation:
         assert opts.mixed_model_policy == "error"
         assert opts.assume_disjoint is False
 
-    def test_frequencies_xor_obs_freq_config(self) -> None:
-        with pytest.raises(ValueError, match="mutually exclusive"):
-            PrepareSkyOptions(
-                frequencies=np.array([1e8]),
-                obs_frequency_config={"starting_frequency": 100},
-            )
+    def test_frequencies_are_validated_and_copied(self) -> None:
+        caller = np.array([100e6, 101.25e6, 109e6])
+        opts = PrepareSkyOptions(frequencies=caller)
+        caller[1] = 999e6
+
+        assert isinstance(opts.frequencies, np.ndarray)
+        np.testing.assert_array_equal(opts.frequencies, [100e6, 101.25e6, 109e6])
+        with pytest.raises(ValueError, match="read-only"):
+            opts.frequencies[0] = 1.0
+        with pytest.raises(ValueError, match="strictly ascending"):
+            PrepareSkyOptions(frequencies=[101e6, 100e6])
 
     def test_frequency_must_be_positive(self) -> None:
         with pytest.raises(ValueError, match="frequency must be strictly positive"):
@@ -53,8 +58,8 @@ class TestMerge:
 
     def test_merged_revalidates(self) -> None:
         opts = PrepareSkyOptions(frequencies=np.array([1e8]))
-        with pytest.raises(ValueError, match="mutually exclusive"):
-            opts.merged(obs_frequency_config={"starting_frequency": 100})
+        with pytest.raises(ValueError, match="strictly ascending"):
+            opts.merged(frequencies=[101e6, 100e6])
 
     def test_merged_no_change_returns_self(self) -> None:
         opts = PrepareSkyOptions(nside=32)

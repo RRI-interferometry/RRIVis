@@ -1,53 +1,25 @@
-"""High-level Simulator API for RadioSim.
-
-Provides a clean, user-friendly interface for running visibility simulations
-in Python scripts and Jupyter notebooks. This is the recommended entry point
-for most users.
+"""High-level resolved-configuration Simulator API for RadioSim.
 
 Examples
 --------
->>> # From configuration file
 >>> from radiosim.api import Simulator
->>> sim = Simulator.from_config("config.yaml")
+>>> sim = Simulator.from_yaml("config.yaml")
 >>> results = sim.run()
->>> sim.plot()
 >>> sim.save("output/")
 
->>> # Programmatic usage
->>> sim = Simulator(
-...     antenna_layout="antennas.txt",
-...     frequencies=[100, 150, 200],  # MHz
-...     config={
-...         "sky_model": {
-...             "sources": [{"kind": "gleam"}],
-...         },
-...         "visibility": {"sky_representation": "point_sources"},
-...     },
-...     backend="auto",  # Auto-detect GPU
-... )
+>>> sim = Simulator.from_mapping(config_data, base_dir=project_dir)
 >>> results = sim.run()
 
->>> # With specific simulator algorithm
->>> sim = Simulator(..., simulator="rime")  # Direct RIME (default)
-
->>> # With precision control
->>> from radiosim.core.precision import PrecisionConfig
->>> sim = Simulator(
-...     antenna_layout="antennas.txt",
-...     backend="jax",
-...     precision="fast",  # Use float32 where safe
-... )
->>> # Or use a custom precision config
->>> sim = Simulator(
-...     antenna_layout="antennas.txt",
-...     precision=PrecisionConfig.precise(),  # float128 for critical paths
-... )
+>>> sim = Simulator.from_config(config_model, base_dir=project_dir)
 """
+
+from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 import astropy.units as u
 import numpy as np
@@ -65,78 +37,72 @@ from radiosim.utils.logging import (
 
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
+    from radiosim.core.runtime_config import (
+        ConfigurationProvenance,
+        ResolvedConfiguration,
+        ResolvedSimulationConfig,
+    )
+    from radiosim.io.config import (
+        AntennaFileFormat,
+        BeamsConfig,
+        ExecutionConfig,
+        LocationConfig,
+        RadioSimConfig,
+        SkyModelConfig,
+        VisibilityConfig,
+    )
+    from radiosim.io.config_resolution import SimulationOverrides
 
 
 logger = logging.getLogger(__name__)
+
+
+def _runtime_loader_value(value: Any) -> Any:
+    """Copy immutable resolved loader values into ordinary call arguments."""
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(key): _runtime_loader_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return tuple(_runtime_loader_value(item) for item in value)
+    return value
 
 
 class Simulator:
     """
     High-level API for radio interferometry visibility simulation.
 
-    This class provides a simple interface for configuring and running
-    visibility simulations using the RIME (Radio Interferometer
-    Measurement Equation) with full polarization support.
+    This class provides a source-resolved interface for configuring and running
+    direct-sum visibility simulations using the RIME (Radio Interferometer
+    Measurement Equation).
 
     The Simulator handles all the complexity of:
-    - Loading antenna positions from various formats
-    - Generating baselines
-    - Loading sky models (test sources, GLEAM, GSM)
-    - Computing beam patterns (analytic or FITS)
-    - Running the visibility calculation with GPU acceleration
-    - Saving results and generating plots
+    - loading antenna positions from supported layout formats;
+    - generating the current all-baseline inventory;
+    - loading strict sky-model requests;
+    - computing the supported analytic beam;
+    - selecting a resolved backend and precision policy; and
+    - returning results for explicit saving or plotting.
+
+    FITS/per-antenna beams, baseline subsets, heterogeneous diameters, and
+    later-tier simulator modes are rejected during configuration resolution.
+    Backend selection does not promise end-to-end GPU execution.
 
     Parameters
     ----------
-    antenna_layout : str or Path, optional
-        Path to antenna positions file.
-    frequencies : list of float, optional
-        List of frequencies in MHz.
-    location : dict, optional
-        Observatory location with lat, lon, height keys.
-    start_time : str, optional
-        Observation start time (ISO format).
-    backend : str, optional
-        Computation backend ("auto", "numpy", "jax", "numba").
-        "auto" selects the best available backend.
-    precision : str or PrecisionConfig, optional
-        Numerical precision configuration. Can be:
-        - None: Use standard float64 precision (default)
-        - str: Preset name ("standard", "fast", "precise", "ultra")
-        - PrecisionConfig: Full configuration object for granular control
-        See radiosim.core.precision for details.
-    simulator : str, optional
-        Simulator algorithm ("rime"). Default is "rime".
-    config : dict, optional
-        Full configuration dictionary (overrides other args).
-
-    Attributes
-    ----------
-    config : dict
-        Configuration dictionary.
-    results : dict or None
-        Simulation results after run().
-    version : str
-        RadioSim version string.
+    resolved : ResolvedSimulationConfig
+        Already validated, deeply immutable scientific/runtime configuration.
 
     Examples
     --------
-    >>> # Basic usage with config file
-    >>> sim = Simulator.from_config("config.yaml")
+    >>> # Basic usage with a YAML document
+    >>> sim = Simulator.from_yaml("config.yaml")
     >>> results = sim.run()
     >>> sim.plot()
     >>> sim.save("output/")
 
-    >>> # Programmatic usage with GPU
-    >>> sim = Simulator(
-    ...     antenna_layout="HERA65.csv",
-    ...     frequencies=[100, 150, 200],
-    ...     config={
-    ...         "sky_model": {"sources": [{"kind": "gleam"}]},
-    ...         "visibility": {"sky_representation": "point_sources"},
-    ...     },
-    ...     backend="jax",  # Use JAX GPU backend
-    ... )
+    >>> # Programmatic mapping usage
+    >>> sim = Simulator.from_mapping(config_data, base_dir=project_dir)
     >>> results = sim.run()
 
     See Also
@@ -145,23 +111,20 @@ class Simulator:
     radiosim.backends : Computation backends
     """
 
-    def __init__(
-        self,
-        antenna_layout: str | Path | None = None,
-        frequencies: list[float] | None = None,
-        location: dict[str, float] | None = None,
-        start_time: str | None = None,
-        backend: str = "auto",
-        precision: Union["PrecisionConfig", str] | None = None,
-        simulator: str = "rime",
-        config: dict[str, Any] | None = None,
-    ):
-        """Initialize the Simulator."""
+    def __init__(self, resolved: ResolvedSimulationConfig, /) -> None:
+        """Construct from an already validated immutable runtime config."""
+        from radiosim.core.runtime_config import ResolvedSimulationConfig
+
+        if not isinstance(resolved, ResolvedSimulationConfig):
+            raise TypeError("Simulator accepts only ResolvedSimulationConfig")
+
         self.version = __version__
+        self._resolved = resolved
+        self._provenance: ConfigurationProvenance | None = None
         self._results: dict[str, Any] | None = None
-        self._backend_name = backend
-        self._precision = precision
-        self._simulator_name = simulator
+        self._backend_name = resolved.execution.backend_strategy
+        self._precision = resolved.execution.precision
+        self._simulator_name = resolved.execution.simulator
         self._backend = None
         self._simulator = None
 
@@ -179,107 +142,151 @@ class Simulator:
         self._is_setup = False
         self._network_status = None
         self._device_resources = None
-        self._offline = (
-            config.get("compute", {}).get("offline", False) if config else False
-        )
-
-        # Build configuration from arguments
-        if config is not None:
-            self.config = dict(config)
-        else:
-            self.config = self._build_config(
-                antenna_layout=antenna_layout,
-                frequencies=frequencies,
-                location=location,
-                start_time=start_time,
-            )
-        from radiosim.io.config import DEFAULT_SKY_REPRESENTATION
-
-        visibility_config = dict(self.config.get("visibility") or {})
-        visibility_config.setdefault("sky_representation", DEFAULT_SKY_REPRESENTATION)
-        self.config["visibility"] = visibility_config
-
-    def _build_config(
-        self,
-        antenna_layout: str | Path | None = None,
-        frequencies: list[float] | None = None,
-        location: dict[str, float] | None = None,
-        start_time: str | None = None,
-    ) -> dict[str, Any]:
-        """Build configuration dictionary from arguments."""
-        config: dict[str, Any] = {}
-
-        if antenna_layout:
-            config["antenna_layout"] = {
-                "antenna_positions_file": str(antenna_layout),
-                "antenna_file_format": "radiosim",
-                "all_antenna_diameter": 14.0,
-            }
-
-        if frequencies:
-            freq_array = np.array(frequencies)
-            config["obs_frequency"] = {
-                "starting_frequency": float(np.min(freq_array)),
-                "frequency_bandwidth": float(np.max(freq_array) - np.min(freq_array)),
-                "frequency_interval": float(np.mean(np.diff(freq_array)))
-                if len(freq_array) > 1
-                else 1.0,
-                "frequency_unit": "MHz",
-                # Store the raw frequency array so parse_frequency_config()
-                # can use it directly instead of the lossy linspace
-                # reconstruction from start/bandwidth/interval.
-                "frequencies_hz": (freq_array * 1e6).tolist(),
-            }
-
-        if location:
-            config["location"] = location
-
-        if start_time:
-            config["obs_time"] = {"start_time": start_time}
-
-        return config
+        self._offline = resolved.execution.offline
 
     @classmethod
-    def from_config(cls, config_path: str | Path) -> "Simulator":
-        """
-        Create a Simulator from a YAML configuration file.
+    def _from_bundle(cls, bundle: ResolvedConfiguration) -> Simulator:
+        simulator = cls(bundle.runtime)
+        simulator._provenance = bundle.provenance.runtime_only()
+        return simulator
 
-        Parameters
-        ----------
-        config_path : str or Path
-            Path to YAML configuration file.
+    @staticmethod
+    def _input_section(value: object) -> object:
+        if hasattr(value, "model_dump"):
+            return value.model_dump(mode="python", exclude_unset=True)
+        if isinstance(value, Mapping):
+            return dict(value)
+        return value
 
-        Returns
-        -------
-        Simulator
-            Configured Simulator instance.
+    @classmethod
+    def from_yaml(
+        cls,
+        path: str | Path,
+        *,
+        overrides: SimulationOverrides | None = None,
+    ) -> Simulator:
+        """Load and resolve YAML using the document parent as its path base."""
+        from radiosim.io.config import load_config
 
-        Examples
-        --------
-        >>> sim = Simulator.from_config("configs/config.yaml")
-        >>> results = sim.run()
+        return cls._from_bundle(load_config(path, overrides=overrides))
 
-        With precision in config file:
-
-        >>> # config.yaml:
-        >>> # precision:
-        >>> #   preset: "fast"  # or "standard", "precise", "ultra"
-        >>> sim = Simulator.from_config("config.yaml")
-        """
+    @classmethod
+    def from_config(
+        cls,
+        config: RadioSimConfig,
+        *,
+        base_dir: str | Path | None = None,
+        overrides: SimulationOverrides | None = None,
+    ) -> Simulator:
+        """Resolve a typed input model with explicit model-source semantics."""
         from radiosim.io.config import RadioSimConfig
+        from radiosim.io.config_resolution import ConfigurationSource, resolve_config
 
-        config_path = Path(config_path)
-        radiosim_config = RadioSimConfig.from_yaml(config_path)
+        if not isinstance(config, RadioSimConfig):
+            raise TypeError("from_config accepts only RadioSimConfig")
+        invocation_dir = Path.cwd().resolve(strict=False)
+        bundle = resolve_config(
+            config,
+            source=ConfigurationSource.for_model(
+                base_dir=base_dir,
+                invocation_dir=invocation_dir,
+            ),
+            overrides=overrides,
+        )
+        return cls._from_bundle(bundle)
 
-        # Extract precision config if present
-        precision = None
-        if radiosim_config.precision is not None:
-            precision = radiosim_config.precision.to_precision_config()
+    @classmethod
+    def from_mapping(
+        cls,
+        data: Mapping[str, object],
+        *,
+        base_dir: str | Path | None = None,
+        overrides: SimulationOverrides | None = None,
+    ) -> Simulator:
+        """Resolve a Python mapping through the complete shared pipeline."""
+        from radiosim.io.config import RadioSimConfig
+        from radiosim.io.config_resolution import ConfigurationSource, resolve_config
 
-        # Convert Pydantic model to dict
-        config_dict = radiosim_config.model_dump()
+        if isinstance(data, RadioSimConfig) or not isinstance(data, Mapping):
+            raise TypeError("from_mapping accepts only a Mapping, not RadioSimConfig")
+        invocation_dir = Path.cwd().resolve(strict=False)
+        bundle = resolve_config(
+            data,
+            source=ConfigurationSource.for_mapping(
+                base_dir=base_dir,
+                invocation_dir=invocation_dir,
+            ),
+            overrides=overrides,
+        )
+        return cls._from_bundle(bundle)
 
-        return cls(config=config_dict, precision=precision)
+    @classmethod
+    def from_parameters(
+        cls,
+        *,
+        antenna_layout: str | Path,
+        antenna_file_format: AntennaFileFormat,
+        antenna_diameter_m: float,
+        channel_frequencies_hz: Sequence[float],
+        location: LocationConfig | Mapping[str, float],
+        start_time: str,
+        duration_seconds: float = 1.0,
+        time_step_seconds: float = 1.0,
+        sky_model: SkyModelConfig | Mapping[str, object],
+        beams: BeamsConfig | Mapping[str, object] | None = None,
+        visibility: VisibilityConfig | Mapping[str, object] | None = None,
+        execution: ExecutionConfig | Mapping[str, object] | None = None,
+        base_dir: str | Path | None = None,
+        overrides: SimulationOverrides | None = None,
+    ) -> Simulator:
+        """Build an explicit-Hz document and resolve it as parameter input."""
+        from radiosim.io.config_resolution import ConfigurationSource, resolve_config
+
+        data: dict[str, object] = {
+            "antenna_layout": {
+                "antenna_positions_file": antenna_layout,
+                "antenna_file_format": antenna_file_format,
+                "all_antenna_diameter": antenna_diameter_m,
+            },
+            "location": cls._input_section(location),
+            "obs_time": {
+                "start_time": start_time,
+                "duration_seconds": duration_seconds,
+                "time_step_seconds": time_step_seconds,
+            },
+            "obs_frequency": {
+                "mode": "explicit",
+                "channel_frequencies_hz": channel_frequencies_hz,
+            },
+            "sky_model": cls._input_section(sky_model),
+        }
+        for name, value in (
+            ("beams", beams),
+            ("visibility", visibility),
+            ("execution", execution),
+        ):
+            if value is not None:
+                data[name] = cls._input_section(value)
+        invocation_dir = Path.cwd().resolve(strict=False)
+        bundle = resolve_config(
+            data,
+            source=ConfigurationSource.for_parameters(
+                base_dir=base_dir,
+                invocation_dir=invocation_dir,
+            ),
+            overrides=overrides,
+        )
+        return cls._from_bundle(bundle)
+
+    @property
+    def config(self) -> ResolvedSimulationConfig:
+        """Return immutable resolved scientific/runtime configuration."""
+        return self._resolved
+
+    @property
+    def provenance(self) -> ConfigurationProvenance | None:
+        """Return immutable source provenance for classmethod construction."""
+        return self._provenance
 
     @property
     def results(self) -> dict[str, Any] | None:
@@ -302,15 +309,11 @@ class Simulator:
         return self._source_arrays
 
     @property
-    def precision(self) -> Optional["PrecisionConfig"]:
-        """Get the precision configuration.
-
-        Returns None if setup() hasn't been called yet or if no precision
-        was specified (uses backend default).
-        """
+    def precision(self) -> PrecisionConfig | None:
+        """Get requested precision, or the backend's actual precision after setup."""
         if self._backend is not None:
             return self._backend.precision
-        return None
+        return self._precision
 
     @property
     def network_status(self):
@@ -328,7 +331,7 @@ class Simulator:
         """
         return self._device_resources
 
-    def setup(self) -> "Simulator":
+    def setup(self) -> Simulator:
         """
         Set up simulation components (antennas, baselines, sources).
 
@@ -342,7 +345,7 @@ class Simulator:
 
         Examples
         --------
-        >>> sim = Simulator.from_config("config.yaml")
+        >>> sim = Simulator.from_yaml("config.yaml")
         >>> sim.setup()
         >>> print(f"Antennas: {len(sim.antennas)}")
         >>> print(f"Baselines: {len(sim.baselines)}")
@@ -377,24 +380,19 @@ class Simulator:
             f"Using simulator: {self._simulator.name} ({self._simulator.complexity})"
         )
 
-        # Load antenna positions
-        antenna_config = self.config.get("antenna_layout", {})
-        antenna_file = antenna_config.get("antenna_positions_file")
-
-        if antenna_file:
-            # Only show verbose output if logger is at DEBUG level
-            verbose = logger.isEnabledFor(logging.DEBUG)
-            self._antennas = read_antenna_positions(
-                antenna_file,
-                format_type=antenna_config.get("antenna_file_format", "radiosim"),
-                verbose=verbose,
-            )
-            logger.debug(f"Loaded {len(self._antennas)} antennas from {antenna_file}")
-        else:
-            raise ValueError("No antenna_positions_file specified in config")
+        # Load antenna positions from the already resolved absolute path.
+        antenna_config = self._resolved.antenna_layout
+        antenna_file = antenna_config.antenna_positions_file
+        verbose = logger.isEnabledFor(logging.DEBUG)
+        self._antennas = read_antenna_positions(
+            antenna_file,
+            format_type=antenna_config.antenna_file_format,
+            verbose=verbose,
+        )
+        logger.debug(f"Loaded {len(self._antennas)} antennas from {antenna_file}")
 
         # Set antenna diameter for each antenna
-        antenna_diameter = antenna_config.get("all_antenna_diameter", 14.0)
+        antenna_diameter = antenna_config.all_antenna_diameter
 
         for ant_id in self._antennas:
             self._antennas[ant_id]["diameter"] = antenna_diameter
@@ -412,26 +410,17 @@ class Simulator:
         logger.debug(f"Generated {len(self._baselines)} baselines")
 
         # Get location and observation time
-        loc_config = self.config.get("location", {})
-        time_config = self.config.get("obs_time", {})
-
-        lat = loc_config.get("lat") if loc_config.get("lat") != "" else None
-        lon = loc_config.get("lon") if loc_config.get("lon") != "" else None
-        height = loc_config.get("height") if loc_config.get("height") != "" else None
-
+        loc_config = self._resolved.location
+        time_config = self._resolved.observation
         self._location, self._obstime = get_location_and_time(
-            lat=float(lat) if lat else None,
-            lon=float(lon) if lon else None,
-            height=float(height) if height else None,
-            starttime=time_config.get("start_time"),
+            lat=loc_config.lat_deg,
+            lon=loc_config.lon_deg,
+            height=loc_config.height_m,
+            starttime=time_config.start_time_iso,
         )
 
-        # Set up frequencies (single source of truth: parse_frequency_config)
-        from radiosim.utils.frequency import parse_frequency_config
-
-        self._frequencies_hz = parse_frequency_config(
-            self.config.get("obs_frequency", {})
-        )
+        # Create one new Simulator-owned runtime array from the immutable tuple.
+        self._frequencies_hz = self._resolved.frequency.as_numpy()
 
         # Calculate wavelengths
         self._wavelengths = (speed_of_light / (self._frequencies_hz * u.Hz)).to(u.m)
@@ -442,33 +431,25 @@ class Simulator:
         )
 
         # Extract beam configuration for aperture-based model
-        beam_config = self.config.get("beams", {})
+        beam_config = self._resolved.beams
         self._beam_config = {
-            "aperture_shape": beam_config.get("aperture_shape", "circular"),
-            "taper": beam_config.get("taper", "gaussian"),
-            "edge_taper_dB": beam_config.get("edge_taper_dB", 10.0),
-            "feed_model": beam_config.get("feed_model", "none"),
-            "feed_computation": beam_config.get("feed_computation", "analytical"),
-            "feed_params": beam_config.get("feed_params", {}),
-            "reflector_type": beam_config.get("reflector_type", "prime_focus"),
-            "magnification": beam_config.get("magnification", 1.0),
-            "aperture_params": beam_config.get("aperture_params", {}),
+            "aperture_shape": beam_config.aperture_shape,
+            "taper": beam_config.taper,
+            "edge_taper_dB": beam_config.edge_taper_dB,
+            "feed_model": beam_config.feed_model,
+            "feed_computation": beam_config.feed_computation,
+            "feed_params": dict(beam_config.feed_params),
+            "reflector_type": beam_config.reflector_type,
+            "magnification": beam_config.magnification,
+            "aperture_params": dict(beam_config.aperture_params),
         }
 
         # Get visibility configuration
-        visibility_config = self.config.get("visibility", {})
-        calculation_type = visibility_config.get("calculation_type", "direct_sum")
+        visibility_config = self._resolved.visibility
         sky_representation = visibility_config["sky_representation"]
         allow_lossy_point_materialization = visibility_config.get(
             "allow_lossy_point_materialization", False
         )
-
-        # Validate calculation type
-        if calculation_type == "spherical_harmonic":
-            raise NotImplementedError(
-                "Spherical harmonic (m-mode) visibility calculation is not yet implemented. "
-                "Use calculation_type='direct_sum' instead."
-            )
 
         # Network connectivity check (before sky model loading)
         from radiosim.utils.network import (
@@ -479,8 +460,10 @@ class Simulator:
 
         self._network_status = get_network_status(offline=self._offline)
 
-        sky_config = self.config.get("sky_model", {})
-        required_services = get_required_services(sky_config)
+        sky_config = self._resolved.sky_model
+        required_services = get_required_services(
+            {"sources": [{"kind": request.kind} for request in sky_config.sources]}
+        )
 
         if self._network_status.forced_offline:
             status_label = "offline (forced)"
@@ -515,37 +498,27 @@ class Simulator:
         if _precision is None:
             _precision = PrecisionConfig.standard()
 
-        sky_config = self.config.get("sky_model", {})
-
         # Flux unit conversion: convert user-specified flux values to canonical Jy
-        flux_unit = sky_config.get("flux_unit", "Jy")
+        flux_unit = sky_config.flux_unit
         _flux_multipliers = {"Jy": 1.0, "mJy": 1e-3, "uJy": 1e-6}
         _flux_mul = _flux_multipliers[flux_unit]
         self._flux_unit = flux_unit
 
         # Brightness conversion method (applies to all loaders)
-        _brightness_conv = sky_config.get("brightness_conversion", "planck")
-        mixed_model_policy = sky_config.get("mixed_model_policy", "error")
-        assume_disjoint = bool(sky_config.get("assume_disjoint", False))
+        _brightness_conv = sky_config.brightness_conversion
+        mixed_model_policy = sky_config.mixed_model_policy
+        assume_disjoint = sky_config.assume_disjoint
 
-        from radiosim.io.config import (
-            SkySourceConfig,
-            build_sky_region,
-            parse_sky_source_config,
-        )
+        from radiosim.io.config import build_sky_region
 
-        region = build_sky_region(sky_config.get("region"))
+        region = build_sky_region(sky_config.region)
 
         frequency = float(self._frequencies_hz[0])
-        source_specs = [
-            spec if isinstance(spec, SkySourceConfig) else parse_sky_source_config(spec)
-            for spec in sky_config.get("sources", [])
-        ]
         nside = next(
             (
-                int(spec.nside)
-                for spec in source_specs
-                if getattr(spec, "nside", None) is not None
+                int(request.options["nside"])
+                for request in sky_config.sources
+                if request.options.get("nside") is not None
             ),
             64,
         )
@@ -554,20 +527,50 @@ class Simulator:
         sky_models = []
         from radiosim.core.sky.registry import loader_registry
 
-        obs_freq_config = self.config.get("obs_frequency", {})
         loader_requests: list[tuple[str, dict[str, Any]]] = []
 
-        for spec in source_specs:
-            loader_registry.definition(spec.kind)
-            loader_requests.append(
-                spec.to_loader_request(
-                    flux_multiplier=_flux_mul,
-                    region=region,
-                    brightness_conversion=_brightness_conv,
-                    frequencies=self._frequencies_hz,
-                    obs_frequency_config=obs_freq_config,
-                )
+        for request in sky_config.sources:
+            definition = loader_registry.definition(request.kind)
+            kwargs = {
+                name: _runtime_loader_value(value)
+                for name, value in request.options.items()
+                if value is not None
+            }
+            if (
+                definition.path_options.get("file_glob") == "glob"
+                and isinstance(kwargs.get("file_glob"), tuple)
+                and "filenames" in definition.config_fields
+            ):
+                # Resolution has already expanded and validated the glob. Pass
+                # those deterministic matches to the loader without re-globbing.
+                kwargs["filenames"] = list(kwargs.pop("file_glob"))
+            for flux_field in ("flux_limit", "flux_min", "flux_max"):
+                if flux_field in kwargs:
+                    kwargs[flux_field] *= _flux_mul
+            brightness_conversion = request.brightness_conversion or _brightness_conv
+            kwargs["brightness_conversion"] = brightness_conversion
+            source_region = (
+                build_sky_region(request.region)
+                if request.region is not None
+                else region
             )
+            if source_region is not None:
+                kwargs["region"] = source_region
+            if definition.supports_healpix_map:
+                kwargs["frequencies"] = self._frequencies_hz
+            if request.provenance_override is not None:
+                from radiosim.core.sky.containers import SkyFootprint, SkyProvenance
+
+                provenance = _runtime_loader_value(request.provenance_override)
+                footprint = provenance.get("coverage_footprint")
+                if footprint is not None:
+                    provenance["coverage_footprint"] = SkyFootprint(
+                        nside=footprint["nside"],
+                        hpx_inds=np.asarray(footprint["hpx_inds"], dtype=np.int64),
+                        coordinate_frame=footprint["coordinate_frame"],
+                    )
+                kwargs["provenance"] = SkyProvenance(**provenance)
+            loader_requests.append((request.kind, kwargs))
 
         if loader_requests:
             from radiosim.core.sky.operations.parallel import (
@@ -620,9 +623,6 @@ class Simulator:
             nside=nside,
             frequency=frequency,
             frequencies=self._frequencies_hz,
-            # Frequencies are already resolved from obs_frequency above;
-            # passing the config dict too violates PrepareSkyOptions XOR rule.
-            obs_frequency_config=None,
             allow_lossy=allow_lossy_point_materialization,
             mixed_model_policy=mixed_model_policy,
             assume_disjoint=assume_disjoint,
@@ -677,11 +677,18 @@ class Simulator:
 
         Examples
         --------
-        >>> sim = Simulator.from_config("config.yaml")
+        >>> sim = Simulator.from_yaml("config.yaml")
         >>> results = sim.run()
         >>> print(results.keys())
         dict_keys(['visibilities', 'baselines', 'frequencies', ...])
         """
+        if n_workers is not None:
+            raise NotImplementedError(
+                "run(n_workers=...): visibility worker control is not implemented and "
+                "would be ignored. Omit n_workers for current serial orchestration. "
+                "Target remediation: Tier 6."
+            )
+
         t_start = time.perf_counter()
 
         if progress:
@@ -701,7 +708,7 @@ class Simulator:
             from radiosim.core.sky.containers.model import SkyFormat as _SF
 
             # Print configuration table (after setup, needs backend/sky_model info)
-            _sky_mode = _SF(self.config["visibility"]["sky_representation"])
+            _sky_mode = _SF(self._resolved.visibility["sky_representation"])
             n_sky = (
                 self._sky_model.n_sky_elements_for(_sky_mode) if self._sky_model else 0
             )
@@ -729,14 +736,12 @@ class Simulator:
 
         from radiosim.core.sky.containers.model import SkyFormat
 
-        _sky_mode = SkyFormat(self.config["visibility"]["sky_representation"])
+        _sky_mode = SkyFormat(self._resolved.visibility["sky_representation"])
         print_info(f"Running visibility simulation ({_sky_mode.value} mode)...")
 
         # Calculate visibilities based on sky representation
-        duration_seconds = self.config.get("obs_time", {}).get("duration_seconds", 1.0)
-        time_step_seconds = self.config.get("obs_time", {}).get(
-            "time_step_seconds", 1.0
-        )
+        duration_seconds = self._resolved.observation.duration_seconds
+        time_step_seconds = self._resolved.observation.time_step_seconds
 
         if _sky_mode == SkyFormat.HEALPIX and self._sky_model is not None:
             # Use direct HEALPix visibility calculation
@@ -834,16 +839,20 @@ class Simulator:
             "metadata": {
                 "version": self.version,
                 "backend": self._backend.name,
-                "precision": self._backend.precision.model_dump()
+                "requested_backend": self._resolved.execution.backend_strategy,
+                "precision": self._backend.precision.model_dump(mode="json")
                 if self._backend.precision
                 else None,
+                "requested_precision": self._resolved.execution.precision.model_dump(
+                    mode="json"
+                ),
                 "simulator": self._simulator.name,
-                "sky_representation": _sky_mode,
+                "sky_representation": _sky_mode.value,
                 "n_antennas": len(self._antennas),
                 "n_baselines": len(self._baselines),
                 "n_sky_elements": n_sky,
                 "n_frequencies": len(self._frequencies_hz),
-                "config": self.config,
+                "config": self._resolved.to_json_safe(),
             },
         }
 
@@ -961,9 +970,8 @@ class Simulator:
                 logger.debug(f"Generating {plot_type} plots with multi-time data")
 
                 # Generate time points array
-                time_config = self.config.get("obs_time", {})
-                duration_sec = time_config.get("duration_seconds", 1.0)
-                time_step_sec = time_config.get("time_step_seconds", 1.0)
+                duration_sec = self._resolved.observation.duration_seconds
+                time_step_sec = self._resolved.observation.time_step_seconds
                 n_times = max(1, int(duration_sec / time_step_sec))
 
                 if self._obstime:
@@ -1100,32 +1108,35 @@ class Simulator:
         from radiosim.core.observability import ObservabilityPlanner
         from radiosim.visualization.observability import ObservabilityBokehRenderer
 
-        cfg = self.config
+        location = self._resolved.location
+        lat = location.lat_deg
+        lon = location.lon_deg
+        height = location.height_m
 
-        # Extract location
-        loc = cfg.get("location", {})
-        lat = float(loc.get("lat", -30.72))
-        lon = float(loc.get("lon", 21.43))
-        height = float(loc.get("height", 1073.0))
-
-        # Frequency (MHz)
-        obs_f = cfg.get("obs_frequency", {})
-        unit = obs_f.get("frequency_unit", "MHz")
-        _mult = {"Hz": 1e-6, "kHz": 1e-3, "MHz": 1.0, "GHz": 1e3}
-        freq_mhz = float(obs_f.get("starting_frequency", 150)) * _mult.get(unit, 1.0)
+        # Frequency (MHz), taken directly from the exact resolved channel tuple.
+        freq_mhz = self._resolved.frequency.channel_frequencies_hz[0] / 1e6
 
         # Time — fallback to config if LST not provided
         start_iso = None
         duration = None
         if lst_start_hours is None or lst_end_hours is None:
-            obs_t = cfg.get("obs_time", {})
-            start_iso = obs_t.get("start_time")
-            duration = obs_t.get("duration_seconds")
+            start_iso = self._resolved.observation.start_time_iso
+            duration = self._resolved.observation.duration_seconds
 
         # Beam
-        beams = cfg.get("beams", {})
-        ant_cfg = cfg.get("antenna_layout", {})
-        diameter = ant_cfg.get("all_antenna_diameter")
+        beams = self._resolved.beams
+        diameter = self._resolved.antenna_layout.all_antenna_diameter
+        beam_config = {
+            "aperture_shape": beams.aperture_shape,
+            "taper": beams.taper,
+            "edge_taper_dB": beams.edge_taper_dB,
+            "feed_model": beams.feed_model,
+            "feed_computation": beams.feed_computation,
+            "feed_params": dict(beams.feed_params),
+            "reflector_type": beams.reflector_type,
+            "magnification": beams.magnification,
+            "aperture_params": dict(beams.aperture_params),
+        }
 
         planner = ObservabilityPlanner(
             latitude_deg=lat,
@@ -1137,9 +1148,9 @@ class Simulator:
             duration_seconds=duration,
             frequency_mhz=freq_mhz,
             field_radius_deg=kwargs.pop("field_radius_deg", None),
-            beam_diameter_m=float(diameter) if diameter else None,
-            beam_config=beams if beams else None,
-            beam_fits_path=beams.get("beam_file"),
+            beam_diameter_m=diameter,
+            beam_config=beam_config,
+            beam_fits_path=beams.beam_file,
             beam_reference=beam_reference,
             sky_model=getattr(self, "_sky_model", None),
             x_axis=x_axis,
@@ -1193,7 +1204,7 @@ class Simulator:
             Telescope name for MS metadata (default: from config or "RadioSim").
         filename : str, optional
             Output filename stem (without extension). Defaults to
-            output_file_name from config, or "visibilities" if not set.
+            "visibilities" for HDF5/JSON and "simulation" for MS.
 
         Returns
         -------
@@ -1238,11 +1249,7 @@ class Simulator:
         logger.debug(f"Saving results to {output_dir}...")
 
         if format.lower() == "hdf5":
-            stem = (
-                filename
-                or self.config.get("output", {}).get("output_file_name")
-                or "visibilities"
-            )
+            stem = filename or "visibilities"
             output_path = output_dir / f"{stem}.h5"
 
             if output_path.exists() and not overwrite:
@@ -1251,9 +1258,8 @@ class Simulator:
                 )
 
             # Calculate time points for observation
-            time_config = self.config.get("obs_time", {})
-            duration_sec = time_config.get("duration_seconds", 1.0)
-            time_step_sec = time_config.get("time_step_seconds", 1.0)
+            duration_sec = self._resolved.observation.duration_seconds
+            time_step_sec = self._resolved.observation.time_step_seconds
             n_times = max(1, int(duration_sec / time_step_sec))
 
             # Generate time points in MJD
@@ -1307,11 +1313,7 @@ class Simulator:
         elif format.lower() == "json":
             import json
 
-            stem = (
-                filename
-                or self.config.get("output", {}).get("output_file_name")
-                or "visibilities"
-            )
+            stem = filename or "visibilities"
             output_path = output_dir / f"{stem}.json"
 
             if output_path.exists() and not overwrite:
@@ -1342,23 +1344,16 @@ class Simulator:
                     "Or: pip install python-casacore"
                 )
 
-            stem = (
-                filename
-                or self.config.get("output", {}).get("output_file_name")
-                or "simulation"
-            )
+            stem = filename or "simulation"
             output_path = output_dir / f"{stem}.ms"
 
             # Get telescope name from config or parameter
             if telescope_name is None:
-                telescope_name = self.config.get("telescope", {}).get(
-                    "telescope_name", "RadioSim"
-                )
+                telescope_name = self._resolved.telescope.telescope_name
 
-            # Get phase center from config if available
-            location_config = self.config.get("location", {})
-            phase_center_ra = float(location_config.get("ra", 0.0) or 0.0)
-            phase_center_dec = float(location_config.get("dec", -30.0) or -30.0)
+            # Phase-center configuration remains a Tier 4 result/output concern.
+            phase_center_ra = 0.0
+            phase_center_dec = -30.0
 
             write_ms(
                 output_path=output_path,
@@ -1399,7 +1394,7 @@ class Simulator:
 
         Examples
         --------
-        >>> sim = Simulator.from_config("config.yaml")
+        >>> sim = Simulator.from_yaml("config.yaml")
         >>> sim.setup()
         >>> mem = sim.get_memory_estimate()
         >>> print(f"Estimated memory: {mem['total_human']}")

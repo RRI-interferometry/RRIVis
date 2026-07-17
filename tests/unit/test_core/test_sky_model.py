@@ -29,13 +29,8 @@ def precision():
 
 
 @pytest.fixture
-def obs_freq_config():
-    return {
-        "starting_frequency": 100.0,
-        "frequency_interval": 1.0,
-        "frequency_bandwidth": 5.0,
-        "frequency_unit": "MHz",
-    }
+def observation_frequencies():
+    return np.arange(100e6, 106e6, 1e6, dtype=np.float64)
 
 
 def make_point_model(
@@ -232,12 +227,12 @@ class TestBasicBehavior:
 
 class TestMaterialization:
     def test_materialize_healpix_preserves_point_payload(
-        self, test_sky, obs_freq_config
+        self, test_sky, observation_frequencies
     ):
         sky = materialize_healpix_model(
             test_sky,
             nside=16,
-            obs_frequency_config=obs_freq_config,
+            frequencies=observation_frequencies,
             clear_other=False,
         )
         assert sky is not test_sky
@@ -267,22 +262,11 @@ class TestMaterialization:
         assert hp_sky.healpix is not None
         assert hp_sky.healpix.maps.shape == (1, hp.nside2npix(8))
 
-    def test_materialize_healpix_rejects_conflicting_frequency_inputs(self, test_sky):
-        with pytest.raises(
-            ValueError, match="either 'frequencies' or 'obs_frequency_config'"
-        ):
-            materialize_healpix_model(
-                test_sky,
-                nside=8,
-                frequencies=np.array([100e6]),
-                obs_frequency_config={"starting_frequency": 100.0},
-            )
-
-    def test_counts_per_representation(self, test_sky, obs_freq_config):
+    def test_counts_per_representation(self, test_sky, observation_frequencies):
         hp_sky = materialize_healpix_model(
             test_sky,
             nside=8,
-            obs_frequency_config=obs_freq_config,
+            frequencies=observation_frequencies,
             clear_other=False,
         )
         assert hp_sky.n_point_sources == test_sky.n_point_sources
@@ -318,11 +302,13 @@ class TestMaterialization:
 
 
 class TestFilteringAndAccessors:
-    def test_filter_region_filters_both_payloads(self, test_sky, obs_freq_config):
+    def test_filter_region_filters_both_payloads(
+        self, test_sky, observation_frequencies
+    ):
         hp_sky = materialize_healpix_model(
             test_sky,
             nside=8,
-            obs_frequency_config=obs_freq_config,
+            frequencies=observation_frequencies,
             clear_other=False,
         )
         region = SkyRegion.cone(

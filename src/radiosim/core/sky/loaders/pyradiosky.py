@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import warnings
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 import astropy.units as u
@@ -18,7 +19,7 @@ import numpy as np
 from ..containers.model import SkyModel
 from ..containers.point import PointSpectrum
 from ..registry import loader_registry
-from ..support.frequencies import resolve_frequency_config
+from ..support.frequencies import validate_observation_frequencies
 from ..support.healpix_geometry import ordered_row
 from ..support.healpy import lazy_healpy as hp
 from ..support.point_builder import point_source_data_from_mapping
@@ -88,8 +89,7 @@ def load_pyradiosky_file(
     brightness_conversion: str = "planck",
     *,
     precision: PrecisionConfig,
-    frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
+    frequencies: Sequence[float] | np.ndarray | None = None,
     region: SkyRegion | None = None,
     memmap_path: str | None = None,
     provenance: SkyProvenance | None = None,
@@ -101,10 +101,10 @@ def load_pyradiosky_file(
     pyradiosky). Both ``component_type='point'`` and
     ``component_type='healpix'`` are supported.
 
-    For HEALPix files, observation frequencies can be provided explicitly
-    via ``frequencies`` or ``obs_frequency_config``. If the file has
-    ``spectral_type='full'`` or ``'subband'`` and no explicit frequencies
-    are given, the file's own frequency array is used.
+    For HEALPix files, observation frequencies can be provided explicitly via
+    ``frequencies``. If the file has ``spectral_type='full'`` or ``'subband'``
+    and no explicit frequencies are given, the file's own frequency array is
+    used.
 
     Parameters
     ----------
@@ -123,12 +123,7 @@ def load_pyradiosky_file(
     brightness_conversion : str, default="planck"
         Conversion method: "planck" or "rayleigh-jeans".
     frequencies : np.ndarray, optional
-        Array of observation frequencies in Hz for HEALPix files.
-        Takes precedence over ``obs_frequency_config``.
-    obs_frequency_config : dict, optional
-        Frequency configuration dict (keys: starting_frequency,
-        frequency_interval, frequency_bandwidth, frequency_unit).
-        Used for HEALPix files when ``frequencies`` is None.
+        Explicit ordered observation frequencies in Hz for HEALPix files.
 
     Returns
     -------
@@ -154,7 +149,6 @@ def load_pyradiosky_file(
             sky,
             filename,
             frequencies,
-            obs_frequency_config,
             brightness_conversion,
             precision,
             region=region,
@@ -367,8 +361,7 @@ def load_pyradiosky_file(
 def _load_pyradiosky_healpix(
     psky: Any,
     filename: str,
-    frequencies: np.ndarray | None,
-    obs_frequency_config: dict[str, Any] | None,
+    frequencies: Sequence[float] | np.ndarray | None,
     brightness_conversion: str,
     precision: PrecisionConfig,
     region: SkyRegion | None = None,
@@ -388,8 +381,6 @@ def _load_pyradiosky_healpix(
         Original file path (for logging and model_name).
     frequencies : np.ndarray or None
         Explicit observation frequencies in Hz.
-    obs_frequency_config : dict or None
-        Frequency configuration dict.
     brightness_conversion : str
         Conversion method: "planck" or "rayleigh-jeans".
     precision : PrecisionConfig
@@ -406,23 +397,27 @@ def _load_pyradiosky_healpix(
         If frequencies cannot be determined.
     """
     # --- Determine observation frequencies ---
-    # When the caller supplies an explicit grid (either form), the shared
-    # resolver enforces the "exactly one of" contract and returns ascending
-    # Hz. The file's own freq_array is the local fallback when neither is
-    # given.
-    if frequencies is not None or obs_frequency_config is not None:
-        obs_freqs = resolve_frequency_config(frequencies, obs_frequency_config)
+    # The file's own frequency array remains authoritative when the caller
+    # does not provide an explicit materialization axis.
+    if frequencies is not None:
+        obs_freqs = validate_observation_frequencies(
+            frequencies,
+            label="load_pyradiosky_file frequencies",
+        )
     elif (
         psky.spectral_type in ("full", "subband")
         and psky.freq_array is not None
         and len(psky.freq_array) > 0
     ):
-        obs_freqs = np.asarray(to_value(psky.freq_array, u.Hz), dtype=np.float64)
+        obs_freqs = validate_observation_frequencies(
+            to_value(psky.freq_array, u.Hz),
+            label="pyradiosky file frequencies",
+        )
     else:
         raise ValueError(
             f"Cannot determine observation frequencies for HEALPix file "
             f"with spectral_type='{psky.spectral_type}'. "
-            "Provide 'frequencies' or 'obs_frequency_config' explicitly."
+            "Provide 'frequencies' explicitly."
         )
 
     n_freq = len(obs_freqs)

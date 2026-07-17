@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    name: ${{ matrix.platform }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-64
+            runner: ubuntu-24.04
+            python: "3.11"
+            environment: default
+          - platform: linux-64
+            runner: ubuntu-24.04
+            python: "3.12"
+            environment: py312
+          - platform: osx-64
+            runner: macos-15-intel
+            python: "3.11"
+            environment: default
+          - platform: osx-64
+            runner: macos-15-intel
+            python: "3.12"
+            environment: py312
+          - platform: osx-arm64
+            runner: macos-15
+            python: "3.11"
+            environment: default
+          - platform: osx-arm64
+            runner: macos-15
+            python: "3.12"
+            environment: py312
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install locked Pixi environment
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          pixi-version: v0.72.2
+          environments: ${{ matrix.environment }}
+          locked: true
+          cache: true
+          cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+
+      - name: Confirm Python version
+        run: pixi run --environment ${{ matrix.environment }} -- python -VV
+
+      - name: Run non-slow tests
+        run: >-
+          pixi run --environment ${{ matrix.environment }}
+          test -- -m "not slow"
+
+  quality:
+    name: Lint, metadata, types, and docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install locked default Pixi environment
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          pixi-version: v0.72.2
+          environments: default
+          locked: true
+          cache: true
+          cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+
+      - name: Run Ruff lint
+        run: pixi run lint
+
+      - name: Check Ruff formatting
+        run: pixi run check-format
+
+      - name: Check release metadata and lock format
+        run: pixi run -- python -m pytest tests/unit/test_release_metadata.py
+
+      - name: Enforce strict Pyright error ceiling
+        run: pixi run typecheck
+
+      - name: Build Sphinx documentation
+        run: make -C docs html

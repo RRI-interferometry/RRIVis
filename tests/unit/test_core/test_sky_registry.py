@@ -229,7 +229,10 @@ class TestRegistryMetadata:
 class TestSourceSpecs:
     def test_simple_catalog_request(self):
         spec = parse_sky_source_config(
-            {"kind": "vlssr", "flux_limit": 2.0, "max_rows": 1000}
+            {
+                "kind": "vlssr",
+                "options": {"flux_limit": 2.0, "max_rows": 1000},
+            }
         )
         assert isinstance(spec, CustomRegisteredSourceConfig)
         assert spec.kind == "vlssr"
@@ -246,7 +249,7 @@ class TestSourceSpecs:
         assert kwargs["brightness_conversion"] == "rayleigh-jeans"
 
     def test_simple_catalog_request_uses_loader_signature_default(self):
-        spec = parse_sky_source_config({"kind": "nvss", "max_rows": 10})
+        spec = parse_sky_source_config({"kind": "nvss", "options": {"max_rows": 10}})
         assert isinstance(spec, CustomRegisteredSourceConfig)
 
         kind, kwargs = spec.to_loader_request()
@@ -270,12 +273,11 @@ class TestSourceSpecs:
 
         kind, kwargs = spec.to_loader_request(
             frequencies=freqs,
-            obs_frequency_config={"starting_frequency": 100.0},
         )
+        freqs[0] = 999e6
         assert kind == "diffuse_sky"
         assert kwargs["model"] == "gsm2008"
-        np.testing.assert_array_equal(kwargs["frequencies"], freqs)
-        assert "obs_frequency_config" not in kwargs
+        np.testing.assert_array_equal(kwargs["frequencies"], [100e6, 101e6])
 
     def test_diffuse_alias_preserves_selected_model(self):
         spec = parse_sky_source_config({"kind": "diffuse_sky", "model": "gsm2016"})
@@ -284,7 +286,7 @@ class TestSourceSpecs:
         assert kwargs["model"] == "gsm2016"
 
     def test_diffuse_alias_kind_applies_alias_defaults(self):
-        spec = parse_sky_source_config({"kind": "gsm2016", "nside": 64})
+        spec = parse_sky_source_config({"kind": "gsm2016", "options": {"nside": 64}})
         kind, kwargs = spec.to_loader_request()
         assert kind == "diffuse_sky"
         assert kwargs["model"] == "gsm2016"
@@ -292,7 +294,10 @@ class TestSourceSpecs:
 
     def test_diffuse_alias_kind_allows_explicit_override(self):
         spec = parse_sky_source_config(
-            {"kind": "gsm2016", "model": "haslam", "nside": 128}
+            {
+                "kind": "gsm2016",
+                "options": {"model": "haslam", "nside": 128},
+            }
         )
         kind, kwargs = spec.to_loader_request()
         assert kind == "diffuse_sky"
@@ -325,7 +330,9 @@ class TestSourceSpecs:
 
     def test_test_sources_alias_kind_applies_representation_default(self):
         freqs = np.array([150e6, 151e6])
-        spec = parse_sky_source_config({"kind": "test_healpix", "nside": 32})
+        spec = parse_sky_source_config(
+            {"kind": "test_healpix", "options": {"nside": 32}}
+        )
         kind, kwargs = spec.to_loader_request(frequencies=freqs)
         assert kind == "test_sources"
         assert kwargs["representation"] == "healpix_map"
@@ -345,13 +352,13 @@ class TestSourceSpecs:
 
         kind, kwargs = spec.to_loader_request(
             flux_multiplier=1e-3,
-            obs_frequency_config={"starting_frequency": 100.0},
+            frequencies=np.array([100e6, 101e6]),
         )
         assert kind == "pyradiosky_file"
         assert kwargs["filename"] == "mock.skyh5"
         assert kwargs["flux_limit"] == pytest.approx(0.005)
         assert kwargs["reference_frequency_hz"] == 150e6
-        assert "obs_frequency_config" in kwargs
+        np.testing.assert_array_equal(kwargs["frequencies"], [100e6, 101e6])
 
     def test_legacy_nested_sky_model_sections_are_rejected(self):
         with pytest.raises(ValueError, match="sources"):
@@ -434,6 +441,78 @@ class TestConfigFieldsListShorthand:
             "filename": "filename",
             "nside": "nside",
         }
+
+
+class TestPathOptionMetadata:
+    def test_builtin_file_loaders_declare_explicit_path_semantics(self):
+        assert loader_registry.definition("bbs").path_options == {"filename": "file"}
+        assert loader_registry.definition("pyradiosky_file").path_options == {
+            "filename": "file"
+        }
+        assert loader_registry.definition("fits_image").path_options == {
+            "filename": "file"
+        }
+        assert loader_registry.definition("skyh5_multifile").path_options == {
+            "file_glob": "glob",
+            "filenames": "file_list",
+        }
+
+    @pytest.mark.parametrize(
+        "registration, message",
+        [
+            (
+                {
+                    "requires_file": True,
+                    "config_fields": ["filename"],
+                },
+                "declares no path_options",
+            ),
+            (
+                {
+                    "config_fields": ["filename"],
+                    "path_options": {"unknown": "file"},
+                },
+                "not declared loader arguments",
+            ),
+            (
+                {
+                    "config_fields": ["filename"],
+                    "path_options": {"filename": "directory"},
+                },
+                "invalid path_options",
+            ),
+        ],
+    )
+    def test_invalid_path_metadata_fails_at_registration(self, registration, message):
+        with pytest.raises(ValueError, match=message):
+
+            @loader_registry.register_loader(
+                "_test_invalid_path_metadata",
+                **registration,
+            )
+            def _dummy(filename: str):
+                return filename
+
+    def test_path_metadata_is_serialized_without_changing_loader_execution(self):
+        calls: list[str] = []
+
+        @loader_registry.register_loader(
+            "_test_scalar_path_metadata",
+            requires_file=True,
+            config_fields=["filename"],
+            path_options={"filename": "file"},
+        )
+        def _dummy(filename: str):
+            calls.append(filename)
+            return filename
+
+        try:
+            definition = loader_registry.definition("_test_scalar_path_metadata")
+            assert definition.meta_dict()["path_options"] == {"filename": "file"}
+            assert loader_registry.loader("_test_scalar_path_metadata")("raw") == "raw"
+            assert calls == ["raw"]
+        finally:
+            registry_core._REGISTRY.unregister("_test_scalar_path_metadata")
 
 
 class TestExecutorRecommendation:

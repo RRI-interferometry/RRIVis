@@ -1,171 +1,153 @@
 #!/usr/bin/env python
-"""Simple RadioSim visibility simulation example.
+"""Run a small deterministic RadioSim visibility simulation.
 
-This script demonstrates the basic usage of RadioSim for simulating
-radio interferometry visibilities using the RIME (Radio Interferometer
-Measurement Equation).
-
-Usage:
-    python simple_simulation.py
-    python simple_simulation.py --backend jax  # Use GPU acceleration
-    python simple_simulation.py --config path/to/config.yaml
+The built-in example uses NumPy, local test sources, and the bundled five-
+antenna layout. It needs no network access and writes nothing unless ``--save``
+or ``--plot`` is supplied.
 """
+
+from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
 
-def main():
-    """Run a simple visibility simulation."""
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Simple RadioSim visibility simulation example"
-    )
-    parser.add_argument(
-        "--backend",
-        type=str,
-        default="auto",
-        choices=["auto", "numpy", "jax", "numba"],
-        help="Computation backend (default: auto)",
+        description="Run a small offline RadioSim visibility simulation."
     )
     parser.add_argument(
         "--config",
-        type=str,
+        type=Path,
+        help="Use a strict RadioSim YAML document instead of the built-in example.",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=("auto", "numpy", "jax", "numba"),
         default=None,
-        help="Path to YAML configuration file",
+        help=(
+            "Override the YAML backend. With the built-in example, omission uses "
+            "the deterministic NumPy default."
+        ),
+    )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save HDF5 results to --output-dir.",
     )
     parser.add_argument(
         "--output-dir",
-        type=str,
-        default="simulation_output",
-        help="Output directory for results",
+        type=Path,
+        default=Path("simulation_output"),
+        help="Directory used only when --save or --plot is requested.",
     )
-    parser.add_argument(
+    plot_group = parser.add_mutually_exclusive_group()
+    plot_group.add_argument(
+        "--plot",
+        action="store_true",
+        help="Write antenna plots without opening a browser.",
+    )
+    plot_group.add_argument(
         "--no-plot",
         action="store_true",
-        help="Disable plotting",
+        help="Explicitly disable plotting (the default).",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Show the simulation progress header and summary.",
+    )
+    return parser
 
-    # Import RadioSim
-    import radiosim
+
+def _built_in_simulator(backend: str | None):
     from radiosim import Simulator
-    from radiosim.backends import list_backends
+    from radiosim.io.config import ExecutionConfig, PrecisionInput
 
-    print(f"RadioSim version: {radiosim.__version__}")
-    print(f"Available backends: {list_backends()}")
-    print()
-
-    # Option 1: From configuration file
-    if args.config:
-        print(f"Loading configuration from: {args.config}")
-        sim = Simulator.from_config(args.config)
-    else:
-        # Option 2: Programmatic configuration
-        print("Using programmatic configuration...")
-
-        # Get the antenna layout example path
-        examples_dir = Path(__file__).parent.parent.parent
-        antenna_file = (
-            examples_dir / "antenna_layout_examples" / "example_radiosim_format.txt"
-        )
-
-        if not antenna_file.exists():
-            # Fallback: create a simple inline antenna layout
-            print("Creating simple test antenna layout...")
-            antenna_file = None
-            # Will use default test configuration
-
-        config = {
-            "obs_frequency": {
-                "frequencies_hz": [100e6, 120e6, 140e6, 160e6, 180e6, 200e6],
-                "frequency_unit": "MHz",
-            },
-            "sky_model": {
-                "sources": [{"kind": "test_sources"}],
-            },
-            "visibility": {"sky_representation": "point_sources"},
-            "location": {
-                "lat": -30.72,  # HERA latitude
-                "lon": 21.43,  # HERA longitude
-                "height": 1073.0,
-            },
-            "obs_time": {"start_time": "2025-01-15T00:00:00"},
-        }
-        if antenna_file is not None:
-            config["antenna_layout"] = {
-                "antenna_positions_file": str(antenna_file),
-                "antenna_file_format": "radiosim",
-                "all_antenna_diameter": 14.0,
-            }
-
-        sim = Simulator(config=config, backend=args.backend)
-
-    # Show simulation configuration
-    print("=" * 60)
-    print("Simulation Configuration")
-    print("=" * 60)
-    print(f"  Backend: {args.backend}")
-
-    # Setup the simulation (loads antennas, generates baselines, loads sources)
-    print("\nSetting up simulation...")
-    sim.setup()
-
-    # Show setup information
-    print(f"  Antennas: {len(sim._antennas) if sim._antennas else 'N/A'}")
-    print(f"  Baselines: {len(sim._baselines) if sim._baselines else 'N/A'}")
-    print(f"  Sources: {len(sim._sources) if sim._sources else 'N/A'}")
-    print(
-        f"  Frequencies: {len(sim._frequencies_hz) if sim._frequencies_hz is not None else 'N/A'}"
+    repository_root = Path(__file__).resolve().parents[2]
+    antenna_file = repository_root / "antenna_layout_examples" / "hera_5.txt"
+    execution = ExecutionConfig(
+        backend=backend or "numpy",
+        precision=PrecisionInput(preset="standard"),
+        offline=True,
+    )
+    return Simulator.from_parameters(
+        antenna_layout=antenna_file,
+        antenna_file_format="radiosim",
+        antenna_diameter_m=14.0,
+        channel_frequencies_hz=(100_000_000.0, 105_000_000.0),
+        location={"lat": -30.72152, "lon": 21.4283, "height": 1073.0},
+        start_time="2025-01-01T00:00:00",
+        duration_seconds=1.0,
+        time_step_seconds=1.0,
+        sky_model={
+            "sources": [
+                {
+                    "kind": "test_sources",
+                    "num_sources": 3,
+                    "distribution": "uniform",
+                    "seed": 7,
+                    "flux_min": 1.0,
+                    "flux_max": 2.0,
+                    "dec_deg": -30.0,
+                }
+            ]
+        },
+        execution=execution,
     )
 
-    # Estimate memory usage
-    memory_estimate = sim.get_memory_estimate()
-    print(f"\nEstimated memory usage: {memory_estimate:.2f} MB")
 
-    # Run the simulation
-    print("\nRunning simulation...")
-    print("-" * 60)
-    results = sim.run(progress=True)
-    print("-" * 60)
+def _simulator_from_args(args: argparse.Namespace):
+    from radiosim import Simulator
+    from radiosim.io.config_resolution import SimulationOverrides
 
-    # Display results summary
-    print("\nResults Summary")
-    print("=" * 60)
-    if results and "visibilities" in results:
-        vis = results["visibilities"]
-        n_baselines = len(vis)
-        print(f"  Number of baselines: {n_baselines}")
+    if args.config is None:
+        return _built_in_simulator(args.backend)
+    overrides = (
+        None if args.backend is None else SimulationOverrides(backend=args.backend)
+    )
+    return Simulator.from_yaml(args.config, overrides=overrides)
 
-        # Get sample visibility info
-        sample_key = list(vis.keys())[0]
-        sample_vis = vis[sample_key]
-        print(f"  Sample baseline: {sample_key}")
-        print(f"  Visibility shape per baseline: {sample_vis.shape}")
 
-        # Show available correlation products
-        if hasattr(results, "correlation_products"):
-            print(
-                f"  Correlation products: {results.get('correlation_products', ['XX', 'XY', 'YX', 'YY'])}"
-            )
+def main() -> int:
+    """Run the example and report public result surfaces."""
+    args = _parser().parse_args()
+    simulator = _simulator_from_args(args)
 
-    # Save results
-    output_dir = Path(args.output_dir)
-    print(f"\nSaving results to: {output_dir}")
-    sim.save(str(output_dir), format="hdf5")
-    print("  Results saved successfully!")
+    print(f"Requested backend: {simulator.config.execution.backend_strategy}")
+    simulator.setup()
+    print(f"Antennas: {len(simulator.antennas or {})}")
+    print(f"Baselines: {len(simulator.baselines or {})}")
+    print(
+        f"Frequency channels: {len(simulator.config.frequency.channel_frequencies_hz)}"
+    )
 
-    # Plot results (if not disabled)
-    if not args.no_plot:
-        print("\nGenerating plots...")
-        try:
-            sim.plot(plot_type="all")
-            print("  Plots generated successfully!")
-        except Exception as e:
-            print(f"  Warning: Could not generate plots: {e}")
+    estimate = simulator.get_memory_estimate()
+    print(f"Estimated memory: {estimate.get('total_human', 'unavailable')}")
 
-    print("\nSimulation complete!")
+    results = simulator.run(progress=args.progress)
+    visibilities = results["visibilities"]
+    sample_baseline = next(iter(visibilities))
+    products = visibilities[sample_baseline]
+    shapes = {name: value.shape for name, value in products.items()}
+    print(f"Visibility baselines: {len(visibilities)}")
+    print(f"Sample baseline: {sample_baseline}")
+    print(f"Sample product shapes: {shapes}")
+
+    if args.save:
+        saved = simulator.save(args.output_dir, format="hdf5")
+        print(f"Saved results: {saved}")
+    if args.plot:
+        paths = simulator.plot(
+            plot_type="antenna",
+            output_dir=args.output_dir,
+            show=False,
+        )
+        print(f"Saved plots: {len(paths)}")
+
+    print("Simulation complete")
     return 0
 
 
 if __name__ == "__main__":
-    exit(main())
+    raise SystemExit(main())

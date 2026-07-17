@@ -17,14 +17,17 @@ lint = "ruff check ."
 fix = "ruff check --fix ."
 format = "ruff format ."
 check-format = "ruff format --check ."
-typecheck = "python -m pyright"
+typecheck = "python tools/check_pyright_baseline.py"
+typecheck-report = "python -m pyright"
+typecheck-update = "python tools/check_pyright_baseline.py --update"
 test = "python -m pytest tests/"
 pre-commit-install = "pre-commit install"
 
 [dependencies]
-python = "=3.11"
+python = "*"
 pip = "*"
-numpy = "*"
+# Numba (pulled by optional sky-model tooling) currently requires NumPy <2.5.
+numpy = ">=1.24,<2.5"
 matplotlib = "*"
 astropy = "*"
 bokeh = "*"
@@ -60,3 +63,13 @@ pygdsm = "*"
 pyradiosky = "*"
 pysm3 = "*"
 radiosim = { path = ".", editable = true }
+
+[feature.py311.dependencies]
+python = "3.11.*"
+
+[feature.py312.dependencies]
+python = "3.12.*"
+
+[environments]
+default = ["py311"]
+py312 = ["py312"]

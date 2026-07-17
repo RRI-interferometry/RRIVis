@@ -1,191 +1,141 @@
 Quick Start Guide
 =================
 
-This guide will help you get started with RadioSim for radio interferometry
-visibility simulations.
-
-Basic Simulation
-----------------
-
-The simplest way to run a simulation is using the high-level ``Simulator`` class:
-
-.. code-block:: python
-
-   from radiosim import Simulator
-
-   # Create simulator from a tagged config file
-   sim = Simulator.from_config("config.yaml")
-
-   # Setup and run
-   sim.setup()
-   results = sim.run(progress=True)
-
-   # Save results
-   sim.save("output/")
-
-Using a Configuration File
---------------------------
-
-For more complex simulations, use a YAML configuration file:
-
-.. code-block:: yaml
-
-   # config.yaml
-   telescope:
-     telescope_name: "HERA"
-
-   antenna_layout:
-     antenna_positions_file: "antennas.txt"
-     all_antenna_diameter: 14.0
-
-   obs_frequency:
-     starting_frequency: 100.0
-     frequency_bandwidth: 50.0
-     frequency_interval: 1.0
-     frequency_unit: "MHz"
-
-   sky_model:
-     sources:
-       - kind: gleam
-         flux_limit: 1.0
-         max_rows: 10000
-
-Then load and run:
-
-.. code-block:: python
-
-   from radiosim import Simulator
-
-   sim = Simulator.from_config("config.yaml")
-   sim.setup()
-   results = sim.run()
-
-GPU Acceleration
-----------------
-
-Enable GPU acceleration for faster simulations:
-
-.. code-block:: python
-
-   from radiosim import Simulator
-
-   config = {
-       "antenna_layout": {
-           "antenna_positions_file": "antennas.txt",
-           "antenna_file_format": "radiosim",
-           "all_antenna_diameter": 14.0,
-       },
-       "obs_frequency": {
-           "frequencies_hz": [100e6, 150e6, 200e6],
-           "frequency_unit": "MHz",
-       },
-       "sky_model": {"sources": [{"kind": "gleam"}]},
-       "visibility": {"sky_representation": "point_sources"},
-   }
-
-   # Auto-detect best backend
-   sim = Simulator(config=config, backend="auto")
-
-   # Or explicitly use JAX
-   sim = Simulator(config=config, backend="jax")
-
-   sim.setup()
-   results = sim.run()  # Uses GPU if available
-
-Check available backends:
-
-.. code-block:: python
-
-   from radiosim.backends import list_backends
-   print(list_backends())  # ['numpy', 'jax', 'numba']
-
-Accessing Results
------------------
-
-The simulation results contain visibility data:
-
-.. code-block:: python
-
-   results = sim.run()
-
-   # Access visibilities by baseline (results is a dict)
-   vis_01 = results["visibilities"][(0, 1)]  # Shape: (n_times, n_freqs)
-
-   # Get metadata
-   print(f"Number of baselines: {len(results['visibilities'])}")
-   print(f"Frequencies: {results['frequencies']}")
-
-Using Jones Matrices
---------------------
-
-Add instrumental effects using Jones matrices:
-
-.. code-block:: python
-
-   from radiosim import Simulator
-   from radiosim.core.jones import (
-       JonesChain,
-       GeometricDelayJones,
-       BeamJones,
-       GainJones,
-   )
-
-   # Create Jones chain
-   jones = JonesChain([
-       GeometricDelayJones(),
-       BeamJones(beam_type="gaussian"),
-       GainJones(amplitude_std=0.01),
-   ])
-
-   # Use in simulation (pass jones_config to run())
-   sim = Simulator.from_config("config.yaml")
-   sim.setup()
-   results = sim.run()
-
-Command Line Interface
-----------------------
-
-Run simulations from the command line:
+Validate the shipped offline example before running it:
 
 .. code-block:: bash
 
-   # Basic usage
-   radiosim --config config.yaml --antenna-file antennas.txt
+   pixi run radiosim validate configs/config.yaml
+   pixi run radiosim --config configs/config.yaml
 
-   # With specific backend
-   radiosim --config config.yaml --backend jax
+The validation command resolves schema, semantics, paths, backend strategy,
+precision, and frequency samples without constructing ``Simulator``, loading
+scientific data, or creating output directories.
 
-   # Show help
-   radiosim --help
+Python API
+----------
 
-Low-Level API
--------------
-
-For more control, use the low-level API:
+Use ``from_yaml`` for a YAML path:
 
 .. code-block:: python
 
-   from radiosim.core import calculate_visibility, generate_baselines
-   from radiosim.io import read_antenna_positions
-   from radiosim.backends import get_backend
+   from radiosim import Simulator
 
-   # Setup
-   backend = get_backend("numpy")
-   antennas = read_antenna_positions("antennas.txt")
-   baselines = generate_baselines(antennas)
+   simulator = Simulator.from_yaml("configs/config.yaml")
+   results = simulator.run(progress=False)
+   print(f"Baselines: {len(results['visibilities'])}")
 
-   # Calculate visibilities
-   vis = calculate_visibility(
-       baselines=baselines,
-       sources=sources,
-       frequencies=frequencies,
-       backend=backend,
+   # Saving is explicit in Python.
+   simulator.save("output", format="hdf5")
+
+``from_yaml`` resolves only scientific runtime configuration. It does not run
+the document's CLI ``workflow`` actions.
+
+Small programmatic simulation
+-----------------------------
+
+``from_parameters`` accepts exact channel values in Hz and builds the explicit
+frequency variant:
+
+.. code-block:: python
+
+   from radiosim import Simulator
+   from radiosim.io.config import ExecutionConfig, PrecisionInput
+
+   simulator = Simulator.from_parameters(
+       antenna_layout="antenna_layout_examples/hera_5.txt",
+       antenna_file_format="radiosim",
+       antenna_diameter_m=14.0,
+       channel_frequencies_hz=(100_000_000.0, 101_500_000.0, 108_000_000.0),
+       location={"lat": -30.72152, "lon": 21.4283, "height": 1073.0},
+       start_time="2025-01-01T00:00:00",
+       duration_seconds=1.0,
+       time_step_seconds=1.0,
+       sky_model={
+           "sources": [{"kind": "test_sources", "num_sources": 3}]
+       },
+       execution=ExecutionConfig(
+           backend="numpy",
+           precision=PrecisionInput(preset="standard"),
+           offline=True,
+       ),
    )
+   results = simulator.run(progress=False)
 
-Next Steps
+Result structure
+----------------
+
+The current result is a dictionary. ``results["visibilities"]`` maps a
+baseline key to correlation-product arrays:
+
+.. code-block:: python
+
+   products_by_baseline = results["visibilities"]
+   baseline = next(iter(products_by_baseline))
+   products = products_by_baseline[baseline]
+   print({name: values.shape for name, values in products.items()})
+
+Configuration file
+------------------
+
+A complete small document looks like this:
+
+.. code-block:: yaml
+
+   antenna_layout:
+     antenna_positions_file: ../antenna_layout_examples/hera_5.txt
+     antenna_file_format: radiosim
+     all_antenna_diameter: 14.0
+
+   location:
+     lat: -30.72152
+     lon: 21.4283
+     height: 1073.0
+
+   obs_time:
+     start_time: "2025-01-01T00:00:00"
+     duration_seconds: 1.0
+     time_step_seconds: 1.0
+
+   obs_frequency:
+     mode: grid
+     starting_frequency: 100.0
+     frequency_interval: 1.0
+     frequency_bandwidth: 2.0
+     frequency_unit: MHz
+
+   sky_model:
+     sources:
+       - kind: test_sources
+         num_sources: 3
+
+   execution:
+     backend: numpy
+     precision:
+       preset: standard
+     simulator: rime
+     offline: true
+
+   workflow:
+     output_dir: output
+     save_results: false
+     plot_results: false
+     open_plots_in_browser: false
+     save_log: false
+
+Backend selection
+-----------------
+
+NumPy is the deterministic default. Configure ``execution.backend`` as
+``numpy``, ``jax``, ``numba``, or ``auto``. The latter is a real selection
+strategy. Backend resolution does not imply that every high-level scientific
+kernel runs on a GPU; see :doc:`user_guide/backends`.
+
+Next steps
 ----------
 
-- :doc:`user_guide/configuration` - Detailed configuration options
-- :doc:`user_guide/backends` - Backend selection and GPU setup
-- :doc:`user_guide/jones_matrices` - Jones matrix framework
-- :doc:`api/simulator` - Full API reference
+- :doc:`user_guide/configuration`
+- :doc:`user_guide/configuration_support`
+- :doc:`user_guide/backends`
+- :doc:`user_guide/beam_models`
+- :doc:`api/simulator`

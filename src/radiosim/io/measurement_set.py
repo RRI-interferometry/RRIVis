@@ -178,7 +178,7 @@ def write_ms(
     Examples
     --------
     >>> from radiosim import Simulator
-    >>> sim = Simulator.from_config("config.yaml")
+    >>> sim = Simulator.from_yaml("config.yaml")
     >>> results = sim.run()
     >>> from radiosim.io.measurement_set import write_ms
     >>> write_ms(

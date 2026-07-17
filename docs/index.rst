@@ -1,9 +1,11 @@
 RadioSim Documentation
-====================
+======================
 
-**RadioSim** is a Python package for simulating radio interferometry visibilities
-with GPU acceleration support. It implements the Radio Interferometer Measurement
-Equation (RIME) with full polarization support.
+RadioSim simulates radio-interferometric visibilities through a strict,
+source-aware configuration system and a high-level ``Simulator`` API. NumPy is
+the deterministic backend default. Optional backend selection is available,
+but the current high-level scientific path does not promise end-to-end GPU
+acceleration.
 
 .. toctree::
    :maxdepth: 2
@@ -18,6 +20,7 @@ Equation (RIME) with full polarization support.
    :caption: User Guide
 
    user_guide/configuration
+   user_guide/configuration_support
    user_guide/backends
    user_guide/jones_matrices
    user_guide/sky_models
@@ -40,47 +43,33 @@ Equation (RIME) with full polarization support.
    contributing
    changelog
 
-Features
---------
+Current high-level support
+--------------------------
 
-- **GPU Acceleration**: Universal GPU support via JAX (NVIDIA/AMD/Apple Silicon/TPU) and Numba
-- **Full Polarization**: Complete RIME implementation with 2x2 Jones matrices
-- **Jones Matrix Framework**: 8 Jones terms for comprehensive instrumental modeling
-- **Multiple Sky Models**: GLEAM, GSM, HEALPix, and custom point sources
-- **Flexible Beam Models**: Analytic and FITS-based beam patterns
-- **High-Level API**: Simple ``Simulator`` class for notebooks and scripts
-- **Type-Safe Configuration**: Pydantic-based validation
+- strict YAML, mapping, and typed-model configuration;
+- point-source and HEALPix direct-sum visibility paths;
+- analytic beams with one uniform antenna diameter;
+- exact grid or explicit-Hz frequency input;
+- backend and precision selection through resolved configuration; and
+- observability plotting as a ``Simulator`` helper.
 
-Quick Example
+FITS/per-antenna beams, per-antenna diameters, baseline subsets, top-level
+receptor settings, pyuvdata telescope opt-ins, UVFITS output, and later-tier
+simulator modes are rejected by the current high-level resolver.
+
+Quick example
 -------------
 
 .. code-block:: python
 
    from radiosim import Simulator
 
-   # Create simulator from config
-   sim = Simulator.from_config("config.yaml")
-   sim.setup()
+   simulator = Simulator.from_yaml("configs/config.yaml")
+   results = simulator.run(progress=True)
+   print(len(results["visibilities"]))
 
-   # Run simulation
-   results = sim.run(progress=True)
-
-   # Save results
-   sim.save("output.h5")
-
-Installation
-------------
-
-.. code-block:: bash
-
-   # Basic installation
-   pip install radiosim
-
-   # With GPU support (NVIDIA)
-   pip install radiosim[gpu-cuda]
-
-   # With all optional dependencies
-   pip install radiosim[all]
+The YAML ``workflow`` section is executed only by config-mode CLI orchestration.
+Python callers save and plot through explicit method calls.
 
 Indices and tables
 ==================

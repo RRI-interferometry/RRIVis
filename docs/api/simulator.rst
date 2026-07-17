@@ -1,46 +1,34 @@
 Simulator API
 =============
 
-The high-level ``Simulator`` class provides a simple interface for running
-radio interferometry visibility simulations.
-
-.. automodule:: radiosim.api.simulator
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Simulator Class
----------------
+``Simulator`` accepts one already resolved scientific runtime object. The
+classmethods provide the public source-specific construction paths.
 
 .. autoclass:: radiosim.api.simulator.Simulator
    :members:
-   :undoc-members:
    :show-inheritance:
    :special-members: __init__
 
-Example Usage
--------------
-
-Basic simulation:
+Construction
+------------
 
 .. code-block:: python
 
    from radiosim import Simulator
 
-   sim = Simulator.from_config("config.yaml")
-   sim.setup()
-   results = sim.run(progress=True)
-   sim.save("output.h5")
+   yaml_simulator = Simulator.from_yaml("configs/config.yaml")
+   mapping_simulator = Simulator.from_mapping(mapping, base_dir=project_dir)
+   model_simulator = Simulator.from_config(input_model, base_dir=project_dir)
+   direct_simulator = Simulator(resolved_runtime)
 
-With Jones matrices:
+The direct constructor rejects mappings and input models. Mapping/model inputs
+with relative paths require ``base_dir``. ``from_parameters`` is the concise
+programmatic path for complete inputs and exact channel values in Hz.
 
-.. code-block:: python
+Workflow separation
+-------------------
 
-   from radiosim import Simulator
-   from radiosim.core.jones import JonesChain, BeamJones, GainJones
-
-   jones = JonesChain([BeamJones(), GainJones()])
-
-   sim = Simulator()
-   sim.setup(antenna_layout="antennas.txt", jones_chain=jones)
-   results = sim.run()
+No constructor executes CLI ``workflow`` actions. ``run`` computes results;
+``save``, ``plot``, and ``plot_observability`` are explicit helpers.
+``plot_observability`` is a visualization capability associated with the
+Simulator, not a separate engine or product.

@@ -25,6 +25,22 @@ from radiosim.core.precision import (
     get_real_dtype,
     resolve_precision,
 )
+from radiosim.core.runtime_config import (
+    ConfigurationProvenance,
+    FrozenMapping,
+    PathResolutionProvenance,
+    ResolvedAntennaLayoutConfig,
+    ResolvedBeamsConfig,
+    ResolvedConfiguration,
+    ResolvedExecutionConfig,
+    ResolvedFrequencyConfig,
+    ResolvedLocationConfig,
+    ResolvedObservationConfig,
+    ResolvedSimulationConfig,
+    ResolvedSkyModelConfig,
+    ResolvedSkySourceRequest,
+    ResolvedTelescopeConfig,
+)
 from radiosim.core.sky import (
     C_LIGHT,
     H_PLANCK,
@@ -70,6 +86,21 @@ __all__ = [
     "get_complex_dtype",
     "FLOAT128_AVAILABLE",
     "COMPLEX256_AVAILABLE",
+    # Resolved configuration
+    "FrozenMapping",
+    "ConfigurationProvenance",
+    "PathResolutionProvenance",
+    "ResolvedTelescopeConfig",
+    "ResolvedAntennaLayoutConfig",
+    "ResolvedBeamsConfig",
+    "ResolvedLocationConfig",
+    "ResolvedObservationConfig",
+    "ResolvedFrequencyConfig",
+    "ResolvedSkySourceRequest",
+    "ResolvedSkyModelConfig",
+    "ResolvedExecutionConfig",
+    "ResolvedSimulationConfig",
+    "ResolvedConfiguration",
 ]
 
 

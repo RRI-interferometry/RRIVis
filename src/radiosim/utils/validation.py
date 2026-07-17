@@ -1,52 +1,6 @@
-"""Input validation utilities for RadioSim.
-
-Provides validation functions for configuration and input data.
-"""
-
-from pathlib import Path
-from typing import Any
+"""Scientific input-data validation utilities for RadioSim."""
 
 import numpy as np
-
-
-def validate_config(config: dict[str, Any]) -> dict[str, Any]:
-    """
-    Validate a configuration dictionary.
-
-    Args:
-        config: Configuration dictionary to validate
-
-    Returns:
-        Validated configuration dictionary
-
-    Raises:
-        ValueError: If configuration is invalid
-    """
-    errors = []
-
-    # Check required sections
-    # Note: Full validation will be handled by Pydantic models
-    # This is a basic fallback for non-Pydantic usage
-
-    if "antenna_layout" in config:
-        antenna_config = config["antenna_layout"]
-        if "antenna_positions_file" in antenna_config:
-            path = Path(antenna_config["antenna_positions_file"])
-            if not path.exists() and not path.is_absolute():
-                # Try relative path - don't error yet
-                pass
-
-    if "obs_frequency" in config:
-        freq_config = config["obs_frequency"]
-        if "starting_frequency" in freq_config:
-            freq = freq_config["starting_frequency"]
-            if freq <= 0:
-                errors.append("starting_frequency must be positive")
-
-    if errors:
-        raise ValueError(f"Configuration validation failed: {'; '.join(errors)}")
-
-    return config
 
 
 def validate_antenna_positions(

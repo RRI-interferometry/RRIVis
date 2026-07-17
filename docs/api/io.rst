@@ -1,178 +1,77 @@
-I/O Module
-==========
+I/O and Configuration API
+=========================
 
-The ``radiosim.io`` module handles configuration, file I/O, and data persistence.
-
-.. automodule:: radiosim.io
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Configuration
--------------
-
-Pydantic-based configuration models with validation.
-
-.. automodule:: radiosim.io.config
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-RadioSimConfig
-^^^^^^^^^^^^
-
-.. autoclass:: radiosim.io.config.RadioSimConfig
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-TelescopeConfig
-^^^^^^^^^^^^^^^
-
-.. autoclass:: radiosim.io.config.TelescopeConfig
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-AntennaLayoutConfig
-^^^^^^^^^^^^^^^^^^^
-
-.. autoclass:: radiosim.io.config.AntennaLayoutConfig
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-ObsFrequencyConfig
-^^^^^^^^^^^^^^^^^^
-
-.. autoclass:: radiosim.io.config.ObsFrequencyConfig
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Utility Functions
-^^^^^^^^^^^^^^^^^
+Configuration boundaries
+------------------------
 
 .. autofunction:: radiosim.io.config.load_config
 
-.. autofunction:: radiosim.io.config.create_default_config
+.. autofunction:: radiosim.io.config_resolution.resolve_config
 
-Writers
--------
+.. autofunction:: radiosim.io.config.dump_config
 
-.. automodule:: radiosim.io.writers
+``load_config`` and ``resolve_config`` return
+``ResolvedConfiguration(runtime, workflow, provenance)``. ``dump_config``
+accepts a strict ``RadioSimConfig`` input model and writes only user-facing
+input state.
+
+Input models
+------------
+
+.. autoclass:: radiosim.io.config.RadioSimConfig
    :members:
-   :undoc-members:
    :show-inheritance:
 
-Antenna Readers
+.. autoclass:: radiosim.io.config.FrequencyGridConfig
+   :members:
+   :show-inheritance:
+
+.. autoclass:: radiosim.io.config.ExplicitFrequencyConfig
+   :members:
+   :show-inheritance:
+
+``ObsFrequencyConfig`` is an annotated discriminated union rather than a class,
+so its two concrete variants are documented above.
+
+Resolved models
 ---------------
 
-.. automodule:: radiosim.io.antenna_readers
+.. autoclass:: radiosim.core.runtime_config.ResolvedConfiguration
    :members:
-   :undoc-members:
-   :show-inheritance:
+
+.. autoclass:: radiosim.core.runtime_config.ResolvedSimulationConfig
+   :members:
+
+.. autoclass:: radiosim.core.runtime_config.ResolvedFrequencyConfig
+   :members:
+
+Example
+-------
+
+.. code-block:: python
+
+   from radiosim.io import dump_config, load_config
+   from radiosim.io.config import RadioSimConfig
+
+   bundle = load_config("configs/config.yaml")
+   print(bundle.runtime.execution.backend_strategy)
+   print(bundle.workflow.output_dir)
+
+   input_model = RadioSimConfig.model_validate(document_mapping)
+   dump_config(input_model, "copied-config.yaml")
 
 Measurement Set I/O
 -------------------
 
-CASA Measurement Set format support for interoperability with standard
-radio astronomy tools (CASA, QuartiCal, WSClean).
-
-.. note::
-
-   Measurement Set support requires additional dependencies::
-
-       pip install radiosim[ms]
-
-   Or install python-casacore directly::
-
-       pip install python-casacore
+Measurement Set support requires ``python-casacore`` or ``radiosim[ms]``.
 
 .. automodule:: radiosim.io.measurement_set
    :members:
-   :undoc-members:
    :show-inheritance:
 
-write_ms
-^^^^^^^^
+Writers and readers
+-------------------
 
-.. autofunction:: radiosim.io.measurement_set.write_ms
-
-read_ms
-^^^^^^^
-
-.. autofunction:: radiosim.io.measurement_set.read_ms
-
-ms_info
-^^^^^^^
-
-.. autofunction:: radiosim.io.measurement_set.ms_info
-
-Example Usage
--------------
-
-Configuration Loading
-^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: python
-
-   from radiosim.io.config import load_config, RadioSimConfig
-
-   # Load from YAML file
-   config = load_config("config.yaml")
-
-   # Access validated configuration
-   print(config.telescope.telescope_name)
-   print(config.obs_frequency.n_channels)
-
-   # Create programmatically
-   config = RadioSimConfig(
-       telescope={"telescope_name": "HERA"},
-       obs_frequency={"starting_frequency": 100.0},
-   )
-
-   # Save to YAML
-   config.to_yaml("output_config.yaml")
-
-Measurement Set Export
-^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: python
-
-   from radiosim import Simulator
-   from radiosim.io import write_ms, read_ms, ms_info, MS_AVAILABLE
-
-   # Check if MS support is available
-   if MS_AVAILABLE:
-       # Run simulation
-       sim = Simulator.from_config("config.yaml")
-       results = sim.run()
-
-       # Save as Measurement Set
-       sim.save("output/", format="ms")
-
-       # Or use write_ms directly
-       write_ms(
-           "simulation.ms",
-           visibilities=results["visibilities"],
-           frequencies=results["frequencies"],
-           antennas=results["antennas"],
-           baselines=results["baselines"],
-           location=results["location"],
-           obstime=results["obstime"],
-       )
-
-       # Get MS info
-       info = ms_info("simulation.ms")
-       print(f"Antennas: {info['n_antennas']}")
-       print(f"Channels: {info['n_channels']}")
-
-       # Read back
-       data = read_ms("simulation.ms")
-
-After creating a Measurement Set, you can:
-
-- View in CASA: ``casabrowser simulation.ms``
-- Calibrate with QuartiCal: ``goquartical simulation.ms``
-- Image with WSClean: ``wsclean -name image simulation.ms``
+.. automodule:: radiosim.io.writers
+   :members:
+   :show-inheritance:

@@ -1,16 +1,15 @@
-"""Numba + Dask backend for production-grade CPU/GPU computing.
-
-This backend is aligned with the radio astronomy community standards:
-- QuartiCal uses Numba for calibration
-- Codex Africanus uses Numba + Dask for distributed computing
-- dask-ms provides Measurement Set I/O
+"""Lower-level NumPy, Numba-helper, and optional Dask backend.
 
 Features:
-- JIT compilation for CPU performance
+- Explicit Numba JIT compilation helper for caller-supplied functions
 - Parallel loops via numba.prange
-- GPU support via numba.cuda (NVIDIA CUDA, AMD ROCm)
-- Distributed computing via Dask
-- Precision control (float32/float64 only; float128 falls back to float64)
+- Optional Dask arrays and client management
+- CUDA device availability and metadata reporting
+
+The ``mode="gpu"`` path validates and reports a CUDA device, but the common
+array and mathematical operations in this class remain NumPy or Dask
+operations. It therefore does not establish GPU execution for a high-level
+simulation.
 
 Usage:
     >>> from radiosim.backends import get_backend
@@ -22,8 +21,8 @@ With precision control:
     >>> from radiosim.core.precision import PrecisionConfig
     >>> backend = get_backend("numba", precision="fast")
 
-Note: Numba does not support float128/complex256. Precision configurations
-requesting float128 will automatically fall back to float64 with a warning.
+The strict high-level resolver rejects incompatible Numba/float128 requests
+before constructing this lower-level backend.
 """
 
 from typing import TYPE_CHECKING, Any, Union
@@ -70,29 +69,27 @@ except ImportError:
 
 
 class NumbaBackend(ArrayBackend):
-    """Numba + Dask backend for production computing.
+    """NumPy/Dask array backend with an explicit Numba JIT helper.
 
     This backend provides:
-    - JIT compilation for CPU optimization (2-10x speedup)
-    - Parallel loops for multi-core CPU usage
-    - GPU support via CUDA (10-100x speedup)
-    - Distributed computing via Dask for cluster deployment
+    - Numba compilation for functions passed to :meth:`jit_compile`
+    - Optional Dask arrays and client management
+    - CUDA device detection and metadata reporting
     - Precision control (float32/float64 only; float128 falls back to float64)
 
     Modes:
     - 'cpu': Local CPU with JIT and parallel loops
-    - 'gpu': NVIDIA GPU via CUDA
-    - 'distributed': Dask distributed cluster
+    - 'gpu': CUDA device validation/metadata; array operations remain NumPy/Dask
+    - 'distributed': Dask client; set ``use_dask_arrays=True`` for Dask arrays
 
     Example:
         >>> # CPU mode (default)
         >>> backend = NumbaBackend(mode="cpu")
 
-        >>> # GPU mode
-        >>> backend = NumbaBackend(mode="gpu")
-
         >>> # Distributed mode
-        >>> backend = NumbaBackend(mode="distributed", n_workers=8)
+        >>> backend = NumbaBackend(
+        ...     mode="distributed", n_workers=8, use_dask_arrays=True
+        ... )
 
         >>> # With precision control
         >>> from radiosim.core.precision import PrecisionConfig

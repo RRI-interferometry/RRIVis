@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from ..containers._shared import validate_frequency_axis
 from . import healpix_geometry
-from .frequencies import resolve_frequency_config
+from .frequencies import validate_observation_frequencies
 from .healpix_geometry import pixel_solid_angle
 from .point_builder import point_source_data_from_mapping
 from .precision import get_sky_storage_dtype, require_precision
@@ -24,6 +24,6 @@ __all__ = [
     "pixel_solid_angle",
     "point_source_data_from_mapping",
     "require_precision",
-    "resolve_frequency_config",
+    "validate_observation_frequencies",
     "validate_frequency_axis",
 ]

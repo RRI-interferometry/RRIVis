@@ -1,12 +1,13 @@
-"""Hardware backend management for RadioSim.
+"""Lower-level array backend management for RadioSim.
 
-This module provides abstraction over different computational backends
-for CPU/GPU/TPU acceleration of visibility calculations.
+This module selects array implementations and optional devices. Backend or
+device selection alone does not establish end-to-end acceleration or numerical
+parity for every high-level simulation kernel.
 
 Backends:
-- numpy: CPU (x86 + ARM), always available, baseline implementation
-- numba: CPU/GPU with JIT compilation + Dask distributed (production)
-- jax: GPU/TPU with auto-differentiation (research)
+- numpy: CPU baseline, always available
+- numba: NumPy/Dask operations plus an explicit Numba JIT helper
+- jax: JAX array operations on a device supported by the installed JAX runtime
 
 Usage:
     >>> from radiosim.backends import get_backend, list_backends
@@ -75,6 +76,23 @@ except ImportError:
         return False
 
 
+def _require_supported_precision(
+    precision: Union["PrecisionConfig", str] | None,
+    backend_name: str,
+) -> "PrecisionConfig":
+    """Resolve precision and reject any backend dtype downgrade."""
+    from radiosim.core.precision import resolve_precision
+
+    resolved = resolve_precision(precision)
+    issues = resolved.validate_for_backend(backend_name)
+    if issues:
+        raise BackendNotAvailableError(
+            f"The {backend_name} backend cannot honor the requested precision: "
+            + "; ".join(issues)
+        )
+    return resolved
+
+
 def get_backend(
     name: str = "auto", precision: Union["PrecisionConfig", str] | None = None, **kwargs
 ) -> ArrayBackend:
@@ -84,12 +102,16 @@ def get_backend(
     ----------
     name : str
         Backend name:
-        - "auto": Auto-detect best available (recommended)
+        - "auto": Select an available backend/device strategy
         - "numpy" or "cpu": NumPy CPU backend (always available)
-        - "numba": Numba JIT backend (CPU/GPU)
-        - "jax": JAX GPU/TPU backend
-        - "gpu": Best GPU backend (JAX or Numba CUDA)
-        - "tpu": JAX TPU backend
+        - "numba": NumPy/Dask operations with a Numba JIT helper
+        - "jax": JAX arrays on the requested available device
+        - "gpu": Request a lower-level GPU-capable backend wrapper
+        - "tpu": Request the JAX TPU device
+
+        The Numba ``mode="gpu"`` path currently detects and reports a CUDA
+        device, but its common array operations remain NumPy/Dask operations.
+        None of these selections proves end-to-end Simulator device execution.
     precision : PrecisionConfig, str, or None
         Precision configuration. Can be:
         - None: Use standard float64 precision
@@ -126,19 +148,25 @@ def get_backend(
     >>> # Numba with parallel CPU
     >>> backend = get_backend("numba", mode="cpu", n_workers=4)
 
-    >>> # Numba GPU (CUDA)
-    >>> backend = get_backend("numba", mode="gpu")
-
-    >>> # JAX GPU (vendor-agnostic) with precision
+    >>> # JAX on an explicitly requested device, when available
     >>> from radiosim.core.precision import PrecisionConfig
-    >>> backend = get_backend("jax", precision=PrecisionConfig.fast())
-
-    >>> # JAX TPU
-    >>> backend = get_backend("jax", device="tpu")
+    >>> backend = get_backend("jax", device="cpu", precision=PrecisionConfig.fast())
     """
     name = name.lower()
 
     if name == "auto":
+        from radiosim.core.precision import resolve_precision
+
+        resolved_precision = resolve_precision(precision)
+        if resolved_precision.validate_for_backend("jax"):
+            numpy_issues = resolved_precision.validate_for_backend("numpy")
+            if numpy_issues:
+                raise BackendNotAvailableError(
+                    "No installed backend can honor the requested precision: "
+                    + "; ".join(numpy_issues)
+                )
+            return NumPyBackend(precision=resolved_precision)
+
         # Auto-detect best available backend
         # Priority: GPU (JAX) > GPU (Numba CUDA) > CPU (Numba) > CPU (NumPy)
         if JAX_AVAILABLE:
@@ -147,31 +175,33 @@ def get_backend(
 
                 # Check for GPU or TPU
                 if jax.devices("tpu"):
-                    return JAXBackend(device="tpu", precision=precision)
+                    return JAXBackend(device="tpu", precision=resolved_precision)
                 elif jax.devices("gpu"):
-                    return JAXBackend(device="gpu", precision=precision)
+                    return JAXBackend(device="gpu", precision=resolved_precision)
             except Exception:
                 pass
 
         if NUMBA_AVAILABLE:
             if is_cuda_available():
                 try:
-                    return NumbaBackend(mode="gpu", precision=precision)
+                    return NumbaBackend(mode="gpu", precision=resolved_precision)
                 except BackendNotAvailableError:
                     pass
             # Fall back to Numba CPU
             try:
-                return NumbaBackend(mode="cpu", precision=precision)
+                return NumbaBackend(mode="cpu", precision=resolved_precision)
             except BackendNotAvailableError:
                 pass
 
         # Default to NumPy (always available)
-        return NumPyBackend(precision=precision)
+        return NumPyBackend(precision=resolved_precision)
 
     elif name in ("numpy", "cpu"):
-        return NumPyBackend(precision=precision)
+        resolved_precision = _require_supported_precision(precision, "numpy")
+        return NumPyBackend(precision=resolved_precision)
 
     elif name == "numba":
+        resolved_precision = _require_supported_precision(precision, "numba")
         if not NUMBA_AVAILABLE:
             raise BackendNotAvailableError(
                 "Numba not available. Install with: pip install numba dask[complete]"
@@ -183,10 +213,11 @@ def get_backend(
             mode=mode,
             n_workers=n_workers,
             scheduler_address=scheduler_address,
-            precision=precision,
+            precision=resolved_precision,
         )
 
     elif name == "jax":
+        resolved_precision = _require_supported_precision(precision, "jax")
         if not JAX_AVAILABLE:
             raise BackendNotAvailableError(
                 "JAX not available. Install with:\n"
@@ -195,19 +226,20 @@ def get_backend(
                 "  pip install radiosim[gpu-rocm]   # AMD"
             )
         device = kwargs.get("device", "gpu")
-        return JAXBackend(device=device, precision=precision)
+        return JAXBackend(device=device, precision=resolved_precision)
 
     elif name == "gpu":
+        resolved_precision = _require_supported_precision(precision, "jax")
         # Best GPU backend
         if JAX_AVAILABLE:
             try:
-                return JAXBackend(device="gpu", precision=precision)
+                return JAXBackend(device="gpu", precision=resolved_precision)
             except BackendNotAvailableError:
                 pass
 
         if NUMBA_AVAILABLE and is_cuda_available():
             try:
-                return NumbaBackend(mode="gpu", precision=precision)
+                return NumbaBackend(mode="gpu", precision=resolved_precision)
             except BackendNotAvailableError:
                 pass
 
@@ -216,11 +248,12 @@ def get_backend(
         )
 
     elif name == "tpu":
+        resolved_precision = _require_supported_precision(precision, "jax")
         if not JAX_AVAILABLE:
             raise BackendNotAvailableError(
                 "JAX required for TPU. Install with: pip install radiosim[tpu]"
             )
-        return JAXBackend(device="tpu", precision=precision)
+        return JAXBackend(device="tpu", precision=resolved_precision)
 
     else:
         available = ["auto", "numpy", "cpu", "numba", "jax", "gpu", "tpu"]

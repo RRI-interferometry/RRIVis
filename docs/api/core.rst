@@ -1,13 +1,8 @@
 Core Module
 ===========
 
-The ``radiosim.core`` module contains the core astronomy calculations including
+The ``radiosim.core`` package contains the core astronomy calculations including
 visibility computation, antenna handling, baseline generation, and beam models.
-
-.. automodule:: radiosim.core
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
 Visibility
 ----------
@@ -33,29 +28,14 @@ Baseline
    :undoc-members:
    :show-inheritance:
 
-Beams (Analytic)
-----------------
+Beam and sky APIs
+-----------------
 
-.. automodule:: radiosim.core.jones.beam.analytic
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Beams (FITS)
-------------
-
-.. automodule:: radiosim.core.jones.beam.fits
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Source
-------
-
-.. automodule:: radiosim.core.source
-   :members:
-   :undoc-members:
-   :show-inheritance:
+The current high-level ``Simulator`` connects analytic beams and strict sky
+source requests. See :doc:`jones` for the implemented/scaffold distinction and
+:doc:`../user_guide/sky_models` for the lower-level sky preparation API. FITS
+and per-antenna beam execution remain rejected by the strict high-level
+configuration resolver.
 
 Observation
 -----------

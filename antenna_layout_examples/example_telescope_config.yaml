@@ -1,18 +1,48 @@
-# Example Telescope Configuration File
-# This demonstrates the YAML configuration format for RadioSim
+# Complete strict RadioSim configuration using the native layout beside it.
 
 telescope:
-  name: "Example Array"
-  location:
-    latitude: -30.7215
-    longitude: 21.4283
-    elevation: 1050.0
-  
-antenna_layout:
-  file: "example_radiosim_format.txt"
-  format: "radiosim"
+  telescope_name: Example Array
 
-observation:
-  start_time: "2024-01-01T00:00:00"
-  duration_hours: 4.0
-  frequency_mhz: 150.0
+antenna_layout:
+  antenna_positions_file: example_radiosim_format.txt
+  antenna_file_format: radiosim
+  all_antenna_diameter: 14.0
+
+location:
+  lat: -30.7215
+  lon: 21.4283
+  height: 1050.0
+
+obs_time:
+  start_time: "2025-01-01T00:00:00"
+  duration_seconds: 1.0
+  time_step_seconds: 1.0
+
+obs_frequency:
+  mode: explicit
+  channel_frequencies_hz: [150000000.0]
+
+sky_model:
+  sources:
+    - kind: test_sources
+      num_sources: 3
+      seed: 7
+
+beams:
+  beam_mode: analytic
+  aperture_shape: circular
+  taper: gaussian
+
+execution:
+  backend: numpy
+  precision:
+    preset: standard
+  simulator: rime
+  offline: true
+
+workflow:
+  output_dir: output
+  save_results: false
+  plot_results: false
+  open_plots_in_browser: false
+  save_log: false

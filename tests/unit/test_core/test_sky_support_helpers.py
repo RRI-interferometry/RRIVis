@@ -1,7 +1,7 @@
 """Tests for the shared core/sky support helpers (Phase 1 dedup helpers).
 
 These helpers consolidate logic duplicated across the sky package
-(backend casting, HEALPix geometry, frequency-config resolution, astropy
+(backend casting, HEALPix geometry, explicit frequency validation, astropy
 ``Quantity`` unwrapping, coverage provenance, and point-source building).
 Where a helper replaces an existing inline implementation, the test
 asserts equivalence against that original implementation so the dedup is
@@ -28,7 +28,7 @@ from radiosim.core.sky.support.brightness import (
     healpix_flux_row_to_brightness_temp,
     skyh5_stokes_slice_to_kelvin,
 )
-from radiosim.core.sky.support.frequencies import resolve_frequency_config
+from radiosim.core.sky.support.frequencies import validate_observation_frequencies
 from radiosim.core.sky.support.healpix_geometry import (
     close_memmap,
     gnomonic_rotate,
@@ -372,44 +372,23 @@ def test_ordered_row_passthrough_branch_returns_input():
 
 
 # ---------------------------------------------------------------------------
-# frequencies.resolve_frequency_config
+# frequencies.validate_observation_frequencies
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_frequency_config_requires_exactly_one():
-    with pytest.raises(ValueError):
-        resolve_frequency_config(frequencies=None, obs_frequency_config=None)
-    with pytest.raises(ValueError):
-        resolve_frequency_config(
-            frequencies=np.array([100e6]),
-            obs_frequency_config={"frequencies_hz": [100e6]},
-        )
+def test_validate_observation_frequencies_preserves_and_copies_explicit_array():
+    caller = np.array([100e6, 120e6, 150e6])
+    out = validate_observation_frequencies(caller)
+    caller[1] = 999e6
 
-
-def test_resolve_frequency_config_explicit_array_sorted_float64():
-    out = resolve_frequency_config(frequencies=np.array([150e6, 100e6]))
-    assert out.tolist() == [100e6, 150e6]
-    assert out.dtype == np.float64
-
-
-def test_resolve_frequency_config_from_obs_config():
-    config = {
-        "starting_frequency": 100.0,
-        "frequency_interval": 1.0,
-        "frequency_bandwidth": 4.0,
-        "frequency_unit": "MHz",
-    }
-    out = resolve_frequency_config(obs_frequency_config=config)
-    assert out.dtype == np.float64
-    assert out[0] == pytest.approx(100e6)
-    # Ascending.
-    assert np.all(np.diff(out) > 0)
-
-
-def test_resolve_frequency_config_from_raw_frequencies_hz():
-    config = {"frequencies_hz": [150e6, 100e6, 120e6]}
-    out = resolve_frequency_config(obs_frequency_config=config)
     assert out.tolist() == [100e6, 120e6, 150e6]
+    assert out.dtype == np.float64
+    assert out.flags.owndata
+
+
+def test_validate_observation_frequencies_accepts_one_channel():
+    out = validate_observation_frequencies([150e6])
+    np.testing.assert_array_equal(out, [150e6])
 
 
 @pytest.mark.parametrize(
@@ -420,11 +399,13 @@ def test_resolve_frequency_config_from_raw_frequencies_hz():
         np.array([100e6, np.inf]),
         np.array([0.0, 100e6]),
         np.array([-1.0, 100e6]),
+        np.array([101e6, 100e6]),
+        np.array([100e6, 100e6]),
     ],
 )
-def test_resolve_frequency_config_rejects_invalid_explicit_axis(frequencies):
-    with pytest.raises(ValueError, match="resolve_frequency_config frequencies"):
-        resolve_frequency_config(frequencies=frequencies)
+def test_validate_observation_frequencies_rejects_invalid_axis(frequencies):
+    with pytest.raises(ValueError, match="observation frequencies"):
+        validate_observation_frequencies(frequencies)
 
 
 # ---------------------------------------------------------------------------

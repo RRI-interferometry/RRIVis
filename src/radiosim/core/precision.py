@@ -37,8 +37,17 @@ Granular control:
 In Simulator:
 
 >>> from radiosim import Simulator
->>> sim = Simulator(backend="jax", precision="fast")
->>> sim = Simulator(backend="numpy", precision=PrecisionConfig.precise())
+>>> from radiosim.io import SimulationOverrides
+>>> sim = Simulator.from_yaml(
+...     "config.yaml",
+...     overrides=SimulationOverrides(backend="jax", precision="fast"),
+... )
+>>> sim = Simulator.from_yaml(
+...     "config.yaml",
+...     overrides=SimulationOverrides(
+...         backend="numpy", precision=PrecisionConfig.precise()
+...     ),
+... )
 """
 
 from __future__ import annotations
@@ -47,7 +56,7 @@ import warnings
 from typing import Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # =============================================================================
 # Precision Level Type
@@ -208,7 +217,13 @@ def get_dtype_size(precision: PrecisionLevel, complex_type: bool = False) -> int
 # =============================================================================
 
 
-class CoordinatePrecision(BaseModel):
+class _StrictFrozenPrecisionModel(BaseModel):
+    """Shared strict immutable base for the runtime precision tree."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class CoordinatePrecision(_StrictFrozenPrecisionModel):
     """Precision settings for coordinate calculations.
 
     Attributes
@@ -255,7 +270,7 @@ class CoordinatePrecision(BaseModel):
 # =============================================================================
 
 
-class JonesPrecision(BaseModel):
+class JonesPrecision(_StrictFrozenPrecisionModel):
     """Precision settings for Jones matrix calculations.
 
     Different Jones terms have different precision requirements:
@@ -329,7 +344,7 @@ class JonesPrecision(BaseModel):
 # =============================================================================
 
 
-class SkyModelPrecision(BaseModel):
+class SkyModelPrecision(_StrictFrozenPrecisionModel):
     """Precision settings for sky model data storage.
 
     Controls the numerical precision of arrays stored inside ``SkyModel``.
@@ -394,7 +409,7 @@ class SkyModelPrecision(BaseModel):
 # =============================================================================
 
 
-class PrecisionConfig(BaseModel):
+class PrecisionConfig(_StrictFrozenPrecisionModel):
     """Main precision configuration for RadioSim simulations.
 
     Provides hierarchical control over numerical precision at different
@@ -442,11 +457,6 @@ class PrecisionConfig(BaseModel):
         default_factory=SkyModelPrecision,
         description="Sky model data precision settings",
     )
-
-    model_config = {
-        "extra": "forbid",  # Reject unknown fields
-        "validate_assignment": True,
-    }
 
     @field_validator("default", "accumulation", "output", mode="before")
     @classmethod
@@ -572,8 +582,9 @@ class PrecisionConfig(BaseModel):
 
         Use for: Debugging only - very slow, NumPy only.
 
-        Warning: This is 10-20x slower than standard and only works
-                 with the NumPy backend on supported platforms.
+        Warning: This can be substantially slower than standard and only works
+                 with the NumPy backend on supported platforms. Benchmark the
+                 actual workload before relying on its performance.
 
         Returns
         -------
@@ -756,55 +767,50 @@ class PrecisionConfig(BaseModel):
         list of str
             Warning messages for incompatible settings
         """
-        warnings_list = []
+        warnings_list: list[str] = []
+        float128_fields: list[str] = []
+
+        for field in ("default", "accumulation", "output"):
+            if getattr(self, field) == "float128":
+                float128_fields.append(field)
+
+        for field in type(self.coordinates).model_fields:
+            if getattr(self.coordinates, field) == "float128":
+                float128_fields.append(f"coordinates.{field}")
+
+        for field in type(self.jones).model_fields:
+            if getattr(self.jones, field) == "float128":
+                float128_fields.append(f"jones.{field}")
+
+        for field in type(self.sky_model).model_fields:
+            if getattr(self.sky_model, field) == "float128":
+                float128_fields.append(f"sky_model.{field}")
 
         if backend_name in ("jax", "numba"):
-            # Check for float128 usage
-            float128_fields = []
-
-            if self.default == "float128":
-                float128_fields.append("default")
-            if self.accumulation == "float128":
-                float128_fields.append("accumulation")
-            if self.output == "float128":
-                float128_fields.append("output")
-
-            for field in self.coordinates.model_fields:
-                if getattr(self.coordinates, field) == "float128":
-                    float128_fields.append(f"coordinates.{field}")
-
-            for field in self.jones.model_fields:
-                if getattr(self.jones, field) == "float128":
-                    float128_fields.append(f"jones.{field}")
-
-            for field in self.sky_model.model_fields:
-                if getattr(self.sky_model, field) == "float128":
-                    float128_fields.append(f"sky_model.{field}")
-
             if float128_fields:
                 warnings_list.append(
                     f"float128 not supported on {backend_name} backend. "
                     f"The following will fall back to float64: {float128_fields}"
                 )
 
-        if backend_name == "numpy" and not FLOAT128_AVAILABLE:
-            # Check for float128 usage on unsupported platform
-            if any(
-                getattr(self, f, None) == "float128"
-                or any(
-                    getattr(self.coordinates, f2, None) == "float128"
-                    for f2 in self.coordinates.model_fields
-                )
-                or any(
-                    getattr(self.jones, f3, None) == "float128"
-                    for f3 in self.jones.model_fields
-                )
-                for f in ["default", "accumulation", "output"]
-            ):
+        if backend_name == "numpy" and float128_fields:
+            if not FLOAT128_AVAILABLE:
                 warnings_list.append(
-                    "float128 not available on this platform. "
-                    "Will fall back to float64."
+                    "float128 not available on this platform for requested "
+                    f"precision fields: {float128_fields}"
                 )
+            elif not COMPLEX256_AVAILABLE:
+                complex256_fields = [
+                    field
+                    for field in float128_fields
+                    if field in {"default", "accumulation", "output"}
+                    or field.startswith("jones.")
+                ]
+                if complex256_fields:
+                    warnings_list.append(
+                        "complex256 not available on this platform for requested "
+                        f"precision fields: {complex256_fields}"
+                    )
 
         return warnings_list
 

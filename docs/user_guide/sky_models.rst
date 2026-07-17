@@ -71,10 +71,12 @@ and explicit fields still win:
    sky_model:
      sources:
        - kind: gsm2016
-         nside: 128
+         options:
+           nside: 128
        - kind: gsm2016
-         model: haslam
-         nside: 64
+         options:
+           model: haslam
+           nside: 64
 
 Combined Models
 ^^^^^^^^^^^^^^^
@@ -286,30 +288,8 @@ Performance Considerations
 - **HEALPix resolution**: Higher nside = more pixels = slower
 - **Flux limit**: Higher limit = fewer sources = faster
 
-For large point-source simulations, use GPU backends:
-
-.. code-block:: python
-
-   sim = Simulator(
-       config={
-           "antenna_layout": {
-               "antenna_positions_file": "antennas.txt",
-               "antenna_file_format": "radiosim",
-               "all_antenna_diameter": 14.0,
-           },
-           "obs_frequency": {
-               "frequencies_hz": [100e6, 150e6],
-           },
-           "sky_model": {"sources": [{"kind": "gleam"}]},
-           "visibility": {"sky_representation": "point_sources"},
-       },
-       backend="jax",
-   )
-   sim.setup()
-   results = sim.run()  # backend is wired through the matmul, but the loop is
-   # still host-side (per-time/-freq/-baseline Python + astropy), so GPU speedup
-   # is a roadmap item rather than something realized today.
-
-HEALPix direct visibility currently uses a NumPy CPU path. If a GPU backend is
-configured with ``visibility.sky_representation: healpix_map``, RadioSim warns and
-runs the HEALPix calculation on CPU.
+Backend selection is resolved consistently, but it does not establish
+end-to-end GPU acceleration for either high-level sky representation. Benchmark
+point-source and HEALPix workloads separately, report the actual backend and
+device, and compare numerical results with NumPy before making a performance
+claim.

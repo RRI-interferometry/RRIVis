@@ -1,98 +1,51 @@
-# RadioSim Examples
+# RadioSim examples
 
-This directory contains example scripts and Jupyter notebooks demonstrating how to use RadioSim for radio interferometry visibility simulations.
+The examples use the strict Tier 1 configuration and the public `Simulator`
+API. The default script and notebook are deterministic, local, and
+NumPy-backed; they do not require network access.
 
-## Quick Start
+## Script
 
-### Scripts
-
-Run the simple simulation example:
-
-```bash
-# Basic usage (auto-detect best backend)
-python scripts/simple_simulation.py
-
-# Use GPU acceleration (requires JAX)
-python scripts/simple_simulation.py --backend jax
-
-# Use a configuration file
-python scripts/simple_simulation.py --config ../configs/01_parabolic_10db_taper.yaml
-
-# Disable plotting
-python scripts/simple_simulation.py --no-plot --output-dir my_results
-```
-
-### Notebooks
-
-Open Jupyter notebooks for interactive exploration:
+From the repository root:
 
 ```bash
-jupyter notebook notebooks/01_basic_usage.ipynb
+pixi run python examples/scripts/simple_simulation.py --help
+pixi run python examples/scripts/simple_simulation.py --no-plot
 ```
 
-## Example Descriptions
-
-### Scripts
-
-| Script | Description |
-|--------|-------------|
-| `simple_simulation.py` | Basic visibility simulation with command-line options |
-
-### Notebooks
-
-| Notebook | Description |
-|----------|-------------|
-| `01_basic_usage.ipynb` | Introduction to RadioSim: setup, run, plot, and save |
-
-## Prerequisites
-
-Make sure RadioSim is installed:
+The smoke run writes nothing. Saving and plotting are explicit:
 
 ```bash
-# CPU-only installation
-pip install radiosim
+pixi run python examples/scripts/simple_simulation.py \
+  --save --output-dir simulation_output
 
-# With GPU support (NVIDIA)
-pip install radiosim[gpu-cuda]
-
-# With GPU support (Apple Silicon)
-pip install radiosim[gpu]
-
-# Development installation
-pip install -e ".[dev]"
+pixi run python examples/scripts/simple_simulation.py \
+  --plot --output-dir simulation_output
 ```
 
-## Available Backends
+To run a shipped YAML document without executing its CLI workflow section:
 
-RadioSim supports multiple computation backends:
-
-- **numpy**: CPU baseline (always available)
-- **jax**: GPU/TPU acceleration (NVIDIA, AMD, Apple Silicon)
-- **numba**: Production backend with Dask support
-
-Check available backends:
-
-```python
-from radiosim.backends import list_backends
-print(list_backends())
-# {'numpy': True, 'jax': True, 'numba': True}
+```bash
+pixi run python examples/scripts/simple_simulation.py \
+  --config configs/config.yaml --no-plot
 ```
 
-## Configuration Files
+`--backend` is an explicit override. Omitting it preserves a YAML document's
+backend; the built-in example uses NumPy.
 
-Example YAML configuration files are in the `../configs/` directory:
+## Notebook
 
-- `01_parabolic_10db_taper.yaml` - Standard parabolic dishes
-- `02_parabolic_uniform.yaml` - Uniform illumination
-- `03_parabolic_airy_pattern.yaml` - Airy disk pattern
-- `04_dipole_array.yaml` - Dipole antenna array
-- And more...
+Open `notebooks/01_basic_usage.ipynb` from the repository root. Its default
+cells use the bundled HERA layout and synthetic sources. Plotting and result
+saving are disabled unless you change their explicit flags.
 
-## Antenna Layouts
+## Shipped configurations
 
-Example antenna position files are in `../antenna_layout_examples/`:
+- `configs/config.yaml` is an offline synthetic point-source example.
+- `configs/realistic_foreground_example.yaml` describes a Haslam and GLEAM
+  foreground recipe. Validation is local, but simulation may require network
+  access and optional sky-model dependencies.
 
-- `example_radiosim_format.txt` - Native RadioSim ENU format
-- `example_casa_format.cfg` - CASA configuration format
-- `example_pyuvdata_format.txt` - pyuvdata format
-- `example_antenna_layout.csv` - CSV format
+NumPy is the deterministic default. JAX and Numba can be selected when their
+optional dependencies are installed, but backend selection alone is not a
+claim of end-to-end GPU acceleration.

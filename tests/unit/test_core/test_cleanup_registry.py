@@ -191,6 +191,7 @@ def test_meta_keys_are_a_stable_canonical_set():
         "aliases",
         "alias_defaults",
         "config_fields",
+        "path_options",
     }
     for name in loader_registry.names():
         assert set(loader_registry.meta(name)) == expected_keys

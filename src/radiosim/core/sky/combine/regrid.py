@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from radiosim.utils.frequency import parse_frequency_config
-
 from ..containers import PointSourceData
+from ..support.frequencies import validate_observation_frequencies
 from ..support.healpy import lazy_healpy as hp
 
 if TYPE_CHECKING:
@@ -26,19 +26,15 @@ def _format_healpix_freq_grid(frequencies: np.ndarray) -> str:
 
 
 def _resolve_requested_healpix_frequencies(
-    frequencies: np.ndarray | None,
-    obs_frequency_config: dict[str, Any] | None,
+    frequencies: Sequence[float] | np.ndarray | None,
 ) -> np.ndarray | None:
     """Resolve an explicit frequency request to a concrete array."""
-    if frequencies is not None and obs_frequency_config is not None:
-        raise ValueError(
-            "Provide either 'frequencies' or 'obs_frequency_config', not both."
-        )
-    if frequencies is not None:
-        return np.asarray(frequencies, dtype=np.float64)
-    if obs_frequency_config is not None:
-        return parse_frequency_config(obs_frequency_config)
-    return None
+    if frequencies is None:
+        return None
+    return validate_observation_frequencies(
+        frequencies,
+        label="requested HEALPix frequencies",
+    )
 
 
 def _resolve_common_healpix_frame(models: list[SkyModel]) -> str:
@@ -132,8 +128,7 @@ def regrid_healpix_model(
     model: SkyModel,
     *,
     nside: int | None = None,
-    frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
+    frequencies: Sequence[float] | np.ndarray | None = None,
 ) -> SkyModel:
     """Explicitly regrid a HEALPix SkyModel.
 
@@ -145,10 +140,7 @@ def regrid_healpix_model(
     if model.healpix is None:
         raise ValueError("regrid_healpix_model requires a SkyModel with HEALPix data.")
 
-    requested_freqs = _resolve_requested_healpix_frequencies(
-        frequencies,
-        obs_frequency_config,
-    )
+    requested_freqs = _resolve_requested_healpix_frequencies(frequencies)
     source_healpix = model.healpix.require_dense("regrid_healpix_model")
     current_freqs = np.asarray(source_healpix.frequencies, dtype=np.float64)
     if requested_freqs is not None and not np.array_equal(

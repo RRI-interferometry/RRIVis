@@ -43,6 +43,46 @@ Run formatting and linting:
    ruff check src/ tests/
    pyright src/radiosim
 
+Pre-v1 API Evolution Policy
+---------------------------
+
+RadioSim is pre-v1.0. Before the first stable major release, architectural
+clarity and a coherent public API take priority over backward compatibility.
+Misleading abstractions, transitional shims, private-surface leakage, and
+configuration that silently does nothing should be removed directly.
+
+Breaking API and configuration replacements are acceptable before v1.0. Do not
+add a deprecation or compatibility path unless it is explicitly requested for
+the change. Breaking changes must still be documented in the changelog or a
+migration guide so users can update deliberately.
+
+Type Checking
+-------------
+
+RadioSim keeps Pyright in strict mode. The current type debt is recorded as a
+checked-in error ceiling, and ``pixi run typecheck`` fails if the strict error
+total increases. This is a temporary no-increase policy; it does not make the
+existing diagnostics acceptable or disable any diagnostic category. The
+baseline also records the Pyright version so a checker upgrade cannot silently
+change the measured debt.
+
+Use ``pixi run typecheck-report`` to see the normal Pyright report. After fixing
+type errors, run ``pixi run typecheck-update`` to lower the ceiling. The update
+command refuses to raise it.
+
+Release Metadata Checklist
+--------------------------
+
+``pyproject.toml`` ``project.version`` is the canonical release version. A
+release change must update the Pixi workspace version, package ``__version__``,
+and both Sphinx version fields in the same reviewable change. Verify the release
+and lock metadata with:
+
+.. code-block:: bash
+
+   pixi run -- python -m pytest tests/unit/test_release_metadata.py
+   pixi install --locked
+
 Testing
 -------
 

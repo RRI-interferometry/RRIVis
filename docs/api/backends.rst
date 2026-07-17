@@ -1,13 +1,9 @@
 Backends Module
 ===============
 
-The ``radiosim.backends`` module provides compute backend abstraction for
-CPU and GPU execution.
-
-.. automodule:: radiosim.backends
-   :members:
-   :undoc-members:
-   :show-inheritance:
+The ``radiosim.backends`` package provides a common array/backend abstraction.
+Availability and selection do not by themselves prove end-to-end GPU execution
+of a high-level simulation.
 
 Backend Selection
 -----------------
@@ -21,6 +17,7 @@ Base Backend
 
 .. automodule:: radiosim.backends.base
    :members:
+   :exclude-members: precision
    :undoc-members:
    :show-inheritance:
 
@@ -55,13 +52,13 @@ Example Usage
 
    from radiosim.backends import get_backend, list_backends
 
-   # Check available backends
-   print(list_backends())  # ['numpy', 'jax', 'numba']
+   # Check availability in this environment.
+   print(list_backends())
 
-   # Get auto-detected backend
+   # Resolve the current automatic backend strategy.
    backend = get_backend("auto")
 
-   # Use backend operations
-   x = backend.array([1, 2, 3])
+   # Use the common array interface.
+   x = backend.asarray([1, 2, 3])
    y = backend.sin(x)
    result = backend.sum(y)

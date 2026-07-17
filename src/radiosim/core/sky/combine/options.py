@@ -7,10 +7,11 @@ multiple sky-prep runs (or serialise it for run-reproducibility).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
-from pydantic import ConfigDict, model_validator
+from pydantic import ConfigDict, field_validator, model_validator
 from pydantic.dataclasses import dataclass
 
 from radiosim.backends import ArrayBackend
@@ -18,9 +19,10 @@ from radiosim.core.precision import PrecisionConfig
 
 from ..containers.constants import SYNCHROTRON_SPECTRAL_INDEX, BrightnessConversion
 from ..containers.model import SkyFormat
+from ..support.frequencies import validate_observation_frequencies
 from .disjointness import MixedModelPolicy
 
-_OPTIONS_CONFIG = ConfigDict(arbitrary_types_allowed=True)
+_OPTIONS_CONFIG = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
 @dataclass(frozen=True, config=_OPTIONS_CONFIG)
@@ -34,7 +36,7 @@ class PrepareSkyOptions:
 
     Cross-field rules enforced at construction:
 
-    - ``frequencies`` and ``obs_frequency_config`` are mutually exclusive.
+    - ``frequencies`` is copied and validated as an explicit ordered Hz axis.
     - ``frequency`` (single-channel mode), when set, must be strictly
       positive.
     - ``nside_safety_factor`` must be strictly positive.
@@ -45,9 +47,8 @@ class PrepareSkyOptions:
 
     representation: SkyFormat | str | None = None
     nside: int | None = None
-    frequencies: np.ndarray | None = None
+    frequencies: Sequence[float] | np.ndarray | None = None
     frequency: float | None = None
-    obs_frequency_config: dict[str, Any] | None = None
     allow_lossy: bool = False
     mixed_model_policy: MixedModelPolicy = "error"
     # When True, skip point-vs-diffuse double-counting rules in the
@@ -73,13 +74,20 @@ class PrepareSkyOptions:
     # in the physical-disjointness check. Default −0.7 (synchrotron).
     subtraction_scaling_alpha: float = SYNCHROTRON_SPECTRAL_INDEX
 
+    @field_validator("frequencies", mode="before")
+    @classmethod
+    def validate_frequencies(cls, value: Any) -> np.ndarray | None:
+        if value is None:
+            return None
+        frequencies = validate_observation_frequencies(
+            value,
+            label="PrepareSkyOptions frequencies",
+        )
+        frequencies.setflags(write=False)
+        return frequencies
+
     @model_validator(mode="after")
     def _validate_state(self) -> PrepareSkyOptions:
-        if self.frequencies is not None and self.obs_frequency_config is not None:
-            raise ValueError(
-                "PrepareSkyOptions: frequencies and obs_frequency_config are "
-                "mutually exclusive — pass exactly one."
-            )
         if self.nside_safety_factor <= 0:
             raise ValueError(
                 "PrepareSkyOptions: nside_safety_factor must be strictly positive, "

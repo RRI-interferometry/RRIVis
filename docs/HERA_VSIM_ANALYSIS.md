@@ -1,5 +1,13 @@
 # Analysis of HERA vsim.py Validation Simulation
 
+> **Historical analysis.** This document records an external vsim.py/matvis
+> investigation from January 2025. Its proposed RadioSim configurations and
+> implementation checklists are not the current supported API. In particular,
+> the Tier 1 high-level resolver currently rejects FITS/per-antenna beams,
+> per-antenna diameters, baseline subsets, pyuvdata telescope opt-ins, and
+> UVFITS output. Use the configuration guide and support matrix for current
+> behavior.
+
 ## Overview
 
 This document analyzes a HERA (Hydrogen Epoch of Reionization Array) validation simulation run using vsim.py with the matvis simulator. This serves as a reference for creating equivalent configurations in RadioSim.

@@ -1,0 +1,1298 @@
+"""Source-aware Tier 1 configuration loading and resolution.
+
+This module transforms a strict frozen input document into one deeply
+immutable runtime/workflow/provenance bundle.  Source normalization is shared
+by YAML, mapping, and typed-model inputs.  Resolution performs no backend or
+device construction, network work, scientific file reads, loader execution,
+output creation, plotting, or browser interaction.
+"""
+
+from __future__ import annotations
+
+import glob
+import os
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
+from enum import Enum
+from importlib import import_module
+from pathlib import Path
+from typing import Any, Literal, cast
+
+import numpy as np
+from pydantic import ValidationError, field_validator
+
+from radiosim.core.precision import PrecisionConfig
+from radiosim.core.runtime_config import (
+    ConfigurationProvenance,
+    FrozenMapping,
+    PathResolutionProvenance,
+    ResolvedAntennaLayoutConfig,
+    ResolvedBeamsConfig,
+    ResolvedConfiguration,
+    ResolvedExecutionConfig,
+    ResolvedFrequencyConfig,
+    ResolvedLocationConfig,
+    ResolvedObservationConfig,
+    ResolvedSimulationConfig,
+    ResolvedSkyModelConfig,
+    ResolvedSkySourceRequest,
+    ResolvedTelescopeConfig,
+    ValueOrigin,
+    freeze_runtime_value,
+    json_safe_mapping,
+)
+from radiosim.core.sky.registry import loader_registry
+from radiosim.io.config import (
+    AntennaFileFormat,
+    CliWorkflowConfig,
+    ConfigIssue,
+    CustomRegisteredSourceConfig,
+    ExplicitFrequencyConfig,
+    LocationConfig,
+    ObsFrequencyConfig,
+    PrecisionInput,
+    RadioSimConfig,
+    RealisticForegroundSourceConfig,
+    SkySourceConfig,
+    StrictFrozenModel,
+    collect_semantic_issues,
+    collect_unsupported_issues,
+    schema_issues_from_validation_error,
+)
+
+SourceKind = Literal["yaml", "mapping", "model", "parameters"]
+BackendStrategy = Literal["auto", "numpy", "jax", "numba"]
+PrecisionPreset = Literal["standard", "fast", "precise", "ultra"]
+
+_STAGE_ORDER = {
+    "source": 0,
+    "schema": 1,
+    "override": 2,
+    "semantic": 3,
+    "unsupported": 4,
+    "path": 5,
+    "resolution": 6,
+}
+_ENVIRONMENT_PATH = re.compile(r"\$(?:\{[^}]+\}|[A-Za-z_][A-Za-z0-9_]*)")
+_FREQUENCY_UNIT_TO_HZ = {
+    "Hz": 1.0,
+    "kHz": 1e3,
+    "MHz": 1e6,
+    "GHz": 1e9,
+}
+
+
+def _order_issues(issues: Sequence[ConfigIssue]) -> tuple[ConfigIssue, ...]:
+    return tuple(
+        sorted(
+            issues,
+            key=lambda issue: (
+                _STAGE_ORDER[issue.stage],
+                issue.path,
+                issue.code,
+            ),
+        )
+    )
+
+
+class ConfigResolutionError(ValueError):
+    """Base class for every typed configuration-resolution failure."""
+
+    def __init__(self, issues: Sequence[ConfigIssue]) -> None:
+        ordered = _order_issues(issues)
+        if not ordered:
+            raise ValueError("configuration errors require at least one issue")
+        self.issues = ordered
+        super().__init__("\n".join(issue.render() for issue in ordered))
+
+
+class ConfigSourceError(ConfigResolutionError):
+    """Configuration source context is invalid or incomplete."""
+
+
+class ConfigParseError(ConfigResolutionError):
+    """Source acquisition or source-native normalization failed."""
+
+
+class ConfigSchemaError(ConfigResolutionError):
+    """Strict input-schema validation failed."""
+
+
+class ConfigOverrideError(ConfigResolutionError):
+    """An override object or replacement operation is invalid."""
+
+
+class ConfigSemanticError(ConfigResolutionError):
+    """Cross-field scientific or workflow validation failed."""
+
+
+class UnsupportedConfigError(ConfigResolutionError):
+    """The document requests a declared but later-tier feature."""
+
+
+class ConfigPathError(ConfigResolutionError):
+    """Path normalization, existence, type, or glob validation failed."""
+
+
+def _source_issue(
+    path: str,
+    code: str,
+    message: str,
+    hint: str | None = None,
+) -> ConfigIssue:
+    return ConfigIssue(
+        path,
+        code,
+        message,
+        hint,
+        stage="source",
+        category="source",
+    )
+
+
+def _parse_issue(
+    path: str,
+    code: str,
+    message: str,
+    hint: str | None = None,
+) -> ConfigIssue:
+    return ConfigIssue(
+        path,
+        code,
+        message,
+        hint,
+        stage="source",
+        category="source",
+    )
+
+
+def _normalize_context_path(value: str | Path, invocation_dir: Path) -> Path:
+    raw = Path(value).expanduser()
+    if not raw.is_absolute():
+        raw = invocation_dir / raw
+    return raw.resolve(strict=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigurationSource:
+    """Immutable source kind and the two bases used during resolution."""
+
+    kind: SourceKind
+    base_dir: Path | None = None
+    config_path: Path | None = None
+    invocation_dir: Path = field(default_factory=Path.cwd)
+    label: str | None = None
+    original_base_dir: str | None = field(init=False, default=None, repr=False)
+    original_config_path: str | None = field(init=False, default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        issues: list[ConfigIssue] = []
+        if self.kind not in {"yaml", "mapping", "model", "parameters"}:
+            issues.append(
+                _source_issue(
+                    "source.kind",
+                    "invalid_source_kind",
+                    f"unknown configuration source kind {self.kind!r}",
+                    "Use 'yaml', 'mapping', 'model', or 'parameters'.",
+                )
+            )
+        invocation = Path(self.invocation_dir).expanduser()
+        if not invocation.is_absolute():
+            invocation = (Path.cwd() / invocation).resolve(strict=False)
+        else:
+            invocation = invocation.resolve(strict=False)
+        if not invocation.exists() or not invocation.is_dir():
+            issues.append(
+                _source_issue(
+                    "source.invocation_dir",
+                    "invalid_invocation_directory",
+                    f"invocation_dir is not an existing directory: {invocation}",
+                )
+            )
+        object.__setattr__(self, "invocation_dir", invocation)
+
+        original_base = None if self.base_dir is None else str(self.base_dir)
+        original_config = None if self.config_path is None else str(self.config_path)
+        for path, original in (
+            ("source.base_dir", original_base),
+            ("source.config_path", original_config),
+        ):
+            if original is not None and _ENVIRONMENT_PATH.search(original):
+                issues.append(
+                    _source_issue(
+                        path,
+                        "environment_path_syntax",
+                        "environment-variable syntax is not allowed in source paths",
+                        "Expand the variable before creating ConfigurationSource.",
+                    )
+                )
+        object.__setattr__(self, "original_base_dir", original_base)
+        object.__setattr__(self, "original_config_path", original_config)
+
+        normalized_config: Path | None = None
+        if self.config_path is not None:
+            normalized_config = _normalize_context_path(
+                self.config_path,
+                invocation,
+            )
+        normalized_base: Path | None = None
+        if self.base_dir is not None:
+            normalized_base = _normalize_context_path(self.base_dir, invocation)
+
+        if self.kind == "yaml":
+            if normalized_config is None:
+                issues.append(
+                    _source_issue(
+                        "source.config_path",
+                        "missing_yaml_config_path",
+                        "YAML sources require config_path",
+                    )
+                )
+            else:
+                derived_base = normalized_config.parent
+                if normalized_base is not None and normalized_base != derived_base:
+                    issues.append(
+                        _source_issue(
+                            "source.base_dir",
+                            "yaml_base_mismatch",
+                            "YAML base_dir must be the resolved parent of config_path",
+                            f"Use {derived_base} or omit base_dir.",
+                        )
+                    )
+                normalized_base = derived_base
+                if not normalized_config.exists() or not normalized_config.is_file():
+                    issues.append(
+                        _source_issue(
+                            "source.config_path",
+                            "invalid_yaml_config_path",
+                            "config_path must be an existing regular file",
+                        )
+                    )
+        elif normalized_config is not None:
+            issues.append(
+                _source_issue(
+                    "source.config_path",
+                    "config_path_not_allowed",
+                    f"config_path is not valid for source kind {self.kind!r}",
+                )
+            )
+
+        object.__setattr__(self, "config_path", normalized_config)
+        object.__setattr__(self, "base_dir", normalized_base)
+        label = self.label
+        if label is None:
+            subject = normalized_config or normalized_base or invocation
+            label = f"{self.kind}:{subject}"
+        elif not label.strip():
+            issues.append(
+                _source_issue(
+                    "source.label",
+                    "empty_source_label",
+                    "source label must be nonempty",
+                )
+            )
+        object.__setattr__(self, "label", label.strip())
+        if issues:
+            raise ConfigSourceError(issues)
+
+    @property
+    def document_base(self) -> Path | None:
+        if self.kind == "parameters":
+            return self.base_dir or self.invocation_dir
+        return self.base_dir
+
+    @classmethod
+    def for_yaml(
+        cls,
+        config_path: str | Path,
+        *,
+        invocation_dir: str | Path | None = None,
+        label: str | None = None,
+    ) -> ConfigurationSource:
+        return cls(
+            kind="yaml",
+            config_path=Path(config_path),
+            invocation_dir=(
+                Path.cwd() if invocation_dir is None else Path(invocation_dir)
+            ),
+            label=label,
+        )
+
+    @classmethod
+    def for_mapping(
+        cls,
+        *,
+        base_dir: str | Path | None = None,
+        invocation_dir: str | Path | None = None,
+        label: str | None = None,
+    ) -> ConfigurationSource:
+        return cls(
+            kind="mapping",
+            base_dir=None if base_dir is None else Path(base_dir),
+            invocation_dir=(
+                Path.cwd() if invocation_dir is None else Path(invocation_dir)
+            ),
+            label=label,
+        )
+
+    @classmethod
+    def for_model(
+        cls,
+        *,
+        base_dir: str | Path | None = None,
+        invocation_dir: str | Path | None = None,
+        label: str | None = None,
+    ) -> ConfigurationSource:
+        return cls(
+            kind="model",
+            base_dir=None if base_dir is None else Path(base_dir),
+            invocation_dir=(
+                Path.cwd() if invocation_dir is None else Path(invocation_dir)
+            ),
+            label=label,
+        )
+
+    @classmethod
+    def for_parameters(
+        cls,
+        *,
+        base_dir: str | Path | None = None,
+        invocation_dir: str | Path | None = None,
+        label: str | None = None,
+    ) -> ConfigurationSource:
+        return cls(
+            kind="parameters",
+            base_dir=None if base_dir is None else Path(base_dir),
+            invocation_dir=(
+                Path.cwd() if invocation_dir is None else Path(invocation_dir)
+            ),
+            label=label,
+        )
+
+
+class AntennaLayoutOverride(StrictFrozenModel):
+    """Complete antenna path replacement with an optional format replacement."""
+
+    path: Path
+    format: AntennaFileFormat | None = None
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def validate_path(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("path must be nonempty")
+        return value
+
+
+class SimulationOverrides(StrictFrozenModel):
+    """Explicit complete-value replacements for runtime-owned values."""
+
+    backend: BackendStrategy | None = None
+    precision: PrecisionInput | PrecisionConfig | PrecisionPreset | None = None
+    offline: bool | None = None
+    antenna_layout: AntennaLayoutOverride | None = None
+    obs_frequency: ObsFrequencyConfig | None = None
+    location: LocationConfig | None = None
+    start_time: str | None = None
+    simulator: Literal["rime"] | None = None
+
+    @field_validator("start_time")
+    @classmethod
+    def validate_start_time(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("start_time must be nonempty")
+        return stripped
+
+
+class WorkflowOverrides(StrictFrozenModel):
+    """CLI-only path replacements that cannot enter runtime state."""
+
+    output_dir: Path | None = None
+
+    @field_validator("output_dir", mode="before")
+    @classmethod
+    def validate_output_dir(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("output_dir must be nonempty")
+        return value
+
+
+def _path_issue(
+    path: str,
+    code: str,
+    message: str,
+    hint: str | None = None,
+) -> ConfigIssue:
+    return ConfigIssue(
+        path,
+        code,
+        message,
+        hint,
+        stage="path",
+        category="path",
+    )
+
+
+class _PathResolver:
+    def __init__(
+        self,
+        source: ConfigurationSource,
+        *,
+        check_input_paths: bool,
+    ) -> None:
+        self.source = source
+        self.check_input_paths = check_input_paths
+        self.source_issues: list[ConfigIssue] = []
+        self.path_issues: list[ConfigIssue] = []
+        self.records: dict[str, PathResolutionProvenance] = {}
+        if source.config_path is not None:
+            original = source.original_config_path or str(source.config_path)
+            raw = Path(original).expanduser()
+            user_path = raw if raw.is_absolute() else source.invocation_dir / raw
+            self.records["configuration_source.config_path"] = PathResolutionProvenance(
+                logical_path="configuration_source.config_path",
+                original=original,
+                base=source.invocation_dir,
+                user_path=Path(os.path.abspath(user_path)),
+                resolved=source.config_path,
+                origin="document",
+                kind="file",
+            )
+
+    def _base_for(self, origin: ValueOrigin) -> Path | None:
+        if origin == "override":
+            return self.source.invocation_dir
+        return self.source.document_base
+
+    def _prepare(
+        self,
+        value: str | Path,
+        *,
+        logical_path: str,
+        origin: ValueOrigin,
+    ) -> tuple[str, Path, Path | None] | None:
+        original = str(value)
+        if _ENVIRONMENT_PATH.search(original):
+            self.path_issues.append(
+                _path_issue(
+                    logical_path,
+                    "environment_path_syntax",
+                    "environment-variable syntax is not allowed in config paths",
+                    "Expand the variable in the calling environment and pass the explicit path.",
+                )
+            )
+            return None
+        expanded = Path(original).expanduser()
+        selected_base = self._base_for(origin)
+        if not expanded.is_absolute():
+            if selected_base is None:
+                self.source_issues.append(
+                    _source_issue(
+                        logical_path,
+                        "relative_path_requires_base_dir",
+                        "relative document path requires an explicit source base_dir",
+                        "Pass base_dir for mapping/model input or use an absolute path.",
+                    )
+                )
+                return None
+            expanded = selected_base / expanded
+        user_path = Path(os.path.abspath(expanded))
+        return original, user_path, selected_base
+
+    def path(
+        self,
+        value: str | Path,
+        *,
+        logical_path: str,
+        origin: ValueOrigin,
+        expected: Literal["file", "directory", "output_directory"],
+    ) -> Path:
+        prepared = self._prepare(
+            value,
+            logical_path=logical_path,
+            origin=origin,
+        )
+        if prepared is None:
+            return Path(value)
+        original, user_path, selected_base = prepared
+        resolved = user_path.resolve(strict=False)
+        self.records[logical_path] = PathResolutionProvenance(
+            logical_path=logical_path,
+            original=original,
+            base=selected_base,
+            user_path=user_path,
+            resolved=resolved,
+            origin=origin,
+            kind=expected,
+        )
+        if expected == "output_directory":
+            if resolved.exists() and not resolved.is_dir():
+                self.path_issues.append(
+                    _path_issue(
+                        logical_path,
+                        "output_path_wrong_type",
+                        f"output_dir exists but is not a directory: {resolved}",
+                    )
+                )
+            return resolved
+        if not self.check_input_paths:
+            return resolved
+        if expected == "file":
+            if not resolved.exists():
+                self.path_issues.append(
+                    _path_issue(
+                        logical_path,
+                        "input_path_missing",
+                        f"required input file does not exist: {resolved}",
+                    )
+                )
+            elif not resolved.is_file():
+                self.path_issues.append(
+                    _path_issue(
+                        logical_path,
+                        "input_path_wrong_type",
+                        f"expected a regular file, got: {resolved}",
+                    )
+                )
+        elif expected == "directory":
+            if not resolved.exists():
+                self.path_issues.append(
+                    _path_issue(
+                        logical_path,
+                        "input_path_missing",
+                        f"required input directory does not exist: {resolved}",
+                    )
+                )
+            elif not resolved.is_dir():
+                self.path_issues.append(
+                    _path_issue(
+                        logical_path,
+                        "input_path_wrong_type",
+                        f"expected a directory, got: {resolved}",
+                    )
+                )
+        return resolved
+
+    def file_list(
+        self,
+        values: Sequence[str | Path],
+        *,
+        logical_path: str,
+        origin: ValueOrigin,
+    ) -> tuple[Path, ...]:
+        return tuple(
+            self.path(
+                value,
+                logical_path=f"{logical_path}[{index}]",
+                origin=origin,
+                expected="file",
+            )
+            for index, value in enumerate(values)
+        )
+
+    def glob(
+        self,
+        value: str | Path,
+        *,
+        logical_path: str,
+        origin: ValueOrigin,
+    ) -> tuple[Path, ...]:
+        prepared = self._prepare(
+            value,
+            logical_path=logical_path,
+            origin=origin,
+        )
+        if prepared is None:
+            return ()
+        original, user_path, selected_base = prepared
+        matches = tuple(
+            sorted(
+                {
+                    Path(match).resolve(strict=False)
+                    for match in glob.glob(str(user_path))
+                    if Path(match).is_file()
+                },
+                key=str,
+            )
+        )
+        self.records[logical_path] = PathResolutionProvenance(
+            logical_path=logical_path,
+            original=original,
+            base=selected_base,
+            user_path=user_path,
+            resolved=matches,
+            origin=origin,
+            kind="glob",
+        )
+        if self.check_input_paths and not matches:
+            self.path_issues.append(
+                _path_issue(
+                    logical_path,
+                    "glob_no_regular_files",
+                    f"glob matched no regular files: {user_path}",
+                )
+            )
+        return matches
+
+
+def _document_origin(model: Any, field_name: str) -> ValueOrigin:
+    return "document" if field_name in model.model_fields_set else "default"
+
+
+def _precision_input(value: Any) -> PrecisionInput:
+    if isinstance(value, PrecisionInput):
+        if value.preset is not None and not value.has_preset_custom_contradiction:
+            return PrecisionInput(preset=value.preset)
+        return PrecisionInput.model_validate(value.model_dump(mode="python"))
+    if isinstance(value, PrecisionConfig):
+        return PrecisionInput.model_validate(value.model_dump(mode="python"))
+    if isinstance(value, str):
+        return PrecisionInput(preset=cast(PrecisionPreset, value))
+    raise TypeError("precision override must be a complete precision value")
+
+
+def _apply_overrides(
+    config: RadioSimConfig,
+    simulation: SimulationOverrides | None,
+    workflow: WorkflowOverrides | None,
+) -> tuple[RadioSimConfig, dict[str, ValueOrigin]]:
+    origins: dict[str, ValueOrigin] = {
+        "antenna_layout.antenna_positions_file": "document",
+        "antenna_layout.antenna_file_format": "document",
+        "execution.backend": _document_origin(config.execution, "backend"),
+        "execution.precision": _document_origin(config.execution, "precision"),
+        "execution.offline": _document_origin(config.execution, "offline"),
+        "execution.simulator": _document_origin(config.execution, "simulator"),
+        "location": "document",
+        "obs_frequency": "document",
+        "obs_time.start_time": "document",
+        "workflow.output_dir": _document_origin(config.workflow, "output_dir"),
+    }
+    simulation = simulation or SimulationOverrides()
+    workflow = workflow or WorkflowOverrides()
+    execution_updates: dict[str, Any] = {}
+    if simulation.backend is not None:
+        execution_updates["backend"] = simulation.backend
+        origins["execution.backend"] = "override"
+    if simulation.precision is not None:
+        execution_updates["precision"] = _precision_input(simulation.precision)
+        origins["execution.precision"] = "override"
+    if simulation.offline is not None:
+        execution_updates["offline"] = simulation.offline
+        origins["execution.offline"] = "override"
+    if simulation.simulator is not None:
+        execution_updates["simulator"] = simulation.simulator
+        origins["execution.simulator"] = "override"
+    execution = config.execution.model_copy(update=execution_updates)
+
+    antenna = config.antenna_layout
+    if simulation.antenna_layout is not None:
+        antenna_updates: dict[str, Any] = {
+            "antenna_positions_file": simulation.antenna_layout.path
+        }
+        origins["antenna_layout.antenna_positions_file"] = "override"
+        if simulation.antenna_layout.format is not None:
+            antenna_updates["antenna_file_format"] = simulation.antenna_layout.format
+            origins["antenna_layout.antenna_file_format"] = "override"
+        antenna = antenna.model_copy(update=antenna_updates)
+
+    obs_frequency = config.obs_frequency
+    if simulation.obs_frequency is not None:
+        obs_frequency = simulation.obs_frequency
+        origins["obs_frequency"] = "override"
+    location = config.location
+    if simulation.location is not None:
+        location = simulation.location
+        origins["location"] = "override"
+    obs_time = config.obs_time
+    if simulation.start_time is not None:
+        obs_time = obs_time.model_copy(update={"start_time": simulation.start_time})
+        origins["obs_time.start_time"] = "override"
+    workflow_config = config.workflow
+    if workflow.output_dir is not None:
+        workflow_config = workflow_config.model_copy(
+            update={"output_dir": workflow.output_dir}
+        )
+        origins["workflow.output_dir"] = "override"
+    candidate = config.model_copy(
+        update={
+            "antenna_layout": antenna,
+            "execution": execution,
+            "location": location,
+            "obs_frequency": obs_frequency,
+            "obs_time": obs_time,
+            "workflow": workflow_config,
+        }
+    )
+    return candidate, origins
+
+
+def _schema_model(
+    config: object,
+) -> RadioSimConfig:
+    if isinstance(config, RadioSimConfig):
+        return config
+    if not isinstance(config, Mapping):
+        raise ConfigSchemaError(
+            [
+                ConfigIssue(
+                    "",
+                    "invalid_config_input",
+                    "config must be a RadioSimConfig or Python mapping",
+                    stage="schema",
+                    category="schema",
+                )
+            ]
+        )
+    try:
+        mapping = cast(Mapping[str, object], config)
+        return RadioSimConfig.model_validate(dict(mapping))
+    except ValidationError as error:
+        raise ConfigSchemaError(schema_issues_from_validation_error(error)) from error
+
+
+def _resolve_frequency(config: ObsFrequencyConfig) -> ResolvedFrequencyConfig:
+    if isinstance(config, ExplicitFrequencyConfig):
+        return ResolvedFrequencyConfig(
+            channel_frequencies_hz=config.channel_frequencies_hz,
+            source_mode="explicit",
+        )
+    factor = _FREQUENCY_UNIT_TO_HZ[config.frequency_unit]
+    start_hz = config.starting_frequency * factor
+    interval_hz = config.frequency_interval * factor
+    n_intervals = round(config.frequency_bandwidth / config.frequency_interval)
+    channels = tuple(start_hz + index * interval_hz for index in range(n_intervals + 1))
+    return ResolvedFrequencyConfig(
+        channel_frequencies_hz=channels,
+        source_mode="grid",
+    )
+
+
+def _source_common_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        return freeze_runtime_value(value.model_dump(mode="python"))
+    return freeze_runtime_value(value)
+
+
+def _resolve_path_options(
+    options: dict[str, Any],
+    *,
+    definition: Any,
+    path_prefix: str,
+    resolver: _PathResolver,
+) -> dict[str, Any]:
+    resolved = dict(options)
+    for loader_arg, path_kind in definition.path_options.items():
+        value = resolved.get(loader_arg)
+        if value is None:
+            continue
+        logical_path = f"{path_prefix}.{loader_arg}"
+        if path_kind == "file":
+            resolved[loader_arg] = resolver.path(
+                value,
+                logical_path=logical_path,
+                origin="document",
+                expected="file",
+            )
+        elif path_kind == "file_list":
+            resolved[loader_arg] = resolver.file_list(
+                cast(Sequence[str | Path], value),
+                logical_path=logical_path,
+                origin="document",
+            )
+        else:
+            resolved[loader_arg] = resolver.glob(
+                value,
+                logical_path=logical_path,
+                origin="document",
+            )
+    return resolved
+
+
+def _resolve_nested_registered_options(
+    kind: str,
+    options: Mapping[str, Any] | None,
+    *,
+    path_prefix: str,
+    resolver: _PathResolver,
+) -> FrozenMapping | None:
+    if options is None:
+        return None
+    definition = loader_registry.definition(kind)
+    source_to_loader = {
+        source_name: loader_arg
+        for loader_arg, source_name in definition.config_fields.items()
+    }
+    loader_options = {source_to_loader[name]: value for name, value in options.items()}
+    resolved = _resolve_path_options(
+        loader_options,
+        definition=definition,
+        path_prefix=path_prefix,
+        resolver=resolver,
+    )
+    return FrozenMapping(resolved)
+
+
+def _resolve_sky_source(
+    source: SkySourceConfig,
+    *,
+    index: int,
+    resolver: _PathResolver,
+) -> ResolvedSkySourceRequest:
+    canonical, alias_defaults = loader_registry.resolve_request(source.kind, {})
+    definition = loader_registry.definition(canonical)
+    base_path = f"sky_model.sources[{index}]"
+    if isinstance(source, CustomRegisteredSourceConfig):
+        source_to_loader = {
+            source_name: loader_arg
+            for loader_arg, source_name in definition.config_fields.items()
+        }
+        explicit = {
+            source_to_loader[name]: value for name, value in source.options.items()
+        }
+    else:
+        dumped = source.model_dump(mode="python")
+        explicit = {
+            name: value
+            for name, value in dumped.items()
+            if name
+            not in {
+                "kind",
+                "region",
+                "brightness_conversion",
+                "provenance_override",
+            }
+        }
+    options = dict(alias_defaults)
+    options.update(explicit)
+    options = _resolve_path_options(
+        options,
+        definition=definition,
+        path_prefix=base_path,
+        resolver=resolver,
+    )
+    if isinstance(source, RealisticForegroundSourceConfig):
+        diffuse_options = _resolve_nested_registered_options(
+            source.diffuse,
+            source.diffuse_kwargs,
+            path_prefix=f"{base_path}.diffuse_kwargs",
+            resolver=resolver,
+        )
+        catalog_options = _resolve_nested_registered_options(
+            source.bright_catalogs,
+            source.bright_catalog_kwargs,
+            path_prefix=f"{base_path}.bright_catalog_kwargs",
+            resolver=resolver,
+        )
+        if diffuse_options is not None:
+            options["diffuse_kwargs"] = diffuse_options
+        if catalog_options is not None:
+            options["bright_catalog_kwargs"] = catalog_options
+    return ResolvedSkySourceRequest(
+        kind=canonical,
+        options=FrozenMapping(options),
+        region=_source_common_value(source.region),
+        brightness_conversion=source.brightness_conversion,
+        provenance_override=_source_common_value(source.provenance_override),
+    )
+
+
+def _normalize_start_time(value: str) -> str:
+    time_module: Any = import_module("astropy.time")
+    return str(time_module.Time(value).utc.isot)
+
+
+def _resolution_issue(path: str, code: str, message: str) -> ConfigIssue:
+    return ConfigIssue(
+        path,
+        code,
+        message,
+        stage="resolution",
+        category="resolution",
+    )
+
+
+def _validated_source(value: object) -> ConfigurationSource:
+    if isinstance(value, ConfigurationSource):
+        return value
+    raise ConfigSourceError(
+        [
+            _source_issue(
+                "source",
+                "invalid_source_object",
+                "source must be a ConfigurationSource",
+            )
+        ]
+    )
+
+
+def _validated_simulation_overrides(
+    value: object,
+) -> SimulationOverrides | None:
+    if value is None or isinstance(value, SimulationOverrides):
+        return value
+    raise ConfigOverrideError(
+        [
+            ConfigIssue(
+                "overrides",
+                "invalid_simulation_overrides",
+                "overrides must be a frozen SimulationOverrides model",
+                stage="override",
+                category="override",
+            )
+        ]
+    )
+
+
+def _validated_workflow_overrides(
+    value: object,
+) -> WorkflowOverrides | None:
+    if value is None or isinstance(value, WorkflowOverrides):
+        return value
+    raise ConfigOverrideError(
+        [
+            ConfigIssue(
+                "workflow_overrides",
+                "invalid_workflow_overrides",
+                "workflow_overrides must be a frozen WorkflowOverrides model",
+                stage="override",
+                category="override",
+            )
+        ]
+    )
+
+
+def _child_source_path(path: str, item: str | int) -> str:
+    if isinstance(item, int):
+        return f"{path}[{item}]" if path else f"[{item}]"
+    return f"{path}.{item}" if path else item
+
+
+def _normalize_source_value(
+    value: object,
+    *,
+    path: str,
+    issues: list[ConfigIssue],
+) -> object:
+    """Copy one source-native value into the shared validation representation."""
+    if isinstance(value, datetime):
+        if value.tzinfo is not None and value.utcoffset() is not None:
+            value = value.astimezone(UTC).replace(tzinfo=None)
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return _normalize_source_value(value.value, path=path, issues=issues)
+    if isinstance(value, Path):
+        return Path(value)
+    if isinstance(value, np.generic):
+        return _normalize_source_value(value.item(), path=path, issues=issues)
+    if isinstance(value, str):
+        if path == "obs_time.start_time":
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+            else:
+                if parsed.tzinfo is not None and parsed.utcoffset() is not None:
+                    return parsed.astimezone(UTC).replace(tzinfo=None).isoformat()
+        return value
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, Mapping):
+        normalized: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                issues.append(
+                    _parse_issue(
+                        path,
+                        "non_string_mapping_key",
+                        "configuration mapping keys must be strings",
+                        f"Replace key {key!r} with a string field name.",
+                    )
+                )
+                continue
+            normalized[key] = _normalize_source_value(
+                item,
+                path=_child_source_path(path, key),
+                issues=issues,
+            )
+        return normalized
+    if isinstance(value, np.ndarray):
+        return _normalize_source_value(value.tolist(), path=path, issues=issues)
+    if isinstance(value, Sequence) and not isinstance(
+        value,
+        (str, bytes, bytearray, memoryview),
+    ):
+        return [
+            _normalize_source_value(
+                item,
+                path=_child_source_path(path, index),
+                issues=issues,
+            )
+            for index, item in enumerate(value)
+        ]
+    issues.append(
+        _parse_issue(
+            path,
+            "unsupported_source_value",
+            f"unsupported source value of type {type(value).__name__}",
+            "Use YAML/JSON scalar values, paths, mappings, or ordered sequences.",
+        )
+    )
+    return None
+
+
+def _normalized_source_mapping(
+    config: RadioSimConfig | Mapping[str, object],
+) -> dict[str, object]:
+    if isinstance(config, RadioSimConfig):
+        source_data = config.model_dump(mode="python", exclude_unset=True)
+        frequency = cast(dict[str, object], source_data["obs_frequency"])
+        frequency.setdefault("mode", config.obs_frequency.mode)
+        sky_model = cast(dict[str, object], source_data["sky_model"])
+        dumped_sources = cast(list[dict[str, object]], sky_model["sources"])
+        for dumped_source, model_source in zip(
+            dumped_sources,
+            config.sky_model.sources,
+            strict=True,
+        ):
+            dumped_source.setdefault("kind", model_source.kind)
+    elif isinstance(config, Mapping):
+        source_data = dict(config)
+    else:
+        raise ConfigParseError(
+            [
+                _parse_issue(
+                    "",
+                    "invalid_config_source_value",
+                    "config must be a RadioSimConfig or mapping",
+                )
+            ]
+        )
+
+    issues: list[ConfigIssue] = []
+    normalized = _normalize_source_value(source_data, path="", issues=issues)
+    if issues:
+        raise ConfigParseError(issues)
+    if not isinstance(normalized, dict):
+        raise ConfigParseError(
+            [
+                _parse_issue(
+                    "",
+                    "config_root_not_mapping",
+                    "configuration source must contain a top-level mapping",
+                )
+            ]
+        )
+    return cast(dict[str, object], normalized)
+
+
+def resolve_config(
+    config: RadioSimConfig | Mapping[str, object],
+    *,
+    source: ConfigurationSource,
+    overrides: SimulationOverrides | None = None,
+    workflow_overrides: WorkflowOverrides | None = None,
+    check_input_paths: bool = True,
+) -> ResolvedConfiguration:
+    """Resolve a normalized model or copied mapping into one configuration."""
+    source = _validated_source(source)
+    overrides = _validated_simulation_overrides(overrides)
+    workflow_overrides = _validated_workflow_overrides(workflow_overrides)
+    model = _schema_model(_normalized_source_mapping(config))
+    input_snapshot = json_safe_mapping(model.model_dump(mode="json"))
+    try:
+        candidate, origins = _apply_overrides(
+            model,
+            overrides,
+            workflow_overrides,
+        )
+    except (TypeError, ValueError, ValidationError) as error:
+        raise ConfigOverrideError(
+            [
+                ConfigIssue(
+                    "overrides",
+                    "override_application_failed",
+                    str(error),
+                    stage="override",
+                    category="override",
+                )
+            ]
+        ) from error
+
+    semantic = collect_semantic_issues(candidate)
+    unsupported = collect_unsupported_issues(candidate)
+    if semantic:
+        raise ConfigSemanticError((*semantic, *unsupported))
+    if unsupported:
+        raise UnsupportedConfigError(unsupported)
+
+    path_resolver = _PathResolver(
+        source,
+        check_input_paths=check_input_paths,
+    )
+    antenna_expected: Literal["file", "directory"] = (
+        "directory"
+        if candidate.antenna_layout.antenna_file_format == "measurement_set"
+        else "file"
+    )
+    antenna_path = path_resolver.path(
+        candidate.antenna_layout.antenna_positions_file,
+        logical_path="antenna_layout.antenna_positions_file",
+        origin=origins["antenna_layout.antenna_positions_file"],
+        expected=antenna_expected,
+    )
+    beam_file = candidate.beams.beam_file
+    if beam_file is not None:
+        beam_file = path_resolver.path(
+            beam_file,
+            logical_path="beams.beam_file",
+            origin="document",
+            expected="file",
+        )
+    beam_map: dict[str, Any] = {}
+    for antenna_id, beam in candidate.beams.antenna_beam_map.items():
+        beam_map[antenna_id] = (
+            beam
+            if beam == "analytic"
+            else path_resolver.path(
+                beam,
+                logical_path=f"beams.antenna_beam_map.{antenna_id}",
+                origin="document",
+                expected="file",
+            )
+        )
+    sources = tuple(
+        _resolve_sky_source(source_config, index=index, resolver=path_resolver)
+        for index, source_config in enumerate(candidate.sky_model.sources)
+    )
+    output_dir = path_resolver.path(
+        candidate.workflow.output_dir,
+        logical_path="workflow.output_dir",
+        origin=origins["workflow.output_dir"],
+        expected="output_directory",
+    )
+    if path_resolver.source_issues:
+        raise ConfigSourceError(path_resolver.source_issues)
+    if path_resolver.path_issues:
+        raise ConfigPathError(path_resolver.path_issues)
+
+    try:
+        precision = candidate.execution.precision.to_precision_config()
+        precision = PrecisionConfig.model_validate(precision.model_dump(mode="python"))
+        frequency = _resolve_frequency(candidate.obs_frequency)
+        provenance = ConfigurationProvenance(
+            source=source,
+            input_snapshot=input_snapshot,
+            override_origins=FrozenMapping(origins),
+            path_resolutions=FrozenMapping(path_resolver.records),
+        )
+        workflow_data = candidate.workflow.model_dump(mode="python")
+        workflow_data["output_dir"] = output_dir
+        resolved_workflow = CliWorkflowConfig.model_validate(workflow_data)
+        runtime = ResolvedSimulationConfig(
+            telescope=ResolvedTelescopeConfig(
+                **candidate.telescope.model_dump(mode="python")
+            ),
+            antenna_layout=ResolvedAntennaLayoutConfig(
+                antenna_positions_file=antenna_path,
+                antenna_file_format=(candidate.antenna_layout.antenna_file_format),
+                all_antenna_diameter=(candidate.antenna_layout.all_antenna_diameter),
+                use_different_diameters=(
+                    candidate.antenna_layout.use_different_diameters
+                ),
+                diameters=FrozenMapping(candidate.antenna_layout.diameters),
+            ),
+            feeds=FrozenMapping(candidate.feeds.model_dump(mode="python")),
+            beams=ResolvedBeamsConfig(
+                beam_mode=candidate.beams.beam_mode,
+                per_antenna=candidate.beams.per_antenna,
+                beam_file=beam_file,
+                antenna_beam_map=FrozenMapping(beam_map),
+                beam_za_max_deg=candidate.beams.beam_za_max_deg,
+                beam_za_buffer_deg=candidate.beams.beam_za_buffer_deg,
+                beam_freq_buffer_hz=candidate.beams.beam_freq_buffer_hz,
+                beam_peak_normalize=candidate.beams.beam_peak_normalize,
+                beam_interp_function=candidate.beams.beam_interp_function,
+                aperture_shape=candidate.beams.aperture_shape,
+                taper=candidate.beams.taper,
+                edge_taper_dB=candidate.beams.edge_taper_dB,
+                feed_model=candidate.beams.feed_model,
+                feed_computation=candidate.beams.feed_computation,
+                feed_params=FrozenMapping(candidate.beams.feed_params),
+                reflector_type=candidate.beams.reflector_type,
+                magnification=candidate.beams.magnification,
+                aperture_params=FrozenMapping(candidate.beams.aperture_params),
+            ),
+            baseline_selection=FrozenMapping(
+                candidate.baseline_selection.model_dump(mode="python")
+            ),
+            location=ResolvedLocationConfig(
+                lat_deg=candidate.location.lat,
+                lon_deg=candidate.location.lon,
+                height_m=candidate.location.height,
+            ),
+            sky_model=ResolvedSkyModelConfig(
+                sources=sources,
+                flux_unit=candidate.sky_model.flux_unit,
+                brightness_conversion=candidate.sky_model.brightness_conversion,
+                mixed_model_policy=candidate.sky_model.mixed_model_policy,
+                assume_disjoint=candidate.sky_model.assume_disjoint,
+                region=_source_common_value(candidate.sky_model.region),
+            ),
+            observation=ResolvedObservationConfig(
+                start_time_iso=_normalize_start_time(candidate.obs_time.start_time),
+                duration_seconds=candidate.obs_time.duration_seconds,
+                time_step_seconds=candidate.obs_time.time_step_seconds,
+            ),
+            frequency=frequency,
+            visibility=FrozenMapping(candidate.visibility.model_dump(mode="python")),
+            execution=ResolvedExecutionConfig(
+                backend_strategy=candidate.execution.backend,
+                precision=precision,
+                simulator=candidate.execution.simulator,
+                offline=candidate.execution.offline,
+            ),
+        )
+        return ResolvedConfiguration(
+            runtime=runtime,
+            workflow=resolved_workflow,
+            provenance=provenance,
+        )
+    except ConfigResolutionError:
+        raise
+    except Exception as error:
+        raise ConfigResolutionError(
+            [
+                _resolution_issue(
+                    "",
+                    "runtime_resolution_failed",
+                    str(error),
+                )
+            ]
+        ) from error
+
+
+__all__ = [
+    "AntennaLayoutOverride",
+    "ConfigOverrideError",
+    "ConfigParseError",
+    "ConfigPathError",
+    "ConfigResolutionError",
+    "ConfigSchemaError",
+    "ConfigSemanticError",
+    "ConfigSourceError",
+    "ConfigurationSource",
+    "SimulationOverrides",
+    "UnsupportedConfigError",
+    "WorkflowOverrides",
+    "resolve_config",
+]

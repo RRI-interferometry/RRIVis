@@ -7,11 +7,34 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import import_module
+from types import MappingProxyType
 from typing import Any, Literal
 
 LoaderCategory = Literal["catalog", "diffuse", "synthetic", "file"]
 LoaderRepresentation = Literal["point_sources", "healpix_map"]
 LoaderOutputMode = Literal["point_only", "healpix_only", "polymorphic"]
+LoaderPathKind = Literal["file", "file_list", "glob"]
+
+_BUILTIN_PATH_OPTIONS: Mapping[tuple[str, str], Mapping[str, LoaderPathKind]] = (
+    MappingProxyType(
+        {
+            ("radiosim.core.sky.loaders.bbs", "bbs"): MappingProxyType(
+                {"filename": "file"}
+            ),
+            ("radiosim.core.sky.loaders.fits", "fits_image"): MappingProxyType(
+                {"filename": "file"}
+            ),
+            (
+                "radiosim.core.sky.loaders.pyradiosky",
+                "pyradiosky_file",
+            ): MappingProxyType({"filename": "file"}),
+            (
+                "radiosim.core.sky.loaders.skyh5_multifile",
+                "skyh5_multifile",
+            ): MappingProxyType({"file_glob": "glob", "filenames": "file_list"}),
+        }
+    )
+)
 
 _ALL_REPRESENTATIONS: tuple[LoaderRepresentation, ...] = (
     "point_sources",
@@ -120,6 +143,51 @@ def _assert_config_fields_match_signature(
         )
 
 
+def _normalize_path_options(
+    name: str,
+    *,
+    requires_file: bool,
+    config_fields: Mapping[str, str],
+    path_options: Mapping[str, LoaderPathKind] | None,
+) -> Mapping[str, LoaderPathKind]:
+    """Validate explicit loader-argument path semantics."""
+    normalized: dict[str, LoaderPathKind] = dict(path_options or {})
+    invalid_kinds = sorted(
+        (key, value)
+        for key, value in normalized.items()
+        if value not in {"file", "file_list", "glob"}
+    )
+    if invalid_kinds:
+        raise ValueError(
+            f"Loader {name!r} declares invalid path_options: {invalid_kinds}. "
+            "Allowed kinds are 'file', 'file_list', and 'glob'."
+        )
+    unknown = sorted(set(normalized) - set(config_fields))
+    if unknown:
+        raise ValueError(
+            f"Loader {name!r} declares path_options {unknown} that are not "
+            "declared loader arguments in config_fields."
+        )
+    if requires_file and not normalized:
+        raise ValueError(
+            f"Loader {name!r} sets requires_file=True but declares no "
+            "path_options; file semantics must be explicit."
+        )
+    return MappingProxyType(normalized)
+
+
+def _empty_alias_defaults() -> dict[str, dict[str, Any]]:
+    return {}
+
+
+def _empty_config_fields() -> dict[str, str]:
+    return {}
+
+
+def _empty_path_options() -> Mapping[str, LoaderPathKind]:
+    return MappingProxyType({})
+
+
 @dataclass(frozen=True)
 class LoaderDefinition:
     """Metadata describing a registered sky loader."""
@@ -133,8 +201,13 @@ class LoaderDefinition:
     requires_file: bool = False
     network_service: str | None = None
     aliases: tuple[str, ...] = ()
-    alias_defaults: dict[str, dict[str, Any]] = field(default_factory=dict)
-    config_fields: dict[str, str] = field(default_factory=dict)
+    alias_defaults: dict[str, dict[str, Any]] = field(
+        default_factory=_empty_alias_defaults
+    )
+    config_fields: dict[str, str] = field(default_factory=_empty_config_fields)
+    path_options: Mapping[str, LoaderPathKind] = field(
+        default_factory=_empty_path_options
+    )
 
     @property
     def supports_point_sources(self) -> bool:
@@ -176,6 +249,7 @@ class LoaderDefinition:
                 alias: dict(defaults) for alias, defaults in self.alias_defaults.items()
             },
             "config_fields": dict(self.config_fields),
+            "path_options": dict(self.path_options),
         }
 
 
@@ -223,6 +297,7 @@ class LoaderRegistry:
             list[str] | tuple[str, ...] | Mapping[str, Mapping[str, Any] | None] | None
         ) = None,
         config_fields: Mapping[str, str] | Sequence[str] | None = None,
+        path_options: Mapping[str, LoaderPathKind] | None = None,
     ) -> Callable[..., Any]:
         alias_names, alias_defaults = self._normalize_aliases(aliases)
         normalized_config_fields = _normalize_config_fields(config_fields)
@@ -231,6 +306,15 @@ class LoaderRegistry:
             representations,
             loader=loader,
             config_fields=normalized_config_fields,
+        )
+        declared_path_options = path_options
+        if declared_path_options is None:
+            declared_path_options = _BUILTIN_PATH_OPTIONS.get((loader.__module__, name))
+        normalized_path_options = _normalize_path_options(
+            name,
+            requires_file=requires_file,
+            config_fields=normalized_config_fields,
+            path_options=declared_path_options,
         )
         definition = LoaderDefinition(
             name=name,
@@ -244,6 +328,7 @@ class LoaderRegistry:
             aliases=alias_names,
             alias_defaults=alias_defaults,
             config_fields=normalized_config_fields,
+            path_options=normalized_path_options,
         )
         with self._lock:
             self._loaders[name] = loader
@@ -301,7 +386,7 @@ class LoaderRegistry:
         """
         canonical = self.resolve_name(name)
         with self._lock:
-            self._loaders.pop(canonical, None)
+            _ = self._loaders.pop(canonical, None)
             self._definitions.pop(canonical, None)
             for alias in [a for a, c in self._aliases.items() if c == canonical]:
                 self._aliases.pop(alias, None)
@@ -370,6 +455,7 @@ def register_loader(
         list[str] | tuple[str, ...] | Mapping[str, Mapping[str, Any] | None] | None
     ) = None,
     config_fields: Mapping[str, str] | Sequence[str] | None = None,
+    path_options: Mapping[str, LoaderPathKind] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator used by loader modules to register themselves.
 
@@ -393,6 +479,7 @@ def register_loader(
             network_service=network_service,
             aliases=aliases,
             config_fields=config_fields,
+            path_options=path_options,
         )
         return func
 

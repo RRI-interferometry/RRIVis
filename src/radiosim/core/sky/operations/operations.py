@@ -10,11 +10,10 @@ import logging
 import os
 import tempfile
 import warnings
-from typing import TYPE_CHECKING, Any
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
-
-from radiosim.utils.frequency import parse_frequency_config
 
 from ..containers import (
     HealpixData,
@@ -22,6 +21,7 @@ from ..containers import (
 )
 from ..containers.constants import BrightnessConversion
 from ..containers.spectral import per_source_reference_frequencies
+from ..support.frequencies import validate_observation_frequencies
 from ..support.healpy import lazy_healpy as hp
 from ..support.point_builder import point_source_data_from_mapping
 from .convert import (
@@ -43,8 +43,7 @@ def materialize_healpix_model(
     sky: SkyModel,
     *,
     nside: int,
-    frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
+    frequencies: Sequence[float] | np.ndarray | None = None,
     ref_frequency: float | None = None,
     ordering: str = "ring",
     memmap_path: str | None = None,
@@ -76,17 +75,12 @@ def materialize_healpix_model(
             "radiosim.core.sky.loaders.load_gleam()."
         )
 
-    if frequencies is not None and obs_frequency_config is not None:
-        raise ValueError(
-            "Provide either 'frequencies' or 'obs_frequency_config', not both."
-        )
-    if frequencies is None and obs_frequency_config is not None:
-        frequencies = parse_frequency_config(obs_frequency_config)
     if frequencies is None:
-        raise ValueError(
-            "Either 'frequencies' (np.ndarray) or 'obs_frequency_config' "
-            "(dict) is required."
-        )
+        raise ValueError("Explicit 'frequencies' in Hz are required.")
+    frequencies = validate_observation_frequencies(
+        frequencies,
+        label="materialize_healpix_model frequencies",
+    )
 
     effective_ref_freq = per_source_reference_frequencies(
         sky.point,

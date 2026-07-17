@@ -111,7 +111,7 @@ def test_load_diffuse_sky_full_sky_invariants(patched_diffuse):
     from radiosim.core.sky.loaders.diffuse import load_diffuse_sky
 
     nside = patched_diffuse
-    freqs = np.array([150e6, 100e6, 120e6])  # deliberately unsorted
+    freqs = np.array([100e6, 120e6, 150e6])
     precision = PrecisionConfig.standard()
 
     sky = load_diffuse_sky(
@@ -123,7 +123,7 @@ def test_load_diffuse_sky_full_sky_invariants(patched_diffuse):
 
     assert sky.healpix is not None
     hpx = sky.healpix
-    # A4/B6: frequencies resolved to ascending order.
+    # Explicit nonuniform frequencies remain unchanged.
     np.testing.assert_array_equal(hpx.frequencies, np.array([100e6, 120e6, 150e6]))
     # map cube shape (n_freq, npix) for a full-sky load.
     import healpy as hp
@@ -166,22 +166,15 @@ def test_load_diffuse_sky_requires_exactly_one_freq_source(patched_diffuse):
         )
 
 
-def test_load_diffuse_sky_rejects_both_freq_sources(patched_diffuse):
-    """B6 behavior change: providing BOTH raises (resolver is strict)."""
+def test_load_diffuse_sky_rejects_descending_explicit_frequencies(patched_diffuse):
+    """The direct loader enforces the ordered explicit-Hz contract."""
     from radiosim.core.sky.loaders.diffuse import load_diffuse_sky
 
-    config = {
-        "starting_frequency": 100.0,
-        "frequency_interval": 1.0,
-        "frequency_bandwidth": 20.0,
-        "frequency_unit": "MHz",
-    }
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="strictly ascending"):
         load_diffuse_sky(
             model="gsm2008",
             nside=patched_diffuse,
-            frequencies=np.array([100e6, 120e6]),
-            obs_frequency_config=config,
+            frequencies=np.array([120e6, 100e6]),
             precision=PrecisionConfig.standard(),
         )
 
@@ -476,12 +469,12 @@ def test_fits_provenance_caller_override(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# H3 — obs_frequency_config wired into load_skyh5_multifile
+# H3 — explicit frequency cross-check in load_skyh5_multifile
 # ---------------------------------------------------------------------------
 
 
-def test_skyh5_multifile_obs_frequency_config_cross_check(monkeypatch, tmp_path):
-    """obs_frequency_config is honored as a cross-check of the file grid."""
+def test_skyh5_multifile_explicit_frequency_cross_check(monkeypatch, tmp_path):
+    """An explicit frequency array is cross-checked against the file grid."""
     from radiosim.core.sky.loaders import skyh5_multifile as mf
 
     # Build 3 fake header files on disk plus a header reader stub.
@@ -546,20 +539,20 @@ def test_skyh5_multifile_obs_frequency_config_cross_check(monkeypatch, tmp_path)
 
     monkeypatch.setattr(mf, "_read_header", _fake_read_header)
 
-    # Matching obs_frequency_config (in MHz) should pass.
-    config = {"frequencies_hz": np.array([100e6, 150e6, 200e6])}
+    # A matching explicit array should pass.
+    frequencies = np.array([100e6, 150e6, 200e6])
     sky = mf.load_skyh5_multifile(
         filenames=paths,
-        obs_frequency_config=config,
+        frequencies=frequencies,
         precision=PrecisionConfig.standard(),
     )
     assert sky.point is not None
 
-    # A mismatching obs_frequency_config should raise.
-    bad = {"frequencies_hz": np.array([100e6, 150e6, 999e6])}
+    # A mismatching explicit array should raise.
+    bad = np.array([100e6, 150e6, 999e6])
     with pytest.raises(ValueError):
         mf.load_skyh5_multifile(
             filenames=paths,
-            obs_frequency_config=bad,
+            frequencies=bad,
             precision=PrecisionConfig.standard(),
         )

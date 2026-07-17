@@ -1,205 +1,92 @@
 Compute Backends
 ================
 
-RadioSim supports multiple compute backends for CPU and GPU execution.
+RadioSim resolves a requested backend strategy before runtime setup. NumPy is
+the deterministic default. JAX and Numba are optional; ``auto`` is a real
+selection strategy.
 
-Available Backends
-------------------
+Configuration
+-------------
 
-NumPy (Default)
-^^^^^^^^^^^^^^^
+.. code-block:: yaml
 
-The NumPy backend is always available and serves as the baseline implementation.
+   execution:
+     backend: numpy  # numpy | jax | numba | auto
+     precision:
+       preset: standard
 
-- **Pros**: Always available, well-tested, portable
-- **Cons**: CPU-only, single-threaded
-- **Best for**: Development, small simulations, testing
-
-JAX
-^^^
-
-The JAX backend provides GPU acceleration with automatic differentiation.
-
-- **Pros**: GPU support (NVIDIA/AMD/Apple/TPU), automatic differentiation, JIT compilation
-- **Cons**: Requires JAX installation, larger memory footprint
-- **Best for**: Large simulations, gradient-based optimization, Apple Silicon
-
-Numba
-^^^^^
-
-The Numba backend provides GPU acceleration via CUDA/ROCm.
-
-- **Pros**: CUDA and ROCm support, parallel CPU execution, low-level optimization
-- **Cons**: Requires Numba installation, CUDA toolkit for GPU
-- **Best for**: Production workloads, NVIDIA/AMD GPUs
-
-Backend Selection
------------------
-
-Auto-detection:
-
-.. code-block:: python
-
-   from radiosim.backends import get_backend
-
-   # Auto-detect best available backend
-   backend = get_backend("auto")
-
-Explicit selection:
-
-.. code-block:: python
-
-   # Specific backend
-   backend = get_backend("numpy")
-   backend = get_backend("jax")
-   backend = get_backend("numba")
-
-Check available backends:
-
-.. code-block:: python
-
-   from radiosim.backends import list_backends
-
-   available = list_backends()
-   print(available)  # ['numpy', 'jax', 'numba']
-
-Using with Simulator
---------------------
-
-Pass backend to Simulator:
+For a YAML document, a call-site override is explicit:
 
 .. code-block:: python
 
    from radiosim import Simulator
+   from radiosim.io.config_resolution import SimulationOverrides
 
-   # Auto-detect
-   sim = Simulator(backend="auto")
+   simulator = Simulator.from_yaml(
+       "configs/config.yaml",
+       overrides=SimulationOverrides(backend="auto"),
+   )
 
-   # Specific backend
-   sim = Simulator(backend="jax")
+Omitting the override preserves the document value. ``None`` is the only
+no-override sentinel; ``auto`` never means “keep the document.”
+
+Direct backend API
+------------------
+
+.. code-block:: python
+
+   from radiosim.backends import get_backend, list_backends
+
+   print(list_backends())
+   backend = get_backend("numpy")
+   values = backend.asarray([1.0, 2.0, 3.0])
+   print(backend.sum(values))
+
+The backend factory constructs an explicit backend or resolves ``auto`` from
+the installed, precision-compatible options. An unavailable explicit backend
+fails rather than silently switching to another backend.
+
+Precision
+---------
+
+A precision override replaces the complete precision tree; it is not deeply
+merged with the document. Presets and custom leaves are mutually exclusive in
+one value. Explicit JAX/Numba plus ``float128`` is rejected during configuration
+resolution, before importing the optional backend.
+
+Runtime truth
+-------------
+
+Backend selection is wired into resolved configuration and the backend factory.
+It does not imply end-to-end acceleration of every high-level calculation.
+Current orchestration still includes host-side Python loops, Astropy coordinate
+work, transfers, and paths with incomplete backend coverage.
+
+Consequently:
+
+- successful JAX or Numba selection is not proof that the complete simulation
+  ran on a GPU;
+- optional-backend correctness tests do not establish performance;
+- HEALPix and point-source paths must be assessed separately; and
+- RadioSim publishes no unverified speedup multiplier.
+
+A performance claim needs a reproducible workload, hardware and accelerator,
+backend version, precision, problem dimensions, setup/compile time,
+steady-state time, transfer time, peak memory, and correctness tolerance against
+NumPy.
 
 Installation
 ------------
 
-NumPy backend is included by default.
-
-JAX Backend
-^^^^^^^^^^^
-
-For NVIDIA GPU (CUDA 12):
+NumPy ships with the base installation. Optional extras install backend
+dependencies only:
 
 .. code-block:: bash
 
    pip install radiosim[gpu-cuda]
-
-For AMD GPU (ROCm):
-
-.. code-block:: bash
-
-   pip install radiosim[gpu-rocm]
-
-For Apple Silicon:
-
-.. code-block:: bash
-
    pip install radiosim[gpu]
-
-For TPU:
-
-.. code-block:: bash
-
-   pip install radiosim[tpu]
-
-Numba Backend
-^^^^^^^^^^^^^
-
-.. code-block:: bash
-
    pip install radiosim[numba]
 
-Backend API
------------
-
-All backends implement a common interface:
-
-.. code-block:: python
-
-   from radiosim.backends import get_backend
-
-   backend = get_backend("numpy")
-
-   # Array creation
-   x = backend.array([1, 2, 3])
-   zeros = backend.zeros((10, 10))
-   ones = backend.ones((5, 5), dtype=backend.complex128)
-
-   # Math operations
-   y = backend.sin(x)
-   z = backend.exp(1j * x)
-
-   # Linear algebra
-   result = backend.matmul(A, B)
-   conj = backend.conj(z)
-
-   # Reductions
-   total = backend.sum(x)
-   mean = backend.mean(x)
-
-Performance Comparison
-----------------------
-
-Approximate speedups (vs NumPy baseline):
-
-.. list-table::
-   :header-rows: 1
-
-   * - Simulation Size
-     - JAX (GPU)
-     - Numba (GPU)
-   * - 100 antennas, 100 sources
-     - 5x
-     - 3x
-   * - 500 antennas, 1000 sources
-     - 20x
-     - 15x
-   * - 1000 antennas, 10000 sources
-     - 50x
-     - 40x
-
-GPU Memory Management
----------------------
-
-For large simulations, manage GPU memory:
-
-.. code-block:: python
-
-   import os
-
-   # JAX memory allocation
-   os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-   os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8"
-
-   from radiosim import Simulator
-
-   sim = Simulator(backend="jax")
-   # ...
-
-Troubleshooting
----------------
-
-JAX not detecting GPU:
-
-.. code-block:: python
-
-   import jax
-   print(jax.devices())  # Should show GPU devices
-
-Numba CUDA issues:
-
-.. code-block:: bash
-
-   # Check CUDA installation
-   nvcc --version
-
-   # Set CUDA path if needed
-   export CUDA_HOME=/usr/local/cuda
+Consult the selected backend's own installation documentation for supported
+hardware and platform details. Installation alone does not change the
+high-level support boundary above.

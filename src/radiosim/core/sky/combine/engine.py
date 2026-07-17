@@ -24,7 +24,8 @@ helpers return raw data dicts.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -113,7 +114,7 @@ def _combine_as_healpix_merge(
     precision: PrecisionConfig,
     *,
     nside: int | None = None,
-    frequencies: np.ndarray | None = None,
+    frequencies: Sequence[float] | np.ndarray | None = None,
     memmap_path: str | None = None,
     backend: ArrayBackend | None = None,
 ) -> SkyModel:
@@ -133,9 +134,8 @@ def _combine_as_healpix_merge(
     else:
         if frequencies is None:
             raise ValueError(
-                "healpix_map output requires 'frequencies' or "
-                "'obs_frequency_config' when no input model already carries "
-                "HEALPix maps."
+                "healpix_map output requires explicit 'frequencies' when no "
+                "input model already carries HEALPix maps."
             )
         ref_nside = 64 if nside is None else nside
         ref_freqs = np.asarray(frequencies, dtype=np.float64)
@@ -293,8 +293,7 @@ def _combine_models(
     representation: SkyFormat | str | None = None,
     nside: int | None = None,
     frequency: float | None = None,
-    frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
+    frequencies: Sequence[float] | np.ndarray | None = None,
     ref_frequency: float | None = None,
     brightness_conversion: BrightnessConversion | str | None = None,
     allow_lossy_point_materialization: bool = False,
@@ -329,8 +328,6 @@ def _combine_models(
     frequencies : np.ndarray, optional
         Frequency array for point-to-HEALPix conversion when no input
         model already carries HEALPix maps.
-    obs_frequency_config : dict, optional
-        Frequency config fallback for point-to-HEALPix conversion.
     ref_frequency : float, optional
         Reference frequency for spectral extrapolation (Hz).
     brightness_conversion : str or BrightnessConversion, optional
@@ -383,9 +380,7 @@ def _combine_models(
         alpha=subtraction_scaling_alpha,
         assume_disjoint=assume_disjoint,
     )
-    requested_freqs = _resolve_requested_healpix_frequencies(
-        frequencies, obs_frequency_config
-    )
+    requested_freqs = _resolve_requested_healpix_frequencies(frequencies)
 
     if _target_resolved:
         target = representation

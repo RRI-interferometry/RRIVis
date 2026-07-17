@@ -1,12 +1,13 @@
-"""Abstract base class for array computation backends.
+"""Abstract base class for lower-level array computation backends.
 
-This module defines the interface that all computation backends must implement.
-Backends provide hardware abstraction for CPU/GPU/TPU acceleration.
+This module defines the common array interface. Capability is backend- and
+runtime-specific; implementing this interface does not prove that every
+high-level Simulator kernel executes on the selected device.
 
-Supported backends:
-- NumPyBackend: CPU (x86 + ARM), always available
-- NumbaBackend: CPU/GPU with JIT compilation + Dask distributed
-- JAXBackend: GPU/TPU (NVIDIA, AMD, Apple, Google TPU)
+Available implementations:
+- NumPyBackend: CPU baseline, always available
+- NumbaBackend: NumPy/Dask operations plus a Numba JIT helper
+- JAXBackend: JAX arrays on devices exposed by the installed JAX runtime
 """
 
 from abc import ABC, abstractmethod
@@ -30,11 +31,10 @@ class ArrayBackend(ABC):
     All backends must implement this interface to ensure consistent behavior
     across NumPy, Numba+Dask, and JAX implementations.
 
-    The backend abstraction allows the same RIME calculation code to run on:
-    - CPU (single-threaded via NumPy)
-    - CPU (parallel via Numba prange or Dask)
-    - GPU (via Numba CUDA or JAX)
-    - TPU (via JAX)
+    The abstraction provides a shared array surface across NumPy, optional
+    Dask arrays and Numba compilation helpers, and JAX arrays. Callers must
+    verify which scientific kernels use that surface before making device or
+    performance claims.
 
     Attributes
     ----------

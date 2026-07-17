@@ -2,7 +2,7 @@
 RadioSim: Radio Astronomy Visibility Simulator
 
 A modern Python package for simulating radio interferometer visibilities
-with full polarization support and GPU acceleration.
+with strict, source-aware configuration and selectable computation backends.
 
 Basic usage:
     >>> import radiosim
@@ -10,27 +10,13 @@ Basic usage:
     '0.2.0'
 
     >>> # High-level API
-    >>> sim = radiosim.Simulator.from_config("config.yaml")
+    >>> sim = radiosim.Simulator.from_yaml("config.yaml")
     >>> results = sim.run()
     >>> sim.plot()
     >>> sim.save("output/")
 
     >>> # Programmatic API
-    >>> sim = radiosim.Simulator(
-    ...     config={
-    ...         "antenna_layout": {
-    ...             "antenna_positions_file": "HERA65.csv",
-    ...             "antenna_file_format": "radiosim",
-    ...             "all_antenna_diameter": 14.0,
-    ...         },
-    ...         "obs_frequency": {
-    ...             "frequencies_hz": [100e6, 150e6, 200e6],
-    ...             "frequency_unit": "MHz",
-    ...         },
-    ...         "sky_model": {"sources": [{"kind": "gleam"}]},
-    ...         "visibility": {"sky_representation": "point_sources"},
-    ...     },
-    ... )
+    >>> sim = radiosim.Simulator.from_mapping(config_data, base_dir=project_dir)
     >>> results = sim.run()
 
 For more information, see https://github.com/RRI-interferometry/RadioSim

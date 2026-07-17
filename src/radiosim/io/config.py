@@ -1,281 +1,473 @@
-"""
-Pydantic-based configuration management for RadioSim.
+"""Strict, immutable user-input configuration models for RadioSim.
 
-This module provides type-safe configuration loading, validation, and
-serialization using Pydantic models. Configuration can be loaded from
-YAML files or created programmatically.
-
-Classes
--------
-RadioSimConfig
-    Main configuration container with all simulation settings.
-TelescopeConfig
-    Telescope identification and pyuvdata integration settings.
-AntennaLayoutConfig
-    Antenna positions, diameters, and types.
-BeamsConfig
-    Beam pattern configuration (analytic or FITS).
-ObsFrequencyConfig
-    Observation frequency band settings.
-ObsTimeConfig
-    Observation timing settings.
-SkyModelConfig
-    Sky model selection (GLEAM, GSM, test sources).
-OutputConfig
-    Output file settings.
-
-Functions
----------
-load_config
-    Load and validate configuration from YAML file.
-create_default_config
-    Create a default configuration template file.
-
-Examples
---------
-Load configuration from file:
-
->>> from radiosim.io.config import load_config
->>> config = load_config("simulation.yaml")
->>> print(config.telescope.telescope_name)
-'HERA'
-
-Create configuration programmatically:
-
->>> from radiosim.io.config import RadioSimConfig, TelescopeConfig
->>> config = RadioSimConfig(
-...     telescope=TelescopeConfig(telescope_name="MWA"),
-...     obs_frequency={"starting_frequency": 150.0},
-... )
->>> config.to_yaml("output_config.yaml")
+This module owns the Tier 1 input document and its public YAML acquisition and
+serialization boundaries.  It validates and copies user-authored values and
+exposes pure semantic and unsupported-feature issue collectors.  It does not
+select a backend or device, execute sky loaders, or create output directories.
 """
 
+from __future__ import annotations
+
+import difflib
+import inspect
+import math
+import re
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from tempfile import NamedTemporaryFile
+from types import MappingProxyType
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Literal,
+    NoReturn,
+    TypeVar,
+    cast,
+    get_type_hints,
+)
 
+import numpy as np
 import yaml
-from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    SerializeAsAny,
+    TypeAdapter,
+    ValidationError,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
+from typing_extensions import override
 
+from radiosim.core.precision import PrecisionLevel
+from radiosim.core.sky.containers import (
+    MonopoleConvention,
+    SkyCoverage,
+    SourceSubtractionStatus,
+)
 from radiosim.core.sky.containers.constants import (
     DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY,
     DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
 )
 
+if TYPE_CHECKING:
+    from radiosim.core.runtime_config import ResolvedConfiguration
+    from radiosim.io.config_resolution import (
+        SimulationOverrides,
+        WorkflowOverrides,
+    )
+
 DEFAULT_SKY_REPRESENTATION: Literal["point_sources"] = "point_sources"
 
-
-class TelescopeConfig(BaseModel):
-    """Telescope configuration."""
-
-    telescope_name: str = Field(
-        "Unknown", description="Telescope name (e.g., HERA, MWA)"
-    )
-    use_pyuvdata_telescope: bool = Field(
-        False, description="Load telescope from pyuvdata"
-    )
-    use_pyuvdata_location: bool = Field(False, description="Use pyuvdata location")
-    use_pyuvdata_antennas: bool = Field(
-        False, description="Use pyuvdata antenna positions"
-    )
-    use_pyuvdata_diameters: bool = Field(
-        False, description="Use pyuvdata antenna diameters"
-    )
+FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
+PositiveFiniteFloat = Annotated[float, Field(gt=0.0, allow_inf_nan=False)]
+NonNegativeFiniteFloat = Annotated[float, Field(ge=0.0, allow_inf_nan=False)]
 
 
-class AntennaLayoutConfig(BaseModel):
-    """Antenna layout configuration."""
+class FrozenDict(Mapping[str, Any]):
+    """Copy-owning mapping with no mutable ``dict`` base-class escape hatch."""
 
-    antenna_positions_file: str | None = Field(
-        None, description="Path to antenna positions file"
-    )
-    antenna_file_format: (
-        Literal["radiosim", "casa", "measurement_set", "uvfits", "mwa", "pyuvdata"]
-        | None
-    ) = Field(None, description="Antenna file format")
-    all_antenna_diameter: float | None = Field(
-        None, description="Default antenna diameter (meters)"
-    )
-    use_different_diameters: bool = Field(
-        False, description="Use per-antenna diameters"
-    )
-    diameters: dict[str, float] = Field(
-        default_factory=dict, description="Per-antenna diameter mapping"
-    )
-    fixed_HPBW: float | None = Field(None, description="Fixed HPBW override (radians)")
+    __slots__ = ("_data",)
+
+    _data: Mapping[str, Any]
+
+    def __init__(self, value: Mapping[str, Any] | None = None) -> None:
+        copied = {key: _freeze_value(item) for key, item in dict(value or {}).items()}
+        object.__setattr__(self, "_data", MappingProxyType(copied))
+
+    @override
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    @override
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    @override
+    def __len__(self) -> int:
+        return len(self._data)
+
+    @override
+    def __repr__(self) -> str:
+        return repr(dict(self.items()))
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        other_mapping = cast(Mapping[Any, Any], other)
+        return dict(self.items()) == dict(other_mapping.items())
+
+    @override
+    def __setattr__(self, name: str, value: object) -> NoReturn:
+        raise TypeError("FrozenDict is immutable")
+
+    @staticmethod
+    def _immutable(*args: object, **kwargs: object) -> None:
+        raise TypeError("FrozenDict is immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    setdefault = _immutable
+    update = _immutable
+
+    def popitem(self) -> NoReturn:
+        raise TypeError("FrozenDict is immutable")
+
+    def __ior__(self, value: object) -> NoReturn:
+        raise TypeError("FrozenDict is immutable")
+
+    def __copy__(self) -> FrozenDict:
+        return FrozenDict({key: _freeze_value(item) for key, item in self.items()})
+
+    def __deepcopy__(self, memo: dict[int, object]) -> FrozenDict:
+        return FrozenDict({key: _freeze_value(item) for key, item in self.items()})
 
 
-class FeedsConfig(BaseModel):
-    """Feed configuration."""
-
-    use_polarized_feeds: bool = Field(False, description="Enable polarized feeds")
-    polarization_type: str = Field("", description="Polarization type")
-    use_different_polarization_type: bool = Field(
-        False, description="Per-antenna polarization"
-    )
-    polarization_per_antenna: dict[str, str] = Field(default_factory=dict)
-    use_different_feed_types: bool = Field(False, description="Per-antenna feed types")
-    all_feed_type: str = Field("", description="Default feed type")
-    feed_types_per_antenna: dict[str, str] = Field(default_factory=dict)
+_MapValue = TypeVar("_MapValue")
 
 
-class BeamsConfig(BaseModel):
-    """Beam configuration."""
+def _serialize_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Return an ordinary recursively owned mapping for Pydantic serialization."""
+    serialized: dict[str, Any] = {}
+    for key, item in value.items():
+        if isinstance(item, Mapping):
+            serialized[key] = _serialize_mapping(cast(Mapping[str, Any], item))
+        else:
+            serialized[key] = item
+    return serialized
 
-    beam_mode: Literal["analytic", "fits", "mixed"] | None = Field(
-        None,
-        description=(
-            "Beam model type. 'analytic': parametric beam (e.g. Gaussian); "
-            "'fits': beam loaded from FITS file(s); "
-            "'mixed': per-antenna mix of analytic and FITS beams."
-        ),
-    )
-    per_antenna: bool = Field(
-        False,
-        description=(
-            "If True, each antenna uses its own beam (via antenna_beam_map). "
-            "If False, all antennas share a common beam."
-        ),
-    )
-    beam_file: str | None = Field(
-        None,
-        description="FITS beam file path shared by all antennas (fits mode, per_antenna=False).",
-    )
-    antenna_beam_map: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Mapping of antenna number (str) to beam specification. "
-            "For fits/mixed modes with per_antenna=True: value is a FITS file path or 'analytic'."
-        ),
-    )
-    beam_za_max_deg: float | None = Field(
-        None, description="Max zenith angle (degrees)"
-    )
-    beam_za_buffer_deg: float | None = Field(None, description="ZA buffer (degrees)")
-    beam_freq_buffer_hz: float | None = Field(None, description="Frequency buffer (Hz)")
-    beam_peak_normalize: bool = Field(
-        True,
-        description="Peak-normalize FITS beams after loading (pyuvsim convention)",
-    )
-    beam_interp_function: str | None = Field(
-        None,
-        description="Interpolation function for FITS beams (e.g. 'az_za_simple', 'az_za_map_coordinates'). None uses pyuvdata default.",
+
+SerializableMapping = Annotated[
+    Mapping[str, _MapValue],
+    PlainSerializer(_serialize_mapping, return_type=dict[str, Any]),
+]
+
+
+def _freeze_value(value: Any) -> Any:
+    """Recursively copy mutable input containers into immutable containers."""
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[Any, Any], value)
+        return FrozenDict({key: _freeze_value(item) for key, item in mapping.items()})
+    if isinstance(value, np.ndarray):
+        return tuple(_freeze_value(item) for item in cast(list[Any], value.tolist()))
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_value(item) for item in cast(Sequence[Any], value))
+    return value
+
+
+def _freeze_dict(value: Mapping[str, Any]) -> FrozenDict:
+    return FrozenDict({str(key): _freeze_value(item) for key, item in value.items()})
+
+
+class StrictFrozenModel(BaseModel):
+    """Shared base for every concrete user-input model."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+IssueStage = Literal[
+    "source",
+    "schema",
+    "override",
+    "semantic",
+    "unsupported",
+    "path",
+    "resolution",
+]
+IssueCategory = Literal[
+    "source",
+    "schema",
+    "override",
+    "scientific",
+    "workflow",
+    "unsupported",
+    "path",
+    "resolution",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigIssue:
+    """One immutable, renderable configuration issue."""
+
+    path: str
+    code: str
+    message: str
+    hint: str | None = None
+    stage: IssueStage = "semantic"
+    category: IssueCategory = "scientific"
+
+    def render(self) -> str:
+        text = f"{self.path}: {self.message}" if self.path else self.message
+        if self.hint:
+            text += f" Hint: {self.hint}"
+        return text
+
+
+_STAGE_ORDER: dict[IssueStage, int] = {
+    "source": 0,
+    "schema": 1,
+    "override": 2,
+    "semantic": 3,
+    "unsupported": 4,
+    "path": 5,
+    "resolution": 6,
+}
+
+
+def _ordered_issues(issues: Sequence[ConfigIssue]) -> tuple[ConfigIssue, ...]:
+    return tuple(
+        sorted(
+            issues,
+            key=lambda issue: (_STAGE_ORDER[issue.stage], issue.path, issue.code),
+        )
     )
 
-    # Aperture shape and taper
-    aperture_shape: Literal["circular", "rectangular", "elliptical"] = Field(
-        "circular", description="Aperture geometry."
+
+def _nonblank(value: str, *, field_name: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError(f"{field_name} must be nonempty")
+    return stripped
+
+
+def _nonempty_path_input(value: Any, *, field_name: str) -> Any:
+    if isinstance(value, str) and not value.strip():
+        raise ValueError(f"{field_name} must be a nonempty path")
+    return value
+
+
+def _finite_number_map(
+    value: Mapping[str, float],
+    *,
+    positive: bool = False,
+) -> FrozenDict:
+    copied: dict[str, float] = {}
+    for raw_key, raw_value in value.items():
+        key = _nonblank(str(raw_key), field_name="mapping key")
+        if isinstance(raw_value, (bool, np.bool_)):
+            raise ValueError(f"{key!r} must be numeric, not boolean")
+        numeric = float(raw_value)
+        if not math.isfinite(numeric):
+            raise ValueError(f"{key!r} must be finite")
+        if positive and numeric <= 0.0:
+            raise ValueError(f"{key!r} must be > 0")
+        copied[key] = numeric
+    return _freeze_dict(copied)
+
+
+def _is_valid_nside(value: int) -> bool:
+    return not isinstance(value, bool) and value > 0 and value & (value - 1) == 0
+
+
+def _validate_nside(value: int) -> int:
+    if not _is_valid_nside(value):
+        raise ValueError("NSIDE must be a positive power of two")
+    return value
+
+
+class TelescopeConfig(StrictFrozenModel):
+    """Telescope identity and currently unsupported pyuvdata opt-ins."""
+
+    telescope_name: str = "Unknown"
+    use_pyuvdata_telescope: bool = False
+    use_pyuvdata_location: bool = False
+    use_pyuvdata_antennas: bool = False
+    use_pyuvdata_diameters: bool = False
+
+    @field_validator("telescope_name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _nonblank(value, field_name="telescope_name")
+
+
+AntennaFileFormat = Literal[
+    "radiosim", "casa", "measurement_set", "uvfits", "mwa", "pyuvdata"
+]
+
+
+class AntennaLayoutConfig(StrictFrozenModel):
+    """Required antenna-layout input and deferred heterogeneous settings."""
+
+    antenna_positions_file: Path
+    antenna_file_format: AntennaFileFormat
+    all_antenna_diameter: PositiveFiniteFloat
+    use_different_diameters: bool = False
+    diameters: SerializableMapping[PositiveFiniteFloat] = Field(
+        default_factory=FrozenDict
     )
+
+    @field_validator("antenna_positions_file", mode="before")
+    @classmethod
+    def validate_antenna_path(cls, value: Any) -> Any:
+        return _nonempty_path_input(value, field_name="antenna_positions_file")
+
+    @field_validator("diameters")
+    @classmethod
+    def freeze_diameters(cls, value: Mapping[str, PositiveFiniteFloat]) -> FrozenDict:
+        return _finite_number_map(value, positive=True)
+
+
+class FeedsConfig(StrictFrozenModel):
+    """Deferred receptor configuration retained for explicit rejection."""
+
+    use_polarized_feeds: bool = False
+    polarization_type: str = ""
+    use_different_polarization_type: bool = False
+    polarization_per_antenna: SerializableMapping[str] = Field(
+        default_factory=FrozenDict
+    )
+    use_different_feed_types: bool = False
+    all_feed_type: str = ""
+    feed_types_per_antenna: SerializableMapping[str] = Field(default_factory=FrozenDict)
+
+    @field_validator("polarization_per_antenna", "feed_types_per_antenna")
+    @classmethod
+    def freeze_string_maps(cls, value: Mapping[str, str]) -> FrozenDict:
+        return _freeze_dict(value)
+
+
+class BeamsConfig(StrictFrozenModel):
+    """Analytic beam input plus explicitly unsupported future FITS controls."""
+
+    beam_mode: Literal["analytic", "fits", "mixed"] = "analytic"
+    per_antenna: bool = False
+    beam_file: Path | None = None
+    antenna_beam_map: SerializableMapping[Path | Literal["analytic"]] = Field(
+        default_factory=FrozenDict
+    )
+    beam_za_max_deg: FiniteFloat | None = None
+    beam_za_buffer_deg: NonNegativeFiniteFloat | None = None
+    beam_freq_buffer_hz: NonNegativeFiniteFloat | None = None
+    beam_peak_normalize: bool = True
+    beam_interp_function: str | None = None
+    aperture_shape: Literal["circular", "rectangular", "elliptical"] = "circular"
     taper: Literal[
         "uniform", "gaussian", "parabolic", "parabolic_squared", "cosine"
-    ] = Field("gaussian", description="Illumination taper function.")
-    edge_taper_dB: float = Field(10.0, description="Edge taper in dB (pedestal level).")
-
-    # Feed model
+    ] = "gaussian"
+    edge_taper_dB: NonNegativeFiniteFloat = 10.0
     feed_model: Literal[
         "none", "corrugated_horn", "open_waveguide", "dipole_ground_plane"
-    ] = Field(
-        "none", description="Feed pattern model. Overrides taper when not 'none'."
-    )
-    feed_computation: Literal["analytical", "numerical"] = Field(
-        "analytical",
-        description="Feed-to-beam computation: 'analytical' (derive edge taper) or 'numerical' (Hankel transform).",
-    )
-    feed_params: dict[str, float] = Field(
-        default_factory=dict,
-        description="Feed params: q (horn), b_over_lambda (waveguide), height_wavelengths (dipole), focal_ratio (f/D).",
+    ] = "none"
+    feed_computation: Literal["analytical", "numerical"] = "analytical"
+    feed_params: SerializableMapping[FiniteFloat] = Field(default_factory=FrozenDict)
+    reflector_type: Literal["prime_focus", "cassegrain"] = "prime_focus"
+    magnification: PositiveFiniteFloat = 1.0
+    aperture_params: SerializableMapping[PositiveFiniteFloat] = Field(
+        default_factory=FrozenDict
     )
 
-    # Reflector geometry
-    reflector_type: Literal["prime_focus", "cassegrain"] = Field(
-        "prime_focus", description="Reflector geometry type."
-    )
-    magnification: float = Field(
-        1.0,
-        description="Cassegrain magnification M = (e+1)/(e-1). Only used when reflector_type='cassegrain'.",
-    )
+    @field_validator("beam_file", mode="before")
+    @classmethod
+    def validate_beam_file(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return _nonempty_path_input(value, field_name="beam_file")
 
-    # Aperture-specific parameters
-    aperture_params: dict[str, float] = Field(
-        default_factory=dict,
-        description="Aperture params: length_x/length_y (rectangular), diameter_x/diameter_y (elliptical).",
-    )
+    @field_validator("beam_interp_function")
+    @classmethod
+    def validate_interp(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _nonblank(value, field_name="beam_interp_function")
+
+    @field_validator("antenna_beam_map")
+    @classmethod
+    def freeze_beam_map(
+        cls, value: Mapping[str, Path | Literal["analytic"]]
+    ) -> FrozenDict:
+        copied: dict[str, Path | Literal["analytic"]] = {}
+        for raw_key, beam in value.items():
+            key = _nonblank(str(raw_key), field_name="antenna_beam_map key")
+            if isinstance(beam, Path) and str(beam) in {"", "."}:
+                raise ValueError(f"antenna_beam_map[{key!r}] must be nonempty")
+            copied[key] = beam
+        return _freeze_dict(copied)
+
+    @field_validator("feed_params")
+    @classmethod
+    def validate_feed_params(cls, value: Mapping[str, FiniteFloat]) -> FrozenDict:
+        allowed = {"q", "b_over_lambda", "height_wavelengths", "focal_ratio"}
+        unknown = sorted(set(value) - allowed)
+        if unknown:
+            raise ValueError(f"unknown feed parameter key(s): {unknown}")
+        return _finite_number_map(value)
+
+    @field_validator("aperture_params")
+    @classmethod
+    def validate_aperture_params(
+        cls, value: Mapping[str, PositiveFiniteFloat]
+    ) -> FrozenDict:
+        allowed = {"length_x", "length_y", "diameter_x", "diameter_y"}
+        unknown = sorted(set(value) - allowed)
+        if unknown:
+            raise ValueError(f"unknown aperture parameter key(s): {unknown}")
+        return _finite_number_map(value, positive=True)
 
 
-class BaselineSelectionConfig(BaseModel):
-    """Baseline selection configuration."""
+class BaselineSelectionConfig(StrictFrozenModel):
+    """Deferred baseline selection with defaults matching generated baselines."""
 
-    use_autocorrelations: bool = Field(False, description="Include autocorrelations")
-    use_crosscorrelations: bool = Field(True, description="Include crosscorrelations")
-    only_selective_baseline_length: bool = Field(
-        False, description="Filter by baseline length"
-    )
-    selective_baseline_lengths: list[float] = Field(
-        default_factory=list, description="Selected baseline lengths"
-    )
-    selective_baseline_tolerance_meters: float = Field(
-        0.5, ge=0, description="Baseline length tolerance (m)"
-    )
-    trim_by_angle_ranges: bool = Field(False, description="Filter by angle")
-    selective_angle_ranges_deg: list[list[float]] = Field(
-        default_factory=list, description="Angle ranges [min, max] in degrees"
-    )
+    use_autocorrelations: bool = True
+    use_crosscorrelations: bool = True
+    only_selective_baseline_length: bool = False
+    selective_baseline_lengths: tuple[PositiveFiniteFloat, ...] = ()
+    selective_baseline_tolerance_meters: NonNegativeFiniteFloat = 0.5
+    trim_by_angle_ranges: bool = False
+    selective_angle_ranges_deg: tuple[tuple[FiniteFloat, FiniteFloat], ...] = ()
 
 
-class LocationConfig(BaseModel):
-    """Observatory location configuration."""
+class LocationConfig(StrictFrozenModel):
+    """Required finite observatory location."""
 
-    lat: float | str = Field("", description="Latitude (degrees)")
-    lon: float | str = Field("", description="Longitude (degrees)")
-    height: float | str = Field("", description="Height (meters)")
+    lat: Annotated[float, Field(ge=-90.0, le=90.0, allow_inf_nan=False)]
+    lon: Annotated[float, Field(ge=-180.0, le=180.0, allow_inf_nan=False)]
+    height: NonNegativeFiniteFloat
 
 
-class SkyRegionEntryConfig(BaseModel):
-    """A single sky region filter (cone or box).
+class SkyRegionEntryConfig(StrictFrozenModel):
+    """One immutable cone or box region input."""
 
-    When ``shape="cone"``, ``radius_deg`` is required.
-    When ``shape="box"``, ``width_deg`` and ``height_deg`` are required.
-    """
+    shape: Literal["cone", "box"] = "cone"
+    center_ra_deg: Annotated[float, Field(ge=0.0, lt=360.0, allow_inf_nan=False)]
+    center_dec_deg: Annotated[float, Field(ge=-90.0, le=90.0, allow_inf_nan=False)]
+    radius_deg: (
+        Annotated[float, Field(gt=0.0, le=180.0, allow_inf_nan=False)] | None
+    ) = None
+    width_deg: Annotated[float, Field(gt=0.0, le=360.0, allow_inf_nan=False)] | None = (
+        None
+    )
+    height_deg: (
+        Annotated[float, Field(gt=0.0, le=180.0, allow_inf_nan=False)] | None
+    ) = None
 
-    shape: Literal["cone", "box"] = Field(
-        "cone", description="Region shape: 'cone' or 'box'"
-    )
-    center_ra_deg: float = Field(
-        ..., ge=0.0, lt=360.0, description="RA centre (ICRS degrees)"
-    )
-    center_dec_deg: float = Field(
-        ..., ge=-90.0, le=90.0, description="Dec centre (ICRS degrees)"
-    )
-    radius_deg: float | None = Field(
-        None, gt=0.0, le=180.0, description="Cone radius (degrees)"
-    )
-    width_deg: float | None = Field(
-        None, gt=0.0, le=360.0, description="Box RA width (degrees)"
-    )
-    height_deg: float | None = Field(
-        None, gt=0.0, le=180.0, description="Box Dec height (degrees)"
-    )
 
-    @model_validator(mode="after")
-    def validate_shape_fields(self) -> "SkyRegionEntryConfig":
-        if self.shape == "cone" and self.radius_deg is None:
-            raise ValueError("radius_deg is required when region shape='cone'.")
-        if self.shape == "box" and (self.width_deg is None or self.height_deg is None):
-            raise ValueError(
-                "width_deg and height_deg are required when region shape='box'."
-            )
-        return self
+SkyRegionInput = SkyRegionEntryConfig | tuple[SkyRegionEntryConfig, ...] | None
+
+
+def _copy_region_sequence(value: Any) -> Any:
+    if isinstance(value, list):
+        return tuple(cast(list[Any], value))
+    return value
 
 
 def build_sky_region(
     config: SkyRegionEntryConfig
+    | tuple[SkyRegionEntryConfig, ...]
     | list[SkyRegionEntryConfig]
     | dict[str, Any]
     | list[dict[str, Any]]
     | None,
 ) -> Any:
-    """Build a runtime ``SkyRegion`` from config-shaped input."""
+    """Build a runtime ``SkyRegion`` from already validated config input."""
     if config is None:
         return None
 
@@ -285,11 +477,14 @@ def build_sky_region(
         if not isinstance(entry, SkyRegionEntryConfig):
             entry = SkyRegionEntryConfig.model_validate(entry)
         if entry.shape == "cone":
+            assert entry.radius_deg is not None
             return SkyRegion.cone(
                 entry.center_ra_deg,
                 entry.center_dec_deg,
                 entry.radius_deg,
             )
+        assert entry.width_deg is not None
+        assert entry.height_deg is not None
         return SkyRegion.box(
             entry.center_ra_deg,
             entry.center_dec_deg,
@@ -297,54 +492,115 @@ def build_sky_region(
             entry.height_deg,
         )
 
-    if isinstance(config, list):
+    if isinstance(config, (list, tuple)):
         return SkyRegion.union([_build_one(entry) for entry in config])
     return _build_one(config)
 
 
-@dataclass(frozen=True)
+class SkyFootprintInput(StrictFrozenModel):
+    """Strict immutable HEALPix support footprint."""
+
+    nside: int
+    hpx_inds: tuple[int, ...]
+    coordinate_frame: Literal["icrs", "galactic"] = "icrs"
+
+    @field_validator("nside")
+    @classmethod
+    def validate_nside(cls, value: int) -> int:
+        return _validate_nside(value)
+
+    @field_validator("hpx_inds", mode="before")
+    @classmethod
+    def copy_indices(cls, value: Any) -> tuple[int, ...]:
+        if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+            if not isinstance(value, np.ndarray):
+                raise ValueError("hpx_inds must be a one-dimensional sequence")
+        if isinstance(value, np.ndarray):
+            if value.ndim != 1:
+                raise ValueError("hpx_inds must be one-dimensional")
+            items: list[Any] = cast(list[Any], value.tolist())
+        else:
+            items = list(cast(Sequence[Any], value))
+        copied: list[int] = []
+        for item in items:
+            if isinstance(item, (bool, np.bool_)) or not isinstance(
+                item, (int, np.integer)
+            ):
+                raise ValueError("hpx_inds values must be integers")
+            copied.append(int(cast(Any, item)))
+        return tuple(copied)
+
+    @model_validator(mode="after")
+    def validate_indices(self) -> SkyFootprintInput:
+        if not self.hpx_inds:
+            raise ValueError("hpx_inds must be nonempty")
+        if len(set(self.hpx_inds)) != len(self.hpx_inds):
+            raise ValueError("hpx_inds must be unique")
+        upper = 12 * self.nside * self.nside
+        if any(index < 0 or index >= upper for index in self.hpx_inds):
+            raise ValueError(f"hpx_inds must lie in [0, {upper})")
+        return self
+
+
+FinitePair = tuple[FiniteFloat, FiniteFloat]
+
+
+class SkyProvenanceInput(StrictFrozenModel):
+    """Strict user-authored sky provenance metadata."""
+
+    flux_completeness_jy: FinitePair | None = None
+    flux_completeness_freq_hz: PositiveFiniteFloat | None = None
+    angular_resolution_rad: FinitePair | None = None
+    sky_coverage: SkyCoverage = SkyCoverage.UNKNOWN
+    coverage_fraction: (
+        Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)] | None
+    ) = None
+    coverage_footprint: SkyFootprintInput | None = None
+    monopole_convention: MonopoleConvention = MonopoleConvention.UNKNOWN
+    monopole_k: FiniteFloat | None = None
+    source_subtraction: SourceSubtractionStatus = SourceSubtractionStatus.UNKNOWN
+    source_subtraction_threshold_jy: NonNegativeFiniteFloat | None = None
+    source_subtraction_freq_hz: PositiveFiniteFloat | None = None
+    source_subtraction_method: str | None = None
+    notes: str | None = None
+    rng_seed: int | None = None
+
+    @field_validator("source_subtraction_method")
+    @classmethod
+    def validate_method(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _nonblank(value, field_name="source_subtraction_method")
+
+
+@dataclass(frozen=True, slots=True)
 class SkyLoaderRequestContext:
     """Resolved global context used to build one loader request."""
 
     flux_multiplier: float = 1.0
     region: Any = None
     brightness_conversion: Literal["planck", "rayleigh-jeans"] | None = None
-    frequencies: Any = None
-    obs_frequency_config: dict[str, Any] | None = None
+    frequencies: np.ndarray | None = None
     memmap_path: str | None = None
 
 
-class SkySourceConfig(BaseModel):
-    """Base type for one entry in ``sky_model.sources``."""
+class SkySourceConfig(StrictFrozenModel):
+    """Strict base type for one entry in ``sky_model.sources``."""
 
-    model_config = {"extra": "forbid"}
+    kind: str
+    region: SkyRegionInput = None
+    brightness_conversion: Literal["planck", "rayleigh-jeans"] | None = None
+    provenance_override: SkyProvenanceInput | None = None
 
-    kind: str = Field(..., description="Sky loader name or alias")
-    region: SkyRegionEntryConfig | list[SkyRegionEntryConfig] | None = Field(
-        None,
-        description="Optional source-specific sky region override.",
-    )
-    brightness_conversion: Literal["planck", "rayleigh-jeans"] | None = Field(
-        None,
-        description="Optional source-specific brightness conversion override.",
-    )
-    provenance_override: dict[str, Any] | None = Field(
-        None,
-        description=(
-            "Optional explicit SkyProvenance metadata to attach to the loaded "
-            "model.  Useful when the source is a file whose completeness, "
-            "angular resolution, or source-subtraction status is known but "
-            "not auto-inferable by the loader.  Keys mirror the "
-            "``SkyProvenance`` dataclass fields (``flux_completeness_jy``, "
-            "``flux_completeness_freq_hz``, ``angular_resolution_rad``, "
-            "``sky_coverage``, ``coverage_fraction``, "
-            "``coverage_footprint``, "
-            "``monopole_convention``, ``monopole_k``, "
-            "``source_subtraction``, ``source_subtraction_threshold_jy``, "
-            "``source_subtraction_freq_hz``, ``source_subtraction_method``, "
-            "``notes``)."
-        ),
-    )
+    @field_validator("kind")
+    @classmethod
+    def validate_kind(cls, value: str) -> str:
+        return _nonblank(value, field_name="kind")
+
+    @field_validator("region", mode="before")
+    @classmethod
+    def copy_region(cls, value: Any) -> Any:
+        return _copy_region_sequence(value)
 
     def to_loader_request(
         self,
@@ -352,19 +608,29 @@ class SkySourceConfig(BaseModel):
         flux_multiplier: float = 1.0,
         region: Any = None,
         brightness_conversion: Literal["planck", "rayleigh-jeans"] | None = None,
-        frequencies: Any = None,
-        obs_frequency_config: dict[str, Any] | None = None,
+        frequencies: Sequence[float] | np.ndarray | None = None,
         memmap_path: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        """Build a resolved loader request for this source spec."""
+        """Build a resolved loader request without executing the loader."""
         from radiosim.core.sky.registry import loader_registry
+        from radiosim.core.sky.support.frequencies import (
+            validate_observation_frequencies,
+        )
+
+        resolved_frequencies = (
+            None
+            if frequencies is None
+            else validate_observation_frequencies(
+                frequencies,
+                label="SkySourceConfig.to_loader_request frequencies",
+            )
+        )
 
         context = SkyLoaderRequestContext(
             flux_multiplier=flux_multiplier,
             region=region,
             brightness_conversion=brightness_conversion,
-            frequencies=frequencies,
-            obs_frequency_config=obs_frequency_config,
+            frequencies=resolved_frequencies,
             memmap_path=memmap_path,
         )
         raw_kind, explicit_kwargs = self._build_loader_request(context)
@@ -375,9 +641,7 @@ class SkySourceConfig(BaseModel):
         value: float | None,
         context: SkyLoaderRequestContext,
     ) -> float | None:
-        if value is None:
-            return None
-        return value * context.flux_multiplier
+        return None if value is None else value * context.flux_multiplier
 
     def _common_kwargs(
         self,
@@ -402,16 +666,21 @@ class SkySourceConfig(BaseModel):
         if include_frequency_context:
             if context.frequencies is not None:
                 kwargs["frequencies"] = context.frequencies
-            elif context.obs_frequency_config is not None:
-                kwargs["obs_frequency_config"] = context.obs_frequency_config
-
         if include_memmap and context.memmap_path is not None:
             kwargs["memmap_path"] = context.memmap_path
 
         if self.provenance_override is not None:
-            from radiosim.core.sky.containers import SkyProvenance
+            from radiosim.core.sky.containers import SkyFootprint, SkyProvenance
 
-            kwargs["provenance"] = SkyProvenance(**self.provenance_override)
+            provenance = self.provenance_override.model_dump()
+            footprint = self.provenance_override.coverage_footprint
+            if footprint is not None:
+                provenance["coverage_footprint"] = SkyFootprint(
+                    nside=footprint.nside,
+                    hpx_inds=np.asarray(footprint.hpx_inds, dtype=np.int64),
+                    coordinate_frame=footprint.coordinate_frame,
+                )
+            kwargs["provenance"] = SkyProvenance(**provenance)
         return kwargs
 
     def _build_loader_request(
@@ -423,47 +692,67 @@ class SkySourceConfig(BaseModel):
 
 class DiffuseSkySourceConfig(SkySourceConfig):
     kind: Literal["diffuse_sky"] = "diffuse_sky"
-    model: str = Field("gsm2008", description="Diffuse-model selector")
-    nside: int = Field(64, ge=1, description="HEALPix NSIDE")
-    include_cmb: bool | None = Field(None, description="Include CMB in diffuse sky")
-    basemap: str | None = Field(None, description="GSM2008 basemap")
-    interpolation: str | None = Field(None, description="GSM2008 interpolation")
+    model: str = "gsm2008"
+    nside: int = 64
+    include_cmb: bool | None = None
+    basemap: str | None = None
+    interpolation: str | None = None
 
+    @field_validator("nside")
+    @classmethod
+    def validate_nside(cls, value: int) -> int:
+        return _validate_nside(value)
+
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._common_kwargs(
-            context,
-            include_frequency_context=True,
-            include_memmap=True,
+            context, include_frequency_context=True, include_memmap=True
         )
         kwargs.update({"model": self.model, "nside": self.nside})
-        if self.include_cmb is not None:
-            kwargs["include_cmb"] = self.include_cmb
-        if self.basemap is not None:
-            kwargs["basemap"] = self.basemap
-        if self.interpolation is not None:
-            kwargs["interpolation"] = self.interpolation
+        for name in ("include_cmb", "basemap", "interpolation"):
+            value = getattr(self, name)
+            if value is not None:
+                kwargs[name] = value
         return self.kind, kwargs
 
 
 class Pysm3SourceConfig(SkySourceConfig):
     kind: Literal["pysm3"] = "pysm3"
-    components: str | list[str] = Field("s1", description="PySM3 preset string(s)")
-    nside: int = Field(64, ge=1, description="HEALPix NSIDE")
-    include_polarization: bool = Field(
-        False, description="Include polarized diffuse output when supported"
-    )
+    components: str | tuple[str, ...] = "s1"
+    nside: int = 64
+    include_polarization: bool = False
 
+    @field_validator("components", mode="before")
+    @classmethod
+    def copy_components(cls, value: Any) -> Any:
+        if isinstance(value, (list, tuple)):
+            if not value:
+                raise ValueError("components must be nonempty")
+            return tuple(cast(Sequence[Any], value))
+        return value
+
+    @field_validator("components")
+    @classmethod
+    def validate_components(cls, value: str | tuple[str, ...]) -> Any:
+        if isinstance(value, str):
+            return _nonblank(value, field_name="components")
+        if not value:
+            raise ValueError("components must be nonempty")
+        return tuple(_nonblank(item, field_name="component") for item in value)
+
+    @field_validator("nside")
+    @classmethod
+    def validate_nside(cls, value: int) -> int:
+        return _validate_nside(value)
+
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._common_kwargs(
-            context,
-            include_frequency_context=True,
-            include_memmap=True,
+            context, include_frequency_context=True, include_memmap=True
         )
         kwargs.update(
             {
@@ -476,50 +765,49 @@ class Pysm3SourceConfig(SkySourceConfig):
 
 
 class PointCatalogSourceConfig(SkySourceConfig):
-    flux_limit: float | None = Field(None, ge=0.0, description="Minimum flux limit")
-    max_rows: int | None = Field(None, ge=1, description="Maximum rows for TAP query")
-    allow_full_catalog: bool = Field(
-        False,
-        description="Explicit opt-in for uncapped full-catalog network downloads.",
-    )
+    flux_limit: NonNegativeFiniteFloat | None = None
+    max_rows: Annotated[int, Field(ge=1)] | None = None
 
-    def _build_catalog_kwargs(
-        self,
-        context: SkyLoaderRequestContext,
-    ) -> dict[str, Any]:
+    def _build_catalog_kwargs(self, context: SkyLoaderRequestContext) -> dict[str, Any]:
         kwargs = self._common_kwargs(context)
         if self.flux_limit is not None:
             kwargs["flux_limit"] = self._scaled_flux(self.flux_limit, context)
         if self.max_rows is not None:
             kwargs["max_rows"] = self.max_rows
-        if self.allow_full_catalog is not None:
-            kwargs["allow_full_catalog"] = self.allow_full_catalog
+        return kwargs
+
+
+class FullCatalogPointSourceConfig(PointCatalogSourceConfig):
+    allow_full_catalog: bool = False
+
+    @override
+    def _build_catalog_kwargs(self, context: SkyLoaderRequestContext) -> dict[str, Any]:
+        kwargs = super()._build_catalog_kwargs(context)
+        kwargs["allow_full_catalog"] = self.allow_full_catalog
         return kwargs
 
 
 class PyradioskyFileSourceConfig(SkySourceConfig):
     kind: Literal["pyradiosky_file"] = "pyradiosky_file"
-    filename: str = Field(..., description="Input filename")
-    filetype: str | None = Field(None, description="File format override")
-    flux_limit: float | None = Field(None, ge=0.0, description="Minimum flux limit")
-    reference_frequency_hz: float | None = Field(
-        None, description="Reference frequency for file-based point sources"
-    )
-    spectral_loss_policy: Literal["warn", "error"] = Field(
-        "warn",
-        description="How to handle lossy point-spectrum collapse for full/subband files.",
-    )
+    filename: Path
+    filetype: str | None = None
+    flux_limit: NonNegativeFiniteFloat | None = None
+    reference_frequency_hz: PositiveFiniteFloat | None = None
+    spectral_loss_policy: Literal["warn", "error"] = "warn"
 
+    @field_validator("filename", mode="before")
+    @classmethod
+    def validate_filename(cls, value: Any) -> Any:
+        return _nonempty_path_input(value, field_name="filename")
+
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._common_kwargs(
-            context,
-            include_frequency_context=True,
-            include_memmap=True,
+            context, include_frequency_context=True, include_memmap=True
         )
-        kwargs["filename"] = self.filename
+        kwargs["filename"] = str(self.filename)
         if self.filetype is not None:
             kwargs["filetype"] = self.filetype
         if self.flux_limit is not None:
@@ -532,15 +820,20 @@ class PyradioskyFileSourceConfig(SkySourceConfig):
 
 class BbsSourceConfig(SkySourceConfig):
     kind: Literal["bbs"] = "bbs"
-    filename: str = Field(..., description="Input filename")
-    flux_limit: float | None = Field(None, ge=0.0, description="Minimum flux limit")
+    filename: Path
+    flux_limit: NonNegativeFiniteFloat | None = None
 
+    @field_validator("filename", mode="before")
+    @classmethod
+    def validate_filename(cls, value: Any) -> Any:
+        return _nonempty_path_input(value, field_name="filename")
+
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._common_kwargs(context)
-        kwargs["filename"] = self.filename
+        kwargs["filename"] = str(self.filename)
         if self.flux_limit is not None:
             kwargs["flux_limit"] = self._scaled_flux(self.flux_limit, context)
         return self.kind, kwargs
@@ -548,48 +841,38 @@ class BbsSourceConfig(SkySourceConfig):
 
 class Skyh5MultifileSourceConfig(SkySourceConfig):
     kind: Literal["skyh5_multifile"] = "skyh5_multifile"
-    file_glob: str | None = Field(
-        None,
-        description=(
-            "Glob pattern matching single-frequency skyh5 files (mutually "
-            "exclusive with `filenames`)."
-        ),
-    )
-    filenames: list[str] | None = Field(
-        None,
-        description=(
-            "Explicit list of skyh5 paths (mutually exclusive with `file_glob`)."
-        ),
-    )
-    reference_frequency_hz: float | None = Field(
-        None,
-        description=(
-            "Reference channel for PointSourceData.flux / ref_freq; defaults "
-            "to the lowest channel when not set.  Ignored for HEALPix inputs."
-        ),
-    )
+    file_glob: str | None = None
+    filenames: tuple[Path, ...] | None = None
+    reference_frequency_hz: PositiveFiniteFloat | None = None
 
-    @model_validator(mode="after")
-    def _exactly_one_source(self) -> "Skyh5MultifileSourceConfig":
-        if (self.file_glob is None) == (self.filenames is None):
-            raise ValueError(
-                "skyh5_multifile: specify exactly one of `file_glob` or `filenames`."
-            )
-        return self
+    @field_validator("filenames", mode="before")
+    @classmethod
+    def copy_filenames(cls, value: Any) -> Any:
+        if isinstance(value, (list, tuple)):
+            items = cast(Sequence[Any], value)
+            for item in items:
+                _nonempty_path_input(item, field_name="filenames entry")
+            return tuple(items)
+        return value
 
+    @field_validator("file_glob")
+    @classmethod
+    def validate_file_glob(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _nonblank(value, field_name="file_glob")
+
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._common_kwargs(
-            context,
-            include_frequency_context=True,
-            include_memmap=True,
+            context, include_frequency_context=True, include_memmap=True
         )
         if self.file_glob is not None:
             kwargs["file_glob"] = self.file_glob
-        else:
-            kwargs["filenames"] = self.filenames
+        elif self.filenames is not None:
+            kwargs["filenames"] = [str(path) for path in self.filenames]
         if self.reference_frequency_hz is not None:
             kwargs["reference_frequency_hz"] = self.reference_frequency_hz
         return self.kind, kwargs
@@ -597,68 +880,65 @@ class Skyh5MultifileSourceConfig(SkySourceConfig):
 
 class FitsImageSourceConfig(SkySourceConfig):
     kind: Literal["fits_image"] = "fits_image"
-    filename: str = Field(..., description="Input filename")
-    nside: int = Field(128, ge=1, description="HEALPix NSIDE")
+    filename: Path
+    nside: int = 128
 
+    @field_validator("filename", mode="before")
+    @classmethod
+    def validate_filename(cls, value: Any) -> Any:
+        return _nonempty_path_input(value, field_name="filename")
+
+    @field_validator("nside")
+    @classmethod
+    def validate_nside(cls, value: int) -> int:
+        return _validate_nside(value)
+
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._common_kwargs(
-            context,
-            include_frequency_context=True,
-            include_memmap=True,
+            context, include_frequency_context=True, include_memmap=True
         )
-        kwargs.update({"filename": self.filename, "nside": self.nside})
+        kwargs.update({"filename": str(self.filename), "nside": self.nside})
         return self.kind, kwargs
 
 
 class TestSourcesConfig(SkySourceConfig):
     kind: Literal["test_sources"] = "test_sources"
-    representation: Literal["point_sources", "healpix_map"] = Field(
-        "point_sources", description="Synthetic-source output representation"
+    representation: Literal["point_sources", "healpix_map"] = "point_sources"
+    num_sources: Annotated[int, Field(ge=1)] = 100
+    distribution: Literal["uniform", "random"] = "uniform"
+    seed: int | None = None
+    flux_min: NonNegativeFiniteFloat | None = None
+    flux_max: NonNegativeFiniteFloat | None = None
+    dec_deg: Annotated[float, Field(ge=-90.0, le=90.0, allow_inf_nan=False)] | None = (
+        None
     )
-    num_sources: int = Field(100, ge=1, description="Number of synthetic sources")
-    distribution: Literal["uniform", "random"] = Field(
-        "uniform", description="Synthetic source placement"
+    dec_range_deg: (
+        Annotated[float, Field(ge=0.0, le=90.0, allow_inf_nan=False)] | None
+    ) = None
+    spectral_index: FiniteFloat | None = None
+    polarization_fraction: Annotated[
+        float, Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    ] = 0.0
+    polarization_angle_deg: FiniteFloat = 0.0
+    stokes_v_fraction: Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)] = (
+        0.0
     )
-    seed: int | None = Field(None, description="Random seed")
-    flux_min: float | None = Field(None, ge=0.0, description="Minimum source flux")
-    flux_max: float | None = Field(None, ge=0.0, description="Maximum source flux")
-    dec_deg: float | None = Field(None, description="Source declination")
-    dec_range_deg: float | None = Field(
-        None, ge=0.0, description="Half-width of random declination band"
-    )
-    spectral_index: float | None = Field(None, description="Spectral index")
-    polarization_fraction: float = Field(
-        0.0, ge=0.0, le=1.0, description="Linear polarization fraction"
-    )
-    polarization_angle_deg: float = Field(0.0, description="Linear polarization angle")
-    stokes_v_fraction: float = Field(
-        0.0, ge=0.0, le=1.0, description="Circular polarization fraction"
-    )
-    nside: int | None = Field(None, ge=1, description="HEALPix NSIDE")
+    nside: int | None = None
 
-    @model_validator(mode="after")
-    def validate_source_ranges(self) -> "TestSourcesConfig":
-        if (
-            self.flux_min is not None
-            and self.flux_max is not None
-            and self.flux_min > self.flux_max
-        ):
-            raise ValueError("flux_min must be <= flux_max.")
-        if self.representation == "healpix_map" and self.nside is None:
-            self.nside = 64
-        return self
+    @field_validator("nside")
+    @classmethod
+    def validate_nside(cls, value: int | None) -> int | None:
+        return None if value is None else _validate_nside(value)
 
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._common_kwargs(
-            context,
-            include_frequency_context=True,
-            include_memmap=True,
+            context, include_frequency_context=True, include_memmap=True
         )
         kwargs.update(
             {
@@ -670,86 +950,207 @@ class TestSourcesConfig(SkySourceConfig):
                 "stokes_v_fraction": self.stokes_v_fraction,
             }
         )
-        if self.seed is not None:
-            kwargs["seed"] = self.seed
-        if self.flux_min is not None:
-            kwargs["flux_min"] = self._scaled_flux(self.flux_min, context)
-        if self.flux_max is not None:
-            kwargs["flux_max"] = self._scaled_flux(self.flux_max, context)
-        if self.dec_deg is not None:
-            kwargs["dec_deg"] = self.dec_deg
-        if self.dec_range_deg is not None:
-            kwargs["dec_range_deg"] = self.dec_range_deg
-        if self.spectral_index is not None:
-            kwargs["spectral_index"] = self.spectral_index
-        if self.nside is not None:
-            kwargs["nside"] = self.nside
+        for name in (
+            "seed",
+            "flux_min",
+            "flux_max",
+            "dec_deg",
+            "dec_range_deg",
+            "spectral_index",
+            "nside",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                if name in {"flux_min", "flux_max"}:
+                    value = self._scaled_flux(value, context)
+                kwargs[name] = value
         return self.kind, kwargs
 
 
+def _validate_catalog_option(name: str, value: Any) -> Any:
+    if name == "allow_full_catalog":
+        if not isinstance(value, bool):
+            raise ValueError("allow_full_catalog must be a boolean")
+        return value
+    if name == "max_rows":
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError("max_rows must be a positive integer")
+        return value
+    if name == "flux_limit":
+        if isinstance(value, bool):
+            raise ValueError("flux_limit must be a nonnegative finite number")
+        result = float(value)
+        if not math.isfinite(result) or result < 0.0:
+            raise ValueError("flux_limit must be a nonnegative finite number")
+        return result
+    raise AssertionError(name)
+
+
+def _validate_poisson_option(name: str, value: Any) -> Any:
+    if name in {"flux_range_jy", "spectral_index_dist"}:
+        if isinstance(value, (str, bytes)) or len(value) != 2:
+            raise ValueError(f"{name} must be a two-value sequence")
+        pair = tuple(float(item) for item in value)
+        if not all(math.isfinite(item) for item in pair):
+            raise ValueError(f"{name} values must be finite")
+        return pair
+    if name in {"reference_frequency", "area_sr"}:
+        if value is None and name == "area_sr":
+            return None
+        if isinstance(value, bool):
+            raise ValueError(f"{name} must be numeric")
+        result = float(value)
+        if not math.isfinite(result) or result <= 0.0:
+            raise ValueError(f"{name} must be finite and positive")
+        return result
+    if name == "nside":
+        return _validate_nside(value)
+    if name == "seed":
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int)
+        ):
+            raise ValueError("seed must be an integer or null")
+        return value
+    if name == "representation":
+        if value not in {"point_sources", "healpix_map"}:
+            raise ValueError("representation must be point_sources or healpix_map")
+        return value
+    if name == "dn_ds":
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("dn_ds must be a nonempty registered preset string")
+        return value.strip()
+    raise AssertionError(name)
+
+
+def _validate_registered_options(
+    kind: str,
+    options: Mapping[str, Any] | None,
+    *,
+    field_name: str = "options",
+) -> FrozenDict:
+    """Validate option names and annotated values without executing a loader."""
+    from radiosim.core.sky.registry import loader_registry
+
+    definition = loader_registry.definition(kind)
+    provided = dict(options or {})
+    source_to_loader = {
+        source_name: loader_name
+        for loader_name, source_name in definition.config_fields.items()
+    }
+    unknown = sorted(set(provided) - set(source_to_loader))
+    if unknown:
+        raise ValidationError.from_exception_data(
+            "RegisteredLoaderOptions",
+            [
+                {
+                    "type": "extra_forbidden",
+                    "loc": (field_name, name),
+                    "input": provided[name],
+                }
+                for name in unknown
+            ],
+        )
+
+    try:
+        annotations = get_type_hints(definition.loader)
+    except (NameError, TypeError):
+        annotations = {}
+    signature = inspect.signature(definition.loader)
+    validated: dict[str, Any] = {}
+    for source_name, value in provided.items():
+        if source_name in {"flux_limit", "max_rows", "allow_full_catalog"}:
+            validated[source_name] = _validate_catalog_option(source_name, value)
+            continue
+        if source_name == "nside":
+            validated[source_name] = _validate_nside(value)
+            continue
+        if source_name in {"include_cmb", "include_polarization"}:
+            if not isinstance(value, bool):
+                raise ValueError(f"{source_name} must be a boolean")
+            validated[source_name] = value
+            continue
+        if source_name in {"model", "basemap", "interpolation", "components"}:
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{source_name} must be a nonempty string")
+            validated[source_name] = value.strip()
+            continue
+        if definition.name == "poisson_confusion":
+            validated[source_name] = _validate_poisson_option(source_name, value)
+            continue
+        loader_name = source_to_loader[source_name]
+        annotation = annotations.get(
+            loader_name, signature.parameters[loader_name].annotation
+        )
+        if annotation in {inspect.Parameter.empty, Any} or isinstance(annotation, str):
+            raise ValueError(
+                f"loader {kind!r} option {source_name!r} lacks a usable type annotation"
+            )
+        try:
+            validated[source_name] = TypeAdapter(annotation).validate_python(value)
+        except ValidationError as exc:
+            raise ValueError(
+                f"option {source_name!r} has an invalid value: {exc.errors()[0]['msg']}"
+            ) from exc
+    return _freeze_dict(validated)
+
+
 class RealisticForegroundSourceConfig(SkySourceConfig):
-    """YAML wrapper for :func:`radiosim.core.sky.realistic_foreground_sky`."""
-
     kind: Literal["realistic_foreground"] = "realistic_foreground"
-    diffuse: str = Field(
-        "haslam",
-        description="Registered pre-subtracted diffuse loader name (e.g. haslam).",
+    diffuse: str = "haslam"
+    diffuse_kwargs: SerializableMapping[Any] | None = None
+    bright_catalogs: str = "gleam"
+    bright_catalog_kwargs: SerializableMapping[Any] | None = None
+    bright_catalog_flux_min_jy: NonNegativeFiniteFloat = (
+        DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY
     )
-    diffuse_kwargs: dict[str, Any] | None = Field(
-        None, description="Extra kwargs forwarded to the diffuse loader."
-    )
-    bright_catalogs: str = Field(
-        "gleam",
-        description="Registered bright-catalog loader name.",
-    )
-    bright_catalog_kwargs: dict[str, Any] | None = Field(
-        None,
-        description="Extra kwargs forwarded to the bright-catalog loader.",
-    )
-    bright_catalog_flux_min_jy: float = Field(
-        DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY,
-        ge=0.0,
-        description="Flux floor (Jy) for the bright catalog(s).",
-    )
-    confusion_flux_range_jy: tuple[float, float] | None = Field(
-        None,
-        description=(
-            "Optional Poisson confusion band (S_min, S_max) in Jy.  Only "
-            "enable with a strictly smooth diffuse (source_subtraction=ALL) "
-            "to avoid double-counting the diffuse's intrinsic sub-threshold "
-            "population."
-        ),
-    )
-    confusion_dn_ds: str = Field(
-        "franzen2019_gleam_154mhz",
-        description="Validated dN/dS preset identifier.",
-    )
-    confusion_spectral_index_dist: tuple[float, float] = Field(
-        DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
-        description="(mean, σ) for Poisson spectral-index draw.",
-    )
-    nside: int = Field(128, ge=1, description="Output HEALPix NSIDE.")
-    include_cmb: bool = Field(
-        False,
-        description="If True, request a diffuse model that already includes the CMB.",
-    )
-    seed: int | None = Field(None, description="Random seed (for the Poisson layer).")
-    mixed_model_policy: Literal["error", "warn", "allow"] = Field(
-        "error",
-        description=(
-            "Forwarded to prepare_sky_model.  Leave at 'error' "
-            "since the recipe constructs disjoint layers by design."
-        ),
-    )
+    confusion_flux_range_jy: FinitePair | None = None
+    confusion_dn_ds: str = "franzen2019_gleam_154mhz"
+    confusion_spectral_index_dist: FinitePair = DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST
+    nside: int = 128
+    include_cmb: bool = False
+    seed: int | None = None
+    mixed_model_policy: Literal["error", "warn", "allow"] = "error"
 
+    @field_validator("nside")
+    @classmethod
+    def validate_nside(cls, value: int) -> int:
+        return _validate_nside(value)
+
+    @field_validator("diffuse_kwargs", "bright_catalog_kwargs")
+    @classmethod
+    def freeze_nested_options(
+        cls, value: Mapping[str, Any] | None
+    ) -> FrozenDict | None:
+        return None if value is None else _freeze_dict(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_nested_options(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            return data
+        copied: dict[str, Any] = dict(cast(Mapping[str, Any], data))
+        diffuse = cast(str, copied.get("diffuse", "haslam"))
+        if copied.get("diffuse_kwargs") is not None:
+            copied["diffuse_kwargs"] = _validate_registered_options(
+                diffuse,
+                copied["diffuse_kwargs"],
+                field_name="diffuse_kwargs",
+            )
+        bright_catalogs = cast(str, copied.get("bright_catalogs", "gleam"))
+        if copied.get("bright_catalog_kwargs") is not None:
+            copied["bright_catalog_kwargs"] = _validate_registered_options(
+                bright_catalogs,
+                copied["bright_catalog_kwargs"],
+                field_name="bright_catalog_kwargs",
+            )
+        return copied
+
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._common_kwargs(
-            context,
-            include_frequency_context=True,
-            include_memmap=True,
+            context, include_frequency_context=True, include_memmap=True
         )
         kwargs.update(
             {
@@ -766,48 +1167,48 @@ class RealisticForegroundSourceConfig(SkySourceConfig):
             }
         )
         if self.diffuse_kwargs is not None:
-            kwargs["diffuse_kwargs"] = self.diffuse_kwargs
+            kwargs["diffuse_kwargs"] = dict(self.diffuse_kwargs)
         if self.bright_catalog_kwargs is not None:
-            kwargs["bright_catalog_kwargs"] = self.bright_catalog_kwargs
+            kwargs["bright_catalog_kwargs"] = dict(self.bright_catalog_kwargs)
         return self.kind, kwargs
 
 
-class GleamSourceConfig(PointCatalogSourceConfig):
+class GleamSourceConfig(FullCatalogPointSourceConfig):
     kind: Literal["gleam"] = "gleam"
-    flux_limit: float = Field(1.0, ge=0.0, description="Minimum flux limit")
-    catalog: str = Field("gleam_egc", description="Catalog identifier")
+    flux_limit: NonNegativeFiniteFloat = 1.0
+    catalog: str = "gleam_egc"
 
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._build_catalog_kwargs(context)
         kwargs["catalog"] = self.catalog
         return self.kind, kwargs
 
 
-class MalsSourceConfig(PointCatalogSourceConfig):
+class MalsSourceConfig(FullCatalogPointSourceConfig):
     kind: Literal["mals"] = "mals"
-    flux_limit: float = Field(1.0, ge=0.0, description="Minimum flux limit")
-    release: str = Field("dr2", description="Release identifier")
+    flux_limit: NonNegativeFiniteFloat = 1.0
+    release: str = "dr2"
 
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._build_catalog_kwargs(context)
         kwargs["release"] = self.release
         return self.kind, kwargs
 
 
-class LotssSourceConfig(PointCatalogSourceConfig):
+class LotssSourceConfig(FullCatalogPointSourceConfig):
     kind: Literal["lotss"] = "lotss"
-    flux_limit: float = Field(0.001, ge=0.0, description="Minimum flux limit")
-    release: str = Field("dr2", description="Release identifier")
+    flux_limit: NonNegativeFiniteFloat = 0.001
+    release: str = "dr2"
 
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         kwargs = self._build_catalog_kwargs(context)
         kwargs["release"] = self.release
@@ -816,101 +1217,108 @@ class LotssSourceConfig(PointCatalogSourceConfig):
 
 class RacsSourceConfig(PointCatalogSourceConfig):
     kind: Literal["racs"] = "racs"
-    band: str = Field("low", description="Catalog band selector")
-    flux_limit: float = Field(1.0, ge=0.0, description="Minimum flux limit")
-    max_rows: int = Field(1_000_000, ge=1, description="Maximum rows for TAP query")
+    band: str = "low"
+    flux_limit: NonNegativeFiniteFloat = 1.0
+    max_rows: Annotated[int, Field(ge=1)] = 1_000_000
 
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
-        kwargs = self._common_kwargs(context)
-        if self.flux_limit is not None:
-            kwargs["flux_limit"] = self._scaled_flux(self.flux_limit, context)
-        kwargs["band"] = self.band
-        kwargs["max_rows"] = self.max_rows
+        kwargs = self._build_catalog_kwargs(context)
+        kwargs.update({"band": self.band, "max_rows": self.max_rows})
         return self.kind, kwargs
 
 
 class CustomRegisteredSourceConfig(SkySourceConfig):
-    """Fallback for ad-hoc registered loaders used outside the built-in union."""
+    """Strict option envelope for a non-built-in registered loader."""
 
-    model_config = {"extra": "allow"}
+    options: SerializableMapping[Any] = Field(default_factory=FrozenDict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def validate_options(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            return data
+        copied: dict[str, Any] = dict(cast(Mapping[str, Any], data))
+        kind = copied.get("kind")
+        if isinstance(kind, str):
+            copied["options"] = _validate_registered_options(
+                kind, copied.get("options")
+            )
+        return copied
+
+    @field_validator("options")
+    @classmethod
+    def freeze_options(cls, value: Mapping[str, Any]) -> FrozenDict:
+        return _freeze_dict(value)
+
+    @override
     def _build_loader_request(
-        self,
-        context: SkyLoaderRequestContext,
+        self, context: SkyLoaderRequestContext
     ) -> tuple[str, dict[str, Any]]:
         from radiosim.core.sky.registry import loader_registry
 
         definition = loader_registry.definition(self.kind)
         kwargs = self._common_kwargs(
-            context,
-            include_frequency_context=definition.supports_healpix_map,
+            context, include_frequency_context=definition.supports_healpix_map
         )
-
-        extra_values = dict(getattr(self, "__pydantic_extra__", {}) or {})
         flux_fields = {"flux_limit", "flux_min", "flux_max"}
         for loader_arg, source_field in definition.config_fields.items():
-            if source_field in extra_values:
-                value = extra_values[source_field]
-            elif hasattr(self, source_field):
-                value = getattr(self, source_field)
-            else:
+            if source_field not in self.options:
                 continue
-            if value is None:
-                continue
+            value = self.options[source_field]
             if source_field in flux_fields:
                 value = self._scaled_flux(value, context)
             kwargs[loader_arg] = value
-
         return self.kind, kwargs
 
 
 _SKY_SOURCE_CONFIG_UNION = Annotated[
-    (
-        GleamSourceConfig
-        | MalsSourceConfig
-        | LotssSourceConfig
-        | RacsSourceConfig
-        | DiffuseSkySourceConfig
-        | Pysm3SourceConfig
-        | PyradioskyFileSourceConfig
-        | Skyh5MultifileSourceConfig
-        | BbsSourceConfig
-        | FitsImageSourceConfig
-        | TestSourcesConfig
-        | RealisticForegroundSourceConfig
-    ),
+    GleamSourceConfig
+    | MalsSourceConfig
+    | LotssSourceConfig
+    | RacsSourceConfig
+    | DiffuseSkySourceConfig
+    | Pysm3SourceConfig
+    | PyradioskyFileSourceConfig
+    | Skyh5MultifileSourceConfig
+    | BbsSourceConfig
+    | FitsImageSourceConfig
+    | TestSourcesConfig
+    | RealisticForegroundSourceConfig,
     Field(discriminator="kind"),
 ]
-
-_SKY_SOURCE_CONFIG_ADAPTER = TypeAdapter(_SKY_SOURCE_CONFIG_UNION)
-_BUILTIN_SKY_SOURCE_KINDS = {
-    "gleam",
-    "mals",
-    "lotss",
-    "racs",
-    "diffuse_sky",
-    "pysm3",
-    "pyradiosky_file",
-    "skyh5_multifile",
-    "bbs",
-    "fits_image",
-    "test_sources",
-    "realistic_foreground",
-}
+_SKY_SOURCE_CONFIG_ADAPTER: TypeAdapter[Any] = TypeAdapter(_SKY_SOURCE_CONFIG_UNION)
+_BUILTIN_SKY_SOURCE_KINDS = frozenset(
+    {
+        "gleam",
+        "mals",
+        "lotss",
+        "racs",
+        "diffuse_sky",
+        "pysm3",
+        "pyradiosky_file",
+        "skyh5_multifile",
+        "bbs",
+        "fits_image",
+        "test_sources",
+        "realistic_foreground",
+    }
+)
 
 
 def parse_sky_source_config(data: Any) -> SkySourceConfig:
-    """Parse one tagged source spec in the new explicit ``kind=...`` form."""
-    if not isinstance(data, dict):
-        raise TypeError(
-            "sky_model.sources entries must be objects with a 'kind' field."
+    """Parse one strict tagged source specification."""
+    if not isinstance(data, Mapping):
+        raise TypeError("sky_model.sources entries must be objects with a 'kind' field")
+    copied: dict[str, Any] = dict(cast(Mapping[str, Any], data))
+    if copied.get("kind") in _BUILTIN_SKY_SOURCE_KINDS:
+        return cast(
+            SkySourceConfig,
+            _SKY_SOURCE_CONFIG_ADAPTER.validate_python(copied),
         )
-    if data.get("kind") in _BUILTIN_SKY_SOURCE_KINDS:
-        return _SKY_SOURCE_CONFIG_ADAPTER.validate_python(data)
-    return CustomRegisteredSourceConfig.model_validate(data)
+    return CustomRegisteredSourceConfig.model_validate(copied)
 
 
 _LEGACY_SKY_MODEL_SECTIONS = frozenset(
@@ -938,52 +1346,23 @@ _LEGACY_SKY_MODEL_SECTIONS = frozenset(
 )
 
 
-class SkyModelConfig(BaseModel):
-    """Sky model configuration."""
+class SkyModelConfig(StrictFrozenModel):
+    """Strict immutable sky-model input."""
 
-    model_config = {"extra": "forbid"}
-
-    sources: list[SkySourceConfig] = Field(
-        default_factory=list,
-        description="List of sky-model source specs to load and combine",
-    )
-    flux_unit: Literal["Jy", "mJy", "uJy"] = Field(
-        "Jy",
-        description="Unit for all source-spec flux values (flux_min, flux_max, flux_limit)",
-    )
-    brightness_conversion: Literal["planck", "rayleigh-jeans"] = Field(
-        "planck",
-        description=(
-            "Brightness temperature conversion method for all loaders. "
-            "'planck' (exact Planck law) or 'rayleigh-jeans' (RJ approximation)."
-        ),
-    )
-    mixed_model_policy: Literal["error", "warn", "allow"] = Field(
-        "error",
-        description=(
-            "How to handle combinations that mix point catalogs with diffuse "
-            "HEALPix models: error, warn, or allow."
-        ),
-    )
-    assume_disjoint: bool = Field(
-        False,
-        description=(
-            "Forwarded to prepare_sky_model. When True, skip point-vs-diffuse "
-            "double-counting rules while still enforcing monopole consistency. "
-            "Narrower than mixed_model_policy='allow'."
-        ),
-    )
-    region: SkyRegionEntryConfig | list[SkyRegionEntryConfig] | None = Field(
-        None,
-        description="Sky region filter(s). Single region or list for union of regions.",
-    )
+    sources: tuple[SerializeAsAny[SkySourceConfig], ...] = Field(min_length=1)
+    flux_unit: Literal["Jy", "mJy", "uJy"] = "Jy"
+    brightness_conversion: Literal["planck", "rayleigh-jeans"] = "planck"
+    mixed_model_policy: Literal["error", "warn", "allow"] = "error"
+    assume_disjoint: bool = False
+    region: SkyRegionInput = None
 
     @model_validator(mode="before")
     @classmethod
     def reject_legacy_sections(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
+        if not isinstance(data, Mapping):
             return data
-        legacy_sections = sorted(set(data) & _LEGACY_SKY_MODEL_SECTIONS)
+        mapping = cast(Mapping[str, Any], data)
+        legacy_sections = sorted(set(mapping) & _LEGACY_SKY_MODEL_SECTIONS)
         if legacy_sections:
             sections = ", ".join(legacy_sections)
             raise ValueError(
@@ -991,261 +1370,194 @@ class SkyModelConfig(BaseModel):
                 f"Legacy nested section(s) are no longer accepted: {sections}. "
                 "Rewrite each enabled section as an entry under sky_model.sources."
             )
-        return data
+        return mapping
 
     @field_validator("sources", mode="before")
     @classmethod
     def parse_source_specs(cls, sources: Any) -> Any:
-        if sources is None:
-            return []
-        if not isinstance(sources, list):
+        if isinstance(sources, (str, bytes)) or not isinstance(sources, (list, tuple)):
             return sources
-        return [
-            source
-            if isinstance(source, SkySourceConfig)
-            else parse_sky_source_config(source)
-            for source in sources
-        ]
+        parsed: list[SkySourceConfig] = []
+        errors: list[Any] = []
+        for index, source in enumerate(cast(Sequence[Any], sources)):
+            if isinstance(source, SkySourceConfig):
+                parsed.append(source)
+                continue
+            try:
+                parsed.append(parse_sky_source_config(source))
+            except ValidationError as error:
+                for item in error.errors(include_url=False):
+                    item["loc"] = (index, *item.get("loc", ()))
+                    errors.append(item)
+        if errors:
+            raise ValidationError.from_exception_data("SkyModelConfig", errors)
+        return tuple(parsed)
+
+    @field_validator("region", mode="before")
+    @classmethod
+    def copy_region(cls, value: Any) -> Any:
+        return _copy_region_sequence(value)
 
 
-class ObsTimeConfig(BaseModel):
-    """Observation time configuration."""
+class ObsTimeConfig(StrictFrozenModel):
+    """Required observation start, duration, and cadence."""
 
-    start_time: str | None = Field(None, description="Start time (ISO format)")
-    duration_seconds: float | None = Field(
-        None, description="Total observation duration in seconds"
-    )
-    time_step_seconds: float | None = Field(
-        None, description="Time step between samples in seconds"
-    )
+    start_time: str
+    duration_seconds: PositiveFiniteFloat
+    time_step_seconds: PositiveFiniteFloat
+
+    @field_validator("start_time")
+    @classmethod
+    def validate_start_time(cls, value: str) -> str:
+        return _nonblank(value, field_name="start_time")
 
 
-class ObsFrequencyConfig(BaseModel):
-    """Observation frequency configuration."""
+class FrequencyGridConfig(StrictFrozenModel):
+    """Uniform frequency grid input."""
 
-    starting_frequency: float | None = Field(None, description="Starting frequency")
-    frequency_interval: float | None = Field(None, description="Frequency interval")
-    frequency_bandwidth: float | None = Field(None, description="Frequency bandwidth")
-    frequency_unit: Literal["Hz", "kHz", "MHz", "GHz"] = Field(
-        "MHz", description="Frequency unit"
-    )
+    mode: Literal["grid"] = "grid"
+    starting_frequency: PositiveFiniteFloat
+    frequency_interval: PositiveFiniteFloat
+    frequency_bandwidth: PositiveFiniteFloat
+    frequency_unit: Literal["Hz", "kHz", "MHz", "GHz"] = "MHz"
+
+    @model_validator(mode="after")
+    def validate_integral_interval_count(self) -> FrequencyGridConfig:
+        ratio = self.frequency_bandwidth / self.frequency_interval
+        nearest = round(ratio)
+        if not math.isclose(ratio, nearest, rel_tol=1e-12, abs_tol=0.0):
+            raise ValueError(
+                "frequency_bandwidth/frequency_interval must be an integer "
+                "within relative tolerance 1e-12"
+            )
+        return self
 
     @property
     def n_channels(self) -> int:
-        """Calculate number of frequency channels."""
-        if self.frequency_bandwidth is None or self.frequency_interval is None:
-            return 0
-        return max(1, int(self.frequency_bandwidth / self.frequency_interval) + 1)
+        return round(self.frequency_bandwidth / self.frequency_interval) + 1
 
 
-class OutputConfig(BaseModel):
-    """Output configuration."""
+class ExplicitFrequencyConfig(StrictFrozenModel):
+    """Immutable explicit channel frequencies, always expressed in Hz."""
 
-    simulation_data_dir: str = Field("", description="Output directory")
-    simulation_subdir: str = Field("", description="Output subdirectory name")
-    output_file_name: str = Field("visibilities", description="Output filename")
-    output_file_format: Literal["HDF5", "JSON", "MS", "UVFITS"] | None = Field(
-        None, description="Output format (default: HDF5)"
-    )
-    save_simulation_data: bool = Field(False, description="Save simulation data")
-    overwrite_output: bool = Field(False, description="Overwrite existing output files")
-    skip_overwrite_confirmation: bool = Field(
-        False,
-        description="Skip the interactive confirmation prompt when overwrite_output is true",
-    )
-    prompt_for_output_suffix: bool = Field(
-        False,
-        description="When output folder already exists, ask user for a suffix to append and create a fresh folder instead of overwriting",
-    )
-    plot_results: bool = Field(False, description="Generate visualization plots")
-    open_plots_in_browser: bool = Field(
-        False, description="Open plots in browser (set False to save only)"
-    )
-    plotting_backend: str = Field(
-        "bokeh", description="Plotting backend (bokeh/matplotlib)"
-    )
-    save_log_data: bool = Field(False, description="Save log data")
-    angle_unit: Literal["degrees", "radians", ""] = Field(
-        "", description="Angle display unit"
-    )
-    skymodel_frequency: float | None = Field(
-        None, description="Sky model plot frequency"
-    )
+    mode: Literal["explicit"] = "explicit"
+    channel_frequencies_hz: tuple[float, ...]
 
-
-class SimulatorsConfig(BaseModel):
-    """Simulator configuration."""
-
-    use_different_simulator_for_cross_check: bool = Field(
-        False, description="Use alternative simulator"
-    )
-    name: str = Field("", description="Simulator name")
-
-
-class VisibilityConfig(BaseModel):
-    """Visibility calculation configuration.
-
-    Controls how visibilities are computed from the sky model.
-
-    Attributes
-    ----------
-    calculation_type : str
-        The algorithm used for visibility calculation:
-        - "direct_sum": Direct summation over sources/pixels (RIME-based)
-        - "spherical_harmonic": m-mode formalism (NOT YET IMPLEMENTED)
-
-    sky_representation : str
-        How the sky model is represented during calculation:
-        - "point_sources": Discrete sources with (RA, Dec, flux)
-          Best for: catalogs (GLEAM, MALS), sparse bright sources
-        - "healpix_map": HEALPix brightness temperature map
-          Best for: diffuse emission (GSM, LFSM, Haslam)
-          More efficient for large-scale structure, works in T_b units
-
-    Notes
-    -----
-    Both "point_sources" and "healpix_map" use direct summation:
-        V = Σ S_i × exp(-2πi b·ŝ/λ)  (point sources)
-        V = Σ T_p × Ω_p × exp(-2πi b·ŝ/λ)  (healpix)
-
-    The difference is in sky representation, not the algorithm.
-    True spherical harmonic visibility (m-mode) would use:
-        V_m = Σ_lm B_lm × a_lm
-    This is planned for future implementation.
-    """
-
-    calculation_type: Literal["direct_sum", "spherical_harmonic"] = Field(
-        "direct_sum",
-        description="Visibility calculation algorithm: 'direct_sum' (implemented) or 'spherical_harmonic' (future)",
-    )
-    sky_representation: Literal["point_sources", "healpix_map"] = Field(
-        DEFAULT_SKY_REPRESENTATION,
-        description=(
-            "Sky model representation: 'point_sources' or 'healpix_map'. "
-            "Defaults to 'point_sources'."
-        ),
-    )
-    allow_lossy_point_materialization: bool = Field(
-        False,
-        description=(
-            "Allow lossy HEALPix-to-point conversion when point_sources mode "
-            "is requested."
-        ),
-    )
+    @field_validator("channel_frequencies_hz", mode="before")
+    @classmethod
+    def copy_and_validate_shape(cls, value: Any) -> tuple[float, ...]:
+        if isinstance(value, (str, bytes, Mapping)):
+            raise ValueError(
+                "channel_frequencies_hz must be a non-string one-dimensional sequence"
+            )
+        if isinstance(value, np.ndarray):
+            if value.ndim != 1:
+                raise ValueError("channel_frequencies_hz must be one-dimensional")
+            items = value.tolist()
+        else:
+            try:
+                items = list(value)
+            except TypeError as exc:
+                raise ValueError(
+                    "channel_frequencies_hz must be a one-dimensional sequence"
+                ) from exc
+        if not items:
+            raise ValueError("channel_frequencies_hz must be nonempty")
+        copied: list[float] = []
+        for item in items:
+            if isinstance(item, (bool, np.bool_)):
+                raise ValueError("channel frequencies cannot be boolean")
+            if isinstance(item, (str, bytes, Mapping, Sequence)):
+                raise ValueError("channel_frequencies_hz must be one-dimensional")
+            try:
+                frequency = float(item)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("channel frequencies must be numeric") from exc
+            if not math.isfinite(frequency) or frequency <= 0.0:
+                raise ValueError("channel frequencies must be finite and positive")
+            copied.append(frequency)
+        if any(right <= left for left, right in zip(copied, copied[1:], strict=False)):
+            raise ValueError("channel frequencies must be strictly increasing")
+        return tuple(copied)
 
 
-class CoordinatePrecisionConfig(BaseModel):
-    """Precision settings for coordinate calculations."""
-
-    antenna_positions: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="Antenna position precision"
-    )
-    source_positions: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="Source coordinate precision"
-    )
-    direction_cosines: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="Direction cosine (l,m,n) precision"
-    )
-    uvw: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="Baseline UVW coordinate precision"
-    )
+ObsFrequencyConfig = Annotated[
+    FrequencyGridConfig | ExplicitFrequencyConfig,
+    Field(discriminator="mode"),
+]
 
 
-class JonesPrecisionConfig(BaseModel):
-    """Precision settings for Jones matrix calculations."""
+class VisibilityConfig(StrictFrozenModel):
+    """Visibility calculation input."""
 
-    geometric_phase: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="K term (geometric delay) - CRITICAL"
+    calculation_type: Literal["direct_sum", "spherical_harmonic"] = "direct_sum"
+    sky_representation: Literal["point_sources", "healpix_map"] = (
+        DEFAULT_SKY_REPRESENTATION
     )
-    beam: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="E term (primary beam)"
-    )
-    ionosphere: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="Z term (ionosphere)"
-    )
-    troposphere: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="T term (troposphere)"
-    )
-    parallactic: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="P term (parallactic angle)"
-    )
-    gain: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="G term (antenna gains)"
-    )
-    bandpass: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="B term (bandpass)"
-    )
-    polarization_leakage: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="D term (polarization leakage)"
-    )
+    allow_lossy_point_materialization: bool = False
 
 
-class SkyModelPrecisionConfig(BaseModel):
-    """Precision settings for sky model data storage."""
-
-    source_positions: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="RA/Dec precision — phase-critical"
-    )
-    flux: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="Flux density and Stokes parameter precision"
-    )
-    spectral_index: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="Power-law spectral index precision"
-    )
-    healpix_maps: Literal["float32", "float64", "float128"] = Field(
-        "float32", description="HEALPix brightness temperature map precision"
-    )
+class CoordinatePrecisionInput(StrictFrozenModel):
+    antenna_positions: PrecisionLevel = "float64"
+    source_positions: PrecisionLevel = "float64"
+    direction_cosines: PrecisionLevel = "float64"
+    uvw: PrecisionLevel = "float64"
 
 
-class PrecisionConfigSchema(BaseModel):
-    """Precision configuration for numerical computations.
+class JonesPrecisionInput(StrictFrozenModel):
+    geometric_phase: PrecisionLevel = "float64"
+    beam: PrecisionLevel = "float64"
+    ionosphere: PrecisionLevel = "float64"
+    troposphere: PrecisionLevel = "float64"
+    parallactic: PrecisionLevel = "float64"
+    gain: PrecisionLevel = "float64"
+    bandpass: PrecisionLevel = "float64"
+    polarization_leakage: PrecisionLevel = "float64"
 
-    Controls the precision of different computation stages. Using lower
-    precision (float32) can improve performance and reduce memory, while
-    higher precision (float128) improves accuracy for critical paths.
 
-    Presets can be specified using the `preset` field:
-    - "standard": float64 everywhere (default)
-    - "fast": float32 where safe, float64 for critical paths
-    - "precise": float128 for critical paths, float64 elsewhere
-    - "ultra": float128 everywhere (slow, NumPy only)
+class SkyModelPrecisionInput(StrictFrozenModel):
+    source_positions: PrecisionLevel = "float64"
+    flux: PrecisionLevel = "float64"
+    spectral_index: PrecisionLevel = "float64"
+    healpix_maps: PrecisionLevel = "float32"
 
-    Or configure each component individually for granular control.
-    """
 
-    preset: Literal["standard", "fast", "precise", "ultra"] | None = Field(
-        None, description="Use a precision preset (overrides other settings)"
+class PrecisionInput(StrictFrozenModel):
+    """Preset or complete custom precision input."""
+
+    preset: Literal["standard", "fast", "precise", "ultra"] | None = None
+    default: PrecisionLevel = "float64"
+    coordinates: CoordinatePrecisionInput = Field(
+        default_factory=CoordinatePrecisionInput
     )
-    default: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="Default precision level"
-    )
-    coordinates: CoordinatePrecisionConfig = Field(
-        default_factory=CoordinatePrecisionConfig,
-        description="Coordinate precision settings",
-    )
-    jones: JonesPrecisionConfig = Field(
-        default_factory=JonesPrecisionConfig,
-        description="Jones matrix precision settings",
-    )
-    sky_model: SkyModelPrecisionConfig = Field(
-        default_factory=SkyModelPrecisionConfig,
-        description="Sky model data precision settings",
-    )
-    accumulation: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="Visibility accumulation precision"
-    )
-    output: Literal["float32", "float64", "float128"] = Field(
-        "float64", description="Output visibility precision"
-    )
+    jones: JonesPrecisionInput = Field(default_factory=JonesPrecisionInput)
+    sky_model: SkyModelPrecisionInput = Field(default_factory=SkyModelPrecisionInput)
+    accumulation: PrecisionLevel = "float64"
+    output: PrecisionLevel = "float64"
+
+    @property
+    def has_preset_custom_contradiction(self) -> bool:
+        return self.preset is not None and bool(self.model_fields_set - {"preset"})
+
+    def float128_paths(self) -> tuple[str, ...]:
+        paths: list[str] = []
+        if self.preset in {"precise", "ultra"}:
+            paths.append(f"preset.{self.preset}")
+        for field in ("default", "accumulation", "output"):
+            if getattr(self, field) == "float128":
+                paths.append(field)
+        for group, nested in (
+            ("coordinates", self.coordinates),
+            ("jones", self.jones),
+            ("sky_model", self.sky_model),
+        ):
+            for field, value in nested.model_dump().items():
+                if value == "float128":
+                    paths.append(f"{group}.{field}")
+        return tuple(paths)
 
     def to_precision_config(self):
-        """Convert to radiosim.core.precision.PrecisionConfig.
-
-        Returns
-        -------
-        PrecisionConfig
-            The precision configuration object.
-        """
+        """Convert a non-contradictory input into frozen runtime precision."""
         from radiosim.core.precision import (
             CoordinatePrecision,
             JonesPrecision,
@@ -1253,545 +1565,973 @@ class PrecisionConfigSchema(BaseModel):
             SkyModelPrecision,
         )
 
-        # If preset is specified, use it
-        if self.preset:
-            presets = {
+        if self.has_preset_custom_contradiction:
+            raise ValueError(
+                "precision preset and custom leaves are mutually exclusive"
+            )
+        if self.preset is not None:
+            return {
                 "standard": PrecisionConfig.standard,
                 "fast": PrecisionConfig.fast,
                 "precise": PrecisionConfig.precise,
                 "ultra": PrecisionConfig.ultra,
-            }
-            return presets[self.preset]()
-
-        # Otherwise build from individual settings
+            }[self.preset]()
         return PrecisionConfig(
             default=self.default,
-            coordinates=CoordinatePrecision(
-                antenna_positions=self.coordinates.antenna_positions,
-                source_positions=self.coordinates.source_positions,
-                direction_cosines=self.coordinates.direction_cosines,
-                uvw=self.coordinates.uvw,
-            ),
-            jones=JonesPrecision(
-                geometric_phase=self.jones.geometric_phase,
-                beam=self.jones.beam,
-                ionosphere=self.jones.ionosphere,
-                troposphere=self.jones.troposphere,
-                parallactic=self.jones.parallactic,
-                gain=self.jones.gain,
-                bandpass=self.jones.bandpass,
-                polarization_leakage=self.jones.polarization_leakage,
-            ),
-            sky_model=SkyModelPrecision(
-                source_positions=self.sky_model.source_positions,
-                flux=self.sky_model.flux,
-                spectral_index=self.sky_model.spectral_index,
-                healpix_maps=self.sky_model.healpix_maps,
-            ),
+            coordinates=CoordinatePrecision(**self.coordinates.model_dump()),
+            jones=JonesPrecision(**self.jones.model_dump()),
+            sky_model=SkyModelPrecision(**self.sky_model.model_dump()),
             accumulation=self.accumulation,
             output=self.output,
         )
 
 
-class ComputeConfig(BaseModel):
-    """Compute backend configuration."""
+class ExecutionConfig(StrictFrozenModel):
+    """Declared execution strategy; no backend construction occurs here."""
 
-    backend: str = Field(
-        "numpy",
-        description="Computation backend: 'auto', 'numpy', 'numba', 'jax'",
+    backend: Literal["auto", "numpy", "jax", "numba"] = "numpy"
+    precision: PrecisionInput = Field(
+        default_factory=lambda: PrecisionInput(preset="standard")
     )
-    offline: bool = Field(
-        False,
-        description=(
-            "Force offline mode. When True, all network connectivity checks "
-            "are skipped and sky models requiring internet will raise errors "
-            "or be skipped."
-        ),
-    )
+    simulator: Literal["rime"] = "rime"
+    offline: bool = False
+
+    @field_serializer("precision")
+    def serialize_precision(self, value: PrecisionInput, info: Any) -> dict[str, Any]:
+        if value.preset is not None and not value.has_preset_custom_contradiction:
+            return {"preset": value.preset}
+        return value.model_dump(mode=info.mode)
 
 
-class RadioSimConfig(BaseModel):
-    """Main RadioSim configuration with validation.
+class CliWorkflowConfig(StrictFrozenModel):
+    """CLI-only workflow policy kept out of scientific runtime state."""
 
-    This is the top-level configuration model that contains all
-    configuration sections for running a visibility simulation.
+    output_dir: Path = Path("output")
+    run_subdir: str | None = None
+    result_filename: str = "visibilities"
+    result_format: Literal["hdf5", "json", "ms", "uvfits"] = "hdf5"
+    save_results: bool = False
+    overwrite: bool = False
+    skip_overwrite_confirmation: bool = False
+    prompt_for_output_suffix: bool = False
+    plot_results: bool = False
+    open_plots_in_browser: bool = False
+    plotting_backend: Literal["bokeh", "matplotlib"] = "bokeh"
+    save_log: bool = False
+    angle_unit: Literal["degrees", "radians", ""] = ""
+    sky_model_frequency_hz: PositiveFiniteFloat | None = None
 
-    Examples:
-        >>> config = RadioSimConfig.from_yaml("config.yaml")
-        >>> print(config.antenna_layout.all_antenna_diameter)
-        14.0
-    """
+    @field_validator("run_subdir")
+    @classmethod
+    def validate_run_subdir(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = _nonblank(value, field_name="run_subdir")
+        if value in {".", ".."} or "/" in value or "\\" in value:
+            raise ValueError("run_subdir must be one safe path component")
+        if Path(value).is_absolute():
+            raise ValueError("run_subdir must be one safe path component")
+        return value
+
+    @field_validator("result_filename")
+    @classmethod
+    def validate_result_filename(cls, value: str) -> str:
+        value = _nonblank(value, field_name="result_filename")
+        if value in {".", ".."} or "/" in value or "\\" in value or Path(value).suffix:
+            raise ValueError("result_filename must be a safe filename stem")
+        return value
+
+
+class RadioSimConfig(StrictFrozenModel):
+    """Complete strict and deeply immutable user-authored document."""
 
     telescope: TelescopeConfig = Field(default_factory=TelescopeConfig)
-    antenna_layout: AntennaLayoutConfig = Field(default_factory=AntennaLayoutConfig)
+    antenna_layout: AntennaLayoutConfig
     feeds: FeedsConfig = Field(default_factory=FeedsConfig)
     beams: BeamsConfig = Field(default_factory=BeamsConfig)
     baseline_selection: BaselineSelectionConfig = Field(
         default_factory=BaselineSelectionConfig
     )
-    location: LocationConfig = Field(default_factory=LocationConfig)
-    sky_model: SkyModelConfig = Field(default_factory=SkyModelConfig)
-    obs_time: ObsTimeConfig = Field(default_factory=ObsTimeConfig)
-    obs_frequency: ObsFrequencyConfig = Field(default_factory=ObsFrequencyConfig)
-    output: OutputConfig = Field(default_factory=OutputConfig)
-    simulators: SimulatorsConfig = Field(default_factory=SimulatorsConfig)
-    visibility: VisibilityConfig = Field(
-        default_factory=VisibilityConfig, description="Visibility calculation settings"
-    )
-    compute: ComputeConfig = Field(default_factory=ComputeConfig)
-    precision: PrecisionConfigSchema | None = Field(
-        None, description="Precision configuration for numerical computations"
-    )
+    location: LocationConfig
+    sky_model: SkyModelConfig
+    obs_time: ObsTimeConfig
+    obs_frequency: ObsFrequencyConfig
+    visibility: VisibilityConfig = Field(default_factory=VisibilityConfig)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    workflow: CliWorkflowConfig = Field(default_factory=CliWorkflowConfig)
 
-    model_config = {
-        "extra": "allow",  # Allow extra fields for forward compatibility
-        "validate_assignment": True,  # Validate on attribute assignment
+
+def _region_semantic_issues(
+    region: SkyRegionInput,
+    path: str,
+) -> list[ConfigIssue]:
+    if region is None:
+        return []
+    entries = region if isinstance(region, tuple) else (region,)
+    issues: list[ConfigIssue] = []
+    for index, entry in enumerate(entries):
+        entry_path = f"{path}[{index}]" if isinstance(region, tuple) else path
+        if entry.shape == "cone" and entry.radius_deg is None:
+            issues.append(
+                ConfigIssue(
+                    f"{entry_path}.radius_deg",
+                    "region_missing_radius",
+                    "radius_deg is required when shape='cone'",
+                )
+            )
+        if entry.shape == "box":
+            for field in ("width_deg", "height_deg"):
+                if getattr(entry, field) is None:
+                    issues.append(
+                        ConfigIssue(
+                            f"{entry_path}.{field}",
+                            "region_missing_dimension",
+                            f"{field} is required when shape='box'",
+                        )
+                    )
+    return issues
+
+
+def _provenance_semantic_issues(
+    provenance: SkyProvenanceInput | None,
+    path: str,
+) -> list[ConfigIssue]:
+    if provenance is None:
+        return []
+    issues: list[ConfigIssue] = []
+    completeness = provenance.flux_completeness_jy
+    if completeness is not None:
+        if completeness[0] < 0.0 or completeness[0] > completeness[1]:
+            issues.append(
+                ConfigIssue(
+                    f"{path}.flux_completeness_jy",
+                    "invalid_flux_completeness_range",
+                    "must satisfy 0 <= minimum <= maximum",
+                )
+            )
+        if provenance.flux_completeness_freq_hz is None:
+            issues.append(
+                ConfigIssue(
+                    f"{path}.flux_completeness_freq_hz",
+                    "missing_flux_completeness_frequency",
+                    "is required when flux_completeness_jy is present",
+                )
+            )
+    angular = provenance.angular_resolution_rad
+    if angular is not None and not (0.0 <= angular[0] <= angular[1] <= math.pi):
+        issues.append(
+            ConfigIssue(
+                f"{path}.angular_resolution_rad",
+                "invalid_angular_resolution_range",
+                "must satisfy 0 <= minimum <= maximum <= pi",
+            )
+        )
+    threshold = provenance.source_subtraction_threshold_jy
+    if (
+        provenance.source_subtraction == SourceSubtractionStatus.ABOVE_THRESHOLD
+        and threshold is None
+    ):
+        issues.append(
+            ConfigIssue(
+                f"{path}.source_subtraction_threshold_jy",
+                "missing_subtraction_threshold",
+                "is required for source_subtraction='above_threshold'",
+            )
+        )
+    if threshold is not None and provenance.source_subtraction_freq_hz is None:
+        issues.append(
+            ConfigIssue(
+                f"{path}.source_subtraction_freq_hz",
+                "missing_subtraction_frequency",
+                "is required when source_subtraction_threshold_jy is present",
+            )
+        )
+    if (
+        threshold is not None
+        and provenance.source_subtraction == SourceSubtractionStatus.NONE
+    ):
+        issues.append(
+            ConfigIssue(
+                f"{path}.source_subtraction",
+                "subtraction_threshold_contradiction",
+                "cannot be 'none' when a subtraction threshold is present",
+            )
+        )
+    footprint = provenance.coverage_footprint
+    if footprint is not None:
+        fraction = len(footprint.hpx_inds) / (12 * footprint.nside**2)
+        implied = (
+            SkyCoverage.FULL_SKY
+            if math.isclose(fraction, 1.0)
+            else SkyCoverage.PARTIAL_SKY
+        )
+        if provenance.sky_coverage not in {SkyCoverage.UNKNOWN, implied}:
+            issues.append(
+                ConfigIssue(
+                    f"{path}.sky_coverage",
+                    "footprint_coverage_contradiction",
+                    f"coverage_footprint implies {implied.value!r}",
+                )
+            )
+        if provenance.coverage_fraction is not None and not math.isclose(
+            provenance.coverage_fraction, fraction
+        ):
+            issues.append(
+                ConfigIssue(
+                    f"{path}.coverage_fraction",
+                    "footprint_fraction_contradiction",
+                    "is inconsistent with coverage_footprint",
+                )
+            )
+    return issues
+
+
+def collect_semantic_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
+    """Collect every pure cross-field issue from a valid input model."""
+    issues: list[ConfigIssue] = []
+    if config.obs_time.time_step_seconds > config.obs_time.duration_seconds:
+        issues.append(
+            ConfigIssue(
+                "obs_time.time_step_seconds",
+                "cadence_exceeds_duration",
+                "must be <= obs_time.duration_seconds",
+            )
+        )
+    try:
+        from astropy.time import Time
+
+        _ = Time(config.obs_time.start_time)
+    except Exception:
+        issues.append(
+            ConfigIssue(
+                "obs_time.start_time",
+                "invalid_start_time",
+                "must be an Astropy-parseable ISO time",
+            )
+        )
+
+    beams = config.beams
+    expected_aperture_keys: set[str] = {
+        "circular": set(),
+        "rectangular": {"length_x", "length_y"},
+        "elliptical": {"diameter_x", "diameter_y"},
+    }[beams.aperture_shape]
+    missing_aperture = sorted(expected_aperture_keys - set(beams.aperture_params))
+    unexpected_aperture = sorted(set(beams.aperture_params) - expected_aperture_keys)
+    for field in missing_aperture:
+        issues.append(
+            ConfigIssue(
+                f"beams.aperture_params.{field}",
+                "missing_aperture_parameter",
+                f"is required for aperture_shape={beams.aperture_shape!r}",
+            )
+        )
+    for field in unexpected_aperture:
+        issues.append(
+            ConfigIssue(
+                f"beams.aperture_params.{field}",
+                "inapplicable_aperture_parameter",
+                f"is not valid for aperture_shape={beams.aperture_shape!r}",
+            )
+        )
+    expected_feed_keys: set[str] = {
+        "none": set(),
+        "corrugated_horn": {"focal_ratio", "q"},
+        "open_waveguide": {"focal_ratio", "b_over_lambda"},
+        "dipole_ground_plane": {"focal_ratio", "height_wavelengths"},
+    }[beams.feed_model]
+    if beams.feed_model != "none" and "focal_ratio" not in beams.feed_params:
+        issues.append(
+            ConfigIssue(
+                "beams.feed_params.focal_ratio",
+                "missing_focal_ratio",
+                "is required when feed_model is not 'none'",
+            )
+        )
+    for field in sorted(set(beams.feed_params) - expected_feed_keys):
+        issues.append(
+            ConfigIssue(
+                f"beams.feed_params.{field}",
+                "inapplicable_feed_parameter",
+                f"is not valid for feed_model={beams.feed_model!r}",
+            )
+        )
+    for field, value in beams.feed_params.items():
+        if value <= 0.0:
+            issues.append(
+                ConfigIssue(
+                    f"beams.feed_params.{field}",
+                    "nonpositive_feed_parameter",
+                    "must be > 0",
+                )
+            )
+    if beams.reflector_type == "cassegrain" and beams.magnification <= 1.0:
+        issues.append(
+            ConfigIssue(
+                "beams.magnification",
+                "invalid_cassegrain_magnification",
+                "must be > 1 for reflector_type='cassegrain'",
+            )
+        )
+
+    precision = config.execution.precision
+    if precision.has_preset_custom_contradiction:
+        issues.append(
+            ConfigIssue(
+                "execution.precision",
+                "preset_custom_contradiction",
+                "preset and explicit precision leaves are mutually exclusive",
+            )
+        )
+    if config.execution.backend in {"jax", "numba"}:
+        for field in precision.float128_paths():
+            issues.append(
+                ConfigIssue(
+                    f"execution.precision.{field}",
+                    "backend_precision_incompatible",
+                    f"float128 is not supported by explicit {config.execution.backend!r}",
+                )
+            )
+
+    if config.workflow.skip_overwrite_confirmation and not config.workflow.overwrite:
+        issues.append(
+            ConfigIssue(
+                "workflow.skip_overwrite_confirmation",
+                "overwrite_confirmation_contradiction",
+                "requires workflow.overwrite=true",
+                category="workflow",
+            )
+        )
+    if (
+        not config.baseline_selection.use_autocorrelations
+        and not config.baseline_selection.use_crosscorrelations
+    ):
+        issues.append(
+            ConfigIssue(
+                "baseline_selection",
+                "empty_baseline_selection",
+                "autocorrelations and crosscorrelations cannot both be disabled",
+            )
+        )
+
+    issues.extend(_region_semantic_issues(config.sky_model.region, "sky_model.region"))
+    for index, source in enumerate(config.sky_model.sources):
+        base = f"sky_model.sources[{index}]"
+        issues.extend(_region_semantic_issues(source.region, f"{base}.region"))
+        issues.extend(
+            _provenance_semantic_issues(
+                source.provenance_override, f"{base}.provenance_override"
+            )
+        )
+        if isinstance(source, Skyh5MultifileSourceConfig):
+            if (source.file_glob is None) == (source.filenames is None):
+                issues.append(
+                    ConfigIssue(
+                        base,
+                        "skyh5_source_contradiction",
+                        "specify exactly one of file_glob or filenames",
+                    )
+                )
+            elif source.filenames == ():
+                issues.append(
+                    ConfigIssue(
+                        f"{base}.filenames",
+                        "empty_skyh5_filenames",
+                        "must be nonempty",
+                    )
+                )
+        if isinstance(source, TestSourcesConfig):
+            if (
+                source.flux_min is not None
+                and source.flux_max is not None
+                and source.flux_min > source.flux_max
+            ):
+                issues.append(
+                    ConfigIssue(
+                        f"{base}.flux_max",
+                        "invalid_test_source_flux_range",
+                        "must be >= flux_min",
+                    )
+                )
+        if isinstance(source, RealisticForegroundSourceConfig):
+            pair = source.confusion_flux_range_jy
+            if pair is not None and not (0.0 <= pair[0] < pair[1]):
+                issues.append(
+                    ConfigIssue(
+                        f"{base}.confusion_flux_range_jy",
+                        "invalid_confusion_flux_range",
+                        "must satisfy 0 <= minimum < maximum",
+                    )
+                )
+            if source.confusion_spectral_index_dist[1] < 0.0:
+                issues.append(
+                    ConfigIssue(
+                        f"{base}.confusion_spectral_index_dist",
+                        "invalid_spectral_index_sigma",
+                        "sigma must be >= 0",
+                    )
+                )
+    return _ordered_issues(issues)
+
+
+def collect_unsupported_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
+    """Collect every declared setting not implemented by the current runtime."""
+    issues: list[ConfigIssue] = []
+
+    def add(path: str, code: str, message: str, hint: str | None = None) -> None:
+        issues.append(
+            ConfigIssue(
+                path,
+                code,
+                message,
+                hint,
+                stage="unsupported",
+                category="unsupported",
+            )
+        )
+
+    for field in (
+        "use_pyuvdata_telescope",
+        "use_pyuvdata_location",
+        "use_pyuvdata_antennas",
+        "use_pyuvdata_diameters",
+    ):
+        if getattr(config.telescope, field):
+            add(
+                f"telescope.{field}",
+                "pyuvdata_telescope_unsupported",
+                "pyuvdata telescope opt-ins are not implemented until Tier 2",
+            )
+    if config.antenna_layout.use_different_diameters:
+        add(
+            "antenna_layout.use_different_diameters",
+            "heterogeneous_diameters_unsupported",
+            "per-antenna diameters are not implemented until Tier 2",
+        )
+    if config.antenna_layout.diameters:
+        add(
+            "antenna_layout.diameters",
+            "heterogeneous_diameters_unsupported",
+            "per-antenna diameters are not implemented until Tier 2",
+        )
+
+    beams = config.beams
+    if beams.beam_mode != "analytic":
+        add(
+            "beams.beam_mode",
+            "fits_beams_unsupported",
+            "only analytic beams are implemented; FITS/mixed modes belong to Tier 3",
+        )
+    beam_unsupported = {
+        "per_antenna": beams.per_antenna,
+        "beam_file": beams.beam_file is not None,
+        "antenna_beam_map": bool(beams.antenna_beam_map),
+        "beam_za_max_deg": beams.beam_za_max_deg is not None,
+        "beam_za_buffer_deg": beams.beam_za_buffer_deg is not None,
+        "beam_freq_buffer_hz": beams.beam_freq_buffer_hz is not None,
+        "beam_peak_normalize": not beams.beam_peak_normalize,
+        "beam_interp_function": beams.beam_interp_function is not None,
     }
-
-    @staticmethod
-    def _preprocess_yaml_data(data: dict, yaml_dir: Path) -> dict:
-        """Resolve relative paths and coerce YAML-parsed types to expected Python types.
-
-        Parameters
-        ----------
-        data : dict
-            Raw dictionary from yaml.safe_load.
-        yaml_dir : Path
-            Resolved directory of the YAML file, used to resolve relative paths.
-
-        Returns
-        -------
-        dict
-            Mutated data dict ready for Pydantic construction.
-        """
-        from datetime import datetime as _datetime
-
-        # YAML parses unquoted ISO timestamps (e.g. 2025-01-01T00:00:00) as datetime
-        # objects. Convert them back to ISO strings so Pydantic's str field accepts them.
-        obs_time = data.get("obs_time")
-        if isinstance(obs_time, dict):
-            start = obs_time.get("start_time")
-            if isinstance(start, _datetime):
-                obs_time["start_time"] = start.isoformat()
-
-        # Resolve antenna_positions_file relative to the YAML file's directory
-        antenna_file = (data.get("antenna_layout") or {}).get("antenna_positions_file")
-        if antenna_file and not Path(antenna_file).is_absolute():
-            data.setdefault("antenna_layout", {})["antenna_positions_file"] = str(
-                yaml_dir / antenna_file
+    for field, enabled in beam_unsupported.items():
+        if enabled:
+            add(
+                f"beams.{field}",
+                "fits_beam_control_unsupported",
+                "this FITS/per-antenna beam control is not implemented until Tier 3",
             )
 
-        return data
-
-    @classmethod
-    def from_yaml(cls, yaml_path: str | Path) -> "RadioSimConfig":
-        """
-        Load configuration from YAML file with validation.
-
-        Args:
-            yaml_path: Path to YAML configuration file
-
-        Returns:
-            Validated RadioSimConfig instance
-
-        Raises:
-            ValueError: If configuration is invalid
-            FileNotFoundError: If file doesn't exist
-        """
-        yaml_path = Path(yaml_path)
-        if not yaml_path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {yaml_path}")
-
-        yaml_dir = yaml_path.parent.resolve()
-
-        with open(yaml_path) as f:
-            data = yaml.safe_load(f) or {}
-
-        data = cls._preprocess_yaml_data(data, yaml_dir)
-
-        from pydantic import ValidationError
-
-        try:
-            return cls(**data)
-        except ValidationError:
-            raise  # Let CLI handle structured field errors
-        except Exception as e:
-            raise ValueError(f"Invalid configuration in {yaml_path}:\n{e}") from e
-
-    def to_yaml(self, output_path: str | Path) -> None:
-        """
-        Export configuration to YAML file.
-
-        Args:
-            output_path: Path to write YAML file
-        """
-        output_path = Path(output_path)
-        with open(output_path, "w") as f:
-            yaml.dump(
-                self.model_dump(exclude_none=True),
-                f,
-                default_flow_style=False,
-                sort_keys=False,
+    feeds = config.feeds
+    feed_nondefaults = {
+        "use_polarized_feeds": feeds.use_polarized_feeds,
+        "polarization_type": bool(feeds.polarization_type),
+        "use_different_polarization_type": feeds.use_different_polarization_type,
+        "polarization_per_antenna": bool(feeds.polarization_per_antenna),
+        "use_different_feed_types": feeds.use_different_feed_types,
+        "all_feed_type": bool(feeds.all_feed_type),
+        "feed_types_per_antenna": bool(feeds.feed_types_per_antenna),
+    }
+    for field, enabled in feed_nondefaults.items():
+        if enabled:
+            add(
+                f"feeds.{field}",
+                "receptor_config_unsupported",
+                "top-level receptor/feed physics is not implemented until Tier 5",
             )
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert configuration to dictionary."""
-        return self.model_dump()
-
-    def validate(self) -> list[str]:
-        """Collect all configuration errors upfront.
-
-        Returns a list of human-readable error messages. An empty list means
-        the configuration is valid and simulation can proceed.
-
-        Returns
-        -------
-        list[str]
-            Error messages, one per problem found.
-        """
-        errors: list[str] = []
-        al = self.antenna_layout
-        ot = self.obs_time
-        of = self.obs_frequency
-        loc = self.location
-
-        # --- Antenna layout ---
-        if not al.antenna_positions_file:
-            errors.append(
-                "antenna_layout.antenna_positions_file: required but not set. "
-                "Set to your antenna positions file path."
-            )
-        elif not Path(al.antenna_positions_file).exists():
-            errors.append(
-                f"antenna_layout.antenna_positions_file: file not found: "
-                f"'{al.antenna_positions_file}'"
-            )
-        if not al.antenna_file_format:
-            errors.append(
-                "antenna_layout.antenna_file_format: required but not set. "
-                "E.g. 'radiosim', 'casa', 'uvfits'."
-            )
-        if al.all_antenna_diameter is None:
-            errors.append(
-                "antenna_layout.all_antenna_diameter: required but not set. "
-                "E.g. 14.0 (meters)."
-            )
-        elif al.all_antenna_diameter <= 0:
-            errors.append(
-                f"antenna_layout.all_antenna_diameter: must be > 0, "
-                f"got {al.all_antenna_diameter}."
+    baseline = config.baseline_selection
+    baseline_nondefaults = {
+        "use_autocorrelations": not baseline.use_autocorrelations,
+        "use_crosscorrelations": not baseline.use_crosscorrelations,
+        "only_selective_baseline_length": baseline.only_selective_baseline_length,
+        "selective_baseline_lengths": bool(baseline.selective_baseline_lengths),
+        "selective_baseline_tolerance_meters": not math.isclose(
+            baseline.selective_baseline_tolerance_meters, 0.5
+        ),
+        "trim_by_angle_ranges": baseline.trim_by_angle_ranges,
+        "selective_angle_ranges_deg": bool(baseline.selective_angle_ranges_deg),
+    }
+    for field, enabled in baseline_nondefaults.items():
+        if enabled:
+            add(
+                f"baseline_selection.{field}",
+                "baseline_selection_unsupported",
+                "baseline selection changes are not implemented until Tier 2",
             )
 
-        # --- Observation time ---
-        if ot.start_time is None:
-            errors.append(
-                "obs_time.start_time: required but not set. E.g. '2025-01-01T00:00:00'."
-            )
+    if config.visibility.calculation_type == "spherical_harmonic":
+        add(
+            "visibility.calculation_type",
+            "spherical_harmonic_unsupported",
+            "spherical-harmonic calculation is not implemented until Tier 7",
+        )
+    workflow = config.workflow
+    if workflow.result_format == "uvfits":
+        add(
+            "workflow.result_format",
+            "uvfits_unsupported",
+            "UVFITS workflow output is not implemented until Tier 4",
+        )
+    if workflow.prompt_for_output_suffix:
+        add(
+            "workflow.prompt_for_output_suffix",
+            "output_suffix_prompt_unsupported",
+            "suffix prompting is not implemented until Tier 4",
+        )
+    if workflow.angle_unit:
+        add(
+            "workflow.angle_unit",
+            "angle_unit_unsupported",
+            "workflow angle-unit control is not implemented until Tier 4",
+        )
+    if workflow.sky_model_frequency_hz is not None:
+        add(
+            "workflow.sky_model_frequency_hz",
+            "sky_model_frequency_unsupported",
+            "workflow sky-model frequency control is not implemented until Tier 4",
+        )
+    return _ordered_issues(issues)
+
+
+def collect_config_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
+    """Return semantic and unsupported issues in stable stage/path/code order."""
+    return _ordered_issues(
+        (*collect_semantic_issues(config), *collect_unsupported_issues(config))
+    )
+
+
+_REMOVED_FIELD_GUIDANCE: dict[str, tuple[str, str]] = {
+    "compute": (
+        "top-level 'compute' was removed",
+        "Move backend/offline values to 'execution'.",
+    ),
+    "precision": (
+        "top-level 'precision' was removed",
+        "Move it to 'execution.precision'.",
+    ),
+    "simulators": (
+        "top-level 'simulators' was removed",
+        "Use 'execution.simulator: rime'; cross-check behavior remains unsupported.",
+    ),
+    "output": (
+        "top-level 'output' was removed",
+        "Move CLI-only output policy to 'workflow'.",
+    ),
+    "antenna_layout.fixed_HPBW": (
+        "fixed_HPBW was removed because it had no live runtime reader",
+        "Configure an analytic beam under 'beams'.",
+    ),
+    "location.ra": (
+        "location.ra was removed from the simulation input",
+        "Phase-center configuration belongs to the future Tier 4 result contract.",
+    ),
+    "location.dec": (
+        "location.dec was removed from the simulation input",
+        "Phase-center configuration belongs to the future Tier 4 result contract.",
+    ),
+    "telescope.name": (
+        "telescope.name is not part of the RadioSim input schema",
+        "Did you mean 'telescope_name'?",
+    ),
+    "telescope.location": (
+        "nested telescope.location is a stale example shape",
+        "Use the required top-level 'location' section.",
+    ),
+    "antenna_layout.file": (
+        "antenna_layout.file is a stale example field",
+        "Did you mean 'antenna_positions_file'?",
+    ),
+    "antenna_layout.format": (
+        "antenna_layout.format is a stale example field",
+        "Did you mean 'antenna_file_format'?",
+    ),
+}
+
+for _legacy_beam_field in (
+    "use_beam_file",
+    "use_different_beams",
+    "beam_file_path",
+    "beam_files",
+    "beams_per_antenna",
+    "default_beam_id",
+    "beam_freq_interp",
+    "beam_freq_buffer_mhz",
+    "all_beam_response",
+    "beam_assignment",
+):
+    _REMOVED_FIELD_GUIDANCE[f"beams.{_legacy_beam_field}"] = (
+        f"beams.{_legacy_beam_field} is a removed legacy beam field",
+        "Use only the strict BeamsConfig fields; no BeamManager compatibility keys are accepted.",
+    )
+
+_KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
+    "": tuple(RadioSimConfig.model_fields),
+    "telescope": tuple(TelescopeConfig.model_fields),
+    "antenna_layout": tuple(AntennaLayoutConfig.model_fields),
+    "feeds": tuple(FeedsConfig.model_fields),
+    "beams": tuple(BeamsConfig.model_fields),
+    "baseline_selection": tuple(BaselineSelectionConfig.model_fields),
+    "location": tuple(LocationConfig.model_fields),
+    "sky_model": tuple(SkyModelConfig.model_fields),
+    "obs_time": tuple(ObsTimeConfig.model_fields),
+    "workflow": tuple(CliWorkflowConfig.model_fields),
+    "execution": tuple(ExecutionConfig.model_fields),
+    "execution.precision": tuple(PrecisionInput.model_fields),
+    "visibility": tuple(VisibilityConfig.model_fields),
+}
+
+
+def _dotted_path(location: Sequence[str | int]) -> str:
+    path = ""
+    for item in location:
+        if isinstance(item, int):
+            path += f"[{item}]"
         else:
-            try:
-                from astropy.time import Time as _ATime
+            path += f".{item}" if path else item
+    return path
 
-                _ATime(ot.start_time)
-            except Exception:
-                errors.append(
-                    f"obs_time.start_time: invalid ISO format '{ot.start_time}'. "
-                    "E.g. '2025-01-01T00:00:00'."
-                )
-        if ot.duration_seconds is None:
-            errors.append(
-                "obs_time.duration_seconds: required but not set. "
-                "E.g. 3600.0 (seconds)."
-            )
-        elif ot.duration_seconds <= 0:
-            errors.append(
-                f"obs_time.duration_seconds: must be > 0, got {ot.duration_seconds}."
-            )
-        if ot.time_step_seconds is None:
-            errors.append(
-                "obs_time.time_step_seconds: required but not set. E.g. 60.0 (seconds)."
-            )
-        elif ot.time_step_seconds <= 0:
-            errors.append(
-                f"obs_time.time_step_seconds: must be > 0, got {ot.time_step_seconds}."
-            )
+
+def schema_issues_from_validation_error(
+    error: ValidationError,
+) -> tuple[ConfigIssue, ...]:
+    """Convert Pydantic failures into actionable immutable schema issues."""
+    issues: list[ConfigIssue] = []
+    for item in error.errors(include_url=False):
+        location = tuple(item.get("loc", ()))
+        path = _dotted_path(location)
+        code = str(item.get("type", "schema_error"))
+        message = str(item.get("msg", "invalid value"))
+        hint: str | None = None
         if (
-            ot.duration_seconds is not None
-            and ot.time_step_seconds is not None
-            and ot.duration_seconds > 0
-            and ot.time_step_seconds > 0
-            and ot.time_step_seconds > ot.duration_seconds
+            path == "beams.beam_mode"
+            and code == "literal_error"
+            and item.get("input") in {"shared", "per_antenna"}
         ):
-            errors.append("obs_time.time_step_seconds must be <= duration_seconds.")
-
-        # --- Observation frequency ---
-        if of.starting_frequency is None:
-            errors.append(
-                "obs_frequency.starting_frequency: required but not set. "
-                "E.g. 50.0 (MHz)."
+            message = f"legacy beam_mode={item['input']!r} is not accepted"
+            hint = (
+                "Use 'analytic' for the current shared analytic-beam input; "
+                "FITS/per-antenna behavior remains unsupported until Tier 3."
             )
-        elif of.starting_frequency <= 0:
-            errors.append(
-                f"obs_frequency.starting_frequency: must be > 0, "
-                f"got {of.starting_frequency}."
-            )
-        if of.frequency_interval is None:
-            errors.append(
-                "obs_frequency.frequency_interval: required but not set. "
-                "E.g. 1.0 (MHz)."
-            )
-        elif of.frequency_interval <= 0:
-            errors.append(
-                f"obs_frequency.frequency_interval: must be > 0, "
-                f"got {of.frequency_interval}."
-            )
-        if of.frequency_bandwidth is None:
-            errors.append(
-                "obs_frequency.frequency_bandwidth: required but not set. "
-                "E.g. 100.0 (MHz)."
-            )
-        elif of.frequency_bandwidth <= 0:
-            errors.append(
-                f"obs_frequency.frequency_bandwidth: must be > 0, "
-                f"got {of.frequency_bandwidth}."
-            )
-        if (
-            of.frequency_interval is not None
-            and of.frequency_bandwidth is not None
-            and of.frequency_interval > 0
-            and of.frequency_bandwidth > 0
-            and of.frequency_interval >= of.frequency_bandwidth
-        ):
-            errors.append(
-                "obs_frequency.frequency_interval must be < frequency_bandwidth."
-            )
-
-        # --- Location range checks (only if value is provided) ---
-        def _as_float(v: float | str) -> float | None:
-            if v == "":
-                return None
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                return None
-
-        lat = _as_float(loc.lat)
-        lon = _as_float(loc.lon)
-        height = _as_float(loc.height)
-        if lat is not None and not (-90 <= lat <= 90):
-            errors.append(f"location.lat: must be in [-90, 90], got {lat}.")
-        if lon is not None and not (-180 <= lon <= 180):
-            errors.append(f"location.lon: must be in [-180, 180], got {lon}.")
-        if height is not None and height < 0:
-            errors.append(f"location.height: must be >= 0, got {height}.")
-
-        # --- Beam cross-field ---
-        beams = self.beams
-        if beams.beam_mode is None:
-            errors.append(
-                "beams.beam_mode: required. "
-                "Set to 'analytic' (parametric beam), 'fits' (FITS beam file), "
-                "or 'mixed' (per-antenna mix of analytic and FITS)."
-            )
-        elif beams.beam_mode == "analytic":
-            # Validate aperture-specific parameters
-            if beams.aperture_shape == "rectangular":
-                if (
-                    "length_x" not in beams.aperture_params
-                    or "length_y" not in beams.aperture_params
-                ):
-                    errors.append(
-                        "beams.aperture_params: 'length_x' and 'length_y' required "
-                        "when aperture_shape='rectangular'."
-                    )
-            elif beams.aperture_shape == "elliptical":
-                if (
-                    "diameter_x" not in beams.aperture_params
-                    or "diameter_y" not in beams.aperture_params
-                ):
-                    errors.append(
-                        "beams.aperture_params: 'diameter_x' and 'diameter_y' required "
-                        "when aperture_shape='elliptical'."
-                    )
-            if beams.feed_model != "none":
-                if "focal_ratio" not in beams.feed_params:
-                    errors.append(
-                        "beams.feed_params.focal_ratio: required when feed_model is not 'none'. "
-                        "Set to the f/D ratio (e.g. 0.4)."
-                    )
-            if beams.reflector_type == "cassegrain" and beams.magnification <= 1.0:
-                errors.append(
-                    "beams.magnification: must be > 1.0 when reflector_type='cassegrain'."
-                )
-        elif beams.beam_mode == "fits":
-            if beams.per_antenna:
-                if not beams.antenna_beam_map:
-                    errors.append(
-                        "beams.antenna_beam_map: required when beam_mode='fits' and per_antenna=true. "
-                        "Provide a mapping of antenna number to FITS beam file path."
-                    )
+            code = "removed_value"
+        if code == "extra_forbidden":
+            message = "unknown or removed field"
+            if path in _REMOVED_FIELD_GUIDANCE:
+                message, hint = _REMOVED_FIELD_GUIDANCE[path]
+                code = "removed_field"
             else:
-                if not beams.beam_file:
-                    errors.append(
-                        "beams.beam_file: required when beam_mode='fits' and per_antenna=false. "
-                        "Provide the path to a FITS beam file."
-                    )
-        elif beams.beam_mode == "mixed":
-            if not beams.antenna_beam_map:
-                errors.append(
-                    "beams.antenna_beam_map: required when beam_mode='mixed'. "
-                    "Map each antenna number to a FITS file path or 'analytic'."
-                )
-
-        # --- Sky model: at least one source spec must be present ---
-        sm = self.sky_model
-        if not sm.sources:
-            errors.append(
-                "sky_model.sources: add at least one source entry "
-                "(for example {'kind': 'test_sources'}, "
-                "{'kind': 'gleam'}, or {'kind': 'diffuse_sky'})."
+                field = str(location[-1]) if location else ""
+                parent = _dotted_path(location[:-1])
+                normalized_parent = parent
+                if ".sources[" in normalized_parent:
+                    normalized_parent = ""
+                candidates = _KNOWN_FIELDS_BY_PARENT.get(normalized_parent, ())
+                matches = difflib.get_close_matches(field, candidates, n=2, cutoff=0.72)
+                if len(matches) == 1:
+                    hint = f"Did you mean '{matches[0]}'?"
+        if message.startswith("Value error, "):
+            message = message.removeprefix("Value error, ")
+        issues.append(
+            ConfigIssue(
+                path,
+                code,
+                message,
+                hint,
+                stage="schema",
+                category="schema",
             )
-        else:
-            from radiosim.core.sky.registry import loader_registry
-
-            for idx, source in enumerate(sm.sources):
-                try:
-                    definition = loader_registry.definition(source.kind)
-                except ValueError as exc:
-                    errors.append(f"sky_model.sources[{idx}]: {exc}")
-                    continue
-                if definition.requires_file:
-                    fname = getattr(source, "filename", "") or ""
-                    if not fname:
-                        errors.append(
-                            f"sky_model.sources[{idx}].filename: required for "
-                            f"loader '{source.kind}'."
-                        )
-                    elif not Path(fname).exists():
-                        errors.append(
-                            f"sky_model.sources[{idx}].filename: file not found: '{fname}'."
-                        )
-
-        return errors
-
-    def generate_output_subdir(self) -> str:
-        """Generate output subdirectory name from config parameters.
-
-        Creates a descriptive, deterministic directory name based on
-        simulation parameters.
-
-        Format:
-            {telescope}_{freq_start}-{freq_end}{unit}_{n_channels}channels_{obs_start}_to_{obs_end}_{n_times}chunks
-
-        Returns
-        -------
-        str
-            Generated subdirectory name.
-
-        Examples
-        --------
-        >>> config = load_config("config.yaml")
-        >>> config.generate_output_subdir()
-        'HERA_100-120MHz_21channels_2025-01-15T00-00-00_to_2025-01-15T00-10-00_60chunks'
-        """
-        from datetime import timedelta
-
-        from astropy.time import Time as AstropyTime
-
-        # Frequency parameters
-        telescope = self.telescope.telescope_name.replace(" ", "_")
-        freq_start = int(self.obs_frequency.starting_frequency)
-        freq_end = int(
-            self.obs_frequency.starting_frequency
-            + self.obs_frequency.frequency_bandwidth
         )
-        freq_unit = self.obs_frequency.frequency_unit
-        n_channels = self.obs_frequency.n_channels
+    return _ordered_issues(issues)
 
-        # Time parameters
-        duration = int(self.obs_time.duration_seconds)
-        obs_start_dt = AstropyTime(self.obs_time.start_time).to_datetime()
-        obs_end_dt = obs_start_dt + timedelta(seconds=duration)
 
-        def _fmt(dt: datetime) -> str:
-            return dt.strftime("%Y-%m-%dT%H-%M-%S")
+def collect_schema_issues(data: Mapping[str, Any]) -> tuple[ConfigIssue, ...]:
+    """Validate a complete document without constructing a partial model."""
+    try:
+        _ = RadioSimConfig.model_validate(dict(data))
+    except ValidationError as error:
+        return schema_issues_from_validation_error(error)
+    return ()
 
-        obs_start = _fmt(obs_start_dt)
-        obs_end = _fmt(obs_end_dt)
-        n_times = max(1, int(duration / self.obs_time.time_step_seconds))
 
-        return (
-            f"{telescope}_{freq_start}-{freq_end}{freq_unit}_"
-            f"{n_channels}channels_{obs_start}_to_{obs_end}_{n_times}chunks"
+_ENVIRONMENT_PATH = re.compile(r"\$(?:\{[^}]+\}|[A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _yaml_parse_issue(
+    path: Path,
+    code: str,
+    message: str,
+    hint: str | None = None,
+) -> ConfigIssue:
+    return ConfigIssue(
+        "configuration_source.config_path",
+        code,
+        f"{message}: {path}",
+        hint,
+        stage="source",
+        category="source",
+    )
+
+
+def load_config(
+    path: str | Path,
+    *,
+    overrides: SimulationOverrides | None = None,
+    workflow_overrides: WorkflowOverrides | None = None,
+    check_input_paths: bool = True,
+) -> ResolvedConfiguration:
+    """Load YAML and resolve it through the shared configuration pipeline."""
+    from radiosim.io.config_resolution import (
+        ConfigParseError,
+        ConfigurationSource,
+        resolve_config,
+    )
+
+    invocation_dir = Path.cwd().resolve(strict=False)
+    source = ConfigurationSource.for_yaml(
+        path,
+        invocation_dir=invocation_dir,
+        label=f"yaml:{path}",
+    )
+    config_path = source.config_path
+    assert config_path is not None
+    try:
+        with config_path.open("r", encoding="utf-8") as stream:
+            loaded: object = yaml.safe_load(stream)
+    except yaml.YAMLError as error:
+        mark = getattr(error, "problem_mark", None)
+        problem = getattr(error, "problem", None) or "invalid YAML syntax"
+        location = ""
+        if mark is not None:
+            location = f" at line {mark.line + 1}, column {mark.column + 1}"
+        raise ConfigParseError(
+            [
+                _yaml_parse_issue(
+                    config_path,
+                    "yaml_syntax_error",
+                    f"could not parse YAML{location} ({problem})",
+                    "Correct the YAML syntax and load the file again.",
+                )
+            ]
+        ) from error
+    except UnicodeError as error:
+        raise ConfigParseError(
+            [
+                _yaml_parse_issue(
+                    config_path,
+                    "config_decode_error",
+                    "configuration file is not valid UTF-8 text",
+                )
+            ]
+        ) from error
+    except OSError as error:
+        detail = error.strerror or type(error).__name__
+        raise ConfigParseError(
+            [
+                _yaml_parse_issue(
+                    config_path,
+                    "config_read_error",
+                    f"could not read configuration file ({detail})",
+                )
+            ]
+        ) from error
+
+    if loaded is None:
+        loaded = {}
+    if not isinstance(loaded, Mapping):
+        raise ConfigParseError(
+            [
+                _yaml_parse_issue(
+                    config_path,
+                    "yaml_root_not_mapping",
+                    "configuration YAML root must be a mapping",
+                    "Use top-level section names such as antenna_layout and location.",
+                )
+            ]
+        )
+    return resolve_config(
+        cast(Mapping[str, object], loaded),
+        source=source,
+        overrides=overrides,
+        workflow_overrides=workflow_overrides,
+        check_input_paths=check_input_paths,
+    )
+
+
+def _require_input_config(config: object) -> RadioSimConfig:
+    if not isinstance(config, RadioSimConfig):
+        raise TypeError("dump_config accepts only RadioSimConfig input models")
+    return config
+
+
+def dump_config(config: RadioSimConfig, path: str | Path) -> None:
+    """Atomically serialize one user-input model as deterministic safe YAML."""
+    from radiosim.io.config_resolution import ConfigPathError
+
+    input_config = _require_input_config(config)
+
+    invocation_dir = Path.cwd().resolve(strict=False)
+    original = str(path)
+    if _ENVIRONMENT_PATH.search(original):
+        raise ConfigPathError(
+            [
+                ConfigIssue(
+                    "path",
+                    "environment_path_syntax",
+                    "environment-variable syntax is not allowed in dump paths",
+                    "Expand the variable before calling dump_config.",
+                    stage="path",
+                    category="path",
+                )
+            ]
+        )
+    destination = Path(path).expanduser()
+    if not destination.is_absolute():
+        destination = invocation_dir / destination
+    destination = destination.resolve(strict=False)
+    parent = destination.parent
+    if not parent.exists():
+        raise FileNotFoundError(
+            f"dump_config destination parent does not exist: {parent}"
+        )
+    if not parent.is_dir():
+        raise NotADirectoryError(
+            f"dump_config destination parent is not a directory: {parent}"
+        )
+    if destination.exists() and not destination.is_file():
+        raise IsADirectoryError(
+            f"dump_config destination is not a regular file: {destination}"
         )
 
-
-def load_config(config_path: str | Path) -> RadioSimConfig:
-    """
-    Load and validate configuration from YAML file.
-
-    Parameters
-    ----------
-    config_path : str or Path
-        Path to YAML configuration file.
-
-    Returns
-    -------
-    RadioSimConfig
-        Validated configuration instance with all defaults filled in.
-
-    Raises
-    ------
-    FileNotFoundError
-        If configuration file does not exist.
-    ValueError
-        If configuration file contains invalid values.
-
-    Examples
-    --------
-    >>> config = load_config("simulation_config.yaml")
-    >>> print(config.telescope.telescope_name)
-    'HERA'
-    >>> print(config.obs_frequency.n_channels)
-    50
-
-    See Also
-    --------
-    create_default_config : Create a default configuration file.
-    RadioSimConfig : Main configuration class.
-    """
-    return RadioSimConfig.from_yaml(config_path)
+    document = input_config.model_dump(mode="json")
+    serialized = yaml.safe_dump(
+        document,
+        allow_unicode=True,
+        default_flow_style=False,
+        sort_keys=False,
+    )
+    temporary_path: Path | None = None
+    try:
+        with NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            _ = stream.write(serialized)
+        _ = temporary_path.replace(destination)
+    except Exception:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def create_default_config(output_path: str | Path) -> None:
-    """
-    Create a default configuration file with all options documented.
+    """Write a target-shape template containing explicit scientific placeholders."""
+    template = {
+        "antenna_layout": {
+            "antenna_positions_file": "antenna_layout.txt",
+            "antenna_file_format": "radiosim",
+            "all_antenna_diameter": 14.0,
+        },
+        "location": {"lat": 0.0, "lon": 0.0, "height": 0.0},
+        "sky_model": {"sources": [{"kind": "test_sources"}]},
+        "obs_time": {
+            "start_time": "2025-01-01T00:00:00",
+            "duration_seconds": 1.0,
+            "time_step_seconds": 1.0,
+        },
+        "obs_frequency": {
+            "mode": "explicit",
+            "channel_frequencies_hz": [100_000_000.0],
+        },
+        "execution": {
+            "backend": "numpy",
+            "precision": {"preset": "standard"},
+            "simulator": "rime",
+            "offline": False,
+        },
+        "workflow": {
+            "output_dir": "output",
+            "save_results": False,
+            "plot_results": False,
+            "open_plots_in_browser": False,
+            "save_log": False,
+        },
+    }
+    with Path(output_path).open("w", encoding="utf-8") as stream:
+        yaml.safe_dump(template, stream, default_flow_style=False, sort_keys=False)
 
-    Parameters
-    ----------
-    output_path : str or Path
-        Path where the default configuration file will be written.
 
-    Examples
-    --------
-    >>> create_default_config("my_config.yaml")
-    >>> # Edit the file and load it
-    >>> config = load_config("my_config.yaml")
-
-    Notes
-    -----
-    The created file contains all configuration options with their
-    default values, making it a useful template for customization.
-
-    See Also
-    --------
-    load_config : Load configuration from file.
-    """
-    config = RadioSimConfig()
-    output_path = Path(output_path)
-    with open(output_path, "w") as f:
-        yaml.dump(
-            config.model_dump(),  # include all fields, including nulls
-            f,
-            default_flow_style=False,
-            sort_keys=True,  # alphabetical order
-        )
+__all__ = [
+    "AntennaFileFormat",
+    "AntennaLayoutConfig",
+    "BaselineSelectionConfig",
+    "BeamsConfig",
+    "BbsSourceConfig",
+    "CliWorkflowConfig",
+    "ConfigIssue",
+    "CoordinatePrecisionInput",
+    "CustomRegisteredSourceConfig",
+    "DiffuseSkySourceConfig",
+    "ExecutionConfig",
+    "ExplicitFrequencyConfig",
+    "FeedsConfig",
+    "FitsImageSourceConfig",
+    "FrequencyGridConfig",
+    "FrozenDict",
+    "GleamSourceConfig",
+    "JonesPrecisionInput",
+    "LocationConfig",
+    "LotssSourceConfig",
+    "MalsSourceConfig",
+    "ObsFrequencyConfig",
+    "ObsTimeConfig",
+    "PrecisionInput",
+    "PyradioskyFileSourceConfig",
+    "Pysm3SourceConfig",
+    "RacsSourceConfig",
+    "RadioSimConfig",
+    "RealisticForegroundSourceConfig",
+    "SkyFootprintInput",
+    "SkyModelConfig",
+    "SkyModelPrecisionInput",
+    "SkyProvenanceInput",
+    "SkyRegionEntryConfig",
+    "SkySourceConfig",
+    "Skyh5MultifileSourceConfig",
+    "StrictFrozenModel",
+    "TelescopeConfig",
+    "TestSourcesConfig",
+    "VisibilityConfig",
+    "build_sky_region",
+    "collect_config_issues",
+    "collect_schema_issues",
+    "collect_semantic_issues",
+    "collect_unsupported_issues",
+    "create_default_config",
+    "dump_config",
+    "load_config",
+    "parse_sky_source_config",
+    "schema_issues_from_validation_error",
+]

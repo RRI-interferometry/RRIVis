@@ -1,0 +1,6 @@
+{
+  "maximum_errors": 4600,
+  "policy": "Strict Pyright errors may decrease but must not increase.",
+  "recorded_python": "3.11.13",
+  "recorded_pyright": "1.1.408"
+}

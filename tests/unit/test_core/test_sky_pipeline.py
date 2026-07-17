@@ -39,24 +39,17 @@ def make_healpix_model(
 
 
 class TestPrepareSkyModel:
-    def test_existing_healpix_frequency_config_is_respected(self, precision):
+    def test_existing_healpix_explicit_frequency_grid_is_respected(self, precision):
         sky = make_healpix_model(
             freqs=np.array([100e6, 101e6], dtype=np.float64),
             precision=precision,
         )
-        obs_frequency_config = {
-            "starting_frequency": 100.0,
-            "frequency_interval": 1.0,
-            "frequency_bandwidth": 2.0,
-            "frequency_unit": "MHz",
-        }
         with pytest.raises(ValueError, match="frequency grid does not match"):
             prepare_sky_model(
                 [sky],
                 representation=SkyFormat.HEALPIX,
                 nside=None,
-                frequencies=None,
-                obs_frequency_config=obs_frequency_config,
+                frequencies=np.array([100e6, 101e6, 102e6]),
             )
 
     def test_representation_none_returns_single_model_unchanged(self, precision):

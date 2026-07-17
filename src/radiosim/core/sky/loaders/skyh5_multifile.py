@@ -21,18 +21,18 @@ from __future__ import annotations
 import glob as _glob
 import logging
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import astropy.units as u
 import numpy as np
 
-from radiosim.utils.frequency import parse_frequency_config
-
 from ..containers.model import SkyModel
 from ..registry import loader_registry
 from ..support.allocation import allocate_cube, ensure_scratch_dir, finalize_cube
 from ..support.brightness import skyh5_stokes_slice_to_kelvin
+from ..support.frequencies import validate_observation_frequencies
 from ..support.healpix_geometry import ordered_row
 from ..support.healpy import lazy_healpy as hp
 from ..support.point_builder import point_source_data_from_mapping
@@ -199,33 +199,20 @@ def _sort_and_validate_frequencies(headers: list[dict[str, Any]]) -> list[int]:
 
 
 def _resolve_expected_frequency_grid(
-    frequencies: np.ndarray | None,
-    obs_frequency_config: dict[str, Any] | None,
+    frequencies: Sequence[float] | np.ndarray | None,
 ) -> np.ndarray | None:
     """Resolve the caller-supplied cross-check frequency grid.
 
-    The multi-file loader never resamples: an explicit grid (either an
-    array via ``frequencies`` or a config dict via ``obs_frequency_config``)
-    is only used to assert that the file-derived channel grid matches. When
-    neither is supplied the file grid is authoritative (returns ``None``).
-
-    Raises
-    ------
-    ValueError
-        If both ``frequencies`` and ``obs_frequency_config`` are supplied.
+    The multi-file loader never resamples: an explicit array is only used to
+    assert that the file-derived channel grid matches. When it is omitted the
+    file grid is authoritative.
     """
-    if frequencies is not None and obs_frequency_config is not None:
-        raise ValueError(
-            "load_skyh5_multifile: provide at most one of 'frequencies' or "
-            "'obs_frequency_config' (got both)."
-        )
-    if frequencies is not None:
-        return np.asarray(frequencies, dtype=np.float64)
-    if obs_frequency_config is not None:
-        return np.asarray(
-            parse_frequency_config(obs_frequency_config), dtype=np.float64
-        )
-    return None
+    if frequencies is None:
+        return None
+    return validate_observation_frequencies(
+        frequencies,
+        label="load_skyh5_multifile frequencies",
+    )
 
 
 def _maybe_cross_check_frequencies(
@@ -234,7 +221,7 @@ def _maybe_cross_check_frequencies(
 ) -> None:
     if frequencies is None:
         return
-    requested = np.sort(np.asarray(frequencies, dtype=np.float64))
+    requested = np.asarray(frequencies, dtype=np.float64)
     if requested.shape != sorted_freqs.shape or not np.allclose(
         requested, sorted_freqs, atol=_FREQ_DUPLICATE_TOL_HZ
     ):
@@ -268,8 +255,7 @@ def load_skyh5_multifile(
     reference_frequency_hz: float | None = None,
     *,
     precision: PrecisionConfig,
-    frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
+    frequencies: Sequence[float] | np.ndarray | None = None,
     region: SkyRegion | None = None,
     memmap_path: str | None = None,
     provenance: SkyProvenance | None = None,
@@ -303,13 +289,6 @@ def load_skyh5_multifile(
         Explicit observation-frequency grid (Hz). When given, it is
         cross-checked against the file-derived channel grid (must match
         within 1 Hz); it does not resample the data.
-    obs_frequency_config : dict, optional
-        Frequency-configuration dict (e.g. ``starting_frequency`` /
-        ``frequency_interval`` / ``frequency_bandwidth`` / ``frequency_unit``
-        or a raw ``frequencies_hz`` array). Used as the cross-check grid when
-        ``frequencies`` is not supplied. Mutually exclusive with
-        ``frequencies``.
-
     Returns
     -------
     SkyModel
@@ -332,7 +311,7 @@ def load_skyh5_multifile(
     sorted_freqs = np.array(
         [h["freq_array"][0] for h in sorted_headers], dtype=np.float64
     )
-    expected_grid = _resolve_expected_frequency_grid(frequencies, obs_frequency_config)
+    expected_grid = _resolve_expected_frequency_grid(frequencies)
     _maybe_cross_check_frequencies(sorted_freqs, expected_grid)
 
     component_type = shared["component_type"]

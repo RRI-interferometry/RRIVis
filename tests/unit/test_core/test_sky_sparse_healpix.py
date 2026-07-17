@@ -184,7 +184,6 @@ class TestSparsePyradioskyLoader:
             psky,
             filename="sparse.skyh5",
             frequencies=freqs,
-            obs_frequency_config=None,
             brightness_conversion="rayleigh-jeans",
             precision=precision,
         )
@@ -209,7 +208,6 @@ class TestSparsePyradioskyLoader:
             psky,
             filename="galactic_sparse.skyh5",
             frequencies=freqs,
-            obs_frequency_config=None,
             brightness_conversion="rayleigh-jeans",
             precision=precision,
         )

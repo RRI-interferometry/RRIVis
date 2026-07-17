@@ -8,6 +8,7 @@ selection in :mod:`radiosim.core.sky.loaders._healpix_builder`.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -20,7 +21,7 @@ from ..containers import (
     SourceSubtractionStatus,
 )
 from ..registry import DIFFUSE_MODELS, diffuse_sky_loader_registration, loader_registry
-from ..support.frequencies import resolve_frequency_config
+from ..support.frequencies import validate_observation_frequencies
 from ..support.healpy import healpy_rotator
 from ..support.healpy import lazy_healpy as hp
 from ..support.provenance_coverage import coverage_provenance
@@ -157,8 +158,7 @@ def get_diffuse_model_info(model_name: str) -> dict[str, Any]:
 def load_diffuse_sky(
     model: str = "gsm2008",
     nside: int = 32,
-    frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
+    frequencies: Sequence[float] | np.ndarray | None = None,
     include_cmb: bool | None = None,
     basemap: str | None = None,
     interpolation: str | None = None,
@@ -183,12 +183,7 @@ def load_diffuse_sky(
     nside : int, default=32
         HEALPix NSIDE resolution.
     frequencies : np.ndarray, optional
-        Array of observation frequencies in Hz. Takes precedence over
-        ``obs_frequency_config`` when both are provided.
-    obs_frequency_config : dict, optional
-        Frequency configuration dict (keys: starting_frequency,
-        frequency_interval, frequency_bandwidth, frequency_unit).
-        Used when ``frequencies`` is None.
+        Explicit ordered observation frequencies in Hz.
     include_cmb : bool or None, default=None
         Include CMB contribution in the sky model. If None, uses the
         default from the model's ``init_kwargs`` (False for all models).
@@ -218,9 +213,8 @@ def load_diffuse_sky(
     Raises
     ------
     ValueError
-        If neither ``frequencies`` nor ``obs_frequency_config`` is provided,
-        if the model name is unknown, or if ``basemap``/``interpolation``
-        are set for a non-GSM2008 model.
+        If ``frequencies`` is missing or invalid, if the model name is unknown,
+        or if ``basemap``/``interpolation`` are set for a non-GSM2008 model.
 
     Examples
     --------
@@ -245,24 +239,17 @@ def load_diffuse_sky(
     ...     precision=precision,
     ... )
 
-    >>> config = {
-    ...     "starting_frequency": 100.0,
-    ...     "frequency_interval": 1.0,
-    ...     "frequency_bandwidth": 20.0,
-    ...     "frequency_unit": "MHz",
-    ... }
-    >>> sky = load_diffuse_sky(
-    ...     model="lfsm",
-    ...     nside=64,
-    ...     obs_frequency_config=config,
-    ...     precision=precision,
-    ... )
     """
     from ..containers.model import SkyModel
 
     model = model.lower()
     info = _validate_diffuse_model_args(model, basemap, interpolation)
-    frequencies = resolve_frequency_config(frequencies, obs_frequency_config)
+    if frequencies is None:
+        raise ValueError("load_diffuse_sky requires explicit 'frequencies' in Hz.")
+    frequencies = validate_observation_frequencies(
+        frequencies,
+        label="load_diffuse_sky frequencies",
+    )
 
     model_class = _resolve_model_class(info.class_path)
     n_freq = len(frequencies)
@@ -543,8 +530,7 @@ def create_gsm_observer(
 def load_pysm3(
     components: str | list[str] = "s1",
     nside: int = 64,
-    frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
+    frequencies: Sequence[float] | np.ndarray | None = None,
     include_polarization: bool = False,
     *,
     precision: PrecisionConfig,
@@ -569,11 +555,7 @@ def load_pysm3(
     nside : int, default=64
         HEALPix NSIDE resolution.
     frequencies : np.ndarray, optional
-        Array of observation frequencies in Hz. Takes precedence over
-        ``obs_frequency_config`` when both are provided.
-    obs_frequency_config : dict, optional
-        Frequency configuration dict (keys: starting_frequency,
-        frequency_interval, frequency_bandwidth, frequency_unit).
+        Explicit ordered observation frequencies in Hz.
     include_polarization : bool, default=False
         If True, extract Stokes Q and U maps from PySM3 in addition to
         Stokes I. The data is in K_RJ units; ``brightness_conversion``
@@ -596,13 +578,18 @@ def load_pysm3(
     Raises
     ------
     ValueError
-        If neither ``frequencies`` nor ``obs_frequency_config`` is provided.
+        If ``frequencies`` is missing or invalid.
     """
     pysm3, pysm3_u = _pysm3()
 
     from ..containers.model import SkyModel
 
-    frequencies = resolve_frequency_config(frequencies, obs_frequency_config)
+    if frequencies is None:
+        raise ValueError("load_pysm3 requires explicit 'frequencies' in Hz.")
+    frequencies = validate_observation_frequencies(
+        frequencies,
+        label="load_pysm3 frequencies",
+    )
 
     if include_polarization:
         if brightness_conversion != "rayleigh-jeans":

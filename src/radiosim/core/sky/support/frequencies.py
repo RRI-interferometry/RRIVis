@@ -1,68 +1,36 @@
-"""Frequency-config resolution helper.
-
-Consolidates the ``frequencies`` vs ``obs_frequency_config`` resolution
-that was duplicated across ``loaders/diffuse.py`` and
-``loaders/pyradiosky.py`` (spec item B6). The shared helper returns an
-ascending float64 Hz array and rejects ambiguous/missing inputs.
-"""
+"""Explicit observation-frequency validation for lower-level sky APIs."""
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
 
 import numpy as np
-
-from radiosim.utils.frequency import parse_frequency_config
 
 from ..containers._shared import validate_frequency_axis
 
 
-def resolve_frequency_config(
-    frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
+def validate_observation_frequencies(
+    frequencies: Sequence[float] | np.ndarray,
+    *,
+    label: str = "observation frequencies",
 ) -> np.ndarray:
-    """Resolve observation frequencies to an ascending float64 Hz array.
-
-    Exactly one of ``frequencies`` / ``obs_frequency_config`` must be
-    provided. An explicit ``frequencies`` array is cast to float64; an
-    ``obs_frequency_config`` dict is expanded via
-    :func:`radiosim.utils.frequency.parse_frequency_config`. The result is
-    sorted ascending.
+    """Copy and validate an explicit ordered frequency sequence in Hz.
 
     Parameters
     ----------
-    frequencies : np.ndarray or None, optional
+    frequencies : sequence of float or np.ndarray
         Explicit observation frequencies in Hz.
-    obs_frequency_config : dict or None, optional
-        Frequency configuration dict (keys: ``starting_frequency``,
-        ``frequency_interval``, ``frequency_bandwidth``, ``frequency_unit``;
-        or a raw ``frequencies_hz`` array).
+    label : str, optional
+        Boundary-specific label used in validation errors.
 
     Returns
     -------
     np.ndarray
-        Ascending float64 array of frequencies in Hz.
-
-    Raises
-    ------
-    ValueError
-        If both or neither argument is provided.
+        A caller-independent, strictly ascending float64 array in Hz.
     """
-    if (frequencies is None) == (obs_frequency_config is None):
-        raise ValueError(
-            "Provide exactly one of 'frequencies' or 'obs_frequency_config' "
-            "(got both or neither)."
-        )
-
-    if frequencies is not None:
-        resolved = np.asarray(frequencies, dtype=np.float64)
-    else:
-        resolved = np.asarray(
-            parse_frequency_config(obs_frequency_config), dtype=np.float64
-        )
-
+    resolved = np.array(frequencies, dtype=np.float64, copy=True)
     return validate_frequency_axis(
-        np.sort(resolved),
-        label="resolve_frequency_config frequencies",
+        resolved,
+        label=label,
         ascending=True,
     )

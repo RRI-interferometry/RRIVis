@@ -13,6 +13,7 @@ from .core import (
     LoaderCategory,
     LoaderDefinition,
     LoaderOutputMode,
+    LoaderPathKind,
     LoaderRepresentation,
     ResolvedLoader,
     _ensure_default_loaders_registered,
@@ -50,6 +51,7 @@ class SkyLoaderRegistry:
             list[str] | tuple[str, ...] | dict[str, dict[str, Any] | None] | None
         ) = None,
         config_fields: Mapping[str, str] | Sequence[str] | None = None,
+        path_options: Mapping[str, LoaderPathKind] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Return a decorator that registers a loader function."""
 
@@ -63,6 +65,7 @@ class SkyLoaderRegistry:
             network_service=network_service,
             aliases=aliases,
             config_fields=config_fields,
+            path_options=path_options,
         )
 
     def loader(self, name: str) -> Callable[..., Any]:
@@ -95,9 +98,10 @@ class SkyLoaderRegistry:
         representation = defaults.get("representation")
         if representation in _ALL_REPRESENTATIONS:
             meta["representations"] = [representation]
-            meta["output_mode"] = _REPRESENTATION_TO_OUTPUT_MODE[
-                frozenset({representation})
-            ]
+            representation_key: frozenset[LoaderRepresentation] = frozenset(
+                (representation,)
+            )
+            meta["output_mode"] = _REPRESENTATION_TO_OUTPUT_MODE[representation_key]
         return meta
 
     def resolve_name(self, name: str) -> str:
@@ -145,6 +149,7 @@ __all__ = [
     "LoaderCategory",
     "LoaderDefinition",
     "LoaderOutputMode",
+    "LoaderPathKind",
     "LoaderRepresentation",
     "ResolvedLoader",
     "SkyLoaderRegistry",

@@ -1,18 +1,26 @@
+telescope:
+  telescope_name: HERA
+  use_pyuvdata_telescope: false
+  use_pyuvdata_location: false
+  use_pyuvdata_antennas: false
+  use_pyuvdata_diameters: false
+
 antenna_layout:
-  all_antenna_diameter: 14.0
-  antenna_file_format: radiosim
   antenna_positions_file: ../antenna_layout_examples/hera_5.txt
-  diameters: {}
-  fixed_HPBW: null
+  antenna_file_format: radiosim
+  all_antenna_diameter: 14.0
   use_different_diameters: false
-baseline_selection:
-  only_selective_baseline_length: false
-  selective_angle_ranges_deg: []
-  selective_baseline_lengths: []
-  selective_baseline_tolerance_meters: 0.5
-  trim_by_angle_ranges: false
-  use_autocorrelations: false
-  use_crosscorrelations: true
+  diameters: {}
+
+feeds:
+  use_polarized_feeds: false
+  polarization_type: ''
+  use_different_polarization_type: false
+  polarization_per_antenna: {}
+  use_different_feed_types: false
+  all_feed_type: ''
+  feed_types_per_antenna: {}
+
 beams:
   beam_mode: analytic
   per_antenna: false
@@ -23,87 +31,44 @@ beams:
   beam_freq_buffer_hz: null
   beam_peak_normalize: true
   beam_interp_function: null
-
-  # Aperture shape and taper
   aperture_shape: circular
   taper: gaussian
   edge_taper_dB: 10.0
-
-  # Feed model
   feed_model: none
   feed_computation: analytical
   feed_params: {}
-
-  # Reflector geometry
   reflector_type: prime_focus
   magnification: 1.0
-
-  # Aperture-specific parameters
   aperture_params: {}
-compute:
-  backend: numpy
-feeds:
-  all_feed_type: ''
-  feed_types_per_antenna: {}
-  polarization_per_antenna: {}
-  polarization_type: ''
-  use_different_feed_types: false
-  use_different_polarization_type: false
-  use_polarized_feeds: false
+
+baseline_selection:
+  use_autocorrelations: true
+  use_crosscorrelations: true
+  only_selective_baseline_length: false
+  selective_baseline_lengths: []
+  selective_baseline_tolerance_meters: 0.5
+  trim_by_angle_ranges: false
+  selective_angle_ranges_deg: []
+
 location:
-  height: ''
-  lat: ''
-  lon: ''
-obs_frequency:
-  frequency_bandwidth: 100
-  frequency_interval: 1.0
-  frequency_unit: MHz
-  starting_frequency: 50
+  lat: -30.72152
+  lon: 21.4283
+  height: 1073.0
+
 obs_time:
+  start_time: "2025-01-01T00:00:00"
   duration_seconds: 3600
-  start_time: 2025-01-01T00:00:00
   time_step_seconds: 60
-output:
-  angle_unit: ''
-  open_plots_in_browser: false
-  output_file_format: null
-  output_file_name: visibilities
-  overwrite_output: false
-  plot_results: false
-  plotting_backend: bokeh
-  prompt_for_output_suffix: false
-  save_log_data: false
-  save_simulation_data: true
-  simulation_data_dir: ''
-  simulation_subdir: ''
-  skip_overwrite_confirmation: false
-  skymodel_frequency: null
-precision: null
-simulators:
-  name: ''
-  use_different_simulator_for_cross_check: false
+
+obs_frequency:
+  mode: grid
+  starting_frequency: 50
+  frequency_interval: 1.0
+  frequency_bandwidth: 100
+  frequency_unit: MHz
+
 sky_model:
   flux_unit: Jy
-  # brightness_conversion: planck    # "planck" (exact, default) or "rayleigh-jeans"
-  # region:                          # Optional: load only sources in this region
-  #   shape: cone                    # "cone" or "box"
-  #   center_ra_deg: 0.0             # RA centre (ICRS degrees)
-  #   center_dec_deg: -27.0          # Dec centre (ICRS degrees)
-  #   radius_deg: 10.0               # Cone radius — for shape: cone
-  #   # width_deg: 20.0              # RA extent — for shape: box
-  #   # height_deg: 10.0             # Dec extent — for shape: box
-  #
-  # # Multiple regions (union):
-  # region:
-  #   - shape: cone
-  #     center_ra_deg: 83.6
-  #     center_dec_deg: 22.0
-  #     radius_deg: 5.0
-  #   - shape: box
-  #     center_ra_deg: 180.0
-  #     center_dec_deg: -30.0
-  #     width_deg: 20.0
-  #     height_deg: 10.0
   sources:
     - kind: test_sources
       num_sources: 200
@@ -114,12 +79,30 @@ sky_model:
       dec_deg: -30.72
       dec_range_deg: 10.0
       spectral_index: 0
-telescope:
-  telescope_name: HERA
-  use_pyuvdata_antennas: false
-  use_pyuvdata_diameters: false
-  use_pyuvdata_location: false
-  use_pyuvdata_telescope: false
+
 visibility:
   calculation_type: direct_sum
   sky_representation: point_sources
+
+execution:
+  backend: numpy
+  precision:
+    preset: standard
+  simulator: rime
+  offline: false
+
+workflow:
+  output_dir: output
+  run_subdir: null
+  result_filename: visibilities
+  result_format: hdf5
+  save_results: true
+  overwrite: false
+  skip_overwrite_confirmation: false
+  prompt_for_output_suffix: false
+  plot_results: false
+  open_plots_in_browser: false
+  plotting_backend: bokeh
+  save_log: false
+  angle_unit: ''
+  sky_model_frequency_hz: null

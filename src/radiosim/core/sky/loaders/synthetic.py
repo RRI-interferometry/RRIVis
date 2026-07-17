@@ -7,7 +7,8 @@ maps are generated first, then trimmed to the requested sky region.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -67,8 +68,7 @@ def load_test_sources(
     dec_range_deg: float | None = None,
     representation: str = "point_sources",
     nside: int = 64,
-    frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
+    frequencies: Sequence[float] | np.ndarray | None = None,
     reference_frequency: float | None = None,
     brightness_conversion: str = "planck",
     *,
@@ -81,10 +81,9 @@ def load_test_sources(
     provenance: SkyProvenance | None = None,
 ) -> SkyModel:
     """Generate synthetic test sources in point or HEALPix form."""
-    from radiosim.utils.frequency import parse_frequency_config
-
     from ..operations.factories import create_test_sources
     from ..operations.operations import materialize_healpix_model
+    from ..support.frequencies import validate_observation_frequencies
 
     brightness = BrightnessConversion(brightness_conversion)
     flux_range = (
@@ -116,13 +115,16 @@ def load_test_sources(
 
     target = _coerce_format(representation)
     if target == SkyFormat.HEALPIX:
-        if frequencies is None and obs_frequency_config is not None:
-            frequencies = parse_frequency_config(obs_frequency_config)
-        ref_frequency = reference_frequency or (
-            float(frequencies[0])
-            if frequencies is not None and len(frequencies) > 0
-            else None
+        if frequencies is None:
+            raise ValueError(
+                "load_test_sources requires explicit 'frequencies' in Hz for "
+                "HEALPix output."
+            )
+        frequencies = validate_observation_frequencies(
+            frequencies,
+            label="load_test_sources frequencies",
         )
+        ref_frequency = reference_frequency or float(frequencies[0])
         if ref_frequency is not None:
             # Record the reference frequency as metadata (the synthesized
             # fluxes are already defined at it) — not a flux re-anchor.
@@ -131,7 +133,6 @@ def load_test_sources(
             sky,
             nside=nside,
             frequencies=frequencies,
-            obs_frequency_config=obs_frequency_config,
             ref_frequency=ref_frequency,
             memmap_path=memmap_path,
             clear_other=True,
@@ -240,8 +241,7 @@ def load_poisson_confusion(
     region: SkyRegion | None = None,
     representation: str = "point_sources",
     nside: int = 64,
-    frequencies: np.ndarray | None = None,
-    obs_frequency_config: dict[str, Any] | None = None,
+    frequencies: Sequence[float] | np.ndarray | None = None,
     seed: int | None = None,
     spectral_index_dist: tuple[float, float] = DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
     brightness_conversion: str = "planck",
@@ -274,7 +274,7 @@ def load_poisson_confusion(
         Optional :class:`SkyRegion` restricting the position draw.
     representation
         ``"point_sources"`` (default) or ``"healpix_map"``.
-    nside, frequencies, obs_frequency_config
+    nside, frequencies
         Forwarded to :func:`materialize_healpix_model` when
         ``representation == "healpix_map"``.
     seed
@@ -412,12 +412,11 @@ def load_poisson_confusion(
 
     target = _coerce_format(representation)
     if target == SkyFormat.HEALPIX:
-        if frequencies is None and obs_frequency_config is not None:
-            from radiosim.utils.frequency import parse_frequency_config
-
-            frequencies = parse_frequency_config(obs_frequency_config)
         if frequencies is None:
-            frequencies = np.asarray([float(reference_frequency)])
+            raise ValueError(
+                "load_poisson_confusion requires explicit 'frequencies' in Hz "
+                "for HEALPix output."
+            )
         sky = materialize_healpix_model(
             sky,
             nside=nside,
