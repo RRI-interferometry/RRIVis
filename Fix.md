@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate independently accepted on 2026-07-17; Tier 2 implementation not started; remote CI not yet observed |
+| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A independently accepted on 2026-07-18; Tier 2B not started; remote CI not yet observed |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -2015,3 +2015,36 @@ stop boundary in `Tier2InstrumentPlan.md`; Tier 2B and production work cannot
 start until 2A is independently accepted. Remote CI, optional GPU hardware,
 external scientific-network behavior, the full suite, Pyright, and Sphinx were
 not rerun or claimed for this planning-only gate.
+
+### 2026-07-18 Tier 2A independent acceptance
+
+**Decision:** Tier 2A is independently accepted without correction. The review traced
+implementation commit `b7f0dc9f10244d5e6d452407bc9fdb5cd8b8f2f7` against its
+parent, the live antenna, baseline, point/HEALPix, Simulator, observability,
+visualization, memory, result/save, and Measurement Set writer paths, and every source
+and consumer in `Tier2InstrumentPlan.md` sections 4–6. The commit adds exactly the
+three approved characterization modules, comprising 1,122 test-only lines, 30 test
+functions, and 46 collected cases. No production, configuration, documentation, plan,
+CI, dependency, lock, or existing-test file changed.
+
+All six legacy readers, duplicate/malformed behavior, formatter mutability, uniform
+diameter overwrite, mutable public/result aliases, complete sorted auto/cross baseline
+inventory, exact `position(ant2)-position(ant1)` direction, negative point/HEALPix
+phase, current point/HEALPix/observability/writer diameter fallbacks, dead opaque
+baseline strings, visualization and count-only memory consumers, and both Measurement
+Set missing-vector fallback branches have direct proving evidence. Fakes isolate only
+dependency or side-effect boundaries; fixtures use temporary paths; the tests require
+no network, physical GPU, browser, persistent output, or user cache. No skip or xfail
+was added, no future Tier 2 behavior is asserted, and no minor correction was needed.
+
+Fresh focused runs passed all 46 cases without skips or warnings on Python 3.11.13 and
+3.12.13. The 191-case combined boundary reported 190 passed, 1 existing optional-data
+skip, and 4 existing warnings on Python 3.11; Python 3.12 reported 189 passed, 2
+existing optional JAX/data skips, and the same 4 warnings. Ruff lint passed, all 256
+files passed Ruff's format check, and staged/unstaged Git whitespace checks passed. The
+full suite, Pyright, Sphinx, remote CI, external-network behavior, and physical GPU
+hardware were not run or claimed.
+
+INS-001, INS-002, and INS-003 remain **OPEN** until Tier 2 completes through 2H. Tier
+2B has not started; it is now the next authorized implementation slice and belongs to
+a fresh task under its own stop and acceptance gates.

@@ -7,22 +7,26 @@
 | Repository | `RadioSim` |
 | Design date | 2026-07-17 |
 | Planning baseline commit | `fd461c180cd9eb8180d4458740a3eb2d5ab4f3fd` |
-| Independent-review baseline commit | `96e9fc502695c641df8e628cdec1edca1908c96c` |
+| Independent design-review baseline commit | `96e9fc502695c641df8e628cdec1edca1908c96c` |
+| Tier 2A implementation commit | `b7f0dc9f10244d5e6d452407bc9fdb5cd8b8f2f7` |
+| Tier 2A independently reviewed commit | `b7f0dc9f10244d5e6d452407bc9fdb5cd8b8f2f7` |
+| Tier 2A independent-review date | 2026-07-18 |
 | Baseline `origin/main` | `f9ee87a5c1d4987fac1ee671d2c07711bcac8a41` |
-| Review branch | `main`, two commits ahead of `origin/main` |
-| Review-start working tree | untracked `Tier1ConfigPlan.md`; nothing staged |
+| Tier 2A review-start branch | `main`, four commits ahead of `origin/main` |
+| Tier 2A review-start working tree | untracked `Tier1ConfigPlan.md`; nothing staged |
 | Tier 1 status | Locally complete and independently accepted |
 | Tier 2 issues | INS-001, INS-002, and INS-003 remain open |
-| Gate status | Independently accepted on 2026-07-17 after minor source-derived corrections |
-| Implementation status | Not started |
+| Gate status | Design independently accepted on 2026-07-17; Tier 2A independently accepted on 2026-07-18 |
+| Implementation status | In progress: Tier 2A accepted; Tier 2B not started |
 | Remote CI | Unobserved |
 
 This document is the single implementation contract for Tier 2. It selects one
 architecture and leaves no product, public-API, data-model, coordinate-frame,
 precedence, or scientific-selection decision open. The independent review accepted
-this gate on 2026-07-17. Tier 2 implementation still has not started; the only next
-authorized implementation task is Tier 2A characterization, under its own exact stop
-boundary and acceptance gate.
+this gate on 2026-07-17. Tier 2A's test-only characterization commit was independently
+accepted on 2026-07-18 without correction. Tier 2 is now in progress; Tier 2B is the
+next authorized implementation slice, under its own exact stop boundary and acceptance
+gate, and has not started.
 
 ## 2. Decision and scope
 
@@ -1267,6 +1271,9 @@ flowchart LR
 
 ### Tier 2A — Characterization and contract tests
 
+- **Status:** Implemented in
+  `b7f0dc9f10244d5e6d452407bc9fdb5cd8b8f2f7` and independently accepted on
+  2026-07-18 without correction; Tier 2B remained unstarted during acceptance.
 - **Objective:** Lock current reader, baseline sign, solver dictionary consumption,
   writer assumptions, and observability diameter behavior before replacement.
 - **Exact files:** add
@@ -1520,9 +1527,9 @@ Every slice must satisfy all of these gates in addition to its specific gate:
 6. An independent reviewer accepts the slice before its dependent slice starts.
 7. The commit is narrow and local; publishing still requires explicit user approval.
 
-2A is the immediate implementation slice only after this design receives independent
-acceptance. 2B cannot start merely because 2A tests are green; its acceptance is a
-separate gate. This rule repeats through 2H.
+Tier 2A is independently accepted. Tier 2B is now the immediate authorized
+implementation slice, but it must run as a separate task and stop for its own
+independent acceptance. This rule repeats through 2H.
 
 ### 29.1 Design-gate verification record
 
@@ -1635,10 +1642,50 @@ probe passed; they changed no repository state. The complete suite, Pyright, Sph
 optional GPU hardware, external scientific network, and remote CI were not rerun or
 claimed for this planning-only acceptance.
 
-This acceptance closes only the Tier 2 design gate. INS-001, INS-002, and INS-003 stay
-open until implemented and verified through 2H. Tier 2A is the immediate next slice;
-Tier 2B and production changes remain forbidden until 2A receives its own independent
-acceptance.
+This acceptance closed only the Tier 2 design gate. INS-001, INS-002, and INS-003
+remained open pending implementation and verification through 2H. Tier 2A was the
+immediate next slice; Tier 2B and production changes remained forbidden until Tier 2A
+received its own independent acceptance.
+
+### 29.3 Tier 2A independent-acceptance record
+
+**Decision: accepted without correction.** On 2026-07-18 an independent source-first
+review evaluated implementation commit
+`b7f0dc9f10244d5e6d452407bc9fdb5cd8b8f2f7` against its parent
+`20f61dea25280584168210de60edc5a02a187bc0`, the live production sources, every
+producer and consumer named in sections 4–6, and the asserted existing-suite evidence.
+The commit adds exactly these three test modules and changes no production,
+configuration, documentation, plan, CI, dependency, lock, or existing-test file:
+
+- `tests/unit/test_core/test_antenna_characterization.py`;
+- `tests/unit/test_core/test_baseline_characterization.py`;
+- `tests/unit/test_io/test_measurement_set_characterization.py`.
+
+The 1,122-line slice defines 30 test functions and collects 46 cases. The review
+confirmed meaningful current-behavior proof for all six readers, their duplicate and
+malformed-input behavior, dispatcher/formatter semantics, Simulator diameter
+destruction and mutable aliases, legacy pair inventory and exact
+`position(ant2)-position(ant1)` sign, point and HEALPix negative phase and diameter
+fallbacks, non-consumption of `Length` and opaque strings by scientific code,
+visualization and memory consumers, observability's scalar fallback, result/save
+surfaces, and the Measurement Set writer's assumptions and two distinct missing-vector
+fallbacks. Dependency and rendering fakes stop at side-effect boundaries and do not
+patch away the RadioSim behavior under proof. Defective behavior is explicitly marked
+as characterization, no future Tier 2 contract is asserted, fixtures remain local to
+`tmp_path`, and the new modules contain no skip or xfail.
+
+Fresh focused results were 46 passed with zero failures, skips, or warnings on both
+Python 3.11.13 and 3.12.13. The combined boundary collected 191 cases in each
+environment: Python 3.11 reported 190 passed, 1 existing optional-data skip, and 4
+existing warnings; Python 3.12 reported 189 passed, 2 existing optional JAX/data skips,
+and the same 4 warnings. Ruff lint passed, Ruff format reported 256 files already
+formatted, and both staged and unstaged Git whitespace checks passed. The full suite,
+Pyright, Sphinx, remote CI, external-network behavior, and physical GPU hardware were
+not run or claimed for this acceptance gate.
+
+No test correction was required. INS-001, INS-002, and INS-003 remain open until Tier
+2 completes through 2H. Tier 2B was not started and is now the next authorized
+implementation slice in a fresh task.
 
 ## 30. Risks and invariants
 
@@ -1716,7 +1763,7 @@ Until then, all three INS issues remain open.
 | Heterogeneous observability | Reject before plot/browser | A single footprint would be scientifically misleading |
 | Compatibility | Direct replacement, no shims | Project is pre-v1 and one coherent API is safer than dual state |
 | Result scope | One additive instrument snapshot and narrow writer adapter | Meets provenance needs without taking Tier 4 ownership |
-| Immediate next task | Tier 2A characterization only | Design is accepted; 2A must stop before schemas, models, resolvers, or fixes |
+| Immediate next task | Tier 2B strict instrument input contract | Tier 2A is independently accepted; 2B must run separately and stop before loaders, models, resolution, or public cutover |
 
 ## 33. Unresolved decisions
 
