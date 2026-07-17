@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate complete and awaiting independent acceptance; Tier 2 implementation not started; remote CI not yet observed |
+| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate independently accepted on 2026-07-17; Tier 2 implementation not started; remote CI not yet observed |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -1974,9 +1974,44 @@ pull request.
 ### 2026-07-17 Tier 2 instrument-resolution design gate
 
 The implementation-ready instrument-and-baseline-resolution architecture is
-recorded in `Tier2InstrumentPlan.md`. The design gate is complete and awaits a
-separate independent review and acceptance. Tier 1 remains locally complete and
+recorded in `Tier2InstrumentPlan.md`. Tier 1 remains locally complete and
 accepted. Tier 2 implementation has not started; INS-001, INS-002, and INS-003
 remain open. Tier 3 and later work remains untouched, and remote CI remains
-unobserved. The next task is the independent Tier 2 design acceptance review,
-not Tier 2A implementation.
+unobserved.
+
+### 2026-07-17 independent Tier 2 design acceptance
+
+**Decision:** the Tier 2 instrument-and-baseline-resolution design is accepted
+for implementation. The independent review traced the plan against the live
+source, all current readers and consumers, the accepted Tier 1 boundary,
+relevant tests, and installed pyuvdata 3.2.1 behavior. It found no material
+architecture, precedence, coordinate, selection-science, lifecycle, output, or
+sequencing defect.
+
+Before acceptance, the review made only minor source-derived corrections: use
+pyuvdata's `2_147_483_647` antenna-number ceiling; disable both known-telescope
+update defaults and let `UVData.new` derive unprojected UVW; align property
+availability with instrument-only resolution/retry behavior; distinguish dense
+dependency diameter arrays from row-level missing values; document the exact
+registry/execution-offline composition, policy provenance, and Astropy
+lock/restoration limitation; add the active CLI migration and legacy I/O
+re-export deletion; define the direct/config-file CLI migration with no hidden
+14-m default; and add internal 2G review checkpoints and tolerance rationale.
+These corrections do not change the selected architecture.
+
+Independent evidence is 144 passed/1 optional-data skip on Python 3.11 and 143
+passed/2 optional JAX/data skips on Python 3.12 from the 145-test focused suite,
+with four existing warnings in each environment. Ruff lint, Ruff format, and
+Git whitespace pass. An offline pyuvdata construction probe confirms ENU/ECEF
+round trip and dependency-derived UVW within `2.12e-10 m`, unprojected phase
+semantics, Astropy setting restoration, and the identifier ceiling. All seven
+Mermaid blocks are structurally paired; Mermaid CLI was unavailable, so no
+raster-render result is claimed.
+
+This accepts only the design gate. No production code or Tier 2A test was added.
+INS-001, INS-002, and INS-003 remain **OPEN** until implementation completes
+through 2H. The next authorized task is Tier 2A characterization only, with the
+stop boundary in `Tier2InstrumentPlan.md`; Tier 2B and production work cannot
+start until 2A is independently accepted. Remote CI, optional GPU hardware,
+external scientific-network behavior, the full suite, Pyright, and Sphinx were
+not rerun or claimed for this planning-only gate.

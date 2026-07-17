@@ -6,21 +6,23 @@
 |---|---|
 | Repository | `RadioSim` |
 | Design date | 2026-07-17 |
-| Baseline commit | `fd461c180cd9eb8180d4458740a3eb2d5ab4f3fd` |
+| Planning baseline commit | `fd461c180cd9eb8180d4458740a3eb2d5ab4f3fd` |
+| Independent-review baseline commit | `96e9fc502695c641df8e628cdec1edca1908c96c` |
 | Baseline `origin/main` | `f9ee87a5c1d4987fac1ee671d2c07711bcac8a41` |
-| Baseline branch | `main`, one commit ahead of `origin/main` |
-| Initial working tree | untracked `Fix.md` and `Tier1ConfigPlan.md`; nothing staged |
+| Review branch | `main`, two commits ahead of `origin/main` |
+| Review-start working tree | untracked `Tier1ConfigPlan.md`; nothing staged |
 | Tier 1 status | Locally complete and independently accepted |
 | Tier 2 issues | INS-001, INS-002, and INS-003 remain open |
-| Gate status | Complete; awaits independent review and acceptance |
+| Gate status | Independently accepted on 2026-07-17 after minor source-derived corrections |
 | Implementation status | Not started |
 | Remote CI | Unobserved |
 
 This document is the single implementation contract for Tier 2. It selects one
 architecture and leaves no product, public-API, data-model, coordinate-frame,
-precedence, or scientific-selection decision open. No Tier 2 implementation may
-start until an independent review accepts this gate. The next task is that review,
-not Tier 2A.
+precedence, or scientific-selection decision open. The independent review accepted
+this gate on 2026-07-17. Tier 2 implementation still has not started; the only next
+authorized implementation task is Tier 2A characterization, under its own exact stop
+boundary and acceptance gate.
 
 ## 2. Decision and scope
 
@@ -82,7 +84,11 @@ combination semantically.
 
 `Simulator.from_parameters()` exposes separate file path, file format, uniform
 diameter, and location arguments. Configuration resolution freezes those values but
-does not read or resolve instrument content.
+does not read or resolve instrument content. The direct `radiosim simulate` command
+constructs that path with a fixed `radiosim` format and a hidden `14.0 m` diameter;
+it has no telescope-identity or baseline-selection option. Config-file mode also has
+an `--antenna-file` path-only override whose behavior must become source-aware once the
+top-level source is discriminated.
 
 ### 4.2 Current antenna representation
 
@@ -124,6 +130,9 @@ reader calls it. Tier 2 removes it rather than building on it.
 The native reader detects optional headers but still relies on fixed positional
 columns; CASA and the three-column text reader silently skip some malformed rows; and
 MS/UVFITS use `zip(..., strict=False)`, which can truncate inconsistent metadata arrays.
+Those readers also use attribute existence to decide whether diameters are available,
+but pyuvdata always exposes the parameter and may set it to `None`; the current `zip`
+then raises instead of representing an all-missing diameter source.
 All retained Tier 2 parsers instead reject a malformed row or length mismatch with a
 stable source-record location.
 
@@ -168,8 +177,14 @@ the Measurement Set writer. `Simulator.baselines` exposes the mutable internal o
 
 Both phase implementations agree with the present sign:
 `exp(-2*pi*i*(position(ant2)-position(ant1)) dot direction / wavelength)`.
-The Measurement Set writer, however, treats the ENU baseline vector as if it were
-time-dependent UVW, which is a separate representation error.
+The Measurement Set writer manually overwrites pyuvdata-derived UVW with the ENU
+baseline vector and then assigns phase-centre-like attributes without performing a
+pyuvdata phase operation. In installed pyuvdata 3.2.1, the default unprojected state
+does legitimately represent UVW as ENU and can therefore produce the same numbers;
+the defect is bypassing dependency-owned UVW construction and leaving phase semantics
+implicit, not that an ENU-valued UVW is always wrong. Tier 2 preserves the existing
+unprojected/drift-scan boundary and lets pyuvdata derive UVW. Time-dependent phased
+UVW and phase-centre redesign remain Tier 4.
 
 ## 5. Current consumer graph
 
@@ -278,12 +293,12 @@ normalization. Numerical closeness is a validation/conversion concern, not equal
 
 | Type | Exact fields | Status and semantics |
 |---|---|---|
-| `AntennaId` | `number: int`; `name: str` | Public, required, hashable identity. Number is non-negative; name is normalized and unique. |
+| `AntennaId` | `number: int`; `name: str` | Public, required, hashable identity. Number is in `0..2_147_483_647`; name is normalized and unique. |
 | `AntennaFieldSource` | enum values `explicit_config`, `explicit_override`, `layout_file`, `embedded_dataset`, `known_telescope`, `generated`, `config_default` | Public serialized source vocabulary. It records origin, not precedence logic. |
 | `ResolvedEarthLocation` | `longitude_deg: float`; `latitude_deg: float`; `height_m: float`; `itrs_xyz_m: tuple[float, float, float]`; `source: AntennaFieldSource`; `reference: str` | Public Earth-only location. Longitude is normalized to `[-180,180)` and latitude is `[-90,90]`. `reference` is the config/source locator. |
 | `AntennaProvenance` | `identity_source: AntennaFieldSource`; `position_source: AntennaFieldSource`; `diameter_source: AntennaFieldSource`; `source_diameter_m: float | None`; `mount_source: AntennaFieldSource | None`; `beam_id_source: AntennaFieldSource | None`; `source_record: str` | Public per-antenna field origins. `source_diameter_m` preserves the selected source fact even when an override wins. `source_record` is a stable row/index/name locator, never an object repr. |
 | `ResolvedAntenna` | `id: AntennaId`; `position_enu_m: tuple[float, float, float]`; `diameter_m: float`; `mount_type: str | None`; `beam_id: int | str | None`; `provenance: AntennaProvenance` | Public canonical antenna. Position is East, North, Up metres relative to `ResolvedEarthLocation`. Mount and BeamID are inert. Feed metadata is absent. |
-| `InstrumentProvenance` | `schema_version: str`; `source_kind: str`; `source_reference: str`; `source_format: str | None`; `telescope_name_source: AntennaFieldSource`; `location_source: AntennaFieldSource`; `source_location_itrs_xyz_m: tuple[float, float, float] | None`; `location_separation_m: float | None`; `pyuvdata_version: str | None`; `source_sha256: str | None`; `instrument_sha256: str` | Public inventory provenance. `schema_version` is initially `radiosim.instrument.v1`. `source_reference` is the resolved absolute path or canonical requested known name. A local single file has a content hash; known-telescope provenance has package version and name. |
+| `InstrumentProvenance` | `schema_version: str`; `source_kind: str`; `source_reference: str`; `source_format: str | None`; `registry_policy: str | None`; `telescope_name_source: AntennaFieldSource`; `location_source: AntennaFieldSource`; `source_location_itrs_xyz_m: tuple[float, float, float] | None`; `location_separation_m: float | None`; `pyuvdata_version: str | None`; `source_sha256: str | None`; `instrument_sha256: str` | Public inventory provenance. `schema_version` is initially `radiosim.instrument.v1`. `source_reference` is the resolved absolute path or canonical requested known name. `registry_policy` is the exact known-telescope policy and otherwise `None`. A local single file has a content hash; known-telescope provenance has package version and name. |
 | `ResolvedInstrument` | `name: str`; `location: ResolvedEarthLocation`; `antennas: tuple[ResolvedAntenna, ...]`; `provenance: InstrumentProvenance` | Public canonical inventory, sorted by antenna number. It is the single owner-visible source of telescope, location, positions, diameters, and inert metadata. |
 
 `InstrumentProvenance.instrument_sha256` is SHA-256 over canonical UTF-8 JSON of the
@@ -305,12 +320,15 @@ The owning private `ResolvedInstrumentState` has exactly:
   `by_name: Mapping[str, ResolvedAntenna]`, each an internally created
   `MappingProxyType` over a new dictionary.
 
-It lives from the first successful setup through the Simulator lifetime. A failed
-resolution is never assigned. `Simulator.instrument` returns `ResolvedInstrument`;
+It lives from the first successful instrument-resolution phase through the Simulator
+lifetime, whether that phase is entered by full `setup()` or by instrument-only
+observability/layout preparation. A failed instrument resolution is never assigned.
+`Simulator.instrument` returns `ResolvedInstrument`;
 `Simulator.antennas` returns its immutable antenna tuple; `Simulator.baselines` returns
-the immutable selected baseline tuple. Before successful setup all three raise the
-same `RuntimeError("Simulator setup has not completed")`. No legacy serialized
-dictionary is exposed.
+the immutable selected baseline tuple. Before `_instrument_state` exists all three
+raise the same `RuntimeError("Instrument resolution has not completed")`. They remain
+available after a later backend/sky setup failure because the complete immutable
+instrument phase is retained for retry. No legacy serialized dictionary is exposed.
 
 Solver adapters allocate fresh float64 arrays and integer index arrays from this
 state, set `writeable=False`, and remain private to the solver setup. They never share
@@ -355,7 +373,7 @@ classDiagram
     }
     ResolvedInstrument "1" *-- "1..*" ResolvedAntenna
     ResolvedInstrumentState "1" *-- "1" ResolvedInstrument
-    ResolvedInstrumentState "1" *-- "0..*" ResolvedBaseline
+    ResolvedInstrumentState "1" *-- "1..*" ResolvedBaseline
     ResolvedInstrumentState "1" *-- "1" ResolvedBaselineSelection
     ResolvedBaselineSelection "1" *-- "1..*" ResolvedBaseline
     ResolvedBaseline --> ResolvedAntenna : "references by AntennaId"
@@ -397,12 +415,19 @@ at most `1.0 m`. When both exist and pass, explicit location is canonical and ab
 ECEF antenna coordinates are reprojected about it. A greater separation is
 `InstrumentLocationMismatchError`; there is no quiet override.
 
+The `1.0 m` value is a metadata-conflict threshold, not a coordinate-conversion
+tolerance: it permits independently rounded descriptions of the same array reference
+while rejecting an actual relocation. The exact source and explicit ITRS positions and
+their measured separation remain in provenance. Numerical conversion correctness is
+held to the separate `1e-6 m` round-trip threshold below.
+
 Reference tests use published/constructed Earth locations and compare conversion and
 round-trip ECEF coordinates within `1e-6 m` absolute per component. Generation rejects
 non-finite values. Two distinct antennas whose ENU separation is at most `1e-9 m`
 cause `CoincidentAntennaError` during cross-baseline generation. That numerical
-tolerance treats file noise below a nanometre as the same physical position while not
-conflating realistic arrays.
+tolerance is an effectively-exact duplicate-position guard after float64 normalization,
+not a claim that RadioSim has nanometre physical resolution; it does not conflate
+realistic arrays.
 
 ## 11. Tier 2 input schema
 
@@ -429,7 +454,7 @@ instrument:
   diameter_overrides:
     - antenna:
         kind: number
-        number: non-negative-integer
+        number: integer-in-0..2_147_483_647
       diameter_m: positive-finite-number
     - antenna:
         kind: name
@@ -467,7 +492,33 @@ remaining focused Tier 1 runtime parameters. It does not expand path, format,
 diameter, location, or override lists into convenience scalars. File, parameters, and
 CLI still converge on the same frozen input and instrument resolver.
 
-### 11.1 Exact baseline input types
+### 11.1 Exact CLI migration
+
+Config-file mode accepts the complete `instrument` and `baseline_selection` YAML
+contract. Its existing root `--antenna-file PATH` remains a path-only override for a
+configured `source.kind: layout_file`, preserving the configured format, identity,
+location, and diameter policy. Using that override with `known_telescope` raises a
+`ConfigOverrideError` before any loader or backend work; it never changes the source
+kind implicitly.
+
+The direct `radiosim simulate` command remains intentionally narrower than YAML:
+
+- `--antenna-layout PATH` selects `layout_file` with format `radiosim`;
+- new required `--telescope-name NAME` supplies the local-source identity;
+- new optional `--default-diameter-m POSITIVE_FLOAT` has no implicit default; if it is
+  omitted, the file must supply every diameter;
+- new `--correlations all|cross|auto` defaults to `all`;
+- the existing required longitude/latitude/height options supply the explicit Earth
+  location.
+
+Known-telescope and other retained file formats, diameter overrides, and length/azimuth
+filters use config-file mode. The direct command does not grow JSON-like repeatable
+options for those nested discriminated types. Its help and epilog show the required
+telescope name and an explicit `--default-diameter-m 14` in the migrated local-layout
+example, eliminating the current hidden physical fallback. Both CLI modes construct
+the same frozen inputs used by mapping/YAML/Python entry points.
+
+### 11.2 Exact baseline input types
 
 - `correlations: Literal["all", "cross", "auto"] = "all"`;
 - `length_filter: LengthTargetsConfig | LengthRangesConfig | None = None`;
@@ -531,14 +582,17 @@ Known telescope names can be returned by `known_telescopes()`, but that function
 combines a set of packaged names and Astropy site-registry names. Its order is
 nondeterministic and its membership may depend on cache/registry state. RadioSim
 therefore neither prevalidates by enumeration nor lists registry-derived choices in
-Tier 2 CLI/help. The CLI accepts a nonblank string; validity is determined by an
-attempted load.
+Tier 2 CLI/help. Config-file mode accepts a nonblank name string; validity is determined
+by an attempted load.
 
 The loader returns EarthLocation, string-like NumPy name arrays, integer number arrays,
 float64 relative-ECEF positions, optional float diameter arrays, and mount metadata.
 Feeds may be absent and are out of scope. A locally loaded HERA object had 350 antennas,
 14-metre diameters, fixed mounts, and relative-ECEF positions. `antenna_diameters` can
-be `None`. Unknown names raise `ValueError`; RadioSim maps only the known “not in
+be `None`, which means all source diameters are missing. If the dense dependency array
+is present it must have exactly `Nants` entries and every entry must be finite and
+positive; NaN is invalid, not a per-row missing-value marker. Unknown names raise
+`ValueError`; RadioSim maps only the known “not in
 astropy_sites or known_telescopes_dict” condition to `TelescopeNotFoundError`, while
 other validation failures become `InstrumentSourceError` with exception chaining.
 
@@ -546,11 +600,26 @@ Known loading can consult Astropy's site registry, cache, and optional download 
 `KnownTelescopeSourceConfig` therefore includes
 `registry_policy: Literal["offline", "allow_network"] = "offline"`. In offline mode,
 the adapter temporarily sets Astropy data access to disallow internet under a private
-module lock, calls the loader, and restores the prior setting in `finally`. This is the
-only planned process-global interaction and it is serialized and scoped. In
+module-level `threading.RLock`, calls the loader, and restores the exact prior setting
+in `finally`, including nested/re-entrant RadioSim calls. This is the only planned
+process-global interaction. The lock serializes RadioSim adapter calls; unrelated
+third-party Astropy calls do not share it and can observe the temporary offline value,
+so that narrow concurrency limitation is documented rather than hidden. In
 `allow_network` mode, setup may consult the registry after instrument input has passed
 pure validation, and provenance records the policy. Unit tests inject a
-`KnownTelescopeLoader` protocol and never import network state or call a real registry.
+`KnownTelescopeLoader` protocol. Dedicated guard tests inspect only the local Astropy
+configuration value and injected loader calls; no test calls a real registry or
+network endpoint.
+
+Tier 1's `execution.offline` remains the application-wide no-network user promise. The
+policy matrix is exact: source `offline` always stays offline; source `allow_network`
+is valid only when `execution.offline` is false. The combination
+`execution.offline=true` plus
+`registry_policy=allow_network` is a `ConfigSemanticError` during pure configuration
+resolution, before any loader or backend work. `execution.offline=false` (including
+CLI `--online`) permits but does not force registry access, so it never upgrades a
+source policy from `offline`. The recorded registry policy is therefore also the
+effective policy, with no silent override.
 
 The production dependency is imported lazily inside source adapters. Missing pyuvdata
 or a format backend maps to `OptionalInstrumentDependencyError` with the format and
@@ -559,9 +628,11 @@ injectable `DatasetTelescopeLoader`; they extract `uvd.telescope` and never rout
 through the known-telescope adapter.
 
 No RadioSim-level process cache is added. A successful `Simulator.setup()` retains its
-one resolved state and repeated setup returns it by identity. A failed setup retains
-nothing and a retry performs a fresh load. Any cache inside pyuvdata/Astropy is
-dependency-owned and is reported only where it changes the registry policy/source.
+one resolved state and repeated setup returns it by identity. Failed instrument
+resolution retains nothing and a retry performs a fresh load; failure after the
+instrument phase retains that complete state and follows the section 19 retry boundary.
+Any cache inside pyuvdata/Astropy is dependency-owned and is reported only where it
+changes the registry policy/source.
 
 ## 14. Field-level precedence matrix
 
@@ -597,9 +668,11 @@ as defined by the Telescope contract; the normalized final inventory is re-sorte
 
 ## 15. Identifier normalization
 
-Canonical number is always a non-negative Python `int`; booleans, fractional values,
-negative values, and values outside the platform-independent signed 64-bit range are
-rejected. Canonical name is required, Unicode NFC-normalized, stripped of leading and
+Canonical number is always a non-negative Python `int` no greater than
+`2_147_483_647`; booleans, fractional values, negative values, and larger values are
+rejected. This upper bound is the installed pyuvdata baseline-encoding limit and makes
+the promise to preserve canonical numbers through the Tier 2 Measurement Set adapter
+enforceable. Canonical name is required, Unicode NFC-normalized, stripped of leading and
 trailing whitespace, non-empty, and case-sensitive. Two names that normalize to the
 same exact string are duplicates. Both number and name must be unique across the
 inventory.
@@ -648,8 +721,10 @@ The algorithm is fixed:
 7. Store the winning float and `AntennaFieldSource` in the frozen antenna/provenance.
 
 This is substantively `explicit per-antenna override > selected source > configured
-default`. There is no boolean switch. Partial source diameter arrays are legal only
-when missing entries can be completed. Source mismatches are retained in provenance:
+default`. There is no boolean switch. Row-oriented local formats may have partial
+source diameters only when explicit missing entries can be completed. Dense pyuvdata
+Telescope arrays are either `None` (all missing) or complete and valid; they never use
+NaN as missing. Source mismatches are retained in provenance:
 an override may intentionally replace a valid source value, and both the winning
 source and source-record identity remain visible in the snapshot.
 
@@ -802,9 +877,10 @@ flowchart TD
     SOL --> OUT["Explicit result save, plot, or writer calls"]
 ```
 
-`setup()` resolves instrument, all baselines, selection, indexes, and solver adapters
-into local variables. It assigns `_instrument_state` only after the entire instrument
-and selection phase succeeds. Later setup failure clears later partial runtime fields
+`setup()` resolves instrument, all baselines, selection, and indexes into local
+variables. It assigns `_instrument_state` only after that entire phase succeeds. Solver
+adapters are then derived from the assigned immutable state without mutating it. Later
+setup failure clears later partial runtime fields
 but retains the already complete immutable instrument state for deterministic retry;
 `_is_setup` remains false. No config object is rewritten.
 
@@ -902,10 +978,18 @@ array shape, time/correlation storage, or JSON visibility behavior. The Measurem
 writer's public inputs become `instrument: ResolvedInstrument` and
 `selection: ResolvedBaselineSelection` rather than legacy dictionaries. Its narrow
 adapter preserves canonical antenna names/numbers/diameters, converts canonical ENU
-positions to the relative-ECEF representation expected by `Telescope.new`, and calls
-`UVData.set_uvws_from_antenna_positions(update_vis=False)` for the existing times
-rather than labeling static ENU baselines as UVW. All broader
-MS round-trip, result, time-grid, and correlation redesign remains Tier 4. UVFITS output
+positions to the relative-ECEF representation expected by `Telescope.new`, and passes
+`update_from_known=False` so explicit canonical metadata cannot be filled or replaced
+from a registry. It passes that Telescope to
+`UVData.new(..., update_telescope_from_known=False)`, whose installed public
+construction path derives
+UVW from the antenna positions for the default unprojected state. The adapter neither
+overwrites `uvw_array` nor redundantly calls
+`UVData.set_uvws_from_antenna_positions()`. The existing
+`write_ms(force_phase=True)` zenith-at-first-timestamp write behavior is retained;
+the ineffective `phase_center_ra`/`phase_center_dec` arguments and attribute assignments
+are removed rather than presented as phasing. Explicit phase-centre/time-dependent UVW,
+MS round-trip, result, time-grid, and correlation redesign remain Tier 4. UVFITS output
 is not added.
 
 The existing result mapping is not replaced in Tier 2. Its `antennas` value becomes the
@@ -1003,14 +1087,17 @@ top-level configuration accepts both old and new spellings.
 | selective-length boolean/list/tolerance fields | tagged `length_filter` | 2G |
 | trim-angle boolean/ranges | `azimuth_ranges_deg` | 2G |
 | `Simulator.from_parameters()` layout/format/diameter/location scalars | typed `instrument` and `baseline_selection` objects | 2G |
+| direct `simulate` fixed `radiosim` format and hidden 14-m diameter | explicit local identity/default-diameter/correlation flags in section 11.1; richer sources use config mode | 2G |
+| config-mode `--antenna-file` path override | layout-source-only path override; reject for `known_telescope` | 2G |
 | no canonical instrument property | add `Simulator.instrument: ResolvedInstrument` | 2C/2G |
 | `Simulator.antennas` mutable dict | `tuple[ResolvedAntenna, ...]` plus `Simulator.instrument` | 2C/2G |
 | `Simulator.baselines` mutable dict | `tuple[ResolvedBaseline, ...]` | 2F/2G |
-| pre-setup `antennas`/`baselines` return `None` | all three resolved-state properties raise `RuntimeError("Simulator setup has not completed")` | 2G |
+| pre-resolution `instrument`/`antennas`/`baselines` are unavailable or `None` | all three properties raise `RuntimeError("Instrument resolution has not completed")` until instrument state exists, including the instrument-only observability path | 2G |
 | public `read_antenna_positions()` | internal source-loader registry; canonical public state | 2D/2H |
 | public `generate_baselines()` legacy dictionary | canonical generator returning frozen models | 2F/2H |
 | opaque baseline fields | antenna references and typed baseline fields | 2F/2H |
 | `write_measurement_set(..., antennas=dict, baselines=dict)` | typed `instrument` and `selection` arguments | 2G/2H |
+| ineffective MS `phase_center_ra`/`phase_center_dec` arguments | preserve current zenith-at-first-time write behavior; explicit phasing remains Tier 4 | 2G |
 | config-only result metadata | additive `instrument_resolution` snapshot | 2G |
 
 Focused YAML examples, CLI help, API examples, and the Tier 2 migration page change in
@@ -1037,6 +1124,7 @@ The following implementation artifacts are removed or made private by the end of
 - fake `"gaussian"` per-antenna beam maps used only to build opaque strings;
 - old config fields, literals, validators, runtime fields, and convenience arguments;
 - writer-generated names and writer diameter fallbacks;
+- manual MS UVW overwrite and ineffective phase-centre attribute assignments;
 - docs/tests/samples importing or asserting the old public shapes.
 
 Mount metadata remains inert and typed. `BeamID` remains inert only for native
@@ -1082,6 +1170,8 @@ external scientific network, or mutable global fixture is required.
 **Antenna identity**
 
 - duplicate numbers and duplicate NFC-normalized names fail;
+- antenna numbers `0` and `2_147_483_647` pass, while booleans, fractional values,
+  negatives, and `2_147_483_648` fail before writer construction;
 - missing identifiers fail for sources that require them;
 - only `casa_loc` generates deterministic row numbers/names and records `generated`;
 - mixed tagged name/number overrides resolve exactly, while an unknown reference or
@@ -1111,10 +1201,13 @@ external scientific network, or mutable global fixture is required.
 
 - fake `Telescope.new`-compatible object success with string/int/float arrays;
 - injected known-telescope success and unknown-name mapping;
-- `antenna_diameters=None`, partial invalid diameters, duplicate IDs, non-Earth
-  location, and location mismatch;
+- `antenna_diameters=None`, dense-array length mismatch/NaN/invalid diameters,
+  duplicate IDs, non-Earth location, and location mismatch;
 - optional dependency error and MS/UVFITS metadata-only call assertion;
-- offline policy prevents network and restores Astropy setting on success/failure;
+- offline policy prevents network, serializes re-entrant adapter calls, and restores
+  the exact Astropy setting on success/failure;
+- global execution-offline/source-policy combinations implement the exact reject/
+  permit-without-upgrade matrix;
 - no test enumerates or downloads the live registry.
 
 **Baseline generation**
@@ -1143,8 +1236,9 @@ external scientific network, or mutable global fixture is required.
   boundary;
 - point/HEALPix consume identical IDs/vectors/diameters;
 - HDF5/JSON snapshot is deterministic, JSON-safe, and fingerprinted;
-- MS adapter preserves canonical identity/location/diameter and derives UVW through
-  pyuvdata;
+- MS adapter preserves canonical identity/location/diameter, disables both known-
+  telescope update defaults, derives UVW through `UVData.new`, performs no manual UVW
+  overwrite, and retains the existing force-phase-on-write boundary;
 - all sample migrations validate and removed imports/config/public shapes fail.
 
 **Compatibility environments**
@@ -1311,6 +1405,7 @@ flowchart LR
   `src/radiosim/io/config_resolution.py`,
   `src/radiosim/core/runtime_config.py`,
   `src/radiosim/api/simulator.py`,
+  `src/radiosim/cli/main.py`,
   `src/radiosim/simulator/base.py`,
   `src/radiosim/simulator/rime.py`,
   `src/radiosim/core/visibility.py`,
@@ -1355,8 +1450,9 @@ flowchart LR
   `docs/user_guide/instrument_resolution.rst`, `docs/api/core.rst`,
   `docs/api/io.rst`, `docs/api/simulator.rst`, and
   `tests/unit/test_tier1h_documentation.py`.
-- **Tests first:** exact schema and migration errors, lifecycle/early-failure/atomic
-  retry, immutable public
+- **Tests first:** exact schema and migration errors; config-mode layout override and
+  known-source rejection; direct-CLI telescope/diameter/correlation construction with
+  no hidden 14-m default; lifecycle/early-failure/atomic retry; immutable public
   properties, adapter array ownership, point/HEALPix heterogeneous parity and no 14-m
   fallback, uniform observability success/heterogeneous early rejection, deterministic
   result snapshot, MS identity/diameter/ECEF/UVW behavior, and no Tier 4 result change.
@@ -1366,6 +1462,12 @@ flowchart LR
   schema, convenience API, and setup path; move backend after instrument selection;
   make properties typed; remove setup mutation and solver/writer fallbacks; add one
   snapshot. Old and new config spellings are never accepted together.
+- **Internal review checkpoints:** while the slice remains one uncommitted public
+  cutover, review in order: (1) schema/runtime/CLI activation and early lifecycle,
+  (2) solver/plot/observability adapters, (3) result/MS writers, and (4) shipped
+  examples/docs plus old-symbol guards. Run the affected direct tests after each
+  checkpoint. No checkpoint is accepted or committed independently, and no temporary
+  compatibility surface may make an intermediate state look complete.
 - **Verification:** all affected direct modules on both Pythons, non-slow unit suite,
   all shipped YAML validation, script/notebook smokes, Sphinx build/classification,
   no-network assertions, lint, format, Pyright ceiling, and whitespace.
@@ -1382,8 +1484,8 @@ flowchart LR
   tests, then prove Tier 2 as a complete coherent replacement.
 - **Exact files:**
   `src/radiosim/__init__.py`, `src/radiosim/core/__init__.py`,
-  `src/radiosim/io/__init__.py`, delete `src/radiosim/core/antenna.py` and
-  `src/radiosim/core/baseline.py`,
+  `src/radiosim/io/__init__.py`, delete `src/radiosim/io/antenna_readers.py`,
+  `src/radiosim/core/antenna.py`, and `src/radiosim/core/baseline.py`, add
   `tests/unit/test_core/test_tier2_instrument_cleanup.py`, and delete the superseded
   2A-only files `tests/unit/test_core/test_antenna_characterization.py`,
   `tests/unit/test_core/test_baseline_characterization.py`, and
@@ -1484,6 +1586,60 @@ No web source was needed. The complete suite, Pyright, and Sphinx were not rerun
 focused characterization exposed no regression and the task changed only planning
 documents.
 
+### 29.2 Independent design-acceptance record
+
+**Decision: accepted.** On 2026-07-17 an independent source-first review traced the
+plan against the live checkout at `96e9fc502695c641df8e628cdec1edca1908c96c`, the
+accepted Tier 1 boundary, every antenna/baseline reader and consumer, relevant tests,
+and installed pyuvdata 3.2.1 source and public construction behavior. The selected
+architecture, precedence matrix, coordinate contract, baseline sign and selection
+science, lifecycle ordering, provenance boundary, migration sequence, and later-tier
+exclusions are implementation-ready. No material decision was changed and there are no
+unresolved design findings.
+
+The review made these minor source-derived corrections before acceptance:
+
+1. bounded antenna numbers at pyuvdata's proven `2_147_483_647` encoding limit rather
+   than claiming a signed-64-bit writer-compatible namespace;
+2. made the narrow MS adapter disable both registry-update defaults, rely on
+   `UVData.new` for unprojected UVW, retain `force_phase=True`, and remove ineffective
+   phase-centre attributes rather than misclassifying every ENU-valued UVW;
+3. tied public property availability to successful instrument resolution, including
+   instrument-only observability and retained state after a later setup failure;
+4. distinguished dense pyuvdata diameter-array validity from row-oriented missing
+   values, added the selected registry policy to exact provenance, composed it
+   explicitly with Tier 1 execution-offline policy, and documented the exact
+   `threading.RLock` restoration/concurrency boundary;
+5. defined the direct/config-file CLI migration, added the live CLI migration file and
+   legacy I/O re-export deletion, and added internal 2G review checkpoints, non-empty
+   state cardinality, and numeric-tolerance rationale.
+
+Independent focused verification produced:
+
+- Python 3.11: 145 collected, 144 passed, 1 optional-data skip, 4 existing warnings;
+- Python 3.12: 145 collected, 143 passed, 2 optional JAX/data skips, 4 existing
+  warnings;
+- Ruff lint passed; Ruff format reported 253 files already formatted; Git whitespace
+  passed;
+- an offline constructed-geometry probe on pyuvdata 3.2.1 measured maximum ENU/ECEF
+  round-trip and dependency-derived UVW differences of `2.12e-10 m`, confirmed the
+  default `unprojected` phase type, confirmed restoration of Astropy's internet flag,
+  and proved acceptance/rejection at antenna numbers `2_147_483_647`/
+  `2_147_483_648`;
+- all seven Mermaid blocks and all Markdown fences are structurally paired. Mermaid
+  CLI was unavailable, so raster rendering was not claimed.
+
+The first two local writer-probe attempts omitted required dependency inputs
+(`Telescope.instrument`, then an array-shaped time) and failed before the corrected
+probe passed; they changed no repository state. The complete suite, Pyright, Sphinx,
+optional GPU hardware, external scientific network, and remote CI were not rerun or
+claimed for this planning-only acceptance.
+
+This acceptance closes only the Tier 2 design gate. INS-001, INS-002, and INS-003 stay
+open until implemented and verified through 2H. Tier 2A is the immediate next slice;
+Tier 2B and production changes remain forbidden until 2A receives its own independent
+acceptance.
+
 ## 30. Risks and invariants
 
 | Risk | Required control |
@@ -1513,8 +1669,8 @@ following:
   behavior; ambiguous formats are absent;
 - `ResolvedInstrument` is immutable, deterministically ordered, JSON-safe, and the sole
   scientific antenna inventory;
-- every antenna has a unique non-negative number, unique required name, finite ENU
-  position, and finite positive diameter with recorded origin;
+- every antenna has a unique number in `0..2_147_483_647`, unique required name,
+  finite ENU position, and finite positive diameter with recorded origin;
 - known-telescope and dataset sources are distinct, offline-testable, and correctly
   converted from relative ECEF;
 - precedence and all mismatch/missing/duplicate cases implement section 14 exactly;
@@ -1546,7 +1702,7 @@ Until then, all three INS issues remain open.
 | Canonical frame | Right-handed local ENU metres about one Earth location | Matches both phase solvers and yields one unambiguous tuple contract |
 | Location precedence | Explicit wins only after <=1.0-m agreement | Makes intent visible without silently relocating an array |
 | Public inventory | Frozen typed tuple plus private immutable indexes | Deterministic, hashable state without legacy mutable shapes |
-| Identifier rules | Required unique int number and NFC case-sensitive name | Stable pair/reference behavior and explicit override namespaces |
+| Identifier rules | Required unique pyuvdata-encodable int number and NFC case-sensitive name | Stable pair/reference/writer behavior and explicit override namespaces |
 | Generated IDs | `casa_loc` only, deterministic row-based | Preserves a useful local format without general hidden identity invention |
 | Ambiguous formats | Remove pyuvdata text; replace CASA with `casa_loc`; rename MWA | A generic XYZ tuple cannot carry multiple frames safely |
 | Known telescope | Separate setup-phase loader, offline by default | Keeps config pure and makes dependency/global behavior testable |
@@ -1560,7 +1716,7 @@ Until then, all three INS issues remain open.
 | Heterogeneous observability | Reject before plot/browser | A single footprint would be scientifically misleading |
 | Compatibility | Direct replacement, no shims | Project is pre-v1 and one coherent API is safer than dual state |
 | Result scope | One additive instrument snapshot and narrow writer adapter | Meets provenance needs without taking Tier 4 ownership |
-| Immediate next task | Independent design acceptance | Implementation is forbidden until the gate is accepted |
+| Immediate next task | Tier 2A characterization only | Design is accepted; 2A must stop before schemas, models, resolvers, or fixes |
 
 ## 33. Unresolved decisions
 
