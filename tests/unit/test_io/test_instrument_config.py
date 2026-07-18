@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import builtins
-import importlib
 import json
 import socket
+import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,6 @@ from pydantic import TypeAdapter, ValidationError
 
 import radiosim
 import radiosim.io as public_io
-import radiosim.io.instrument_config as instrument_config_module
 from radiosim.io.config import (
     BaselineSelectionConfig as LegacyBaselineSelectionConfig,
 )
@@ -180,6 +180,12 @@ def test_layout_source_rejects_empty_and_environment_paths(path):
         )
 
 
+@pytest.mark.parametrize("path", [b"layout.txt", 1, 1.0, object()])
+def test_layout_source_rejects_non_path_input_types(path):
+    with pytest.raises(ValidationError):
+        LayoutFileSourceConfig.model_validate(_local_source(path=path))
+
+
 def test_layout_source_preserves_tilde_without_resolving(monkeypatch):
     monkeypatch.setenv("HOME", "/must/not/be/used")
 
@@ -313,13 +319,21 @@ def test_instrument_source_discriminator_is_required_and_exclusive(data):
 
 
 def test_source_validation_does_not_mutate_caller_mapping():
-    caller = _local_source(telescope_name="  Array  ")
+    caller = _local_source(telescope_name="  A\u0301rray  ")
     before = deepcopy(caller)
 
     source = SOURCE_ADAPTER.validate_python(caller)
 
     assert caller == before
-    assert source.telescope_name == "Array"
+    assert source.telescope_name == "\u00c1rray"
+
+
+@pytest.mark.parametrize("format", ["radiosim", "measurement_set"])
+def test_layout_source_rejects_blank_supplied_identity(format):
+    with pytest.raises(ValidationError, match="telescope_name"):
+        LayoutFileSourceConfig.model_validate(
+            _local_source(format=format, telescope_name="   ")
+        )
 
 
 def test_location_requires_exact_three_fields_and_allows_negative_height():
@@ -1021,12 +1035,44 @@ def test_active_top_level_schema_and_legacy_selection_remain_unchanged(tmp_path)
 
 
 def test_importing_internal_module_does_not_mutate_active_schema_or_reexport_types():
-    fields_before = tuple(RadioSimConfig.model_fields)
+    probe = """
+import radiosim
+import radiosim.io as public_io
+from radiosim.io.config import RadioSimConfig
 
-    reloaded = importlib.reload(instrument_config_module)
+fields_before = tuple(RadioSimConfig.model_fields)
+import radiosim.io.instrument_config as instrument_config_module
 
-    assert tuple(RadioSimConfig.model_fields) == fields_before
-    assert reloaded.InstrumentConfig.__module__ == "radiosim.io.instrument_config"
+assert tuple(RadioSimConfig.model_fields) == fields_before
+assert instrument_config_module.InstrumentConfig.__module__ == (
+    "radiosim.io.instrument_config"
+)
+for module in (radiosim, public_io):
+    assert not hasattr(module, "InstrumentConfig")
+    assert "InstrumentConfig" not in module.__all__
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert tuple(RadioSimConfig.model_fields) == (
+        "telescope",
+        "antenna_layout",
+        "feeds",
+        "beams",
+        "baseline_selection",
+        "location",
+        "sky_model",
+        "obs_time",
+        "obs_frequency",
+        "visibility",
+        "execution",
+        "workflow",
+    )
     for module in (radiosim, public_io):
         assert not hasattr(module, "InstrumentConfig")
         assert "InstrumentConfig" not in module.__all__
