@@ -11,22 +11,27 @@
 | Tier 2A implementation commit | `b7f0dc9f10244d5e6d452407bc9fdb5cd8b8f2f7` |
 | Tier 2A independently reviewed commit | `b7f0dc9f10244d5e6d452407bc9fdb5cd8b8f2f7` |
 | Tier 2A independent-review date | 2026-07-18 |
+| Tier 2B implementation commit | `6bcf7854d57555cc23a1192f4628ff2852a7827e` |
+| Tier 2B correction commit | `db0d849f50995e13c4c2aa01f4268a3fefdc3d88` |
+| Pyright reproducibility repair commit | `611b3f86a3e638a2bdf20f73ffe20900ca5278cc` |
+| Tier 2B independent-acceptance date | 2026-07-18 |
 | Baseline `origin/main` | `f9ee87a5c1d4987fac1ee671d2c07711bcac8a41` |
 | Tier 2A review-start branch | `main`, four commits ahead of `origin/main` |
 | Tier 2A review-start working tree | untracked `Tier1ConfigPlan.md`; nothing staged |
 | Tier 1 status | Locally complete and independently accepted |
 | Tier 2 issues | INS-001, INS-002, and INS-003 remain open |
-| Gate status | Design independently accepted on 2026-07-17; Tier 2A independently accepted on 2026-07-18 |
-| Implementation status | In progress: Tier 2A accepted; Tier 2B not started |
+| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18 |
+| Implementation status | Tier 2 in progress: Tier 2A accepted; Tier 2B accepted after repairing the Pyright reproducibility gate; Tier 2C not started |
 | Remote CI | Unobserved |
 
 This document is the single implementation contract for Tier 2. It selects one
 architecture and leaves no product, public-API, data-model, coordinate-frame,
 precedence, or scientific-selection decision open. The independent review accepted
 this gate on 2026-07-17. Tier 2A's test-only characterization commit was independently
-accepted on 2026-07-18 without correction. Tier 2 is now in progress; Tier 2B is the
-next authorized implementation slice, under its own exact stop boundary and acceptance
-gate, and has not started.
+accepted on 2026-07-18 without correction. Tier 2B's strict inactive input contract was
+independently accepted on 2026-07-18 after repairing its Pyright reproducibility gate
+without raising the diagnostic ceiling. Tier 2 is in progress; Tier 2C is the next
+authorized implementation slice and has not started.
 
 ## 2. Decision and scope
 
@@ -1295,6 +1300,11 @@ flowchart LR
 
 ### Tier 2B — Strict instrument input contract
 
+- **Status:** Implemented in
+  `6bcf7854d57555cc23a1192f4628ff2852a7827e`, corrected in
+  `db0d849f50995e13c4c2aa01f4268a3fefdc3d88`, and independently accepted on
+  2026-07-18 after reproducibility repair
+  `611b3f86a3e638a2bdf20f73ffe20900ca5278cc`; Tier 2C remained unstarted.
 - **Objective:** Define and freeze the exact discriminated instrument and selection
   value types behind an internal boundary. The live top-level input remains unchanged
   until the atomic 2G cutover and never accepts two spellings.
@@ -1687,6 +1697,55 @@ No test correction was required. INS-001, INS-002, and INS-003 remain open until
 2 completes through 2H. Tier 2B was not started and is now the next authorized
 implementation slice in a fresh task.
 
+### 29.4 Tier 2B independent-acceptance record
+
+**Decision: accepted after repairing the reproducibility gate.** The first independent
+acceptance review rejected the gate because the unpinned `pyright = "*"` manifest
+resolved Pyright 1.1.408 for the default Python 3.11 environment but 1.1.411 for the
+Python 3.12 environment. The checked-in baseline recorded 1.1.408, so the checker
+correctly rejected Python 3.12 before applying the 4,600-error ceiling. That review
+found no remaining production-schema defect and committed only the focused test
+correction `db0d849f50995e13c4c2aa01f4268a3fefdc3d88`.
+
+The repair commit `611b3f86a3e638a2bdf20f73ffe20900ca5278cc` pins
+`pyright = "==1.1.408"` and regenerates the v7 lock through Pixi. Version 1.1.408
+solved for both Python environments on `linux-64`, `osx-64`, and `osx-arm64`, so the
+controlled 1.1.411 fallback was unnecessary. The final invariant is manifest pin =
+default lock = py312 lock = recorded baseline = 1.1.408. No environment or platform
+was removed, no checker or Pyright configuration changed, and no dependency version
+other than Pyright moved. Pixi also normalized two unrelated package-URL provenance
+labels from `compressed-mapping` to `hash-mapping`; no package record or version
+changed as a result.
+
+Fresh raw Pyright JSON reports from synchronized environments each analyzed 153 files
+and reported 4,446 errors, zero warnings, and zero information diagnostics. The Tier
+2B production module had zero diagnostics in both reports. The Tier 2B test module is
+outside the configured `src/radiosim` include set and is not claimed as checked by
+Pyright. Both required baseline commands passed at 4,446 <= 4,600. The ceiling remains
+4,600 and was not raised or otherwise changed; `pyright-baseline.json` was unchanged.
+
+The Tier 2B module collected 208 cases. Focused Python 3.11 and 3.12 runs each passed
+all 208 with zero skips and warnings. The four-module configuration boundary passed
+all 310 cases on each Python version, again with zero skips and warnings. Ruff lint
+passed, Ruff formatting reported all 258 files already formatted, Git staged and
+unstaged whitespace checks passed, and the Tier 2B test contains no skip or xfail
+marker. The decisive committed-state rerun repeated both typecheck passes, both
+310-case configuration passes, lint, formatting, and whitespace successfully.
+
+Implementation commit `6bcf7854d57555cc23a1192f4628ff2852a7827e` remains an
+inactive strict input-model addition. Correction commit
+`db0d849f50995e13c4c2aa01f4268a3fefdc3d88` adds invalid path-type coverage,
+strengthens normalized and blank layout-identity coverage, and moves import isolation
+to a fresh subprocess; it changes no production behavior and avoids the prior
+`importlib.reload()` class-identity contamination. The active top-level schema,
+resolver, CLI, Simulator, loaders, runtime, baselines, selection, and writers remain
+unchanged. No Tier 2C file or behavior was added.
+
+Not run or claimed: full suite, Sphinx, remote CI, external-network behavior, live
+registry downloads, or physical GPU hardware. INS-001, INS-002, and INS-003 remain
+open until Tier 2 completes through 2H. Tier 2C is the next authorized implementation
+slice but was not started in this task.
+
 ## 30. Risks and invariants
 
 | Risk | Required control |
@@ -1763,7 +1822,7 @@ Until then, all three INS issues remain open.
 | Heterogeneous observability | Reject before plot/browser | A single footprint would be scientifically misleading |
 | Compatibility | Direct replacement, no shims | Project is pre-v1 and one coherent API is safer than dual state |
 | Result scope | One additive instrument snapshot and narrow writer adapter | Meets provenance needs without taking Tier 4 ownership |
-| Immediate next task | Tier 2B strict instrument input contract | Tier 2A is independently accepted; 2B must run separately and stop before loaders, models, resolution, or public cutover |
+| Immediate next task | Tier 2C — Immutable canonical antenna and instrument models | Tier 2B is independently accepted after repairing the Pyright reproducibility gate; 2C must run separately under its existing stop boundary |
 
 ## 33. Unresolved decisions
 

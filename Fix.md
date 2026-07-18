@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A independently accepted on 2026-07-18; Tier 2B not started; remote CI not yet observed |
+| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C not started; remote CI not yet observed |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -2048,3 +2048,48 @@ hardware were not run or claimed.
 INS-001, INS-002, and INS-003 remain **OPEN** until Tier 2 completes through 2H. Tier
 2B has not started; it is now the next authorized implementation slice and belongs to
 a fresh task under its own stop and acceptance gates.
+
+### 2026-07-18 Tier 2B independent acceptance
+
+**Decision:** Tier 2B is independently accepted after repairing the Pyright
+reproducibility gate. The first review accepted the production schema on substance but
+rejected the mandatory gate because the wildcard Pixi dependency resolved Pyright
+1.1.408 in Python 3.11 and 1.1.411 in Python 3.12 while the checked-in baseline
+recorded 1.1.408. The version-sensitive checker correctly failed that mismatch before
+ceiling acceptance. No Tier 2B production defect remained.
+
+Tooling commit `611b3f86a3e638a2bdf20f73ffe20900ca5278cc` pins Pyright
+exactly to 1.1.408 and regenerates the v7 Pixi lock. The pin solves for Python 3.11 and
+3.12 on Linux x86-64, macOS x86-64, and macOS arm64, establishing manifest = both
+environment locks = baseline version. The diagnostic ceiling remains unchanged at
+4,600. No checker code, Pyright rule, include/exclude setting, strictness option,
+environment, or platform changed.
+
+Fresh raw Pyright reports in both synchronized environments used 1.1.408 and each
+reported 4,446 errors, zero warnings, and zero information diagnostics across 153
+analyzed files. Neither reported a diagnostic in
+`src/radiosim/io/instrument_config.py`. The Tier 2B tests are outside Pyright's
+configured `src/radiosim` include and are not claimed as type-checked. Both baseline
+commands passed at 4,446 <= 4,600 without changing `pyright-baseline.json`.
+
+The focused Tier 2B module collected 208 cases and passed all 208 on Python 3.11 and
+3.12 with zero skips or warnings. The combined configuration boundary passed all 310
+cases on both versions with zero skips or warnings. Ruff lint passed, all 258 files
+passed Ruff's format check, staged and unstaged Git whitespace checks passed, and no
+skip or xfail marker exists in the Tier 2B test. The same two typechecks, two 310-case
+boundaries, lint, formatting, and whitespace checks passed again from the committed
+tooling state.
+
+Implementation commit `6bcf7854d57555cc23a1192f4628ff2852a7827e` remains the
+strict inactive input contract. Test-only correction commit
+`db0d849f50995e13c4c2aa01f4268a3fefdc3d88` adds strict invalid-path-type cases,
+strengthens normalized and blank layout identity cases, and proves import isolation in
+a fresh subprocess without the prior `importlib.reload()` class-identity
+contamination. It changes no production behavior. The active schema, resolver, CLI,
+Simulator, loaders, runtime, baselines, selection, and writers remain unchanged.
+
+The full suite, Sphinx, remote CI, external-network behavior, live registry downloads,
+and physical GPU hardware were not run or claimed. INS-001, INS-002, and INS-003
+remain **OPEN**; Tier 2 is not complete. Tier 2C was not started and is now the next
+authorized implementation slice under its existing independent stop and acceptance
+gate.
