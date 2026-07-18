@@ -1485,7 +1485,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyarrow-core-24.0.0-py312h2054cf2_0_cpu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pydantic-core-2.46.4-py312h868fb18_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyerfa-2.0.1.5-py310h32771cd_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/pyright-1.1.411-py312h5253ce2_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/pyright-1.1.408-py312h5253ce2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyside6-6.11.1-py312h50ac2ff_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/python-3.12.13-hd63d673_0_cpython.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/python-casacore-3.8.1-py312he4405a1_0.conda
@@ -2171,7 +2171,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/pyerfa-2.0.1.5-py310hcbffc5d_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/pyobjc-core-12.2.1-py312h9fd379b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/pyobjc-framework-cocoa-12.2.1-py312h78829b9_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/pyright-1.1.411-py312hba6025d_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/pyright-1.1.408-py312hf7082af_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/python-3.12.13-ha9537fe_0_cpython.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/python-casacore-3.8.1-py312h048f9ad_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/pyuvdata-3.2.6-py312h4cffd7c_0.conda
@@ -2605,7 +2605,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyerfa-2.0.1.5-py310hbb12772_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyobjc-core-12.2.1-py312h55b240b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyobjc-framework-cocoa-12.2.1-py312h22cf174_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyright-1.1.411-py312hb3ab3e3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyright-1.1.408-py312hb3ab3e3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/python-3.12.13-h8561d8f_0_cpython.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/python-casacore-3.8.1-py312h78e5e23_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyuvdata-3.2.6-py312h11e15d5_0.conda
@@ -8511,24 +8511,24 @@ packages:
   - pkg:pypi/pyright?source=hash-mapping
   size: 4104275
   timestamp: 1767872887968
-- conda: https://conda.anaconda.org/conda-forge/linux-64/pyright-1.1.411-py312h5253ce2_0.conda
-  sha256: fd4c603b18c27bb6ed8dacf1fc121702b071d6c5f94f3871676258876e3c7433
-  md5: 70c29d832d9f4ad6a723d42423bb2f7a
+- conda: https://conda.anaconda.org/conda-forge/linux-64/pyright-1.1.408-py312h5253ce2_0.conda
+  sha256: 322c3b30fa00fa6d759fae449a281e74bec5acbf863ed82b15d6f2eff245de67
+  md5: 80a544b026a01c0b9e6b1fc2196de949
   depends:
   - nodeenv >=1.6.0
   - nodejs
   - python
   - typing_extensions >=4.1
-  - __glibc >=2.17,<3.0.a0
   - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
   - python_abi 3.12.* *_cp312
   license: MIT
   license_family: MIT
   purls:
   - pkg:pypi/pyright?source=hash-mapping
   run_exports: {}
-  size: 3855332
-  timestamp: 1782369399814
+  size: 4101313
+  timestamp: 1767872890841
 - conda: https://conda.anaconda.org/conda-forge/linux-64/pyside6-6.11.1-py312h50ac2ff_1.conda
   sha256: 6f9e4fd9f6aa1d82a524384399c956c0c79c6c5df5ae42e241eb59f42c11ffbf
   md5: 90f891bc96f673acbff89f6f405aef10
@@ -11614,7 +11614,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/fsspec?source=compressed-mapping
+  - pkg:pypi/fsspec?source=hash-mapping
   run_exports: {}
   size: 149709
   timestamp: 1781615868173
@@ -14970,7 +14970,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/traitlets?source=compressed-mapping
+  - pkg:pypi/traitlets?source=hash-mapping
   run_exports: {}
   size: 115158
   timestamp: 1780507822178
@@ -20029,23 +20029,23 @@ packages:
   - pkg:pypi/pyright?source=hash-mapping
   size: 4105041
   timestamp: 1767872957953
-- conda: https://conda.anaconda.org/conda-forge/osx-64/pyright-1.1.411-py312hba6025d_0.conda
-  sha256: aab88a8bf7393f1319b6f48448979157be1270b51b31490c64f4e753ad2ca296
-  md5: 23d10aceea55d3f32f50d5c7a1e3f9c4
+- conda: https://conda.anaconda.org/conda-forge/osx-64/pyright-1.1.408-py312hf7082af_0.conda
+  sha256: d538bac9736105d6c66e3fe356cc9ded04309fa517405a2cb329b3c25de868ba
+  md5: 51667b055791a1643c143eba6d93f735
   depends:
   - nodeenv >=1.6.0
   - nodejs
   - python
   - typing_extensions >=4.1
-  - __osx >=11.0
+  - __osx >=10.13
   - python_abi 3.12.* *_cp312
   license: MIT
   license_family: MIT
   purls:
   - pkg:pypi/pyright?source=hash-mapping
   run_exports: {}
-  size: 3856079
-  timestamp: 1782369675044
+  size: 4102127
+  timestamp: 1767873115418
 - conda: https://conda.anaconda.org/conda-forge/osx-64/python-3.11.13-h9ccd52b_0_cpython.conda
   sha256: d8e15db837c10242658979bc475298059bd6615524f2f71365ab8e54fbfea43c
   md5: 6e28c31688c6f1fdea3dc3d48d33e1c0
@@ -25573,24 +25573,24 @@ packages:
   - pkg:pypi/pyright?source=hash-mapping
   size: 4108249
   timestamp: 1767873006306
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyright-1.1.411-py312hb3ab3e3_0.conda
-  sha256: fe29e3c2cbb75cecf465056bc73c4acaa21e5f25f40cb841322ab5cca586ebaf
-  md5: 997c3f3309b1dc09f69abc43264a00f6
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyright-1.1.408-py312hb3ab3e3_0.conda
+  sha256: 971b7800f996ab203bbdc97480772e38d506fc4615566fb1440c3433a8a95a64
+  md5: 42de17c3d5f6439292b77f558366698f
   depends:
   - nodeenv >=1.6.0
   - nodejs
   - python
   - typing_extensions >=4.1
-  - python 3.12.* *_cpython
   - __osx >=11.0
+  - python 3.12.* *_cpython
   - python_abi 3.12.* *_cp312
   license: MIT
   license_family: MIT
   purls:
   - pkg:pypi/pyright?source=hash-mapping
   run_exports: {}
-  size: 3859896
-  timestamp: 1782369609694
+  size: 4105355
+  timestamp: 1767872955083
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/python-3.11.13-hc22306f_0_cpython.conda
   sha256: 2c966293ef9e97e66b55747c7a97bc95ba0311ac1cf0d04be4a51aafac60dcb1
   md5: 95facc4683b7b3b9cf8ae0ed10f30dce
