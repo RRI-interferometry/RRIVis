@@ -15,13 +15,16 @@
 | Tier 2B correction commit | `db0d849f50995e13c4c2aa01f4268a3fefdc3d88` |
 | Pyright reproducibility repair commit | `611b3f86a3e638a2bdf20f73ffe20900ca5278cc` |
 | Tier 2B independent-acceptance date | 2026-07-18 |
+| Tier 2C implementation commit | `72f2f63953582fea9f6b4e6c617d98511bb66e17` |
+| Tier 2C correction commit | `cba011aa052842edef23ae4f050997349781d501` |
+| Tier 2C independent-acceptance date | 2026-07-19 |
 | Baseline `origin/main` | `f9ee87a5c1d4987fac1ee671d2c07711bcac8a41` |
 | Tier 2A review-start branch | `main`, four commits ahead of `origin/main` |
 | Tier 2A review-start working tree | untracked `Tier1ConfigPlan.md`; nothing staged |
 | Tier 1 status | Locally complete and independently accepted |
 | Tier 2 issues | INS-001, INS-002, and INS-003 remain open |
-| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18 |
-| Implementation status | Tier 2 in progress: Tier 2A accepted; Tier 2B accepted after repairing the Pyright reproducibility gate; Tier 2C not started |
+| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C independently accepted after correction on 2026-07-19 |
+| Implementation status | Tier 2 in progress: Tier 2A, Tier 2B, and Tier 2C accepted; Tier 2D not started |
 | Remote CI | Unobserved |
 
 This document is the single implementation contract for Tier 2. It selects one
@@ -30,8 +33,9 @@ precedence, or scientific-selection decision open. The independent review accept
 this gate on 2026-07-17. Tier 2A's test-only characterization commit was independently
 accepted on 2026-07-18 without correction. Tier 2B's strict inactive input contract was
 independently accepted on 2026-07-18 after repairing its Pyright reproducibility gate
-without raising the diagnostic ceiling. Tier 2 is in progress; Tier 2C is the next
-authorized implementation slice and has not started.
+without raising the diagnostic ceiling. Tier 2C's immutable canonical models were
+independently accepted on 2026-07-19 after closing one caller-alias defect. Tier 2 is
+in progress; Tier 2D is the next authorized implementation slice and has not started.
 
 ## 2. Decision and scope
 
@@ -1325,6 +1329,11 @@ flowchart LR
 
 ### Tier 2C — Immutable canonical antenna and instrument models
 
+- **Status:** Implemented in
+  `72f2f63953582fea9f6b4e6c617d98511bb66e17`, corrected in
+  `cba011aa052842edef23ae4f050997349781d501`, and independently accepted on
+  2026-07-19 after closing the caller-mutable-subclass ownership defect; Tier 2D
+  remained unstarted.
 - **Objective:** Add the exact frozen value objects, serialization, fingerprint, and
   private indexes without connecting them to Simulator.
 - **Exact files:** add `src/radiosim/core/instrument.py` and
@@ -1537,9 +1546,9 @@ Every slice must satisfy all of these gates in addition to its specific gate:
 6. An independent reviewer accepts the slice before its dependent slice starts.
 7. The commit is narrow and local; publishing still requires explicit user approval.
 
-Tier 2A is independently accepted. Tier 2B is now the immediate authorized
-implementation slice, but it must run as a separate task and stop for its own
-independent acceptance. This rule repeats through 2H.
+Tier 2A, Tier 2B, and Tier 2C are independently accepted. Tier 2D is now the
+immediate authorized implementation slice, but it must run as a separate task and stop
+for its own independent acceptance. This rule repeats through 2H.
 
 ### 29.1 Design-gate verification record
 
@@ -1746,6 +1755,100 @@ registry downloads, or physical GPU hardware. INS-001, INS-002, and INS-003 rema
 open until Tier 2 completes through 2H. Tier 2C is the next authorized implementation
 slice but was not started in this task.
 
+### 29.5 Tier 2C independent-acceptance record
+
+**Decision: accepted after corrections.** On 2026-07-19 an independent source-first
+review evaluated implementation commit
+`72f2f63953582fea9f6b4e6c617d98511bb66e17` against its exact parent
+`cf353dbb1d6727ae308fda71a803576ab353bf5d`, the complete Tier 2 contract, the Tier 2
+tracker, the inactive Tier 2B input models, the live legacy antenna and Simulator
+boundaries, and every Tier 2C production and test line. The implementation commit
+changes exactly the four authorized files and contains no configuration migration,
+loader, coordinate conversion, precedence, baseline, selection, Simulator, solver,
+writer, output, observability, dependency, Pixi, lock, CI, or unrelated change.
+
+The field-by-field Section 9 review confirmed exactly `AntennaId(number, name)`, the
+seven-value `AntennaFieldSource` vocabulary,
+`ResolvedEarthLocation(longitude_deg, latitude_deg, height_m, itrs_xyz_m, source,
+reference)`, `AntennaProvenance(identity_source, position_source, diameter_source,
+source_diameter_m, mount_source, beam_id_source, source_record)`,
+`ResolvedAntenna(id, position_enu_m, diameter_m, mount_type, beam_id, provenance)`,
+`InstrumentProvenance(schema_version, source_kind, source_reference, source_format,
+registry_policy, telescope_name_source, location_source,
+source_location_itrs_xyz_m, location_separation_m, pyuvdata_version, source_sha256,
+instrument_sha256)`, and `ResolvedInstrument(name, location, antennas, provenance)`.
+The six dataclasses are frozen and slotted with no extra public fields; inventory order
+is ascending antenna number; all seven types are direct, identity-equal exports from
+`radiosim.core.instrument`, `radiosim.core`, and `radiosim`; and private hash/index
+helpers remain unexported.
+
+The independent review found one genuine ownership defect. Nested constructors used
+`isinstance`, so a caller-defined dataclass subclass could override `__setattr__`, be
+retained by identity, and mutate supposedly frozen canonical state after construction.
+A focused regression was added first and failed as expected. Correction commit
+`cba011aa052842edef23ae4f050997349781d501` requires exact canonical nested classes
+and exact `ResolvedAntenna` inventory items. It also adds explicit mapping-shaped
+coordinate rejection cases. The correction changes only
+`src/radiosim/core/instrument.py` and
+`tests/unit/test_core/test_instrument.py`; it does not alter fields, normalization,
+fingerprints, snapshots, exports, or the Tier 2C architectural boundary.
+
+After correction, all scalar and coordinate values normalize into owned built-in
+`int`, `float`, `str`, and tuple values; strings are stripped and NFC-normalized
+without case folding; antenna number, latitude, longitude, finite-value, coordinate
+cardinality, positive-diameter, optional provenance, schema-version, and lowercase
+SHA-256 boundaries are enforced. Exact negative zero becomes positive zero. Frozen
+state retains no NumPy value, mutable collection, `Path`, `EarthLocation`, Pydantic
+model, arbitrary source object, or caller-owned mutable subclass. Antenna inventories
+are nonempty, sorted, duplicate-safe, and case-sensitive by name. Fresh private
+dictionaries are exposed only through `MappingProxyType` and reference the canonical
+antenna objects. Each snapshot is a new JSON-safe mutable tree whose mutation cannot
+affect the model.
+
+The fixed independent fingerprint fixture remains
+`c57da5979e17852d23c51f15ba6006dac4536ff8b0c44aab3f9caeefbc6cdbf6`. Canonical
+JSON uses sorted keys, compact separators, UTF-8, `ensure_ascii=False`, and
+`allow_nan=False`. The hash includes the schema, normalized name, complete resolved
+location, ordered identities, ENU positions, diameters, inert mount/BeamID facts, and
+field-source labels. It excludes source paths and location references, source-record
+locators, raw source hashes, dependency versions, registry policy, pre-override source
+diameters, and other transport provenance. Tests independently hash the fixed payload
+and prove repeatability, input-order and Unicode equivalence, negative-zero
+normalization, scientific and field-source sensitivity, transport-path independence,
+and rejection of a mismatched supplied fingerprint.
+
+`ResolvedInstrument.to_snapshot()` has exactly the Tier 2C top-level keys
+`schema_version`, `instrument_sha256`, `name`, `source`, `location`, and `antennas`.
+It represents every instrument and per-antenna provenance field, serializes enums as
+strings, tuples as lists, missing optionals as null, and source diameter separately
+from the resolved diameter. It contains no `instrument_resolution` wrapper, baseline
+placeholder, or later-tier output shape. The production module imports only the
+standard library and defines no source loader, coordinate adapter,
+`ResolvedInstrumentState`, baseline model, setup integration, solver behavior, writer,
+output, network, plotting, or observability behavior.
+
+Fresh definitive verification produced 135/135 Tier 2C passes on Python 3.11.13 and
+135/135 on Python 3.12.13. The combined Tier 2B/Tier 2C boundary produced 343/343
+passes on each environment. All four runs had zero failures, skips, xfails, or
+warnings. The increase from the implementation report's 131/339 counts is exactly the
+new mutable-subclass regression plus three explicit mapping-coordinate cases. Import
+smokes on both Pythons proved all seven public export identities. The test module has
+no skip, skipif, or xfail marker.
+
+Ruff lint passed and Ruff formatting reported all 260 files formatted. Pyright 1.1.408
+reported 4,446 full-source errors in both environments under the unchanged 4,600
+ceiling, and `src/radiosim/core/instrument.py` reported zero errors, warnings, or
+information diagnostics directly on both. The baseline file, checker, ceiling,
+manifest, dependencies, and lock remained unchanged. Staged and unstaged whitespace
+checks passed. The full suite, Sphinx, remote CI, external-network behavior, live
+registry downloads, and physical GPU hardware were not run or observed and are not
+claimed.
+
+This accepts only Tier 2C. INS-001, INS-002, and INS-003 remain open until complete
+Tier 2 implementation and independent acceptance through 2H establish closure. Tier
+2D was not started. It is now the next authorized slice, but it belongs to a separate
+fresh task under its own implementation and acceptance stop gates.
+
 ## 30. Risks and invariants
 
 | Risk | Required control |
@@ -1822,7 +1925,7 @@ Until then, all three INS issues remain open.
 | Heterogeneous observability | Reject before plot/browser | A single footprint would be scientifically misleading |
 | Compatibility | Direct replacement, no shims | Project is pre-v1 and one coherent API is safer than dual state |
 | Result scope | One additive instrument snapshot and narrow writer adapter | Meets provenance needs without taking Tier 4 ownership |
-| Immediate next task | Tier 2C — Immutable canonical antenna and instrument models | Tier 2B is independently accepted after repairing the Pyright reproducibility gate; 2C must run separately under its existing stop boundary |
+| Immediate next task | Tier 2D — Source loaders, coordinate normalization, and pyuvdata support | Tier 2C is independently accepted after correction; 2D must run separately under its existing stop boundary |
 
 ## 33. Unresolved decisions
 

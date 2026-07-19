@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C not started; remote CI not yet observed |
+| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C independently accepted after correction on 2026-07-19; Tier 2D not started; remote CI not yet observed |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -2093,3 +2093,44 @@ and physical GPU hardware were not run or claimed. INS-001, INS-002, and INS-003
 remain **OPEN**; Tier 2 is not complete. Tier 2C was not started and is now the next
 authorized implementation slice under its existing independent stop and acceptance
 gate.
+
+### 2026-07-19 Tier 2C independent acceptance
+
+**Decision:** Tier 2C is independently accepted after corrections. Implementation
+commit `72f2f63953582fea9f6b4e6c617d98511bb66e17` adds exactly the seven Section 9
+canonical public types and changes only the four authorized production, test, and
+export files. The review confirmed every field one-to-one, frozen slotted dataclasses,
+strict normalization and validation, deterministic ordering and hashing, fresh
+mapping-proxy indexes, complete JSON-safe snapshots, identity-equal exports, and the
+absence of loaders, coordinate conversion, precedence, baselines, selection,
+Simulator, solver, writer, output, observability, dependency, lock, or CI changes.
+
+The review found one caller-ownership defect: `isinstance` accepted mutable subclasses
+of the frozen canonical dataclasses, allowing a caller-owned nested model to change
+after construction. A regression was added first and failed as expected. Correction
+commit `cba011aa052842edef23ae4f050997349781d501` requires exact nested canonical
+classes and exact antenna inventory items. It also makes mapping-shaped coordinate
+rejection explicit in the test matrix. No public field, fingerprint, snapshot, export,
+or later-tier boundary changed.
+
+The fixed independent fingerprint remains
+`c57da5979e17852d23c51f15ba6006dac4536ff8b0c44aab3f9caeefbc6cdbf6`. Tests prove
+canonical UTF-8 JSON, input-order and Unicode equivalence, negative-zero normalization,
+scientific and field-source sensitivity, transport-path independence, hash-mismatch
+rejection, fresh snapshot ownership, and public export identity. The complete Tier 2C
+module passed 135 cases on Python 3.11.13 and 135 on Python 3.12.13. The combined Tier
+2B/Tier 2C boundary passed 343 cases on each version. All four runs had zero failures,
+skips, xfails, or warnings. The count increase from 131/339 is exactly the new
+mutable-subclass regression and three mapping-coordinate cases.
+
+Ruff lint passed; Ruff format reported 260 files formatted. Pyright 1.1.408 reported
+4,446 full-source errors in both environments under the unchanged 4,600 ceiling, and
+the Tier 2C production module had zero direct diagnostics on each. Both import/export
+smokes, staged and unstaged whitespace checks, and the no-skip/xfail search passed.
+The full suite, Sphinx, remote CI, external-network behavior, live registry downloads,
+and physical GPU hardware were not run or observed.
+
+INS-001, INS-002, and INS-003 remain **OPEN** until Tier 2 completes and receives final
+acceptance through 2H. Tier 2 is not complete. Tier 2D was not started; it is now the
+next authorized implementation slice and belongs to a separate fresh task under its
+own stop and acceptance gates.
