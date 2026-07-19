@@ -730,6 +730,53 @@ class ResolvedInstrument:
         }
 
 
+def _create_resolved_instrument(  # pyright: ignore[reportUnusedFunction]
+    *,
+    name: str,
+    location: ResolvedEarthLocation,
+    antennas: Iterable[ResolvedAntenna],
+    source_kind: str,
+    source_reference: str,
+    source_format: str | None,
+    registry_policy: str | None,
+    telescope_name_source: AntennaFieldSource,
+    location_source: AntennaFieldSource,
+    source_location_itrs_xyz_m: tuple[float, float, float] | None,
+    location_separation_m: float | None,
+    pyuvdata_version: str | None,
+    source_sha256: str | None,
+) -> ResolvedInstrument:
+    """Create a canonical instrument through the existing fingerprint seam."""
+    canonical_antennas = _canonicalize_antennas(antennas)
+    instrument_sha256 = _compute_instrument_sha256(
+        name,
+        location,
+        canonical_antennas,
+        telescope_name_source=telescope_name_source,
+        location_source=location_source,
+    )
+    provenance = InstrumentProvenance(
+        schema_version=_INSTRUMENT_SCHEMA_VERSION,
+        source_kind=source_kind,
+        source_reference=source_reference,
+        source_format=source_format,
+        registry_policy=registry_policy,
+        telescope_name_source=telescope_name_source,
+        location_source=location_source,
+        source_location_itrs_xyz_m=source_location_itrs_xyz_m,
+        location_separation_m=location_separation_m,
+        pyuvdata_version=pyuvdata_version,
+        source_sha256=source_sha256,
+        instrument_sha256=instrument_sha256,
+    )
+    return ResolvedInstrument(
+        name=name,
+        location=location,
+        antennas=canonical_antennas,
+        provenance=provenance,
+    )
+
+
 __all__ = [
     "AntennaId",
     "AntennaFieldSource",

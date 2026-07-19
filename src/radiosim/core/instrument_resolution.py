@@ -1,8 +1,9 @@
-"""Tier 2D instrument-source normalization and coordinate staging.
+"""Tier 2 instrument-source normalization and final metadata resolution.
 
-This module deliberately stops at a diameter-incomplete, immutable staging
-inventory.  Diameter precedence, final instrument construction, baselines, and
-Simulator integration belong to later Tier 2 slices.
+Source loading first produces the accepted diameter-incomplete Tier 2D staging
+inventory.  Tier 2E then applies identity and diameter precedence and freezes a
+complete canonical instrument.  Baselines and Simulator integration remain later
+Tier 2 slices.
 """
 
 from __future__ import annotations
@@ -18,8 +19,20 @@ from typing import TYPE_CHECKING, Literal, Protocol, cast
 import numpy as np
 import numpy.typing as npt
 
-from radiosim.core.instrument import AntennaFieldSource, ResolvedEarthLocation
-from radiosim.io.instrument_config import InstrumentConfig
+from radiosim.core.instrument import (
+    AntennaFieldSource,
+    AntennaId,
+    AntennaProvenance,
+    ResolvedAntenna,
+    ResolvedEarthLocation,
+    ResolvedInstrument,
+    _create_resolved_instrument,  # pyright: ignore[reportPrivateUsage]
+)
+from radiosim.io.instrument_config import (
+    AntennaNumberReference,
+    InstrumentConfig,
+    KnownTelescopeSourceConfig,
+)
 
 if TYPE_CHECKING:
     from radiosim.io.instrument_sources import (
@@ -82,6 +95,10 @@ class EmptyInstrumentError(InstrumentResolutionError):
 
 class DiameterResolutionError(InstrumentResolutionError):
     """A present source diameter is malformed, non-finite, or non-positive."""
+
+
+class UnknownDiameterOverrideError(DiameterResolutionError):
+    """A diameter override is unknown or repeats a canonical antenna target."""
 
 
 class _Quantity(Protocol):
@@ -180,6 +197,173 @@ class StagedInstrument:
     location: ResolvedEarthLocation
     antennas: tuple[StagedAntenna, ...]
     provenance: StagedInstrumentProvenance
+
+
+def _require_instrument_config(config: object) -> InstrumentConfig:
+    if type(config) is not InstrumentConfig:
+        raise TypeError("config must be an InstrumentConfig")
+    return config
+
+
+def _normalize_instrument_identity(value: object, *, reference: str) -> str:
+    if not isinstance(value, str):
+        raise InstrumentSourceError(
+            f"{reference}: instrument identity must be a nonblank string"
+        )
+    normalized = unicodedata.normalize("NFC", value.strip())
+    if not normalized:
+        raise InstrumentSourceError(
+            f"{reference}: instrument identity must be a nonblank string"
+        )
+    return str(normalized)
+
+
+def _resolve_instrument_identity(
+    config: InstrumentConfig,
+    staged: StagedInstrument,
+) -> tuple[str, AntennaFieldSource]:
+    """Apply the exact known/local/dataset instrument-identity precedence."""
+    canonical_config = _require_instrument_config(config)
+    source = canonical_config.source
+    provenance = staged.provenance
+
+    if isinstance(source, KnownTelescopeSourceConfig):
+        return source.name, AntennaFieldSource.KNOWN_TELESCOPE
+
+    explicit = provenance.explicit_telescope_name
+    embedded = provenance.embedded_telescope_name
+    if source.format in {"radiosim", "casa_loc", "mwa_metafits"}:
+        if explicit is None:
+            raise InstrumentSourceError(
+                f"{provenance.source_reference}: local layout instrument identity "
+                "is missing"
+            )
+        return (
+            _normalize_instrument_identity(
+                explicit,
+                reference=provenance.source_reference,
+            ),
+            AntennaFieldSource.EXPLICIT_CONFIG,
+        )
+
+    canonical_explicit = (
+        _normalize_instrument_identity(
+            explicit,
+            reference=provenance.source_reference,
+        )
+        if explicit is not None
+        else None
+    )
+    canonical_embedded = (
+        _normalize_instrument_identity(
+            embedded,
+            reference=provenance.source_reference,
+        )
+        if embedded is not None
+        else None
+    )
+    if canonical_explicit is not None and canonical_embedded is not None:
+        if canonical_explicit != canonical_embedded:
+            raise InstrumentSourceError(
+                f"{provenance.source_reference}: explicit instrument identity "
+                f"{canonical_explicit!r} does not match embedded telescope name "
+                f"{canonical_embedded!r}"
+            )
+        return canonical_explicit, AntennaFieldSource.EXPLICIT_CONFIG
+    if canonical_explicit is not None:
+        return canonical_explicit, AntennaFieldSource.EXPLICIT_CONFIG
+    if canonical_embedded is not None:
+        return canonical_embedded, AntennaFieldSource.EMBEDDED_DATASET
+    raise InstrumentSourceError(
+        f"{provenance.source_reference}: dataset instrument identity is missing "
+        "from both explicit configuration and embedded telescope metadata"
+    )
+
+
+def _index_diameter_overrides(
+    config: InstrumentConfig,
+    staged: StagedInstrument,
+) -> dict[int, float]:
+    """Resolve tagged overrides into a fresh canonical-number index."""
+    canonical_config = _require_instrument_config(config)
+    by_number = {antenna.number: antenna for antenna in staged.antennas}
+    by_name = {antenna.name: antenna for antenna in staged.antennas}
+    resolved: dict[int, float] = {}
+    first_reference: dict[int, str] = {}
+    source_reference = staged.provenance.source_reference
+
+    for override in canonical_config.diameter_overrides:
+        reference = override.antenna
+        if isinstance(reference, AntennaNumberReference):
+            shown = f"number {reference.number}"
+            antenna = by_number.get(reference.number)
+        else:
+            shown = f"name {reference.name!r}"
+            antenna = by_name.get(reference.name)
+        if antenna is None:
+            raise UnknownDiameterOverrideError(
+                f"{source_reference}: unknown diameter override antenna {shown}"
+            )
+        prior = first_reference.get(antenna.number)
+        if prior is not None:
+            raise UnknownDiameterOverrideError(
+                f"{source_reference}: multiple diameter overrides target antenna "
+                f"{antenna.number}/{antenna.name!r}: {prior} and {shown}"
+            )
+        resolved[antenna.number] = float(override.diameter_m)
+        first_reference[antenna.number] = shown
+    return resolved
+
+
+def _resolve_final_diameters(
+    config: InstrumentConfig,
+    staged: StagedInstrument,
+) -> dict[int, tuple[float, AntennaFieldSource]]:
+    """Apply override, source, then configured-default diameter precedence."""
+    canonical_config = _require_instrument_config(config)
+    overrides = _index_diameter_overrides(canonical_config, staged)
+    resolved: dict[int, tuple[float, AntennaFieldSource]] = {}
+    incomplete: list[StagedAntenna] = []
+
+    for antenna in sorted(staged.antennas, key=lambda item: item.number):
+        source_diameter = normalize_source_diameter(
+            antenna.source_diameter_m,
+            reference=(f"{staged.provenance.source_reference} {antenna.source_record}"),
+        )
+        override = overrides.get(antenna.number)
+        if override is not None:
+            resolved[antenna.number] = (
+                override,
+                AntennaFieldSource.EXPLICIT_OVERRIDE,
+            )
+        elif source_diameter is not None:
+            if antenna.diameter_source is None:
+                raise DiameterResolutionError(
+                    f"{staged.provenance.source_reference} "
+                    f"{antenna.source_record}: present source diameter has no "
+                    "source provenance"
+                )
+            resolved[antenna.number] = (
+                source_diameter,
+                antenna.diameter_source,
+            )
+        elif canonical_config.default_diameter_m is not None:
+            resolved[antenna.number] = (
+                float(canonical_config.default_diameter_m),
+                AntennaFieldSource.CONFIG_DEFAULT,
+            )
+        else:
+            incomplete.append(antenna)
+
+    if incomplete:
+        missing = ", ".join(
+            f"{antenna.number}/{antenna.name!r}" for antenna in incomplete
+        )
+        raise DiameterResolutionError(
+            f"{staged.provenance.source_reference}: incomplete antenna diameters: "
+            f"{missing}"
+        )
+    return resolved
 
 
 def normalize_antenna_number(value: object, *, reference: str) -> int:
@@ -657,6 +841,84 @@ def resolve_instrument_source(
     )
 
 
+def _finalize_staged_instrument(
+    config: InstrumentConfig,
+    staged: StagedInstrument,
+) -> ResolvedInstrument:
+    """Finalize accepted staging without repeating source or coordinate work."""
+    canonical_config = _require_instrument_config(config)
+    name, name_source = _resolve_instrument_identity(canonical_config, staged)
+    diameters = _resolve_final_diameters(canonical_config, staged)
+    resolved_antennas: list[ResolvedAntenna] = []
+    for antenna in sorted(staged.antennas, key=lambda item: item.number):
+        diameter, diameter_source = diameters[antenna.number]
+        identity_source = (
+            AntennaFieldSource.GENERATED
+            if AntennaFieldSource.GENERATED
+            in {antenna.number_source, antenna.name_source}
+            else antenna.number_source
+        )
+        resolved_antennas.append(
+            ResolvedAntenna(
+                id=AntennaId(number=antenna.number, name=antenna.name),
+                position_enu_m=antenna.position_enu_m,
+                diameter_m=diameter,
+                mount_type=antenna.mount_type,
+                beam_id=antenna.beam_id,
+                provenance=AntennaProvenance(
+                    identity_source=identity_source,
+                    position_source=antenna.position_source,
+                    diameter_source=diameter_source,
+                    source_diameter_m=antenna.source_diameter_m,
+                    mount_source=antenna.mount_source,
+                    beam_id_source=antenna.beam_id_source,
+                    source_record=antenna.source_record,
+                ),
+            )
+        )
+
+    provenance = staged.provenance
+    return _create_resolved_instrument(
+        name=name,
+        location=staged.location,
+        antennas=resolved_antennas,
+        source_kind=provenance.source_kind,
+        source_reference=provenance.source_reference,
+        source_format=provenance.source_format,
+        registry_policy=provenance.registry_policy,
+        telescope_name_source=name_source,
+        location_source=staged.location.source,
+        source_location_itrs_xyz_m=provenance.embedded_location_itrs_xyz_m,
+        location_separation_m=provenance.location_separation_m,
+        pyuvdata_version=provenance.pyuvdata_version,
+        source_sha256=provenance.source_sha256,
+    )
+
+
+def resolve_instrument(
+    config: InstrumentConfig,
+    *,
+    dataset_loader: DatasetTelescopeLoader | None = None,
+    known_telescope_loader: KnownTelescopeLoader | None = None,
+    module_importer: ModuleImporter = import_module,
+    internet_config: InternetConfiguration | None = None,
+    pyuvdata_version: str | None = None,
+    enu_from_ecef: EcefToEnu | None = None,
+) -> ResolvedInstrument:
+    """Resolve one strict typed input into a complete canonical instrument."""
+    canonical_config = _require_instrument_config(config)
+    staged = resolve_instrument_source(
+        canonical_config,
+        dataset_loader=dataset_loader,
+        known_telescope_loader=known_telescope_loader,
+        module_importer=module_importer,
+        internet_config=internet_config,
+        pyuvdata_version=pyuvdata_version,
+        enu_from_ecef=enu_from_ecef,
+    )
+    return _finalize_staged_instrument(canonical_config, staged)
+
+
 __all__ = [
     "AntennaIdentifierError",
     "CoordinateFrameError",
@@ -671,5 +933,7 @@ __all__ = [
     "InvalidAntennaPositionError",
     "OptionalInstrumentDependencyError",
     "TelescopeNotFoundError",
+    "UnknownDiameterOverrideError",
+    "resolve_instrument",
     "resolve_instrument_source",
 ]

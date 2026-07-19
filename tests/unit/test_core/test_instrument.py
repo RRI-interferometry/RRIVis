@@ -30,6 +30,7 @@ from radiosim.core.instrument import (
     _build_instrument_indexes,
     _canonical_instrument_fingerprint_payload,
     _compute_instrument_sha256,
+    _create_resolved_instrument,
 )
 
 PUBLIC_MODEL_NAMES = (
@@ -973,6 +974,31 @@ def test_reference_payload_and_hash_are_independently_fixed():
     assert fingerprint == fingerprint.lower()
 
 
+def test_private_factory_reuses_canonical_hash_and_returns_exact_public_model():
+    location, antennas = _reference_parts()
+
+    instrument = _create_resolved_instrument(
+        name=" Array A\N{COMBINING RING ABOVE} ",
+        location=location,
+        antennas=antennas,
+        source_kind="fixture",
+        source_reference="/tmp/reference-layout",
+        source_format="radiosim",
+        registry_policy="offline",
+        telescope_name_source=AntennaFieldSource.EXPLICIT_CONFIG,
+        location_source=AntennaFieldSource.EXPLICIT_CONFIG,
+        source_location_itrs_xyz_m=(1.0, 2.0, 3.0),
+        location_separation_m=0.25,
+        pyuvdata_version="3.2.1",
+        source_sha256="a" * 64,
+    )
+
+    assert type(instrument) is ResolvedInstrument
+    assert instrument == _resolved_instrument()
+    assert instrument.provenance.instrument_sha256 == REFERENCE_SHA256
+    assert "_create_resolved_instrument" not in instrument_module.__all__
+
+
 def test_fingerprint_is_repeatable_order_unicode_and_negative_zero_independent():
     location, antennas = _reference_parts()
     negative_zero_antennas = tuple(
@@ -1219,6 +1245,7 @@ def test_private_helpers_are_not_exported():
         "_build_instrument_indexes",
         "_canonical_instrument_fingerprint_payload",
         "_compute_instrument_sha256",
+        "_create_resolved_instrument",
     }
     for name in private_names:
         assert name not in instrument_module.__all__
