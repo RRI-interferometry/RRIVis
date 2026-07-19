@@ -18,13 +18,17 @@
 | Tier 2C implementation commit | `72f2f63953582fea9f6b4e6c617d98511bb66e17` |
 | Tier 2C correction commit | `cba011aa052842edef23ae4f050997349781d501` |
 | Tier 2C independent-acceptance date | 2026-07-19 |
+| Tier 2D dependency prerequisite commit | `832640713c49dc730c2a813927663a0f9067b161` |
+| Tier 2D implementation commit | `37b30f3663a624456ae63b85bcd246c4754466b3` |
+| Tier 2D correction commit | `244ba9f751555274602687adbbd1c81e4b3ccad0` |
+| Tier 2D independent-acceptance date | 2026-07-19 |
 | Baseline `origin/main` | `f9ee87a5c1d4987fac1ee671d2c07711bcac8a41` |
 | Tier 2A review-start branch | `main`, four commits ahead of `origin/main` |
 | Tier 2A review-start working tree | untracked `Tier1ConfigPlan.md`; nothing staged |
 | Tier 1 status | Locally complete and independently accepted |
 | Tier 2 issues | INS-001, INS-002, and INS-003 remain open |
-| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C independently accepted after correction on 2026-07-19 |
-| Implementation status | Tier 2 in progress: Tier 2A, Tier 2B, and Tier 2C accepted; Tier 2D not started |
+| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19 |
+| Implementation status | Tier 2 in progress: Tier 2A through Tier 2D accepted; Tier 2E not started |
 | Remote CI | Unobserved |
 
 This document is the single implementation contract for Tier 2. It selects one
@@ -35,7 +39,10 @@ accepted on 2026-07-18 without correction. Tier 2B's strict inactive input contr
 independently accepted on 2026-07-18 after repairing its Pyright reproducibility gate
 without raising the diagnostic ceiling. Tier 2C's immutable canonical models were
 independently accepted on 2026-07-19 after closing one caller-alias defect. Tier 2 is
-in progress; Tier 2D is the next authorized implementation slice and has not started.
+in progress. Tier 2D's strict source normalization was independently accepted on
+2026-07-19 after correcting diagnostic provenance, the internal export boundary, and
+a timing-sensitive concurrency test. Tier 2E is the next authorized implementation
+slice and has not started.
 
 ## 2. Decision and scope
 
@@ -1353,6 +1360,11 @@ flowchart LR
 
 ### Tier 2D — Source loaders, coordinate normalization, and pyuvdata support
 
+- **Status:** Dependency prerequisite
+  `832640713c49dc730c2a813927663a0f9067b161` and implementation
+  `37b30f3663a624456ae63b85bcd246c4754466b3` were corrected by
+  `244ba9f751555274602687adbbd1c81e4b3ccad0` and independently accepted on
+  2026-07-19; Tier 2E remained unstarted.
 - **Objective:** Implement the selected source boundary and produce a validated
   diameter-incomplete normalized staging inventory in canonical ENU.
 - **Exact files:** add `src/radiosim/io/instrument_sources.py`,
@@ -1360,8 +1372,7 @@ flowchart LR
   `tests/unit/test_io/test_instrument_sources.py`, and
   `tests/unit/test_core/test_instrument_coordinates.py`. The current
   `src/radiosim/core/antenna.py` remains active and unchanged until the atomic cutover;
-  the installed dependency set is unchanged, and Pixi/lock files are outside this
-  slice.
+  the separate prerequisite commit pins pyuvdata 3.2.1 in `pixi.toml` and `pixi.lock`.
 - **Tests first:** every retained/renamed format, strict malformed rows, deterministic
   IDs, MWA duplicate-polarization agreement, Earth-location requirements, ECEF/ENU
   references/round trip, 1-m mismatch, fake known Telescope, metadata-only dataset
@@ -1546,9 +1557,9 @@ Every slice must satisfy all of these gates in addition to its specific gate:
 6. An independent reviewer accepts the slice before its dependent slice starts.
 7. The commit is narrow and local; publishing still requires explicit user approval.
 
-Tier 2A, Tier 2B, and Tier 2C are independently accepted. Tier 2D is now the
-immediate authorized implementation slice, but it must run as a separate task and stop
-for its own independent acceptance. This rule repeats through 2H.
+Tier 2A through Tier 2D are independently accepted. Tier 2E is now the immediate
+authorized implementation slice, but it must run as a separate task and stop for its
+own independent acceptance. This rule repeats through 2H.
 
 ### 29.1 Design-gate verification record
 
@@ -1849,6 +1860,93 @@ Tier 2 implementation and independent acceptance through 2H establish closure. T
 2D was not started. It is now the next authorized slice, but it belongs to a separate
 fresh task under its own implementation and acceptance stop gates.
 
+### 29.6 Tier 2D independent-acceptance record
+
+**Decision: accepted after corrections.** On 2026-07-19 an independent source-first
+review evaluated dependency prerequisite
+`832640713c49dc730c2a813927663a0f9067b161` and implementation
+`37b30f3663a624456ae63b85bcd246c4754466b3` against this complete contract, both
+locked Python environments, the legacy characterization boundary, and every new
+source and staging line. The prerequisite changes only `pixi.toml` and `pixi.lock`;
+the implementation adds exactly the four authorized Tier 2D source, resolution, and
+test files. Legacy readers, root exports, Simulator, solvers, writers, configuration,
+baselines, observability, output, and later-tier code remain unchanged.
+
+The dependency audit proved pyuvdata 3.2.1 in Python 3.11 and 3.12 and in every
+applicable Linux x86-64, macOS x86-64, and macOS arm64 lock solution. Python 3.11
+package references are unchanged. In Python 3.12, the exact pin necessarily moves
+`pyradiosky` from 1.1.1 to compatible 1.1.0, because 1.1.1 requires pyuvdata 3.2.3
+or newer. Removing pyuvdata 3.2.6's direct Conda `numba` constraint lets the existing
+PyPI dependency solve to numba 0.66.0 and llvmlite 0.48.0 rather than Conda 0.65.1
+and 0.47.0. The macOS x86-64 solution uses source distributions for those two PyPI
+packages; Linux and macOS arm64 use wheels. Removed pyuvdata 3.2.6 transitive
+constraints are solver consequences of selecting 3.2.1, not unexplained manifest
+changes. Broader suites exposed no regression. Platforms, environment definitions,
+project/package versions, application dependencies, Pyright 1.1.408, and the 4,600
+diagnostic ceiling are unchanged.
+
+The source audit accepted strict RadioSim local ENU, `casa_loc`, `mwa_metafits`,
+Measurement Set, UVFITS, and distinct known-telescope paths. Legacy `casa` and `mwa`
+spellings are replaced, while ambiguous `pyuvdata` text and legacy
+`use_pyuvdata_*` composition have no new dispatcher route. File formats reject
+malformed rows, optional values, empty inventories, duplicate normalized identities,
+and invalid frames. Dataset and known-telescope arrays require coherent lengths and
+exact `(N, 3)` positions; dependency scalars and arrays are copied into owned
+built-ins. MS and UVFITS use `UVData.read(..., read_data=False)`, with no recursive MS
+hash and a raw-byte UVFITS hash. The known loader calls
+`Telescope.from_known_telescopes` through an injectable seam without pre-enumeration.
+The offline policy holds a private re-entrant lock around Astropy's temporary
+`allow_internet=False` configuration and restores the exact prior value after success
+or failure; the allow-network policy does not mutate it. Tests use only fakes and
+local temporary fixtures.
+
+Local source coordinates remain exact ENU. Dataset and known-telescope relative ECEF
+positions are added to the embedded ITRS origin and converted with public
+`ENU_from_ECEF` about the canonical `EarthLocation`; outputs are forced to owned
+float64-built-in tuples and validated without rounding. Independent public-utility
+expectations and inverse `ECEF_from_ENU` round trips agree within `1e-6 m` per
+component. Explicit/embedded location tests cover zero, interior, exactly 1.0 m, and
+just over 1.0 m: separation `<= 1.0 m` passes with explicit location canonical, and
+larger or non-finite separation fails. Only `EarthLocation` instances are accepted as
+embedded Earth locations. Staging is frozen, slotted, deterministic, dependency-
+object-free, and deliberately diameter-incomplete; source diameters remain optional
+facts. No default or override diameter, final identity precedence, resolved model,
+fingerprint, baseline, selection, or Simulator behavior was added.
+
+The review found two Tier 2D contract defects and one test-quality defect. Some
+normalized row errors named only a line or metadata index instead of the selected
+source; internal source/staging record types were listed in module `__all__`; and the
+concurrency test used a negative 50-ms timing assertion. Regression tests failed first
+for the provenance and export defects.
+Correction `244ba9f751555274602687adbbd1c81e4b3ccad0` adds selected-source context to
+row diagnostics while keeping stable locators, removes private records from
+`__all__`, and coordinates the concurrency test with events. The accepted error
+hierarchy remains exact, specific RadioSim errors are preserved, and dependency and
+conversion failures retain chaining.
+
+Fresh focused results were 99/99 Tier 2D passes on each Python version; Tier 2D plus
+legacy characterization passed 135/135 on each; and the Tier 2 input/model/source
+boundary passed 442/442 on each. All six runs had no failures, skips, xfails, or
+warnings. The full Python 3.11 suite collected 1,954 and reported 1,953 passed, one
+optional Vivaldi-data skip, and 26 classified existing warnings. The Python 3.12
+non-slow suite collected 1,954 and reported 1,946 passed, eight optional Vivaldi/JAX
+skips, and the same 26 existing sky, Units, intentional lossy-conversion, NumPy, and
+Matplotlib warnings. No warning belongs to Tier 2D.
+
+Ruff lint passed; Ruff formatting reported all 264 files formatted. Pyright 1.1.408
+reported 4,446 full-source errors in both environments under the unchanged 4,600
+ceiling, and the two Tier 2D production modules reported zero direct diagnostics in
+both. Lazy-import and direct-module smokes passed on both Pythons; importing
+`radiosim` did not eagerly load the pyuvdata, Astropy FITS, or UVData backends. New
+tests contain no skip/xfail marker, and staged/unstaged Git whitespace checks passed.
+Remote CI, physical GPU hardware, external scientific-network/live registry behavior,
+and Sphinx were not run or observed.
+
+This accepts only Tier 2D. INS-001, INS-002, and INS-003 remain open until complete
+Tier 2 implementation and independent acceptance through 2H. Tier 2 is not complete.
+Tier 2E was not started; it is now the next authorized slice, but it belongs to a
+separate fresh task under its own implementation and acceptance stop gates.
+
 ## 30. Risks and invariants
 
 | Risk | Required control |
@@ -1925,7 +2023,7 @@ Until then, all three INS issues remain open.
 | Heterogeneous observability | Reject before plot/browser | A single footprint would be scientifically misleading |
 | Compatibility | Direct replacement, no shims | Project is pre-v1 and one coherent API is safer than dual state |
 | Result scope | One additive instrument snapshot and narrow writer adapter | Meets provenance needs without taking Tier 4 ownership |
-| Immediate next task | Tier 2D — Source loaders, coordinate normalization, and pyuvdata support | Tier 2C is independently accepted after correction; 2D must run separately under its existing stop boundary |
+| Immediate next task | Tier 2E — Metadata merge and diameter resolution | Tier 2D is independently accepted after correction; 2E must run separately under its existing stop boundary |
 
 ## 33. Unresolved decisions
 

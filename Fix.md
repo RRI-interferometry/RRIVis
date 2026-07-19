@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C independently accepted after correction on 2026-07-19; Tier 2D not started; remote CI not yet observed |
+| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E not started; remote CI not yet observed |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -2134,3 +2134,51 @@ INS-001, INS-002, and INS-003 remain **OPEN** until Tier 2 completes and receive
 acceptance through 2H. Tier 2 is not complete. Tier 2D was not started; it is now the
 next authorized implementation slice and belongs to a separate fresh task under its
 own stop and acceptance gates.
+
+### 2026-07-19 Tier 2D independent acceptance
+
+**Decision:** Tier 2D is independently accepted after corrections. Dependency
+prerequisite `832640713c49dc730c2a813927663a0f9067b161` reproducibly pins pyuvdata
+3.2.1 in both Python environments and all supported platform locks. Implementation
+`37b30f3663a624456ae63b85bcd246c4754466b3` adds exactly the four authorized loader,
+coordinate/staging, and test files. Correction
+`244ba9f751555274602687adbbd1c81e4b3ccad0` adds selected-source context to normalized
+row errors, removes internal records from module `__all__`, and replaces a timing-
+sensitive concurrency assertion with event coordination. Regression tests for the
+contract defects failed first. Legacy readers and all Tier 2E/later consumers remain
+unchanged.
+
+The lock audit found no Python 3.11 reference changes. Python 3.12 necessarily selects
+pyradiosky 1.1.0 instead of 1.1.1 because the latter requires pyuvdata 3.2.3 or newer,
+and moves numba/llvmlite from Conda 0.65.1/0.47.0 to PyPI 0.66.0/0.48.0 after removal
+of pyuvdata 3.2.6's direct Conda numba constraint. Linux and macOS arm64 use wheels;
+macOS x86-64 uses source distributions. Removed 3.2.6 transitive constraints are
+expected solver consequences. Pyright 1.1.408, its 4,600 ceiling, platforms,
+environments, package/project versions, and application dependencies are unchanged;
+broader tests found no dependency regression.
+
+Strict RadioSim ENU, replacement `casa_loc`, renamed `mwa_metafits`, metadata-only MS
+and UVFITS, and distinct known-telescope loading are accepted. Ambiguous pyuvdata
+text and legacy spellings/booleans have no new route. Parsing, identities, dense
+metadata, optional source diameters, hashes, error classes/chaining, and source
+references are strict. Relative ECEF is converted through public pyuvdata utilities
+about an exact `EarthLocation`; independent expected and inverse round-trip results
+agree within `1e-6 m`. Explicit/embedded separation tests cover zero, interior,
+exactly 1.0 m, and just over 1.0 m. The known loader is injectable, offline by default,
+serialized with a re-entrant lock, and restores Astropy configuration after success or
+failure. Returned staging is owned, frozen, slotted, deterministic, dependency-free,
+and deliberately diameter-incomplete.
+
+Focused Tier 2D tests passed 99/99 on Python 3.11 and 3.12; Tier 2D plus legacy
+characterization passed 135/135 on each; and the complete Tier 2 input/model/source
+boundary passed 442/442 on each, all without skips, xfails, or warnings. The full
+Python 3.11 suite reported 1,953 passed, one optional-data skip, and 26 existing
+warnings. Python 3.12 non-slow reported 1,946 passed, eight optional data/JAX skips,
+and the same 26 classified existing warnings. Ruff lint/format, both Pyright ceiling
+checks at 4,446 diagnostics, zero direct diagnostics in the new modules, dual-Python
+imports, lazy-import isolation, and whitespace passed.
+
+Remote CI, physical GPU hardware, external scientific-network/live registry behavior,
+and Sphinx remain unobserved. INS-001, INS-002, and INS-003 remain **OPEN**. Tier 2 is
+not complete. Tier 2E was not started; it is now the next authorized slice and must be
+implemented in a separate fresh task under its own acceptance gate.
