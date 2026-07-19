@@ -602,7 +602,9 @@ def resolve_instrument_source(
         positions = tuple(
             normalize_position(
                 converted_array[index],
-                reference=loaded.antennas[index].source_record,
+                reference=(
+                    f"{loaded.source_reference} {loaded.antennas[index].source_record}"
+                ),
             )
             for index in range(len(loaded.antennas))
         )
@@ -668,9 +670,6 @@ __all__ = [
     "InstrumentSourceError",
     "InvalidAntennaPositionError",
     "OptionalInstrumentDependencyError",
-    "StagedAntenna",
-    "StagedInstrument",
-    "StagedInstrumentProvenance",
     "TelescopeNotFoundError",
     "resolve_instrument_source",
 ]

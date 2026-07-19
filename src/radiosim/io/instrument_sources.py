@@ -304,19 +304,22 @@ def _load_radiosim(path: Path, telescope_name: str) -> LoadedInstrumentSource:
         if not stripped or stripped.startswith("#"):
             continue
         reference = f"line {index + 1}"
+        diagnostic_reference = f"{path} {reference}"
         fields = stripped.split()
         if len(fields) != len(header):
             raise InstrumentFormatError(
                 f"{path} {reference}: expected {len(header)} columns, got {len(fields)}"
             )
-        name = normalize_identity(fields[0], reference=reference, label="antenna name")
+        name = normalize_identity(
+            fields[0], reference=diagnostic_reference, label="antenna name"
+        )
         number = _parse_integer_text(
-            fields[1], reference=reference, label="antenna number"
+            fields[1], reference=diagnostic_reference, label="antenna number"
         )
         position = tuple(
             _parse_float_text(
                 fields[east_index + component],
-                reference=reference,
+                reference=diagnostic_reference,
                 label=("East", "North", "Up")[component],
             )
             for component in range(3)
@@ -325,17 +328,21 @@ def _load_radiosim(path: Path, telescope_name: str) -> LoadedInstrumentSource:
         if beam_index is not None:
             raw_beam = fields[beam_index]
             if _INTEGER_TEXT.fullmatch(raw_beam) is not None:
-                beam_id = normalize_beam_id(int(raw_beam), reference=reference)
+                beam_id = normalize_beam_id(
+                    int(raw_beam), reference=diagnostic_reference
+                )
             else:
-                beam_id = normalize_beam_id(raw_beam, reference=reference)
+                beam_id = normalize_beam_id(raw_beam, reference=diagnostic_reference)
         diameter = None
         if diameter_index is not None:
             raw_diameter = _parse_float_text(
                 fields[diameter_index],
-                reference=reference,
+                reference=diagnostic_reference,
                 label="Diameter",
             )
-            diameter = normalize_source_diameter(raw_diameter, reference=reference)
+            diameter = normalize_source_diameter(
+                raw_diameter, reference=diagnostic_reference
+            )
         antennas.append(
             SourceAntenna(
                 number=number,
@@ -391,6 +398,7 @@ def _load_casa_loc(path: Path, telescope_name: str) -> LoadedInstrumentSource:
     antennas: list[SourceAntenna] = []
     for row_number, (line_number, row) in enumerate(raw_rows):
         reference = f"data row {row_number} (line {line_number})"
+        diagnostic_reference = f"{path} {reference}"
         fields = row.split()
         if not 3 <= len(fields) <= 6:
             raise InstrumentFormatError(
@@ -399,7 +407,7 @@ def _load_casa_loc(path: Path, telescope_name: str) -> LoadedInstrumentSource:
         position_values = tuple(
             _parse_float_text(
                 fields[index],
-                reference=reference,
+                reference=diagnostic_reference,
                 label=("East", "North", "Up")[index],
             )
             for index in range(3)
@@ -407,16 +415,22 @@ def _load_casa_loc(path: Path, telescope_name: str) -> LoadedInstrumentSource:
         diameter = None
         if len(fields) >= 4:
             raw_diameter = _parse_float_text(
-                fields[3], reference=reference, label="Diameter"
+                fields[3], reference=diagnostic_reference, label="Diameter"
             )
-            diameter = normalize_source_diameter(raw_diameter, reference=reference)
+            diameter = normalize_source_diameter(
+                raw_diameter, reference=diagnostic_reference
+            )
         station = (
-            normalize_identity(fields[4], reference=reference, label="station name")
+            normalize_identity(
+                fields[4], reference=diagnostic_reference, label="station name"
+            )
             if len(fields) >= 5
             else None
         )
         antenna_name = (
-            normalize_identity(fields[5], reference=reference, label="antenna name")
+            normalize_identity(
+                fields[5], reference=diagnostic_reference, label="antenna name"
+            )
             if len(fields) == 6
             else None
         )
@@ -510,6 +524,7 @@ def _load_mwa(
     row_indices: dict[tuple[int, str], list[int]] = {}
     for index in range(row_count):
         reference = f"TILEDATA row {index}"
+        diagnostic_reference = f"{path} {reference}"
         raw_name = column_values["TileName"][index]
         if isinstance(raw_name, bytes):
             try:
@@ -518,9 +533,11 @@ def _load_mwa(
                 raise AntennaIdentifierError(
                     f"{path} {reference}: TileName must be UTF-8"
                 ) from error
-        name = normalize_identity(raw_name, reference=reference, label="antenna name")
+        name = normalize_identity(
+            raw_name, reference=diagnostic_reference, label="antenna name"
+        )
         number = normalize_antenna_number(
-            column_values["Antenna"][index], reference=reference
+            column_values["Antenna"][index], reference=diagnostic_reference
         )
         position = normalize_position(
             (
@@ -528,7 +545,7 @@ def _load_mwa(
                 column_values["North"][index],
                 column_values["Height"][index],
             ),
-            reference=reference,
+            reference=diagnostic_reference,
         )
         key = (number, name)
         candidate = SourceAntenna(
@@ -689,26 +706,35 @@ def _normalized_telescope(
     antennas: list[SourceAntenna] = []
     for index in range(count):
         record = f"antenna metadata index {index}"
+        diagnostic_reference = f"{source_reference} {record}"
         position_values = _as_sequence(
-            positions[index], reference=record, label="antenna position"
+            positions[index],
+            reference=diagnostic_reference,
+            label="antenna position",
         )
         if len(position_values) != 3:
             raise InstrumentFormatError(
                 f"{source_reference} {record}: antenna position must contain "
                 "exactly three values"
             )
-        position = normalize_position(position_values, reference=record)
+        position = normalize_position(position_values, reference=diagnostic_reference)
         antennas.append(
             SourceAntenna(
-                number=normalize_antenna_number(numbers[index], reference=record),
+                number=normalize_antenna_number(
+                    numbers[index], reference=diagnostic_reference
+                ),
                 name=normalize_identity(
-                    names[index], reference=record, label="antenna name"
+                    names[index],
+                    reference=diagnostic_reference,
+                    label="antenna name",
                 ),
                 position_m=position,
                 source_diameter_m=normalize_source_diameter(
-                    diameters[index], reference=record
+                    diameters[index], reference=diagnostic_reference
                 ),
-                mount_type=normalize_mount(mounts[index], reference=record),
+                mount_type=normalize_mount(
+                    mounts[index], reference=diagnostic_reference
+                ),
                 beam_id=None,
                 number_generated=False,
                 name_generated=False,
@@ -1014,9 +1040,6 @@ __all__ = [
     "DatasetTelescopeLoader",
     "InternetConfiguration",
     "KnownTelescopeLoader",
-    "LoadedInstrumentSource",
     "ModuleImporter",
-    "SourceAntenna",
-    "SourceLocationFacts",
     "load_instrument_source",
 ]

@@ -202,6 +202,19 @@ def test_radiosim_rejects_incoherent_content(tmp_path: Path, text: str) -> None:
         load_instrument_source(_layout(path, "radiosim"))
 
 
+def test_radiosim_row_error_names_selected_source_and_stable_line(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "bad-number.txt"
+    path.write_text("Name Number E N U\nA nope 1 2 3\n", encoding="utf-8")
+
+    with pytest.raises(AntennaIdentifierError) as raised:
+        load_instrument_source(_layout(path, "radiosim"))
+
+    assert str(path.resolve()) in str(raised.value)
+    assert "line 2" in str(raised.value)
+
+
 @pytest.mark.parametrize(
     "rows",
     [
@@ -486,6 +499,24 @@ def test_dataset_rejects_noncanonical_antenna_numbers(
         )
 
 
+def test_dataset_row_error_names_selected_source_and_stable_index(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "array.uvfits"
+    path.write_bytes(b"placeholder")
+    telescope = FakeTelescope(antenna_numbers=np.array([True, False]))
+
+    with pytest.raises(AntennaIdentifierError) as raised:
+        load_instrument_source(
+            _layout(path, "uvfits"),
+            dataset_loader=RecordingDatasetLoader(telescope),
+            pyuvdata_version="3.2.1",
+        )
+
+    assert str(path.resolve()) in str(raised.value)
+    assert "antenna metadata index 0" in str(raised.value)
+
+
 @pytest.mark.parametrize(
     "names",
     [np.array(["", "A"]), np.array([" ", "A"]), np.array([1, 2])],
@@ -759,6 +790,7 @@ def test_offline_guard_serializes_radio_sim_calls() -> None:
     config = FakeInternetConfig(True)
     first_entered = threading.Event()
     release_first = threading.Event()
+    second_about_to_call = threading.Event()
     second_entered = threading.Event()
     failures: list[BaseException] = []
 
@@ -772,8 +804,14 @@ def test_offline_guard_serializes_radio_sim_calls() -> None:
         second_entered.set()
         return FakeTelescope()
 
-    def invoke(name: str, loader: Any) -> None:
+    def invoke(
+        name: str,
+        loader: Any,
+        about_to_call: threading.Event | None = None,
+    ) -> None:
         try:
+            if about_to_call is not None:
+                about_to_call.set()
             load_instrument_source(
                 KnownTelescopeSourceConfig(name=name),
                 known_telescope_loader=loader,
@@ -784,11 +822,15 @@ def test_offline_guard_serializes_radio_sim_calls() -> None:
             failures.append(error)
 
     first = threading.Thread(target=invoke, args=("First", first_loader))
-    second = threading.Thread(target=invoke, args=("Second", second_loader))
+    second = threading.Thread(
+        target=invoke,
+        args=("Second", second_loader, second_about_to_call),
+    )
     first.start()
     assert first_entered.wait(timeout=5)
     second.start()
-    assert not second_entered.wait(timeout=0.05)
+    assert second_about_to_call.wait(timeout=5)
+    assert not second_entered.is_set()
     release_first.set()
     first.join(timeout=5)
     second.join(timeout=5)
@@ -813,3 +855,19 @@ def test_missing_optional_dependency_has_actionable_guidance(tmp_path: Path) -> 
     assert "pyuvdata" in message
     assert "radiosim[ms]" in message
     assert isinstance(raised.value.__cause__, ModuleNotFoundError)
+
+
+def test_private_source_and_staging_records_are_not_module_exports() -> None:
+    import radiosim.core.instrument_resolution as resolution_module
+    import radiosim.io.instrument_sources as source_module
+
+    assert {
+        "LoadedInstrumentSource",
+        "SourceAntenna",
+        "SourceLocationFacts",
+    }.isdisjoint(source_module.__all__)
+    assert {
+        "StagedAntenna",
+        "StagedInstrument",
+        "StagedInstrumentProvenance",
+    }.isdisjoint(resolution_module.__all__)
