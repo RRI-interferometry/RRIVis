@@ -439,7 +439,14 @@ def test_resolved_location_rejects_nonfinite_scalar_fields(field, value):
 
 @pytest.mark.parametrize(
     "itrs",
-    [(), (1.0, 2.0), (1.0, 2.0, 3.0, 4.0), (1.0, math.nan, 3.0), "123"],
+    [
+        (),
+        (1.0, 2.0),
+        (1.0, 2.0, 3.0, 4.0),
+        (1.0, math.nan, 3.0),
+        {0: 1.0, 1: 2.0, 2: 3.0},
+        "123",
+    ],
 )
 def test_resolved_location_requires_exact_finite_three_component_itrs(itrs):
     with pytest.raises((TypeError, ValueError)):
@@ -584,7 +591,13 @@ def test_resolved_antenna_copies_enu_and_normalizes_inert_metadata():
 
 @pytest.mark.parametrize(
     "position",
-    [(1.0, 2.0), (1.0, 2.0, 3.0, 4.0), (1.0, math.inf, 3.0), "123"],
+    [
+        (1.0, 2.0),
+        (1.0, 2.0, 3.0, 4.0),
+        (1.0, math.inf, 3.0),
+        {"east": 1.0, "north": 2.0, "up": 3.0},
+        "123",
+    ],
 )
 def test_resolved_antenna_requires_exact_finite_enu(position):
     with pytest.raises((TypeError, ValueError)):
@@ -749,7 +762,12 @@ def test_instrument_provenance_rejects_invalid_values(field, value):
 
 @pytest.mark.parametrize(
     "source_location",
-    [(1.0, 2.0), (1.0, 2.0, 3.0, 4.0), (1.0, math.nan, 3.0)],
+    [
+        (1.0, 2.0),
+        (1.0, 2.0, 3.0, 4.0),
+        (1.0, math.nan, 3.0),
+        {"x": 1.0, "y": 2.0, "z": 3.0},
+    ],
 )
 def test_instrument_provenance_rejects_invalid_source_location(source_location):
     kwargs = _instrument_provenance("b" * 64)
@@ -844,6 +862,43 @@ def test_instrument_rejects_invalid_nested_types_and_hash_mismatch():
             antennas,
             replace(provenance, instrument_sha256="0" * 64),
         )
+
+
+def test_nested_models_reject_caller_mutable_subclasses():
+    def mutable_copy(value):
+        def mutable_setattr(self, name, replacement):
+            object.__setattr__(self, name, replacement)
+
+        mutable_type = type(
+            f"Mutable{type(value).__name__}",
+            (type(value),),
+            {"__setattr__": mutable_setattr},
+        )
+        return mutable_type(*(getattr(value, item.name) for item in fields(value)))
+
+    antenna = _antenna(1, "ANT1")
+    mutable_id = mutable_copy(antenna.id)
+    mutable_id.name = "changed after construction"
+    assert mutable_id.name == "changed after construction"
+
+    with pytest.raises(TypeError):
+        replace(antenna, id=mutable_copy(antenna.id))
+    with pytest.raises(TypeError):
+        replace(antenna, provenance=mutable_copy(antenna.provenance))
+
+    instrument = _resolved_instrument()
+    with pytest.raises(TypeError):
+        replace(instrument, location=mutable_copy(instrument.location))
+    with pytest.raises(TypeError):
+        replace(
+            instrument,
+            antennas=(
+                mutable_copy(instrument.antennas[0]),
+                instrument.antennas[1],
+            ),
+        )
+    with pytest.raises(TypeError):
+        replace(instrument, provenance=mutable_copy(instrument.provenance))
 
 
 def test_all_public_models_are_frozen():

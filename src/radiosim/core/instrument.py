@@ -31,9 +31,9 @@ def _require_instance(
     *,
     field_name: str,
 ) -> _T:
-    if not isinstance(value, expected_type):
+    if type(value) is not expected_type:
         raise TypeError(f"{field_name} must be a {expected_type.__name__}")
-    return value
+    return cast(_T, value)
 
 
 def _normalize_nonblank_string(value: object, *, field_name: str) -> str:
@@ -520,7 +520,7 @@ def _canonicalize_antennas(value: object) -> tuple[ResolvedAntenna, ...]:
         ) from exc
     if not copied:
         raise ValueError("antennas must contain at least one antenna")
-    if any(not isinstance(item, ResolvedAntenna) for item in copied):
+    if any(type(item) is not ResolvedAntenna for item in copied):
         raise TypeError("antennas must contain only ResolvedAntenna values")
     typed = tuple(cast(ResolvedAntenna, item) for item in copied)
     ordered = tuple(sorted(typed, key=lambda antenna: antenna.id.number))
