@@ -11,8 +11,12 @@ from radiosim.core.instrument import (
     AntennaFieldSource,
     AntennaId,
     AntennaProvenance,
+    BaselineSelectionCriteriaSnapshot,
+    BaselineSelectionProvenance,
     InstrumentProvenance,
     ResolvedAntenna,
+    ResolvedBaseline,
+    ResolvedBaselineSelection,
     ResolvedEarthLocation,
     ResolvedInstrument,
 )
@@ -74,6 +78,10 @@ __all__ = [
     "ResolvedAntenna",
     "InstrumentProvenance",
     "ResolvedInstrument",
+    "ResolvedBaseline",
+    "BaselineSelectionCriteriaSnapshot",
+    "BaselineSelectionProvenance",
+    "ResolvedBaselineSelection",
     # Beams
     "BeamManager",
     # Observation

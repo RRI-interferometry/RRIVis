@@ -1223,7 +1223,12 @@ def test_snapshot_is_fresh_recursively_json_safe_and_model_independent():
 
 
 def test_public_exports_are_exact_and_share_object_identity():
-    assert tuple(instrument_module.__all__) == PUBLIC_MODEL_NAMES
+    assert tuple(instrument_module.__all__) == PUBLIC_MODEL_NAMES + (
+        "ResolvedBaseline",
+        "BaselineSelectionCriteriaSnapshot",
+        "BaselineSelectionProvenance",
+        "ResolvedBaselineSelection",
+    )
     for name in PUBLIC_MODEL_NAMES:
         direct = getattr(instrument_module, name)
         assert getattr(core, name) is direct
@@ -1253,7 +1258,7 @@ def test_private_helpers_are_not_exported():
         assert name not in radiosim.__all__
 
 
-def test_model_module_is_lightweight_and_contains_no_later_tier_surface():
+def test_model_module_is_lightweight_and_contains_no_resolution_surface():
     source = Path(instrument_module.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
     imported_roots: set[str] = set()
@@ -1285,10 +1290,6 @@ def test_model_module_is_lightweight_and_contains_no_later_tier_surface():
     }
     assert class_names.isdisjoint(
         {
-            "ResolvedBaseline",
-            "BaselineSelectionCriteriaSnapshot",
-            "BaselineSelectionProvenance",
-            "ResolvedBaselineSelection",
             "ResolvedInstrumentState",
         }
     )

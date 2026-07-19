@@ -21,6 +21,8 @@ from typing import Any, TypeVar, cast
 
 _MAX_ANTENNA_NUMBER = 2_147_483_647
 _INSTRUMENT_SCHEMA_VERSION = "radiosim.instrument.v1"
+_BASELINE_SELECTION_SCHEMA_VERSION = "radiosim.baseline-selection.v1"
+_COINCIDENT_ANTENNA_THRESHOLD_M = 1e-9
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 _T = TypeVar("_T")
 
@@ -730,6 +732,413 @@ class ResolvedInstrument:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedBaseline:
+    """Canonical baseline geometry between two ordered antenna identities."""
+
+    ant1: AntennaId
+    ant2: AntennaId
+    vector_enu_m: tuple[float, float, float]
+    length_m: float
+    is_autocorrelation: bool
+    azimuth_deg: float | None
+
+    def __post_init__(self) -> None:
+        ant1 = _require_instance(self.ant1, AntennaId, field_name="ant1")
+        ant2 = _require_instance(self.ant2, AntennaId, field_name="ant2")
+        vector = _copy_three_floats(self.vector_enu_m, field_name="vector_enu_m")
+        length = _normalize_nonnegative_float(self.length_m, field_name="length_m")
+        if type(self.is_autocorrelation) is not bool:
+            raise TypeError("is_autocorrelation must be a boolean")
+        if ant1.number > ant2.number:
+            raise ValueError("ant1.number must be less than or equal to ant2.number")
+
+        expected_length = math.hypot(*vector)
+        if not math.isfinite(expected_length):
+            raise ValueError("vector_enu_m must have a finite Euclidean norm")
+        if length != expected_length:
+            raise ValueError("length_m must equal the Euclidean vector norm")
+
+        if self.is_autocorrelation:
+            if ant1 != ant2:
+                raise ValueError(
+                    "an autocorrelation must use the same complete AntennaId"
+                )
+            if vector != (0.0, 0.0, 0.0) or length != 0.0:
+                raise ValueError(
+                    "an autocorrelation must have an exact zero vector and length"
+                )
+            if self.azimuth_deg is not None:
+                raise ValueError("an autocorrelation must have azimuth_deg=None")
+            azimuth: float | None = None
+        else:
+            if ant1.number == ant2.number:
+                raise ValueError(
+                    "a cross-correlation must use distinct antenna numbers"
+                )
+            if length <= _COINCIDENT_ANTENNA_THRESHOLD_M:
+                raise ValueError(
+                    "a cross-correlation length must be greater than 1e-9 m"
+                )
+            if self.azimuth_deg is None:
+                raise ValueError("a cross-correlation must have an azimuth")
+            azimuth = _normalize_finite_float(
+                self.azimuth_deg,
+                field_name="azimuth_deg",
+            )
+            if not 0.0 <= azimuth < 180.0:
+                raise ValueError("azimuth_deg must be in [0, 180)")
+            expected_azimuth = math.degrees(math.atan2(vector[0], vector[1])) % 180.0
+            if expected_azimuth == 0.0:
+                expected_azimuth = 0.0
+            if azimuth != expected_azimuth:
+                raise ValueError(
+                    "azimuth_deg must match the axial ENU vector orientation"
+                )
+
+        object.__setattr__(self, "ant1", ant1)
+        object.__setattr__(self, "ant2", ant2)
+        object.__setattr__(self, "vector_enu_m", vector)
+        object.__setattr__(self, "length_m", length)
+        object.__setattr__(self, "azimuth_deg", azimuth)
+
+
+def _copy_tuple_items(value: object, *, field_name: str) -> tuple[object, ...]:
+    if isinstance(value, (str, bytes, bytearray, Mapping)):
+        raise TypeError(f"{field_name} must be an iterable")
+    try:
+        copied = tuple(cast(Iterable[object], value))
+    except TypeError as exc:
+        raise TypeError(f"{field_name} must be an iterable") from exc
+    return tuple(item for item in copied)
+
+
+def _normalize_float_tuple(
+    value: object,
+    *,
+    field_name: str,
+    nonnegative: bool,
+) -> tuple[float, ...]:
+    copied = _copy_tuple_items(value, field_name=field_name)
+    normalizer = (
+        _normalize_nonnegative_float if nonnegative else _normalize_finite_float
+    )
+    return tuple(
+        normalizer(item, field_name=f"{field_name}[{index}]")
+        for index, item in enumerate(copied)
+    )
+
+
+def _normalize_float_pairs(
+    value: object,
+    *,
+    field_name: str,
+    azimuth: bool,
+) -> tuple[tuple[float, float], ...]:
+    copied = _copy_tuple_items(value, field_name=field_name)
+    normalized: list[tuple[float, float]] = []
+    for index, item in enumerate(copied):
+        pair = _copy_tuple_items(item, field_name=f"{field_name}[{index}]")
+        if len(pair) != 2:
+            raise ValueError(f"{field_name}[{index}] must contain exactly two values")
+        first = _normalize_nonnegative_float(
+            pair[0],
+            field_name=f"{field_name}[{index}][0]",
+        )
+        second = _normalize_nonnegative_float(
+            pair[1],
+            field_name=f"{field_name}[{index}][1]",
+        )
+        if azimuth:
+            if first >= 180.0 or second >= 180.0:
+                raise ValueError(f"{field_name} endpoints must be in [0, 180)")
+            if first == second:
+                raise ValueError(f"{field_name} endpoints must differ")
+        elif second < first:
+            raise ValueError(
+                f"{field_name} maximum must be greater than or equal to minimum"
+            )
+        normalized.append((first, second))
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"{field_name} must not contain exact duplicates")
+    return tuple(sorted(normalized))
+
+
+@dataclass(frozen=True, slots=True)
+class BaselineSelectionCriteriaSnapshot:
+    """Normalized JSON-safe baseline-selection criteria."""
+
+    correlations: str
+    length_mode: str | None
+    length_targets_m: tuple[float, ...]
+    length_tolerance_m: float | None
+    length_ranges_m: tuple[tuple[float, float], ...]
+    azimuth_ranges_deg: tuple[tuple[float, float], ...]
+
+    def __post_init__(self) -> None:
+        if type(self.correlations) is not str or self.correlations not in {
+            "all",
+            "cross",
+            "auto",
+        }:
+            raise ValueError("correlations must be exactly 'all', 'cross', or 'auto'")
+        if self.length_mode is not None and type(self.length_mode) is not str:
+            raise TypeError("length_mode must be a string or None")
+
+        targets = _normalize_float_tuple(
+            self.length_targets_m,
+            field_name="length_targets_m",
+            nonnegative=True,
+        )
+        ranges = _normalize_float_pairs(
+            self.length_ranges_m,
+            field_name="length_ranges_m",
+            azimuth=False,
+        )
+        azimuth_ranges = _normalize_float_pairs(
+            self.azimuth_ranges_deg,
+            field_name="azimuth_ranges_deg",
+            azimuth=True,
+        )
+
+        if self.length_mode is None:
+            if targets or ranges or self.length_tolerance_m is not None:
+                raise ValueError(
+                    "inactive length criteria require empty tuples and no tolerance"
+                )
+            tolerance = None
+        elif self.length_mode == "targets":
+            if not targets:
+                raise ValueError(
+                    "target length criteria must contain at least one target"
+                )
+            if ranges:
+                raise ValueError("target length criteria cannot contain ranges")
+            if len(set(targets)) != len(targets):
+                raise ValueError("length_targets_m must not contain exact duplicates")
+            if self.length_tolerance_m is None:
+                raise ValueError("target length criteria require a tolerance")
+            tolerance = _normalize_nonnegative_float(
+                self.length_tolerance_m,
+                field_name="length_tolerance_m",
+            )
+        elif self.length_mode == "ranges":
+            if not ranges:
+                raise ValueError(
+                    "range length criteria must contain at least one range"
+                )
+            if targets or self.length_tolerance_m is not None:
+                raise ValueError(
+                    "range length criteria cannot contain targets or a tolerance"
+                )
+            tolerance = None
+        else:
+            raise ValueError("length_mode must be exactly 'targets', 'ranges', or None")
+
+        object.__setattr__(self, "correlations", str(self.correlations))
+        object.__setattr__(self, "length_mode", self.length_mode)
+        object.__setattr__(self, "length_targets_m", tuple(sorted(targets)))
+        object.__setattr__(self, "length_tolerance_m", tolerance)
+        object.__setattr__(self, "length_ranges_m", ranges)
+        object.__setattr__(self, "azimuth_ranges_deg", azimuth_ranges)
+
+    def to_snapshot(self) -> dict[str, Any]:
+        """Return a fresh deterministic JSON-safe criteria snapshot."""
+        return {
+            "correlations": self.correlations,
+            "length_mode": self.length_mode,
+            "length_targets_m": list(self.length_targets_m),
+            "length_tolerance_m": self.length_tolerance_m,
+            "length_ranges_m": [list(pair) for pair in self.length_ranges_m],
+            "azimuth_ranges_deg": [list(pair) for pair in self.azimuth_ranges_deg],
+        }
+
+
+def _normalize_selected_ids(value: object) -> tuple[tuple[int, int], ...]:
+    copied = _copy_tuple_items(value, field_name="selected_ids")
+    normalized: list[tuple[int, int]] = []
+    for index, item in enumerate(copied):
+        pair = _copy_tuple_items(item, field_name=f"selected_ids[{index}]")
+        if len(pair) != 2:
+            raise ValueError(f"selected_ids[{index}] must contain exactly two values")
+        ant1 = _normalize_integer(
+            pair[0],
+            field_name=f"selected_ids[{index}][0]",
+            minimum=0,
+            maximum=_MAX_ANTENNA_NUMBER,
+        )
+        ant2 = _normalize_integer(
+            pair[1],
+            field_name=f"selected_ids[{index}][1]",
+            minimum=0,
+            maximum=_MAX_ANTENNA_NUMBER,
+        )
+        if ant1 > ant2:
+            raise ValueError("selected_ids pairs must use canonical numeric order")
+        normalized.append((ant1, ant2))
+    result = tuple(normalized)
+    if len(set(result)) != len(result):
+        raise ValueError("selected_ids must contain unique pairs")
+    if result != tuple(sorted(result)):
+        raise ValueError("selected_ids must be in stable canonical baseline order")
+    return result
+
+
+@dataclass(frozen=True, slots=True)
+class BaselineSelectionProvenance:
+    """Versioned criteria, stage counts, and selected baseline identities."""
+
+    schema_version: str
+    instrument_sha256: str
+    criteria: BaselineSelectionCriteriaSnapshot
+    generated_count: int
+    after_correlation_count: int
+    after_length_count: int
+    after_azimuth_count: int
+    azimuth_exempt_auto_count: int
+    selected_ids: tuple[tuple[int, int], ...]
+
+    def __post_init__(self) -> None:
+        if type(self.schema_version) is not str:
+            raise TypeError("schema_version must be a string")
+        if self.schema_version != _BASELINE_SELECTION_SCHEMA_VERSION:
+            raise ValueError(
+                f"schema_version must be {_BASELINE_SELECTION_SCHEMA_VERSION!r}"
+            )
+        fingerprint = _normalize_sha256(
+            self.instrument_sha256,
+            field_name="instrument_sha256",
+        )
+        criteria = _require_instance(
+            self.criteria,
+            BaselineSelectionCriteriaSnapshot,
+            field_name="criteria",
+        )
+        counts = tuple(
+            _normalize_integer(value, field_name=name, minimum=0)
+            for name, value in (
+                ("generated_count", self.generated_count),
+                ("after_correlation_count", self.after_correlation_count),
+                ("after_length_count", self.after_length_count),
+                ("after_azimuth_count", self.after_azimuth_count),
+            )
+        )
+        if not counts[0] >= counts[1] >= counts[2] >= counts[3]:
+            raise ValueError("baseline-selection stage counts must be nonincreasing")
+        if criteria.correlations == "all" and counts[1] != counts[0]:
+            raise ValueError(
+                "after_correlation_count must equal generated_count for all "
+                "correlations"
+            )
+        if criteria.length_mode is None and counts[2] != counts[1]:
+            raise ValueError(
+                "after_length_count must equal after_correlation_count without "
+                "a length filter"
+            )
+        exempt_count = _normalize_integer(
+            self.azimuth_exempt_auto_count,
+            field_name="azimuth_exempt_auto_count",
+            minimum=0,
+        )
+        if exempt_count > counts[2]:
+            raise ValueError(
+                "azimuth_exempt_auto_count cannot exceed the azimuth input count"
+            )
+        if not criteria.azimuth_ranges_deg and exempt_count != 0:
+            raise ValueError(
+                "azimuth_exempt_auto_count must be zero without an azimuth filter"
+            )
+        if not criteria.azimuth_ranges_deg and counts[3] != counts[2]:
+            raise ValueError(
+                "after_azimuth_count must equal after_length_count without an "
+                "azimuth filter"
+            )
+        if criteria.azimuth_ranges_deg and exempt_count > counts[3]:
+            raise ValueError(
+                "azimuth_exempt_auto_count cannot exceed the azimuth output count"
+            )
+        selected_ids = _normalize_selected_ids(self.selected_ids)
+        if len(selected_ids) != counts[3]:
+            raise ValueError("selected_ids count must equal after_azimuth_count")
+        if criteria.correlations == "auto" and any(
+            ant1 != ant2 for ant1, ant2 in selected_ids
+        ):
+            raise ValueError("auto correlation criteria require auto selected IDs")
+        if criteria.correlations == "cross" and any(
+            ant1 == ant2 for ant1, ant2 in selected_ids
+        ):
+            raise ValueError("cross correlation criteria require cross selected IDs")
+        if criteria.azimuth_ranges_deg:
+            selected_auto_count = sum(ant1 == ant2 for ant1, ant2 in selected_ids)
+            if exempt_count != selected_auto_count:
+                raise ValueError(
+                    "azimuth_exempt_auto_count must equal selected auto IDs"
+                )
+
+        object.__setattr__(self, "schema_version", str(self.schema_version))
+        object.__setattr__(self, "instrument_sha256", fingerprint)
+        object.__setattr__(self, "criteria", criteria)
+        object.__setattr__(self, "generated_count", counts[0])
+        object.__setattr__(self, "after_correlation_count", counts[1])
+        object.__setattr__(self, "after_length_count", counts[2])
+        object.__setattr__(self, "after_azimuth_count", counts[3])
+        object.__setattr__(self, "azimuth_exempt_auto_count", exempt_count)
+        object.__setattr__(self, "selected_ids", selected_ids)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedBaselineSelection:
+    """Nonempty stable baseline selection with immutable provenance."""
+
+    baselines: tuple[ResolvedBaseline, ...]
+    provenance: BaselineSelectionProvenance
+
+    def __post_init__(self) -> None:
+        copied = _copy_tuple_items(self.baselines, field_name="baselines")
+        if not copied:
+            raise ValueError("baselines must contain at least one selected baseline")
+        if any(type(item) is not ResolvedBaseline for item in copied):
+            raise TypeError("baselines must contain only ResolvedBaseline values")
+        baselines = tuple(cast(ResolvedBaseline, item) for item in copied)
+        provenance = _require_instance(
+            self.provenance,
+            BaselineSelectionProvenance,
+            field_name="provenance",
+        )
+        selected_ids = tuple(
+            (baseline.ant1.number, baseline.ant2.number) for baseline in baselines
+        )
+        if len(set(selected_ids)) != len(selected_ids):
+            raise ValueError("selected baseline pair IDs must be unique")
+        if selected_ids != tuple(sorted(selected_ids)):
+            raise ValueError("baselines must use stable canonical generation order")
+        if selected_ids != provenance.selected_ids:
+            raise ValueError(
+                "provenance.selected_ids must exactly match selected baselines"
+            )
+
+        object.__setattr__(
+            self,
+            "baselines",
+            tuple(baseline for baseline in baselines),
+        )
+        object.__setattr__(self, "provenance", provenance)
+
+    def to_snapshot(self) -> dict[str, Any]:
+        """Return the fresh JSON-safe baseline-selection block from section 22."""
+        provenance = self.provenance
+        return {
+            "schema_version": provenance.schema_version,
+            "criteria": provenance.criteria.to_snapshot(),
+            "generated_count": provenance.generated_count,
+            "after_correlation_count": provenance.after_correlation_count,
+            "after_length_count": provenance.after_length_count,
+            "after_azimuth_count": provenance.after_azimuth_count,
+            "azimuth_exempt_auto_count": provenance.azimuth_exempt_auto_count,
+            "selected_ids": [list(pair) for pair in provenance.selected_ids],
+        }
+
+
 def _create_resolved_instrument(  # pyright: ignore[reportUnusedFunction]
     *,
     name: str,
@@ -785,4 +1194,8 @@ __all__ = [
     "ResolvedAntenna",
     "InstrumentProvenance",
     "ResolvedInstrument",
+    "ResolvedBaseline",
+    "BaselineSelectionCriteriaSnapshot",
+    "BaselineSelectionProvenance",
+    "ResolvedBaselineSelection",
 ]
