@@ -24,13 +24,16 @@
 | Tier 2D independent-acceptance date | 2026-07-19 |
 | Tier 2E implementation commit | `61d65849461ab3c3ab001f6af5fbf57695dfb3ec` |
 | Tier 2E independent-acceptance date | 2026-07-20 |
+| Tier 2F implementation commit | `9f42cf084052048d912711f537e696521a3f9654` |
+| Tier 2F correction commit | `667850154740e0830d3535d3eb144c63a13c52eb` |
+| Tier 2F independent-acceptance date | 2026-07-20 |
 | Baseline `origin/main` | `f9ee87a5c1d4987fac1ee671d2c07711bcac8a41` |
 | Tier 2A review-start branch | `main`, four commits ahead of `origin/main` |
 | Tier 2A review-start working tree | untracked `Tier1ConfigPlan.md`; nothing staged |
 | Tier 1 status | Locally complete and independently accepted |
 | Tier 2 issues | INS-001, INS-002, and INS-003 remain open |
-| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction on 2026-07-20 |
-| Implementation status | Tier 2 in progress: Tier 2A through Tier 2E accepted; Tier 2F not started |
+| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction and Tier 2F independently accepted after correction on 2026-07-20 |
+| Implementation status | Tier 2 in progress: Tier 2A through Tier 2F accepted; Tier 2G not started |
 | Remote CI | Unobserved |
 
 This document is the single implementation contract for Tier 2. It selects one
@@ -44,8 +47,10 @@ independently accepted on 2026-07-19 after closing one caller-alias defect. Tier
 in progress. Tier 2D's strict source normalization was independently accepted on
 2026-07-19 after correcting diagnostic provenance, the internal export boundary, and
 a timing-sensitive concurrency test. Tier 2E's metadata merge and complete-diameter
-resolution were independently accepted without correction on 2026-07-20. Tier 2F is
-the next authorized implementation slice and has not started.
+resolution were independently accepted without correction on 2026-07-20. Tier 2F's
+canonical baseline generation and selection were independently accepted after
+correction on 2026-07-20. Tier 2G is the next authorized separate slice and has not
+started.
 
 ## 2. Decision and scope
 
@@ -1418,6 +1423,10 @@ flowchart LR
 
 ### Tier 2F — Canonical baseline generation and selection
 
+- **Status:** Implementation `9f42cf084052048d912711f537e696521a3f9654`
+  was independently accepted after correction
+  `667850154740e0830d3535d3eb144c63a13c52eb` on 2026-07-20; Tier 2G remained
+  unstarted.
 - **Objective:** Replace the opaque baseline contract with frozen canonical generation,
   exact axial science selection, and provenance.
 - **Exact files:** add `src/radiosim/core/baseline_resolution.py`,
@@ -1563,7 +1572,7 @@ Every slice must satisfy all of these gates in addition to its specific gate:
 6. An independent reviewer accepts the slice before its dependent slice starts.
 7. The commit is narrow and local; publishing still requires explicit user approval.
 
-Tier 2A through Tier 2E are independently accepted. Tier 2F is now the immediate
+Tier 2A through Tier 2F are independently accepted. Tier 2G is now the immediate
 authorized implementation slice, but it must run as a separate task and stop for its
 own independent acceptance. This rule repeats through 2H.
 
@@ -2037,6 +2046,95 @@ whitespace checks passed. This re-verification did not rerun the full repository
 suite, Sphinx, remote CI, physical GPU hardware, or external scientific-network/live
 registry behavior; the earlier acceptance evidence above remains distinct.
 
+### 29.8 Tier 2F independent-acceptance record
+
+**Decision: accepted after corrections.** On 2026-07-20 an independent source-first
+review evaluated implementation `9f42cf084052048d912711f537e696521a3f9654`
+against the complete canonical baseline, ENU, selection, provenance, error, export,
+legacy, and Tier 2F stop contracts. The review began on clean `main` at that exact
+implementation commit, with parent `f238cbec336728fc57e6897371b650519cecc122`,
+`origin/main` at `cf353dbb1d6727ae308fda71a803576ab353bf5d`, and divergence
+11 ahead and zero behind. Python 3.11.13 and 3.12.13 each provided pyuvdata 3.2.1
+and Pyright 1.1.408.
+
+The implementation commit changes exactly the six authorized files: it adds the pure
+baseline-resolution module and two focused test modules, adds the four frozen owning
+models to `instrument.py`, exports only those models through `radiosim.core`, and
+narrowly removes the obsolete Tier 2C prohibition from the existing instrument test.
+The parent contains none of the new module, tests, or four model classes; the final
+implementation adds tests and behavior coherently. Git history therefore supports the
+reported missing-module collection boundary, although the original uncommitted first
+test run itself is not recoverable from committed history.
+
+The independent review found three genuine canonical-state defects. First, direct
+provenance construction accepted nontriangular generated counts, auto/cross stage
+counts impossible for the implied antenna count, and selected IDs referencing more
+antennas than that count permits. Second, a directly constructed final selection could
+carry baseline lengths or cross azimuths that contradicted its active criteria while
+its IDs still matched provenance. Third, the `1e-12` degree boundary allowance was
+linear rather than axial, creating a discontinuity between zero and values immediately
+below 180 degrees. Regression-first runs recorded five failures across seam and count
+cases and a separate failure for criteria/geometry coherence before production changed.
+
+Correction `667850154740e0830d3535d3eb144c63a13c52eb` is limited to
+`src/radiosim/core/instrument.py`,
+`src/radiosim/core/baseline_resolution.py`, and
+`tests/unit/test_core/test_baseline_selection.py`. It derives the positive antenna
+count from the triangular generated count, enforces the exact `all`, `auto`, and
+`cross` correlation-stage count, bounds selected identity cardinality, validates
+final baseline geometry against target/range/azimuth criteria, preserves auto
+exemption, and computes boundary distance on the modulo-180 axial half-circle. It
+does not change public fields, schema versions, generation sign, filter tolerances,
+legacy APIs, exports, dependencies, locks, or later-tier behavior.
+
+The accepted generator produces all `n(n+1)/2` ordered numeric pairs, with `n` exact
+autos and `n(n-1)/2` crosses. Vectors are exactly `position(ant2)-position(ant1)` in
+East, North, Up order; norms use all three components; autos are exact zero with no
+azimuth; crosses at or below `1e-9 m` fail while `nextafter(1e-9, +inf)` succeeds.
+Axial azimuth is exactly `degrees(atan2(East, North)) mod 180`: North/South are zero,
+East/West are 90, all quadrants agree, Up is irrelevant, pure vertical crosses use
+zero, and physical endpoint or numeric-identity reversal does not change selection.
+
+Correlation, length-target, length-range, normal/wrapped azimuth, union,
+intersection, stable-order, auto-exemption, and empty-selection behavior are accepted.
+Targets use `tolerance + 1e-9 m`; ranges extend both endpoints by `1e-9 m`; angles use
+closed axial ranges with a `1e-12` degree allowance continuous at zero/180. Provenance
+now rejects every mathematically provable forged count or selected-ID contradiction,
+and final selection rejects provable geometry/criteria contradictions while not
+claiming to reconstruct unavailable historical geometry.
+
+All four public models retain exact frozen slotted fields, exact nested canonical
+types, copied built-in tuples/scalars, deterministic hashing and snapshots, and strict
+mutable-subclass rejection. Error inheritance remains
+`InstrumentResolutionError -> BaselineGenerationError -> CoincidentAntennaError` and
+`InstrumentResolutionError -> BaselineSelectionError -> EmptyBaselineSelectionError`.
+The root package, legacy `baseline.py` and `radiosim.core.generate_baselines` binding,
+configuration resolution, CLI, Simulator, solvers, writers, Measurement Set path,
+plotting, observability, and beams remain unchanged; Tier 2G integration is absent.
+
+The committed Tier 2F suites passed 136/136 on Python 3.11.13 and 136/136 on Python
+3.12.13. The complete affected boundary passed 571/571 on Python 3.11 and 570 passed
+with one optional-JAX skip on Python 3.12. The full Python 3.11 suite passed 2,167 with
+one skip (`Vivaldi FITS not mounted`) and 26 existing warnings. Python 3.12 non-slow
+passed 2,160 with eight skips (seven missing-JAX cases and the same Vivaldi FITS case)
+and the same 26 warnings. Those warnings remain the existing one assume-disjoint
+warning, eight Astropy units warnings, twelve HEALPix lossy-conversion warnings, one
+NumPy invalid-multiply warning, and four healpy figure-reuse warnings; none is from
+baseline or instrument code.
+
+Ruff lint passed and all 268 files passed Ruff formatting. Pyright 1.1.408 reported
+4,446 full-source diagnostics in both environments under the unchanged 4,600 ceiling,
+and zero direct diagnostics in `instrument.py` and `baseline_resolution.py`. The
+15 independent dual-Python adversarial probe groups, no-skip/xfail search, exact-scope
+search, later-tier search, and staged/unstaged whitespace checks passed.
+`pyright-baseline.json`, dependencies, and lockfiles are unchanged.
+
+Sphinx, remote CI, physical GPU hardware, and external scientific-network/live
+registry behavior were not run or observed. Nothing was pushed or published. This
+accepts only Tier 2F. INS-001, INS-002, and INS-003 remain open, Tier 2 remains
+incomplete, and Tier 2G was not started. Tier 2G is the next authorized task only in a
+separate fresh task under its existing implementation and acceptance stop gates.
+
 ## 30. Risks and invariants
 
 | Risk | Required control |
@@ -2113,7 +2211,7 @@ Until then, all three INS issues remain open.
 | Heterogeneous observability | Reject before plot/browser | A single footprint would be scientifically misleading |
 | Compatibility | Direct replacement, no shims | Project is pre-v1 and one coherent API is safer than dual state |
 | Result scope | One additive instrument snapshot and narrow writer adapter | Meets provenance needs without taking Tier 4 ownership |
-| Immediate next task | Tier 2F — Canonical baseline generation and selection | Tier 2E is independently accepted without correction; 2F must run separately under its existing stop boundary |
+| Immediate next task | Tier 2G — Atomic public integration, truth surfaces, and narrow provenance | Tier 2F is independently accepted after correction; 2G must run separately under its existing stop boundary |
 
 ## 33. Unresolved decisions
 

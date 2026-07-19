@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction on 2026-07-20; Tier 2F not started; remote CI not yet observed |
+| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction and Tier 2F independently accepted after correction on 2026-07-20; Tier 2G not started; remote CI not yet observed |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -2242,3 +2242,47 @@ staged/unstaged whitespace checks passed. It did not rerun the full repository s
 Sphinx, remote CI, physical GPU hardware, or external scientific-network/live registry
 behavior. INS-001, INS-002, and INS-003 remain **OPEN**, Tier 2 remains incomplete,
 and no Tier 2F work was started.
+
+### 2026-07-20 Tier 2F independent acceptance
+
+**Decision:** Tier 2F is independently accepted after corrections. Implementation
+`9f42cf084052048d912711f537e696521a3f9654` changes exactly its six authorized
+canonical-model, baseline-resolution, export, and test files. Its parent contains none
+of the new module, tests, or four models. No root export, legacy baseline implementation,
+active configuration, CLI, Simulator, solver, writer, Measurement Set, plotting,
+observability, beam, dependency, lock, or Tier 2G behavior changed.
+
+The review independently accepted exact numeric pair ordering and counts, exact
+`ant2-ant1` ENU vectors and 3D norms, zero autos, the inclusive `1e-9 m` coincidence
+threshold, North-zero/East-90 modulo-180 azimuth, endpoint and antenna-number
+invariance, pure vertical geometry, target/range tolerances, normal and wrapped angle
+ranges, within-category union, between-category intersection, stable order, truthful
+auto exemption, deterministic empty errors, immutable snapshots, ownership, exports,
+and the exact error hierarchy.
+
+Regression-first review found that forged public provenance could encode
+nontriangular or impossible correlation pipelines, final baseline geometry could
+contradict active criteria, and angular tolerance was discontinuous at the axial
+zero/180 seam. Correction `667850154740e0830d3535d3eb144c63a13c52eb` changes only
+`instrument.py`, `baseline_resolution.py`, and the baseline-selection test. It enforces
+triangular and exact correlation counts, selected identity cardinality, final
+length/azimuth coherence, and circular axial boundary distance without changing the
+accepted schema or later-tier boundary.
+
+The committed Tier 2F suites passed 136/136 on Python 3.11.13 and 136/136 on Python
+3.12.13. The affected boundary passed 571/571 and 570 passed/one existing optional-JAX
+skip. The full Python 3.11 suite reported 2,167 passed, one existing Vivaldi-FITS skip,
+and 26 existing non-instrument warnings. Python 3.12 non-slow reported 2,160 passed,
+eight existing skips (seven missing-JAX and one Vivaldi-FITS), and the same 26 warnings.
+
+Ruff lint and formatting passed for all 268 files. Pyright 1.1.408 remained at 4,446
+diagnostics in both environments under the unchanged 4,600 ceiling, with zero direct
+diagnostics in the two production modules. Fifteen dual-Python adversarial probe
+groups, no-skip/xfail, exact-scope, later-tier, export, and whitespace checks passed.
+`pyright-baseline.json`, dependencies, and lockfiles are unchanged.
+
+Sphinx, remote CI, physical GPU hardware, and external scientific-network/live
+registry behavior remain unobserved. Nothing was pushed or published. INS-001,
+INS-002, and INS-003 remain **OPEN** until Tier 2 completes through 2H. Tier 2 remains
+incomplete. Tier 2G was not started; it is now the next authorized separate slice under
+its existing implementation and independent-acceptance stop gates.
