@@ -264,15 +264,18 @@ def _matches_azimuth(
 ) -> bool:
     for start, end in ranges:
         if start < end:
-            if (
-                angle >= start - _AZIMUTH_BOUNDARY_ALLOWANCE_DEG
-                and angle <= end + _AZIMUTH_BOUNDARY_ALLOWANCE_DEG
-            ):
-                return True
-        elif (
-            angle >= start - _AZIMUTH_BOUNDARY_ALLOWANCE_DEG
-            or angle <= end + _AZIMUTH_BOUNDARY_ALLOWANCE_DEG
-        ):
+            in_closed_range = start <= angle <= end
+        else:
+            in_closed_range = angle >= start or angle <= end
+        start_distance = abs(angle - start)
+        end_distance = abs(angle - end)
+        within_boundary_allowance = (
+            min(start_distance, 180.0 - start_distance)
+            <= _AZIMUTH_BOUNDARY_ALLOWANCE_DEG
+            or min(end_distance, 180.0 - end_distance)
+            <= _AZIMUTH_BOUNDARY_ALLOWANCE_DEG
+        )
+        if in_closed_range or within_boundary_allowance:
             return True
     return False
 

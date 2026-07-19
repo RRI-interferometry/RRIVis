@@ -342,6 +342,31 @@ def test_azimuth_boundary_allowance_and_just_outside(offset, selected):
             _select(instrument, config)
 
 
+@pytest.mark.parametrize(
+    ("angle", "start", "end", "selected"),
+    [
+        (180.0 - 0.5e-12, 0.0, 10.0, True),
+        (180.0 - 2e-12, 0.0, 10.0, False),
+        (0.0, 170.0, 180.0 - 0.5e-12, True),
+        (0.0, 170.0, 180.0 - 2e-12, False),
+    ],
+)
+def test_azimuth_boundary_allowance_is_continuous_across_axial_seam(
+    angle, start, end, selected
+):
+    instrument = _two_antenna_at_angle(angle)
+    config = BaselineSelectionConfig(
+        correlations="cross",
+        azimuth_ranges_deg=(AzimuthRangeConfig(start_deg=start, end_deg=end),),
+    )
+
+    if selected:
+        assert _select(instrument, config).provenance.selected_ids == ((0, 1),)
+    else:
+        with pytest.raises(EmptyBaselineSelectionError):
+            _select(instrument, config)
+
+
 def test_azimuth_range_union_and_category_intersection_preserve_order():
     instrument = _instrument(
         (0, (0.0, 0.0, 0.0)),
@@ -597,7 +622,7 @@ def test_provenance_normalizes_counts_and_selected_ids_to_builtin_values():
             length_tolerance_m=0.0,
         ),
         generated_count=np.int64(3),
-        after_correlation_count=np.int64(2),
+        after_correlation_count=np.int64(1),
         after_length_count=np.int64(1),
         after_azimuth_count=np.int64(1),
         selected_ids=[[np.int64(1), np.int64(2)]],
@@ -646,17 +671,17 @@ def test_provenance_rejects_exempt_count_when_no_azimuth_filter_is_active():
 def test_provenance_rejects_stage_counts_that_contradict_inactive_filters():
     with pytest.raises(ValueError):
         _provenance(
-            generated_count=2,
-            after_correlation_count=2,
-            after_length_count=1,
-            after_azimuth_count=1,
+            generated_count=3,
+            after_correlation_count=3,
+            after_length_count=2,
+            after_azimuth_count=2,
         )
     with pytest.raises(ValueError):
         _provenance(
-            generated_count=2,
-            after_correlation_count=2,
-            after_length_count=2,
-            after_azimuth_count=1,
+            generated_count=3,
+            after_correlation_count=3,
+            after_length_count=3,
+            after_azimuth_count=2,
         )
 
 
@@ -664,9 +689,9 @@ def test_provenance_rejects_more_exempt_autos_than_survive_azimuth_filter():
     with pytest.raises(ValueError):
         _provenance(
             criteria=_criteria(azimuth_ranges_deg=((0.0, 10.0),)),
-            generated_count=2,
-            after_correlation_count=2,
-            after_length_count=2,
+            generated_count=3,
+            after_correlation_count=3,
+            after_length_count=3,
             after_azimuth_count=1,
             azimuth_exempt_auto_count=2,
         )
@@ -676,8 +701,8 @@ def test_provenance_rejects_more_exempt_autos_than_survive_azimuth_filter():
     "updates",
     [
         {
-            "generated_count": 2,
-            "after_correlation_count": 1,
+            "generated_count": 3,
+            "after_correlation_count": 2,
         },
         {
             "criteria": _criteria(correlations="auto"),
@@ -699,11 +724,116 @@ def test_provenance_rejects_correlation_and_auto_exemption_contradictions(update
         _provenance(**updates)
 
 
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {
+            "generated_count": 2,
+            "after_correlation_count": 2,
+            "after_length_count": 2,
+            "after_azimuth_count": 2,
+            "selected_ids": ((0, 0), (1, 1)),
+        },
+        {
+            "criteria": _criteria(correlations="auto"),
+            "generated_count": 6,
+            "after_correlation_count": 2,
+            "after_length_count": 2,
+            "after_azimuth_count": 2,
+            "selected_ids": ((0, 0), (1, 1)),
+        },
+        {
+            "criteria": _criteria(correlations="cross"),
+            "generated_count": 6,
+            "after_correlation_count": 2,
+            "after_length_count": 2,
+            "after_azimuth_count": 2,
+            "selected_ids": ((0, 1), (0, 2)),
+        },
+        {
+            "selected_ids": ((0, 1),),
+        },
+    ],
+)
+def test_provenance_rejects_nontriangular_or_impossible_correlation_counts(updates):
+    with pytest.raises(ValueError):
+        _provenance(**updates)
+
+
+def test_selection_constructor_rejects_baselines_that_contradict_active_criteria():
+    cross = ResolvedBaseline(
+        AntennaId(0, "A0"),
+        AntennaId(1, "A1"),
+        (10.0, 0.0, 0.0),
+        10.0,
+        False,
+        90.0,
+    )
+    target_criteria = _criteria(
+        correlations="cross",
+        length_mode="targets",
+        length_targets_m=(5.0,),
+        length_tolerance_m=0.0,
+    )
+    with pytest.raises(ValueError):
+        ResolvedBaselineSelection(
+            (cross,),
+            _provenance(
+                criteria=target_criteria,
+                generated_count=3,
+                selected_ids=((0, 1),),
+            ),
+        )
+
+    range_criteria = _criteria(
+        correlations="cross",
+        length_mode="ranges",
+        length_ranges_m=((5.0, 9.0),),
+    )
+    with pytest.raises(ValueError):
+        ResolvedBaselineSelection(
+            (cross,),
+            _provenance(
+                criteria=range_criteria,
+                generated_count=3,
+                selected_ids=((0, 1),),
+            ),
+        )
+
+    azimuth_criteria = _criteria(
+        correlations="cross",
+        azimuth_ranges_deg=((0.0, 10.0),),
+    )
+    with pytest.raises(ValueError):
+        ResolvedBaselineSelection(
+            (cross,),
+            _provenance(
+                criteria=azimuth_criteria,
+                generated_count=3,
+                selected_ids=((0, 1),),
+            ),
+        )
+
+
+def test_selection_constructor_keeps_auto_exemption_under_active_azimuth_filter():
+    criteria = _criteria(
+        correlations="auto",
+        azimuth_ranges_deg=((80.0, 100.0),),
+    )
+    provenance = _provenance(
+        criteria=criteria,
+        azimuth_exempt_auto_count=1,
+    )
+
+    assert ResolvedBaselineSelection((_auto(),), provenance).baselines == (_auto(),)
+
+
 def test_selection_constructor_enforces_nonempty_canonical_order_and_provenance():
     auto0 = _auto(0)
     auto1 = _auto(1)
     provenance = _provenance(
-        generated_count=2,
+        criteria=_criteria(correlations="auto"),
+        generated_count=3,
         after_correlation_count=2,
         after_length_count=2,
         after_azimuth_count=2,
@@ -721,7 +851,18 @@ def test_selection_constructor_enforces_nonempty_canonical_order_and_provenance(
 
     with pytest.raises(ValueError):
         ResolvedBaselineSelection(
-            (), _provenance(after_azimuth_count=0, selected_ids=())
+            (),
+            _provenance(
+                criteria=_criteria(
+                    correlations="cross",
+                    azimuth_ranges_deg=((0.0, 10.0),),
+                ),
+                generated_count=3,
+                after_correlation_count=1,
+                after_length_count=1,
+                after_azimuth_count=0,
+                selected_ids=(),
+            ),
         )
     with pytest.raises((TypeError, ValueError)):
         ResolvedBaselineSelection((object(),), _provenance())

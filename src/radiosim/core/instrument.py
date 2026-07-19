@@ -23,6 +23,8 @@ _MAX_ANTENNA_NUMBER = 2_147_483_647
 _INSTRUMENT_SCHEMA_VERSION = "radiosim.instrument.v1"
 _BASELINE_SELECTION_SCHEMA_VERSION = "radiosim.baseline-selection.v1"
 _COINCIDENT_ANTENNA_THRESHOLD_M = 1e-9
+_LENGTH_BOUNDARY_ALLOWANCE_M = 1e-9
+_AZIMUTH_BOUNDARY_ALLOWANCE_DEG = 1e-12
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 _T = TypeVar("_T")
 
@@ -954,6 +956,52 @@ class BaselineSelectionCriteriaSnapshot:
         }
 
 
+def _matches_baseline_length(
+    baseline: ResolvedBaseline,
+    criteria: BaselineSelectionCriteriaSnapshot,
+) -> bool:
+    if criteria.length_mode is None:
+        return True
+    if criteria.length_mode == "targets":
+        tolerance = criteria.length_tolerance_m
+        if tolerance is None:
+            return False
+        return any(
+            abs(baseline.length_m - target) <= tolerance + _LENGTH_BOUNDARY_ALLOWANCE_M
+            for target in criteria.length_targets_m
+        )
+    if criteria.length_mode == "ranges":
+        return any(
+            minimum - _LENGTH_BOUNDARY_ALLOWANCE_M
+            <= baseline.length_m
+            <= maximum + _LENGTH_BOUNDARY_ALLOWANCE_M
+            for minimum, maximum in criteria.length_ranges_m
+        )
+    return False
+
+
+def _matches_axial_azimuth(
+    angle: float,
+    ranges: tuple[tuple[float, float], ...],
+) -> bool:
+    for start, end in ranges:
+        if start < end:
+            in_closed_range = start <= angle <= end
+        else:
+            in_closed_range = angle >= start or angle <= end
+        start_distance = abs(angle - start)
+        end_distance = abs(angle - end)
+        within_boundary_allowance = (
+            min(start_distance, 180.0 - start_distance)
+            <= _AZIMUTH_BOUNDARY_ALLOWANCE_DEG
+            or min(end_distance, 180.0 - end_distance)
+            <= _AZIMUTH_BOUNDARY_ALLOWANCE_DEG
+        )
+        if in_closed_range or within_boundary_allowance:
+            return True
+    return False
+
+
 def _normalize_selected_ids(value: object) -> tuple[tuple[int, int], ...]:
     copied = _copy_tuple_items(value, field_name="selected_ids")
     normalized: list[tuple[int, int]] = []
@@ -982,6 +1030,21 @@ def _normalize_selected_ids(value: object) -> tuple[tuple[int, int], ...]:
     if result != tuple(sorted(result)):
         raise ValueError("selected_ids must be in stable canonical baseline order")
     return result
+
+
+def _antenna_count_from_generated_count(generated_count: int) -> int:
+    discriminant = 8 * generated_count + 1
+    root = math.isqrt(discriminant)
+    if generated_count < 1 or root * root != discriminant or (root - 1) % 2 != 0:
+        raise ValueError(
+            "generated_count must equal n(n+1)/2 for a positive antenna count"
+        )
+    antenna_count = (root - 1) // 2
+    if antenna_count * (antenna_count + 1) // 2 != generated_count:
+        raise ValueError(
+            "generated_count must equal n(n+1)/2 for a positive antenna count"
+        )
+    return antenna_count
 
 
 @dataclass(frozen=True, slots=True)
@@ -1025,10 +1088,17 @@ class BaselineSelectionProvenance:
         )
         if not counts[0] >= counts[1] >= counts[2] >= counts[3]:
             raise ValueError("baseline-selection stage counts must be nonincreasing")
-        if criteria.correlations == "all" and counts[1] != counts[0]:
+        antenna_count = _antenna_count_from_generated_count(counts[0])
+        if criteria.correlations == "all":
+            expected_correlation_count = counts[0]
+        elif criteria.correlations == "auto":
+            expected_correlation_count = antenna_count
+        else:
+            expected_correlation_count = antenna_count * (antenna_count - 1) // 2
+        if counts[1] != expected_correlation_count:
             raise ValueError(
-                "after_correlation_count must equal generated_count for all "
-                "correlations"
+                "after_correlation_count is impossible for generated_count and "
+                f"correlations={criteria.correlations!r}"
             )
         if criteria.length_mode is None and counts[2] != counts[1]:
             raise ValueError(
@@ -1057,9 +1127,25 @@ class BaselineSelectionProvenance:
             raise ValueError(
                 "azimuth_exempt_auto_count cannot exceed the azimuth output count"
             )
+        if (
+            criteria.azimuth_ranges_deg
+            and criteria.correlations == "auto"
+            and counts[3] != counts[2]
+        ):
+            raise ValueError(
+                "after_azimuth_count must equal after_length_count for auto "
+                "correlations"
+            )
         selected_ids = _normalize_selected_ids(self.selected_ids)
         if len(selected_ids) != counts[3]:
             raise ValueError("selected_ids count must equal after_azimuth_count")
+        selected_antenna_numbers = {
+            antenna_number for pair in selected_ids for antenna_number in pair
+        }
+        if len(selected_antenna_numbers) > antenna_count:
+            raise ValueError(
+                "selected_ids reference more antennas than generated_count permits"
+            )
         if criteria.correlations == "auto" and any(
             ant1 != ant2 for ant1, ant2 in selected_ids
         ):
@@ -1116,6 +1202,31 @@ class ResolvedBaselineSelection:
             raise ValueError(
                 "provenance.selected_ids must exactly match selected baselines"
             )
+        criteria = provenance.criteria
+        if criteria.correlations == "auto" and any(
+            not baseline.is_autocorrelation for baseline in baselines
+        ):
+            raise ValueError("auto correlation criteria require auto baselines")
+        if criteria.correlations == "cross" and any(
+            baseline.is_autocorrelation for baseline in baselines
+        ):
+            raise ValueError("cross correlation criteria require cross baselines")
+        if any(
+            not _matches_baseline_length(baseline, criteria) for baseline in baselines
+        ):
+            raise ValueError("selected baseline length contradicts active criteria")
+        if criteria.azimuth_ranges_deg and any(
+            not baseline.is_autocorrelation
+            and (
+                baseline.azimuth_deg is None
+                or not _matches_axial_azimuth(
+                    baseline.azimuth_deg,
+                    criteria.azimuth_ranges_deg,
+                )
+            )
+            for baseline in baselines
+        ):
+            raise ValueError("selected baseline azimuth contradicts active criteria")
 
         object.__setattr__(
             self,
