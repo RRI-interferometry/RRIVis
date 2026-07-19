@@ -22,13 +22,15 @@
 | Tier 2D implementation commit | `37b30f3663a624456ae63b85bcd246c4754466b3` |
 | Tier 2D correction commit | `244ba9f751555274602687adbbd1c81e4b3ccad0` |
 | Tier 2D independent-acceptance date | 2026-07-19 |
+| Tier 2E implementation commit | `61d65849461ab3c3ab001f6af5fbf57695dfb3ec` |
+| Tier 2E independent-acceptance date | 2026-07-20 |
 | Baseline `origin/main` | `f9ee87a5c1d4987fac1ee671d2c07711bcac8a41` |
 | Tier 2A review-start branch | `main`, four commits ahead of `origin/main` |
 | Tier 2A review-start working tree | untracked `Tier1ConfigPlan.md`; nothing staged |
 | Tier 1 status | Locally complete and independently accepted |
 | Tier 2 issues | INS-001, INS-002, and INS-003 remain open |
-| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19 |
-| Implementation status | Tier 2 in progress: Tier 2A through Tier 2D accepted; Tier 2E not started |
+| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction on 2026-07-20 |
+| Implementation status | Tier 2 in progress: Tier 2A through Tier 2E accepted; Tier 2F not started |
 | Remote CI | Unobserved |
 
 This document is the single implementation contract for Tier 2. It selects one
@@ -41,8 +43,9 @@ without raising the diagnostic ceiling. Tier 2C's immutable canonical models wer
 independently accepted on 2026-07-19 after closing one caller-alias defect. Tier 2 is
 in progress. Tier 2D's strict source normalization was independently accepted on
 2026-07-19 after correcting diagnostic provenance, the internal export boundary, and
-a timing-sensitive concurrency test. Tier 2E is the next authorized implementation
-slice and has not started.
+a timing-sensitive concurrency test. Tier 2E's metadata merge and complete-diameter
+resolution were independently accepted without correction on 2026-07-20. Tier 2F is
+the next authorized implementation slice and has not started.
 
 ## 2. Decision and scope
 
@@ -1390,6 +1393,9 @@ flowchart LR
 
 ### Tier 2E — Metadata merge and diameter resolution
 
+- **Status:** Implementation `61d65849461ab3c3ab001f6af5fbf57695dfb3ec`
+  was independently accepted without correction on 2026-07-20; Tier 2F remained
+  unstarted.
 - **Objective:** Apply exact identity/location/metadata precedence, resolve complete
   diameters, and freeze `ResolvedInstrument`.
 - **Exact files:**
@@ -1557,7 +1563,7 @@ Every slice must satisfy all of these gates in addition to its specific gate:
 6. An independent reviewer accepts the slice before its dependent slice starts.
 7. The commit is narrow and local; publishing still requires explicit user approval.
 
-Tier 2A through Tier 2D are independently accepted. Tier 2E is now the immediate
+Tier 2A through Tier 2E are independently accepted. Tier 2F is now the immediate
 authorized implementation slice, but it must run as a separate task and stop for its
 own independent acceptance. This rule repeats through 2H.
 
@@ -1947,6 +1953,66 @@ Tier 2 implementation and independent acceptance through 2H. Tier 2 is not compl
 Tier 2E was not started; it is now the next authorized slice, but it belongs to a
 separate fresh task under its own implementation and acceptance stop gates.
 
+### 29.7 Tier 2E independent-acceptance record
+
+**Decision: accepted without correction.** On 2026-07-20 an independent source-first
+review evaluated implementation `61d65849461ab3c3ab001f6af5fbf57695dfb3ec`
+against sections 9 and 14-16, every Tier 2E slice gate, both locked Python
+environments, the complete source/config/model boundary, and the legacy
+characterization boundary. The commit changes exactly the four authorized Tier 2E
+files: the canonical-model factory and its tests, plus the final metadata resolver and
+its new tests. The parent lacks the final resolver surface and test module, making the
+reported test-first collection failure independently reproducible from Git history.
+
+Every precedence row is accepted. Known-telescope identity is the requested canonical
+name; local formats retain required explicit identity; MS/UVFITS explicit and embedded
+names compare after stripped NFC normalization, remain case-sensitive, and fail on
+mismatch or total absence. Tier 2D location selection and the 1.0-m agreement rule
+flow through unchanged; finalization reuses that exact canonical location and records
+the winning and embedded comparison facts. Positions remain selected-source-only.
+Numbers and names remain unique, normalized, and canonically ordered; deterministic
+`casa_loc` generation is marked generated, zero antennas fail, and one antenna is
+valid. Mount and BeamID remain inert selected-source facts, and feed metadata remains
+absent.
+
+Diameter resolution implements typed override over valid selected-source value over
+configured default. Name and number references use exact disjoint namespaces;
+unknown references and repeated canonical targets fail, including mixed references.
+A present invalid source value fails even when an override would win. Missing values
+fall through, all unresolved antennas are reported together in ascending-number order,
+and there is no hidden 14-metre fallback. Every constructed antenna is revalidated as
+finite and positive. Winning source labels and pre-override source diameters are
+retained in provenance.
+
+The final inventory is frozen, slotted, copy-owned, sorted, hashable, JSON-safe, and
+independent of caller and dependency mutation. Its factory reuses the canonical
+fingerprint algorithm; constructor revalidation rejects a mismatched hash. Tests prove
+ordering and Unicode determinism, scientific and winning-source sensitivity, transport
+path independence, complete provenance, exact internal export scope, strict typed
+entry, and non-mutation on success and failure. No baseline, selection, Simulator,
+solver, writer, plotting, observability, root export, dependency, lock, or later-tier
+behavior changed.
+
+The canonical model plus final resolver passed 213/213 tests on Python 3.11.13 and
+213/213 on Python 3.12.13. The complete Tier 2 input/model/source/coordinate/resolution
+boundary passed 520/520 on each, and all 46 legacy antenna/baseline/Measurement Set
+characterization tests passed on each, with no failures, skips, xfails, or warnings in
+those focused runs. The full Python 3.11 suite reported 2,031 passed, one optional-data
+skip, and 26 existing warnings. Python 3.12 non-slow reported 2,024 passed, eight
+optional data/JAX skips, and the same 26 existing non-instrument warnings.
+
+Ruff lint and formatting passed for all 265 files. Pyright 1.1.408 reported 4,446
+full-source errors in both environments under the unchanged 4,600 ceiling, while the
+two changed production modules reported zero direct diagnostics on each. New tests
+contain no skip/xfail marker; staged and unstaged whitespace and exact commit-scope
+checks passed. Remote CI, physical GPU hardware, external scientific-network/live
+registry behavior, and Sphinx were not run or observed.
+
+This accepts only Tier 2E. INS-001, INS-002, and INS-003 remain open until complete
+Tier 2 implementation and independent acceptance through 2H. Tier 2 is not complete.
+Tier 2F was not started; it is now the next authorized slice, but it belongs to a
+separate fresh task under its own implementation and acceptance stop gates.
+
 ## 30. Risks and invariants
 
 | Risk | Required control |
@@ -2023,7 +2089,7 @@ Until then, all three INS issues remain open.
 | Heterogeneous observability | Reject before plot/browser | A single footprint would be scientifically misleading |
 | Compatibility | Direct replacement, no shims | Project is pre-v1 and one coherent API is safer than dual state |
 | Result scope | One additive instrument snapshot and narrow writer adapter | Meets provenance needs without taking Tier 4 ownership |
-| Immediate next task | Tier 2E — Metadata merge and diameter resolution | Tier 2D is independently accepted after correction; 2E must run separately under its existing stop boundary |
+| Immediate next task | Tier 2F — Canonical baseline generation and selection | Tier 2E is independently accepted without correction; 2F must run separately under its existing stop boundary |
 
 ## 33. Unresolved decisions
 

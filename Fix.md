@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E not started; remote CI not yet observed |
+| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction on 2026-07-20; Tier 2F not started; remote CI not yet observed |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -2182,3 +2182,45 @@ Remote CI, physical GPU hardware, external scientific-network/live registry beha
 and Sphinx remain unobserved. INS-001, INS-002, and INS-003 remain **OPEN**. Tier 2 is
 not complete. Tier 2E was not started; it is now the next authorized slice and must be
 implemented in a separate fresh task under its own acceptance gate.
+
+### 2026-07-20 Tier 2E independent acceptance
+
+**Decision:** Tier 2E is independently accepted without correction. Implementation
+`61d65849461ab3c3ab001f6af5fbf57695dfb3ec` changes exactly the four authorized
+canonical-model, final-resolution, and unit-test files. Git history reconstructs the
+test-first failure because the parent contains neither the new test module nor the
+final resolver surface. No baseline, selection, Simulator, solver, writer, plotting,
+observability, root export, dependency, lock, or later-tier behavior changed.
+
+The review accepted every identity, location, identifier, metadata, and diameter
+precedence path. Known/local/dataset identities follow their exact stripped-NFC,
+case-sensitive rules; explicit and embedded locations retain Tier 2D's 1.0-m contract;
+positions remain source-only; generated `casa_loc` identity is recorded; and mount and
+BeamID remain inert. Tagged override references use exact number/name namespaces and
+reject unknown or repeated targets. Diameter precedence is override over valid source
+over configured default; invalid present source values never fall through, incomplete
+antennas are aggregated in canonical order, pre-override source values remain in
+provenance, and every final diameter is finite and positive with no hidden 14-metre
+fallback.
+
+The complete `ResolvedInstrument` is frozen, sorted, copy-owned, hashable, JSON-safe,
+and mutation-independent. Finalization reuses the staged location and the canonical
+fingerprint seam, records every instrument and antenna provenance field, and does not
+repeat source or coordinate work. Determinism, transport independence, field-source
+sensitivity, hash revalidation, strict typed input, exact internal export scope, and
+success/failure non-mutation are covered.
+
+The model/final-resolver boundary passed 213/213 tests on Python 3.11.13 and 3.12.13;
+the complete Tier 2 input/model/source/coordinate/resolution boundary passed 520/520
+on each; and 46/46 legacy characterization tests passed on each. These focused runs
+had no failures, skips, xfails, or warnings. The full Python 3.11 suite reported 2,031
+passed, one optional-data skip, and 26 existing warnings; Python 3.12 non-slow reported
+2,024 passed, eight optional data/JAX skips, and the same 26 existing non-instrument
+warnings.
+
+Ruff lint/format, both 4,446-diagnostic Pyright ceiling checks, zero direct diagnostics
+in the changed production modules, no-skip/xfail and exact-scope guards, and whitespace
+passed. Remote CI, physical GPU hardware, external scientific-network/live registry
+behavior, and Sphinx remain unobserved. INS-001, INS-002, and INS-003 remain **OPEN**.
+Tier 2 is not complete. Tier 2F was not started; it is now the next authorized slice
+and must run separately under its own implementation and acceptance gate.
