@@ -7,6 +7,15 @@ beam patterns, source models, and the RIME visibility calculation.
 
 from radiosim.core.antenna import read_antenna_positions
 from radiosim.core.baseline import generate_baselines
+from radiosim.core.instrument import (
+    AntennaFieldSource,
+    AntennaId,
+    AntennaProvenance,
+    InstrumentProvenance,
+    ResolvedAntenna,
+    ResolvedEarthLocation,
+    ResolvedInstrument,
+)
 from radiosim.core.jones.beam import BeamManager
 from radiosim.core.observation import get_location_and_time
 from radiosim.core.polarization import (
@@ -57,6 +66,14 @@ __all__ = [
     "read_antenna_positions",
     # Baseline
     "generate_baselines",
+    # Canonical instrument models
+    "AntennaId",
+    "AntennaFieldSource",
+    "ResolvedEarthLocation",
+    "AntennaProvenance",
+    "ResolvedAntenna",
+    "InstrumentProvenance",
+    "ResolvedInstrument",
     # Beams
     "BeamManager",
     # Observation

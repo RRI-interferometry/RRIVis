@@ -66,6 +66,18 @@ except ImportError:
     read_antenna_positions = None
     generate_baselines = None
 
+# Canonical instrument models are required public exports. Keep this direct import
+# outside the legacy core-function compatibility guard.
+from radiosim.core import (
+    AntennaFieldSource,
+    AntennaId,
+    AntennaProvenance,
+    InstrumentProvenance,
+    ResolvedAntenna,
+    ResolvedEarthLocation,
+    ResolvedInstrument,
+)
+
 __all__ = [
     # Metadata
     "__version__",
@@ -84,6 +96,14 @@ __all__ = [
     "list_simulators",
     "VisibilitySimulator",
     "RIMESimulator",
+    # Canonical instrument models
+    "AntennaId",
+    "AntennaFieldSource",
+    "ResolvedEarthLocation",
+    "AntennaProvenance",
+    "ResolvedAntenna",
+    "InstrumentProvenance",
+    "ResolvedInstrument",
     # Network & device utilities
     "is_online",
     "get_device_resources",
