@@ -2224,3 +2224,21 @@ passed. Remote CI, physical GPU hardware, external scientific-network/live regis
 behavior, and Sphinx remain unobserved. INS-001, INS-002, and INS-003 remain **OPEN**.
 Tier 2 is not complete. Tier 2F was not started; it is now the next authorized slice
 and must run separately under its own implementation and acceptance gate.
+
+This decision was independently re-verified on 2026-07-20 after benign checkout drift
+to acceptance-record commit `ccbe52a7a126f090870c00804de46ab796a158c1`.
+The required Python 3.11.13 and 3.12.13 suites each passed exactly 77 focused resolver,
+213 model-plus-resolver, 520 complete source/model/resolution, and 268 combined legacy-
+characterization boundary cases. Direct dual-Python probes also proved rejection of
+different-valued duplicate overrides and malformed source diameters despite an
+override, exact handling of numeric-looking names, one staging call per final
+resolution, and strict rejection of `InstrumentConfig` subclasses.
+
+The re-verification found no production or test correction to make. Ruff lint and
+formatting, Pyright 1.1.408 at 4,446 diagnostics under the unchanged 4,600 ceiling,
+zero direct diagnostics in the two production modules, import/export smokes,
+no-skip/xfail and no-hidden-fallback searches, later-tier and exact-scope audits, and
+staged/unstaged whitespace checks passed. It did not rerun the full repository suite,
+Sphinx, remote CI, physical GPU hardware, or external scientific-network/live registry
+behavior. INS-001, INS-002, and INS-003 remain **OPEN**, Tier 2 remains incomplete,
+and no Tier 2F work was started.

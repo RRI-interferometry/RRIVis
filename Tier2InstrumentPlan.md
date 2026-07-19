@@ -2013,6 +2013,30 @@ Tier 2 implementation and independent acceptance through 2H. Tier 2 is not compl
 Tier 2F was not started; it is now the next authorized slice, but it belongs to a
 separate fresh task under its own implementation and acceptance stop gates.
 
+The acceptance was independently re-verified on 2026-07-20 after the checkout had
+benignly advanced to acceptance-record commit
+`ccbe52a7a126f090870c00804de46ab796a158c1`. The re-review re-read the complete
+contract, production path, source/config/model boundaries, changed tests, and legacy
+characterization boundaries; independently audited the implementation commit and
+public/export scope; and found no Tier 2E defect requiring correction.
+
+The exact required re-verification suites passed on both Python 3.11.13 and 3.12.13:
+77/77 focused resolver cases, 213/213 canonical-model-plus-resolver cases, 520/520
+complete input/source/model/coordinate/resolution cases, and 268/268 combined legacy-
+characterization/model/coordinate/resolution cases. Additional direct probes on both
+Pythons confirmed that different-valued duplicate overrides fail, malformed present
+source diameters fail even when an override exists, numeric-looking names remain in
+the name namespace, `resolve_instrument_source()` is called exactly once, and an
+`InstrumentConfig` subclass is rejected.
+
+Ruff lint and formatting passed for all 265 files. Pyright 1.1.408 again reported
+4,446 full-source errors in both environments under the unchanged 4,600 ceiling and
+zero direct diagnostics in the two production modules. Dual-Python import/export
+smokes, no-skip/xfail, hidden-fallback, later-tier, exact-scope, and staged/unstaged
+whitespace checks passed. This re-verification did not rerun the full repository
+suite, Sphinx, remote CI, physical GPU hardware, or external scientific-network/live
+registry behavior; the earlier acceptance evidence above remains distinct.
+
 ## 30. Risks and invariants
 
 | Risk | Required control |
