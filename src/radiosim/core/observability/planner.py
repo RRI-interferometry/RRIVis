@@ -35,6 +35,10 @@ FootprintModel = Literal["swept_beam", "rectangular_approx"]
 DisplayMode = Literal["summary", "snapshots"]
 
 
+class HeterogeneousObservabilityUnsupportedError(RuntimeError):
+    """Tier 2 observability cannot choose one footprint for mixed diameters."""
+
+
 @dataclass(frozen=True)
 class ObservabilitySnapshot:
     """One instantaneous sky-visibility snapshot."""
@@ -385,7 +389,13 @@ class ObservabilityPlanner:
         if self.field_radius_deg is not None:
             return self.field_radius_deg
 
-        diameter_m = self.beam_diameter_m or 14.0
+        if self.beam_diameter_m is None:
+            raise ValueError(
+                "beam_diameter_m is required when field_radius_deg is omitted"
+            )
+        diameter_m = float(self.beam_diameter_m)
+        if not np.isfinite(diameter_m) or diameter_m <= 0.0:
+            raise ValueError("beam_diameter_m must be finite and positive")
         wavelength_m = 299_792_458.0 / self.frequency_hz
         hpbw_rad = 1.22 * wavelength_m / diameter_m
         return float(np.degrees(hpbw_rad) / 2.0)
@@ -646,7 +656,10 @@ class ObservabilityPlanner:
     def _build_beam_power_func(self):
         if self.beam_fits_path is not None:
             return self._fits_beam_power_func()
-        if self.beam_config.get("beam_mode") == "analytic" and self.beam_diameter_m:
+        if (
+            self.beam_config.get("beam_mode") == "analytic"
+            and self.beam_diameter_m is not None
+        ):
             return self._analytic_beam_power_func()
         return None
 

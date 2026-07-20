@@ -12,10 +12,13 @@ import yaml
 from click.testing import CliRunner
 
 import radiosim
+from radiosim.api import simulator as simulator_api
 from radiosim.backends import base as backend_base
 from radiosim.backends import get_backend, jax_backend, numba_backend
 from radiosim.cli.main import cli
+from radiosim.core import visibility, visibility_healpix
 from radiosim.core.precision import PrecisionConfig
+from radiosim.io import measurement_set
 from radiosim.io.config import (
     RadioSimConfig,
     SkyModelConfig,
@@ -23,6 +26,8 @@ from radiosim.io.config import (
     dump_config,
     load_config,
 )
+from radiosim.simulator import base as simulator_base
+from radiosim.simulator import rime as rime_simulator
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SHIPPED_CONFIGS = (
@@ -36,6 +41,7 @@ CURRENT_API_SURFACES = (
     REPOSITORY_ROOT / "docs" / "quickstart.rst",
     REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst",
     REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "instrument_resolution.rst",
     REPOSITORY_ROOT / "docs" / "user_guide" / "backends.rst",
     REPOSITORY_ROOT / "docs" / "user_guide" / "beam_models.rst",
     REPOSITORY_ROOT / "docs" / "user_guide" / "sky_models.rst",
@@ -60,6 +66,20 @@ def test_shipped_config_uses_strict_schema_and_resolves(config_path):
     bundle = load_config(config_path)
 
     assert input_config.obs_frequency.mode in {"grid", "explicit"}
+    assert type(document["instrument"]) is dict
+    assert document["instrument"]["source"]["kind"] in {
+        "layout_file",
+        "known_telescope",
+    }
+    assert "telescope" not in document
+    assert "antenna_layout" not in document
+    assert "location" not in document
+    assert "feeds" not in document
+    assert set(document["baseline_selection"]) <= {
+        "correlations",
+        "length_filter",
+        "azimuth_ranges_deg",
+    }
     assert bundle.runtime.frequency.channel_frequencies_hz
     assert bundle.provenance.source.config_path == config_path.resolve()
 
@@ -132,6 +152,10 @@ def test_notebook_source_uses_current_public_api_and_has_no_stale_outputs():
     )
 
     assert "Simulator.from_parameters(" in source
+    assert "instrument=instrument" in source
+    assert "baseline_selection=baseline_selection" in source
+    assert "antenna_layout=" not in source
+    assert "antenna_diameter_m=" not in source
     assert "Simulator(config=" not in source
     assert '"frequencies_hz"' not in source
     assert "Simulator.from_config(" not in source
@@ -153,6 +177,34 @@ def test_current_docs_do_not_present_removed_simulator_patterns(path):
     assert "Simulator(backend=" not in text
     assert "sim = Simulator()" not in text
     assert '"frequencies_hz":' not in text
+    assert "use_pyuvdata_telescope" not in text
+    assert "use_pyuvdata_antennas" not in text
+    assert "antenna_file_format: pyuvdata" not in text
+    assert "antenna_file_format: casa" not in text
+
+
+def test_tier2g_truth_surfaces_and_example_inventory_are_current():
+    guide = REPOSITORY_ROOT / "docs" / "user_guide" / "instrument_resolution.rst"
+    index = (REPOSITORY_ROOT / "docs" / "index.rst").read_text(encoding="utf-8")
+    script = (
+        REPOSITORY_ROOT / "examples" / "scripts" / "simple_simulation.py"
+    ).read_text(encoding="utf-8")
+
+    assert guide.is_file()
+    assert "user_guide/instrument_resolution" in index
+    assert "InstrumentConfig(" in script
+    assert "BaselineSelectionConfig(" in script
+    assert "antenna_layout=" not in script
+    assert "antenna_diameter_m=" not in script
+    assert (
+        REPOSITORY_ROOT / "antenna_layout_examples" / "example_casa_loc.cfg"
+    ).is_file()
+    assert not (
+        REPOSITORY_ROOT / "antenna_layout_examples" / "example_casa_format.cfg"
+    ).exists()
+    assert not (
+        REPOSITORY_ROOT / "antenna_layout_examples" / "example_pyuvdata_format.txt"
+    ).exists()
 
 
 def test_historical_hera_analysis_is_clearly_labelled():
@@ -167,6 +219,30 @@ def test_public_docstrings_do_not_overstate_gpu_or_performance_support():
     assert "full polarization support" not in (radiosim.__doc__ or "")
     assert "GPU acceleration" not in (radiosim.__doc__ or "")
     assert "10-20x" not in (PrecisionConfig.ultra.__doc__ or "")
+
+
+def test_active_instrument_integration_docstrings_match_public_contract():
+    rendered = "\n".join(
+        (
+            simulator_api.Simulator.__doc__ or "",
+            visibility.__doc__ or "",
+            visibility.calculate_visibility.__doc__ or "",
+            visibility_healpix.calculate_visibility_healpix.__doc__ or "",
+            measurement_set.__doc__ or "",
+            simulator_base.VisibilitySimulator.__doc__ or "",
+            rime_simulator.RIMESimulator.__doc__ or "",
+        )
+    )
+
+    assert "all-baseline inventory" not in rendered
+    assert "Supports both beam FITS files" not in rendered
+    assert "CPU/GPU/TPU acceleration" not in rendered
+    assert "antennas=results" not in rendered
+    assert "baselines=results" not in rendered
+    assert "location=results" not in rendered
+    assert "_instrument_state" not in rendered
+    assert "10-50× speedup" not in rendered
+    assert "Calculate visibilities with GPU acceleration" not in rendered
 
 
 def test_root_cli_help_does_not_claim_end_to_end_gpu_support():

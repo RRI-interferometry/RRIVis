@@ -63,6 +63,12 @@ def _parser() -> argparse.ArgumentParser:
 def _built_in_simulator(backend: str | None):
     from radiosim import Simulator
     from radiosim.io.config import ExecutionConfig, PrecisionInput
+    from radiosim.io.instrument_config import (
+        BaselineSelectionConfig,
+        InstrumentConfig,
+        InstrumentLocationConfig,
+        LayoutFileSourceConfig,
+    )
 
     repository_root = Path(__file__).resolve().parents[2]
     antenna_file = repository_root / "antenna_layout_examples" / "hera_5.txt"
@@ -71,12 +77,23 @@ def _built_in_simulator(backend: str | None):
         precision=PrecisionInput(preset="standard"),
         offline=True,
     )
+    instrument = InstrumentConfig(
+        source=LayoutFileSourceConfig(
+            path=antenna_file,
+            format="radiosim",
+            telescope_name="HERA",
+        ),
+        location=InstrumentLocationConfig(
+            longitude_deg=21.4283,
+            latitude_deg=-30.72152,
+            height_m=1073.0,
+        ),
+        default_diameter_m=14.0,
+    )
     return Simulator.from_parameters(
-        antenna_layout=antenna_file,
-        antenna_file_format="radiosim",
-        antenna_diameter_m=14.0,
+        instrument=instrument,
+        baseline_selection=BaselineSelectionConfig(correlations="all"),
         channel_frequencies_hz=(100_000_000.0, 105_000_000.0),
-        location={"lat": -30.72152, "lon": 21.4283, "height": 1073.0},
         start_time="2025-01-01T00:00:00",
         duration_seconds=1.0,
         time_step_seconds=1.0,
@@ -116,8 +133,8 @@ def main() -> int:
 
     print(f"Requested backend: {simulator.config.execution.backend_strategy}")
     simulator.setup()
-    print(f"Antennas: {len(simulator.antennas or {})}")
-    print(f"Baselines: {len(simulator.baselines or {})}")
+    print(f"Antennas: {len(simulator.antennas)}")
+    print(f"Baselines: {len(simulator.baselines)}")
     print(
         f"Frequency channels: {len(simulator.config.frequency.channel_frequencies_hz)}"
     )

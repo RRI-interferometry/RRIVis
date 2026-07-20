@@ -1,12 +1,8 @@
-"""Characterization tests for the legacy mutable antenna boundary.
-
-These assertions intentionally describe current behavior, including defects that
-Tier 2 replaces. They are not the target instrument contract.
-"""
+"""Legacy reader characterization and canonical antenna consumer contracts."""
 
 from __future__ import annotations
 
-import importlib
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -390,7 +386,7 @@ def test_formatter_sorts_outer_keys_but_preserves_nested_numbers_and_mutability(
     assert formatted["positions_m"][0, 0] == 123.0
 
 
-def test_layout_visualizers_consume_legacy_name_number_position_and_diameter(
+def test_layout_visualizers_consume_canonical_name_number_position_and_diameter(
     tmp_path, monkeypatch
 ):
     from radiosim.visualization.bokeh_plots import (
@@ -398,14 +394,14 @@ def test_layout_visualizers_consume_legacy_name_number_position_and_diameter(
         plot_antenna_layout_3d_plotly,
     )
 
-    antennas = {
-        5: {
-            "Name": "VISIBLE",
-            "Number": 50,
-            "Position": (1.0, 2.0, 3.0),
-            "diameter": 4.0,
-        }
-    }
+    bundle = resolved_config(tmp_path)
+    bundle.runtime.instrument.source.path.write_text(
+        "Name Number BeamID E N U Diameter\nVISIBLE 50 0 1.0 2.0 3.0 4.0\n",
+        encoding="utf-8",
+    )
+    simulator = Simulator(bundle.runtime)
+    simulator._ensure_instrument_state()
+    antennas = simulator.antennas
 
     figure_2d = plot_antenna_layout(antennas, open_in_browser=False)
     source_data = figure_2d.renderers[0].data_source.data
@@ -445,88 +441,40 @@ def test_layout_visualizers_consume_legacy_name_number_position_and_diameter(
     assert max(ring_x) == pytest.approx(3.0)
 
 
-def test_simulator_setup_overwrites_source_diameters_and_exposes_mutable_aliases(
-    tmp_path, monkeypatch
-):
-    """Characterize the current INS-001 defect without completing setup."""
-
-    class StopAfterInstrument(Exception):
-        pass
-
-    source_antennas = {
-        0: {
-            "Name": "SOURCE0",
-            "Number": 0,
-            "BeamID": None,
-            "Position": (0.0, 0.0, 0.0),
-            "diameter": 5.0,
-        },
-        1: {
-            "Name": "SOURCE1",
-            "Number": 1,
-            "BeamID": None,
-            "Position": (2.0, 0.0, 0.0),
-            "diameter": 6.0,
-        },
-    }
-    generated_baselines = {(0, 1): {"BaselineVector": np.array([2.0, 0.0, 0.0])}}
-
-    def fake_generate(antennas, *_args, **_kwargs):
-        assert [ant["diameter"] for ant in antennas.values()] == [23.0, 23.0]
-        return generated_baselines
-
-    monkeypatch.setattr(
-        "radiosim.utils.device.get_device_resources",
-        lambda: SimpleNamespace(summary=lambda: "test-device"),
+def test_simulator_resolution_preserves_source_diameters_and_immutable_state(tmp_path):
+    bundle = resolved_config(
+        tmp_path,
+        instrument={"default_diameter_m": 23.0},
     )
-    monkeypatch.setattr(
-        "radiosim.backends.get_backend",
-        lambda *_args, **_kwargs: SimpleNamespace(name="numpy-test", precision=None),
+    bundle.runtime.instrument.source.path.write_text(
+        "Name Number BeamID E N U Diameter\n"
+        "SOURCE0 0 0 0.0 0.0 0.0 5.0\n"
+        "SOURCE1 1 0 2.0 0.0 0.0 6.0\n",
+        encoding="utf-8",
     )
-    monkeypatch.setattr(
-        "radiosim.simulator.get_simulator",
-        lambda *_args, **_kwargs: SimpleNamespace(name="rime-test", complexity="test"),
-    )
-    monkeypatch.setattr(
-        antenna_module, "read_antenna_positions", lambda *_a, **_k: source_antennas
-    )
-    baseline_module = importlib.import_module("radiosim.core.baseline")
-    observation_module = importlib.import_module("radiosim.core.observation")
-    monkeypatch.setattr(baseline_module, "generate_baselines", fake_generate)
-    monkeypatch.setattr(
-        observation_module,
-        "get_location_and_time",
-        lambda **_kwargs: (_ for _ in ()).throw(StopAfterInstrument),
-    )
+    simulator = Simulator(bundle.runtime)
 
-    simulator = Simulator(
-        resolved_config(
-            tmp_path,
-            antenna_layout={"all_antenna_diameter": 23.0},
-        ).runtime
-    )
+    simulator._ensure_instrument_state()
 
-    with pytest.raises(StopAfterInstrument):
-        simulator.setup()
-
-    assert simulator.antennas is source_antennas
-    assert simulator.baselines is generated_baselines
-    assert [ant["diameter"] for ant in source_antennas.values()] == [23.0, 23.0]
-
-    simulator.antennas[0]["Name"] = "MUTATED"
-    simulator.baselines[(0, 1)]["BaselineVector"][0] = 99.0
-    assert source_antennas[0]["Name"] == "MUTATED"
-    assert generated_baselines[(0, 1)]["BaselineVector"][0] == 99.0
+    assert simulator.antennas is simulator.instrument.antennas
+    assert tuple(antenna.diameter_m for antenna in simulator.antennas) == (5.0, 6.0)
+    assert simulator.baselines[1].vector_enu_m == (2.0, 0.0, 0.0)
+    with pytest.raises(FrozenInstanceError):
+        simulator.antennas[0].id.name = "MUTATED"
+    with pytest.raises(TypeError):
+        simulator.baselines[1].vector_enu_m[0] = 99.0
 
 
-def test_current_results_retain_mutable_instrument_dictionary_aliases(tmp_path):
+def test_current_results_retain_exact_immutable_canonical_aliases(tmp_path):
     simulator = Simulator(resolved_config(tmp_path).runtime)
 
     results = simulator.run(progress=False)
 
     assert results["antennas"] is simulator.antennas
     assert results["baselines"] is simulator.baselines
-    simulator.antennas[0]["Name"] = "CHANGED-AFTER-RUN"
-    simulator.baselines[(0, 1)]["BaselineVector"][0] = 321.0
-    assert results["antennas"][0]["Name"] == "CHANGED-AFTER-RUN"
-    assert results["baselines"][(0, 1)]["BaselineVector"][0] == 321.0
+    with pytest.raises(FrozenInstanceError):
+        simulator.antennas[0].id.name = "CHANGED-AFTER-RUN"
+    with pytest.raises(TypeError):
+        simulator.baselines[1].vector_enu_m[0] = 321.0
+    assert results["antennas"][0].id.name == "ANT0"
+    assert results["baselines"][1].vector_enu_m == (14.0, 0.0, 0.0)

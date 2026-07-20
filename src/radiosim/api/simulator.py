@@ -43,15 +43,17 @@ if TYPE_CHECKING:
         ResolvedSimulationConfig,
     )
     from radiosim.io.config import (
-        AntennaFileFormat,
         BeamsConfig,
         ExecutionConfig,
-        LocationConfig,
         RadioSimConfig,
         SkyModelConfig,
         VisibilityConfig,
     )
     from radiosim.io.config_resolution import SimulationOverrides
+    from radiosim.io.instrument_config import (
+        BaselineSelectionConfig,
+        InstrumentConfig,
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -78,15 +80,15 @@ class Simulator:
 
     The Simulator handles all the complexity of:
     - loading antenna positions from supported layout formats;
-    - generating the current all-baseline inventory;
+    - generating and selecting canonical baselines;
     - loading strict sky-model requests;
     - computing the supported analytic beam;
     - selecting a resolved backend and precision policy; and
     - returning results for explicit saving or plotting.
 
-    FITS/per-antenna beams, baseline subsets, heterogeneous diameters, and
-    later-tier simulator modes are rejected during configuration resolution.
-    Backend selection does not promise end-to-end GPU execution.
+    FITS/per-antenna beams and later-tier simulator modes are rejected during
+    configuration resolution. Backend selection does not promise end-to-end
+    GPU execution.
 
     Parameters
     ----------
@@ -127,10 +129,10 @@ class Simulator:
         self._simulator_name = resolved.execution.simulator
         self._backend = None
         self._simulator = None
+        self._solver_instrument_view = None
 
-        # Internal state (populated by setup())
-        self._antennas: dict | None = None
-        self._baselines: dict | None = None
+        # Canonical state is assigned atomically before later setup work.
+        self._instrument_state = None
         self._source_arrays: dict | None = None
         self._sky_model = None  # SkyModel for healpix_map representation
         self._location = None
@@ -224,11 +226,9 @@ class Simulator:
     def from_parameters(
         cls,
         *,
-        antenna_layout: str | Path,
-        antenna_file_format: AntennaFileFormat,
-        antenna_diameter_m: float,
+        instrument: InstrumentConfig,
+        baseline_selection: BaselineSelectionConfig | None = None,
         channel_frequencies_hz: Sequence[float],
-        location: LocationConfig | Mapping[str, float],
         start_time: str,
         duration_seconds: float = 1.0,
         time_step_seconds: float = 1.0,
@@ -241,14 +241,25 @@ class Simulator:
     ) -> Simulator:
         """Build an explicit-Hz document and resolve it as parameter input."""
         from radiosim.io.config_resolution import ConfigurationSource, resolve_config
+        from radiosim.io.instrument_config import (
+            BaselineSelectionConfig,
+            InstrumentConfig,
+        )
+
+        if type(instrument) is not InstrumentConfig:
+            raise TypeError("instrument must be an InstrumentConfig")
+        if baseline_selection is not None and (
+            type(baseline_selection) is not BaselineSelectionConfig
+        ):
+            raise TypeError("baseline_selection must be a BaselineSelectionConfig")
 
         data: dict[str, object] = {
-            "antenna_layout": {
-                "antenna_positions_file": antenna_layout,
-                "antenna_file_format": antenna_file_format,
-                "all_antenna_diameter": antenna_diameter_m,
-            },
-            "location": cls._input_section(location),
+            "instrument": instrument.model_dump(mode="python"),
+            "baseline_selection": (
+                BaselineSelectionConfig()
+                if baseline_selection is None
+                else baseline_selection
+            ).model_dump(mode="python"),
             "obs_time": {
                 "start_time": start_time,
                 "duration_seconds": duration_seconds,
@@ -294,14 +305,25 @@ class Simulator:
         return self._results
 
     @property
-    def antennas(self) -> dict | None:
-        """Get loaded antenna dictionary."""
-        return self._antennas
+    def instrument(self):
+        """Return the exact canonical resolved instrument."""
+        if self._instrument_state is None:
+            raise RuntimeError("Instrument resolution has not completed")
+        return self._instrument_state.instrument
 
     @property
-    def baselines(self) -> dict | None:
-        """Get generated baselines dictionary."""
-        return self._baselines
+    def antennas(self):
+        """Return the exact immutable canonical antenna tuple."""
+        if self._instrument_state is None:
+            raise RuntimeError("Instrument resolution has not completed")
+        return self._instrument_state.instrument.antennas
+
+    @property
+    def baselines(self):
+        """Return the exact immutable selected baseline tuple."""
+        if self._instrument_state is None:
+            raise RuntimeError("Instrument resolution has not completed")
+        return self._instrument_state.selection.baselines
 
     @property
     def source_arrays(self) -> dict | None:
@@ -331,6 +353,49 @@ class Simulator:
         """
         return self._device_resources
 
+    def _ensure_instrument_state(self) -> None:
+        """Resolve and atomically retain the canonical instrument-only state."""
+        if self._instrument_state is not None:
+            return
+
+        from radiosim.core.baseline_resolution import (
+            generate_resolved_baselines,
+            select_resolved_baselines,
+        )
+        from radiosim.core.instrument_adapters import ResolvedInstrumentState
+        from radiosim.core.instrument_resolution import resolve_instrument
+
+        instrument = resolve_instrument(self._resolved.instrument)
+        all_baselines = generate_resolved_baselines(instrument)
+        selection = select_resolved_baselines(
+            all_baselines,
+            instrument=instrument,
+            config=self._resolved.baseline_selection,
+        )
+        state = ResolvedInstrumentState(
+            instrument=instrument,
+            all_baselines=all_baselines,
+            selection=selection,
+        )
+        self._instrument_state = state
+
+    def _clear_later_runtime_state(self) -> None:
+        """Clear setup state that is safe to recreate after instrument resolution."""
+        self._backend = None
+        self._simulator = None
+        self._solver_instrument_view = None
+        self._source_arrays = None
+        self._sky_model = None
+        self._location = None
+        self._obstime = None
+        self._frequencies_hz = None
+        self._wavelengths = None
+        self._beam_config = {}
+        self._beam_manager = None
+        self._network_status = None
+        self._device_resources = None
+        self._is_setup = False
+
     def setup(self) -> Simulator:
         """
         Set up simulation components (antennas, baselines, sources).
@@ -352,11 +417,21 @@ class Simulator:
         """
         if self._is_setup:
             return self
+        self._ensure_instrument_state()
+        self._clear_later_runtime_state()
+        try:
+            return self._setup_after_instrument_state()
+        except Exception:
+            self._clear_later_runtime_state()
+            raise
+
+    def _setup_after_instrument_state(self) -> Simulator:
+        """Create backend, observation, and sky state after canonical resolution."""
+        if self._instrument_state is None:
+            raise RuntimeError("Instrument resolution has not completed")
 
         # Import core modules
         from radiosim.backends import get_backend
-        from radiosim.core.antenna import read_antenna_positions
-        from radiosim.core.baseline import generate_baselines
         from radiosim.core.observation import get_location_and_time
         from radiosim.simulator import get_simulator
 
@@ -380,41 +455,25 @@ class Simulator:
             f"Using simulator: {self._simulator.name} ({self._simulator.complexity})"
         )
 
-        # Load antenna positions from the already resolved absolute path.
-        antenna_config = self._resolved.antenna_layout
-        antenna_file = antenna_config.antenna_positions_file
-        verbose = logger.isEnabledFor(logging.DEBUG)
-        self._antennas = read_antenna_positions(
-            antenna_file,
-            format_type=antenna_config.antenna_file_format,
-            verbose=verbose,
+        from radiosim.core.instrument_adapters import SolverInstrumentView
+
+        self._solver_instrument_view = SolverInstrumentView.from_state(
+            self._instrument_state
         )
-        logger.debug(f"Loaded {len(self._antennas)} antennas from {antenna_file}")
 
-        # Set antenna diameter for each antenna
-        antenna_diameter = antenna_config.all_antenna_diameter
-
-        for ant_id in self._antennas:
-            self._antennas[ant_id]["diameter"] = antenna_diameter
-
-        # Generate baselines
-        # Build simple beam metadata maps for baseline generation
-        ant_nums = [ant["Number"] for ant in self._antennas.values()]
-        beams_per_antenna = dict.fromkeys(ant_nums, "gaussian")
-        self._baselines = generate_baselines(
-            self._antennas,
-            beams_per_antenna,
-            beams_per_antenna,
-            verbose=verbose,
+        logger.debug(
+            "Resolved %d antennas and selected %d of %d baselines",
+            len(self.antennas),
+            len(self.baselines),
+            len(self._instrument_state.all_baselines),
         )
-        logger.debug(f"Generated {len(self._baselines)} baselines")
 
         # Get location and observation time
-        loc_config = self._resolved.location
+        loc_config = self.instrument.location
         time_config = self._resolved.observation
         self._location, self._obstime = get_location_and_time(
-            lat=loc_config.lat_deg,
-            lon=loc_config.lon_deg,
+            lat=loc_config.latitude_deg,
+            lon=loc_config.longitude_deg,
             height=loc_config.height_m,
             starttime=time_config.start_time_iso,
         )
@@ -605,11 +664,7 @@ class Simulator:
         # info is available (advisor disabled).
         beam_fwhm_rad: float | None = None
         try:
-            diameters = [
-                float(ant.diameter)
-                for ant in (self._antennas or [])
-                if getattr(ant, "diameter", None)
-            ]
+            diameters = [float(ant.diameter_m) for ant in self.antennas]
             if diameters and len(self._frequencies_hz):
                 d_min = min(diameters)
                 lam_max = float(speed_of_light.value) / float(self._frequencies_hz[0])
@@ -645,7 +700,7 @@ class Simulator:
         n_sky = self._sky_model.n_sky_elements_for(sky_mode)
         sky_type = "pixels" if sky_mode == SkyFormat.HEALPIX else "sources"
         print_success(
-            f"Setup complete: {len(self._antennas)} antennas, {len(self._baselines)} baselines, {n_sky} {sky_type}"
+            f"Setup complete: {len(self.antennas)} antennas, {len(self.baselines)} baselines, {n_sky} {sky_type}"
         )
         return self
 
@@ -691,16 +746,15 @@ class Simulator:
 
         t_start = time.perf_counter()
 
+        # Set up if not already done
+        if not self._is_setup:
+            self.setup()
+
         if progress:
-            # Print beautiful header panel FIRST, before setup
             print_header(
                 f"RadioSim Simulator v{self.version}",
                 "Radio Interferometer Visibility Simulator",
             )
-
-        # Set up if not already done
-        if not self._is_setup:
-            self.setup()
 
         t_setup = time.perf_counter() - t_start
 
@@ -724,8 +778,8 @@ class Simulator:
                 else "standard",
                 "Simulator": f"{self._simulator.name} ({self._simulator.complexity})",
                 "Sky Mode": _sky_mode.value,
-                "Antennas": len(self._antennas),
-                "Baselines": len(self._baselines),
+                "Antennas": len(self.antennas),
+                "Baselines": len(self.baselines),
                 "Sky Model": sky_label,
                 "Frequencies": f"{len(self._frequencies_hz)} channels",
             }
@@ -754,8 +808,7 @@ class Simulator:
 
             healpix_result = calculate_visibility_healpix(
                 sky_model=self._sky_model,
-                antennas=self._antennas,
-                baselines=self._baselines,
+                instrument=self._solver_instrument_view,
                 location=self._location,
                 obstime=self._obstime,
                 wavelengths=self._wavelengths,
@@ -803,8 +856,7 @@ class Simulator:
             # Build jones_config with beam settings
             jones_config = {"beam": self._beam_config}
             visibilities = self._simulator.calculate_visibilities(
-                antennas=self._antennas,
-                baselines=self._baselines,
+                instrument=self._solver_instrument_view,
                 source_arrays=self._source_arrays,
                 frequencies=self._frequencies_hz,
                 backend=self._backend,
@@ -825,11 +877,18 @@ class Simulator:
 
         # Compile results
         n_sky = self._sky_model.n_sky_elements_for(_sky_mode) if self._sky_model else 0
+        if self._instrument_state is None:
+            raise RuntimeError("Instrument resolution has not completed")
+        instrument_resolution = self.instrument.to_snapshot()
+        instrument_resolution["baseline_selection"] = (
+            self._instrument_state.selection.to_snapshot()
+        )
+
         self._results = {
             "visibilities": visibilities,
             "frequencies": self._frequencies_hz,
-            "baselines": self._baselines,
-            "antennas": self._antennas,
+            "baselines": self.baselines,
+            "antennas": self.antennas,
             "source_arrays": self._source_arrays,
             "sky_model": self._sky_model,
             "location": self._location,
@@ -848,11 +907,12 @@ class Simulator:
                 ),
                 "simulator": self._simulator.name,
                 "sky_representation": _sky_mode.value,
-                "n_antennas": len(self._antennas),
-                "n_baselines": len(self._baselines),
+                "n_antennas": len(self.antennas),
+                "n_baselines": len(self.baselines),
                 "n_sky_elements": n_sky,
                 "n_frequencies": len(self._frequencies_hz),
                 "config": self._resolved.to_json_safe(),
+                "instrument_resolution": instrument_resolution,
             },
         }
 
@@ -939,7 +999,7 @@ class Simulator:
 
             # 2D antenna layout
             plot_antenna_layout(
-                self._antennas,
+                self.antennas,
                 plotting=backend,
                 save_simulation_data=output_dir is not None,
                 folder_path=str(output_dir) if output_dir else None,
@@ -948,7 +1008,7 @@ class Simulator:
 
             # 3D antenna layout (Plotly)
             plot_antenna_layout_3d_plotly(
-                self._antennas,
+                self.antennas,
                 save_simulation_data=output_dir is not None,
                 folder_path=str(output_dir) if output_dir else None,
                 open_in_browser=show,
@@ -989,7 +1049,7 @@ class Simulator:
                     plot_visibility(
                         moduli_over_time=moduli,
                         phases_over_time=phases,
-                        baselines=self._baselines,
+                        baselines=self.baselines,
                         mjd_time_points=time_points_mjd,
                         freqs=self._frequencies_hz,
                         total_seconds=duration_sec,
@@ -1003,7 +1063,7 @@ class Simulator:
                     plot_heatmaps(
                         moduli_over_time=moduli,
                         phases_over_time=phases,
-                        baselines=self._baselines,
+                        baselines=self.baselines,
                         freqs=self._frequencies_hz,
                         total_seconds=duration_sec,
                         mjd_time_points=time_points_mjd,
@@ -1017,7 +1077,7 @@ class Simulator:
                     plot_modulus_vs_frequency(
                         moduli_over_time=moduli,
                         phases_over_time=phases,
-                        baselines=self._baselines,
+                        baselines=self.baselines,
                         freqs=self._frequencies_hz,
                         mjd_time_points=time_points_mjd,
                         plotting=backend,
@@ -1105,12 +1165,29 @@ class Simulator:
         -------
         Bokeh layout
         """
+        self._ensure_instrument_state()
+
         from radiosim.core.observability import ObservabilityPlanner
+        from radiosim.core.observability.planner import (
+            HeterogeneousObservabilityUnsupportedError,
+        )
+
+        distinct_diameters = tuple(
+            sorted({float(antenna.diameter_m) for antenna in self.antennas})
+        )
+        if len(distinct_diameters) != 1:
+            raise HeterogeneousObservabilityUnsupportedError(
+                "Observability does not support heterogeneous antenna diameters "
+                f"{distinct_diameters}; heterogeneous footprint semantics belong "
+                "to Tier 3"
+            )
+        diameter = distinct_diameters[0]
+
         from radiosim.visualization.observability import ObservabilityBokehRenderer
 
-        location = self._resolved.location
-        lat = location.lat_deg
-        lon = location.lon_deg
+        location = self.instrument.location
+        lat = location.latitude_deg
+        lon = location.longitude_deg
         height = location.height_m
 
         # Frequency (MHz), taken directly from the exact resolved channel tuple.
@@ -1125,8 +1202,8 @@ class Simulator:
 
         # Beam
         beams = self._resolved.beams
-        diameter = self._resolved.antenna_layout.all_antenna_diameter
         beam_config = {
+            "beam_mode": beams.beam_mode,
             "aperture_shape": beams.aperture_shape,
             "taper": beams.taper,
             "edge_taper_dB": beams.edge_taper_dB,
@@ -1186,7 +1263,6 @@ class Simulator:
         output_dir: str | Path,
         format: str = "hdf5",
         overwrite: bool = False,
-        telescope_name: str | None = None,
         filename: str | None = None,
     ) -> Path:
         """
@@ -1200,8 +1276,6 @@ class Simulator:
             Output format: "hdf5" (default), "json", "ms" (Measurement Set).
         overwrite : bool, optional
             Overwrite existing files (default: False).
-        telescope_name : str, optional
-            Telescope name for MS metadata (default: from config or "RadioSim").
         filename : str, optional
             Output filename stem (without extension). Defaults to
             "visibilities" for HDF5/JSON and "simulation" for MS.
@@ -1329,15 +1403,19 @@ class Simulator:
             }
 
             with open(output_path, "w") as f:
-                json.dump(json_data, f, indent=2, default=str)
+                json.dump(json_data, f, indent=2, allow_nan=False)
 
             logger.debug(f"Saved JSON to {output_path}")
             return output_path
 
         elif format.lower() == "ms":
-            from radiosim.io import MS_AVAILABLE, write_ms
+            from radiosim.io.measurement_set import (
+                CASACORE_AVAILABLE,
+                PYUVDATA_AVAILABLE,
+                write_ms,
+            )
 
-            if not MS_AVAILABLE:
+            if not (CASACORE_AVAILABLE and PYUVDATA_AVAILABLE):
                 raise ImportError(
                     "Measurement Set support not available.\n"
                     "Install with: pip install radiosim[ms]\n"
@@ -1347,25 +1425,16 @@ class Simulator:
             stem = filename or "simulation"
             output_path = output_dir / f"{stem}.ms"
 
-            # Get telescope name from config or parameter
-            if telescope_name is None:
-                telescope_name = self._resolved.telescope.telescope_name
-
-            # Phase-center configuration remains a Tier 4 result/output concern.
-            phase_center_ra = 0.0
-            phase_center_dec = -30.0
+            if self._instrument_state is None:
+                raise RuntimeError("Instrument resolution has not completed")
 
             write_ms(
                 output_path=output_path,
                 visibilities=self._results["visibilities"],
                 frequencies=self._results["frequencies"],
-                antennas=self._results["antennas"],
-                baselines=self._results["baselines"],
-                location=self._results["location"],
+                instrument=self.instrument,
+                selection=self._instrument_state.selection,
                 obstime=self._results["obstime"],
-                telescope_name=telescope_name,
-                phase_center_ra=phase_center_ra,
-                phase_center_dec=phase_center_dec,
                 overwrite=overwrite,
             )
 
@@ -1404,8 +1473,8 @@ class Simulator:
 
         # Get base memory estimate
         estimate = self._simulator.get_memory_estimate(
-            n_antennas=len(self._antennas),
-            n_baselines=len(self._baselines),
+            n_antennas=len(self.antennas),
+            n_baselines=len(self.baselines),
             n_sources=len(self._source_arrays["ra_rad"]) if self._source_arrays else 0,
             n_frequencies=len(self._frequencies_hz),
         )

@@ -17,6 +17,7 @@ Where:
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.sky.containers.model import SourceArrays
 
 import numpy as np
@@ -59,8 +60,7 @@ class RIMESimulator(VisibilitySimulator):
     - Optimal for small to medium source counts (< 10,000)
     - Handles arbitrary source positions (no gridding required)
     - Full polarization support (2×2 Jones matrices)
-    - GPU acceleration via JAX backend (10-50× speedup)
-    - Numba JIT compilation for CPU optimization
+    - Explicit NumPy, JAX, or Numba backend selection for supported kernels
 
     Use Cases
     ---------
@@ -86,12 +86,11 @@ class RIMESimulator(VisibilitySimulator):
     >>> print(sim.name, sim.complexity)
     rime O(N_src × N_bl × N_freq)
     >>>
-    >>> # Calculate visibilities with GPU acceleration
+    >>> # Calculate visibilities with an explicit optional backend
     >>> backend = get_backend("jax")  # or "numpy", "numba"
     >>> visibilities = sim.calculate_visibilities(
-    ...     antennas=antennas,
-    ...     baselines=baselines,
-    ...     sources=sources,
+    ...     instrument=instrument_view,
+    ...     source_arrays=source_arrays,
     ...     frequencies=freqs,
     ...     backend=backend,
     ...     location=location,
@@ -146,8 +145,7 @@ class RIMESimulator(VisibilitySimulator):
 
     def calculate_visibilities(
         self,
-        antennas: dict[Any, dict],
-        baselines: dict[tuple[Any, Any], dict],
+        instrument: "SolverInstrumentView",
         source_arrays: "SourceArrays",
         frequencies: np.ndarray,
         backend: Any,
@@ -162,15 +160,8 @@ class RIMESimulator(VisibilitySimulator):
 
         Parameters
         ----------
-        antennas : dict
-            Dictionary of antenna positions and properties.
-            Keys: antenna identifiers
-            Values: dicts with "Position", "Name", etc.
-
-        baselines : dict
-            Dictionary of baselines.
-            Keys: (ant1, ant2) tuples
-            Values: dicts with "BaselineVector"
+        instrument : SolverInstrumentView
+            Owned canonical antenna values and selected baseline geometry.
 
         source_arrays : dict
             Dict of source arrays from ``SkyModel.as_point_source_arrays()``.
@@ -247,8 +238,7 @@ class RIMESimulator(VisibilitySimulator):
 
         # Delegate to core implementation
         return calculate_visibility(
-            antennas=antennas,
-            baselines=baselines,
+            instrument=instrument,
             source_arrays=source_arrays,
             location=location,
             obstime=obstime,

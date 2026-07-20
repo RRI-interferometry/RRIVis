@@ -413,7 +413,7 @@ class BeamsConfig(StrictFrozenModel):
         return _finite_number_map(value, positive=True)
 
 
-class BaselineSelectionConfig(StrictFrozenModel):
+class _LegacyBaselineSelectionConfig(StrictFrozenModel):
     """Deferred baseline selection with defaults matching generated baselines."""
 
     use_autocorrelations: bool = True
@@ -1642,17 +1642,23 @@ class CliWorkflowConfig(StrictFrozenModel):
         return value
 
 
+from radiosim.io.instrument_config import (  # noqa: E402
+    BaselineSelectionConfig,
+    InstrumentConfig,
+    InstrumentLocationConfig,
+    KnownTelescopeSourceConfig,
+    LayoutFileSourceConfig,
+)
+
+
 class RadioSimConfig(StrictFrozenModel):
     """Complete strict and deeply immutable user-authored document."""
 
-    telescope: TelescopeConfig = Field(default_factory=TelescopeConfig)
-    antenna_layout: AntennaLayoutConfig
-    feeds: FeedsConfig = Field(default_factory=FeedsConfig)
+    instrument: InstrumentConfig
     beams: BeamsConfig = Field(default_factory=BeamsConfig)
     baseline_selection: BaselineSelectionConfig = Field(
         default_factory=BaselineSelectionConfig
     )
-    location: LocationConfig
     sky_model: SkyModelConfig
     obs_time: ObsTimeConfig
     obs_frequency: ObsFrequencyConfig
@@ -1902,15 +1908,18 @@ def collect_semantic_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
                 category="workflow",
             )
         )
+    source = config.instrument.source
     if (
-        not config.baseline_selection.use_autocorrelations
-        and not config.baseline_selection.use_crosscorrelations
+        isinstance(source, KnownTelescopeSourceConfig)
+        and source.registry_policy == "allow_network"
+        and config.execution.offline
     ):
         issues.append(
             ConfigIssue(
-                "baseline_selection",
-                "empty_baseline_selection",
-                "autocorrelations and crosscorrelations cannot both be disabled",
+                "instrument.source.registry_policy",
+                "registry_policy_conflicts_with_offline_execution",
+                "registry_policy='allow_network' requires execution.offline=false",
+                "Use registry_policy='offline' or permit application network access.",
             )
         )
 
@@ -1990,31 +1999,6 @@ def collect_unsupported_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...
             )
         )
 
-    for field in (
-        "use_pyuvdata_telescope",
-        "use_pyuvdata_location",
-        "use_pyuvdata_antennas",
-        "use_pyuvdata_diameters",
-    ):
-        if getattr(config.telescope, field):
-            add(
-                f"telescope.{field}",
-                "pyuvdata_telescope_unsupported",
-                "pyuvdata telescope opt-ins are not implemented until Tier 2",
-            )
-    if config.antenna_layout.use_different_diameters:
-        add(
-            "antenna_layout.use_different_diameters",
-            "heterogeneous_diameters_unsupported",
-            "per-antenna diameters are not implemented until Tier 2",
-        )
-    if config.antenna_layout.diameters:
-        add(
-            "antenna_layout.diameters",
-            "heterogeneous_diameters_unsupported",
-            "per-antenna diameters are not implemented until Tier 2",
-        )
-
     beams = config.beams
     if beams.beam_mode != "analytic":
         add(
@@ -2038,44 +2022,6 @@ def collect_unsupported_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...
                 f"beams.{field}",
                 "fits_beam_control_unsupported",
                 "this FITS/per-antenna beam control is not implemented until Tier 3",
-            )
-
-    feeds = config.feeds
-    feed_nondefaults = {
-        "use_polarized_feeds": feeds.use_polarized_feeds,
-        "polarization_type": bool(feeds.polarization_type),
-        "use_different_polarization_type": feeds.use_different_polarization_type,
-        "polarization_per_antenna": bool(feeds.polarization_per_antenna),
-        "use_different_feed_types": feeds.use_different_feed_types,
-        "all_feed_type": bool(feeds.all_feed_type),
-        "feed_types_per_antenna": bool(feeds.feed_types_per_antenna),
-    }
-    for field, enabled in feed_nondefaults.items():
-        if enabled:
-            add(
-                f"feeds.{field}",
-                "receptor_config_unsupported",
-                "top-level receptor/feed physics is not implemented until Tier 5",
-            )
-
-    baseline = config.baseline_selection
-    baseline_nondefaults = {
-        "use_autocorrelations": not baseline.use_autocorrelations,
-        "use_crosscorrelations": not baseline.use_crosscorrelations,
-        "only_selective_baseline_length": baseline.only_selective_baseline_length,
-        "selective_baseline_lengths": bool(baseline.selective_baseline_lengths),
-        "selective_baseline_tolerance_meters": not math.isclose(
-            baseline.selective_baseline_tolerance_meters, 0.5
-        ),
-        "trim_by_angle_ranges": baseline.trim_by_angle_ranges,
-        "selective_angle_ranges_deg": bool(baseline.selective_angle_ranges_deg),
-    }
-    for field, enabled in baseline_nondefaults.items():
-        if enabled:
-            add(
-                f"baseline_selection.{field}",
-                "baseline_selection_unsupported",
-                "baseline selection changes are not implemented until Tier 2",
             )
 
     if config.visibility.calculation_type == "spherical_harmonic":
@@ -2120,6 +2066,38 @@ def collect_config_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
 
 
 _REMOVED_FIELD_GUIDANCE: dict[str, tuple[str, str]] = {
+    "telescope": (
+        "top-level 'telescope' was removed by the Tier 2 instrument cutover",
+        "Use 'instrument.source' for telescope identity and source selection.",
+    ),
+    "telescope_name": (
+        "top-level 'telescope_name' was removed by the Tier 2 instrument cutover",
+        "Use 'instrument.source.telescope_name' for local layouts or 'instrument.source.name' for a known telescope.",
+    ),
+    "antenna_layout": (
+        "top-level 'antenna_layout' was removed by the Tier 2 instrument cutover",
+        "Use 'instrument.source' with kind='layout_file'.",
+    ),
+    "location": (
+        "top-level 'location' was removed by the Tier 2 instrument cutover",
+        "Use 'instrument.location' with longitude_deg, latitude_deg, and height_m.",
+    ),
+    "feeds": (
+        "top-level receptor/feed configuration was removed because it had no active physics",
+        "Analytic-beam illumination remains under 'beams.feed_model'; receptor physics belongs to Tier 5.",
+    ),
+    "all_antenna_diameter": (
+        "all_antenna_diameter was removed by the Tier 2 instrument cutover",
+        "Use 'instrument.default_diameter_m'.",
+    ),
+    "use_different_diameters": (
+        "use_different_diameters was removed by the Tier 2 instrument cutover",
+        "Use typed entries under 'instrument.diameter_overrides'.",
+    ),
+    "diameters": (
+        "the legacy diameters mapping was removed by the Tier 2 instrument cutover",
+        "Use typed entries under 'instrument.diameter_overrides'.",
+    ),
     "compute": (
         "top-level 'compute' was removed",
         "Move backend/offline values to 'execution'.",
@@ -2140,31 +2118,40 @@ _REMOVED_FIELD_GUIDANCE: dict[str, tuple[str, str]] = {
         "fixed_HPBW was removed because it had no live runtime reader",
         "Configure an analytic beam under 'beams'.",
     ),
-    "location.ra": (
-        "location.ra was removed from the simulation input",
+    "instrument.location.ra": (
+        "instrument.location.ra is not a geodetic location field",
         "Phase-center configuration belongs to the future Tier 4 result contract.",
     ),
-    "location.dec": (
-        "location.dec was removed from the simulation input",
+    "instrument.location.dec": (
+        "instrument.location.dec is not a geodetic location field",
         "Phase-center configuration belongs to the future Tier 4 result contract.",
-    ),
-    "telescope.name": (
-        "telescope.name is not part of the RadioSim input schema",
-        "Did you mean 'telescope_name'?",
-    ),
-    "telescope.location": (
-        "nested telescope.location is a stale example shape",
-        "Use the required top-level 'location' section.",
-    ),
-    "antenna_layout.file": (
-        "antenna_layout.file is a stale example field",
-        "Did you mean 'antenna_positions_file'?",
-    ),
-    "antenna_layout.format": (
-        "antenna_layout.format is a stale example field",
-        "Did you mean 'antenna_file_format'?",
     ),
 }
+
+for _removed_instrument_field in (
+    "use_pyuvdata_telescope",
+    "use_pyuvdata_location",
+    "use_pyuvdata_antennas",
+    "use_pyuvdata_diameters",
+):
+    _REMOVED_FIELD_GUIDANCE[_removed_instrument_field] = (
+        f"{_removed_instrument_field} was removed by the Tier 2 instrument cutover",
+        "Select exactly one 'instrument.source.kind' instead of combining boolean field sources.",
+    )
+
+for _removed_baseline_field in (
+    "use_autocorrelations",
+    "use_crosscorrelations",
+    "only_selective_baseline_length",
+    "selective_baseline_lengths",
+    "selective_baseline_tolerance_meters",
+    "trim_by_angle_ranges",
+    "selective_angle_ranges_deg",
+):
+    _REMOVED_FIELD_GUIDANCE[f"baseline_selection.{_removed_baseline_field}"] = (
+        f"baseline_selection.{_removed_baseline_field} was removed by the Tier 2 baseline cutover",
+        "Use correlations, a typed length_filter, and azimuth_ranges_deg.",
+    )
 
 for _legacy_beam_field in (
     "use_beam_file",
@@ -2185,12 +2172,16 @@ for _legacy_beam_field in (
 
 _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
     "": tuple(RadioSimConfig.model_fields),
-    "telescope": tuple(TelescopeConfig.model_fields),
-    "antenna_layout": tuple(AntennaLayoutConfig.model_fields),
-    "feeds": tuple(FeedsConfig.model_fields),
+    "instrument": tuple(InstrumentConfig.model_fields),
+    "instrument.source": tuple(
+        sorted(
+            set(LayoutFileSourceConfig.model_fields)
+            | set(KnownTelescopeSourceConfig.model_fields)
+        )
+    ),
+    "instrument.location": tuple(InstrumentLocationConfig.model_fields),
     "beams": tuple(BeamsConfig.model_fields),
     "baseline_selection": tuple(BaselineSelectionConfig.model_fields),
-    "location": tuple(LocationConfig.model_fields),
     "sky_model": tuple(SkyModelConfig.model_fields),
     "obs_time": tuple(ObsTimeConfig.model_fields),
     "workflow": tuple(CliWorkflowConfig.model_fields),
@@ -2362,7 +2353,7 @@ def load_config(
                     config_path,
                     "yaml_root_not_mapping",
                     "configuration YAML root must be a mapping",
-                    "Use top-level section names such as antenna_layout and location.",
+                    "Use top-level sections such as instrument, sky_model, and obs_time.",
                 )
             ]
         )
@@ -2449,12 +2440,21 @@ def dump_config(config: RadioSimConfig, path: str | Path) -> None:
 def create_default_config(output_path: str | Path) -> None:
     """Write a target-shape template containing explicit scientific placeholders."""
     template = {
-        "antenna_layout": {
-            "antenna_positions_file": "antenna_layout.txt",
-            "antenna_file_format": "radiosim",
-            "all_antenna_diameter": 14.0,
+        "instrument": {
+            "source": {
+                "kind": "layout_file",
+                "path": "antenna_layout.txt",
+                "format": "radiosim",
+                "telescope_name": "Example Array",
+            },
+            "location": {
+                "longitude_deg": 0.0,
+                "latitude_deg": 0.0,
+                "height_m": 0.0,
+            },
+            "default_diameter_m": 14.0,
         },
-        "location": {"lat": 0.0, "lon": 0.0, "height": 0.0},
+        "baseline_selection": {"correlations": "all"},
         "sky_model": {"sources": [{"kind": "test_sources"}]},
         "obs_time": {
             "start_time": "2025-01-01T00:00:00",
@@ -2502,6 +2502,8 @@ __all__ = [
     "FrozenDict",
     "GleamSourceConfig",
     "JonesPrecisionInput",
+    "InstrumentConfig",
+    "InstrumentLocationConfig",
     "LocationConfig",
     "LotssSourceConfig",
     "MalsSourceConfig",

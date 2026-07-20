@@ -28,29 +28,24 @@ from radiosim.core.runtime_config import (
     ConfigurationProvenance,
     FrozenMapping,
     PathResolutionProvenance,
-    ResolvedAntennaLayoutConfig,
     ResolvedBeamsConfig,
     ResolvedConfiguration,
     ResolvedExecutionConfig,
     ResolvedFrequencyConfig,
-    ResolvedLocationConfig,
     ResolvedObservationConfig,
     ResolvedSimulationConfig,
     ResolvedSkyModelConfig,
     ResolvedSkySourceRequest,
-    ResolvedTelescopeConfig,
     ValueOrigin,
     freeze_runtime_value,
     json_safe_mapping,
 )
 from radiosim.core.sky.registry import loader_registry
 from radiosim.io.config import (
-    AntennaFileFormat,
     CliWorkflowConfig,
     ConfigIssue,
     CustomRegisteredSourceConfig,
     ExplicitFrequencyConfig,
-    LocationConfig,
     ObsFrequencyConfig,
     PrecisionInput,
     RadioSimConfig,
@@ -60,6 +55,11 @@ from radiosim.io.config import (
     collect_semantic_issues,
     collect_unsupported_issues,
     schema_issues_from_validation_error,
+)
+from radiosim.io.instrument_config import (
+    InstrumentLocationConfig,
+    KnownTelescopeSourceConfig,
+    LayoutFileSourceConfig,
 )
 
 SourceKind = Literal["yaml", "mapping", "model", "parameters"]
@@ -373,10 +373,9 @@ class ConfigurationSource:
 
 
 class AntennaLayoutOverride(StrictFrozenModel):
-    """Complete antenna path replacement with an optional format replacement."""
+    """Path-only replacement for an existing layout-file instrument source."""
 
     path: Path
-    format: AntennaFileFormat | None = None
 
     @field_validator("path", mode="before")
     @classmethod
@@ -394,7 +393,7 @@ class SimulationOverrides(StrictFrozenModel):
     offline: bool | None = None
     antenna_layout: AntennaLayoutOverride | None = None
     obs_frequency: ObsFrequencyConfig | None = None
-    location: LocationConfig | None = None
+    location: InstrumentLocationConfig | None = None
     start_time: str | None = None
     simulator: Literal["rime"] | None = None
 
@@ -662,13 +661,12 @@ def _apply_overrides(
     workflow: WorkflowOverrides | None,
 ) -> tuple[RadioSimConfig, dict[str, ValueOrigin]]:
     origins: dict[str, ValueOrigin] = {
-        "antenna_layout.antenna_positions_file": "document",
-        "antenna_layout.antenna_file_format": "document",
+        "instrument.source.path": "document",
         "execution.backend": _document_origin(config.execution, "backend"),
         "execution.precision": _document_origin(config.execution, "precision"),
         "execution.offline": _document_origin(config.execution, "offline"),
         "execution.simulator": _document_origin(config.execution, "simulator"),
-        "location": "document",
+        "instrument.location": "document",
         "obs_frequency": "document",
         "obs_time.start_time": "document",
         "workflow.output_dir": _document_origin(config.workflow, "output_dir"),
@@ -690,25 +688,34 @@ def _apply_overrides(
         origins["execution.simulator"] = "override"
     execution = config.execution.model_copy(update=execution_updates)
 
-    antenna = config.antenna_layout
+    instrument = config.instrument
     if simulation.antenna_layout is not None:
-        antenna_updates: dict[str, Any] = {
-            "antenna_positions_file": simulation.antenna_layout.path
-        }
-        origins["antenna_layout.antenna_positions_file"] = "override"
-        if simulation.antenna_layout.format is not None:
-            antenna_updates["antenna_file_format"] = simulation.antenna_layout.format
-            origins["antenna_layout.antenna_file_format"] = "override"
-        antenna = antenna.model_copy(update=antenna_updates)
+        if isinstance(instrument.source, KnownTelescopeSourceConfig):
+            raise ConfigOverrideError(
+                [
+                    ConfigIssue(
+                        "overrides.antenna_layout.path",
+                        "layout_path_override_requires_layout_source",
+                        "an antenna layout path cannot replace a known-telescope source",
+                        "Select a layout_file source in the document before overriding its path.",
+                        stage="override",
+                        category="override",
+                    )
+                ]
+            )
+        source = instrument.source.model_copy(
+            update={"path": simulation.antenna_layout.path}
+        )
+        instrument = instrument.model_copy(update={"source": source})
+        origins["instrument.source.path"] = "override"
 
     obs_frequency = config.obs_frequency
     if simulation.obs_frequency is not None:
         obs_frequency = simulation.obs_frequency
         origins["obs_frequency"] = "override"
-    location = config.location
     if simulation.location is not None:
-        location = simulation.location
-        origins["location"] = "override"
+        instrument = instrument.model_copy(update={"location": simulation.location})
+        origins["instrument.location"] = "override"
     obs_time = config.obs_time
     if simulation.start_time is not None:
         obs_time = obs_time.model_copy(update={"start_time": simulation.start_time})
@@ -721,9 +728,8 @@ def _apply_overrides(
         origins["workflow.output_dir"] = "override"
     candidate = config.model_copy(
         update={
-            "antenna_layout": antenna,
+            "instrument": instrument,
             "execution": execution,
-            "location": location,
             "obs_frequency": obs_frequency,
             "obs_time": obs_time,
             "workflow": workflow_config,
@@ -1139,17 +1145,22 @@ def resolve_config(
         source,
         check_input_paths=check_input_paths,
     )
-    antenna_expected: Literal["file", "directory"] = (
-        "directory"
-        if candidate.antenna_layout.antenna_file_format == "measurement_set"
-        else "file"
-    )
-    antenna_path = path_resolver.path(
-        candidate.antenna_layout.antenna_positions_file,
-        logical_path="antenna_layout.antenna_positions_file",
-        origin=origins["antenna_layout.antenna_positions_file"],
-        expected=antenna_expected,
-    )
+    instrument = candidate.instrument
+    if isinstance(instrument.source, LayoutFileSourceConfig):
+        antenna_expected: Literal["file", "directory"] = (
+            "directory" if instrument.source.format == "measurement_set" else "file"
+        )
+        antenna_path = path_resolver.path(
+            instrument.source.path,
+            logical_path="instrument.source.path",
+            origin=origins["instrument.source.path"],
+            expected=antenna_expected,
+        )
+        instrument = instrument.model_copy(
+            update={
+                "source": instrument.source.model_copy(update={"path": antenna_path})
+            }
+        )
     beam_file = candidate.beams.beam_file
     if beam_file is not None:
         beam_file = path_resolver.path(
@@ -1199,19 +1210,7 @@ def resolve_config(
         workflow_data["output_dir"] = output_dir
         resolved_workflow = CliWorkflowConfig.model_validate(workflow_data)
         runtime = ResolvedSimulationConfig(
-            telescope=ResolvedTelescopeConfig(
-                **candidate.telescope.model_dump(mode="python")
-            ),
-            antenna_layout=ResolvedAntennaLayoutConfig(
-                antenna_positions_file=antenna_path,
-                antenna_file_format=(candidate.antenna_layout.antenna_file_format),
-                all_antenna_diameter=(candidate.antenna_layout.all_antenna_diameter),
-                use_different_diameters=(
-                    candidate.antenna_layout.use_different_diameters
-                ),
-                diameters=FrozenMapping(candidate.antenna_layout.diameters),
-            ),
-            feeds=FrozenMapping(candidate.feeds.model_dump(mode="python")),
+            instrument=instrument,
             beams=ResolvedBeamsConfig(
                 beam_mode=candidate.beams.beam_mode,
                 per_antenna=candidate.beams.per_antenna,
@@ -1232,14 +1231,7 @@ def resolve_config(
                 magnification=candidate.beams.magnification,
                 aperture_params=FrozenMapping(candidate.beams.aperture_params),
             ),
-            baseline_selection=FrozenMapping(
-                candidate.baseline_selection.model_dump(mode="python")
-            ),
-            location=ResolvedLocationConfig(
-                lat_deg=candidate.location.lat,
-                lon_deg=candidate.location.lon,
-                height_m=candidate.location.height,
-            ),
+            baseline_selection=candidate.baseline_selection,
             sky_model=ResolvedSkyModelConfig(
                 sources=sources,
                 flux_unit=candidate.sky_model.flux_unit,

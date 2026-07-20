@@ -2,18 +2,16 @@
 """
 Visibility calculation using the Radio Interferometer Measurement Equation (RIME).
 
-Implements full polarization with 2×2 Jones matrices and coherency matrices.
-Supports both beam FITS files and analytic beam patterns via the JonesChain
-framework.
-
-NEW in v0.2.0: Backend abstraction for CPU/GPU/TPU acceleration and
-JonesChain integration for complete instrumental forward modeling.
+Implements the direct-sum Jones/coherency calculation used by the high-level
+analytic-beam path. Backend selection is explicit, but this module does not
+claim complete accelerator coverage for the full simulation workflow.
 """
 
 import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.sky.containers.model import SourceArrays
 
 import astropy.units as u
@@ -47,8 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 def calculate_visibility(
-    antennas: dict,
-    baselines: dict,
+    instrument: "SolverInstrumentView",
     source_arrays: "SourceArrays",
     location: Any,
     obstime: Any,
@@ -70,12 +67,8 @@ def calculate_visibility(
 
     Parameters
     ----------
-    antennas : dict
-        Dictionary of antenna positions and properties.
-        Keys: antenna numbers, Values: dicts with "Name", "Position", etc.
-    baselines : dict
-        Dictionary of baselines between antennas.
-        Keys: (ant1, ant2) tuples, Values: dicts with "BaselineVector"
+    instrument : SolverInstrumentView
+        Owned canonical antenna values and selected baseline geometry.
     source_arrays : dict
         Dict of source arrays from ``SkyModel.as_point_source_arrays()``.
         Keys: ``ra_rad``, ``dec_rad``, ``flux``, ``spectral_index``,
@@ -91,14 +84,13 @@ def calculate_visibility(
     freqs : ndarray
         Frequency array in Hz.
     beam_manager : BeamManager, optional
-        BeamManager instance for getting Jones matrices from beam FITS files.
-        If None or in analytic mode, falls back to analytic beams.
+        Internal low-level beam adapter. The public high-level configuration
+        currently resolves only analytic beams.
     return_correlations : bool, optional
         If True, extract and return correlation products (XX, XY, YX, YY, I).
         If False, return raw 2×2 visibility matrices.
     backend : ArrayBackend, optional
-        Computation backend for CPU/GPU/TPU acceleration.
-        If None, uses NumPy CPU backend (backward compatible).
+        Array backend used by supported kernels. If omitted, uses NumPy.
         Options: get_backend("numpy"), get_backend("jax"), get_backend("numba")
     jones_config : dict, optional
         Configuration for Jones chain terms. Keys are term names ('K', 'E', 'G', etc.),
@@ -112,37 +104,28 @@ def calculate_visibility(
     Returns
     -------
     dict
-        Dictionary of visibilities for each baseline.
-        If return_correlations=True:
-            Keys: (ant1, ant2) tuples
-            Values: dict with keys "XX", "XY", "YX", "YY", "I"
-            Shape is (N_times, N_freq) for time-stepping mode, (N_freq,) for single-time
-        If return_correlations=False:
-            Keys: (ant1, ant2) tuples
-            Values: ndarray of shape (N_times, N_freq, 2, 2) or (N_freq, 2, 2)
+        Numeric antenna pairs map to correlation dictionaries when
+        ``return_correlations`` is true, or to visibility matrices otherwise.
+        Correlation arrays have shape ``(N_times, N_freq)``. Matrix arrays have
+        shape ``(N_times, N_freq, 2, 2)``.
 
     Examples
     --------
-    >>> # CPU backend (default, backward compatible)
-    >>> vis = calculate_visibility(antennas, baselines, sources, ...)
+    >>> # Deterministic NumPy default
+    >>> vis = calculate_visibility(instrument, source_arrays, ...)
 
-    >>> # GPU acceleration with JAX
+    >>> # Explicit optional backend
     >>> from radiosim.backends import get_backend
-    >>> gpu = get_backend("jax")
-    >>> vis = calculate_visibility(..., backend=gpu)
-
-    >>> # Full Jones chain with instrumental effects
-    >>> vis = calculate_visibility(
-    ...     ...,
-    ...     jones_config={
-    ...         "G": {"enabled": True, "sigma": 0.02},
-    ...         "B": {"enabled": True},
-    ...         "Z": {"enabled": True, "tec": 1e16},
-    ...     },
-    ... )
+    >>> optional_backend = get_backend("jax")
+    >>> vis = calculate_visibility(..., backend=optional_backend)
     """
     if jones_config is None:
         jones_config = {}
+
+    from radiosim.core.instrument_adapters import SolverInstrumentView
+
+    if type(instrument) is not SolverInstrumentView:
+        raise TypeError("instrument must be a SolverInstrumentView")
 
     # Initialize backend (default to NumPy for backward compatibility)
     if backend is None:
@@ -163,7 +146,8 @@ def calculate_visibility(
     # Initialize visibilities dictionary with time dimension
     # Each baseline gets a (N_times, N_freq, 2, 2) array for visibility matrices
     visibilities_matrices = {
-        key: backend.zeros_complex((n_times, n_freq, 2, 2)) for key in baselines.keys()
+        key: backend.zeros_complex((n_times, n_freq, 2, 2))
+        for key in instrument.selected_pairs
     }
 
     # Handle empty source arrays
@@ -345,9 +329,6 @@ def calculate_visibility(
             gauss_b_t = backend.asarray(gauss_b_t, dtype=backend.default_real_dtype)
             gauss_c_t = backend.asarray(gauss_c_t, dtype=backend.default_real_dtype)
 
-        # Build antenna index mapping
-        ant_keys = list(antennas.keys())
-
         for freq_idx, (wavelength, freq) in enumerate(
             zip(wavelengths, freqs, strict=False)
         ):
@@ -391,8 +372,7 @@ def calculate_visibility(
             chain = _build_jones_chain(
                 backend,
                 jones_config,
-                antennas,
-                ant_keys,
+                instrument,
                 alt_rad_t,
                 az_rad_t,
                 freq,
@@ -405,8 +385,8 @@ def calculate_visibility(
 
             # Per-antenna Jones cache: compute chain once per antenna
             jones_antenna_cache = {}
-            for ant_num in {a for pair in baselines.keys() for a in pair}:
-                ant_idx = ant_keys.index(ant_num)
+            for ant_num in {a for pair in instrument.selected_pairs for a in pair}:
+                ant_idx = instrument.row_for_number(ant_num)
                 jones_antenna_cache[ant_num] = chain.compute_antenna_jones_all_sources(
                     antenna_idx=ant_idx,
                     n_sources=n_sources,
@@ -416,14 +396,18 @@ def calculate_visibility(
                 )
 
             # Compute visibilities per baseline
-            for (ant1, ant2), baseline in baselines.items():
+            for (ant1, ant2), baseline_vector in zip(
+                instrument.selected_pairs,
+                instrument.baseline_vectors_enu_m,
+                strict=True,
+            ):
                 J_p = jones_antenna_cache[ant1]  # (n_sources, 2, 2)
                 J_q = jones_antenna_cache[ant2]
 
                 # Geometric phase (K) applied separately
                 bl_u, bl_v, bl_w = (
                     backend.asarray(
-                        baseline["BaselineVector"],
+                        baseline_vector,
                         dtype=backend.default_real_dtype,
                     )
                     / wavelength.value
@@ -482,8 +466,7 @@ def calculate_visibility(
 def _build_jones_chain(
     backend,
     jones_config,
-    antennas,
-    ant_keys,
+    instrument,
     alt_rad,
     az_rad,
     freq,
@@ -504,10 +487,8 @@ def _build_jones_chain(
         Computation backend.
     jones_config : dict
         Configuration for Jones chain terms.
-    antennas : dict
-        Antenna dictionary.
-    ant_keys : list
-        Ordered list of antenna keys.
+    instrument : SolverInstrumentView
+        Owned canonical antenna values.
     alt_rad, az_rad : ndarray
         Source altitudes/azimuths in radians.
     freq : float
@@ -521,15 +502,15 @@ def _build_jones_chain(
     time_idx : int
         Time step index.
     beam_manager : BeamManager, optional
-        BeamManager for FITS beam lookup. If provided and not in analytic mode,
-        uses FITSBeamJones instead of AnalyticBeamJones.
+        Internal low-level beam adapter. High-level configuration currently
+        supplies only the analytic path.
 
     Returns
     -------
     JonesChain
         Chain with E (and optionally Z, T, P, D, G, B) terms.
     """
-    n_antennas = len(antennas)
+    n_antennas = len(instrument.antenna_numbers)
     chain = JonesChain(backend)
 
     # Z term: Ionosphere (optional)
@@ -569,13 +550,10 @@ def _build_jones_chain(
     else:
         beam_cfg = jones_config.get("beam", {})
 
-        # Get default antenna diameter
-        first_ant = ant_keys[0]
-        antenna_diameter = antennas[first_ant].get("diameter", 14.0)
-
-        # Build per-antenna diameter map
+        antenna_diameter = float(instrument.diameters_m[0])
         diameter_map = {
-            ant: antennas[ant].get("diameter", antenna_diameter) for ant in ant_keys
+            number: float(instrument.diameters_m[index])
+            for index, number in enumerate(instrument.antenna_numbers)
         }
 
         e_jones = AnalyticBeamJones(

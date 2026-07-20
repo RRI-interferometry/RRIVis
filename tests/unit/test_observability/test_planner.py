@@ -54,6 +54,21 @@ def _combined_sky(precision, *, coordinate_frame: str = "icrs"):
 
 
 class TestObservabilityPlanner:
+    def test_implicit_field_radius_requires_explicit_diameter(self):
+        planner = ObservabilityPlanner(
+            latitude_deg=-30.0,
+            longitude_deg=21.0,
+            lst_start_hours=1.0,
+            lst_end_hours=2.0,
+            frequency_mhz=150.0,
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="beam_diameter_m is required when field_radius_deg is omitted",
+        ):
+            planner.build()
+
     def test_summary_plan_tracks_visibility_metrics(self, precision):
         planner = ObservabilityPlanner(
             latitude_deg=-30.0,

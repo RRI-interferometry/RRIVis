@@ -14,11 +14,12 @@ integration, and optional HDF5, JSON-summary, and Measurement Set output.
 The current `Simulator` path supports:
 
 - strict YAML, mapping, and typed-model configuration;
-- explicit observatory location, observation time, and frequency input;
+- one typed instrument source with canonical identity, location, positions,
+  per-antenna diameters, and deterministic provenance;
 - exact uniform grids or ordered explicit frequency samples in Hz;
 - local synthetic sources, catalog loaders, diffuse models, and supported
   file-backed sky loaders;
-- a uniform antenna diameter and all generated baselines;
+- typed correlation, length, and axial-azimuth baseline selection;
 - analytic aperture/illumination beam configuration;
 - point-source or HEALPix direct-sum simulation;
 - requested NumPy, JAX, Numba, or `auto` backend selection through one
@@ -26,10 +27,10 @@ The current `Simulator` path supports:
 - `Simulator.plot_observability()` as a visualization helper.
 
 The strict schema rejects high-level behavior that is not connected yet:
-FITS/mixed/per-antenna beams, per-antenna diameter maps, baseline subsets,
-top-level receptor/feed fields, pyuvdata telescope opt-ins, UVFITS output, and
-spherical-harmonic simulator modes. Lower-level types for some of these areas
-do not make them supported `Simulator` features.
+FITS/mixed/per-antenna beams, receptor/feed physics, heterogeneous
+observability, UVFITS output, and spherical-harmonic simulator modes.
+Heterogeneous positive antenna diameters are supported by both analytic
+visibility paths; observability raises a dedicated early error for them.
 
 Only the geometric-phase and analytic primary-beam Jones paths provide the
 current high-level forward-model effects. Other exported Jones classes are
@@ -91,13 +92,31 @@ For a small programmatic run:
 ```python
 from radiosim import Simulator
 from radiosim.io.config import ExecutionConfig, PrecisionInput
+from radiosim.io.instrument_config import (
+    BaselineSelectionConfig,
+    InstrumentConfig,
+    InstrumentLocationConfig,
+    LayoutFileSourceConfig,
+)
+
+instrument = InstrumentConfig(
+    source=LayoutFileSourceConfig(
+        path="antenna_layout_examples/hera_5.txt",
+        format="radiosim",
+        telescope_name="HERA",
+    ),
+    location=InstrumentLocationConfig(
+        longitude_deg=21.4283,
+        latitude_deg=-30.72152,
+        height_m=1073.0,
+    ),
+    default_diameter_m=14.0,
+)
 
 simulator = Simulator.from_parameters(
-    antenna_layout="antenna_layout_examples/hera_5.txt",
-    antenna_file_format="radiosim",
-    antenna_diameter_m=14.0,
+    instrument=instrument,
+    baseline_selection=BaselineSelectionConfig(correlations="all"),
     channel_frequencies_hz=(100_000_000.0, 101_500_000.0, 108_000_000.0),
-    location={"lat": -30.72152, "lon": 21.4283, "height": 1073.0},
     start_time="2025-01-01T00:00:00",
     duration_seconds=1.0,
     time_step_seconds=1.0,
@@ -127,15 +146,23 @@ typed-model inputs with relative paths require `base_dir`.
 This is a complete small document:
 
 ```yaml
-antenna_layout:
-  antenna_positions_file: ../antenna_layout_examples/hera_5.txt
-  antenna_file_format: radiosim
-  all_antenna_diameter: 14.0
+instrument:
+  source:
+    kind: layout_file
+    path: ../antenna_layout_examples/hera_5.txt
+    format: radiosim
+    telescope_name: HERA
+  location:
+    longitude_deg: 21.4283
+    latitude_deg: -30.72152
+    height_m: 1073.0
+  default_diameter_m: 14.0
+  diameter_overrides: []
 
-location:
-  lat: -30.72152
-  lon: 21.4283
-  height: 1073.0
+baseline_selection:
+  correlations: all
+  length_filter: null
+  azimuth_ranges_deg: []
 
 obs_time:
   start_time: "2025-01-01T00:00:00"
@@ -180,8 +207,7 @@ intervals. RadioSim constructs `start + index * interval`; it does not alter
 the requested spacing with `linspace`.
 
 Unknown fields are rejected. The pre-v1 API intentionally does not translate
-the removed `compute`, top-level `precision`, `simulators`, or `output`
-sections.
+removed input shapes; see the migration guide for exact replacements.
 
 ## Loading, resolving, and serialization
 
@@ -231,17 +257,20 @@ comparison against NumPy.
 ## Output and observability
 
 `Simulator.save()` currently dispatches HDF5, JSON summary, and optional
-Measurement Set output. HDF5 and JSON remain pre-Tier-4 formats with known
-scientific-contract limitations; UVFITS is rejected. The CLI `workflow`
-section controls whether and how post-run actions occur, while direct Python
-calls remain explicit.
+Measurement Set output. Results contain the exact canonical antenna/baseline
+tuples and a detached JSON-safe instrument provenance snapshot, which HDF5 and
+JSON preserve. Measurement Set construction uses canonical identity, diameter,
+location, and selected baselines; UVFITS output is rejected. The CLI
+`workflow` section controls post-run actions, while Python calls stay explicit.
 
 `Simulator.plot_observability()` is a helper associated with the Simulator. It
-is not a separate simulation engine, backend, or configured product.
+accepts uniform resolved diameter arrays and rejects heterogeneous arrays before
+optional sky preparation. It is not a separate simulation engine or backend.
 
 ## Examples and documentation
 
 - [Configuration guide](docs/user_guide/configuration.rst)
+- [Instrument resolution](docs/user_guide/instrument_resolution.rst)
 - [Migration guide](docs/migration_guide.md)
 - [Python example](examples/scripts/simple_simulation.py)
 - [Basic notebook](examples/notebooks/01_basic_usage.ipynb)

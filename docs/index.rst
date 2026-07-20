@@ -20,6 +20,7 @@ acceleration.
    :caption: User Guide
 
    user_guide/configuration
+   user_guide/instrument_resolution
    user_guide/configuration_support
    user_guide/backends
    user_guide/jones_matrices
@@ -48,14 +49,14 @@ Current high-level support
 
 - strict YAML, mapping, and typed-model configuration;
 - point-source and HEALPix direct-sum visibility paths;
-- analytic beams with one uniform antenna diameter;
+- canonical instruments with typed baseline selection;
+- analytic beams with heterogeneous positive antenna diameters;
 - exact grid or explicit-Hz frequency input;
 - backend and precision selection through resolved configuration; and
 - observability plotting as a ``Simulator`` helper.
 
-FITS/per-antenna beams, per-antenna diameters, baseline subsets, top-level
-receptor settings, pyuvdata telescope opt-ins, UVFITS output, and later-tier
-simulator modes are rejected by the current high-level resolver.
+FITS/mixed/per-antenna beams, receptor physics, heterogeneous observability,
+UVFITS output, and later simulator modes are not supported.
 
 Quick example
 -------------

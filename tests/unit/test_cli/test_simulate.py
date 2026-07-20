@@ -14,6 +14,10 @@ def _simulate_args(antenna_path, *extra: str) -> list[str]:
         "simulate",
         "--antenna-layout",
         str(antenna_path),
+        "--telescope-name",
+        "CLI Array",
+        "--default-diameter-m",
+        "14",
         "--frequencies",
         "100,101.5,108",
         "--latitude",
@@ -59,7 +63,9 @@ def test_simulate_uses_typed_parameters_and_preserves_nonuniform_hz(
     )
     assert simulator.config.frequency.source_mode == "explicit"
     assert simulator.config.execution.backend_strategy == "numpy"
-    assert simulator.config.location.lat_deg == pytest.approx(-30.72152)
+    assert simulator.config.instrument.location.latitude_deg == pytest.approx(-30.72152)
+    assert simulator.config.instrument.default_diameter_m == 14.0
+    assert simulator.config.baseline_selection.correlations == "all"
     assert simulator.config.observation.start_time_iso.startswith("2025-01-01T00:00:00")
     assert simulator.save_calls == [
         ((str(output_dir),), {"format": "json", "overwrite": False})
@@ -116,7 +122,7 @@ def test_simulate_rejects_missing_antenna_before_simulator_construction(
 
     assert result.exit_code == 1
     assert recording_simulator.instances == []
-    assert "antenna_layout.antenna_positions_file" in result.output
+    assert "instrument.source.path" in result.output
 
 
 def test_simulate_requires_explicit_location_and_start_time(
@@ -130,6 +136,8 @@ def test_simulate_requires_explicit_location_and_start_time(
             "simulate",
             "--antenna-layout",
             str(antenna_path),
+            "--telescope-name",
+            "CLI Array",
             "--frequencies",
             "100,101",
         ],
@@ -144,8 +152,16 @@ def test_simulate_help_documents_required_observation_inputs():
     result = CliRunner().invoke(cli, ["simulate", "--help"])
 
     assert result.exit_code == 0
-    for option in ("--latitude", "--longitude", "--height", "--start-time"):
+    for option in (
+        "--telescope-name",
+        "--latitude",
+        "--longitude",
+        "--height",
+        "--start-time",
+    ):
         line = next(line for line in result.output.splitlines() if option in line)
         assert "required" in line.lower()
     assert "--duration-seconds" in result.output
     assert "--time-step-seconds" in result.output
+    assert "--default-diameter-m" in result.output
+    assert "--correlations" in result.output

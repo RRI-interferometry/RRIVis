@@ -16,6 +16,8 @@ from astropy.time import Time
 from matplotlib.figure import Figure
 from pyradiosky import SkyModel as PyRadioSkyModel
 
+from radiosim.api import Simulator
+from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import HealpixData, SkyFormat, SkyModel
 from radiosim.core.sky.io.serialization import to_pyradiosky
@@ -23,6 +25,7 @@ from radiosim.core.sky.loaders.pyradiosky import _load_pyradiosky_healpix
 from radiosim.core.sky.operations.operations import materialize_point_sources_model
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
 from radiosim.visualization import plot_healpix_map
+from tests.fixtures.configs import valid_config_mapping
 
 
 @pytest.fixture
@@ -249,25 +252,24 @@ class TestSparseSkyModelBehavior:
 
 
 class TestSparseVisibility:
-    def test_sparse_visibility_matches_dense_equivalent(self, precision):
+    def test_sparse_visibility_matches_dense_equivalent(self, precision, tmp_path):
         sparse, _, freqs = make_sparse_healpix_model(precision)
         dense, _, _ = make_dense_equivalent(precision)
 
-        antennas = {
-            1: {"diameter": 14.0},
-            2: {"diameter": 14.0},
-        }
-        baselines = {
-            (1, 2): {"BaselineVector": np.array([0.0, 0.0, 0.0], dtype=np.float64)}
-        }
+        data = valid_config_mapping(
+            tmp_path,
+            baseline_selection={"correlations": "cross"},
+        )
+        simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+        simulator._ensure_instrument_state()
+        instrument = SolverInstrumentView.from_state(simulator._instrument_state)
         location = EarthLocation.from_geodetic(0.0 * u.deg, 0.0 * u.deg, 0.0 * u.m)
         obstime = Time("2024-01-01T00:00:00")
         wavelengths = np.array([c.value / freqs[0]], dtype=np.float64) * u.m
 
         sparse_vis = calculate_visibility_healpix(
             sparse,
-            antennas=antennas,
-            baselines=baselines,
+            instrument=instrument,
             location=location,
             obstime=obstime,
             wavelengths=wavelengths,
@@ -277,8 +279,7 @@ class TestSparseVisibility:
         )
         dense_vis = calculate_visibility_healpix(
             dense,
-            antennas=antennas,
-            baselines=baselines,
+            instrument=instrument,
             location=location,
             obstime=obstime,
             wavelengths=wavelengths,

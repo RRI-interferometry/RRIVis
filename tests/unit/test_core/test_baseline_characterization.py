@@ -1,8 +1,4 @@
-"""Characterization tests for legacy baseline generation and consumption.
-
-These tests lock current behavior before Tier 2 replaces the mutable dictionary
-contract. Assertions marked as legacy are observations, not endorsements.
-"""
+"""Legacy generation characterization and canonical baseline consumers."""
 
 from __future__ import annotations
 
@@ -20,9 +16,10 @@ import radiosim.core.visibility_healpix as healpix_visibility_module
 from radiosim.api import Simulator
 from radiosim.backends import get_backend
 from radiosim.core.baseline import generate_baselines
+from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
-from tests.fixtures.configs import resolved_config
+from tests.fixtures.configs import resolved_config, valid_config_mapping
 
 
 def _antenna(number, position, diameter):
@@ -165,6 +162,26 @@ def _point_source_arrays(frequency_hz: float) -> dict[str, object]:
     }
 
 
+def _solver_instrument_view(
+    tmp_path,
+    *,
+    diameters: tuple[float, float] = (12.0, 25.0),
+) -> SolverInstrumentView:
+    data = valid_config_mapping(
+        tmp_path,
+        baseline_selection={"correlations": "cross"},
+    )
+    (tmp_path / "antennas.txt").write_text(
+        "Name Number BeamID E N U Diameter\n"
+        f"ANT1 1 0 0.0 0.0 0.0 {diameters[0]}\n"
+        f"ANT2 2 0 1.0 0.0 0.0 {diameters[1]}\n",
+        encoding="utf-8",
+    )
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+    simulator._ensure_instrument_state()
+    return SolverInstrumentView.from_state(simulator._instrument_state)
+
+
 class _FixedAltAzSkyCoord:
     def __init__(self, **_kwargs):
         pass
@@ -182,6 +199,7 @@ class _IdentityJonesChain:
 
 
 def test_point_solver_uses_only_baseline_vector_with_current_negative_phase(
+    tmp_path,
     monkeypatch,
 ):
     monkeypatch.setattr(visibility_module, "SkyCoord", _FixedAltAzSkyCoord)
@@ -194,11 +212,10 @@ def test_point_solver_uses_only_baseline_vector_with_current_negative_phase(
     frequency_hz = c.value / wavelength_m
     # With alt=60 deg and az=90 deg, l=0.5. The one-metre East vector is
     # 0.5 wavelengths, so b.l=0.25 and exp(-2*pi*i*b.l) is exactly -i.
-    minimal_baselines = {(1, 2): {"BaselineVector": np.array([1.0, 0.0, 0.0])}}
+    instrument = _solver_instrument_view(tmp_path)
 
     result = calculate_visibility(
-        antennas={1: {}, 2: {}},
-        baselines=minimal_baselines,
+        instrument=instrument,
         source_arrays=_point_source_arrays(frequency_hz),
         location=EarthLocation.from_geodetic(0.0, 0.0, 0.0),
         obstime=Time("2024-01-01T00:00:00"),
@@ -237,7 +254,8 @@ class _OnePixelHealpix:
         return np.array([1.0])
 
 
-def test_healpix_solver_uses_only_baseline_vector_negative_phase_and_14m_fallback(
+def test_healpix_solver_uses_canonical_vector_phase_and_exact_diameters(
+    tmp_path,
     monkeypatch,
 ):
     captured_diameters: list[float] = []
@@ -259,11 +277,11 @@ def test_healpix_solver_uses_only_baseline_vector_negative_phase_and_14m_fallbac
     )
     wavelength_m = 2.0
     frequency_hz = c.value / wavelength_m
+    instrument = _solver_instrument_view(tmp_path)
 
     result = calculate_visibility_healpix(
         sky_model=sky_model,
-        antennas={1: {}, 2: {}},
-        baselines={(1, 2): {"BaselineVector": np.array([1.0, 0.0, 0.0])}},
+        instrument=instrument,
         location=EarthLocation.from_geodetic(0.0, 0.0, 0.0),
         obstime=Time("2024-01-01T00:00:00"),
         wavelengths=np.array([wavelength_m]) * u.m,
@@ -275,19 +293,10 @@ def test_healpix_solver_uses_only_baseline_vector_negative_phase_and_14m_fallbac
     )
 
     assert result["visibilities"][0, 0, 0] == pytest.approx(-1j)
-    assert sorted(captured_diameters) == [14.0, 14.0]
+    assert sorted(captured_diameters) == [12.0, 25.0]
 
 
-@pytest.mark.parametrize(
-    ("antennas", "expected_default", "expected_map"),
-    [
-        ({1: {}, 2: {"diameter": 25.0}}, 14.0, {1: 14.0, 2: 25.0}),
-        ({1: {"diameter": 10.0}, 2: {}}, 10.0, {1: 10.0, 2: 10.0}),
-    ],
-)
-def test_point_beam_characterizes_first_antenna_and_14m_diameter_fallbacks(
-    monkeypatch, antennas, expected_default, expected_map
-):
+def test_point_beam_receives_complete_canonical_diameter_map(tmp_path, monkeypatch):
     captured: dict[str, object] = {}
 
     def capture_analytic_beam(**kwargs):
@@ -303,8 +312,7 @@ def test_point_beam_characterizes_first_antenna_and_14m_diameter_fallbacks(
     visibility_module._build_jones_chain(
         backend=get_backend("numpy"),
         jones_config={},
-        antennas=antennas,
-        ant_keys=[1, 2],
+        instrument=_solver_instrument_view(tmp_path),
         alt_rad=np.array([1.0]),
         az_rad=np.array([0.0]),
         freq=100e6,
@@ -314,8 +322,8 @@ def test_point_beam_characterizes_first_antenna_and_14m_diameter_fallbacks(
         time_idx=0,
     )
 
-    assert captured["diameter"] == expected_default
-    assert captured["diameter_per_antenna"] == expected_map
+    assert captured["diameter"] == 12.0
+    assert captured["diameter_per_antenna"] == {1: 12.0, 2: 25.0}
 
 
 def test_memory_estimation_consumes_only_current_inventory_counts(tmp_path):
@@ -327,9 +335,8 @@ def test_memory_estimation_consumes_only_current_inventory_counts(tmp_path):
             return {"total_bytes": 1000, "total_human": "1.0 KB"}
 
     simulator = Simulator(resolved_config(tmp_path).runtime)
+    simulator._ensure_instrument_state()
     simulator._is_setup = True
-    simulator._antennas = {1: {}, 2: {}}
-    simulator._baselines = {(1, 1): {}, (1, 2): {}, (2, 2): {}}
     simulator._source_arrays = {"ra_rad": np.zeros(4)}
     simulator._frequencies_hz = np.zeros(5)
     simulator._simulator = FakeSimulatorStrategy()

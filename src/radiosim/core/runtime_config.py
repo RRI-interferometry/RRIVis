@@ -25,6 +25,10 @@ from radiosim.core.precision import PrecisionConfig
 if TYPE_CHECKING:
     from radiosim.io.config import CliWorkflowConfig
     from radiosim.io.config_resolution import ConfigurationSource
+    from radiosim.io.instrument_config import (
+        BaselineSelectionConfig,
+        InstrumentConfig,
+    )
 
 JsonScalar = str | int | float | bool | None
 JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -409,12 +413,9 @@ class ConfigurationProvenance:
 class ResolvedSimulationConfig:
     """The complete scientific/runtime configuration with no workflow state."""
 
-    telescope: ResolvedTelescopeConfig
-    antenna_layout: ResolvedAntennaLayoutConfig
-    feeds: FrozenMapping
+    instrument: InstrumentConfig
     beams: ResolvedBeamsConfig
-    baseline_selection: FrozenMapping
-    location: ResolvedLocationConfig
+    baseline_selection: BaselineSelectionConfig
     sky_model: ResolvedSkyModelConfig
     observation: ResolvedObservationConfig
     frequency: ResolvedFrequencyConfig
@@ -422,12 +423,15 @@ class ResolvedSimulationConfig:
     execution: ResolvedExecutionConfig
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "feeds", FrozenMapping(self.feeds))
-        object.__setattr__(
-            self,
-            "baseline_selection",
-            FrozenMapping(self.baseline_selection),
+        from radiosim.io.instrument_config import (
+            BaselineSelectionConfig,
+            InstrumentConfig,
         )
+
+        if type(self.instrument) is not InstrumentConfig:
+            raise TypeError("instrument must be an InstrumentConfig")
+        if type(self.baseline_selection) is not BaselineSelectionConfig:
+            raise TypeError("baseline_selection must be a BaselineSelectionConfig")
         object.__setattr__(self, "visibility", FrozenMapping(self.visibility))
 
     def to_json_safe(self) -> dict[str, JsonValue]:

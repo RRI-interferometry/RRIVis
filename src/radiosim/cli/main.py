@@ -23,16 +23,6 @@ Provides the main entry point for running simulations from the command line.
 #    - Timestamp-based folder organization (YYYY-MM-DD_HH-MM-SS)
 #    - Auto-save YAML config to simulation folder for reproducibility
 #
-# 6. PyUVData Telescope Integration
-#    - Load known telescope metadata from pyuvdata.Telescope
-#    - Auto-populate location, antennas, diameters, mount types, feeds
-#    - Per-field control flags (use_pyuvdata_location, use_pyuvdata_antennas, etc.)
-#
-# 7. Advanced Baseline Filtering
-#    - Filter by baseline length with tolerance
-#    - Filter by azimuth angle ranges
-#    - Toggle autocorrelations/crosscorrelations
-#
 # See LEGACY_CODE.md in project memory for detailed feature descriptions.
 
 import logging
@@ -57,6 +47,7 @@ BackendStrategy = Literal["auto", "numpy", "jax", "numba"]
         "  radiosim --config config.yaml\n\n"
         "  # Run with CLI arguments\n"
         "  radiosim simulate --antenna-layout HERA65.csv --frequencies 100,150,200 "
+        "--telescope-name HERA --default-diameter-m 14 "
         "--latitude -30.7 --longitude 21.4 --height 1073 "
         "--start-time 2025-01-01T00:00:00\n\n"
         "  # Show version\n"
@@ -138,6 +129,22 @@ def cli(
     "--antenna-layout", required=True, type=str, help="Path to antenna positions file"
 )
 @click.option(
+    "--telescope-name", required=True, type=str, help="Canonical telescope name"
+)
+@click.option(
+    "--default-diameter-m",
+    type=click.FloatRange(min=0.0, min_open=True),
+    default=None,
+    help="Positive fallback diameter in metres; omit when the layout is complete",
+)
+@click.option(
+    "--correlations",
+    type=click.Choice(["all", "cross", "auto"]),
+    default="all",
+    show_default=True,
+    help="Baseline correlation selection",
+)
+@click.option(
     "--frequencies",
     required=True,
     type=str,
@@ -195,6 +202,9 @@ def cli(
 )
 def simulate(
     antenna_layout: str,
+    telescope_name: str,
+    default_diameter_m: float | None,
+    correlations: Literal["all", "cross", "auto"],
     frequencies: str,
     sky_model: str,
     output: str,
@@ -211,6 +221,9 @@ def simulate(
     sys.exit(
         run_simulate_mode(
             antenna_layout=antenna_layout,
+            telescope_name=telescope_name,
+            default_diameter_m=default_diameter_m,
+            correlations=correlations,
             frequencies=frequencies,
             sky_model=sky_model,
             output=output,
@@ -373,6 +386,9 @@ def run_config_mode(
 
 def run_simulate_mode(
     antenna_layout: str,
+    telescope_name: str,
+    default_diameter_m: float | None,
+    correlations: Literal["all", "cross", "auto"],
     frequencies: str,
     sky_model: str,
     output: str,
@@ -410,7 +426,6 @@ def run_simulate_mode(
         from radiosim.core.sky.registry import loader_registry
         from radiosim.io.config import (
             ExecutionConfig,
-            LocationConfig,
             PrecisionInput,
             SkyModelConfig,
             VisibilityConfig,
@@ -420,15 +435,30 @@ def run_simulate_mode(
             ConfigResolutionError,
             ConfigSchemaError,
         )
+        from radiosim.io.instrument_config import (
+            BaselineSelectionConfig,
+            InstrumentConfig,
+            InstrumentLocationConfig,
+            LayoutFileSourceConfig,
+        )
 
         loader_name, defaults = loader_registry.resolve_request(sky_model, {})
         meta = loader_registry.meta(sky_model)
         try:
-            location = LocationConfig(
-                lat=latitude,
-                lon=longitude,
-                height=height,
+            instrument = InstrumentConfig(
+                source=LayoutFileSourceConfig(
+                    path=antenna_layout,
+                    format="radiosim",
+                    telescope_name=telescope_name,
+                ),
+                location=InstrumentLocationConfig(
+                    latitude_deg=latitude,
+                    longitude_deg=longitude,
+                    height_m=height,
+                ),
+                default_diameter_m=default_diameter_m,
             )
+            baseline_selection = BaselineSelectionConfig(correlations=correlations)
             sky_input = SkyModelConfig.model_validate(
                 {
                     "flux_unit": "Jy",
@@ -453,11 +483,9 @@ def run_simulate_mode(
             ) from error
 
         simulator = Simulator.from_parameters(
-            antenna_layout=antenna_layout,
-            antenna_file_format="radiosim",
-            antenna_diameter_m=14.0,
+            instrument=instrument,
+            baseline_selection=baseline_selection,
             channel_frequencies_hz=channel_frequencies_hz,
-            location=location,
             start_time=start_time,
             duration_seconds=duration_seconds,
             time_step_seconds=time_step_seconds,

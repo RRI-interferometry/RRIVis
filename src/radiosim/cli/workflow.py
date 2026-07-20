@@ -92,7 +92,12 @@ def deterministic_run_subdir(runtime: ResolvedSimulationConfig) -> str:
     """Derive one safe stable run name from resolved scientific state."""
     frequencies = runtime.frequency.channel_frequencies_hz
     start = _safe_fragment(runtime.observation.start_time_iso)
-    telescope = _safe_fragment(runtime.telescope.telescope_name)
+    source = runtime.instrument.source
+    telescope = _safe_fragment(
+        source.name
+        if source.kind == "known_telescope"
+        else (source.telescope_name or "simulation")
+    )
     return (
         f"{telescope}_{_format_hz(frequencies[0])}-"
         f"{_format_hz(frequencies[-1])}Hz_{len(frequencies)}channels_"

@@ -17,7 +17,6 @@ from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.registry.facade import SkyLoaderRegistry
 from radiosim.io.config import (
     ExplicitFrequencyConfig,
-    LocationConfig,
     PrecisionInput,
     RadioSimConfig,
     TestSourcesConfig,
@@ -37,6 +36,7 @@ from radiosim.io.config_resolution import (
     WorkflowOverrides,
     resolve_config,
 )
+from radiosim.io.instrument_config import InstrumentLocationConfig
 from tests.fixtures.configs import valid_config_mapping, write_config_yaml
 
 
@@ -58,22 +58,19 @@ def test_tier1b_semantic_validation_is_pure_and_explicit(tmp_path):
 
 def test_from_yaml_runs_common_path_preflight(tmp_path):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "missing.txt"
+    data["instrument"]["source"]["path"] = "missing.txt"
     config_path = write_config_yaml(tmp_path, data)
 
-    with pytest.raises(ConfigPathError, match="antenna_layout"):
+    with pytest.raises(ConfigPathError, match="instrument.source.path"):
         Simulator.from_yaml(config_path)
 
 
 def test_from_mapping_runs_schema_validation(tmp_path):
-    with pytest.raises(ConfigSchemaError, match="location.lat"):
-        Simulator.from_mapping(
-            {
-                "location": {"lat": 999.0},
-                "obs_time": {"duration_seconds": -1.0},
-            },
-            base_dir=tmp_path,
-        )
+    data = valid_config_mapping(tmp_path)
+    data["instrument"]["location"]["latitude_deg"] = float("inf")
+
+    with pytest.raises(ConfigSchemaError, match="instrument.location.latitude_deg"):
+        Simulator.from_mapping(data, base_dir=tmp_path)
 
 
 def test_invalid_mapping_fails_before_device_detection(tmp_path, monkeypatch):
@@ -121,7 +118,7 @@ def test_equivalent_yaml_mapping_and_model_resolve_identically(tmp_path):
         execution={"backend": "jax", "offline": True},
         workflow={"output_dir": "document-output"},
     )
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
     config_path = write_config_yaml(tmp_path, data)
     model = RadioSimConfig.model_validate(data)
     overrides = SimulationOverrides(
@@ -290,8 +287,7 @@ def test_yaml_syntax_root_and_empty_document_errors_are_typed(tmp_path, capsys):
         "yaml_root_not_mapping"
     ]
     assert {issue.path for issue in empty_error.value.issues} >= {
-        "antenna_layout",
-        "location",
+        "instrument",
         "obs_frequency",
         "obs_time",
         "sky_model",
@@ -346,7 +342,7 @@ def test_semantic_errors_fail_before_device_detection(tmp_path, monkeypatch):
 
 def test_yaml_source_path_is_observable_without_repository_cwd(tmp_path, monkeypatch):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
     config_path = write_config_yaml(tmp_path, data)
     unrelated_cwd = tmp_path / "unrelated"
     unrelated_cwd.mkdir()
@@ -355,8 +351,7 @@ def test_yaml_source_path_is_observable_without_repository_cwd(tmp_path, monkeyp
     simulator = Simulator.from_yaml(config_path)
 
     assert (
-        simulator.config.antenna_layout.antenna_positions_file
-        == (tmp_path / "antennas.txt").resolve()
+        simulator.config.instrument.source.path == (tmp_path / "antennas.txt").resolve()
     )
 
 
@@ -401,7 +396,7 @@ def test_invalid_source_combinations_are_typed(tmp_path, kwargs, code):
 
 def test_mapping_relative_document_paths_require_explicit_base(tmp_path):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
 
     with pytest.raises(ConfigSourceError) as exc_info:
         resolve_config(
@@ -410,7 +405,7 @@ def test_mapping_relative_document_paths_require_explicit_base(tmp_path):
         )
 
     assert any(
-        issue.path == "antenna_layout.antenna_positions_file"
+        issue.path == "instrument.source.path"
         and issue.code == "relative_path_requires_base_dir"
         for issue in exc_info.value.issues
     )
@@ -424,7 +419,7 @@ def test_absolute_mapping_needs_no_base_when_workflow_is_also_absolute(tmp_path)
         source=ConfigurationSource.for_mapping(invocation_dir=tmp_path),
     )
 
-    assert bundle.runtime.antenna_layout.antenna_positions_file.is_absolute()
+    assert bundle.runtime.instrument.source.path.is_absolute()
     assert bundle.workflow.output_dir.is_absolute()
 
 
@@ -452,7 +447,7 @@ def test_invocation_directory_is_captured_once_for_overrides(tmp_path, monkeypat
         workflow_overrides=WorkflowOverrides(output_dir="override-output"),
     )
 
-    assert bundle.runtime.antenna_layout.antenna_positions_file == override_file
+    assert bundle.runtime.instrument.source.path == override_file
     assert bundle.workflow.output_dir == invocation_dir / "override-output"
     assert not bundle.workflow.output_dir.exists()
 
@@ -468,7 +463,11 @@ def test_complete_override_matrix_replaces_only_named_logical_values(tmp_path):
         precision=PrecisionInput(preset="fast"),
         offline=False,
         obs_frequency=ExplicitFrequencyConfig(channel_frequencies_hz=[120e6, 123.5e6]),
-        location=LocationConfig(lat=1.0, lon=2.0, height=3.0),
+        location=InstrumentLocationConfig(
+            longitude_deg=2.0,
+            latitude_deg=1.0,
+            height_m=3.0,
+        ),
         start_time="2025-02-03T04:05:06",
         simulator="rime",
     )
@@ -486,14 +485,14 @@ def test_complete_override_matrix_replaces_only_named_logical_values(tmp_path):
     assert bundle.runtime.execution.offline is False
     assert bundle.runtime.execution.precision == PrecisionConfig.fast()
     assert bundle.runtime.frequency.channel_frequencies_hz == (120e6, 123.5e6)
-    assert bundle.runtime.location.lat_deg == 1.0
-    assert bundle.runtime.location.lon_deg == 2.0
-    assert bundle.runtime.location.height_m == 3.0
+    assert bundle.runtime.instrument.location.latitude_deg == 1.0
+    assert bundle.runtime.instrument.location.longitude_deg == 2.0
+    assert bundle.runtime.instrument.location.height_m == 3.0
     assert bundle.runtime.observation.start_time_iso.startswith("2025-02-03T04:05:06")
     assert bundle.runtime.observation.duration_seconds == 2.0
     assert bundle.provenance.override_origins["execution.backend"] == "override"
     assert bundle.provenance.override_origins["execution.offline"] == "override"
-    assert bundle.provenance.override_origins["location"] == "override"
+    assert bundle.provenance.override_origins["instrument.location"] == "override"
     assert original.execution.backend == "jax"
     assert original.execution.offline is True
     assert overrides.offline is False
@@ -524,7 +523,7 @@ def test_schema_semantic_unsupported_and_path_errors_are_distinct(tmp_path):
         invocation_dir=tmp_path,
     )
     schema_data = valid_config_mapping(tmp_path)
-    schema_data["location"]["lat"] = 999.0
+    schema_data["instrument"]["location"]["latitude_deg"] = float("inf")
     with pytest.raises(ConfigSchemaError):
         resolve_config(schema_data, source=source)
 
@@ -545,7 +544,7 @@ def test_schema_semantic_unsupported_and_path_errors_are_distinct(tmp_path):
     assert "input_path_missing" not in {issue.code for issue in exc_info.value.issues}
 
     path_data = valid_config_mapping(tmp_path)
-    path_data["antenna_layout"]["antenna_positions_file"] = "missing.txt"
+    path_data["instrument"]["source"]["path"] = "missing.txt"
     with pytest.raises(ConfigPathError):
         resolve_config(path_data, source=source)
 

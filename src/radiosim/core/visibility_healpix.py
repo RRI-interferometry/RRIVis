@@ -19,7 +19,10 @@ References
 """
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from radiosim.core.instrument_adapters import SolverInstrumentView
 
 import astropy.units as u
 import numpy as np
@@ -56,8 +59,9 @@ def _compute_beam_power_pattern(
 ) -> np.ndarray:
     """Compute scalar beam power pattern B^2 for HEALPix pixels.
 
-    For FITS beams: B^2 = 0.5 * (|J_00|^2 + |J_01|^2 + |J_10|^2 + |J_11|^2)
-    For analytic beams: Uses compute_aperture_beam to get Jones, then
+    For a low-level Jones beam adapter:
+    B^2 = 0.5 * (|J_00|^2 + |J_01|^2 + |J_10|^2 + |J_11|^2).
+    For the public analytic path, uses compute_aperture_beam to get Jones, then
     B^2 = 0.5 * sum(|J_ij|^2).
 
     Parameters
@@ -69,7 +73,7 @@ def _compute_beam_power_pattern(
     frequency : float
         Frequency in Hz.
     beam_manager : BeamManager, optional
-        BeamManager for FITS beam lookup.
+        Internal low-level beam adapter; high-level configuration is analytic.
     antenna_number : int, optional
         Antenna number for beam_manager lookup.
     azimuth : ndarray, optional
@@ -216,8 +220,7 @@ def compute_beam_squared_integral(
 
 def calculate_visibility_healpix(
     sky_model: SkyModel,
-    antennas: dict,
-    baselines: dict,
+    instrument: "SolverInstrumentView",
     location: Any,
     obstime: Any,
     wavelengths: Any,
@@ -251,10 +254,8 @@ def calculate_visibility_healpix(
     ----------
     sky_model : SkyModel
         Sky model in HEALPix mode (brightness temperature in K).
-    antennas : dict
-        Dictionary of antenna positions and properties.
-    baselines : dict
-        Dictionary of baselines between antennas.
+    instrument : SolverInstrumentView
+        Owned canonical antenna values and selected baseline geometry.
     location : EarthLocation
         Observer's geographical location.
     obstime : Time
@@ -268,7 +269,7 @@ def calculate_visibility_healpix(
     time_step_seconds : float
         Time step for integration in seconds.
     beam_manager : BeamManager, optional
-        Beam pattern manager for FITS-based beams.
+        Internal low-level beam adapter; high-level configuration is analytic.
     output_units : str, default="Jy"
         Output units: "Jy" (convert to Jansky) or "K.sr" (keep temperature ×
         solid angle). In polarized mode, always "Jy".
@@ -299,6 +300,10 @@ def calculate_visibility_healpix(
             "Materialize a HEALPix payload first (for point-source catalogs) "
             "or load a diffuse HEALPix model with frequencies=...."
         )
+    from radiosim.core.instrument_adapters import SolverInstrumentView
+
+    if type(instrument) is not SolverInstrumentView:
+        raise TypeError("instrument must be a SolverInstrumentView")
     if backend is None:
         backend = get_backend("numpy")
     xp = backend.xp
@@ -325,13 +330,13 @@ def calculate_visibility_healpix(
     times = np.arange(n_times) * time_step_seconds
 
     # Setup baseline info
-    baseline_keys = list(baselines.keys())
+    baseline_keys = instrument.selected_pairs
     n_baselines = len(baseline_keys)
     n_freqs = len(freqs)
 
     # Pre-compute baseline vectors in local ENU
     baseline_vectors = backend.asarray(
-        np.array([baselines[bl]["BaselineVector"] for bl in baseline_keys]),
+        instrument.baseline_vectors_enu_m,
         dtype=backend.default_real_dtype,
     )
 
@@ -389,10 +394,7 @@ def calculate_visibility_healpix(
         za_vis = np.pi / 2 - alt_vis
 
         # Collect unique antenna numbers
-        ant_nums = set()
-        for ant1, ant2 in baselines:
-            ant_nums.add(ant1)
-            ant_nums.add(ant2)
+        ant_nums = {number for pair in baseline_keys for number in pair}
 
         has_beam_manager = (
             beam_manager is not None
@@ -470,7 +472,9 @@ def calculate_visibility_healpix(
                 # Compute per-antenna Jones matrices
                 jones_cache: dict[Any, Any] = {}
                 for ant_num in ant_nums:
-                    ant_diameter = antennas.get(ant_num, {}).get("diameter", 14.0)
+                    ant_diameter = float(
+                        instrument.diameters_m[instrument.row_for_number(ant_num)]
+                    )
                     jones_cache[ant_num] = backend.asarray(
                         _compute_beam_jones_matrix(
                             zenith_angles=za_vis,
@@ -549,7 +553,9 @@ def calculate_visibility_healpix(
                 # Compute per-antenna beam power patterns for this frequency
                 beam_patterns: dict[Any, Any] = {}
                 for ant_num in ant_nums:
-                    ant_diameter = antennas.get(ant_num, {}).get("diameter", 14.0)
+                    ant_diameter = float(
+                        instrument.diameters_m[instrument.row_for_number(ant_num)]
+                    )
                     beam_patterns[ant_num] = backend.asarray(
                         _compute_beam_power_pattern(
                             zenith_angles=za_vis,

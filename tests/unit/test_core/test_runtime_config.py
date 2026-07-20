@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from radiosim.core.runtime_config import FrozenMapping, ResolvedConfiguration
 from radiosim.io.config_resolution import (
@@ -40,15 +41,15 @@ def test_resolved_fixture_returns_real_bundle(tmp_path):
     bundle = resolved_config(tmp_path)
 
     assert isinstance(bundle, ResolvedConfiguration)
-    assert bundle.runtime.antenna_layout.antenna_positions_file.is_absolute()
+    assert bundle.runtime.instrument.source.path.is_absolute()
     assert bundle.workflow.output_dir.is_absolute()
 
 
 def test_resolved_dataclasses_and_nested_mappings_are_immutable(tmp_path):
     bundle = resolved_config(tmp_path)
 
-    with pytest.raises(FrozenInstanceError):
-        bundle.runtime.location.lat_deg = 0.0
+    with pytest.raises(ValidationError, match="frozen"):
+        bundle.runtime.instrument.location.latitude_deg = 0.0
     with pytest.raises(FrozenInstanceError):
         bundle.runtime.execution.offline = False
     with pytest.raises(TypeError, match="immutable"):

@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.sky.containers.model import SourceArrays
 
 import numpy as np
@@ -39,9 +40,8 @@ class VisibilitySimulator(ABC):
     >>> print(sim.name, sim.complexity)
     rime O(N_src × N_bl × N_freq)
     >>> visibilities = sim.calculate_visibilities(
-    ...     antennas=antennas,
-    ...     baselines=baselines,
-    ...     sources=sources,
+    ...     instrument=instrument_view,
+    ...     source_arrays=source_arrays,
     ...     frequencies=freqs,
     ...     backend=backend,
     ...     **kwargs,
@@ -117,8 +117,7 @@ class VisibilitySimulator(ABC):
     @abstractmethod
     def calculate_visibilities(
         self,
-        antennas: dict[Any, dict],
-        baselines: dict[tuple[Any, Any], dict],
+        instrument: "SolverInstrumentView",
         source_arrays: "SourceArrays",
         frequencies: np.ndarray,
         backend: Any,
@@ -133,19 +132,8 @@ class VisibilitySimulator(ABC):
 
         Parameters
         ----------
-        antennas : dict
-            Dictionary of antenna positions and properties.
-            Keys: antenna identifiers (int or str)
-            Values: dicts with at minimum:
-                - "Position": [x, y, z] in meters (ECEF or local ENU)
-                - "Name": antenna name string
-                Optional: "Diameter", "BeamID", etc.
-
-        baselines : dict
-            Dictionary of baselines between antenna pairs.
-            Keys: (ant1, ant2) tuples
-            Values: dicts with at minimum:
-                - "BaselineVector": [u, v, w] in meters
+        instrument : SolverInstrumentView
+            Owned canonical antenna values and selected baseline geometry.
 
         source_arrays : dict
             Dict of source arrays from ``SkyModel.as_point_source_arrays()``.
@@ -215,8 +203,7 @@ class VisibilitySimulator(ABC):
 
     def validate_inputs(
         self,
-        antennas: dict[Any, dict],
-        baselines: dict[tuple[Any, Any], dict],
+        instrument: "SolverInstrumentView",
         sources: list[dict],
         frequencies: np.ndarray,
         **kwargs,
@@ -229,10 +216,8 @@ class VisibilitySimulator(ABC):
 
         Parameters
         ----------
-        antennas : dict
-            Antenna dictionary (see calculate_visibilities).
-        baselines : dict
-            Baseline dictionary (see calculate_visibilities).
+        instrument : SolverInstrumentView
+            Canonical solver adapter (see calculate_visibilities).
         sources : list
             Source list (see calculate_visibilities).
         frequencies : ndarray
@@ -257,23 +242,10 @@ class VisibilitySimulator(ABC):
         """
         errors = []
 
-        # Check antennas
-        if not antennas:
-            errors.append("Antenna dictionary is empty")
-        else:
-            for ant_id, ant_data in antennas.items():
-                if "Position" not in ant_data:
-                    errors.append(f"Antenna {ant_id} missing 'Position' key")
+        from radiosim.core.instrument_adapters import SolverInstrumentView
 
-        # Check baselines
-        if not baselines:
-            errors.append("Baseline dictionary is empty")
-        else:
-            for bl_key, bl_data in baselines.items():
-                if not isinstance(bl_key, tuple) or len(bl_key) != 2:
-                    errors.append(f"Invalid baseline key: {bl_key}")
-                if "BaselineVector" not in bl_data:
-                    errors.append(f"Baseline {bl_key} missing 'BaselineVector' key")
+        if type(instrument) is not SolverInstrumentView:
+            errors.append("instrument must be a SolverInstrumentView")
 
         # Check sources (empty is allowed, just returns zero visibilities)
         if sources:

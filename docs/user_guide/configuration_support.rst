@@ -1,159 +1,97 @@
 Configuration Support Matrix
 ============================
 
-This page distinguishes schema presence, resolved runtime behavior, and
-high-level feature support. All public configuration sources share the same
-strict Tier 1 resolver.
+All public configuration sources use the same strict resolver.
 
-Unified entry points
---------------------
+Entry points
+------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 25 35 40
+   :widths: 30 35 35
 
    * - Entry point
      - Input
      - Result
    * - ``load_config(path)``
-     - YAML path; paths based at the YAML parent
-     - ``ResolvedConfiguration(runtime, workflow, provenance)``
+     - YAML with paths based at its parent
+     - Resolved runtime, workflow, and provenance
    * - ``resolve_config(config, source=...)``
-     - Mapping or ``RadioSimConfig`` plus source context
+     - Mapping or ``RadioSimConfig`` with source context
      - The same resolved bundle
    * - ``Simulator(resolved)``
      - ``ResolvedSimulationConfig`` only
-     - Runtime object; no workflow state
+     - Runtime object without workflow state
    * - ``Simulator.from_yaml(path)``
      - YAML document
-     - Simulator built from resolved scientific state
+     - Simulator through the common resolver
    * - ``Simulator.from_config(model, base_dir=...)``
      - Strict input model
-     - Simulator built through the common resolver
+     - Simulator through the common resolver
    * - ``Simulator.from_mapping(data, base_dir=...)``
      - Python mapping
-     - Simulator built through the common resolver
+     - Simulator through the common resolver
    * - ``Simulator.from_parameters(...)``
-     - Complete scientific parameters and explicit Hz channels
-     - Simulator built through the common resolver
+     - Typed instrument, typed baseline selection, and scientific values
+     - Simulator with explicit-Hz frequency input
    * - ``radiosim validate``
      - YAML document
-     - Resolved summary without Simulator/runtime/output work
+     - Resolved summary without runtime/output work
 
-Top-level ownership
--------------------
+Scientific ownership
+--------------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 24 24 52
+   :widths: 24 76
 
    * - Section
-     - Owner
-     - Current high-level behavior
-   * - ``telescope``
-     - Scientific input
-     - Name is retained; pyuvdata opt-ins are rejected until Tier 2
-   * - ``antenna_layout``
-     - Scientific input
-     - File, format, and one positive uniform diameter are consumed
-   * - ``feeds``
-     - Deferred scientific input
-     - Non-default top-level receptor settings are rejected until Tier 5
-   * - ``beams``
-     - Scientific input
-     - Analytic aperture/illumination fields are consumed; FITS/mixed/per-antenna controls are rejected until Tier 3
+     - Active behavior
+   * - ``instrument``
+     - One discriminated source resolves canonical identities, positions,
+       location, diameters, and deterministic provenance
    * - ``baseline_selection``
-     - Deferred scientific input
-     - Current autos-plus-crosses defaults are accepted; selection changes are rejected until Tier 2
-   * - ``location``
-     - Required scientific input
-     - Finite latitude, longitude, and non-negative height are consumed
+     - Typed correlation, length-target/range, and axial-azimuth filtering
+   * - ``beams``
+     - Analytic aperture and illumination; FITS, mixed, and per-antenna beam
+       assignment are rejected
    * - ``sky_model``
-     - Required scientific input
-     - Strict source specs resolve into immutable loader requests
-   * - ``obs_time``
-     - Required scientific input
-     - Parseable start time, positive duration, and cadence are consumed
-   * - ``obs_frequency``
-     - Required scientific input
-     - ``grid`` or exact ``explicit`` mode resolves to an immutable Hz tuple
+     - Strict source requests for point or HEALPix preparation
+   * - ``obs_time`` / ``obs_frequency``
+     - Validated cadence and exact frequency samples
    * - ``visibility``
-     - Scientific input
-     - Point-source or HEALPix direct sum is supported; spherical harmonic is rejected
+     - Point-source or HEALPix direct sum
    * - ``execution``
-     - Runtime policy
-     - Backend, complete precision tree, ``rime`` simulator, and offline policy are resolved once
+     - Backend, precision, RIME simulator, and offline policy
    * - ``workflow``
-     - CLI-only policy
-     - Saving, logging, plotting, prompting, skipping, and browser behavior remain outside Simulator runtime state
+     - CLI-only saving, logging, plotting, prompting, and browser policy
 
-High-risk settings
+Instrument source support
+-------------------------
+
+``layout_file`` supports ``radiosim``, ``casa_loc``, ``measurement_set``,
+``uvfits``, and ``mwa_metafits``. ``known_telescope`` uses a named registry
+source with an explicit offline/network policy. It is a source kind, not a
+file format. See :doc:`instrument_resolution`.
+
+Feature boundaries
 ------------------
 
-.. list-table::
-   :header-rows: 1
-   :widths: 35 45 20
+Heterogeneous positive antenna diameters are used by both point and HEALPix
+analytic visibility paths. Observability plotting deliberately accepts only a
+uniform resolved diameter and raises before sky preparation for heterogeneous
+arrays. Feed/receptor physics, FITS beams, mixed beam modes, explicit
+Measurement Set phase centres, UVFITS writing, spherical-harmonic simulation,
+and worker control are not implemented.
 
-   * - Setting
-     - Current behavior
-     - Target tier
-   * - ``beams.beam_mode: fits|mixed`` and FITS controls
-     - Rejected before path/backend/device work; the high-level beam manager is not connected
-     - Tier 3
-   * - ``beams.per_antenna`` or ``antenna_beam_map``
-     - Rejected; per-antenna beam selection is not applied
-     - Tier 3
-   * - ``antenna_layout.use_different_diameters`` or ``diameters``
-     - Rejected; only the uniform diameter reaches setup
-     - Tier 2
-   * - non-default ``baseline_selection`` values
-     - Rejected; all generated baselines are currently used
-     - Tier 2
-   * - ``telescope.use_pyuvdata_*``
-     - Rejected; explicit location and selected layout file remain required
-     - Tier 2
-   * - non-default top-level ``feeds`` values
-     - Rejected; receptor physics is not connected
-     - Tier 5
-   * - ``visibility.calculation_type: spherical_harmonic``
-     - Rejected; no high-level m-mode solver exists
-     - Tier 7
-   * - ``workflow.result_format: uvfits``
-     - Rejected; ``Simulator.save`` currently dispatches HDF5, JSON summary, and optional MS
-     - Tier 4
-   * - ``Simulator.run(n_workers=...)``
-     - Rejected because solver-worker control is not implemented
-     - Tier 6
-
-Supported analytic beam controls
---------------------------------
-
-``beams.aperture_shape``, ``taper``, ``edge_taper_dB``, ``feed_model``,
-``feed_computation``, ``feed_params``, ``reflector_type``, ``magnification``,
-and ``aperture_params`` configure the current analytic beam. These describe
-aperture illumination, not the rejected top-level receptor/feed section.
-
-Backend boundary
-----------------
-
-The resolver honors ``execution.backend`` and complete precision overrides.
-NumPy is the deterministic default and ``auto`` is a real strategy. This does
-not establish complete acceleration of every high-level calculation. Host-side
-loops, Astropy work, transfers, and incomplete backend coverage remain; no
-blanket GPU or speedup claim is supported by the current test suite.
+NumPy is the deterministic backend default. Selecting JAX, Numba, or ``auto``
+does not establish complete accelerator coverage for the high-level workflow.
 
 Output boundary
 ---------------
 
-The CLI consumes ``workflow`` after a successful run. Python construction and
-``run()`` do not implicitly save or plot. HDF5 and JSON remain pre-Tier-4
-formats with known result-contract limitations. Measurement Set output depends
-on optional runtime support and lacks a complete round-trip guarantee here.
-UVFITS is rejected.
-
-Observability boundary
-----------------------
-
-``Simulator.plot_observability()`` builds a visualization from the Simulator's
-resolved location, time, frequency, analytic beam, and optional prepared sky.
-It is a helper, not a separate product, backend, or visibility solver.
+``Simulator.save`` dispatches HDF5, JSON summary, and optional Measurement Set
+output. HDF5 and JSON retain the deterministic instrument provenance snapshot.
+Measurement Set construction uses canonical names, numbers, diameters,
+location, and selected baselines; it does not promise a general round-trip or
+explicit phase-centre API. UVFITS output is rejected.

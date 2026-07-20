@@ -1,21 +1,19 @@
 Quick Start Guide
 =================
 
-Validate the shipped offline example before running it:
+Validate and run the shipped offline example:
 
 .. code-block:: bash
 
    pixi run radiosim validate configs/config.yaml
    pixi run radiosim --config configs/config.yaml
 
-The validation command resolves schema, semantics, paths, backend strategy,
-precision, and frequency samples without constructing ``Simulator``, loading
-scientific data, or creating output directories.
+Validation resolves schema, semantics, source paths, backend policy,
+precision, and frequency samples without constructing a backend, loading the
+instrument or sky, creating output, or opening a browser.
 
-Python API
-----------
-
-Use ``from_yaml`` for a YAML path:
+YAML construction
+-----------------
 
 .. code-block:: python
 
@@ -28,29 +26,44 @@ Use ``from_yaml`` for a YAML path:
    # Saving is explicit in Python.
    simulator.save("output", format="hdf5")
 
-``from_yaml`` resolves only scientific runtime configuration. It does not run
-the document's CLI ``workflow`` actions.
+``from_yaml`` resolves scientific configuration but never executes CLI
+``workflow`` actions.
 
-Small programmatic simulation
------------------------------
-
-``from_parameters`` accepts exact channel values in Hz and builds the explicit
-frequency variant:
+Typed parameter construction
+----------------------------
 
 .. code-block:: python
 
+   from pathlib import Path
+
    from radiosim import Simulator
    from radiosim.io.config import ExecutionConfig, PrecisionInput
+   from radiosim.io.instrument_config import (
+       BaselineSelectionConfig,
+       InstrumentConfig,
+       InstrumentLocationConfig,
+       LayoutFileSourceConfig,
+   )
+
+   instrument = InstrumentConfig(
+       source=LayoutFileSourceConfig(
+           path=Path("antenna_layout_examples/hera_5.txt"),
+           format="radiosim",
+           telescope_name="HERA",
+       ),
+       location=InstrumentLocationConfig(
+           longitude_deg=21.4283,
+           latitude_deg=-30.72152,
+           height_m=1073.0,
+       ),
+       default_diameter_m=14.0,
+   )
 
    simulator = Simulator.from_parameters(
-       antenna_layout="antenna_layout_examples/hera_5.txt",
-       antenna_file_format="radiosim",
-       antenna_diameter_m=14.0,
-       channel_frequencies_hz=(100_000_000.0, 101_500_000.0, 108_000_000.0),
-       location={"lat": -30.72152, "lon": 21.4283, "height": 1073.0},
+       instrument=instrument,
+       baseline_selection=BaselineSelectionConfig(correlations="all"),
+       channel_frequencies_hz=(100_000_000.0, 101_500_000.0),
        start_time="2025-01-01T00:00:00",
-       duration_seconds=1.0,
-       time_step_seconds=1.0,
        sky_model={
            "sources": [{"kind": "test_sources", "num_sources": 3}]
        },
@@ -62,35 +75,31 @@ frequency variant:
    )
    results = simulator.run(progress=False)
 
-Result structure
-----------------
-
-The current result is a dictionary. ``results["visibilities"]`` maps a
-baseline key to correlation-product arrays:
-
-.. code-block:: python
-
-   products_by_baseline = results["visibilities"]
-   baseline = next(iter(products_by_baseline))
-   products = products_by_baseline[baseline]
-   print({name: values.shape for name, values in products.items()})
+After ``setup`` or ``run``, ``simulator.instrument`` is the canonical immutable
+instrument, and ``antennas`` and ``baselines`` are canonical tuples. Results
+include those exact tuples and a detached provenance snapshot.
 
 Configuration file
 ------------------
 
-A complete small document looks like this:
-
 .. code-block:: yaml
 
-   antenna_layout:
-     antenna_positions_file: ../antenna_layout_examples/hera_5.txt
-     antenna_file_format: radiosim
-     all_antenna_diameter: 14.0
+   instrument:
+     source:
+       kind: layout_file
+       path: ../antenna_layout_examples/hera_5.txt
+       format: radiosim
+       telescope_name: HERA
+     location:
+       longitude_deg: 21.4283
+       latitude_deg: -30.72152
+       height_m: 1073.0
+     default_diameter_m: 14.0
 
-   location:
-     lat: -30.72152
-     lon: 21.4283
-     height: 1073.0
+   baseline_selection:
+     correlations: all
+     length_filter: null
+     azimuth_ranges_deg: []
 
    obs_time:
      start_time: "2025-01-01T00:00:00"
@@ -98,11 +107,8 @@ A complete small document looks like this:
      time_step_seconds: 1.0
 
    obs_frequency:
-     mode: grid
-     starting_frequency: 100.0
-     frequency_interval: 1.0
-     frequency_bandwidth: 2.0
-     frequency_unit: MHz
+     mode: explicit
+     channel_frequencies_hz: [100000000.0, 101500000.0]
 
    sky_model:
      sources:
@@ -116,26 +122,14 @@ A complete small document looks like this:
      simulator: rime
      offline: true
 
-   workflow:
-     output_dir: output
-     save_results: false
-     plot_results: false
-     open_plots_in_browser: false
-     save_log: false
-
-Backend selection
------------------
-
-NumPy is the deterministic default. Configure ``execution.backend`` as
-``numpy``, ``jax``, ``numba``, or ``auto``. The latter is a real selection
-strategy. Backend resolution does not imply that every high-level scientific
-kernel runs on a GPU; see :doc:`user_guide/backends`.
+NumPy is the deterministic default. JAX, Numba, and ``auto`` are selectable,
+but selection does not prove full GPU coverage.
 
 Next steps
 ----------
 
 - :doc:`user_guide/configuration`
+- :doc:`user_guide/instrument_resolution`
 - :doc:`user_guide/configuration_support`
-- :doc:`user_guide/backends`
 - :doc:`user_guide/beam_models`
 - :doc:`api/simulator`

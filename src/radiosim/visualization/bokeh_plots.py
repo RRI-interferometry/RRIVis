@@ -27,6 +27,11 @@ from bokeh.resources import CDN
 logger = logging.getLogger(__name__)
 
 
+def _baseline_pairs(baselines):
+    """Return selected numeric pairs from canonical baseline models."""
+    return tuple((baseline.ant1.number, baseline.ant2.number) for baseline in baselines)
+
+
 def plot_visibility(
     moduli_over_time,
     phases_over_time,
@@ -61,7 +66,7 @@ def plot_visibility(
     # Convert MJD to human-readable datetime
     time_points_datetime = Time(mjd_time_points, format="mjd").to_datetime()
 
-    baseline_keys = list(baselines.keys())
+    baseline_keys = _baseline_pairs(baselines)
     colors = Turbo256
 
     # Convert phase values based on angle_unit
@@ -422,7 +427,7 @@ def plot_heatmaps(
 
     # Convert MJD to human-readable datetime
     time_points_datetime = Time(mjd_time_points, format="mjd").to_datetime()
-    baseline_keys = list(baselines.keys())
+    baseline_keys = _baseline_pairs(baselines)
 
     if plotting == "bokeh":
         plots = []
@@ -619,7 +624,7 @@ def plot_antenna_layout(
     Plot antenna positions (E vs N) with hover labels.
 
     Parameters:
-    - antennas (dict): antenna metadata dict with 'Position' (E,N,U), 'Number', 'Name'.
+    - antennas: canonical resolved antenna tuple.
     - plotting (str): currently only 'bokeh' supported.
     - save_simulation_data (bool): save HTML when True and folder_path provided.
     - folder_path (str or None): directory to save HTML.
@@ -636,10 +641,10 @@ def plot_antenna_layout(
     names = []
     e_list = []
     n_list = []
-    for ant in antennas.values():
-        numbers.append(str(ant.get("Number", "?")))
-        names.append(str(ant.get("Name", "")))
-        e, n, _u = ant.get("Position", (0.0, 0.0, 0.0))
+    for ant in antennas:
+        numbers.append(str(ant.id.number))
+        names.append(ant.id.name)
+        e, n, _u = ant.position_enu_m
         e_list.append(float(e))
         n_list.append(float(n))
 
@@ -706,7 +711,7 @@ def plot_antenna_layout_3d_plotly(
     Create an interactive 3D scatter (E,N,U) using Plotly and save as standalone HTML.
 
     Parameters:
-    - antennas (dict): antenna metadata dict with 'Position' (E,N,U), 'Number', 'Name'.
+    - antennas: canonical resolved antenna tuple.
     - save_simulation_data (bool): if True and folder_path provided, saves HTML there; else uses a temp dir.
     - folder_path (str or None): directory to save HTML when saving.
     - open_in_browser (bool): open the HTML in a browser.
@@ -724,17 +729,17 @@ def plot_antenna_layout_3d_plotly(
         return None
 
     e, n, u, hover = [], [], [], []
-    for ant in antennas.values():
-        ee, nn, uu = ant.get("Position", (0.0, 0.0, 0.0))
+    for ant in antennas:
+        ee, nn, uu = ant.position_enu_m
         e.append(float(ee))
         n.append(float(nn))
         u.append(float(uu))
-        num = ant.get("Number", "?")
-        name = ant.get("Name", "")
+        num = ant.id.number
+        name = ant.id.name
         hover.append(f"{num} {name}")
 
     # Use antenna numbers as labels on points
-    labels = [str(ant.get("Number", "?")) for ant in antennas.values()]
+    labels = [str(ant.id.number) for ant in antennas]
     fig = go.Figure()
     # Compute symmetric, equal ranges around origin for all axes
     u_scaled = list(u)
@@ -874,10 +879,7 @@ def plot_antenna_layout_3d_plotly(
 
     # Add antenna diameter disks (EN plane at each U). Use filled Mesh3d for up to 150 ants; else draw perimeters.
     try:
-        diameters = [
-            float(ant.get("diameter")) if ant.get("diameter") is not None else None
-            for ant in antennas.values()
-        ]
+        diameters = [float(ant.diameter_m) for ant in antennas]
         # Use fewer segments for performance, and batch all circles in one trace
         nseg = 8
         batch_x: list = []
@@ -1000,7 +1002,7 @@ def plot_modulus_vs_frequency(
     Returns:
     Figure object: The generated plot figure(s) based on the specified plotting library.
     """
-    baseline_keys = list(baselines.keys())
+    baseline_keys = _baseline_pairs(baselines)
     colors = Turbo256
 
     # Convert MJD to human-readable datetime

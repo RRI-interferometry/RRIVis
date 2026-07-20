@@ -1,8 +1,42 @@
 Core Module
 ===========
 
-The ``radiosim.core`` package contains the core astronomy calculations including
-visibility computation, antenna handling, baseline generation, and beam models.
+Canonical instrument
+--------------------
+
+.. automodule:: radiosim.core.instrument
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Instrument resolution
+---------------------
+
+.. automodule:: radiosim.core.instrument_resolution
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Solver instrument adapter
+-------------------------
+
+.. automodule:: radiosim.core.instrument_adapters
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Baselines
+---------
+
+.. automodule:: radiosim.core.baseline
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: radiosim.core.baseline_resolution
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 Visibility
 ----------
@@ -12,41 +46,20 @@ Visibility
    :undoc-members:
    :show-inheritance:
 
-Antenna
--------
-
-.. automodule:: radiosim.core.antenna
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Baseline
---------
-
-.. automodule:: radiosim.core.baseline
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Beam and sky APIs
 -----------------
 
-The current high-level ``Simulator`` connects analytic beams and strict sky
-source requests. See :doc:`jones` for the implemented/scaffold distinction and
-:doc:`../user_guide/sky_models` for the lower-level sky preparation API. FITS
-and per-antenna beam execution remain rejected by the strict high-level
-configuration resolver.
+The high-level path connects analytic beams and strict sky requests. FITS and
+per-antenna beam execution remain rejected. See :doc:`jones` and
+:doc:`../user_guide/sky_models` for the implemented/scaffold boundaries.
 
-Observation
------------
+Observation and polarization
+----------------------------
 
 .. automodule:: radiosim.core.observation
    :members:
    :undoc-members:
    :show-inheritance:
-
-Polarization
-------------
 
 .. automodule:: radiosim.core.polarization
    :members:

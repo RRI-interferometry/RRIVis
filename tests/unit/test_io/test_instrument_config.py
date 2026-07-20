@@ -1,4 +1,4 @@
-"""Tests for the inactive Tier 2B instrument input contract."""
+"""Tests for the strict Tier 2 instrument input contract."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pydantic import TypeAdapter, ValidationError
 import radiosim
 import radiosim.io as public_io
 from radiosim.io.config import (
-    BaselineSelectionConfig as LegacyBaselineSelectionConfig,
+    BaselineSelectionConfig as ActiveBaselineSelectionConfig,
 )
 from radiosim.io.config import RadioSimConfig, StrictFrozenModel
 from radiosim.io.config_resolution import ConfigurationSource, resolve_config
@@ -1002,14 +1002,11 @@ def test_serialized_values_are_new_mutable_json_containers_not_model_aliases():
     assert len(model.diameter_overrides) == 1
 
 
-def test_active_top_level_schema_and_legacy_selection_remain_unchanged(tmp_path):
+def test_active_top_level_schema_uses_typed_instrument_and_selection(tmp_path):
     expected_fields = (
-        "telescope",
-        "antenna_layout",
-        "feeds",
+        "instrument",
         "beams",
         "baseline_selection",
-        "location",
         "sky_model",
         "obs_time",
         "obs_frequency",
@@ -1019,19 +1016,14 @@ def test_active_top_level_schema_and_legacy_selection_remain_unchanged(tmp_path)
     )
 
     assert tuple(RadioSimConfig.model_fields) == expected_fields
-    assert "instrument" not in RadioSimConfig.model_fields
-    assert LegacyBaselineSelectionConfig is not BaselineSelectionConfig
-    assert "use_autocorrelations" in LegacyBaselineSelectionConfig.model_fields
-    assert "correlations" not in LegacyBaselineSelectionConfig.model_fields
+    assert ActiveBaselineSelectionConfig is BaselineSelectionConfig
+    assert "correlations" in ActiveBaselineSelectionConfig.model_fields
+    assert "use_autocorrelations" not in ActiveBaselineSelectionConfig.model_fields
 
     data = valid_config_mapping(tmp_path)
-    data["instrument"] = _instrument()
-    with pytest.raises(ValidationError) as exc_info:
-        RadioSimConfig.model_validate(data)
-    assert any(
-        error["loc"] == ("instrument",) and error["type"] == "extra_forbidden"
-        for error in exc_info.value.errors()
-    )
+    config = RadioSimConfig.model_validate(data)
+    assert type(config.instrument) is InstrumentConfig
+    assert type(config.baseline_selection) is BaselineSelectionConfig
 
 
 def test_importing_internal_module_does_not_mutate_active_schema_or_reexport_types():
@@ -1059,26 +1051,13 @@ for module in (radiosim, public_io):
     )
 
     assert result.returncode == 0, result.stderr
-    assert tuple(RadioSimConfig.model_fields) == (
-        "telescope",
-        "antenna_layout",
-        "feeds",
-        "beams",
-        "baseline_selection",
-        "location",
-        "sky_model",
-        "obs_time",
-        "obs_frequency",
-        "visibility",
-        "execution",
-        "workflow",
-    )
+    assert "instrument" in RadioSimConfig.model_fields
     for module in (radiosim, public_io):
         assert not hasattr(module, "InstrumentConfig")
         assert "InstrumentConfig" not in module.__all__
 
 
-def test_existing_configuration_resolution_path_keeps_legacy_shape(tmp_path):
+def test_configuration_resolution_uses_typed_instrument_shape(tmp_path):
     data = valid_config_mapping(tmp_path)
 
     bundle = resolve_config(
@@ -1089,7 +1068,7 @@ def test_existing_configuration_resolution_path_keeps_legacy_shape(tmp_path):
         ),
     )
 
-    assert bundle.runtime.baseline_selection["use_autocorrelations"] is True
-    assert bundle.runtime.baseline_selection["use_crosscorrelations"] is True
-    assert "correlations" not in bundle.runtime.baseline_selection
-    assert not hasattr(bundle.runtime, "instrument")
+    assert bundle.runtime.baseline_selection.correlations == "all"
+    assert type(bundle.runtime.instrument) is InstrumentConfig
+    assert bundle.runtime.instrument.source.path.is_absolute()
+    assert not hasattr(bundle.runtime, "antenna_layout")

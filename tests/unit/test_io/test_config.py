@@ -154,8 +154,6 @@ def test_source_region_and_brightness_override_global_context():
 def test_visibility_and_top_level_defaults_match_target(tmp_path):
     data = valid_config_mapping(tmp_path)
     for section in (
-        "telescope",
-        "feeds",
         "beams",
         "baseline_selection",
         "visibility",
@@ -168,8 +166,7 @@ def test_visibility_and_top_level_defaults_match_target(tmp_path):
 
     assert VisibilityConfig().sky_representation == "point_sources"
     assert config.beams.beam_mode == "analytic"
-    assert config.baseline_selection.use_autocorrelations is True
-    assert config.baseline_selection.use_crosscorrelations is True
+    assert config.baseline_selection.correlations == "all"
     assert config.execution.backend == "numpy"
     assert config.execution.precision.preset == "standard"
     assert config.execution.simulator == "rime"
@@ -181,12 +178,9 @@ def test_valid_input_builder_uses_final_top_level_shape(tmp_path):
     config = valid_input_config(tmp_path)
 
     assert tuple(config.model_fields) == (
-        "telescope",
-        "antenna_layout",
-        "feeds",
+        "instrument",
         "beams",
         "baseline_selection",
-        "location",
         "sky_model",
         "obs_time",
         "obs_frequency",
@@ -201,7 +195,7 @@ def test_valid_input_builder_uses_final_top_level_shape(tmp_path):
 
 @pytest.mark.parametrize(
     "missing",
-    ["antenna_layout", "location", "sky_model", "obs_time", "obs_frequency"],
+    ["instrument", "sky_model", "obs_time", "obs_frequency"],
 )
 def test_required_scientific_sections_fail_when_absent(tmp_path, missing):
     data = valid_config_mapping(tmp_path)
@@ -241,8 +235,7 @@ def test_unknown_top_level_field_is_rejected(tmp_path):
 @pytest.mark.parametrize(
     "section",
     [
-        "telescope",
-        "antenna_layout",
+        "instrument",
         "beams",
         "obs_time",
         "workflow",
@@ -277,6 +270,10 @@ def test_unknown_builtin_source_and_precision_leaf_are_rejected(tmp_path):
 @pytest.mark.parametrize(
     ("path", "value", "hint_fragment"),
     [
+        ("telescope", {"telescope_name": "Old"}, "instrument.source"),
+        ("antenna_layout", {}, "instrument.source"),
+        ("location", {}, "instrument.location"),
+        ("feeds", {}, "Tier 5"),
         ("compute", {"backend": "numpy"}, "execution"),
         ("precision", {"preset": "fast"}, "execution.precision"),
         ("simulators", {"name": "rime"}, "execution.simulator"),
@@ -298,9 +295,8 @@ def test_removed_top_level_sections_have_migration_hints(
 @pytest.mark.parametrize(
     ("section", "field", "hint_fragment"),
     [
-        ("antenna_layout", "fixed_HPBW", "analytic beam"),
-        ("location", "ra", "Phase-center"),
-        ("location", "dec", "Phase-center"),
+        ("instrument.location", "ra", "Phase-center"),
+        ("instrument.location", "dec", "Phase-center"),
         ("beams", "use_beam_file", "BeamsConfig"),
         ("beams", "all_beam_response", "BeamsConfig"),
     ],
@@ -309,7 +305,10 @@ def test_removed_nested_fields_have_actionable_messages(
     tmp_path, section, field, hint_fragment
 ):
     data = valid_config_mapping(tmp_path)
-    data[section][field] = 1.0
+    target = data
+    for part in section.split("."):
+        target = target[part]
+    target[field] = 1.0
 
     issue = next(
         item
@@ -362,8 +361,8 @@ def test_legacy_nested_sky_sections_keep_direct_migration_message(tmp_path):
 
 def test_schema_reports_multiple_errors_without_partial_model(tmp_path):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["all_antenna_diameter"] = -1.0
-    data["location"]["lat"] = 100.0
+    data["instrument"]["default_diameter_m"] = -1.0
+    data["instrument"]["location"]["latitude_deg"] = float("inf")
     data["workflow"]["plotting_backend"] = "browser"
 
     issues = collect_schema_issues(data)
@@ -375,8 +374,11 @@ def test_schema_reports_multiple_errors_without_partial_model(tmp_path):
 def test_deep_immutability_rejects_nested_assignment_and_mapping_mutation(tmp_path):
     config = valid_input_config(
         tmp_path,
-        antenna_layout={"diameters": {"0": 14.0}},
-        feeds={"polarization_per_antenna": {"0": "linear"}},
+        instrument={
+            "diameter_overrides": [
+                {"antenna": {"kind": "number", "number": 0}, "diameter_m": 14.0}
+            ]
+        },
         beams={"feed_params": {"focal_ratio": 0.4}},
     )
 
@@ -384,10 +386,8 @@ def test_deep_immutability_rejects_nested_assignment_and_mapping_mutation(tmp_pa
         config.execution.backend = "jax"
     with pytest.raises(ValidationError, match="frozen"):
         config.execution.precision.coordinates.uvw = "float32"
-    with pytest.raises(TypeError, match="immutable"):
-        config.antenna_layout.diameters["0"] = 12.0
-    with pytest.raises(TypeError, match="immutable"):
-        config.feeds.polarization_per_antenna["0"] = "circular"
+    with pytest.raises(TypeError):
+        config.instrument.diameter_overrides[0] = None
     with pytest.raises(TypeError, match="immutable"):
         config.beams.feed_params["focal_ratio"] = 0.5
 
@@ -395,9 +395,9 @@ def test_deep_immutability_rejects_nested_assignment_and_mapping_mutation(tmp_pa
 def test_input_mapping_has_no_dict_base_mutation_escape_hatch(tmp_path):
     config = valid_input_config(
         tmp_path,
-        feeds={"polarization_per_antenna": {"0": "linear"}},
+        beams={"feed_params": {"focal_ratio": 0.4}},
     )
-    frozen = config.feeds.polarization_per_antenna
+    frozen = config.beams.feed_params
 
     assert isinstance(frozen, Mapping)
     assert not isinstance(frozen, dict)
@@ -407,22 +407,22 @@ def test_input_mapping_has_no_dict_base_mutation_escape_hatch(tmp_path):
 
 def test_caller_owned_containers_are_copied(tmp_path):
     data = valid_config_mapping(tmp_path)
-    diameters = {"0": 14.0}
+    diameters = [{"antenna": {"kind": "number", "number": 0}, "diameter_m": 14.0}]
     options = {"max_rows": 5}
     source_entries = [{"kind": "nvss", "options": options}]
     precision = {"coordinates": {"uvw": "float32"}}
-    data["antenna_layout"]["diameters"] = diameters
+    data["instrument"]["diameter_overrides"] = diameters
     data["sky_model"]["sources"] = source_entries
     data["execution"]["precision"] = precision
 
     config = RadioSimConfig.model_validate(data)
     source_entries.append({"kind": "test_sources"})
-    diameters["0"] = 99.0
+    diameters[0]["diameter_m"] = 99.0
     options["max_rows"] = 6
     precision["coordinates"]["uvw"] = "float64"
 
     assert len(config.sky_model.sources) == 1
-    assert config.antenna_layout.diameters["0"] == 14.0
+    assert config.instrument.diameter_overrides[0].diameter_m == 14.0
     assert config.sky_model.sources[0].options["max_rows"] == 5
     assert config.execution.precision.coordinates.uvw == "float32"
 
@@ -547,8 +547,8 @@ def test_dump_config_preserves_paths_maps_order_precision_and_workflow(tmp_path)
 
     assert first.read_text() == second.read_text()
     document = yaml.safe_load(first.read_text())
-    assert document["antenna_layout"]["antenna_positions_file"] == str(
-        config.antenna_layout.antenna_positions_file
+    assert document["instrument"]["source"]["path"] == str(
+        config.instrument.source.path
     )
     assert document["obs_frequency"]["channel_frequencies_hz"] == [
         100e6,
@@ -729,11 +729,7 @@ def test_semantic_collector_aggregates_stably_without_mutating_config(tmp_path):
 def test_unsupported_collector_preserves_tier0_and_adds_missing_guards(tmp_path):
     config = valid_input_config(
         tmp_path,
-        telescope={"use_pyuvdata_telescope": True},
-        antenna_layout={"use_different_diameters": True, "diameters": {"0": 12}},
-        feeds={"all_feed_type": "dipole"},
         beams={"beam_mode": "fits", "beam_file": "missing.fits"},
-        baseline_selection={"use_autocorrelations": False},
         visibility={"calculation_type": "spherical_harmonic"},
         workflow={
             "result_format": "uvfits",
@@ -747,13 +743,8 @@ def test_unsupported_collector_preserves_tier0_and_adds_missing_guards(tmp_path)
     paths = {issue.path for issue in issues}
 
     assert {
-        "telescope.use_pyuvdata_telescope",
-        "antenna_layout.use_different_diameters",
-        "antenna_layout.diameters",
-        "feeds.all_feed_type",
         "beams.beam_mode",
         "beams.beam_file",
-        "baseline_selection.use_autocorrelations",
         "visibility.calculation_type",
         "workflow.result_format",
         "workflow.prompt_for_output_suffix",

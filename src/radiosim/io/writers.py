@@ -6,6 +6,7 @@ This module provides functions for writing simulation results to various formats
 - YAML for configuration files
 """
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -65,20 +66,22 @@ def save_visibilities_hdf5(
         if metadata:
             for key, value in metadata.items():
                 if value is not None:
-                    # Convert Pydantic models/dicts to JSON-serializable format
+                    # Preserve nested JSON-safe metadata deterministically.
                     if hasattr(value, "model_dump"):
-                        value = value.model_dump()
-                    elif isinstance(value, dict):
-                        # Recursively convert nested values
-                        value = {
-                            k: (v.model_dump() if hasattr(v, "model_dump") else v)
-                            for k, v in value.items()
-                        }
+                        value = value.model_dump(mode="json")
                     # Try to save as string representation for complex types
                     try:
                         if isinstance(value, (str, int, float, bool)):
                             h5file.attrs[key] = value
-                        elif isinstance(value, (list, np.ndarray)):
+                        elif isinstance(value, (dict, list, tuple)):
+                            value = "__radiosim_json__:" + json.dumps(
+                                value,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                                allow_nan=False,
+                            )
+                            h5file.attrs[key] = value
+                        elif isinstance(value, np.ndarray):
                             h5file.attrs[key] = str(value)
                         else:
                             h5file.attrs[key] = str(value)
@@ -176,6 +179,10 @@ def load_visibilities_hdf5(
 
         # Load metadata attributes
         for attr_name, attr_value in h5file.attrs.items():
+            if isinstance(attr_value, str) and attr_value.startswith(
+                "__radiosim_json__:"
+            ):
+                attr_value = json.loads(attr_value.removeprefix("__radiosim_json__:"))
             result["metadata"][attr_name] = attr_value
 
     return result

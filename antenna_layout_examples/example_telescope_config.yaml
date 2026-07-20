@@ -1,17 +1,22 @@
 # Complete strict RadioSim configuration using the native layout beside it.
 
-telescope:
-  telescope_name: Example Array
+instrument:
+  source:
+    kind: layout_file
+    path: example_radiosim_format.txt
+    format: radiosim
+    telescope_name: Example Array
+  location:
+    longitude_deg: 21.4283
+    latitude_deg: -30.7215
+    height_m: 1050.0
+  default_diameter_m: 14.0
+  diameter_overrides: []
 
-antenna_layout:
-  antenna_positions_file: example_radiosim_format.txt
-  antenna_file_format: radiosim
-  all_antenna_diameter: 14.0
-
-location:
-  lat: -30.7215
-  lon: 21.4283
-  height: 1050.0
+baseline_selection:
+  correlations: all
+  length_filter: null
+  azimuth_ranges_deg: []
 
 obs_time:
   start_time: "2025-01-01T00:00:00"

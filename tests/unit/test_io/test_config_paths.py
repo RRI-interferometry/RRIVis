@@ -12,6 +12,7 @@ from radiosim.core.sky.registry import loader_registry
 from radiosim.io.config import RadioSimConfig, load_config
 from radiosim.io.config_resolution import (
     ConfigPathError,
+    ConfigSchemaError,
     ConfigSemanticError,
     ConfigSourceError,
     ConfigurationSource,
@@ -22,27 +23,26 @@ from tests.fixtures.configs import valid_config_mapping, write_config_yaml
 
 def test_load_config_resolves_antenna_path_from_yaml_parent(tmp_path):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
     config_path = write_config_yaml(tmp_path, data)
 
     bundle = load_config(config_path)
 
     assert (
-        bundle.runtime.antenna_layout.antenna_positions_file
-        == (tmp_path / "antennas.txt").resolve()
+        bundle.runtime.instrument.source.path == (tmp_path / "antennas.txt").resolve()
     )
-    assert bundle.runtime.antenna_layout.antenna_positions_file.is_absolute()
+    assert bundle.runtime.instrument.source.path.is_absolute()
 
 
 def test_mapping_and_model_keep_relative_antenna_path_current_behavior(tmp_path):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
 
     model = RadioSimConfig.model_validate(data)
 
-    assert data["antenna_layout"]["antenna_positions_file"] == "antennas.txt"
-    assert model.antenna_layout.antenna_positions_file == Path("antennas.txt")
-    assert not Path(model.antenna_layout.antenna_positions_file).is_absolute()
+    assert data["instrument"]["source"]["path"] == "antennas.txt"
+    assert model.instrument.source.path == Path("antennas.txt")
+    assert not model.instrument.source.path.is_absolute()
 
 
 def test_load_config_resolves_non_antenna_paths_from_yaml_parent(tmp_path):
@@ -69,7 +69,7 @@ def test_load_config_resolves_relative_config_path_from_captured_cwd(
     monkeypatch,
 ):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
     data["workflow"]["output_dir"] = "relative-output"
     config_path = write_config_yaml(tmp_path, data)
     monkeypatch.chdir(tmp_path)
@@ -79,8 +79,7 @@ def test_load_config_resolves_relative_config_path_from_captured_cwd(
     assert bundle.provenance.source.config_path == config_path.resolve()
     assert bundle.provenance.source.invocation_dir == tmp_path.resolve()
     assert (
-        bundle.runtime.antenna_layout.antenna_positions_file
-        == (tmp_path / "antennas.txt").resolve()
+        bundle.runtime.instrument.source.path == (tmp_path / "antennas.txt").resolve()
     )
     assert bundle.workflow.output_dir == (tmp_path / "relative-output").resolve()
 
@@ -98,7 +97,7 @@ def test_load_config_rejects_environment_syntax_and_non_file_source(tmp_path):
 def test_check_input_paths_false_skips_only_existence_and_type_checks(tmp_path):
     data = valid_config_mapping(
         tmp_path,
-        antenna_layout={"antenna_positions_file": "missing-antennas.txt"},
+        instrument={"source": {"path": "missing-antennas.txt"}},
         sky_sources=[{"kind": "pyradiosky_file", "filename": "missing-sky.skyh5"}],
         workflow={"output_dir": "missing-output"},
     )
@@ -107,7 +106,7 @@ def test_check_input_paths_false_skips_only_existence_and_type_checks(tmp_path):
     bundle = load_config(config_path, check_input_paths=False)
 
     assert (
-        bundle.runtime.antenna_layout.antenna_positions_file
+        bundle.runtime.instrument.source.path
         == (tmp_path / "missing-antennas.txt").resolve()
     )
     assert (
@@ -128,14 +127,14 @@ def test_check_input_paths_false_skips_only_existence_and_type_checks(tmp_path):
 
     environment_data = valid_config_mapping(
         tmp_path,
-        antenna_layout={"antenna_positions_file": "$DATA/antennas.txt"},
+        instrument={"source": {"path": "$DATA/antennas.txt"}},
     )
     environment_path = write_config_yaml(
         tmp_path,
         environment_data,
         name="environment.yaml",
     )
-    with pytest.raises(ConfigPathError, match="environment-variable syntax"):
+    with pytest.raises(ConfigSchemaError, match="environment-variable syntax"):
         load_config(environment_path, check_input_paths=False)
 
     semantic_data = valid_config_mapping(
@@ -153,7 +152,7 @@ def test_check_input_paths_false_skips_only_existence_and_type_checks(tmp_path):
 
 def test_source_aware_relative_antenna_path_parity(tmp_path):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
     config_path = write_config_yaml(tmp_path, data)
 
     mapping_model = RadioSimConfig.model_validate(data)
@@ -181,9 +180,9 @@ def test_source_aware_relative_antenna_path_parity(tmp_path):
 
     expected = (tmp_path / "antennas.txt").resolve()
     assert (
-        yaml_bundle.runtime.antenna_layout.antenna_positions_file
-        == mapping_bundle.runtime.antenna_layout.antenna_positions_file
-        == model_bundle.runtime.antenna_layout.antenna_positions_file
+        yaml_bundle.runtime.instrument.source.path
+        == mapping_bundle.runtime.instrument.source.path
+        == model_bundle.runtime.instrument.source.path
         == expected
     )
 
@@ -193,7 +192,7 @@ def test_yaml_resolves_every_input_and_workflow_path_from_yaml_parent(tmp_path):
         (tmp_path / filename).touch()
 
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
     data["sky_model"]["sources"] = [
         {"kind": "pyradiosky_file", "filename": "sky.skyh5"}
     ]
@@ -208,8 +207,7 @@ def test_yaml_resolves_every_input_and_workflow_path_from_yaml_parent(tmp_path):
     )
 
     assert (
-        bundle.runtime.antenna_layout.antenna_positions_file
-        == (tmp_path / "antennas.txt").resolve()
+        bundle.runtime.instrument.source.path == (tmp_path / "antennas.txt").resolve()
     )
     assert (
         bundle.runtime.sky_model.sources[0].options["filename"]
@@ -219,7 +217,7 @@ def test_yaml_resolves_every_input_and_workflow_path_from_yaml_parent(tmp_path):
     assert not bundle.workflow.output_dir.exists()
     assert {
         "configuration_source.config_path",
-        "antenna_layout.antenna_positions_file",
+        "instrument.source.path",
         "sky_model.sources[0].filename",
         "workflow.output_dir",
     } <= set(bundle.provenance.path_resolutions)
@@ -235,7 +233,7 @@ def test_parameter_paths_use_captured_invocation_directory(tmp_path, monkeypatch
     invocation_dir.mkdir()
     later_dir.mkdir()
     data = valid_config_mapping(invocation_dir)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
     data["workflow"]["output_dir"] = "relative-output"
     source = ConfigurationSource.for_parameters(invocation_dir=invocation_dir)
     monkeypatch.chdir(later_dir)
@@ -243,7 +241,7 @@ def test_parameter_paths_use_captured_invocation_directory(tmp_path, monkeypatch
     bundle = resolve_config(data, source=source)
 
     assert (
-        bundle.runtime.antenna_layout.antenna_positions_file
+        bundle.runtime.instrument.source.path
         == (invocation_dir / "antennas.txt").resolve()
     )
     assert bundle.workflow.output_dir == invocation_dir / "relative-output"
@@ -278,15 +276,19 @@ def test_measurement_set_requires_directory_and_other_formats_require_file(tmp_p
     )
     data = valid_config_mapping(
         tmp_path,
-        antenna_layout={
-            "antenna_positions_file": "layout.ms",
-            "antenna_file_format": "measurement_set",
+        instrument={
+            "source": {
+                "path": "layout.ms",
+                "format": "measurement_set",
+                "telescope_name": None,
+            },
         },
     )
     bundle = resolve_config(data, source=source)
-    assert bundle.runtime.antenna_layout.antenna_positions_file == ms_dir.resolve()
+    assert bundle.runtime.instrument.source.path == ms_dir.resolve()
 
-    data["antenna_layout"]["antenna_file_format"] = "radiosim"
+    data["instrument"]["source"]["format"] = "radiosim"
+    data["instrument"]["source"]["telescope_name"] = "Test Array"
     with pytest.raises(ConfigPathError, match="expected a regular file"):
         resolve_config(data, source=source)
 
@@ -307,22 +309,21 @@ def test_path_expands_home_rejects_environment_syntax_and_tracks_symlink(
     monkeypatch.setenv("HOME", str(home))
     data = valid_config_mapping(
         tmp_path,
-        antenna_layout={"antenna_positions_file": "~/link.txt"},
+        instrument={"source": {"path": "~/link.txt"}},
     )
 
     bundle = resolve_config(data, source=source)
 
-    record = bundle.provenance.path_resolutions["antenna_layout.antenna_positions_file"]
+    record = bundle.provenance.path_resolutions["instrument.source.path"]
     assert record.original == "~/link.txt"
     assert record.user_path == symlink.absolute()
     assert record.resolved == target.resolve()
-    assert bundle.runtime.antenna_layout.antenna_positions_file == target.resolve()
+    assert bundle.runtime.instrument.source.path == target.resolve()
 
-    data["antenna_layout"]["antenna_positions_file"] = "$DATA/layout.txt"
-    with pytest.raises(ConfigPathError) as exc_info:
+    data["instrument"]["source"]["path"] = "$DATA/layout.txt"
+    with pytest.raises(ConfigSchemaError) as exc_info:
         resolve_config(data, source=source)
-    assert exc_info.value.issues[0].code == "environment_path_syntax"
-    assert "explicit path" in exc_info.value.issues[0].hint
+    assert "environment-variable syntax" in str(exc_info.value)
 
 
 def test_skyh5_glob_is_sorted_and_file_list_preserves_input_order(tmp_path):
@@ -363,7 +364,7 @@ def test_skyh5_glob_is_sorted_and_file_list_preserves_input_order(tmp_path):
 def test_zero_match_glob_and_multiple_missing_files_are_stably_ordered(tmp_path):
     data = valid_config_mapping(
         tmp_path,
-        antenna_layout={"antenna_positions_file": "missing-antennas.txt"},
+        instrument={"source": {"path": "missing-antennas.txt"}},
         sky_sources=[{"kind": "skyh5_multifile", "file_glob": "missing-*.skyh5"}],
     )
 
@@ -378,7 +379,7 @@ def test_zero_match_glob_and_multiple_missing_files_are_stably_ordered(tmp_path)
 
     assert [(issue.path, issue.code) for issue in exc_info.value.issues] == [
         (
-            "antenna_layout.antenna_positions_file",
+            "instrument.source.path",
             "input_path_missing",
         ),
         ("sky_model.sources[0].file_glob", "glob_no_regular_files"),

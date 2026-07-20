@@ -25,7 +25,7 @@ def _issue_lines(output: str) -> list[str]:
         if any(
             marker in line
             for marker in (
-                "antenna_layout.",
+                "instrument.",
                 "obs_time.",
                 "workflow.",
                 "beams.",
@@ -134,7 +134,7 @@ def test_relative_antenna_and_output_overrides_use_invocation_cwd(
 
     assert result.exit_code == 0, result.output
     simulator = recording_simulator.instances[0]
-    assert simulator.config.antenna_layout.antenna_positions_file == override_antenna
+    assert simulator.config.instrument.source.path == override_antenna
     assert not hasattr(simulator.config, "output_dir")
     assert (invocation_dir / "workflow-output" / "run").exists()
 
@@ -200,7 +200,7 @@ def test_invalid_antenna_override_fails_after_application_before_simulator(
     )
 
     assert result.exit_code == 1
-    assert "antenna_layout.antenna_positions_file" in result.output
+    assert "instrument.source.path" in result.output
     assert "does not exist" in result.output
     assert recording_simulator.instances == []
     assert not output_dir.exists()
@@ -241,10 +241,8 @@ def test_config_mode_renders_override_error_hierarchy(
     ("mutate", "expected"),
     [
         (
-            lambda data: data["antenna_layout"].update(
-                {"all_antenna_diameter": "wide"}
-            ),
-            "antenna_layout.all_antenna_diameter",
+            lambda data: data["instrument"].update({"default_diameter_m": "wide"}),
+            "instrument.default_diameter_m",
         ),
         (
             lambda data: data["obs_time"].update(
@@ -257,10 +255,8 @@ def test_config_mode_renders_override_error_hierarchy(
             "workflow.result_format",
         ),
         (
-            lambda data: data["antenna_layout"].update(
-                {"antenna_positions_file": "missing.txt"}
-            ),
-            "antenna_layout.antenna_positions_file",
+            lambda data: data["instrument"]["source"].update({"path": "missing.txt"}),
+            "instrument.source.path",
         ),
     ],
 )
@@ -284,7 +280,7 @@ def test_config_mode_schema_renderer_keeps_all_issues_without_partial_model(
     tmp_path, recording_simulator
 ):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["all_antenna_diameter"] = "wide"
+    data["instrument"]["default_diameter_m"] = "wide"
     data["beams"]["beam_mode"] = "unknown"
     data["obs_time"]["duration_seconds"] = -1.0
     config_path = write_config_yaml(tmp_path, data, name="invalid.yaml")
@@ -293,7 +289,7 @@ def test_config_mode_schema_renderer_keeps_all_issues_without_partial_model(
 
     assert result.exit_code == 1
     assert "3 issue(s)" in result.output
-    assert "antenna_layout.all_antenna_diameter" in result.output
+    assert "instrument.default_diameter_m" in result.output
     assert "beams.beam_mode" in result.output
     assert "obs_time.duration_seconds" in result.output
     assert "obs_time.time_step_seconds" not in result.output

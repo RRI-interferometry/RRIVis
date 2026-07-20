@@ -16,18 +16,10 @@ Requirements
 
 Examples
 --------
-Write simulation results to MS:
+Write simulation results to MS through the public Simulator boundary:
 
->>> from radiosim.io.measurement_set import write_ms
->>> write_ms(
-...     output_path="simulation.ms",
-...     visibilities=results["visibilities"],
-...     frequencies=results["frequencies"],
-...     antennas=results["antennas"],
-...     baselines=results["baselines"],
-...     location=results["location"],
-...     obstime=results["obstime"],
-... )
+>>> simulator.run(progress=False)
+>>> simulator.save("output", format="ms", filename="simulation")
 
 Read MS back into memory:
 
@@ -48,7 +40,13 @@ from __future__ import annotations
 import importlib.util
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from radiosim.core.instrument import (
+        ResolvedBaselineSelection,
+        ResolvedInstrument,
+    )
 
 import numpy as np
 from astropy.coordinates import EarthLocation
@@ -57,6 +55,7 @@ from astropy.time import Time
 # Check for pyuvdata availability
 try:
     from pyuvdata import Telescope, UVData
+    from pyuvdata.utils import ECEF_from_ENU
 
     PYUVDATA_AVAILABLE = True
 except ImportError:
@@ -104,24 +103,15 @@ def write_ms(
     output_path: str | Path,
     visibilities: dict[tuple[int, int], dict[str, np.ndarray] | np.ndarray],
     frequencies: np.ndarray,
-    antennas: dict[str, dict[str, Any]],
-    baselines: dict[tuple[int, int], dict[str, Any]],
-    location: EarthLocation,
+    instrument: ResolvedInstrument,
+    selection: ResolvedBaselineSelection,
     obstime: Time,
-    telescope_name: str = "RadioSim",
-    instrument_name: str = "RadioSim Simulator",
     polarizations: list[str] | None = None,
-    phase_center_ra: float = 0.0,
-    phase_center_dec: float = -30.0,
     channel_width: float | None = None,
     integration_time: float = 1.0,
     overwrite: bool = False,
 ) -> Path:
-    """Write visibility data to CASA Measurement Set format.
-
-    This function converts RadioSim simulation results to the standard
-    Measurement Set format used by CASA, QuartiCal, WSClean, and other
-    radio astronomy software.
+    """Write canonical instrument state and selected visibilities to an MS.
 
     Parameters
     ----------
@@ -134,26 +124,15 @@ def write_ms(
         - Single numpy array (assumed to be Stokes I or XX)
     frequencies : np.ndarray
         Array of observation frequencies in Hz.
-    antennas : dict
-        Dictionary of antenna information with keys like "0000", "0001".
-        Each entry should have "Number", "Position" (ENU), and optionally "diameter".
-    baselines : dict
-        Dictionary of baseline information from generate_baselines().
-    location : EarthLocation
-        Observatory location.
+    instrument : ResolvedInstrument
+        Complete canonical telescope identity, location, antennas, and diameters.
+    selection : ResolvedBaselineSelection
+        Exact canonical baseline subset represented by ``visibilities``.
     obstime : Time
         Observation time (can be single Time or array of Times).
-    telescope_name : str, optional
-        Name of the telescope (default: "RadioSim").
-    instrument_name : str, optional
-        Name of the instrument (default: "RadioSim Simulator").
     polarizations : list of str, optional
         List of polarization labels. If None, auto-detected from visibility keys.
         Common options: ["XX", "XY", "YX", "YY"] or ["RR", "RL", "LR", "LL"].
-    phase_center_ra : float, optional
-        Right ascension of phase center in degrees (default: 0.0).
-    phase_center_dec : float, optional
-        Declination of phase center in degrees (default: -30.0).
     channel_width : float, optional
         Channel width in Hz. If None, inferred from frequency array.
     integration_time : float, optional
@@ -175,22 +154,6 @@ def write_ms(
     ValueError
         If input data is invalid.
 
-    Examples
-    --------
-    >>> from radiosim import Simulator
-    >>> sim = Simulator.from_yaml("config.yaml")
-    >>> results = sim.run()
-    >>> from radiosim.io.measurement_set import write_ms
-    >>> write_ms(
-    ...     "output.ms",
-    ...     visibilities=results["visibilities"],
-    ...     frequencies=results["frequencies"],
-    ...     antennas=results["antennas"],
-    ...     baselines=results["baselines"],
-    ...     location=results["location"],
-    ...     obstime=results["obstime"],
-    ... )
-
     Notes
     -----
     The MS format is the standard for radio interferometry data exchange.
@@ -206,6 +169,20 @@ def write_ms(
     """
     _check_ms_dependencies()
 
+    from radiosim.core.instrument import (
+        ResolvedBaselineSelection,
+        ResolvedInstrument,
+    )
+
+    if type(instrument) is not ResolvedInstrument:
+        raise TypeError("instrument must be a ResolvedInstrument")
+    if type(selection) is not ResolvedBaselineSelection:
+        raise TypeError("selection must be a ResolvedBaselineSelection")
+    if selection.provenance.instrument_sha256 != (
+        instrument.provenance.instrument_sha256
+    ):
+        raise ValueError("selection does not belong to instrument")
+
     output_path = Path(output_path)
 
     if output_path.exists() and not overwrite:
@@ -219,27 +196,13 @@ def write_ms(
 
         shutil.rmtree(output_path)
 
-    # Parse antenna information
-    antenna_positions = {}
-    antenna_names = []
-    antenna_diameters = []
-
-    # Sort by antenna number to ensure consistent ordering
-    sorted_ant_keys = sorted(
-        antennas.keys(), key=lambda k: antennas[k].get("Number", 0)
+    antenna_numbers = [antenna.id.number for antenna in instrument.antennas]
+    antenna_names = [antenna.id.name for antenna in instrument.antennas]
+    antenna_diameters = [antenna.diameter_m for antenna in instrument.antennas]
+    antenna_positions_enu = np.asarray(
+        [antenna.position_enu_m for antenna in instrument.antennas],
+        dtype=np.float64,
     )
-
-    for ant_key in sorted_ant_keys:
-        ant_data = antennas[ant_key]
-        ant_num = ant_data.get("Number", int(ant_key) if ant_key.isdigit() else 0)
-        position = np.array(ant_data["Position"], dtype=float)
-        diameter = ant_data.get("diameter", 14.0)
-
-        antenna_positions[ant_num] = position
-        antenna_names.append(f"ANT{ant_num:03d}")
-        antenna_diameters.append(diameter)
-
-    len(antenna_positions)
 
     # Determine polarizations from visibility data
     sample_vis = next(iter(visibilities.values()))
@@ -282,10 +245,11 @@ def write_ms(
     n_times = len(times)
 
     # Build baseline list and data arrays
-    baseline_list = []
-    for bl_key in sorted(visibilities.keys()):
-        ant1, ant2 = bl_key
-        baseline_list.append((ant1, ant2))
+    baseline_list = list(selection.provenance.selected_ids)
+    if set(visibilities) != set(baseline_list):
+        raise ValueError(
+            "visibilities must contain exactly the selected canonical baseline pairs"
+        )
 
     n_baselines = len(baseline_list)
     n_blts = n_baselines * n_times
@@ -294,7 +258,6 @@ def write_ms(
     ant_1_array = np.zeros(n_blts, dtype=int)
     ant_2_array = np.zeros(n_blts, dtype=int)
     time_array = np.zeros(n_blts)
-    uvw_array = np.zeros((n_blts, 3))
 
     # Create data array
     # Shape: (Nblts, Nfreqs, Npols)
@@ -310,79 +273,54 @@ def write_ms(
             ant_2_array[blt_idx] = ant2
             time_array[blt_idx] = time_jd
 
-            # Get UVW from baseline info
             bl_key = (ant1, ant2)
-            if bl_key in baselines:
-                uvw = baselines[bl_key].get("BaselineVector", np.zeros(3))
-                uvw_array[blt_idx] = uvw
+            vis_data = visibilities[bl_key]
+            if isinstance(vis_data, dict):
+                for p_idx, pol in enumerate(polarizations):
+                    values = vis_data.get(pol)
+                    scale = 1.0
+                    if values is None and pol == "XX" and "I" in vis_data:
+                        values = vis_data["I"]
+                        scale = 0.5
+                    if values is None:
+                        continue
+                    array = np.asarray(values)
+                    if array.ndim >= 2:
+                        array = array[_t_idx]
+                    data_array[blt_idx, :, p_idx] = np.resize(array, n_freqs) * scale
             else:
-                # Calculate from antenna positions
-                pos1 = antenna_positions.get(ant1, np.zeros(3))
-                pos2 = antenna_positions.get(ant2, np.zeros(3))
-                uvw_array[blt_idx] = pos2 - pos1
-
-            # Get visibility data for this baseline
-            vis_data = visibilities.get(bl_key, visibilities.get((ant2, ant1), None))
-            if vis_data is not None:
-                if isinstance(vis_data, dict):
-                    for p_idx, pol in enumerate(polarizations):
-                        if pol in vis_data:
-                            vis_values = vis_data[pol]
-                            if np.isscalar(vis_values):
-                                data_array[blt_idx, :, p_idx] = vis_values
-                            elif len(vis_values) == n_freqs:
-                                data_array[blt_idx, :, p_idx] = vis_values
-                            else:
-                                # Handle shape mismatch
-                                data_array[blt_idx, :, p_idx] = np.resize(
-                                    vis_values, n_freqs
-                                )
-                        elif pol == "XX" and "I" in vis_data:
-                            # Convert Stokes I to XX (approximate)
-                            vis_values = vis_data["I"]
-                            if np.isscalar(vis_values):
-                                data_array[blt_idx, :, p_idx] = vis_values / 2
-                            else:
-                                data_array[blt_idx, :, p_idx] = (
-                                    np.resize(vis_values, n_freqs) / 2
-                                )
-                else:
-                    # Single array - assume first polarization
-                    if np.isscalar(vis_data):
-                        data_array[blt_idx, :, 0] = vis_data
-                    else:
-                        data_array[blt_idx, :, 0] = np.resize(vis_data, n_freqs)
+                array = np.asarray(vis_data)
+                if array.ndim >= 2:
+                    array = array[_t_idx]
+                data_array[blt_idx, :, 0] = np.resize(array, n_freqs)
 
             blt_idx += 1
 
-    # Convert ENU positions to ECEF for pyuvdata
-    # pyuvdata expects antenna_positions relative to telescope location in ECEF
-    lat = location.lat.rad
-    lon = location.lon.rad
-
-    # Rotation matrix from ENU to ECEF
-    R_enu_to_ecef = np.array(
-        [
-            [-np.sin(lon), -np.sin(lat) * np.cos(lon), np.cos(lat) * np.cos(lon)],
-            [np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat) * np.sin(lon)],
-            [0, np.cos(lat), np.sin(lat)],
-        ]
+    location = EarthLocation.from_geocentric(
+        *instrument.location.itrs_xyz_m,
+        unit="m",
     )
-
-    # Convert antenna positions from ENU to ECEF (relative to array center)
-    antenna_positions_ecef = {}
-    for ant_num, enu_pos in antenna_positions.items():
-        ecef_rel = R_enu_to_ecef @ enu_pos
-        antenna_positions_ecef[ant_num] = ecef_rel
+    absolute_ecef = np.asarray(
+        ECEF_from_ENU(antenna_positions_enu, center_loc=location),
+        dtype=np.float64,
+    )
+    center_ecef = np.asarray(instrument.location.itrs_xyz_m, dtype=np.float64)
+    relative_ecef = absolute_ecef - center_ecef
+    antenna_positions_ecef = {
+        number: np.array(relative_ecef[index], dtype=np.float64, copy=True)
+        for index, number in enumerate(antenna_numbers)
+    }
 
     # Create Telescope object
     telescope = Telescope.new(
-        name=telescope_name,
+        name=instrument.name,
         location=location,
         antenna_positions=antenna_positions_ecef,
         antenna_names=antenna_names,
+        antenna_numbers=antenna_numbers,
         antenna_diameters=antenna_diameters,
-        instrument=instrument_name,
+        instrument=instrument.name,
+        update_from_known=False,
     )
 
     # Create UVData object
@@ -394,19 +332,13 @@ def write_ms(
         telescope=telescope,
         do_blt_outer=True,  # Cartesian product of times × baselines
         time_axis_faster_than_bls=False,
+        update_telescope_from_known=False,
     )
 
     # Set the data
     uvd.data_array = data_array
     uvd.flag_array = flag_array
     uvd.nsample_array = nsample_array
-
-    # Set UVW coordinates (in meters)
-    uvd.uvw_array = uvw_array
-
-    # Set phase center
-    uvd.phase_center_ra = phase_center_ra * np.pi / 180  # Convert to radians
-    uvd.phase_center_dec = phase_center_dec * np.pi / 180
 
     # Set integration time
     uvd.integration_time = np.full(n_blts, integration_time)

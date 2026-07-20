@@ -51,19 +51,27 @@ def valid_config_mapping(
     """Build a complete local mapping for the strict target input schema."""
     antenna_path = write_minimal_antenna_file(tmp_path)
     config: dict[str, Any] = {
-        "telescope": {"telescope_name": "Tier1ATestArray"},
-        "antenna_layout": {
-            "antenna_positions_file": str(antenna_path),
-            "antenna_file_format": "radiosim",
-            "all_antenna_diameter": 14.0,
+        "instrument": {
+            "source": {
+                "kind": "layout_file",
+                "path": str(antenna_path),
+                "format": "radiosim",
+                "telescope_name": "Tier1ATestArray",
+            },
+            "location": {
+                "longitude_deg": 21.4283,
+                "latitude_deg": -30.72152,
+                "height_m": 1073.0,
+            },
+            "default_diameter_m": 14.0,
         },
+        "baseline_selection": {"correlations": "all"},
         "beams": {
             "beam_mode": "analytic",
             "aperture_shape": "circular",
             "taper": "gaussian",
             "feed_model": "none",
         },
-        "location": {"lat": -30.72152, "lon": 21.4283, "height": 1073.0},
         "obs_time": {
             "start_time": "2025-01-01T00:00:00",
             "duration_seconds": 2.0,

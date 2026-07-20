@@ -12,26 +12,46 @@ Configuration boundaries
 
 ``load_config`` and ``resolve_config`` return
 ``ResolvedConfiguration(runtime, workflow, provenance)``. ``dump_config``
-accepts a strict ``RadioSimConfig`` input model and writes only user-facing
-input state.
+accepts a strict user-input model.
 
 Input models
 ------------
 
 .. autoclass:: radiosim.io.config.RadioSimConfig
    :members:
-   :show-inheritance:
+
+.. autoclass:: radiosim.io.instrument_config.InstrumentConfig
+   :members:
+
+.. autoclass:: radiosim.io.instrument_config.LayoutFileSourceConfig
+   :members:
+
+.. autoclass:: radiosim.io.instrument_config.KnownTelescopeSourceConfig
+   :members:
+
+.. autoclass:: radiosim.io.instrument_config.InstrumentLocationConfig
+   :members:
+
+.. autoclass:: radiosim.io.instrument_config.AntennaDiameterOverrideConfig
+   :members:
+
+.. autoclass:: radiosim.io.instrument_config.BaselineSelectionConfig
+   :members:
+
+.. autoclass:: radiosim.io.instrument_config.LengthTargetsConfig
+   :members:
+
+.. autoclass:: radiosim.io.instrument_config.LengthRangesConfig
+   :members:
+
+.. autoclass:: radiosim.io.instrument_config.AzimuthRangeConfig
+   :members:
 
 .. autoclass:: radiosim.io.config.FrequencyGridConfig
    :members:
-   :show-inheritance:
 
 .. autoclass:: radiosim.io.config.ExplicitFrequencyConfig
    :members:
-   :show-inheritance:
-
-``ObsFrequencyConfig`` is an annotated discriminated union rather than a class,
-so its two concrete variants are documented above.
 
 Resolved models
 ---------------
@@ -42,23 +62,13 @@ Resolved models
 .. autoclass:: radiosim.core.runtime_config.ResolvedSimulationConfig
    :members:
 
-.. autoclass:: radiosim.core.runtime_config.ResolvedFrequencyConfig
+Instrument sources
+------------------
+
+.. automodule:: radiosim.io.instrument_sources
    :members:
-
-Example
--------
-
-.. code-block:: python
-
-   from radiosim.io import dump_config, load_config
-   from radiosim.io.config import RadioSimConfig
-
-   bundle = load_config("configs/config.yaml")
-   print(bundle.runtime.execution.backend_strategy)
-   print(bundle.workflow.output_dir)
-
-   input_model = RadioSimConfig.model_validate(document_mapping)
-   dump_config(input_model, "copied-config.yaml")
+   :undoc-members:
+   :show-inheritance:
 
 Measurement Set I/O
 -------------------

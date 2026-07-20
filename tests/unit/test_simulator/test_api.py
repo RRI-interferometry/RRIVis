@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from radiosim.api import Simulator
 from radiosim.core.precision import PrecisionConfig
@@ -23,6 +24,10 @@ from radiosim.io.config_resolution import (
     ConfigSourceError,
     SimulationOverrides,
     UnsupportedConfigError,
+)
+from radiosim.io.instrument_config import (
+    BaselineSelectionConfig,
+    InstrumentConfig,
 )
 from tests.fixtures.configs import (
     resolved_config,
@@ -40,7 +45,6 @@ def _explicit_data(tmp_path: Path, **section_overrides: object) -> dict[str, obj
         },
         **section_overrides,
     )
-    data.pop("telescope")
     return data
 
 
@@ -52,21 +56,21 @@ def _from_parameters(
     execution: object | None = None,
     overrides: SimulationOverrides | None = None,
 ) -> Simulator:
-    antenna = data["antenna_layout"]
+    instrument_data = data["instrument"]
     observation = data["obs_time"]
     frequency = data["obs_frequency"]
-    assert isinstance(antenna, dict)
+    assert isinstance(instrument_data, dict)
     assert isinstance(observation, dict)
     assert isinstance(frequency, dict)
     channels = (
         frequency["channel_frequencies_hz"] if frequencies is None else frequencies
     )
     return Simulator.from_parameters(
-        antenna_layout=antenna["antenna_positions_file"],
-        antenna_file_format=antenna["antenna_file_format"],
-        antenna_diameter_m=antenna["all_antenna_diameter"],
+        instrument=InstrumentConfig.model_validate(instrument_data),
+        baseline_selection=BaselineSelectionConfig.model_validate(
+            data["baseline_selection"]
+        ),
         channel_frequencies_hz=channels,
-        location=data["location"],
         start_time=observation["start_time"],
         duration_seconds=observation["duration_seconds"],
         time_step_seconds=observation["time_step_seconds"],
@@ -108,11 +112,9 @@ def test_public_constructor_signatures_are_disjoint_and_explicit():
         "from_config": ["config", "base_dir", "overrides"],
         "from_mapping": ["data", "base_dir", "overrides"],
         "from_parameters": [
-            "antenna_layout",
-            "antenna_file_format",
-            "antenna_diameter_m",
+            "instrument",
+            "baseline_selection",
             "channel_frequencies_hz",
-            "location",
             "start_time",
             "duration_seconds",
             "time_step_seconds",
@@ -202,7 +204,7 @@ def test_from_yaml_honors_yaml_parent_base_without_repository_cwd(
     tmp_path, monkeypatch
 ):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
     config_path = write_config_yaml(tmp_path, data)
     unrelated = tmp_path / "unrelated"
     unrelated.mkdir()
@@ -211,14 +213,13 @@ def test_from_yaml_honors_yaml_parent_base_without_repository_cwd(
     simulator = Simulator.from_yaml(config_path)
 
     assert (
-        simulator.config.antenna_layout.antenna_positions_file
-        == (tmp_path / "antennas.txt").resolve()
+        simulator.config.instrument.source.path == (tmp_path / "antennas.txt").resolve()
     )
 
 
 def test_mapping_and_model_relative_paths_require_an_explicit_base(tmp_path):
     data = valid_config_mapping(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
     model = RadioSimConfig.model_validate(data)
 
     with pytest.raises((ConfigPathError, ConfigSourceError)):
@@ -229,7 +230,7 @@ def test_mapping_and_model_relative_paths_require_an_explicit_base(tmp_path):
 
 def test_from_parameters_honors_explicit_base_dir(tmp_path, monkeypatch):
     data = _explicit_data(tmp_path)
-    data["antenna_layout"]["antenna_positions_file"] = "antennas.txt"
+    data["instrument"]["source"]["path"] = "antennas.txt"
     unrelated = tmp_path / "unrelated"
     unrelated.mkdir()
     monkeypatch.chdir(unrelated)
@@ -237,8 +238,7 @@ def test_from_parameters_honors_explicit_base_dir(tmp_path, monkeypatch):
     simulator = _from_parameters(tmp_path, data)
 
     assert (
-        simulator.config.antenna_layout.antenna_positions_file
-        == (tmp_path / "antennas.txt").resolve()
+        simulator.config.instrument.source.path == (tmp_path / "antennas.txt").resolve()
     )
 
 
@@ -354,8 +354,8 @@ def test_resolved_runtime_and_classmethod_provenance_are_immutable(tmp_path):
         base_dir=tmp_path,
     )
 
-    with pytest.raises(FrozenInstanceError):
-        simulator.config.location.lat_deg = 0.0
+    with pytest.raises(ValidationError, match="frozen"):
+        simulator.config.instrument.location.latitude_deg = 0.0
     with pytest.raises(FrozenInstanceError):
         simulator.provenance.schema_version = 2
 
@@ -430,9 +430,9 @@ def test_invalid_mapping_fails_before_device_backend_network_or_loader(
 
 def test_schema_errors_are_reported_by_from_mapping(tmp_path):
     data = _explicit_data(tmp_path)
-    data["location"]["lat"] = 999.0
+    data["instrument"]["location"]["latitude_deg"] = float("inf")
 
-    with pytest.raises(ConfigSchemaError, match="location.lat"):
+    with pytest.raises(ConfigSchemaError, match="instrument.location.latitude_deg"):
         Simulator.from_mapping(data, base_dir=tmp_path)
 
 
@@ -523,6 +523,8 @@ def test_result_metadata_uses_json_safe_scientific_snapshot_without_workflow(
     results = simulator.run(progress=False)
     metadata = results["metadata"]
 
+    assert results["antennas"] is simulator.antennas
+    assert results["baselines"] is simulator.baselines
     assert metadata["requested_backend"] == "numpy"
     assert metadata["backend"] == "numpy-cpu"
     assert metadata["requested_precision"] == metadata["precision"]
@@ -532,7 +534,26 @@ def test_result_metadata_uses_json_safe_scientific_snapshot_without_workflow(
         109e6,
     ]
     assert "workflow" not in metadata["config"]
-    json.dumps(metadata)
+    resolution = metadata["instrument_resolution"]
+    assert tuple(resolution) == (
+        "schema_version",
+        "instrument_sha256",
+        "name",
+        "source",
+        "location",
+        "antennas",
+        "baseline_selection",
+    )
+    assert resolution["instrument_sha256"] == (
+        simulator.instrument.provenance.instrument_sha256
+    )
+    assert resolution["baseline_selection"]["selected_ids"] == [
+        [baseline.ant1.number, baseline.ant2.number] for baseline in simulator.baselines
+    ]
+    json.dumps(metadata, allow_nan=False)
+
+    resolution["antennas"][0]["name"] = "mutated snapshot"
+    assert simulator.antennas[0].id.name != "mutated snapshot"
 
 
 def test_save_uses_only_explicit_output_choices_not_workflow(tmp_path, monkeypatch):
