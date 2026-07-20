@@ -27,13 +27,16 @@
 | Tier 2F implementation commit | `9f42cf084052048d912711f537e696521a3f9654` |
 | Tier 2F correction commit | `667850154740e0830d3535d3eb144c63a13c52eb` |
 | Tier 2F independent-acceptance date | 2026-07-20 |
+| Tier 2G implementation commit | `d32a4ff036de7f28afc1c1bfeb536ac103328f53` |
+| Tier 2G correction commit | `dd1b91a3be71aa5de017725c5db2543517e70147` |
+| Tier 2G independent-acceptance date | 2026-07-20 |
 | Baseline `origin/main` | `f9ee87a5c1d4987fac1ee671d2c07711bcac8a41` |
 | Tier 2A review-start branch | `main`, four commits ahead of `origin/main` |
 | Tier 2A review-start working tree | untracked `Tier1ConfigPlan.md`; nothing staged |
 | Tier 1 status | Locally complete and independently accepted |
 | Tier 2 issues | INS-001, INS-002, and INS-003 remain open |
-| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction and Tier 2F independently accepted after correction on 2026-07-20 |
-| Implementation status | Tier 2 in progress: Tier 2A through Tier 2F accepted; Tier 2G not started |
+| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction and Tier 2F and Tier 2G independently accepted after correction on 2026-07-20 |
+| Implementation status | Tier 2 in progress: Tier 2A through Tier 2G accepted; Tier 2H not started |
 | Remote CI | Unobserved |
 
 This document is the single implementation contract for Tier 2. It selects one
@@ -49,8 +52,9 @@ in progress. Tier 2D's strict source normalization was independently accepted on
 a timing-sensitive concurrency test. Tier 2E's metadata merge and complete-diameter
 resolution were independently accepted without correction on 2026-07-20. Tier 2F's
 canonical baseline generation and selection were independently accepted after
-correction on 2026-07-20. Tier 2G is the next authorized separate slice and has not
-started.
+correction on 2026-07-20. Tier 2G's atomic public integration was independently
+accepted after correction on 2026-07-20. Tier 2H is the next authorized separate
+slice and has not started.
 
 ## 2. Decision and scope
 
@@ -1536,8 +1540,10 @@ flowchart LR
   tests, then prove Tier 2 as a complete coherent replacement.
 - **Exact files:**
   `src/radiosim/__init__.py`, `src/radiosim/core/__init__.py`,
-  `src/radiosim/io/__init__.py`, delete `src/radiosim/io/antenna_readers.py`,
-  `src/radiosim/core/antenna.py`, and `src/radiosim/core/baseline.py`, add
+  `src/radiosim/io/__init__.py`, `src/radiosim/io/config.py`,
+  `src/radiosim/core/runtime_config.py`, delete
+  `src/radiosim/io/antenna_readers.py`, `src/radiosim/core/antenna.py`, and
+  `src/radiosim/core/baseline.py`, add
   `tests/unit/test_core/test_tier2_instrument_cleanup.py`, and delete the superseded
   2A-only files `tests/unit/test_core/test_antenna_characterization.py`,
   `tests/unit/test_core/test_baseline_characterization.py`, and
@@ -1572,9 +1578,9 @@ Every slice must satisfy all of these gates in addition to its specific gate:
 6. An independent reviewer accepts the slice before its dependent slice starts.
 7. The commit is narrow and local; publishing still requires explicit user approval.
 
-Tier 2A through Tier 2F are independently accepted. Tier 2G is now the immediate
+Tier 2A through Tier 2G are independently accepted. Tier 2H is now the immediate
 authorized implementation slice, but it must run as a separate task and stop for its
-own independent acceptance. This rule repeats through 2H.
+own independent acceptance.
 
 ### 29.1 Design-gate verification record
 
@@ -2211,8 +2217,103 @@ Until then, all three INS issues remain open.
 | Heterogeneous observability | Reject before plot/browser | A single footprint would be scientifically misleading |
 | Compatibility | Direct replacement, no shims | Project is pre-v1 and one coherent API is safer than dual state |
 | Result scope | One additive instrument snapshot and narrow writer adapter | Meets provenance needs without taking Tier 4 ownership |
-| Immediate next task | Tier 2G — Atomic public integration, truth surfaces, and narrow provenance | Tier 2F is independently accepted after correction; 2G must run separately under its existing stop boundary |
+| Immediate next task | Tier 2H — Legacy removal and final parity | Tier 2G is independently accepted after correction; 2H must run separately under its existing stop boundary |
 
 ## 33. Unresolved decisions
 
 None.
+
+## 34. 2026-07-20 Tier 2G independent acceptance
+
+**Decision:** Tier 2G is independently accepted after corrections. Implementation
+`d32a4ff036de7f28afc1c1bfeb536ac103328f53` is based on
+`aac16f94445ef6dc4a374d912df87999670d24f0` and changes 53 paths: the atomic
+schema, CLI, Simulator, solver, observability, plotting, writer, Measurement Set,
+sample, documentation, fixture, and focused-test surfaces named by the 2G gate. The
+narrow `cli/workflow.py` change and the three characterization-test updates are
+necessary to remove stale public-state assumptions; they add no compatibility shim,
+skip, xfail, or unrelated cleanup. The implementation did not alter this plan,
+`Fix.md`, dependencies, lockfiles, the Pyright baseline, root/core/io exports, or the
+accepted 2B-2F model/source/resolution modules.
+
+The review reconstructed the parent boundary and independently exercised the active
+schema, removed keys, path bases, source override, offline/registry matrix, exact
+runtime constructors, public API, setup ordering, retry behavior, state ownership,
+both solvers, observability, plotting, result identity, provenance, HDF5/JSON, and
+Measurement Set behavior. One strict `RadioSimConfig` now owns exact
+`InstrumentConfig` and `BaselineSelectionConfig` values; removed top-level sections,
+old baseline fields, old pyuvdata switches, old diameter controls, and old format
+literals fail with migration guidance. YAML, mapping, model, parameter, override, and
+direct CLI paths converge through the common resolver without changing CWD or creating
+output. The public `instrument`, `antennas`, and `baselines` properties have explicit
+typed returns, stable tuple identity, and one consistent pre-resolution error.
+
+Regression-first review found genuine defects in the submitted integration:
+
+- forged or incomplete all-baseline inventories and mutable direct solver-adapter
+  inputs were accepted;
+- mutable runtime subclasses, non-finite JSON values, and missing public property
+  annotations crossed exact-type boundaries;
+- the active path override retained the legacy `AntennaLayoutOverride` spelling;
+- Measurement Set data could repeat or truncate samples through `np.resize`, while
+  malformed HDF5 metadata could be silently omitted;
+- the point solver retained a first-antenna beam diameter and a missing-ID fallback,
+  and solver frequency/baseline zips could truncate silently;
+- direct CLI help named a nonexistent example, underspecified the config-only path
+  override, and omitted actionable missing-diameter guidance.
+
+The initial correction probe produced 15 failures and 26 passes; separate beam and
+CLI truth-surface regressions were also observed failing before correction. Correction
+`dd1b91a3be71aa5de017725c5db2543517e70147` changes 18 focused 2G production/test
+files. It enforces exact complete state, copy-owned read-only float64 adapters,
+finite/exact runtime values, the newly named `InstrumentSourcePathOverride`, strict
+visibility shapes and metadata serialization, exact per-identity point-beam diameters,
+strict zips, and truthful direct CLI errors/help. The only correction path outside the
+original 53 is `src/radiosim/io/__init__.py`; this was required because the old
+override was an active exported public API, not inactive 2H cleanup.
+
+Point and HEALPix now receive the same numeric IDs, selected pair order, exact
+`ant2-ant1` vectors, and heterogeneous `[12.0, 25.0]` diameters. The point-beam
+integration has no first-antenna choice or missing-ID fallback. Uniform observability
+uses the exact common diameter, while heterogeneous diameters fail before renderer,
+browser, or file work. Results reuse the public canonical tuples and contain one
+detached deterministic `instrument_resolution` snapshot. JSON uses `allow_nan=False`;
+HDF5 round-trips nested metadata and rejects non-finite values before output creation.
+The MS writer requires exact canonical pair keys and exact time/frequency shapes,
+preserves identity, ENU-to-relative-ECEF geometry, and diameters, disables both
+registry-update flags, relies on `UVData.new` for UVWs, and retains `force_phase=True`.
+A local pyuvdata 3.2.1 two-time/three-baseline probe on both Pythons confirmed
+time-major/baseline-inner rows, frequency/polarization axes, aligned data markers, and
+finite generated UVWs without writing an MS or contacting a registry.
+
+The final focused integration boundary passed 584 with one existing optional Vivaldi
+skip and four existing warnings on Python 3.11.13; Python 3.12.13 passed 583 with two
+existing optional JAX/Vivaldi skips and the same four warnings. The accepted canonical
+boundary remained 656/656 on both. The full Python 3.11 suite passed 2,209 with one
+existing Vivaldi skip and 26 existing non-instrument warnings. The Python 3.12 non-slow
+suite passed 2,202 with eight existing skips (seven unavailable-JAX cases and one
+Vivaldi case) and the same 26 warnings.
+
+All three shipped YAML files validate, the offline script completes without creating
+output, and the notebook executes through a temporary Pixi-bound kernelspec while the
+committed notebook remains output-free. Sphinx 8.2.3 succeeds with the classified 11
+pre-existing warnings: two legacy baseline docstring errors, five polarization
+substitution warnings, three historical pages outside the toctree, and one unsupported
+theme option. No Tier 2G reference or toctree warning is present.
+
+Ruff lint and formatting, staged/unstaged whitespace, and prohibited-marker searches
+pass. Pyright remains 1.1.408 and reports 4,265 full-source diagnostics on each Python,
+below the unchanged 4,600 ceiling; `instrument_adapters.py` has zero direct diagnostics
+in both environments. `pyright-baseline.json`, dependencies, and lockfiles are
+unchanged. Remote CI, physical GPU hardware, and external scientific-network/live
+registry behavior remain unobserved; all acceptance execution was local and the
+scientific samples were offline.
+
+The remaining old input and runtime declarations are inactive, but Tier 2H's prior
+exact file list could not remove all of them. Tier 2H is therefore explicitly
+authorized to edit `src/radiosim/io/config.py` and
+`src/radiosim/core/runtime_config.py` in addition to its existing exact files. No
+legacy module/export/declaration was removed during 2G. Nothing was pushed or
+published. INS-001, INS-002, and INS-003 remain **OPEN**, Tier 2 remains incomplete,
+and Tier 2H has not started. Tier 2H is the next authorized task only in a separate
+fresh task under its existing stop boundary.

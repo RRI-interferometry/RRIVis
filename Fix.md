@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction and Tier 2F independently accepted after correction on 2026-07-20; Tier 2G not started; remote CI not yet observed |
+| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction and Tier 2F and Tier 2G independently accepted after correction on 2026-07-20; Tier 2H not started; remote CI not yet observed |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -2286,3 +2286,53 @@ registry behavior remain unobserved. Nothing was pushed or published. INS-001,
 INS-002, and INS-003 remain **OPEN** until Tier 2 completes through 2H. Tier 2 remains
 incomplete. Tier 2G was not started; it is now the next authorized separate slice under
 its existing implementation and independent-acceptance stop gates.
+
+### 2026-07-20 Tier 2G independent acceptance
+
+Tier 2G is independently accepted after corrections. Implementation
+`d32a4ff036de7f28afc1c1bfeb536ac103328f53` performs the 53-path atomic cutover to
+one strict instrument/selection schema, one resolved state, typed public properties,
+one lossless solver adapter, canonical results/provenance, and typed writer boundaries.
+The implementation's narrow workflow and characterization-test expansions are
+necessary and contain no unrelated cleanup or escape hatches.
+
+Regression-first review found incomplete-state and direct-adapter ownership holes,
+mutable runtime subclass paths, non-finite serialization, an active legacy-named path
+override, Measurement Set resize/truncation, silently omitted HDF5 metadata,
+first-antenna point-beam selection, non-strict solver zips, and misleading direct CLI
+help/errors. The primary red probe reported 15 failures and 26 passes, with separate
+beam and CLI regressions also observed red. Correction
+`dd1b91a3be71aa5de017725c5db2543517e70147` changes 18 focused files and closes each
+defect. Its sole path outside the original implementation list is
+`src/radiosim/io/__init__.py`, required to replace the actively exported
+`AntennaLayoutOverride` with `InstrumentSourcePathOverride`.
+
+The corrected active path rejects all old spellings, resolves paths and offline policy
+before runtime side effects, assigns canonical state atomically, preserves it across
+later failures, rebuilds later state on retry, and exposes stable typed tuple identity.
+Point and HEALPix receive identical IDs, selected pairs, vectors, and heterogeneous
+diameters without a 14-metre, first-antenna, missing-ID, or dictionary fallback.
+Heterogeneous observability rejects before renderer/browser/file work. JSON and HDF5
+preserve one detached instrument snapshot and fail on non-finite metadata. Measurement
+Set writes require exact selected keys and exact data shapes, preserve canonical
+geometry/diameters, disable both registry-update flags, and use pyuvdata-generated
+UVWs. A dual-Python local pyuvdata 3.2.1 probe confirmed row/data/frequency/polarization
+alignment without persistent output or network access.
+
+Final focused results are 584 passed, one optional skip, and four existing warnings on
+Python 3.11.13; and 583 passed, two optional skips, and four existing warnings on
+Python 3.12.13. The canonical boundary is 656/656 on both. Full results are 2,209
+passed, one optional skip, and 26 existing warnings on Python 3.11; and 2,202 passed,
+eight optional skips, and the same 26 warnings on Python 3.12 non-slow. Ruff and
+formatting pass. Pyright 1.1.408 reports 4,265 diagnostics on both under the unchanged
+4,600 ceiling, with zero direct adapter diagnostics. Sphinx succeeds with the same 11
+classified pre-existing warnings. All shipped YAML validates, the offline script and
+temporary-kernel notebook smokes pass, and committed outputs remain clean.
+
+Inactive legacy declarations remain for Tier 2H. Because its old exact list could not
+remove all of them, Tier 2H now also owns `src/radiosim/io/config.py` and
+`src/radiosim/core/runtime_config.py`. No 2H deletion or issue closure was performed.
+Remote CI, physical GPU hardware, and external scientific-network/live registry
+behavior remain unobserved. Nothing was pushed or published. INS-001, INS-002, and
+INS-003 remain **OPEN**, Tier 2 remains incomplete, and Tier 2H is the next authorized
+task only in a separate fresh task.
