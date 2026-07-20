@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from astropy.time import Time
 from pyuvdata.utils import ENU_from_ECEF
 
@@ -35,10 +36,15 @@ class _FakeUVData:
         self.write_calls.append((args, kwargs))
 
 
-def _canonical_state(tmp_path, *, maximum_number: bool = False):
+def _canonical_state(
+    tmp_path,
+    *,
+    maximum_number: bool = False,
+    correlations: str = "cross",
+):
     data = valid_config_mapping(
         tmp_path,
-        baseline_selection={"correlations": "cross"},
+        baseline_selection={"correlations": correlations},
     )
     second = 2_147_483_647 if maximum_number else 9
     (tmp_path / "antennas.txt").write_text(
@@ -154,6 +160,98 @@ def test_write_ms_uses_selected_pairs_only_and_canonical_order(tmp_path, monkeyp
     )
 
 
+@pytest.mark.parametrize(
+    "values",
+    [
+        np.array([1.0 + 0.0j]),
+        np.array([1.0 + 0.0j, 2.0 + 0.0j, 3.0 + 0.0j]),
+        np.array([[1.0 + 0.0j, 2.0 + 0.0j], [3.0 + 0.0j, 4.0 + 0.0j]]),
+    ],
+)
+def test_write_ms_rejects_frequency_or_time_shape_mismatch(
+    tmp_path,
+    monkeypatch,
+    values,
+):
+    state = _canonical_state(tmp_path)
+    _install_fakes(monkeypatch)
+    pair = state.selection.provenance.selected_ids[0]
+
+    with pytest.raises(ValueError, match="shape"):
+        write_ms(
+            output_path=tmp_path / "invalid-shape.ms",
+            visibilities={pair: {"XX": values}},
+            frequencies=np.array([100e6, 101e6]),
+            instrument=state.instrument,
+            selection=state.selection,
+            obstime=Time("2024-01-01T00:00:00"),
+            polarizations=["XX"],
+        )
+
+
+def test_write_ms_rejects_inconsistent_polarization_shapes(tmp_path, monkeypatch):
+    state = _canonical_state(tmp_path)
+    _install_fakes(monkeypatch)
+    pair = state.selection.provenance.selected_ids[0]
+
+    with pytest.raises(ValueError, match="shape"):
+        write_ms(
+            output_path=tmp_path / "invalid-polarization-shape.ms",
+            visibilities={
+                pair: {
+                    "XX": np.ones((1, 2), dtype=np.complex128),
+                    "YY": np.ones((1, 1), dtype=np.complex128),
+                }
+            },
+            frequencies=np.array([100e6, 101e6]),
+            instrument=state.instrument,
+            selection=state.selection,
+            obstime=Time("2024-01-01T00:00:00"),
+            polarizations=["XX", "YY"],
+        )
+
+
+def test_write_ms_aligns_time_major_rows_with_local_pyuvdata_contract(
+    tmp_path,
+    monkeypatch,
+):
+    state = _canonical_state(tmp_path, correlations="all")
+    captured, fake_uvd, _telescope = _install_fakes(monkeypatch)
+    pairs = state.selection.provenance.selected_ids
+    visibilities = {
+        pair: np.array(
+            [
+                [complex(10 * pair_index + 1), complex(10 * pair_index + 2)],
+                [complex(10 * pair_index + 3), complex(10 * pair_index + 4)],
+            ]
+        )
+        for pair_index, pair in enumerate(pairs)
+    }
+
+    write_ms(
+        output_path=tmp_path / "ordered.ms",
+        visibilities=visibilities,
+        frequencies=np.array([100e6, 101e6]),
+        instrument=state.instrument,
+        selection=state.selection,
+        obstime=Time(["2024-01-01T00:00:00", "2024-01-01T00:00:01"]),
+        polarizations=["XX"],
+    )
+
+    assert captured["uvdata"]["time_axis_faster_than_bls"] is False
+    assert captured["uvdata"]["antpairs"] == list(pairs)
+    np.testing.assert_array_equal(
+        fake_uvd.data_array[:, :, 0],
+        np.array(
+            [
+                visibilities[pair][time_index]
+                for time_index in range(2)
+                for pair in pairs
+            ]
+        ),
+    )
+
+
 def test_hdf5_round_trip_preserves_nested_instrument_resolution_metadata(tmp_path):
     output = tmp_path / "metadata.h5"
     metadata = {
@@ -175,3 +273,19 @@ def test_hdf5_round_trip_preserves_nested_instrument_resolution_metadata(tmp_pat
     assert (
         loaded["metadata"]["instrument_resolution"] == metadata["instrument_resolution"]
     )
+
+
+def test_hdf5_rejects_nonfinite_nested_metadata_before_creating_output(tmp_path):
+    output = tmp_path / "nonfinite" / "metadata.h5"
+
+    with pytest.raises(ValueError):
+        save_visibilities_hdf5(
+            output_path=output,
+            visibilities={(0, 1): [np.array([1.0 + 0.0j])]},
+            frequencies=np.array([100e6]),
+            time_points_mjd=np.array([60_000.0]),
+            metadata={"instrument_resolution": {"diameter_m": float("nan")}},
+        )
+
+    assert not output.exists()
+    assert not output.parent.exists()

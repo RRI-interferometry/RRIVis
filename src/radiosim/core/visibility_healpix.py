@@ -406,7 +406,7 @@ def calculate_visibility_healpix(
         # FREQUENCY LOOP
         # ======================================================================
         for freq_idx, (wavelength, freq) in enumerate(
-            zip(wavelengths, freqs, strict=False)
+            zip(wavelengths, freqs, strict=True)
         ):
             wavelength_m = wavelength.to(u.m).value
 
@@ -499,7 +499,7 @@ def calculate_visibility_healpix(
                 # Compute visibility for each baseline
                 # V_pq = Σ_pix phase_pix * J_p @ C_pix @ J_q^H
                 for bl_idx, ((ant1, ant2), bl_vec) in enumerate(
-                    zip(baseline_keys, baseline_vectors, strict=False)
+                    zip(baseline_keys, baseline_vectors, strict=True)
                 ):
                     bl_u, bl_v, bl_w = bl_vec / wavelength_m
                     delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)
@@ -579,7 +579,7 @@ def calculate_visibility_healpix(
 
                 # V = Σ B_pq * signal × exp(-2πi (ul + vm + w(n-1)))
                 for bl_idx, ((ant1, ant2), bl_vec) in enumerate(
-                    zip(baseline_keys, baseline_vectors, strict=False)
+                    zip(baseline_keys, baseline_vectors, strict=True)
                 ):
                     bl_u, bl_v, bl_w = bl_vec / wavelength_m
                     delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)

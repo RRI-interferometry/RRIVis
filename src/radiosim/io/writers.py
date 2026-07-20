@@ -7,12 +7,35 @@ This module provides functions for writing simulation results to various formats
 """
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
 import h5py
 import numpy as np
 import yaml
+
+
+def _hdf5_metadata_value(value: Any) -> Any:
+    """Validate and serialize one metadata value before touching the output path."""
+    if hasattr(value, "model_dump"):
+        value = value.model_dump(mode="json")
+    if isinstance(value, (float, np.floating)) and not math.isfinite(float(value)):
+        raise ValueError("HDF5 metadata numbers must be finite")
+    if isinstance(value, (str, int, float, bool, np.integer, np.floating)):
+        return value
+    if isinstance(value, (dict, list, tuple)):
+        return "__radiosim_json__:" + json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    if isinstance(value, np.ndarray):
+        if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+            raise ValueError("HDF5 metadata arrays must contain only finite values")
+        return str(value)
+    return str(value)
 
 
 def save_visibilities_hdf5(
@@ -43,6 +66,11 @@ def save_visibilities_hdf5(
         Path to the saved file
     """
     output_path = Path(output_path)
+    prepared_metadata = {
+        key: _hdf5_metadata_value(value)
+        for key, value in (metadata or {}).items()
+        if value is not None
+    }
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with h5py.File(output_path, "w") as h5file:
@@ -63,30 +91,8 @@ def save_visibilities_hdf5(
         h5file.create_dataset("time_points_mjd", data=time_points_mjd)
 
         # Save metadata as attributes (flatten complex objects)
-        if metadata:
-            for key, value in metadata.items():
-                if value is not None:
-                    # Preserve nested JSON-safe metadata deterministically.
-                    if hasattr(value, "model_dump"):
-                        value = value.model_dump(mode="json")
-                    # Try to save as string representation for complex types
-                    try:
-                        if isinstance(value, (str, int, float, bool)):
-                            h5file.attrs[key] = value
-                        elif isinstance(value, (dict, list, tuple)):
-                            value = "__radiosim_json__:" + json.dumps(
-                                value,
-                                sort_keys=True,
-                                separators=(",", ":"),
-                                allow_nan=False,
-                            )
-                            h5file.attrs[key] = value
-                        elif isinstance(value, np.ndarray):
-                            h5file.attrs[key] = str(value)
-                        else:
-                            h5file.attrs[key] = str(value)
-                    except (TypeError, ValueError):
-                        pass
+        for key, value in prepared_metadata.items():
+            h5file.attrs[key] = value
 
     return str(output_path)
 

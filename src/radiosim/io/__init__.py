@@ -60,7 +60,6 @@ from radiosim.io.config import (
     load_config,
 )
 from radiosim.io.config_resolution import (
-    AntennaLayoutOverride,
     ConfigOverrideError,
     ConfigParseError,
     ConfigPathError,
@@ -69,6 +68,7 @@ from radiosim.io.config_resolution import (
     ConfigSemanticError,
     ConfigSourceError,
     ConfigurationSource,
+    InstrumentSourcePathOverride,
     SimulationOverrides,
     UnsupportedConfigError,
     WorkflowOverrides,
@@ -170,7 +170,7 @@ __all__ = [
     "PrecisionInput",
     "CliWorkflowConfig",
     "ConfigurationSource",
-    "AntennaLayoutOverride",
+    "InstrumentSourcePathOverride",
     "SimulationOverrides",
     "WorkflowOverrides",
     "ConfigIssue",

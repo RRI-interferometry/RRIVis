@@ -36,6 +36,11 @@ from radiosim.utils.logging import (
 )
 
 if TYPE_CHECKING:
+    from radiosim.core.instrument import (
+        ResolvedAntenna,
+        ResolvedBaseline,
+        ResolvedInstrument,
+    )
     from radiosim.core.precision import PrecisionConfig
     from radiosim.core.runtime_config import (
         ConfigurationProvenance,
@@ -117,7 +122,7 @@ class Simulator:
         """Construct from an already validated immutable runtime config."""
         from radiosim.core.runtime_config import ResolvedSimulationConfig
 
-        if not isinstance(resolved, ResolvedSimulationConfig):
+        if type(resolved) is not ResolvedSimulationConfig:
             raise TypeError("Simulator accepts only ResolvedSimulationConfig")
 
         self.version = __version__
@@ -184,7 +189,7 @@ class Simulator:
         from radiosim.io.config import RadioSimConfig
         from radiosim.io.config_resolution import ConfigurationSource, resolve_config
 
-        if not isinstance(config, RadioSimConfig):
+        if type(config) is not RadioSimConfig:
             raise TypeError("from_config accepts only RadioSimConfig")
         invocation_dir = Path.cwd().resolve(strict=False)
         bundle = resolve_config(
@@ -305,21 +310,21 @@ class Simulator:
         return self._results
 
     @property
-    def instrument(self):
+    def instrument(self) -> ResolvedInstrument:
         """Return the exact canonical resolved instrument."""
         if self._instrument_state is None:
             raise RuntimeError("Instrument resolution has not completed")
         return self._instrument_state.instrument
 
     @property
-    def antennas(self):
+    def antennas(self) -> tuple[ResolvedAntenna, ...]:
         """Return the exact immutable canonical antenna tuple."""
         if self._instrument_state is None:
             raise RuntimeError("Instrument resolution has not completed")
         return self._instrument_state.instrument.antennas
 
     @property
-    def baselines(self):
+    def baselines(self) -> tuple[ResolvedBaseline, ...]:
         """Return the exact immutable selected baseline tuple."""
         if self._instrument_state is None:
             raise RuntimeError("Instrument resolution has not completed")

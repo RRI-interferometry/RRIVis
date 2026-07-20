@@ -372,7 +372,7 @@ class ConfigurationSource:
         )
 
 
-class AntennaLayoutOverride(StrictFrozenModel):
+class InstrumentSourcePathOverride(StrictFrozenModel):
     """Path-only replacement for an existing layout-file instrument source."""
 
     path: Path
@@ -391,7 +391,7 @@ class SimulationOverrides(StrictFrozenModel):
     backend: BackendStrategy | None = None
     precision: PrecisionInput | PrecisionConfig | PrecisionPreset | None = None
     offline: bool | None = None
-    antenna_layout: AntennaLayoutOverride | None = None
+    instrument_source: InstrumentSourcePathOverride | None = None
     obs_frequency: ObsFrequencyConfig | None = None
     location: InstrumentLocationConfig | None = None
     start_time: str | None = None
@@ -689,14 +689,14 @@ def _apply_overrides(
     execution = config.execution.model_copy(update=execution_updates)
 
     instrument = config.instrument
-    if simulation.antenna_layout is not None:
+    if simulation.instrument_source is not None:
         if isinstance(instrument.source, KnownTelescopeSourceConfig):
             raise ConfigOverrideError(
                 [
                     ConfigIssue(
-                        "overrides.antenna_layout.path",
+                        "overrides.instrument_source.path",
                         "layout_path_override_requires_layout_source",
-                        "an antenna layout path cannot replace a known-telescope source",
+                        "an instrument source path cannot replace a known-telescope source",
                         "Select a layout_file source in the document before overriding its path.",
                         stage="override",
                         category="override",
@@ -704,7 +704,7 @@ def _apply_overrides(
                 ]
             )
         source = instrument.source.model_copy(
-            update={"path": simulation.antenna_layout.path}
+            update={"path": simulation.instrument_source.path}
         )
         instrument = instrument.model_copy(update={"source": source})
         origins["instrument.source.path"] = "override"
@@ -1274,7 +1274,6 @@ def resolve_config(
 
 
 __all__ = [
-    "AntennaLayoutOverride",
     "ConfigOverrideError",
     "ConfigParseError",
     "ConfigPathError",
@@ -1283,6 +1282,7 @@ __all__ = [
     "ConfigSemanticError",
     "ConfigSourceError",
     "ConfigurationSource",
+    "InstrumentSourcePathOverride",
     "SimulationOverrides",
     "UnsupportedConfigError",
     "WorkflowOverrides",

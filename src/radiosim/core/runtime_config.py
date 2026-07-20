@@ -109,6 +109,8 @@ def freeze_runtime_value(value: Any) -> Any:
 
 
 def _json_safe_value(value: Any) -> JsonValue:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("JSON-safe runtime values must be finite")
     if value is None or isinstance(value, (str, int, float, bool)):
         return cast(JsonScalar, value)
     if isinstance(value, Path):
@@ -284,7 +286,10 @@ class ResolvedSkyModelConfig:
     region: Any = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "sources", tuple(self.sources))
+        sources = tuple(self.sources)
+        if any(type(source) is not ResolvedSkySourceRequest for source in sources):
+            raise TypeError("sources must contain only ResolvedSkySourceRequest values")
+        object.__setattr__(self, "sources", sources)
         object.__setattr__(self, "region", freeze_runtime_value(self.region))
 
     @property
@@ -301,6 +306,16 @@ class ResolvedExecutionConfig:
     precision: PrecisionConfig
     simulator: Literal["rime"]
     offline: bool
+
+    def __post_init__(self) -> None:
+        if self.backend_strategy not in {"auto", "numpy", "jax", "numba"}:
+            raise ValueError("backend_strategy is not supported")
+        if type(self.precision) is not PrecisionConfig:
+            raise TypeError("precision must be a PrecisionConfig")
+        if self.simulator != "rime":
+            raise ValueError("simulator must be 'rime'")
+        if type(self.offline) is not bool:
+            raise TypeError("offline must be a boolean")
 
     @property
     def backend(self) -> Literal["auto", "numpy", "jax", "numba"]:
@@ -432,6 +447,17 @@ class ResolvedSimulationConfig:
             raise TypeError("instrument must be an InstrumentConfig")
         if type(self.baseline_selection) is not BaselineSelectionConfig:
             raise TypeError("baseline_selection must be a BaselineSelectionConfig")
+        for field_name, expected_type in (
+            ("beams", ResolvedBeamsConfig),
+            ("sky_model", ResolvedSkyModelConfig),
+            ("observation", ResolvedObservationConfig),
+            ("frequency", ResolvedFrequencyConfig),
+            ("execution", ResolvedExecutionConfig),
+        ):
+            if type(getattr(self, field_name)) is not expected_type:
+                raise TypeError(f"{field_name} must be a {expected_type.__name__}")
+        if not isinstance(self.visibility, Mapping):
+            raise TypeError("visibility must be a mapping")
         object.__setattr__(self, "visibility", FrozenMapping(self.visibility))
 
     def to_json_safe(self) -> dict[str, JsonValue]:

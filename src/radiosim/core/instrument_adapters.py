@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -41,6 +42,32 @@ class ResolvedInstrumentState:
         ):
             raise ValueError("selection does not belong to instrument")
 
+        from radiosim.core.baseline_resolution import generate_resolved_baselines
+
+        expected_baselines = generate_resolved_baselines(self.instrument)
+        if self.all_baselines != expected_baselines:
+            raise ValueError(
+                "all_baselines must equal the complete canonical instrument inventory"
+            )
+        if self.selection.provenance.generated_count != len(expected_baselines):
+            raise ValueError(
+                "selection generated_count does not match the complete canonical "
+                "instrument inventory"
+            )
+        expected_by_pair = {
+            (baseline.ant1.number, baseline.ant2.number): baseline
+            for baseline in expected_baselines
+        }
+        if any(
+            expected_by_pair.get((baseline.ant1.number, baseline.ant2.number))
+            != baseline
+            for baseline in self.selection.baselines
+        ):
+            raise ValueError(
+                "selected baselines must belong to the complete canonical "
+                "instrument inventory"
+            )
+
         by_number = {antenna.id.number: antenna for antenna in self.instrument.antennas}
         by_name = {antenna.id.name: antenna for antenna in self.instrument.antennas}
         if len(by_number) != len(self.instrument.antennas):
@@ -72,6 +99,110 @@ class SolverInstrumentView:
     row_index_by_number: Mapping[int, int]
     selected_pairs: tuple[tuple[int, int], ...]
     baseline_vectors_enu_m: npt.NDArray[np.float64]
+
+    def __post_init__(self) -> None:
+        if type(self.antenna_numbers) is not tuple or any(
+            type(number) is not int for number in self.antenna_numbers
+        ):
+            raise TypeError("antenna_numbers must be a tuple of integers")
+        if not self.antenna_numbers:
+            raise ValueError("antenna_numbers must be nonempty")
+        if len(set(self.antenna_numbers)) != len(self.antenna_numbers):
+            raise ValueError("antenna_numbers must be unique")
+        if type(self.antenna_names) is not tuple or any(
+            type(name) is not str for name in self.antenna_names
+        ):
+            raise TypeError("antenna_names must be a tuple of strings")
+        if len(self.antenna_names) != len(self.antenna_numbers):
+            raise ValueError("antenna names and numbers must have equal lengths")
+        if len(set(self.antenna_names)) != len(self.antenna_names):
+            raise ValueError("antenna_names must be unique")
+
+        row_index_value = cast(object, self.row_index_by_number)
+        if not isinstance(row_index_value, Mapping):
+            raise TypeError("row_index_by_number must be a mapping")
+        row_index = cast(Mapping[int, int], row_index_value)
+        expected_index = {
+            number: index for index, number in enumerate(self.antenna_numbers)
+        }
+        if dict(row_index) != expected_index:
+            raise ValueError("row_index_by_number must exactly index antenna_numbers")
+
+        if type(self.selected_pairs) is not tuple or any(
+            type(pair) is not tuple
+            or len(pair) != 2
+            or any(type(number) is not int for number in pair)
+            for pair in self.selected_pairs
+        ):
+            raise TypeError("selected_pairs must be a tuple of integer pairs")
+        if not self.selected_pairs:
+            raise ValueError("selected_pairs must be nonempty")
+        if len(set(self.selected_pairs)) != len(self.selected_pairs):
+            raise ValueError("selected_pairs must be unique")
+        if self.selected_pairs != tuple(sorted(self.selected_pairs)):
+            raise ValueError("selected_pairs must use canonical stable order")
+        for ant1, ant2 in self.selected_pairs:
+            if ant1 > ant2:
+                raise ValueError("selected_pairs must use canonical numeric order")
+            if ant1 not in expected_index or ant2 not in expected_index:
+                missing = ant1 if ant1 not in expected_index else ant2
+                raise InstrumentAdapterInvariantError(
+                    f"selected antenna number {missing} is absent from instrument"
+                )
+
+        positions = np.array(
+            self.positions_enu_m,
+            dtype=np.float64,
+            order="C",
+            copy=True,
+        )
+        diameters = np.array(
+            self.diameters_m,
+            dtype=np.float64,
+            order="C",
+            copy=True,
+        )
+        vectors = np.array(
+            self.baseline_vectors_enu_m,
+            dtype=np.float64,
+            order="C",
+            copy=True,
+        )
+        if positions.shape != (len(self.antenna_numbers), 3):
+            raise ValueError("positions_enu_m must have shape (n_antennas, 3)")
+        if diameters.shape != (len(self.antenna_numbers),):
+            raise ValueError("diameters_m must have shape (n_antennas,)")
+        if vectors.shape != (len(self.selected_pairs), 3):
+            raise ValueError("baseline vectors must have shape (n_baselines, 3)")
+        if not np.all(np.isfinite(positions)):
+            raise ValueError("positions_enu_m must contain only finite values")
+        if not np.all(np.isfinite(diameters)) or np.any(diameters <= 0.0):
+            raise ValueError("diameters_m must contain finite positive values")
+        if not np.all(np.isfinite(vectors)):
+            raise ValueError("baseline vectors must contain only finite values")
+        expected_vectors = np.array(
+            [
+                positions[expected_index[ant2]] - positions[expected_index[ant1]]
+                for ant1, ant2 in self.selected_pairs
+            ],
+            dtype=np.float64,
+            order="C",
+        )
+        if not np.array_equal(vectors, expected_vectors):
+            raise ValueError(
+                "baseline vectors must exactly equal position(ant2)-position(ant1)"
+            )
+
+        for array in (positions, diameters, vectors):
+            array.setflags(write=False)
+        object.__setattr__(self, "positions_enu_m", positions)
+        object.__setattr__(self, "diameters_m", diameters)
+        object.__setattr__(self, "baseline_vectors_enu_m", vectors)
+        object.__setattr__(
+            self,
+            "row_index_by_number",
+            MappingProxyType(dict(expected_index)),
+        )
 
     @classmethod
     def from_state(cls, state: ResolvedInstrumentState) -> SolverInstrumentView:
@@ -116,9 +247,6 @@ class SolverInstrumentView:
                     raise InstrumentAdapterInvariantError(
                         f"selected antenna number {number} is absent from instrument"
                     )
-        for array in (positions, diameters, vectors):
-            array.setflags(write=False)
-
         return cls(
             antenna_numbers=numbers,
             antenna_names=names,

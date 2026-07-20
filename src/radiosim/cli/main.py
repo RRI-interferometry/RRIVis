@@ -46,7 +46,8 @@ BackendStrategy = Literal["auto", "numpy", "jax", "numba"]
         "  # Run with config file\n"
         "  radiosim --config config.yaml\n\n"
         "  # Run with CLI arguments\n"
-        "  radiosim simulate --antenna-layout HERA65.csv --frequencies 100,150,200 "
+        "  radiosim simulate --antenna-layout "
+        "antenna_layout_examples/hera_5.txt --frequencies 100,150,200 "
         "--telescope-name HERA --default-diameter-m 14 "
         "--latitude -30.7 --longitude 21.4 --height 1073 "
         "--start-time 2025-01-01T00:00:00\n\n"
@@ -63,7 +64,7 @@ BackendStrategy = Literal["auto", "numpy", "jax", "numba"]
     "--antenna-file",
     type=click.Path(path_type=Path),
     default=None,
-    help="Path to antenna positions file (overrides config)",
+    help="Path override for a config layout_file instrument source",
 )
 @click.option(
     "--sim-data-dir",
@@ -311,14 +312,14 @@ def run_config_mode(
     try:
         from radiosim.io.config import load_config
         from radiosim.io.config_resolution import (
-            AntennaLayoutOverride,
             ConfigResolutionError,
+            InstrumentSourcePathOverride,
             SimulationOverrides,
             WorkflowOverrides,
         )
 
         antenna_override = (
-            AntennaLayoutOverride(path=Path(antenna_file))
+            InstrumentSourcePathOverride(path=Path(antenna_file))
             if antenna_file is not None
             else None
         )
@@ -327,7 +328,7 @@ def run_config_mode(
             overrides=SimulationOverrides(
                 backend=backend,
                 offline=offline,
-                antenna_layout=antenna_override,
+                instrument_source=antenna_override,
             ),
             workflow_overrides=WorkflowOverrides(
                 output_dir=None if sim_data_dir is None else Path(sim_data_dir),
@@ -423,6 +424,7 @@ def run_simulate_mode(
         from pydantic import ValidationError
 
         from radiosim.api.simulator import Simulator
+        from radiosim.core.instrument_resolution import DiameterResolutionError
         from radiosim.core.sky.registry import loader_registry
         from radiosim.io.config import (
             ExecutionConfig,
@@ -504,6 +506,12 @@ def run_simulate_mode(
         from radiosim.cli.workflow import render_configuration_error
 
         render_configuration_error(error, command="simulate")
+        return 1
+    except DiameterResolutionError as error:
+        logger.error(
+            f"Simulation failed: {error}. Add a positive Diameter column or pass "
+            "--default-diameter-m."
+        )
         return 1
     except Exception as error:
         logger.error(f"Simulation failed: {error}")

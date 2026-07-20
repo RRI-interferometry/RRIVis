@@ -93,6 +93,45 @@ def test_from_parameters_accepts_only_typed_instrument_inputs():
         assert removed not in parameters
 
 
+def test_public_instrument_properties_have_exact_return_annotations():
+    assert inspect.signature(Simulator.instrument.fget).return_annotation == (
+        "ResolvedInstrument"
+    )
+    assert inspect.signature(Simulator.antennas.fget).return_annotation == (
+        "tuple[ResolvedAntenna, ...]"
+    )
+    assert inspect.signature(Simulator.baselines.fget).return_annotation == (
+        "tuple[ResolvedBaseline, ...]"
+    )
+
+
+def test_simulator_exact_type_boundaries_reject_mutable_subclasses(tmp_path):
+    from pydantic import ConfigDict
+
+    from radiosim.core.runtime_config import ResolvedSimulationConfig
+
+    class MutableRadioSimConfig(RadioSimConfig):
+        model_config = ConfigDict(extra="forbid", frozen=False)
+
+    class MutableResolvedSimulationConfig(ResolvedSimulationConfig):
+        pass
+
+    mapping = _instrument_mapping(tmp_path)
+    input_subclass = MutableRadioSimConfig.model_validate(mapping)
+    with pytest.raises(TypeError, match="only RadioSimConfig"):
+        Simulator.from_config(input_subclass, base_dir=tmp_path)
+
+    resolved = Simulator.from_mapping(mapping, base_dir=tmp_path).config
+    runtime_subclass = MutableResolvedSimulationConfig(
+        **{
+            name: getattr(resolved, name)
+            for name in ResolvedSimulationConfig.__dataclass_fields__
+        }
+    )
+    with pytest.raises(TypeError, match="only ResolvedSimulationConfig"):
+        Simulator(runtime_subclass)
+
+
 def test_public_instrument_properties_fail_consistently_before_resolution(tmp_path):
     simulator = Simulator.from_mapping(_instrument_mapping(tmp_path), base_dir=tmp_path)
 
@@ -147,6 +186,31 @@ def test_instrument_failure_precedes_backend_and_assigns_no_partial_state(
     assert simulator._is_setup is False
 
 
+def test_instrument_failure_reloads_source_on_successful_retry(tmp_path, monkeypatch):
+    import radiosim.core.instrument_resolution as resolution_module
+
+    real_resolve = resolution_module.resolve_instrument
+    calls = 0
+
+    def fail_once(config):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise DiameterResolutionError("transient instrument failure")
+        return real_resolve(config)
+
+    monkeypatch.setattr(resolution_module, "resolve_instrument", fail_once)
+    simulator = Simulator.from_mapping(_instrument_mapping(tmp_path), base_dir=tmp_path)
+
+    with pytest.raises(DiameterResolutionError, match="transient"):
+        simulator._ensure_instrument_state()
+    assert simulator._instrument_state is None
+
+    simulator._ensure_instrument_state()
+    assert calls == 2
+    assert simulator.instrument.name == "Tier2G Array"
+
+
 def test_later_setup_failure_retains_exact_instrument_state_for_retry(
     tmp_path,
     monkeypatch,
@@ -171,6 +235,65 @@ def test_later_setup_failure_retains_exact_instrument_state_for_retry(
     assert simulator.instrument is retained
     assert calls == 2
     assert simulator._is_setup is False
+
+
+def test_sky_failure_retry_reuses_instrument_and_recreates_backend(
+    tmp_path,
+    monkeypatch,
+):
+    import radiosim.backends as backends_module
+    import radiosim.core.sky.combine.pipeline as pipeline_module
+
+    real_get_backend = backends_module.get_backend
+    real_prepare = pipeline_module.prepare_sky_model
+    backend_instances = []
+    prepare_calls = 0
+
+    def record_backend(*args, **kwargs):
+        backend = real_get_backend(*args, **kwargs)
+        backend_instances.append(backend)
+        return backend
+
+    def fail_prepare_once(*args, **kwargs):
+        nonlocal prepare_calls
+        prepare_calls += 1
+        if prepare_calls == 1:
+            raise RuntimeError("sky preparation failed")
+        return real_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(backends_module, "get_backend", record_backend)
+    monkeypatch.setattr(pipeline_module, "prepare_sky_model", fail_prepare_once)
+    simulator = Simulator.from_mapping(_instrument_mapping(tmp_path), base_dir=tmp_path)
+
+    with pytest.raises(RuntimeError, match="sky preparation failed"):
+        simulator.setup()
+    retained = simulator.instrument
+    assert simulator._backend is None
+    assert simulator._sky_model is None
+    assert simulator._is_setup is False
+
+    simulator.setup()
+    assert simulator.instrument is retained
+    assert len(backend_instances) == 2
+    assert backend_instances[0] is not backend_instances[1]
+    assert simulator._is_setup is True
+
+
+def test_run_does_not_print_banner_before_instrument_success(tmp_path, monkeypatch):
+    banners: list[tuple[object, ...]] = []
+    simulator = Simulator.from_mapping(
+        _instrument_mapping(tmp_path, include_diameters=False),
+        base_dir=tmp_path,
+    )
+    monkeypatch.setattr(
+        "radiosim.api.simulator.print_header",
+        lambda *args, **kwargs: banners.append(args),
+    )
+
+    with pytest.raises(DiameterResolutionError):
+        simulator.run(progress=True)
+
+    assert banners == []
 
 
 def test_observability_rejects_heterogeneous_diameters_before_side_effects(

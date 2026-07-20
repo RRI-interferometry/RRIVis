@@ -99,6 +99,38 @@ def _check_ms_dependencies():
         )
 
 
+def _visibility_row(
+    values: object,
+    *,
+    pair: tuple[int, int],
+    polarization: str,
+    time_index: int,
+    n_times: int,
+    n_freqs: int,
+) -> np.ndarray:
+    """Return one exact frequency row without repeating or truncating samples."""
+    array = np.asarray(values)
+    expected_shape = (n_times, n_freqs)
+    if array.shape == (n_freqs,) and n_times == 1:
+        row = array
+    elif array.shape == expected_shape:
+        row = array[time_index]
+    else:
+        raise ValueError(
+            f"visibility {pair} polarization {polarization!r} has shape "
+            f"{array.shape}; expected {expected_shape}"
+        )
+    if not np.issubdtype(row.dtype, np.number):
+        raise ValueError(
+            f"visibility {pair} polarization {polarization!r} must be numeric"
+        )
+    if not np.all(np.isfinite(row)):
+        raise ValueError(
+            f"visibility {pair} polarization {polarization!r} must be finite"
+        )
+    return np.asarray(row, dtype=np.complex128)
+
+
 def write_ms(
     output_path: str | Path,
     visibilities: dict[tuple[int, int], dict[str, np.ndarray] | np.ndarray],
@@ -183,18 +215,22 @@ def write_ms(
     ):
         raise ValueError("selection does not belong to instrument")
 
+    from radiosim.core.baseline_resolution import generate_resolved_baselines
+    from radiosim.core.instrument_adapters import ResolvedInstrumentState
+
+    all_baselines = generate_resolved_baselines(instrument)
+    _ = ResolvedInstrumentState(
+        instrument=instrument,
+        all_baselines=all_baselines,
+        selection=selection,
+    )
+
     output_path = Path(output_path)
 
     if output_path.exists() and not overwrite:
         raise FileExistsError(
             f"MS already exists: {output_path}\nUse overwrite=True to replace it."
         )
-
-    # Remove existing MS if overwriting
-    if output_path.exists() and overwrite:
-        import shutil
-
-        shutil.rmtree(output_path)
 
     antenna_numbers = [antenna.id.number for antenna in instrument.antennas]
     antenna_names = [antenna.id.name for antenna in instrument.antennas]
@@ -204,8 +240,20 @@ def write_ms(
         dtype=np.float64,
     )
 
-    # Determine polarizations from visibility data
-    sample_vis = next(iter(visibilities.values()))
+    frequencies = np.asarray(frequencies, dtype=np.float64)
+    if frequencies.ndim != 1 or frequencies.size == 0:
+        raise ValueError("frequencies must be a nonempty one-dimensional array")
+    if not np.all(np.isfinite(frequencies)) or np.any(frequencies <= 0.0):
+        raise ValueError("frequencies must contain finite positive values")
+
+    baseline_list = list(selection.provenance.selected_ids)
+    if set(visibilities) != set(baseline_list):
+        raise ValueError(
+            "visibilities must contain exactly the selected canonical baseline pairs"
+        )
+
+    # Determine polarizations from visibility data.
+    sample_vis = visibilities[baseline_list[0]]
     if isinstance(sample_vis, dict):
         if polarizations is None:
             # Auto-detect polarization type
@@ -223,6 +271,11 @@ def write_ms(
         # Single array - assume unpolarized (XX only or Stokes I)
         polarizations = ["XX"]
 
+    if not polarizations or any(type(value) is not str for value in polarizations):
+        raise ValueError("polarizations must be a nonempty list of strings")
+    if len(set(polarizations)) != len(polarizations):
+        raise ValueError("polarizations must be unique")
+
     n_pols = len(polarizations)
     n_freqs = len(frequencies)
 
@@ -232,25 +285,25 @@ def write_ms(
             channel_width = np.abs(frequencies[1] - frequencies[0])
         else:
             channel_width = 1e6  # Default 1 MHz
+    assert channel_width is not None
+    if not np.isfinite(channel_width) or channel_width <= 0.0:
+        raise ValueError("channel_width must be finite and positive")
+    if not np.isfinite(integration_time) or integration_time <= 0.0:
+        raise ValueError("integration_time must be finite and positive")
 
     # Handle time - ensure it's an array
-    if isinstance(obstime, Time):
-        if obstime.isscalar:
-            times = np.array([obstime.jd])
-        else:
-            times = obstime.jd
+    if obstime.isscalar:
+        times = np.array([obstime.jd])
     else:
-        times = np.array([obstime])
+        times = obstime.jd
+
+    times = np.asarray(times, dtype=np.float64)
+    if times.ndim != 1 or times.size == 0 or not np.all(np.isfinite(times)):
+        raise ValueError("obstime must provide a nonempty finite one-dimensional axis")
 
     n_times = len(times)
 
     # Build baseline list and data arrays
-    baseline_list = list(selection.provenance.selected_ids)
-    if set(visibilities) != set(baseline_list):
-        raise ValueError(
-            "visibilities must contain exactly the selected canonical baseline pairs"
-        )
-
     n_baselines = len(baseline_list)
     n_blts = n_baselines * n_times
 
@@ -284,15 +337,26 @@ def write_ms(
                         scale = 0.5
                     if values is None:
                         continue
-                    array = np.asarray(values)
-                    if array.ndim >= 2:
-                        array = array[_t_idx]
-                    data_array[blt_idx, :, p_idx] = np.resize(array, n_freqs) * scale
+                    data_array[blt_idx, :, p_idx] = (
+                        _visibility_row(
+                            values,
+                            pair=bl_key,
+                            polarization=pol,
+                            time_index=_t_idx,
+                            n_times=n_times,
+                            n_freqs=n_freqs,
+                        )
+                        * scale
+                    )
             else:
-                array = np.asarray(vis_data)
-                if array.ndim >= 2:
-                    array = array[_t_idx]
-                data_array[blt_idx, :, 0] = np.resize(array, n_freqs)
+                data_array[blt_idx, :, 0] = _visibility_row(
+                    vis_data,
+                    pair=bl_key,
+                    polarization=polarizations[0],
+                    time_index=_t_idx,
+                    n_times=n_times,
+                    n_freqs=n_freqs,
+                )
 
             blt_idx += 1
 

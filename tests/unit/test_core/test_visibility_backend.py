@@ -12,7 +12,10 @@ import radiosim.core.visibility_healpix as healpix_visibility_module
 from radiosim.api import Simulator
 from radiosim.backends import get_backend
 from radiosim.backends.base import BackendNotAvailableError
-from radiosim.core.instrument_adapters import SolverInstrumentView
+from radiosim.core.instrument_adapters import (
+    InstrumentAdapterInvariantError,
+    SolverInstrumentView,
+)
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.containers.healpix import HealpixData
 from radiosim.core.sky.containers.model import SkyModel
@@ -263,7 +266,7 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
 
     monkeypatch.setattr(
         visibility_module,
-        "AnalyticBeamJones",
+        "_ResolvedInstrumentAnalyticBeamJones",
         capture_analytic_beam,
     )
     visibility_module._build_jones_chain(
@@ -278,7 +281,8 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
         location=LOCATION,
         time_idx=0,
     )
-    assert point_beam["diameter_per_antenna"] == {0: 12.0, 1: 25.0}
+    assert "diameter" not in point_beam
+    assert point_beam["diameters_by_antenna"] == {0: 12.0, 1: 25.0}
 
     healpix_diameters: list[float] = []
 
@@ -306,3 +310,14 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
     assert healpix_result["baseline_keys"] == ((0, 1),)
     assert healpix_result["visibilities"].shape == (1, 1, 1)
     assert sorted(healpix_diameters) == [12.0, 25.0]
+
+
+def test_point_beam_rejects_missing_resolved_antenna_identity():
+    beam = visibility_module._ResolvedInstrumentAnalyticBeamJones(
+        diameters_by_antenna={4: 12.0, 9: 25.0},
+        source_altaz=np.array([[1.0, 0.0]]),
+        frequencies=FREQS,
+    )
+
+    with pytest.raises(InstrumentAdapterInvariantError, match="antenna number 7"):
+        beam._get_diameter_for_antenna(7)

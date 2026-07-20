@@ -24,13 +24,14 @@ from radiosim.io.config import (
     load_config,
 )
 from radiosim.io.config_resolution import (
-    AntennaLayoutOverride,
+    ConfigOverrideError,
     ConfigParseError,
     ConfigPathError,
     ConfigSchemaError,
     ConfigSemanticError,
     ConfigSourceError,
     ConfigurationSource,
+    InstrumentSourcePathOverride,
     SimulationOverrides,
     UnsupportedConfigError,
     WorkflowOverrides,
@@ -442,7 +443,7 @@ def test_invocation_directory_is_captured_once_for_overrides(tmp_path, monkeypat
         data,
         source=source,
         overrides=SimulationOverrides(
-            antenna_layout=AntennaLayoutOverride(path="override.txt")
+            instrument_source=InstrumentSourcePathOverride(path="override.txt")
         ),
         workflow_overrides=WorkflowOverrides(output_dir="override-output"),
     )
@@ -450,6 +451,118 @@ def test_invocation_directory_is_captured_once_for_overrides(tmp_path, monkeypat
     assert bundle.runtime.instrument.source.path == override_file
     assert bundle.workflow.output_dir == invocation_dir / "override-output"
     assert not bundle.workflow.output_dir.exists()
+
+
+def test_instrument_source_path_override_preserves_every_other_source_fact(tmp_path):
+    data = valid_config_mapping(tmp_path)
+    original = RadioSimConfig.model_validate(data).instrument
+    override_path = tmp_path / "replacement.txt"
+    override_path.write_text((tmp_path / "antennas.txt").read_text())
+
+    bundle = resolve_config(
+        data,
+        source=ConfigurationSource.for_mapping(
+            base_dir=tmp_path,
+            invocation_dir=tmp_path,
+        ),
+        overrides=SimulationOverrides(
+            instrument_source=InstrumentSourcePathOverride(path=override_path)
+        ),
+    )
+
+    assert bundle.runtime.instrument.source.path == override_path
+    assert bundle.runtime.instrument.source.format == original.source.format
+    assert (
+        bundle.runtime.instrument.source.telescope_name
+        == original.source.telescope_name
+    )
+    assert bundle.runtime.instrument.location == original.location
+    assert bundle.runtime.instrument.default_diameter_m == original.default_diameter_m
+    assert bundle.runtime.instrument.diameter_overrides == original.diameter_overrides
+
+
+def test_instrument_source_path_override_rejects_known_telescope_before_loading(
+    tmp_path,
+):
+    data = valid_config_mapping(tmp_path)
+    data["instrument"]["source"] = {
+        "kind": "known_telescope",
+        "name": "HERA",
+        "registry_policy": "offline",
+    }
+
+    with pytest.raises(
+        ConfigOverrideError,
+        match="overrides.instrument_source.path.*known-telescope",
+    ):
+        resolve_config(
+            data,
+            source=ConfigurationSource.for_mapping(
+                base_dir=tmp_path,
+                invocation_dir=tmp_path,
+            ),
+            overrides=SimulationOverrides(
+                instrument_source=InstrumentSourcePathOverride(
+                    path=tmp_path / "replacement.txt"
+                )
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("execution_offline", "registry_policy", "valid"),
+    [
+        (True, "offline", True),
+        (False, "offline", True),
+        (False, "allow_network", True),
+        (True, "allow_network", False),
+    ],
+)
+def test_execution_and_known_source_network_policy_matrix_is_pure(
+    tmp_path,
+    execution_offline,
+    registry_policy,
+    valid,
+):
+    data = valid_config_mapping(
+        tmp_path,
+        execution={"backend": "numpy", "offline": execution_offline},
+    )
+    data["instrument"]["source"] = {
+        "kind": "known_telescope",
+        "name": "HERA",
+        "registry_policy": registry_policy,
+    }
+    source = ConfigurationSource.for_mapping(
+        base_dir=tmp_path,
+        invocation_dir=tmp_path,
+    )
+
+    if not valid:
+        with pytest.raises(
+            ConfigSemanticError,
+            match="registry_policy='allow_network' requires execution.offline=false",
+        ):
+            resolve_config(data, source=source)
+        return
+
+    bundle = resolve_config(data, source=source)
+    assert bundle.runtime.execution.offline is execution_offline
+    assert bundle.runtime.instrument.source.registry_policy == registry_policy
+
+
+def test_public_path_override_names_the_instrument_source_not_legacy_layout():
+    import radiosim.io.config_resolution as config_resolution
+    from radiosim import io
+
+    assert "instrument_source" in SimulationOverrides.model_fields
+    assert "antenna_layout" not in SimulationOverrides.model_fields
+    assert hasattr(config_resolution, "InstrumentSourcePathOverride")
+    assert io.InstrumentSourcePathOverride is (
+        config_resolution.InstrumentSourcePathOverride
+    )
+    assert "InstrumentSourcePathOverride" in config_resolution.__all__
+    assert "AntennaLayoutOverride" not in config_resolution.__all__
 
 
 def test_complete_override_matrix_replaces_only_named_logical_values(tmp_path):

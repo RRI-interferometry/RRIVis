@@ -8,6 +8,8 @@ claim complete accelerator coverage for the full simulation workflow.
 """
 
 import logging
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -21,6 +23,7 @@ from astropy.time import TimeDelta
 
 # Import backend abstraction
 from radiosim.backends import ArrayBackend, get_backend
+from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
 
 # Import Jones matrix framework
 from radiosim.core.jones import (
@@ -42,6 +45,40 @@ from radiosim.core.polarization import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _ResolvedInstrumentAnalyticBeamJones(AnalyticBeamJones):
+    """Analytic beam whose antenna diameters are exact resolved identities."""
+
+    def __init__(
+        self,
+        *,
+        diameters_by_antenna: Mapping[int, float],
+        **kwargs: Any,
+    ) -> None:
+        if not diameters_by_antenna:
+            raise ValueError("diameters_by_antenna must not be empty")
+        exact_diameters = MappingProxyType(
+            {number: float(value) for number, value in diameters_by_antenna.items()}
+        )
+        self._resolved_diameters_by_antenna = exact_diameters
+
+        # The base class retains a scalar parameter for standalone homogeneous
+        # beam use. This private integration adapter overrides every diameter
+        # lookup, so the scalar is deliberately identity-neutral and unreachable.
+        super().__init__(
+            diameter=1.0,
+            diameter_per_antenna=dict(exact_diameters),
+            **kwargs,
+        )
+
+    def _get_diameter_for_antenna(self, ant_num: Any) -> float:
+        try:
+            return self._resolved_diameters_by_antenna[ant_num]
+        except KeyError as exc:
+            raise InstrumentAdapterInvariantError(
+                f"antenna number {ant_num!r} is absent from the resolved diameter map"
+            ) from exc
 
 
 def calculate_visibility(
@@ -330,7 +367,7 @@ def calculate_visibility(
             gauss_c_t = backend.asarray(gauss_c_t, dtype=backend.default_real_dtype)
 
         for freq_idx, (wavelength, freq) in enumerate(
-            zip(wavelengths, freqs, strict=False)
+            zip(wavelengths, freqs, strict=True)
         ):
             # Resolve Stokes at this observation frequency. Short-circuits to
             # nearest-channel lookup when per_channel_flux is populated;
@@ -550,16 +587,14 @@ def _build_jones_chain(
     else:
         beam_cfg = jones_config.get("beam", {})
 
-        antenna_diameter = float(instrument.diameters_m[0])
         diameter_map = {
             number: float(instrument.diameters_m[index])
             for index, number in enumerate(instrument.antenna_numbers)
         }
 
-        e_jones = AnalyticBeamJones(
+        e_jones = _ResolvedInstrumentAnalyticBeamJones(
             source_altaz=np.column_stack([alt_rad, az_rad]),
             frequencies=np.array([freq]),
-            diameter=antenna_diameter,
             aperture_shape=beam_cfg.get("aperture_shape", "circular"),
             taper=beam_cfg.get("taper", "gaussian"),
             edge_taper_dB=beam_cfg.get("edge_taper_dB", 10.0),
@@ -568,7 +603,7 @@ def _build_jones_chain(
             feed_params=beam_cfg.get("feed_params"),
             reflector_type=beam_cfg.get("reflector_type", "prime_focus"),
             magnification=beam_cfg.get("magnification", 1.0),
-            diameter_per_antenna=diameter_map,
+            diameters_by_antenna=diameter_map,
             aperture_params=beam_cfg.get("aperture_params"),
         )
     chain.add_term(e_jones)

@@ -12,7 +12,12 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from radiosim.core.runtime_config import FrozenMapping, ResolvedConfiguration
+from radiosim.core.runtime_config import (
+    FrozenMapping,
+    ResolvedBeamsConfig,
+    ResolvedConfiguration,
+    ResolvedSimulationConfig,
+)
 from radiosim.io.config_resolution import (
     ConfigurationSource,
     resolve_config,
@@ -205,3 +210,45 @@ def test_provenance_is_versioned_json_safe_and_workflow_distinguishable(tmp_path
     assert "object at 0x" not in encoded
     assert str(Path(tmp_path).resolve()) in encoded
     assert not hasattr(bundle.provenance, "to_json_dict")
+
+
+def test_resolved_runtime_rejects_nested_runtime_subclasses(tmp_path):
+    class MutableResolvedBeamsConfig(ResolvedBeamsConfig):
+        pass
+
+    runtime = resolved_config(tmp_path).runtime
+    mutable_beams = MutableResolvedBeamsConfig(
+        **{
+            name: getattr(runtime.beams, name)
+            for name in ResolvedBeamsConfig.__dataclass_fields__
+        }
+    )
+
+    with pytest.raises(TypeError, match="beams must be a ResolvedBeamsConfig"):
+        ResolvedSimulationConfig(
+            instrument=runtime.instrument,
+            beams=mutable_beams,
+            baseline_selection=runtime.baseline_selection,
+            sky_model=runtime.sky_model,
+            observation=runtime.observation,
+            frequency=runtime.frequency,
+            visibility=runtime.visibility,
+            execution=runtime.execution,
+        )
+
+
+def test_resolved_runtime_json_snapshot_rejects_nonfinite_values(tmp_path):
+    runtime = resolved_config(tmp_path).runtime
+    malformed = ResolvedSimulationConfig(
+        instrument=runtime.instrument,
+        beams=runtime.beams,
+        baseline_selection=runtime.baseline_selection,
+        sky_model=runtime.sky_model,
+        observation=runtime.observation,
+        frequency=runtime.frequency,
+        visibility=FrozenMapping({"nonfinite": float("nan")}),
+        execution=runtime.execution,
+    )
+
+    with pytest.raises(ValueError, match="finite"):
+        malformed.to_json_safe()

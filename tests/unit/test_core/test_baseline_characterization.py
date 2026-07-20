@@ -296,7 +296,10 @@ def test_healpix_solver_uses_canonical_vector_phase_and_exact_diameters(
     assert sorted(captured_diameters) == [12.0, 25.0]
 
 
-def test_point_beam_receives_complete_canonical_diameter_map(tmp_path, monkeypatch):
+def test_point_beam_receives_only_complete_canonical_diameter_map(
+    tmp_path,
+    monkeypatch,
+):
     captured: dict[str, object] = {}
 
     def capture_analytic_beam(**kwargs):
@@ -305,7 +308,7 @@ def test_point_beam_receives_complete_canonical_diameter_map(tmp_path, monkeypat
 
     monkeypatch.setattr(
         visibility_module,
-        "AnalyticBeamJones",
+        "_ResolvedInstrumentAnalyticBeamJones",
         capture_analytic_beam,
     )
 
@@ -322,8 +325,8 @@ def test_point_beam_receives_complete_canonical_diameter_map(tmp_path, monkeypat
         time_idx=0,
     )
 
-    assert captured["diameter"] == 12.0
-    assert captured["diameter_per_antenna"] == {1: 12.0, 2: 25.0}
+    assert "diameter" not in captured
+    assert captured["diameters_by_antenna"] == {1: 12.0, 2: 25.0}
 
 
 def test_memory_estimation_consumes_only_current_inventory_counts(tmp_path):
