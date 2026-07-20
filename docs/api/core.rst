@@ -28,11 +28,6 @@ Solver instrument adapter
 Baselines
 ---------
 
-.. automodule:: radiosim.core.baseline
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 .. automodule:: radiosim.core.baseline_resolution
    :members:
    :undoc-members:

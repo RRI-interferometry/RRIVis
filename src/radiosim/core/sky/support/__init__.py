@@ -13,9 +13,17 @@ from ..containers._shared import validate_frequency_axis
 from . import healpix_geometry
 from .frequencies import validate_observation_frequencies
 from .healpix_geometry import pixel_solid_angle
-from .point_builder import point_source_data_from_mapping
 from .precision import get_sky_storage_dtype, require_precision
 from .region_filter import apply_point_region_filter
+
+
+def __getattr__(name: str):
+    if name == "point_source_data_from_mapping":
+        from .point_builder import point_source_data_from_mapping
+
+        return point_source_data_from_mapping
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "healpix_geometry",

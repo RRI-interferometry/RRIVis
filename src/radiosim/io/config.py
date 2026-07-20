@@ -274,67 +274,6 @@ def _validate_nside(value: int) -> int:
     return value
 
 
-class TelescopeConfig(StrictFrozenModel):
-    """Telescope identity and currently unsupported pyuvdata opt-ins."""
-
-    telescope_name: str = "Unknown"
-    use_pyuvdata_telescope: bool = False
-    use_pyuvdata_location: bool = False
-    use_pyuvdata_antennas: bool = False
-    use_pyuvdata_diameters: bool = False
-
-    @field_validator("telescope_name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        return _nonblank(value, field_name="telescope_name")
-
-
-AntennaFileFormat = Literal[
-    "radiosim", "casa", "measurement_set", "uvfits", "mwa", "pyuvdata"
-]
-
-
-class AntennaLayoutConfig(StrictFrozenModel):
-    """Required antenna-layout input and deferred heterogeneous settings."""
-
-    antenna_positions_file: Path
-    antenna_file_format: AntennaFileFormat
-    all_antenna_diameter: PositiveFiniteFloat
-    use_different_diameters: bool = False
-    diameters: SerializableMapping[PositiveFiniteFloat] = Field(
-        default_factory=FrozenDict
-    )
-
-    @field_validator("antenna_positions_file", mode="before")
-    @classmethod
-    def validate_antenna_path(cls, value: Any) -> Any:
-        return _nonempty_path_input(value, field_name="antenna_positions_file")
-
-    @field_validator("diameters")
-    @classmethod
-    def freeze_diameters(cls, value: Mapping[str, PositiveFiniteFloat]) -> FrozenDict:
-        return _finite_number_map(value, positive=True)
-
-
-class FeedsConfig(StrictFrozenModel):
-    """Deferred receptor configuration retained for explicit rejection."""
-
-    use_polarized_feeds: bool = False
-    polarization_type: str = ""
-    use_different_polarization_type: bool = False
-    polarization_per_antenna: SerializableMapping[str] = Field(
-        default_factory=FrozenDict
-    )
-    use_different_feed_types: bool = False
-    all_feed_type: str = ""
-    feed_types_per_antenna: SerializableMapping[str] = Field(default_factory=FrozenDict)
-
-    @field_validator("polarization_per_antenna", "feed_types_per_antenna")
-    @classmethod
-    def freeze_string_maps(cls, value: Mapping[str, str]) -> FrozenDict:
-        return _freeze_dict(value)
-
-
 class BeamsConfig(StrictFrozenModel):
     """Analytic beam input plus explicitly unsupported future FITS controls."""
 
@@ -411,26 +350,6 @@ class BeamsConfig(StrictFrozenModel):
         if unknown:
             raise ValueError(f"unknown aperture parameter key(s): {unknown}")
         return _finite_number_map(value, positive=True)
-
-
-class _LegacyBaselineSelectionConfig(StrictFrozenModel):
-    """Deferred baseline selection with defaults matching generated baselines."""
-
-    use_autocorrelations: bool = True
-    use_crosscorrelations: bool = True
-    only_selective_baseline_length: bool = False
-    selective_baseline_lengths: tuple[PositiveFiniteFloat, ...] = ()
-    selective_baseline_tolerance_meters: NonNegativeFiniteFloat = 0.5
-    trim_by_angle_ranges: bool = False
-    selective_angle_ranges_deg: tuple[tuple[FiniteFloat, FiniteFloat], ...] = ()
-
-
-class LocationConfig(StrictFrozenModel):
-    """Required finite observatory location."""
-
-    lat: Annotated[float, Field(ge=-90.0, le=90.0, allow_inf_nan=False)]
-    lon: Annotated[float, Field(ge=-180.0, le=180.0, allow_inf_nan=False)]
-    height: NonNegativeFiniteFloat
 
 
 class SkyRegionEntryConfig(StrictFrozenModel):
@@ -2484,8 +2403,6 @@ def create_default_config(output_path: str | Path) -> None:
 
 
 __all__ = [
-    "AntennaFileFormat",
-    "AntennaLayoutConfig",
     "BaselineSelectionConfig",
     "BeamsConfig",
     "BbsSourceConfig",
@@ -2496,7 +2413,6 @@ __all__ = [
     "DiffuseSkySourceConfig",
     "ExecutionConfig",
     "ExplicitFrequencyConfig",
-    "FeedsConfig",
     "FitsImageSourceConfig",
     "FrequencyGridConfig",
     "FrozenDict",
@@ -2504,7 +2420,6 @@ __all__ = [
     "JonesPrecisionInput",
     "InstrumentConfig",
     "InstrumentLocationConfig",
-    "LocationConfig",
     "LotssSourceConfig",
     "MalsSourceConfig",
     "ObsFrequencyConfig",
@@ -2523,7 +2438,6 @@ __all__ = [
     "SkySourceConfig",
     "Skyh5MultifileSourceConfig",
     "StrictFrozenModel",
-    "TelescopeConfig",
     "TestSourcesConfig",
     "VisibilityConfig",
     "build_sky_region",

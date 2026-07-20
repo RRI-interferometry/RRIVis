@@ -15,7 +15,6 @@ import pytest
 import radiosim
 import radiosim.core as core
 import radiosim.core.instrument as instrument_module
-from radiosim.core.baseline import generate_baselines as legacy_generate_baselines
 from radiosim.core.baseline_resolution import (
     BaselineGenerationError,
     BaselineSelectionError,
@@ -417,7 +416,7 @@ def test_error_hierarchy_is_exact():
     assert EmptyBaselineSelectionError.__bases__ == (BaselineSelectionError,)
 
 
-def test_public_export_identity_is_narrow_and_legacy_binding_is_unchanged():
+def test_public_export_identity_is_narrow_and_legacy_binding_is_removed():
     model_names = tuple(model.__name__ for model in BASELINE_MODEL_FIELDS)
     for name in model_names:
         assert name in instrument_module.__all__
@@ -426,7 +425,10 @@ def test_public_export_identity_is_narrow_and_legacy_binding_is_unchanged():
         assert name not in radiosim.__all__
         assert not hasattr(radiosim, name)
 
-    assert core.generate_baselines is legacy_generate_baselines
+    assert not hasattr(core, "generate_baselines")
+    assert "generate_baselines" not in core.__all__
+    assert not hasattr(radiosim, "generate_baselines")
+    assert "generate_baselines" not in radiosim.__all__
     assert "generate_resolved_baselines" not in core.__all__
 
 

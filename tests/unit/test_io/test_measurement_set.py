@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 
 import numpy as np
@@ -14,6 +15,22 @@ from radiosim.api import Simulator
 from radiosim.io.measurement_set import write_ms
 from radiosim.io.writers import load_visibilities_hdf5, save_visibilities_hdf5
 from tests.fixtures.configs import valid_config_mapping
+
+
+def test_write_ms_exposes_only_canonical_instrument_inputs():
+    parameters = inspect.signature(write_ms).parameters
+
+    assert "instrument" in parameters
+    assert "selection" in parameters
+    for removed in (
+        "antennas",
+        "baselines",
+        "location",
+        "telescope_name",
+        "phase_center_ra",
+        "phase_center_dec",
+    ):
+        assert removed not in parameters
 
 
 class _FakeUVData:

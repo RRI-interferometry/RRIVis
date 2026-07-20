@@ -37,6 +37,18 @@ from radiosim.api.simulator import Simulator
 # Backend selection
 from radiosim.backends import get_backend, list_backends
 
+# Core functions and canonical instrument models
+from radiosim.core import (
+    AntennaFieldSource,
+    AntennaId,
+    AntennaProvenance,
+    InstrumentProvenance,
+    ResolvedAntenna,
+    ResolvedEarthLocation,
+    ResolvedInstrument,
+    calculate_visibility,
+)
+
 # Simulator selection
 from radiosim.simulator import (
     RIMESimulator,
@@ -48,35 +60,6 @@ from radiosim.simulator import (
 # Network & device utilities
 from radiosim.utils.device import get_device_resources
 from radiosim.utils.network import is_online
-
-# Core functions (for advanced users)
-# Note: These imports may fail until import updates are complete
-# They will be enabled once all modules are updated
-try:
-    from radiosim.core import (
-        calculate_visibility,
-        generate_baselines,
-        read_antenna_positions,
-    )
-
-    _CORE_AVAILABLE = True
-except ImportError:
-    _CORE_AVAILABLE = False
-    calculate_visibility = None
-    read_antenna_positions = None
-    generate_baselines = None
-
-# Canonical instrument models are required public exports. Keep this direct import
-# outside the legacy core-function compatibility guard.
-from radiosim.core import (
-    AntennaFieldSource,
-    AntennaId,
-    AntennaProvenance,
-    InstrumentProvenance,
-    ResolvedAntenna,
-    ResolvedEarthLocation,
-    ResolvedInstrument,
-)
 
 __all__ = [
     # Metadata
@@ -107,8 +90,6 @@ __all__ = [
     # Network & device utilities
     "is_online",
     "get_device_resources",
-    # Core functions (when available)
+    # Core functions
     "calculate_visibility",
-    "read_antenna_positions",
-    "generate_baselines",
 ]

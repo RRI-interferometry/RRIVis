@@ -391,12 +391,18 @@ def test_construction_crosses_no_runtime_output_plot_or_browser_boundary(
     monkeypatch.setattr(webbrowser, "open", forbidden)
     device_module = importlib.import_module("radiosim.utils.device")
     backends_module = importlib.import_module("radiosim.backends")
-    antenna_module = importlib.import_module("radiosim.core.antenna")
+    instrument_resolution_module = importlib.import_module(
+        "radiosim.core.instrument_resolution"
+    )
     network_module = importlib.import_module("radiosim.utils.network")
     parallel_module = importlib.import_module("radiosim.core.sky.operations.parallel")
     monkeypatch.setattr(device_module, "get_device_resources", forbidden)
     monkeypatch.setattr(backends_module, "get_backend", forbidden)
-    monkeypatch.setattr(antenna_module, "read_antenna_positions", forbidden)
+    monkeypatch.setattr(
+        instrument_resolution_module,
+        "resolve_instrument",
+        forbidden,
+    )
     monkeypatch.setattr(network_module, "get_network_status", forbidden)
     monkeypatch.setattr(parallel_module, "load_models_parallel", forbidden)
 

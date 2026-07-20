@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
@@ -150,35 +150,6 @@ def _require_absolute(path: Path | None, field_name: str) -> None:
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedTelescopeConfig:
-    """Resolved telescope identity and disabled future-source flags."""
-
-    telescope_name: str
-    use_pyuvdata_telescope: bool = False
-    use_pyuvdata_location: bool = False
-    use_pyuvdata_antennas: bool = False
-    use_pyuvdata_diameters: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedAntennaLayoutConfig:
-    """Resolved antenna-layout path and current uniform-diameter contract."""
-
-    antenna_positions_file: Path
-    antenna_file_format: str
-    all_antenna_diameter: float
-    use_different_diameters: bool = False
-    diameters: FrozenMapping = field(default_factory=FrozenMapping)
-
-    def __post_init__(self) -> None:
-        _require_absolute(
-            self.antenna_positions_file,
-            "antenna_positions_file",
-        )
-        object.__setattr__(self, "diameters", FrozenMapping(self.diameters))
-
-
-@dataclass(frozen=True, slots=True)
 class ResolvedBeamsConfig:
     """Resolved beam input without activating deferred FITS behavior."""
 
@@ -214,15 +185,6 @@ class ResolvedBeamsConfig:
             "aperture_params",
             FrozenMapping(self.aperture_params),
         )
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedLocationConfig:
-    """Resolved observatory location with unit-explicit field names."""
-
-    lat_deg: float
-    lon_deg: float
-    height_m: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,17 +444,14 @@ __all__ = [
     "FrozenMapping",
     "JsonValue",
     "PathResolutionProvenance",
-    "ResolvedAntennaLayoutConfig",
     "ResolvedBeamsConfig",
     "ResolvedConfiguration",
     "ResolvedExecutionConfig",
     "ResolvedFrequencyConfig",
-    "ResolvedLocationConfig",
     "ResolvedObservationConfig",
     "ResolvedSimulationConfig",
     "ResolvedSkyModelConfig",
     "ResolvedSkySourceRequest",
-    "ResolvedTelescopeConfig",
     "ValueOrigin",
     "freeze_runtime_value",
     "json_safe_mapping",

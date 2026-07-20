@@ -1236,12 +1236,11 @@ def test_public_exports_are_exact_and_share_object_identity():
         assert name in core.__all__
         assert name in radiosim.__all__
 
-    assert core.read_antenna_positions is not None
-    assert core.generate_baselines is not None
-    assert hasattr(radiosim, "read_antenna_positions")
-    assert hasattr(radiosim, "generate_baselines")
-    assert "read_antenna_positions" in radiosim.__all__
-    assert "generate_baselines" in radiosim.__all__
+    for removed in ("read_antenna_positions", "generate_baselines"):
+        assert not hasattr(core, removed)
+        assert removed not in core.__all__
+        assert not hasattr(radiosim, removed)
+        assert removed not in radiosim.__all__
 
 
 def test_private_helpers_are_not_exported():

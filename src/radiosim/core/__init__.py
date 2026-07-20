@@ -5,8 +5,6 @@ visibility simulation including antenna handling, baseline generation,
 beam patterns, source models, and the RIME visibility calculation.
 """
 
-from radiosim.core.antenna import read_antenna_positions
-from radiosim.core.baseline import generate_baselines
 from radiosim.core.instrument import (
     AntennaFieldSource,
     AntennaId,
@@ -42,17 +40,14 @@ from radiosim.core.runtime_config import (
     ConfigurationProvenance,
     FrozenMapping,
     PathResolutionProvenance,
-    ResolvedAntennaLayoutConfig,
     ResolvedBeamsConfig,
     ResolvedConfiguration,
     ResolvedExecutionConfig,
     ResolvedFrequencyConfig,
-    ResolvedLocationConfig,
     ResolvedObservationConfig,
     ResolvedSimulationConfig,
     ResolvedSkyModelConfig,
     ResolvedSkySourceRequest,
-    ResolvedTelescopeConfig,
 )
 from radiosim.core.sky import (
     C_LIGHT,
@@ -66,10 +61,6 @@ from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
 
 __all__ = [
-    # Antenna
-    "read_antenna_positions",
-    # Baseline
-    "generate_baselines",
     # Canonical instrument models
     "AntennaId",
     "AntennaFieldSource",
@@ -115,10 +106,7 @@ __all__ = [
     "FrozenMapping",
     "ConfigurationProvenance",
     "PathResolutionProvenance",
-    "ResolvedTelescopeConfig",
-    "ResolvedAntennaLayoutConfig",
     "ResolvedBeamsConfig",
-    "ResolvedLocationConfig",
     "ResolvedObservationConfig",
     "ResolvedFrequencyConfig",
     "ResolvedSkySourceRequest",

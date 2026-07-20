@@ -9,8 +9,6 @@ config
     Pydantic-based configuration management.
 writers
     Data output writers (HDF5, YAML).
-antenna_readers
-    Antenna layout file readers.
 measurement_set
     CASA Measurement Set I/O (requires python-casacore).
 """
@@ -22,30 +20,18 @@ from typing import Any, NoReturn
 from radiosim.core.runtime_config import (
     ConfigurationProvenance,
     PathResolutionProvenance,
-    ResolvedAntennaLayoutConfig,
     ResolvedBeamsConfig,
     ResolvedConfiguration,
     ResolvedExecutionConfig,
     ResolvedFrequencyConfig,
-    ResolvedLocationConfig,
     ResolvedObservationConfig,
     ResolvedSimulationConfig,
     ResolvedSkyModelConfig,
     ResolvedSkySourceRequest,
-    ResolvedTelescopeConfig,
 )
 
 # Configuration management
-# Antenna file readers
-from radiosim.io.antenna_readers import (
-    read_antenna_positions,
-    read_casa_format,
-    read_mwa_format,
-    read_pyuvdata_format,
-    read_radiosim_format,
-)
 from radiosim.io.config import (
-    AntennaLayoutConfig,
     BeamsConfig,
     CliWorkflowConfig,
     ConfigIssue,
@@ -161,7 +147,6 @@ __all__ = [
     "resolve_config",
     "dump_config",
     "create_default_config",
-    "AntennaLayoutConfig",
     "BeamsConfig",
     "SkyModelConfig",
     "FrequencyGridConfig",
@@ -184,10 +169,7 @@ __all__ = [
     "ConfigPathError",
     "ConfigurationProvenance",
     "PathResolutionProvenance",
-    "ResolvedTelescopeConfig",
-    "ResolvedAntennaLayoutConfig",
     "ResolvedBeamsConfig",
-    "ResolvedLocationConfig",
     "ResolvedObservationConfig",
     "ResolvedFrequencyConfig",
     "ResolvedSkySourceRequest",
@@ -198,12 +180,6 @@ __all__ = [
     # Writers
     "save_visibilities_hdf5",
     "load_visibilities_hdf5",
-    # Antenna readers
-    "read_antenna_positions",
-    "read_radiosim_format",
-    "read_casa_format",
-    "read_pyuvdata_format",
-    "read_mwa_format",
     # Measurement Set I/O
     "write_ms",
     "read_ms",

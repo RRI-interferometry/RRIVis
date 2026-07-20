@@ -72,8 +72,8 @@ Source lives in `src/radiosim/`. Key entry points:
 - **`visibility.py`** — Core RIME: `V_pq = Σ J_p @ C @ J_q^H` for point sources
 - **`visibility_healpix.py`** — RIME for HEALPix diffuse maps (requires a populated `sky.healpix` payload)
 - **`polarization.py`** — Stokes ↔ Coherency with 1/2 factor: `C = (1/2) × [[I+Q, U-iV], [U+iV, I-Q]]`
-- **`antenna.py`** — Reads antenna formats (radiosim, casa, measurement_set, uvfits, mwa, pyuvdata) via a local `format_readers` dispatch dict in `read_antenna_positions()` (`io/antenna_readers.py` is a thin re-export shim)
-- **`baseline.py`** — Generates antenna pair baselines
+- **`instrument.py` / `instrument_resolution.py`** — Canonical frozen instrument models and source-aware resolution; strict source loaders live in `io/instrument_sources.py`
+- **`baseline_resolution.py`** — Generates and selects canonical frozen baselines
 - **`observation.py`** — Observation context (time, location, pointing)
 - **`precision.py`** — `PrecisionConfig` with presets: `.standard()`, `.fast()`, `.precise()`, `.ultra()`
 

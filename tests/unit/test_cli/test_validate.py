@@ -34,11 +34,17 @@ def test_validate_uses_resolver_and_never_crosses_runtime_side_effects(
 
     device_module = importlib.import_module("radiosim.utils.device")
     network_module = importlib.import_module("radiosim.utils.network")
-    antenna_module = importlib.import_module("radiosim.core.antenna")
+    instrument_resolution_module = importlib.import_module(
+        "radiosim.core.instrument_resolution"
+    )
     parallel_module = importlib.import_module("radiosim.core.sky.operations.parallel")
     monkeypatch.setattr(device_module, "get_device_resources", forbidden_boundary)
     monkeypatch.setattr(network_module, "get_network_status", forbidden_boundary)
-    monkeypatch.setattr(antenna_module, "read_antenna_positions", forbidden_boundary)
+    monkeypatch.setattr(
+        instrument_resolution_module,
+        "resolve_instrument",
+        forbidden_boundary,
+    )
     monkeypatch.setattr(parallel_module, "load_models_parallel", forbidden_boundary)
     monkeypatch.setattr(webbrowser, "open", forbidden_boundary)
 
