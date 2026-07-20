@@ -2476,3 +2476,39 @@ The next authorized task is **Tier 3 design gate — beam and observability
 integration**. It must first turn the Tier 3 outline into an implementation-ready
 design with no unresolved beam or observability decisions. Tier 3 implementation is
 not authorized by this acceptance.
+
+### 2026-07-20 Tier 3 beam and observability design gate
+
+**Verdict: design complete and pending separate independent acceptance.** The
+implementation-ready architecture is recorded in
+[Tier3BeamObservabilityPlan.md](Tier3BeamObservabilityPlan.md). It selects a strict
+four-mode beam schema, complete canonical assignments to Tier 2 antenna identity, one
+Simulator-local `BeamSystem`, the validated scalar BeamFITS subset, one Jones RIME for
+both visibility solvers, a minimum baseline-product NSIDE advisor, and sibling
+observability planning with an explicit reference antenna whenever scientific beam
+fingerprints differ.
+
+Implementation is split into Tier 3A through 3I: dependency characterization,
+strict schema/path replacement, immutable assignment resolution, BeamFITS validation,
+BeamSystem lifecycle/deduplication, shared solver integration, observability
+integration, NSIDE/provenance/legacy cleanup, and independent whole-tier acceptance.
+Every slice has exact writable files, tests-first evidence, verification commands,
+stop conditions, one narrow conventional commit, and a separate acceptance gate.
+
+The pre-design focused baseline collected 205 tests in each environment. Python
+3.11.13 reported 204 passed, one optional mounted-data skip, two known warnings, and
+zero xfails; Python 3.12.13 reported 200 passed, five optional mounted-data/JAX skips,
+two known warnings, and zero xfails. Ruff lint and formatting passed. Pyright 1.1.408
+reported 4,135 diagnostics in both environments under the unchanged 4,600 ceiling.
+A clean tracked-source Sphinx build succeeded with the accepted 40 classified events;
+the live tree had two additional events caused only by local ignored documents. The
+full suite, remote CI, physical GPU hardware, external network/registry behavior, and
+optional mounted Vivaldi data remain unobserved.
+
+No production, test, configuration, dependency, example, workflow, or generated file
+was changed, and no implementation slice was started. `BEAM-001`, `BEAM-002`, and
+`BEAM-003` remain **OPEN**; `OBS-001` remains **OPEN**; and `OBS-002` remains
+**DECISION**. The selected designs close no issue. Separate design acceptance may
+move `OBS-002` to **OPEN**; only independent whole-tier implementation acceptance may
+mark any of the five issues done. Tier 3A is authorized only after a separate
+independent acceptance of this design gate.
