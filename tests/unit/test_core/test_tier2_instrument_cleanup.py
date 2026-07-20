@@ -12,6 +12,7 @@ import pytest
 import radiosim
 import radiosim.core as core
 import radiosim.core.instrument as instrument_models
+import radiosim.core.instrument_resolution as instrument_resolution
 import radiosim.core.runtime_config as runtime_config
 import radiosim.io as io
 import radiosim.io.config as input_config
@@ -202,3 +203,33 @@ def test_active_input_and_runtime_configuration_exports_remain_intact() -> None:
         assert name in runtime_config.__all__
         assert name in core.__all__
         assert name in io.__all__
+
+
+def test_active_tier2_truth_surfaces_describe_only_the_live_architecture() -> None:
+    repository_root = Path(radiosim.__file__).resolve().parents[2]
+    contributor_guide = (repository_root / "CLAUDE.md").read_text(encoding="utf-8")
+    rendered_docstrings = "\n".join(
+        (
+            instrument_config.__doc__ or "",
+            instrument_resolution.__doc__ or "",
+        )
+    )
+
+    for removed_path in (
+        "core/antenna.py",
+        "core/baseline.py",
+        "io/antenna_readers.py",
+    ):
+        assert removed_path not in contributor_guide
+
+    assert "RadioSimConfig.validate()" not in contributor_guide
+    assert "`telescope`, `antenna_layout`" not in contributor_guide
+    assert "--telescope-name" in contributor_guide
+    assert "--default-diameter-m" in contributor_guide
+
+    for stale_claim in (
+        "intentionally inactive",
+        "future Tier 2 input contract",
+        "remain later Tier 2 slices",
+    ):
+        assert stale_claim not in rendered_docstrings

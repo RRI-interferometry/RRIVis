@@ -2,8 +2,7 @@
 
 Source loading first produces the accepted diameter-incomplete Tier 2D staging
 inventory.  Tier 2E then applies identity and diameter precedence and freezes a
-complete canonical instrument.  Baselines and Simulator integration remain later
-Tier 2 slices.
+complete canonical instrument for baseline generation and Simulator integration.
 """
 
 from __future__ import annotations

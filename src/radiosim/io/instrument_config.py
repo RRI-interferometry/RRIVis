@@ -1,8 +1,7 @@
-"""Strict, frozen Tier 2 instrument and baseline-selection inputs.
+"""Strict, frozen instrument and baseline-selection input models.
 
-These value models are intentionally inactive.  They define the future Tier 2
-input contract without changing the current top-level configuration, resolver,
-CLI, Simulator, or runtime behavior.
+These models define the active top-level instrument contract used by configuration,
+resolution, CLI, and Simulator entry points.
 """
 
 from __future__ import annotations

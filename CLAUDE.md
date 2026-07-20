@@ -40,7 +40,7 @@ pixi run typecheck                                   # Type check (mypy)
 pixi run radiosim --config config.yaml                 # Run simulation from YAML
 pixi run radiosim validate config.yaml                 # Validate config
 pixi run radiosim init                                 # Generate config template
-pixi run radiosim simulate --antenna-layout X --frequencies 100,150,200  # CLI simulate mode
+pixi run radiosim simulate --antenna-layout antenna_layout_examples/hera_5.txt --frequencies 100,150,200 --telescope-name HERA --default-diameter-m 14 --latitude -30.7 --longitude 21.4 --height 1073 --start-time 2025-01-01T00:00:00
 ```
 
 Shorthand pixi tasks: `pixi run test`, `pixi run lint`, `pixi run fix`, `pixi run format`, `pixi run typecheck`.
@@ -153,7 +153,8 @@ To add a new Jones term: extend `JonesTerm` (or `JonesBaselineTerm`), implement 
 ### I/O (`io/`)
 
 - `config.py` — Pydantic v2 config models, top-level `RadioSimConfig`, loaded via `load_config()`
-- `antenna_readers.py` — thin re-export shim for the readers in `core/antenna.py`
+- `instrument_config.py` — strict frozen instrument and baseline-selection inputs
+- `instrument_sources.py` — strict loaders for local layouts, datasets, and known telescopes
 - `writers.py` / `readers.py` — HDF5/YAML simulation I/O
 - `measurement_set.py` — CASA Measurement Set export (requires python-casacore)
 - `fits_utils.py` — FITS file utilities
@@ -187,6 +188,6 @@ approval.
 
 ## Configuration
 
-YAML config validated by Pydantic. See `configs/` for examples. Sections checked by `RadioSimConfig.validate()` (the pre-flight collector): `telescope`, `antenna_layout`, `beams` (`beam_mode`), `location`, `obs_time`, `obs_frequency`, `sky_model`, `visibility` (`sky_representation`), `output`. **`sky_model.flux_unit`** is required (Jy/mJy/uJy) — all flux limits in config use this unit. Config classes in `io/config.py`, top-level is `RadioSimConfig`.
+YAML config is validated by the strict Pydantic `RadioSimConfig` model and resolved by `load_config()`. Its top-level sections are `instrument`, `beams`, `baseline_selection`, `sky_model`, `obs_time`, `obs_frequency`, `visibility`, `execution`, and `workflow`. The `instrument` section selects exactly one typed source and owns location and diameter precedence; `baseline_selection` owns the canonical correlation, length, and axial-azimuth filters. See `configs/` for complete examples.
 
 TODO: Add an explicit contributor note that pre-`v1.0` API/config refactors should not preserve backward compatibility by default; prefer moving directly to the cleaner replacement unless a deprecation path is explicitly requested.
