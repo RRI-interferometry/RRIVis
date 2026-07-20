@@ -4,7 +4,7 @@
 
 | Item | Design-gate value |
 |---|---|
-| Date | 2026-07-20 |
+| Date | 2026-07-21 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
 | Starting HEAD | `8045bb49956ac7f4c04063fb1f9fb9d5928d5d8c` |
@@ -179,7 +179,7 @@ The exact live production reads are:
   `APERTURE_SHAPES`, `TAPER_FUNCTIONS`, `FEED_MODELS`, and `REFLECTOR_TYPES` are
   mutable registries.
   Canonical Tier 3 runtime never calls those boundaries. The wrapper/composed/plotting
-  surfaces and registries are deleted in 3H; pure numeric aperture, taper, feed-pattern,
+  surfaces and registries are deleted in 3H.2; pure numeric aperture, taper, feed-pattern,
   and reflector-geometry functions remain.
 - The strict schema/unsupported collector reads `beam_mode` and every declared FITS
   control; resolution copies them into `ResolvedBeamsConfig`. Simulator reads the
@@ -225,11 +225,19 @@ environments:
 
 - `UVBeam.read_beamfits(path, freq_range=..., az_range=..., za_range=...)` mutates the
   object and returns `None`. Tier 3 passes no partial ranges.
+- `UVBeam.write_beamfits(path, clobber=...)` writes the object and returns `None`;
+  deterministic fixtures use `clobber=True` only inside fresh `tmp_path` targets.
+- The public `UVBeam.new(**kwargs)` wrapper and `read_beamfits`/`write_beamfits`
+  wrappers intentionally expose dependency keywords through `**kwargs`; contract tests
+  pin the underlying 3.2.1 accepted names rather than copying wrapper signatures into
+  RadioSim public APIs.
 - `UVBeam.interp` supports `az_za_simple`, `az_za_map_coordinates`, and
   `healpix_simple`. Tier 3 exposes only `bilinear`, implemented as
   `az_za_simple` with `spline_opts={"kx": 1, "ky": 1, "s": 0}`.
 - `UVBeam.interp(..., return_basis_vector=False)` still returns a two-item tuple
   `(data, None)`. E-field data shape is `(Naxes_vec, Nfeeds, Nfreq, Npoint)`.
+  With `return_basis_vector=True`, the second item has shape
+  `(Naxes_vec, Ncomponents_vec, Npoint)`.
 - For E-field objects `feed_array` is populated and `polarization_array` is absent;
   power objects invert that contract and are rejected. A regular az/ZA object uses
   `axis1_array` for azimuth and `axis2_array` for ZA, while `pixel_array`, `nside`, and
@@ -244,10 +252,15 @@ environments:
 - Frequency interpolation defaults to cubic. Exact intrinsic channels are selected as
   nearest values inside pyuvdata's tolerance. Tier 3 supplies a fixed `1e-6 Hz`
   tolerance, so only floating-point-equivalent channels snap; all other in-domain
-  values use the configured linear or cubic interpolation.
+  values use the configured linear or cubic interpolation. The comparison is strict:
+  a nearest distance below `1e-6 Hz` snaps, while exactly `1e-6 Hz` interpolates. At
+  the supported radio frequencies this absolute tolerance is roughly `1e-14`
+  relative; it absorbs only binary/FITS representation noise around the exact-Hz
+  configuration contract and is not a user-visible frequency bin.
 - Cubic interpolation needs at least four intrinsic channels for a non-exact target;
   linear needs at least two. The loader validates this against every observation
-  channel before setup succeeds.
+  channel before setup succeeds. It passes `freq_interp_kind` explicitly and never
+  falls back from cubic to linear.
 - Out-of-frequency-domain interpolation raises `ValueError`.
 - pyuvdata's az/ZA domain check permits a margin of twice the larger native grid step;
   `az_za_simple` can therefore extrapolate. Tier 3 performs exact RadioSim-owned
@@ -258,12 +271,17 @@ environments:
 - `peak_normalize()` mutates `data_array`, changes `data_normalization` to `peak`, and
   moves the former per-frequency peak into `bandpass_array`. Tier 3 never calls it;
   normalization must already be scientifically explicit in the file.
-- Interpolation returns host NumPy `complex128`. Backend casting is a RadioSim
-  responsibility.
+- BeamFITS round trips preserve native `complex64` and `complex128`. Interpolation
+  returns host NumPy `complex128` for both, so the native dtype is provenance while
+  backend casting is a RadioSim responsibility. Tier 3 records the native dtype,
+  accepts finite complex data at either width, and canonicalizes the private owned
+  data to `complex128` after native validation; it does not claim that upcasting
+  restores source information.
 - A controlled generated BeamFITS round-trip preserved shape
   `(2, 2, 4, 5, 8)`, X/Y feeds, identity basis, frequencies, and regular az/ZA axes.
-  Partial reads changed the number of channels/grid rows exactly as requested, which
-  confirms why Tier 3 avoids partial reads.
+  Partial reads using Hz frequency ranges and degree azimuth/ZA ranges changed the
+  number of channels/grid rows exactly as requested, which confirms why Tier 3 avoids
+  partial reads.
 - `UVBeam.new` in 3.2.1 contains an initializer defect when an explicit `az_za`
   coordinate literal is supplied before internal assignment. The deterministic test
   fixture omits that redundant argument, then asserts the created coordinate system.
@@ -293,10 +311,20 @@ is part of the contract and provenance seam. The return shape is `(N, 2, 2)`, ro
 receptors `(X, Y)`, columns are RadioSim's transverse linear sky basis, and dtype is
 the resolved beam Jones dtype. `backend=None` returns owned read-only host NumPy and is
 the only pre-setup observability path; solvers pass their one resolved backend. A scalar
-direction is represented by length-one arrays, not scalar coordinate inputs. Accepted
-Tier 3 responses are exactly `e I_2`; they
-commute with every basis rotation, which makes the existing sky-basis limitation
-scientifically harmless for this subset.
+direction is represented by length-one arrays, not scalar coordinate inputs.
+
+Pyuvdata stores E-field samples as `E[a, f]`, where `a` indexes the beam's vector
+axis, `f` indexes feeds, and `basis_vector_array[a, c]` maps that vector axis into the
+sky coordinate component `c`. RadioSim therefore forms
+`J[f, c] = sum_a E[a, f] * basis[a, c]`, equivalently
+`J = data.transpose(1, 0) @ basis`, with no conjugation. The accepted identity basis
+reduces this to the planned transpose. Fixed mount, exact X/Y feed order and angles,
+and east X orientation pin the receptor metadata; the scalar requirement then gives
+exactly `e I_2`, which commutes with any sky-basis rotation. This removes rather than
+silently assumes Tier 5 basis/feed physics. A direction-dependent complex scalar phase
+is meaningful: it cancels for identical antenna responses but produces the required
+`e_p conjugate(e_q)` differential phase for heterogeneous antennas. The same Jones
+equation applies unchanged to I/Q/U/V coherencies and to point and HEALPix solvers.
 
 Both point and HEALPix paths use
 
@@ -340,14 +368,22 @@ A BeamFITS source is accepted only when every condition below passes:
 6. `Naxes_vec == 2`, `Ncomponents_vec == 2`, and the stored basis is finite and the
    identity at every native point within `rtol=0`, `atol=1e-12`.
 7. `data_normalization == "peak"`; `bandpass_array` is finite and equals one within
-   `rtol=0`, `atol=1e-12`.
-8. Native data is finite `complex128` with shape `(2, 2, Nfreq, Nza, Naz)`.
+   the dtype-derived normalization tolerance below. Pyuvdata peak normalization can
+   legitimately move direction-independent spectral amplitude into this array; Tier
+   3 intentionally rejects that amplitude because E owns only the normalized
+   direction-dependent primary beam and Tier 7 owns the B-Jones bandpass term.
+8. Native data is finite `complex64` or `complex128` with shape
+   `(2, 2, Nfreq, Nza, Naz)`. The source dtype is recorded before private owned data
+   is canonicalized to `complex128` for validation and interpolation.
 9. After forming `J[feed, sky_component] = data[sky_component, feed]`, off-diagonal
-   entries are zero and the diagonals agree at every native point within
-   `atol=1e-12 + 1e-10 * max(abs(J))`.
+   entries are zero and the diagonals agree at every native point. For native real
+   component epsilon `eps`, the recorded tolerances are
+   `atol=max(1e-12, 32*eps)` and `rtol=max(1e-10, 32*eps)`; the bound is
+   `atol + rtol * max(abs(J))`.
 10. At every intrinsic frequency, the finite positive maximum of `abs(e)` across the
-    visible native grid equals one within `rtol=0`, `atol=1e-12`. A peak label without
-    peak-valued data is rejected.
+    visible native grid equals one within `rtol=0` and
+    `normalization_atol=max(1e-12, 32*eps)`. The same tolerance applies to the unit
+    bandpass check. A peak label without peak-valued data is rejected.
 11. Frequency values are finite, positive, unique, and strictly increasing; every
     observation channel is inside the closed native interval.
 12. Azimuth and ZA axes are finite, strictly increasing, and regularly spaced.
@@ -379,11 +415,11 @@ coordinates, or a visible point outside validated file coverage raise typed erro
 | phased-array UVBeam/coupling | reject | post-Tier-8 advanced-beam expansion gate |
 | non-fixed mounts | reject | post-Tier-8 mount/pointing expansion gate |
 | physical or solid-angle normalization | reject | post-Tier-8 normalization gate; bandpass ownership is ambiguous |
-| non-unit bandpass on a peak beam | reject | post-Tier-8 normalization/B-Jones gate |
+| non-unit bandpass on a peak beam | reject | Tier 7 B-Jones owns direction-independent spectral response; Tier 3 E-Jones does not consume it |
 | partial ZA/frequency loads | reject | Tier 6 performance work; complete axes support deterministic science checks |
 | files not reaching the horizon | reject | no implicit zero/extrapolated visible-sky region |
 | NaN/Inf metadata, native values, or interpolated values | reject | fail-closed scientific validity |
-| `float128`/`complex256` FITS requests | reject | pyuvdata interpolation supplies only `complex128` information |
+| resolved beam dtype `complex256` (the `float128` precision leaf) | reject | information/provenance ceiling: accepted files contain at most `complex128`, and pyuvdata interpolation supplies `complex128`; upcasting cannot add source information |
 
 ## 11. Selected strict input schema
 
@@ -597,9 +633,11 @@ It does not flatten the union or emit resolved absolute paths.
 - Absolute paths need no base.
 - No beam-specific call-site override is introduced. `SimulationOverrides` therefore
   cannot partially replace nested beam state.
-- Existing path policy expands `~`, rejects environment-variable syntax, normalizes
-  symlinks, requires an existing regular readable file, and records authored path,
-  normalized absolute path, base, source kind, and symlink resolution.
+- The Tier 1 path policy expands `~`, rejects environment-variable syntax, normalizes
+  symlinks, and already requires an existing regular file. Tier 3B adds the explicit
+  readability preflight and `input_path_unreadable` code at that common resolver
+  boundary; it records authored path, normalized absolute path, base, source kind,
+  and symlink resolution.
 - Every nested shared or assignment path receives its indexed logical path, such as
   `beams.assignments[2].beam.path`.
 - Resolution performs no UVBeam import or read. Schema/path errors still precede
@@ -785,6 +823,7 @@ zenith_angle_max_rad: float
 basis_tolerance: float
 scalar_absolute_tolerance: float
 scalar_relative_tolerance: float
+normalization_absolute_tolerance: float
 ```
 
 `LoadedBeamHandlerState` fields:
@@ -890,6 +929,14 @@ load_beam_system(
 ) -> BeamSystem
 ```
 
+It is public because advanced solver/observability callers need one validated,
+antenna-aware Jones service rather than a second manager protocol. Public status does
+not expose construction freedom: only `load_beam_system` can create it, its class
+rejects subclassing, it accepts no injected assignment map or handler, and its mutable
+UVBeam/lock/runtime ownership stays private. The service has Simulator lifetime,
+read-only immutable state properties, serialized per-handler evaluation, concurrent
+independent-handler evaluation, and no close/reload/mutate operation.
+
 The private `_load_beam_system(..., loader: _UVBeamLoaderProtocol)` supplies the test
 seam; a private parameter never leaks into the public signature. Public properties
 expose `state: LoadedBeamState` and no mutable internals. Its exact public operation is
@@ -968,6 +1015,14 @@ The compared stat identity is exactly `(st_dev, st_ino, st_size, st_mtime_ns,
 st_ctime_ns)`. The snapshot is `beam.beamfits` with mode `0o600` inside a private
 `TemporaryDirectory(prefix="radiosim-beam-")`; its directory object is owned by the
 one load call and cleanup failure is chained as `BeamFileReadError` before publication.
+
+Path resolution records transport identity but does not freeze file bytes. A file
+changed after resolution and before the load begins is valid input to that load; the
+bytes actually snapshotted and hashed are authoritative provenance. A change during
+snapshot/read/validation is the typed race failure above. A change after successful
+publication does not mutate the loaded BeamSystem: repeated setup/planning reuses its
+owned validated data, while a new Simulator performs a new load and records the new
+content hash.
 
 Analytic evaluator keys include the complete analytic definition plus the effective
 aperture dimensions for that antenna. Equal analytic science shares an evaluator;
@@ -1133,12 +1188,16 @@ correlation extraction.
   `PrecisionConfig`; no unconditional `complex128` literal remains in the canonical
   analytic path.
 - FITS validation and interpolation are explicitly host-side NumPy/pyuvdata work.
-  The interpolated host result is `complex128`, checked, then cast once to host
-  `complex64`/`complex128` when `backend=None`, or through `backend.asarray` to the
-  same resolved beam dtype when a backend is supplied.
-- FITS plus requested beam `float128` fails before device inspection with
-  `UnsupportedBeamPrecisionError`; casting `complex128` to `complex256` would not add
-  information.
+  Native `complex64`/`complex128` provenance is retained, private data is
+  canonicalized to `complex128`, and the interpolated host result is `complex128`.
+  It is checked, then cast once to host `complex64`/`complex128` when `backend=None`,
+  or through `backend.asarray` to the same resolved beam dtype when a backend is
+  supplied. Upcasting a `complex64` source is allowed but its lower information width
+  remains explicit in provenance.
+- FITS plus requested beam `float128`/`complex256` fails before device inspection with
+  `UnsupportedBeamPrecisionError`. This is an information/provenance ceiling, not a
+  hidden backend limitation: accepted files and pyuvdata interpolation provide at
+  most `complex128`, so a wider result dtype would not add source information.
 - JAX and Numba receive values on their selected backend after host interpolation;
   observability receives host NumPy without initializing either backend.
   The documentation states this transfer and makes no complete-GPU or speed claim.
@@ -1174,10 +1233,15 @@ visible hemisphere, the great-circle horizontal neighbor distance is
 
 The native angular sample bound is
 `delta_native = min(delta_za, all positive delta_az(z))`; the conservative voltage
-feature period is `s_p = 2 delta_native`. The zenith row is excluded because its
-azimuth cells represent the same direction. This grid-derived bound does not assume
-radial symmetry, one lobe, or a meaningful FWHM, so it covers asymmetric and
-multi-lobed data. Invalid or degenerate grids already fail FITS loading.
+representation period is `s_p = 2 delta_native`, the Nyquist period of the densest
+native direction samples. The zenith row is excluded because its azimuth cells
+represent the same direction. This is a conservative bound for the sampled/interpolated
+representation RadioSim actually evaluates, not a measurement or proof of the true
+physical beam's spatial bandwidth. The grid cannot reveal already aliased sub-grid
+physics, and polar azimuth convergence can make the recommendation much finer than
+the beam's real features. The accepted-file producer owns adequacy of the native
+sampling; Tier 3 uses the bound because it does not assume radial symmetry, one lobe,
+or a meaningful FWHM. Invalid or degenerate grids fail FITS loading.
 
 For each selected canonical baseline `(p,q)` and every exact observation frequency,
 the product bandwidth adds. Its feature scale is
@@ -1186,13 +1250,22 @@ the product bandwidth adds. Its feature scale is
 s_{pq}(\nu)=\left(s_p(\nu)^{-1}+s_q(\nu)^{-1}\right)^{-1}.
 \]
 
-The advisor selects `s_min` over every selected baseline/frequency. This naturally
+The advisor selects `s_min` over every selected canonical baseline/frequency. Only
+baselines retained by Tier 2 selection affect the simulated integrand, so rejected
+baselines must not influence the recommendation. This naturally
 selects the highest relevant frequency and largest analytic aperture, combines mixed
 FITS/analytic assignments, and handles autocorrelations without choosing an antenna.
+Tier 2 guarantees a nonempty selection; an auto-only selection evaluates every
+selected `(p,p)` product with the same formula. A forged empty selection or any
+missing/nonfinite/nonpositive handler scale raises
+`BeamSamplingDerivationError` before sky/network work.
 The required HEALPix pixel resolution is `s_min / 5`; five is the exact retained
-safety factor. `recommend_nside_for_beam` is renamed
+safety factor. It is an explicit engineering oversampling margin, not a claim that the
+grid-derived representation is strictly band-limited. `recommend_nside_for_beam` is renamed
 `recommend_nside_for_angular_scale`, returns the smallest power-of-two NSIDE whose
-`healpy.nside2resol` satisfies that bound, and rejects invalid inputs.
+`healpy.nside2resol` satisfies that bound up to NSIDE `65536`, and raises `ValueError`
+for invalid inputs or an unsatisfied finer target instead of returning a capped but
+insufficient value.
 
 The advisor never changes user input. It warns when a requested or loaded NSIDE is
 coarser and includes this deterministic text:
@@ -1206,8 +1279,10 @@ nside={recommended}; the requested NSIDE is unchanged.
 
 `BeamSamplingRequirement` is frozen and stores the actual/recommended NSIDE, feature
 and limit, baseline AntennaIds, frequency, both handler IDs, metric kind, and safety
-factor. No broad catch exists. A failure to derive a scale is a beam-load validity
-error before sky/network work; an otherwise valid but coarse user NSIDE is advisory.
+factor. Its FITS metric kind is `native_grid_representation_bound`, not physical
+bandwidth. No broad catch exists. A failure to derive a scale is
+`BeamSamplingDerivationError` before sky/network work; an otherwise valid but coarse
+user NSIDE is advisory.
 
 ## 24. Observability sibling architecture
 
@@ -1316,7 +1391,7 @@ UTCObservabilityWindow(
     kind: Literal["utc"],
     start_time_iso: str,
     duration_seconds: float,
-    source: Literal["resolved_utc", "explicit_utc"],
+    source: Literal["resolved_utc"],
 )
 LSTObservabilityWindow(
     kind: Literal["lst"],
@@ -1324,16 +1399,23 @@ LSTObservabilityWindow(
     end_hours: float,
     wraps_midnight: bool,
     source: Literal["explicit_lst"],
+    beam_evaluation_time_mjd: float,
 )
 ObservabilityWindow = UTCObservabilityWindow | LSTObservabilityWindow
 ```
 
 UTC duration is finite and positive. LST endpoints are finite in `[0,24)` and
 `wraps_midnight` must equal `end_hours < start_hours`.
+`beam_evaluation_time_mjd` is finite. It is required because an LST-only window has no
+unique UTC instant while the evaluator contract has an explicit time seam; accepted
+fixed Tier 3 beams ignore it, but provenance may not invent a UTC mapping.
 
 Passing only one LST endpoint is invalid. An explicit complete LST pair replaces the
-UTC window and records `source="explicit_lst"`; otherwise the resolved observation is
-used with `source="resolved_utc"`.
+UTC window and records `source="explicit_lst"`; `Simulator` supplies the resolved
+observation start MJD as its deterministic evaluation seam. An advanced planner caller
+must provide the field explicitly. Otherwise the resolved observation is used with
+`source="resolved_utc"`. There is no `explicit_utc` source because no public Tier 3
+API accepts an independent UTC start/end pair.
 
 Public frozen/slotted `ObservabilityOptions` has these fields in order:
 
@@ -1345,7 +1427,7 @@ field_radius_deg: float | None = None
 mode: Literal["summary", "snapshots"] = "summary"
 snapshot_step_seconds: float = 3600.0
 footprint_step_seconds: float = 60.0
-beam_time_reference: Literal["start", "midpoint", "end"] | float = "midpoint"
+beam_time_reference: Literal["start", "midpoint", "end"] = "midpoint"
 beam_contour_min_db: float = -40.0
 beam_contour_max_db: float = 0.0
 grid_resolution_deg: float = 1.0
@@ -1360,8 +1442,8 @@ Step sizes and grid resolution are finite and positive; grid resolution is at mo
 10 degrees. Contour limits are finite with `min < max <= 0`. Source counts are strict
 nonnegative integers, `top_n_sources` and `nearby_source_count` do not exceed
 `max_point_sources`, and nearby buffer is finite in `[0,180]`. Footprint/radius
-co-validation follows Section 25. A numeric `beam_time_reference` is a finite LST hour
-in `[0,24)` inside the resolved window.
+co-validation follows Section 25. The old numeric `beam_reference` selector is removed
+rather than retained as an ambiguous LST-to-UTC mapping.
 
 `Simulator.plan_observability` has explicit typed keywords and no `**kwargs`:
 
@@ -1378,7 +1460,7 @@ plan_observability(
     mode: Literal["summary", "snapshots"] = "summary",
     snapshot_step_seconds: float = 3600.0,
     footprint_step_seconds: float = 60.0,
-    beam_time_reference: Literal["start", "midpoint", "end"] | float = "midpoint",
+    beam_time_reference: Literal["start", "midpoint", "end"] = "midpoint",
     beam_contour_min_db: float = -40.0,
     beam_contour_max_db: float = 0.0,
     grid_resolution_deg: float = 1.0,
@@ -1509,7 +1591,7 @@ observation_start_iso: str | None
 observation_end_iso: str | None
 lst_start_hours: float | None
 lst_end_hours: float | None
-window_source: Literal["resolved_utc", "explicit_utc", "explicit_lst"]
+window_source: Literal["resolved_utc", "explicit_lst"]
 track_labels: tuple[str, ...]
 track_time_isos: tuple[str | None, ...]
 track_lst_hours: np.ndarray
@@ -1528,7 +1610,9 @@ snapshots: tuple[ObservabilitySnapshot, ...]
 source_metrics: ObservabilitySourceMetrics | None
 beam_projection: BeamSkyProjection
 beam_contours: tuple[BeamContour, ...]
-beam_time_reference: Literal["start", "midpoint", "end"] | float
+beam_time_reference: Literal["start", "midpoint", "end"]
+beam_time_reference_lst_hours: float
+beam_time_reference_mjd: float
 beam_time_reference_ra_deg: float
 beam_state_fingerprint: str
 reference_antenna: AntennaId
@@ -1539,6 +1623,14 @@ reference_selection_reason: Literal[
 ]
 power_convention: Literal["half_trace_unpolarized"]
 ```
+
+For a UTC window, `start`, `midpoint`, and `end` select the exact UTC instant at
+offset `0`, `duration/2`, or `duration`; MJD and LST are derived from that instant.
+For an explicit LST window, they select the forward start, circular midpoint, or end
+of the possibly wrapped LST arc. Its recorded MJD is the window's explicit
+`beam_evaluation_time_mjd`, and no UTC ISO is fabricated. The selected LST, MJD, and
+derived zenith RA are recorded in the plan. This seam is scientifically inert for the
+accepted fixed beams but is deterministic and complete.
 
 Every ndarray in the plan, snapshots, metrics, projection, contours, and nested tuple
 is copied into owned C-contiguous storage and marked non-writeable before publication;
@@ -1560,6 +1652,7 @@ compute_drift_scan_lightcurve(
     location: ResolvedEarthLocation,
     frequency_hz: float,
     lst_hours: np.ndarray,
+    beam_evaluation_time_mjd: float,
     area_normalize: bool = False,
 ) -> DriftScanLightcurve
 ```
@@ -1573,6 +1666,7 @@ mean_brightness: np.ndarray | None
 horizon_masked: Literal[True]
 frequency_hz: float
 nside: int
+beam_evaluation_time_mjd: float
 reference_antenna: AntennaId
 reference_handler_id: str
 reference_scientific_fingerprint: str
@@ -1585,7 +1679,9 @@ Its arrays follow the same copied, C-contiguous, non-writeable and unhashable ru
 It accepts no path or diameter, performs no UVBeam read, never calls a private planner
 method, and evaluates unpolarized power through the shared Jones service. Frequency
 must be one exact BeamSystem observation channel and one exact sky channel; mismatch
-is an error. The `mask_horizon` argument is deleted: Tier 3 always masks the horizon
+is an error. `beam_evaluation_time_mjd` is finite and is recorded; accepted fixed
+beams ignore it, while the explicit value keeps the public evaluator seam complete.
+The `mask_horizon` argument is deleted: Tier 3 always masks the horizon
 because its beam contract defines below-horizon Jones as zero and no accepted file
 supplies subterranean science.
 
@@ -1610,6 +1706,37 @@ an all-zero map is `BeamDisplayNormalizationError` and a non-finite response is
 The generic
 `compute_beam_power_on_full_sky_grid` remains as a renderer-neutral numerical helper,
 but production planning constructs its callable solely from `BeamSystem`.
+
+`radiosim.visualization.sky.overlay_observability` remains a convenience wrapper but
+loses `Any` and `**kwargs`. Its exact signature mirrors the core renderer-neutral
+function:
+
+```python
+overlay_observability(
+    fig: Figure,
+    plan: ObservabilityPlan,
+    *,
+    color: str = "white",
+    linestyle: str = "--",
+    linewidth: float = 1.5,
+    alpha: float = 0.9,
+    draw_footprint: bool = True,
+    draw_beam: bool = True,
+    beam_color: str = "yellow",
+    beam_linestyle: str = "-",
+    beam_linewidths: Mapping[float, float] | None = None,
+    beam_alpha: float = 0.9,
+    draw_tracks: bool = False,
+    track_color: str = "yellow",
+    track_marker_size: float = 20.0,
+) -> Figure
+```
+
+It forwards named values only. `radiosim.visualization.__init__` retains this wrapper
+and `ObservabilityBokehRenderer` but removes duplicate re-exports of core planner,
+plan, snapshot, metrics, and ring helpers. The
+`radiosim.visualization.observability.__init__` export is already exactly the renderer
+and requires no source edit.
 
 Planner `_fits_beam_power_func*` and all HEALPix/regular-grid FITS branches are deleted.
 Missing pyuvdata is a typed load error, not `overlay disabled`. The Bokeh and Matplotlib
@@ -1657,13 +1784,16 @@ visibility results, because it does not alter simulated visibilities.
 
 Every new runtime error derives from one public `BeamError(RuntimeError)` or
 `ObservabilityError(RuntimeError)` root. Configuration pipeline errors keep the
-existing value-oriented hierarchy.
+existing value-oriented hierarchy. Beam errors live in
+`radiosim.core.beam.errors`; observability errors live in the new
+`radiosim.core.observability.errors` and are re-exported only from
+`radiosim.core.observability`.
 
 | Condition | Exact class | Stage |
 |---|---|---|
 | invalid beam field/type/discriminator/old name | `ConfigSchemaError` with indexed `ConfigIssue` | Pydantic/schema collection |
 | invalid union combination or precision/mode combination | `ConfigSemanticError` | semantic validation |
-| missing/non-file/unreadable beam path | `ConfigPathError` with `missing_input_path`, `wrong_path_type`, or `unreadable_input_path` | common path resolution |
+| missing/non-file/unreadable beam path | `ConfigPathError` with `input_path_missing`, `input_path_wrong_type`, or new `input_path_unreadable` | common path resolution |
 | unknown tagged target | `UnknownBeamAntennaError(BeamAssignmentError)` | assignment resolution |
 | duplicate canonical target | `DuplicateBeamAssignmentError(BeamAssignmentError)` | assignment resolution |
 | incomplete coverage | `IncompleteBeamAssignmentError(BeamAssignmentError)` | assignment resolution |
@@ -1681,11 +1811,15 @@ existing value-oriented hierarchy.
 | NaN/Inf native or returned Jones | `NonFiniteBeamResponseError(BeamEvaluationError)` | load/evaluation |
 | all-zero display normalization domain | `BeamDisplayNormalizationError(BeamEvaluationError)` | observability evaluation |
 | unsupported FITS precision | `UnsupportedBeamPrecisionError(BeamLoadError)` | pre-load science validation |
+| missing/invalid handler feature scale or empty selected-baseline domain | `BeamSamplingDerivationError(BeamLoadError)` | load characterization/advisor preflight |
 | invalid observability selector | `InvalidObservabilityReferenceError(ObservabilityError)` | planning input resolution |
 | invalid UTC/LST or channel selection | `InvalidObservabilityContextError(ObservabilityError)` | planning input resolution |
 | requested sky/background unavailable | `ObservabilitySkyUnavailableError(ObservabilityError)` | planning |
 | union/intersection/multiple/removed approximation request | `UnsupportedObservabilitySemanticsError(ObservabilityError)` | planning |
-| renderer cannot persist explicit target | existing typed renderer/output error, chained | rendering only |
+| invalid renderer input or layout creation failure | `ObservabilityRenderError(ObservabilityError)` | rendering only |
+| invalid/unwritable output target or atomic publication failure | `ObservabilityOutputError(ObservabilityError)` | output persistence only |
+| existing target with `overwrite=False` | `ObservabilityOutputCollisionError(ObservabilityOutputError)` | output persistence only |
+| explicit browser open fails after publication | `ObservabilityBrowserError(ObservabilityOutputError)` | browser side effect only |
 
 `BeamAssignmentError`, `BeamLoadError`, `UnsupportedBeamMetadataError`, and
 `BeamEvaluationError` are intermediate public bases under `BeamError`. Messages name
@@ -1694,6 +1828,13 @@ observed metadata/value, accepted contract, and remediation. Collection errors a
 ordered by input index or canonical antenna order. Dependency exceptions are chained
 without replacing the public class. No `except Exception` suppresses, warns, or changes
 beam mode.
+
+`ObservabilityRenderError`, `ObservabilityOutputError`,
+`ObservabilityOutputCollisionError`, and `ObservabilityBrowserError` are public with
+the other observability errors. Dependency/render/browser exceptions are chained;
+output collision has no dependency cause. Invalid scale inputs to the public pure
+`recommend_nside_for_angular_scale` utility raise `ValueError`, including a target
+that would require a power-of-two NSIDE above the retained maximum `65536`.
 
 The manager-replacement messages are fixed templates:
 
@@ -1745,6 +1886,13 @@ UnsupportedBeamTypeError:
 | `Simulator.plot_observability` | retained, explicit typed wrapper | `radiosim.api.Simulator` |
 | `_beam_config`, `_beam_manager` | deleted | replaced by `_beam_system` and public immutable state property |
 
+Tier 3 adds no package-root `radiosim` re-exports for beam or observability models,
+factories, services, or errors. Their public boundary is exactly `radiosim.core` (and
+the named `radiosim.core.beam` / `radiosim.core.observability` modules); only
+`Simulator` keeps its existing package-root export. `radiosim.visualization` exports
+plotting functions and `ObservabilityBokehRenderer`, not duplicate core planner/model
+aliases.
+
 The final analytic package `__all__` is exact: `compute_u_beam`,
 `airy_voltage_pattern`, `sinc_voltage_pattern`, `elliptical_airy_voltage_pattern`,
 `uniform_taper`, `gaussian_taper_pattern`, `parabolic_taper`,
@@ -1782,7 +1930,7 @@ No deprecated wrapper, alias, translation dictionary, forwarding module, permiss
 Final Tier 3 deletes:
 
 - `src/radiosim/core/jones/beam/fits/handler.py`;
-- the legacy FITS wrapper content in `src/radiosim/core/jones/beam/fits/__init__.py`;
+- `src/radiosim/core/jones/beam/fits/__init__.py`;
 - `BeamJones` from `src/radiosim/core/jones/beam/__init__.py` and
   `AnalyticBeamJones` plus its fallback diameter dictionaries from
   `src/radiosim/core/jones/beam/analytic/__init__.py`;
@@ -1827,9 +1975,13 @@ Tier 3 updates exactly these user-facing categories:
 - `docs/HERA_VSIM_ANALYSIS.md` only where its active instructions claim old modes or
   arbitrary Vivaldi support. Historical measurements remain labeled historical.
 
-Every shipped default stays analytic and offline-capable. No large FITS binary enters
-the repository. The Sphinx index already includes the beam guide, so no standalone
-unlinked Tier 3 document is added.
+Every shipped default stays analytic and offline-capable. The three YAMLs and the
+schema/support/migration pages change in 3B, at the same checkout as the schema. The
+advisor/provenance pages change in 3H.1, while final legacy/API/HERA cleanup changes in
+3H.2. `examples/scripts/simple_simulation.py` needs no source edit because its omitted
+beam input resolves to the retained analytic default; it remains an exact common-gate
+smoke test. No large FITS binary enters the repository. The Sphinx index already
+includes the beam guide, so no standalone unlinked Tier 3 document is added.
 
 ## 33. Deterministic offline fixture plan
 
@@ -1843,7 +1995,10 @@ network. The canonical fixture has:
   unit bandpass;
 - scalar diagonal voltage
   `e=cos(ZA)^2 exp(i [0.03 sin(az_uv)+0.01 frequency_index])`; and
-- a second scientifically distinct file using `cos(ZA)^3` and the opposite phase sign.
+- a second scientifically distinct file using `cos(ZA)^3` and the opposite phase
+  sign. The canonical file is generated once as native `complex64` and once as native
+  `complex128`; both round-trip and evaluate through the same scalar contract while
+  preserving their source dtype in provenance.
 
 Expected values are calculated analytically at native nodes and controlled midpoints.
 File-hash assertions calculate SHA-256 from the generated bytes; they do not hard-code
@@ -1873,10 +2028,12 @@ coordinate-initializer behavior. All files live under `tmp_path`. No test refere
 
 ### FITS science and runtime
 
-- local 3.2.1 signatures, tuple return, shapes, azimuth conversion, fixed tolerance,
-  linear/cubic interpolation, endpoints, and no extrapolation;
+- local 3.2.1 signatures, tuple return, shapes, azimuth conversion, strict fixed
+  tolerance edge, linear/cubic minimum-channel rules with no fallback, endpoints, and
+  no extrapolation;
 - every accepted metadata condition and every rejected row in Section 10;
-- power/circular/basis/cross-pol/coordinate/mount/normalization/bandpass/precision
+- native complex64/complex128 provenance and canonicalization, plus
+  power/circular/basis/cross-pol/coordinate/mount/normalization/bandpass/precision
   errors;
 - below-horizon zero, horizon evaluation, invalid angle, frequency mismatch,
   non-finite native/interpolated values, and actionable chained dependency error;
@@ -1909,8 +2066,10 @@ coordinate-initializer behavior. All files live under `tmp_path`. No test refere
 
 ## 35. Implementation slices and dependency sequence
 
-Tier 3 is implemented in nine sequential, independently accepted slices. A later slice
-does not start in the task that implements or accepts its predecessor.
+Tier 3 is implemented in ten sequential, independently accepted slices. Tier 3H is
+split into 3H.1 and 3H.2 so sampling/provenance science and destructive legacy cleanup
+are separately reviewable. A later slice does not start in the task that implements or
+accepts its predecessor.
 
 ```mermaid
 flowchart LR
@@ -1920,8 +2079,9 @@ flowchart LR
     D --> E["3E BeamSystem assignment and dedup"]
     E --> F["3F point and HEALPix integration"]
     F --> G["3G observability sibling integration"]
-    G --> H["3H NSIDE provenance docs cleanup"]
-    H --> I["3I independent whole-tier acceptance"]
+    G --> H1["3H.1 NSIDE and result provenance"]
+    H1 --> H2["3H.2 legacy cleanup and final truth"]
+    H2 --> I["3I independent whole-tier acceptance"]
 ```
 
 ### 35.1 Tier 3A — dependency contract and deterministic seams
@@ -1945,18 +2105,26 @@ flowchart LR
 ### 35.2 Tier 3B — strict input schema and path resolution
 
 - **Objective:** replace the flat schema, resolve every nested path, migrate the three
-  YAMLs, and keep non-analytic high-level execution explicitly rejected.
+  YAMLs and all active schema/support/migration truth surfaces, and keep unwired
+  high-level execution explicitly rejected.
 - **First red evidence:** exact new mode/YAML/path tests fail against the flat model;
   old names still parse.
 - **Production changes:** Section 11 models, recursive path resolution, nested JSON/YAML
   serialization, Section 14 source-resolved input/definition models, direct deletion
-  of `ResolvedBeamsConfig`, migration errors, and analytic configuration projection
-  required to preserve current analytic execution during the transition.
+  of `ResolvedBeamsConfig`, migration errors, the common path-readability check,
+  required user documentation, and the analytic configuration projection required to
+  preserve current direct-circular execution during the transition.
 - **Scientific invariants:** strict unions, no contradictory boolean, typed
   illumination, no accepted-but-ignored non-analytic execution.
-- **Stop:** analytic high-level behavior works; shared/per-antenna/mixed still raise
-  `UnsupportedConfigError` before setup.
-- **Excluded:** assignment resolution, UVBeam load, solver FITS use, observability.
+- **Stop:** common config/CLI validation parses every final mode and preserves its
+  discriminator/path meaning. Simulator construction keeps only the proven
+  direct-circular analytic path active; FITS/mixed and analytic variants not yet
+  routed through the canonical evaluator raise `UnsupportedConfigError` with
+  `beam_runtime_fits_pending` or `beam_runtime_analytic_variant_pending` before device
+  work. The retained observability adapter consumes every field
+  of that active direct-circular model, so no represented-but-unwired field is a no-op.
+- **Excluded:** assignment resolution, UVBeam load, solver FITS use, and observability
+  redesign; the existing direct-circular observability path is kept truthful only.
 - **Breaking change:** all Section 5 input migrations and the source-resolved union
   replacement become active.
 - **Commit:** `refactor(config): define strict beam modes`.
@@ -1970,8 +2138,10 @@ flowchart LR
   resolver, with BeamID inert.
 - **First red evidence:** model exact-type/hash/fingerprint and name/number
   assignment tests fail because the models/resolver do not exist.
-- **Production changes:** frozen state, typed errors, lookup through Tier 2 instrument,
-  complete coverage, deterministic ordering, snapshots, and pre-load fingerprints.
+- **Production changes:** frozen state, the complete final public beam error hierarchy
+  (including later load/evaluation/sampling classes) and root-core exports, lookup
+  through Tier 2 instrument, complete coverage, deterministic ordering, snapshots,
+  and pre-load fingerprints.
 - **Scientific invariants:** one exact assignment per AntennaId; no fallback, overwrite,
   separate ID space, or mutable mapping.
 - **Stop:** standalone resolution and analytic assignment work; non-analytic Simulator
@@ -1987,7 +2157,8 @@ flowchart LR
 ### 35.4 Tier 3D — BeamFITS load, validation, and scalar evaluation
 
 - **Objective:** implement the complete Sections 7, 9, 10, 17, 22, and 29 FITS
-  contract for one resolved definition.
+  contract for one resolved definition, including its Section 23 native-grid
+  representation-scale characterization but not NSIDE recommendation.
 - **First red evidence:** generated valid file cannot load/evaluate and every invalid
   metadata fixture lacks its required typed error.
 - **Production changes:** private loader/evaluator, validation, hashing, provenance,
@@ -1997,7 +2168,8 @@ flowchart LR
   evaluation; no extrapolation, non-finite value, mutation, or fallback.
 - **Stop:** standalone evaluator passes; Simulator and both solvers still reject
   non-analytic modes.
-- **Excluded:** per-antenna runtime, solver, observability, NSIDE advice.
+- **Excluded:** per-antenna runtime, solver, observability, and NSIDE recommendation;
+  validated feature-scale metadata is part of load validity rather than advice.
 - **Breaking change:** none beyond the already accepted schema; legacy low-level FITS
   classes remain present but are not used by the new evaluator.
 - **Commit:** `feat(beam): validate scalar BeamFITS`.
@@ -2015,12 +2187,13 @@ flowchart LR
   properties, Simulator `_ensure_beam_system`, retention/invalidation, and loaded
   snapshots.
 - **Scientific invariants:** definition/effective-dimension dedup, one file load for one
-  exact key, no global cache, exact AntennaId lookup, no partial state.
+  exact key, no global cache, exact AntennaId lookup, no partial state, and complete
+  per-observation-frequency analytic/FITS feature-scale metadata in loaded handlers.
 - **Stop:** direct BeamSystem evaluation works for every mode; high-level non-analytic
   unsupported guard remains until both solvers are converted.
 - **Excluded:** visibility, observability, NSIDE, result metadata, legacy deletion.
 - **Breaking change:** new canonical BeamSystem API is public; legacy manager remains
-  temporarily exported only until 3H and is never used by BeamSystem.
+  temporarily exported only until 3H.2 and is never used by BeamSystem.
 - **Commit:** `feat(beam): load canonical beam systems`.
 - **Independent acceptance:** loader-count and failure-order probes verify lifecycle and
   inspect for global/mutable public leakage.
@@ -2033,11 +2206,20 @@ flowchart LR
 - **First red evidence:** complex per-antenna synthetic FITS exposes point/HEALPix
   phase loss, old manager/dict signatures, and scalar parallel-hand normalization.
 - **Production changes:** exact solver signatures, `_ResolvedBeamJones`, common RIME,
-  backend dtype handling, high-level mode activation, and correlation extraction.
+  backend dtype handling, high-level mode activation, correlation extraction, and
+  replacement of every legacy-specific assertion/import in
+  `tests/unit/test_jones/test_backend_jones.py` with canonical BeamSystem/Jones-chain
+  coverage.
 - **Scientific invariants:** Sections 8, 20, and 21, including matrix parity before
   extraction and `e_p conjugate(e_q)`.
-- **Stop:** all accepted modes run point and HEALPix; observability remains on its old
-  path and is documented as pending 3G in the implementation record.
+- **Stop:** all accepted modes run point and HEALPix. Until 3G, the old observability
+  path remains available only for the exact legacy-equivalent direct-circular analytic
+  model. `Simulator.plot_observability` rejects all newly activated FITS, mixed, and
+  other analytic variants with `NotImplementedError` and the fixed
+  message `Tier 3G observability migration is required for this beam mode` before
+  sky, renderer, file, or browser work; scientifically stale output is impossible.
+  The legacy production symbols remain temporarily but no test imports them, so their
+  3H.2 deletion requires no unlisted second edit to that test file.
 - **Excluded:** observability, NSIDE redesign, final exports/docs cleanup.
 - **Breaking change:** solver manager/dict kwargs disappear and I-only HEALPix adopts
   half-power parallel hands.
@@ -2054,40 +2236,63 @@ flowchart LR
   pre-setup side-effect, drift-scan reopen, and title/provenance tests fail.
 - **Production changes:** exact planner inputs, private context, plan method, plot
   wrapper, reference equivalence/selection, actual beam-threshold footprints, drift
-  and map helper signatures, renderer labels, and side-effect order.
+  and map helper signatures, every affected public visualization wrapper/export,
+  renderer labels, and side-effect order.
 - **Scientific invariants:** one selected handler and `0.5 trace(J J^H)` everywhere;
   deterministic homogeneous default only after fingerprint equivalence.
 - **Stop:** planning/rendering behavior and pre-setup flow pass; NSIDE and result
-  provenance remain for 3H.
+  provenance remain for 3H.1.
 - **Excluded:** union/intersection/multiple footprints and every later-tier basis mode.
 - **Breaking change:** every observability signature/default listed in Section 30.
 - **Commit:** `feat(observability): use resolved beam references`.
 - **Independent acceptance:** adversarial heterogeneity and renderer/file/browser
   sentinels, followed by a separate source review.
-- **Next authorized slice after acceptance:** 3H only.
+- **Next authorized slice after acceptance:** 3H.1 only.
 
-### 35.8 Tier 3H — NSIDE, provenance, truth surfaces, and legacy cleanup
+### 35.8 Tier 3H.1 — NSIDE advice and result provenance
 
-- **Objective:** complete Sections 23, 28, 30 through 32 and remove every old runtime
-  beam surface.
-- **First red evidence:** widest-versus-smallest feature, baseline-product, result
-  snapshot, legacy/raw-registry export absence, residual-name, docs, YAML, and
-  migration tests fail.
+- **Objective:** complete Sections 23 and 28 for advisor behavior and visibility-result
+  beam provenance without deleting legacy modules or exports.
+- **First red evidence:** widest-versus-smallest feature, selected baseline product,
+  invalid derivation, pre/post-sky warning, and result snapshot tests fail.
 - **Production changes:** sampling requirement/advisor, pre/post-sky calls, result
-  snapshot, final deletions/exports, all docs and examples.
+  snapshot, and the exact active advisor/provenance documentation.
 - **Scientific invariants:** selected-baseline/frequency minimum scale with factor 5;
-  no broad catch; no mutable serialization; no stale supported claim.
+  no broad catch; no mutable serialization; no legacy deletion.
+- **Stop:** advisor and result provenance are active, documented, green, and committed;
+  legacy cleanup remains wholly in 3H.2.
+- **Excluded:** module/export deletion, final migration cleanup, all Tiers 4 through 8,
+  and unrelated warning/type cleanup.
+- **Breaking change:** old FWHM-only advisor names are removed; result metadata gains
+  only `beam_resolution`.
+- **Commit:** `feat(beam): add sampling provenance`.
+- **Independent acceptance:** adversarial autos/cross/mixed/empty-domain and immutable
+  snapshot review after the implementation commit.
+- **Next authorized slice after acceptance:** 3H.2 only.
+
+### 35.9 Tier 3H.2 — legacy removal and final truth surfaces
+
+- **Objective:** complete Sections 30 through 32, delete the four named modules and
+  every old runtime/export surface, and make all final docs truthful.
+- **First red evidence:** legacy/raw-registry exports and residual imports remain;
+  cleanup, public export, documentation, migration, and historical-truth tests fail.
+- **Production changes:** exact module deletion/export cutover, retained numeric
+  analytic API, residual-name cleanup, README/Sphinx/API/migration/HERA truth, and no
+  schema/YAML rewrite already completed in 3B.
+- **Scientific invariants:** canonical BeamSystem remains the only beam owner; no
+  compatibility shim, fallback, stale supported claim, or solver behavior change.
 - **Stop:** every final Tier 3 acceptance criterion is locally green and committed;
-  issues still remain unresolved pending 3I independent acceptance.
-- **Excluded:** all Tiers 4 through 8 and unrelated warning/type cleanup.
-- **Breaking change:** final removal inventory and public export cutover take effect.
-- **Commit:** `feat(beam): complete Tier 3 integration`.
-- **Independent acceptance:** deferred to the whole-tier 3I task.
+  all five issues still await the independent 3I whole-tier gate.
+- **Excluded:** advisor/result redesign, all Tiers 4 through 8, and unrelated debt.
+- **Breaking change:** final Section 31 removal inventory and public export cutover.
+- **Commit:** `refactor(beam): remove legacy beam surfaces`.
+- **Independent acceptance:** destructive-scope, residual-import, numeric-export, docs,
+  and clean-build review after the implementation commit.
 - **Next authorized slice after acceptance:** 3I only.
 
-### 35.9 Tier 3I — independent whole-Tier-3 acceptance
+### 35.10 Tier 3I — independent whole-Tier-3 acceptance
 
-- **Objective:** audit the complete 3A-through-3H history and final checkout against
+- **Objective:** audit the complete 3A-through-3H.2 history and final checkout against
   this plan, rerun all gates, reconcile evidence, and close issues only when proven.
 - **First red evidence:** acceptance probes are written before any correction; any
   discovered defect leaves the tier unaccepted.
@@ -2108,6 +2313,23 @@ flowchart LR
 
 Only listed files are writable in each future slice. A required unlisted correction
 stops the slice and returns for plan amendment.
+
+The following proposed paths do not exist at the design baseline and are created in
+the first slice that lists them: `tests/fixtures/beamfits.py`,
+`tests/unit/test_core/test_beam_pyuvdata_contract.py`,
+`src/radiosim/io/beam_config.py`, every listed file under the new
+`src/radiosim/core/beam/` package (`__init__.py`, `models.py`, `errors.py`,
+`resolution.py`, `fits.py`, `runtime.py`, and `analytic.py`),
+`tests/unit/test_core/test_beam_models.py`,
+`tests/unit/test_io/test_beam_config.py`,
+`tests/unit/test_core/test_beam_resolution.py`,
+`tests/unit/test_core/test_beam_fits.py`,
+`tests/unit/test_core/test_beam_runtime.py`,
+`tests/unit/test_core/test_beam_solver_integration.py`,
+`src/radiosim/core/observability/errors.py`,
+`tests/unit/test_core/test_beam_sampling.py`, and
+`tests/unit/test_core/test_tier3_beam_cleanup.py`. Every other listed path exists at
+the baseline. The four paths explicitly deleted in 3H.2 are named after its list.
 
 ### Tier 3A files
 
@@ -2138,9 +2360,16 @@ tests/unit/test_io/test_config.py
 tests/unit/test_io/test_config_paths.py
 tests/unit/test_io/test_config_resolution.py
 tests/unit/test_simulator/test_api.py
+tests/unit/test_tier1h_documentation.py
 configs/config.yaml
 configs/realistic_foreground_example.yaml
 antenna_layout_examples/example_telescope_config.yaml
+README.md
+docs/user_guide/beam_models.rst
+docs/user_guide/configuration.rst
+docs/user_guide/configuration_support.rst
+docs/api/core.rst
+docs/migration_guide.md
 ```
 
 ### Tier 3C files
@@ -2210,29 +2439,44 @@ tests/unit/test_simulator/test_instrument_integration.py
 
 ```text
 src/radiosim/core/observability/__init__.py
+src/radiosim/core/observability/errors.py
 src/radiosim/core/observability/geometry.py
 src/radiosim/core/observability/lightcurves.py
 src/radiosim/core/observability/planner.py
 src/radiosim/core/observability/overlay.py
 src/radiosim/core/jones/beam/projection.py
+src/radiosim/visualization/__init__.py
+src/radiosim/visualization/sky/__init__.py
 src/radiosim/visualization/observability/bokeh_renderer.py
 src/radiosim/api/simulator.py
 tests/unit/test_observability/test_planner.py
 tests/unit/test_observability/test_overlay.py
 tests/unit/test_core/test_observability_lightcurve.py
 tests/unit/test_jones/test_beam_analysis.py
-tests/unit/test_jones/test_beam_projection.py
+tests/unit/test_core/test_beam_projection.py
 tests/unit/test_visualization/test_observability_bokeh_renderer.py
 tests/unit/test_simulator/test_instrument_integration.py
 ```
 
-### Tier 3H files
+### Tier 3H.1 files
 
 ```text
 src/radiosim/utils/healpix.py
 src/radiosim/core/sky/combine/options.py
 src/radiosim/core/sky/combine/pipeline.py
 src/radiosim/api/simulator.py
+README.md
+docs/user_guide/beam_models.rst
+docs/api/simulator.rst
+tests/unit/test_utils/test_healpix_utils.py
+tests/unit/test_core/test_beam_sampling.py
+tests/unit/test_core/test_sky_pipeline.py
+tests/unit/test_simulator/test_api.py
+```
+
+### Tier 3H.2 files
+
+```text
 src/radiosim/core/__init__.py
 src/radiosim/core/jones/__init__.py
 src/radiosim/core/jones/beam/__init__.py
@@ -2257,19 +2501,20 @@ docs/api/jones.rst
 docs/api/simulator.rst
 docs/migration_guide.md
 docs/HERA_VSIM_ANALYSIS.md
-configs/config.yaml
-configs/realistic_foreground_example.yaml
-antenna_layout_examples/example_telescope_config.yaml
-tests/unit/test_utils/test_healpix_utils.py
-tests/unit/test_core/test_sky_pipeline.py
-tests/unit/test_simulator/test_api.py
 tests/unit/test_tier1h_documentation.py
 tests/unit/test_core/test_tier3_beam_cleanup.py
 ```
 
-The two legacy FITS paths and the two obsolete analytic composed/plotting modules in
-3H are deleted, not rewritten. If an empty directory would remain, Git naturally
-omits it.
+Tier 3H.2 deletes, rather than rewrites, exactly these four module paths:
+
+```text
+src/radiosim/core/jones/beam/fits/handler.py
+src/radiosim/core/jones/beam/fits/__init__.py
+src/radiosim/core/jones/beam/analytic/composed.py
+src/radiosim/core/jones/beam/analytic/plotting.py
+```
+
+If an empty directory remains after those deletions, Git naturally omits it.
 
 ### Tier 3I files
 
@@ -2297,7 +2542,8 @@ targets are:
 | 3E | repeated exact path loads twice; failure exposes or retains partial runtime |
 | 3F | different complex beams lose baseline phase in scalar HEALPix |
 | 3G | heterogeneous no-reference path or old first-channel/default behavior survives |
-| 3H | widest-beam advisor, missing snapshot, legacy export, and stale docs survive |
+| 3H.1 | widest-beam advisor, invalid/empty derivation, or missing result snapshot survives |
+| 3H.2 | legacy export/module/residual import or stale final docs survive |
 | 3I | acceptance probes fail on any discovered whole-tier gap; no correction is made in 3I |
 
 Red evidence must show the intended contract failure, not syntax/import damage from
@@ -2317,8 +2563,9 @@ paths:
 | 3D | `tests/unit/test_core/test_beam_pyuvdata_contract.py tests/unit/test_core/test_beam_fits.py tests/unit/test_core/test_beam_runtime.py` |
 | 3E | `tests/unit/test_core/test_beam_models.py tests/unit/test_core/test_beam_resolution.py tests/unit/test_core/test_beam_fits.py tests/unit/test_core/test_beam_runtime.py tests/unit/test_simulator/test_api.py tests/unit/test_simulator/test_instrument_integration.py` |
 | 3F | `tests/unit/test_jones tests/unit/test_core/test_beam_solver_integration.py tests/unit/test_core/test_visibility_backend.py tests/unit/test_simulator/test_api.py tests/unit/test_simulator/test_instrument_integration.py` |
-| 3G | `tests/unit/test_observability tests/unit/test_core/test_observability_lightcurve.py tests/unit/test_jones/test_beam_analysis.py tests/unit/test_jones/test_beam_projection.py tests/unit/test_visualization/test_observability_bokeh_renderer.py tests/unit/test_simulator/test_instrument_integration.py` |
-| 3H | `tests/unit/test_utils/test_healpix_utils.py tests/unit/test_core/test_sky_pipeline.py tests/unit/test_core/test_tier3_beam_cleanup.py tests/unit/test_tier1h_documentation.py tests/unit/test_simulator/test_api.py` |
+| 3G | `tests/unit/test_observability tests/unit/test_core/test_observability_lightcurve.py tests/unit/test_core/test_observability_rings.py tests/unit/test_jones/test_beam_analysis.py tests/unit/test_core/test_beam_projection.py tests/unit/test_visualization/test_observability_bokeh_renderer.py tests/unit/test_simulator/test_instrument_integration.py` |
+| 3H.1 | `tests/unit/test_utils/test_healpix_utils.py tests/unit/test_core/test_beam_sampling.py tests/unit/test_core/test_sky_pipeline.py tests/unit/test_simulator/test_api.py` |
+| 3H.2 | `tests/unit/test_core/test_tier3_beam_cleanup.py tests/unit/test_tier1h_documentation.py` |
 | 3I | the exact two commands below |
 
 Tier 3I runs this fixed whole-tier focused boundary; it contains no optional glob and
@@ -2337,11 +2584,14 @@ pixi run python -m pytest \
   tests/unit/test_core/test_beam_pyuvdata_contract.py \
   tests/unit/test_core/test_beam_fits.py \
   tests/unit/test_core/test_beam_runtime.py \
+  tests/unit/test_core/test_beam_sampling.py \
   tests/unit/test_core/test_beam_solver_integration.py \
   tests/unit/test_core/test_runtime_config.py \
   tests/unit/test_core/test_visibility_backend.py \
   tests/unit/test_core/test_sky_pipeline.py \
   tests/unit/test_core/test_observability_lightcurve.py \
+  tests/unit/test_core/test_observability_rings.py \
+  tests/unit/test_core/test_beam_projection.py \
   tests/unit/test_core/test_tier2_instrument_cleanup.py \
   tests/unit/test_core/test_tier3_beam_cleanup.py \
   tests/unit/test_observability \
@@ -2363,11 +2613,14 @@ pixi run --environment py312 -- python -m pytest \
   tests/unit/test_core/test_beam_pyuvdata_contract.py \
   tests/unit/test_core/test_beam_fits.py \
   tests/unit/test_core/test_beam_runtime.py \
+  tests/unit/test_core/test_beam_sampling.py \
   tests/unit/test_core/test_beam_solver_integration.py \
   tests/unit/test_core/test_runtime_config.py \
   tests/unit/test_core/test_visibility_backend.py \
   tests/unit/test_core/test_sky_pipeline.py \
   tests/unit/test_core/test_observability_lightcurve.py \
+  tests/unit/test_core/test_observability_rings.py \
+  tests/unit/test_core/test_beam_projection.py \
   tests/unit/test_core/test_tier2_instrument_cleanup.py \
   tests/unit/test_core/test_tier3_beam_cleanup.py \
   tests/unit/test_observability \
@@ -2403,7 +2656,9 @@ Git-ignored `docs/superpowers` files from the source copy:
 
 ```bash
 tier3_sphinx_dir="$(mktemp -d)"
-tar -cf "$tier3_sphinx_dir/source.tar" --exclude='docs/superpowers' docs src
+tar -cf "$tier3_sphinx_dir/source.tar" \
+  --exclude='docs/superpowers' --exclude='docs/_build' --exclude='docs/.doctrees' \
+  docs src
 tar -xf "$tier3_sphinx_dir/source.tar" -C "$tier3_sphinx_dir"
 .pixi/envs/default/bin/python -m sphinx -M html \
   "$tier3_sphinx_dir/docs" "$tier3_sphinx_dir/build" \
@@ -2428,7 +2683,8 @@ git diff --cached --name-only
 - 3E stops with BeamSystem direct evaluation while solver activation stays guarded.
 - 3F stops after both solvers, before observability redesign.
 - 3G stops after observability, before NSIDE/provenance/cleanup.
-- 3H stops with implementation complete but all five issues still awaiting 3I.
+- 3H.1 stops after advisor/result provenance, before any legacy deletion.
+- 3H.2 stops with implementation complete but all five issues still awaiting 3I.
 - 3I stops at acceptance documentation or rejection evidence; Tier 4 never starts.
 
 No slice starts its successor, changes unrelated debt, lowers warning/type baselines as
@@ -2445,7 +2701,8 @@ cleanup, or publishes a commit.
 | 3E | public BeamSystem addition and exact loaded-state property |
 | 3F | solver signatures, non-analytic activation, scalar HEALPix hand normalization |
 | 3G | observability signatures/defaults/reference semantics and removed approximation |
-| 3H | legacy class/export deletion and final advisor/provenance truth surface |
+| 3H.1 | advisor rename/science and narrow result beam provenance |
+| 3H.2 | legacy class/export/module deletion and final truth surfaces |
 | 3I | none |
 
 ## 41. Suggested conventional commits
@@ -2506,9 +2763,9 @@ Whole-tier acceptance requires all of the following at one clean committed check
 
 | Issue | Whole-tier closure evidence |
 |---|---|
-| `BEAM-001` | all four strict modes resolve from every public config entry, every antenna has one canonical assignment, Simulator loads/evaluates it, both solvers use it, and no accepted input is ignored |
-| `BEAM-002` | BeamManager/raw IDs/defaults are absent; one BeamSystem proves shared/per-antenna/mixed lookup, same-key one-load dedup, different-option separation, atomic retry, and immutable provenance |
-| `BEAM-003` | every metadata/domain/finite/precision failure has its exact typed error before external side effects; identity/analytic fallback and broad exception suppression are absent |
+| `BEAM-001` | all four strict modes resolve from every public config entry, every antenna has one canonical assignment, Simulator loads/evaluates it, both solvers use it, every FITS metadata/domain/finite/precision failure is typed before external side effects, and no accepted input is ignored |
+| `BEAM-002` | BeamManager/raw IDs/defaults and identity/analytic fallbacks are absent; one BeamSystem proves shared/per-antenna/mixed lookup, same-key one-load dedup, different-option separation, atomic retry, and immutable provenance |
+| `BEAM-003` | the old antenna-dictionary advisor read is absent; advice derives from canonical assignments over every selected baseline and exact frequency, uses the accepted product-scale science, handles autos without an arbitrary antenna, raises typed derivation failures, never mutates NSIDE, and has no broad suppression |
 | `OBS-001` | plan-before-run sibling flow, exact planner inputs, renderer separation, optional-sky errors, shared evaluator use, and no result-plot implication are proven |
 | `OBS-002` | scientific-equivalence fingerprints, deterministic homogeneous default, mandatory heterogeneous explicit reference, every named heterogeneity case, titles/provenance, and drift/snapshot/sweep reuse are proven |
 
@@ -2556,7 +2813,7 @@ independently accepted 3I record.
 | evaluator | BeamSystem with private UVBeam | public UVBeam leaks mutable dependency state; manager dictionaries reintroduce legacy protocol |
 | cache | Simulator-local handler dedup | process-global cache retains large state and makes tests/order nondeterministic |
 | solver math | one Jones RIME | scalar HEALPix geometric-mean power loses complex baseline response |
-| precision | host complex128 then exact backend cast; reject FITS float128 | upcasting dependency output falsely claims added information |
+| precision | accept native complex64/complex128, record it, canonicalize privately to host complex128, then cast once; reject requested complex256 | native source width is provenance, while a wider-than-dependency output would falsely claim added information |
 | NSIDE metric | minimum baseline-product feature scale | widest FWHM does not bound narrow sidelobes, asymmetric grids, or product bandwidth |
 | observability reference | explicit for heterogeneity; sorted minimum number only after equivalence | first layout antenna is arbitrary; union/intersection/multiple footprints belong to the post-Tier-8 expansion gate |
 | manual footprint | explicitly labeled circular approximation | old rectangular approximation and silent radius substitution misstate beam science |
@@ -2570,7 +2827,25 @@ The required characterization baseline ran before this plan was written.
 
 ### Focused tests
 
-The exact requested paths all existed. Results:
+The original design command was reconstructed from local design-run evidence and is
+now reproducible from this document:
+
+```bash
+pixi run python -m pytest \
+  tests/unit/test_io/test_config.py \
+  tests/unit/test_io/test_config_paths.py \
+  tests/unit/test_io/test_config_resolution.py \
+  tests/unit/test_jones \
+  tests/unit/test_core/test_visibility_backend.py \
+  tests/unit/test_core/test_sky_pipeline.py \
+  tests/unit/test_observability \
+  tests/unit/test_visualization/test_observability_bokeh_renderer.py \
+  tests/unit/test_simulator/test_api.py \
+  tests/unit/test_simulator/test_instrument_integration.py
+```
+
+The Python 3.12 command inserts `--environment py312 --` before
+`python -m pytest` and uses the same paths. All paths existed. Original results:
 
 | Environment | Collected | Passed | Skipped | Xfail/XPASS | Warnings | Time |
 |---|---:|---:|---:|---:|---:|---:|
@@ -2584,6 +2859,26 @@ construction, analytic Jones JAX parity, and point-visibility JAX parity. No tes
 xfails. Both warnings are the existing Healpy/Matplotlib message about ignoring figure
 arguments when figure 1 already exists.
 
+The independent review reproduced that exact boundary on 2026-07-21: Python 3.11
+reported 204 passed, one skip, and two warnings in 21.40 seconds; Python 3.12 reported
+200 passed, five skips, and two warnings in 18.27 seconds. It also ran this disjoint
+75-test supplement in both environments so the complete current relevant boundary
+includes projection, lightcurves/rings, runtime state, and current HEALPix advice:
+
+```bash
+python -m pytest \
+  tests/unit/test_core/test_beam_projection.py \
+  tests/unit/test_core/test_observability_lightcurve.py \
+  tests/unit/test_core/test_observability_rings.py \
+  tests/unit/test_core/test_runtime_config.py \
+  tests/unit/test_core/test_sky_healpix_builder.py \
+  tests/unit/test_core/test_sky_sparse_healpix.py \
+  tests/unit/test_utils/test_healpix_utils.py
+```
+
+Run that suffix through `pixi run` and `pixi run --environment py312 --` as above.
+Both runs reported 75 passed and two classified existing warnings.
+
 The baseline deliberately proves that current high-level FITS behavior is missing and
 rejected by unsupported-config guards; low-level FITS fallback/manager scaffolding is
 not proof of support. Heterogeneous observability is deliberately rejected today.
@@ -2595,7 +2890,12 @@ not proof of support. Heterogeneous observability is deliberately rejected today
 - `pixi run typecheck`: 4,135 Pyright errors, at or below the unchanged 4,600 ceiling.
 - Python 3.12 `tools/check_pyright_baseline.py`: the same 4,135/4,600 result.
 - `git diff --check`: passed before documentation edits.
-- pyuvdata characterization: 3.2.1 and the exact Section 7 signature/shape in both
+- pyuvdata characterization: Python 3.11.13 and 3.12.13 both use pyuvdata 3.2.1 and
+  the exact Section 7 signature/shape. Independent temporary probes reproduced the
+  `UVBeam.new` explicit-`az_za` initializer failure, `None` read/write returns,
+  `(data, basis)` interpolation tuple, basis shape, full/partial axes, strict frequency
+  tolerance edge, host `complex128` interpolation, mutating peak normalization, exact
+  domain behavior, and native `complex64`/`complex128` BeamFITS round trips in both
   environments.
 - Sphinx 8.2.3 against the live `docs/` tree succeeded with 42 events. Two are caused
   solely by local Git-ignored `docs/superpowers/plans/...` and `docs/superpowers/specs/...`

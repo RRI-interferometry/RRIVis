@@ -724,14 +724,20 @@ option, raw mapping, compatibility-key, or partial-fixture escape hatch remains.
 
 ### 7.1 BEAM-003 — NSIDE beam advisor bug
 
-`Simulator.setup()` iterates `self._antennas` as if it contains antenna objects
-with `.diameter`; it actually contains dictionary keys. The broad exception
-handler converts this bug into `beam_fwhm_rad=None`, silently disabling the
-advisor.
+The original defect was `Simulator.setup()` iterating an antenna dictionary as if
+its keys were antenna objects with `.diameter`; a broad exception handler converted
+that failure into `beam_fwhm_rad=None` and silently disabled advice. Tier 2 removed
+the raw antenna dictionary, so the live code now reads canonical antennas, but the
+issue is not closed: the advisor still uses one lowest-frequency/minimum-diameter
+FWHM scalar, can choose the widest rather than the limiting beam-product feature, and
+still suppresses failures broadly.
 
 Fix this only after diameter resolution has a canonical representation. Do not
 patch it with another dictionary/object special case that perpetuates mixed
-antenna representations.
+antenna representations. Closure requires canonical beam assignments, every selected
+baseline and exact frequency, the product-feature sampling derivation, defined autos,
+typed derivation failure, no arbitrary antenna, no silent NSIDE mutation, and no broad
+suppression.
 
 ### 7.2 RUN-001/002 — Worker controls
 
@@ -1203,15 +1209,16 @@ observability represents the same instrument semantics.
 ### Implementation work
 
 1. Replace `BeamManager`'s legacy config contract with resolved modern beam
-   assignments.
+   assignments and one validated `BeamSystem`.
 2. Implement shared FITS, per-antenna FITS, and mixed modes.
 3. Deduplicate handler instances for repeated paths.
 4. Validate antenna coverage and beam domain before simulation.
-5. Thread one manager through point and HEALPix solvers.
+5. Thread one `BeamSystem` through point and HEALPix solvers.
 6. Remove silent analytic fallback on FITS initialization failures.
 7. Fix the NSIDE advisor using the canonical antenna representation.
 8. Make observability consume the resolved beam model.
-9. Implement and document the reference-antenna/envelope decision.
+9. Implement the selected reference-antenna rule: deterministic minimum-number
+   default only after fingerprint equivalence, otherwise an explicit Tier 2 reference.
 10. Ensure analytic per-antenna diameter support remains intact.
 
 ### Likely files
@@ -1235,7 +1242,8 @@ observability represents the same instrument semantics.
 - peak-normalization and interpolation propagation;
 - point/HEALPix beam parity;
 - observability reference-antenna labeling;
-- advisor uses the widest beam from the resolved array.
+- advisor uses the minimum selected-baseline product-feature scale over every exact
+  observation frequency, including defined auto-only selection behavior.
 
 ### Verification gate
 
@@ -2477,7 +2485,7 @@ integration**. It must first turn the Tier 3 outline into an implementation-read
 design with no unresolved beam or observability decisions. Tier 3 implementation is
 not authorized by this acceptance.
 
-### 2026-07-20 Tier 3 beam and observability design gate
+### 2026-07-21 Tier 3 beam and observability design gate
 
 **Verdict: design complete and pending separate independent acceptance.** The
 implementation-ready architecture is recorded in
@@ -2488,10 +2496,12 @@ both visibility solvers, a minimum baseline-product NSIDE advisor, and sibling
 observability planning with an explicit reference antenna whenever scientific beam
 fingerprints differ.
 
-Implementation is split into Tier 3A through 3I: dependency characterization,
+Implementation is split into ten planned, independently accepted units from Tier 3A
+through 3I: dependency characterization,
 strict schema/path replacement, immutable assignment resolution, BeamFITS validation,
 BeamSystem lifecycle/deduplication, shared solver integration, observability
-integration, NSIDE/provenance/legacy cleanup, and independent whole-tier acceptance.
+integration, separate 3H.1 NSIDE/provenance and 3H.2 legacy/truth cleanup, and
+independent whole-tier acceptance.
 Every slice has exact writable files, tests-first evidence, verification commands,
 stop conditions, one narrow conventional commit, and a separate acceptance gate.
 
@@ -2504,6 +2514,15 @@ A clean tracked-source Sphinx build succeeded with the accepted 40 classified ev
 the live tree had two additional events caused only by local ignored documents. The
 full suite, remote CI, physical GPU hardware, external network/registry behavior, and
 optional mounted Vivaldi data remain unobserved.
+
+The 2026-07-21 independent review corrected the plan before deciding acceptance. The
+corrections include native `complex64` provenance/canonicalization, the exact pyuvdata
+basis transform, complete UTC/LST time seams, unique sampling/render/output errors,
+the Tier 3F stale-observability runtime guard, all affected visualization wrappers,
+truthful 3B documentation, the split 3H.1/3H.2 boundary, explicit new/deleted files,
+the actual core beam-projection test path, BEAM-003 closure evidence, and the recovered
+205-test command plus a 75-test supplemental boundary. These corrections change no
+implementation status and do not start Tier 3A.
 
 No production, test, configuration, dependency, example, workflow, or generated file
 was changed, and no implementation slice was started. `BEAM-001`, `BEAM-002`, and
