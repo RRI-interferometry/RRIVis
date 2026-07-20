@@ -191,7 +191,7 @@ Status values used below:
 | BEAM-002 | OPEN | `BeamManager` expects a different legacy config contract | 3 |
 | BEAM-003 | OPEN | HEALPix NSIDE beam advisor reads antenna dictionaries incorrectly | 3 |
 | OBS-001 | OPEN | Observability is architecturally misclassified as a product | 3 |
-| OBS-002 | DECISION | Heterogeneous-array observability beam semantics are undefined | 3 |
+| OBS-002 | OPEN | Implement the accepted explicit-reference semantics for heterogeneous observability beams | 3 |
 | OUT-001 | OPEN | Output controls are only partially honored | 4 |
 | OUT-002 | OPEN | Point, HEALPix, and writer time-grid counts disagree | 4 |
 | OUT-003 | OPEN | HDF5 drops correlations and forces `complex128` | 4 |
@@ -2487,7 +2487,7 @@ not authorized by this acceptance.
 
 ### 2026-07-21 Tier 3 beam and observability design gate
 
-**Verdict: design complete and pending separate independent acceptance.** The
+**Verdict: design accepted after independent correction and review.** The
 implementation-ready architecture is recorded in
 [Tier3BeamObservabilityPlan.md](Tier3BeamObservabilityPlan.md). It selects a strict
 four-mode beam schema, complete canonical assignments to Tier 2 antenna identity, one
@@ -2525,9 +2525,10 @@ the actual core beam-projection test path, BEAM-003 closure evidence, and the re
 implementation status and do not start Tier 3A.
 
 No production, test, configuration, dependency, example, workflow, or generated file
-was changed, and no implementation slice was started. `BEAM-001`, `BEAM-002`, and
-`BEAM-003` remain **OPEN**; `OBS-001` remains **OPEN**; and `OBS-002` remains
-**DECISION**. The selected designs close no issue. Separate design acceptance may
-move `OBS-002` to **OPEN**; only independent whole-tier implementation acceptance may
-mark any of the five issues done. Tier 3A is authorized only after a separate
-independent acceptance of this design gate.
+was changed, and no implementation slice was started. The independent review accepted
+the corrected design on 2026-07-21 after correction commit
+`a208b61dce086e4afe3c49e1f2524b4b229a9c16`. `BEAM-001`, `BEAM-002`, and `BEAM-003`
+remain **OPEN**; `OBS-001` remains **OPEN**; and design acceptance moves `OBS-002` from
+**DECISION** to **OPEN**. No issue is **DONE**. Tier 3A is now the only authorized
+implementation slice and has not started; Tier 3B and later work require separate
+implementation and acceptance gates.

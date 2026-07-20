@@ -23,11 +23,12 @@ publication occurred during design.
 
 ## 2. Design-gate status
 
-This document completes the Tier 3 design gate only. It authorizes no production or
-test implementation by itself. Independent design acceptance is required before Tier
-3A starts. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain
-unresolved in implementation. The issue-register states remain unchanged until that
-separate acceptance.
+This document completes the Tier 3 design gate only. The corrected design was
+independently accepted on 2026-07-21, so Tier 3A test/fixture work is now the only
+authorized implementation slice. Tier 3B and later work remain unauthorized until
+3A is separately implemented and accepted. `BEAM-001`, `BEAM-002`, `BEAM-003`,
+`OBS-001`, and `OBS-002` remain unresolved in implementation; design acceptance moved
+only `OBS-002` from `DECISION` to `OPEN` and marked no issue done.
 
 The selected design has zero unresolved product or scientific decisions. Unsupported
 science fails closed and is assigned to a named later tier.
@@ -2770,9 +2771,9 @@ Whole-tier acceptance requires all of the following at one clean committed check
 | `OBS-002` | scientific-equivalence fingerprints, deterministic homogeneous default, mandatory heterogeneous explicit reference, every named heterogeneity case, titles/provenance, and drift/snapshot/sweep reuse are proven |
 
 No implementation commit, slice acceptance, passing subset, or documentation claim
-alone closes an issue. Separate acceptance of this design may move `OBS-002` from
-`DECISION` to `OPEN`; it cannot mark any issue done. Closure occurs only in the
-independently accepted 3I record.
+alone closes an issue. Acceptance of this design moved `OBS-002` from `DECISION` to
+`OPEN` and marked no issue done. Closure occurs only in the independently accepted 3I
+record.
 
 ## 45. Risk register
 
@@ -2919,5 +2920,46 @@ basis, feed, observability, caching, precision, output, performance, or later-ti
 case has an explicit rejection or owner. Implementation work remains substantial, but
 implementation agents have no product or scientific choice left to make.
 
-Tier 3A is the next implementation slice only after separate independent acceptance of
-this design. Tier 3A has not started.
+The independent acceptance is recorded below. Tier 3A is authorized and has not
+started; no later slice is authorized.
+
+## 49. Independent design acceptance record
+
+**Verdict: ACCEPTED on 2026-07-21 after correction commit
+`a208b61dce086e4afe3c49e1f2524b4b229a9c16`.** The review reconstructed the design
+from live source and local pyuvdata behavior rather than relying on the handoff. It
+found correctable design defects, committed only `Tier3BeamObservabilityPlan.md` and
+`Fix.md` as `docs(beam): correct Tier 3 design`, reran the corrected gates, and found
+no remaining scientific, product, ownership, slice, or verification blocker.
+
+Accepted corrections include the actual 2026-07-21 date; native complex64/complex128
+BeamFITS provenance and canonicalization; the exact pyuvdata basis equation; explicit
+bandpass/B-Jones ownership; strict frequency-tolerance and cubic-channel behavior;
+complete fixed-beam UTC/LST/MJD seams; public export/lifecycle boundaries; typed
+sampling/render/output failures; representation-bound NSIDE wording and auto-only
+behavior; the Tier 3F stale-observability guard; all affected visualization wrappers;
+truthful Tier 3B docs; separate 3H.1 and 3H.2 units; explicit new/deleted paths; the
+actual core beam-projection test path; and corrected BEAM-003 closure evidence.
+
+Post-correction evidence:
+
+- the recovered 205-test command reported 204 passed, one optional Vivaldi skip, and
+  two known warnings on Python 3.11.13; Python 3.12.13 reported 200 passed, five
+  optional Vivaldi/JAX skips, and two known warnings;
+- the disjoint 75-test projection/lightcurve/ring/runtime/HEALPix supplement passed in
+  both environments with two classified existing warnings;
+- Ruff lint and format passed; Pyright 1.1.408 stayed at 4,135 diagnostics in both
+  environments under the unchanged 4,600 ceiling;
+- all three shipped YAML validations and the offline no-save/no-plot/no-browser
+  example passed;
+- the fresh source-copy Sphinx build succeeded with the same 40 classified raw
+  events: 35 existing docstring/docutils events, one historical HERA toctree event,
+  three HERA highlighting events, and one theme-option event; and
+- `git diff --check`, exact file-list duplicate checks, new/deleted path checks, scope,
+  and clean post-correction Git state passed.
+
+The full repository suite was optional for this documentation-only review and was not
+rerun. Remote CI, physical GPU execution, mounted Vivaldi data, and live external
+network/registry behavior remain unobserved. `BEAM-001`, `BEAM-002`, `BEAM-003`,
+`OBS-001`, and `OBS-002` are all `OPEN`; none is `DONE`. Tier 3A only is authorized,
+and this acceptance performed no Tier 3A production or test implementation.
