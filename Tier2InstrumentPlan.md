@@ -30,13 +30,16 @@
 | Tier 2G implementation commit | `d32a4ff036de7f28afc1c1bfeb536ac103328f53` |
 | Tier 2G correction commit | `dd1b91a3be71aa5de017725c5db2543517e70147` |
 | Tier 2G independent-acceptance date | 2026-07-20 |
+| Tier 2H implementation commit | `112f52fb0f903e0361fb6ec38199c081f63a93ed` |
+| Whole-Tier-2 correction commit | `041ba778f835d1b5d9c11e3e8308e8d217951cdd` |
+| Whole-Tier-2 independent-acceptance date | 2026-07-20 |
 | Baseline `origin/main` | `f9ee87a5c1d4987fac1ee671d2c07711bcac8a41` |
 | Tier 2A review-start branch | `main`, four commits ahead of `origin/main` |
 | Tier 2A review-start working tree | untracked `Tier1ConfigPlan.md`; nothing staged |
 | Tier 1 status | Locally complete and independently accepted |
-| Tier 2 issues | INS-001, INS-002, and INS-003 remain open |
-| Gate status | Design independently accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction and Tier 2F and Tier 2G independently accepted after correction on 2026-07-20 |
-| Implementation status | Tier 2 in progress: Tier 2A through Tier 2G accepted; Tier 2H not started |
+| Tier 2 issues | INS-001, INS-002, and INS-003 closed on 2026-07-20 |
+| Gate status | Tier 2 independently accepted and complete after correction on 2026-07-20 |
+| Implementation status | Tier 2A through Tier 2H complete; Tier 3 implementation not started |
 | Remote CI | Unobserved |
 
 This document is the single implementation contract for Tier 2. It selects one
@@ -53,8 +56,11 @@ a timing-sensitive concurrency test. Tier 2E's metadata merge and complete-diame
 resolution were independently accepted without correction on 2026-07-20. Tier 2F's
 canonical baseline generation and selection were independently accepted after
 correction on 2026-07-20. Tier 2G's atomic public integration was independently
-accepted after correction on 2026-07-20. Tier 2H is the next authorized separate
-slice and has not started.
+accepted after correction on 2026-07-20. Tier 2H implementation was independently
+audited with the complete Tier 2 state and accepted after the narrow truth-surface
+correction above. INS-001, INS-002, and INS-003 are closed. The next authorized task
+is the separate Tier 3 design gate for beam and observability integration; Tier 3
+implementation has not started.
 
 ## 2. Decision and scope
 
@@ -2193,7 +2199,8 @@ following:
 - INS-001, INS-002, and INS-003 have evidence for closure, while Tier 3+ remains
   untouched.
 
-Until then, all three INS issues remain open.
+The 2026-07-20 independent whole-tier acceptance in Section 35 proves these criteria.
+INS-001, INS-002, and INS-003 are closed.
 
 ## 32. Decision log
 
@@ -2217,7 +2224,7 @@ Until then, all three INS issues remain open.
 | Heterogeneous observability | Reject before plot/browser | A single footprint would be scientifically misleading |
 | Compatibility | Direct replacement, no shims | Project is pre-v1 and one coherent API is safer than dual state |
 | Result scope | One additive instrument snapshot and narrow writer adapter | Meets provenance needs without taking Tier 4 ownership |
-| Immediate next task | Tier 2H — Legacy removal and final parity | Tier 2G is independently accepted after correction; 2H must run separately under its existing stop boundary |
+| Immediate next task | Tier 3 design gate — beam and observability integration | Tier 2 is independently accepted; Tier 3 implementation requires a separate implementation-ready design with no unresolved beam or observability decisions |
 
 ## 33. Unresolved decisions
 
@@ -2317,3 +2324,145 @@ legacy module/export/declaration was removed during 2G. Nothing was pushed or
 published. INS-001, INS-002, and INS-003 remain **OPEN**, Tier 2 remains incomplete,
 and Tier 2H has not started. Tier 2H is the next authorized task only in a separate
 fresh task under its existing stop boundary.
+
+## 35. 2026-07-20 independent whole-Tier-2 acceptance
+
+**Decision:** Tier 2 is independently accepted and complete after correction.
+Implementation `112f52fb0f903e0361fb6ec38199c081f63a93ed` completes Tier 2H. Final
+acceptance correction `041ba778f835d1b5d9c11e3e8308e8d217951cdd` fixes only stale active
+Tier 2 truth statements and adds their regression; it changes no runtime or scientific
+behavior. INS-001, INS-002, and INS-003 are closed. Tier 3 was not started.
+
+### 35.1 Tier 2H scope and coverage transfer
+
+The implementation has exactly 21 changed paths, 553 insertions, and 2,455 deletions.
+It deletes `core/antenna.py`, `core/baseline.py`, and `io/antenna_readers.py`; deletes
+the three superseded characterization suites; and adds one cleanup suite. Its
+`CLAUDE.md` update was necessary to replace the deleted core-module inventory. Its
+sky-support lazy hook was necessary to keep the intended helper importable without
+reintroducing the root import cycle. Forward/reverse fresh-process imports, repeated
+helper access, `import *`, unknown attributes, and AST review of the hook pass on both
+Pythons. The hook returns the intended function and contains no exception suppressor.
+
+Every meaningful accepted assertion from the deleted suites maps to stricter live
+coverage:
+
+- `test_instrument_sources.py`, `test_instrument_coordinates.py`, and
+  `test_instrument_resolution.py` cover every retained parser, malformed input,
+  duplicates, deterministic identity/order, coordinate conversion, dependency facts,
+  diameter precedence, provenance, and caller/dependency ownership;
+- `test_baseline.py` and `test_baseline_selection.py` cover pair formulas, numeric
+  order, `ant2-ant1`, length, coincidence, axial azimuth, correlation/length/angle
+  algebra and boundaries, autocorrelation treatment, empty failure, and provenance;
+- `test_instrument_integration.py` and `test_visibility_backend.py` cover canonical
+  state identity, point/HEALPix phase and heterogeneous-diameter parity, plotting,
+  lifecycle ordering, retry behavior, and observability rejection/acceptance;
+- `test_measurement_set.py` covers the canonical signature, exact selected keys and
+  shapes, identity/geometry/diameters, registry policy, UVW generation and row order,
+  HDF5 metadata round trips, and non-finite rejection.
+
+Mutable legacy dictionaries, opaque strings, permissive row skipping, silent
+overwrite/truncation, ambiguous formats, generated fallback identity, and hidden
+diameter defaults were rejected design behavior and were intentionally not preserved.
+The scope contains no unrelated cleanup or hidden compatibility mechanism.
+
+### 35.2 Section 31 findings
+
+1. **Retained sources:** pass. The exact discriminated local, dataset, and
+   known-telescope sources enforce identity, frame, Earth location, dependency,
+   metadata, array-shape, hash, ordering, and provenance rules. Ambiguous `casa`,
+   `mwa`, and pyuvdata-text formats are rejected with migration guidance.
+2. **Sole instrument inventory:** pass. `ResolvedInstrument` is frozen, exact-class,
+   deterministically number-ordered, hashable, copy-owned, JSON-safe, and the sole
+   scientific antenna inventory.
+3. **Antenna invariants:** pass. Numbers use `0..2_147_483_647`; normalized names and
+   numbers are unique; ENU values are finite; every diameter is positive, finite, and
+   provenance-labelled.
+4. **Known/dataset sources:** pass. They are separate typed sources with injected
+   offline seams, exact explicit/embedded identity and location mismatch rules,
+   relative-ECEF-to-ENU reference tests, disabled registry updates, and dependency
+   version provenance.
+5. **Section 14 precedence:** pass. Exact override namespaces, numeric-looking names,
+   duplicate/unknown targets, location and identity mismatches, deterministic missing
+   aggregation, and `override > source > default` are covered.
+6. **No 14-metre invention:** pass. Residual searches and exact adapter invariants find
+   no fallback in solver, planner, plotter, writer, setup, or result code.
+7. **Canonical baselines:** pass. Counts, numeric pair order, signed vector, length,
+   exact zero autos, coincidence threshold, copy ownership, and absence of opaque
+   fields are covered.
+8. **Section 18 selection:** pass. Correlation, target and range length, wrapped and
+   opposite axial angles, category algebra, boundary epsilons, autocorrelation
+   exemption, stable empty failure, selected IDs, and stage counts are covered.
+9. **Side-effect ordering:** pass. Configuration remains pure; instrument/selection
+   failure precedes device, backend, sky, network, output, plotting, browser, and
+   banner work; atomic state and retry contracts pass.
+10. **Solver parity:** pass. Both paths receive equal numeric IDs, selected order,
+    vectors, baseline/frequency lengths, and exact `[12.0, 25.0]` diameters through
+    strict, non-truncating adapters.
+11. **Observability:** pass. A truly uniform state supplies its exact common diameter;
+    heterogeneous state fails before renderer, browser, or file work. Tier 3 display
+    semantics were not implemented or claimed.
+12. **Results/writers:** pass. Public canonical tuples retain identity and one detached
+    deterministic `instrument_resolution` snapshot. JSON/HDF5 and Measurement Set
+    boundaries reject malformed/non-finite/shape-mismatched data and preserve identity,
+    ENU-to-relative-ECEF geometry, diameters, provenance, generated UVWs, time-major
+    rows, `force_phase=True`, and registry policy without Tier 4 redesign.
+13. **Legacy absence:** pass. Deleted modules fail in fresh processes; old exports,
+    declarations, fields, format literals, return shapes, opaque fields, forwarding
+    modules, aliases, `_CORE_AVAILABLE`, `np.resize`, manual UVWs, first-antenna
+    selection, and scientific fallbacks are absent. Remaining strings are history,
+    migration/rejection guidance, negative tests, or canonical-name substrings.
+14. **Local verification:** pass. The canonical focused boundary is 704/704 on Python
+    3.11.13 and 704/704 on Python 3.12.13. The second focused boundary is 220 passed,
+    one optional Vivaldi skip, and four warnings on 3.11; and 219 passed, optional JAX
+    and Vivaldi skips, and four warnings on 3.12. Full results are 2,187 passed, one
+    optional skip, and 26 warnings on 3.11; and 2,180 passed, eight optional skips, and
+    26 warnings on 3.12 non-slow. There are zero xfails. Ruff passes; 267 files pass
+    format; Pyright 1.1.408 reports 4,135 diagnostics in each environment under the
+    unchanged 4,600 ceiling; whitespace, YAML, script, notebook, CLI, import, residual,
+    and Sphinx gates pass.
+15. **Issue closure/later tiers:** pass. INS-001 has direct heterogeneous-diameter and
+    provenance evidence; INS-002 has direct typed known-telescope/high-level evidence;
+    INS-003 has direct canonical generation/selection/consumer evidence. BeamManager,
+    FITS/mixed/per-antenna beams, heterogeneous observability display, receptor/feed,
+    Jones, output-shape, backend/performance, GPU, and other Tier 3+ behavior remain
+    untouched.
+
+### 35.3 Sphinx reconciliation
+
+Sphinx 8.2.3 was run with the same Pixi interpreter and `python -m sphinx -M html`
+command against detached parent and Tier 2H source trees, each with fresh output and
+doctree directories. Parent `4eedaf861b60bc020bbca5f1c17aa1a99f52955a`
+succeeds with 42 warning events; Tier 2H succeeds with 40. The current events are 35
+lower-level docstring/docutils events, one historical document outside the toctree,
+three historical HERA highlighting events, and one unsupported theme option. No new
+category appears; removal of the legacy baseline autodoc surface removes exactly two
+events. Sphinx emits 28 unique `WARNING:` lines in each log because repeated autodoc
+messages are suppressed after being counted.
+
+The earlier accepted Tier 2G record's 11 warnings were not a clean-build baseline. A
+controlled parent-clean/current-incremental replay produced seven warnings, proving
+that cached doctrees make such totals subset-dependent. The Tier 2H handoff's 44/42
+pair was likewise not reproduced under the mandated corresponding-source/fresh-output
+conditions. This acceptance therefore records the reproducible 42/40 comparison and
+preserves the historical statements above as historical evidence rather than silently
+rewriting them.
+
+### 35.4 Final gates and next authorization
+
+All three YAML examples validate. The offline script completes without saving or
+plotting. Five notebook code cells execute through a temporary Pixi kernelspec and
+temporary output; the committed notebook stays output-free with SHA-256
+`e328741a917535d298a672bdb3cb5b763f22ce3958ae37a6af062017a6079406`. Dependencies,
+`pixi.lock`, `pyright-baseline.json`, workflows, vendored code, `Tier1ConfigPlan.md`,
+generated outputs, and later tiers were untouched.
+
+Remote CI, live scientific-network/registry behavior, physical GPU hardware, and the
+optional Vivaldi data mount remain unobserved. During acceptance the local
+`origin/main` reference advanced externally from
+`cf353dbb1d6727ae308fda71a803576ab353bf5d` to Tier 2H; this task did not fetch, pull,
+push, publish, or rewrite history.
+
+The next authorized task is **Tier 3 design gate — beam and observability
+integration**. It must produce an implementation-ready design with no unresolved beam
+or observability decisions before any Tier 3 implementation is authorized.

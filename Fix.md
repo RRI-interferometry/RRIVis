@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 design gate accepted on 2026-07-17; Tier 2A and Tier 2B independently accepted on 2026-07-18; Tier 2C and Tier 2D independently accepted after correction on 2026-07-19; Tier 2E independently accepted without correction and Tier 2F and Tier 2G independently accepted after correction on 2026-07-20; Tier 2H not started; remote CI not yet observed |
+| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 independently accepted and complete after correction on 2026-07-20; INS-001, INS-002, and INS-003 closed; remote CI not yet observed |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -184,9 +184,9 @@ Status values used below:
 | CFG-001 | DONE | CLI/API/mapping/model/parameter inputs share one strict resolution pipeline | 1 |
 | CFG-002 | DONE | Typed config and every override surface honor centralized backend precedence | 1 |
 | CFG-003 | DONE | Unsupported non-default fields are exhaustively classified and rejected before side effects | 1 |
-| INS-001 | OPEN | Per-antenna diameter map is ignored and loaded values are overwritten | 2 |
-| INS-002 | OPEN | pyuvdata telescope flags are not wired | 2 |
-| INS-003 | OPEN | Baseline-selection fields are ignored | 2 |
+| INS-001 | DONE | Per-antenna diameter map is ignored and loaded values are overwritten | 2 |
+| INS-002 | DONE | pyuvdata telescope flags are not wired | 2 |
+| INS-003 | DONE | Baseline-selection fields are ignored | 2 |
 | BEAM-001 | OPEN | Modern FITS/per-antenna beam config is not connected to `Simulator` | 3 |
 | BEAM-002 | OPEN | `BeamManager` expects a different legacy config contract | 3 |
 | BEAM-003 | OPEN | HEALPix NSIDE beam advisor reads antenna dictionaries incorrectly | 3 |
@@ -345,6 +345,15 @@ unresolved antenna IDs must fail during setup.
 - invalid, missing, or unknown mappings fail before sky loading;
 - baseline metadata no longer encodes diameters as an opaque string.
 
+#### Resolution (2026-07-20)
+
+**DONE.** Tier 2 replaced the ignored legacy map with typed per-antenna overrides and
+one complete canonical instrument. Resolution applies `override > source > configured
+default`, records the winning source and the original source fact, rejects unknown,
+duplicate, non-finite, non-positive, or unresolved values before runtime side effects,
+and passes exact heterogeneous diameters to both solvers, results, plots, and writers.
+No consumer invents a 14-metre fallback.
+
 ### 6.5 BEAM-001/002 — FITS, per-antenna, and mixed beams
 
 #### Current behavior
@@ -470,6 +479,15 @@ large conditional block in `Simulator.setup()`.
 - selection metadata is saved with results;
 - CLI and API produce the same selected baseline set.
 
+#### Resolution (2026-07-20)
+
+**DONE.** Tier 2 now generates one immutable, numeric-order baseline inventory with
+`ant2 - ant1` vectors, then applies one typed selection pass shared by every consumer.
+Correlation, target/range length, and axial-azimuth filters implement the documented
+union/intersection algebra, tolerance boundaries, autocorrelation treatment, stable
+empty failure, and complete stage-count provenance. YAML, mapping, model, parameter,
+CLI, solver, result, plot, and writer paths use the same selected tuple.
+
 ### 6.7 POL-001 — Feed fields
 
 #### Important terminology split
@@ -546,6 +564,16 @@ Recommended field precedence:
 
 Avoid a master boolean plus several contradictory sub-flags. Prefer an explicit
 source selection and per-field override model.
+
+#### Resolution (2026-07-20)
+
+**DONE.** Tier 2 removed the inert pyuvdata booleans and replaced them with an exact
+`known_telescope` source contract, distinct from Measurement Set and UVFITS dataset
+sources. The resolver loads the selected source through an offline-testable injected
+boundary, preserves identity, location, positions, diameters, mount metadata, pyuvdata
+version, and registry policy in provenance, disables both registry-update flags where
+required, converts relative ECEF scientifically to canonical ENU, and rejects explicit
+metadata mismatches. High-level Simulator setup uses this resolved source directly.
 
 ### 6.9 CFG-002 — Compute backend ignored by `Simulator.from_config()`
 
@@ -1092,6 +1120,13 @@ pixi run test -- -m "not slow"
 - no runtime stage mutates configuration to create precedence.
 
 ## 11. Tier 2 — Instrument and baseline resolution
+
+### Status
+
+**Complete and independently accepted after correction on 2026-07-20.** INS-001,
+INS-002, and INS-003 are closed. Tier 3 implementation was not started. The next
+authorized task is the separate Tier 3 design gate for beam and observability
+integration.
 
 ### Objective
 
@@ -2336,3 +2371,108 @@ Remote CI, physical GPU hardware, and external scientific-network/live registry
 behavior remain unobserved. Nothing was pushed or published. INS-001, INS-002, and
 INS-003 remain **OPEN**, Tier 2 remains incomplete, and Tier 2H is the next authorized
 task only in a separate fresh task.
+
+### 2026-07-20 independent whole-Tier-2 acceptance
+
+**Verdict: Tier 2 is independently accepted after corrections.** The review covered
+the complete Tier 2A-through-2H history and the final combined checkout rather than
+relying on any slice handoff. Tier 2H implementation
+`112f52fb0f903e0361fb6ec38199c081f63a93ed` has the claimed 21-path,
+553-insertion/2,455-deletion scope: three production modules and three superseded
+characterization suites were deleted, one cleanup suite was added, and the approved
+`CLAUDE.md` and sky-support lazy-import changes were necessary. No forwarding module,
+compatibility alias, broad root-import guard, later-tier behavior, or unrelated
+cleanup remains.
+
+The review found one narrow acceptance defect in active truth surfaces: the
+contributor guide still named a deleted reader and the old top-level schema, while two
+live module docstrings described integrated Tier 2 code as inactive or deferred. A
+new cleanup regression failed first on Python 3.11, then correction
+`041ba778f835d1b5d9c11e3e8308e8d217951cdd` updated only those statements and the
+regression. The cleanup suite then passed 13/13 on Python 3.11 and Python 3.12. A
+separate post-correction source and diff review found no runtime or scientific change.
+
+Source-first review confirmed each Section 31 criterion. Strict discriminated inputs
+retain only `radiosim`, `casa_loc`, `mwa_metafits`, `measurement_set`, `uvfits`, and
+the distinct `known_telescope` source. Identity, frame, Earth location, relative-ECEF
+conversion, metadata-array lengths, source hashes, dependency facts, ordering, and
+provenance are validated before backend/device work. Canonical instrument, baseline,
+selection, state, and solver-view models enforce exact classes, immutability,
+copy-ownership, deterministic JSON-safe snapshots, and fingerprints. Selection is
+generated once and reused by both solvers, observability, results, plots, HDF5/JSON,
+and Measurement Set writers. Uniform observability uses the exact common diameter;
+heterogeneous observability still rejects before renderer/browser/file work, so no
+Tier 3 semantics were introduced.
+
+The deleted characterization assertions were mapped to live canonical coverage.
+Accepted invariants now have stricter tests for every retained parser, malformed and
+duplicate rejection, coordinate conversion, identity/order, diameter precedence and
+provenance, baseline count/sign/length/coincidence and filter algebra, point/HEALPix
+phase and heterogeneous-diameter parity, Measurement Set signatures and shapes,
+observability diameter handling, and immutable independently owned state. Deleted
+assertions for mutable dictionaries, opaque strings, permissive parsing, silent
+overwrite/truncation, ambiguous formats, and hidden defaults were intentionally not
+preserved.
+
+INS-001 is closed by typed override/source/default precedence and complete positive
+finite per-antenna diameters; controlled `[12.0, 25.0]` cases reach both solvers and
+writers unchanged with field-source provenance. INS-002 is closed by the working
+typed known-telescope path, separate dataset sources, explicit offline/registry policy,
+disabled registry updates, pyuvdata-version provenance, mismatch rejection, and
+high-level Simulator use. INS-003 is closed by canonical pair generation and one
+typed correlation/length/axial-azimuth selection pass with exact counts, numeric
+boundaries, algebra, empty failure, provenance, and shared consumer identity.
+
+The required canonical boundary passed 704/704 on Python 3.11.13 and 704/704 on
+Python 3.12.13. The config/API/CLI/provenance/consumer boundary reported 220 passed,
+one optional Vivaldi-data skip, and four known warnings on Python 3.11; Python 3.12
+reported 219 passed, two optional JAX/Vivaldi skips, and the same four warnings. The
+full Python 3.11 suite collected 2,188 and reported 2,187 passed, one Vivaldi skip, and
+26 existing non-instrument warnings. Python 3.12 non-slow reported 2,180 passed, eight
+skips (seven unavailable-JAX cases and Vivaldi), and the same 26 warnings. There were
+zero xfails and no new Tier 2 skip, skipif, or xfail marker. The warnings are explicit
+lossy HEALPix notices, Astropy FITS-unit notices, a NumPy edge-case warning, an
+explicit disjointness warning, and Matplotlib figure-reuse notices.
+
+Ruff lint passed, all 267 files passed the Ruff format check, and Pyright 1.1.408
+reported exactly 4,135 diagnostics in both environments under the unchanged 4,600
+ceiling. Both Git whitespace checks passed. The three RadioSim YAML files validate;
+the offline script completes with no save or plot; all five notebook code cells run
+through a temporary Pixi kernelspec and temporary output while the committed notebook
+remains output-free with SHA-256
+`e328741a917535d298a672bdb3cb5b763f22ce3958ae37a6af062017a6079406`. CLI help,
+validation output, the instrument guide/toctree, and fresh-process imports are current.
+Both Python versions pass forward/reverse import orders, coherent lazy-helper identity,
+`import *`, and unknown-attribute checks without a broad exception suppressor.
+
+Fresh Sphinx 8.2.3 `-M html` builds used the same interpreter, corresponding detached
+source trees, and new output/doctree directories. The parent
+`4eedaf861b60bc020bbca5f1c17aa1a99f52955a` succeeded with 42 warning events and Tier
+2H succeeded with 40. The current events classify as 35 pre-existing lower-level
+docstring/docutils events, one historical document outside the toctree, three
+historical HERA highlighting events, and one unsupported theme option. Tier 2H added
+no category and removed exactly two legacy-baseline autodoc events. Both logs render
+28 unique `WARNING:` lines because Sphinx suppresses repeated messages while still
+counting their events. An incremental parent-to-current replay produced only seven
+warnings, demonstrating that the earlier Tier 2G count of 11 was cache-dependent and
+not a clean-build baseline. The Tier 2H handoff's 44/42 result was also not reproduced;
+the reproducible clean comparison is 42/40, with the same two-warning reduction.
+
+Repository-wide residual searches classify every remaining old name as migration
+guidance, explicit rejection/absence coverage, historical plan text, or a substring
+of a canonical replacement such as `baseline_resolution`. No active definition,
+import, re-export, accepted field, fallback, opaque baseline dictionary, manual UVW
+assignment, `np.resize`, first-antenna diameter selection, or generated writer identity
+remains. Dependencies, `pixi.lock`, `pyright-baseline.json`, workflows, vendored
+simulators, Tier 1 plans, generated outputs, and Tier 3+ implementation were untouched.
+
+Remote CI, live scientific-network and registry behavior, physical GPU hardware, and
+the optional Vivaldi data mount remain explicitly unobserved. During the review the
+local `origin/main` reference advanced externally from
+`cf353dbb1d6727ae308fda71a803576ab353bf5d` to the accepted Tier 2H commit; no fetch,
+pull, push, publication, or history rewrite was performed by this task.
+
+The next authorized task is **Tier 3 design gate — beam and observability
+integration**. It must first turn the Tier 3 outline into an implementation-ready
+design with no unresolved beam or observability decisions. Tier 3 implementation is
+not authorized by this acceptance.
