@@ -57,7 +57,13 @@ def _instrument_mapping(tmp_path, *, include_diameters: bool = True):
             },
         },
         "baseline_selection": {"correlations": "cross"},
-        "beams": {"beam_mode": "analytic"},
+        "beams": {
+            "mode": "analytic",
+            "model": {
+                "kind": "circular_aperture",
+                "taper": {"kind": "gaussian", "edge_taper_db": 10.0},
+            },
+        },
         "obs_time": {
             "start_time": "2025-01-01T00:00:00",
             "duration_seconds": 1.0,

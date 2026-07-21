@@ -47,8 +47,8 @@ if TYPE_CHECKING:
         ResolvedConfiguration,
         ResolvedSimulationConfig,
     )
+    from radiosim.io.beam_config import BeamsConfig
     from radiosim.io.config import (
-        BeamsConfig,
         ExecutionConfig,
         RadioSimConfig,
         SkyModelConfig,
@@ -75,6 +75,73 @@ def _runtime_loader_value(value: Any) -> Any:
     return value
 
 
+def _guard_beam_runtime(beams: object) -> None:
+    """Reject Tier 3B declarations that do not have runtime support yet."""
+    from radiosim.core.beam import (
+        ResolvedAnalyticBeamsInput,
+        ResolvedCircularApertureBeamModel,
+    )
+    from radiosim.io.config import ConfigIssue
+    from radiosim.io.config_resolution import UnsupportedConfigError
+
+    if type(beams) is not ResolvedAnalyticBeamsInput:
+        raise UnsupportedConfigError(
+            [
+                ConfigIssue(
+                    "beams.mode",
+                    "beam_runtime_fits_pending",
+                    "beam_runtime_fits_pending: FITS-backed beam modes are declared "
+                    "but runtime loading belongs to Tier 3C",
+                    stage="unsupported",
+                    category="unsupported",
+                )
+            ]
+        )
+    if type(beams.model.model) is not ResolvedCircularApertureBeamModel:
+        raise UnsupportedConfigError(
+            [
+                ConfigIssue(
+                    "beams.model.kind",
+                    "beam_runtime_analytic_variant_pending",
+                    "beam_runtime_analytic_variant_pending: this analytic beam "
+                    "variant is declared but runtime activation belongs to a later "
+                    "Tier 3 slice",
+                    stage="unsupported",
+                    category="unsupported",
+                )
+            ]
+        )
+
+
+def _project_direct_circular_beam(beams: object) -> dict[str, object]:
+    """Project the one Tier 3B runtime-supported model into the solver shape."""
+    from radiosim.core.beam import (
+        ResolvedGaussianTaper,
+        ResolvedParabolicSquaredTaper,
+        ResolvedParabolicTaper,
+    )
+
+    model = beams.model.model
+    taper = model.taper
+    projected: dict[str, object] = {
+        "aperture_shape": "circular",
+        "taper": taper.kind,
+        "feed_model": "none",
+        "feed_computation": "analytical",
+        "feed_params": {},
+        "reflector_type": "prime_focus",
+        "magnification": 1.0,
+        "aperture_params": {},
+    }
+    if type(taper) in (
+        ResolvedGaussianTaper,
+        ResolvedParabolicTaper,
+        ResolvedParabolicSquaredTaper,
+    ):
+        projected["edge_taper_dB"] = taper.edge_taper_db
+    return projected
+
+
 class Simulator:
     """
     High-level API for radio interferometry visibility simulation.
@@ -91,9 +158,9 @@ class Simulator:
     - selecting a resolved backend and precision policy; and
     - returning results for explicit saving or plotting.
 
-    FITS/per-antenna beams and later-tier simulator modes are rejected during
-    configuration resolution. Backend selection does not promise end-to-end
-    GPU execution.
+    FITS/per-antenna beams and pending analytic variants are rejected at the
+    Simulator boundary. Backend selection does not promise end-to-end GPU
+    execution.
 
     Parameters
     ----------
@@ -124,6 +191,7 @@ class Simulator:
 
         if type(resolved) is not ResolvedSimulationConfig:
             raise TypeError("Simulator accepts only ResolvedSimulationConfig")
+        _guard_beam_runtime(resolved.beams)
 
         self.version = __version__
         self._resolved = resolved
@@ -160,7 +228,7 @@ class Simulator:
     @staticmethod
     def _input_section(value: object) -> object:
         if hasattr(value, "model_dump"):
-            return value.model_dump(mode="python", exclude_unset=True)
+            return value.model_dump(mode="python")
         if isinstance(value, Mapping):
             return dict(value)
         return value
@@ -494,19 +562,8 @@ class Simulator:
             f"{self._frequencies_hz[0] / 1e6:.1f} - {self._frequencies_hz[-1] / 1e6:.1f} MHz"
         )
 
-        # Extract beam configuration for aperture-based model
-        beam_config = self._resolved.beams
-        self._beam_config = {
-            "aperture_shape": beam_config.aperture_shape,
-            "taper": beam_config.taper,
-            "edge_taper_dB": beam_config.edge_taper_dB,
-            "feed_model": beam_config.feed_model,
-            "feed_computation": beam_config.feed_computation,
-            "feed_params": dict(beam_config.feed_params),
-            "reflector_type": beam_config.reflector_type,
-            "magnification": beam_config.magnification,
-            "aperture_params": dict(beam_config.aperture_params),
-        }
+        # Project the only runtime-supported Tier 3B shape for the legacy solver.
+        self._beam_config = _project_direct_circular_beam(self._resolved.beams)
 
         # Get visibility configuration
         visibility_config = self._resolved.visibility
@@ -1206,19 +1263,7 @@ class Simulator:
             duration = self._resolved.observation.duration_seconds
 
         # Beam
-        beams = self._resolved.beams
-        beam_config = {
-            "beam_mode": beams.beam_mode,
-            "aperture_shape": beams.aperture_shape,
-            "taper": beams.taper,
-            "edge_taper_dB": beams.edge_taper_dB,
-            "feed_model": beams.feed_model,
-            "feed_computation": beams.feed_computation,
-            "feed_params": dict(beams.feed_params),
-            "reflector_type": beams.reflector_type,
-            "magnification": beams.magnification,
-            "aperture_params": dict(beams.aperture_params),
-        }
+        beam_config = _project_direct_circular_beam(self._resolved.beams)
 
         planner = ObservabilityPlanner(
             latitude_deg=lat,
@@ -1232,7 +1277,7 @@ class Simulator:
             field_radius_deg=kwargs.pop("field_radius_deg", None),
             beam_diameter_m=diameter,
             beam_config=beam_config,
-            beam_fits_path=beams.beam_file,
+            beam_fits_path=None,
             beam_reference=beam_reference,
             sky_model=getattr(self, "_sky_model", None),
             x_axis=x_axis,

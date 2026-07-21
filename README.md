@@ -179,9 +179,12 @@ sky_model:
       num_sources: 3
 
 beams:
-  beam_mode: analytic
-  aperture_shape: circular
-  taper: gaussian
+  mode: analytic
+  model:
+    kind: circular_aperture
+    taper:
+      kind: gaussian
+      edge_taper_db: 10.0
 
 execution:
   backend: numpy
@@ -208,6 +211,13 @@ the requested spacing with `linspace`.
 
 Unknown fields are rejected. The pre-v1 API intentionally does not translate
 removed input shapes; see the migration guide for exact replacements.
+
+The beam schema accepts four complete modes: `analytic`, `shared_fits`,
+`per_antenna_fits`, and `mixed`. Tier 3B resolves and validates every mode,
+including local FITS paths, but the Simulator currently activates only
+`analytic` with `model.kind: circular_aperture`. FITS-backed modes and the
+other analytic variants fail explicitly before device, backend, network, or
+scientific loading work; they do not fall back to an analytic beam.
 
 ## Loading, resolving, and serialization
 

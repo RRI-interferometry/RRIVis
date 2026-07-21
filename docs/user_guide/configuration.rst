@@ -32,9 +32,12 @@ Local formats also require explicit identity and geodetic location:
      azimuth_ranges_deg: []
 
    beams:
-     beam_mode: analytic
-     aperture_shape: circular
-     taper: gaussian
+     mode: analytic
+     model:
+       kind: circular_aperture
+       taper:
+         kind: gaussian
+         edge_taper_db: 10.0
 
    obs_time:
      start_time: "2025-01-01T00:00:00"
@@ -119,6 +122,23 @@ Path and override rules
 - An instrument path override is valid only for ``layout_file`` sources.
 - Location and frequency overrides replace complete typed values.
 - Precedence is ``explicit override > document value > declared default``.
+
+Nested FITS beam paths follow the same source bases. Shared sources are recorded
+as ``beams.beam.path``; assignment sources use indexed keys such as
+``beams.assignments[0].beam.path``. Checked inputs must be readable regular
+files. Resolution normalizes and fingerprints these declarations without
+reading BeamFITS content.
+
+Beam declarations
+-----------------
+
+``beams.mode`` is one of ``analytic``, ``shared_fits``,
+``per_antenna_fits``, or ``mixed``. See :doc:`beam_models` for the complete
+tagged shapes and all five analytic model variants. Schema validation and path
+resolution accept all four modes. The Simulator currently activates only a
+direct ``circular_aperture`` analytic model; every FITS-backed mode and every
+other analytic variant raises a typed unsupported issue before runtime side
+effects.
 
 An ``allow_network`` known-telescope source conflicts with global offline mode.
 Validation and offline tests never enumerate the live registry.

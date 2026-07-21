@@ -12,24 +12,12 @@ instrument:
   diameter_overrides: []
 
 beams:
-  beam_mode: analytic
-  per_antenna: false
-  antenna_beam_map: {}
-  beam_file: null
-  beam_za_max_deg: null
-  beam_za_buffer_deg: null
-  beam_freq_buffer_hz: null
-  beam_peak_normalize: true
-  beam_interp_function: null
-  aperture_shape: circular
-  taper: gaussian
-  edge_taper_dB: 10.0
-  feed_model: none
-  feed_computation: analytical
-  feed_params: {}
-  reflector_type: prime_focus
-  magnification: 1.0
-  aperture_params: {}
+  mode: analytic
+  model:
+    kind: circular_aperture
+    taper:
+      kind: gaussian
+      edge_taper_db: 10.0
 
 baseline_selection:
   correlations: all

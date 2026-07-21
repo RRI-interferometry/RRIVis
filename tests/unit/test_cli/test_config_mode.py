@@ -281,7 +281,7 @@ def test_config_mode_schema_renderer_keeps_all_issues_without_partial_model(
 ):
     data = valid_config_mapping(tmp_path)
     data["instrument"]["default_diameter_m"] = "wide"
-    data["beams"]["beam_mode"] = "unknown"
+    data["beams"]["mode"] = "unknown"
     data["obs_time"]["duration_seconds"] = -1.0
     config_path = write_config_yaml(tmp_path, data, name="invalid.yaml")
 
@@ -290,7 +290,7 @@ def test_config_mode_schema_renderer_keeps_all_issues_without_partial_model(
     assert result.exit_code == 1
     assert "3 issue(s)" in result.output
     assert "instrument.default_diameter_m" in result.output
-    assert "beams.beam_mode" in result.output
+    assert "beams" in result.output
     assert "obs_time.duration_seconds" in result.output
     assert "obs_time.time_step_seconds" not in result.output
     assert recording_simulator.instances == []
@@ -309,6 +309,32 @@ def test_config_mode_and_validate_render_equivalent_issue_content(
 
     assert config_result.exit_code == validate_result.exit_code == 1
     assert _issue_lines(config_result.output) == _issue_lines(validate_result.output)
+
+
+def test_validate_accepts_pending_fits_schema_but_config_mode_rejects_runtime(
+    tmp_path, recording_simulator
+):
+    beam_path = tmp_path / "pending.beamfits"
+    beam_path.touch()
+    data = valid_config_mapping(
+        tmp_path,
+        beams={
+            "mode": "shared_fits",
+            "beam": {"kind": "fits", "path": beam_path.name},
+        },
+    )
+    config_path = write_config_yaml(tmp_path, data)
+    runner = CliRunner()
+
+    validate_result = runner.invoke(cli, ["validate", str(config_path)])
+    config_result = _invoke_config(runner, config_path)
+
+    assert validate_result.exit_code == 0, validate_result.output
+    assert "Configuration is valid" in validate_result.output
+    assert config_result.exit_code == 1
+    assert isinstance(config_result.exception, Exception)
+    assert "beam_runtime_fits_pending" in str(config_result.exception)
+    assert recording_simulator.instances == []
 
 
 def test_config_mode_and_python_api_consume_same_backend_and_precision(

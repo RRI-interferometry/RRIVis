@@ -274,84 +274,6 @@ def _validate_nside(value: int) -> int:
     return value
 
 
-class BeamsConfig(StrictFrozenModel):
-    """Analytic beam input plus explicitly unsupported future FITS controls."""
-
-    beam_mode: Literal["analytic", "fits", "mixed"] = "analytic"
-    per_antenna: bool = False
-    beam_file: Path | None = None
-    antenna_beam_map: SerializableMapping[Path | Literal["analytic"]] = Field(
-        default_factory=FrozenDict
-    )
-    beam_za_max_deg: FiniteFloat | None = None
-    beam_za_buffer_deg: NonNegativeFiniteFloat | None = None
-    beam_freq_buffer_hz: NonNegativeFiniteFloat | None = None
-    beam_peak_normalize: bool = True
-    beam_interp_function: str | None = None
-    aperture_shape: Literal["circular", "rectangular", "elliptical"] = "circular"
-    taper: Literal[
-        "uniform", "gaussian", "parabolic", "parabolic_squared", "cosine"
-    ] = "gaussian"
-    edge_taper_dB: NonNegativeFiniteFloat = 10.0
-    feed_model: Literal[
-        "none", "corrugated_horn", "open_waveguide", "dipole_ground_plane"
-    ] = "none"
-    feed_computation: Literal["analytical", "numerical"] = "analytical"
-    feed_params: SerializableMapping[FiniteFloat] = Field(default_factory=FrozenDict)
-    reflector_type: Literal["prime_focus", "cassegrain"] = "prime_focus"
-    magnification: PositiveFiniteFloat = 1.0
-    aperture_params: SerializableMapping[PositiveFiniteFloat] = Field(
-        default_factory=FrozenDict
-    )
-
-    @field_validator("beam_file", mode="before")
-    @classmethod
-    def validate_beam_file(cls, value: Any) -> Any:
-        if value is None:
-            return None
-        return _nonempty_path_input(value, field_name="beam_file")
-
-    @field_validator("beam_interp_function")
-    @classmethod
-    def validate_interp(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        return _nonblank(value, field_name="beam_interp_function")
-
-    @field_validator("antenna_beam_map")
-    @classmethod
-    def freeze_beam_map(
-        cls, value: Mapping[str, Path | Literal["analytic"]]
-    ) -> FrozenDict:
-        copied: dict[str, Path | Literal["analytic"]] = {}
-        for raw_key, beam in value.items():
-            key = _nonblank(str(raw_key), field_name="antenna_beam_map key")
-            if isinstance(beam, Path) and str(beam) in {"", "."}:
-                raise ValueError(f"antenna_beam_map[{key!r}] must be nonempty")
-            copied[key] = beam
-        return _freeze_dict(copied)
-
-    @field_validator("feed_params")
-    @classmethod
-    def validate_feed_params(cls, value: Mapping[str, FiniteFloat]) -> FrozenDict:
-        allowed = {"q", "b_over_lambda", "height_wavelengths", "focal_ratio"}
-        unknown = sorted(set(value) - allowed)
-        if unknown:
-            raise ValueError(f"unknown feed parameter key(s): {unknown}")
-        return _finite_number_map(value)
-
-    @field_validator("aperture_params")
-    @classmethod
-    def validate_aperture_params(
-        cls, value: Mapping[str, PositiveFiniteFloat]
-    ) -> FrozenDict:
-        allowed = {"length_x", "length_y", "diameter_x", "diameter_y"}
-        unknown = sorted(set(value) - allowed)
-        if unknown:
-            raise ValueError(f"unknown aperture parameter key(s): {unknown}")
-        return _finite_number_map(value, positive=True)
-
-
 class SkyRegionEntryConfig(StrictFrozenModel):
     """One immutable cone or box region input."""
 
@@ -1561,6 +1483,10 @@ class CliWorkflowConfig(StrictFrozenModel):
         return value
 
 
+from radiosim.io.beam_config import (  # noqa: E402, I001
+    AnalyticBeamsConfig,
+    BeamsConfig as _BeamsConfig,
+)
 from radiosim.io.instrument_config import (  # noqa: E402
     BaselineSelectionConfig,
     InstrumentConfig,
@@ -1569,12 +1495,126 @@ from radiosim.io.instrument_config import (  # noqa: E402
     LayoutFileSourceConfig,
 )
 
+_REMOVED_BEAM_FIELD_GUIDANCE: dict[str, str] = {
+    "beam_mode": (
+        "Use beams.mode=analytic, shared_fits, per_antenna_fits, or mixed and "
+        "select the corresponding complete tagged shape."
+    ),
+    "per_antenna": (
+        "Use beams.mode=per_antenna_fits with beams.assignments[].antenna and "
+        "beams.assignments[].beam."
+    ),
+    "beam_file": (
+        "Use beams.mode=shared_fits with beams.beam.kind=fits and beams.beam.path, "
+        "or beams.assignments[].beam.path."
+    ),
+    "antenna_beam_map": (
+        "Use ordered beams.assignments[] entries with tagged .antenna and .beam values."
+    ),
+    "beam_za_max_deg": (
+        "Tier 3 requires full visible-hemisphere coverage; beams.model has no "
+        "partial angular-read field."
+    ),
+    "beam_za_buffer_deg": (
+        "Tier 3 loads full angular axes; beams.model has no ZA buffer field."
+    ),
+    "beam_freq_buffer_hz": (
+        "Tier 3 loads the full frequency axis; beams.beam has no frequency "
+        "buffer field."
+    ),
+    "beam_peak_normalize": (
+        "Use beams.beam.normalization=peak as a BeamFITS file requirement; runtime "
+        "normalization is not performed."
+    ),
+    "beam_interp_function": (
+        "Use beams.beam.angular_interpolation=bilinear and "
+        "beams.beam.frequency_interpolation=cubic or linear."
+    ),
+    "aperture_shape": (
+        "Use beams.mode=analytic and beams.model.kind=circular_aperture, "
+        "rectangular_aperture, or elliptical_aperture."
+    ),
+    "taper": (
+        "Use beams.model.taper.kind for circular_aperture or "
+        "beams.model.taper_profile.kind for analytical_illumination; the old "
+        "implementation ignored this value; select an active Tier 3 model."
+    ),
+    "edge_taper_dB": (
+        "Use beams.model.taper.edge_taper_db on Gaussian, parabolic, or "
+        "parabolic-squared direct circular tapers; the old implementation ignored "
+        "this value; select an active Tier 3 model."
+    ),
+    "feed_model": (
+        "Use beams.model.kind=analytical_illumination or numerical_illumination "
+        "and beams.model.illumination.kind."
+    ),
+    "feed_computation": (
+        "Use beams.model.kind=analytical_illumination or numerical_illumination; "
+        "the old implementation ignored this value; select an active Tier 3 model."
+    ),
+    "feed_params": (
+        "Use typed beams.model.illumination.focal_ratio and the selected q, "
+        "b_over_lambda, or height_wavelengths field; the old implementation "
+        "ignored this value; select an active Tier 3 model."
+    ),
+    "reflector_type": (
+        "Use beams.model.reflector.kind only under analytical_illumination or "
+        "numerical_illumination; the old implementation ignored this value; select "
+        "an active Tier 3 model."
+    ),
+    "magnification": (
+        "Use beams.model.reflector.kind=cassegrain with "
+        "beams.model.reflector.magnification greater than 1; the old implementation "
+        "ignored this value; select an active Tier 3 model."
+    ),
+    "aperture_params": (
+        "Use beams.model.north_length_m/east_length_m for rectangular_aperture or "
+        "north_diameter_m/east_diameter_m for elliptical_aperture; the old "
+        "implementation ignored this value; select an active Tier 3 model."
+    ),
+    "use_beam_file": "Use beams.mode=shared_fits and beams.beam.path.",
+    "use_different_beams": (
+        "Use beams.mode=per_antenna_fits or mixed with beams.assignments[]."
+    ),
+    "beam_file_path": "Use beams.beam.path or beams.assignments[].beam.path.",
+    "beam_files": "Use ordered beams.assignments[].beam tagged FITS sources.",
+    "beams_per_antenna": (
+        "Use ordered beams.assignments[].antenna and beams.assignments[].beam."
+    ),
+    "default_beam_id": (
+        "Tier 3 has no default assignment; use a complete beams.assignments[] list."
+    ),
+    "beam_freq_interp": "Use beams.beam.frequency_interpolation=cubic or linear.",
+    "beam_freq_buffer_mhz": (
+        "Tier 3 loads the full frequency axis; beams.beam has no frequency "
+        "buffer field."
+    ),
+    "all_beam_response": "Use beams.mode and its complete tagged model or source.",
+    "beam_assignment": "Use ordered beams.assignments[] tagged entries.",
+}
+
+
+def _legacy_beam_fields(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, Mapping):
+        return ()
+    beams = value.get("beams")
+    if not isinstance(beams, Mapping):
+        return ()
+    return tuple(sorted(set(beams) & set(_REMOVED_BEAM_FIELD_GUIDANCE)))
+
+
+def _legacy_beam_error_text(fields: Sequence[str]) -> str:
+    return "\n".join(
+        f"beams.{field}: removed in Tier 3; {_REMOVED_BEAM_FIELD_GUIDANCE[field]}"
+        for field in fields
+    )
+
 
 class RadioSimConfig(StrictFrozenModel):
     """Complete strict and deeply immutable user-authored document."""
 
     instrument: InstrumentConfig
-    beams: BeamsConfig = Field(default_factory=BeamsConfig)
+    beams: _BeamsConfig = Field(default_factory=AnalyticBeamsConfig)
     baseline_selection: BaselineSelectionConfig = Field(
         default_factory=BaselineSelectionConfig
     )
@@ -1584,6 +1624,14 @@ class RadioSimConfig(StrictFrozenModel):
     visibility: VisibilityConfig = Field(default_factory=VisibilityConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     workflow: CliWorkflowConfig = Field(default_factory=CliWorkflowConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_removed_beam_fields(cls, value: Any) -> Any:
+        fields = _legacy_beam_fields(value)
+        if fields:
+            raise ValueError(_legacy_beam_error_text(fields))
+        return value
 
 
 def _region_semantic_issues(
@@ -1735,70 +1783,6 @@ def collect_semantic_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
             )
         )
 
-    beams = config.beams
-    expected_aperture_keys: set[str] = {
-        "circular": set(),
-        "rectangular": {"length_x", "length_y"},
-        "elliptical": {"diameter_x", "diameter_y"},
-    }[beams.aperture_shape]
-    missing_aperture = sorted(expected_aperture_keys - set(beams.aperture_params))
-    unexpected_aperture = sorted(set(beams.aperture_params) - expected_aperture_keys)
-    for field in missing_aperture:
-        issues.append(
-            ConfigIssue(
-                f"beams.aperture_params.{field}",
-                "missing_aperture_parameter",
-                f"is required for aperture_shape={beams.aperture_shape!r}",
-            )
-        )
-    for field in unexpected_aperture:
-        issues.append(
-            ConfigIssue(
-                f"beams.aperture_params.{field}",
-                "inapplicable_aperture_parameter",
-                f"is not valid for aperture_shape={beams.aperture_shape!r}",
-            )
-        )
-    expected_feed_keys: set[str] = {
-        "none": set(),
-        "corrugated_horn": {"focal_ratio", "q"},
-        "open_waveguide": {"focal_ratio", "b_over_lambda"},
-        "dipole_ground_plane": {"focal_ratio", "height_wavelengths"},
-    }[beams.feed_model]
-    if beams.feed_model != "none" and "focal_ratio" not in beams.feed_params:
-        issues.append(
-            ConfigIssue(
-                "beams.feed_params.focal_ratio",
-                "missing_focal_ratio",
-                "is required when feed_model is not 'none'",
-            )
-        )
-    for field in sorted(set(beams.feed_params) - expected_feed_keys):
-        issues.append(
-            ConfigIssue(
-                f"beams.feed_params.{field}",
-                "inapplicable_feed_parameter",
-                f"is not valid for feed_model={beams.feed_model!r}",
-            )
-        )
-    for field, value in beams.feed_params.items():
-        if value <= 0.0:
-            issues.append(
-                ConfigIssue(
-                    f"beams.feed_params.{field}",
-                    "nonpositive_feed_parameter",
-                    "must be > 0",
-                )
-            )
-    if beams.reflector_type == "cassegrain" and beams.magnification <= 1.0:
-        issues.append(
-            ConfigIssue(
-                "beams.magnification",
-                "invalid_cassegrain_magnification",
-                "must be > 1 for reflector_type='cassegrain'",
-            )
-        )
-
     precision = config.execution.precision
     if precision.has_preset_custom_contradiction:
         issues.append(
@@ -1917,31 +1901,6 @@ def collect_unsupported_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...
                 category="unsupported",
             )
         )
-
-    beams = config.beams
-    if beams.beam_mode != "analytic":
-        add(
-            "beams.beam_mode",
-            "fits_beams_unsupported",
-            "only analytic beams are implemented; FITS/mixed modes belong to Tier 3",
-        )
-    beam_unsupported = {
-        "per_antenna": beams.per_antenna,
-        "beam_file": beams.beam_file is not None,
-        "antenna_beam_map": bool(beams.antenna_beam_map),
-        "beam_za_max_deg": beams.beam_za_max_deg is not None,
-        "beam_za_buffer_deg": beams.beam_za_buffer_deg is not None,
-        "beam_freq_buffer_hz": beams.beam_freq_buffer_hz is not None,
-        "beam_peak_normalize": not beams.beam_peak_normalize,
-        "beam_interp_function": beams.beam_interp_function is not None,
-    }
-    for field, enabled in beam_unsupported.items():
-        if enabled:
-            add(
-                f"beams.{field}",
-                "fits_beam_control_unsupported",
-                "this FITS/per-antenna beam control is not implemented until Tier 3",
-            )
 
     if config.visibility.calculation_type == "spherical_harmonic":
         add(
@@ -2072,23 +2031,6 @@ for _removed_baseline_field in (
         "Use correlations, a typed length_filter, and azimuth_ranges_deg.",
     )
 
-for _legacy_beam_field in (
-    "use_beam_file",
-    "use_different_beams",
-    "beam_file_path",
-    "beam_files",
-    "beams_per_antenna",
-    "default_beam_id",
-    "beam_freq_interp",
-    "beam_freq_buffer_mhz",
-    "all_beam_response",
-    "beam_assignment",
-):
-    _REMOVED_FIELD_GUIDANCE[f"beams.{_legacy_beam_field}"] = (
-        f"beams.{_legacy_beam_field} is a removed legacy beam field",
-        "Use only the strict BeamsConfig fields; no BeamManager compatibility keys are accepted.",
-    )
-
 _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
     "": tuple(RadioSimConfig.model_fields),
     "instrument": tuple(InstrumentConfig.model_fields),
@@ -2099,7 +2041,7 @@ _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
         )
     ),
     "instrument.location": tuple(InstrumentLocationConfig.model_fields),
-    "beams": tuple(BeamsConfig.model_fields),
+    "beams": ("mode", "model", "beam", "assignments", "analytic_model"),
     "baseline_selection": tuple(BaselineSelectionConfig.model_fields),
     "sky_model": tuple(SkyModelConfig.model_fields),
     "obs_time": tuple(ObsTimeConfig.model_fields),
@@ -2108,6 +2050,59 @@ _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
     "execution.precision": tuple(PrecisionInput.model_fields),
     "visibility": tuple(VisibilityConfig.model_fields),
 }
+
+
+_BEAM_UNION_BRANCH_TAGS = frozenset(
+    {
+        "analytic",
+        "shared_fits",
+        "per_antenna_fits",
+        "mixed",
+        "fits",
+        "uniform",
+        "gaussian",
+        "parabolic",
+        "parabolic_squared",
+        "cosine",
+        "corrugated_horn",
+        "open_waveguide",
+        "dipole_ground_plane",
+        "prime_focus",
+        "cassegrain",
+        "circular_aperture",
+        "rectangular_aperture",
+        "elliptical_aperture",
+        "analytical_illumination",
+        "numerical_illumination",
+    }
+)
+
+
+def _logical_schema_location(
+    location: Sequence[str | int],
+) -> tuple[str | int, ...]:
+    """Remove Pydantic discriminator branch labels from logical issue paths."""
+    if not location or location[0] != "beams":
+        return tuple(location)
+    return tuple(
+        item
+        for index, item in enumerate(location)
+        if index == 0 or not (isinstance(item, str) and item in _BEAM_UNION_BRANCH_TAGS)
+    )
+
+
+def _removed_beam_schema_issues(data: Mapping[str, Any]) -> tuple[ConfigIssue, ...]:
+    return tuple(
+        ConfigIssue(
+            f"beams.{field}",
+            "removed_field",
+            "removed in Tier 3; old flat and BeamManager inputs are not accepted",
+            _REMOVED_BEAM_FIELD_GUIDANCE[field],
+            stage="schema",
+            category="schema",
+        )
+        for field in _legacy_beam_fields(data)
+    )
 
 
 def _dotted_path(location: Sequence[str | int]) -> str:
@@ -2126,7 +2121,7 @@ def schema_issues_from_validation_error(
     """Convert Pydantic failures into actionable immutable schema issues."""
     issues: list[ConfigIssue] = []
     for item in error.errors(include_url=False):
-        location = tuple(item.get("loc", ()))
+        location = _logical_schema_location(tuple(item.get("loc", ())))
         path = _dotted_path(location)
         code = str(item.get("type", "schema_error"))
         message = str(item.get("msg", "invalid value"))
@@ -2174,11 +2169,28 @@ def schema_issues_from_validation_error(
 
 def collect_schema_issues(data: Mapping[str, Any]) -> tuple[ConfigIssue, ...]:
     """Validate a complete document without constructing a partial model."""
+    removed_beams = _removed_beam_schema_issues(data)
+    validation_data: Mapping[str, Any] = data
+    if removed_beams:
+        validation_copy = dict(data)
+        beams = data.get("beams")
+        if isinstance(beams, Mapping):
+            sanitized_beams = {
+                key: value
+                for key, value in beams.items()
+                if key not in _REMOVED_BEAM_FIELD_GUIDANCE
+            }
+            if "mode" not in sanitized_beams:
+                sanitized_beams = {"mode": "analytic"}
+            validation_copy["beams"] = sanitized_beams
+        validation_data = validation_copy
     try:
-        _ = RadioSimConfig.model_validate(dict(data))
+        _ = RadioSimConfig.model_validate(dict(validation_data))
     except ValidationError as error:
-        return schema_issues_from_validation_error(error)
-    return ()
+        return _ordered_issues(
+            (*removed_beams, *schema_issues_from_validation_error(error))
+        )
+    return _ordered_issues(removed_beams)
 
 
 _ENVIRONMENT_PATH = re.compile(r"\$(?:\{[^}]+\}|[A-Za-z_][A-Za-z0-9_]*)")
@@ -2404,7 +2416,6 @@ def create_default_config(output_path: str | Path) -> None:
 
 __all__ = [
     "BaselineSelectionConfig",
-    "BeamsConfig",
     "BbsSourceConfig",
     "CliWorkflowConfig",
     "ConfigIssue",

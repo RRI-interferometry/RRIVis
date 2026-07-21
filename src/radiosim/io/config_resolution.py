@@ -12,6 +12,7 @@ from __future__ import annotations
 import glob
 import os
 import re
+import stat
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -23,12 +24,13 @@ from typing import Any, Literal, cast
 import numpy as np
 from pydantic import ValidationError, field_validator
 
+import radiosim.core.beam.models as resolved_beams
+import radiosim.io.beam_config as beam_input
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.runtime_config import (
     ConfigurationProvenance,
     FrozenMapping,
     PathResolutionProvenance,
-    ResolvedBeamsConfig,
     ResolvedConfiguration,
     ResolvedExecutionConfig,
     ResolvedFrequencyConfig,
@@ -52,6 +54,7 @@ from radiosim.io.config import (
     RealisticForegroundSourceConfig,
     SkySourceConfig,
     StrictFrozenModel,
+    collect_schema_issues,
     collect_semantic_issues,
     collect_unsupported_issues,
     schema_issues_from_validation_error,
@@ -558,6 +561,22 @@ class _PathResolver:
                         f"expected a regular file, got: {resolved}",
                     )
                 )
+            else:
+                mode = resolved.stat().st_mode
+                readable_bits = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
+                try:
+                    if mode & readable_bits == 0:
+                        raise PermissionError("no read permission bits are set")
+                    descriptor = os.open(resolved, os.O_RDONLY)
+                    os.close(descriptor)
+                except OSError as error:
+                    self.path_issues.append(
+                        _path_issue(
+                            logical_path,
+                            "input_path_unreadable",
+                            f"required input file is not readable: {resolved} ({error})",
+                        )
+                    )
         elif expected == "directory":
             if not resolved.exists():
                 self.path_issues.append(
@@ -757,7 +776,12 @@ def _schema_model(
         )
     try:
         mapping = cast(Mapping[str, object], config)
+        issues = collect_schema_issues(mapping)
+        if issues:
+            raise ConfigSchemaError(issues)
         return RadioSimConfig.model_validate(dict(mapping))
+    except ConfigSchemaError:
+        raise
     except ValidationError as error:
         raise ConfigSchemaError(schema_issues_from_validation_error(error)) from error
 
@@ -908,6 +932,206 @@ def _resolve_sky_source(
         brightness_conversion=source.brightness_conversion,
         provenance_override=_source_common_value(source.provenance_override),
     )
+
+
+def _resolve_direct_taper(
+    taper: beam_input.DirectTaperConfig,
+) -> resolved_beams.ResolvedDirectTaper:
+    if isinstance(taper, beam_input.UniformTaperConfig):
+        return resolved_beams.ResolvedUniformTaper("uniform")
+    if isinstance(taper, beam_input.GaussianTaperConfig):
+        return resolved_beams.ResolvedGaussianTaper("gaussian", taper.edge_taper_db)
+    if isinstance(taper, beam_input.ParabolicTaperConfig):
+        return resolved_beams.ResolvedParabolicTaper("parabolic", taper.edge_taper_db)
+    if isinstance(taper, beam_input.ParabolicSquaredTaperConfig):
+        return resolved_beams.ResolvedParabolicSquaredTaper(
+            "parabolic_squared", taper.edge_taper_db
+        )
+    if isinstance(taper, beam_input.CosineTaperConfig):
+        return resolved_beams.ResolvedCosineTaper("cosine")
+    raise TypeError(f"unsupported direct taper type {type(taper).__name__}")
+
+
+def _resolve_derived_taper(
+    taper: beam_input.FeedDerivedTaperConfig,
+) -> resolved_beams.ResolvedDerivedTaper:
+    if isinstance(taper, beam_input.DerivedGaussianTaperConfig):
+        return resolved_beams.ResolvedDerivedGaussianTaper("gaussian")
+    if isinstance(taper, beam_input.DerivedParabolicTaperConfig):
+        return resolved_beams.ResolvedDerivedParabolicTaper("parabolic")
+    if isinstance(taper, beam_input.DerivedParabolicSquaredTaperConfig):
+        return resolved_beams.ResolvedDerivedParabolicSquaredTaper("parabolic_squared")
+    raise TypeError(f"unsupported derived taper type {type(taper).__name__}")
+
+
+def _resolve_illumination(
+    illumination: beam_input.IlluminationConfig,
+) -> resolved_beams.ResolvedIllumination:
+    if isinstance(illumination, beam_input.CorrugatedHornIlluminationConfig):
+        return resolved_beams.ResolvedCorrugatedHornIllumination(
+            "corrugated_horn",
+            illumination.focal_ratio,
+            illumination.q,
+        )
+    if isinstance(illumination, beam_input.OpenWaveguideIlluminationConfig):
+        return resolved_beams.ResolvedOpenWaveguideIllumination(
+            "open_waveguide",
+            illumination.focal_ratio,
+            illumination.b_over_lambda,
+        )
+    if isinstance(illumination, beam_input.DipoleGroundPlaneIlluminationConfig):
+        return resolved_beams.ResolvedDipoleGroundPlaneIllumination(
+            "dipole_ground_plane",
+            illumination.focal_ratio,
+            illumination.height_wavelengths,
+        )
+    raise TypeError(f"unsupported illumination type {type(illumination).__name__}")
+
+
+def _resolve_reflector(
+    reflector: beam_input.ReflectorConfig,
+) -> resolved_beams.ResolvedReflector:
+    if isinstance(reflector, beam_input.PrimeFocusReflectorConfig):
+        return resolved_beams.ResolvedPrimeFocusReflector("prime_focus")
+    if isinstance(reflector, beam_input.CassegrainReflectorConfig):
+        return resolved_beams.ResolvedCassegrainReflector(
+            "cassegrain", reflector.magnification
+        )
+    raise TypeError(f"unsupported reflector type {type(reflector).__name__}")
+
+
+def _resolve_analytic_model(
+    model: beam_input.AnalyticBeamModelConfig,
+) -> resolved_beams.ResolvedAnalyticBeamModel:
+    if isinstance(model, beam_input.CircularApertureBeamModelConfig):
+        return resolved_beams.ResolvedCircularApertureBeamModel(
+            "circular_aperture", _resolve_direct_taper(model.taper)
+        )
+    if isinstance(model, beam_input.RectangularApertureBeamModelConfig):
+        return resolved_beams.ResolvedRectangularApertureBeamModel(
+            "rectangular_aperture",
+            model.north_length_m,
+            model.east_length_m,
+        )
+    if isinstance(model, beam_input.EllipticalApertureBeamModelConfig):
+        return resolved_beams.ResolvedEllipticalApertureBeamModel(
+            "elliptical_aperture",
+            model.north_diameter_m,
+            model.east_diameter_m,
+        )
+    if isinstance(model, beam_input.AnalyticalIlluminationBeamModelConfig):
+        return resolved_beams.ResolvedAnalyticalIlluminationBeamModel(
+            "analytical_illumination",
+            _resolve_illumination(model.illumination),
+            _resolve_derived_taper(model.taper_profile),
+            _resolve_reflector(model.reflector),
+        )
+    if isinstance(model, beam_input.NumericalIlluminationBeamModelConfig):
+        return resolved_beams.ResolvedNumericalIlluminationBeamModel(
+            "numerical_illumination",
+            _resolve_illumination(model.illumination),
+            _resolve_reflector(model.reflector),
+            256,
+        )
+    raise TypeError(f"unsupported analytic beam model {type(model).__name__}")
+
+
+def _resolve_analytic_definition(
+    model: beam_input.AnalyticBeamModelConfig,
+) -> resolved_beams.ResolvedAnalyticBeamDefinition:
+    resolved_model = _resolve_analytic_model(model)
+    return resolved_beams.ResolvedAnalyticBeamDefinition(
+        "analytic",
+        resolved_model,
+        resolved_beams._definition_fingerprint("analytic", resolved_model),
+    )
+
+
+def _resolve_fits_definition(
+    source: beam_input.FITSBeamSourceConfig,
+    *,
+    logical_path: str,
+    resolver: _PathResolver,
+) -> resolved_beams.ResolvedFITSBeamDefinition:
+    path = resolver.path(
+        source.path,
+        logical_path=logical_path,
+        origin="document",
+        expected="file",
+    )
+    # A missing document base is already recorded as a source issue.  Keep the
+    # temporary value constructible so the resolver can raise that typed issue.
+    if not path.is_absolute():
+        path = (resolver.source.invocation_dir / path).resolve(strict=False)
+    fingerprint_payload = {
+        "path": path,
+        "normalization": source.normalization,
+        "angular_interpolation": source.angular_interpolation,
+        "frequency_interpolation": source.frequency_interpolation,
+    }
+    return resolved_beams.ResolvedFITSBeamDefinition(
+        "fits",
+        path,
+        source.normalization,
+        source.angular_interpolation,
+        source.frequency_interpolation,
+        logical_path,
+        resolved_beams._definition_fingerprint("fits", fingerprint_payload),
+    )
+
+
+def _resolve_beam_input(
+    beams: beam_input.BeamsConfig,
+    resolver: _PathResolver,
+) -> resolved_beams.ResolvedBeamsInput:
+    if isinstance(beams, beam_input.AnalyticBeamsConfig):
+        return resolved_beams.ResolvedAnalyticBeamsInput(
+            "analytic", _resolve_analytic_definition(beams.model)
+        )
+    if isinstance(beams, beam_input.SharedFITSBeamsConfig):
+        return resolved_beams.ResolvedSharedFITSBeamsInput(
+            "shared_fits",
+            _resolve_fits_definition(
+                beams.beam,
+                logical_path="beams.beam.path",
+                resolver=resolver,
+            ),
+        )
+    if isinstance(beams, beam_input.PerAntennaFITSBeamsConfig):
+        assignments = tuple(
+            resolved_beams.ResolvedFITSBeamAssignmentInput(
+                assignment.antenna,
+                _resolve_fits_definition(
+                    assignment.beam,
+                    logical_path=f"beams.assignments[{index}].beam.path",
+                    resolver=resolver,
+                ),
+            )
+            for index, assignment in enumerate(beams.assignments)
+        )
+        return resolved_beams.ResolvedPerAntennaFITSBeamsInput(
+            "per_antenna_fits", assignments
+        )
+    if isinstance(beams, beam_input.MixedBeamsConfig):
+        mixed_assignments = tuple(
+            resolved_beams.ResolvedMixedBeamAssignmentInput(
+                assignment.antenna,
+                resolved_beams.ResolvedAnalyticBeamChoice("analytic")
+                if isinstance(assignment.beam, beam_input.AnalyticBeamChoiceConfig)
+                else _resolve_fits_definition(
+                    assignment.beam,
+                    logical_path=f"beams.assignments[{index}].beam.path",
+                    resolver=resolver,
+                ),
+            )
+            for index, assignment in enumerate(beams.assignments)
+        )
+        return resolved_beams.ResolvedMixedBeamsInput(
+            "mixed",
+            _resolve_analytic_definition(beams.analytic_model),
+            mixed_assignments,
+        )
+    raise TypeError(f"unsupported beams mode {type(beams).__name__}")
 
 
 def _normalize_start_time(value: str) -> str:
@@ -1061,6 +1285,8 @@ def _normalized_source_mapping(
 ) -> dict[str, object]:
     if isinstance(config, RadioSimConfig):
         source_data = config.model_dump(mode="python", exclude_unset=True)
+        if "beams" in config.model_fields_set:
+            source_data["beams"] = config.beams.model_dump(mode="python")
         frequency = cast(dict[str, object], source_data["obs_frequency"])
         frequency.setdefault("mode", config.obs_frequency.mode)
         sky_model = cast(dict[str, object], source_data["sky_model"])
@@ -1161,26 +1387,7 @@ def resolve_config(
                 "source": instrument.source.model_copy(update={"path": antenna_path})
             }
         )
-    beam_file = candidate.beams.beam_file
-    if beam_file is not None:
-        beam_file = path_resolver.path(
-            beam_file,
-            logical_path="beams.beam_file",
-            origin="document",
-            expected="file",
-        )
-    beam_map: dict[str, Any] = {}
-    for antenna_id, beam in candidate.beams.antenna_beam_map.items():
-        beam_map[antenna_id] = (
-            beam
-            if beam == "analytic"
-            else path_resolver.path(
-                beam,
-                logical_path=f"beams.antenna_beam_map.{antenna_id}",
-                origin="document",
-                expected="file",
-            )
-        )
+    beam_config = _resolve_beam_input(candidate.beams, path_resolver)
     sources = tuple(
         _resolve_sky_source(source_config, index=index, resolver=path_resolver)
         for index, source_config in enumerate(candidate.sky_model.sources)
@@ -1211,26 +1418,7 @@ def resolve_config(
         resolved_workflow = CliWorkflowConfig.model_validate(workflow_data)
         runtime = ResolvedSimulationConfig(
             instrument=instrument,
-            beams=ResolvedBeamsConfig(
-                beam_mode=candidate.beams.beam_mode,
-                per_antenna=candidate.beams.per_antenna,
-                beam_file=beam_file,
-                antenna_beam_map=FrozenMapping(beam_map),
-                beam_za_max_deg=candidate.beams.beam_za_max_deg,
-                beam_za_buffer_deg=candidate.beams.beam_za_buffer_deg,
-                beam_freq_buffer_hz=candidate.beams.beam_freq_buffer_hz,
-                beam_peak_normalize=candidate.beams.beam_peak_normalize,
-                beam_interp_function=candidate.beams.beam_interp_function,
-                aperture_shape=candidate.beams.aperture_shape,
-                taper=candidate.beams.taper,
-                edge_taper_dB=candidate.beams.edge_taper_dB,
-                feed_model=candidate.beams.feed_model,
-                feed_computation=candidate.beams.feed_computation,
-                feed_params=FrozenMapping(candidate.beams.feed_params),
-                reflector_type=candidate.beams.reflector_type,
-                magnification=candidate.beams.magnification,
-                aperture_params=FrozenMapping(candidate.beams.aperture_params),
-            ),
+            beams=beam_config,
             baseline_selection=candidate.baseline_selection,
             sky_model=ResolvedSkyModelConfig(
                 sources=sources,

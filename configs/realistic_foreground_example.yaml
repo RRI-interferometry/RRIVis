@@ -19,12 +19,12 @@ instrument:
   diameter_overrides: []
 
 beams:
-  beam_mode: analytic
-  aperture_shape: circular
-  taper: gaussian
-  edge_taper_dB: 10.0
-  feed_model: none
-  reflector_type: prime_focus
+  mode: analytic
+  model:
+    kind: circular_aperture
+    taper:
+      kind: gaussian
+      edge_taper_db: 10.0
 
 baseline_selection:
   correlations: all

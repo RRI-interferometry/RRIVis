@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 
 import pytest
@@ -425,3 +426,166 @@ def test_registered_loader_path_metadata_resolves_without_calling_loader(tmp_pat
         assert calls == []
     finally:
         registry_core._REGISTRY.unregister("_tier1c_file_loader")
+
+
+def _shared_fits(path: str) -> dict[str, object]:
+    return {
+        "mode": "shared_fits",
+        "beam": {"kind": "fits", "path": path},
+    }
+
+
+def test_beam_paths_use_yaml_mapping_and_model_bases(tmp_path):
+    beam_path = tmp_path / "shared.beamfits"
+    beam_path.touch()
+    data = valid_config_mapping(tmp_path, beams=_shared_fits(beam_path.name))
+    config_path = write_config_yaml(tmp_path, data)
+    model = RadioSimConfig.model_validate(data)
+
+    yaml_bundle = load_config(config_path)
+    mapping_bundle = resolve_config(
+        data,
+        source=ConfigurationSource.for_mapping(
+            base_dir=tmp_path,
+            invocation_dir=tmp_path,
+        ),
+    )
+    model_bundle = resolve_config(
+        model,
+        source=ConfigurationSource.for_model(
+            base_dir=tmp_path,
+            invocation_dir=tmp_path,
+        ),
+    )
+
+    expected = beam_path.resolve()
+    assert yaml_bundle.runtime.beams.beam.path == expected
+    assert mapping_bundle.runtime.beams.beam.path == expected
+    assert model_bundle.runtime.beams.beam.path == expected
+    for bundle in (yaml_bundle, mapping_bundle, model_bundle):
+        record = bundle.provenance.path_resolutions["beams.beam.path"]
+        assert record.original == beam_path.name
+        assert record.base == tmp_path.resolve()
+        assert record.resolved == expected
+
+
+@pytest.mark.parametrize("source_kind", ["mapping", "model"])
+def test_relative_beam_path_requires_explicit_mapping_or_model_base(
+    tmp_path, source_kind
+):
+    data = valid_config_mapping(tmp_path, beams=_shared_fits("shared.beamfits"))
+    config = RadioSimConfig.model_validate(data)
+    source = getattr(ConfigurationSource, f"for_{source_kind}")(invocation_dir=tmp_path)
+
+    with pytest.raises(ConfigSourceError, match="beams.beam.path"):
+        resolve_config(config if source_kind == "model" else data, source=source)
+
+
+def test_all_indexed_assignment_paths_resolve_and_preserve_authored_order(tmp_path):
+    first = tmp_path / "first.beamfits"
+    second = tmp_path / "second.beamfits"
+    first.touch()
+    second.touch()
+    data = valid_config_mapping(
+        tmp_path,
+        beams={
+            "mode": "mixed",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": 1},
+                    "beam": {"kind": "fits", "path": second.name},
+                },
+                {
+                    "antenna": {"kind": "number", "number": 0},
+                    "beam": {"kind": "analytic"},
+                },
+                {
+                    "antenna": {"kind": "name", "name": "ANT2"},
+                    "beam": {"kind": "fits", "path": first.name},
+                },
+            ],
+        },
+    )
+
+    bundle = resolve_config(
+        data,
+        source=ConfigurationSource.for_mapping(
+            base_dir=tmp_path,
+            invocation_dir=tmp_path,
+        ),
+    )
+
+    assert tuple(item.antenna.kind for item in bundle.runtime.beams.assignments) == (
+        "number",
+        "number",
+        "name",
+    )
+    assert set(bundle.provenance.path_resolutions) >= {
+        "beams.assignments[0].beam.path",
+        "beams.assignments[2].beam.path",
+    }
+    assert "beams.assignments[1].beam.path" not in bundle.provenance.path_resolutions
+
+
+def test_beam_path_missing_wrong_type_unreadable_and_check_false(tmp_path):
+    source = ConfigurationSource.for_mapping(
+        base_dir=tmp_path,
+        invocation_dir=tmp_path,
+    )
+    missing = valid_config_mapping(tmp_path, beams=_shared_fits("missing.beamfits"))
+    with pytest.raises(ConfigPathError) as missing_error:
+        resolve_config(missing, source=source)
+    assert missing_error.value.issues[0].code == "input_path_missing"
+
+    directory = tmp_path / "beam-directory"
+    directory.mkdir()
+    wrong_type = valid_config_mapping(tmp_path, beams=_shared_fits(directory.name))
+    with pytest.raises(ConfigPathError) as type_error:
+        resolve_config(wrong_type, source=source)
+    assert type_error.value.issues[0].code == "input_path_wrong_type"
+
+    unreadable = tmp_path / "unreadable.beamfits"
+    unreadable.touch()
+    unreadable.chmod(0)
+    try:
+        unreadable_data = valid_config_mapping(
+            tmp_path, beams=_shared_fits(unreadable.name)
+        )
+        with pytest.raises(ConfigPathError) as unreadable_error:
+            resolve_config(unreadable_data, source=source)
+        assert unreadable_error.value.issues[0].code == "input_path_unreadable"
+        assert (
+            unreadable.stat().st_mode & (stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+            == 0
+        )
+    finally:
+        unreadable.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+    unchecked = resolve_config(missing, source=source, check_input_paths=False)
+    assert unchecked.runtime.beams.beam.path == (tmp_path / "missing.beamfits")
+
+
+def test_beam_path_rejects_environment_syntax_and_normalizes_symlink(tmp_path):
+    target = tmp_path / "target.beamfits"
+    target.touch()
+    link = tmp_path / "link.beamfits"
+    link.symlink_to(target)
+    source = ConfigurationSource.for_mapping(
+        base_dir=tmp_path,
+        invocation_dir=tmp_path,
+    )
+
+    bundle = resolve_config(
+        valid_config_mapping(tmp_path, beams=_shared_fits(link.name)),
+        source=source,
+    )
+    record = bundle.provenance.path_resolutions["beams.beam.path"]
+    assert record.user_path == link.absolute()
+    assert record.resolved == target.resolve()
+    assert bundle.runtime.beams.beam.path == target.resolve()
+
+    environment = valid_config_mapping(
+        tmp_path, beams=_shared_fits("$BEAM_ROOT/beam.fits")
+    )
+    with pytest.raises(ConfigSchemaError, match="environment-variable syntax"):
+        resolve_config(environment, source=source)

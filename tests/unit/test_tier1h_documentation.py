@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -56,6 +57,13 @@ CURRENT_API_SURFACES = (
     REPOSITORY_ROOT / "examples" / "scripts" / "simple_simulation.py",
     REPOSITORY_ROOT / "antenna_layout_examples" / "README_antenna_formats.md",
 )
+AUTHORIZED_BEAM_TRUTH_SURFACES = (
+    REPOSITORY_ROOT / "README.md",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "beam_models.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
+    REPOSITORY_ROOT / "docs" / "api" / "core.rst",
+)
 
 
 @pytest.mark.parametrize("config_path", SHIPPED_CONFIGS, ids=lambda path: path.name)
@@ -80,6 +88,14 @@ def test_shipped_config_uses_strict_schema_and_resolves(config_path):
         "length_filter",
         "azimuth_ranges_deg",
     }
+    assert document["beams"] == {
+        "mode": "analytic",
+        "model": {
+            "kind": "circular_aperture",
+            "taper": {"kind": "gaussian", "edge_taper_db": 10.0},
+        },
+    }
+    assert bundle.runtime.beams.mode == "analytic"
     assert bundle.runtime.frequency.channel_frequencies_hz
     assert bundle.provenance.source.config_path == config_path.resolve()
 
@@ -181,6 +197,67 @@ def test_current_docs_do_not_present_removed_simulator_patterns(path):
     assert "use_pyuvdata_antennas" not in text
     assert "antenna_file_format: pyuvdata" not in text
     assert "antenna_file_format: casa" not in text
+
+
+@pytest.mark.parametrize(
+    "path", AUTHORIZED_BEAM_TRUTH_SURFACES, ids=lambda path: path.name
+)
+def test_tier3b_beam_truth_surfaces_do_not_present_flat_schema(path):
+    text = path.read_text(encoding="utf-8")
+
+    for removed_name in (
+        "beam_mode",
+        "beam_file",
+        "antenna_beam_map",
+        "aperture_shape",
+        "edge_taper_dB",
+        "feed_model",
+        "feed_computation",
+        "feed_params",
+        "reflector_type",
+        "aperture_params",
+    ):
+        assert (
+            re.search(
+                rf"(?<![A-Za-z0-9_]){re.escape(removed_name)}(?![A-Za-z0-9_])",
+                text,
+            )
+            is None
+        )
+
+
+def test_tier3b_beam_docs_distinguish_resolution_from_runtime_activation():
+    readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+    guide = (REPOSITORY_ROOT / "docs" / "user_guide" / "beam_models.rst").read_text(
+        encoding="utf-8"
+    )
+    support = (
+        REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst"
+    ).read_text(encoding="utf-8")
+    api = (REPOSITORY_ROOT / "docs" / "api" / "core.rst").read_text(encoding="utf-8")
+    migration = (REPOSITORY_ROOT / "docs" / "migration_guide.md").read_text(
+        encoding="utf-8"
+    )
+
+    for mode in ("analytic", "shared_fits", "per_antenna_fits", "mixed"):
+        assert mode in guide
+        assert mode in readme
+    for variant in (
+        "circular_aperture",
+        "rectangular_aperture",
+        "elliptical_aperture",
+        "analytical_illumination",
+        "numerical_illumination",
+    ):
+        assert variant in guide
+    assert "beam_runtime_fits_pending" in guide
+    assert "Schema" in support
+    assert "Path resolution" in support
+    assert "Simulator runtime" in support
+    assert "only direct-circular" in api
+    assert "BeamSystem" not in api
+    assert "beam_mode" in migration
+    assert "rejected rather than translated" in " ".join(migration.split())
 
 
 def test_tier2g_truth_surfaces_and_example_inventory_are_current():

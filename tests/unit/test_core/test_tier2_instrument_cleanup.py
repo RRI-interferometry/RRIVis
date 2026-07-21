@@ -192,17 +192,17 @@ def test_active_input_and_runtime_configuration_exports_remain_intact() -> None:
         assert getattr(input_config, name) is getattr(instrument_config, name)
         assert name in input_config.__all__
 
-    for name in (
-        "ResolvedBeamsConfig",
-        "ResolvedSimulationConfig",
-        "ResolvedConfiguration",
-    ):
+    for name in ("ResolvedSimulationConfig", "ResolvedConfiguration"):
         direct = getattr(runtime_config, name)
         assert getattr(core, name) is direct
         assert getattr(io, name) is direct
         assert name in runtime_config.__all__
         assert name in core.__all__
         assert name in io.__all__
+
+    assert not hasattr(runtime_config, "ResolvedBeamsConfig")
+    assert not hasattr(core, "ResolvedBeamsConfig")
+    assert not hasattr(io, "ResolvedBeamsConfig")
 
 
 def test_active_tier2_truth_surfaces_describe_only_the_live_architecture() -> None:

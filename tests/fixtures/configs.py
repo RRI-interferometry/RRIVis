@@ -67,10 +67,11 @@ def valid_config_mapping(
         },
         "baseline_selection": {"correlations": "all"},
         "beams": {
-            "beam_mode": "analytic",
-            "aperture_shape": "circular",
-            "taper": "gaussian",
-            "feed_model": "none",
+            "mode": "analytic",
+            "model": {
+                "kind": "circular_aperture",
+                "taper": {"kind": "gaussian", "edge_taper_db": 10.0},
+            },
         },
         "obs_time": {
             "start_time": "2025-01-01T00:00:00",
@@ -121,7 +122,12 @@ def valid_config_mapping(
         config["obs_frequency"] = deepcopy(dict(frequency))
     if sky_sources is not None:
         config["sky_model"]["sources"] = deepcopy(list(sky_sources))
-    return _deep_merge(config, section_overrides)
+    beam_override = section_overrides.get("beams")
+    merged = _deep_merge(config, section_overrides)
+    if beam_override is not None:
+        # Tagged beam modes are complete alternatives, not mergeable fragments.
+        merged["beams"] = deepcopy(dict(beam_override))
+    return merged
 
 
 def valid_input_config(tmp_path: Path, **overrides: object) -> RadioSimConfig:
@@ -158,7 +164,13 @@ def legacy_runtime_config_mapping(
             "antenna_file_format": "radiosim",
             "all_antenna_diameter": 14.0,
         },
-        "beams": {"beam_mode": "analytic", "feed_model": "none"},
+        "beams": {
+            "mode": "analytic",
+            "model": {
+                "kind": "circular_aperture",
+                "taper": {"kind": "gaussian", "edge_taper_db": 10.0},
+            },
+        },
         "location": {"lat": -30.72152, "lon": 21.4283, "height": 1073.0},
         "obs_time": {
             "start_time": "2025-01-01T00:00:00",

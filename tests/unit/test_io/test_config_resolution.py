@@ -649,12 +649,13 @@ def test_schema_semantic_unsupported_and_path_errors_are_distinct(tmp_path):
 
     unsupported_data = valid_config_mapping(
         tmp_path,
-        beams={"beam_mode": "fits", "beam_file": "missing.fits"},
+        visibility={"calculation_type": "spherical_harmonic"},
     )
     with pytest.raises(UnsupportedConfigError) as exc_info:
         resolve_config(unsupported_data, source=source)
-    assert "fits_beams_unsupported" in {issue.code for issue in exc_info.value.issues}
-    assert "input_path_missing" not in {issue.code for issue in exc_info.value.issues}
+    assert "spherical_harmonic_unsupported" in {
+        issue.code for issue in exc_info.value.issues
+    }
 
     path_data = valid_config_mapping(tmp_path)
     path_data["instrument"]["source"]["path"] = "missing.txt"
@@ -697,3 +698,49 @@ def test_resolution_has_no_runtime_or_external_side_effects(tmp_path, monkeypatc
 
     assert bundle.runtime.execution.backend_strategy == "numpy"
     assert not bundle.workflow.output_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "beams",
+    [
+        {"mode": "analytic"},
+        {"mode": "shared_fits", "beam": {"kind": "fits", "path": "beam.fits"}},
+        {
+            "mode": "per_antenna_fits",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": 0},
+                    "beam": {"kind": "fits", "path": "beam.fits"},
+                }
+            ],
+        },
+        {
+            "mode": "mixed",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": 0},
+                    "beam": {"kind": "analytic"},
+                }
+            ],
+        },
+    ],
+)
+def test_resolution_accepts_every_final_beam_mode_without_loading_uvbeam(
+    tmp_path, monkeypatch, beams
+):
+    (tmp_path / "beam.fits").touch()
+    data = valid_config_mapping(tmp_path, beams=beams)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("configuration resolution loaded BeamFITS content")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden)
+    bundle = resolve_config(
+        data,
+        source=ConfigurationSource.for_mapping(
+            base_dir=tmp_path,
+            invocation_dir=tmp_path,
+        ),
+    )
+
+    assert bundle.runtime.beams.mode == beams["mode"]

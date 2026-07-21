@@ -13,14 +13,17 @@ measurement_set
     CASA Measurement Set I/O (requires python-casacore).
 """
 
-from collections.abc import Callable
-from typing import Any, NoReturn
+# Import order is deliberate: beam_config subclasses StrictFrozenModel from
+# config, while config completes the bidirectional type boundary lazily.
+# ruff: noqa: I001
+
+from importlib.util import find_spec
+from typing import Any
 
 # Resolved configuration values
 from radiosim.core.runtime_config import (
     ConfigurationProvenance,
     PathResolutionProvenance,
-    ResolvedBeamsConfig,
     ResolvedConfiguration,
     ResolvedExecutionConfig,
     ResolvedFrequencyConfig,
@@ -32,7 +35,6 @@ from radiosim.core.runtime_config import (
 
 # Configuration management
 from radiosim.io.config import (
-    BeamsConfig,
     CliWorkflowConfig,
     ConfigIssue,
     ExecutionConfig,
@@ -45,6 +47,7 @@ from radiosim.io.config import (
     dump_config,
     load_config,
 )
+from radiosim.io.beam_config import BeamsConfig
 from radiosim.io.config_resolution import (
     ConfigOverrideError,
     ConfigParseError,
@@ -67,76 +70,36 @@ from radiosim.io.writers import (
     save_visibilities_hdf5,
 )
 
-# Measurement Set I/O (optional - requires python-casacore)
-write_ms: Callable[..., Any]
-read_ms: Callable[..., Any]
-read_ms_dask: Callable[..., Any]
-ms_info: Callable[..., Any]
 
-try:
-    from radiosim.io.measurement_set import (
-        CASACORE_AVAILABLE as _casacore_available,
-    )
-    from radiosim.io.measurement_set import (
-        DASKMS_AVAILABLE as _daskms_available,
-    )
-    from radiosim.io.measurement_set import (
-        PYUVDATA_AVAILABLE as _pyuvdata_available,
-    )
-    from radiosim.io.measurement_set import (
-        ms_info as _ms_info,
-    )
-    from radiosim.io.measurement_set import (
-        read_ms as _read_ms,
-    )
-    from radiosim.io.measurement_set import (
-        read_ms_dask as _read_ms_dask,
-    )
-    from radiosim.io.measurement_set import (
-        write_ms as _write_ms,
-    )
+# Measurement Set imports stay lazy so configuration-only imports do not load
+# pyuvdata or other optional scientific I/O dependencies.
+def write_ms(*args: Any, **kwargs: Any) -> Any:
+    from radiosim.io.measurement_set import write_ms as implementation
 
-    write_ms = _write_ms
-    read_ms = _read_ms
-    read_ms_dask = _read_ms_dask
-    ms_info = _ms_info
-except ImportError:
-    _pyuvdata_available = False
-    _casacore_available = False
-    _daskms_available = False
+    return implementation(*args, **kwargs)
 
-    def _write_ms_unavailable(*args: Any, **kwargs: Any) -> NoReturn:
-        raise ImportError(
-            "Measurement Set support not available. Install with:\n"
-            "  pip install radiosim[ms]"
-        )
 
-    def _read_ms_unavailable(*args: Any, **kwargs: Any) -> NoReturn:
-        raise ImportError(
-            "Measurement Set support not available. Install with:\n"
-            "  pip install radiosim[ms]"
-        )
+def read_ms(*args: Any, **kwargs: Any) -> Any:
+    from radiosim.io.measurement_set import read_ms as implementation
 
-    def _read_ms_dask_unavailable(*args: Any, **kwargs: Any) -> NoReturn:
-        raise ImportError(
-            "Measurement Set support not available. Install with:\n"
-            "  pip install dask-ms"
-        )
+    return implementation(*args, **kwargs)
 
-    def _ms_info_unavailable(*args: Any, **kwargs: Any) -> NoReturn:
-        raise ImportError(
-            "Measurement Set support not available. Install with:\n"
-            "  pip install radiosim[ms]"
-        )
 
-    write_ms = _write_ms_unavailable
-    read_ms = _read_ms_unavailable
-    read_ms_dask = _read_ms_dask_unavailable
-    ms_info = _ms_info_unavailable
+def read_ms_dask(*args: Any, **kwargs: Any) -> Any:
+    from radiosim.io.measurement_set import read_ms_dask as implementation
 
-PYUVDATA_AVAILABLE = bool(_pyuvdata_available)
-CASACORE_AVAILABLE = bool(_casacore_available)
-DASKMS_AVAILABLE = bool(_daskms_available)
+    return implementation(*args, **kwargs)
+
+
+def ms_info(*args: Any, **kwargs: Any) -> Any:
+    from radiosim.io.measurement_set import ms_info as implementation
+
+    return implementation(*args, **kwargs)
+
+
+PYUVDATA_AVAILABLE = find_spec("pyuvdata") is not None
+CASACORE_AVAILABLE = find_spec("casacore") is not None
+DASKMS_AVAILABLE = find_spec("daskms") is not None
 MS_AVAILABLE = PYUVDATA_AVAILABLE and CASACORE_AVAILABLE
 
 
@@ -169,7 +132,6 @@ __all__ = [
     "ConfigPathError",
     "ConfigurationProvenance",
     "PathResolutionProvenance",
-    "ResolvedBeamsConfig",
     "ResolvedObservationConfig",
     "ResolvedFrequencyConfig",
     "ResolvedSkySourceRequest",

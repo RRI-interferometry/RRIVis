@@ -34,9 +34,12 @@ sky_model:
       seed: 7
 
 beams:
-  beam_mode: analytic
-  aperture_shape: circular
-  taper: gaussian
+  mode: analytic
+  model:
+    kind: circular_aperture
+    taper:
+      kind: gaussian
+      edge_taper_db: 10.0
 
 execution:
   backend: numpy

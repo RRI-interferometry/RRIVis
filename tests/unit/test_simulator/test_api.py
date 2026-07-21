@@ -443,17 +443,28 @@ def test_schema_errors_are_reported_by_from_mapping(tmp_path):
 
 
 @pytest.mark.parametrize("entry_point", ["yaml", "model", "mapping", "parameters"])
-def test_tier0_unsupported_guards_apply_to_every_document_entry_point(
+def test_tier3b_fits_runtime_guards_apply_to_every_document_entry_point(
     tmp_path, monkeypatch, entry_point
 ):
-    data = _explicit_data(tmp_path, beams={"beam_mode": "fits"})
+    beam_path = tmp_path / "pending.beamfits"
+    beam_path.touch()
+    data = _explicit_data(
+        tmp_path,
+        beams={
+            "mode": "shared_fits",
+            "beam": {"kind": "fits", "path": beam_path.name},
+        },
+    )
 
     def forbidden(*args, **kwargs):
         pytest.fail("Tier 0 guard reached device detection")
 
     monkeypatch.setattr("radiosim.utils.device.get_device_resources", forbidden)
 
-    with pytest.raises(UnsupportedConfigError, match=re.escape("beams.beam_mode")):
+    with pytest.raises(
+        UnsupportedConfigError,
+        match=re.escape("beam_runtime_fits_pending"),
+    ):
         if entry_point == "yaml":
             Simulator.from_yaml(write_config_yaml(tmp_path, data))
         elif entry_point == "model":
@@ -465,6 +476,92 @@ def test_tier0_unsupported_guards_apply_to_every_document_entry_point(
             Simulator.from_mapping(data, base_dir=tmp_path)
         else:
             _from_parameters(tmp_path, data)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        {
+            "kind": "rectangular_aperture",
+            "north_length_m": 14.0,
+            "east_length_m": 12.0,
+        },
+        {
+            "kind": "elliptical_aperture",
+            "north_diameter_m": 14.0,
+            "east_diameter_m": 12.0,
+        },
+        {
+            "kind": "analytical_illumination",
+            "illumination": {"kind": "corrugated_horn"},
+        },
+        {
+            "kind": "numerical_illumination",
+            "illumination": {"kind": "open_waveguide"},
+        },
+    ],
+)
+def test_pending_analytic_variants_fail_before_device_backend_network_and_sky(
+    tmp_path, monkeypatch, model
+):
+    data = _explicit_data(
+        tmp_path,
+        beams={"mode": "analytic", "model": model},
+    )
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("pending beam mode crossed a runtime side-effect boundary")
+
+    monkeypatch.setattr("radiosim.utils.device.get_device_resources", forbidden)
+    monkeypatch.setattr("radiosim.backends.get_backend", forbidden)
+    monkeypatch.setattr("radiosim.utils.network.get_network_status", forbidden)
+    monkeypatch.setattr(
+        "radiosim.core.sky.operations.parallel.load_models_parallel", forbidden
+    )
+
+    with pytest.raises(UnsupportedConfigError) as exc_info:
+        Simulator.from_mapping(data, base_dir=tmp_path)
+
+    assert [issue.code for issue in exc_info.value.issues] == [
+        "beam_runtime_analytic_variant_pending"
+    ]
+    assert exc_info.value.issues[0].path == "beams.model.kind"
+
+
+@pytest.mark.parametrize(
+    ("taper", "expected", "edge"),
+    [
+        ({"kind": "uniform"}, "uniform", None),
+        ({"kind": "gaussian", "edge_taper_db": 11.0}, "gaussian", 11.0),
+        ({"kind": "parabolic", "edge_taper_db": 12.0}, "parabolic", 12.0),
+        (
+            {"kind": "parabolic_squared", "edge_taper_db": 13.0},
+            "parabolic_squared",
+            13.0,
+        ),
+        ({"kind": "cosine"}, "cosine", None),
+    ],
+)
+def test_direct_circular_projection_consumes_every_authored_taper_field(
+    tmp_path, taper, expected, edge
+):
+    data = _explicit_data(
+        tmp_path,
+        beams={
+            "mode": "analytic",
+            "model": {"kind": "circular_aperture", "taper": taper},
+        },
+    )
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+
+    simulator.setup()
+
+    assert simulator._beam_config["aperture_shape"] == "circular"
+    assert simulator._beam_config["taper"] == expected
+    if edge is None:
+        assert "edge_taper_dB" not in simulator._beam_config
+    else:
+        assert simulator._beam_config["edge_taper_dB"] == edge
 
 
 def test_setup_uses_resolved_backend_precision_frequency_and_runtime_fields(tmp_path):

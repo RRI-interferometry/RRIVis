@@ -53,8 +53,9 @@ Scientific ownership
    * - ``baseline_selection``
      - Typed correlation, length-target/range, and axial-azimuth filtering
    * - ``beams``
-     - Analytic aperture and illumination; FITS, mixed, and per-antenna beam
-       assignment are rejected
+     - Four strict modes parse and resolve. Only direct-circular ``analytic`` is
+       Simulator-active; FITS-backed modes and other analytic variants fail at
+       the runtime boundary
    * - ``sky_model``
      - Strict source requests for point or HEALPix preparation
    * - ``obs_time`` / ``obs_frequency``
@@ -83,6 +84,42 @@ uniform resolved diameter and raises before sky preparation for heterogeneous
 arrays. Feed/receptor physics, FITS beams, mixed beam modes, explicit
 Measurement Set phase centres, UVFITS writing, spherical-harmonic simulation,
 and worker control are not implemented.
+
+Beam support by stage
+---------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 20 30
+
+   * - Beam declaration
+     - Schema
+     - Path resolution
+     - Simulator runtime
+   * - Direct circular analytic
+     - Supported
+     - Supported
+     - Supported
+   * - Other analytic variants
+     - Supported
+     - Supported
+     - Explicitly pending
+   * - Shared FITS
+     - Supported
+     - Supported
+     - Explicitly pending
+   * - Per-antenna FITS
+     - Supported
+     - Supported
+     - Explicitly pending
+   * - Mixed analytic/FITS
+     - Supported
+     - Supported
+     - Explicitly pending
+
+FITS path resolution checks and records sources but does not read BeamFITS
+content, resolve antenna references, or imply UVBeam, solver, GPU interpolation,
+or FITS observability support.
 
 NumPy is the deterministic backend default. Selecting JAX, Numba, or ``auto``
 does not establish complete accelerator coverage for the high-level workflow.

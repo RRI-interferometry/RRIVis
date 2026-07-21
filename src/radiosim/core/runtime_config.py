@@ -20,6 +20,13 @@ import numpy as np
 from pydantic import BaseModel
 from typing_extensions import override
 
+from radiosim.core.beam.models import (
+    ResolvedAnalyticBeamsInput,
+    ResolvedBeamsInput,
+    ResolvedMixedBeamsInput,
+    ResolvedPerAntennaFITSBeamsInput,
+    ResolvedSharedFITSBeamsInput,
+)
 from radiosim.core.precision import PrecisionConfig
 
 if TYPE_CHECKING:
@@ -147,44 +154,6 @@ def json_safe_mapping(value: Mapping[str, Any]) -> FrozenMapping:
 def _require_absolute(path: Path | None, field_name: str) -> None:
     if path is not None and not path.is_absolute():
         raise ValueError(f"{field_name} must be absolute")
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedBeamsConfig:
-    """Resolved beam input without activating deferred FITS behavior."""
-
-    beam_mode: str
-    per_antenna: bool
-    beam_file: Path | None
-    antenna_beam_map: FrozenMapping
-    beam_za_max_deg: float | None
-    beam_za_buffer_deg: float | None
-    beam_freq_buffer_hz: float | None
-    beam_peak_normalize: bool
-    beam_interp_function: str | None
-    aperture_shape: str
-    taper: str
-    edge_taper_dB: float
-    feed_model: str
-    feed_computation: str
-    feed_params: FrozenMapping
-    reflector_type: str
-    magnification: float
-    aperture_params: FrozenMapping
-
-    def __post_init__(self) -> None:
-        _require_absolute(self.beam_file, "beam_file")
-        object.__setattr__(
-            self,
-            "antenna_beam_map",
-            FrozenMapping(self.antenna_beam_map),
-        )
-        object.__setattr__(self, "feed_params", FrozenMapping(self.feed_params))
-        object.__setattr__(
-            self,
-            "aperture_params",
-            FrozenMapping(self.aperture_params),
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -391,7 +360,7 @@ class ResolvedSimulationConfig:
     """The complete scientific/runtime configuration with no workflow state."""
 
     instrument: InstrumentConfig
-    beams: ResolvedBeamsConfig
+    beams: ResolvedBeamsInput
     baseline_selection: BaselineSelectionConfig
     sky_model: ResolvedSkyModelConfig
     observation: ResolvedObservationConfig
@@ -409,8 +378,14 @@ class ResolvedSimulationConfig:
             raise TypeError("instrument must be an InstrumentConfig")
         if type(self.baseline_selection) is not BaselineSelectionConfig:
             raise TypeError("baseline_selection must be a BaselineSelectionConfig")
+        if type(self.beams) not in (
+            ResolvedAnalyticBeamsInput,
+            ResolvedSharedFITSBeamsInput,
+            ResolvedPerAntennaFITSBeamsInput,
+            ResolvedMixedBeamsInput,
+        ):
+            raise TypeError("beams must be an exact ResolvedBeamsInput")
         for field_name, expected_type in (
-            ("beams", ResolvedBeamsConfig),
             ("sky_model", ResolvedSkyModelConfig),
             ("observation", ResolvedObservationConfig),
             ("frequency", ResolvedFrequencyConfig),
@@ -444,7 +419,6 @@ __all__ = [
     "FrozenMapping",
     "JsonValue",
     "PathResolutionProvenance",
-    "ResolvedBeamsConfig",
     "ResolvedConfiguration",
     "ResolvedExecutionConfig",
     "ResolvedFrequencyConfig",

@@ -112,14 +112,52 @@ The removed top-level sections map to:
 `workflow` never enters `ResolvedSimulationConfig`, and Python construction
 does not execute post-run actions.
 
-## Removed legacy beam keys
+## Beam input
 
-The following BeamManager compatibility fields are rejected:
-`use_beam_file`, `use_different_beams`, `beam_file_path`, `beam_files`,
-`beams_per_antenna`, `default_beam_id`, `beam_freq_interp`,
-`beam_freq_buffer_mhz`, `all_beam_response`, and `beam_assignment`. Use only
-the strict analytic `beams` fields. FITS/mixed/per-antenna beam execution is
-not implemented.
+The flat beam object and BeamManager compatibility keys are rejected rather
+than translated. Choose one complete tagged mode. The runnable replacement for
+the former shared analytic default is:
+
+```yaml
+beams:
+  mode: analytic
+  model:
+    kind: circular_aperture
+    taper:
+      kind: gaussian
+      edge_taper_db: 10.0
+```
+
+For FITS declarations, use `mode: shared_fits` with `beam.path`,
+`mode: per_antenna_fits` with ordered `assignments`, or `mode: mixed` with an
+`analytic_model` and ordered analytic/FITS choices. These shapes validate and
+their paths resolve in Tier 3B, but Simulator runtime activation remains
+explicitly pending.
+
+| Rejected key | Replacement or reason |
+| --- | --- |
+| `beam_mode` | `beams.mode` with a complete `analytic`, `shared_fits`, `per_antenna_fits`, or `mixed` shape |
+| `per_antenna` | `beams.mode: per_antenna_fits` and `beams.assignments[]` |
+| `beam_file` / `beam_file_path` | a tagged FITS source at `beams.beam` or `beams.assignments[].beam` |
+| `antenna_beam_map` / `beam_assignment` | ordered tagged `beams.assignments[]` entries |
+| `beam_files` / `beams_per_antenna` | ordered FITS assignment entries |
+| `beam_peak_normalize` | `normalization: peak` on each FITS source |
+| `beam_interp_function` / `beam_freq_interp` | `angular_interpolation: bilinear` and `frequency_interpolation: cubic` or `linear` |
+| `beam_za_max_deg` / `beam_za_buffer_deg` | no replacement; Tier 3 requires the full visible hemisphere |
+| `beam_freq_buffer_hz` / `beam_freq_buffer_mhz` | no replacement; Tier 3 loads the full declared frequency axis |
+| `aperture_shape` | tagged `beams.model.kind` |
+| `taper` | `beams.model.taper.kind`, or `taper_profile.kind` for analytical illumination |
+| `edge_taper_dB` | `edge_taper_db` on a Gaussian, parabolic, or parabolic-squared direct taper |
+| `feed_model` / `feed_computation` | an `analytical_illumination` or `numerical_illumination` model with typed `illumination` |
+| `feed_params` | typed `focal_ratio` plus `q`, `b_over_lambda`, or `height_wavelengths` |
+| `reflector_type` / `magnification` | a tagged `reflector`; Cassegrain alone accepts `magnification` greater than one |
+| `aperture_params` | explicit rectangular lengths or elliptical diameters on the selected model |
+| `use_beam_file` / `use_different_beams` | select the corresponding tagged mode directly |
+| `default_beam_id` | no replacement; author a complete assignment list |
+| `all_beam_response` | no replacement; select a complete tagged model or source |
+
+Unknown fields remain errors. Configuration resolution never reads BeamFITS
+content or silently replaces a pending declaration with an analytic beam.
 
 ## Frequency and configuration I/O
 

@@ -5,6 +5,41 @@ visibility simulation including antenna handling, baseline generation,
 beam patterns, source models, and the RIME visibility calculation.
 """
 
+from radiosim.core.beam import (
+    ResolvedAnalyticalIlluminationBeamModel,
+    ResolvedAnalyticBeamChoice,
+    ResolvedAnalyticBeamDefinition,
+    ResolvedAnalyticBeamModel,
+    ResolvedAnalyticBeamsInput,
+    ResolvedBeamsInput,
+    ResolvedCassegrainReflector,
+    ResolvedCircularApertureBeamModel,
+    ResolvedCorrugatedHornIllumination,
+    ResolvedCosineTaper,
+    ResolvedDerivedGaussianTaper,
+    ResolvedDerivedParabolicSquaredTaper,
+    ResolvedDerivedParabolicTaper,
+    ResolvedDerivedTaper,
+    ResolvedDipoleGroundPlaneIllumination,
+    ResolvedDirectTaper,
+    ResolvedEllipticalApertureBeamModel,
+    ResolvedFITSBeamAssignmentInput,
+    ResolvedFITSBeamDefinition,
+    ResolvedGaussianTaper,
+    ResolvedIllumination,
+    ResolvedMixedBeamAssignmentInput,
+    ResolvedMixedBeamsInput,
+    ResolvedNumericalIlluminationBeamModel,
+    ResolvedOpenWaveguideIllumination,
+    ResolvedParabolicSquaredTaper,
+    ResolvedParabolicTaper,
+    ResolvedPerAntennaFITSBeamsInput,
+    ResolvedPrimeFocusReflector,
+    ResolvedRectangularApertureBeamModel,
+    ResolvedReflector,
+    ResolvedSharedFITSBeamsInput,
+    ResolvedUniformTaper,
+)
 from radiosim.core.instrument import (
     AntennaFieldSource,
     AntennaId,
@@ -18,7 +53,6 @@ from radiosim.core.instrument import (
     ResolvedEarthLocation,
     ResolvedInstrument,
 )
-from radiosim.core.jones.beam import BeamManager
 from radiosim.core.observation import get_location_and_time
 from radiosim.core.polarization import (
     apply_jones_matrices,
@@ -40,7 +74,6 @@ from radiosim.core.runtime_config import (
     ConfigurationProvenance,
     FrozenMapping,
     PathResolutionProvenance,
-    ResolvedBeamsConfig,
     ResolvedConfiguration,
     ResolvedExecutionConfig,
     ResolvedFrequencyConfig,
@@ -57,8 +90,15 @@ from radiosim.core.sky import (
     brightness_temp_to_flux_density,
     flux_density_to_brightness_temp,
 )
-from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
+
+
+def calculate_visibility(*args, **kwargs):
+    """Lazily dispatch to the point-source visibility implementation."""
+    from radiosim.core.visibility import calculate_visibility as implementation
+
+    return implementation(*args, **kwargs)
+
 
 __all__ = [
     # Canonical instrument models
@@ -75,6 +115,39 @@ __all__ = [
     "ResolvedBaselineSelection",
     # Beams
     "BeamManager",
+    "ResolvedAnalyticBeamChoice",
+    "ResolvedAnalyticBeamDefinition",
+    "ResolvedAnalyticBeamModel",
+    "ResolvedAnalyticBeamsInput",
+    "ResolvedAnalyticalIlluminationBeamModel",
+    "ResolvedBeamsInput",
+    "ResolvedCassegrainReflector",
+    "ResolvedCircularApertureBeamModel",
+    "ResolvedCorrugatedHornIllumination",
+    "ResolvedCosineTaper",
+    "ResolvedDerivedGaussianTaper",
+    "ResolvedDerivedParabolicSquaredTaper",
+    "ResolvedDerivedParabolicTaper",
+    "ResolvedDerivedTaper",
+    "ResolvedDipoleGroundPlaneIllumination",
+    "ResolvedDirectTaper",
+    "ResolvedEllipticalApertureBeamModel",
+    "ResolvedFITSBeamAssignmentInput",
+    "ResolvedFITSBeamDefinition",
+    "ResolvedGaussianTaper",
+    "ResolvedIllumination",
+    "ResolvedMixedBeamAssignmentInput",
+    "ResolvedMixedBeamsInput",
+    "ResolvedNumericalIlluminationBeamModel",
+    "ResolvedOpenWaveguideIllumination",
+    "ResolvedParabolicSquaredTaper",
+    "ResolvedParabolicTaper",
+    "ResolvedPerAntennaFITSBeamsInput",
+    "ResolvedPrimeFocusReflector",
+    "ResolvedRectangularApertureBeamModel",
+    "ResolvedReflector",
+    "ResolvedSharedFITSBeamsInput",
+    "ResolvedUniformTaper",
     # Observation
     "get_location_and_time",
     # Polarization
@@ -106,7 +179,6 @@ __all__ = [
     "FrozenMapping",
     "ConfigurationProvenance",
     "PathResolutionProvenance",
-    "ResolvedBeamsConfig",
     "ResolvedObservationConfig",
     "ResolvedFrequencyConfig",
     "ResolvedSkySourceRequest",
@@ -118,6 +190,10 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    if name == "BeamManager":
+        from radiosim.core.jones.beam import BeamManager
+
+        return BeamManager
     if name == "GSMObserver08":
         from pygdsm import GSMObserver08
 

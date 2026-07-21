@@ -165,7 +165,10 @@ def test_visibility_and_top_level_defaults_match_target(tmp_path):
     config = RadioSimConfig.model_validate(data)
 
     assert VisibilityConfig().sky_representation == "point_sources"
-    assert config.beams.beam_mode == "analytic"
+    assert config.beams.mode == "analytic"
+    assert config.beams.model.kind == "circular_aperture"
+    assert config.beams.model.taper.kind == "gaussian"
+    assert config.beams.model.taper.edge_taper_db == 10.0
     assert config.baseline_selection.correlations == "all"
     assert config.execution.backend == "numpy"
     assert config.execution.precision.preset == "standard"
@@ -297,8 +300,8 @@ def test_removed_top_level_sections_have_migration_hints(
     [
         ("instrument.location", "ra", "Phase-center"),
         ("instrument.location", "dec", "Phase-center"),
-        ("beams", "use_beam_file", "BeamsConfig"),
-        ("beams", "all_beam_response", "BeamsConfig"),
+        ("beams", "use_beam_file", "shared_fits"),
+        ("beams", "all_beam_response", "beams.mode"),
     ],
 )
 def test_removed_nested_fields_have_actionable_messages(
@@ -320,8 +323,8 @@ def test_removed_nested_fields_have_actionable_messages(
     assert hint_fragment in issue.hint
 
 
-@pytest.mark.parametrize("legacy_mode", ["shared", "per_antenna"])
-def test_removed_beam_mode_values_have_actionable_messages(tmp_path, legacy_mode):
+@pytest.mark.parametrize("legacy_mode", ["analytic", "fits", "mixed", "shared"])
+def test_removed_beam_mode_field_has_actionable_message(tmp_path, legacy_mode):
     data = valid_config_mapping(tmp_path)
     data["beams"]["beam_mode"] = legacy_mode
 
@@ -329,8 +332,9 @@ def test_removed_beam_mode_values_have_actionable_messages(tmp_path, legacy_mode
         item for item in collect_schema_issues(data) if item.path == "beams.beam_mode"
     )
 
-    assert issue.code == "removed_value"
-    assert "Tier 3" in issue.hint
+    assert issue.code == "removed_field"
+    assert issue.message.startswith("removed in Tier 3;")
+    assert "beams.mode" in issue.hint
 
 
 def test_close_unknown_field_gets_single_did_you_mean_hint(tmp_path):
@@ -379,7 +383,15 @@ def test_deep_immutability_rejects_nested_assignment_and_mapping_mutation(tmp_pa
                 {"antenna": {"kind": "number", "number": 0}, "diameter_m": 14.0}
             ]
         },
-        beams={"feed_params": {"focal_ratio": 0.4}},
+        beams={
+            "mode": "mixed",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": 0},
+                    "beam": {"kind": "analytic"},
+                }
+            ],
+        },
     )
 
     with pytest.raises(ValidationError, match="frozen"):
@@ -388,21 +400,29 @@ def test_deep_immutability_rejects_nested_assignment_and_mapping_mutation(tmp_pa
         config.execution.precision.coordinates.uvw = "float32"
     with pytest.raises(TypeError):
         config.instrument.diameter_overrides[0] = None
-    with pytest.raises(TypeError, match="immutable"):
-        config.beams.feed_params["focal_ratio"] = 0.5
+    with pytest.raises(TypeError):
+        config.beams.assignments[0] = None
+    with pytest.raises(ValidationError, match="frozen"):
+        config.beams.assignments[0].antenna.number = 1
 
 
-def test_input_mapping_has_no_dict_base_mutation_escape_hatch(tmp_path):
+def test_beam_input_has_no_mutable_mapping_surface(tmp_path):
     config = valid_input_config(
         tmp_path,
-        beams={"feed_params": {"focal_ratio": 0.4}},
+        beams={
+            "mode": "mixed",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": 0},
+                    "beam": {"kind": "analytic"},
+                }
+            ],
+        },
     )
-    frozen = config.beams.feed_params
 
-    assert isinstance(frozen, Mapping)
-    assert not isinstance(frozen, dict)
-    with pytest.raises(TypeError):
-        dict.__setitem__(frozen, "1", "circular")
+    assert type(config.beams.assignments) is tuple
+    assert not isinstance(config.beams.assignments, Mapping)
+    assert not isinstance(config.beams.assignments[0], Mapping)
 
 
 def test_caller_owned_containers_are_copied(tmp_path):
@@ -411,20 +431,29 @@ def test_caller_owned_containers_are_copied(tmp_path):
     options = {"max_rows": 5}
     source_entries = [{"kind": "nvss", "options": options}]
     precision = {"coordinates": {"uvw": "float32"}}
+    beam_assignments = [
+        {
+            "antenna": {"kind": "number", "number": 0},
+            "beam": {"kind": "analytic"},
+        }
+    ]
     data["instrument"]["diameter_overrides"] = diameters
     data["sky_model"]["sources"] = source_entries
     data["execution"]["precision"] = precision
+    data["beams"] = {"mode": "mixed", "assignments": beam_assignments}
 
     config = RadioSimConfig.model_validate(data)
     source_entries.append({"kind": "test_sources"})
     diameters[0]["diameter_m"] = 99.0
     options["max_rows"] = 6
     precision["coordinates"]["uvw"] = "float64"
+    beam_assignments[0]["antenna"]["number"] = 99
 
     assert len(config.sky_model.sources) == 1
     assert config.instrument.diameter_overrides[0].diameter_m == 14.0
     assert config.sky_model.sources[0].options["max_rows"] == 5
     assert config.execution.precision.coordinates.uvw == "float32"
+    assert config.beams.assignments[0].antenna.number == 0
 
 
 def test_json_and_yaml_serialization_use_ordinary_lists_and_mappings(tmp_path):
@@ -689,12 +718,6 @@ def test_semantic_collector_aggregates_stably_without_mutating_config(tmp_path):
     config = valid_input_config(
         tmp_path,
         obs_time={"duration_seconds": 1.0, "time_step_seconds": 2.0},
-        beams={
-            "aperture_shape": "rectangular",
-            "feed_model": "corrugated_horn",
-            "reflector_type": "cassegrain",
-            "magnification": 1.0,
-        },
         execution={
             "backend": "jax",
             "precision": {"preset": "ultra", "output": "float128"},
@@ -714,10 +737,6 @@ def test_semantic_collector_aggregates_stably_without_mutating_config(tmp_path):
         sorted((item.path, item.code) for item in first)
     )
     assert {
-        "beams.aperture_params.length_x",
-        "beams.aperture_params.length_y",
-        "beams.feed_params.focal_ratio",
-        "beams.magnification",
         "execution.precision",
         "execution.precision.preset.ultra",
         "obs_time.time_step_seconds",
@@ -726,10 +745,13 @@ def test_semantic_collector_aggregates_stably_without_mutating_config(tmp_path):
     assert config.model_dump(mode="json") == before
 
 
-def test_unsupported_collector_preserves_tier0_and_adds_missing_guards(tmp_path):
+def test_unsupported_collector_leaves_final_beam_modes_to_runtime_guard(tmp_path):
     config = valid_input_config(
         tmp_path,
-        beams={"beam_mode": "fits", "beam_file": "missing.fits"},
+        beams={
+            "mode": "shared_fits",
+            "beam": {"kind": "fits", "path": "missing.fits"},
+        },
         visibility={"calculation_type": "spherical_harmonic"},
         workflow={
             "result_format": "uvfits",
@@ -743,14 +765,13 @@ def test_unsupported_collector_preserves_tier0_and_adds_missing_guards(tmp_path)
     paths = {issue.path for issue in issues}
 
     assert {
-        "beams.beam_mode",
-        "beams.beam_file",
         "visibility.calculation_type",
         "workflow.result_format",
         "workflow.prompt_for_output_suffix",
         "workflow.angle_unit",
         "workflow.sky_model_frequency_hz",
     } <= paths
+    assert not any(path.startswith("beams.") for path in paths)
     assert all(issue.stage == "unsupported" for issue in issues)
 
 

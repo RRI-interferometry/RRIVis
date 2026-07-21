@@ -14,7 +14,6 @@ from pydantic import ValidationError
 
 from radiosim.core.runtime_config import (
     FrozenMapping,
-    ResolvedBeamsConfig,
     ResolvedConfiguration,
     ResolvedSimulationConfig,
 )
@@ -213,21 +212,18 @@ def test_provenance_is_versioned_json_safe_and_workflow_distinguishable(tmp_path
 
 
 def test_resolved_runtime_rejects_nested_runtime_subclasses(tmp_path):
-    class MutableResolvedBeamsConfig(ResolvedBeamsConfig):
-        pass
+    from radiosim.core.beam import ResolvedAnalyticBeamsInput
 
     runtime = resolved_config(tmp_path).runtime
-    mutable_beams = MutableResolvedBeamsConfig(
-        **{
-            name: getattr(runtime.beams, name)
-            for name in ResolvedBeamsConfig.__dataclass_fields__
-        }
-    )
+    with pytest.raises(TypeError):
 
-    with pytest.raises(TypeError, match="beams must be a ResolvedBeamsConfig"):
+        class MutableResolvedAnalyticBeamsInput(ResolvedAnalyticBeamsInput):
+            pass
+
+    with pytest.raises(TypeError, match="beams must be an exact ResolvedBeamsInput"):
         ResolvedSimulationConfig(
             instrument=runtime.instrument,
-            beams=mutable_beams,
+            beams=object(),
             baseline_selection=runtime.baseline_selection,
             sky_model=runtime.sky_model,
             observation=runtime.observation,

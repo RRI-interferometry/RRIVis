@@ -44,9 +44,18 @@ Visibility
 Beam and sky APIs
 -----------------
 
-The high-level path connects analytic beams and strict sky requests. FITS and
-per-antenna beam execution remain rejected. See :doc:`jones` and
-:doc:`../user_guide/sky_models` for the implemented/scaffold boundaries.
+Tier 3B exposes immutable source-resolved beam definitions and four resolved
+mode inputs. These values describe validated intent; only direct-circular
+analytic input is active in the high-level Simulator. No loaded beam state,
+assignment state, or canonical beam evaluator is public yet.
+
+.. automodule:: radiosim.core.beam.models
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+See :doc:`../user_guide/beam_models`, :doc:`jones`, and
+:doc:`../user_guide/sky_models` for the active boundaries.
 
 Observation and polarization
 ----------------------------
