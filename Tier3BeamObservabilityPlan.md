@@ -3039,3 +3039,73 @@ present.
 configuration, dependency, lock, baseline, README, example, workflow, or shipped YAML
 file changed. Nothing was pushed or published. Remote CI, physical GPU execution,
 mounted Vivaldi data, and live scientific network/registry behavior remain unobserved.
+
+## 51. Tier 3B independent acceptance record
+
+**Verdict: ACCEPTED AFTER CORRECTIONS on 2026-07-21.** The review began from clean
+`main` at implementation `284e29c08567b908fadc6c5739b17ae1a889ed37`, whose parent
+is `daa734c53e0b2e98519a0e569c23d0e53ed3b9da`. `origin/main` was
+`112f52fb0f903e0361fb6ec38199c081f63a93ed`; the checkout was zero behind and nine
+ahead. The 30-file implementation scope matched the handoff. The eight-line change
+to `test_instrument_integration.py` only replaced its removed flat beam fixture with
+the accepted direct circular Gaussian shape and is accepted as the authorized scope
+exception.
+
+Source review and independent probes found four bounded contract defects. Resolved
+FITS values accepted lexically non-normal paths, concrete `Path` subclasses, `str`
+subclasses, and blank provenance keys. Hostile Pydantic subclasses could survive in
+nested beam input and root serialization. The FITS runtime guard incorrectly assigned
+loading to Tier 3C. Finally, importing the two schema modules loaded 208 JAX modules
+through eager package initializers. The first regression selection reported eight
+intended failures and two passes before correction; the import-isolation regression
+then failed alone with the 208-module list. No assertion was weakened.
+
+Correction `924f25d0378728bc0fe522a89b81355863f9ce8e` makes beam input classes final,
+requires exact root and nested model types, requires exact canonical local `Path` and
+string values in resolved FITS definitions, rejects blank provenance, gives the FITS
+guard later-slice wording, and lazily preserves the existing package-root, core, and
+I/O public API. `StrictFrozenModel` moved to a small dependency-light module so schema
+imports do not traverse the full sky/backend graph. Fresh-process identity and
+`import *` boundaries remain intact; neither schema import loads pyuvdata, JAX,
+Matplotlib, Bokeh, browser modules, or observability.
+
+Final evidence:
+
+- the required focused boundary passed 347/347 on Python 3.11.13 and 347/347 on
+  Python 3.12.13, with no failure, skip, xfail, or warning;
+- the authorized integration file passed 16/16 in both environments with no failure,
+  skip, xfail, or warning;
+- the full suite collected 2,416 tests: Python 3.11 reported 2,415 passed, one existing
+  optional-data skip, and 26 classified existing warnings; Python 3.12 reported 2,408
+  passed, eight existing optional-data/JAX skips, and the same 26 warnings;
+- Ruff lint passed and all 275 files passed the format check; Pyright 1.1.408 reported
+  the implementation's exact 4,178 diagnostics in both environments under the
+  unchanged 4,600 ceiling, while direct checks of both new beam modules reported zero
+  diagnostics;
+- analytic and FITS pre-load fingerprints were identical across both Pythons. The
+  independent fixed inputs produced
+  `f79b164f5ae8b08fcc728f5f6a25bd14e5566312230eb668c14b7f5765b628d4` and
+  `0cec81d7fcc642b4bba5839cf94b0ac546655543aed3f70d1428f60909fa6e8f`;
+- the handoff's literal root `--validate` form is stale and exits 2 because validation
+  is a subcommand. The live equivalents, `radiosim validate <config>`, passed for all
+  three shipped YAML documents with 101, 11, and one resolved frequency channels;
+- the offline example completed with five antennas, 15 selected baselines, two
+  frequency channels, 15 visibility baselines, and `(1, 2)` product shapes, without
+  save, plot, browser, registry, or network action;
+- a clean temporary archive of tracked source with the correction applied built under
+  Sphinx 8.2.3 with the unchanged 40 events: 35 lower-level docstring/docutils events,
+  one historical HERA toctree event, three HERA highlighting events, and one theme
+  option event; and
+- whitespace, marker, old-field, public-export, path, runtime-side-effect, scope, and
+  later-slice leakage checks passed. Residual old fields are confined to migration
+  rejection, the private active analytic projection, lower-level pre-existing solver
+  inputs, or clearly historical documentation.
+
+Only direct circular analytic beams are runnable. The other analytic variants and all
+FITS modes remain configuration-valid and fail closed before device, backend, sky,
+output, plot, browser, or BeamFITS work with their two stable pending codes. Tier 3C
+assignment resolution, FITS loading, basis conversion, caching, solver integration,
+and observability work were not started. `BEAM-001`, `BEAM-002`, `BEAM-003`,
+`OBS-001`, and `OBS-002` remain **OPEN**; none is **DONE**. Nothing was pushed or
+published. Remote CI, physical GPU execution, mounted Vivaldi data, and live external
+network/registry behavior remain unobserved.

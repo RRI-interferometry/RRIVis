@@ -2563,3 +2563,48 @@ shipped YAML file changed. Nothing was pushed or published. Remote CI, physical 
 mounted Vivaldi data, and live scientific network/registry behavior remain unobserved.
 `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none is
 **DONE**. Tier 3B is the next authorized slice and was not started.
+
+### 2026-07-21 Tier 3B independent acceptance
+
+**Decision: Tier 3B is accepted after corrections.** Implementation
+`284e29c08567b908fadc6c5739b17ae1a889ed37` introduced the strict four-mode input
+schema, immutable source-resolved beam definitions and fingerprints, nested path
+resolution, documentation, and fail-closed Simulator guards. The review verified its
+30-file scope and accepted the separately authorized eight-line integration-fixture
+migration as narrow and necessary.
+
+Adversarial probes found noncanonical or subclassed resolved FITS scalars, blank
+provenance keys, hostile Pydantic subclasses at nested and serialization boundaries,
+misleading Tier 3C guard wording, and eager schema imports that loaded 208 JAX
+modules. The primary regression selection failed 8/10 before correction; the fresh
+import regression then failed alone. Correction
+`924f25d0378728bc0fe522a89b81355863f9ce8e` closes those gaps with exact/final model
+boundaries, canonical concrete path/string requirements, later-slice error wording,
+and dependency-light lazy package exports that retain public object identity.
+
+The final focused boundary passed 347/347 on Python 3.11.13 and 347/347 on Python
+3.12.13. The authorized integration file passed 16/16 on both. Full Python 3.11
+reported 2,415 passed, one existing optional-data skip, and 26 existing warnings;
+Python 3.12 reported 2,408 passed, eight existing optional-data/JAX skips, and the
+same 26 warnings. There were zero failures and xfails, and no Tier 3B skip, skipif, or
+xfail marker.
+
+Ruff lint and the 275-file format check passed. Pyright 1.1.408 reproduced 4,178
+diagnostics in both environments under the unchanged 4,600 ceiling; both new beam
+modules had zero direct diagnostics. Fresh imports loaded none of the forbidden heavy
+or later-tier modules. Fixed analytic/FITS fingerprint probes matched across both
+Pythons. All three shipped YAMLs passed using the live `radiosim validate <config>`
+subcommand; the handoff's root `--validate` spelling is stale and was recorded as such.
+The offline example completed with five antennas, 15 baselines, and two channels.
+A corrected clean-source Sphinx 8.2.3 build reproduced the 40-event baseline. Git
+whitespace, marker, legacy-field, export, scope, and later-tier leakage searches
+passed.
+
+Only direct circular analytic beams are runtime-active. FITS modes and other analytic
+variants remain valid input but fail before side effects using
+`beam_runtime_fits_pending` or `beam_runtime_analytic_variant_pending`. No Tier 3C
+assignment, FITS loading, conversion, cache, solver, or observability implementation
+was added. Nothing was pushed or published. Remote CI, physical GPU execution,
+mounted Vivaldi data, and live network/registry behavior remain unobserved.
+`BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none is
+**DONE**.
