@@ -140,7 +140,11 @@ def _copy_exact_tuple(
 
 
 def _require_absolute_path(value: Any, field_name: str) -> None:
-    if not isinstance(value, Path) or not value.is_absolute():
+    if type(value) is not type(Path()):
+        raise TypeError(f"{field_name} must be an exact Path value")
+    if not value.is_absolute():
+        raise ValueError(f"{field_name} must be an absolute normalized Path")
+    if value != value.resolve(strict=False):
         raise ValueError(f"{field_name} must be an absolute normalized Path")
 
 
@@ -454,9 +458,14 @@ class ResolvedFITSBeamDefinition(_ResolvedValue):
         _require_literal(
             self.angular_interpolation, "bilinear", "angular_interpolation"
         )
-        if self.frequency_interpolation not in {"cubic", "linear"}:
+        if type(self.frequency_interpolation) is not str or (
+            self.frequency_interpolation not in {"cubic", "linear"}
+        ):
             raise ValueError("frequency_interpolation must be 'cubic' or 'linear'")
-        if type(self.path_provenance_key) is not str or not self.path_provenance_key:
+        if (
+            type(self.path_provenance_key) is not str
+            or not self.path_provenance_key.strip()
+        ):
             raise ValueError("path_provenance_key must be nonempty")
         _require_fingerprint(self.definition_fingerprint, "definition_fingerprint")
         payload = {

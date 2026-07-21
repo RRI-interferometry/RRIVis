@@ -366,6 +366,18 @@ def test_assignment_input_is_copied_frozen_and_order_preserving():
         value.assignments[0] = value.assignments[1]
 
 
+def test_hostile_model_subclasses_cannot_survive_in_accepted_beam_state():
+    module = _beam_config()
+
+    for parent in (
+        module.GaussianTaperConfig,
+        module.FITSBeamSourceConfig,
+        module.FITSBeamAssignmentConfig,
+    ):
+        with pytest.raises(TypeError, match="do not support subclassing"):
+            type(f"Mutable{parent.__name__}", (parent,), {})
+
+
 OLD_FIELDS = (
     "beam_mode",
     "per_antenna",

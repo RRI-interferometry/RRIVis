@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib
 import json
 import math
+import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
@@ -52,6 +54,32 @@ def test_resolved_types_are_exported_only_from_core_boundaries():
     ):
         assert not hasattr(beam, future_name)
         assert not hasattr(core, future_name)
+
+
+def test_beam_schema_imports_do_not_load_heavy_or_later_tier_modules():
+    script = """
+import json
+import sys
+import radiosim.io.beam_config
+import radiosim.core.beam.models
+forbidden = sorted(
+    name for name in sys.modules
+    if name.split('.')[0] in {
+        'pyuvdata', 'jax', 'matplotlib', 'bokeh', 'selenium', 'webbrowser'
+    }
+    or name.startswith('radiosim.core.observability')
+)
+print(json.dumps(forbidden))
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == []
 
 
 def test_resolved_leaf_field_order_is_exact():
@@ -194,6 +222,79 @@ def test_analytic_fingerprint_uses_exact_float_and_is_key_order_independent(tmp_
 
     assert left_id == right_id
     assert changed_id != left_id
+
+
+def test_analytic_fingerprint_matches_independent_canonical_digest(tmp_path):
+    resolved = _resolve(tmp_path, {"mode": "analytic"}).runtime.beams.model
+
+    assert resolved.definition_fingerprint == (
+        "f79b164f5ae8b08fcc728f5f6a25bd14e5566312230eb668c14b7f5765b628d4"
+    )
+
+
+def test_resolved_fits_definition_rejects_noncanonical_paths_and_strings():
+    models = _models()
+
+    def definition(path, *, frequency_interpolation="cubic"):
+        payload = {
+            "path": path,
+            "normalization": "peak",
+            "angular_interpolation": "bilinear",
+            "frequency_interpolation": frequency_interpolation,
+        }
+        return models.ResolvedFITSBeamDefinition(
+            "fits",
+            path,
+            "peak",
+            "bilinear",
+            frequency_interpolation,
+            "beams.beam.path",
+            models._definition_fingerprint("fits", payload),
+        )
+
+    with pytest.raises(ValueError, match="normalized"):
+        definition(Path("/tmp/a/../beam.fits"))
+
+    path_type = type(Path())
+
+    class PathSubclass(path_type):
+        pass
+
+    with pytest.raises((TypeError, ValueError), match="Path"):
+        definition(PathSubclass("/tmp/beam.fits"))
+
+    class StringSubclass(str):
+        pass
+
+    normalized = Path("/tmp/beam.fits").resolve(strict=False)
+    with pytest.raises((TypeError, ValueError), match="frequency_interpolation"):
+        definition(
+            normalized,
+            frequency_interpolation=StringSubclass("cubic"),
+        )
+
+
+@pytest.mark.parametrize("provenance_key", ["", "   "])
+def test_resolved_fits_definition_rejects_blank_provenance_keys(provenance_key):
+    models = _models()
+    path = Path("/tmp/beam.fits").resolve(strict=False)
+    payload = {
+        "path": path,
+        "normalization": "peak",
+        "angular_interpolation": "bilinear",
+        "frequency_interpolation": "cubic",
+    }
+
+    with pytest.raises(ValueError, match="path_provenance_key"):
+        models.ResolvedFITSBeamDefinition(
+            "fits",
+            path,
+            "peak",
+            "bilinear",
+            "cubic",
+            provenance_key,
+            models._definition_fingerprint("fits", payload),
+        )
 
 
 def test_fits_definitions_use_normalized_path_options_and_logical_keys(tmp_path):

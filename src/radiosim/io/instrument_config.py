@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
-from radiosim.io.config import StrictFrozenModel
+from radiosim.io.model_base import StrictFrozenModel
 
 _ENVIRONMENT_PATH = re.compile(r"\$(?:\{[^}]+\}|[A-Za-z_][A-Za-z0-9_]*)")
 _LOCAL_LAYOUT_FORMATS = frozenset({"radiosim", "casa_loc", "mwa_metafits"})

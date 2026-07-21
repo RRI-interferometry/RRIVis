@@ -91,7 +91,7 @@ def _guard_beam_runtime(beams: object) -> None:
                     "beams.mode",
                     "beam_runtime_fits_pending",
                     "beam_runtime_fits_pending: FITS-backed beam modes are declared "
-                    "but runtime loading belongs to Tier 3C",
+                    "but runtime activation remains pending a later Tier 3 slice",
                     stage="unsupported",
                     category="unsupported",
                 )

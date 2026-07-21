@@ -13,8 +13,12 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator
 
-from radiosim.io.config import StrictFrozenModel
-from radiosim.io.instrument_config import AntennaReference
+from radiosim.io.instrument_config import (
+    AntennaNameReference,
+    AntennaNumberReference,
+    AntennaReference,
+)
+from radiosim.io.model_base import StrictFrozenModel
 
 _ENVIRONMENT_PATH = re.compile(r"\$(?:\{[^}]+\}|[A-Za-z_][A-Za-z0-9_]*)")
 
@@ -40,34 +44,46 @@ def _validate_beam_path(value: Any) -> Any:
     return value
 
 
-class UniformTaperConfig(StrictFrozenModel):
+class _BeamInputModel(StrictFrozenModel):
+    """Private final-class boundary for canonical beam input values."""
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if any(
+            base is not _BeamInputModel and issubclass(base, _BeamInputModel)
+            for base in cls.__bases__
+        ):
+            raise TypeError("beam input models do not support subclassing")
+
+
+class UniformTaperConfig(_BeamInputModel):
     """Uniform direct circular-aperture illumination."""
 
     kind: Literal["uniform"] = "uniform"
 
 
-class GaussianTaperConfig(StrictFrozenModel):
+class GaussianTaperConfig(_BeamInputModel):
     """Gaussian direct circular-aperture illumination."""
 
     kind: Literal["gaussian"] = "gaussian"
     edge_taper_db: _StrictNonNegativeFiniteFloat = 10.0
 
 
-class ParabolicTaperConfig(StrictFrozenModel):
+class ParabolicTaperConfig(_BeamInputModel):
     """Parabolic direct circular-aperture illumination."""
 
     kind: Literal["parabolic"] = "parabolic"
     edge_taper_db: _StrictNonNegativeFiniteFloat = 10.0
 
 
-class ParabolicSquaredTaperConfig(StrictFrozenModel):
+class ParabolicSquaredTaperConfig(_BeamInputModel):
     """Parabolic-squared direct circular-aperture illumination."""
 
     kind: Literal["parabolic_squared"] = "parabolic_squared"
     edge_taper_db: _StrictNonNegativeFiniteFloat = 10.0
 
 
-class CosineTaperConfig(StrictFrozenModel):
+class CosineTaperConfig(_BeamInputModel):
     """Cosine direct circular-aperture illumination."""
 
     kind: Literal["cosine"] = "cosine"
@@ -83,19 +99,19 @@ DirectTaperConfig = Annotated[
 ]
 
 
-class DerivedGaussianTaperConfig(StrictFrozenModel):
+class DerivedGaussianTaperConfig(_BeamInputModel):
     """Gaussian profile whose edge taper is derived from illumination."""
 
     kind: Literal["gaussian"] = "gaussian"
 
 
-class DerivedParabolicTaperConfig(StrictFrozenModel):
+class DerivedParabolicTaperConfig(_BeamInputModel):
     """Parabolic profile whose edge taper is derived from illumination."""
 
     kind: Literal["parabolic"] = "parabolic"
 
 
-class DerivedParabolicSquaredTaperConfig(StrictFrozenModel):
+class DerivedParabolicSquaredTaperConfig(_BeamInputModel):
     """Parabolic-squared profile with a derived edge taper."""
 
     kind: Literal["parabolic_squared"] = "parabolic_squared"
@@ -109,7 +125,7 @@ FeedDerivedTaperConfig = Annotated[
 ]
 
 
-class CorrugatedHornIlluminationConfig(StrictFrozenModel):
+class CorrugatedHornIlluminationConfig(_BeamInputModel):
     """Corrugated-horn illumination parameters."""
 
     kind: Literal["corrugated_horn"] = "corrugated_horn"
@@ -117,7 +133,7 @@ class CorrugatedHornIlluminationConfig(StrictFrozenModel):
     q: _StrictPositiveFiniteFloat = 1.15
 
 
-class OpenWaveguideIlluminationConfig(StrictFrozenModel):
+class OpenWaveguideIlluminationConfig(_BeamInputModel):
     """Open-waveguide illumination parameters."""
 
     kind: Literal["open_waveguide"] = "open_waveguide"
@@ -125,7 +141,7 @@ class OpenWaveguideIlluminationConfig(StrictFrozenModel):
     b_over_lambda: _StrictPositiveFiniteFloat = 0.7
 
 
-class DipoleGroundPlaneIlluminationConfig(StrictFrozenModel):
+class DipoleGroundPlaneIlluminationConfig(_BeamInputModel):
     """Dipole-over-ground-plane illumination parameters."""
 
     kind: Literal["dipole_ground_plane"] = "dipole_ground_plane"
@@ -141,13 +157,13 @@ IlluminationConfig = Annotated[
 ]
 
 
-class PrimeFocusReflectorConfig(StrictFrozenModel):
+class PrimeFocusReflectorConfig(_BeamInputModel):
     """Prime-focus reflector selection."""
 
     kind: Literal["prime_focus"] = "prime_focus"
 
 
-class CassegrainReflectorConfig(StrictFrozenModel):
+class CassegrainReflectorConfig(_BeamInputModel):
     """Cassegrain reflector parameters."""
 
     kind: Literal["cassegrain"] = "cassegrain"
@@ -163,14 +179,14 @@ ReflectorConfig = Annotated[
 ]
 
 
-class CircularApertureBeamModelConfig(StrictFrozenModel):
+class CircularApertureBeamModelConfig(_BeamInputModel):
     """Circular aperture using each resolved antenna diameter."""
 
     kind: Literal["circular_aperture"] = "circular_aperture"
     taper: DirectTaperConfig = Field(default_factory=GaussianTaperConfig)
 
 
-class RectangularApertureBeamModelConfig(StrictFrozenModel):
+class RectangularApertureBeamModelConfig(_BeamInputModel):
     """Rectangular aperture with explicit north/east dimensions."""
 
     kind: Literal["rectangular_aperture"] = "rectangular_aperture"
@@ -178,7 +194,7 @@ class RectangularApertureBeamModelConfig(StrictFrozenModel):
     east_length_m: _StrictPositiveFiniteFloat
 
 
-class EllipticalApertureBeamModelConfig(StrictFrozenModel):
+class EllipticalApertureBeamModelConfig(_BeamInputModel):
     """Elliptical aperture with explicit north/east diameters."""
 
     kind: Literal["elliptical_aperture"] = "elliptical_aperture"
@@ -186,7 +202,7 @@ class EllipticalApertureBeamModelConfig(StrictFrozenModel):
     east_diameter_m: _StrictPositiveFiniteFloat
 
 
-class AnalyticalIlluminationBeamModelConfig(StrictFrozenModel):
+class AnalyticalIlluminationBeamModelConfig(_BeamInputModel):
     """Analytically derived circular-aperture illumination."""
 
     kind: Literal["analytical_illumination"] = "analytical_illumination"
@@ -197,7 +213,7 @@ class AnalyticalIlluminationBeamModelConfig(StrictFrozenModel):
     reflector: ReflectorConfig = Field(default_factory=PrimeFocusReflectorConfig)
 
 
-class NumericalIlluminationBeamModelConfig(StrictFrozenModel):
+class NumericalIlluminationBeamModelConfig(_BeamInputModel):
     """Numerically integrated circular-aperture illumination."""
 
     kind: Literal["numerical_illumination"] = "numerical_illumination"
@@ -215,7 +231,7 @@ AnalyticBeamModelConfig = Annotated[
 ]
 
 
-class FITSBeamSourceConfig(StrictFrozenModel):
+class FITSBeamSourceConfig(_BeamInputModel):
     """One unresolved local BeamFITS source and fixed load options."""
 
     kind: Literal["fits"] = "fits"
@@ -230,14 +246,23 @@ class FITSBeamSourceConfig(StrictFrozenModel):
         return _validate_beam_path(value)
 
 
-class FITSBeamAssignmentConfig(StrictFrozenModel):
+class FITSBeamAssignmentConfig(_BeamInputModel):
     """One authored tagged antenna-to-FITS assignment."""
 
     antenna: AntennaReference
     beam: FITSBeamSourceConfig
 
+    @field_validator("antenna")
+    @classmethod
+    def require_exact_antenna_reference(
+        cls, value: AntennaReference
+    ) -> AntennaReference:
+        if type(value) not in (AntennaNumberReference, AntennaNameReference):
+            raise ValueError("antenna must be an exact AntennaReference model")
+        return value
 
-class AnalyticBeamChoiceConfig(StrictFrozenModel):
+
+class AnalyticBeamChoiceConfig(_BeamInputModel):
     """An analytic choice inside a mixed assignment list."""
 
     kind: Literal["analytic"] = "analytic"
@@ -249,14 +274,23 @@ MixedBeamChoiceConfig = Annotated[
 ]
 
 
-class MixedBeamAssignmentConfig(StrictFrozenModel):
+class MixedBeamAssignmentConfig(_BeamInputModel):
     """One authored tagged antenna choice in mixed mode."""
 
     antenna: AntennaReference
     beam: MixedBeamChoiceConfig
 
+    @field_validator("antenna")
+    @classmethod
+    def require_exact_antenna_reference(
+        cls, value: AntennaReference
+    ) -> AntennaReference:
+        if type(value) not in (AntennaNumberReference, AntennaNameReference):
+            raise ValueError("antenna must be an exact AntennaReference model")
+        return value
 
-class AnalyticBeamsConfig(StrictFrozenModel):
+
+class AnalyticBeamsConfig(_BeamInputModel):
     """One shared analytic model."""
 
     mode: Literal["analytic"] = "analytic"
@@ -265,21 +299,21 @@ class AnalyticBeamsConfig(StrictFrozenModel):
     )
 
 
-class SharedFITSBeamsConfig(StrictFrozenModel):
+class SharedFITSBeamsConfig(_BeamInputModel):
     """One shared FITS source."""
 
     mode: Literal["shared_fits"] = "shared_fits"
     beam: FITSBeamSourceConfig
 
 
-class PerAntennaFITSBeamsConfig(StrictFrozenModel):
+class PerAntennaFITSBeamsConfig(_BeamInputModel):
     """An ordered nonempty list of authored FITS assignments."""
 
     mode: Literal["per_antenna_fits"] = "per_antenna_fits"
     assignments: tuple[FITSBeamAssignmentConfig, ...] = Field(min_length=1)
 
 
-class MixedBeamsConfig(StrictFrozenModel):
+class MixedBeamsConfig(_BeamInputModel):
     """One analytic model plus ordered per-antenna analytic/FITS choices."""
 
     mode: Literal["mixed"] = "mixed"

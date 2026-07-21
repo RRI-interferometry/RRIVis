@@ -485,6 +485,16 @@ def test_json_and_yaml_serialization_use_ordinary_lists_and_mappings(tmp_path):
     )
 
 
+def test_dump_config_rejects_root_model_subclasses_with_extra_fields(tmp_path):
+    class ExtendedRadioSimConfig(RadioSimConfig):
+        surprise: str = "must not be serialized"
+
+    config = ExtendedRadioSimConfig.model_validate(valid_config_mapping(tmp_path))
+
+    with pytest.raises(TypeError, match="only RadioSimConfig"):
+        dump_config(config, tmp_path / "subclass.yaml")
+
+
 def test_standard_model_dump_mapping_round_trips_preset_precision(tmp_path):
     config = valid_input_config(tmp_path)
     dumped = config.model_dump(mode="json")

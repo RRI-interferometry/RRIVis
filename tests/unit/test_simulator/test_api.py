@@ -464,7 +464,7 @@ def test_tier3b_fits_runtime_guards_apply_to_every_document_entry_point(
     with pytest.raises(
         UnsupportedConfigError,
         match=re.escape("beam_runtime_fits_pending"),
-    ):
+    ) as exc_info:
         if entry_point == "yaml":
             Simulator.from_yaml(write_config_yaml(tmp_path, data))
         elif entry_point == "model":
@@ -476,6 +476,10 @@ def test_tier3b_fits_runtime_guards_apply_to_every_document_entry_point(
             Simulator.from_mapping(data, base_dir=tmp_path)
         else:
             _from_parameters(tmp_path, data)
+
+    message = exc_info.value.issues[0].message
+    assert "later Tier 3 slice" in message
+    assert "Tier 3C" not in message
 
 
 @pytest.mark.parametrize(

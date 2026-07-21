@@ -31,8 +31,6 @@ from typing import (
 import numpy as np
 import yaml
 from pydantic import (
-    BaseModel,
-    ConfigDict,
     Field,
     PlainSerializer,
     SerializeAsAny,
@@ -54,6 +52,7 @@ from radiosim.core.sky.containers.constants import (
     DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY,
     DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
 )
+from radiosim.io.model_base import StrictFrozenModel
 
 if TYPE_CHECKING:
     from radiosim.core.runtime_config import ResolvedConfiguration
@@ -165,12 +164,6 @@ def _freeze_value(value: Any) -> Any:
 
 def _freeze_dict(value: Mapping[str, Any]) -> FrozenDict:
     return FrozenDict({str(key): _freeze_value(item) for key, item in value.items()})
-
-
-class StrictFrozenModel(BaseModel):
-    """Shared base for every concrete user-input model."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 IssueStage = Literal[
@@ -1486,6 +1479,9 @@ class CliWorkflowConfig(StrictFrozenModel):
 from radiosim.io.beam_config import (  # noqa: E402, I001
     AnalyticBeamsConfig,
     BeamsConfig as _BeamsConfig,
+    MixedBeamsConfig,
+    PerAntennaFITSBeamsConfig,
+    SharedFITSBeamsConfig,
 )
 from radiosim.io.instrument_config import (  # noqa: E402
     BaselineSelectionConfig,
@@ -1631,6 +1627,18 @@ class RadioSimConfig(StrictFrozenModel):
         fields = _legacy_beam_fields(value)
         if fields:
             raise ValueError(_legacy_beam_error_text(fields))
+        return value
+
+    @field_validator("beams")
+    @classmethod
+    def require_exact_beams_model(cls, value: _BeamsConfig) -> _BeamsConfig:
+        if type(value) not in (
+            AnalyticBeamsConfig,
+            SharedFITSBeamsConfig,
+            PerAntennaFITSBeamsConfig,
+            MixedBeamsConfig,
+        ):
+            raise ValueError("beams must be an exact Tier 3 beam mode model")
         return value
 
 
@@ -2298,7 +2306,7 @@ def load_config(
 
 
 def _require_input_config(config: object) -> RadioSimConfig:
-    if not isinstance(config, RadioSimConfig):
+    if type(config) is not RadioSimConfig:
         raise TypeError("dump_config accepts only RadioSimConfig input models")
     return config
 
