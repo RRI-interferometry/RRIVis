@@ -107,6 +107,65 @@ def test_distinct_scalar_voltage_reference_has_cubed_opposite_phase() -> None:
     assert value == expected
 
 
+@pytest.mark.parametrize(
+    "variant",
+    ("canonical", "unexpected", UnsupportedBeamVariant.POWER, None),
+    ids=("raw-valid", "raw-unexpected", "other-enum", "none"),
+)
+def test_science_helpers_reject_non_enum_variants(
+    tmp_path: Path,
+    variant: Any,
+) -> None:
+    """Keep malformed science identity from selecting either analytical model."""
+    with pytest.raises(
+        TypeError,
+        match="^variant must be a BeamScienceVariant member$",
+    ):
+        scalar_voltage_reference(
+            azimuth_uv_rad=0.2,
+            zenith_angle_rad=0.3,
+            frequency_index=1,
+            variant=variant,
+        )
+    with pytest.raises(
+        TypeError,
+        match="^variant must be a BeamScienceVariant member$",
+    ):
+        build_scalar_efield_uvbeam(variant=variant)
+    with pytest.raises(
+        TypeError,
+        match="^variant must be a BeamScienceVariant member$",
+    ):
+        write_scalar_efield_beamfits(
+            tmp_path,
+            variant=variant,
+            filename="invalid-science.beamfits",
+        )
+
+
+@pytest.mark.parametrize(
+    "variant",
+    ("power", "unexpected", BeamScienceVariant.CANONICAL, None),
+    ids=("raw-valid", "raw-unexpected", "other-enum", "none"),
+)
+def test_unsupported_fixture_builder_rejects_non_enum_variants(
+    variant: Any,
+) -> None:
+    """Prevent malformed negative-fixture identity from returning canonical science."""
+    with pytest.raises(
+        TypeError,
+        match="^variant must be an UnsupportedBeamVariant member$",
+    ):
+        build_beam_variant(variant)
+
+
+@pytest.mark.parametrize("dtype", (np.float64, object(), "complex256"))
+def test_fixture_builders_reject_unsupported_dtypes(dtype: Any) -> None:
+    """Accept only native complex64 or complex128 fixture storage."""
+    with pytest.raises((TypeError, ValueError)):
+        build_scalar_efield_uvbeam(dtype=dtype)
+
+
 def test_canonical_grids_have_exact_values_and_fresh_ownership() -> None:
     """Pin dimensions, endpoints, exact Hz values, and caller ownership."""
     azimuth = canonical_azimuth_grid()
@@ -299,15 +358,42 @@ def test_helper_module_has_no_mutable_module_level_uvbeam_cache() -> None:
     assert not any(isinstance(value, UVBeam) for value in module_values)
 
 
-def test_writer_rejects_escape_and_overwrite(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "filename",
+    ("", "../outside.beamfits", "/tmp/outside.beamfits", "nested/file.beamfits"),
+    ids=("empty", "traversal", "absolute", "nested"),
+)
+def test_writer_rejects_empty_or_nonbasename_filenames(
+    tmp_path: Path,
+    filename: str,
+) -> None:
     """Ensure fixture transports remain fresh and below the caller's directory."""
     with pytest.raises(ValueError, match="one non-empty basename"):
-        write_scalar_efield_beamfits(tmp_path, filename="../outside.beamfits")
+        write_scalar_efield_beamfits(tmp_path, filename=filename)
+
+
+def test_writer_rejects_overwrite(tmp_path: Path) -> None:
+    """Keep each generated transport fresh even though pyuvdata permits clobbering."""
 
     written = write_scalar_efield_beamfits(tmp_path, filename="fresh.beamfits")
     assert written.path.parent == tmp_path.resolve()
     with pytest.raises(FileExistsError):
         write_scalar_efield_beamfits(tmp_path, filename="fresh.beamfits")
+
+
+def test_writer_rejects_dangling_symlink_escape(
+    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Prevent a broken basename symlink from redirecting bytes outside the root."""
+    outside = tmp_path_factory.mktemp("beamfits-outside")
+    escaped = outside / "escaped.beamfits"
+    link = tmp_path / "dangling.beamfits"
+    link.symlink_to(escaped)
+
+    with pytest.raises(FileExistsError):
+        write_scalar_efield_beamfits(tmp_path, filename=link.name)
+    assert not escaped.exists()
 
 
 def test_hash_is_calculated_from_actual_written_bytes(tmp_path: Path) -> None:
@@ -432,25 +518,40 @@ def test_bilinear_midpoint_matches_explicit_neighbor_weights() -> None:
 def test_jones_index_mapping_is_transpose_without_conjugation() -> None:
     """Pin J[feed, component] = data[component, feed] for identity basis."""
     beam = build_scalar_efield_uvbeam(dtype=np.complex128)
-    native_data = beam.data_array[:, :, 2, 2, 1]
-    jones = native_data.transpose(1, 0)
-
-    assert tuple(beam.feed_array) == ("x", "y")
-    assert jones[0, 0] == native_data[0, 0]
-    assert jones[1, 1] == native_data[1, 1]
-    assert jones[0, 0].imag > 0.0
-    assert jones[0, 0] != np.conjugate(native_data[0, 0])
-    np.testing.assert_array_equal(jones[0, 1], 0.0)
-    np.testing.assert_array_equal(jones[1, 0], 0.0)
-    assert jones[0, 0] == jones[1, 1]
-
-    _, basis = _interp(
+    beam.data_array[0, 0] = 1.0 + 2.0j
+    beam.data_array[0, 1] = 3.0 + 4.0j
+    beam.data_array[1, 0] = 5.0 + 6.0j
+    beam.data_array[1, 1] = 7.0 + 8.0j
+    data, basis = _interp(
         beam,
         azimuth=np.array([canonical_azimuth_grid()[1]]),
         zenith_angle=np.array([canonical_zenith_angle_grid()[2]]),
         frequencies=np.array([120e6]),
         return_basis=True,
     )
+    expected_data = np.array(
+        [
+            [1.0 + 2.0j, 3.0 + 4.0j],
+            [5.0 + 6.0j, 7.0 + 8.0j],
+        ]
+    )
+    np.testing.assert_array_equal(data[:, :, 0, 0], expected_data)
+    jones = data[:, :, 0, 0].transpose(1, 0)
+
+    assert tuple(beam.feed_array) == ("x", "y")
+    np.testing.assert_array_equal(
+        jones,
+        np.array(
+            [
+                [1.0 + 2.0j, 5.0 + 6.0j],
+                [3.0 + 4.0j, 7.0 + 8.0j],
+            ]
+        ),
+    )
+    assert jones[0, 1] == data[1, 0, 0, 0]
+    assert jones[1, 0] == data[0, 1, 0, 0]
+    assert jones[0, 1] != data[0, 1, 0, 0]
+    assert jones[0, 1] != np.conjugate(data[1, 0, 0, 0])
     assert basis is not None
     np.testing.assert_allclose(basis[:, :, 0], np.eye(2), rtol=0.0, atol=1e-15)
 
@@ -845,3 +946,40 @@ def test_counting_loader_tracks_failures_retries_and_instance_state(
     assert independent.attempts == 1
     assert independently_loaded is not loaded
     assert loader.attempts == 3
+
+
+@pytest.mark.parametrize(
+    "fail_on_attempts",
+    (None, {1}, [1], (1,)),
+    ids=("none", "mutable-set", "list", "tuple"),
+)
+def test_counting_loader_rejects_non_frozenset_failure_schedules(
+    fail_on_attempts: Any,
+) -> None:
+    """Reject mutable or wrongly typed schedules instead of retaining aliases."""
+    with pytest.raises(
+        TypeError,
+        match=("^fail_on_attempts must be a frozenset of positive one-based integers$"),
+    ):
+        CountingBeamFITSLoader(fail_on_attempts=fail_on_attempts)
+
+
+@pytest.mark.parametrize(
+    "fail_on_attempts",
+    (
+        frozenset({0}),
+        frozenset({-1}),
+        frozenset({True}),
+        frozenset({1.5}),
+    ),
+    ids=("zero", "negative", "boolean", "non-integer"),
+)
+def test_counting_loader_rejects_invalid_one_based_attempts(
+    fail_on_attempts: frozenset[Any],
+) -> None:
+    """Require exact positive integer attempt numbers for deterministic failures."""
+    with pytest.raises(
+        ValueError,
+        match=("^fail_on_attempts must be a frozenset of positive one-based integers$"),
+    ):
+        CountingBeamFITSLoader(fail_on_attempts=fail_on_attempts)

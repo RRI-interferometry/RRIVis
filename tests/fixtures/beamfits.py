@@ -51,6 +51,20 @@ class UnsupportedBeamVariant(str, Enum):
     INVALID_DATA_SHAPE = "invalid_data_shape"
 
 
+def _require_science_variant(variant: Any) -> BeamScienceVariant:
+    """Return an exact science enum member or reject malformed identity."""
+    if not isinstance(variant, BeamScienceVariant):
+        raise TypeError("variant must be a BeamScienceVariant member")
+    return variant
+
+
+def _require_unsupported_variant(variant: Any) -> UnsupportedBeamVariant:
+    """Return an exact unsupported enum member or reject malformed identity."""
+    if not isinstance(variant, UnsupportedBeamVariant):
+        raise TypeError("variant must be an UnsupportedBeamVariant member")
+    return variant
+
+
 @dataclass(frozen=True, slots=True)
 class WrittenBeamFITS:
     """Description of one freshly generated BeamFITS transport."""
@@ -114,6 +128,7 @@ def scalar_voltage_reference(
         Broadcast complex128 scalar voltage values. Scalar inputs produce a
         zero-dimensional array.
     """
+    variant = _require_science_variant(variant)
     azimuth = np.asarray(azimuth_uv_rad, dtype=np.float64)
     zenith_angle = np.asarray(zenith_angle_rad, dtype=np.float64)
     index = np.asarray(frequency_index, dtype=np.float64)
@@ -168,6 +183,7 @@ def build_scalar_efield_uvbeam(
     redundant literal is supplied. The working initializer path derives ``az_za``
     from the two regular axes, and the postcondition below pins that result.
     """
+    variant = _require_science_variant(variant)
     frequencies = canonical_frequency_grid()
     beam = UVBeam.new(
         telescope_name="RadioSim deterministic fixture",
@@ -224,15 +240,20 @@ def write_scalar_efield_beamfits(
     WrittenBeamFITS
         Path, runtime digest from actual bytes, native dtype, and science identity.
     """
+    variant = _require_science_variant(variant)
     root = Path(directory).resolve(strict=True)
     if not root.is_dir():
         raise NotADirectoryError(root)
     native_dtype = _normalise_complex_dtype(dtype)
-    target_name = filename or f"{variant.value}-{native_dtype.name}.beamfits"
+    target_name = (
+        f"{variant.value}-{native_dtype.name}.beamfits"
+        if filename is None
+        else filename
+    )
     if not target_name or Path(target_name).name != target_name:
         raise ValueError("filename must be one non-empty basename")
     target = root / target_name
-    if target.exists():
+    if target.exists() or target.is_symlink():
         raise FileExistsError(target)
 
     beam = build_scalar_efield_uvbeam(dtype=native_dtype, variant=variant)
@@ -282,6 +303,7 @@ def build_beam_variant(
     in memory because pyuvdata correctly refuses them. Coverage fixtures remain valid
     files but do not cover all planned RadioSim observation coordinates.
     """
+    variant = _require_unsupported_variant(variant)
     if variant is UnsupportedBeamVariant.HEALPIX:
         beam = _build_healpix_scalar_uvbeam(dtype=dtype)
     else:
@@ -348,6 +370,16 @@ class CountingBeamFITSLoader:
     fail_on_attempts: frozenset[int] = frozenset()
     attempts: int = field(init=False, default=0)
     _requested_paths: list[Path] = field(init=False, default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Validate an immutable schedule of positive one-based attempts."""
+        message = "fail_on_attempts must be a frozenset of positive one-based integers"
+        if type(self.fail_on_attempts) is not frozenset:
+            raise TypeError(message)
+        if any(
+            type(attempt) is not int or attempt < 1 for attempt in self.fail_on_attempts
+        ):
+            raise ValueError(message)
 
     @property
     def requested_paths(self) -> tuple[Path, ...]:
