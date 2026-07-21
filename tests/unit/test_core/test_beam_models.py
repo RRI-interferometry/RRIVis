@@ -669,3 +669,113 @@ def test_state_rejects_assignment_provenance_source_inconsistent_with_mode(tmp_p
             assignments=(forged,),
             unique_definitions=(forged.definition,),
         )
+
+
+def test_assignment_revalidates_nested_definition_fingerprint(tmp_path):
+    models, provenance, assignment, _ = _valid_assignment_models(tmp_path)
+    rectangular = models.ResolvedRectangularApertureBeamModel(
+        "rectangular_aperture",
+        14.0,
+        12.0,
+    )
+
+    stale_definition = replace(assignment.definition)
+    object.__setattr__(stale_definition, "model", rectangular)
+    with pytest.raises(ValueError, match="definition_fingerprint"):
+        models._create_resolved_beam_assignment(
+            antenna_id=assignment.antenna_id,
+            antenna_diameter_m=assignment.antenna_diameter_m,
+            definition=stale_definition,
+            provenance=provenance,
+        )
+
+
+def test_state_revalidates_nested_assignment_fingerprint(tmp_path):
+    models, _, assignment, state = _valid_assignment_models(tmp_path)
+    stale_assignment = replace(assignment)
+    object.__setattr__(stale_assignment, "antenna_diameter_m", 20.0)
+    with pytest.raises(ValueError, match="assignment_fingerprint"):
+        models._create_resolved_beam_state(
+            mode=state.mode,
+            instrument_fingerprint=state.instrument_fingerprint,
+            assignments=(stale_assignment,),
+            unique_definitions=state.unique_definitions,
+        )
+
+
+def test_state_rejects_duplicate_canonical_name_with_different_numbers(tmp_path):
+    models, _, first, state = _valid_assignment_models(tmp_path)
+    duplicate_name_id = importlib.import_module("radiosim.core.instrument").AntennaId(
+        1, first.antenna_id.name
+    )
+    duplicate_name = models._create_resolved_beam_assignment(
+        antenna_id=duplicate_name_id,
+        antenna_diameter_m=first.antenna_diameter_m,
+        definition=first.definition,
+        provenance=models.BeamAssignmentProvenance(
+            "analytic_mode",
+            None,
+            None,
+            None,
+            duplicate_name_id,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate canonical antenna"):
+        models._create_resolved_beam_state(
+            mode="analytic",
+            instrument_fingerprint=state.instrument_fingerprint,
+            assignments=(first, duplicate_name),
+            unique_definitions=state.unique_definitions,
+        )
+
+
+def test_mixed_state_rejects_multiple_analytic_definitions(tmp_path):
+    models, _, first, state = _valid_assignment_models(tmp_path)
+    second_definition = _resolve(
+        tmp_path,
+        {
+            "mode": "analytic",
+            "model": {
+                "kind": "rectangular_aperture",
+                "north_length_m": 14.0,
+                "east_length_m": 12.0,
+            },
+        },
+    ).runtime.beams.model
+    second_id = importlib.import_module("radiosim.core.instrument").AntennaId(
+        1,
+        "ANT1",
+    )
+    explicit_first = models._create_resolved_beam_assignment(
+        antenna_id=first.antenna_id,
+        antenna_diameter_m=first.antenna_diameter_m,
+        definition=first.definition,
+        provenance=models.BeamAssignmentProvenance(
+            "explicit_assignment",
+            0,
+            "number",
+            first.antenna_id.number,
+            first.antenna_id,
+        ),
+    )
+    explicit_second = models._create_resolved_beam_assignment(
+        antenna_id=second_id,
+        antenna_diameter_m=10.0,
+        definition=second_definition,
+        provenance=models.BeamAssignmentProvenance(
+            "explicit_assignment",
+            1,
+            "number",
+            second_id.number,
+            second_id,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="one analytic definition"):
+        models._create_resolved_beam_state(
+            mode="mixed",
+            instrument_fingerprint=state.instrument_fingerprint,
+            assignments=(explicit_first, explicit_second),
+            unique_definitions=(first.definition, second_definition),
+        )

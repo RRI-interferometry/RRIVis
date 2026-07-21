@@ -749,6 +749,8 @@ class ResolvedBeamAssignment(_ResolvedValue):
             (BeamAssignmentProvenance,),
             "provenance",
         )
+        self.definition.__post_init__()
+        self.provenance.__post_init__()
         if self.provenance.canonical_antenna != antenna_id:
             raise ValueError("provenance.canonical_antenna must equal antenna_id")
         _require_fingerprint(self.assignment_fingerprint, "assignment_fingerprint")
@@ -856,11 +858,18 @@ class ResolvedBeamState(_ResolvedValue):
                 "unique_definitions",
             ),
         )
+        for assignment in assignments:
+            assignment.__post_init__()
+        for definition in unique_definitions:
+            definition.__post_init__()
 
         antenna_ids = tuple(assignment.antenna_id for assignment in assignments)
         numbers = tuple(antenna.number for antenna in antenna_ids)
-        if len(set(antenna_ids)) != len(antenna_ids) or len(set(numbers)) != len(
-            numbers
+        names = tuple(antenna.name for antenna in antenna_ids)
+        if (
+            len(set(antenna_ids)) != len(antenna_ids)
+            or len(set(numbers)) != len(numbers)
+            or len(set(names)) != len(names)
         ):
             raise ValueError("assignments contain a duplicate canonical antenna")
         if numbers != tuple(sorted(numbers)):
@@ -913,6 +922,18 @@ class ResolvedBeamState(_ResolvedValue):
             for assignment in assignments
         ):
             raise ValueError("per_antenna_fits mode requires FITS definitions")
+        if (
+            self.mode == "mixed"
+            and len(
+                {
+                    definition.definition_fingerprint
+                    for definition in unique_definitions
+                    if type(definition) is ResolvedAnalyticBeamDefinition
+                }
+            )
+            > 1
+        ):
+            raise ValueError("mixed mode requires at most one analytic definition")
 
         _require_fingerprint(self.state_fingerprint, "state_fingerprint")
         expected_fingerprint = _state_fingerprint(
