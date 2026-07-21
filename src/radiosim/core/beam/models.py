@@ -6,12 +6,15 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel
+
+from radiosim.core.instrument import AntennaId
 
 if TYPE_CHECKING:
     from radiosim.io.instrument_config import AntennaReference
@@ -581,8 +584,380 @@ _RESOLVED_BEAMS_INPUT_TYPES = (
     ResolvedMixedBeamsInput,
 )
 
+_BEAM_DEFINITION_TYPES = (
+    ResolvedAnalyticBeamDefinition,
+    ResolvedFITSBeamDefinition,
+)
+_ASSIGNMENT_SOURCES = frozenset({"analytic_mode", "shared_mode", "explicit_assignment"})
+_STATE_MODES = frozenset({"analytic", "shared_fits", "per_antenna_fits", "mixed"})
+
+
+def _canonical_digest(payload: dict[str, Any]) -> str:
+    canonical = _canonical_value(payload)
+    encoded = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _copy_antenna_id(value: Any, field_name: str) -> AntennaId:
+    _require_exact(value, (AntennaId,), field_name)
+    canonical = cast(AntennaId, value)
+    return AntennaId(canonical.number, canonical.name)
+
+
+def _require_canonical_authored_name(value: Any, field_name: str) -> str:
+    if type(value) is not str:
+        raise TypeError(f"{field_name} must be an exact string")
+    normalized = unicodedata.normalize("NFC", value.strip())
+    if not normalized:
+        raise ValueError(f"{field_name} must be nonblank")
+    if normalized != value:
+        raise ValueError(f"{field_name} must already be stripped and NFC-normalized")
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class BeamAssignmentProvenance(_ResolvedValue):
+    source: Literal["analytic_mode", "shared_mode", "explicit_assignment"]
+    input_index: int | None
+    authored_reference_kind: Literal["number", "name"] | None
+    authored_reference_value: int | str | None
+    canonical_antenna: AntennaId
+
+    def __post_init__(self) -> None:
+        if type(self.source) is not str or self.source not in _ASSIGNMENT_SOURCES:
+            raise ValueError(
+                "source must be 'analytic_mode', 'shared_mode', or "
+                "'explicit_assignment'"
+            )
+        canonical_antenna = _copy_antenna_id(
+            self.canonical_antenna,
+            "canonical_antenna",
+        )
+        if self.source in {"analytic_mode", "shared_mode"}:
+            if self.input_index is not None:
+                raise ValueError(f"{self.source} requires input_index=None")
+            if self.authored_reference_kind is not None:
+                raise ValueError(f"{self.source} requires authored_reference_kind=None")
+            if self.authored_reference_value is not None:
+                raise ValueError(
+                    f"{self.source} requires authored_reference_value=None"
+                )
+        else:
+            if type(self.input_index) is not int or self.input_index < 0:
+                raise ValueError(
+                    "explicit_assignment requires a nonnegative exact input_index"
+                )
+            if type(self.authored_reference_kind) is not str or (
+                self.authored_reference_kind not in {"number", "name"}
+            ):
+                raise ValueError(
+                    "explicit_assignment requires reference kind 'number' or 'name'"
+                )
+            if self.authored_reference_kind == "number":
+                if (
+                    type(self.authored_reference_value) is not int
+                    or self.authored_reference_value < 0
+                ):
+                    raise ValueError(
+                        "number references require a nonnegative exact integer value"
+                    )
+                if self.authored_reference_value != canonical_antenna.number:
+                    raise ValueError("number reference must identify canonical_antenna")
+            else:
+                authored_name = _require_canonical_authored_name(
+                    self.authored_reference_value,
+                    "authored_reference_value",
+                )
+                if authored_name != canonical_antenna.name:
+                    raise ValueError("name reference must identify canonical_antenna")
+        object.__setattr__(self, "source", str(self.source))
+        object.__setattr__(self, "canonical_antenna", canonical_antenna)
+
+
+def _effective_assignment_dimensions(
+    definition: ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
+    antenna_diameter_m: float,
+) -> dict[str, Any] | None:
+    if type(definition) is ResolvedFITSBeamDefinition:
+        return None
+    model = cast(ResolvedAnalyticBeamDefinition, definition).model
+    if type(model) is ResolvedCircularApertureBeamModel:
+        return {"kind": "circular", "diameter_m": antenna_diameter_m}
+    if type(model) is ResolvedRectangularApertureBeamModel:
+        return {
+            "kind": "rectangular",
+            "north_length_m": model.north_length_m,
+            "east_length_m": model.east_length_m,
+        }
+    if type(model) is ResolvedEllipticalApertureBeamModel:
+        return {
+            "kind": "elliptical",
+            "north_diameter_m": model.north_diameter_m,
+            "east_diameter_m": model.east_diameter_m,
+        }
+    if type(model) in {
+        ResolvedAnalyticalIlluminationBeamModel,
+        ResolvedNumericalIlluminationBeamModel,
+    }:
+        return {"kind": "circular", "diameter_m": antenna_diameter_m}
+    raise TypeError("definition contains an unsupported analytic beam model")
+
+
+def _assignment_fingerprint(
+    antenna_id: AntennaId,
+    antenna_diameter_m: float,
+    definition: ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
+) -> str:
+    payload: dict[str, Any] = {
+        "schema_version": _SCHEMA_VERSION,
+        "kind": "resolved_beam_assignment",
+        "canonical_antenna": {
+            "number": antenna_id.number,
+            "name": antenna_id.name,
+        },
+        "definition_fingerprint": definition.definition_fingerprint,
+    }
+    dimensions = _effective_assignment_dimensions(definition, antenna_diameter_m)
+    if dimensions is not None:
+        payload["effective_dimensions"] = dimensions
+    return _canonical_digest(payload)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedBeamAssignment(_ResolvedValue):
+    antenna_id: AntennaId
+    antenna_diameter_m: float
+    definition: ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition
+    provenance: BeamAssignmentProvenance
+    assignment_fingerprint: str
+
+    def __post_init__(self) -> None:
+        antenna_id = _copy_antenna_id(self.antenna_id, "antenna_id")
+        _require_float(
+            self.antenna_diameter_m,
+            "antenna_diameter_m",
+            positive=True,
+        )
+        _require_exact(self.definition, _BEAM_DEFINITION_TYPES, "definition")
+        _require_exact(
+            self.provenance,
+            (BeamAssignmentProvenance,),
+            "provenance",
+        )
+        if self.provenance.canonical_antenna != antenna_id:
+            raise ValueError("provenance.canonical_antenna must equal antenna_id")
+        _require_fingerprint(self.assignment_fingerprint, "assignment_fingerprint")
+        expected = _assignment_fingerprint(
+            antenna_id,
+            self.antenna_diameter_m,
+            self.definition,
+        )
+        if self.assignment_fingerprint != expected:
+            raise ValueError(
+                "assignment_fingerprint does not match canonical assignment science"
+            )
+        object.__setattr__(self, "antenna_id", antenna_id)
+
+
+def _create_resolved_beam_assignment(  # pyright: ignore[reportUnusedFunction]
+    *,
+    antenna_id: AntennaId,
+    antenna_diameter_m: float,
+    definition: ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
+    provenance: BeamAssignmentProvenance,
+) -> ResolvedBeamAssignment:
+    fingerprint = _assignment_fingerprint(
+        antenna_id,
+        antenna_diameter_m,
+        definition,
+    )
+    return ResolvedBeamAssignment(
+        antenna_id=antenna_id,
+        antenna_diameter_m=antenna_diameter_m,
+        definition=definition,
+        provenance=provenance,
+        assignment_fingerprint=fingerprint,
+    )
+
+
+def _deduplicated_definitions(
+    assignments: tuple[ResolvedBeamAssignment, ...],
+) -> tuple[ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition, ...]:
+    seen: set[str] = set()
+    unique: list[ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition] = []
+    for assignment in assignments:
+        fingerprint = assignment.definition.definition_fingerprint
+        if fingerprint not in seen:
+            seen.add(fingerprint)
+            unique.append(assignment.definition)
+    return tuple(unique)
+
+
+def _state_fingerprint(
+    mode: str,
+    instrument_fingerprint: str,
+    assignments: tuple[ResolvedBeamAssignment, ...],
+    unique_definitions: tuple[
+        ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
+        ...,
+    ],
+) -> str:
+    return _canonical_digest(
+        {
+            "schema_version": _SCHEMA_VERSION,
+            "kind": "resolved_beam_state",
+            "mode": mode,
+            "instrument_fingerprint": instrument_fingerprint,
+            "assignments": [
+                assignment.assignment_fingerprint for assignment in assignments
+            ],
+            "unique_definitions": [
+                definition.definition_fingerprint for definition in unique_definitions
+            ],
+        }
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedBeamState(_ResolvedValue):
+    mode: Literal["analytic", "shared_fits", "per_antenna_fits", "mixed"]
+    instrument_fingerprint: str
+    assignments: tuple[ResolvedBeamAssignment, ...]
+    unique_definitions: tuple[
+        ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
+        ...,
+    ]
+    state_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if type(self.mode) is not str or self.mode not in _STATE_MODES:
+            raise ValueError(
+                "mode must be 'analytic', 'shared_fits', 'per_antenna_fits', or 'mixed'"
+            )
+        _require_fingerprint(self.instrument_fingerprint, "instrument_fingerprint")
+        assignments = cast(
+            tuple[ResolvedBeamAssignment, ...],
+            _copy_exact_tuple(
+                self.assignments,
+                (ResolvedBeamAssignment,),
+                "assignments",
+            ),
+        )
+        unique_definitions = cast(
+            tuple[ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition, ...],
+            _copy_exact_tuple(
+                self.unique_definitions,
+                _BEAM_DEFINITION_TYPES,
+                "unique_definitions",
+            ),
+        )
+
+        antenna_ids = tuple(assignment.antenna_id for assignment in assignments)
+        numbers = tuple(antenna.number for antenna in antenna_ids)
+        if len(set(antenna_ids)) != len(antenna_ids) or len(set(numbers)) != len(
+            numbers
+        ):
+            raise ValueError("assignments contain a duplicate canonical antenna")
+        if numbers != tuple(sorted(numbers)):
+            raise ValueError("assignments must use canonical instrument order")
+
+        expected_source = {
+            "analytic": "analytic_mode",
+            "shared_fits": "shared_mode",
+            "per_antenna_fits": "explicit_assignment",
+            "mixed": "explicit_assignment",
+        }[self.mode]
+        if any(
+            assignment.provenance.source != expected_source
+            for assignment in assignments
+        ):
+            raise ValueError(
+                f"{self.mode} mode requires {expected_source!r} assignment provenance"
+            )
+
+        expected_unique = _deduplicated_definitions(assignments)
+        if len(unique_definitions) != len(expected_unique) or any(
+            actual is not expected
+            for actual, expected in zip(
+                unique_definitions, expected_unique, strict=True
+            )
+        ):
+            raise ValueError(
+                "unique_definitions must retain the first canonical assignment "
+                "definition for each definition fingerprint"
+            )
+
+        if self.mode == "analytic" and (
+            len(unique_definitions) != 1
+            or any(
+                type(assignment.definition) is not ResolvedAnalyticBeamDefinition
+                for assignment in assignments
+            )
+        ):
+            raise ValueError("analytic mode requires one analytic definition")
+        if self.mode == "shared_fits" and (
+            len(unique_definitions) != 1
+            or any(
+                type(assignment.definition) is not ResolvedFITSBeamDefinition
+                for assignment in assignments
+            )
+        ):
+            raise ValueError("shared_fits mode requires one FITS definition")
+        if self.mode == "per_antenna_fits" and any(
+            type(assignment.definition) is not ResolvedFITSBeamDefinition
+            for assignment in assignments
+        ):
+            raise ValueError("per_antenna_fits mode requires FITS definitions")
+
+        _require_fingerprint(self.state_fingerprint, "state_fingerprint")
+        expected_fingerprint = _state_fingerprint(
+            self.mode,
+            self.instrument_fingerprint,
+            assignments,
+            unique_definitions,
+        )
+        if self.state_fingerprint != expected_fingerprint:
+            raise ValueError(
+                "state_fingerprint does not match canonical beam state science"
+            )
+
+        object.__setattr__(self, "mode", str(self.mode))
+        object.__setattr__(self, "assignments", assignments)
+        object.__setattr__(self, "unique_definitions", unique_definitions)
+
+
+def _create_resolved_beam_state(  # pyright: ignore[reportUnusedFunction]
+    *,
+    mode: Literal["analytic", "shared_fits", "per_antenna_fits", "mixed"],
+    instrument_fingerprint: str,
+    assignments: tuple[ResolvedBeamAssignment, ...],
+    unique_definitions: tuple[
+        ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
+        ...,
+    ],
+) -> ResolvedBeamState:
+    fingerprint = _state_fingerprint(
+        mode,
+        instrument_fingerprint,
+        assignments,
+        unique_definitions,
+    )
+    return ResolvedBeamState(
+        mode=mode,
+        instrument_fingerprint=instrument_fingerprint,
+        assignments=assignments,
+        unique_definitions=unique_definitions,
+        state_fingerprint=fingerprint,
+    )
+
 
 __all__ = [
+    "BeamAssignmentProvenance",
     "ResolvedAnalyticBeamChoice",
     "ResolvedAnalyticBeamDefinition",
     "ResolvedAnalyticBeamModel",
@@ -613,6 +988,8 @@ __all__ = [
     "ResolvedPerAntennaFITSBeamsInput",
     "ResolvedPrimeFocusReflector",
     "ResolvedRectangularApertureBeamModel",
+    "ResolvedBeamAssignment",
+    "ResolvedBeamState",
     "ResolvedReflector",
     "ResolvedSharedFITSBeamsInput",
     "ResolvedUniformTaper",

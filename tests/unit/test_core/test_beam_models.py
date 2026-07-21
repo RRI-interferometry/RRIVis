@@ -8,9 +8,10 @@ import math
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import FrozenInstanceError, fields
+from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from radiosim.io.config_resolution import ConfigurationSource, resolve_config
@@ -45,12 +46,22 @@ def test_resolved_types_are_exported_only_from_core_boundaries():
         assert name in beam.__all__
         assert name in core.__all__
         assert not hasattr(root, name)
-    for future_name in (
-        "BeamSystem",
+    for tier3c_name in (
+        "BeamAssignmentProvenance",
         "ResolvedBeamAssignment",
         "ResolvedBeamState",
-        "LoadedBeamState",
+    ):
+        direct = getattr(models, tier3c_name)
+        assert getattr(beam, tier3c_name) is direct
+        assert getattr(core, tier3c_name) is direct
+        assert tier3c_name in beam.__all__
+        assert tier3c_name in core.__all__
+        assert not hasattr(root, tier3c_name)
+    for future_name in (
+        "BeamSystem",
         "BeamFileProvenance",
+        "LoadedBeamHandlerState",
+        "LoadedBeamState",
     ):
         assert not hasattr(beam, future_name)
         assert not hasattr(core, future_name)
@@ -110,6 +121,27 @@ def test_resolved_leaf_field_order_is_exact():
             "definition_fingerprint",
         ),
         "ResolvedMixedBeamsInput": ("mode", "analytic_model", "assignments"),
+        "BeamAssignmentProvenance": (
+            "source",
+            "input_index",
+            "authored_reference_kind",
+            "authored_reference_value",
+            "canonical_antenna",
+        ),
+        "ResolvedBeamAssignment": (
+            "antenna_id",
+            "antenna_diameter_m",
+            "definition",
+            "provenance",
+            "assignment_fingerprint",
+        ),
+        "ResolvedBeamState": (
+            "mode",
+            "instrument_fingerprint",
+            "assignments",
+            "unique_definitions",
+            "state_fingerprint",
+        ),
     }
 
     for name, names in expected.items():
@@ -412,3 +444,228 @@ def test_resolved_beams_config_is_fully_absent():
     for module in (runtime, core, public_io):
         assert not hasattr(module, "ResolvedBeamsConfig")
         assert "ResolvedBeamsConfig" not in module.__all__
+
+
+def _valid_assignment_models(tmp_path: Path):
+    models = _models()
+    resolved = _resolve(tmp_path, {"mode": "analytic"}).runtime.beams
+    antenna = importlib.import_module("radiosim.core.instrument").AntennaId(0, "ANT0")
+    provenance = models.BeamAssignmentProvenance(
+        "analytic_mode",
+        None,
+        None,
+        None,
+        antenna,
+    )
+    assignment = models._create_resolved_beam_assignment(
+        antenna_id=antenna,
+        antenna_diameter_m=10.0,
+        definition=resolved.model,
+        provenance=provenance,
+    )
+    state = models._create_resolved_beam_state(
+        mode="analytic",
+        instrument_fingerprint="1" * 64,
+        assignments=(assignment,),
+        unique_definitions=(resolved.model,),
+    )
+    return models, provenance, assignment, state
+
+
+def test_tier3c_assignment_models_are_frozen_slotted_hashable_and_detached(tmp_path):
+    models, provenance, assignment, state = _valid_assignment_models(tmp_path)
+
+    for value in (provenance, assignment, state):
+        assert "__slots__" in type(value).__dict__
+        assert "__dict__" not in type(value).__dict__
+        assert isinstance(hash(value), int)
+        assert not isinstance(value, (Mapping, Sequence))
+        with pytest.raises(FrozenInstanceError):
+            setattr(value, fields(value)[0].name, None)
+
+    snapshot = state.to_snapshot()
+    assert json.loads(json.dumps(snapshot)) == snapshot
+    assert snapshot["assignments"][0]["provenance"]["source"] == "analytic_mode"
+    snapshot["assignments"][0]["provenance"]["canonical_antenna"]["name"] = "changed"
+    assert state.assignments[0].antenna_id.name == "ANT0"
+    assert state.to_snapshot()["assignments"][0]["antenna_id"]["name"] == "ANT0"
+
+    for class_name in (
+        "BeamAssignmentProvenance",
+        "ResolvedBeamAssignment",
+        "ResolvedBeamState",
+    ):
+        with pytest.raises(TypeError):
+            type(f"Hostile{class_name}", (getattr(models, class_name),), {})
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        ("analytic_mode", 0, None, None),
+        ("analytic_mode", None, "number", 0),
+        ("shared_mode", None, None, "ANT0"),
+        ("explicit_assignment", None, "number", 0),
+        ("explicit_assignment", True, "number", 0),
+        ("explicit_assignment", -1, "number", 0),
+        ("explicit_assignment", 0, "number", True),
+        ("explicit_assignment", 0, "number", -1),
+        ("explicit_assignment", 0, "number", "0"),
+        ("explicit_assignment", 0, "number", 1),
+        ("explicit_assignment", 0, "name", 0),
+        ("explicit_assignment", 0, "name", "OTHER"),
+        ("explicit_assignment", 0, "name", " ANT0 "),
+        ("explicit_assignment", 0, "name", "A\N{COMBINING RING ABOVE}"),
+    ],
+)
+def test_assignment_provenance_rejects_inconsistent_or_noncanonical_values(values):
+    models = _models()
+    antenna = importlib.import_module("radiosim.core.instrument").AntennaId(0, "ANT0")
+
+    with pytest.raises((TypeError, ValueError)):
+        models.BeamAssignmentProvenance(*values, antenna)
+
+
+def test_assignment_provenance_accepts_exact_explicit_number_and_name():
+    models = _models()
+    antenna = importlib.import_module("radiosim.core.instrument").AntennaId(0, "ANT0")
+
+    numbered = models.BeamAssignmentProvenance(
+        "explicit_assignment", 0, "number", 0, antenna
+    )
+    named = models.BeamAssignmentProvenance(
+        "explicit_assignment", 1, "name", "ANT0", antenna
+    )
+
+    assert numbered.authored_reference_value == 0
+    assert type(numbered.authored_reference_value) is int
+    assert named.authored_reference_value == "ANT0"
+    assert type(named.authored_reference_value) is str
+
+
+@pytest.mark.parametrize(
+    "diameter",
+    [10, True, math.nan, math.inf, -math.inf, 0.0, -1.0],
+)
+def test_resolved_assignment_rejects_nonexact_invalid_diameter(tmp_path, diameter):
+    _, _, assignment, _ = _valid_assignment_models(tmp_path)
+
+    with pytest.raises((TypeError, ValueError)):
+        replace(assignment, antenna_diameter_m=diameter)
+
+
+def test_resolved_assignment_rejects_numpy_float_and_forged_nested_values(tmp_path):
+    models, provenance, assignment, _ = _valid_assignment_models(tmp_path)
+
+    with pytest.raises((TypeError, ValueError)):
+        replace(assignment, antenna_diameter_m=np.float64(10.0))
+    with pytest.raises((TypeError, ValueError)):
+        replace(assignment, definition=object())
+    with pytest.raises((TypeError, ValueError)):
+        replace(assignment, provenance=object())
+
+    other = importlib.import_module("radiosim.core.instrument").AntennaId(1, "ANT1")
+    with pytest.raises(ValueError, match="canonical_antenna"):
+        replace(
+            assignment,
+            provenance=replace(provenance, canonical_antenna=other),
+        )
+
+
+@pytest.mark.parametrize("fingerprint", ["A" * 64, "a" * 63, "g" * 64])
+def test_assignment_and_state_reject_malformed_or_recomputed_fingerprints(
+    tmp_path, fingerprint
+):
+    _, _, assignment, state = _valid_assignment_models(tmp_path)
+
+    with pytest.raises(ValueError):
+        replace(assignment, assignment_fingerprint=fingerprint)
+    with pytest.raises(ValueError):
+        replace(state, state_fingerprint=fingerprint)
+    with pytest.raises(ValueError, match="does not match"):
+        replace(assignment, assignment_fingerprint="0" * 64)
+    with pytest.raises(ValueError, match="does not match"):
+        replace(state, state_fingerprint="0" * 64)
+
+
+def test_state_requires_exact_owned_nonempty_tuples_and_unique_antennas(tmp_path):
+    models, _, assignment, state = _valid_assignment_models(tmp_path)
+
+    rebuilt = models._create_resolved_beam_state(
+        mode=state.mode,
+        instrument_fingerprint=state.instrument_fingerprint,
+        assignments=state.assignments,
+        unique_definitions=state.unique_definitions,
+    )
+    assert rebuilt.assignments == state.assignments
+    assert rebuilt.assignments is not state.assignments
+    assert rebuilt.unique_definitions == state.unique_definitions
+    assert rebuilt.unique_definitions is not state.unique_definitions
+
+    with pytest.raises(TypeError, match="tuple"):
+        replace(state, assignments=list(state.assignments))
+    with pytest.raises(TypeError, match="tuple"):
+        replace(state, unique_definitions=list(state.unique_definitions))
+    with pytest.raises(ValueError, match="nonempty"):
+        replace(state, assignments=())
+    with pytest.raises(ValueError, match="nonempty"):
+        replace(state, unique_definitions=())
+    with pytest.raises(ValueError, match="duplicate"):
+        models._create_resolved_beam_state(
+            mode="analytic",
+            instrument_fingerprint="1" * 64,
+            assignments=(assignment, assignment),
+            unique_definitions=state.unique_definitions,
+        )
+
+
+def test_state_rejects_wrong_assignment_order_and_unique_definition_membership(
+    tmp_path,
+):
+    models, _, first, state = _valid_assignment_models(tmp_path)
+    antenna_type = importlib.import_module("radiosim.core.instrument").AntennaId
+    second_id = antenna_type(2, "ANT2")
+    second_provenance = models.BeamAssignmentProvenance(
+        "analytic_mode", None, None, None, second_id
+    )
+    second = models._create_resolved_beam_assignment(
+        antenna_id=second_id,
+        antenna_diameter_m=10.0,
+        definition=first.definition,
+        provenance=second_provenance,
+    )
+
+    with pytest.raises(ValueError, match="canonical"):
+        models._create_resolved_beam_state(
+            mode="analytic",
+            instrument_fingerprint="1" * 64,
+            assignments=(second, first),
+            unique_definitions=state.unique_definitions,
+        )
+    with pytest.raises((TypeError, ValueError), match="unique_definitions"):
+        replace(state, unique_definitions=(object(),))
+
+
+def test_state_rejects_assignment_provenance_source_inconsistent_with_mode(tmp_path):
+    models, _, assignment, _ = _valid_assignment_models(tmp_path)
+    explicit = models.BeamAssignmentProvenance(
+        "explicit_assignment",
+        0,
+        "number",
+        assignment.antenna_id.number,
+        assignment.antenna_id,
+    )
+    forged = models._create_resolved_beam_assignment(
+        antenna_id=assignment.antenna_id,
+        antenna_diameter_m=assignment.antenna_diameter_m,
+        definition=assignment.definition,
+        provenance=explicit,
+    )
+
+    with pytest.raises(ValueError, match="provenance"):
+        models._create_resolved_beam_state(
+            mode="analytic",
+            instrument_fingerprint="1" * 64,
+            assignments=(forged,),
+            unique_definitions=(forged.definition,),
+        )
