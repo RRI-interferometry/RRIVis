@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally complete and independently accepted on 2026-07-17; Tier 2 independently accepted and complete after correction on 2026-07-20; INS-001, INS-002, and INS-003 closed; remote CI not yet observed |
+| Status | Tier 1 locally accepted; Tier 2 accepted after correction; Tier 3A dependency/fixture work accepted after correction on 2026-07-21; all five Tier 3 issues remain open; remote CI not yet observed |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -2532,3 +2532,34 @@ remain **OPEN**; `OBS-001` remains **OPEN**; and design acceptance moves `OBS-00
 **DECISION** to **OPEN**. No issue is **DONE**. Tier 3A is now the only authorized
 implementation slice and has not started; Tier 3B and later work require separate
 implementation and acceptance gates.
+
+### 2026-07-21 Tier 3A independent acceptance
+
+**Decision: Tier 3A is accepted after corrections.** Implementation
+`bb0678830a38db59e7f2679c6fa8f6a5699a1250` added exactly the two planned test files
+and 1,216 lines. The review reproduced the original absent-helper
+`ModuleNotFoundError`, read the implementation and governing contracts line by line,
+and independently exercised pyuvdata 3.2.1 in Python 3.11.13 and 3.12.13.
+
+Adversarial probes found fail-open science/unsupported enum identity, empty-filename
+defaulting, dangling-symlink path escape, mutable or malformed loader schedules, and
+a symmetric-only Jones-axis oracle. The primary regression-first slice reported 18
+failures/3 passes; the symlink regression separately failed before correction.
+Correction `b2de40d88a2f2630e9031fe2eafaee6775ff0499` changes only the same two test
+files and makes each boundary fail closed while adding an asymmetric dependency probe.
+
+The corrected focused suites passed 75/75 in both Pythons with no skip, xfail,
+failure, or warning. Full Python 3.11 reported 2,262 passed, one existing Vivaldi-data
+skip, and 26 existing warnings; Python 3.12 reported 2,255 passed, eight existing
+Vivaldi/JAX skips, and the same 26 warnings. Ruff lint/format passed for 269 files;
+Pyright 1.1.408 remained at 4,135 diagnostics in both environments under the unchanged
+4,600 ceiling; all three YAMLs, the offline example, Git whitespace, scope/isolation
+searches, and a fresh tracked-source Sphinx build with the unchanged 40 classified
+events passed. No generated BeamFITS remains; the two residual matches are tracked
+data inside clean pre-existing simulator submodules.
+
+No production, config, dependency, lock, baseline, README, example, workflow, or
+shipped YAML file changed. Nothing was pushed or published. Remote CI, physical GPU,
+mounted Vivaldi data, and live scientific network/registry behavior remain unobserved.
+`BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none is
+**DONE**. Tier 3B is the next authorized slice and was not started.

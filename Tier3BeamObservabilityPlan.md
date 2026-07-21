@@ -2963,3 +2963,79 @@ rerun. Remote CI, physical GPU execution, mounted Vivaldi data, and live externa
 network/registry behavior remain unobserved. `BEAM-001`, `BEAM-002`, `BEAM-003`,
 `OBS-001`, and `OBS-002` are all `OPEN`; none is `DONE`. Tier 3A only is authorized,
 and this acceptance performed no Tier 3A production or test implementation.
+
+## 50. Tier 3A independent acceptance record
+
+**Verdict: ACCEPTED AFTER CORRECTIONS on 2026-07-21.** The review started from clean
+`main` at implementation commit `bb0678830a38db59e7f2679c6fa8f6a5699a1250`, with
+`origin/main` at `112f52fb0f903e0361fb6ec38199c081f63a93ed` and divergence
+0 behind/6 ahead. The implementation diff from parent
+`c05acb922436cb405aa59fe2765d73d8a389ee91` added exactly the two Tier 3A files and
+1,216 test-only lines. Python 3.11.13/NumPy 2.3.2 and Python 3.12.13/NumPy 2.4.6
+both used pyuvdata 3.2.1.
+
+The original tests-first record was independently recovered from the implementation
+run rather than assumed from its handoff. Before the helper existed, the focused
+Python 3.11 command exited 2 with zero collected tests, two collection errors, and the
+exact cause `ModuleNotFoundError: No module named 'tests.fixtures.beamfits'`. No
+unrelated dependency, syntax, or repository failure preceded that intended red state.
+
+Fresh source review and temporary probes in both Pythons found bounded Tier 3A defects:
+
+- raw, unexpected, other-enum, or `None` science identity could select the distinct
+  formula, while malformed unsupported-fixture identity could return canonical
+  science;
+- an explicit empty filename selected the default, and a dangling basename symlink
+  could redirect pyuvdata writes outside the caller-owned temporary directory;
+- the counting loader accepted mutable, absent, non-positive, Boolean, and non-integer
+  failure schedules, including externally mutable shared state; and
+- the Jones-index test used equal diagonals and zero cross terms, so it could not
+  distinguish transpose from no transpose.
+
+Regression-first evidence selected 21 cases and reported 18 intended failures/3
+passes before the first correction. The independent dangling-symlink regression then
+failed alone before its containment fix. Correction commit
+`b2de40d88a2f2630e9031fe2eafaee6775ff0499` (`fix(test): enforce BeamFITS fixture
+contract`) changes only the two Tier 3A files. It validates exact enum identity,
+preserves `None` as the only filename-default sentinel, rejects existing symlinks,
+requires an immutable frozenset of positive one-based integer failure attempts, and
+uses a controlled asymmetric dependency object to prove
+`J[feed, component] = data[component, feed]` by transpose without conjugation. No
+canonical scalar fixture, accepted equation, dependency classification, or production
+surface changed.
+
+Final evidence from that correction commit is:
+
+- focused contract suites: 75/75 passed in Python 3.11 and 75/75 in Python 3.12,
+  with zero failures, skips, xfails, or warnings;
+- full Python 3.11 suite: 2,263 collected, 2,262 passed, one existing optional Vivaldi
+  data skip, 26 existing warnings, zero failures/xfails;
+- full Python 3.12 suite: 2,263 collected, 2,255 passed, eight existing optional
+  Vivaldi/JAX skips, 26 existing warnings, zero failures/xfails;
+- Ruff lint passed; all 269 files passed Ruff format; Pyright 1.1.408 remained at
+  4,135 diagnostics in both environments under the unchanged 4,600 ceiling;
+- all three shipped YAML documents validated and the offline example completed with
+  5 antennas, 15 baselines, 2 frequencies, and no save/plot/browser/network action;
+- the fresh tracked-source Sphinx 8.2.3 build succeeded with the unchanged 40 events:
+  35 existing docstring/docutils events, one historical HERA toctree event, three
+  historical HERA highlighting events, and one theme-option event; and
+- whitespace, skip/xfail-marker, external-dependency, production-import, runtime-hash,
+  ownership, residual-file, and exact-scope checks passed. The only `.beamfits` paths
+  found are clean tracked data inside the pre-existing `healvis` and `pyuvsim`
+  submodules; no Tier 3A-generated file remains.
+
+Independent formulas covered both science variants, both native dtypes, zenith,
+interior samples, horizon, multiple frequencies and azimuths, bilinear angular and
+linear/cubic frequency interpolation, the representable strict `1e-6 Hz` boundary,
+azimuth conversion/wrap, dependency extrapolation behavior, normalization mutation,
+and every invalid/deferred fixture classification. Round trips retained native dtype
+while interpolation returned host `complex128`. Builders, arrays, files, hashes, and
+loader state are independently owned; no mutable/global UVBeam cache, broad exception,
+network, registry, download, mounted volume, repository data, or production import is
+present.
+
+`BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain `OPEN`; none is
+`DONE`. Tier 3B is now the next authorized slice but was not started. No production,
+configuration, dependency, lock, baseline, README, example, workflow, or shipped YAML
+file changed. Nothing was pushed or published. Remote CI, physical GPU execution,
+mounted Vivaldi data, and live scientific network/registry behavior remain unobserved.
