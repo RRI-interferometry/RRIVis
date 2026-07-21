@@ -2608,3 +2608,54 @@ was added. Nothing was pushed or published. Remote CI, physical GPU execution,
 mounted Vivaldi data, and live network/registry behavior remain unobserved.
 `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none is
 **DONE**.
+
+### 2026-07-21 Tier 3C independent acceptance
+
+**Decision: Tier 3C is accepted after corrections.** The strict start gate passed on
+clean `main` at implementation `8b1b9d8e7c030e864fb3060581b60cfaffa9529b`, parent
+`ba044d496da80711078ef3278c53ff5c39c78ece`, with `origin/main` at
+`112f52fb0f903e0361fb6ec38199c081f63a93ed` and divergence zero behind/12 ahead.
+The implementation changed exactly the seven authorized core/beam and unit-test files
+with 1,980 insertions and seven deletions. Its untouched focused suites passed 84/84
+on Python 3.11.13 and 84/84 on Python 3.12.13 without failure, skip, xfail, xpass, or
+warning.
+
+Independent source review and direct-construction probes found four bounded gaps:
+stale nested definition science could retain an old definition digest; stale nested
+assignment science could retain an old assignment digest; state construction did not
+independently reject duplicate canonical names under different numbers; and mixed
+state admitted multiple analytic definitions. Four regression tests each failed
+first with `DID NOT RAISE`. Correction
+`cccd4805a8cf77b8236d7574339c25806a9ffa58` revalidates every nested immutable
+boundary, enforces independent canonical number/name uniqueness, and enforces the
+single mixed analytic model. It changes only the beam model and its unit suite.
+
+The corrected focused suites passed 88/88 in both Pythons. A 71-group adversarial
+matrix passed exact-type/subclass, malformed scalar/tuple/name/fingerprint,
+unknown-before-duplicate, complete coverage, canonical order, all-mode provenance,
+dedup/first-identity, BeamID inertness, active/inactive dimension, ownership/frozen
+snapshot, error/export, direct-construction, and exact resolver-input boundaries. Both
+Pythons reproduced assignment digest
+`407b9df278595aebfa1aae895558a73385b9bd7f9f49dbaaf8e00c6bdd480f3c` and state
+digest `9e158b191471edf730921f3641d2fe1eb2d8d902775be1665ee1590f01d083eb`.
+Fresh-process import and patched file/socket/directory sentinels found no heavy import,
+FITS access, warning, network, or filesystem side effect. No Tier 3C skip/xfail path
+or Tier 3D API leakage exists.
+
+Full Python 3.11 collected 2,486 tests and reported 2,485 passed, one existing skip,
+and 26 existing warnings. Python 3.12 collected 2,486 and reported 2,478 passed, eight
+existing skips, and the same 26 warnings. Both had zero failures, xfails, or xpasses.
+Ruff passed and all 278 files were formatted. Pyright stayed at 4,178 diagnostics in
+both environments under the unchanged 4,600 ceiling; the three changed production
+modules had zero direct diagnostics. The stale default Pyright launcher path was
+reproduced without changing tooling. All three YAMLs validated at 101/11/1 channels;
+the offline example completed with five antennas, 15 baselines, and two channels. A
+clean-copy Sphinx build matched the accepted 40-event classification, and its
+temporary tree was removed. Git whitespace, marker, scope, ownership, import,
+side-effect, and generated-artifact checks passed.
+
+No Tier 3D FITS loading, conversion, caching, runtime, solver, or observability work
+was started. Nothing was pushed or published. Remote CI, physical GPU behavior,
+mounted Vivaldi data, and live network/registry behavior remain unobserved.
+`BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none is
+**DONE**. Tier 3D is the next authorized separate task and has not started.

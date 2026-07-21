@@ -3109,3 +3109,124 @@ and observability work were not started. `BEAM-001`, `BEAM-002`, `BEAM-003`,
 `OBS-001`, and `OBS-002` remain **OPEN**; none is **DONE**. Nothing was pushed or
 published. Remote CI, physical GPU execution, mounted Vivaldi data, and live external
 network/registry behavior remain unobserved.
+
+## 52. Tier 3C independent acceptance record
+
+**Verdict: ACCEPTED AFTER CORRECTIONS on 2026-07-21.** The strict start gate passed
+before acceptance execution on clean `main` at implementation
+`8b1b9d8e7c030e864fb3060581b60cfaffa9529b` (`feat(beam): resolve canonical
+assignments`), whose parent is `ba044d496da80711078ef3278c53ff5c39c78ece`.
+`origin/main` was `112f52fb0f903e0361fb6ec38199c081f63a93ed`; the checkout was
+zero behind and 12 ahead. The implementation changed exactly the seven authorized
+Tier 3C files: the two core initializers, beam errors/models/resolution, and the two
+beam model/resolution unit suites. Its exact diff was 1,980 insertions and seven
+deletions: 54/0, 128/3, 120/0, 377/0, 224/0, 261/4, and 816/0 by file in that order.
+
+The untouched implementation's focused boundary collected and passed 84/84 tests on
+Python 3.11.13 and 84/84 on Python 3.12.13, with zero failures, skips, xfails, xpasses,
+or warnings. Complete source review confirmed the three exact immutable assignment
+models, assignment error hierarchy, four-mode standalone resolver, canonical Tier 2
+number/name lookup, unknown-before-duplicate ordering, full-coverage requirement with
+no default, canonical instrument ordering, first-definition fingerprint
+deduplication, public exports, and absence of path, FITS, dependency, device, backend,
+runtime, or observability work.
+
+Independent direct-construction probes nevertheless found four bounded fail-open
+regressions:
+
+- an assignment could retain a stale definition fingerprint after nested scientific
+  definition state was corrupted;
+- a state could retain a stale assignment fingerprint after nested assignment
+  science was corrupted;
+- state construction checked duplicate complete IDs and numbers but accepted the
+  same canonical name under two different numbers; and
+- a direct mixed state accepted more than the one configured analytic definition.
+
+Four durable regression tests were added before production correction. Each failed
+alone with `DID NOT RAISE`, proving the stale-definition, stale-assignment,
+duplicate-name, and multiple-mixed-analytic gaps. Correction
+`cccd4805a8cf77b8236d7574339c25806a9ffa58`
+(`fix(beam): correct Tier 3C assignment contract`) changes only
+`src/radiosim/core/beam/models.py` and
+`tests/unit/test_core/test_beam_models.py`, with 133 insertions and two deletions. It
+revalidates exact nested definitions, provenance, and assignments at each immutable
+construction boundary; enforces independent canonical-number and canonical-name
+uniqueness; and limits mixed state to at most one analytic definition. All four red
+regressions then passed in both interpreters without weakening an assertion.
+
+The corrected focused boundary passed 88/88 on both Python 3.11.13 and Python 3.12.13,
+again with zero failures, skips, xfails, xpasses, or warnings. A separate 71-group
+adversarial matrix passed in both interpreters. It covered exact-type and subclass
+attacks for all three value models; fake canonical IDs, definitions, provenance, and
+assignments; Boolean/integer/subclass/non-finite/zero/negative scalar boundaries;
+invalid antenna-number ranges; padded and non-NFC names; malformed tuples and
+generators; empty, duplicate-ID, duplicate-number, and duplicate-name states;
+canonical order; mode/provenance and per-mode definition coherence; one-analytic
+mixed state; wrong first-definition identity; stale nested and top-level
+fingerprints; malformed uppercase, short, and non-hex digests; snapshot detachment,
+hash stability, and frozen mutation; exact resolver signature and rejected raw,
+Pydantic, duck, and subclass inputs; all four resolver modes; unknown aggregation
+before duplicate processing; repeated-call ownership; BeamID absence, string,
+numeric, and duplicate inertness; active/inactive dimension seams; mode activity in
+the state digest; error/export boundaries; and future-name absence.
+
+BeamID cannot identify, cover, duplicate, order, or fingerprint an antenna. Number
+and name references resolve only through the canonical Tier 2 instrument. Unknown
+references aggregate in authored order before duplicate or coverage processing;
+duplicates are detected after canonical lookup; incomplete explicit coverage fails
+without a fallback; and successful assignments are ordered by the instrument rather
+than authored input. Resolver calls return independently owned immutable snapshots.
+
+Assignment fingerprints contain the schema/kind, canonical antenna number/name,
+definition fingerprint, and only effective scientific dimensions. Circular and both
+illumination families use the resolved antenna diameter; rectangular and elliptical
+models use their two explicit axes; FITS definitions have no assignment-diameter
+dimension. Authored index/reference provenance, BeamID, inactive diameter, and path
+provenance key are excluded. State fingerprints include mode, instrument fingerprint,
+canonical assignment digests, and canonical first-definition digests. One-ULP active
+circular-diameter and mode changes changed the expected digest, while rectangular
+diameter, FITS diameter, BeamID, authored reference/index, and path provenance did
+not. Both Pythons independently reproduced assignment digest
+`407b9df278595aebfa1aae895558a73385b9bd7f9f49dbaaf8e00c6bdd480f3c`
+and state digest
+`9e158b191471edf730921f3641d2fe1eb2d8d902775be1665ee1590f01d083eb`.
+
+Fresh-process imports of `beam.errors`, `beam.models`, `beam.resolution`, `beam`, and
+`core` passed in both Pythons without loading pyuvdata, JAX, plotting/browser modules,
+observability, simulator, visibility, BeamFITS runtime, or FITS dependencies. Patched
+file-open, socket, and directory-creation sentinels plus warning capture observed no
+side effect while resolving a shared FITS assignment. Exact error inheritance,
+module/package/root exports, `__all__`, object identity, private helper boundaries,
+and the absence of Tier 3D public names passed. The Tier 3C tests contain no `skip`,
+`skipif`, `xfail`, or `importorskip` path.
+
+Final repository evidence after correction is:
+
+- full Python 3.11 collected 2,486 tests and reported 2,485 passed, one existing
+  optional-data skip, 26 existing warnings, and zero failures/xfails/xpasses;
+- full Python 3.12 collected 2,486 tests and reported 2,478 passed, eight existing
+  optional-data/JAX skips, the same 26 warnings, and zero failures/xfails/xpasses;
+- Ruff lint passed and all 278 files passed the format check;
+- Pyright 1.1.408 reproduced 4,178 diagnostics in both environments under the
+  unchanged 4,600 ceiling, while direct checks of all three changed production
+  modules reported zero errors, warnings, or information diagnostics;
+- the default `pixi run pyright` executable still fails because its launcher names
+  the stale `/Users/kartikmandar/RRIVis/.pixi/envs/default/bin/python3.11` path; the
+  accepted direct interpreter commands passed and tooling was not changed;
+- all three shipped YAML documents validated with 101, 11, and one frequency
+  channels, and the forced-offline example completed with five antennas, 15
+  baselines, two channels, and `(1, 2)` visibility-product shapes;
+- a clean source-copy Sphinx build succeeded with the unchanged 40 raw warning
+  events: 35 existing docstring/docutils events, one historical HERA toctree event,
+  one theme-option event, and three historical highlighting events; its temporary
+  tree was removed; and
+- Git whitespace, exact-scope, marker, import, side-effect, ownership, fingerprint,
+  later-slice leakage, and generated-artifact checks passed.
+
+No Tier 3D FITS loading, basis conversion, caching, runtime `BeamSystem`, solver,
+observability, plotting, or output behavior was started. No configuration,
+dependency, lock, baseline, README, example, workflow, or shipped YAML file changed.
+Nothing was pushed or published. Remote CI, physical GPU execution, mounted Vivaldi
+data, and live external scientific network/registry behavior remain unobserved.
+`BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` all remain **OPEN**;
+none is **DONE**. Tier 3D is the next authorized separate slice and has not started.
