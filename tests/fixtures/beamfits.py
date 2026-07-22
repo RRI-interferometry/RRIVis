@@ -38,16 +38,30 @@ class UnsupportedBeamVariant(str, Enum):
 
     POWER = "power"
     CIRCULAR_FEEDS = "circular_feeds"
+    WRONG_FEED_ORDER = "wrong_feed_order"
+    WRONG_X_ORIENTATION = "wrong_x_orientation"
+    WRONG_FEED_ANGLES = "wrong_feed_angles"
+    NON_FIXED_MOUNT = "non_fixed_mount"
     NONIDENTITY_BASIS = "nonidentity_basis"
+    NONFINITE_BASIS = "nonfinite_basis"
     CROSS_POLAR = "cross_polar"
     UNEQUAL_DIAGONALS = "unequal_diagonals"
     NON_PEAK_NORMALIZATION = "non_peak_normalization"
     NON_UNIT_BANDPASS = "non_unit_bandpass"
+    PEAK_LABEL_NONPEAK_DATA = "peak_label_nonpeak_data"
     HEALPIX = "healpix"
+    WRONG_COORDINATE_METADATA = "wrong_coordinate_metadata"
+    IRREGULAR_AZIMUTH = "irregular_azimuth"
+    IRREGULAR_ZENITH_ANGLE = "irregular_zenith_angle"
+    INCOMPLETE_AZIMUTH_CLOSURE = "incomplete_azimuth_closure"
     SHORT_ZA = "short_za"
     OUT_OF_FREQUENCY_COVERAGE = "out_of_frequency_coverage"
+    DUPLICATE_FREQUENCY = "duplicate_frequency"
+    DECREASING_FREQUENCY = "decreasing_frequency"
+    NONPOSITIVE_FREQUENCY = "nonpositive_frequency"
     NONFINITE_FREQUENCY = "nonfinite_frequency"
     NONFINITE_DATA = "nonfinite_data"
+    WRONG_NATIVE_DTYPE = "wrong_native_dtype"
     INVALID_DATA_SHAPE = "invalid_data_shape"
 
 
@@ -321,11 +335,26 @@ def build_beam_variant(
         beam.feed_array = np.array(["r", "l"])
         beam.feed_angle = np.array([0.0, 0.0])
         beam.x_orientation = None
+    elif variant is UnsupportedBeamVariant.WRONG_FEED_ORDER:
+        beam.feed_array = np.array(["y", "x"])
+        beam.feed_angle = np.array([0.0, np.pi / 2.0])
+    elif variant is UnsupportedBeamVariant.WRONG_X_ORIENTATION:
+        beam.x_orientation = "north"
+        beam.feed_angle = np.array([0.0, np.pi / 2.0])
+    elif variant is UnsupportedBeamVariant.WRONG_FEED_ANGLES:
+        beam.feed_angle = np.array([np.pi / 2.0 + 1e-3, 0.0])
+    elif variant is UnsupportedBeamVariant.NON_FIXED_MOUNT:
+        beam.mount_type = "alt-az"
     elif variant is UnsupportedBeamVariant.NONIDENTITY_BASIS:
         basis = np.zeros_like(beam.basis_vector_array)
         basis[0, 1] = 1.0
         basis[1, 0] = -1.0
         beam.basis_vector_array = basis
+    elif variant is UnsupportedBeamVariant.NONFINITE_BASIS:
+        basis = np.array(beam.basis_vector_array, copy=True)
+        basis[0, 0, 0, 0] = np.nan
+        beam.basis_vector_array = basis
+        classification = BeamVariantClassification.DEPENDENCY_INVALID
     elif variant is UnsupportedBeamVariant.CROSS_POLAR:
         beam.data_array[0, 1] = 0.05 * beam.data_array[0, 0]
     elif variant is UnsupportedBeamVariant.UNEQUAL_DIAGONALS:
@@ -334,6 +363,24 @@ def build_beam_variant(
         beam.data_normalization = "physical"
     elif variant is UnsupportedBeamVariant.NON_UNIT_BANDPASS:
         beam.bandpass_array = np.array([1.0, 1.1, 1.2, 1.3])
+    elif variant is UnsupportedBeamVariant.PEAK_LABEL_NONPEAK_DATA:
+        beam.data_array *= 0.8
+    elif variant is UnsupportedBeamVariant.WRONG_COORDINATE_METADATA:
+        beam.pixel_coordinate_system = "orthoslant_zenith"
+    elif variant is UnsupportedBeamVariant.IRREGULAR_AZIMUTH:
+        axis = np.array(beam.axis1_array, copy=True)
+        axis[3] += 0.01
+        beam.axis1_array = axis
+        classification = BeamVariantClassification.DEPENDENCY_INVALID
+    elif variant is UnsupportedBeamVariant.IRREGULAR_ZENITH_ANGLE:
+        axis = np.array(beam.axis2_array, copy=True)
+        axis[2] += 0.01
+        beam.axis2_array = axis
+        classification = BeamVariantClassification.DEPENDENCY_INVALID
+    elif variant is UnsupportedBeamVariant.INCOMPLETE_AZIMUTH_CLOSURE:
+        selected = beam.select(axis1_inds=np.arange(7), inplace=False)
+        assert isinstance(selected, UVBeam)
+        beam = selected
     elif variant is UnsupportedBeamVariant.SHORT_ZA:
         selected = beam.select(axis2_inds=np.arange(4), inplace=False)
         assert isinstance(selected, UVBeam)
@@ -344,6 +391,18 @@ def build_beam_variant(
         assert isinstance(selected, UVBeam)
         beam = selected
         classification = BeamVariantClassification.VALID_INSUFFICIENT_COVERAGE
+    elif variant is UnsupportedBeamVariant.DUPLICATE_FREQUENCY:
+        frequencies = np.array(beam.freq_array, copy=True)
+        frequencies[1] = frequencies[0]
+        beam.freq_array = frequencies
+    elif variant is UnsupportedBeamVariant.DECREASING_FREQUENCY:
+        frequencies = np.array(beam.freq_array, copy=True)
+        frequencies[1], frequencies[2] = frequencies[2], frequencies[1]
+        beam.freq_array = frequencies
+    elif variant is UnsupportedBeamVariant.NONPOSITIVE_FREQUENCY:
+        frequencies = np.array(beam.freq_array, copy=True)
+        frequencies[0] = 0.0
+        beam.freq_array = frequencies
     elif variant is UnsupportedBeamVariant.NONFINITE_FREQUENCY:
         frequencies = np.array(beam.freq_array, copy=True)
         frequencies[1] = np.nan
@@ -352,6 +411,8 @@ def build_beam_variant(
         data = np.array(beam.data_array, copy=True)
         data[0, 0, 0, 0, 0] = complex(np.nan, 0.0)
         beam.data_array = data
+    elif variant is UnsupportedBeamVariant.WRONG_NATIVE_DTYPE:
+        beam.data_array = np.array(beam.data_array, dtype=object, copy=True)
     elif variant is UnsupportedBeamVariant.INVALID_DATA_SHAPE:
         beam.data_array = np.array(beam.data_array[..., :-1], copy=True)
         classification = BeamVariantClassification.DEPENDENCY_INVALID

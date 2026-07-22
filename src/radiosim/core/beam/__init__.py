@@ -27,6 +27,8 @@ from radiosim.core.beam.errors import (
 )
 from radiosim.core.beam.models import (
     BeamAssignmentProvenance,
+    BeamFileProvenance,
+    LoadedBeamHandlerState,
     ResolvedAnalyticalIlluminationBeamModel,
     ResolvedAnalyticBeamChoice,
     ResolvedAnalyticBeamDefinition,
@@ -90,6 +92,8 @@ __all__ = [
     "NonFiniteBeamResponseError",
     "BeamDisplayNormalizationError",
     "BeamAssignmentProvenance",
+    "BeamFileProvenance",
+    "LoadedBeamHandlerState",
     "ResolvedAnalyticBeamChoice",
     "ResolvedAnalyticBeamDefinition",
     "ResolvedAnalyticBeamModel",

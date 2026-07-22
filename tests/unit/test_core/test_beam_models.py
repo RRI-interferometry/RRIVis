@@ -57,10 +57,17 @@ def test_resolved_types_are_exported_only_from_core_boundaries():
         assert tier3c_name in beam.__all__
         assert tier3c_name in core.__all__
         assert not hasattr(root, tier3c_name)
-    for future_name in (
-        "BeamSystem",
+    for tier3d_name in (
         "BeamFileProvenance",
         "LoadedBeamHandlerState",
+    ):
+        direct = getattr(models, tier3d_name)
+        assert getattr(beam, tier3d_name) is direct
+        assert tier3d_name in beam.__all__
+        assert not hasattr(core, tier3d_name)
+        assert not hasattr(root, tier3d_name)
+    for future_name in (
+        "BeamSystem",
         "LoadedBeamState",
     ):
         assert not hasattr(beam, future_name)

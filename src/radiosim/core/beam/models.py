@@ -592,6 +592,216 @@ _ASSIGNMENT_SOURCES = frozenset({"analytic_mode", "shared_mode", "explicit_assig
 _STATE_MODES = frozenset({"analytic", "shared_fits", "per_antenna_fits", "mixed"})
 
 
+def _require_normalized_string(value: Any, field_name: str) -> str:
+    if type(value) is not str:
+        raise TypeError(f"{field_name} must be an exact string")
+    normalized = unicodedata.normalize("NFC", value.strip())
+    if not normalized:
+        raise ValueError(f"{field_name} must be nonblank")
+    if normalized != value:
+        raise ValueError(f"{field_name} must already be stripped and NFC-normalized")
+    return value
+
+
+def _require_exact_integer(
+    value: Any,
+    field_name: str,
+    *,
+    positive: bool = False,
+) -> int:
+    if type(value) is not int:
+        raise TypeError(f"{field_name} must be an exact integer")
+    if positive and value <= 0:
+        raise ValueError(f"{field_name} must be positive")
+    if not positive and value < 0:
+        raise ValueError(f"{field_name} must be nonnegative")
+    return value
+
+
+def _copy_string_tuple(value: Any, field_name: str) -> tuple[str, ...]:
+    if type(value) is not tuple:
+        raise TypeError(f"{field_name} must be an exact tuple")
+    source = cast(tuple[Any, ...], value)
+    copied = tuple(cast(str, item) for item in source)
+    if not copied:
+        raise ValueError(f"{field_name} must be nonempty")
+    for index, item in enumerate(copied):
+        _ = _require_normalized_string(item, f"{field_name}[{index}]")
+    return copied
+
+
+def _copy_integer_tuple(value: Any, field_name: str) -> tuple[int, ...]:
+    if type(value) is not tuple:
+        raise TypeError(f"{field_name} must be an exact tuple")
+    source = cast(tuple[Any, ...], value)
+    copied = tuple(cast(int, item) for item in source)
+    if not copied:
+        raise ValueError(f"{field_name} must be nonempty")
+    for index, item in enumerate(copied):
+        _ = _require_exact_integer(
+            item,
+            f"{field_name}[{index}]",
+            positive=True,
+        )
+    return copied
+
+
+@dataclass(frozen=True, slots=True)
+class BeamFileProvenance(_ResolvedValue):
+    """Detached immutable provenance for one validated BeamFITS transport."""
+
+    resolved_path: Path
+    size_bytes: int
+    sha256: str
+    pyuvdata_version: str
+    beam_type: str
+    antenna_type: str
+    pixel_coordinate_system: str
+    mount_type: str
+    data_normalization: str
+    feed_array: tuple[str, ...]
+    x_orientation: str
+    data_shape: tuple[int, ...]
+    native_dtype: str
+    frequency_min_hz: float
+    frequency_max_hz: float
+    frequency_count: int
+    azimuth_step_rad: float
+    zenith_angle_step_rad: float
+    zenith_angle_max_rad: float
+    basis_tolerance: float
+    scalar_absolute_tolerance: float
+    scalar_relative_tolerance: float
+    normalization_absolute_tolerance: float
+
+    def __post_init__(self) -> None:
+        _require_absolute_path(self.resolved_path, "resolved_path")
+        _ = _require_exact_integer(self.size_bytes, "size_bytes")
+        _require_fingerprint(self.sha256, "sha256")
+        for field_name in (
+            "pyuvdata_version",
+            "beam_type",
+            "antenna_type",
+            "pixel_coordinate_system",
+            "mount_type",
+            "data_normalization",
+            "x_orientation",
+            "native_dtype",
+        ):
+            _ = _require_normalized_string(getattr(self, field_name), field_name)
+
+        if self.pyuvdata_version != "3.2.1":
+            raise ValueError("pyuvdata_version must be the pinned '3.2.1' contract")
+        expected_metadata = {
+            "beam_type": "efield",
+            "antenna_type": "simple",
+            "pixel_coordinate_system": "az_za",
+            "mount_type": "fixed",
+            "data_normalization": "peak",
+            "x_orientation": "east",
+        }
+        for field_name, expected in expected_metadata.items():
+            if getattr(self, field_name) != expected:
+                raise ValueError(f"{field_name} must be {expected!r}")
+
+        feed_array = _copy_string_tuple(self.feed_array, "feed_array")
+        if feed_array != ("x", "y"):
+            raise ValueError("feed_array must be exactly ('x', 'y')")
+        data_shape = _copy_integer_tuple(self.data_shape, "data_shape")
+        if len(data_shape) != 5 or data_shape[:2] != (2, 2):
+            raise ValueError("data_shape must be exactly (2, 2, Nfreq, Nza, Naz)")
+        if self.native_dtype not in {"complex64", "complex128"}:
+            raise ValueError("native_dtype must be 'complex64' or 'complex128'")
+
+        _require_float(self.frequency_min_hz, "frequency_min_hz", positive=True)
+        _require_float(self.frequency_max_hz, "frequency_max_hz", positive=True)
+        frequency_count = _require_exact_integer(
+            self.frequency_count,
+            "frequency_count",
+            positive=True,
+        )
+        if self.frequency_min_hz > self.frequency_max_hz:
+            raise ValueError("frequency bounds must be ordered")
+        if frequency_count != data_shape[2]:
+            raise ValueError("frequency_count must equal data_shape[2]")
+
+        for field_name in (
+            "azimuth_step_rad",
+            "zenith_angle_step_rad",
+            "zenith_angle_max_rad",
+            "basis_tolerance",
+            "scalar_absolute_tolerance",
+            "scalar_relative_tolerance",
+            "normalization_absolute_tolerance",
+        ):
+            _require_float(getattr(self, field_name), field_name, positive=True)
+        if self.zenith_angle_max_rad < math.pi / 2.0 - 1e-10:
+            raise ValueError("zenith_angle_max_rad must cover the visible hemisphere")
+        if self.basis_tolerance != 1e-12:
+            raise ValueError("basis_tolerance must be exactly 1e-12")
+
+        object.__setattr__(self, "feed_array", feed_array)
+        object.__setattr__(self, "data_shape", data_shape)
+
+
+@dataclass(frozen=True, slots=True)
+class LoadedBeamHandlerState(_ResolvedValue):
+    """Detached immutable state for one standalone validated beam handler."""
+
+    handler_id: str
+    kind: Literal["fits"]
+    definition_fingerprint: str
+    scientific_fingerprint: str
+    file: BeamFileProvenance
+    voltage_feature_scale_by_frequency: tuple[tuple[float, float], ...]
+
+    def __post_init__(self) -> None:
+        _require_literal(self.kind, "fits", "kind")
+        _require_fingerprint(self.definition_fingerprint, "definition_fingerprint")
+        _require_fingerprint(self.scientific_fingerprint, "scientific_fingerprint")
+        _require_exact(self.file, (BeamFileProvenance,), "file")
+        self.file.__post_init__()
+        expected_prefix = f"-{self.scientific_fingerprint[:12]}"
+        if (
+            type(self.handler_id) is not str
+            or re.fullmatch(r"beam-[0-9]{4}-[0-9a-f]{12}", self.handler_id) is None
+            or not self.handler_id.endswith(expected_prefix)
+        ):
+            raise ValueError(
+                "handler_id must be beam-{ordinal:04d}-{scientific_fingerprint[:12]}"
+            )
+        values = self.voltage_feature_scale_by_frequency
+        if type(values) is not tuple or not values:
+            raise ValueError(
+                "voltage_feature_scale_by_frequency must be a nonempty exact tuple"
+            )
+        copied: list[tuple[float, float]] = []
+        previous_frequency: float | None = None
+        for index, pair in enumerate(values):
+            if type(pair) is not tuple or len(pair) != 2:
+                raise TypeError(
+                    "voltage_feature_scale_by_frequency items must be exact pairs"
+                )
+            frequency_hz, scale_rad = pair
+            _require_float(
+                frequency_hz,
+                f"voltage_feature_scale_by_frequency[{index}][0]",
+                positive=True,
+            )
+            _require_float(
+                scale_rad,
+                f"voltage_feature_scale_by_frequency[{index}][1]",
+                positive=True,
+            )
+            if previous_frequency is not None and frequency_hz <= previous_frequency:
+                raise ValueError(
+                    "voltage feature-scale frequencies must be strictly increasing"
+                )
+            previous_frequency = frequency_hz
+            copied.append((frequency_hz, scale_rad))
+        object.__setattr__(self, "voltage_feature_scale_by_frequency", tuple(copied))
+
+
 def _canonical_digest(payload: dict[str, Any]) -> str:
     canonical = _canonical_value(payload)
     encoded = json.dumps(

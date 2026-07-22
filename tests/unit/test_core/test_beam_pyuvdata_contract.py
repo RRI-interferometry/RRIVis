@@ -848,8 +848,18 @@ def test_invalid_and_deferred_variant_metadata_is_constructed(
         assert beam.polarization_array is not None
     elif variant is UnsupportedBeamVariant.CIRCULAR_FEEDS:
         assert tuple(beam.feed_array) == ("r", "l")
+    elif variant is UnsupportedBeamVariant.WRONG_FEED_ORDER:
+        assert tuple(beam.feed_array) == ("y", "x")
+    elif variant is UnsupportedBeamVariant.WRONG_X_ORIENTATION:
+        assert beam.x_orientation == "north"
+    elif variant is UnsupportedBeamVariant.WRONG_FEED_ANGLES:
+        assert not np.allclose(beam.feed_angle, np.array([np.pi / 2.0, 0.0]))
+    elif variant is UnsupportedBeamVariant.NON_FIXED_MOUNT:
+        assert beam.mount_type != "fixed"
     elif variant is UnsupportedBeamVariant.NONIDENTITY_BASIS:
         assert not np.array_equal(beam.basis_vector_array[:, :, 0, 0], np.eye(2))
+    elif variant is UnsupportedBeamVariant.NONFINITE_BASIS:
+        assert np.any(~np.isfinite(beam.basis_vector_array))
     elif variant is UnsupportedBeamVariant.CROSS_POLAR:
         assert np.any(beam.data_array[0, 1] != 0.0)
     elif variant is UnsupportedBeamVariant.UNEQUAL_DIAGONALS:
@@ -858,37 +868,63 @@ def test_invalid_and_deferred_variant_metadata_is_constructed(
         assert beam.data_normalization == "physical"
     elif variant is UnsupportedBeamVariant.NON_UNIT_BANDPASS:
         assert not np.array_equal(beam.bandpass_array, np.ones(4))
+    elif variant is UnsupportedBeamVariant.PEAK_LABEL_NONPEAK_DATA:
+        assert beam.data_normalization == "peak"
+        assert np.max(np.abs(beam.data_array)) < 1.0
     elif variant is UnsupportedBeamVariant.HEALPIX:
         assert beam.pixel_coordinate_system == "healpix"
         assert beam.nside == 1
         assert beam.pixel_array is not None
         assert beam.axis1_array is None
         assert beam.axis2_array is None
+    elif variant is UnsupportedBeamVariant.WRONG_COORDINATE_METADATA:
+        assert beam.pixel_coordinate_system == "orthoslant_zenith"
+    elif variant is UnsupportedBeamVariant.IRREGULAR_AZIMUTH:
+        assert not np.allclose(np.diff(beam.axis1_array), np.diff(beam.axis1_array)[0])
+    elif variant is UnsupportedBeamVariant.IRREGULAR_ZENITH_ANGLE:
+        assert not np.allclose(np.diff(beam.axis2_array), np.diff(beam.axis2_array)[0])
+    elif variant is UnsupportedBeamVariant.INCOMPLETE_AZIMUTH_CLOSURE:
+        assert beam.axis1_array.size == 7
+        assert beam.axis1_array[-1] + np.diff(beam.axis1_array)[0] < 2.0 * np.pi
     elif variant is UnsupportedBeamVariant.SHORT_ZA:
         assert beam.axis2_array[-1] < np.pi / 2.0
     elif variant is UnsupportedBeamVariant.OUT_OF_FREQUENCY_COVERAGE:
         assert beam.freq_array[-1] == 120e6
         assert 130e6 > beam.freq_array[-1]
+    elif variant is UnsupportedBeamVariant.DUPLICATE_FREQUENCY:
+        assert np.any(np.diff(beam.freq_array) == 0.0)
+    elif variant is UnsupportedBeamVariant.DECREASING_FREQUENCY:
+        assert np.any(np.diff(beam.freq_array) < 0.0)
+    elif variant is UnsupportedBeamVariant.NONPOSITIVE_FREQUENCY:
+        assert np.any(beam.freq_array <= 0.0)
     elif variant is UnsupportedBeamVariant.NONFINITE_FREQUENCY:
         assert np.any(~np.isfinite(beam.freq_array))
     elif variant is UnsupportedBeamVariant.NONFINITE_DATA:
         assert np.any(~np.isfinite(beam.data_array))
+    elif variant is UnsupportedBeamVariant.WRONG_NATIVE_DTYPE:
+        assert beam.data_array.dtype == np.dtype(object)
     elif variant is UnsupportedBeamVariant.INVALID_DATA_SHAPE:
         assert beam.data_array.shape == (2, 2, 4, 5, 7)
 
 
 def test_variant_classification_distinguishes_dependency_and_coverage() -> None:
     """Separate pyuvdata validity from the future RadioSim accepted subset."""
-    dependency_invalid = build_beam_variant(UnsupportedBeamVariant.INVALID_DATA_SHAPE)
-    with pytest.raises(ValueError, match="_data_array is not expected shape"):
-        dependency_invalid.beam.check(
-            check_extra=True,
-            run_check_acceptability=True,
+    for variant in (
+        UnsupportedBeamVariant.INVALID_DATA_SHAPE,
+        UnsupportedBeamVariant.NONFINITE_BASIS,
+        UnsupportedBeamVariant.IRREGULAR_AZIMUTH,
+        UnsupportedBeamVariant.IRREGULAR_ZENITH_ANGLE,
+    ):
+        dependency_invalid = build_beam_variant(variant)
+        with pytest.raises(ValueError):
+            dependency_invalid.beam.check(
+                check_extra=True,
+                run_check_acceptability=True,
+            )
+        assert (
+            dependency_invalid.classification
+            is BeamVariantClassification.DEPENDENCY_INVALID
         )
-    assert (
-        dependency_invalid.classification
-        is BeamVariantClassification.DEPENDENCY_INVALID
-    )
 
     for variant in (
         UnsupportedBeamVariant.SHORT_ZA,
@@ -904,14 +940,25 @@ def test_variant_classification_distinguishes_dependency_and_coverage() -> None:
     for variant in (
         UnsupportedBeamVariant.POWER,
         UnsupportedBeamVariant.CIRCULAR_FEEDS,
+        UnsupportedBeamVariant.WRONG_FEED_ORDER,
+        UnsupportedBeamVariant.WRONG_X_ORIENTATION,
+        UnsupportedBeamVariant.WRONG_FEED_ANGLES,
+        UnsupportedBeamVariant.NON_FIXED_MOUNT,
         UnsupportedBeamVariant.NONIDENTITY_BASIS,
         UnsupportedBeamVariant.CROSS_POLAR,
         UnsupportedBeamVariant.UNEQUAL_DIAGONALS,
         UnsupportedBeamVariant.NON_PEAK_NORMALIZATION,
         UnsupportedBeamVariant.NON_UNIT_BANDPASS,
+        UnsupportedBeamVariant.PEAK_LABEL_NONPEAK_DATA,
         UnsupportedBeamVariant.HEALPIX,
+        UnsupportedBeamVariant.WRONG_COORDINATE_METADATA,
+        UnsupportedBeamVariant.INCOMPLETE_AZIMUTH_CLOSURE,
+        UnsupportedBeamVariant.DUPLICATE_FREQUENCY,
+        UnsupportedBeamVariant.DECREASING_FREQUENCY,
+        UnsupportedBeamVariant.NONPOSITIVE_FREQUENCY,
         UnsupportedBeamVariant.NONFINITE_FREQUENCY,
         UnsupportedBeamVariant.NONFINITE_DATA,
+        UnsupportedBeamVariant.WRONG_NATIVE_DTYPE,
     ):
         fixture = build_beam_variant(variant)
         assert fixture.beam.check(check_extra=True, run_check_acceptability=True)
