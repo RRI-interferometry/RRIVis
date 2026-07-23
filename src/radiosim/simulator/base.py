@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from radiosim.core.beam import BeamSystem
     from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.sky.containers.model import SourceArrays
 
@@ -41,10 +42,13 @@ class VisibilitySimulator(ABC):
     rime O(N_src × N_bl × N_freq)
     >>> visibilities = sim.calculate_visibilities(
     ...     instrument=instrument_view,
+    ...     beam_system=beam_system,
     ...     source_arrays=source_arrays,
     ...     frequencies=freqs,
     ...     backend=backend,
-    ...     **kwargs,
+    ...     location=location,
+    ...     obstime=obstime,
+    ...     wavelengths=wavelengths,
     ... )
     """
 
@@ -118,10 +122,18 @@ class VisibilitySimulator(ABC):
     def calculate_visibilities(
         self,
         instrument: "SolverInstrumentView",
+        beam_system: "BeamSystem",
         source_arrays: "SourceArrays",
         frequencies: np.ndarray,
         backend: Any,
-        **kwargs,
+        *,
+        location: Any,
+        obstime: Any,
+        wavelengths: Any,
+        duration_seconds: float = 1.0,
+        time_step_seconds: float = 1.0,
+        return_correlations: bool = True,
+        jones_config: dict[str, Any] | None = None,
     ) -> dict[tuple[Any, Any], dict]:
         """
         Calculate visibilities for all baselines.
@@ -135,6 +147,9 @@ class VisibilitySimulator(ABC):
         instrument : SolverInstrumentView
             Owned canonical antenna values and selected baseline geometry.
 
+        beam_system : BeamSystem
+            Exact canonical per-antenna beam evaluator.
+
         source_arrays : dict
             Dict of source arrays from ``SkyModel.as_point_source_arrays()``.
 
@@ -146,14 +161,17 @@ class VisibilitySimulator(ABC):
             Provides array operations (numpy-like API) and device management.
             Use get_backend("numpy"), get_backend("jax"), etc.
 
-        **kwargs : dict
-            Algorithm-specific parameters. Common options include:
-                - location: astropy.EarthLocation for observer position
-                - obstime: astropy.Time for observation time
-                - wavelengths: astropy.Quantity array (derived from frequencies)
-                - beam_manager: BeamManager for FITS beam interpolation
-                - return_correlations: bool, extract XX/XY/YX/YY (default True)
-                - jones_config: dict of Jones term configurations
+        location, obstime, wavelengths
+            Observer coordinates, observation time, and wavelength array.
+
+        duration_seconds, time_step_seconds : float
+            Time-domain extent and cadence.
+
+        return_correlations : bool
+            Extract XX/XY/YX/YY/I when true; otherwise return matrices.
+
+        jones_config : dict, optional
+            Non-beam Jones term configuration.
 
         Returns
         -------
@@ -167,7 +185,7 @@ class VisibilitySimulator(ABC):
                 - "YY": complex array, shape (N_freq,)
                 - "I": complex array, shape (N_freq,) - Stokes I visibility
 
-            If return_correlations=False in kwargs:
+            If return_correlations=False:
                 Values: ndarray of shape (N_freq, 2, 2) - raw visibility matrices
 
         Raises

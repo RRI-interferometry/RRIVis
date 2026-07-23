@@ -3,13 +3,16 @@
 import numpy as np
 import pytest
 
+import radiosim.core.jones as jones_module
+import radiosim.core.visibility as visibility_module
+from radiosim.api import Simulator
 from radiosim.backends import get_backend
 from radiosim.backends.base import BackendNotAvailableError
+from radiosim.core.instrument import AntennaId
+from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.jones import JonesChain, JonesTerm
-from radiosim.core.jones.beam.analytic import AnalyticBeamJones
-from radiosim.core.jones.beam.analytic.composed import compute_aperture_beam
-from radiosim.core.jones.beam.fits import FITSBeamJones
 from radiosim.core.jones.geometric import GeometricPhaseJones
+from tests.fixtures.configs import valid_config_mapping
 
 
 def _get_optional_backend(name: str):
@@ -48,11 +51,6 @@ class _DirectionDependentJones(JonesTerm):
     ):
         scale = 1 if source_idx is None else source_idx + 1
         return backend.eye_complex(2, dtype=np.complex128) * scale
-
-
-class _MissingBeamManager:
-    def get_jones_matrix(self, **kwargs):
-        return None
 
 
 @pytest.mark.parametrize("backend_name", ["numpy", "numba"])
@@ -114,27 +112,6 @@ def test_chain_all_source_identity_and_geometric_phase(backend_name: str):
     np.testing.assert_allclose(result[:, 1, 0], 0)
 
 
-def test_fits_beam_fallback_identity_uses_backend_batch_eye():
-    backend = _get_optional_backend("numpy")
-    term = FITSBeamJones(
-        beam_manager=_MissingBeamManager(),
-        source_altaz=np.array([[1.0, 0.0], [0.5, 0.25]]),
-        frequencies=np.array([100e6]),
-    )
-
-    result = backend.to_numpy(
-        term.compute_jones_all_sources(
-            antenna_idx=0,
-            n_sources=2,
-            freq_idx=0,
-            time_idx=0,
-            backend=backend,
-        )
-    )
-
-    np.testing.assert_allclose(result, np.broadcast_to(np.eye(2), (2, 2, 2)))
-
-
 def test_jax_chain_all_source_construction_is_functional():
     backend = _get_optional_backend("jax")
     chain = JonesChain(backend)
@@ -152,57 +129,54 @@ def test_jax_chain_all_source_construction_is_functional():
     np.testing.assert_allclose(result[:, 0, 0], [1, 2])
 
 
-def test_compute_aperture_beam_builds_on_backend():
-    """The analytic E-Jones builder must construct on the given backend device
-    (functional, immutable-safe) instead of via host-NumPy in-place assignment."""
-    backend = _get_optional_backend("jax")
-    theta = np.linspace(0.0, 0.05, 6)
-    phi = np.zeros_like(theta)
-
-    jones = compute_aperture_beam(
-        theta=theta,
-        phi=phi,
-        frequency=100e6,
-        diameter=14.0,
-        backend=backend,
-    )
-
-    # Built on the backend device, not as a host NumPy array.
-    assert not isinstance(jones, np.ndarray)
-    assert tuple(jones.shape) == (6, 2, 2)
-
-    jones_np = backend.to_numpy(jones)
-    # Diagonal beam: zero off-diagonals, equal on-diagonals.
-    np.testing.assert_allclose(jones_np[:, 0, 1], 0)
-    np.testing.assert_allclose(jones_np[:, 1, 0], 0)
-    np.testing.assert_allclose(jones_np[:, 0, 0], jones_np[:, 1, 1])
-    # Matches the host-NumPy reference (default backend=None path).
-    ref = compute_aperture_beam(theta=theta, phi=phi, frequency=100e6, diameter=14.0)
-    np.testing.assert_allclose(jones_np, ref, rtol=1e-6, atol=1e-9)
-
-
 @pytest.mark.parametrize("backend_name", ["numpy", "numba", "jax"])
-def test_analytic_beam_jones_all_sources_matches_numpy(backend_name: str):
-    """AnalyticBeamJones (E-term) yields matching Jones across backends and,
-    for device backends, returns an on-device array (beam-inclusive parity)."""
-    reference = _get_optional_backend("numpy")
+def test_resolved_beam_jones_chain_matches_canonical_system(
+    tmp_path,
+    backend_name: str,
+):
+    """The private solver E-term preserves canonical values on every backend."""
     backend = _get_optional_backend(backend_name)
-
-    n = 5
-    alts = np.linspace(np.pi / 2, np.pi / 2 - 0.05, n)
-    azs = np.linspace(0.0, 1.0, n)
-    source_altaz = np.column_stack([alts, azs])
-    freqs = np.array([100e6], dtype=np.float64)
-
-    def _beam() -> AnalyticBeamJones:
-        return AnalyticBeamJones(
-            source_altaz=source_altaz, frequencies=freqs, diameter=14.0
-        )
-
-    expected = reference.to_numpy(
-        _beam().compute_jones_all_sources(0, n, 0, 0, reference)
+    simulator = Simulator.from_mapping(
+        valid_config_mapping(tmp_path),
+        base_dir=tmp_path,
     )
-    actual = backend.to_numpy(_beam().compute_jones_all_sources(0, n, 0, 0, backend))
+    simulator._ensure_instrument_state()
+    simulator._ensure_beam_system()
+    instrument = SolverInstrumentView.from_state(simulator._instrument_state)
+    altitude = np.linspace(np.pi / 2, np.pi / 2 - 0.05, 5)
+    azimuth = np.linspace(0.0, 1.0, 5)
+    term = visibility_module._ResolvedBeamJones(
+        beam_system=simulator.beam_system,
+        instrument=instrument,
+        altitude_rad=altitude,
+        azimuth_rad=azimuth,
+        frequency_hz=100e6,
+        time_mjd=60_000.0,
+    )
+    chain = JonesChain(backend)
+    chain.add_term(term)
 
-    assert actual.shape == (n, 2, 2)
+    actual = backend.to_numpy(
+        chain.compute_antenna_jones_all_sources(
+            antenna_idx=0,
+            n_sources=5,
+            freq_idx=0,
+            time_idx=0,
+            antenna_number=0,
+        )
+    )
+    expected = simulator.beam_system.evaluate_jones(
+        AntennaId(0, "ANT0"),
+        altitude_rad=altitude,
+        azimuth_rad=azimuth,
+        frequency_hz=100e6,
+        time_mjd=60_000.0,
+    )
+
+    assert actual.shape == (5, 2, 2)
     np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-9)
+
+
+def test_resolved_beam_jones_remains_private_to_visibility_solver():
+    assert "_ResolvedBeamJones" not in jones_module.__all__
+    assert not hasattr(jones_module, "_ResolvedBeamJones")

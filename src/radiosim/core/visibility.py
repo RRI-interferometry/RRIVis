@@ -8,8 +8,6 @@ claim complete accelerator coverage for the full simulation workflow.
 """
 
 import logging
-from collections.abc import Mapping
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -23,16 +21,17 @@ from astropy.time import TimeDelta
 
 # Import backend abstraction
 from radiosim.backends import ArrayBackend, get_backend
+from radiosim.core.beam import BeamSystem
+from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
 
 # Import Jones matrix framework
 from radiosim.core.jones import (
-    AnalyticBeamJones,
     BandpassJones,
-    FITSBeamJones,
     GainJones,
     IonosphereJones,
     JonesChain,
+    JonesTerm,
     ParallacticAngleJones,
     PolarizationLeakageJones,
     TroposphereJones,
@@ -47,42 +46,133 @@ from radiosim.core.polarization import (
 logger = logging.getLogger(__name__)
 
 
-class _ResolvedInstrumentAnalyticBeamJones(AnalyticBeamJones):
-    """Analytic beam whose antenna diameters are exact resolved identities."""
+class _ResolvedBeamJones(JonesTerm):
+    """Private E-Jones adapter over one canonical :class:`BeamSystem`."""
 
     def __init__(
         self,
         *,
-        diameters_by_antenna: Mapping[int, float],
-        **kwargs: Any,
+        beam_system: BeamSystem,
+        instrument: "SolverInstrumentView",
+        altitude_rad: np.ndarray,
+        azimuth_rad: np.ndarray,
+        frequency_hz: float,
+        time_mjd: float,
     ) -> None:
-        if not diameters_by_antenna:
-            raise ValueError("diameters_by_antenna must not be empty")
-        exact_diameters = MappingProxyType(
-            {number: float(value) for number, value in diameters_by_antenna.items()}
-        )
-        self._resolved_diameters_by_antenna = exact_diameters
+        from radiosim.core.instrument_adapters import SolverInstrumentView
 
-        # The base class retains a scalar parameter for standalone homogeneous
-        # beam use. This private integration adapter overrides every diameter
-        # lookup, so the scalar is deliberately identity-neutral and unreachable.
-        super().__init__(
-            diameter=1.0,
-            diameter_per_antenna=dict(exact_diameters),
-            **kwargs,
-        )
+        if type(beam_system) is not BeamSystem:
+            raise TypeError("beam_system must be an exact BeamSystem")
+        if type(instrument) is not SolverInstrumentView:
+            raise TypeError("instrument must be a SolverInstrumentView")
+        altitude = np.array(altitude_rad, dtype=np.float64, copy=True, order="C")
+        azimuth = np.array(azimuth_rad, dtype=np.float64, copy=True, order="C")
+        if altitude.ndim != 1 or azimuth.ndim != 1 or altitude.shape != azimuth.shape:
+            raise ValueError(
+                "altitude_rad and azimuth_rad must be equal-shape one-dimensional "
+                "arrays"
+            )
+        altitude.setflags(write=False)
+        azimuth.setflags(write=False)
+        self._beam_system = beam_system
+        self._instrument = instrument
+        self._altitude_rad = altitude
+        self._azimuth_rad = azimuth
+        self._frequency_hz = float(frequency_hz)
+        self._time_mjd = float(time_mjd)
 
-    def _get_diameter_for_antenna(self, ant_num: Any) -> float:
+    @property
+    def name(self) -> str:
+        return "E"
+
+    @property
+    def is_direction_dependent(self) -> bool:
+        return True
+
+    def _antenna_id(self, antenna_idx: int) -> AntennaId:
+        if type(antenna_idx) is not int:
+            raise InstrumentAdapterInvariantError("antenna_idx must be an integer")
         try:
-            return self._resolved_diameters_by_antenna[ant_num]
-        except KeyError as exc:
+            number = self._instrument.antenna_numbers[antenna_idx]
+            name = self._instrument.antenna_names[antenna_idx]
+        except IndexError as exc:
             raise InstrumentAdapterInvariantError(
-                f"antenna number {ant_num!r} is absent from the resolved diameter map"
+                f"antenna row {antenna_idx} is absent from the solver instrument view"
             ) from exc
+        return AntennaId(number, name)
+
+    def compute_jones(
+        self,
+        antenna_idx: int,
+        source_idx: int | None,
+        freq_idx: int,
+        time_idx: int,
+        backend: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if source_idx is None:
+            raise ValueError("source_idx is required for the beam Jones term")
+        if type(source_idx) is not int or not 0 <= source_idx < self._altitude_rad.size:
+            raise IndexError("source_idx is outside the resolved source batch")
+        return self._beam_system.evaluate_jones(
+            self._antenna_id(antenna_idx),
+            altitude_rad=np.array(
+                self._altitude_rad[source_idx : source_idx + 1],
+                dtype=np.float64,
+                copy=True,
+            ),
+            azimuth_rad=np.array(
+                self._azimuth_rad[source_idx : source_idx + 1],
+                dtype=np.float64,
+                copy=True,
+            ),
+            frequency_hz=self._frequency_hz,
+            time_mjd=self._time_mjd,
+            backend=backend,
+        )[0]
+
+    def compute_jones_all_sources(
+        self,
+        antenna_idx: int,
+        n_sources: int,
+        freq_idx: int,
+        time_idx: int,
+        backend: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if type(n_sources) is not int or n_sources != self._altitude_rad.size:
+            raise InstrumentAdapterInvariantError(
+                "Jones source count does not match the resolved beam direction batch"
+            )
+        antenna_number = kwargs.get("antenna_number")
+        canonical = self._antenna_id(antenna_idx)
+        if antenna_number is not None and antenna_number != canonical.number:
+            raise InstrumentAdapterInvariantError(
+                "Jones antenna row and canonical antenna number disagree"
+            )
+        return self._beam_system.evaluate_jones(
+            canonical,
+            altitude_rad=np.array(
+                self._altitude_rad,
+                dtype=np.float64,
+                copy=True,
+                order="C",
+            ),
+            azimuth_rad=np.array(
+                self._azimuth_rad,
+                dtype=np.float64,
+                copy=True,
+                order="C",
+            ),
+            frequency_hz=self._frequency_hz,
+            time_mjd=self._time_mjd,
+            backend=backend,
+        )
 
 
 def calculate_visibility(
     instrument: "SolverInstrumentView",
+    beam_system: BeamSystem,
     source_arrays: "SourceArrays",
     location: Any,
     obstime: Any,
@@ -90,7 +180,6 @@ def calculate_visibility(
     freqs: Any,
     duration_seconds: float,
     time_step_seconds: float,
-    beam_manager: Any | None = None,
     return_correlations: bool = True,
     backend: ArrayBackend | None = None,
     jones_config: dict[str, Any] | None = None,
@@ -106,6 +195,8 @@ def calculate_visibility(
     ----------
     instrument : SolverInstrumentView
         Owned canonical antenna values and selected baseline geometry.
+    beam_system : BeamSystem
+        Canonical per-antenna beam evaluator.
     source_arrays : dict
         Dict of source arrays from ``SkyModel.as_point_source_arrays()``.
         Keys: ``ra_rad``, ``dec_rad``, ``flux``, ``spectral_index``,
@@ -120,9 +211,6 @@ def calculate_visibility(
         Wavelength array corresponding to frequencies (with units).
     freqs : ndarray
         Frequency array in Hz.
-    beam_manager : BeamManager, optional
-        Internal low-level beam adapter. The public high-level configuration
-        currently resolves only analytic beams.
     return_correlations : bool, optional
         If True, extract and return correlation products (XX, XY, YX, YY, I).
         If False, return raw 2×2 visibility matrices.
@@ -149,7 +237,7 @@ def calculate_visibility(
     Examples
     --------
     >>> # Deterministic NumPy default
-    >>> vis = calculate_visibility(instrument, source_arrays, ...)
+    >>> vis = calculate_visibility(instrument, beam_system, source_arrays, ...)
 
     >>> # Explicit optional backend
     >>> from radiosim.backends import get_backend
@@ -158,11 +246,19 @@ def calculate_visibility(
     """
     if jones_config is None:
         jones_config = {}
+    elif type(jones_config) is not dict:
+        raise TypeError("jones_config must be a dict or None")
+    if "beam" in jones_config:
+        raise TypeError(
+            "jones_config must not contain a beam entry; pass beam_system directly"
+        )
 
     from radiosim.core.instrument_adapters import SolverInstrumentView
 
     if type(instrument) is not SolverInstrumentView:
         raise TypeError("instrument must be a SolverInstrumentView")
+    if type(beam_system) is not BeamSystem:
+        raise TypeError("beam_system must be an exact BeamSystem")
 
     # Initialize backend (default to NumPy for backward compatibility)
     if backend is None:
@@ -416,13 +512,18 @@ def calculate_visibility(
                 freq_idx,
                 n_sources,
                 location,
-                time_idx,
-                beam_manager=beam_manager,
+                time_mjd=float(current_obstime.mjd),
+                beam_system=beam_system,
             )
 
             # Per-antenna Jones cache: compute chain once per antenna
             jones_antenna_cache = {}
-            for ant_num in {a for pair in instrument.selected_pairs for a in pair}:
+            selected_numbers = {
+                number for pair in instrument.selected_pairs for number in pair
+            }
+            for ant_num in instrument.antenna_numbers:
+                if ant_num not in selected_numbers:
+                    continue
                 ant_idx = instrument.row_for_number(ant_num)
                 jones_antenna_cache[ant_num] = chain.compute_antenna_jones_all_sources(
                     antenna_idx=ant_idx,
@@ -510,8 +611,8 @@ def _build_jones_chain(
     freq_idx,
     n_sources,
     location,
-    time_idx,
-    beam_manager=None,
+    time_mjd,
+    beam_system,
 ):
     """Build a JonesChain with configured terms (K excluded).
 
@@ -536,11 +637,10 @@ def _build_jones_chain(
         Number of sources.
     location : EarthLocation
         Observer location.
-    time_idx : int
-        Time step index.
-    beam_manager : BeamManager, optional
-        Internal low-level beam adapter. High-level configuration currently
-        supplies only the analytic path.
+    time_mjd : float
+        Current observation time in MJD.
+    beam_system : BeamSystem
+        Canonical per-antenna beam evaluator.
 
     Returns
     -------
@@ -573,39 +673,15 @@ def _build_jones_chain(
         )
         chain.add_term(t_jones)
 
-    # E term: Primary beam (always enabled)
-    # Use FITS beam if beam_manager is available and not in analytic mode
-    if (
-        beam_manager is not None
-        and getattr(beam_manager, "mode", "analytic") != "analytic"
-    ):
-        e_jones = FITSBeamJones(
-            beam_manager=beam_manager,
-            source_altaz=np.column_stack([alt_rad, az_rad]),
-            frequencies=np.array([freq]),
-        )
-    else:
-        beam_cfg = jones_config.get("beam", {})
-
-        diameter_map = {
-            number: float(instrument.diameters_m[index])
-            for index, number in enumerate(instrument.antenna_numbers)
-        }
-
-        e_jones = _ResolvedInstrumentAnalyticBeamJones(
-            source_altaz=np.column_stack([alt_rad, az_rad]),
-            frequencies=np.array([freq]),
-            aperture_shape=beam_cfg.get("aperture_shape", "circular"),
-            taper=beam_cfg.get("taper", "gaussian"),
-            edge_taper_dB=beam_cfg.get("edge_taper_dB", 10.0),
-            feed_model=beam_cfg.get("feed_model", "none"),
-            feed_computation=beam_cfg.get("feed_computation", "analytical"),
-            feed_params=beam_cfg.get("feed_params"),
-            reflector_type=beam_cfg.get("reflector_type", "prime_focus"),
-            magnification=beam_cfg.get("magnification", 1.0),
-            diameters_by_antenna=diameter_map,
-            aperture_params=beam_cfg.get("aperture_params"),
-        )
+    # E term: one exact canonical BeamSystem adapter (always enabled).
+    e_jones = _ResolvedBeamJones(
+        beam_system=beam_system,
+        instrument=instrument,
+        altitude_rad=alt_rad,
+        azimuth_rad=az_rad,
+        frequency_hz=float(freq),
+        time_mjd=float(time_mjd),
+    )
     chain.add_term(e_jones)
 
     # P term: Parallactic angle (optional)

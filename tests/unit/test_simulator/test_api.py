@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib
 import inspect
 import json
-import re
 import webbrowser
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -23,7 +22,6 @@ from radiosim.io.config_resolution import (
     ConfigSemanticError,
     ConfigSourceError,
     SimulationOverrides,
-    UnsupportedConfigError,
 )
 from radiosim.io.instrument_config import (
     BaselineSelectionConfig,
@@ -444,8 +442,9 @@ def test_schema_errors_are_reported_by_from_mapping(tmp_path):
 
 
 @pytest.mark.parametrize("entry_point", ["yaml", "model", "mapping", "parameters"])
-def test_tier3b_fits_runtime_guards_apply_to_every_document_entry_point(
-    tmp_path, monkeypatch, entry_point
+def test_fits_runtime_activates_from_every_document_entry_point(
+    tmp_path,
+    entry_point,
 ):
     beam_path = write_scalar_efield_beamfits(tmp_path).path
     data = _explicit_data(
@@ -455,11 +454,6 @@ def test_tier3b_fits_runtime_guards_apply_to_every_document_entry_point(
             "beam": {"kind": "fits", "path": beam_path.name},
         },
     )
-
-    def forbidden(*args, **kwargs):
-        pytest.fail("Tier 0 guard reached device detection")
-
-    monkeypatch.setattr("radiosim.utils.device.get_device_resources", forbidden)
 
     if entry_point == "yaml":
         simulator = Simulator.from_yaml(write_config_yaml(tmp_path, data))
@@ -473,18 +467,13 @@ def test_tier3b_fits_runtime_guards_apply_to_every_document_entry_point(
     else:
         simulator = _from_parameters(tmp_path, data)
 
-    with pytest.raises(
-        UnsupportedConfigError,
-        match=re.escape("beam_runtime_fits_pending"),
-    ) as exc_info:
-        simulator.setup()
+    simulator.setup()
 
-    message = exc_info.value.issues[0].message
-    assert "later Tier 3 slice" in message
-    assert "Tier 3C" not in message
     assert simulator.beam_system.state is simulator.beam_state
-    assert simulator._backend is None
-    assert simulator.device_resources is None
+    assert simulator._backend is not None
+    assert simulator._is_setup is True
+    assert not hasattr(simulator, "_beam_config")
+    assert not hasattr(simulator, "_beam_manager")
 
 
 @pytest.mark.parametrize(
@@ -510,35 +499,22 @@ def test_tier3b_fits_runtime_guards_apply_to_every_document_entry_point(
         },
     ],
 )
-def test_pending_analytic_variants_fail_before_device_backend_network_and_sky(
-    tmp_path, monkeypatch, model
+def test_accepted_analytic_variants_activate_canonical_runtime(
+    tmp_path,
+    model,
 ):
     data = _explicit_data(
         tmp_path,
         beams={"mode": "analytic", "model": model},
     )
 
-    def forbidden(*args, **kwargs):
-        pytest.fail("pending beam mode crossed a runtime side-effect boundary")
-
-    monkeypatch.setattr("radiosim.utils.device.get_device_resources", forbidden)
-    monkeypatch.setattr("radiosim.backends.get_backend", forbidden)
-    monkeypatch.setattr("radiosim.utils.network.get_network_status", forbidden)
-    monkeypatch.setattr(
-        "radiosim.core.sky.operations.parallel.load_models_parallel", forbidden
-    )
-
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
-    with pytest.raises(UnsupportedConfigError) as exc_info:
-        simulator.setup()
+    simulator.setup()
 
-    assert [issue.code for issue in exc_info.value.issues] == [
-        "beam_runtime_analytic_variant_pending"
-    ]
-    assert exc_info.value.issues[0].path == "beams.model.kind"
     assert simulator.beam_system.state is simulator.beam_state
-    assert simulator._backend is None
-    assert simulator.device_resources is None
+    assert simulator.beam_state.handlers[0].kind == "analytic"
+    assert simulator._backend is not None
+    assert simulator._is_setup is True
 
 
 def test_beam_properties_fail_without_triggering_resolution_or_side_effects(
@@ -587,8 +563,11 @@ def test_beam_properties_fail_without_triggering_resolution_or_side_effects(
         ({"kind": "cosine"}, "cosine", None),
     ],
 )
-def test_direct_circular_projection_consumes_every_authored_taper_field(
-    tmp_path, taper, expected, edge
+def test_direct_circular_runtime_consumes_every_authored_taper_field(
+    tmp_path,
+    taper,
+    expected,
+    edge,
 ):
     data = _explicit_data(
         tmp_path,
@@ -601,12 +580,12 @@ def test_direct_circular_projection_consumes_every_authored_taper_field(
 
     simulator.setup()
 
-    assert simulator._beam_config["aperture_shape"] == "circular"
-    assert simulator._beam_config["taper"] == expected
-    if edge is None:
-        assert "edge_taper_dB" not in simulator._beam_config
-    else:
-        assert simulator._beam_config["edge_taper_dB"] == edge
+    model = simulator.beam_state.resolved.assignments[0].definition.model
+    assert model.kind == "circular_aperture"
+    assert model.taper.kind == expected
+    if edge is not None:
+        assert model.taper.edge_taper_db == edge
+    assert not hasattr(simulator, "_beam_config")
 
 
 def test_setup_uses_resolved_backend_precision_frequency_and_runtime_fields(tmp_path):

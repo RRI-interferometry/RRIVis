@@ -262,6 +262,7 @@ class TestSparseVisibility:
         )
         simulator = Simulator.from_mapping(data, base_dir=tmp_path)
         simulator._ensure_instrument_state()
+        simulator._ensure_beam_system()
         instrument = SolverInstrumentView.from_state(simulator._instrument_state)
         location = EarthLocation.from_geodetic(0.0 * u.deg, 0.0 * u.deg, 0.0 * u.m)
         obstime = Time("2024-01-01T00:00:00")
@@ -270,6 +271,7 @@ class TestSparseVisibility:
         sparse_vis = calculate_visibility_healpix(
             sparse,
             instrument=instrument,
+            beam_system=simulator.beam_system,
             location=location,
             obstime=obstime,
             wavelengths=wavelengths,
@@ -280,6 +282,7 @@ class TestSparseVisibility:
         dense_vis = calculate_visibility_healpix(
             dense,
             instrument=instrument,
+            beam_system=simulator.beam_system,
             location=location,
             obstime=obstime,
             wavelengths=wavelengths,

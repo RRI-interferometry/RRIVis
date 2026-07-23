@@ -16,14 +16,11 @@ from astropy.coordinates import EarthLocation
 from astropy.time import Time
 
 import radiosim.core.visibility as visibility_module
-import radiosim.core.visibility_healpix as healpix_visibility_module
 from radiosim.api.simulator import Simulator
 from radiosim.backends import get_backend
+from radiosim.core.beam import BeamSystem
 from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.instrument_resolution import DiameterResolutionError
-from radiosim.core.observability.planner import (
-    HeterogeneousObservabilityUnsupportedError,
-)
 from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
 from radiosim.io.config import RadioSimConfig
@@ -82,7 +79,9 @@ def _instrument_mapping(tmp_path, *, include_diameters: bool = True):
     }
 
 
-def _one_metre_solver_view(tmp_path) -> SolverInstrumentView:
+def _one_metre_solver_components(
+    tmp_path,
+) -> tuple[SolverInstrumentView, BeamSystem]:
     mapping = _instrument_mapping(tmp_path)
     mapping["instrument"]["source"]["path"] = str(tmp_path / "one-metre.txt")
     (tmp_path / "one-metre.txt").write_text(
@@ -93,7 +92,11 @@ def _one_metre_solver_view(tmp_path) -> SolverInstrumentView:
     )
     simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
     simulator._ensure_instrument_state()
-    return SolverInstrumentView.from_state(simulator._instrument_state)
+    simulator._ensure_beam_system()
+    return (
+        SolverInstrumentView.from_state(simulator._instrument_state),
+        simulator.beam_system,
+    )
 
 
 def _point_source_arrays(frequency_hz: float) -> dict[str, object]:
@@ -129,11 +132,6 @@ class _FixedAltAzSkyCoord:
             az=SimpleNamespace(rad=np.array([np.pi / 2.0])),
             alt=SimpleNamespace(rad=np.array([np.pi / 3.0])),
         )
-
-
-class _IdentityJonesChain:
-    def compute_antenna_jones_all_sources(self, *, n_sources, **_kwargs):
-        return np.broadcast_to(np.eye(2, dtype=np.complex128), (n_sources, 2, 2))
 
 
 class _FixedPixelCoordinates:
@@ -316,19 +314,30 @@ def test_layout_visualizers_consume_canonical_identity_positions_and_diameters(
 
 def test_point_and_healpix_keep_canonical_negative_phase_sign(tmp_path, monkeypatch):
     monkeypatch.setattr(visibility_module, "SkyCoord", _FixedAltAzSkyCoord)
-    monkeypatch.setattr(
-        visibility_module,
-        "_build_jones_chain",
-        lambda *_args, **_kwargs: _IdentityJonesChain(),
-    )
-    monkeypatch.setattr(
-        healpix_visibility_module,
-        "_compute_beam_power_pattern",
-        lambda *, zenith_angles, **_kwargs: np.ones_like(zenith_angles),
-    )
+
+    def identity_jones(
+        self,
+        antenna_id,
+        *,
+        altitude_rad,
+        azimuth_rad,
+        frequency_hz,
+        time_mjd,
+        backend=None,
+    ):
+        result = np.broadcast_to(
+            np.eye(2, dtype=np.complex128),
+            (len(altitude_rad), 2, 2),
+        ).copy()
+        if backend is None:
+            result.setflags(write=False)
+            return result
+        return backend.asarray(result, dtype=backend.default_complex_dtype)
+
+    monkeypatch.setattr(BeamSystem, "evaluate_jones", identity_jones)
     wavelength_m = 2.0
     frequency_hz = c.value / wavelength_m
-    instrument = _one_metre_solver_view(tmp_path)
+    instrument, beam_system = _one_metre_solver_components(tmp_path)
     location = EarthLocation.from_geodetic(0.0, 0.0, 0.0)
     obstime = Time("2024-01-01T00:00:00")
     wavelengths = np.array([wavelength_m]) * u.m
@@ -336,6 +345,7 @@ def test_point_and_healpix_keep_canonical_negative_phase_sign(tmp_path, monkeypa
 
     point_result = calculate_visibility(
         instrument=instrument,
+        beam_system=beam_system,
         source_arrays=_point_source_arrays(frequency_hz),
         location=location,
         obstime=obstime,
@@ -356,6 +366,7 @@ def test_point_and_healpix_keep_canonical_negative_phase_sign(tmp_path, monkeypa
             model_name="one-pixel-phase-sign",
         ),
         instrument=instrument,
+        beam_system=beam_system,
         location=location,
         obstime=obstime,
         wavelengths=wavelengths,
@@ -513,13 +524,12 @@ def test_concurrent_first_beam_call_loads_once_and_reuses_exact_system(
     assert all(system is expected for system in results)
 
 
-def test_beamfits_failure_retains_instrument_and_retry_reloads_before_guard(
+def test_beamfits_failure_retains_instrument_and_retry_activates_runtime(
     tmp_path,
     monkeypatch,
 ):
     from radiosim.core.beam import BeamFileReadError
     from radiosim.core.beam.runtime import _ProductionUVBeamLoader
-    from radiosim.io.config_resolution import UnsupportedConfigError
     from tests.fixtures.beamfits import write_scalar_efield_beamfits
 
     mapping = _instrument_mapping(tmp_path)
@@ -538,14 +548,7 @@ def test_beamfits_failure_retains_instrument_and_retry_reloads_before_guard(
             raise OSError("controlled BeamFITS failure")
         return real_read(self, path)
 
-    def forbidden_device():
-        pytest.fail("device detection ran before the high-level beam guard")
-
     monkeypatch.setattr(_ProductionUVBeamLoader, "read", fail_once)
-    monkeypatch.setattr(
-        "radiosim.utils.device.get_device_resources",
-        forbidden_device,
-    )
     simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
 
     with pytest.raises(BeamFileReadError) as caught:
@@ -556,17 +559,14 @@ def test_beamfits_failure_retains_instrument_and_retry_reloads_before_guard(
     assert simulator._backend is None
     assert simulator.device_resources is None
 
-    with pytest.raises(
-        UnsupportedConfigError,
-        match="beam_runtime_fits_pending",
-    ):
-        simulator.setup()
+    simulator.setup()
 
     assert reads == 2
     assert simulator.instrument is retained_instrument
     assert simulator.beam_system.state is simulator.beam_state
-    assert simulator._backend is None
-    assert simulator.device_resources is None
+    assert simulator._backend is not None
+    assert simulator.device_resources is not None
+    assert simulator._is_setup is True
 
 
 def test_sky_failure_retry_reuses_instrument_and_recreates_backend(
@@ -643,8 +643,8 @@ def test_observability_rejects_heterogeneous_diameters_before_side_effects(
     monkeypatch.setattr("webbrowser.open", forbidden)
 
     with pytest.raises(
-        HeterogeneousObservabilityUnsupportedError,
-        match=r"12\.0.*25\.0.*Tier 3",
+        NotImplementedError,
+        match="^Tier 3G observability migration is required for this beam mode$",
     ):
         simulator.plot_observability(open_in_browser=True)
 

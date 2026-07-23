@@ -30,6 +30,9 @@ from astropy.coordinates import AltAz
 from astropy.time import TimeDelta
 
 from radiosim.backends import ArrayBackend, get_backend
+from radiosim.core.beam import BeamSystem
+from radiosim.core.instrument import AntennaId
+from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
 from radiosim.core.polarization import stokes_to_coherency
 from radiosim.core.sky import (
     SkyModel,
@@ -40,158 +43,66 @@ from radiosim.core.sky import (
 logger = logging.getLogger(__name__)
 
 
-def _compute_beam_power_pattern(
-    zenith_angles: np.ndarray,
-    diameter: float,
-    frequency: float,
-    beam_manager: Any | None = None,
-    antenna_number: Any | None = None,
-    azimuth: np.ndarray | None = None,
-    aperture_shape: str = "circular",
-    taper: str = "gaussian",
-    edge_taper_dB: float = 10.0,
-    feed_model: str = "none",
-    feed_params: dict | None = None,
-    feed_computation: str = "analytical",
-    reflector_type: str = "prime_focus",
-    magnification: float = 1.0,
-    aperture_params: dict | None = None,
-) -> np.ndarray:
-    """Compute scalar beam power pattern B^2 for HEALPix pixels.
-
-    For a low-level Jones beam adapter:
-    B^2 = 0.5 * (|J_00|^2 + |J_01|^2 + |J_10|^2 + |J_11|^2).
-    For the public analytic path, uses compute_aperture_beam to get Jones, then
-    B^2 = 0.5 * sum(|J_ij|^2).
-
-    Parameters
-    ----------
-    zenith_angles : ndarray
-        Zenith angles in radians, shape (N,).
-    diameter : float
-        Antenna diameter in meters.
-    frequency : float
-        Frequency in Hz.
-    beam_manager : BeamManager, optional
-        Internal low-level beam adapter; high-level configuration is analytic.
-    antenna_number : int, optional
-        Antenna number for beam_manager lookup.
-    azimuth : ndarray, optional
-        Azimuth angles in radians, shape (N,).
-    aperture_shape : str
-        Aperture geometry type.
-    taper : str
-        Illumination taper function.
-    edge_taper_dB : float
-        Edge taper in dB.
-    feed_model : str
-        Feed pattern model.
-    feed_params : dict, optional
-        Feed-specific parameters.
-    feed_computation : str
-        'analytical' or 'numerical'.
-    reflector_type : str
-        Reflector geometry type.
-    magnification : float
-        Cassegrain magnification.
-    aperture_params : dict, optional
-        Aperture-specific parameters.
-
-    Returns
-    -------
-    power_pattern : ndarray
-        Beam power pattern, shape (N,). Values in [0, 1].
-    """
-    if beam_manager is not None and antenna_number is not None:
-        jones = beam_manager.get_jones_matrix(
-            antenna_number=antenna_number,
-            alt_rad=np.pi / 2 - zenith_angles,
-            az_rad=azimuth if azimuth is not None else np.zeros_like(zenith_angles),
-            freq_hz=frequency,
-            location=None,
-            time=None,
-        )
-        if jones is not None:
-            # Power pattern = sum of |J_ij|^2 / 2  (average over polarizations)
-            return 0.5 * np.sum(np.abs(jones) ** 2, axis=(-2, -1))
-
-    # Aperture-based analytic beam
-    from radiosim.core.jones.beam.analytic.composed import compute_aperture_beam
-
-    jones = compute_aperture_beam(
-        theta=zenith_angles,
-        phi=azimuth,
-        frequency=frequency,
-        diameter=diameter,
-        aperture_shape=aperture_shape,
-        taper=taper,
-        edge_taper_dB=edge_taper_dB,
-        feed_model=feed_model,
-        feed_params=feed_params,
-        feed_computation=feed_computation,
-        reflector_type=reflector_type,
-        magnification=magnification,
-        aperture_params=aperture_params,
-    )
-    return 0.5 * np.sum(np.abs(jones) ** 2, axis=(-2, -1))
+def _canonical_antenna_id(
+    instrument: "SolverInstrumentView",
+    antenna_number: int,
+) -> AntennaId:
+    """Resolve one exact canonical antenna identity from the solver view."""
+    row = instrument.row_for_number(antenna_number)
+    try:
+        name = instrument.antenna_names[row]
+    except IndexError as exc:
+        raise InstrumentAdapterInvariantError(
+            f"antenna row {row} has no canonical name in the solver instrument view"
+        ) from exc
+    return AntennaId(antenna_number, name)
 
 
-def _compute_beam_jones_matrix(
-    zenith_angles: np.ndarray,
-    diameter: float,
-    frequency: float,
-    beam_manager: Any | None = None,
-    antenna_number: Any | None = None,
-    azimuth: np.ndarray | None = None,
-    aperture_shape: str = "circular",
-    taper: str = "gaussian",
-    edge_taper_dB: float = 10.0,
-    feed_model: str = "none",
-    feed_params: dict | None = None,
-    feed_computation: str = "analytical",
-    reflector_type: str = "prime_focus",
-    magnification: float = 1.0,
-    aperture_params: dict | None = None,
-) -> np.ndarray:
-    """Compute 2x2 Jones beam matrix for HEALPix pixels.
-
-    Same inputs as ``_compute_beam_power_pattern``, but returns the full
-    Jones matrices instead of collapsing to a scalar power pattern.
-
-    Returns
-    -------
-    jones : ndarray
-        Complex Jones matrices, shape ``(N, 2, 2)``.
-    """
-    if beam_manager is not None and antenna_number is not None:
-        jones = beam_manager.get_jones_matrix(
-            antenna_number=antenna_number,
-            alt_rad=np.pi / 2 - zenith_angles,
-            az_rad=azimuth if azimuth is not None else np.zeros_like(zenith_angles),
-            freq_hz=frequency,
-            location=None,
-            time=None,
-        )
-        if jones is not None:
-            return jones
-
-    from radiosim.core.jones.beam.analytic.composed import compute_aperture_beam
-
-    return compute_aperture_beam(
-        theta=zenith_angles,
-        phi=azimuth,
-        frequency=frequency,
-        diameter=diameter,
-        aperture_shape=aperture_shape,
-        taper=taper,
-        edge_taper_dB=edge_taper_dB,
-        feed_model=feed_model,
-        feed_params=feed_params,
-        feed_computation=feed_computation,
-        reflector_type=reflector_type,
-        magnification=magnification,
-        aperture_params=aperture_params,
-    )
+def _evaluate_beam_batch_by_antenna(
+    *,
+    beam_system: BeamSystem,
+    instrument: "SolverInstrumentView",
+    antenna_numbers: tuple[int, ...],
+    altitude_rad: np.ndarray,
+    azimuth_rad: np.ndarray,
+    frequency_hz: float,
+    time_mjd: float,
+    backend: ArrayBackend,
+) -> dict[int, Any]:
+    """Evaluate every selected handler once and share it by canonical ID."""
+    handler_by_antenna = dict(beam_system.state.assignment_handler_ids)
+    handler_cache: dict[str, Any] = {}
+    result: dict[int, Any] = {}
+    for antenna_number in antenna_numbers:
+        antenna_id = _canonical_antenna_id(instrument, antenna_number)
+        try:
+            handler_id = handler_by_antenna[antenna_id]
+        except KeyError as exc:
+            raise InstrumentAdapterInvariantError(
+                "BeamSystem assignment state does not cover solver antenna "
+                f"number={antenna_id.number}, name={antenna_id.name!r}"
+            ) from exc
+        if handler_id not in handler_cache:
+            handler_cache[handler_id] = beam_system.evaluate_jones(
+                antenna_id,
+                altitude_rad=np.array(
+                    altitude_rad,
+                    dtype=np.float64,
+                    copy=True,
+                    order="C",
+                ),
+                azimuth_rad=np.array(
+                    azimuth_rad,
+                    dtype=np.float64,
+                    copy=True,
+                    order="C",
+                ),
+                frequency_hz=float(frequency_hz),
+                time_mjd=float(time_mjd),
+                backend=backend,
+            )
+        result[antenna_number] = handler_cache[handler_id]
+    return result
 
 
 def compute_beam_squared_integral(
@@ -221,15 +132,14 @@ def compute_beam_squared_integral(
 def calculate_visibility_healpix(
     sky_model: SkyModel,
     instrument: "SolverInstrumentView",
+    beam_system: BeamSystem,
     location: Any,
     obstime: Any,
     wavelengths: Any,
     freqs: Any,
     duration_seconds: float,
     time_step_seconds: float,
-    beam_manager: Any | None = None,
     output_units: str = "Jy",
-    beam_config: dict | None = None,
     include_polarization: bool = False,
     backend: ArrayBackend | None = None,
 ) -> dict:
@@ -256,6 +166,8 @@ def calculate_visibility_healpix(
         Sky model in HEALPix mode (brightness temperature in K).
     instrument : SolverInstrumentView
         Owned canonical antenna values and selected baseline geometry.
+    beam_system : BeamSystem
+        Canonical per-antenna beam evaluator.
     location : EarthLocation
         Observer's geographical location.
     obstime : Time
@@ -268,15 +180,9 @@ def calculate_visibility_healpix(
         Total observation duration in seconds.
     time_step_seconds : float
         Time step for integration in seconds.
-    beam_manager : BeamManager, optional
-        Internal low-level beam adapter; high-level configuration is analytic.
     output_units : str, default="Jy"
         Output units: "Jy" (convert to Jansky) or "K.sr" (keep temperature ×
         solid angle). In polarized mode, always "Jy".
-    beam_config : dict, optional
-        Beam configuration with keys: aperture_shape, taper, edge_taper_dB,
-        feed_model, feed_params, feed_computation, reflector_type, magnification,
-        aperture_params.
     include_polarization : bool, default=False
         If True and sky model has polarized HEALPix maps, compute full 2×2
         visibility matrices using the RIME with Jones beam matrices. Output
@@ -304,6 +210,8 @@ def calculate_visibility_healpix(
 
     if type(instrument) is not SolverInstrumentView:
         raise TypeError("instrument must be a SolverInstrumentView")
+    if type(beam_system) is not BeamSystem:
+        raise TypeError("beam_system must be an exact BeamSystem")
     if backend is None:
         backend = get_backend("numpy")
     xp = backend.xp
@@ -342,13 +250,9 @@ def calculate_visibility_healpix(
 
     # Initialize output array
     if use_polarization:
-        visibilities = backend.zeros_complex(
-            (n_baselines, n_times, n_freqs, 2, 2), dtype=np.complex128
-        )
+        visibilities = backend.zeros_complex((n_baselines, n_times, n_freqs, 2, 2))
     else:
-        visibilities = backend.zeros_complex(
-            (n_baselines, n_times, n_freqs), dtype=np.complex128
-        )
+        visibilities = backend.zeros_complex((n_baselines, n_times, n_freqs))
 
     logger.info(
         f"Computing visibilities: {n_times} times \u00d7 {n_freqs} freqs "
@@ -390,17 +294,13 @@ def calculate_visibility_healpix(
         dir_m_xp = backend.asarray(dir_m, dtype=backend.default_real_dtype)
         dir_n_xp = backend.asarray(dir_n, dtype=backend.default_real_dtype)
 
-        # Zenith angles for beam computation
-        za_vis = np.pi / 2 - alt_vis
-
-        # Collect unique antenna numbers
-        ant_nums = {number for pair in baseline_keys for number in pair}
-
-        has_beam_manager = (
-            beam_manager is not None
-            and getattr(beam_manager, "mode", "analytic") != "analytic"
+        # Collect selected antenna numbers in canonical instrument order.
+        selected_numbers = {number for pair in baseline_keys for number in pair}
+        ant_nums = tuple(
+            number
+            for number in instrument.antenna_numbers
+            if number in selected_numbers
         )
-        bcfg = beam_config or {}
 
         # ======================================================================
         # FREQUENCY LOOP
@@ -409,6 +309,16 @@ def calculate_visibility_healpix(
             zip(wavelengths, freqs, strict=True)
         ):
             wavelength_m = wavelength.to(u.m).value
+            jones_cache = _evaluate_beam_batch_by_antenna(
+                beam_system=beam_system,
+                instrument=instrument,
+                antenna_numbers=ant_nums,
+                altitude_rad=alt_vis,
+                azimuth_rad=az_vis,
+                frequency_hz=float(freq),
+                time_mjd=float(current_obstime.mjd),
+                backend=backend,
+            )
 
             if use_polarization:
                 # ----- POLARIZED PATH -----
@@ -469,33 +379,6 @@ def calculate_visibility_healpix(
                 # Build per-pixel coherency matrices: (n_visible, 2, 2)
                 coherency = stokes_to_coherency(I_jy, Q_jy, U_jy, V_jy, xp=xp)
 
-                # Compute per-antenna Jones matrices
-                jones_cache: dict[Any, Any] = {}
-                for ant_num in ant_nums:
-                    ant_diameter = float(
-                        instrument.diameters_m[instrument.row_for_number(ant_num)]
-                    )
-                    jones_cache[ant_num] = backend.asarray(
-                        _compute_beam_jones_matrix(
-                            zenith_angles=za_vis,
-                            diameter=ant_diameter,
-                            frequency=freq,
-                            beam_manager=beam_manager if has_beam_manager else None,
-                            antenna_number=ant_num,
-                            azimuth=az_vis,
-                            aperture_shape=bcfg.get("aperture_shape", "circular"),
-                            taper=bcfg.get("taper", "gaussian"),
-                            edge_taper_dB=bcfg.get("edge_taper_dB", 10.0),
-                            feed_model=bcfg.get("feed_model", "none"),
-                            feed_params=bcfg.get("feed_params"),
-                            feed_computation=bcfg.get("feed_computation", "analytical"),
-                            reflector_type=bcfg.get("reflector_type", "prime_focus"),
-                            magnification=bcfg.get("magnification", 1.0),
-                            aperture_params=bcfg.get("aperture_params"),
-                        ),
-                        dtype=np.complex128,
-                    )
-
                 # Compute visibility for each baseline
                 # V_pq = Σ_pix phase_pix * J_p @ C_pix @ J_q^H
                 for bl_idx, ((ant1, ant2), bl_vec) in enumerate(
@@ -519,7 +402,7 @@ def calculate_visibility_healpix(
                     )
 
             else:
-                # ----- SCALAR PATH (unchanged) -----
+                # ----- I-ONLY PATH -----
                 full_temp_map = sky_model.healpix.get_map_at_frequency(freq)
                 temp_vis = full_temp_map[above_horizon]
 
@@ -550,45 +433,28 @@ def calculate_visibility_healpix(
                         * omega_pixel
                     )
 
-                # Compute per-antenna beam power patterns for this frequency
-                beam_patterns: dict[Any, Any] = {}
-                for ant_num in ant_nums:
-                    ant_diameter = float(
-                        instrument.diameters_m[instrument.row_for_number(ant_num)]
-                    )
-                    beam_patterns[ant_num] = backend.asarray(
-                        _compute_beam_power_pattern(
-                            zenith_angles=za_vis,
-                            diameter=ant_diameter,
-                            frequency=freq,
-                            beam_manager=beam_manager if has_beam_manager else None,
-                            antenna_number=ant_num,
-                            azimuth=az_vis,
-                            aperture_shape=bcfg.get("aperture_shape", "circular"),
-                            taper=bcfg.get("taper", "gaussian"),
-                            edge_taper_dB=bcfg.get("edge_taper_dB", 10.0),
-                            feed_model=bcfg.get("feed_model", "none"),
-                            feed_params=bcfg.get("feed_params"),
-                            feed_computation=bcfg.get("feed_computation", "analytical"),
-                            reflector_type=bcfg.get("reflector_type", "prime_focus"),
-                            magnification=bcfg.get("magnification", 1.0),
-                            aperture_params=bcfg.get("aperture_params"),
-                        ),
-                        dtype=backend.default_real_dtype,
-                    )
-
-                # V = Σ B_pq * signal × exp(-2πi (ul + vm + w(n-1)))
+                # Construct C=(I/2)I2, then apply the complete matrix RIME.
+                coherency = backend.batch_eye(
+                    (len(temp_vis),),
+                    2,
+                    dtype=backend.default_complex_dtype,
+                )
+                coherency = coherency * (signal / 2.0)[:, None, None]
                 for bl_idx, ((ant1, ant2), bl_vec) in enumerate(
                     zip(baseline_keys, baseline_vectors, strict=True)
                 ):
                     bl_u, bl_v, bl_w = bl_vec / wavelength_m
                     delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)
                     phase = backend.exp(-2j * np.pi * delay)
-
-                    B_pq = backend.sqrt(beam_patterns[ant1] * beam_patterns[ant2])
-                    beamed_signal = signal * B_pq
-
-                    vis = backend.sum(beamed_signal * phase)
+                    J_p = jones_cache[ant1]
+                    J_q_H = backend.conjugate_transpose(jones_cache[ant2])
+                    V_all = backend.matmul(
+                        backend.matmul(J_p, coherency),
+                        J_q_H,
+                    )
+                    V_all = V_all * phase[:, None, None]
+                    matrix = backend.sum(V_all, axis=0)
+                    vis = matrix[0, 0] + matrix[1, 1]
                     visibilities = backend.set_at(
                         visibilities, (bl_idx, time_idx, freq_idx), vis
                     )

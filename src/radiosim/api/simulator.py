@@ -77,42 +77,28 @@ def _runtime_loader_value(value: Any) -> Any:
     return value
 
 
-def _guard_beam_runtime(beams: object) -> None:
-    """Reject Tier 3B declarations that do not have runtime support yet."""
+_TIER3G_OBSERVABILITY_MESSAGE = (
+    "Tier 3G observability migration is required for this beam mode"
+)
+
+
+def _guard_legacy_observability_beam(
+    beams: object,
+    antennas: Sequence[ResolvedAntenna],
+) -> None:
+    """Allow only the exact legacy-equivalent observability beam mode."""
     from radiosim.core.beam import (
         ResolvedAnalyticBeamsInput,
         ResolvedCircularApertureBeamModel,
     )
-    from radiosim.io.config import ConfigIssue
-    from radiosim.io.config_resolution import UnsupportedConfigError
 
     if type(beams) is not ResolvedAnalyticBeamsInput:
-        raise UnsupportedConfigError(
-            [
-                ConfigIssue(
-                    "beams.mode",
-                    "beam_runtime_fits_pending",
-                    "beam_runtime_fits_pending: FITS-backed beam modes are declared "
-                    "but runtime activation remains pending a later Tier 3 slice",
-                    stage="unsupported",
-                    category="unsupported",
-                )
-            ]
-        )
+        raise NotImplementedError(_TIER3G_OBSERVABILITY_MESSAGE)
     if type(beams.model.model) is not ResolvedCircularApertureBeamModel:
-        raise UnsupportedConfigError(
-            [
-                ConfigIssue(
-                    "beams.model.kind",
-                    "beam_runtime_analytic_variant_pending",
-                    "beam_runtime_analytic_variant_pending: this analytic beam "
-                    "variant is declared but runtime activation belongs to a later "
-                    "Tier 3 slice",
-                    stage="unsupported",
-                    category="unsupported",
-                )
-            ]
-        )
+        raise NotImplementedError(_TIER3G_OBSERVABILITY_MESSAGE)
+    diameters = {float(antenna.diameter_m) for antenna in antennas}
+    if len(diameters) != 1:
+        raise NotImplementedError(_TIER3G_OBSERVABILITY_MESSAGE)
 
 
 def _project_direct_circular_beam(beams: object) -> dict[str, object]:
@@ -160,9 +146,8 @@ class Simulator:
     - selecting a resolved backend and precision policy; and
     - returning results for explicit saving or plotting.
 
-    FITS/per-antenna beams and pending analytic variants are rejected at the
-    Simulator boundary. Backend selection does not promise end-to-end GPU
-    execution.
+    Analytic, FITS, and mixed per-antenna beams share one canonical BeamSystem.
+    Backend selection does not promise end-to-end GPU execution.
 
     Parameters
     ----------
@@ -215,8 +200,6 @@ class Simulator:
         self._obstime = None
         self._frequencies_hz: np.ndarray | None = None
         self._wavelengths = None
-        self._beam_config: dict = {}
-        self._beam_manager = None
         self._is_setup = False
         self._network_status = None
         self._device_resources = None
@@ -508,8 +491,6 @@ class Simulator:
         self._obstime = None
         self._frequencies_hz = None
         self._wavelengths = None
-        self._beam_config = {}
-        self._beam_manager = None
         self._network_status = None
         self._device_resources = None
         self._is_setup = False
@@ -550,8 +531,6 @@ class Simulator:
             raise RuntimeError("Instrument resolution has not completed")
         if self._beam_system is None:
             raise RuntimeError("Beam resolution has not completed")
-
-        _guard_beam_runtime(self._resolved.beams)
 
         # Import core modules
         from radiosim.backends import get_backend
@@ -611,9 +590,6 @@ class Simulator:
             f"Frequencies: {len(self._frequencies_hz)} channels, "
             f"{self._frequencies_hz[0] / 1e6:.1f} - {self._frequencies_hz[-1] / 1e6:.1f} MHz"
         )
-
-        # Project the only runtime-supported Tier 3B shape for the legacy solver.
-        self._beam_config = _project_direct_circular_beam(self._resolved.beams)
 
         # Get visibility configuration
         visibility_config = self._resolved.visibility
@@ -921,15 +897,14 @@ class Simulator:
             healpix_result = calculate_visibility_healpix(
                 sky_model=self._sky_model,
                 instrument=self._solver_instrument_view,
+                beam_system=self.beam_system,
                 location=self._location,
                 obstime=self._obstime,
                 wavelengths=self._wavelengths,
                 freqs=self._frequencies_hz,
                 duration_seconds=duration_seconds,
                 time_step_seconds=time_step_seconds,
-                beam_manager=self._beam_manager,
                 output_units="Jy",
-                beam_config=self._beam_config,
                 include_polarization=use_pol,
                 backend=self._backend,
             )
@@ -955,20 +930,20 @@ class Simulator:
             else:
                 # Scalar: vis_array is (n_bl, n_t, n_f)
                 for bl_idx, bl_key in enumerate(baseline_keys):
+                    parallel_hand = vis_array[bl_idx] / 2.0
                     visibilities[bl_key] = {
                         "I": vis_array[bl_idx],
-                        "XX": vis_array[bl_idx],
-                        "YY": vis_array[bl_idx],
+                        "XX": parallel_hand,
+                        "YY": parallel_hand,
                         "XY": np.zeros_like(vis_array[bl_idx]),
                         "YX": np.zeros_like(vis_array[bl_idx]),
                     }
 
         else:
             # Use point source RIME calculation (original behavior)
-            # Build jones_config with beam settings
-            jones_config = {"beam": self._beam_config}
             visibilities = self._simulator.calculate_visibilities(
                 instrument=self._solver_instrument_view,
+                beam_system=self.beam_system,
                 source_arrays=self._source_arrays,
                 frequencies=self._frequencies_hz,
                 backend=self._backend,
@@ -979,10 +954,8 @@ class Simulator:
                 # Time-stepping parameters
                 duration_seconds=duration_seconds,
                 time_step_seconds=time_step_seconds,
-                # Optional kwargs
-                beam_manager=self._beam_manager,
                 return_correlations=True,
-                jones_config=jones_config,
+                jones_config=None,
             )
 
         t_total = time.perf_counter() - t_start
@@ -1278,23 +1251,15 @@ class Simulator:
         Bokeh layout
         """
         self._ensure_instrument_state()
+        _guard_legacy_observability_beam(self._resolved.beams, self.antennas)
         self._ensure_beam_system()
-        _guard_beam_runtime(self._resolved.beams)
 
         from radiosim.core.observability import ObservabilityPlanner
-        from radiosim.core.observability.planner import (
-            HeterogeneousObservabilityUnsupportedError,
-        )
 
         distinct_diameters = tuple(
             sorted({float(antenna.diameter_m) for antenna in self.antennas})
         )
-        if len(distinct_diameters) != 1:
-            raise HeterogeneousObservabilityUnsupportedError(
-                "Observability does not support heterogeneous antenna diameters "
-                f"{distinct_diameters}; heterogeneous footprint semantics belong "
-                "to Tier 3"
-            )
+        assert len(distinct_diameters) == 1
         diameter = distinct_diameters[0]
 
         from radiosim.visualization.observability import ObservabilityBokehRenderer

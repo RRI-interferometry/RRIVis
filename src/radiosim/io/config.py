@@ -2141,8 +2141,8 @@ def schema_issues_from_validation_error(
         ):
             message = f"legacy beam_mode={item['input']!r} is not accepted"
             hint = (
-                "Use 'analytic' for the current shared analytic-beam input; "
-                "FITS/per-antenna behavior remains unsupported until Tier 3."
+                "Use the strict tagged beams.mode values: analytic, shared_fits, "
+                "per_antenna_fits, or mixed."
             )
             code = "removed_value"
         if code == "extra_forbidden":

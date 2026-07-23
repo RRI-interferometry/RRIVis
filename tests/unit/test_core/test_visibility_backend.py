@@ -8,10 +8,10 @@ from astropy.coordinates import EarthLocation
 from astropy.time import Time
 
 import radiosim.core.visibility as visibility_module
-import radiosim.core.visibility_healpix as healpix_visibility_module
 from radiosim.api import Simulator
 from radiosim.backends import get_backend
 from radiosim.backends.base import BackendNotAvailableError
+from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import (
     InstrumentAdapterInvariantError,
     SolverInstrumentView,
@@ -29,17 +29,23 @@ LOCATION = EarthLocation.from_geodetic(0.0 * u.deg, 0.0 * u.deg, 0.0 * u.m)
 OBSTIME = Time("2024-01-01T00:00:00")
 
 
-def _instrument_view(tmp_path) -> SolverInstrumentView:
+def _solver_components(tmp_path) -> tuple[SolverInstrumentView, object]:
     data = valid_config_mapping(
         tmp_path,
         baseline_selection={"correlations": "cross"},
     )
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
     simulator._ensure_instrument_state()
-    return SolverInstrumentView.from_state(simulator._instrument_state)
+    simulator._ensure_beam_system()
+    return (
+        SolverInstrumentView.from_state(simulator._instrument_state),
+        simulator.beam_system,
+    )
 
 
-def _heterogeneous_instrument_view(tmp_path) -> SolverInstrumentView:
+def _heterogeneous_solver_components(
+    tmp_path,
+) -> tuple[SolverInstrumentView, object]:
     data = valid_config_mapping(
         tmp_path,
         baseline_selection={"correlations": "cross"},
@@ -57,7 +63,11 @@ def _heterogeneous_instrument_view(tmp_path) -> SolverInstrumentView:
     (tmp_path / "antennas.txt").write_text("\n".join(lines) + "\n")
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
     simulator._ensure_instrument_state()
-    return SolverInstrumentView.from_state(simulator._instrument_state)
+    simulator._ensure_beam_system()
+    return (
+        SolverInstrumentView.from_state(simulator._instrument_state),
+        simulator.beam_system,
+    )
 
 
 def _get_optional_backend(name: str):
@@ -126,9 +136,11 @@ def _healpix_model(*, polarized: bool = False) -> SkyModel:
 def test_point_source_visibility_numba_matches_numpy(tmp_path):
     numpy_backend = _get_optional_backend("numpy")
     numba_backend = _get_optional_backend("numba")
+    instrument, beam_system = _solver_components(tmp_path)
 
     expected = calculate_visibility(
-        instrument=_instrument_view(tmp_path),
+        instrument=instrument,
+        beam_system=beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
         obstime=OBSTIME,
@@ -139,7 +151,8 @@ def test_point_source_visibility_numba_matches_numpy(tmp_path):
         backend=numpy_backend,
     )
     actual = calculate_visibility(
-        instrument=_instrument_view(tmp_path),
+        instrument=instrument,
+        beam_system=beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
         obstime=OBSTIME,
@@ -162,9 +175,11 @@ def test_point_source_visibility_numba_matches_numpy(tmp_path):
 def test_point_source_visibility_jax_matches_numpy(tmp_path):
     numpy_backend = _get_optional_backend("numpy")
     jax_backend = _get_optional_backend("jax")
+    instrument, beam_system = _solver_components(tmp_path)
 
     expected = calculate_visibility(
-        instrument=_instrument_view(tmp_path),
+        instrument=instrument,
+        beam_system=beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
         obstime=OBSTIME,
@@ -175,7 +190,8 @@ def test_point_source_visibility_jax_matches_numpy(tmp_path):
         backend=numpy_backend,
     )
     actual = calculate_visibility(
-        instrument=_instrument_view(tmp_path),
+        instrument=instrument,
+        beam_system=beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
         obstime=OBSTIME,
@@ -199,10 +215,12 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
     sky_model = _healpix_model(polarized=polarized)
     numpy_backend = _get_optional_backend("numpy")
     numba_backend = _get_optional_backend("numba")
+    instrument, beam_system = _solver_components(tmp_path)
 
     expected = calculate_visibility_healpix(
         sky_model,
-        instrument=_instrument_view(tmp_path),
+        instrument=instrument,
+        beam_system=beam_system,
         location=LOCATION,
         obstime=OBSTIME,
         wavelengths=WAVELENGTHS,
@@ -214,7 +232,8 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
     )
     actual = calculate_visibility_healpix(
         sky_model,
-        instrument=_instrument_view(tmp_path),
+        instrument=instrument,
+        beam_system=beam_system,
         location=LOCATION,
         obstime=OBSTIME,
         wavelengths=WAVELENGTHS,
@@ -235,9 +254,8 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
 
 def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
     tmp_path,
-    monkeypatch,
 ):
-    view = _heterogeneous_instrument_view(tmp_path)
+    view, beam_system = _heterogeneous_solver_components(tmp_path)
     backend = _get_optional_backend("numpy")
 
     assert view.antenna_numbers == (0, 1)
@@ -247,6 +265,7 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
 
     point_result = calculate_visibility(
         instrument=view,
+        beam_system=beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
         obstime=OBSTIME,
@@ -258,46 +277,26 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
     )
     assert point_result[(0, 1)]["I"].shape == (1, 1)
 
-    point_beam: dict[str, object] = {}
-
-    def capture_analytic_beam(**kwargs):
-        point_beam.update(kwargs)
-        return object()
-
-    monkeypatch.setattr(
-        visibility_module,
-        "_ResolvedInstrumentAnalyticBeamJones",
-        capture_analytic_beam,
+    first = beam_system.evaluate_jones(
+        AntennaId(0, "ANT0"),
+        altitude_rad=np.array([1.0]),
+        azimuth_rad=np.array([0.0]),
+        frequency_hz=float(FREQS[0]),
+        time_mjd=float(OBSTIME.mjd),
     )
-    visibility_module._build_jones_chain(
-        backend=backend,
-        jones_config={},
-        instrument=view,
-        alt_rad=np.array([1.0]),
-        az_rad=np.array([0.0]),
-        freq=FREQS[0],
-        freq_idx=0,
-        n_sources=1,
-        location=LOCATION,
-        time_idx=0,
+    second = beam_system.evaluate_jones(
+        AntennaId(1, "ANT1"),
+        altitude_rad=np.array([1.0]),
+        azimuth_rad=np.array([0.0]),
+        frequency_hz=float(FREQS[0]),
+        time_mjd=float(OBSTIME.mjd),
     )
-    assert "diameter" not in point_beam
-    assert point_beam["diameters_by_antenna"] == {0: 12.0, 1: 25.0}
+    assert not np.array_equal(first, second)
 
-    healpix_diameters: list[float] = []
-
-    def capture_healpix_beam(*, zenith_angles, diameter, **kwargs):
-        healpix_diameters.append(diameter)
-        return np.ones_like(zenith_angles)
-
-    monkeypatch.setattr(
-        healpix_visibility_module,
-        "_compute_beam_power_pattern",
-        capture_healpix_beam,
-    )
     healpix_result = calculate_visibility_healpix(
         _healpix_model(),
         instrument=view,
+        beam_system=beam_system,
         location=LOCATION,
         obstime=OBSTIME,
         wavelengths=WAVELENGTHS,
@@ -309,15 +308,25 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
 
     assert healpix_result["baseline_keys"] == ((0, 1),)
     assert healpix_result["visibilities"].shape == (1, 1, 1)
-    assert sorted(healpix_diameters) == [12.0, 25.0]
 
 
-def test_point_beam_rejects_missing_resolved_antenna_identity():
-    beam = visibility_module._ResolvedInstrumentAnalyticBeamJones(
-        diameters_by_antenna={4: 12.0, 9: 25.0},
-        source_altaz=np.array([[1.0, 0.0]]),
-        frequencies=FREQS,
+def test_point_beam_rejects_inconsistent_solver_antenna_number(tmp_path):
+    view, beam_system = _solver_components(tmp_path)
+    beam = visibility_module._ResolvedBeamJones(
+        beam_system=beam_system,
+        instrument=view,
+        altitude_rad=np.array([1.0]),
+        azimuth_rad=np.array([0.0]),
+        frequency_hz=float(FREQS[0]),
+        time_mjd=float(OBSTIME.mjd),
     )
 
-    with pytest.raises(InstrumentAdapterInvariantError, match="antenna number 7"):
-        beam._get_diameter_for_antenna(7)
+    with pytest.raises(InstrumentAdapterInvariantError, match="disagree"):
+        beam.compute_jones_all_sources(
+            antenna_idx=0,
+            n_sources=1,
+            freq_idx=0,
+            time_idx=0,
+            backend=get_backend("numpy"),
+            antenna_number=7,
+        )

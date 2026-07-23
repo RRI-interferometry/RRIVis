@@ -17,6 +17,7 @@ Where:
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from radiosim.core.beam import BeamSystem
     from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.sky.containers.model import SourceArrays
 
@@ -90,6 +91,7 @@ class RIMESimulator(VisibilitySimulator):
     >>> backend = get_backend("jax")  # or "numpy", "numba"
     >>> visibilities = sim.calculate_visibilities(
     ...     instrument=instrument_view,
+    ...     beam_system=beam_system,
     ...     source_arrays=source_arrays,
     ...     frequencies=freqs,
     ...     backend=backend,
@@ -146,10 +148,18 @@ class RIMESimulator(VisibilitySimulator):
     def calculate_visibilities(
         self,
         instrument: "SolverInstrumentView",
+        beam_system: "BeamSystem",
         source_arrays: "SourceArrays",
         frequencies: np.ndarray,
         backend: Any,
-        **kwargs,
+        *,
+        location: Any,
+        obstime: Any,
+        wavelengths: Any,
+        duration_seconds: float = 1.0,
+        time_step_seconds: float = 1.0,
+        return_correlations: bool = True,
+        jones_config: dict[str, Any] | None = None,
     ) -> dict[tuple[Any, Any], dict]:
         """
         Calculate visibilities using direct RIME summation.
@@ -163,6 +173,9 @@ class RIMESimulator(VisibilitySimulator):
         instrument : SolverInstrumentView
             Owned canonical antenna values and selected baseline geometry.
 
+        beam_system : BeamSystem
+            Exact canonical per-antenna beam evaluator.
+
         source_arrays : dict
             Dict of source arrays from ``SkyModel.as_point_source_arrays()``.
 
@@ -172,16 +185,17 @@ class RIMESimulator(VisibilitySimulator):
         backend : ArrayBackend
             Computation backend (numpy, jax, or numba).
 
-        **kwargs : dict
-            Required:
-                - location: EarthLocation for observer
-                - obstime: Time for observation
-                - wavelengths: Quantity array of wavelengths
+        location, obstime, wavelengths
+            Observer coordinates, observation time, and wavelength array.
 
-            Optional:
-                - beam_manager: BeamManager for FITS beams
-                - return_correlations: bool (default True)
-                - jones_config: dict of Jones term configs (includes beam config)
+        duration_seconds, time_step_seconds : float
+            Time-domain extent and cadence.
+
+        return_correlations : bool
+            Extract XX/XY/YX/YY/I when true.
+
+        jones_config : dict, optional
+            Non-beam Jones term configuration.
 
         Returns
         -------
@@ -192,8 +206,6 @@ class RIMESimulator(VisibilitySimulator):
 
         Raises
         ------
-        ValueError
-            If required kwargs are missing.
         ImportError
             If core.visibility module cannot be imported.
 
@@ -204,41 +216,13 @@ class RIMESimulator(VisibilitySimulator):
         computation is done in the core module, which has been extensively
         tested and validated against other simulators.
         """
-        # Extract required parameters from kwargs FIRST (before importing)
-        location = kwargs.get("location")
-        obstime = kwargs.get("obstime")
-        wavelengths = kwargs.get("wavelengths")
-
-        # Validate required parameters
-        missing = []
-        if location is None:
-            missing.append("location")
-        if obstime is None:
-            missing.append("obstime")
-        if wavelengths is None:
-            missing.append("wavelengths")
-
-        if missing:
-            raise ValueError(
-                f"RIMESimulator requires the following kwargs: {missing}. "
-                "These are needed for coordinate transforms and beam calculations."
-            )
-
-        # Import here to avoid circular imports (after validation)
+        # Import here to avoid circular imports.
         from radiosim.core.visibility import calculate_visibility
-
-        # Extract optional parameters with defaults
-        beam_manager = kwargs.get("beam_manager", None)
-        return_correlations = kwargs.get("return_correlations", True)
-        jones_config = kwargs.get("jones_config", None)
-
-        # Extract time-stepping parameters (required)
-        duration_seconds = kwargs.get("duration_seconds", 1.0)
-        time_step_seconds = kwargs.get("time_step_seconds", 1.0)
 
         # Delegate to core implementation
         return calculate_visibility(
             instrument=instrument,
+            beam_system=beam_system,
             source_arrays=source_arrays,
             location=location,
             obstime=obstime,
@@ -246,7 +230,6 @@ class RIMESimulator(VisibilitySimulator):
             freqs=frequencies,
             duration_seconds=duration_seconds,
             time_step_seconds=time_step_seconds,
-            beam_manager=beam_manager,
             return_correlations=return_correlations,
             backend=backend,
             jones_config=jones_config,

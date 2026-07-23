@@ -755,7 +755,7 @@ def test_semantic_collector_aggregates_stably_without_mutating_config(tmp_path):
     assert config.model_dump(mode="json") == before
 
 
-def test_unsupported_collector_leaves_final_beam_modes_to_runtime_guard(tmp_path):
+def test_unsupported_collector_accepts_final_beam_modes_for_runtime(tmp_path):
     config = valid_input_config(
         tmp_path,
         beams={
