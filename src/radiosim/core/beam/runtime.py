@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import math
 import threading
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import override
 
 from radiosim.core.beam.errors import (
     BeamAngularDomainError,
@@ -39,6 +43,7 @@ if TYPE_CHECKING:
 ArrayLike = Any
 
 _FREQUENCY_MATCH_TOLERANCE_HZ = 1e-6
+_LOGGER = logging.getLogger(__name__)
 
 
 class _UVBeamLike(Protocol):
@@ -91,7 +96,7 @@ class _BeamEvaluator(Protocol):
         azimuth_rad: np.ndarray,
         frequency_hz: float,
         time_mjd: float,
-    ) -> np.ndarray: ...
+    ) -> NDArray[np.complexfloating[Any, Any]]: ...
 
     def voltage_feature_scale_rad(self, frequency_hz: float) -> float: ...
 
@@ -100,6 +105,8 @@ class _BeamSystemRuntime:
     """Unpublished evaluator lookup owned by exactly one BeamSystem."""
 
     __slots__ = ("evaluator_by_handler_id", "handler_id_by_antenna")
+    evaluator_by_handler_id: Mapping[str, _BeamEvaluator]
+    handler_id_by_antenna: Mapping[AntennaId, str]
 
     def __init__(
         self,
@@ -107,8 +114,20 @@ class _BeamSystemRuntime:
         evaluator_by_handler_id: dict[str, _BeamEvaluator],
         handler_id_by_antenna: dict[AntennaId, str],
     ) -> None:
-        self.evaluator_by_handler_id = dict(evaluator_by_handler_id)
-        self.handler_id_by_antenna = dict(handler_id_by_antenna)
+        object.__setattr__(
+            self,
+            "evaluator_by_handler_id",
+            MappingProxyType(dict(evaluator_by_handler_id)),
+        )
+        object.__setattr__(
+            self,
+            "handler_id_by_antenna",
+            MappingProxyType(dict(handler_id_by_antenna)),
+        )
+
+    @override
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("BeamSystem runtime attributes are immutable")
 
 
 def _require_exact_finite_float(value: Any, field_name: str) -> float:
@@ -374,9 +393,6 @@ class _UVBeamScalarEvaluator:  # pyright: ignore[reportUnusedClass]
         return result
 
 
-_BEAM_SYSTEM_TOKEN = object()
-
-
 def _require_lookup_antenna_id(value: Any) -> AntennaId:
     if type(value) is not AntennaId:
         if isinstance(value, AntennaId):
@@ -391,13 +407,35 @@ def _require_lookup_antenna_id(value: Any) -> AntennaId:
 
 def _convert_backend_result(
     backend: Any,
-    host_result: np.ndarray,
+    host_result: NDArray[np.complexfloating[Any, Any]],
 ) -> Any:
     from radiosim.backends.base import ArrayBackend
 
     if not isinstance(backend, ArrayBackend):
         raise TypeError("backend must be an ArrayBackend or None")
     converted = backend.asarray(host_result, dtype=host_result.dtype)
+    try:
+        converted_shape = tuple(converted.shape)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise BeamEvaluationError(
+            "Beam backend conversion returned a value without a valid shape."
+        ) from exc
+    if converted_shape != host_result.shape:
+        raise BeamEvaluationError(
+            "Beam backend conversion returned shape "
+            f"{converted_shape!r}; expected {host_result.shape!r}."
+        )
+    try:
+        converted_dtype = np.dtype(converted.dtype)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise BeamEvaluationError(
+            "Beam backend conversion returned a value without a valid dtype."
+        ) from exc
+    if converted_dtype != host_result.dtype:
+        raise BeamEvaluationError(
+            "Beam backend conversion returned dtype "
+            f"{converted_dtype!s}; expected {host_result.dtype!s}."
+        )
     if isinstance(converted, np.ndarray):
         owned = np.array(
             converted,
@@ -418,21 +456,12 @@ class BeamSystem:
     def __init_subclass__(cls, **kwargs: Any) -> None:
         raise TypeError("BeamSystem does not support subclassing")
 
-    def __init__(
-        self,
-        state: LoadedBeamState,
-        runtime: _BeamSystemRuntime,
-        *,
-        _token: object,
-    ) -> None:
-        if _token is not _BEAM_SYSTEM_TOKEN:
-            raise TypeError("BeamSystem instances must be created by load_beam_system")
-        if type(state) is not LoadedBeamState:
-            raise TypeError("state must be an exact LoadedBeamState")
-        if type(runtime) is not _BeamSystemRuntime:
-            raise TypeError("runtime must be a private BeamSystem runtime")
-        self.__state = state
-        self.__runtime = runtime
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError("BeamSystem instances must be created by load_beam_system")
+
+    @override
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("BeamSystem attributes are immutable")
 
     @property
     def state(self) -> LoadedBeamState:
@@ -466,7 +495,15 @@ class BeamSystem:
                 f"number={canonical.number}, name={canonical.name!r}; loaded "
                 "beam state is inconsistent."
             )
-        evaluator = self.__runtime.evaluator_by_handler_id[handler_id]
+        evaluator = cast(
+            _BeamEvaluator | None,
+            self.__runtime.evaluator_by_handler_id.get(handler_id),
+        )
+        if evaluator is None:
+            raise InconsistentBeamAssignmentError(
+                f"BeamSystem has no evaluator for handler_id={handler_id!r}; "
+                "loaded beam runtime is inconsistent."
+            )
         host_result = evaluator.evaluate_numpy(
             altitude_rad,
             azimuth_rad,
@@ -593,7 +630,39 @@ def _load_beam_system(
         evaluator_by_handler_id=evaluator_by_handler_id,
         handler_id_by_antenna=handler_id_by_antenna,
     )
-    return BeamSystem(loaded_state, runtime, _token=_BEAM_SYSTEM_TOKEN)
+    system = object.__new__(BeamSystem)
+    object.__setattr__(system, "_BeamSystem__state", loaded_state)
+    object.__setattr__(system, "_BeamSystem__runtime", runtime)
+
+    for handler in loaded_state.handlers:
+        if handler.file is None:
+            transport_path = "<analytic>"
+            metadata_summary = (
+                f"definition_fingerprint={handler.definition_fingerprint}"
+            )
+        else:
+            transport_path = str(handler.file.resolved_path)
+            metadata_summary = (
+                f"shape={handler.file.data_shape} "
+                f"frequencies_hz=[{handler.file.frequency_min_hz},"
+                f"{handler.file.frequency_max_hz}] "
+                f"frequency_count={handler.file.frequency_count}"
+            )
+        _LOGGER.info(
+            "BeamSystem handler validated: handler_id=%s kind=%s "
+            "transport_path=%s metadata=%s",
+            handler.handler_id,
+            handler.kind,
+            transport_path,
+            metadata_summary,
+        )
+    _LOGGER.info(
+        "BeamSystem published: handlers=%d assignments=%d deduplicated_assignments=%d",
+        len(loaded_state.handlers),
+        len(loaded_state.assignment_handler_ids),
+        len(loaded_state.assignment_handler_ids) - len(loaded_state.handlers),
+    )
+    return system
 
 
 def load_beam_system(

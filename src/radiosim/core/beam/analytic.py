@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import math
 from dataclasses import dataclass
 from typing import Any, cast
@@ -39,26 +40,106 @@ from radiosim.core.beam.models import (
     _canonical_digest,  # pyright: ignore[reportPrivateUsage]
     _effective_assignment_dimensions,  # pyright: ignore[reportPrivateUsage]
 )
-from radiosim.core.precision import COMPLEX256_AVAILABLE, PrecisionConfig
+from radiosim.core.precision import (
+    COMPLEX256_AVAILABLE,
+    FLOAT128_AVAILABLE,
+    PrecisionConfig,
+)
 
 _C_M_PER_S = 299_792_458.0
 _ANALYTIC_CONTRACT = "tier3-scalar-v1"
 
 
-def _uniform_taper(u_beam: np.ndarray) -> np.ndarray:
-    u = np.asarray(u_beam, dtype=np.float64)
-    argument = np.pi * u
-    result = np.ones_like(argument)
-    nonzero = argument != 0.0
-    result[nonzero] = 2.0 * j1(argument[nonzero]) / argument[nonzero]
+def _extended_math_module() -> Any:
+    try:
+        return importlib.import_module("mpmath")
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise UnsupportedBeamPrecisionError(
+            "Analytic float128 evaluation requires mpmath for extended-precision "
+            "constants and Bessel functions."
+        ) from exc
+
+
+def _pi(real_dtype: np.dtype[Any]) -> Any:
+    if real_dtype.itemsize <= np.dtype(np.float64).itemsize:
+        return real_dtype.type(np.pi)
+    mpmath = _extended_math_module()
+    decimal_digits = np.finfo(real_dtype).precision
+    with mpmath.workdps(decimal_digits + 8):
+        return real_dtype.type(mpmath.nstr(mpmath.pi, n=decimal_digits + 2))
+
+
+def _sinc(values: np.ndarray, *, real_dtype: np.dtype[Any]) -> np.ndarray:
+    arguments = _pi(real_dtype) * np.asarray(values, dtype=real_dtype)
+    result = np.ones_like(arguments)
+    nonzero = arguments != real_dtype.type(0.0)
+    result[nonzero] = np.sin(arguments[nonzero]) / arguments[nonzero]
     return result
 
 
-def _gaussian_taper(u_beam: np.ndarray, edge_taper_db: float) -> np.ndarray:
-    u = np.asarray(u_beam, dtype=np.float64)
-    pedestal = 10.0 ** (-edge_taper_db / 20.0)
-    alpha = edge_taper_db * np.log(10.0) / 20.0
-    return pedestal * _uniform_taper(u) + (1.0 - pedestal) * np.exp(-alpha * u**2)
+def _bessel_j_integer(
+    order: int,
+    values: np.ndarray,
+    *,
+    real_dtype: np.dtype[Any],
+) -> np.ndarray:
+    """Evaluate integer-order Bessel J without silently narrowing precision."""
+    arguments = np.asarray(values, dtype=real_dtype)
+    if real_dtype.itemsize <= np.dtype(np.float64).itemsize:
+        if order == 0:
+            evaluated = j0(arguments)
+        elif order == 1:
+            evaluated = j1(arguments)
+        else:
+            evaluated = jv(order, arguments)
+        return np.asarray(evaluated, dtype=real_dtype)
+
+    mpmath = _extended_math_module()
+    decimal_digits = np.finfo(real_dtype).precision
+    evaluated = np.empty(arguments.shape, dtype=real_dtype)
+    with mpmath.workdps(decimal_digits + 8):
+        for index, argument in np.ndenumerate(arguments):
+            argument_text = np.format_float_scientific(
+                argument,
+                precision=decimal_digits,
+                unique=False,
+                trim="k",
+            )
+            value = mpmath.besselj(order, mpmath.mpf(argument_text))
+            evaluated[index] = real_dtype.type(mpmath.nstr(value, n=decimal_digits + 2))
+    return evaluated
+
+
+def _uniform_taper(
+    u_beam: np.ndarray,
+    *,
+    real_dtype: np.dtype[Any],
+) -> np.ndarray:
+    u = np.asarray(u_beam, dtype=real_dtype)
+    argument = _pi(real_dtype) * u
+    result = np.ones_like(argument)
+    nonzero = argument != real_dtype.type(0.0)
+    result[nonzero] = (
+        real_dtype.type(2.0)
+        * _bessel_j_integer(1, argument[nonzero], real_dtype=real_dtype)
+        / argument[nonzero]
+    )
+    return result
+
+
+def _gaussian_taper(
+    u_beam: np.ndarray,
+    edge_taper_db: float,
+    *,
+    real_dtype: np.dtype[Any],
+) -> np.ndarray:
+    u = np.asarray(u_beam, dtype=real_dtype)
+    taper = real_dtype.type(edge_taper_db)
+    pedestal = real_dtype.type(10.0) ** (-taper / real_dtype.type(20.0))
+    alpha = taper * np.log(real_dtype.type(10.0)) / real_dtype.type(20.0)
+    return pedestal * _uniform_taper(u, real_dtype=real_dtype) + (
+        real_dtype.type(1.0) - pedestal
+    ) * np.exp(-alpha * u**2)
 
 
 def _parabolic_taper(
@@ -66,49 +147,75 @@ def _parabolic_taper(
     edge_taper_db: float,
     *,
     squared: bool,
+    real_dtype: np.dtype[Any],
 ) -> np.ndarray:
-    u = np.asarray(u_beam, dtype=np.float64)
-    argument = np.pi * u
-    pedestal = 10.0 ** (-edge_taper_db / 20.0)
+    u = np.asarray(u_beam, dtype=real_dtype)
+    argument = _pi(real_dtype) * u
+    taper = real_dtype.type(edge_taper_db)
+    pedestal = real_dtype.type(10.0) ** (-taper / real_dtype.type(20.0))
     tapered = np.ones_like(argument)
-    nonzero = argument != 0.0
+    nonzero = argument != real_dtype.type(0.0)
     if squared:
-        tapered[nonzero] = 48.0 * jv(3, argument[nonzero]) / argument[nonzero] ** 3
+        tapered[nonzero] = (
+            real_dtype.type(48.0)
+            * _bessel_j_integer(3, argument[nonzero], real_dtype=real_dtype)
+            / argument[nonzero] ** 3
+        )
     else:
-        tapered[nonzero] = 8.0 * jv(2, argument[nonzero]) / argument[nonzero] ** 2
-    return pedestal * _uniform_taper(u) + (1.0 - pedestal) * tapered
+        tapered[nonzero] = (
+            real_dtype.type(8.0)
+            * _bessel_j_integer(2, argument[nonzero], real_dtype=real_dtype)
+            / argument[nonzero] ** 2
+        )
+    return (
+        pedestal * _uniform_taper(u, real_dtype=real_dtype)
+        + (real_dtype.type(1.0) - pedestal) * tapered
+    )
 
 
-def _cosine_taper(u_beam: np.ndarray) -> np.ndarray:
-    u = np.asarray(u_beam, dtype=np.float64)
+def _cosine_taper(
+    u_beam: np.ndarray,
+    *,
+    real_dtype: np.dtype[Any],
+) -> np.ndarray:
+    u = np.asarray(u_beam, dtype=real_dtype)
     result = np.empty_like(u)
-    zero = u == 0.0
-    singular = np.abs(np.abs(u) - 1.0) < 1e-12
+    zero = u == real_dtype.type(0.0)
+    singular = np.abs(np.abs(u) - real_dtype.type(1.0)) < real_dtype.type(1e-12)
     regular = ~zero & ~singular
-    result[zero] = 1.0
-    result[singular] = np.pi / 4.0
-    result[regular] = np.cos(np.pi * u[regular] / 2.0) / (1.0 - u[regular] ** 2)
+    result[zero] = real_dtype.type(1.0)
+    result[singular] = _pi(real_dtype) / real_dtype.type(4.0)
+    result[regular] = np.cos(_pi(real_dtype) * u[regular] / real_dtype.type(2.0)) / (
+        real_dtype.type(1.0) - u[regular] ** 2
+    )
     return result
 
 
-def _corrugated_horn(theta_feed: np.ndarray, q: float) -> np.ndarray:
-    return np.cos(np.asarray(theta_feed, dtype=np.float64)) ** q
+def _corrugated_horn(
+    theta_feed: np.ndarray,
+    q: float,
+    *,
+    real_dtype: np.dtype[Any],
+) -> np.ndarray:
+    return np.cos(np.asarray(theta_feed, dtype=real_dtype)) ** real_dtype.type(q)
 
 
 def _open_waveguide(
     theta_feed: np.ndarray,
     b_over_lambda: float,
+    *,
+    real_dtype: np.dtype[Any],
 ) -> tuple[np.ndarray, np.ndarray]:
-    theta = np.asarray(theta_feed, dtype=np.float64)
+    theta = np.asarray(theta_feed, dtype=real_dtype)
     e_plane = np.cos(theta)
-    x = b_over_lambda * np.sin(theta)
-    denominator = 1.0 - (2.0 * x) ** 2
-    singular = np.abs(denominator) < 1e-12
-    safe_denominator = np.where(singular, 1.0, denominator)
+    x = real_dtype.type(b_over_lambda) * np.sin(theta)
+    denominator = real_dtype.type(1.0) - (real_dtype.type(2.0) * x) ** 2
+    singular = np.abs(denominator) < real_dtype.type(1e-12)
+    safe_denominator = np.where(singular, real_dtype.type(1.0), denominator)
     h_plane = np.where(
         singular,
-        np.pi / 4.0,
-        np.cos(np.pi * x) / safe_denominator,
+        _pi(real_dtype) / real_dtype.type(4.0),
+        np.cos(_pi(real_dtype) * x) / safe_denominator,
     )
     return e_plane, h_plane
 
@@ -116,9 +223,16 @@ def _open_waveguide(
 def _dipole_ground_plane(
     theta_feed: np.ndarray,
     height_wavelengths: float,
+    *,
+    real_dtype: np.dtype[Any],
 ) -> np.ndarray:
-    theta = np.asarray(theta_feed, dtype=np.float64)
-    return np.cos(theta) * np.sin(2.0 * np.pi * height_wavelengths * np.cos(theta))
+    theta = np.asarray(theta_feed, dtype=real_dtype)
+    return np.cos(theta) * np.sin(
+        real_dtype.type(2.0)
+        * _pi(real_dtype)
+        * real_dtype.type(height_wavelengths)
+        * np.cos(theta)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,11 +248,27 @@ def _result_dtype(precision: PrecisionConfig) -> np.dtype[Any]:
         return np.dtype(np.complex64)
     if requested == "float64":
         return np.dtype(np.complex128)
-    if requested == "float128" and COMPLEX256_AVAILABLE:
+    if requested == "float128" and FLOAT128_AVAILABLE and COMPLEX256_AVAILABLE:
         return np.dtype(np.complex256)
     raise UnsupportedBeamPrecisionError(
         "Analytic beam evaluation requested float128 beam precision, but this "
         "NumPy runtime does not provide a distinct complex256 dtype."
+    )
+
+
+def _real_dtype(result_dtype: np.dtype[Any]) -> np.dtype[Any]:
+    if result_dtype == np.dtype(np.complex64):
+        return np.dtype(np.float32)
+    if result_dtype == np.dtype(np.complex128):
+        return np.dtype(np.float64)
+    if (
+        FLOAT128_AVAILABLE
+        and COMPLEX256_AVAILABLE
+        and result_dtype == np.dtype(np.complex256)
+    ):
+        return np.dtype(np.float128)
+    raise UnsupportedBeamPrecisionError(
+        f"Analytic beam result dtype {result_dtype!s} has no supported real width."
     )
 
 
@@ -172,19 +302,27 @@ def _observation_frequencies(
 def _feed_response(
     illumination: object,
     theta_feed: np.ndarray,
+    *,
+    real_dtype: np.dtype[Any],
 ) -> np.ndarray:
     if type(illumination) is ResolvedCorrugatedHornIllumination:
-        return _corrugated_horn(theta_feed, q=illumination.q)
+        return _corrugated_horn(
+            theta_feed,
+            q=illumination.q,
+            real_dtype=real_dtype,
+        )
     if type(illumination) is ResolvedOpenWaveguideIllumination:
         e_plane, h_plane = _open_waveguide(
             theta_feed,
             b_over_lambda=illumination.b_over_lambda,
+            real_dtype=real_dtype,
         )
         return np.sqrt(np.abs(e_plane) * np.abs(h_plane))
     if type(illumination) is ResolvedDipoleGroundPlaneIllumination:
         return _dipole_ground_plane(
             theta_feed,
             height_wavelengths=illumination.height_wavelengths,
+            real_dtype=real_dtype,
         )
     raise TypeError("analytic definition contains an unsupported illumination")
 
@@ -195,25 +333,46 @@ def _feed_angles(
     ),
     rho_m: np.ndarray,
     diameter_m: float,
+    *,
+    real_dtype: np.dtype[Any],
 ) -> np.ndarray:
-    focal_length_m = model.illumination.focal_ratio * diameter_m
+    focal_length_m = real_dtype.type(model.illumination.focal_ratio) * real_dtype.type(
+        diameter_m
+    )
     if type(model.reflector) is ResolvedCassegrainReflector:
-        return 2.0 * np.arctan(
-            rho_m / (2.0 * model.reflector.magnification * focal_length_m)
+        return real_dtype.type(2.0) * np.arctan(
+            rho_m
+            / (
+                real_dtype.type(2.0)
+                * real_dtype.type(model.reflector.magnification)
+                * focal_length_m
+            )
         )
-    return 2.0 * np.arctan(rho_m / (2.0 * focal_length_m))
+    return real_dtype.type(2.0) * np.arctan(
+        rho_m / (real_dtype.type(2.0) * focal_length_m)
+    )
 
 
 def _derived_edge_taper_db(
     model: ResolvedAnalyticalIlluminationBeamModel,
     diameter_m: float,
 ) -> float:
+    real_dtype = np.dtype(np.float64)
     edge_angle = _feed_angles(
         model,
         np.array([diameter_m / 2.0], dtype=np.float64),
         diameter_m,
+        real_dtype=real_dtype,
     )
-    edge_response = float(np.abs(_feed_response(model.illumination, edge_angle)[0]))
+    edge_response = float(
+        np.abs(
+            _feed_response(
+                model.illumination,
+                edge_angle,
+                real_dtype=real_dtype,
+            )[0]
+        )
+    )
     if not math.isfinite(edge_response) or edge_response <= 0.0:
         raise BeamSamplingDerivationError(
             "Analytic illumination has no finite positive voltage at the "
@@ -306,18 +465,34 @@ def _scientific_fingerprint(
 def _direct_taper_voltage(
     model: ResolvedCircularApertureBeamModel,
     u_beam: np.ndarray,
+    *,
+    real_dtype: np.dtype[Any],
 ) -> np.ndarray:
     taper = model.taper
     if type(taper) is ResolvedUniformTaper:
-        return _uniform_taper(u_beam)
+        return _uniform_taper(u_beam, real_dtype=real_dtype)
     if type(taper) is ResolvedGaussianTaper:
-        return _gaussian_taper(u_beam, taper.edge_taper_db)
+        return _gaussian_taper(
+            u_beam,
+            taper.edge_taper_db,
+            real_dtype=real_dtype,
+        )
     if type(taper) is ResolvedParabolicTaper:
-        return _parabolic_taper(u_beam, taper.edge_taper_db, squared=False)
+        return _parabolic_taper(
+            u_beam,
+            taper.edge_taper_db,
+            squared=False,
+            real_dtype=real_dtype,
+        )
     if type(taper) is ResolvedParabolicSquaredTaper:
-        return _parabolic_taper(u_beam, taper.edge_taper_db, squared=True)
+        return _parabolic_taper(
+            u_beam,
+            taper.edge_taper_db,
+            squared=True,
+            real_dtype=real_dtype,
+        )
     if type(taper) is ResolvedCosineTaper:
-        return _cosine_taper(u_beam)
+        return _cosine_taper(u_beam, real_dtype=real_dtype)
     raise TypeError("circular analytic definition contains an unsupported taper")
 
 
@@ -325,14 +500,30 @@ def _derived_taper_voltage(
     model: ResolvedAnalyticalIlluminationBeamModel,
     u_beam: np.ndarray,
     edge_taper_db: float,
+    *,
+    real_dtype: np.dtype[Any],
 ) -> np.ndarray:
     taper = model.taper_profile
     if type(taper) is ResolvedDerivedGaussianTaper:
-        return _gaussian_taper(u_beam, edge_taper_db)
+        return _gaussian_taper(
+            u_beam,
+            edge_taper_db,
+            real_dtype=real_dtype,
+        )
     if type(taper) is ResolvedDerivedParabolicTaper:
-        return _parabolic_taper(u_beam, edge_taper_db, squared=False)
+        return _parabolic_taper(
+            u_beam,
+            edge_taper_db,
+            squared=False,
+            real_dtype=real_dtype,
+        )
     if type(taper) is ResolvedDerivedParabolicSquaredTaper:
-        return _parabolic_taper(u_beam, edge_taper_db, squared=True)
+        return _parabolic_taper(
+            u_beam,
+            edge_taper_db,
+            squared=True,
+            real_dtype=real_dtype,
+        )
     raise TypeError("analytical illumination contains an unsupported taper profile")
 
 
@@ -341,24 +532,59 @@ def _numerical_voltage(
     theta_rad: np.ndarray,
     diameter_m: float,
     frequency_hz: float,
+    *,
+    real_dtype: np.dtype[Any],
 ) -> np.ndarray:
-    radius_m = diameter_m / 2.0
-    rho_m = np.linspace(0.0, radius_m, model.n_radial, dtype=np.float64)
+    diameter = real_dtype.type(diameter_m)
+    radius_m = diameter / real_dtype.type(2.0)
+    rho_m = np.linspace(
+        real_dtype.type(0.0),
+        radius_m,
+        model.n_radial,
+        dtype=real_dtype,
+    )
     illumination = _feed_response(
         model.illumination,
-        _feed_angles(model, rho_m, diameter_m),
+        _feed_angles(
+            model,
+            rho_m,
+            diameter_m,
+            real_dtype=real_dtype,
+        ),
+        real_dtype=real_dtype,
     )
-    normalization = float(np.trapezoid(illumination * rho_m, rho_m))
-    if not math.isfinite(normalization) or abs(normalization) <= np.finfo(float).tiny:
+    normalization = np.asarray(
+        np.trapezoid(illumination * rho_m, rho_m),
+        dtype=real_dtype,
+    )[()]
+    if (
+        not np.isfinite(normalization)
+        or abs(normalization) <= np.finfo(real_dtype).tiny
+    ):
         raise BeamSamplingDerivationError(
             "Numerical illumination has a zero or non-finite Hankel normalization."
         )
-    u_beam = diameter_m * np.sin(theta_rad) * frequency_hz / _C_M_PER_S
-    argument = 2.0 * np.pi * u_beam[:, None] * rho_m[None, :] / diameter_m
-    integrand = illumination[None, :] * j0(argument) * rho_m[None, :]
+    u_beam = (
+        diameter
+        * np.sin(theta_rad)
+        * real_dtype.type(frequency_hz)
+        / real_dtype.type(_C_M_PER_S)
+    )
+    argument = (
+        real_dtype.type(2.0)
+        * _pi(real_dtype)
+        * u_beam[:, None]
+        * rho_m[None, :]
+        / diameter
+    )
+    integrand = (
+        illumination[None, :]
+        * _bessel_j_integer(0, argument, real_dtype=real_dtype)
+        * rho_m[None, :]
+    )
     return np.asarray(
         np.trapezoid(integrand, rho_m, axis=1) / normalization,
-        dtype=np.float64,
+        dtype=real_dtype,
     )
 
 
@@ -367,6 +593,7 @@ class _AnalyticScalarEvaluator:
         "_antenna_diameter_m",
         "_definition",
         "_identity",
+        "_real_dtype",
         "_result_dtype",
         "_science",
     )
@@ -377,12 +604,14 @@ class _AnalyticScalarEvaluator:
         definition: ResolvedAnalyticBeamDefinition,
         antenna_diameter_m: float,
         identity: str,
+        real_dtype: np.dtype[Any],
         result_dtype: np.dtype[Any],
         science: _AnalyticScience,
     ) -> None:
         self._definition = definition
         self._antenna_diameter_m = antenna_diameter_m
         self._identity = identity
+        self._real_dtype = real_dtype
         self._result_dtype = result_dtype
         self._science = science
 
@@ -420,8 +649,8 @@ class _AnalyticScalarEvaluator:
                 or azimuth_rad.dtype.kind not in "fiu"
             ):
                 raise TypeError("direction arrays must have real numeric dtypes")
-            altitude = np.asarray(altitude_rad, dtype=np.float64)
-            azimuth = np.asarray(azimuth_rad, dtype=np.float64)
+            altitude = np.asarray(altitude_rad, dtype=self._real_dtype)
+            azimuth = np.asarray(azimuth_rad, dtype=self._real_dtype)
         except (TypeError, ValueError, OverflowError) as exc:
             raise BeamAngularDomainError(
                 "altitude_rad and azimuth_rad must contain real numeric values."
@@ -430,7 +659,8 @@ class _AnalyticScalarEvaluator:
             raise NonFiniteBeamResponseError(
                 "altitude_rad and azimuth_rad must contain finite values."
             )
-        if np.any(altitude < -np.pi / 2.0) or np.any(altitude > np.pi / 2.0):
+        half_pi = _pi(self._real_dtype) / self._real_dtype.type(2.0)
+        if np.any(altitude < -half_pi) or np.any(altitude > half_pi):
             raise BeamAngularDomainError(
                 "altitude_rad values must lie in [-pi/2, pi/2]."
             )
@@ -447,45 +677,73 @@ class _AnalyticScalarEvaluator:
                 "time_mjd must be an exact finite Python float."
             )
 
-        voltage = np.zeros(altitude.shape, dtype=np.float64)
-        visible = altitude >= 0.0
+        voltage = np.zeros(altitude.shape, dtype=self._real_dtype)
+        visible = altitude >= self._real_dtype.type(0.0)
         if np.any(visible):
-            theta = np.pi / 2.0 - altitude[visible]
+            theta = half_pi - altitude[visible]
             visible_azimuth = azimuth[visible]
-            wavelength_m = _C_M_PER_S / frequency_hz
+            wavelength_m = self._real_dtype.type(_C_M_PER_S) / self._real_dtype.type(
+                frequency_hz
+            )
             model = self._definition.model
             if type(model) is ResolvedCircularApertureBeamModel:
-                u_beam = self._antenna_diameter_m * np.sin(theta) / wavelength_m
-                evaluated = _direct_taper_voltage(model, u_beam)
+                u_beam = (
+                    self._real_dtype.type(self._antenna_diameter_m)
+                    * np.sin(theta)
+                    / wavelength_m
+                )
+                evaluated = _direct_taper_voltage(
+                    model,
+                    u_beam,
+                    real_dtype=self._real_dtype,
+                )
             elif type(model) is ResolvedRectangularApertureBeamModel:
                 direction_radius = np.sin(theta)
                 north_u = (
-                    model.north_length_m
+                    self._real_dtype.type(model.north_length_m)
                     * direction_radius
                     * np.cos(visible_azimuth)
                     / wavelength_m
                 )
                 east_u = (
-                    model.east_length_m
+                    self._real_dtype.type(model.east_length_m)
                     * direction_radius
                     * np.sin(visible_azimuth)
                     / wavelength_m
                 )
-                evaluated = np.sinc(north_u) * np.sinc(east_u)
+                evaluated = np.asarray(
+                    _sinc(north_u, real_dtype=self._real_dtype)
+                    * _sinc(east_u, real_dtype=self._real_dtype),
+                    dtype=self._real_dtype,
+                )
             elif type(model) is ResolvedEllipticalApertureBeamModel:
-                effective_diameter = 1.0 / np.sqrt(
-                    (np.cos(visible_azimuth) / model.north_diameter_m) ** 2
-                    + (np.sin(visible_azimuth) / model.east_diameter_m) ** 2
+                effective_diameter = self._real_dtype.type(1.0) / np.sqrt(
+                    (
+                        np.cos(visible_azimuth)
+                        / self._real_dtype.type(model.north_diameter_m)
+                    )
+                    ** 2
+                    + (
+                        np.sin(visible_azimuth)
+                        / self._real_dtype.type(model.east_diameter_m)
+                    )
+                    ** 2
                 )
                 evaluated = _uniform_taper(
-                    effective_diameter * np.sin(theta) / wavelength_m
+                    effective_diameter * np.sin(theta) / wavelength_m,
+                    real_dtype=self._real_dtype,
                 )
             elif type(model) is ResolvedAnalyticalIlluminationBeamModel:
-                u_beam = self._antenna_diameter_m * np.sin(theta) / wavelength_m
+                u_beam = (
+                    self._real_dtype.type(self._antenna_diameter_m)
+                    * np.sin(theta)
+                    / wavelength_m
+                )
                 evaluated = _derived_taper_voltage(
                     model,
                     u_beam,
                     cast(float, self._science.derived_edge_taper_db),
+                    real_dtype=self._real_dtype,
                 )
             elif type(model) is ResolvedNumericalIlluminationBeamModel:
                 evaluated = _numerical_voltage(
@@ -493,11 +751,12 @@ class _AnalyticScalarEvaluator:
                     theta,
                     self._antenna_diameter_m,
                     frequency_hz,
+                    real_dtype=self._real_dtype,
                 )
             else:
                 raise TypeError("analytic definition contains an unsupported model")
-            evaluated = np.asarray(evaluated, dtype=np.float64)
-            evaluated[theta == 0.0] = 1.0
+            evaluated = np.asarray(evaluated, dtype=self._real_dtype)
+            evaluated[theta == self._real_dtype.type(0.0)] = self._real_dtype.type(1.0)
             voltage[visible] = evaluated
 
         if not np.all(np.isfinite(voltage)):
@@ -538,11 +797,16 @@ def _load_analytic_handler(  # pyright: ignore[reportUnusedFunction]
         raise ValueError("antenna_diameter_m must be positive")
     if type(precision) is not PrecisionConfig:
         raise TypeError("precision must be an exact PrecisionConfig")
-    if type(handler_ordinal) is not int or handler_ordinal < 0:
-        raise ValueError("handler_ordinal must be a nonnegative exact integer")
+    if (
+        type(handler_ordinal) is not int
+        or handler_ordinal < 0
+        or handler_ordinal > 9999
+    ):
+        raise ValueError("handler_ordinal must be an exact integer in [0, 9999]")
 
     frequencies = _observation_frequencies(observation_frequencies_hz)
     result_dtype = _result_dtype(precision)
+    real_dtype = _real_dtype(result_dtype)
     science = _science(definition, antenna_diameter_m)
     feature_scales = tuple(
         (
@@ -571,6 +835,7 @@ def _load_analytic_handler(  # pyright: ignore[reportUnusedFunction]
         definition=definition,
         antenna_diameter_m=antenna_diameter_m,
         identity=handler_id,
+        real_dtype=real_dtype,
         result_dtype=result_dtype,
         science=science,
     )

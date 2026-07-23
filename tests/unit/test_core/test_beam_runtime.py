@@ -827,6 +827,48 @@ def test_distinct_fits_options_and_paths_are_never_preload_deduplicated(
     assert len(system.state.handlers) == 2
 
 
+def test_same_fits_science_at_distinct_paths_keeps_distinct_handler_ordinals(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.beamfits"
+    second = tmp_path / "second.beamfits"
+    first.write_bytes(b"same transport")
+    second.write_bytes(b"same transport")
+    state, frequencies, precision = _resolved_runtime_state(
+        tmp_path,
+        {
+            "mode": "per_antenna_fits",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": 0},
+                    "beam": {"kind": "fits", "path": first.name},
+                },
+                {
+                    "antenna": {"kind": "number", "number": 1},
+                    "beam": {"kind": "fits", "path": second.name},
+                },
+            ],
+        },
+    )
+    system = _load_system(
+        state,
+        frequencies,
+        precision,
+        loader=_CountingLoader(),
+    )
+    first_handler, second_handler = system.state.handlers
+
+    assert len(system.state.handlers) == 2
+    assert first_handler.scientific_fingerprint == (
+        second_handler.scientific_fingerprint
+    )
+    assert first_handler.handler_id.startswith("beam-0000-")
+    assert second_handler.handler_id.startswith("beam-0001-")
+    assert first_handler.file is not None
+    assert second_handler.file is not None
+    assert first_handler.file.resolved_path != second_handler.file.resolved_path
+
+
 def test_mixed_system_lookup_is_canonical_and_unknown_is_fixed_error(
     tmp_path: Path,
 ) -> None:
@@ -1524,3 +1566,285 @@ def test_loaded_handler_kind_and_file_coherence_is_exact(tmp_path: Path) -> None
         replace(handler, kind="analytic")
     with pytest.raises(TypeError, match="file must be an exact BeamFileProvenance"):
         replace(handler, file=None)
+
+
+def test_loaded_state_rejects_handler_ordinal_mismatch_with_valid_fingerprint(
+    tmp_path: Path,
+) -> None:
+    state, frequencies, precision = _resolved_runtime_state(
+        tmp_path,
+        {"mode": "analytic"},
+    )
+    loaded = _load_system(
+        state,
+        frequencies,
+        precision,
+        loader=_CountingLoader(),
+    ).state
+    original = loaded.handlers[0]
+    replacement_id = f"beam-0042-{original.scientific_fingerprint[:12]}"
+    handlers = (replace(original, handler_id=replacement_id),)
+    assignment_handler_ids = tuple(
+        (antenna_id, replacement_id)
+        for antenna_id, _handler_id in loaded.assignment_handler_ids
+    )
+    fingerprint = beam_models._loaded_state_fingerprint(
+        loaded.resolved,
+        handlers,
+        assignment_handler_ids,
+    )
+
+    with pytest.raises(ValueError, match="ordinal must match canonical handler order"):
+        replace(
+            loaded,
+            handlers=handlers,
+            assignment_handler_ids=assignment_handler_ids,
+            loaded_fingerprint=fingerprint,
+        )
+
+
+def test_loaded_state_rejects_different_handler_frequency_axes(
+    tmp_path: Path,
+) -> None:
+    state, frequencies, precision = _resolved_runtime_state(
+        tmp_path,
+        {"mode": "analytic"},
+        heterogeneous_diameters=True,
+    )
+    loaded = _load_system(
+        state,
+        frequencies,
+        precision,
+        loader=_CountingLoader(),
+    ).state
+    changed = replace(
+        loaded.handlers[1],
+        voltage_feature_scale_by_frequency=tuple(
+            (frequency_hz + 1.0, scale_rad)
+            for frequency_hz, scale_rad in (
+                loaded.handlers[1].voltage_feature_scale_by_frequency
+            )
+        ),
+    )
+    handlers = (loaded.handlers[0], changed)
+    fingerprint = beam_models._loaded_state_fingerprint(
+        loaded.resolved,
+        handlers,
+        loaded.assignment_handler_ids,
+    )
+
+    with pytest.raises(ValueError, match="identical ordered frequency axes"):
+        replace(
+            loaded,
+            handlers=handlers,
+            loaded_fingerprint=fingerprint,
+        )
+
+
+def test_beam_system_rejects_copied_factory_token_and_forged_runtime(
+    tmp_path: Path,
+) -> None:
+    from radiosim.core.beam import BeamSystem
+    from radiosim.core.beam import runtime as runtime_module
+
+    state, frequencies, precision = _resolved_runtime_state(
+        tmp_path,
+        {"mode": "analytic"},
+    )
+    system = _load_system(
+        state,
+        frequencies,
+        precision,
+        loader=_CountingLoader(),
+    )
+    private_runtime = runtime_module._BeamSystemRuntime(
+        evaluator_by_handler_id={},
+        handler_id_by_antenna={},
+    )
+    copied_token = getattr(runtime_module, "_BEAM_SYSTEM_TOKEN", None)
+    arguments: tuple[object, ...] = (system.state, private_runtime)
+    keywords = {} if copied_token is None else {"_token": copied_token}
+
+    with pytest.raises(
+        TypeError,
+        match="BeamSystem instances must be created by load_beam_system",
+    ):
+        BeamSystem(*arguments, **keywords)
+
+
+def test_beam_system_runtime_maps_and_attributes_are_immutable(
+    tmp_path: Path,
+) -> None:
+    from radiosim.core.instrument import AntennaId
+
+    state, frequencies, precision = _resolved_runtime_state(
+        tmp_path,
+        {"mode": "analytic"},
+    )
+    system = _load_system(
+        state,
+        frequencies,
+        precision,
+        loader=_CountingLoader(),
+    )
+    runtime = system._BeamSystem__runtime
+
+    with pytest.raises(TypeError):
+        runtime.handler_id_by_antenna[AntennaId(99, "FORGED")] = system.state.handlers[
+            0
+        ].handler_id
+    with pytest.raises(TypeError):
+        runtime.evaluator_by_handler_id["forged"] = object()
+    with pytest.raises(AttributeError):
+        runtime.handler_id_by_antenna = {}
+    with pytest.raises(AttributeError):
+        system._BeamSystem__runtime = runtime
+    with pytest.raises(AttributeError):
+        system._BeamSystem__state = system.state
+
+
+def test_missing_runtime_evaluator_raises_fixed_inconsistent_state_error(
+    tmp_path: Path,
+) -> None:
+    from radiosim.core.beam import BeamSystem, InconsistentBeamAssignmentError
+    from radiosim.core.beam import runtime as runtime_module
+    from radiosim.core.instrument import AntennaId
+
+    state, frequencies, precision = _resolved_runtime_state(
+        tmp_path,
+        {"mode": "analytic"},
+    )
+    system = _load_system(
+        state,
+        frequencies,
+        precision,
+        loader=_CountingLoader(),
+    )
+    antenna_id = AntennaId(0, "ANT0")
+    handler_id = system.state.assignment_handler_ids[0][1]
+    forged_runtime = runtime_module._BeamSystemRuntime(
+        evaluator_by_handler_id={},
+        handler_id_by_antenna={antenna_id: handler_id},
+    )
+    forged = object.__new__(BeamSystem)
+    object.__setattr__(forged, "_BeamSystem__state", system.state)
+    object.__setattr__(forged, "_BeamSystem__runtime", forged_runtime)
+
+    with pytest.raises(
+        InconsistentBeamAssignmentError,
+        match="has no evaluator for handler_id",
+    ):
+        forged.evaluate_jones(
+            antenna_id,
+            altitude_rad=np.array([np.pi / 2.0]),
+            azimuth_rad=np.array([0.0]),
+            frequency_hz=frequencies[0],
+            time_mjd=60_000.0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("malformation", "message"),
+    [
+        ("shape", "returned shape"),
+        ("dtype", "returned dtype"),
+    ],
+)
+def test_backend_conversion_rejects_malformed_results(
+    tmp_path: Path,
+    malformation: str,
+    message: str,
+) -> None:
+    from radiosim.backends.numpy_backend import NumPyBackend
+    from radiosim.core.instrument import AntennaId
+
+    class MalformedBackend(NumPyBackend):
+        def asarray(self, arr: Any, dtype: Any | None = None) -> np.ndarray:
+            if malformation == "shape":
+                return np.zeros((1,), dtype=dtype)
+            return np.asarray(arr, dtype=np.complex64)
+
+    state, frequencies, precision = _resolved_runtime_state(
+        tmp_path,
+        {"mode": "analytic"},
+    )
+    system = _load_system(
+        state,
+        frequencies,
+        precision,
+        loader=_CountingLoader(),
+    )
+
+    with pytest.raises(BeamEvaluationError, match=message):
+        system.evaluate_jones(
+            AntennaId(0, "ANT0"),
+            altitude_rad=np.array([np.pi / 2.0]),
+            azimuth_rad=np.array([0.0]),
+            frequency_hz=frequencies[0],
+            time_mjd=60_000.0,
+            backend=MalformedBackend(precision=precision),
+        )
+
+
+def test_beam_system_logging_is_atomic_and_records_validated_summary(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    first = tmp_path / "first.beamfits"
+    second = tmp_path / "second.beamfits"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    state, frequencies, precision = _resolved_runtime_state(
+        tmp_path,
+        {
+            "mode": "per_antenna_fits",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": 0},
+                    "beam": {"kind": "fits", "path": first.name},
+                },
+                {
+                    "antenna": {"kind": "number", "number": 1},
+                    "beam": {"kind": "fits", "path": second.name},
+                },
+            ],
+        },
+    )
+    caplog.set_level("INFO", logger="radiosim.core.beam.runtime")
+
+    from radiosim.core.beam import BeamFileReadError
+
+    with pytest.raises(BeamFileReadError):
+        _load_system(
+            state,
+            frequencies,
+            precision,
+            loader=_CountingLoader(fail_on={2}),
+        )
+    assert not caplog.records
+
+    system = _load_system(
+        state,
+        frequencies,
+        precision,
+        loader=_CountingLoader(),
+    )
+    messages = [record.getMessage() for record in caplog.records]
+
+    assert len(messages) == 3
+    assert system.state.handlers[0].handler_id in messages[0]
+    assert str(first.resolve(strict=False)) in messages[0]
+    assert system.state.handlers[1].handler_id in messages[1]
+    assert str(second.resolve(strict=False)) in messages[1]
+    assert messages[2] == (
+        "BeamSystem published: handlers=2 assignments=2 deduplicated_assignments=0"
+    )
+
+
+def test_analytic_helpers_compute_at_the_resolved_real_width() -> None:
+    from radiosim.core.beam.analytic import _uniform_taper
+
+    inputs = np.array([0.0, 0.25, 1.0], dtype=np.float32)
+    result = _uniform_taper(inputs, real_dtype=np.dtype(np.float32))
+
+    assert result.dtype == np.dtype(np.float32)

@@ -1246,6 +1246,7 @@ class LoadedBeamState(_ResolvedValue):
             raise ValueError("handlers must be a nonempty exact tuple")
         copied_handlers: list[LoadedBeamHandlerState] = []
         handler_ids: set[str] = set()
+        frequency_axis: tuple[float, ...] | None = None
         for index, handler in enumerate(self.handlers):
             _require_exact(
                 handler,
@@ -1257,6 +1258,22 @@ class LoadedBeamState(_ResolvedValue):
             copied = replace(handler, file=copied_file)
             if copied.handler_id in handler_ids:
                 raise ValueError("handler_id values must be unique")
+            if int(copied.handler_id[5:9]) != index:
+                raise ValueError(
+                    "handler_id ordinal must match canonical handler order"
+                )
+            copied_frequency_axis = tuple(
+                frequency_hz
+                for frequency_hz, _scale_rad in (
+                    copied.voltage_feature_scale_by_frequency
+                )
+            )
+            if frequency_axis is None:
+                frequency_axis = copied_frequency_axis
+            elif copied_frequency_axis != frequency_axis:
+                raise ValueError(
+                    "loaded handlers must use identical ordered frequency axes"
+                )
             handler_ids.add(copied.handler_id)
             copied_handlers.append(copied)
         handlers = tuple(copied_handlers)
