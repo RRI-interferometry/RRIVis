@@ -465,6 +465,111 @@ def test_complex64_source_is_privately_canonicalized_to_owned_complex128(
     assert not np.shares_memory(private_data, original_data)
 
 
+def test_tolerated_native_scalar_noise_is_canonicalized_to_x_diagonal(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "tolerated-native-noise.beamfits"
+    source.write_bytes(b"tolerated native scalar noise")
+    beam = build_scalar_efield_uvbeam()
+    tolerance = 0.5 * (1e-12 + 1e-10)
+    residual = tolerance * beam.data_array[0, 0]
+    beam.data_array[1, 0] = residual
+    beam.data_array[0, 1] = -residual
+    beam.data_array[1, 1] += residual
+    beam.check = lambda **kwargs: True
+    original_x = np.array(beam.data_array[0, 0], copy=True)
+    from radiosim.core.beam.fits import _load_fits_handler
+
+    loaded = _load_fits_handler(
+        _definition(source),
+        observation_frequencies_hz=(100e6,),
+        precision=PrecisionConfig.standard(),
+        loader=_MemoryLoader(beam),
+        handler_ordinal=0,
+    )
+    private_data = loaded.evaluator._beam.data_array
+
+    np.testing.assert_array_equal(private_data[0, 0], original_x)
+    np.testing.assert_array_equal(private_data[1, 1], original_x)
+    np.testing.assert_array_equal(private_data[0, 1], 0.0)
+    np.testing.assert_array_equal(private_data[1, 0], 0.0)
+
+
+def test_private_dependency_arrays_are_owned_non_memmap_and_read_only(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "private-read-only.beamfits"
+    source.write_bytes(b"private read-only state")
+    beam = build_scalar_efield_uvbeam()
+    memmap_path = tmp_path / "native-data.memmap"
+    mapped = np.memmap(
+        memmap_path,
+        mode="w+",
+        dtype=np.complex128,
+        shape=beam.data_array.shape,
+    )
+    mapped[...] = beam.data_array
+    beam.data_array = mapped
+    beam.check = lambda **kwargs: True
+    from radiosim.core.beam.fits import _load_fits_handler
+
+    loaded = _load_fits_handler(
+        _definition(source),
+        observation_frequencies_hz=(100e6,),
+        precision=PrecisionConfig.standard(),
+        loader=_MemoryLoader(beam),
+        handler_ordinal=0,
+    )
+    private_beam = loaded.evaluator._beam
+
+    for name in (
+        "data_array",
+        "basis_vector_array",
+        "freq_array",
+        "axis1_array",
+        "axis2_array",
+        "feed_array",
+        "feed_angle",
+        "bandpass_array",
+    ):
+        private = getattr(private_beam, name)
+        source_array = getattr(beam, name)
+        assert type(private) is np.ndarray
+        assert private.flags.owndata
+        assert private.flags.c_contiguous
+        assert not private.flags.writeable
+        assert not np.shares_memory(private, source_array)
+        with pytest.raises(ValueError):
+            private.flat[0] = private.flat[0]
+
+
+def test_dependency_deepcopy_cannot_alias_mutable_source_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "hostile-deepcopy.beamfits"
+    source.write_bytes(b"hostile deepcopy")
+    beam = build_scalar_efield_uvbeam()
+    beam.check = lambda **kwargs: True
+    monkeypatch.setattr(
+        type(beam),
+        "__deepcopy__",
+        lambda self, memo: self,
+        raising=False,
+    )
+    from radiosim.core.beam.fits import _load_fits_handler
+
+    with pytest.raises(BeamFileReadError, match="detach") as caught:
+        _load_fits_handler(
+            _definition(source),
+            observation_frequencies_hz=(100e6,),
+            precision=PrecisionConfig.standard(),
+            loader=_MemoryLoader(beam),
+            handler_ordinal=0,
+        )
+    assert isinstance(caught.value.__cause__, TypeError)
+
+
 def test_missing_pyuvdata_at_production_load_is_typed_and_chained(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -489,6 +594,28 @@ def test_missing_pyuvdata_at_production_load_is_typed_and_chained(
             handler_ordinal=0,
         )
     assert isinstance(caught.value.__cause__, ModuleNotFoundError)
+
+
+@pytest.mark.parametrize("version", ("3.2.0", "3.2.2", "4.0.0"))
+def test_non_pinned_dependency_version_fails_before_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    version: str,
+) -> None:
+    source = tmp_path / f"pyuvdata-{version}.beamfits"
+    source.write_bytes(version.encode())
+    beam = build_scalar_efield_uvbeam()
+    from radiosim.core.beam import fits
+
+    monkeypatch.setattr(fits.importlib.metadata, "version", lambda name: version)
+    with pytest.raises(BeamDependencyError, match="exactly '3.2.1'"):
+        fits._load_fits_handler(
+            _definition(source),
+            observation_frequencies_hz=(100e6,),
+            precision=PrecisionConfig.standard(),
+            loader=_MemoryLoader(beam),
+            handler_ordinal=0,
+        )
 
 
 def test_requested_complex256_fails_before_file_or_loader_work(tmp_path: Path) -> None:
@@ -1158,3 +1285,149 @@ def test_unsupported_metadata_uses_required_typed_errors(
             loader=Loader(),
             handler_ordinal=0,
         )
+
+
+@pytest.mark.parametrize(
+    "name,attribute,value,error_type",
+    (
+        ("scalar-feed", "feed_array", 1, UnsupportedBeamFeedError),
+        (
+            "string-feed-angle",
+            "feed_angle",
+            np.array(["bad", "bad"]),
+            UnsupportedBeamFeedError,
+        ),
+        (
+            "string-basis",
+            "basis_vector_array",
+            np.full((2, 2, 5, 8), "bad"),
+            UnsupportedBeamBasisError,
+        ),
+        (
+            "string-frequency",
+            "freq_array",
+            np.array(["bad"] * 4),
+            BeamFrequencyDomainError,
+        ),
+        (
+            "string-azimuth",
+            "axis1_array",
+            np.array(["bad"] * 8),
+            UnsupportedBeamCoordinateError,
+        ),
+        (
+            "string-bandpass",
+            "bandpass_array",
+            np.array(["bad"] * 4),
+            BeamNormalizationError,
+        ),
+        (
+            "array-beam-type",
+            "beam_type",
+            np.array(["efield", "power"]),
+            UnsupportedBeamTypeError,
+        ),
+    ),
+)
+def test_hostile_dependency_metadata_is_typed_and_chained(
+    tmp_path: Path,
+    name: str,
+    attribute: str,
+    value: object,
+    error_type: type[Exception],
+) -> None:
+    source = tmp_path / f"{name}.beamfits"
+    source.write_bytes(name.encode())
+    beam = build_scalar_efield_uvbeam()
+    setattr(beam, attribute, value)
+    beam.check = lambda **kwargs: True
+    from radiosim.core.beam.fits import _load_fits_handler
+
+    with pytest.raises(error_type) as caught:
+        _load_fits_handler(
+            _definition(source),
+            observation_frequencies_hz=(100e6,),
+            precision=PrecisionConfig.standard(),
+            loader=_MemoryLoader(beam),
+            handler_ordinal=0,
+        )
+    assert caught.value.__cause__ is not None
+
+
+@pytest.mark.parametrize(
+    "stage,error",
+    (
+        ("read", OverflowError("hostile dependency read")),
+        ("check", IndexError("hostile dependency check")),
+    ),
+)
+def test_unexpected_dependency_failures_are_typed_and_chained(
+    tmp_path: Path,
+    stage: str,
+    error: Exception,
+) -> None:
+    source = tmp_path / f"{stage}-failure.beamfits"
+    source.write_bytes(stage.encode())
+    beam = build_scalar_efield_uvbeam()
+
+    class Loader:
+        def read(self, path: Path):
+            if stage == "read":
+                raise error
+            beam.check = lambda **kwargs: (_ for _ in ()).throw(error)
+            return beam
+
+    from radiosim.core.beam.fits import _load_fits_handler
+
+    with pytest.raises(BeamFileReadError) as caught:
+        _load_fits_handler(
+            _definition(source),
+            observation_frequencies_hz=(100e6,),
+            precision=PrecisionConfig.standard(),
+            loader=Loader(),
+            handler_ordinal=0,
+        )
+    assert caught.value.__cause__ is error
+
+
+def test_cleanup_failure_preserves_primary_typed_error_and_dependency_cause(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "primary-and-cleanup-failure.beamfits"
+    source.write_bytes(b"primary and cleanup failure")
+    from radiosim.core.beam import fits
+
+    dependency_error = OverflowError("primary dependency failure")
+
+    class Loader:
+        def read(self, path: Path):
+            raise dependency_error
+
+    class FailingCleanupTemporaryDirectory:
+        def __init__(self, *, prefix: str) -> None:
+            self._real = temporary_directory(prefix=prefix)
+            self.name = self._real.name
+
+        def cleanup(self) -> None:
+            self._real.cleanup()
+            raise OSError("secondary cleanup failure")
+
+    temporary_directory = fits.tempfile.TemporaryDirectory
+    monkeypatch.setattr(
+        fits.tempfile,
+        "TemporaryDirectory",
+        FailingCleanupTemporaryDirectory,
+    )
+    with pytest.raises(BeamFileReadError, match="could not read") as caught:
+        fits._load_fits_handler(
+            _definition(source),
+            observation_frequencies_hz=(100e6,),
+            precision=PrecisionConfig.standard(),
+            loader=Loader(),
+            handler_ordinal=0,
+        )
+    assert caught.value.__cause__ is dependency_error
+    assert any(
+        "cleanup failed" in note for note in getattr(caught.value, "__notes__", ())
+    )

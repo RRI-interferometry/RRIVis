@@ -18,6 +18,7 @@ import numpy as np
 from radiosim.core.beam.errors import (
     BeamAngularDomainError,
     BeamDependencyError,
+    BeamError,
     BeamFileChangedError,
     BeamFileReadError,
     BeamFrequencyDomainError,
@@ -111,7 +112,13 @@ def _snapshot_source(path: Path, directory: Path) -> _Snapshot:
         ) from exc
 
     try:
-        before = os.fstat(source_fd)
+        try:
+            before = os.fstat(source_fd)
+        except OSError as exc:
+            raise BeamFileReadError(
+                f"BeamFITS {path}: cannot inspect the opened source descriptor; "
+                "verify the local file and storage."
+            ) from exc
         if not stat.S_ISREG(before.st_mode):
             raise BeamFileReadError(
                 f"BeamFITS {path}: source is not a regular local file; provide a "
@@ -138,7 +145,13 @@ def _snapshot_source(path: Path, directory: Path) -> _Snapshot:
                 f"BeamFITS {path}: failed while copying the source into the private "
                 "atomic snapshot; verify local storage and permissions."
             ) from exc
-        after = os.fstat(source_fd)
+        try:
+            after = os.fstat(source_fd)
+        except OSError as exc:
+            raise BeamFileReadError(
+                f"BeamFITS {path}: cannot re-inspect the opened source descriptor; "
+                "verify the local file and storage."
+            ) from exc
         if _stat_identity(before) != _stat_identity(after):
             raise _changed_error(path)
     finally:
@@ -166,18 +179,35 @@ def _regular_step(
     name: str,
     path: Path,
 ) -> tuple[np.ndarray, float]:
-    array = np.asarray(values)
+    try:
+        array = np.asarray(values)
+    except Exception as exc:
+        raise UnsupportedBeamCoordinateError(
+            f"BeamFITS {path}: {name} cannot be represented as a numeric "
+            "one-dimensional axis."
+        ) from exc
     if array.ndim != 1 or array.size < 2:
         raise UnsupportedBeamCoordinateError(
             f"BeamFITS {path}: {name} must be a one-dimensional nondegenerate "
             "regular axis; regenerate a full regular az/ZA grid."
         )
-    if not np.all(np.isfinite(array)):
+    try:
+        finite = bool(np.all(np.isfinite(array)))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise UnsupportedBeamCoordinateError(
+            f"BeamFITS {path}: {name} must contain real numeric radian values."
+        ) from exc
+    if not finite:
         raise NonFiniteBeamResponseError(
             f"BeamFITS {path}: {name} contains NaN or Inf; regenerate finite "
             "coordinate metadata."
         )
-    owned = np.array(array, dtype=np.float64, copy=True, order="C")
+    try:
+        owned = np.array(array, dtype=np.float64, copy=True, order="C")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise UnsupportedBeamCoordinateError(
+            f"BeamFITS {path}: {name} must contain float-convertible radian values."
+        ) from exc
     differences = np.diff(owned)
     if np.any(differences <= 0.0):
         raise UnsupportedBeamCoordinateError(
@@ -199,18 +229,35 @@ def _regular_step(
 
 
 def _validate_frequency_axis(value: Any, path: Path) -> np.ndarray:
-    frequencies = np.asarray(value)
+    try:
+        frequencies = np.asarray(value)
+    except Exception as exc:
+        raise BeamFrequencyDomainError(
+            f"BeamFITS {path}: freq_array cannot be represented as a numeric "
+            "one-dimensional Hz axis."
+        ) from exc
     if frequencies.ndim != 1 or frequencies.size < 1:
         raise BeamFrequencyDomainError(
             f"BeamFITS {path}: freq_array must be a nonempty one-dimensional Hz "
             "axis; regenerate the file with complete intrinsic channels."
         )
-    if not np.all(np.isfinite(frequencies)):
+    try:
+        finite = bool(np.all(np.isfinite(frequencies)))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise BeamFrequencyDomainError(
+            f"BeamFITS {path}: freq_array must contain real numeric Hz values."
+        ) from exc
+    if not finite:
         raise NonFiniteBeamResponseError(
             f"BeamFITS {path}: freq_array contains NaN or Inf; regenerate finite "
             "positive frequency metadata."
         )
-    owned = np.array(frequencies, dtype=np.float64, copy=True, order="C")
+    try:
+        owned = np.array(frequencies, dtype=np.float64, copy=True, order="C")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise BeamFrequencyDomainError(
+            f"BeamFITS {path}: freq_array must contain float-convertible Hz values."
+        ) from exc
     if np.any(owned <= 0.0):
         raise BeamFrequencyDomainError(
             f"BeamFITS {path}: intrinsic frequencies must be positive Hz values."
@@ -253,9 +300,16 @@ def _derive_feature_scale(
     return scale
 
 
-def _owned_uvbeam(beam: Any, data: np.ndarray, path: Path) -> _UVBeamLike:
+def _owned_uvbeam(
+    beam: Any,
+    data: np.ndarray,
+    basis: np.ndarray,
+    path: Path,
+) -> _UVBeamLike:
     try:
         owned = copy.deepcopy(beam)
+        if owned is beam:
+            raise TypeError("dependency deepcopy returned the mutable source object")
         array_names = (
             "basis_vector_array",
             "freq_array",
@@ -266,16 +320,40 @@ def _owned_uvbeam(beam: Any, data: np.ndarray, path: Path) -> _UVBeamLike:
             "bandpass_array",
         )
         for name in array_names:
-            value = getattr(beam, name, None)
+            value = basis if name == "basis_vector_array" else getattr(beam, name, None)
             if value is not None:
-                setattr(owned, name, np.array(value, copy=True, order="C"))
+                private = np.array(value, copy=True, order="C")
+                private.setflags(write=False)
+                setattr(owned, name, private)
+                published = getattr(owned, name)
+                if (
+                    type(published) is not np.ndarray
+                    or not published.flags.owndata
+                    or not published.flags.c_contiguous
+                    or published.flags.writeable
+                    or np.shares_memory(published, np.asarray(value))
+                ):
+                    raise TypeError(
+                        f"dependency did not retain private owned read-only {name}"
+                    )
         owned.data_array = np.array(
             data,
             dtype=np.complex128,
             copy=True,
             order="C",
         )
-    except (AttributeError, TypeError, ValueError, MemoryError) as exc:
+        owned.data_array.setflags(write=False)
+        if (
+            type(owned.data_array) is not np.ndarray
+            or not owned.data_array.flags.owndata
+            or not owned.data_array.flags.c_contiguous
+            or owned.data_array.flags.writeable
+            or np.shares_memory(owned.data_array, data)
+        ):
+            raise TypeError(
+                "dependency did not retain private owned read-only data_array"
+            )
+    except Exception as exc:
         raise BeamFileReadError(
             f"BeamFITS {path}: could not detach dependency arrays into private "
             "owned storage; regenerate the file and retry."
@@ -293,11 +371,14 @@ def _classify_dependency_check_failure(beam: Any, path: Path) -> None:
         "bandpass_array",
         "data_array",
     ):
-        value = getattr(beam, name, None)
+        try:
+            value = getattr(beam, name, None)
+        except (AttributeError, TypeError):
+            continue
         if value is not None:
             try:
                 finite = bool(np.all(np.isfinite(np.asarray(value))))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if not finite:
                 raise NonFiniteBeamResponseError(
@@ -308,7 +389,10 @@ def _classify_dependency_check_failure(beam: Any, path: Path) -> None:
         ("axis1_array", "azimuth axis"),
         ("axis2_array", "zenith-angle axis"),
     ):
-        value = getattr(beam, name, None)
+        try:
+            value = getattr(beam, name, None)
+        except (AttributeError, TypeError):
+            continue
         if value is not None:
             _ = _regular_step(value, name=label, path=path)
 
@@ -323,7 +407,7 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
             )
     except BeamFileReadError:
         raise
-    except (AttributeError, TypeError, ValueError, RuntimeError) as exc:
+    except Exception as exc:
         _classify_dependency_check_failure(beam, path)
         raise BeamFileReadError(
             f"BeamFITS {path}: pyuvdata rejected the file structure or metadata; "
@@ -332,6 +416,18 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
 
     beam_type = _require_attr(beam, "beam_type", path)
     antenna_type = _require_attr(beam, "antenna_type", path)
+    if type(beam_type) is not str:
+        cause = TypeError("beam_type must be an exact dependency string")
+        raise UnsupportedBeamTypeError(
+            f"BeamFITS {path}: beam_type has unsupported container type "
+            f"{type(beam_type).__name__!r}; Tier 3 requires exact 'efield'."
+        ) from cause
+    if type(antenna_type) is not str:
+        cause = TypeError("antenna_type must be an exact dependency string")
+        raise UnsupportedBeamTypeError(
+            f"BeamFITS {path}: antenna_type has unsupported container type "
+            f"{type(antenna_type).__name__!r}; Tier 3 requires exact 'simple'."
+        ) from cause
     if beam_type != "efield":
         raise UnsupportedBeamTypeError(
             f"BeamFITS {path}: beam_type={beam_type!r} is unsupported; Tier 3 "
@@ -345,6 +441,12 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
         )
 
     coordinate_system = _require_attr(beam, "pixel_coordinate_system", path)
+    if type(coordinate_system) is not str:
+        cause = TypeError("pixel_coordinate_system must be an exact dependency string")
+        raise UnsupportedBeamCoordinateError(
+            f"BeamFITS {path}: pixel_coordinate_system has unsupported container "
+            f"type {type(coordinate_system).__name__!r}; Tier 3 requires 'az_za'."
+        ) from cause
     if coordinate_system != "az_za":
         raise UnsupportedBeamCoordinateError(
             f"BeamFITS {path}: pixel_coordinate_system={coordinate_system!r} is "
@@ -352,24 +454,50 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
         )
 
     feed_value = _require_attr(beam, "feed_array", path)
-    feeds = tuple(np.asarray(feed_value).tolist()) if feed_value is not None else ()
-    x_orientation = _require_attr(beam, "x_orientation", path)
-    mount_type = _require_attr(beam, "mount_type", path)
-    feed_angle = np.asarray(_require_attr(beam, "feed_angle", path))
+    try:
+        feed_array = np.asarray(feed_value)
+        if feed_array.ndim != 1:
+            raise TypeError("feed_array must be one-dimensional")
+        feeds = tuple(feed_array.tolist())
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: feed_array must be a one-dimensional dependency "
+            "array containing exact ordered feeds ('x', 'y')."
+        ) from exc
     if feeds != ("x", "y"):
         raise UnsupportedBeamFeedError(
             f"BeamFITS {path}: feed_array={feeds!r} is unsupported; Tier 3 requires "
             "exact ordered feeds ('x', 'y')."
         )
+    try:
+        feed_angle = np.asarray(_require_attr(beam, "feed_angle", path))
+        if feed_angle.shape != (2,):
+            raise TypeError("feed_angle must have shape (2,)")
+        feed_angle_finite = bool(np.all(np.isfinite(feed_angle)))
+    except BeamError:
+        raise
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: feed_angle must be a finite numeric dependency "
+            "array with shape (2,)."
+        ) from exc
+    if not feed_angle_finite:
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: feed_angle={feed_angle!r} is unsupported; Tier 3 "
+            "requires finite angles (pi/2, 0) radians."
+        )
+    x_orientation = _require_attr(beam, "x_orientation", path)
+    mount_type = _require_attr(beam, "mount_type", path)
+    if type(x_orientation) is not str:
+        cause = TypeError("x_orientation must be an exact dependency string")
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: x_orientation has unsupported container type "
+            f"{type(x_orientation).__name__!r}; Tier 3 requires exact 'east'."
+        ) from cause
     if x_orientation != "east":
         raise UnsupportedBeamFeedError(
             f"BeamFITS {path}: x_orientation={x_orientation!r} is unsupported; "
             "Tier 3 requires x_orientation='east'."
-        )
-    if feed_angle.shape != (2,) or not np.all(np.isfinite(feed_angle)):
-        raise UnsupportedBeamFeedError(
-            f"BeamFITS {path}: feed_angle={feed_angle!r} is unsupported; Tier 3 "
-            "requires finite angles (pi/2, 0) radians."
         )
     if not np.allclose(
         feed_angle,
@@ -381,6 +509,12 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
             f"BeamFITS {path}: feed_angle={tuple(feed_angle)!r} is unsupported; "
             "Tier 3 requires (pi/2, 0) radians within 1e-12."
         )
+    if type(mount_type) is not str:
+        cause = TypeError("mount_type must be an exact dependency string")
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: mount_type has unsupported container type "
+            f"{type(mount_type).__name__!r}; Tier 3 requires exact 'fixed'."
+        ) from cause
     if mount_type != "fixed":
         raise UnsupportedBeamFeedError(
             f"BeamFITS {path}: mount_type={mount_type!r} is unsupported; Tier 3 "
@@ -389,14 +523,28 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
 
     naxes = _require_attr(beam, "Naxes_vec", path)
     ncomponents = _require_attr(beam, "Ncomponents_vec", path)
-    basis = np.asarray(_require_attr(beam, "basis_vector_array", path))
+    if type(naxes) is not int or type(ncomponents) is not int:
+        cause = TypeError("vector dimensions must be exact dependency integers")
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: vector dimensions have unsupported container types; "
+            "Tier 3 requires exact integers Naxes_vec=2 and Ncomponents_vec=2."
+        ) from cause
+    try:
+        basis = np.asarray(_require_attr(beam, "basis_vector_array", path))
+        basis_finite = bool(np.all(np.isfinite(basis)))
+    except BeamError:
+        raise
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: basis_vector_array must be a finite numeric array."
+        ) from exc
     if naxes != 2 or ncomponents != 2:
         raise UnsupportedBeamBasisError(
             f"BeamFITS {path}: Naxes_vec={naxes!r}, "
             f"Ncomponents_vec={ncomponents!r} is unsupported; Tier 3 requires 2x2 "
             "identity-basis E-field vectors."
         )
-    if not np.all(np.isfinite(basis)):
+    if not basis_finite:
         raise NonFiniteBeamResponseError(
             f"BeamFITS {path}: basis_vector_array contains NaN or Inf; regenerate "
             "finite identity-basis metadata."
@@ -453,6 +601,12 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
         )
 
     normalization = _require_attr(beam, "data_normalization", path)
+    if type(normalization) is not str:
+        cause = TypeError("data_normalization must be an exact dependency string")
+        raise BeamNormalizationError(
+            f"BeamFITS {path}: data_normalization has unsupported container type "
+            f"{type(normalization).__name__!r}; Tier 3 requires exact 'peak'."
+        ) from cause
     if normalization != "peak":
         raise BeamNormalizationError(
             f"BeamFITS {path}: data_normalization={normalization!r} is unsupported; "
@@ -519,13 +673,22 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
             "accepts only scalar e I2 response."
         )
 
-    bandpass = np.asarray(_require_attr(beam, "bandpass_array", path))
+    try:
+        bandpass = np.asarray(_require_attr(beam, "bandpass_array", path))
+        bandpass_finite = bool(np.all(np.isfinite(bandpass)))
+    except BeamError:
+        raise
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise BeamNormalizationError(
+            f"BeamFITS {path}: bandpass_array must be a finite numeric dependency "
+            "array of unit values."
+        ) from exc
     if bandpass.shape != (frequencies.size,):
         raise BeamNormalizationError(
             f"BeamFITS {path}: bandpass_array shape {bandpass.shape!r} is invalid; "
             f"expected ({frequencies.size},) unit values."
         )
-    if not np.all(np.isfinite(bandpass)):
+    if not bandpass_finite:
         raise NonFiniteBeamResponseError(
             f"BeamFITS {path}: bandpass_array contains NaN or Inf."
         )
@@ -567,7 +730,12 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
         azimuth_step_rad=azimuth_step,
         path=path,
     )
-    owned = _owned_uvbeam(beam, canonical_data, path)
+    scalar_data = np.array(jones[..., 0, 0], dtype=np.complex128, copy=True, order="C")
+    canonical_data.fill(0.0)
+    canonical_data[0, 0] = scalar_data
+    canonical_data[1, 1] = scalar_data
+    canonical_basis = identity
+    owned = _owned_uvbeam(beam, canonical_data, canonical_basis, path)
     return _ValidatedBeam(
         beam=owned,
         native_dtype=native_dtype.name,
@@ -594,7 +762,9 @@ def _read_and_validate(
         beam = loader.read(snapshot.path)
     except (BeamDependencyError, BeamFileReadError):
         raise
-    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+    except BeamError:
+        raise
+    except Exception as exc:
         raise BeamFileReadError(
             f"BeamFITS {source_path}: pyuvdata could not read the private snapshot; "
             "regenerate a valid BeamFITS file with pyuvdata 3.2.1."
@@ -748,7 +918,13 @@ def _load_fits_handler(  # pyright: ignore[reportUnusedFunction]
     selected_loader: _UVBeamLoaderProtocol = (
         _ProductionUVBeamLoader() if loader is None else loader
     )
-    temporary = tempfile.TemporaryDirectory(prefix="radiosim-beam-")
+    try:
+        temporary = tempfile.TemporaryDirectory(prefix="radiosim-beam-")
+    except Exception as exc:
+        raise BeamFileReadError(
+            f"BeamFITS {definition.path}: could not create the private snapshot "
+            "directory; repair temporary storage and retry."
+        ) from exc
     try:
         snapshot = _snapshot_source(definition.path, Path(temporary.name))
         validated = _read_and_validate(
@@ -768,6 +944,11 @@ def _load_fits_handler(  # pyright: ignore[reportUnusedFunction]
         except importlib.metadata.PackageNotFoundError as exc:
             raise BeamDependencyError(
                 "BeamFITS loading requires the pinned pyuvdata 3.2.1 dependency."
+            ) from exc
+        except Exception as exc:
+            raise BeamDependencyError(
+                "BeamFITS loading could not verify the required pyuvdata 3.2.1 "
+                "dependency version."
             ) from exc
         if pyuvdata_version != "3.2.1":
             raise BeamDependencyError(
@@ -838,8 +1019,11 @@ def _load_fits_handler(  # pyright: ignore[reportUnusedFunction]
             result_dtype=result_dtype,
         )
         loaded = _LoadedFITSHandler(state=state, evaluator=evaluator)
-    except BaseException:
-        _cleanup_temporary_directory(temporary, definition.path)
+    except BaseException as primary:
+        try:
+            _cleanup_temporary_directory(temporary, definition.path)
+        except BeamFileReadError as cleanup_error:
+            primary.add_note(str(cleanup_error))
         raise
     _cleanup_temporary_directory(temporary, definition.path)
     return loaded

@@ -13,6 +13,7 @@ import pytest
 
 from radiosim.core.beam import (
     BeamAngularDomainError,
+    BeamEvaluationError,
     BeamFrequencyDomainError,
     NonFiniteBeamResponseError,
     ResolvedFITSBeamDefinition,
@@ -453,3 +454,133 @@ def test_interpolated_response_is_revalidated(
             105e6,
             60_000.0,
         )
+
+
+@pytest.mark.parametrize("factor", (0.5, 1.0))
+def test_tolerated_interpolated_scalar_noise_is_canonicalized(
+    factor: float,
+) -> None:
+    scalar = 1.0 + 0.25j
+    bound = 1e-12 + 1e-10 * abs(scalar)
+    response = np.zeros((2, 2, 1, 1), dtype=np.complex128)
+    response[0, 0, 0, 0] = scalar
+    response[1, 1, 0, 0] = scalar + 0.5 * bound
+    response[0, 1, 0, 0] = factor * bound
+    response[1, 0, 0, 0] = -factor * bound
+    evaluator = _controlled_evaluator(
+        _ControlledInterpolationBeam(response=(response, None))
+    )
+
+    result = evaluator.evaluate_numpy(
+        np.array([0.2]),
+        np.array([0.3]),
+        105e6,
+        60_000.0,
+    )
+
+    np.testing.assert_array_equal(
+        result,
+        np.array([[[1.0 + 0.25j, 0.0], [0.0, 1.0 + 0.25j]]]),
+    )
+
+
+def test_interpolated_scalar_noise_above_tolerance_is_rejected() -> None:
+    bound = 1e-12 + 1e-10
+    response = np.zeros((2, 2, 1, 1), dtype=np.complex128)
+    response[0, 0, 0, 0] = 1.0
+    response[1, 1, 0, 0] = 1.0
+    response[0, 1, 0, 0] = 1.01 * bound
+    evaluator = _controlled_evaluator(
+        _ControlledInterpolationBeam(response=(response, None))
+    )
+
+    with pytest.raises(UnsupportedBeamBasisError):
+        evaluator.evaluate_numpy(
+            np.array([0.2]),
+            np.array([0.3]),
+            105e6,
+            60_000.0,
+        )
+
+
+@pytest.mark.parametrize(
+    "error",
+    (
+        RuntimeError("hostile dependency runtime failure"),
+        IndexError("hostile dependency index failure"),
+        OverflowError("hostile dependency overflow failure"),
+    ),
+)
+def test_unexpected_interpolation_failures_are_typed_and_chained(
+    error: Exception,
+) -> None:
+    evaluator = _controlled_evaluator(_ControlledInterpolationBeam())
+
+    def fail(**kwargs: Any) -> object:
+        raise error
+
+    evaluator._beam.interp = fail
+    with pytest.raises(BeamEvaluationError) as caught:
+        evaluator.evaluate_numpy(
+            np.array([0.2]),
+            np.array([0.3]),
+            105e6,
+            60_000.0,
+        )
+    assert caught.value.__cause__ is error
+
+
+@pytest.mark.parametrize(
+    "altitude,azimuth",
+    (
+        (np.array(["bad"]), np.array([0.0])),
+        (np.array([0.0]), np.array([object()])),
+        (np.array([(0.0,)], dtype=[("value", "f8")]), np.array([0.0])),
+    ),
+)
+def test_hostile_coordinate_arrays_fail_with_typed_angular_error(
+    altitude: np.ndarray,
+    azimuth: np.ndarray,
+) -> None:
+    evaluator = _controlled_evaluator(_ControlledInterpolationBeam())
+    with pytest.raises(BeamAngularDomainError) as caught:
+        evaluator.evaluate_numpy(altitude, azimuth, 105e6, 60_000.0)
+    assert caught.value.__cause__ is not None
+
+
+def test_empty_directions_and_failure_recovery_are_deterministic() -> None:
+    beam = _ControlledInterpolationBeam()
+    evaluator = _controlled_evaluator(beam)
+    empty = evaluator.evaluate_numpy(
+        np.array([], dtype=np.float64),
+        np.array([], dtype=np.float64),
+        105e6,
+        60_000.0,
+    )
+
+    assert empty.shape == (0, 2, 2)
+    assert not empty.flags.writeable
+    assert beam.tracker["maximum"] == 0
+
+    beam.response = (
+        np.ones((2, 2, 2, 1), dtype=np.complex128),
+        None,
+    )
+    with pytest.raises(UnsupportedBeamBasisError):
+        evaluator.evaluate_numpy(
+            np.array([0.2]),
+            np.array([0.3]),
+            105e6,
+            60_000.0,
+        )
+    beam.response = None
+    recovered = evaluator.evaluate_numpy(
+        np.array([0.2]),
+        np.array([0.3]),
+        105e6,
+        60_000.0,
+    )
+    np.testing.assert_array_equal(
+        recovered,
+        np.array([[[1.0 + 0.25j, 0.0], [0.0, 1.0 + 0.25j]]]),
+    )

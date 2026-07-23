@@ -14,6 +14,7 @@ from numpy.typing import NDArray
 from radiosim.core.beam.errors import (
     BeamAngularDomainError,
     BeamDependencyError,
+    BeamEvaluationError,
     BeamFileReadError,
     BeamFrequencyDomainError,
     NonFiniteBeamResponseError,
@@ -199,13 +200,30 @@ class _UVBeamScalarEvaluator:  # pyright: ignore[reportUnusedClass]
                 f"{self._identity}: altitude_rad shape {altitude_rad.shape!r} and "
                 f"azimuth_rad shape {azimuth_rad.shape!r} must match."
             )
-        if not np.all(np.isfinite(altitude_rad)) or not np.all(
-            np.isfinite(azimuth_rad)
-        ):
+        try:
+            if (
+                altitude_rad.dtype.kind not in "fiu"
+                or azimuth_rad.dtype.kind not in "fiu"
+            ):
+                raise TypeError("direction arrays must have real numeric dtypes")
+            altitude_values = np.asarray(altitude_rad, dtype=np.float64)
+            azimuth_values = np.asarray(azimuth_rad, dtype=np.float64)
+            finite = bool(
+                np.all(np.isfinite(altitude_values))
+                and np.all(np.isfinite(azimuth_values))
+            )
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise BeamAngularDomainError(
+                f"{self._identity}: direction arrays must contain real numeric "
+                "radian values."
+            ) from exc
+        if not finite:
             raise NonFiniteBeamResponseError(
                 f"{self._identity}: direction coordinates must be finite."
             )
-        if np.any(altitude_rad < -np.pi / 2.0) or np.any(altitude_rad > np.pi / 2.0):
+        if np.any(altitude_values < -np.pi / 2.0) or np.any(
+            altitude_values > np.pi / 2.0
+        ):
             raise BeamAngularDomainError(
                 f"{self._identity}: altitude values must lie inside the closed "
                 "interval [-pi/2, pi/2] radians; horizon and zenith are included."
@@ -222,10 +240,10 @@ class _UVBeamScalarEvaluator:  # pyright: ignore[reportUnusedClass]
 
         count = altitude_rad.size
         output = np.zeros((count, 2, 2), dtype=np.complex128)
-        visible = altitude_rad >= 0.0
+        visible = altitude_values >= 0.0
         if np.any(visible):
-            visible_altitude = np.asarray(altitude_rad[visible], dtype=np.float64)
-            visible_azimuth = np.asarray(azimuth_rad[visible], dtype=np.float64)
+            visible_altitude = altitude_values[visible]
+            visible_azimuth = azimuth_values[visible]
             azimuth_uv = (np.pi / 2.0 - visible_azimuth) % (2.0 * np.pi)
             zenith_angle = np.pi / 2.0 - visible_altitude
             try:
@@ -250,6 +268,11 @@ class _UVBeamScalarEvaluator:  # pyright: ignore[reportUnusedClass]
                 raise error_type(
                     f"{self._identity}: pyuvdata rejected an already preflighted "
                     "interpolation domain; verify the BeamFITS native axes."
+                ) from exc
+            except Exception as exc:
+                raise BeamEvaluationError(
+                    f"{self._identity}: pyuvdata interpolation failed after RadioSim "
+                    "domain preflight; inspect the chained dependency failure."
                 ) from exc
             if type(interpolated) is not tuple:
                 raise UnsupportedBeamBasisError(
@@ -309,7 +332,11 @@ class _UVBeamScalarEvaluator:  # pyright: ignore[reportUnusedClass]
                     f"{self._identity}: interpolated X/Y diagonal responses differ; "
                     "Tier 3 accepts only scalar e I2 response."
                 )
-            output[visible] = jones
+            scalar = jones[:, 0, 0]
+            canonical = np.zeros_like(jones)
+            canonical[:, 0, 0] = scalar
+            canonical[:, 1, 1] = scalar
+            output[visible] = canonical
 
         result = np.array(output, dtype=self._result_dtype, copy=True, order="C")
         result.setflags(write=False)
