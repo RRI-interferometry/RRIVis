@@ -3230,3 +3230,109 @@ Nothing was pushed or published. Remote CI, physical GPU execution, mounted Viva
 data, and live external scientific network/registry behavior remain unobserved.
 `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` all remain **OPEN**;
 none is **DONE**. Tier 3D is the next authorized separate slice and has not started.
+
+## 53. Tier 3D independent acceptance record
+
+**Verdict: ACCEPTED AFTER CORRECTIONS on 2026-07-23.** The fail-closed start gate
+passed before acceptance execution on clean `main` at implementation
+`6c4d652836cb9393e5dfe692b6f9b547cfeb36bb` (`feat(beam): validate scalar
+BeamFITS`), whose parent is `d1340b393692b3633f0e409057ac3ad1bc624de5`.
+`origin/main` was `112f52fb0f903e0361fb6ec38199c081f63a93ed`; the checkout
+was zero behind and 15 ahead. Python 3.11.13 and Python 3.12.13 both used exactly
+pyuvdata 3.2.1. The implementation changed exactly the nine authorized Tier 3D
+files, with no dependency, lockfile, configuration, Simulator, solver,
+observability, NSIDE-advisor, workflow, example, or shipped-YAML change. The
+11-line `test_beam_models.py` migration only activated the two planned Tier 3D
+exports and retained every Tier 3C future-export, ownership, immutability,
+fingerprint, subclass, and public-surface assertion.
+
+The untouched implementation focused boundary passed 191/191 in both interpreters
+without a failure, skip, xfail, xpass, or warning. Independent source review and
+temporary probes nevertheless found bounded Tier 3D contract defects:
+
+- tolerance-accepted cross-polar residue and X/Y diagonal disagreement were
+  returned verbatim, so the evaluator did not guarantee its promised exact scalar
+  `e I2` result boundary;
+- the dependency arrays were detached and owned but all remained writeable, and a
+  hostile dependency deepcopy could return the mutable source object;
+- scalar, string, object, structured, and otherwise hostile dependency containers
+  could escape as raw `TypeError`, NumPy ufunc errors, ambiguous truth-value
+  `ValueError`, `IndexError`, or `OverflowError`;
+- unexpected dependency read, `check()`, and `interp()` failures escaped the public
+  RadioSim hierarchy without their required chained causes;
+- nonnumeric direction arrays could leak raw NumPy errors; and
+- a secondary snapshot-cleanup failure could replace a more important primary
+  dependency failure.
+
+The first regression selection ran before production correction and reported 20
+intended failures plus two control passes. The complete durable correction adds 26
+cases: below/at/above scalar tolerance, native and interpolated canonicalization,
+complex64/complex128 ownership, memmap detachment, deepcopy aliasing, all private
+array flags, hostile metadata/dtypes/containers, dependency exception chaining,
+cleanup precedence, empty directions, failure recovery, and exact version
+rejection. Correction
+`c9cd3a36ca0a16b1ebd03a4ff4d98a06c5c86c2c`
+(`fix(beam): correct Tier 3D BeamFITS contract`) changes only
+`src/radiosim/core/beam/{fits.py,runtime.py}` and their two focused unit suites.
+Accepted scalar noise is deterministically represented by the validated X diagonal,
+with zero cross terms and equal diagonals at both native and post-interpolation
+boundaries. The private dependency state is independently owned, C-contiguous,
+non-memmap, and read-only; hostile loader state fails closed; typed primary errors
+retain their dependency causes and record secondary cleanup failure.
+
+The corrected scientific review confirmed the exact accepted scalar subset, X/Y
+feed order, east-X/fixed-mount identity basis, no-conjugation
+`J[feed, sky_component]` ordering, RadioSim-to-UVBeam azimuth conversion, horizon
+evaluation, exact below-horizon zeros without interpolation, closed frequency
+bounds, strict `< 1e-6 Hz` matching, exact linear/cubic minimum-channel rules,
+`az_za_simple` with `kx=1`, `ky=1`, `s=0`, no extrapolation or fallback, native
+dtype provenance, private complex128 interpolation state, requested complex64/128
+results, and pre-I/O complex256 rejection. Results are new, owned, C-contiguous,
+and read-only. The independent native-grid oracle remains
+`0.5879007626540207` radians, and the independent canonical scientific digest
+remains `2123f69cfb6571328e681a8ccd9b3f465a5ab70d19552ba5109712dcc5996e4a`.
+
+Atomic review confirmed mode-0600 private snapshots, hash/read identity, descriptor
+and final-path race checks, success/failure cleanup, source replacement/deletion and
+same-size rewrite detection through device/inode/size/mtime/ctime, no retained
+snapshot memmap, and no partial publication. Pyuvdata remains lazy at the production
+read boundary; imports of the package, core, beam, model, FITS, and runtime surfaces
+do not initialize pyuvdata, JAX, Numba, Simulator, observability, or solver modules.
+The private FITS/runtime modules export no public API, package-root/core exports did
+not expand, and public provenance remains detached, frozen, hashable, and JSON-safe.
+The current `LoadedBeamHandlerState(kind="fits", file=BeamFileProvenance)` shape is
+accepted as an intentional Tier 3D standalone narrowing: Section 35.4 owns only a
+single FITS handler, while Tier 3E explicitly owns the final analytic/FITS union,
+`LoadedBeamState`, `BeamSystem`, deduplication, and per-antenna lifecycle.
+
+Final verification after correction:
+
+- focused Tier 3D suites: 217/217 passed in Python 3.11.13 and 217/217 passed in
+  Python 3.12.13, with no failure, skip, xfail, xpass, or warning;
+- Tier 3B/C plus precision regressions: 101/101 passed in each interpreter;
+- full suites collected 2,628 tests: Python 3.11 reported 2,627 passed, one existing
+  optional-data skip, and 26 existing warnings; Python 3.12 reported 2,620 passed,
+  eight existing optional-data/JAX skips, and the same 26 warnings;
+- the 26 warnings remain the established sky conversion, FITS-unit, numerical, and
+  Matplotlib categories; no Tier 3D test contains a skip or xfail marker;
+- Ruff lint passed and all 282 files passed format checking; Pyright 1.1.408
+  reproduced 4,178 diagnostics in both environments under the unchanged 4,600
+  ceiling, while direct checks of all four changed production modules reported zero
+  errors, warnings, or information diagnostics;
+- all three shipped YAML documents validated with 101, 11, and one frequency
+  channels; the forced-offline example completed with five antennas, 15 baselines,
+  two channels, and `(1, 2)` visibility-product shapes;
+- the clean temporary source-copy Sphinx build succeeded with the unchanged 40
+  events: 35 existing docstring/docutils events, one historical HERA toctree event,
+  three HERA highlighting events, and one theme-option event; its temporary tree was
+  removed; and
+- whitespace, exact-scope, marker, import, public-export, fallback, partial-load,
+  ownership, fingerprint, later-slice leakage, and generated-artifact checks passed.
+
+No `BeamSystem`, per-antenna runtime map, analytic/FITS deduplication, Simulator
+lifecycle, solver, observability, renderer, output, browser, or NSIDE recommendation
+was implemented. Nothing was pushed or published. Remote CI, physical GPU execution,
+non-macOS platforms, mounted external datasets, and live scientific network behavior
+remain unobserved. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002`
+remain **OPEN**; none is **DONE**. Tier 3E is now the next authorized separate slice
+and was not started.
