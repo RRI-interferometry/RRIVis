@@ -1,5 +1,8 @@
 """Public immutable beam definitions and assignment resolution."""
 
+from importlib import import_module
+from typing import TYPE_CHECKING
+
 from radiosim.core.beam.errors import (
     BeamAngularDomainError,
     BeamAssignmentError,
@@ -29,6 +32,7 @@ from radiosim.core.beam.models import (
     BeamAssignmentProvenance,
     BeamFileProvenance,
     LoadedBeamHandlerState,
+    LoadedBeamState,
     ResolvedAnalyticalIlluminationBeamModel,
     ResolvedAnalyticBeamChoice,
     ResolvedAnalyticBeamDefinition,
@@ -67,6 +71,9 @@ from radiosim.core.beam.models import (
 )
 from radiosim.core.beam.resolution import resolve_beam_assignments
 
+if TYPE_CHECKING:
+    from radiosim.core.beam.runtime import BeamSystem, load_beam_system
+
 __all__ = [
     "BeamError",
     "BeamAssignmentError",
@@ -94,6 +101,9 @@ __all__ = [
     "BeamAssignmentProvenance",
     "BeamFileProvenance",
     "LoadedBeamHandlerState",
+    "LoadedBeamState",
+    "BeamSystem",
+    "load_beam_system",
     "ResolvedAnalyticBeamChoice",
     "ResolvedAnalyticBeamDefinition",
     "ResolvedAnalyticBeamModel",
@@ -131,3 +141,16 @@ __all__ = [
     "ResolvedUniformTaper",
     "resolve_beam_assignments",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name in {"BeamSystem", "load_beam_system"}:
+        value = getattr(import_module("radiosim.core.beam.runtime"), name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    """Include lazy runtime exports in interactive discovery."""
+    return sorted(set(globals()) | {"BeamSystem", "load_beam_system"})

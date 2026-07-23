@@ -1,4 +1,4 @@
-"""Private standalone BeamFITS evaluation primitives for Tier 3D."""
+"""Canonical per-antenna beam runtime and private evaluator primitives."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import importlib
 import math
 import threading
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -17,10 +17,26 @@ from radiosim.core.beam.errors import (
     BeamEvaluationError,
     BeamFileReadError,
     BeamFrequencyDomainError,
+    InconsistentBeamAssignmentError,
     NonFiniteBeamResponseError,
     UnsupportedBeamBasisError,
     UnsupportedBeamPrecisionError,
 )
+from radiosim.core.beam.models import (
+    LoadedBeamHandlerState,
+    LoadedBeamState,
+    ResolvedAnalyticBeamDefinition,
+    ResolvedBeamState,
+    ResolvedFITSBeamDefinition,
+    _create_loaded_beam_state,  # pyright: ignore[reportPrivateUsage]
+)
+from radiosim.core.instrument import AntennaId
+from radiosim.core.precision import PrecisionConfig
+
+if TYPE_CHECKING:
+    from radiosim.backends.base import ArrayBackend
+
+ArrayLike = Any
 
 _FREQUENCY_MATCH_TOLERANCE_HZ = 1e-6
 
@@ -37,13 +53,13 @@ class _UVBeamLike(Protocol):
     def interp(self, **kwargs: Any) -> object: ...
 
 
-class _UVBeamLoaderProtocol(Protocol):  # pyright: ignore[reportUnusedClass]
+class _UVBeamLoaderProtocol(Protocol):
     """Private injectable reader boundary for one complete BeamFITS file."""
 
     def read(self, path: Path) -> _UVBeamLike: ...
 
 
-class _ProductionUVBeamLoader:  # pyright: ignore[reportUnusedClass]
+class _ProductionUVBeamLoader:
     """Lazy pyuvdata 3.2.1 reader used only at the actual load boundary."""
 
     __slots__ = ()
@@ -66,7 +82,7 @@ class _ProductionUVBeamLoader:  # pyright: ignore[reportUnusedClass]
         return beam
 
 
-class _BeamEvaluator(Protocol):  # pyright: ignore[reportUnusedClass]
+class _BeamEvaluator(Protocol):
     """Private evaluator contract shared by later canonical beam runtimes."""
 
     def evaluate_numpy(
@@ -78,6 +94,21 @@ class _BeamEvaluator(Protocol):  # pyright: ignore[reportUnusedClass]
     ) -> np.ndarray: ...
 
     def voltage_feature_scale_rad(self, frequency_hz: float) -> float: ...
+
+
+class _BeamSystemRuntime:
+    """Unpublished evaluator lookup owned by exactly one BeamSystem."""
+
+    __slots__ = ("evaluator_by_handler_id", "handler_id_by_antenna")
+
+    def __init__(
+        self,
+        *,
+        evaluator_by_handler_id: dict[str, _BeamEvaluator],
+        handler_id_by_antenna: dict[AntennaId, str],
+    ) -> None:
+        self.evaluator_by_handler_id = dict(evaluator_by_handler_id)
+        self.handler_id_by_antenna = dict(handler_id_by_antenna)
 
 
 def _require_exact_finite_float(value: Any, field_name: str) -> float:
@@ -343,4 +374,241 @@ class _UVBeamScalarEvaluator:  # pyright: ignore[reportUnusedClass]
         return result
 
 
-__all__: list[str] = []
+_BEAM_SYSTEM_TOKEN = object()
+
+
+def _require_lookup_antenna_id(value: Any) -> AntennaId:
+    if type(value) is not AntennaId:
+        if isinstance(value, AntennaId):
+            raise InconsistentBeamAssignmentError(
+                "BeamSystem has no handler assignment for canonical antenna "
+                f"number={value.number}, name={value.name!r}; loaded beam state "
+                "is inconsistent."
+            )
+        raise TypeError("antenna_id must be an exact AntennaId")
+    return value
+
+
+def _convert_backend_result(
+    backend: Any,
+    host_result: np.ndarray,
+) -> Any:
+    from radiosim.backends.base import ArrayBackend
+
+    if not isinstance(backend, ArrayBackend):
+        raise TypeError("backend must be an ArrayBackend or None")
+    converted = backend.asarray(host_result, dtype=host_result.dtype)
+    if isinstance(converted, np.ndarray):
+        owned = np.array(
+            converted,
+            dtype=host_result.dtype,
+            copy=True,
+            order="C",
+        )
+        owned.setflags(write=False)
+        return owned
+    return converted
+
+
+class BeamSystem:
+    """Final canonical per-antenna beam runtime created only by its factory."""
+
+    __slots__ = ("__runtime", "__state")
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        raise TypeError("BeamSystem does not support subclassing")
+
+    def __init__(
+        self,
+        state: LoadedBeamState,
+        runtime: _BeamSystemRuntime,
+        *,
+        _token: object,
+    ) -> None:
+        if _token is not _BEAM_SYSTEM_TOKEN:
+            raise TypeError("BeamSystem instances must be created by load_beam_system")
+        if type(state) is not LoadedBeamState:
+            raise TypeError("state must be an exact LoadedBeamState")
+        if type(runtime) is not _BeamSystemRuntime:
+            raise TypeError("runtime must be a private BeamSystem runtime")
+        self.__state = state
+        self.__runtime = runtime
+
+    @property
+    def state(self) -> LoadedBeamState:
+        """Return the immutable detached loaded-state snapshot."""
+        return self.__state
+
+    def evaluate_jones(
+        self,
+        antenna_id: AntennaId,
+        *,
+        altitude_rad: np.ndarray,
+        azimuth_rad: np.ndarray,
+        frequency_hz: float,
+        time_mjd: float,
+        backend: ArrayBackend | None = None,
+    ) -> np.ndarray | ArrayLike:
+        """Evaluate one antenna's canonical scalar Jones response."""
+        antenna_id = _require_lookup_antenna_id(antenna_id)
+        try:
+            canonical = AntennaId(antenna_id.number, antenna_id.name)
+        except (TypeError, ValueError) as exc:
+            raise InconsistentBeamAssignmentError(
+                "BeamSystem has no handler assignment for canonical antenna "
+                f"number={antenna_id.number!r}, name={antenna_id.name!r}; loaded "
+                "beam state is inconsistent."
+            ) from exc
+        handler_id = self.__runtime.handler_id_by_antenna.get(canonical)
+        if handler_id is None:
+            raise InconsistentBeamAssignmentError(
+                "BeamSystem has no handler assignment for canonical antenna "
+                f"number={canonical.number}, name={canonical.name!r}; loaded "
+                "beam state is inconsistent."
+            )
+        evaluator = self.__runtime.evaluator_by_handler_id[handler_id]
+        host_result = evaluator.evaluate_numpy(
+            altitude_rad,
+            azimuth_rad,
+            frequency_hz,
+            time_mjd,
+        )
+        if backend is None:
+            return host_result
+        return _convert_backend_result(backend, host_result)
+
+
+def _validated_observation_frequencies(
+    value: tuple[float, ...],
+) -> tuple[float, ...]:
+    if type(value) is not tuple or not value:
+        raise BeamFrequencyDomainError(
+            "observation_frequencies_hz must be a nonempty exact tuple."
+        )
+    copied: list[float] = []
+    previous: float | None = None
+    for frequency in value:
+        if type(frequency) is not float or not math.isfinite(frequency):
+            raise NonFiniteBeamResponseError(
+                "observation_frequencies_hz must contain exact finite Python floats."
+            )
+        if frequency <= 0.0:
+            raise BeamFrequencyDomainError(
+                "observation_frequencies_hz must contain positive frequencies."
+            )
+        if previous is not None and frequency <= previous:
+            raise BeamFrequencyDomainError(
+                "observation_frequencies_hz must be strictly increasing."
+            )
+        copied.append(frequency)
+        previous = frequency
+    return tuple(copied)
+
+
+def _load_beam_system(
+    resolved_state: ResolvedBeamState,
+    *,
+    observation_frequencies_hz: tuple[float, ...],
+    precision: PrecisionConfig,
+    loader: _UVBeamLoaderProtocol,
+) -> BeamSystem:
+    """Private injectable implementation of the atomic BeamSystem factory."""
+    if type(resolved_state) is not ResolvedBeamState:
+        raise TypeError("resolved_state must be an exact ResolvedBeamState")
+    resolved_state.__post_init__()
+    if type(precision) is not PrecisionConfig:
+        raise TypeError("precision must be an exact PrecisionConfig")
+    if not callable(getattr(loader, "read", None)):
+        raise TypeError("loader must provide a callable read(path) method")
+    frequencies = _validated_observation_frequencies(observation_frequencies_hz)
+
+    from radiosim.core.beam.analytic import (
+        _analytic_preload_key,  # pyright: ignore[reportPrivateUsage]
+        _load_analytic_handler,  # pyright: ignore[reportPrivateUsage]
+    )
+    from radiosim.core.beam.fits import (
+        _fits_preload_key,  # pyright: ignore[reportPrivateUsage]
+        _load_fits_handler,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    cached: dict[object, tuple[LoadedBeamHandlerState, _BeamEvaluator]] = {}
+    handlers: list[LoadedBeamHandlerState] = []
+    assignment_handler_ids: list[tuple[AntennaId, str]] = []
+    evaluator_by_handler_id: dict[str, _BeamEvaluator] = {}
+    handler_id_by_antenna: dict[AntennaId, str] = {}
+
+    for assignment in resolved_state.assignments:
+        definition = assignment.definition
+        if type(definition) is ResolvedAnalyticBeamDefinition:
+            key: object = (
+                "analytic",
+                _analytic_preload_key(
+                    definition,
+                    assignment.antenna_diameter_m,
+                ),
+            )
+        elif type(definition) is ResolvedFITSBeamDefinition:
+            key = ("fits", _fits_preload_key(definition))
+        else:
+            raise TypeError("resolved assignment contains an unsupported definition")
+
+        cached_handler = cached.get(key)
+        if cached_handler is None:
+            handler_ordinal = len(handlers)
+            if type(definition) is ResolvedAnalyticBeamDefinition:
+                loaded = _load_analytic_handler(
+                    definition,
+                    antenna_diameter_m=assignment.antenna_diameter_m,
+                    observation_frequencies_hz=frequencies,
+                    precision=precision,
+                    handler_ordinal=handler_ordinal,
+                )
+            else:
+                loaded = _load_fits_handler(
+                    cast(ResolvedFITSBeamDefinition, definition),
+                    observation_frequencies_hz=frequencies,
+                    precision=precision,
+                    handler_ordinal=handler_ordinal,
+                    loader=loader,
+                )
+            cached_handler = (loaded.state, loaded.evaluator)
+            cached[key] = cached_handler
+            handlers.append(loaded.state)
+            evaluator_by_handler_id[loaded.state.handler_id] = loaded.evaluator
+
+        handler_state = cached_handler[0]
+        antenna_id = AntennaId(
+            assignment.antenna_id.number,
+            assignment.antenna_id.name,
+        )
+        assignment_handler_ids.append((antenna_id, handler_state.handler_id))
+        handler_id_by_antenna[antenna_id] = handler_state.handler_id
+
+    loaded_state = _create_loaded_beam_state(
+        resolved=resolved_state,
+        handlers=tuple(handlers),
+        assignment_handler_ids=tuple(assignment_handler_ids),
+    )
+    runtime = _BeamSystemRuntime(
+        evaluator_by_handler_id=evaluator_by_handler_id,
+        handler_id_by_antenna=handler_id_by_antenna,
+    )
+    return BeamSystem(loaded_state, runtime, _token=_BEAM_SYSTEM_TOKEN)
+
+
+def load_beam_system(
+    resolved_state: ResolvedBeamState,
+    *,
+    observation_frequencies_hz: tuple[float, ...],
+    precision: PrecisionConfig,
+) -> BeamSystem:
+    """Atomically load one complete canonical per-antenna beam system."""
+    return _load_beam_system(
+        resolved_state,
+        observation_frequencies_hz=observation_frequencies_hz,
+        precision=precision,
+        loader=_ProductionUVBeamLoader(),
+    )
+
+
+__all__ = ["BeamSystem", "load_beam_system"]

@@ -7,7 +7,7 @@ import json
 import math
 import re
 import unicodedata
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -749,18 +749,22 @@ class LoadedBeamHandlerState(_ResolvedValue):
     """Detached immutable state for one standalone validated beam handler."""
 
     handler_id: str
-    kind: Literal["fits"]
+    kind: Literal["analytic", "fits"]
     definition_fingerprint: str
     scientific_fingerprint: str
-    file: BeamFileProvenance
+    file: BeamFileProvenance | None
     voltage_feature_scale_by_frequency: tuple[tuple[float, float], ...]
 
     def __post_init__(self) -> None:
-        _require_literal(self.kind, "fits", "kind")
+        if type(self.kind) is not str or self.kind not in {"analytic", "fits"}:
+            raise ValueError("kind must be 'analytic' or 'fits'")
         _require_fingerprint(self.definition_fingerprint, "definition_fingerprint")
         _require_fingerprint(self.scientific_fingerprint, "scientific_fingerprint")
-        _require_exact(self.file, (BeamFileProvenance,), "file")
-        self.file.__post_init__()
+        if self.kind == "fits":
+            _require_exact(self.file, (BeamFileProvenance,), "file")
+            cast(BeamFileProvenance, self.file).__post_init__()
+        elif self.file is not None:
+            raise ValueError("analytic handlers require file=None")
         expected_prefix = f"-{self.scientific_fingerprint[:12]}"
         if (
             type(self.handler_id) is not str
@@ -1187,6 +1191,167 @@ def _create_resolved_beam_state(  # pyright: ignore[reportUnusedFunction]
     )
 
 
+def _loaded_state_fingerprint(
+    resolved: ResolvedBeamState,
+    handlers: tuple[LoadedBeamHandlerState, ...],
+    assignment_handler_ids: tuple[tuple[AntennaId, str], ...],
+) -> str:
+    by_id = {handler.handler_id: handler for handler in handlers}
+    return _canonical_digest(
+        {
+            "schema_version": _SCHEMA_VERSION,
+            "kind": "loaded_beam_state",
+            "resolved_state_fingerprint": resolved.state_fingerprint,
+            "handlers": [
+                {
+                    "kind": handler.kind,
+                    "definition_fingerprint": handler.definition_fingerprint,
+                    "scientific_fingerprint": handler.scientific_fingerprint,
+                    "voltage_feature_scale_by_frequency": (
+                        handler.voltage_feature_scale_by_frequency
+                    ),
+                }
+                for handler in handlers
+            ],
+            "assignments": [
+                {
+                    "canonical_antenna": {
+                        "number": antenna_id.number,
+                        "name": antenna_id.name,
+                    },
+                    "definition_fingerprint": by_id[handler_id].definition_fingerprint,
+                    "scientific_fingerprint": by_id[handler_id].scientific_fingerprint,
+                }
+                for antenna_id, handler_id in assignment_handler_ids
+            ],
+        }
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class LoadedBeamState(_ResolvedValue):
+    """Immutable public snapshot for one completely loaded beam system."""
+
+    resolved: ResolvedBeamState
+    handlers: tuple[LoadedBeamHandlerState, ...]
+    assignment_handler_ids: tuple[tuple[AntennaId, str], ...]
+    loaded_fingerprint: str
+
+    def __post_init__(self) -> None:
+        _require_exact(self.resolved, (ResolvedBeamState,), "resolved")
+        self.resolved.__post_init__()
+        resolved = replace(self.resolved)
+
+        if type(self.handlers) is not tuple or not self.handlers:
+            raise ValueError("handlers must be a nonempty exact tuple")
+        copied_handlers: list[LoadedBeamHandlerState] = []
+        handler_ids: set[str] = set()
+        for index, handler in enumerate(self.handlers):
+            _require_exact(
+                handler,
+                (LoadedBeamHandlerState,),
+                f"handlers[{index}]",
+            )
+            handler.__post_init__()
+            copied_file = replace(handler.file) if handler.file is not None else None
+            copied = replace(handler, file=copied_file)
+            if copied.handler_id in handler_ids:
+                raise ValueError("handler_id values must be unique")
+            handler_ids.add(copied.handler_id)
+            copied_handlers.append(copied)
+        handlers = tuple(copied_handlers)
+        handlers_by_id = {handler.handler_id: handler for handler in handlers}
+
+        if type(self.assignment_handler_ids) is not tuple:
+            raise TypeError("assignment_handler_ids must be an exact tuple")
+        if len(self.assignment_handler_ids) != len(resolved.assignments):
+            raise ValueError(
+                "assignment_handler_ids must cover every resolved assignment"
+            )
+        copied_assignments: list[tuple[AntennaId, str]] = []
+        first_used_handler_ids: list[str] = []
+        seen_antennas: set[AntennaId] = set()
+        for index, pair in enumerate(self.assignment_handler_ids):
+            if type(pair) is not tuple or len(pair) != 2:
+                raise TypeError("assignment_handler_ids items must be exact pairs")
+            antenna_id, handler_id = pair
+            copied_antenna = _copy_antenna_id(
+                antenna_id,
+                f"assignment_handler_ids[{index}][0]",
+            )
+            if type(handler_id) is not str or handler_id not in handlers_by_id:
+                raise ValueError(
+                    "assignment_handler_ids must reference a loaded handler_id"
+                )
+            expected_assignment = resolved.assignments[index]
+            if copied_antenna != expected_assignment.antenna_id:
+                raise ValueError(
+                    "assignment_handler_ids must follow canonical assignment order"
+                )
+            if copied_antenna in seen_antennas:
+                raise ValueError("assignment_handler_ids antenna values must be unique")
+            seen_antennas.add(copied_antenna)
+            handler = handlers_by_id[handler_id]
+            if handler.definition_fingerprint != (
+                expected_assignment.definition.definition_fingerprint
+            ):
+                raise ValueError(
+                    "loaded handler definition does not match resolved assignment"
+                )
+            if handler.kind != expected_assignment.definition.kind:
+                raise ValueError(
+                    "loaded handler kind does not match resolved assignment"
+                )
+            if handler_id not in first_used_handler_ids:
+                first_used_handler_ids.append(handler_id)
+            copied_assignments.append((copied_antenna, handler_id))
+        assignment_handler_ids = tuple(copied_assignments)
+        if tuple(first_used_handler_ids) != tuple(
+            handler.handler_id for handler in handlers
+        ):
+            raise ValueError(
+                "handlers must be ordered by first canonical assignment use"
+            )
+
+        _require_fingerprint(self.loaded_fingerprint, "loaded_fingerprint")
+        expected = _loaded_state_fingerprint(
+            resolved,
+            handlers,
+            assignment_handler_ids,
+        )
+        if self.loaded_fingerprint != expected:
+            raise ValueError(
+                "loaded_fingerprint does not match canonical loaded beam state"
+            )
+
+        object.__setattr__(self, "resolved", resolved)
+        object.__setattr__(self, "handlers", handlers)
+        object.__setattr__(
+            self,
+            "assignment_handler_ids",
+            assignment_handler_ids,
+        )
+
+
+def _create_loaded_beam_state(  # pyright: ignore[reportUnusedFunction]
+    *,
+    resolved: ResolvedBeamState,
+    handlers: tuple[LoadedBeamHandlerState, ...],
+    assignment_handler_ids: tuple[tuple[AntennaId, str], ...],
+) -> LoadedBeamState:
+    fingerprint = _loaded_state_fingerprint(
+        resolved,
+        handlers,
+        assignment_handler_ids,
+    )
+    return LoadedBeamState(
+        resolved=resolved,
+        handlers=handlers,
+        assignment_handler_ids=assignment_handler_ids,
+        loaded_fingerprint=fingerprint,
+    )
+
+
 __all__ = [
     "BeamAssignmentProvenance",
     "ResolvedAnalyticBeamChoice",
@@ -1213,6 +1378,7 @@ __all__ = [
     "ResolvedMixedBeamAssignmentInput",
     "ResolvedMixedBeamsInput",
     "ResolvedNumericalIlluminationBeamModel",
+    "LoadedBeamState",
     "ResolvedOpenWaveguideIllumination",
     "ResolvedParabolicSquaredTaper",
     "ResolvedParabolicTaper",

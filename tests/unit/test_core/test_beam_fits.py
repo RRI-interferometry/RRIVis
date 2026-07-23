@@ -1221,6 +1221,7 @@ def test_fresh_imports_are_lazy_and_do_not_initialize_backends() -> None:
     script = """
 import sys
 import radiosim.core.beam
+import radiosim.core.beam.analytic
 import radiosim.core.beam.models
 import radiosim.core.beam.fits
 import radiosim.core.beam.runtime
@@ -1242,7 +1243,7 @@ def test_fits_modules_do_not_publish_private_runtime_symbols() -> None:
     from radiosim.core.beam import fits, runtime
 
     assert fits.__all__ == []
-    assert runtime.__all__ == []
+    assert runtime.__all__ == ["BeamSystem", "load_beam_system"]
     assert "_load_fits_handler" not in sys.modules["radiosim.core.beam"].__dict__
     assert beam_package.BeamFileProvenance is BeamFileProvenance
     assert beam_package.LoadedBeamHandlerState is LoadedBeamHandlerState

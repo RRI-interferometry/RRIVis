@@ -66,12 +66,14 @@ def test_resolved_types_are_exported_only_from_core_boundaries():
         assert tier3d_name in beam.__all__
         assert not hasattr(core, tier3d_name)
         assert not hasattr(root, tier3d_name)
-    for future_name in (
-        "BeamSystem",
-        "LoadedBeamState",
-    ):
-        assert not hasattr(beam, future_name)
-        assert not hasattr(core, future_name)
+    assert beam.LoadedBeamState is models.LoadedBeamState
+    assert core.LoadedBeamState is models.LoadedBeamState
+    assert beam.BeamSystem is core.BeamSystem
+    assert beam.load_beam_system is core.load_beam_system
+    for tier3e_name in ("BeamSystem", "LoadedBeamState", "load_beam_system"):
+        assert tier3e_name in beam.__all__
+        assert tier3e_name in core.__all__
+        assert not hasattr(root, tier3e_name)
 
 
 def test_beam_schema_imports_do_not_load_heavy_or_later_tier_modules():
@@ -148,6 +150,20 @@ def test_resolved_leaf_field_order_is_exact():
             "assignments",
             "unique_definitions",
             "state_fingerprint",
+        ),
+        "LoadedBeamHandlerState": (
+            "handler_id",
+            "kind",
+            "definition_fingerprint",
+            "scientific_fingerprint",
+            "file",
+            "voltage_feature_scale_by_frequency",
+        ),
+        "LoadedBeamState": (
+            "resolved",
+            "handlers",
+            "assignment_handler_ids",
+            "loaded_fingerprint",
         ),
     }
 

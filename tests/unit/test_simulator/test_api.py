@@ -29,6 +29,7 @@ from radiosim.io.instrument_config import (
     BaselineSelectionConfig,
     InstrumentConfig,
 )
+from tests.fixtures.beamfits import write_scalar_efield_beamfits
 from tests.fixtures.configs import (
     resolved_config,
     valid_config_mapping,
@@ -446,8 +447,7 @@ def test_schema_errors_are_reported_by_from_mapping(tmp_path):
 def test_tier3b_fits_runtime_guards_apply_to_every_document_entry_point(
     tmp_path, monkeypatch, entry_point
 ):
-    beam_path = tmp_path / "pending.beamfits"
-    beam_path.touch()
+    beam_path = write_scalar_efield_beamfits(tmp_path).path
     data = _explicit_data(
         tmp_path,
         beams={
@@ -461,25 +461,30 @@ def test_tier3b_fits_runtime_guards_apply_to_every_document_entry_point(
 
     monkeypatch.setattr("radiosim.utils.device.get_device_resources", forbidden)
 
+    if entry_point == "yaml":
+        simulator = Simulator.from_yaml(write_config_yaml(tmp_path, data))
+    elif entry_point == "model":
+        simulator = Simulator.from_config(
+            RadioSimConfig.model_validate(data),
+            base_dir=tmp_path,
+        )
+    elif entry_point == "mapping":
+        simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+    else:
+        simulator = _from_parameters(tmp_path, data)
+
     with pytest.raises(
         UnsupportedConfigError,
         match=re.escape("beam_runtime_fits_pending"),
     ) as exc_info:
-        if entry_point == "yaml":
-            Simulator.from_yaml(write_config_yaml(tmp_path, data))
-        elif entry_point == "model":
-            Simulator.from_config(
-                RadioSimConfig.model_validate(data),
-                base_dir=tmp_path,
-            )
-        elif entry_point == "mapping":
-            Simulator.from_mapping(data, base_dir=tmp_path)
-        else:
-            _from_parameters(tmp_path, data)
+        simulator.setup()
 
     message = exc_info.value.issues[0].message
     assert "later Tier 3 slice" in message
     assert "Tier 3C" not in message
+    assert simulator.beam_system.state is simulator.beam_state
+    assert simulator._backend is None
+    assert simulator.device_resources is None
 
 
 @pytest.mark.parametrize(
@@ -523,13 +528,49 @@ def test_pending_analytic_variants_fail_before_device_backend_network_and_sky(
         "radiosim.core.sky.operations.parallel.load_models_parallel", forbidden
     )
 
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
     with pytest.raises(UnsupportedConfigError) as exc_info:
-        Simulator.from_mapping(data, base_dir=tmp_path)
+        simulator.setup()
 
     assert [issue.code for issue in exc_info.value.issues] == [
         "beam_runtime_analytic_variant_pending"
     ]
     assert exc_info.value.issues[0].path == "beams.model.kind"
+    assert simulator.beam_system.state is simulator.beam_state
+    assert simulator._backend is None
+    assert simulator.device_resources is None
+
+
+def test_beam_properties_fail_without_triggering_resolution_or_side_effects(
+    tmp_path,
+    monkeypatch,
+):
+    simulator = Simulator.from_mapping(_explicit_data(tmp_path), base_dir=tmp_path)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("beam property access initiated work")
+
+    monkeypatch.setattr(
+        "radiosim.core.instrument_resolution.resolve_instrument",
+        forbidden,
+    )
+    monkeypatch.setattr("radiosim.utils.device.get_device_resources", forbidden)
+    monkeypatch.setattr("radiosim.backends.get_backend", forbidden)
+    monkeypatch.setattr("radiosim.utils.network.get_network_status", forbidden)
+    monkeypatch.setattr(
+        "radiosim.core.sky.operations.parallel.load_models_parallel",
+        forbidden,
+    )
+
+    for property_name in ("beam_system", "beam_state"):
+        with pytest.raises(
+            RuntimeError,
+            match="^Beam resolution has not completed$",
+        ):
+            getattr(simulator, property_name)
+
+    assert simulator._instrument_state is None
+    assert simulator._beam_system is None
 
 
 @pytest.mark.parametrize(

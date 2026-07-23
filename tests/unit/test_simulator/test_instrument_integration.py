@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import inspect
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -196,6 +198,12 @@ def test_public_instrument_properties_have_exact_return_annotations():
     )
     assert inspect.signature(Simulator.baselines.fget).return_annotation == (
         "tuple[ResolvedBaseline, ...]"
+    )
+    assert inspect.signature(Simulator.beam_system.fget).return_annotation == (
+        "BeamSystem"
+    )
+    assert inspect.signature(Simulator.beam_state.fget).return_annotation == (
+        "LoadedBeamState"
     )
 
 
@@ -462,13 +470,103 @@ def test_later_setup_failure_retains_exact_instrument_state_for_retry(
     with pytest.raises(RuntimeError, match="device unavailable"):
         simulator.setup()
     retained = simulator.instrument
+    retained_beam_system = simulator.beam_system
 
     with pytest.raises(RuntimeError, match="device unavailable"):
         simulator.setup()
 
     assert simulator.instrument is retained
+    assert simulator.beam_system is retained_beam_system
+    assert simulator.beam_state is retained_beam_system.state
     assert calls == 2
     assert simulator._is_setup is False
+
+
+def test_concurrent_first_beam_call_loads_once_and_reuses_exact_system(
+    tmp_path,
+    monkeypatch,
+):
+    import radiosim.core.beam as beam_module
+
+    simulator = Simulator.from_mapping(_instrument_mapping(tmp_path), base_dir=tmp_path)
+    simulator._ensure_instrument_state()
+    real_load = beam_module.load_beam_system
+    calls = 0
+
+    def counted_load(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        time.sleep(0.03)
+        return real_load(*args, **kwargs)
+
+    monkeypatch.setattr(beam_module, "load_beam_system", counted_load)
+
+    def ensure_and_get(_index):
+        simulator._ensure_beam_system()
+        return simulator.beam_system
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = tuple(pool.map(ensure_and_get, range(8)))
+
+    expected = simulator.beam_system
+    assert calls == 1
+    assert all(system is expected for system in results)
+
+
+def test_beamfits_failure_retains_instrument_and_retry_reloads_before_guard(
+    tmp_path,
+    monkeypatch,
+):
+    from radiosim.core.beam import BeamFileReadError
+    from radiosim.core.beam.runtime import _ProductionUVBeamLoader
+    from radiosim.io.config_resolution import UnsupportedConfigError
+    from tests.fixtures.beamfits import write_scalar_efield_beamfits
+
+    mapping = _instrument_mapping(tmp_path)
+    source = write_scalar_efield_beamfits(tmp_path).path
+    mapping["beams"] = {
+        "mode": "shared_fits",
+        "beam": {"kind": "fits", "path": str(source)},
+    }
+    real_read = _ProductionUVBeamLoader.read
+    reads = 0
+
+    def fail_once(self, path):
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            raise OSError("controlled BeamFITS failure")
+        return real_read(self, path)
+
+    def forbidden_device():
+        pytest.fail("device detection ran before the high-level beam guard")
+
+    monkeypatch.setattr(_ProductionUVBeamLoader, "read", fail_once)
+    monkeypatch.setattr(
+        "radiosim.utils.device.get_device_resources",
+        forbidden_device,
+    )
+    simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
+
+    with pytest.raises(BeamFileReadError) as caught:
+        simulator.setup()
+    retained_instrument = simulator.instrument
+    assert str(caught.value.__cause__) == "controlled BeamFITS failure"
+    assert simulator._beam_system is None
+    assert simulator._backend is None
+    assert simulator.device_resources is None
+
+    with pytest.raises(
+        UnsupportedConfigError,
+        match="beam_runtime_fits_pending",
+    ):
+        simulator.setup()
+
+    assert reads == 2
+    assert simulator.instrument is retained_instrument
+    assert simulator.beam_system.state is simulator.beam_state
+    assert simulator._backend is None
+    assert simulator.device_resources is None
 
 
 def test_sky_failure_retry_reuses_instrument_and_recreates_backend(
@@ -502,12 +600,14 @@ def test_sky_failure_retry_reuses_instrument_and_recreates_backend(
     with pytest.raises(RuntimeError, match="sky preparation failed"):
         simulator.setup()
     retained = simulator.instrument
+    retained_beam_system = simulator.beam_system
     assert simulator._backend is None
     assert simulator._sky_model is None
     assert simulator._is_setup is False
 
     simulator.setup()
     assert simulator.instrument is retained
+    assert simulator.beam_system is retained_beam_system
     assert len(backend_instances) == 2
     assert backend_instances[0] is not backend_instances[1]
     assert simulator._is_setup is True

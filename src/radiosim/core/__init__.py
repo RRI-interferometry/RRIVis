@@ -25,6 +25,7 @@ from radiosim.core.beam import (
     DuplicateBeamAssignmentError,
     IncompleteBeamAssignmentError,
     InconsistentBeamAssignmentError,
+    LoadedBeamState,
     NonFiniteBeamResponseError,
     ResolvedAnalyticalIlluminationBeamModel,
     ResolvedAnalyticBeamChoice,
@@ -114,6 +115,7 @@ from radiosim.core.runtime_config import (
 )
 
 if TYPE_CHECKING:
+    from radiosim.core.beam.runtime import BeamSystem, load_beam_system
     from radiosim.core.sky import (
         C_LIGHT,
         H_PLANCK,
@@ -126,6 +128,8 @@ if TYPE_CHECKING:
 
 
 _LAZY_EXPORTS = {
+    "BeamSystem": ("radiosim.core.beam.runtime", "BeamSystem"),
+    "load_beam_system": ("radiosim.core.beam.runtime", "load_beam_system"),
     "SkyModel": ("radiosim.core.sky", "SkyModel"),
     "K_BOLTZMANN": ("radiosim.core.sky", "K_BOLTZMANN"),
     "C_LIGHT": ("radiosim.core.sky", "C_LIGHT"),
@@ -167,6 +171,9 @@ __all__ = [
     "ResolvedBaselineSelection",
     # Beams
     "BeamManager",
+    "BeamSystem",
+    "LoadedBeamState",
+    "load_beam_system",
     "BeamError",
     "BeamAssignmentError",
     "UnknownBeamAntennaError",

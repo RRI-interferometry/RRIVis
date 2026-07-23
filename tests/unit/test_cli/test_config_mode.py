@@ -311,7 +311,7 @@ def test_config_mode_and_validate_render_equivalent_issue_content(
     assert _issue_lines(config_result.output) == _issue_lines(validate_result.output)
 
 
-def test_validate_accepts_pending_fits_schema_but_config_mode_rejects_runtime(
+def test_validate_accepts_fits_schema_and_config_mode_delegates_runtime(
     tmp_path, recording_simulator
 ):
     beam_path = tmp_path / "pending.beamfits"
@@ -331,10 +331,11 @@ def test_validate_accepts_pending_fits_schema_but_config_mode_rejects_runtime(
 
     assert validate_result.exit_code == 0, validate_result.output
     assert "Configuration is valid" in validate_result.output
-    assert config_result.exit_code == 1
-    assert isinstance(config_result.exception, Exception)
-    assert "beam_runtime_fits_pending" in str(config_result.exception)
-    assert recording_simulator.instances == []
+    assert config_result.exit_code == 0, config_result.output
+    assert len(recording_simulator.instances) == 1
+    simulator = recording_simulator.instances[0]
+    assert simulator.config.beams.mode == "shared_fits"
+    assert simulator.ran is True
 
 
 def test_config_mode_and_python_api_consume_same_backend_and_precision(

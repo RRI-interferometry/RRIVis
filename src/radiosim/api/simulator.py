@@ -16,6 +16,7 @@ Examples
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -36,6 +37,7 @@ from radiosim.utils.logging import (
 )
 
 if TYPE_CHECKING:
+    from radiosim.core.beam import BeamSystem, LoadedBeamState
     from radiosim.core.instrument import (
         ResolvedAntenna,
         ResolvedBaseline,
@@ -191,7 +193,6 @@ class Simulator:
 
         if type(resolved) is not ResolvedSimulationConfig:
             raise TypeError("Simulator accepts only ResolvedSimulationConfig")
-        _guard_beam_runtime(resolved.beams)
 
         self.version = __version__
         self._resolved = resolved
@@ -206,6 +207,8 @@ class Simulator:
 
         # Canonical state is assigned atomically before later setup work.
         self._instrument_state = None
+        self._beam_system: BeamSystem | None = None
+        self._beam_system_lock = threading.RLock()
         self._source_arrays: dict | None = None
         self._sky_model = None  # SkyModel for healpix_map representation
         self._location = None
@@ -399,6 +402,20 @@ class Simulator:
         return self._instrument_state.selection.baselines
 
     @property
+    def beam_system(self) -> BeamSystem:
+        """Return the exact successfully loaded canonical BeamSystem."""
+        if self._beam_system is None:
+            raise RuntimeError("Beam resolution has not completed")
+        return self._beam_system
+
+    @property
+    def beam_state(self) -> LoadedBeamState:
+        """Return the immutable loaded beam-state snapshot."""
+        if self._beam_system is None:
+            raise RuntimeError("Beam resolution has not completed")
+        return self._beam_system.state
+
+    @property
     def source_arrays(self) -> dict | None:
         """Get loaded source arrays dict."""
         return self._source_arrays
@@ -452,6 +469,34 @@ class Simulator:
         )
         self._instrument_state = state
 
+    def _ensure_beam_system(self) -> None:
+        """Resolve and atomically retain one complete canonical BeamSystem."""
+        if self._beam_system is not None:
+            return
+        with self._beam_system_lock:
+            if self._beam_system is not None:
+                return
+            if self._instrument_state is None:
+                raise RuntimeError("Instrument resolution has not completed")
+
+            from radiosim.core.beam import (
+                load_beam_system,
+                resolve_beam_assignments,
+            )
+
+            resolved_beams = resolve_beam_assignments(
+                self._resolved.beams,
+                self.instrument,
+            )
+            loaded = load_beam_system(
+                resolved_beams,
+                observation_frequencies_hz=(
+                    self._resolved.frequency.channel_frequencies_hz
+                ),
+                precision=self._precision,
+            )
+            self._beam_system = loaded
+
     def _clear_later_runtime_state(self) -> None:
         """Clear setup state that is safe to recreate after instrument resolution."""
         self._backend = None
@@ -491,8 +536,9 @@ class Simulator:
         if self._is_setup:
             return self
         self._ensure_instrument_state()
-        self._clear_later_runtime_state()
         try:
+            self._ensure_beam_system()
+            self._clear_later_runtime_state()
             return self._setup_after_instrument_state()
         except Exception:
             self._clear_later_runtime_state()
@@ -502,6 +548,10 @@ class Simulator:
         """Create backend, observation, and sky state after canonical resolution."""
         if self._instrument_state is None:
             raise RuntimeError("Instrument resolution has not completed")
+        if self._beam_system is None:
+            raise RuntimeError("Beam resolution has not completed")
+
+        _guard_beam_runtime(self._resolved.beams)
 
         # Import core modules
         from radiosim.backends import get_backend
@@ -1228,6 +1278,8 @@ class Simulator:
         Bokeh layout
         """
         self._ensure_instrument_state()
+        self._ensure_beam_system()
+        _guard_beam_runtime(self._resolved.beams)
 
         from radiosim.core.observability import ObservabilityPlanner
         from radiosim.core.observability.planner import (

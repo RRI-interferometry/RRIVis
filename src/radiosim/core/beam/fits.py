@@ -87,6 +87,23 @@ class _LoadedFITSHandler:
     evaluator: _UVBeamScalarEvaluator
 
 
+def _fits_preload_key(  # pyright: ignore[reportUnusedFunction]
+    definition: ResolvedFITSBeamDefinition,
+) -> tuple[Path, str, str, str, float, str]:
+    """Return the exact per-factory key used before BeamFITS I/O."""
+    if type(definition) is not ResolvedFITSBeamDefinition:
+        raise TypeError("definition must be an exact ResolvedFITSBeamDefinition")
+    definition.__post_init__()
+    return (
+        definition.path.resolve(strict=False),
+        definition.normalization,
+        definition.angular_interpolation,
+        definition.frequency_interpolation,
+        _FREQUENCY_MATCH_TOLERANCE_HZ,
+        _ACCEPTED_SUBSET_VERSION,
+    )
+
+
 def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
     return cast(
         tuple[int, int, int, int, int],
