@@ -2708,3 +2708,61 @@ pushed or published. Remote CI, physical GPU execution, non-macOS platforms,
 mounted external datasets, and live network behavior remain unobserved.
 `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none
 is **DONE**. Tier 3E is now the next authorized slice and was not started.
+
+### 2026-07-23 Tier 3E independent acceptance
+
+**Decision: Tier 3E is accepted after corrections.** The strict start gate passed on
+clean `main` at implementation `e9497433591ef543743c0a27b26adc61334dde73`,
+parent `d5cee392c1418174b939a8d2cd109af2aaf0460d`, with `origin/main` at
+`112f52fb0f903e0361fb6ec38199c081f63a93ed` and divergence zero behind/18 ahead.
+Both Python 3.11.13 and 3.12.13 used pyuvdata 3.2.1. The implementation changed
+exactly the 12 Tier 3E files plus the separately authorized CLI-test migration and
+stopped before Tier 3F.
+
+The untouched focused boundary passed 309/309 in both interpreters. Independent
+probes then found five bounded defect groups: analytic complex256 could contain only
+float64 science; recomputed loaded state admitted mismatched handler ordinals and
+frequency axes; copied factory tokens and mutable private dictionaries permitted
+runtime forgery/mutation while a missing evaluator leaked `KeyError`; backend
+conversion accepted wrong shape/dtype; and required atomic success logging was
+absent. The first regression selection collected nine cases and all nine failed.
+
+Correction `49d932b5f823f21a4c800747988d5fbf6551afee`
+(`fix(beam): correct Tier 3E BeamSystem contract`) changes only the three Tier 3E
+beam production modules and the runtime unit suite. It computes at the paired real
+width, lazily uses the already locked extended-math implementation for pi/Bessel
+work, rejects unavailable extended science without fallback, validates handler
+ordinals/common axes and backend results, removes the reusable token, publishes
+immutable map snapshots, converts corrupt runtime lookup to the fixed public error,
+and emits deterministic summaries only after full validation. Ten durable cases
+include the control that identical FITS science at distinct paths remains two
+ordinally distinct handlers.
+
+The scientific oracle matched every direct taper and feed primitive exactly, 18
+analytical feed/taper/reflector combinations within
+`8.326672684688674e-17`, and six independent `n_radial=256` Hankel combinations
+exactly. Fingerprints, feature scales, exact scalar Jones output, FITS and analytic
+deduplication, atomic failure/retry, canonical lookup, Simulator lifecycle,
+concurrency, CLI guard ordering, exports, and lazy imports all passed. A loaded
+snapshot cannot independently infer the original observation tuple without a new
+field, so it now enforces the accepted minimum identical ordered handler axes while
+the factory and scientific fingerprints retain the complete validated tuple.
+
+The final Tier 3E boundary passed 319/319 in both Pythons and the complete Tier 3D
+boundary passed 256/256 in both. Full suites collected 2,670 tests: Python 3.11
+reported 2,669 passed, one existing skip, and 26 existing warnings; Python 3.12
+reported 2,662 passed, eight existing skips, and the same 26 warnings. The ten-pass
+delta is exactly the acceptance suite. Ruff and the 283-file format check passed.
+Pyright 1.1.408 remained at 4,178 diagnostics in both environments under the
+unchanged 4,600 ceiling; all five changed beam production modules were clean, and
+the two historical integration surfaces decreased from 187 parent diagnostics to
+183 with zero diagnostic on Tier 3E-added lines. Three YAML validations, the
+forced-offline example, Git whitespace/hygiene checks, installed Python 3.11 JAX
+conversion, and a removed clean-source Sphinx build with the unchanged 40 events
+passed.
+
+Nothing was pushed or published. Remote CI, physical GPU execution, genuine
+float128/complex256 execution, non-macOS platforms, mounted external datasets, and
+live network behavior remain unobserved. `BEAM-001`, `BEAM-002`, `BEAM-003`,
+`OBS-001`, and `OBS-002` remain **OPEN**; none is **DONE**. Tier 3F is the next
+authorized separate slice and was not started.

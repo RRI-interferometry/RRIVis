@@ -3336,3 +3336,158 @@ non-macOS platforms, mounted external datasets, and live scientific network beha
 remain unobserved. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002`
 remain **OPEN**; none is **DONE**. Tier 3E is now the next authorized separate slice
 and was not started.
+
+## 54. Tier 3E independent acceptance record
+
+**Verdict: ACCEPTED AFTER CORRECTIONS on 2026-07-23.** The fail-closed start gate
+passed on clean `main` at implementation
+`e9497433591ef543743c0a27b26adc61334dde73` (`feat(beam): load canonical beam
+systems`), whose parent is `d5cee392c1418174b939a8d2cd109af2aaf0460d`.
+`origin/main` was `112f52fb0f903e0361fb6ec38199c081f63a93ed`; the checkout
+was zero behind and 18 ahead. Python 3.11.13 and Python 3.12.13 both used exactly
+pyuvdata 3.2.1. The implementation changed exactly the 12 planned Tier 3E
+production/test files plus the separately authorized
+`tests/unit/test_cli/test_config_mode.py` migration. That CLI change replaces
+constructor-time rejection coverage with delegation through a recording Simulator;
+the real generated-BeamFITS CLI/Simulator guard ordering remains covered in the
+Simulator suites. No dependency, lockfile, schema, shipped YAML, solver,
+observability, renderer, output, browser, NSIDE, or Tier 3F file changed.
+
+The untouched implementation focused boundary reproduced the handoff at 309/309
+passes in each interpreter, without a failure, skip, xfail, xpass, or warning.
+Independent source review, direct model construction, private-runtime attacks, and
+malicious backend probes nevertheless found bounded Tier 3E contract defects:
+
+- analytic `float128` selection could return a `complex256` container after every
+  scientific intermediate, coordinate, constant, Bessel evaluation, and numerical
+  Hankel integral had already been narrowed to `float64`, making a false
+  information-width claim on platforms with distinct extended dtypes;
+- `LoadedBeamState` accepted a valid `beam-0042-...` handler in ordinal position
+  zero and accepted handlers with different ordered feature-scale frequency axes,
+  even when the loaded fingerprint was recomputed;
+- the module-level factory token could be copied to construct `BeamSystem` around a
+  forged private runtime; its name-mangled maps were ordinary mutable dictionaries;
+  and a mapping to a missing evaluator leaked raw `KeyError`;
+- backend conversion accepted an `ArrayBackend` that returned the wrong shape or
+  dtype; and
+- the required post-validation handler/path/metadata and deterministic deduplication
+  logging was absent.
+
+The pre-correction regression selection collected nine cases and all nine failed:
+two `DID NOT RAISE` loaded-state failures, copied-token construction, mutable runtime
+maps, raw missing-evaluator `KeyError`, two accepted malformed-backend results, no
+success logs, and a private helper that rejected the requested real computation
+dtype. Correction
+`49d932b5f823f21a4c800747988d5fbf6551afee`
+(`fix(beam): correct Tier 3E BeamSystem contract`) changes only
+`src/radiosim/core/beam/{analytic.py,models.py,runtime.py}` and
+`tests/unit/test_core/test_beam_runtime.py`. Ten final acceptance cases retain all
+nine regressions and add the control proving that identical FITS science at two
+distinct transport paths remains two handlers with ordinals zero and one.
+
+The correction performs analytic computation in the real dtype paired with the
+resolved complex result dtype. Float32 and float64 use their matching SciPy path;
+extended precision uses a lazily imported, already locked `mpmath` path for
+high-precision pi and integer-order Bessel functions rather than narrowing through
+SciPy. A distinct float128/complex256 pair is required before publication, and an
+unavailable extended path raises `UnsupportedBeamPrecisionError` without warning or
+fallback. This macOS arm64 host exposes neither a distinct float128 nor complex256,
+so genuine extended execution remains platform-unobserved; both interpreters
+independently proved the typed rejection path. The runtime now publishes
+mapping-proxy snapshots behind non-assignable private attributes, has no reusable
+constructor token, translates a missing evaluator into the fixed
+`InconsistentBeamAssignmentError`, validates backend shape and dtype, and emits
+summary logs only after the complete immutable state and runtime have validated.
+
+Loaded-state direct construction now requires each handler ordinal to equal its
+canonical tuple position and every handler to expose one identical ordered frequency
+axis. `LoadedBeamState` has no independent copy of the original observation tuple,
+so a single coherently shortened axis cannot be distinguished at that public model
+boundary without inventing a new field. The factory remains the authoritative
+boundary: it passes the complete validated observation tuple to every handler, and
+each scientific fingerprint includes that ordered tuple and the complete
+feature-scale axis. Analytic handlers still require `file=None`; FITS handlers still
+require exact detached `BeamFileProvenance`; duplicate scientific fingerprints at
+distinct ordinals are allowed when transport keys differ; assignment coverage,
+canonical order, first-use order, exact nested types, frozen/hashable ownership,
+detached snapshots, and loaded-fingerprint recomputation all pass.
+
+The independent scientific oracle covered direct uniform, Gaussian, parabolic,
+parabolic-squared, and cosine tapers at zero, large edge taper, singular and
+near-singular points, sidelobes, zenith, off-axis, horizon, and below-horizon
+directions. Every direct taper and corrugated-horn/open-waveguide/dipole feed value
+matched the retained numeric primitives exactly. Eighteen combinations of the three
+feeds, three derived tapers, prime focus/Cassegrain geometry, nondefault focal
+ratios, active feed parameters, and magnification matched within maximum absolute
+error `8.326672684688674e-17`; all six independently reconstructed
+`n_radial=256` Hankel combinations matched exactly. Rectangular and elliptical
+north/east cardinal behavior, active/inert diameters, exact scalar `e I2`, read-only
+new ownership, input nonmutation, typed hostile inputs, and finite failure paths all
+pass.
+
+Fingerprint review independently confirmed schema `tier3-beam-v1`, contract
+`tier3-scalar-v1`, exact typed model science, effective dimensions, derived edge
+taper, `n_radial`, ordered frequencies, and complete feature scales. Handler ordinal,
+antenna/provenance order, backend/runtime identity, and inactive dimensions remain
+excluded. Every feature scale follows `c / frequency_hz / D_max`. FITS pre-load
+deduplication remains exact-path/options/tolerance/contract based: symlinks to one
+resolved path share, distinct paths never share even for identical bytes/science,
+option changes split, systems perform fresh I/O, and evaluation performs none.
+Analytic deduplication remains complete-effective-science based with deterministic
+first canonical use and no numerical-coincidence merge.
+
+Atomic and lifecycle review confirmed first/later load failure publishes no
+BeamSystem or success log, retry reconstructs fresh handlers, successful evaluators
+perform no further reads, separate systems own independent maps/evaluators, and
+primary typed errors retain causes. Simulator ordering remains instrument, assignment,
+complete BeamSystem, retained high-level guard, device, backend, network, and sky.
+Instrument failure publishes nothing; beam failure retains only the instrument;
+unsupported FITS/pending analytic guards retain the successfully loaded BeamSystem;
+later setup failure retains that exact object; and concurrent first callers receive
+one exact system. Beam properties initiate no work.
+
+Canonical lookup accepts only exact `AntennaId` number/name identity. Unknown, forged,
+subclassed, stale, same-number/different-name, same-name/different-number, raw name,
+raw number, dictionary, numeric-looking name, missing handler, and inconsistent
+runtime cases do not guess or fall back. Public identity across
+`radiosim.core.beam` and `radiosim.core` is coherent; package-root exports did not
+expand; private analytic/runtime types remain private. Fresh import tests and
+analytic-only loading do not import or probe pyuvdata, JAX, Numba, Simulator,
+observability, visibility solvers, or legacy FITS runtime surfaces.
+
+Final repository evidence after correction is:
+
+- the exact Tier 3E boundary passed 319/319 in Python 3.11.13 and 319/319 in
+  Python 3.12.13; the complete Tier 3D boundary passed 256/256 in both, with no
+  failure, skip, xfail, xpass, or warning;
+- full suites collected 2,670 tests: Python 3.11 reported 2,669 passed, one existing
+  optional-data skip, and 26 existing warnings; Python 3.12 reported 2,662 passed,
+  eight existing optional-data/JAX skips, and the same 26 warnings. The entire delta
+  from the implementation baseline is the ten new passing acceptance cases;
+- real NumPy and Numba conversion retained shape, complex dtype, values, ownership,
+  and read-only results. The installed Python 3.11 JAX CPU backend returned immutable
+  finite complex128 `(2, 2, 2)` output with zenith identity; JAX is unavailable in
+  the Python 3.12 environment and is classified as optional;
+- Ruff lint passed and all 283 files passed format checking. Pyright 1.1.408
+  reproduced 4,178 diagnostics in both environments under the unchanged 4,600
+  ceiling; direct checks of all five changed beam production modules reported zero
+  diagnostics. The two pre-existing diagnostic-bearing integration surfaces report
+  183 diagnostics versus 187 at the parent and zero diagnostics on Tier 3E-added
+  lines. The stale direct `pixi run pyright` launcher still names the historical
+  RRIVis environment, while the required interpreter-module checks pass;
+- all three shipped YAML documents validated with 101, 11, and one frequency
+  channels; the forced-offline example completed with five antennas, 15 baselines,
+  two channels, and `(1, 2)` visibility-product shapes;
+- the clean temporary source-copy Sphinx 8.2.3 build succeeded with the unchanged 40
+  events: 35 existing docstring/docutils events, one historical HERA toctree event,
+  three HERA highlighting events, and one theme-option event; its temporary tree was
+  removed; and
+- whitespace, exact-scope, marker, import, public-export, fallback, mutable-runtime,
+  partial-load, ownership, fingerprint, cache, later-slice leakage, and
+  generated-artifact checks passed.
+
+Nothing was pushed or published. Remote CI, physical GPU execution, genuine
+float128/complex256 hardware/runtime execution, non-macOS platforms, mounted external
+datasets, and live scientific network/registry behavior remain unobserved.
+`BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none
+is **DONE**. Tier 3F is now the next authorized separate slice and was not started.
