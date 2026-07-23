@@ -2766,3 +2766,77 @@ float128/complex256 execution, non-macOS platforms, mounted external datasets, a
 live network behavior remain unobserved. `BEAM-001`, `BEAM-002`, `BEAM-003`,
 `OBS-001`, and `OBS-002` remain **OPEN**; none is **DONE**. Tier 3F is the next
 authorized separate slice and was not started.
+
+### 2026-07-23 Tier 3F independent acceptance
+
+**Decision: Tier 3F is accepted after corrections.** The strict start gate passed
+on clean `main` at implementation `9ab89867cbb5ab8a237f2590fb07c88375f5a9fd`,
+parent `37f89c2b0fccc11ba206b3b4c719ea3614ed39e2`, with `origin/main` at
+`112f52fb0f903e0361fb6ec38199c081f63a93ed` and divergence zero behind/21 ahead.
+Both Python 3.11.13 and 3.12.13 used pyuvdata 3.2.1. The implementation changed
+exactly the six authorized production and seven authorized test files; the sparse
+HEALPix test is the separately authorized I-only normalization change. No
+dependency, lockfile, documentation, generated output, observability, NSIDE,
+result-provenance, legacy-deletion, or Tier 3G/H scope leaked in.
+
+Independent source review and external NumPy oracles confirmed one exact
+`BeamSystem` through the high-level, RIME, point, and HEALPix paths; explicit
+nonoptional solver APIs; exact canonical antenna identity; detached direction
+ownership; full `J_p C J_q^H` before extraction; endpoint complex phase and
+conjugation; the established single negative geometric phase; point antenna-chain
+and HEALPix handler-ID cache boundaries; strict `altitude > 0`; no evaluation for
+empty/hidden domains; and I-only `C = (I / 2) I2` followed by trace. Homogeneous and
+heterogeneous analytic, shared/per-antenna FITS, and mixed modes entered real
+high-level simulation without dictionary re-projection or inner-loop FITS reads.
+
+The external probe matrix covered 31 cases across non-Hermitian Jones matrices,
+polarized coherency, scalar phase, autos/crosses, nonzero baselines, point/pixel
+parity, every assignment family, cache counts, hostile APIs/state, ownership,
+wrong backend outputs, NumPy/Numba/JAX CPU, complex64/128, and atomic no-I/O
+lifecycle. Its initial Python 3.11 run passed all cases but exposed a new JAX
+complex128-to-complex64 scatter warning; the warning-as-error precision selection
+failed 1/6. Two first-added regressions then failed 2/2 in point and polarized
+HEALPix paths.
+
+Correction `8fd67302e6af388a2a4ab94bec266bfb33c74ef9`
+(`fix(beam): correct Tier 3F visibility contract`) changes only the two visibility
+solvers and their backend unit suite. It makes the configured complex output dtype
+explicit at container and final reduction boundaries. Portable strict-backend
+regressions pass in both Pythons without new skips. Corrected external probes passed
+31/31 on Python 3.11 and 29/31 on Python 3.12 with only its two unavailable-JAX
+skips; the six Python 3.11 backend/precision cases pass under `-W error`.
+
+The line-level static audit then found 13 introduced Pyright diagnostics on Tier
+3F-added lines despite lower aggregate type debt. Correction
+`5f434691af73f087de179cc1ea6af167188ca802`
+(`fix(beam): type Tier 3F visibility boundaries`) changes only
+`api/simulator.py` and `core/visibility.py`, adding explicit override/helper typing
+and a typed dynamic-result boundary without runtime changes. The six changed
+production modules now report 302 diagnostics versus 475 at the parent and zero on
+Tier 3F-added lines. Repository-wide Pyright is 4,005 in both environments under
+the unchanged 4,600 ceiling.
+
+The exact Tier 3F boundary passed 114/114 on Python 3.11 and 111 passed/3 established
+optional-JAX skips on Python 3.12, with no warnings. Config plus sparse HEALPix
+passed 74/74 in each with the same two existing warnings. The accepted Tier 3E
+runtime boundary passed 319/319 in each. Full suites collected 2,697 tests:
+Python 3.11 reported 2,696 passed, one existing optional-data skip, and 26 existing
+warnings; Python 3.12 reported 2,690 passed, seven existing optional-data/JAX skips,
+and the same 26 warnings. There were no failures, xfails, xpasses, Tier 3F skips,
+or new warning categories.
+
+Ruff lint and the 284-file format check passed. Three YAMLs validated at 101/11/1
+channels; the offline example completed with five antennas, 15 baselines, and two
+channels. Dual-Python import/signature smokes, Git whitespace and hygiene searches,
+and a removed clean-source Sphinx build with the unchanged 40 classified events
+passed. The exact Tier 3G observability error occurs before sky, planner, renderer,
+directory, file, plot, or browser work for every deferred mode, while the one
+homogeneous direct-circular analytic control remains permitted. Legacy public beam
+surfaces remain only for the later cleanup slice; canonical solvers do not call
+them.
+
+Nothing was pushed or published. Remote CI, physical GPU, non-macOS, mounted
+optional data, and live network/registry behavior remain unobserved. Tier 3G was
+not implemented. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002`
+remain **OPEN**; none is **DONE**. Tier 3G is now the next authorized separate
+slice.
