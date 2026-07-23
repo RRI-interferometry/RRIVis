@@ -20,7 +20,7 @@ import threading
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import astropy.units as u
 import numpy as np
@@ -930,7 +930,7 @@ class Simulator:
             else:
                 # Scalar: vis_array is (n_bl, n_t, n_f)
                 for bl_idx, bl_key in enumerate(baseline_keys):
-                    parallel_hand = vis_array[bl_idx] / 2.0
+                    parallel_hand = cast(Any, vis_array[bl_idx] / 2.0)
                     visibilities[bl_key] = {
                         "I": vis_array[bl_idx],
                         "XX": parallel_hand,

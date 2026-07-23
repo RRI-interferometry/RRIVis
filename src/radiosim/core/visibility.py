@@ -18,6 +18,7 @@ import astropy.units as u
 import numpy as np
 from astropy.coordinates import AltAz, SkyCoord
 from astropy.time import TimeDelta
+from typing_extensions import override
 
 # Import backend abstraction
 from radiosim.backends import ArrayBackend, get_backend
@@ -82,10 +83,12 @@ class _ResolvedBeamJones(JonesTerm):
         self._time_mjd = float(time_mjd)
 
     @property
+    @override
     def name(self) -> str:
         return "E"
 
     @property
+    @override
     def is_direction_dependent(self) -> bool:
         return True
 
@@ -101,6 +104,7 @@ class _ResolvedBeamJones(JonesTerm):
             ) from exc
         return AntennaId(number, name)
 
+    @override
     def compute_jones(
         self,
         antenna_idx: int,
@@ -131,6 +135,7 @@ class _ResolvedBeamJones(JonesTerm):
             backend=backend,
         )[0]
 
+    @override
     def compute_jones_all_sources(
         self,
         antenna_idx: int,
@@ -609,18 +614,18 @@ def calculate_visibility(
 
 
 def _build_jones_chain(
-    backend,
-    jones_config,
-    instrument,
-    alt_rad,
-    az_rad,
-    freq,
-    freq_idx,
-    n_sources,
-    location,
-    time_mjd,
-    beam_system,
-):
+    backend: ArrayBackend,
+    jones_config: Any,
+    instrument: "SolverInstrumentView",
+    alt_rad: Any,
+    az_rad: Any,
+    freq: Any,
+    freq_idx: int,
+    n_sources: int,
+    location: Any,
+    time_mjd: Any,
+    beam_system: BeamSystem,
+) -> JonesChain:
     """Build a JonesChain with configured terms (K excluded).
 
     K is excluded because it requires baseline coordinates and is applied
