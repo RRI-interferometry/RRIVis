@@ -266,6 +266,7 @@ def calculate_visibility(
 
     # Get array namespace from backend
     xp = backend.xp
+    output_complex_dtype = backend.get_complex_dtype("output")
 
     # Extract arrays from source_arrays dict
     _ra_rad = source_arrays["ra_rad"]
@@ -279,7 +280,10 @@ def calculate_visibility(
     # Initialize visibilities dictionary with time dimension
     # Each baseline gets a (N_times, N_freq, 2, 2) array for visibility matrices
     visibilities_matrices = {
-        key: backend.zeros_complex((n_times, n_freq, 2, 2))
+        key: backend.zeros_complex(
+            (n_times, n_freq, 2, 2),
+            dtype=output_complex_dtype,
+        )
         for key in instrument.selected_pairs
     }
 
@@ -577,7 +581,10 @@ def calculate_visibility(
                     )
                     V_all = V_all * (phase * envelope)[:, None, None]
 
-                visibility_matrix = backend.sum(V_all, axis=0)
+                visibility_matrix = backend.asarray(
+                    backend.sum(V_all, axis=0),
+                    dtype=output_complex_dtype,
+                )
                 visibilities_matrices[(ant1, ant2)] = backend.set_at(
                     visibilities_matrices[(ant1, ant2)],
                     (time_idx, freq_idx),

@@ -215,6 +215,7 @@ def calculate_visibility_healpix(
     if backend is None:
         backend = get_backend("numpy")
     xp = backend.xp
+    output_complex_dtype = backend.get_complex_dtype("output")
 
     # Determine if we should use the polarized path
     use_polarization = include_polarization and sky_model.has_polarized_healpix_maps
@@ -250,9 +251,15 @@ def calculate_visibility_healpix(
 
     # Initialize output array
     if use_polarization:
-        visibilities = backend.zeros_complex((n_baselines, n_times, n_freqs, 2, 2))
+        visibilities = backend.zeros_complex(
+            (n_baselines, n_times, n_freqs, 2, 2),
+            dtype=output_complex_dtype,
+        )
     else:
-        visibilities = backend.zeros_complex((n_baselines, n_times, n_freqs))
+        visibilities = backend.zeros_complex(
+            (n_baselines, n_times, n_freqs),
+            dtype=output_complex_dtype,
+        )
 
     logger.info(
         f"Computing visibilities: {n_times} times \u00d7 {n_freqs} freqs "
@@ -398,7 +405,10 @@ def calculate_visibility_healpix(
                     visibilities = backend.set_at(
                         visibilities,
                         (bl_idx, time_idx, freq_idx),
-                        backend.sum(V_all, axis=0),
+                        backend.asarray(
+                            backend.sum(V_all, axis=0),
+                            dtype=output_complex_dtype,
+                        ),
                     )
 
             else:
@@ -454,7 +464,10 @@ def calculate_visibility_healpix(
                     )
                     V_all = V_all * phase[:, None, None]
                     matrix = backend.sum(V_all, axis=0)
-                    vis = matrix[0, 0] + matrix[1, 1]
+                    vis = backend.asarray(
+                        matrix[0, 0] + matrix[1, 1],
+                        dtype=output_complex_dtype,
+                    )
                     visibilities = backend.set_at(
                         visibilities, (bl_idx, time_idx, freq_idx), vis
                     )

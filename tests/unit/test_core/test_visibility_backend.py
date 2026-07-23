@@ -11,6 +11,7 @@ import radiosim.core.visibility as visibility_module
 from radiosim.api import Simulator
 from radiosim.backends import get_backend
 from radiosim.backends.base import BackendNotAvailableError
+from radiosim.backends.numpy_backend import NumPyBackend
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import (
     InstrumentAdapterInvariantError,
@@ -84,6 +85,15 @@ def _get_optional_backend(name: str):
         return get_backend(name, **kwargs)
     except BackendNotAvailableError as exc:
         pytest.skip(str(exc))
+
+
+class _StrictOutputBackend(NumPyBackend):
+    """Reject implicit complex-width changes at the output assignment boundary."""
+
+    def set_at(self, arr, index, value):
+        if np.asarray(value).dtype != np.asarray(arr).dtype:
+            raise TypeError("unsafe implicit complex output cast")
+        return super().set_at(arr, index, value)
 
 
 def _source_arrays() -> dict[str, np.ndarray | None]:
@@ -208,6 +218,78 @@ def test_point_source_visibility_jax_matches_numpy(tmp_path):
         rtol=1e-5,
         atol=1e-7,
     )
+
+
+def test_point_source_fast_precision_casts_explicitly_at_output_boundary(tmp_path):
+    precision = PrecisionConfig.fast()
+    data = valid_config_mapping(
+        tmp_path,
+        baseline_selection={"correlations": "cross"},
+        execution={
+            "backend": "numpy",
+            "precision": {"preset": "fast"},
+            "offline": True,
+        },
+    )
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+    simulator._ensure_instrument_state()
+    simulator._ensure_beam_system()
+    instrument = SolverInstrumentView.from_state(simulator._instrument_state)
+    backend = _StrictOutputBackend(precision=precision)
+
+    actual = calculate_visibility(
+        instrument=instrument,
+        beam_system=simulator.beam_system,
+        source_arrays=_source_arrays(),
+        location=LOCATION,
+        obstime=OBSTIME,
+        wavelengths=WAVELENGTHS,
+        freqs=FREQS,
+        duration_seconds=1.0,
+        time_step_seconds=1.0,
+        backend=backend,
+    )
+
+    for correlation in ("XX", "XY", "YX", "YY", "I"):
+        assert actual[(0, 1)][correlation].dtype == np.dtype(np.complex64)
+        assert np.all(np.isfinite(actual[(0, 1)][correlation]))
+
+
+def test_polarized_healpix_fast_precision_casts_explicitly_at_output_boundary(
+    tmp_path,
+):
+    precision = PrecisionConfig.fast()
+    data = valid_config_mapping(
+        tmp_path,
+        baseline_selection={"correlations": "cross"},
+        execution={
+            "backend": "numpy",
+            "precision": {"preset": "fast"},
+            "offline": True,
+        },
+    )
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+    simulator._ensure_instrument_state()
+    simulator._ensure_beam_system()
+    instrument = SolverInstrumentView.from_state(simulator._instrument_state)
+    backend = _StrictOutputBackend(precision=precision)
+
+    actual = calculate_visibility_healpix(
+        _healpix_model(polarized=True),
+        instrument=instrument,
+        beam_system=simulator.beam_system,
+        location=LOCATION,
+        obstime=OBSTIME,
+        wavelengths=WAVELENGTHS,
+        freqs=FREQS,
+        duration_seconds=1.0,
+        time_step_seconds=1.0,
+        include_polarization=True,
+        backend=backend,
+    )
+
+    assert actual["visibilities"].dtype == np.dtype(np.complex64)
+    assert np.all(np.isfinite(actual["visibilities"]))
 
 
 @pytest.mark.parametrize("polarized", [False, True])
