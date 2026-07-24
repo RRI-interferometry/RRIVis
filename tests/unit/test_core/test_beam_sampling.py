@@ -247,6 +247,8 @@ def test_homogeneous_cross_uses_baseline_product_harmonic_scale() -> None:
     assert requirement.baseline_ant1 == AntennaId(0, "ANT0")
     assert requirement.baseline_ant2 == AntennaId(1, "ANT1")
     assert requirement.handler_id_p == requirement.handler_id_q
+    assert requirement.handler_kind_p == "analytic"
+    assert requirement.handler_kind_q == "analytic"
     assert requirement.metric_kind == "analytic_aperture_support"
 
 
@@ -307,6 +309,8 @@ def test_shared_fits_uses_native_grid_representation_metric() -> None:
     assert requirement.product_feature_scale_rad == pytest.approx(0.3)
     assert requirement.metric_kind == "native_grid_representation_bound"
     assert requirement.handler_id_p == requirement.handler_id_q
+    assert requirement.handler_kind_p == "fits"
+    assert requirement.handler_kind_q == "fits"
 
 
 def test_distinct_fits_handlers_use_both_native_scales() -> None:
@@ -332,6 +336,8 @@ def test_mixed_analytic_fits_product_retains_fits_metric() -> None:
 
     assert requirement.frequency_hz == FREQUENCIES[1]
     assert requirement.product_feature_scale_rad == pytest.approx(3.0 / 11.0)
+    assert requirement.handler_kind_p == "analytic"
+    assert requirement.handler_kind_q == "fits"
     assert requirement.metric_kind == "native_grid_representation_bound"
 
 
@@ -372,6 +378,54 @@ def test_exact_frequency_lookup_has_no_nearest_fallback() -> None:
             (_baseline(0, 1),),
             frequencies=(150_000_000.0,),
         )
+
+
+def test_duplicate_selected_baseline_raises_typed_error() -> None:
+    state = _beam_state(((1.0, 1.0), (1.0, 1.0)))
+    baseline = _baseline(0, 1)
+
+    with pytest.raises(BeamSamplingDerivationError, match="duplicate"):
+        _derive(state, (baseline, baseline))
+
+
+def test_noncanonical_selected_baseline_raises_typed_error() -> None:
+    state = _beam_state(((1.0, 1.0), (1.0, 1.0)))
+    canonical = _baseline(0, 1)
+    forged = object.__new__(ResolvedBaseline)
+    object.__setattr__(forged, "ant1", canonical.ant2)
+    object.__setattr__(forged, "ant2", canonical.ant1)
+    object.__setattr__(forged, "vector_enu_m", canonical.vector_enu_m)
+    object.__setattr__(forged, "length_m", canonical.length_m)
+    object.__setattr__(forged, "is_autocorrelation", canonical.is_autocorrelation)
+    object.__setattr__(forged, "azimuth_deg", canonical.azimuth_deg)
+
+    with pytest.raises(BeamSamplingDerivationError, match="baseline"):
+        _derive(state, (forged,))
+
+
+def test_nonincreasing_handler_scale_axis_raises_typed_error() -> None:
+    state = _beam_state(((1.0, 1.0), (1.0, 1.0)))
+    handler = state.handlers[0]
+    object.__setattr__(
+        handler,
+        "voltage_feature_scale_by_frequency",
+        tuple(reversed(handler.voltage_feature_scale_by_frequency)),
+    )
+
+    with pytest.raises(BeamSamplingDerivationError, match="beam_state"):
+        _derive(state, (_baseline(0, 1),))
+
+
+def test_loaded_assignment_order_disagreement_raises_typed_error() -> None:
+    state = _beam_state(((1.0, 1.0), (1.0, 1.0)))
+    object.__setattr__(
+        state,
+        "assignment_handler_ids",
+        tuple(reversed(state.assignment_handler_ids)),
+    )
+
+    with pytest.raises(BeamSamplingDerivationError, match="beam_state"):
+        _derive(state, (_baseline(0, 1),))
 
 
 @pytest.mark.parametrize("invalid_scale", (0.0, -1.0, float("nan"), float("inf")))
@@ -460,8 +514,19 @@ def test_requirement_rejects_inconsistent_public_state() -> None:
         {"pixel_limit_rad": requirement.pixel_limit_rad * 2.0},
         {"product_feature_scale_rad": float("nan")},
         {"handler_id_p": ""},
+        {"handler_id_p": "forged-handler"},
+        {"handler_kind_p": "unknown"},
         {"metric_kind": "physical_bandwidth"},
         {"safety_factor": 4},
+        {
+            "handler_kind_p": "fits",
+            "metric_kind": "analytic_aperture_support",
+        },
+        {
+            "handler_kind_p": "analytic",
+            "handler_kind_q": "analytic",
+            "metric_kind": "native_grid_representation_bound",
+        },
         {
             "baseline_ant1": AntennaId(2, "ANT2"),
             "baseline_ant2": AntennaId(1, "ANT1"),

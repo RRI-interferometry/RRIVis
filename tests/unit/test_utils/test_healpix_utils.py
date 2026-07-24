@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib
 import math
+import subprocess
+import sys
 
 import healpy as hp
 import numpy as np
@@ -81,3 +83,36 @@ def test_old_fwhm_advisor_names_are_removed() -> None:
     assert not hasattr(module, "pixel_too_coarse")
     assert "recommend_nside_for_beam" not in module.__all__
     assert "pixel_too_coarse" not in module.__all__
+
+
+def test_fresh_healpix_import_does_not_load_runtime_side_effect_modules() -> None:
+    script = """
+import sys
+
+import radiosim.utils.healpix
+
+forbidden_roots = (
+    "radiosim.api.simulator",
+    "radiosim.backends",
+    "radiosim.core.sky",
+    "radiosim.utils.device",
+    "radiosim.utils.network",
+    "bokeh",
+    "matplotlib",
+    "pyuvdata",
+)
+loaded = sorted(
+    name
+    for name in sys.modules
+    if any(name == root or name.startswith(root + ".") for root in forbidden_roots)
+)
+if loaded:
+    raise SystemExit(f"forbidden imports: {loaded}")
+"""
+
+    subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )

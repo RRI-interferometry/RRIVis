@@ -9,6 +9,8 @@ frequency. It does not evaluate beams, reload files, or mutate sky state.
 from __future__ import annotations
 
 import math
+import re
+from copy import deepcopy
 from dataclasses import dataclass
 from numbers import Real
 from typing import Any, Literal, cast
@@ -26,6 +28,7 @@ _SamplingMetric = Literal[
     "analytic_aperture_support",
     "native_grid_representation_bound",
 ]
+_HandlerKind = Literal["analytic", "fits"]
 
 __all__ = [
     "BeamSamplingRequirement",
@@ -121,6 +124,8 @@ class BeamSamplingRequirement:
     frequency_hz: float
     handler_id_p: str
     handler_id_q: str
+    handler_kind_p: _HandlerKind
+    handler_kind_q: _HandlerKind
     metric_kind: _SamplingMetric
     safety_factor: Literal[5]
 
@@ -168,10 +173,18 @@ class BeamSamplingRequirement:
             handler_id = getattr(self, field_name)
             if (
                 type(handler_id) is not str
-                or not handler_id
-                or handler_id.strip() != handler_id
+                or re.fullmatch(r"beam-[0-9]{4}-[0-9a-f]{12}", handler_id) is None
             ):
-                raise ValueError(f"{field_name} must be a nonblank exact string")
+                raise ValueError(
+                    f"{field_name} must be a canonical loaded beam handler ID"
+                )
+        for field_name in ("handler_kind_p", "handler_kind_q"):
+            handler_kind = getattr(self, field_name)
+            if type(handler_kind) is not str or handler_kind not in {
+                "analytic",
+                "fits",
+            }:
+                raise ValueError(f"{field_name} must be 'analytic' or 'fits'")
         if type(self.metric_kind) is not str or self.metric_kind not in {
             "analytic_aperture_support",
             "native_grid_representation_bound",
@@ -180,6 +193,13 @@ class BeamSamplingRequirement:
                 "metric_kind must be 'analytic_aperture_support' or "
                 "'native_grid_representation_bound'"
             )
+        expected_metric = (
+            "native_grid_representation_bound"
+            if "fits" in {self.handler_kind_p, self.handler_kind_q}
+            else "analytic_aperture_support"
+        )
+        if self.metric_kind != expected_metric:
+            raise ValueError("metric_kind must match the exact endpoint handler kinds")
         if type(self.safety_factor) is not int or self.safety_factor != 5:
             raise ValueError("safety_factor must be the exact integer 5")
 
@@ -206,6 +226,8 @@ class BeamSamplingRequirement:
             "frequency_hz": self.frequency_hz,
             "handler_id_p": self.handler_id_p,
             "handler_id_q": self.handler_id_q,
+            "handler_kind_p": self.handler_kind_p,
+            "handler_kind_q": self.handler_kind_q,
             "metric_kind": self.metric_kind,
             "safety_factor": self.safety_factor,
         }
@@ -304,11 +326,35 @@ def derive_beam_sampling_requirement(
         raise BeamSamplingDerivationError(
             "selected baseline domain must contain exact ResolvedBaseline values."
         )
-    baselines = cast(tuple[ResolvedBaseline, ...], baseline_values)
+    baselines: list[ResolvedBaseline] = []
+    seen_baselines: set[ResolvedBaseline] = set()
+    for index, baseline_value in enumerate(baseline_values):
+        baseline = cast(ResolvedBaseline, baseline_value)
+        try:
+            validated_baseline = deepcopy(baseline)
+            validated_baseline.__post_init__()
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise BeamSamplingDerivationError(
+                f"selected baseline at index {index} failed canonical validation."
+            ) from exc
+        if validated_baseline in seen_baselines:
+            raise BeamSamplingDerivationError(
+                f"selected baseline at index {index} is a duplicate."
+            )
+        seen_baselines.add(validated_baseline)
+        baselines.append(validated_baseline)
     if type(beam_state) is not LoadedBeamState:
         raise BeamSamplingDerivationError(
             "beam_state must be an exact LoadedBeamState."
         )
+    try:
+        validated_beam_state = deepcopy(beam_state)
+        validated_beam_state.__post_init__()
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
+        raise BeamSamplingDerivationError(
+            "beam_state has invalid handler feature scale or canonical relationship."
+        ) from exc
+    beam_state = validated_beam_state
     frequencies = _validated_frequencies(observation_frequencies_hz)
     if not _valid_nside(actual_nside):
         raise BeamSamplingDerivationError(
@@ -456,6 +502,8 @@ def derive_beam_sampling_requirement(
         frequency_hz=float(frequency),
         handler_id_p=handler_p,
         handler_id_q=handler_q,
+        handler_kind_p=handlers_by_id[handler_p].kind,
+        handler_kind_q=handlers_by_id[handler_q].kind,
         metric_kind=metric,
         safety_factor=_SAFETY_FACTOR,
     )
