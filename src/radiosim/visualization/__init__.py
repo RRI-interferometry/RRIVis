@@ -4,14 +4,6 @@ This module provides interactive and static plotting capabilities
 for visibility data, antenna layouts, and sky models.
 """
 
-from radiosim.core.observability import (
-    ObservabilityPlan,
-    ObservabilityPlanner,
-    ObservabilitySnapshot,
-    ObservabilitySourceMetrics,
-    draw_za_rings_on_figure,
-    za_ring_points,
-)
 from radiosim.visualization.bokeh_plots import (
     plot_antenna_layout,
     plot_antenna_layout_3d_plotly,
@@ -63,11 +55,5 @@ __all__ = [
     "plot_spectral_index",
     "plot_stokes",
     "plot_variance_spectrum",
-    "ObservabilityPlanner",
-    "ObservabilityPlan",
     "ObservabilityBokehRenderer",
-    "ObservabilitySnapshot",
-    "ObservabilitySourceMetrics",
-    "za_ring_points",
-    "draw_za_rings_on_figure",
 ]

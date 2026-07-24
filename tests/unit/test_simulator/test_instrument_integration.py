@@ -630,10 +630,12 @@ def test_run_does_not_print_banner_before_instrument_success(tmp_path, monkeypat
     assert banners == []
 
 
-def test_observability_rejects_heterogeneous_diameters_before_side_effects(
+def test_observability_requires_reference_for_heterogeneous_beams_before_side_effects(
     tmp_path,
     monkeypatch,
 ):
+    import radiosim.core.observability as observability
+
     simulator = Simulator.from_mapping(_instrument_mapping(tmp_path), base_dir=tmp_path)
 
     def forbidden(*args, **kwargs):
@@ -643,18 +645,17 @@ def test_observability_rejects_heterogeneous_diameters_before_side_effects(
     monkeypatch.setattr("webbrowser.open", forbidden)
 
     with pytest.raises(
-        NotImplementedError,
-        match="^Tier 3G observability migration is required for this beam mode$",
+        observability.InvalidObservabilityReferenceError,
+        match="Heterogeneous beam assignments require an explicit",
     ):
-        simulator.plot_observability(open_in_browser=True)
+        simulator.plan_observability(grid_resolution_deg=10.0)
 
     assert simulator._instrument_state is not None
     assert simulator._backend is None
 
 
-def test_observability_uses_exact_uniform_canonical_diameter_before_setup(
+def test_observability_defaults_to_minimum_number_for_homogeneous_beams(
     tmp_path,
-    monkeypatch,
 ):
     mapping = _instrument_mapping(tmp_path)
     antenna_path = Path(mapping["instrument"]["source"]["path"])
@@ -664,42 +665,106 @@ def test_observability_uses_exact_uniform_canonical_diameter_before_setup(
         "ANT1 1 0 14.0 0.0 0.0 31.0\n",
         encoding="utf-8",
     )
-    captured: dict[str, object] = {}
+    simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
 
-    class FakePlanner:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
+    plan = simulator.plan_observability(grid_resolution_deg=10.0)
 
-        def build(self):
-            return object()
+    assert simulator._backend is None
+    assert plan.reference_antenna.number == 0
+    assert plan.reference_selection_reason == "homogeneous_default_minimum_number"
 
-    class FakeRenderer:
-        def __init__(self, _plan, **_kwargs):
-            pass
 
-        def create_plot(self):
-            return "layout"
+def test_tier3g_plan_and_plot_observability_have_no_permissive_kwargs():
+    plan_parameters = inspect.signature(Simulator.plan_observability).parameters
+    plot_parameters = inspect.signature(Simulator.plot_observability).parameters
 
-        def save(self, *_args, **_kwargs):
-            raise AssertionError("save should not be called")
+    assert "kwargs" not in plan_parameters
+    assert "kwargs" not in plot_parameters
+    assert plan_parameters["reference_antenna"].kind is inspect.Parameter.KEYWORD_ONLY
+    for name in plan_parameters:
+        if name != "self":
+            assert name in plot_parameters
+    for name in (
+        "show_source_colorbar",
+        "color_scale",
+        "output_dir",
+        "filename",
+        "overwrite",
+        "open_in_browser",
+    ):
+        assert name in plot_parameters
+    for removed in ("beam_reference", "save_path"):
+        assert removed not in plan_parameters
+        assert removed not in plot_parameters
 
-    monkeypatch.setattr(
-        "radiosim.core.observability.ObservabilityPlanner",
-        FakePlanner,
-    )
+
+def test_tier3g_planning_failure_precedes_renderer_output_and_browser(
+    tmp_path,
+    monkeypatch,
+):
+    import radiosim.core.observability as observability
+
+    simulator = Simulator.from_mapping(_instrument_mapping(tmp_path), base_dir=tmp_path)
+    events: list[str] = []
+
+    def fail_plan(**_kwargs):
+        events.append("plan")
+        raise observability.InvalidObservabilityContextError(
+            "controlled planning error"
+        )
+
+    class ForbiddenRenderer:
+        def __init__(self, *_args, **_kwargs):
+            events.append("renderer")
+            pytest.fail("renderer constructed after planning failure")
+
+    monkeypatch.setattr(simulator, "plan_observability", fail_plan)
     monkeypatch.setattr(
         "radiosim.visualization.observability.ObservabilityBokehRenderer",
-        FakeRenderer,
+        ForbiddenRenderer,
+    )
+    monkeypatch.setattr(
+        "webbrowser.open",
+        lambda *_args, **_kwargs: events.append("browser"),
+    )
+
+    with pytest.raises(
+        observability.InvalidObservabilityContextError,
+        match="controlled planning error",
+    ):
+        simulator.plot_observability(
+            output_dir=tmp_path,
+            filename="never.html",
+            open_in_browser=True,
+        )
+
+    assert events == ["plan"]
+    assert not (tmp_path / "never.html").exists()
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"output_dir": Path(".")},
+        {"filename": "observability.html"},
+        {"open_in_browser": True},
+    ],
+)
+def test_tier3g_plot_requires_complete_explicit_output_target(
+    tmp_path,
+    arguments,
+):
+    import radiosim.core.observability as observability
+
+    mapping = _instrument_mapping(tmp_path)
+    antenna_path = Path(mapping["instrument"]["source"]["path"])
+    antenna_path.write_text(
+        "Name Number BeamID E N U Diameter\n"
+        "ANT0 0 0 0.0 0.0 0.0 14.0\n"
+        "ANT1 1 0 14.0 0.0 0.0 14.0\n",
+        encoding="utf-8",
     )
     simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
 
-    layout = simulator.plot_observability(
-        lst_start_hours=1.0,
-        lst_end_hours=2.0,
-        open_in_browser=False,
-    )
-
-    assert layout == "layout"
-    assert simulator._backend is None
-    assert captured["beam_diameter_m"] == 31.0
-    assert type(captured["beam_diameter_m"]) is float
+    with pytest.raises(observability.ObservabilityOutputError):
+        simulator.plot_observability(grid_resolution_deg=10.0, **arguments)

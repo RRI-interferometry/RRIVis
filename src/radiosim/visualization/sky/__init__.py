@@ -24,7 +24,8 @@ attached to ``SkyPlotter``; its body lives in
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from .harmonics import (
     plot_angular_power_spectrum,
@@ -50,19 +51,52 @@ from .statistics import (
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
+    from radiosim.core.observability import ObservabilityPlan
 
-def overlay_observability(fig: Figure, plan: Any, **kwargs: Any) -> Figure:
+
+def overlay_observability(
+    fig: Figure,
+    plan: ObservabilityPlan,
+    *,
+    color: str = "white",
+    linestyle: str = "--",
+    linewidth: float = 1.5,
+    alpha: float = 0.9,
+    draw_footprint: bool = True,
+    draw_beam: bool = True,
+    beam_color: str = "yellow",
+    beam_linestyle: str = "-",
+    beam_linewidths: Mapping[float, float] | None = None,
+    beam_alpha: float = 0.9,
+    draw_tracks: bool = False,
+    track_color: str = "yellow",
+    track_marker_size: float = 20.0,
+) -> Figure:
     """Draw an :class:`ObservabilityPlan`'s footprint on every Mollweide panel.
 
     Thin convenience wrapper around
     :func:`radiosim.core.observability.overlay.draw_observability_overlay`.
-    Accepts the same keyword arguments (``color``, ``linestyle``,
-    ``draw_footprint``, ``draw_beam``, ``beam_color``, ``beam_linewidths``,
-    ``draw_tracks`` …).
+    Every style option is forwarded explicitly by name.
     """
     from radiosim.core.observability.overlay import draw_observability_overlay
 
-    return draw_observability_overlay(fig, plan, **kwargs)
+    return draw_observability_overlay(
+        fig,
+        plan,
+        color=color,
+        linestyle=linestyle,
+        linewidth=linewidth,
+        alpha=alpha,
+        draw_footprint=draw_footprint,
+        draw_beam=draw_beam,
+        beam_color=beam_color,
+        beam_linestyle=beam_linestyle,
+        beam_linewidths=beam_linewidths,
+        beam_alpha=beam_alpha,
+        draw_tracks=draw_tracks,
+        track_color=track_color,
+        track_marker_size=track_marker_size,
+    )
 
 
 __all__ = [

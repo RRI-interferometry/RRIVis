@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import tempfile
+from pathlib import Path
+from typing import Any, Literal, TypedDict, cast
 
 import numpy as np
-from bokeh.io import save, show
+from bokeh.io import save
 from bokeh.layouts import column, gridplot, row
 from bokeh.models import (
     ColorBar,
@@ -19,13 +21,19 @@ from bokeh.models import (
     LinearColorMapper,
     LogColorMapper,
     NumberFormatter,
+    Range1d,
     TableColumn,
+    UIElement,
 )
 from bokeh.plotting import figure
 from bokeh.resources import CDN
 
 from radiosim.core.observability import (
+    ObservabilityBrowserError,
+    ObservabilityOutputCollisionError,
+    ObservabilityOutputError,
     ObservabilityPlan,
+    ObservabilityRenderError,
     ObservabilitySnapshot,
     create_rgba_overlay,
 )
@@ -49,6 +57,17 @@ def _create_blue_to_white_palette(n: int = 256) -> list[str]:
 _SOURCE_PALETTE = _create_blue_to_white_palette(256)
 
 
+class _SourceTableRow(TypedDict):
+    name: str
+    ra: float
+    dec: float
+    flux: float
+    visible_fraction: float
+    min_sep_deg: float
+    first: str
+    last: str
+
+
 class ObservabilityBokehRenderer:
     """Render a :class:`ObservabilityPlan` with Bokeh."""
 
@@ -57,76 +76,162 @@ class ObservabilityBokehRenderer:
         plan: ObservabilityPlan,
         *,
         show_source_colorbar: bool = False,
-        color_scale: str = "log",
-    ):
+        color_scale: Literal["log", "linear"] = "log",
+    ) -> None:
+        if type(cast(object, plan)) is not ObservabilityPlan:
+            raise ObservabilityRenderError("plan must be an exact ObservabilityPlan.")
+        if type(cast(object, show_source_colorbar)) is not bool:
+            raise ObservabilityRenderError(
+                "show_source_colorbar must be an exact bool."
+            )
+        if type(cast(object, color_scale)) is not str or color_scale not in {
+            "log",
+            "linear",
+        }:
+            raise ObservabilityRenderError("color_scale must be 'log' or 'linear'.")
         self.plan = plan
         self.show_source_colorbar = show_source_colorbar
         self.color_scale = color_scale
 
-    def create_plot(self):
+    def create_plot(self) -> UIElement:
         """Create a Bokeh layout."""
-        if self.plan.mode == "snapshots":
-            return self._create_snapshot_grid()
+        try:
+            if self.plan.mode == "snapshots":
+                return self._create_snapshot_grid()
 
-        plot = self._create_summary_figure(self.plan.title)
-        self._add_background(plot)
-        self._add_footprint(
-            plot, self.plan.footprint_mask, legend_label=self.plan.footprint_model
-        )
-        self._add_track(plot)
-        self._add_beam(plot)
-        self._add_sources(plot, visible_source_mask=None)
-        self._add_top_visible_labels(plot)
-        self._configure_axes(plot)
+            plot = self._create_summary_figure(self.plan.title)
+            self._add_background(plot)
+            self._add_footprint(
+                plot,
+                self.plan.footprint_mask,
+                legend_label=self.plan.footprint_model,
+            )
+            self._add_track(plot)
+            self._add_beam(plot)
+            self._add_sources(plot, visible_source_mask=None)
+            self._add_top_visible_labels(plot)
+            self._configure_axes(plot)
 
-        tables = self._build_source_tables()
-        if tables is not None:
-            return column(plot, tables)
-        return plot
+            tables = self._build_source_tables()
+            if tables is not None:
+                return column(plot, tables)
+            return plot
+        except ObservabilityRenderError:
+            raise
+        except Exception as exc:
+            raise ObservabilityRenderError(
+                "Failed to construct the observability Bokeh layout."
+            ) from exc
 
     def save(
         self,
-        layout,
-        filename: str = "observability.html",
-        title: str = "Sky Visibility",
-        folder_path: str | None = None,
+        layout: UIElement,
+        *,
+        output_dir: Path,
+        filename: str,
+        overwrite: bool = False,
         open_in_browser: bool = False,
-    ) -> str | None:
-        """Persist the Bokeh layout to HTML."""
-        try:
-            from radiosim.visualization.bokeh_plots import _persist_bokeh_document
-
-            return _persist_bokeh_document(
-                layout,
-                filename,
-                title,
-                save_flag=folder_path is not None,
-                folder_path=folder_path,
-                open_flag=open_in_browser,
+    ) -> Path:
+        """Persist a validated layout using same-directory atomic publication."""
+        if not isinstance(cast(object, layout), UIElement):
+            raise ObservabilityOutputError("layout must be a Bokeh UIElement.")
+        if not isinstance(cast(object, output_dir), Path):
+            raise ObservabilityOutputError("output_dir must be a pathlib.Path.")
+        if type(cast(object, filename)) is not str:
+            raise ObservabilityOutputError("filename must be an exact string.")
+        if (
+            type(cast(object, overwrite)) is not bool
+            or type(cast(object, open_in_browser)) is not bool
+        ):
+            raise ObservabilityOutputError(
+                "overwrite and open_in_browser must be exact bool values."
             )
-        except ImportError:
-            pass
+        if (
+            not filename.strip()
+            or filename != filename.strip()
+            or Path(filename).name != filename
+            or Path(filename).suffix != ".html"
+            or not Path(filename).stem
+        ):
+            raise ObservabilityOutputError(
+                "filename must be one nonblank basename ending in '.html'."
+            )
+        if not output_dir.exists():
+            raise ObservabilityOutputError(f"output_dir does not exist: {output_dir}")
+        if not output_dir.is_dir():
+            raise ObservabilityOutputError(
+                f"output_dir is not a directory: {output_dir}"
+            )
+        if not os.access(output_dir, os.W_OK):
+            raise ObservabilityOutputError(f"output_dir is not writable: {output_dir}")
 
-        target = os.path.join(folder_path or tempfile.mkdtemp(), filename)
-        save(layout, filename=target, resources=CDN, title=title)
+        target = output_dir / filename
+        if target.exists() and not overwrite:
+            raise ObservabilityOutputCollisionError(
+                f"Observability output already exists: {target}"
+            ) from None
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                prefix=f".{filename}.",
+                suffix=".tmp",
+                dir=output_dir,
+                delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+            _ = save(
+                layout,
+                filename=temporary_path,
+                resources=CDN,
+                title=self.plan.title,
+            )
+            if overwrite:
+                os.replace(temporary_path, target)
+                temporary_path = None
+            else:
+                try:
+                    os.link(temporary_path, target)
+                except FileExistsError:
+                    raise ObservabilityOutputCollisionError(
+                        f"Observability output already exists: {target}"
+                    ) from None
+                _ = temporary_path.unlink()
+                temporary_path = None
+        except ObservabilityOutputCollisionError:
+            raise
+        except Exception as exc:
+            raise ObservabilityOutputError(
+                f"Failed to publish observability output: {target}"
+            ) from exc
+        finally:
+            if temporary_path is not None:
+                try:
+                    _ = temporary_path.unlink(missing_ok=True)
+                except OSError as cleanup_exc:
+                    raise ObservabilityOutputError(
+                        f"Failed to remove temporary output: {temporary_path}"
+                    ) from cleanup_exc
+
         if open_in_browser:
             import webbrowser
-            from pathlib import Path
 
-            webbrowser.open(Path(target).resolve().as_uri())
+            try:
+                opened = webbrowser.open(target.resolve().as_uri())
+                if opened is False:
+                    raise RuntimeError("browser declined the published file")
+            except Exception as exc:
+                raise ObservabilityBrowserError(
+                    f"Published {target}, but the browser could not be opened."
+                ) from exc
         return target
 
-    @staticmethod
-    def show_plot(layout):
-        """Display the plot."""
-        show(layout)
-
-    def _create_summary_figure(self, title: str):
+    def _create_summary_figure(self, title: str) -> figure:
         x_range, x_label = self._x_range_and_label()
         return figure(
             title=title,
-            x_range=x_range,
-            y_range=(-90, 90),
+            x_range=Range1d(*x_range),
+            y_range=Range1d(-90, 90),
             x_axis_label=x_label,
             y_axis_label="Dec (deg)",
             aspect_ratio=2,
@@ -135,8 +240,8 @@ class ObservabilityBokehRenderer:
             background_fill_color="white",
         )
 
-    def _create_snapshot_grid(self):
-        plots = []
+    def _create_snapshot_grid(self) -> UIElement:
+        plots: list[figure] = []
         for snapshot in self.plan.snapshots:
             plot = self._create_summary_figure(snapshot.label)
             self._add_background(plot)
@@ -159,10 +264,10 @@ class ObservabilityBokehRenderer:
             return -12.0, 24.0
         return -180.0, 360.0
 
-    def _to_x(self, ra_deg):
+    def _to_x(self, ra_deg: np.ndarray | float) -> np.ndarray | float:
         return axis_from_ra_deg(ra_deg, self.plan.x_axis)
 
-    def _add_background(self, plot) -> None:
+    def _add_background(self, plot: figure) -> None:
         if self.plan.projected_background is None:
             return
 
@@ -204,7 +309,12 @@ class ObservabilityBokehRenderer:
             "right",
         )
 
-    def _add_footprint(self, plot, mask: np.ndarray, legend_label: str) -> None:
+    def _add_footprint(
+        self,
+        plot: figure,
+        mask: np.ndarray,
+        legend_label: str,
+    ) -> None:
         x, dw = self._full_image_extent()
         plot.image_rgba(
             image=[self._mask_to_rgba(mask)],
@@ -214,14 +324,29 @@ class ObservabilityBokehRenderer:
             dh=180,
         )
 
+        reference_label = (
+            f"{legend_label}; ref {self.plan.reference_antenna.number}:"
+            f"{self.plan.reference_antenna.name} "
+            f"{self.plan.reference_scientific_fingerprint[:12]} "
+            f"({self.plan.reference_selection_reason})"
+        )
+        first_segment = True
         for segment in self.plan.footprint_contours[0]:
             x_values = np.asarray(self._to_x(segment[:, 0]), dtype=float)
             y_values = np.asarray(segment[:, 1], dtype=float)
             boundary = 12 if self.plan.x_axis == "lst" else 180
             for xs, ys in split_wrapped_path(x_values, y_values, boundary):
-                plot.line(xs, ys, line_width=2, color="#4a90d9", alpha=0.9)
+                arguments: dict[str, Any] = {
+                    "line_width": 2,
+                    "color": "#4a90d9",
+                    "alpha": 0.9,
+                }
+                if first_segment:
+                    arguments["legend_label"] = reference_label
+                    first_segment = False
+                _ = plot.line(xs, ys, **arguments)
 
-    def _add_track(self, plot) -> None:
+    def _add_track(self, plot: figure) -> None:
         x_values = np.asarray(self._to_x(self.plan.track_ra_deg), dtype=float)
         y_values = np.full_like(x_values, self.plan.latitude_deg, dtype=float)
         plot.line(
@@ -233,7 +358,11 @@ class ObservabilityBokehRenderer:
             alpha=0.7,
         )
 
-    def _add_snapshot_center(self, plot, snapshot: ObservabilitySnapshot) -> None:
+    def _add_snapshot_center(
+        self,
+        plot: figure,
+        snapshot: ObservabilitySnapshot,
+    ) -> None:
         plot.scatter(
             [float(self._to_x(snapshot.zenith_ra_deg))],
             [snapshot.zenith_dec_deg],
@@ -241,10 +370,7 @@ class ObservabilityBokehRenderer:
             color="#111111",
         )
 
-    def _add_beam(self, plot) -> None:
-        if self.plan.beam_projection is None:
-            return
-
+    def _add_beam(self, plot: figure) -> None:
         rgba = create_rgba_overlay(
             self.plan.beam_projection,
             cmap="RdBu_r",
@@ -262,26 +388,37 @@ class ObservabilityBokehRenderer:
         )
 
         contour_styles = [
-            {"color": "white", "dash": "solid", "label": "-3 dB"},
-            {"color": "yellow", "dash": "dashed", "label": "-10 dB"},
+            {"color": "white", "dash": "solid"},
+            {"color": "yellow", "dash": "dashed"},
         ]
         if self.plan.beam_contours:
             boundary = 12 if self.plan.x_axis == "lst" else 180
-            for (segments, _level), style in zip(
+            for contour, style in zip(
                 self.plan.beam_contours,
                 contour_styles,
                 strict=False,
             ):
-                for segment in segments:
+                first_segment = True
+                for segment in contour.segments:
                     xs = np.asarray(self._to_x(segment[:, 0]), dtype=float)
                     ys = np.asarray(segment[:, 1], dtype=float)
                     for seg_x, seg_y in split_wrapped_path(xs, ys, boundary):
+                        arguments: dict[str, Any] = {
+                            "line_color": style["color"],
+                            "line_width": 2,
+                            "line_dash": style["dash"],
+                        }
+                        if first_segment:
+                            arguments["legend_label"] = (
+                                f"{contour.level_db:g} dB reference beam "
+                                f"{self.plan.reference_antenna.number}:"
+                                f"{self.plan.reference_antenna.name}"
+                            )
+                            first_segment = False
                         plot.line(
                             seg_x,
                             seg_y,
-                            line_color=style["color"],
-                            line_width=2,
-                            line_dash=style["dash"],
+                            **arguments,
                         )
 
         finite = self.plan.beam_projection.power_db[
@@ -306,7 +443,11 @@ class ObservabilityBokehRenderer:
             "left",
         )
 
-    def _add_sources(self, plot, visible_source_mask: np.ndarray | None) -> None:
+    def _add_sources(
+        self,
+        plot: figure,
+        visible_source_mask: np.ndarray | None,
+    ) -> None:
         metrics = self.plan.source_metrics
         if metrics is None:
             return
@@ -373,12 +514,16 @@ class ObservabilityBokehRenderer:
                 "right",
             )
 
-    def _add_top_visible_labels(self, plot) -> None:
+    def _add_top_visible_labels(self, plot: figure) -> None:
         metrics = self.plan.source_metrics
         if metrics is None or len(metrics.top_visible_indices) == 0:
             return
 
-        data = {"x": [], "dec": [], "rank": []}
+        data: dict[str, list[float] | list[str]] = {
+            "x": [],
+            "dec": [],
+            "rank": [],
+        }
         for rank, idx in enumerate(metrics.top_visible_indices, start=1):
             data["x"].append(float(metrics.x_coord[idx]))
             data["dec"].append(float(metrics.dec_deg[idx]))
@@ -399,7 +544,7 @@ class ObservabilityBokehRenderer:
             )
         )
 
-    def _configure_axes(self, plot) -> None:
+    def _configure_axes(self, plot: figure) -> None:
         if self.plan.x_axis == "lst":
             ticks = list(range(-12, 13))
             plot.xaxis.ticker = FixedTicker(ticks=ticks)
@@ -413,22 +558,32 @@ class ObservabilityBokehRenderer:
         plot.yaxis.ticker = FixedTicker(ticks=dec_ticks)
         plot.yaxis.major_label_overrides = {tick: f"{tick} deg" for tick in dec_ticks}
 
-    def _build_source_tables(self):
+    def _build_source_tables(self) -> UIElement | None:
         metrics = self.plan.source_metrics
         if metrics is None or len(metrics.top_visible_indices) == 0:
             return None
 
         top_visible = self._table_rows(metrics.top_visible_indices)
         nearby = self._table_rows(metrics.nearby_indices)
+        reference = (
+            f"ref {self.plan.reference_antenna.number}:"
+            f"{self.plan.reference_antenna.name} "
+            f"{self.plan.reference_scientific_fingerprint[:12]} "
+            f"({self.plan.reference_selection_reason})"
+        )
         return row(
-            _source_table(top_visible, "Top Visible Sources"),
-            _source_table(nearby, "Nearby Sources", empty_msg="No nearby sources"),
+            _source_table(top_visible, f"Top Visible Sources - {reference}"),
+            _source_table(
+                nearby,
+                f"Nearby Sources - {reference}",
+                empty_msg="No nearby sources",
+            ),
         )
 
-    def _table_rows(self, indices: np.ndarray) -> list[dict]:
+    def _table_rows(self, indices: np.ndarray) -> list[_SourceTableRow]:
         metrics = self.plan.source_metrics
         assert metrics is not None
-        rows = []
+        rows: list[_SourceTableRow] = []
         for idx in indices:
             first_idx = metrics.first_visible_index[idx]
             last_idx = metrics.last_visible_index[idx]
@@ -466,10 +621,10 @@ class ObservabilityBokehRenderer:
 
 
 def _source_table(
-    rows: list[dict],
+    rows: list[_SourceTableRow],
     title: str,
     empty_msg: str = "No sources found",
-):
+) -> UIElement:
     if not rows:
         return Div(text=f"<p><i>{empty_msg}</i></p>", width=520)
 

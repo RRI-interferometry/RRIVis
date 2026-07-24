@@ -161,10 +161,10 @@ class TestExtractContours:
         levels = [-3.0, -10.0]
         result = extract_contours(proj, levels_db=levels)
         assert len(result) == 2
-        # Each entry is (segments, level)
-        for segments, level in result:
-            assert level in levels
-            assert isinstance(segments, list)
+        for contour in result:
+            assert contour.level_db in levels
+            assert type(contour.segments) is tuple
+            assert all(not segment.flags.writeable for segment in contour.segments)
 
     def test_contour_has_vertices(self):
         """At least one contour should have vertices for -3 dB."""
@@ -177,6 +177,6 @@ class TestExtractContours:
             dec_resolution_deg=0.5,
         )
         result = extract_contours(proj, levels_db=[-3.0])
-        segments, _ = result[0]
+        segments = result[0].segments
         assert len(segments) > 0
         assert segments[0].shape[1] == 2  # (N, 2)

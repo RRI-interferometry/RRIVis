@@ -70,111 +70,9 @@ Examples
 ... )
 """
 
-# Base classes
-# B term: Bandpass
-from .bandpass import (
-    BandpassJones,
-    PolynomialBandpassJones,
-    RFIFlaggedBandpassJones,
-    SplineBandpassJones,
-)
+from importlib import import_module
+
 from .base import JonesTerm
-
-# M_pq / Q_spq: Baseline-based terms (NOT per-antenna, use JonesBaselineTerm)
-from .baseline_errors import (
-    BaselineMultiplicativeJones,
-    JonesBaselineTerm,
-    SmearingFactorJones,
-)
-
-# E term: Primary beam
-from .beam import (
-    AnalyticBeamJones,
-    BeamJones,
-    FITSBeamJones,
-)
-from .chain import JonesChain
-
-# X / KCROSS / DF terms: Cross-hand effects and frequency-dependent leakage
-from .crosshand import (
-    CrosshandDelayJones,
-    CrosshandPhaseJones,
-    FrequencyDependentLeakageJones,
-)
-
-# K_delay / cable / fringefit: Delay, reflections, VLBI calibration
-from .delay import (
-    CableReflectionJones,
-    DelayJones,
-    FringeFitJones,
-)
-
-# Ee / a / dE terms: Element beam, array factor, differential beam
-from .element_beam import (
-    ArrayFactorJones,
-    DifferentialBeamJones,
-    ElementBeamJones,
-)
-
-# F term: Faraday rotation
-from .faraday import (
-    DifferentialFaradayJones,
-    FaradayRotationJones,
-)
-
-# G term: Electronic gains
-# G term extensions: Elevation gain
-from .gain import (
-    ElevationGainJones,
-    GainJones,
-    TimeVariableGainJones,
-)
-
-# K term: Geometric phase
-from .geometric import GeometricPhaseJones
-
-# Z term: Ionosphere
-from .ionosphere import (
-    GPSIonosphereJones,
-    IonosphereJones,
-    TurbulentIonosphereJones,
-)
-
-# P term: Parallactic angle
-from .parallactic import (
-    FieldRotationJones,
-    ParallacticAngleJones,
-    VLBIFeedRotationJones,
-)
-
-# D term: Polarization leakage
-from .polarization_leakage import (
-    BeamSquintLeakageJones,
-    IXRLeakageJones,
-    MuellerLeakageJones,
-    PolarizationLeakageJones,
-)
-
-# C + H terms: Receptor configuration and basis transforms
-from .receptor import (
-    BasisTransformJones,
-    ReceptorConfigJones,
-)
-
-# T term: Troposphere
-from .troposphere import (
-    SaastamoinenTroposphereJones,
-    TroposphereJones,
-    TroposphericOpacityJones,
-    TurbulentTroposphereJones,
-)
-
-# W term: Non-coplanar phase correction
-from .wterm import (
-    WidefieldPolarimetricJones,
-    WPhaseJones,
-    WProjectionJones,
-)
 
 __all__ = [
     # Base classes
@@ -240,3 +138,88 @@ __all__ = [
     "BaselineMultiplicativeJones",
     "SmearingFactorJones",
 ]
+
+
+_LAZY_EXPORTS = {
+    "JonesChain": (".chain", "JonesChain"),
+    "JonesBaselineTerm": (".baseline_errors", "JonesBaselineTerm"),
+    "GeometricPhaseJones": (".geometric", "GeometricPhaseJones"),
+    "BeamJones": (".beam", "BeamJones"),
+    "AnalyticBeamJones": (".beam", "AnalyticBeamJones"),
+    "FITSBeamJones": (".beam", "FITSBeamJones"),
+    "GainJones": (".gain", "GainJones"),
+    "TimeVariableGainJones": (".gain", "TimeVariableGainJones"),
+    "ElevationGainJones": (".gain", "ElevationGainJones"),
+    "BandpassJones": (".bandpass", "BandpassJones"),
+    "PolynomialBandpassJones": (".bandpass", "PolynomialBandpassJones"),
+    "SplineBandpassJones": (".bandpass", "SplineBandpassJones"),
+    "RFIFlaggedBandpassJones": (".bandpass", "RFIFlaggedBandpassJones"),
+    "PolarizationLeakageJones": (
+        ".polarization_leakage",
+        "PolarizationLeakageJones",
+    ),
+    "IXRLeakageJones": (".polarization_leakage", "IXRLeakageJones"),
+    "MuellerLeakageJones": (".polarization_leakage", "MuellerLeakageJones"),
+    "BeamSquintLeakageJones": (
+        ".polarization_leakage",
+        "BeamSquintLeakageJones",
+    ),
+    "ParallacticAngleJones": (".parallactic", "ParallacticAngleJones"),
+    "FieldRotationJones": (".parallactic", "FieldRotationJones"),
+    "VLBIFeedRotationJones": (".parallactic", "VLBIFeedRotationJones"),
+    "IonosphereJones": (".ionosphere", "IonosphereJones"),
+    "TurbulentIonosphereJones": (".ionosphere", "TurbulentIonosphereJones"),
+    "GPSIonosphereJones": (".ionosphere", "GPSIonosphereJones"),
+    "TroposphereJones": (".troposphere", "TroposphereJones"),
+    "SaastamoinenTroposphereJones": (
+        ".troposphere",
+        "SaastamoinenTroposphereJones",
+    ),
+    "TurbulentTroposphereJones": (
+        ".troposphere",
+        "TurbulentTroposphereJones",
+    ),
+    "TroposphericOpacityJones": (
+        ".troposphere",
+        "TroposphericOpacityJones",
+    ),
+    "FaradayRotationJones": (".faraday", "FaradayRotationJones"),
+    "DifferentialFaradayJones": (".faraday", "DifferentialFaradayJones"),
+    "WPhaseJones": (".wterm", "WPhaseJones"),
+    "WProjectionJones": (".wterm", "WProjectionJones"),
+    "WidefieldPolarimetricJones": (".wterm", "WidefieldPolarimetricJones"),
+    "ReceptorConfigJones": (".receptor", "ReceptorConfigJones"),
+    "BasisTransformJones": (".receptor", "BasisTransformJones"),
+    "ElementBeamJones": (".element_beam", "ElementBeamJones"),
+    "ArrayFactorJones": (".element_beam", "ArrayFactorJones"),
+    "DifferentialBeamJones": (".element_beam", "DifferentialBeamJones"),
+    "DelayJones": (".delay", "DelayJones"),
+    "CableReflectionJones": (".delay", "CableReflectionJones"),
+    "FringeFitJones": (".delay", "FringeFitJones"),
+    "CrosshandPhaseJones": (".crosshand", "CrosshandPhaseJones"),
+    "CrosshandDelayJones": (".crosshand", "CrosshandDelayJones"),
+    "FrequencyDependentLeakageJones": (
+        ".crosshand",
+        "FrequencyDependentLeakageJones",
+    ),
+    "BaselineMultiplicativeJones": (
+        ".baseline_errors",
+        "BaselineMultiplicativeJones",
+    ),
+    "SmearingFactorJones": (".baseline_errors", "SmearingFactorJones"),
+}
+
+
+def __getattr__(name: str) -> object:
+    try:
+        module_name, attribute_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+    value = getattr(import_module(module_name, __name__), attribute_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """Include lazy public exports in interactive discovery."""
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))

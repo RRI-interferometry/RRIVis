@@ -12,8 +12,8 @@ when overlaying beam null/sidelobe positions on sky maps.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
@@ -37,7 +37,7 @@ def draw_observability_overlay(
     draw_beam: bool = True,
     beam_color: str = "yellow",
     beam_linestyle: str = "-",
-    beam_linewidths: dict[float, float] | None = None,
+    beam_linewidths: Mapping[float, float] | None = None,
     beam_alpha: float = 0.9,
     draw_tracks: bool = False,
     track_color: str = "yellow",
@@ -83,6 +83,14 @@ def draw_observability_overlay(
     """
     import healpy as hp
     import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure as MatplotlibFigure
+
+    from .planner import ObservabilityPlan
+
+    if not isinstance(cast(object, fig), MatplotlibFigure):
+        raise TypeError("fig must be a matplotlib Figure")
+    if type(plan) is not ObservabilityPlan:
+        raise TypeError("plan must be an exact ObservabilityPlan")
 
     projection_axes = [
         ax for ax in fig.axes if hasattr(ax, "projplot") or "Hpx" in type(ax).__name__
@@ -124,10 +132,10 @@ def draw_observability_overlay(
                     a=alpha,
                 )
         if beam_contours is not None:
-            for segment_group, level_db in beam_contours:
-                lw = float(per_level_lw.get(float(level_db), linewidth))
+            for contour in beam_contours:
+                lw = float(per_level_lw.get(contour.level_db, linewidth))
                 _draw_segments(
-                    segment_group,
+                    contour.segments,
                     c=beam_color,
                     ls=beam_linestyle,
                     lw=lw,

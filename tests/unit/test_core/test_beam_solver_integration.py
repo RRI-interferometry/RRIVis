@@ -23,6 +23,7 @@ from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.polarization import stokes_to_coherency
 from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
+from radiosim.io.instrument_config import AntennaNumberReference
 from radiosim.simulator import RIMESimulator, VisibilitySimulator
 from tests.fixtures.beamfits import (
     BeamScienceVariant,
@@ -893,24 +894,28 @@ def test_high_level_healpix_run_activates_every_accepted_beam_family(
 
 
 @pytest.mark.parametrize(
-    "beams",
+    ("beams", "requires_reference"),
     [
-        {
-            "mode": "analytic",
-            "model": {
-                "kind": "rectangular_aperture",
-                "north_length_m": 14.0,
-                "east_length_m": 12.0,
+        (
+            {
+                "mode": "analytic",
+                "model": {
+                    "kind": "rectangular_aperture",
+                    "north_length_m": 14.0,
+                    "east_length_m": 12.0,
+                },
             },
-        },
-        {"mode": "shared_fits"},
-        {"mode": "mixed"},
+            False,
+        ),
+        ({"mode": "shared_fits"}, False),
+        ({"mode": "mixed"}, True),
     ],
 )
-def test_deferred_observability_modes_fail_before_beam_or_renderer_work(
+def test_observability_modes_use_canonical_beam_without_renderer_work(
     tmp_path,
     monkeypatch,
     beams,
+    requires_reference,
 ):
     beam_path = write_scalar_efield_beamfits(
         tmp_path,
@@ -939,29 +944,28 @@ def test_deferred_observability_modes_fail_before_beam_or_renderer_work(
         _beam_mapping(tmp_path, beams),
         base_dir=tmp_path,
     )
-    downstream_calls: list[str] = []
 
     def forbidden(*_args, **_kwargs):
-        downstream_calls.append("called")
-        pytest.fail("deferred observability mode crossed a downstream boundary")
+        pytest.fail("beam-only planning constructed a renderer")
 
-    monkeypatch.setattr(Simulator, "_ensure_beam_system", forbidden)
-    monkeypatch.setattr(
-        "radiosim.core.observability.ObservabilityPlanner",
-        forbidden,
-    )
     monkeypatch.setattr(
         "radiosim.visualization.observability.ObservabilityBokehRenderer",
         forbidden,
     )
 
-    with pytest.raises(
-        NotImplementedError,
-        match="^Tier 3G observability migration is required for this beam mode$",
-    ):
-        simulator.plot_observability(open_in_browser=True, save_path=str(tmp_path))
+    reference = AntennaNumberReference(number=0) if requires_reference else None
+    plan = simulator.plan_observability(
+        reference_antenna=reference,
+        grid_resolution_deg=10.0,
+    )
 
-    assert downstream_calls == []
+    assert plan.reference_antenna.number == 0
+    assert plan.reference_selection_reason == (
+        "explicit" if requires_reference else "homogeneous_default_minimum_number"
+    )
+    assert plan.reference_handler_id
+    assert plan.reference_scientific_fingerprint
+    assert simulator._backend is None
 
 
 def test_beam_dictionary_in_jones_config_is_rejected(

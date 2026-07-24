@@ -4,8 +4,23 @@ The planner and its output dataclasses are renderer-neutral; matplotlib or
 Bokeh consumers import from here, not from :mod:`radiosim.visualization`.
 """
 
-from radiosim.core.jones.beam.projection import create_rgba_overlay
+from radiosim.core.jones.beam.projection import (
+    BeamContour,
+    BeamSkyProjection,
+    create_rgba_overlay,
+)
 
+from .errors import (
+    InvalidObservabilityContextError,
+    InvalidObservabilityReferenceError,
+    ObservabilityBrowserError,
+    ObservabilityError,
+    ObservabilityOutputCollisionError,
+    ObservabilityOutputError,
+    ObservabilityRenderError,
+    ObservabilitySkyUnavailableError,
+    UnsupportedObservabilitySemanticsError,
+)
 from .geometry import (
     compute_beam_map_on_healpix,
     compute_beam_power_on_full_sky_grid,
@@ -21,17 +36,36 @@ from .overlay import (
     za_ring_points,
 )
 from .planner import (
+    LSTObservabilityWindow,
+    ObservabilityOptions,
     ObservabilityPlan,
     ObservabilityPlanner,
     ObservabilitySnapshot,
     ObservabilitySourceMetrics,
+    ObservabilityWindow,
+    UTCObservabilityWindow,
 )
 
 __all__ = [
+    "ObservabilityError",
+    "InvalidObservabilityReferenceError",
+    "InvalidObservabilityContextError",
+    "ObservabilitySkyUnavailableError",
+    "UnsupportedObservabilitySemanticsError",
+    "ObservabilityRenderError",
+    "ObservabilityOutputError",
+    "ObservabilityOutputCollisionError",
+    "ObservabilityBrowserError",
+    "UTCObservabilityWindow",
+    "LSTObservabilityWindow",
+    "ObservabilityWindow",
+    "ObservabilityOptions",
     "ObservabilityPlanner",
     "ObservabilityPlan",
     "ObservabilitySnapshot",
     "ObservabilitySourceMetrics",
+    "BeamSkyProjection",
+    "BeamContour",
     "compute_beam_power_on_full_sky_grid",
     "compute_beam_map_on_healpix",
     "draw_observability_overlay",

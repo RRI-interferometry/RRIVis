@@ -1,10 +1,15 @@
 """Tests for radiosim.core.jones.beam.analysis — radial profile + features."""
 
+import inspect
+from pathlib import Path
+
 import healpy as hp
 import numpy as np
 import pytest
 from scipy.special import j1
 
+from radiosim.api.simulator import Simulator
+from radiosim.core.beam import BeamSystem
 from radiosim.core.jones.beam.analysis import (
     BeamFeatures,
     BeamRadialProfile,
@@ -12,6 +17,7 @@ from radiosim.core.jones.beam.analysis import (
     detect_beam_features,
 )
 from radiosim.core.observability.geometry import compute_beam_map_on_healpix
+from radiosim.utils.coordinates import radec_to_za_az
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,20 +38,42 @@ def _airy_power(za_rad, az_rad, ka):
     return out
 
 
+def _synthetic_beam_map(
+    beam_power_func,
+    *,
+    nside: int,
+    zenith_ra_deg: float = 0.0,
+    zenith_dec_deg: float = 0.0,
+    max_za_deg: float = 90.0,
+):
+    theta, phi = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+    ra_deg = np.degrees(phi)
+    dec_deg = 90.0 - np.degrees(theta)
+    za_rad, az_rad = radec_to_za_az(
+        ra_deg,
+        dec_deg,
+        zenith_ra_deg=zenith_ra_deg,
+        zenith_dec_deg=zenith_dec_deg,
+    )
+    result = np.asarray(beam_power_func(za_rad, az_rad), dtype=np.float64)
+    result[za_rad > np.deg2rad(max_za_deg)] = 0.0
+    peak = float(np.max(result))
+    if peak > 0.0:
+        result /= peak
+    return result
+
+
 # ---------------------------------------------------------------------------
 # compute_beam_map_on_healpix
 # ---------------------------------------------------------------------------
 
 
 class TestBeamMapOnHealpix:
-    def test_peak_normalises_to_one(self):
+    def test_synthetic_analysis_map_peak_normalises_to_one(self):
         nside = 32
-        beam_map = compute_beam_map_on_healpix(
+        beam_map = _synthetic_beam_map(
             lambda za, az: _gaussian_power(za, az, hpbw_deg=10.0),
             nside=nside,
-            zenith_ra_deg=0.0,
-            zenith_dec_deg=0.0,
-            peak_normalize=True,
         )
         assert beam_map.shape == (hp.nside2npix(nside),)
         assert beam_map.max() == pytest.approx(1.0, rel=1e-6)
@@ -53,19 +81,176 @@ class TestBeamMapOnHealpix:
 
     def test_horizon_mask_zeros_below_horizon(self):
         nside = 32
-        beam_map = compute_beam_map_on_healpix(
+        beam_map = _synthetic_beam_map(
             lambda za, az: np.ones_like(za),
             nside=nside,
-            zenith_ra_deg=0.0,
-            zenith_dec_deg=0.0,
             max_za_deg=90.0,
-            peak_normalize=False,
         )
         # With a uniform beam, peak normalisation off, anything within
         # za<=90° is 1, beyond is 0.  Half the sphere should be zeroed.
         n_zero = np.sum(beam_map == 0.0)
         n_total = hp.nside2npix(nside)
         assert 0.45 * n_total < n_zero < 0.55 * n_total
+
+
+def _beam_simulator(tmp_path: Path) -> Simulator:
+    antenna_path = tmp_path / "beam-map-antennas.txt"
+    antenna_path.write_text(
+        "Name Number BeamID E N U Diameter\n"
+        "ANT0 0 0 0.0 0.0 0.0 14.0\n"
+        "ANT1 1 0 14.0 0.0 0.0 14.0\n",
+        encoding="utf-8",
+    )
+    simulator = Simulator.from_mapping(
+        {
+            "instrument": {
+                "source": {
+                    "kind": "layout_file",
+                    "path": str(antenna_path),
+                    "format": "radiosim",
+                    "telescope_name": "Beam Map Array",
+                },
+                "location": {
+                    "longitude_deg": 21.0,
+                    "latitude_deg": -30.0,
+                    "height_m": 1000.0,
+                },
+            },
+            "baseline_selection": {"correlations": "cross"},
+            "beams": {
+                "mode": "analytic",
+                "model": {
+                    "kind": "circular_aperture",
+                    "taper": {"kind": "uniform"},
+                },
+            },
+            "obs_time": {
+                "start_time": "2025-01-01T00:00:00",
+                "duration_seconds": 1.0,
+                "time_step_seconds": 1.0,
+            },
+            "obs_frequency": {
+                "mode": "explicit",
+                "channel_frequencies_hz": [150_000_000.0],
+            },
+            "sky_model": {
+                "sources": [{"kind": "test_sources", "num_sources": 1, "seed": 1}]
+            },
+            "execution": {"backend": "numpy", "offline": True},
+        },
+        base_dir=tmp_path,
+    )
+    simulator._ensure_instrument_state()
+    simulator._ensure_beam_system()
+    return simulator
+
+
+class TestTier3GCanonicalBeamMap:
+    def test_signature_rejects_callable_and_display_fallback_options(self):
+        parameters = inspect.signature(compute_beam_map_on_healpix).parameters
+        assert tuple(parameters) == (
+            "beam_system",
+            "reference_antenna",
+            "nside",
+            "zenith_ra_deg",
+            "zenith_dec_deg",
+            "frequency_hz",
+            "time_mjd",
+        )
+        assert "beam_power_func" not in parameters
+        assert "max_za_deg" not in parameters
+        assert "peak_normalize" not in parameters
+
+    def test_full_jones_half_trace_is_normalized_and_read_only(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        simulator = _beam_simulator(tmp_path)
+
+        def cross_polarized(
+            self,
+            antenna_id,
+            *,
+            altitude_rad,
+            azimuth_rad,
+            frequency_hz,
+            time_mjd,
+            backend=None,
+        ):
+            del self, antenna_id, azimuth_rad, frequency_hz, time_mjd, backend
+            visible = np.asarray(altitude_rad) > 0.0
+            result = np.zeros(visible.shape + (2, 2), dtype=np.complex128)
+            result[..., 1, 0] = np.where(visible, 2.0j, 0.0)
+            result.setflags(write=False)
+            return result
+
+        monkeypatch.setattr(BeamSystem, "evaluate_jones", cross_polarized)
+
+        beam_map = compute_beam_map_on_healpix(
+            beam_system=simulator.beam_system,
+            reference_antenna=simulator.instrument.antennas[0].id,
+            nside=8,
+            zenith_ra_deg=0.0,
+            zenith_dec_deg=-30.0,
+            frequency_hz=150_000_000.0,
+            time_mjd=60_676.0,
+        )
+
+        assert beam_map.max() == 1.0
+        assert np.count_nonzero(beam_map == 0.0) > 0
+        assert beam_map.flags.owndata
+        assert not beam_map.flags.writeable
+
+    @pytest.mark.parametrize(
+        ("value", "error_name"),
+        [
+            (np.nan, "NonFiniteBeamResponseError"),
+            (0.0, "BeamDisplayNormalizationError"),
+        ],
+    )
+    def test_nonfinite_and_all_zero_maps_fail_typed(
+        self,
+        tmp_path,
+        monkeypatch,
+        value,
+        error_name,
+    ):
+        import radiosim.core.beam as beam
+
+        simulator = _beam_simulator(tmp_path)
+
+        def constant(
+            self,
+            antenna_id,
+            *,
+            altitude_rad,
+            azimuth_rad,
+            frequency_hz,
+            time_mjd,
+            backend=None,
+        ):
+            del self, antenna_id, azimuth_rad, frequency_hz, time_mjd, backend
+            result = np.full(
+                np.asarray(altitude_rad).shape + (2, 2),
+                value,
+                dtype=np.complex128,
+            )
+            result.setflags(write=False)
+            return result
+
+        monkeypatch.setattr(BeamSystem, "evaluate_jones", constant)
+        error = getattr(beam, error_name)
+        with pytest.raises(error):
+            compute_beam_map_on_healpix(
+                beam_system=simulator.beam_system,
+                reference_antenna=simulator.instrument.antennas[0].id,
+                nside=4,
+                zenith_ra_deg=0.0,
+                zenith_dec_deg=-30.0,
+                frequency_hz=150_000_000.0,
+                time_mjd=60_676.0,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -77,12 +262,9 @@ class TestRadialProfile:
     def test_recovers_gaussian_hpbw(self):
         nside = 64
         hpbw_in = 10.0
-        beam_map = compute_beam_map_on_healpix(
+        beam_map = _synthetic_beam_map(
             lambda za, az: _gaussian_power(za, az, hpbw_deg=hpbw_in),
             nside=nside,
-            zenith_ra_deg=0.0,
-            zenith_dec_deg=0.0,
-            peak_normalize=True,
         )
         profile = azimuthal_radial_profile(
             beam_map,
@@ -136,13 +318,10 @@ class TestDetectFeatures:
         ka = 3.8317059702 / np.sin(np.deg2rad(first_null_deg))
 
         nside = 128
-        beam_map = compute_beam_map_on_healpix(
+        beam_map = _synthetic_beam_map(
             lambda za, az: _airy_power(za, az, ka=ka),
             nside=nside,
-            zenith_ra_deg=0.0,
-            zenith_dec_deg=0.0,
             max_za_deg=45.0,
-            peak_normalize=True,
         )
         profile = azimuthal_radial_profile(
             beam_map,
@@ -172,12 +351,9 @@ class TestDetectFeatures:
 
     def test_hpbw_field_finite_for_gaussian(self):
         nside = 64
-        beam_map = compute_beam_map_on_healpix(
+        beam_map = _synthetic_beam_map(
             lambda za, az: _gaussian_power(za, az, hpbw_deg=10.0),
             nside=nside,
-            zenith_ra_deg=0.0,
-            zenith_dec_deg=0.0,
-            peak_normalize=True,
         )
         profile = azimuthal_radial_profile(
             beam_map,

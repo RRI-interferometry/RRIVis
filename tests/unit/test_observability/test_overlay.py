@@ -6,6 +6,9 @@ Mollweide panel in a Figure produced by ``SkyPlotter``.
 
 from __future__ import annotations
 
+import inspect
+from pathlib import Path
+
 import healpy as hp
 import matplotlib
 
@@ -14,8 +17,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
+from radiosim.api.simulator import Simulator  # noqa: E402
 from radiosim.core.observability import (  # noqa: E402
-    ObservabilityPlanner,
     draw_observability_overlay,
 )
 from radiosim.core.precision import PrecisionConfig  # noqa: E402
@@ -42,18 +45,65 @@ def _single_channel_sky(nside: int = 16) -> SkyModel:
     )
 
 
-def _hera_plan():
-    return ObservabilityPlanner(
-        latitude_deg=-30.72,
-        longitude_deg=21.43,
-        lst_start_hours=0.0,
-        lst_end_hours=24.0,
-        frequency_mhz=80.0,
-        beam_diameter_m=14.0,
-        footprint_model="swept_beam",
-        background_layer="none",
-        mode="summary",
-    ).build()
+def _hera_plan(tmp_path: Path, *, beam_fits_path: str | None = None):
+    antenna_path = tmp_path / "overlay-antennas.txt"
+    antenna_path.write_text(
+        "Name Number BeamID E N U Diameter\n"
+        "ANT0 0 0 0.0 0.0 0.0 14.0\n"
+        "ANT1 1 0 14.0 0.0 0.0 14.0\n",
+        encoding="utf-8",
+    )
+    beams = (
+        {
+            "mode": "analytic",
+            "model": {
+                "kind": "circular_aperture",
+                "taper": {"kind": "uniform"},
+            },
+        }
+        if beam_fits_path is None
+        else {
+            "mode": "shared_fits",
+            "beam": {"kind": "fits", "path": beam_fits_path},
+        }
+    )
+    simulator = Simulator.from_mapping(
+        {
+            "instrument": {
+                "source": {
+                    "kind": "layout_file",
+                    "path": str(antenna_path),
+                    "format": "radiosim",
+                    "telescope_name": "Overlay Array",
+                },
+                "location": {
+                    "longitude_deg": 21.43,
+                    "latitude_deg": -30.72,
+                    "height_m": 1073.0,
+                },
+            },
+            "baseline_selection": {"correlations": "cross"},
+            "beams": beams,
+            "obs_time": {
+                "start_time": "2025-01-01T00:00:00",
+                "duration_seconds": 60.0,
+                "time_step_seconds": 1.0,
+            },
+            "obs_frequency": {
+                "mode": "explicit",
+                "channel_frequencies_hz": [80_000_000.0],
+            },
+            "sky_model": {
+                "sources": [{"kind": "test_sources", "num_sources": 1, "seed": 1}]
+            },
+            "execution": {"backend": "numpy", "offline": True},
+        },
+        base_dir=tmp_path,
+    )
+    return simulator.plan_observability(
+        footprint_step_seconds=60.0,
+        grid_resolution_deg=5.0,
+    )
 
 
 def _count_projection_lines(fig) -> int:
@@ -65,29 +115,29 @@ def _count_projection_lines(fig) -> int:
 
 
 class TestObservabilityOverlay:
-    def test_hera_plan_field_radius_matches_airy(self):
-        plan = _hera_plan()
-        # 0.5 * 1.22 * lambda / D at 80 MHz, D = 14 m -> 9.355 deg
-        assert plan.field_radius_deg == 8.0 or abs(plan.field_radius_deg - 9.355) < 0.01
+    def test_hera_plan_uses_reference_beam_half_power(self, tmp_path):
+        plan = _hera_plan(tmp_path)
+        assert plan.field_radius_deg is None
+        assert plan.footprint_provenance == "reference_beam_half_power"
 
-    def test_hera_plan_footprint_has_contours(self):
-        plan = _hera_plan()
+    def test_hera_plan_footprint_has_contours(self, tmp_path):
+        plan = _hera_plan(tmp_path)
         assert len(plan.footprint_contours) >= 1
         total_verts = sum(
             len(verts) for group in plan.footprint_contours for verts in group
         )
         assert total_verts > 0
 
-    def test_overlay_adds_lines_to_single_mollweide(self):
+    def test_overlay_adds_lines_to_single_mollweide(self, tmp_path):
         sky = _single_channel_sky()
         fig = plot_healpix_map(sky, frequency=80e6, log_scale=False)
         n_before = _count_projection_lines(fig)
-        draw_observability_overlay(fig, _hera_plan())
+        draw_observability_overlay(fig, _hera_plan(tmp_path))
         n_after = _count_projection_lines(fig)
         assert n_after > n_before, (n_before, n_after)
         plt.close(fig)
 
-    def test_overlay_adds_lines_to_multipole_bands_grid(self):
+    def test_overlay_adds_lines_to_multipole_bands_grid(self, tmp_path):
         sky = _single_channel_sky(nside=32)
         fig = plot_multipole_bands(
             sky,
@@ -98,7 +148,7 @@ class TestObservabilityOverlay:
         )
         # One line added per projection panel.
         n_before = _count_projection_lines(fig)
-        draw_observability_overlay(fig, _hera_plan())
+        draw_observability_overlay(fig, _hera_plan(tmp_path))
         n_after = _count_projection_lines(fig)
         panels = sum(
             1
@@ -109,7 +159,7 @@ class TestObservabilityOverlay:
         assert n_after - n_before >= panels, (n_before, n_after, panels)
         plt.close(fig)
 
-    def test_overlay_with_tracks_adds_marker_set(self):
+    def test_overlay_with_tracks_adds_marker_set(self, tmp_path):
         sky = _single_channel_sky()
         fig = plot_healpix_map(sky, frequency=80e6, log_scale=False)
         collections_before = sum(
@@ -117,7 +167,7 @@ class TestObservabilityOverlay:
             for ax in fig.axes
             if hasattr(ax, "projplot") or "Hpx" in type(ax).__name__
         )
-        draw_observability_overlay(fig, _hera_plan(), draw_tracks=True)
+        draw_observability_overlay(fig, _hera_plan(tmp_path), draw_tracks=True)
         collections_after = sum(
             len(ax.collections)
             for ax in fig.axes
@@ -184,7 +234,7 @@ class TestObservabilityOverlay:
             int(np.argmin(np.abs(ra_grid - 90.0)))
         ]
 
-    def test_beam_contours_drawn_when_present(self):
+    def test_beam_contours_drawn_when_present(self, tmp_path):
         """draw_observability_overlay adds beam-contour line artists when
         plan.beam_contours is present. Uses the real Vivaldi FITS file if
         available, otherwise skips."""
@@ -195,19 +245,7 @@ class TestObservabilityOverlay:
             pytest.skip("Vivaldi FITS not mounted")
 
         sky = _single_channel_sky()
-        plan = ObservabilityPlanner(
-            latitude_deg=-30.72,
-            longitude_deg=21.43,
-            lst_start_hours=0.0,
-            lst_end_hours=23.999,
-            frequency_mhz=80.0,
-            beam_fits_path=vivaldi,
-            beam_diameter_m=14.0,
-            beam_reference="start",
-            footprint_model="swept_beam",
-            background_layer="none",
-            mode="summary",
-        ).build()
+        plan = _hera_plan(tmp_path, beam_fits_path=vivaldi)
         assert plan.beam_contours, "beam_contours should be populated"
 
         fig = plot_healpix_map(sky, frequency=80e6, log_scale=False)
@@ -217,3 +255,40 @@ class TestObservabilityOverlay:
         # 1 footprint line + at least 1 beam contour per level (2 levels).
         assert n_lines_after >= n_lines_before + 3, (n_lines_before, n_lines_after)
         plt.close(fig)
+
+
+class TestTier3GOverlaySurface:
+    def test_visualization_wrapper_has_explicit_exact_signature(self):
+        from radiosim.visualization.sky import overlay_observability
+
+        assert tuple(inspect.signature(overlay_observability).parameters) == (
+            "fig",
+            "plan",
+            "color",
+            "linestyle",
+            "linewidth",
+            "alpha",
+            "draw_footprint",
+            "draw_beam",
+            "beam_color",
+            "beam_linestyle",
+            "beam_linewidths",
+            "beam_alpha",
+            "draw_tracks",
+            "track_color",
+            "track_marker_size",
+        )
+
+    def test_visualization_package_does_not_duplicate_core_model_exports(self):
+        import radiosim.visualization as visualization
+
+        for core_name in (
+            "ObservabilityPlanner",
+            "ObservabilityPlan",
+            "ObservabilitySnapshot",
+            "ObservabilitySourceMetrics",
+            "za_ring_points",
+            "draw_za_rings_on_figure",
+        ):
+            assert core_name not in visualization.__all__
+            assert not hasattr(visualization, core_name)

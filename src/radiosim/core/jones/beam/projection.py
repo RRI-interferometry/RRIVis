@@ -13,13 +13,35 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypedDict
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
+class _RGBAOverlay(TypedDict):
+    image: np.ndarray
+    x: float
+    y: float
+    dw: float
+    dh: float
+    ra_center: float
+    dec_center: float
+
+
+def _owned_read_only_array(
+    value: np.ndarray,
+    *,
+    dtype: np.dtype | type | None = None,
+) -> np.ndarray:
+    """Return a detached C-contiguous, non-writeable ndarray."""
+    result = np.array(value, dtype=dtype, copy=True, order="C")
+    result.setflags(write=False)
+    return result
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class BeamSkyProjection:
     """Result of projecting a beam pattern onto RA/Dec coordinates.
 
@@ -46,6 +68,53 @@ class BeamSkyProjection:
     zenith_ra_deg: float
     zenith_dec_deg: float
     max_za_deg: float
+
+    def __post_init__(self) -> None:
+        ra = _owned_read_only_array(self.ra_grid_deg, dtype=np.float64)
+        dec = _owned_read_only_array(self.dec_grid_deg, dtype=np.float64)
+        power = _owned_read_only_array(self.power_db, dtype=np.float64)
+        if ra.ndim != 1 or dec.ndim != 1:
+            raise ValueError("beam projection axes must be one-dimensional")
+        if power.shape != (len(dec), len(ra)):
+            raise ValueError(
+                "beam projection power_db shape must match (dec_grid, ra_grid)"
+            )
+        for name in ("zenith_ra_deg", "zenith_dec_deg", "max_za_deg"):
+            value = getattr(self, name)
+            if type(value) is not float or not np.isfinite(value):
+                raise TypeError(f"{name} must be an exact finite float")
+        if self.max_za_deg <= 0.0 or self.max_za_deg > 90.0:
+            raise ValueError("max_za_deg must be in (0, 90]")
+        object.__setattr__(self, "ra_grid_deg", ra)
+        object.__setattr__(self, "dec_grid_deg", dec)
+        object.__setattr__(self, "power_db", power)
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class BeamContour:
+    """One immutable beam-contour level and its detached path segments."""
+
+    level_db: float
+    segments: tuple[np.ndarray, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.level_db) is not float or not np.isfinite(self.level_db):
+            raise TypeError("level_db must be an exact finite float")
+        if type(self.segments) is not tuple:
+            raise TypeError("segments must be an exact tuple")
+        copied: list[np.ndarray] = []
+        for index, segment in enumerate(self.segments):
+            if type(segment) is not np.ndarray:
+                raise TypeError(f"segments[{index}] must be an exact ndarray")
+            owned = _owned_read_only_array(segment, dtype=np.float64)
+            if owned.ndim != 2 or owned.shape[1] != 2:
+                raise ValueError(f"segments[{index}] must have shape (N, 2)")
+            copied.append(owned)
+        object.__setattr__(self, "segments", tuple(copied))
+
+    __hash__ = None  # type: ignore[assignment]
 
 
 def compute_beam_power_on_radec_grid(
@@ -135,12 +204,12 @@ def compute_beam_power_on_radec_grid(
     power_db[np.isnan(power)] = np.nan
 
     return BeamSkyProjection(
-        ra_grid_deg=ra_grid,
-        dec_grid_deg=dec_grid,
-        power_db=power_db,
-        zenith_ra_deg=zenith_ra_deg,
-        zenith_dec_deg=zenith_dec_deg,
-        max_za_deg=max_za_deg,
+        ra_grid_deg=np.asarray(ra_grid),
+        dec_grid_deg=np.asarray(dec_grid),
+        power_db=np.asarray(power_db),
+        zenith_ra_deg=float(zenith_ra_deg),
+        zenith_dec_deg=float(zenith_dec_deg),
+        max_za_deg=float(max_za_deg),
     )
 
 
@@ -150,7 +219,7 @@ def create_rgba_overlay(
     vmin_db: float = -40.0,
     vmax_db: float = 0.0,
     alpha_scale: float = 0.7,
-) -> dict:
+) -> _RGBAOverlay:
     """Create a uint32 RGBA image for ``Bokeh.image_rgba()``.
 
     Parameters
@@ -210,7 +279,7 @@ def create_rgba_overlay(
 def extract_contours(
     projection: BeamSkyProjection,
     levels_db: list[float] | None = None,
-) -> list[tuple[list[np.ndarray], float]]:
+) -> tuple[BeamContour, ...]:
     """Extract contour paths from a beam sky projection.
 
     Parameters
@@ -222,43 +291,40 @@ def extract_contours(
 
     Returns
     -------
-    list of (segments, level_db)
-        Each entry is ``(segments, level)`` where *segments* is a list of
-        ``(N, 2)`` vertex arrays (columns: x, y) and *level* is the dB value.
+    tuple of BeamContour
+        One immutable model per requested level.
     """
-    import matplotlib.pyplot as plt
+    import contourpy
 
     if levels_db is None:
         levels_db = [-3.0, -10.0]
 
-    X, Y = np.meshgrid(projection.ra_grid_deg, projection.dec_grid_deg)
-
-    fig, ax = plt.subplots()
-    results: list[tuple[list[np.ndarray], float]] = []
-
+    results: list[BeamContour] = []
+    generator = contourpy.contour_generator(
+        x=projection.ra_grid_deg,
+        y=projection.dec_grid_deg,
+        z=projection.power_db,
+        name="serial",
+        line_type="Separate",
+    )
     for level in levels_db:
-        cs = ax.contour(X, Y, projection.power_db, levels=[level])
-        segments: list[np.ndarray] = []
-
-        # Matplotlib 3.8+: ContourSet is itself a Collection with get_paths()
-        if hasattr(cs, "get_paths"):
-            for path in cs.get_paths():
-                if len(path.vertices) > 1:
-                    segments.append(path.vertices.copy())
-        elif hasattr(cs, "collections"):
-            for collection in cs.collections:
-                for path in collection.get_paths():
-                    if len(path.vertices) > 1:
-                        segments.append(path.vertices.copy())
-
-        results.append((segments, level))
-
-    plt.close(fig)
-    return results
+        segments = [
+            np.array(path, dtype=np.float64, copy=True, order="C")
+            for path in generator.lines(float(level))
+            if len(path) > 1
+        ]
+        results.append(
+            BeamContour(
+                level_db=float(level),
+                segments=tuple(segments),
+            )
+        )
+    return tuple(results)
 
 
 __all__ = [
     "BeamSkyProjection",
+    "BeamContour",
     "compute_beam_power_on_radec_grid",
     "create_rgba_overlay",
     "extract_contours",

@@ -20,7 +20,7 @@ import threading
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import astropy.units as u
 import numpy as np
@@ -37,12 +37,15 @@ from radiosim.utils.logging import (
 )
 
 if TYPE_CHECKING:
+    from bokeh.models import UIElement
+
     from radiosim.core.beam import BeamSystem, LoadedBeamState
     from radiosim.core.instrument import (
         ResolvedAntenna,
         ResolvedBaseline,
         ResolvedInstrument,
     )
+    from radiosim.core.observability import ObservabilityPlan
     from radiosim.core.precision import PrecisionConfig
     from radiosim.core.runtime_config import (
         ConfigurationProvenance,
@@ -58,6 +61,7 @@ if TYPE_CHECKING:
     )
     from radiosim.io.config_resolution import SimulationOverrides
     from radiosim.io.instrument_config import (
+        AntennaReference,
         BaselineSelectionConfig,
         InstrumentConfig,
     )
@@ -75,59 +79,6 @@ def _runtime_loader_value(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(_runtime_loader_value(item) for item in value)
     return value
-
-
-_TIER3G_OBSERVABILITY_MESSAGE = (
-    "Tier 3G observability migration is required for this beam mode"
-)
-
-
-def _guard_legacy_observability_beam(
-    beams: object,
-    antennas: Sequence[ResolvedAntenna],
-) -> None:
-    """Allow only the exact legacy-equivalent observability beam mode."""
-    from radiosim.core.beam import (
-        ResolvedAnalyticBeamsInput,
-        ResolvedCircularApertureBeamModel,
-    )
-
-    if type(beams) is not ResolvedAnalyticBeamsInput:
-        raise NotImplementedError(_TIER3G_OBSERVABILITY_MESSAGE)
-    if type(beams.model.model) is not ResolvedCircularApertureBeamModel:
-        raise NotImplementedError(_TIER3G_OBSERVABILITY_MESSAGE)
-    diameters = {float(antenna.diameter_m) for antenna in antennas}
-    if len(diameters) != 1:
-        raise NotImplementedError(_TIER3G_OBSERVABILITY_MESSAGE)
-
-
-def _project_direct_circular_beam(beams: object) -> dict[str, object]:
-    """Project the one Tier 3B runtime-supported model into the solver shape."""
-    from radiosim.core.beam import (
-        ResolvedGaussianTaper,
-        ResolvedParabolicSquaredTaper,
-        ResolvedParabolicTaper,
-    )
-
-    model = beams.model.model
-    taper = model.taper
-    projected: dict[str, object] = {
-        "aperture_shape": "circular",
-        "taper": taper.kind,
-        "feed_model": "none",
-        "feed_computation": "analytical",
-        "feed_params": {},
-        "reflector_type": "prime_focus",
-        "magnification": 1.0,
-        "aperture_params": {},
-    }
-    if type(taper) in (
-        ResolvedGaussianTaper,
-        ResolvedParabolicTaper,
-        ResolvedParabolicSquaredTaper,
-    ):
-        projected["edge_taper_dB"] = taper.edge_taper_db
-    return projected
 
 
 class Simulator:
@@ -1186,143 +1137,260 @@ class Simulator:
 
         return saved_paths
 
-    def plot_observability(
+    def plan_observability(
         self,
         *,
+        reference_antenna: AntennaReference | None = None,
+        channel_index: int | None = None,
         lst_start_hours: float | None = None,
         lst_end_hours: float | None = None,
-        x_axis: str = "ra",
-        background_layer: str = "diffuse",
-        footprint_model: str = "swept_beam",
-        mode: str = "summary",
+        x_axis: Literal["ra", "lst"] = "ra",
+        background_layer: Literal["none", "diffuse"] = "none",
+        footprint_model: Literal[
+            "beam_threshold",
+            "manual_circular",
+        ] = "beam_threshold",
+        field_radius_deg: float | None = None,
+        mode: Literal["summary", "snapshots"] = "summary",
         snapshot_step_seconds: float = 3600.0,
         footprint_step_seconds: float = 60.0,
-        beam_reference: str | float = "midpoint",
+        beam_time_reference: Literal["start", "midpoint", "end"] = "midpoint",
+        beam_contour_min_db: float = -40.0,
+        beam_contour_max_db: float = 0.0,
+        grid_resolution_deg: float = 1.0,
         max_point_sources: int = 1000,
         top_n_sources: int = 5,
-        show_source_colorbar: bool = False,
-        color_scale: str = "log",
-        open_in_browser: bool = True,
-        save_path: str | None = None,
-        **kwargs,
-    ):
-        """Render a sky-visibility view for this simulation's config.
+        nearby_source_count: int = 3,
+        nearby_buffer_deg: float = 10.0,
+        include_source_metrics: bool = False,
+    ) -> ObservabilityPlan:
+        """Build a canonical observability plan without full simulation setup."""
+        from radiosim.core.instrument import AntennaId
+        from radiosim.core.observability import (
+            InvalidObservabilityContextError,
+            InvalidObservabilityReferenceError,
+            LSTObservabilityWindow,
+            ObservabilityOptions,
+            ObservabilityPlanner,
+            UTCObservabilityWindow,
+        )
+        from radiosim.io.instrument_config import (
+            AntennaNameReference,
+            AntennaNumberReference,
+        )
 
-        Produces a geometry-aware sky-visibility plot with optional diffuse
-        background, point-source metrics, and beam overlay. Can be called
-        before or after :meth:`run`.
-
-        Parameters
-        ----------
-        lst_start_hours, lst_end_hours : float, optional
-            LST range (hours).  If not given, derived from config obs_time.
-        x_axis : {"ra", "lst"}
-            X-axis convention: wrapped RA degrees or sidereal hours.
-        background_layer : {"diffuse", "none"}
-            Whether to draw the diffuse HEALPix background.
-        footprint_model : {"swept_beam", "rectangular_approx"}
-            Visibility-footprint model for the summary overlay.
-        mode : {"summary", "snapshots"}
-            Plot a time-swept summary or a snapshot grid.
-        snapshot_step_seconds : float
-            Snapshot cadence used when ``mode="snapshots"``.
-        footprint_step_seconds : float
-            Sampling cadence used for the summary footprint and source metrics.
-        beam_reference : {"midpoint", "start", "end"} or float
-            Beam-reference choice for the summary overlay. A float is treated
-            as an LST hour.
-        max_point_sources : int
-            Brightest point sources to include in the plot.
-        top_n_sources : int
-            Number of visible sources to rank and label.
-        show_source_colorbar : bool
-            Draw a flux colorbar for point sources.
-        color_scale : {"log", "linear"}
-            Flux color scaling for point sources.
-        open_in_browser : bool
-            Open the HTML plot in a browser.
-        save_path : str, optional
-            Directory to save the HTML file.
-        **kwargs
-            Forwarded to :class:`~radiosim.core.observability.ObservabilityPlanner`.
-
-        Returns
-        -------
-        Bokeh layout
-        """
         self._ensure_instrument_state()
-        _guard_legacy_observability_beam(self._resolved.beams, self.antennas)
         self._ensure_beam_system()
 
-        from radiosim.core.observability import ObservabilityPlanner
+        frequencies = self._resolved.frequency.channel_frequencies_hz
+        if channel_index is None:
+            if len(frequencies) != 1:
+                raise InvalidObservabilityContextError(
+                    "channel_index is required for a multi-channel observation."
+                )
+            selected_channel = 0
+        elif type(channel_index) is not int or not (
+            0 <= channel_index < len(frequencies)
+        ):
+            raise InvalidObservabilityContextError(
+                "channel_index must be a strict integer in range."
+            )
+        else:
+            selected_channel = channel_index
+        frequency_hz = frequencies[selected_channel]
 
-        distinct_diameters = tuple(
-            sorted({float(antenna.diameter_m) for antenna in self.antennas})
+        state = self.beam_state
+        handler_by_id = {handler.handler_id: handler for handler in state.handlers}
+        assigned = tuple(state.assignment_handler_ids)
+        assigned_fingerprints = {
+            handler_by_id[handler_id].scientific_fingerprint
+            for _antenna_id, handler_id in assigned
+        }
+        if reference_antenna is None:
+            if len(assigned_fingerprints) != 1:
+                raise InvalidObservabilityReferenceError(
+                    "Heterogeneous beam assignments require an explicit exact "
+                    "Tier 2 reference antenna."
+                )
+            selected_reference = min(
+                (antenna_id for antenna_id, _handler_id in assigned),
+                key=lambda antenna_id: antenna_id.number,
+            )
+            selection_reason: Literal[
+                "explicit",
+                "homogeneous_default_minimum_number",
+            ] = "homogeneous_default_minimum_number"
+        else:
+            if type(reference_antenna) is AntennaNumberReference:
+                matched = tuple(
+                    antenna.id
+                    for antenna in self.antennas
+                    if antenna.id.number == reference_antenna.number
+                )
+            elif type(reference_antenna) is AntennaNameReference:
+                matched = tuple(
+                    antenna.id
+                    for antenna in self.antennas
+                    if antenna.id.name == reference_antenna.name
+                )
+            else:
+                raise InvalidObservabilityReferenceError(
+                    "reference_antenna must be an exact tagged Tier 2 AntennaReference."
+                )
+            if len(matched) != 1:
+                raise InvalidObservabilityReferenceError(
+                    "reference_antenna does not match one exact canonical antenna."
+                )
+            selected_reference = matched[0]
+            selection_reason = "explicit"
+
+        canonical_reference = AntennaId(
+            selected_reference.number,
+            selected_reference.name,
         )
-        assert len(distinct_diameters) == 1
-        diameter = distinct_diameters[0]
+        if (lst_start_hours is None) != (lst_end_hours is None):
+            raise InvalidObservabilityContextError(
+                "lst_start_hours and lst_end_hours must be supplied together."
+            )
+        if lst_start_hours is not None:
+            from importlib import import_module
 
-        from radiosim.visualization.observability import ObservabilityBokehRenderer
-
-        location = self.instrument.location
-        lat = location.latitude_deg
-        lon = location.longitude_deg
-        height = location.height_m
-
-        # Frequency (MHz), taken directly from the exact resolved channel tuple.
-        freq_mhz = self._resolved.frequency.channel_frequencies_hz[0] / 1e6
-
-        # Time — fallback to config if LST not provided
-        start_iso = None
-        duration = None
-        if lst_start_hours is None or lst_end_hours is None:
-            start_iso = self._resolved.observation.start_time_iso
-            duration = self._resolved.observation.duration_seconds
-
-        # Beam
-        beam_config = _project_direct_circular_beam(self._resolved.beams)
-
-        planner = ObservabilityPlanner(
-            latitude_deg=lat,
-            longitude_deg=lon,
-            height_m=height,
-            lst_start_hours=lst_start_hours,
-            lst_end_hours=lst_end_hours,
-            start_time_iso=start_iso,
-            duration_seconds=duration,
-            frequency_mhz=freq_mhz,
-            field_radius_deg=kwargs.pop("field_radius_deg", None),
-            beam_diameter_m=diameter,
-            beam_config=beam_config,
-            beam_fits_path=None,
-            beam_reference=beam_reference,
-            sky_model=getattr(self, "_sky_model", None),
+            time_module: Any = import_module("astropy.time")
+            start_mjd = float(
+                time_module.Time(
+                    self._resolved.observation.start_time_iso,
+                    format="isot",
+                    scale="utc",
+                ).mjd
+            )
+            window = LSTObservabilityWindow(
+                kind="lst",
+                start_hours=lst_start_hours,
+                end_hours=cast(float, lst_end_hours),
+                wraps_midnight=cast(float, lst_end_hours) < lst_start_hours,
+                source="explicit_lst",
+                beam_evaluation_time_mjd=start_mjd,
+            )
+        else:
+            window = UTCObservabilityWindow(
+                kind="utc",
+                start_time_iso=self._resolved.observation.start_time_iso,
+                duration_seconds=self._resolved.observation.duration_seconds,
+                source="resolved_utc",
+            )
+        options = ObservabilityOptions(
             x_axis=x_axis,
             background_layer=background_layer,
             footprint_model=footprint_model,
+            field_radius_deg=field_radius_deg,
             mode=mode,
             snapshot_step_seconds=snapshot_step_seconds,
             footprint_step_seconds=footprint_step_seconds,
+            beam_time_reference=beam_time_reference,
+            beam_contour_min_db=beam_contour_min_db,
+            beam_contour_max_db=beam_contour_max_db,
+            grid_resolution_deg=grid_resolution_deg,
             max_point_sources=max_point_sources,
             top_n_sources=top_n_sources,
-            **kwargs,
+            nearby_source_count=nearby_source_count,
+            nearby_buffer_deg=nearby_buffer_deg,
+            include_source_metrics=include_source_metrics,
         )
+        return ObservabilityPlanner(
+            instrument=self.instrument,
+            beam_system=self.beam_system,
+            reference_antenna=canonical_reference,
+            reference_selection_reason=selection_reason,
+            location=self.instrument.location,
+            frequency_hz=frequency_hz,
+            channel_index=selected_channel,
+            window=window,
+            sky_model=self._sky_model,
+            options=options,
+        ).build()
 
-        plan = planner.build()
+    def plot_observability(
+        self,
+        *,
+        reference_antenna: AntennaReference | None = None,
+        channel_index: int | None = None,
+        lst_start_hours: float | None = None,
+        lst_end_hours: float | None = None,
+        x_axis: Literal["ra", "lst"] = "ra",
+        background_layer: Literal["none", "diffuse"] = "none",
+        footprint_model: Literal[
+            "beam_threshold",
+            "manual_circular",
+        ] = "beam_threshold",
+        field_radius_deg: float | None = None,
+        mode: Literal["summary", "snapshots"] = "summary",
+        snapshot_step_seconds: float = 3600.0,
+        footprint_step_seconds: float = 60.0,
+        beam_time_reference: Literal["start", "midpoint", "end"] = "midpoint",
+        beam_contour_min_db: float = -40.0,
+        beam_contour_max_db: float = 0.0,
+        grid_resolution_deg: float = 1.0,
+        max_point_sources: int = 1000,
+        top_n_sources: int = 5,
+        nearby_source_count: int = 3,
+        nearby_buffer_deg: float = 10.0,
+        include_source_metrics: bool = False,
+        show_source_colorbar: bool = False,
+        color_scale: Literal["log", "linear"] = "log",
+        output_dir: Path | None = None,
+        filename: str | None = None,
+        overwrite: bool = False,
+        open_in_browser: bool = False,
+    ) -> UIElement:
+        """Plan first, then render and optionally persist an observability view."""
+        plan = self.plan_observability(
+            reference_antenna=reference_antenna,
+            channel_index=channel_index,
+            lst_start_hours=lst_start_hours,
+            lst_end_hours=lst_end_hours,
+            x_axis=x_axis,
+            background_layer=background_layer,
+            footprint_model=footprint_model,
+            field_radius_deg=field_radius_deg,
+            mode=mode,
+            snapshot_step_seconds=snapshot_step_seconds,
+            footprint_step_seconds=footprint_step_seconds,
+            beam_time_reference=beam_time_reference,
+            beam_contour_min_db=beam_contour_min_db,
+            beam_contour_max_db=beam_contour_max_db,
+            grid_resolution_deg=grid_resolution_deg,
+            max_point_sources=max_point_sources,
+            top_n_sources=top_n_sources,
+            nearby_source_count=nearby_source_count,
+            nearby_buffer_deg=nearby_buffer_deg,
+            include_source_metrics=include_source_metrics,
+        )
+        from radiosim.core.observability import ObservabilityOutputError
+
+        if (output_dir is None) != (filename is None):
+            raise ObservabilityOutputError(
+                "output_dir and filename must be supplied together."
+            )
+        if open_in_browser and output_dir is None:
+            raise ObservabilityOutputError(
+                "open_in_browser=True requires an explicit output target."
+            )
+        from radiosim.visualization.observability import ObservabilityBokehRenderer
+
         renderer = ObservabilityBokehRenderer(
             plan,
             show_source_colorbar=show_source_colorbar,
             color_scale=color_scale,
         )
         layout = renderer.create_plot()
-
-        if save_path or open_in_browser:
+        if output_dir is not None and filename is not None:
             renderer.save(
                 layout,
-                folder_path=save_path,
+                output_dir=output_dir,
+                filename=filename,
+                overwrite=overwrite,
                 open_in_browser=open_in_browser,
             )
-
         return layout
 
     def save(

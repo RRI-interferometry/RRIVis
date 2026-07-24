@@ -22,6 +22,7 @@ FITSBeamJones
 """
 
 from collections.abc import Callable
+from importlib import import_module
 from typing import Any
 
 import numpy as np
@@ -146,34 +147,6 @@ class BeamJones(JonesTerm):
         return config
 
 
-# Import from sub-packages AFTER BeamJones is defined (sub-packages inherit from it)
-from radiosim.core.jones.beam.analysis import (  # noqa: E402
-    BeamFeatures,
-    BeamRadialProfile,
-    azimuthal_radial_profile,
-    detect_beam_features,
-)
-from radiosim.core.jones.beam.analytic import (  # noqa: E402
-    AnalyticBeamJones,
-    compute_aperture_beam,
-    plot_beam_2d,
-    plot_beam_comparison,
-    plot_beam_pattern,
-    plot_feed_illumination,
-)
-from radiosim.core.jones.beam.fits import (  # noqa: E402
-    BeamFITSHandler,
-    BeamManager,
-    FITSBeamJones,
-    astropy_az_to_uvbeam_az,
-)
-from radiosim.core.jones.beam.projection import (  # noqa: E402
-    BeamSkyProjection,
-    compute_beam_power_on_radec_grid,
-    create_rgba_overlay,
-    extract_contours,
-)
-
 __all__ = [
     # Jones matrix classes
     "BeamJones",
@@ -201,3 +174,79 @@ __all__ = [
     "azimuthal_radial_profile",
     "detect_beam_features",
 ]
+
+
+_LAZY_EXPORTS = {
+    "BeamFeatures": ("radiosim.core.jones.beam.analysis", "BeamFeatures"),
+    "BeamRadialProfile": (
+        "radiosim.core.jones.beam.analysis",
+        "BeamRadialProfile",
+    ),
+    "azimuthal_radial_profile": (
+        "radiosim.core.jones.beam.analysis",
+        "azimuthal_radial_profile",
+    ),
+    "detect_beam_features": (
+        "radiosim.core.jones.beam.analysis",
+        "detect_beam_features",
+    ),
+    "AnalyticBeamJones": (
+        "radiosim.core.jones.beam.analytic",
+        "AnalyticBeamJones",
+    ),
+    "compute_aperture_beam": (
+        "radiosim.core.jones.beam.analytic",
+        "compute_aperture_beam",
+    ),
+    "plot_beam_2d": ("radiosim.core.jones.beam.analytic", "plot_beam_2d"),
+    "plot_beam_comparison": (
+        "radiosim.core.jones.beam.analytic",
+        "plot_beam_comparison",
+    ),
+    "plot_beam_pattern": (
+        "radiosim.core.jones.beam.analytic",
+        "plot_beam_pattern",
+    ),
+    "plot_feed_illumination": (
+        "radiosim.core.jones.beam.analytic",
+        "plot_feed_illumination",
+    ),
+    "BeamFITSHandler": ("radiosim.core.jones.beam.fits", "BeamFITSHandler"),
+    "BeamManager": ("radiosim.core.jones.beam.fits", "BeamManager"),
+    "FITSBeamJones": ("radiosim.core.jones.beam.fits", "FITSBeamJones"),
+    "astropy_az_to_uvbeam_az": (
+        "radiosim.core.jones.beam.fits",
+        "astropy_az_to_uvbeam_az",
+    ),
+    "BeamSkyProjection": (
+        "radiosim.core.jones.beam.projection",
+        "BeamSkyProjection",
+    ),
+    "compute_beam_power_on_radec_grid": (
+        "radiosim.core.jones.beam.projection",
+        "compute_beam_power_on_radec_grid",
+    ),
+    "create_rgba_overlay": (
+        "radiosim.core.jones.beam.projection",
+        "create_rgba_overlay",
+    ),
+    "extract_contours": (
+        "radiosim.core.jones.beam.projection",
+        "extract_contours",
+    ),
+}
+
+
+def __getattr__(name: str) -> object:
+    try:
+        module_name, attribute_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+    value = getattr(import_module(module_name), attribute_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """Include lazy public exports in interactive discovery."""
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
