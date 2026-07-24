@@ -42,8 +42,6 @@ Parabolic taper with 10 dB edge illumination:
 1.0
 """
 
-from collections.abc import Callable
-
 import numpy as np
 from scipy.special import j1, jv
 
@@ -274,21 +272,10 @@ def cosine_taper(u_beam: np.ndarray | float) -> np.ndarray:
     return result
 
 
-TAPER_FUNCTIONS: dict[str, Callable[..., np.ndarray]] = {
-    "uniform": uniform_taper,
-    "gaussian": gaussian_taper_pattern,
-    "parabolic": parabolic_taper,
-    "parabolic_squared": parabolic_squared_taper,
-    "cosine": cosine_taper,
-}
-"""Registry mapping taper name strings to their voltage pattern functions."""
-
-
 __all__ = [
     "uniform_taper",
     "gaussian_taper_pattern",
     "parabolic_taper",
     "parabolic_squared_taper",
     "cosine_taper",
-    "TAPER_FUNCTIONS",
 ]

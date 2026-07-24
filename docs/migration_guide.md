@@ -130,9 +130,9 @@ beams:
 
 For FITS declarations, use `mode: shared_fits` with `beam.path`,
 `mode: per_antenna_fits` with ordered `assignments`, or `mode: mixed` with an
-`analytic_model` and ordered analytic/FITS choices. These shapes validate and
-their paths resolve in Tier 3B, but Simulator runtime activation remains
-explicitly pending.
+`analytic_model` and ordered analytic/FITS choices. All four modes now resolve,
+load, and run through the canonical `BeamSystem`; FITS declarations are limited
+to the documented scalar subset and never fall back to analytic evaluation.
 
 | Rejected key | Replacement or reason |
 | --- | --- |
@@ -157,7 +157,30 @@ explicitly pending.
 | `all_beam_response` | no replacement; select a complete tagged model or source |
 
 Unknown fields remain errors. Configuration resolution never reads BeamFITS
-content or silently replaces a pending declaration with an analytic beam.
+content; canonical loading occurs during setup.
+
+## Removed low-level beam APIs
+
+The former `BeamManager`, `BeamFITSHandler`, `BeamJones`,
+`AnalyticBeamJones`, and `FITSBeamJones` classes were parallel mutable runtime
+surfaces and have been deleted. Their imports fail immediately; there is no
+compatibility shim. Resolve strict configuration to canonical assignment state
+and use `BeamSystem` or `Simulator.beam_system` instead.
+
+The dictionary-taking `compute_aperture_beam` composition function was also
+removed. The mutable registries and feed-to-composition bridges were deleted
+with it. The plotting helpers were deleted as a second raw-schema surface. Use
+the retained independent numeric primitives under
+`radiosim.core.jones.beam.analytic` for formula-level work, or configure a
+typed analytic model and evaluate it through `BeamSystem`. Application plots
+should consume canonical evaluated data rather than reconstructing a second
+raw beam schema.
+
+Old raw beam keys and default IDs have no runtime translation. Old solver
+signatures that accepted a manager, handler dictionary, or optional beam
+mapping must pass the exact canonical `BeamSystem` required by the current
+solver boundary. Missing low-level imports and old call signatures fail
+directly instead of selecting identity or analytic fallback behavior.
 
 ## Frequency and configuration I/O
 

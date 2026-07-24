@@ -10,7 +10,8 @@ Runtime boundary
 The high-level ``Simulator`` activates all four modes below. Source resolution
 first creates immutable definitions, instrument resolution supplies canonical
 antenna identities, and setup then resolves complete assignments and atomically
-loads one ``BeamSystem``. Beam assignment, file, metadata, frequency-domain,
+loads one canonical per-antenna ``BeamSystem``. Beam assignment, file,
+metadata, frequency-domain,
 and sampling-characterization failures occur before device, backend, network,
 or sky work. There is no analytic fallback for a FITS declaration.
 
@@ -97,6 +98,17 @@ A FITS source has ``kind: fits``, ``path``, ``normalization: peak``,
 ``angular_interpolation: bilinear``, and ``frequency_interpolation: cubic`` or
 ``linear``. The first three option values shown are defaults where applicable.
 
+The accepted FITS subset is deliberately scalar. RadioSim accepts finite
+``efield`` or ``simple`` data on a regular full-visible-hemisphere ``az_za``
+grid, a fixed antenna mount, east-oriented linear X/Y feeds, a finite identity
+basis transform, unit bandpass, peak normalization, and a strictly increasing
+frequency axis. The evaluated voltage is the scalar complex response on the
+diagonal of a 2x2 E-Jones matrix. Power beams, circular feeds, non-identity
+bases, other coordinate systems or mounts, arbitrary cross-polarization, and
+full receptor/polarization physics are rejected. Angular interpolation is
+bilinear; frequency interpolation is exactly linear or cubic with no
+extrapolation or method fallback.
+
 .. code-block:: yaml
 
    # One shared source
@@ -129,8 +141,10 @@ A FITS source has ``kind: fits``, ``path``, ``normalization: peak``,
          beam: {kind: fits, path: beams/antenna-1.beamfits}
 
 Assignments are ordered and nonempty. Antenna references are tagged by
-``kind: number`` or ``kind: name``. Tier 3B preserves those references; it does
-not resolve them against an instrument or load BeamFITS content.
+``kind: number`` or ``kind: name``. Configuration resolution preserves those
+references without reading FITS content. ``Simulator.setup`` resolves every
+reference against the canonical instrument, requires complete coverage, and
+loads the resulting handlers atomically.
 
 Path and provenance rules
 -------------------------
@@ -145,11 +159,11 @@ normalizes the path. Each source records its indexed logical path, such as
 
 Source resolution constructs immutable definitions with deterministic
 fingerprints from the complete normalized analytic model or FITS source
-options. It does not read FITS content. During setup, canonical assignment and
-loading validate the complete scientific subset and publish the immutable
-loaded state only after every handler succeeds. Point visibility, HEALPix
-visibility, sampling advice, and observability all consume this same
-``BeamSystem``.
+options. Path validation does not read FITS content. During setup, canonical
+assignment and loading validate the complete scientific subset and publish the
+immutable loaded state only after every handler succeeds. Point visibility,
+HEALPix visibility, sampling advice, observability, and result provenance all
+consume this same ``BeamSystem`` and its detached state.
 
 HEALPix sampling advice
 -----------------------
@@ -184,7 +198,7 @@ The allowed HEALPix pixel scale is the minimum product scale divided by the
 fixed engineering safety factor five. The recommendation is the smallest
 power-of-two NSIDE, no larger than 65536, that satisfies that limit. Advice is
 logging-only: neither the requested NSIDE nor an already loaded payload is
-resampled or changed. A coarse grid produces:
+resampled, mutated, or changed automatically. A coarse grid produces:
 
 .. code-block:: text
 

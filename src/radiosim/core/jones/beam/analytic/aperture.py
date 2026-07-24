@@ -20,8 +20,6 @@ References
        Chapter 8: Elements of the Theory of Diffraction
 """
 
-from collections.abc import Callable
-
 import numpy as np
 from scipy.special import j1
 
@@ -76,11 +74,10 @@ def airy_voltage_pattern(u_beam: np.ndarray) -> np.ndarray:
     u_beam = np.asarray(u_beam, dtype=np.float64)
     arg = np.pi * u_beam
     # 2 * J1(pi*u) / (pi*u), with E(0) = 1.0 by L'Hopital
-    return np.where(
-        arg == 0.0,
-        1.0,
-        2.0 * j1(arg) / arg,
-    )
+    result = np.ones_like(arg)
+    nonzero = arg != 0.0
+    result[nonzero] = 2.0 * j1(arg[nonzero]) / arg[nonzero]
+    return result
 
 
 def sinc_voltage_pattern(
@@ -150,23 +147,9 @@ def elliptical_airy_voltage_pattern(
     return airy_voltage_pattern(u_beam)
 
 
-APERTURE_SHAPES: dict[str, Callable] = {
-    "circular": airy_voltage_pattern,
-    "rectangular": sinc_voltage_pattern,
-    "elliptical": elliptical_airy_voltage_pattern,
-}
-"""Registry mapping aperture shape names to their voltage pattern functions.
-
-- ``"circular"`` -> :func:`airy_voltage_pattern`
-- ``"rectangular"`` -> :func:`sinc_voltage_pattern`
-- ``"elliptical"`` -> :func:`elliptical_airy_voltage_pattern`
-"""
-
-
 __all__ = [
     "compute_u_beam",
     "airy_voltage_pattern",
     "sinc_voltage_pattern",
     "elliptical_airy_voltage_pattern",
-    "APERTURE_SHAPES",
 ]

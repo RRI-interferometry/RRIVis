@@ -24,7 +24,7 @@ class JonesTerm(ABC):
     - K  (GeometricPhaseJones)      : Geometric phase delay (DDE, scalar, unitary)
     - Z  (IonosphereJones, ...)     : Ionospheric Faraday rotation + TEC phase (DDE)
     - T  (TroposphereJones, ...)    : Tropospheric delay / opacity (DDE)
-    - E  (BeamJones, ...)           : Primary beam voltage pattern (DDE)
+    - E  (canonical beam adapter)   : Primary beam voltage pattern (DDE)
     - P  (ParallacticAngleJones, ...): Parallactic angle / feed rotation (DIE)
     - D  (PolarizationLeakageJones, ...): Polarization leakage D-terms (DIE)
     - G  (GainJones, ...)           : Complex electronic gains (DIE, diagonal)

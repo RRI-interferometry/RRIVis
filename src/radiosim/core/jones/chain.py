@@ -40,7 +40,7 @@ class JonesChain:
         >>>
         >>> # Add Jones terms (sky → correlator order, rightmost first)
         >>> chain.add_term(GeometricPhaseJones(...))  # K
-        >>> chain.add_term(BeamJones(...))  # E
+        >>> chain.add_term(primary_beam_term)  # E, supplied by the high-level solver
         >>> chain.add_term(GainJones(...))  # G
         >>>
         >>> # Compute total Jones matrix for antenna 0, source 5

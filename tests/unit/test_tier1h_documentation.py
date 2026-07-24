@@ -64,6 +64,16 @@ AUTHORIZED_BEAM_TRUTH_SURFACES = (
     REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
     REPOSITORY_ROOT / "docs" / "api" / "core.rst",
 )
+FINAL_BEAM_TRUTH_SURFACES = (
+    REPOSITORY_ROOT / "README.md",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "beam_models.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "jones_matrices.rst",
+    REPOSITORY_ROOT / "docs" / "api" / "core.rst",
+    REPOSITORY_ROOT / "docs" / "api" / "jones.rst",
+    REPOSITORY_ROOT / "docs" / "api" / "simulator.rst",
+)
 
 
 @pytest.mark.parametrize("config_path", SHIPPED_CONFIGS, ids=lambda path: path.name)
@@ -256,10 +266,105 @@ def test_tier3_beam_docs_distinguish_resolution_from_runtime_activation():
     assert "Schema" in support
     assert "Path resolution" in support
     assert "Simulator runtime" in support
-    assert "only direct-circular" in api
-    assert "BeamSystem" not in api
+    assert "only direct-circular" not in api
+    assert "BeamSystem" in api
+    assert "LoadedBeamState" in api
+    assert "resolve_beam_assignments" in api
     assert "beam_mode" in migration
     assert "rejected rather than translated" in " ".join(migration.split())
+
+
+@pytest.mark.parametrize("path", FINAL_BEAM_TRUTH_SURFACES, ids=lambda path: path.name)
+def test_tier3h2_active_docs_do_not_publish_removed_beam_surfaces(path):
+    text = path.read_text(encoding="utf-8")
+
+    for removed_name in (
+        "BeamManager",
+        "BeamFITSHandler",
+        "BeamJones",
+        "AnalyticBeamJones",
+        "FITSBeamJones",
+        "compute_aperture_beam",
+        "APERTURE_SHAPES",
+        "TAPER_FUNCTIONS",
+        "FEED_MODELS",
+        "REFLECTOR_TYPES",
+        "plot_beam_pattern",
+        "plot_beam_comparison",
+        "plot_beam_2d",
+        "plot_feed_illumination",
+    ):
+        assert removed_name not in text, (path, removed_name)
+
+
+def test_tier3h2_final_runtime_and_science_truth_is_documented():
+    readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+    beam_guide = (
+        REPOSITORY_ROOT / "docs" / "user_guide" / "beam_models.rst"
+    ).read_text(encoding="utf-8")
+    support = (
+        REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst"
+    ).read_text(encoding="utf-8")
+    jones = (REPOSITORY_ROOT / "docs" / "user_guide" / "jones_matrices.rst").read_text(
+        encoding="utf-8"
+    )
+    simulator = (REPOSITORY_ROOT / "docs" / "api" / "simulator.rst").read_text(
+        encoding="utf-8"
+    )
+
+    for mode in ("analytic", "shared_fits", "per_antenna_fits", "mixed"):
+        assert mode in readme
+        assert mode in beam_guide
+        assert mode in support
+    for variant in (
+        "circular_aperture",
+        "rectangular_aperture",
+        "elliptical_aperture",
+        "analytical_illumination",
+        "numerical_illumination",
+    ):
+        assert variant in support
+    assert "one canonical per-antenna ``BeamSystem``" in beam_guide
+    assert "does not read FITS content" in beam_guide
+    assert "no analytic fallback" in readme
+    assert "scalar E-Jones" in jones
+    assert "Tier 5" in jones
+    assert "beam_system" in simulator
+    assert "beam_state" in simulator
+    assert "automatic NSIDE mutation" not in beam_guide
+
+
+def test_tier3h2_migration_guide_maps_every_removed_low_level_surface():
+    migration = (REPOSITORY_ROOT / "docs" / "migration_guide.md").read_text(
+        encoding="utf-8"
+    )
+    for removed_name in (
+        "BeamManager",
+        "BeamFITSHandler",
+        "BeamJones",
+        "AnalyticBeamJones",
+        "FITSBeamJones",
+        "compute_aperture_beam",
+        "mutable registries",
+        "plotting helpers",
+    ):
+        assert removed_name in migration
+    assert "fail immediately" in migration
+    assert "compatibility shim" in migration
+    assert "BeamSystem" in migration
+
+
+def test_tier3h2_hera_analysis_separates_history_from_current_support():
+    text = (REPOSITORY_ROOT / "docs" / "HERA_VSIM_ANALYSIS.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Current RadioSim support boundary" in text
+    assert "historical evidence, not shipped dependencies" in text
+    assert "accepted scalar BeamFITS subset" in text
+    assert "does not establish compatibility" in text
+    assert "currently rejects FITS/per-antenna beams" not in text
+    assert "All necessary files" not in text
 
 
 def test_tier2g_truth_surfaces_and_example_inventory_are_current():

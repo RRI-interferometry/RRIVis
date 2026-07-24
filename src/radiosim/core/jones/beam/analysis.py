@@ -8,9 +8,8 @@ profile vs zenith angle, and ``detect_beam_features`` extracts the HPBW,
 ``-10 dB`` radius, and the position/depth of every null and sidelobe
 identified by :func:`scipy.signal.find_peaks` on the dB profile.
 
-These routines are pure-array — they do not import the planner or any
-visualisation code — so they live in the beam package alongside
-``BeamFITSHandler`` and the analytic beam models.
+These routines are pure-array — they do not import the planner, runtime beam
+loader, or any visualisation code.
 """
 
 from __future__ import annotations

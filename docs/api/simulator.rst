@@ -34,6 +34,11 @@ After setup, ``instrument`` returns the canonical resolved object, while
 ``antennas`` and ``baselines`` return its exact immutable tuples. Access before
 resolution raises ``RuntimeError``.
 
+``beam_system`` returns the one loaded per-antenna ``BeamSystem`` used by both
+visibility solvers and observability. ``beam_state`` returns its immutable
+``LoadedBeamState``. Both are read-only properties and raise before successful
+setup; neither exposes mutable evaluators through result provenance.
+
 Beam sampling lifecycle
 -----------------------
 

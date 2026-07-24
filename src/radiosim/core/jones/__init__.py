@@ -34,7 +34,6 @@ JonesTerm : Abstract base class for Jones matrix terms
 JonesChain : Manager for combining multiple Jones terms
 
 GeometricPhaseJones : K term (geometric/fringe delay)
-BeamJones, AnalyticBeamJones : E term (primary beam)
 GainJones, TimeVariableGainJones : G term (electronic gains)
 BandpassJones, PolynomialBandpassJones : B term (bandpass)
 PolarizationLeakageJones, IXRLeakageJones : D term (pol leakage)
@@ -81,10 +80,6 @@ __all__ = [
     "JonesBaselineTerm",
     # K term
     "GeometricPhaseJones",
-    # E term
-    "BeamJones",
-    "AnalyticBeamJones",
-    "FITSBeamJones",
     # G term
     "GainJones",
     "TimeVariableGainJones",
@@ -144,9 +139,6 @@ _LAZY_EXPORTS = {
     "JonesChain": (".chain", "JonesChain"),
     "JonesBaselineTerm": (".baseline_errors", "JonesBaselineTerm"),
     "GeometricPhaseJones": (".geometric", "GeometricPhaseJones"),
-    "BeamJones": (".beam", "BeamJones"),
-    "AnalyticBeamJones": (".beam", "AnalyticBeamJones"),
-    "FITSBeamJones": (".beam", "FITSBeamJones"),
     "GainJones": (".gain", "GainJones"),
     "TimeVariableGainJones": (".gain", "TimeVariableGainJones"),
     "ElevationGainJones": (".gain", "ElevationGainJones"),

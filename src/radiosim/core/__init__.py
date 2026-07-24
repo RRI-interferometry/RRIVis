@@ -170,7 +170,6 @@ __all__ = [
     "BaselineSelectionProvenance",
     "ResolvedBaselineSelection",
     # Beams
-    "BeamManager",
     "BeamSystem",
     "LoadedBeamState",
     "load_beam_system",
@@ -281,11 +280,6 @@ def __getattr__(name: str) -> object:
         value = getattr(import_module(module_name), attribute_name)
         globals()[name] = value
         return value
-    if name == "BeamManager":
-        from radiosim.core.jones.beam import BeamManager
-
-        globals()[name] = BeamManager
-        return BeamManager
     if name == "GSMObserver08":
         from pygdsm import GSMObserver08
 
@@ -296,6 +290,4 @@ def __getattr__(name: str) -> object:
 
 def __dir__() -> list[str]:
     """Include lazy public API objects in interactive discovery."""
-    return sorted(
-        set(globals()) | set(_LAZY_EXPORTS) | {"BeamManager", "GSMObserver08"}
-    )
+    return sorted(set(globals()) | set(_LAZY_EXPORTS) | {"GSMObserver08"})

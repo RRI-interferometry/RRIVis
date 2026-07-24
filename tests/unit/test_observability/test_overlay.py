@@ -234,28 +234,6 @@ class TestObservabilityOverlay:
             int(np.argmin(np.abs(ra_grid - 90.0)))
         ]
 
-    def test_beam_contours_drawn_when_present(self, tmp_path):
-        """draw_observability_overlay adds beam-contour line artists when
-        plan.beam_contours is present. Uses the real Vivaldi FITS file if
-        available, otherwise skips."""
-        import os
-
-        vivaldi = "/Volumes/CrucialX8/beams/NF_HERA_Vivaldi_power_beam_nside128.fits"
-        if not os.path.exists(vivaldi):
-            pytest.skip("Vivaldi FITS not mounted")
-
-        sky = _single_channel_sky()
-        plan = _hera_plan(tmp_path, beam_fits_path=vivaldi)
-        assert plan.beam_contours, "beam_contours should be populated"
-
-        fig = plot_healpix_map(sky, frequency=80e6, log_scale=False)
-        n_lines_before = _count_projection_lines(fig)
-        draw_observability_overlay(fig, plan)
-        n_lines_after = _count_projection_lines(fig)
-        # 1 footprint line + at least 1 beam contour per level (2 levels).
-        assert n_lines_after >= n_lines_before + 3, (n_lines_before, n_lines_after)
-        plt.close(fig)
-
 
 class TestTier3GOverlaySurface:
     def test_visualization_wrapper_has_explicit_exact_signature(self):

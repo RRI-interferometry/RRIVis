@@ -53,9 +53,8 @@ Scientific ownership
    * - ``baseline_selection``
      - Typed correlation, length-target/range, and axial-azimuth filtering
    * - ``beams``
-     - Four strict modes parse and resolve. Only direct-circular ``analytic`` is
-       Simulator-active; FITS-backed modes and other analytic variants fail at
-       the runtime boundary
+     - ``analytic``, ``shared_fits``, ``per_antenna_fits``, and ``mixed`` all
+       resolve and run through one canonical Simulator beam system
    * - ``sky_model``
      - Strict source requests for point or HEALPix preparation
    * - ``obs_time`` / ``obs_frequency``
@@ -79,11 +78,11 @@ Feature boundaries
 ------------------
 
 Heterogeneous positive antenna diameters are used by both point and HEALPix
-analytic visibility paths. Observability plotting deliberately accepts only a
-uniform resolved diameter and raises before sky preparation for heterogeneous
-arrays. Feed/receptor physics, FITS beams, mixed beam modes, explicit
-Measurement Set phase centres, UVFITS writing, spherical-harmonic simulation,
-and worker control are not implemented.
+visibility paths. Observability selects the same canonical beam evaluator and
+requires an explicit reference antenna for scientifically heterogeneous
+assignments. Full receptor/basis/polarization physics, arbitrary BeamFITS
+variants, explicit Measurement Set phase centres, UVFITS writing,
+spherical-harmonic simulation, and worker control are not implemented.
 
 Beam support by stage
 ---------------------
@@ -96,30 +95,34 @@ Beam support by stage
      - Schema
      - Path resolution
      - Simulator runtime
-   * - Direct circular analytic
+   * - ``analytic``: ``circular_aperture``
      - Supported
      - Supported
      - Supported
-   * - Other analytic variants
+   * - ``analytic``: ``rectangular_aperture``,
+       ``elliptical_aperture``, ``analytical_illumination``, or
+       ``numerical_illumination``
      - Supported
      - Supported
-     - Explicitly pending
-   * - Shared FITS
+     - Supported
+   * - ``shared_fits``
      - Supported
      - Supported
-     - Explicitly pending
-   * - Per-antenna FITS
+     - Supported within the accepted scalar subset
+   * - ``per_antenna_fits``
      - Supported
      - Supported
-     - Explicitly pending
-   * - Mixed analytic/FITS
+     - Supported within the accepted scalar subset
+   * - ``mixed``
      - Supported
      - Supported
-     - Explicitly pending
+     - Supported within the accepted scalar subset
 
-FITS path resolution checks and records sources but does not read BeamFITS
-content, resolve antenna references, or imply UVBeam, solver, GPU interpolation,
-or FITS observability support.
+FITS path validation checks and records sources but does not read BeamFITS
+content. ``Simulator.setup`` resolves canonical antenna references, loads and
+validates the accepted scalar subset, and publishes state atomically. This does
+not imply arbitrary full-polarization BeamFITS, GPU interpolation, automatic
+NSIDE mutation, or resampling support.
 
 NumPy is the deterministic backend default. Selecting JAX, Numba, or ``auto``
 does not establish complete accelerator coverage for the high-level workflow.

@@ -218,7 +218,9 @@ The beam schema accepts four complete modes: `analytic`, `shared_fits`,
 canonical antenna identity, validates and loads the complete beam system before
 device, backend, network, or sky work, and uses that same system in both
 visibility solvers and observability planning. FITS failures never fall back to
-an analytic beam.
+an analytic beam: there is no analytic fallback for a FITS declaration.
+FITS support is the documented scalar E-Jones subset, not arbitrary
+full-polarization BeamFITS.
 
 HEALPix advice is derived from the smallest selected-baseline beam-product
 feature scale over every exact observation frequency. For endpoint voltage

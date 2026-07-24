@@ -44,12 +44,13 @@ Visibility
 Beam and sky APIs
 -----------------
 
-Tier 3B exposes immutable source-resolved beam definitions and four resolved
-mode inputs. These values describe validated intent; only direct-circular
-analytic input is active in the high-level Simulator. No loaded beam state,
-assignment state, or canonical beam evaluator is public yet.
+The public beam boundary includes strict source-resolved definitions, canonical
+assignment state, typed errors, immutable ``LoadedBeamState``,
+``resolve_beam_assignments``, ``BeamSystem``, and ``load_beam_system``. All
+four beam modes run through that single evaluator in the high-level
+``Simulator``.
 
-.. automodule:: radiosim.core.beam.models
+.. automodule:: radiosim.core.beam
    :members:
    :undoc-members:
    :show-inheritance:

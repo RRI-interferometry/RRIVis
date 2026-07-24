@@ -135,10 +135,13 @@ Beam declarations
 ``beams.mode`` is one of ``analytic``, ``shared_fits``,
 ``per_antenna_fits``, or ``mixed``. See :doc:`beam_models` for the complete
 tagged shapes and all five analytic model variants. Schema validation and path
-resolution accept all four modes. The Simulator currently activates only a
-direct ``circular_aperture`` analytic model; every FITS-backed mode and every
-other analytic variant raises a typed unsupported issue before runtime side
-effects.
+resolution accept all four modes, and ``Simulator.setup`` resolves and loads
+all four through one canonical ``BeamSystem``. Path validation alone does not
+read FITS content; setup performs canonical antenna assignment, validates the
+accepted scalar FITS subset, and loads every required handler atomically.
+Point-source, HEALPix, observability, sampling-advice, and result-provenance
+paths consume the same loaded state. FITS failures never fall back to analytic
+evaluation.
 
 An ``allow_network`` known-telescope source conflicts with global offline mode.
 Validation and offline tests never enumerate the live registry.

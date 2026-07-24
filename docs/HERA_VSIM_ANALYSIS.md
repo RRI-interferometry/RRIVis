@@ -1,12 +1,21 @@
 # Analysis of HERA vsim.py Validation Simulation
 
 > **Historical analysis.** This document records an external vsim.py/matvis
-> investigation from January 2025. Its proposed RadioSim configurations and
-> implementation checklists are not the current supported API. In particular,
-> the Tier 1 high-level resolver currently rejects FITS/per-antenna beams,
-> per-antenna diameters, baseline subsets, pyuvdata telescope opt-ins, and
-> UVFITS output. Use the configuration guide and support matrix for current
-> behavior.
+> investigation from January 2025. Everything below the current-support note is
+> historical evidence, not shipped dependencies or active instructions. File
+> availability, compatibility, and measurements have not been re-verified.
+
+## Current RadioSim support boundary
+
+RadioSim now runs strict `analytic`, `shared_fits`, `per_antenna_fits`, and
+`mixed` modes through one canonical per-antenna beam system. FITS support is
+limited to the [accepted scalar BeamFITS subset](user_guide/beam_models.rst);
+the historical Vivaldi full-Jones and HEALPix filenames in this document are
+not current support claims. It does not establish compatibility with the subset.
+Repository or mounted copies are not shipped dependencies.
+Current users should follow the [beam guide](user_guide/beam_models.rst) and
+[configuration support matrix](user_guide/configuration_support.rst), not the
+historical commands or proposed configuration keys below.
 
 ## Overview
 
@@ -142,7 +151,8 @@ Duration: 0.08194444 hours (~4.92 minutes = 295.0 seconds)
 **Configuration:**
 - **Point source catalog** with 256 sources (ptsrc256)
 - **File location (original):** `/lustre/aoc/projects/hera/rchandra/H6C_Validation_Stats/validation-sim/sky_models/ptsrc256/*.skyh5`
-- **File location (RadioSim):** `data/fch0227.skyh5` and `data/fch0227_full.skyh5`
+- **Historically reported local copies (not shipped):** `data/fch0227.skyh5`
+  and `data/fch0227_full.skyh5`
 - **Format:** `.skyh5` (pyradiosky standard format)
 
 **Sky Model Characteristics:**
@@ -157,9 +167,10 @@ Duration: 0.08194444 hours (~4.92 minutes = 295.0 seconds)
   - Reference frequency: 74.6307 MHz (channel 227)
   - Frame: ICRS
 
-**Available Sky Model Files:**
+**Historically reported sky-model files:**
 
-Two versions available in `data/`:
+The historical workspace reportedly contained two versions under `data/`;
+this is not a current repository inventory:
 
 1. **`fch0227_full.skyh5`** (44 MB) - ⚠️ NOT RECOMMENDED
    - **785,679 sources** (full catalog)
@@ -203,7 +214,8 @@ Filtered vs Full comparison:
 **Configuration:**
 - **Per-antenna beam assignment** from CSV file
 - **Beam file pattern:** `NF_HERA_Vivaldi_efield_beam_extrap_i.fits`
-- **File location (RadioSim):** `data/NF_HERA_Vivaldi_efield_beam_extrap_0.fits` (821 MB)
+- **Historically reported local copy (not shipped):**
+  `data/NF_HERA_Vivaldi_efield_beam_extrap_0.fits` (821 MB)
 
 **Beam File Components:**
 - **NF:** Nearfield HERA Vivaldi antenna
@@ -212,7 +224,7 @@ Filtered vs Full comparison:
 - **extrap:** Extrapolated to horizon (important for wide-field)
 - **i:** Index indicating per-antenna beams (different orientations/patterns)
 
-**Available Beam Files in `data/`:**
+**Historically reported beam files (not shipped or compatibility-verified):**
 
 1. **`NF_HERA_Vivaldi_efield_beam_extrap_0.fits`** (821 MB)
    - HERA Vivaldi antenna E-field pattern
@@ -242,8 +254,8 @@ antenna_number,beam_file
 - **Position-dependent effects:** Edge antennas vs. interior antennas
 - **Realistic systematics:** Validation requires accurate beam models
 
-**For RadioSim Implementation:**
-- ✅ Beam files available in `data/` folder
+**Historical implementation proposal (obsolete):**
+- The analysis reported local beam files; current availability is not assumed
 - Requires `beam_mode: "per_antenna"` or `"shared"`
 - For shared mode: All antennas use `beam_extrap_0.fits`
 - For per-antenna: Need BeamID column in antenna layout file, OR
@@ -301,9 +313,11 @@ This is a **validation simulation** for HERA's H6C data release:
 | **Sky model** | 256 point sources | Fewer bright sources |
 | **Science goal** | Cosmology (EoR) | Ionospheric physics |
 
-## Available Data Files in RadioSim
+## Historical external-file inventory (not shipped)
 
-All necessary files for replicating Rajorshi's HERA validation simulation are available in the `data/` folder.
+The 2025 analysis recorded the following local or external files. They are
+historical evidence, not shipped dependencies, and current checkout
+availability is not asserted.
 
 ### Complete File Inventory
 
@@ -469,7 +483,7 @@ Needs updating to:
 - **Solution:** Use `beam_extrap_0.fits` (already extrapolated)
 - **Benefit:** Smooth beam pattern to horizon
 
-## Requirements for RadioSim Implementation
+## Historical 2025 implementation checklist (obsolete)
 
 To replicate this simulation in RadioSim, you need:
 
@@ -531,7 +545,7 @@ To replicate this simulation in RadioSim, you need:
 - **pyradiosky:** https://github.com/RadioAstronomySoftwareGroup/pyradiosky
 - **H6C Data Release:** HERA collaboration papers
 
-## Notes for Config Creation
+## Historical configuration notes (obsolete)
 
 When creating equivalent RadioSim config:
 
