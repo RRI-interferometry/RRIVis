@@ -3927,3 +3927,136 @@ Tier 3H.2 has not started and is the next authorized implementation slice.
 `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none
 is **DONE**. Final issue closure remains exclusively owned by Tier 3I, which remains
 unauthorized until Tier 3H.2 is separately implemented and independently accepted.
+
+## 59. Tier 3H.2 independent acceptance record
+
+**Verdict: ACCEPTED AFTER CORRECTIONS on 2026-07-24.** The fail-closed start
+gate passed on clean `main` at implementation
+`bd1398dd4d06d9d1eb81e46bed56c6aa206c2a42`
+(`refactor(beam): remove legacy beam surfaces`), whose parent is
+`e905bc39e97f77eaee13d5173d5f3984bd636c5d`. `origin/main` was the same
+implementation commit, with divergence zero behind and zero ahead. The worktree,
+index, and untracked set were empty. Python 3.11.13 and Python 3.12.13 both used
+pyuvdata 3.2.1, and the implementation and parent whitespace checks passed.
+
+The implementation changed exactly the 27 Section 36 paths: 22 modifications,
+one added cleanup test, and four deletions, with 649 insertions and 2,498
+deletions. The deleted files are exactly
+`core/jones/beam/analytic/composed.py`,
+`core/jones/beam/analytic/plotting.py`,
+`core/jones/beam/fits/__init__.py`, and
+`core/jones/beam/fits/handler.py`; the canonical
+`src/radiosim/core/beam/fits.py` remains. There was no dependency, lockfile,
+configuration, solver, writer, generated-output, Tier 3I, or other later-tier
+scope. The four-file correction below is wholly inside the same authorized
+27-path boundary.
+
+Independent full-file review and fresh-process probes confirmed that all deleted
+module combinations fail to import, including parent-then-child and
+child-then-parent attempts. The removed `BeamManager`, `BeamFITSHandler`,
+`FITSBeamJones`, `AnalyticBeamJones`, composed/plotting wrappers, legacy registries,
+old helper exports, package imports, and compatibility paths are absent. The only
+source residuals are the intentional strict-config error text naming historical
+`BeamManager` input and the private canonical `_REFLECTOR_TYPES` tuple. No public
+dictionary registry or compatibility fallback was restored.
+
+The retained numeric API is exactly, and in this order:
+`compute_u_beam`, `airy_voltage_pattern`, `sinc_voltage_pattern`,
+`elliptical_airy_voltage_pattern`, `uniform_taper`,
+`gaussian_taper_pattern`, `parabolic_taper`,
+`parabolic_squared_taper`, `cosine_taper`,
+`corrugated_horn_pattern`, `open_waveguide_pattern`,
+`dipole_ground_plane_pattern`, `prime_focus_angle`, `cassegrain_angle`,
+`compute_edge_angle`, and `compute_hpbw_numerical`. Wildcard imports contain
+exactly those 16 objects, every object is identical to its defining-module object,
+and retained signatures, scalar/array behavior, shapes, floating dtypes, and
+caller-owned input storage are preserved. Fresh numeric imports do not load any
+deleted module.
+
+A separate temporary 30-case matrix passed 30/30 in each interpreter. It used
+independent NumPy/SciPy formulas for dimensionless aperture coordinates, circular
+Airy, rectangular sinc, equal- and unequal-axis elliptical Airy, all five tapers,
+corrugated horn, open-waveguide singularities, dipole-over-ground, prime-focus,
+Cassegrain, and edge-angle calculations. HPBW was independently bracketed with
+SciPy `brentq`. It also covered exact export order and identity, deleted imports,
+all 20 parent/import-order combinations, hostile scalar and array inputs, shape,
+dtype and ownership, fresh-import purity, exact scope/deletion inventory, mounted
+path removal, and canonical runtime ownership.
+
+The canonical `radiosim.core.beam.BeamSystem` remains the sole resolved-beam
+runtime service through simulator, point-source, HEALPix, advice, provenance, and
+observability paths. The private `_ResolvedBeamJones` adapter remains private;
+unrelated `ElementBeamJones` and `DifferentialBeamJones` scaffolding is unchanged.
+Generic analysis and projection helpers work without any deleted module. The
+mounted Vivaldi conditional test and imports used only by it are gone; the nine
+deterministic offline overlay/contour/track/projection tests remain, with no
+network, registry, repository-data, alternate mount, or optional-data skip.
+
+Review found two material in-scope defects. The README incorrectly said
+observability accepted uniform diameter arrays and rejected heterogeneous arrays,
+contradicting the canonical explicit-reference behavior. The analytic package
+initializer also introduced a `pyright: ignore` on a retained public export,
+violating the no-new-suppression contract. A strengthened documentation assertion
+and a new source assertion failed 2/2 before correction, showing the stale text
+and suppression exactly. The first typed re-export revision also failed Ruff's
+import-order and constant-`getattr` rules before it was refined.
+
+Correction `7d880e54ec213fbc8b7b00c6bb42fe12e3719eca`
+(`fix(beam): correct Tier 3H.2 cleanup contract`) changes only `README.md`,
+`core/jones/beam/analytic/__init__.py`,
+`test_tier3_beam_cleanup.py`, and `test_tier1h_documentation.py`. It documents
+the loaded-`BeamSystem`/explicit-reference rule and preserves exact public
+function identity through a typed private module lookup without a type
+suppression. The two regression selections then passed in both interpreters;
+file-level Pyright reported zero errors, warnings, or information, and Ruff
+passed.
+
+Final verification after correction was:
+
+- the exact focused boundary passed 74/74 in each interpreter, one more than the
+  implementation result because of the durable no-suppression regression. There
+  were zero skips, xfails, xpasses, or mounted-data dependencies; the two warning
+  events in each run are the established healpy/Matplotlib figure-reuse category;
+- the external adversarial/oracle matrix passed 30/30 in both interpreters;
+- full suites collected 2,818 tests. Python 3.11 passed 2,818 with no skips;
+  Python 3.12 passed 2,812 with exactly six unavailable-JAX skips: one each in
+  `test_jax_backend.py`, `test_sky_backend.py`, `test_sky_spectral.py`, and
+  `test_visibility_backend.py`, plus two in `test_backend_jones.py`. There were
+  no failures, xfails, or xpasses;
+- both full suites retained exactly 26 established warnings: one disjointness
+  override, eight FITS unit-syntax events, 12 lossy HEALPix advisories, one
+  numerical-multiply event, and four healpy/Matplotlib figure-reuse events;
+- Ruff passed, all 283 files passed format checking, and Pyright reported 3,231
+  diagnostics in each environment under the unchanged 4,600 ceiling. An exact
+  changed-line intersection covered 67 added/changed lines in ten production
+  paths and found zero diagnostics in either interpreter;
+- all three shipped YAMLs validated at 101, 11, and one frequency channel. The
+  forced-offline example completed with five antennas, 15 baselines, two
+  frequencies, and `(1, 2)` visibility-product shapes;
+- the clean-copy Sphinx 8.2.3 build succeeded with the accepted 40-event
+  baseline: 35 historical docutils/docstring events, one historical HERA toctree
+  event, one theme-option event, and three historical HERA highlighting events.
+  No deleted module/export reference or new warning category appeared, and the
+  temporary build tree was removed; and
+- dual-Python import identity, no-suppression, whitespace, exact scope, deletion,
+  residual, mounted-path, documentation, historical-HERA, and generated-artifact
+  audits passed. The external-probe tree was removed. The only added
+  `pyright: ignore` text is the regression assertion that forbids it; no skip,
+  `skipif`, xfail, warning filter, type-ignore, noqa, or broad exception
+  suppression masks accepted behavior.
+
+The changed README and guides now describe all four strict beam modes, all five
+accepted analytic variants, canonical advice/provenance, the accepted scalar FITS
+subset, current tagged Jones schema, and active simulator lifecycle without
+claiming automatic NSIDE mutation/resampling, arbitrary FITS/full-receptor
+support, GPU FITS interpolation, writer redesign, or whole-Tier-3 acceptance.
+Migration names are historical inputs only. The HERA analysis unmistakably marks
+mounted Vivaldi files, observations, and unsupported full-Jones/HEALPix behavior
+as historical rather than current accepted support.
+
+Remote CI, physical GPU execution, non-macOS platforms, live network, registry,
+and external-data behavior remain unobserved. No PR, tag, release, or deployment
+was created; the separately authorized `main` push occurs only after this
+acceptance record is committed and the remote advancement gate passes. Tier 3I
+was not started. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002`
+remain **OPEN**; none is **DONE**. Tier 3I is the next authorized separate task.

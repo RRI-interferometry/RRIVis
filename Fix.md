@@ -3037,3 +3037,99 @@ work is authorized.
 is **DONE**. Tier 3H.2 remains unimplemented and is now the next executable task.
 Tier 3I remains unauthorized until Tier 3H.2 is separately implemented and
 independently accepted; final issue closure remains exclusively owned by Tier 3I.
+
+### 2026-07-24 Tier 3H.2 independent acceptance
+
+**Decision: Tier 3H.2 is accepted after corrections.** The fail-closed start gate
+passed on clean `main` at implementation
+`bd1398dd4d06d9d1eb81e46bed56c6aa206c2a42`
+(`refactor(beam): remove legacy beam surfaces`), parent
+`e905bc39e97f77eaee13d5173d5f3984bd636c5d`. `origin/main` matched the
+implementation, divergence was zero behind/zero ahead, and worktree, index, and
+untracked state were empty. Python 3.11.13 and 3.12.13 both used pyuvdata 3.2.1.
+
+The implementation changed exactly the 27 authorized paths: 22 modifications,
+one added cleanup test, and four deletions, with 649 insertions and 2,498
+deletions. The deleted files are exactly `analytic/composed.py`,
+`analytic/plotting.py`, `beam/fits/__init__.py`, and `beam/fits/handler.py`.
+Canonical `core/beam/fits.py` remains. No dependency, lockfile, configuration,
+solver, writer, generated artifact, Tier 3I, or later-tier work leaked in.
+
+Independent full-file review and fresh-process probes confirmed that all deleted
+module/import-order combinations fail and that removed managers, handlers, Jones
+wrappers, analytic wrappers, registries, package exports, imports, and
+compatibility paths are absent. The retained API is exactly
+`compute_u_beam`, `airy_voltage_pattern`, `sinc_voltage_pattern`,
+`elliptical_airy_voltage_pattern`, `uniform_taper`,
+`gaussian_taper_pattern`, `parabolic_taper`,
+`parabolic_squared_taper`, `cosine_taper`,
+`corrugated_horn_pattern`, `open_waveguide_pattern`,
+`dipole_ground_plane_pattern`, `prime_focus_angle`, `cassegrain_angle`,
+`compute_edge_angle`, and `compute_hpbw_numerical`, in that order and with exact
+defining-object identity.
+
+A separate 30-case matrix passed 30/30 in each interpreter. Independent
+NumPy/SciPy oracles covered circular, rectangular, elliptical, taper, horn,
+waveguide, dipole, reflector, edge-angle, and bracketing-root HPBW science, plus
+scalar/array shape, dtype, ownership, signatures, exact wildcard exports, fresh
+imports, all 20 deleted-import orderings, exact scope, mounted-path removal, and
+runtime ownership.
+
+The canonical `BeamSystem` remains the sole loaded runtime service through
+simulator, point, HEALPix, observability, advice, and result provenance. The
+private `_ResolvedBeamJones` adapter stays private; `ElementBeamJones` and
+`DifferentialBeamJones` are unchanged; generic analysis/projection remains
+usable. Only the mounted Vivaldi conditional test and its sole-use imports were
+removed. Nine deterministic offline overlay, contour, track, and projection tests
+remain without a replacement network, registry, repository-data, alternate-mount,
+or optional-data dependency.
+
+Review found two material in-scope defects. README falsely said observability
+accepted uniform diameter arrays and rejected heterogeneous arrays, while the
+canonical service supports heterogeneous assignments with an explicit reference.
+The analytic initializer also added a `pyright: ignore` to a retained public
+export. A strengthened documentation assertion and new no-suppression assertion
+failed 2/2 before correction. An intermediate typed re-export also exposed two
+Ruff findings before the final form.
+
+Correction `7d880e54ec213fbc8b7b00c6bb42fe12e3719eca`
+(`fix(beam): correct Tier 3H.2 cleanup contract`) changes only `README.md`,
+`analytic/__init__.py`, `test_tier3_beam_cleanup.py`, and
+`test_tier1h_documentation.py`. It states the exact loaded-`BeamSystem` reference
+rule and preserves defining-object identity without type suppression. The
+regressions pass in both interpreters, direct file Pyright is zero, and Ruff
+passes.
+
+Final focused tests passed 74/74 in both environments, with zero skips, xfails,
+xpasses, or mounted dependencies and only two established healpy/Matplotlib
+events. Full suites collected 2,818: Python 3.11 passed all 2,818 with no skips;
+Python 3.12 passed 2,812 with exactly six unavailable-JAX skips across the JAX
+backend, sky backend, spectral, visibility backend, and two Jones backend cases.
+There were no failures, xfails, or xpasses. Both retained the same 26 warnings:
+one disjointness override, eight FITS-unit syntax events, 12 lossy HEALPix
+advisories, one numerical-multiply event, and four figure-reuse events.
+
+Ruff passed and all 283 files passed formatting. Pyright reported 3,231 in each
+environment under the unchanged 4,600 ceiling, with zero diagnostics across the
+67 changed production lines in ten paths. The YAMLs validated at 101/11/1
+channels; the forced-offline example completed at five antennas, 15 baselines,
+two frequencies, and `(1, 2)` products. Whitespace, exact-scope, import identity,
+deletion, residual, mounted-path, documentation, historical-HERA, suppression,
+and generated-artifact audits passed. The clean-copy Sphinx 8.2.3 build reproduced
+the accepted 40 events: 35 docutils/docstring, one HERA toctree, one theme option,
+and three HERA highlighting, with no deleted reference or new category. All
+temporary trees were removed.
+
+The active documentation now truthfully describes the four strict modes, five
+analytic variants, scalar FITS subset, canonical advice/provenance, current Jones
+schema, and simulator lifecycle. It does not overclaim arbitrary FITS/full-Jones,
+automatic NSIDE mutation/resampling, GPU FITS interpolation, writer redesign, or
+whole-tier acceptance; migration and HERA/Vivaldi names are explicitly
+historical.
+
+Remote CI, physical GPU, non-macOS, live network, registry, and external-data
+behavior remain unobserved. No PR, tag, release, or deployment was created; the
+authorized `main` push follows only after this record is committed and the remote
+gate passes. Tier 3I was not started. `BEAM-001`, `BEAM-002`, `BEAM-003`,
+`OBS-001`, and `OBS-002` remain **OPEN**; none is **DONE**. Tier 3I is now the
+next authorized separate task and final issue closure remains there.
