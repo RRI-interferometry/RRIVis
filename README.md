@@ -20,20 +20,21 @@ The current `Simulator` path supports:
 - local synthetic sources, catalog loaders, diffuse models, and supported
   file-backed sky loaders;
 - typed correlation, length, and axial-azimuth baseline selection;
-- analytic aperture/illumination beam configuration;
+- analytic, shared-FITS, per-antenna-FITS, and mixed beam configuration through
+  one canonical per-antenna beam system;
 - point-source or HEALPix direct-sum simulation;
 - requested NumPy, JAX, Numba, or `auto` backend selection through one
   resolver; and
 - `Simulator.plot_observability()` as a visualization helper.
 
-The strict schema rejects high-level behavior that is not connected yet:
-FITS/mixed/per-antenna beams, receptor/feed physics, heterogeneous
-observability, UVFITS output, and spherical-harmonic simulator modes.
-Heterogeneous positive antenna diameters are supported by both analytic
-visibility paths; observability raises a dedicated early error for them.
+The strict schema rejects high-level behavior that is not connected yet,
+including receptor/feed physics, UVFITS output, and spherical-harmonic
+simulator modes. Heterogeneous beams are active in both visibility paths;
+observability requires an explicit canonical reference antenna unless all
+assigned handlers are scientifically equivalent.
 
-Only the geometric-phase and analytic primary-beam Jones paths provide the
-current high-level forward-model effects. Other exported Jones classes are
+Only the geometric-phase and canonical scalar primary-beam Jones paths provide
+the current high-level forward-model effects. Other exported Jones classes are
 scaffolding and must not be treated as implemented science.
 
 ## Install
@@ -213,11 +214,19 @@ Unknown fields are rejected. The pre-v1 API intentionally does not translate
 removed input shapes; see the migration guide for exact replacements.
 
 The beam schema accepts four complete modes: `analytic`, `shared_fits`,
-`per_antenna_fits`, and `mixed`. Tier 3B resolves and validates every mode,
-including local FITS paths, but the Simulator currently activates only
-`analytic` with `model.kind: circular_aperture`. FITS-backed modes and the
-other analytic variants fail explicitly before device, backend, network, or
-scientific loading work; they do not fall back to an analytic beam.
+`per_antenna_fits`, and `mixed`. `Simulator` resolves every assignment to
+canonical antenna identity, validates and loads the complete beam system before
+device, backend, network, or sky work, and uses that same system in both
+visibility solvers and observability planning. FITS failures never fall back to
+an analytic beam.
+
+HEALPix advice is derived from the smallest selected-baseline beam-product
+feature scale over every exact observation frequency. For endpoint voltage
+scales `s_p` and `s_q`, the product scale is
+`1 / (1 / s_p + 1 / s_q)` and the pixel limit is that scale divided by the
+fixed safety factor five. Advice is logging-only: RadioSim never changes a
+requested or loaded NSIDE. A FITS feature scale is a conservative native-grid
+representation bound, not a measurement of physical beam bandwidth or FWHM.
 
 ## Loading, resolving, and serialization
 
@@ -268,10 +277,12 @@ comparison against NumPy.
 
 `Simulator.save()` currently dispatches HDF5, JSON summary, and optional
 Measurement Set output. Results contain the exact canonical antenna/baseline
-tuples and a detached JSON-safe instrument provenance snapshot, which HDF5 and
-JSON preserve. Measurement Set construction uses canonical identity, diameter,
-location, and selected baselines; UVFITS output is rejected. The CLI
-`workflow` section controls post-run actions, while Python calls stay explicit.
+tuples, a detached JSON-safe instrument provenance snapshot, and
+`metadata["beam_resolution"]`, a fresh canonical loaded-beam snapshot. HDF5 and
+JSON preserve these metadata. Measurement Set construction uses canonical
+identity, diameter, location, and selected baselines; UVFITS output is rejected.
+The CLI `workflow` section controls post-run actions, while Python calls stay
+explicit.
 
 `Simulator.plot_observability()` is a helper associated with the Simulator. It
 accepts uniform resolved diameter arrays and rejects heterogeneous arrays before

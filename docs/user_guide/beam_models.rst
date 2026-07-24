@@ -7,14 +7,12 @@ mode; unknown fields and incomplete mode shapes are rejected.
 Runtime boundary
 ----------------
 
-Tier 3B accepts and source-resolves all four modes below. The high-level
-``Simulator`` currently activates only ``mode: analytic`` with
-``model.kind: circular_aperture``. FITS-backed modes fail with
-``beam_runtime_fits_pending``. Rectangular, elliptical, analytical-
-illumination, and numerical-illumination models fail with
-``beam_runtime_analytic_variant_pending``. These guards run before device,
-backend, network, UVBeam, output, plotting, or browser work. There is no
-analytic fallback for a FITS declaration.
+The high-level ``Simulator`` activates all four modes below. Source resolution
+first creates immutable definitions, instrument resolution supplies canonical
+antenna identities, and setup then resolves complete assignments and atomically
+loads one ``BeamSystem``. Beam assignment, file, metadata, frequency-domain,
+and sampling-characterization failures occur before device, backend, network,
+or sky work. There is no analytic fallback for a FITS declaration.
 
 Analytic mode
 -------------
@@ -37,8 +35,7 @@ parabolic-squared tapers accept a finite nonnegative ``edge_taper_db``.
 Antenna diameters come from canonical instrument resolution; there is no beam
 diameter field or hidden diameter fallback.
 
-The other declared analytic variants are complete input and resolution
-contracts, but are not yet Simulator-active:
+The other active analytic variants are:
 
 .. code-block:: yaml
 
@@ -146,11 +143,76 @@ must exist, be a readable regular file, and is normalized through symlinks.
 normalizes the path. Each source records its indexed logical path, such as
 ``beams.assignments[2].beam.path``, in configuration provenance.
 
-Resolution constructs immutable definitions with deterministic fingerprints
-from the complete normalized analytic model or FITS source options. It does not
-read FITS content, import UVBeam, resolve antenna assignments, create a
-``BeamSystem``, or promise solver/observability FITS support.
+Source resolution constructs immutable definitions with deterministic
+fingerprints from the complete normalized analytic model or FITS source
+options. It does not read FITS content. During setup, canonical assignment and
+loading validate the complete scientific subset and publish the immutable
+loaded state only after every handler succeeds. Point visibility, HEALPix
+visibility, sampling advice, and observability all consume this same
+``BeamSystem``.
 
-``Simulator.plot_observability`` is a planning visualization, not a simulation
-product. In Tier 3B it uses the same direct-circular projection as simulation
-and still rejects heterogeneous-diameter footprint semantics.
+HEALPix sampling advice
+-----------------------
+
+Each loaded analytic handler stores its conservative voltage feature scale at
+every exact observation frequency. For a circular or illumination aperture the
+scale is :math:`\lambda / D`; rectangular and elliptical models use their
+largest effective dimension.
+
+An accepted azimuth/zenith-angle BeamFITS handler instead stores twice the
+smallest validated native-grid angular spacing. This
+``native_grid_representation_bound`` describes the sampled/interpolated
+representation that RadioSim can evaluate. It is not a measured FWHM, a
+physical beam bandwidth, or proof that the source beam was adequately sampled.
+
+For every selected canonical baseline :math:`(p,q)` and exact observation
+frequency :math:`\nu`, RadioSim forms the voltage-product feature scale
+
+.. math::
+
+   s_{pq}(\nu) =
+   \left(s_p(\nu)^{-1} + s_q(\nu)^{-1}\right)^{-1}.
+
+Only baselines retained by Tier 2 selection participate. The global minimum
+therefore accounts for analytic aperture differences, different or shared FITS
+handlers, and mixed analytic/FITS products. An autocorrelation uses the same
+formula and naturally yields :math:`s_p/2`; an auto-only selection evaluates
+every selected auto. Stable selected-baseline order followed by exact frequency
+order breaks equal-scale ties.
+
+The allowed HEALPix pixel scale is the minimum product scale divided by the
+fixed engineering safety factor five. The recommendation is the smallest
+power-of-two NSIDE, no larger than 65536, that satisfies that limit. Advice is
+logging-only: neither the requested NSIDE nor an already loaded payload is
+resampled or changed. A coarse grid produces:
+
+.. code-block:: text
+
+   HEALPix nside={actual} has pixel scale {pixel_rad:.6g} rad, above the Tier 3
+   beam-product limit {limit_rad:.6g} rad (smallest feature {feature_rad:.6g} rad,
+   safety factor 5, baseline {p}-{q}, frequency {frequency_hz:.6g} Hz). Use at least
+   nside={recommended}; the requested NSIDE is unchanged.
+
+The baseline, frequency, handler identities, metric kind, feature scale, pixel
+limit, and recommendation identify the exact limiting canonical product.
+Missing, ambiguous, non-finite, non-positive, or unmatched state raises
+``BeamSamplingDerivationError`` rather than disabling advice.
+
+Visibility-result provenance
+----------------------------
+
+Every successful point-source or HEALPix run adds exactly one beam metadata
+entry:
+
+.. code-block:: python
+
+   results["metadata"]["beam_resolution"]
+
+Its value is a fresh detached ``LoadedBeamState.to_snapshot()``. The JSON-safe
+snapshot records mode, canonical antenna assignments, analytic dimensions and
+parameters, FITS resolved transport provenance and validated domains, handler
+IDs, deduplication relationships, feature scales, and deterministic
+fingerprints. It contains no ``UVBeam``, evaluator, data or backend array,
+``BeamSystem``, lock, logger, renderer state, observability reference choice, or
+``BeamSamplingRequirement``. Mutating one result snapshot cannot change the
+Simulator state or a later result.

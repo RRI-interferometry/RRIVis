@@ -1,13 +1,13 @@
 """Tests for sky-model orchestration helpers."""
 
-import logging
-
 import healpy as hp
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import HealpixData, PointSourceData
+from radiosim.core.sky.combine.options import PrepareSkyOptions
 from radiosim.core.sky.combine.pipeline import prepare_sky_model
 from radiosim.core.sky.containers.model import SkyFormat, SkyModel
 
@@ -85,17 +85,20 @@ class TestPrepareSkyModel:
         assert SkyFormat.POINT_SOURCES in out.formats
         assert SkyFormat.HEALPIX in out.formats
 
-    def test_beam_advisor_fires_for_single_model(self, caplog, precision):
-        """The beam-aware nside advisor must fire even when only one model is
-        passed (the old single-model fast path returned before the check)."""
-        sky = make_healpix_model(precision=precision, nside=4)  # very coarse
-        with caplog.at_level(
-            logging.WARNING, logger="radiosim.core.sky.combine.pipeline"
-        ):
+    @pytest.mark.parametrize("field", ("beam_fwhm_rad", "nside_safety_factor"))
+    def test_removed_beam_advisor_fields_are_strictly_rejected(
+        self,
+        field,
+        precision,
+    ):
+        sky = make_healpix_model(precision=precision)
+
+        with pytest.raises(ValidationError, match=field):
+            PrepareSkyOptions(**{field: 1.0})
+        with pytest.raises(TypeError, match=field):
             prepare_sky_model(
                 [sky],
                 representation=SkyFormat.HEALPIX,
-                nside=4,
-                beam_fwhm_rad=np.deg2rad(0.5),  # 0.5 deg beam << pixel size
+                nside=8,
+                **{field: 1.0},
             )
-        assert any("nside=4" in rec.message for rec in caplog.records)

@@ -12,7 +12,6 @@ class TestValidation:
     def test_default_options_validate(self) -> None:
         opts = PrepareSkyOptions()
         assert opts.representation is None
-        assert opts.nside_safety_factor == 5.0
         assert opts.mixed_model_policy == "error"
         assert opts.assume_disjoint is False
 
@@ -34,11 +33,15 @@ class TestValidation:
         with pytest.raises(ValueError, match="frequency must be strictly positive"):
             PrepareSkyOptions(frequency=-1.0)
 
-    def test_safety_factor_must_be_positive(self) -> None:
-        with pytest.raises(ValueError, match="nside_safety_factor"):
-            PrepareSkyOptions(nside_safety_factor=0.0)
-        with pytest.raises(ValueError, match="nside_safety_factor"):
-            PrepareSkyOptions(nside_safety_factor=-1.0)
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        (("beam_fwhm_rad", 0.1), ("nside_safety_factor", 5.0)),
+    )
+    def test_removed_sampling_advisor_fields_are_rejected(
+        self, field: str, value: float
+    ) -> None:
+        with pytest.raises(ValueError, match=field):
+            PrepareSkyOptions(**{field: value})
 
     def test_mixed_model_policy_whitelist(self) -> None:
         for policy in ("error", "warn", "allow"):

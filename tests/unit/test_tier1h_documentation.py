@@ -226,7 +226,7 @@ def test_tier3b_beam_truth_surfaces_do_not_present_flat_schema(path):
         )
 
 
-def test_tier3b_beam_docs_distinguish_resolution_from_runtime_activation():
+def test_tier3_beam_docs_distinguish_resolution_from_runtime_activation():
     readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
     guide = (REPOSITORY_ROOT / "docs" / "user_guide" / "beam_models.rst").read_text(
         encoding="utf-8"
@@ -250,7 +250,9 @@ def test_tier3b_beam_docs_distinguish_resolution_from_runtime_activation():
         "numerical_illumination",
     ):
         assert variant in guide
-    assert "beam_runtime_fits_pending" in guide
+    assert "beam_runtime_fits_pending" not in guide
+    assert "activates all four modes" in guide
+    assert "Visibility-result provenance" in guide
     assert "Schema" in support
     assert "Path resolution" in support
     assert "Simulator runtime" in support

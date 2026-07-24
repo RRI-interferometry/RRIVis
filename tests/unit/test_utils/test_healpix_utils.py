@@ -1,145 +1,83 @@
-"""Tests for ``radiosim.utils.healpix`` (NSIDE advisor)."""
+"""Tests for the public angular-scale HEALPix recommendation utility."""
 
 from __future__ import annotations
 
-import logging
+import importlib
+import math
 
 import healpy as hp
 import numpy as np
 import pytest
 
-from radiosim.utils.healpix import pixel_too_coarse, recommend_nside_for_beam
+
+def _healpix_module():
+    return importlib.import_module("radiosim.utils.healpix")
 
 
-class TestRecommendNside:
-    def test_one_degree_beam_safety_five(self):
-        nside = recommend_nside_for_beam(np.deg2rad(1.0))
-        # 1 deg / 5 ≈ 0.2 deg ≈ 3.5e-3 rad.  hp.nside2resol(64) ≈ 0.016 rad
-        # (too coarse); nside 512 gives ~2e-3 rad.
-        assert nside >= 128
-        assert hp.nside2resol(nside) <= np.deg2rad(1.0) / 5.0
-
-    def test_one_arcmin_beam(self):
-        nside = recommend_nside_for_beam(np.deg2rad(1.0 / 60.0))
-        assert nside >= 8192
-        assert hp.nside2resol(nside) <= np.deg2rad(1.0 / 60.0) / 5.0
-
-    def test_returns_power_of_two(self):
-        for beam_deg in (5.0, 1.0, 0.1, 0.01):
-            nside = recommend_nside_for_beam(np.deg2rad(beam_deg))
-            assert nside & (nside - 1) == 0, f"{nside} not power of two"
-
-    def test_safety_factor_override(self):
-        """Smaller safety factor relaxes the rule and yields a smaller nside."""
-        strict = recommend_nside_for_beam(np.deg2rad(1.0), safety_factor=10.0)
-        loose = recommend_nside_for_beam(np.deg2rad(1.0), safety_factor=2.0)
-        assert strict >= loose
-
-    def test_rejects_non_positive_beam(self):
-        with pytest.raises(ValueError, match="positive finite"):
-            recommend_nside_for_beam(0.0)
-        with pytest.raises(ValueError, match="positive finite"):
-            recommend_nside_for_beam(-1.0)
-        with pytest.raises(ValueError, match="positive finite"):
-            recommend_nside_for_beam(float("nan"))
-
-    def test_rejects_non_positive_safety_factor(self):
-        with pytest.raises(ValueError, match="positive finite"):
-            recommend_nside_for_beam(np.deg2rad(1.0), safety_factor=0.0)
+def _recommend(target_angular_scale_rad: object) -> int:
+    return _healpix_module().recommend_nside_for_angular_scale(target_angular_scale_rad)
 
 
-class TestPixelTooCoarse:
-    def test_true_for_oversized_pixels(self):
-        assert pixel_too_coarse(64, np.deg2rad(1.0)) is True
-        # At nside 1024 pixel size is well below 1°/5.
-        assert pixel_too_coarse(1024, np.deg2rad(1.0)) is False
+def test_exact_pixel_scale_boundary_is_accepted() -> None:
+    target = float(hp.nside2resol(32))
 
-    def test_disabled_for_non_positive_beam(self):
-        assert pixel_too_coarse(64, None) is False
-        assert pixel_too_coarse(64, 0.0) is False
-        assert pixel_too_coarse(64, -1.0) is False
+    assert _recommend(target) == 32
 
 
-class TestPipelineAdvisory:
-    """Verify prepare_sky_model emits the advisory warning via logger.warning."""
+@pytest.mark.parametrize(
+    "target",
+    (
+        float(hp.nside2resol(1)),
+        np.deg2rad(5.0),
+        np.deg2rad(1.0),
+        np.deg2rad(0.01),
+        float(hp.nside2resol(65536)),
+    ),
+)
+def test_recommendation_is_the_smallest_satisfying_power_of_two(
+    target: float,
+) -> None:
+    nside = _recommend(target)
 
-    def test_warns_on_too_coarse_nside(self, caplog):
-        from radiosim.core.precision import PrecisionConfig
-        from radiosim.core.sky import create_test_sources
-        from radiosim.core.sky.combine.pipeline import prepare_sky_model
-        from radiosim.core.sky.containers.model import SkyFormat
+    assert type(nside) is int
+    assert nside > 0
+    assert nside & (nside - 1) == 0
+    assert hp.nside2resol(nside) <= target
+    if nside > 1:
+        assert hp.nside2resol(nside // 2) > target
 
-        precision = PrecisionConfig.standard()
-        sky = create_test_sources(
-            num_sources=5,
-            precision=precision,
-            reference_frequency=150e6,
-        )
 
-        with caplog.at_level(
-            logging.WARNING, logger="radiosim.core.sky.combine.pipeline"
-        ):
-            prepare_sky_model(
-                [sky],
-                representation=SkyFormat.HEALPIX,
-                nside=32,  # deliberately coarse
-                frequencies=np.asarray([150e6]),
-                precision=precision,
-                beam_fwhm_rad=np.deg2rad(1.0),  # 1° beam
-            )
-        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("exceeds beam_fwhm" in r.getMessage() for r in warnings), (
-            "Expected the nside-advisor warning in pipeline logs."
-        )
+@pytest.mark.parametrize(
+    "invalid",
+    (
+        0.0,
+        -1.0,
+        float("nan"),
+        float("inf"),
+        -float("inf"),
+        True,
+        False,
+        None,
+        "0.1",
+        object(),
+    ),
+)
+def test_invalid_angular_scale_is_rejected(invalid: object) -> None:
+    with pytest.raises(ValueError, match="positive finite"):
+        _recommend(invalid)
 
-    def test_silent_when_nside_adequate(self, caplog):
-        from radiosim.core.precision import PrecisionConfig
-        from radiosim.core.sky import create_test_sources
-        from radiosim.core.sky.combine.pipeline import prepare_sky_model
-        from radiosim.core.sky.containers.model import SkyFormat
 
-        precision = PrecisionConfig.standard()
-        sky = create_test_sources(
-            num_sources=5,
-            precision=precision,
-            reference_frequency=150e6,
-        )
+def test_target_finer_than_retained_maximum_raises() -> None:
+    target = math.nextafter(float(hp.nside2resol(65536)), 0.0)
 
-        with caplog.at_level(
-            logging.WARNING, logger="radiosim.core.sky.combine.pipeline"
-        ):
-            prepare_sky_model(
-                [sky],
-                representation=SkyFormat.HEALPIX,
-                nside=1024,  # fine enough for a 1° beam
-                frequencies=np.asarray([150e6]),
-                precision=precision,
-                beam_fwhm_rad=np.deg2rad(1.0),
-            )
-        # No advisor warning should fire.
-        assert not any("exceeds beam_fwhm" in r.getMessage() for r in caplog.records)
+    with pytest.raises(ValueError, match="65536"):
+        _recommend(target)
 
-    def test_silent_when_beam_unknown(self, caplog):
-        """Without a declared beam FWHM the advisor stays quiet even at low nside."""
-        from radiosim.core.precision import PrecisionConfig
-        from radiosim.core.sky import create_test_sources
-        from radiosim.core.sky.combine.pipeline import prepare_sky_model
-        from radiosim.core.sky.containers.model import SkyFormat
 
-        precision = PrecisionConfig.standard()
-        sky = create_test_sources(
-            num_sources=5,
-            precision=precision,
-            reference_frequency=150e6,
-        )
-        with caplog.at_level(
-            logging.WARNING, logger="radiosim.core.sky.combine.pipeline"
-        ):
-            prepare_sky_model(
-                [sky],
-                representation=SkyFormat.HEALPIX,
-                nside=8,
-                frequencies=np.asarray([150e6]),
-                precision=precision,
-            )
-        assert not any("exceeds beam_fwhm" in r.getMessage() for r in caplog.records)
+def test_old_fwhm_advisor_names_are_removed() -> None:
+    module = _healpix_module()
+
+    assert not hasattr(module, "recommend_nside_for_beam")
+    assert not hasattr(module, "pixel_too_coarse")
+    assert "recommend_nside_for_beam" not in module.__all__
+    assert "pixel_too_coarse" not in module.__all__

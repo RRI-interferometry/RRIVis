@@ -39,7 +39,6 @@ class PrepareSkyOptions:
     - ``frequencies`` is copied and validated as an explicit ordered Hz axis.
     - ``frequency`` (single-channel mode), when set, must be strictly
       positive.
-    - ``nside_safety_factor`` must be strictly positive.
     - ``mixed_model_policy`` is one of ``"error"``, ``"warn"``, ``"allow"``.
     - ``assume_disjoint`` defaults to ``False``; when ``True``, only
       double-count rules are skipped (monopole checks still run).
@@ -67,8 +66,6 @@ class PrepareSkyOptions:
     precision: PrecisionConfig | None = None
     backend: ArrayBackend | None = None
     memmap_path: str | None = None
-    beam_fwhm_rad: float | None = None
-    nside_safety_factor: float = 5.0
     # Power-law spectral index used to scale a diffuse model's
     # source-subtraction threshold to a point catalog's completeness frequency
     # in the physical-disjointness check. Default −0.7 (synchrotron).
@@ -88,11 +85,6 @@ class PrepareSkyOptions:
 
     @model_validator(mode="after")
     def _validate_state(self) -> PrepareSkyOptions:
-        if self.nside_safety_factor <= 0:
-            raise ValueError(
-                "PrepareSkyOptions: nside_safety_factor must be strictly positive, "
-                f"got {self.nside_safety_factor!r}."
-            )
         if self.frequency is not None and self.frequency <= 0:
             raise ValueError(
                 "PrepareSkyOptions: frequency must be strictly positive when set, "

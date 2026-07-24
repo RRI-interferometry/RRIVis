@@ -5,10 +5,13 @@ from __future__ import annotations
 import importlib
 import inspect
 import json
+import logging
 import webbrowser
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from types import SimpleNamespace
 
+import healpy as hp
 import numpy as np
 import pytest
 from pydantic import ValidationError
@@ -677,10 +680,24 @@ def test_result_metadata_uses_json_safe_scientific_snapshot_without_workflow(
     assert resolution["baseline_selection"]["selected_ids"] == [
         [baseline.ant1.number, baseline.ant2.number] for baseline in simulator.baselines
     ]
+    assert metadata["beam_resolution"] == simulator.beam_state.to_snapshot()
+    assert metadata["beam_resolution"] is not simulator.beam_state.to_snapshot()
+    assert "beam_sampling" not in metadata
+    assert "observability_reference" not in metadata
+    assert "renderer" not in metadata
     json.dumps(metadata, allow_nan=False)
 
     resolution["antennas"][0]["name"] = "mutated snapshot"
     assert simulator.antennas[0].id.name != "mutated snapshot"
+    metadata["beam_resolution"]["handlers"][0]["handler_id"] = "mutated snapshot"
+    assert simulator.beam_state.handlers[0].handler_id != "mutated snapshot"
+
+    later = simulator.run(progress=False)
+    assert later["metadata"]["beam_resolution"] == simulator.beam_state.to_snapshot()
+    assert (
+        later["metadata"]["beam_resolution"]["handlers"][0]["handler_id"]
+        != "mutated snapshot"
+    )
 
 
 def test_save_uses_only_explicit_output_choices_not_workflow(tmp_path, monkeypatch):
@@ -736,3 +753,404 @@ def test_repr_reports_requested_backend_before_setup(tmp_path):
 
     assert "configured" in repr(simulator)
     assert "backend=auto" in repr(simulator)
+
+
+def _beam_mode_input(tmp_path: Path, mode: str) -> dict[str, object]:
+    if mode == "analytic":
+        return {
+            "mode": "analytic",
+            "model": {
+                "kind": "circular_aperture",
+                "taper": {"kind": "uniform"},
+            },
+        }
+    beam_path = write_scalar_efield_beamfits(tmp_path).path
+    fits = {"kind": "fits", "path": beam_path.name}
+    if mode == "shared_fits":
+        return {"mode": "shared_fits", "beam": fits}
+    if mode == "per_antenna_fits":
+        return {
+            "mode": "per_antenna_fits",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": 0},
+                    "beam": fits,
+                },
+                {
+                    "antenna": {"kind": "number", "number": 1},
+                    "beam": fits,
+                },
+            ],
+        }
+    assert mode == "mixed"
+    return {
+        "mode": "mixed",
+        "analytic_model": {
+            "kind": "circular_aperture",
+            "taper": {"kind": "uniform"},
+        },
+        "assignments": [
+            {
+                "antenna": {"kind": "number", "number": 0},
+                "beam": {"kind": "analytic"},
+            },
+            {
+                "antenna": {"kind": "number", "number": 1},
+                "beam": fits,
+            },
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ("analytic", "shared_fits", "per_antenna_fits", "mixed"),
+)
+def test_point_results_include_fresh_beam_resolution_for_every_mode(
+    tmp_path,
+    mode,
+):
+    simulator = Simulator.from_mapping(
+        _explicit_data(tmp_path, beams=_beam_mode_input(tmp_path, mode)),
+        base_dir=tmp_path,
+    )
+
+    first = simulator.run(progress=False)
+    first_snapshot = first["metadata"]["beam_resolution"]
+
+    assert first_snapshot == simulator.beam_state.to_snapshot()
+    json.dumps(first["metadata"], allow_nan=False)
+    assert "beam_sampling" not in first["metadata"]
+    assert "reference_antenna" not in first_snapshot
+    first_snapshot["loaded_fingerprint"] = "mutated"
+    assert simulator.beam_state.loaded_fingerprint != "mutated"
+
+    second = simulator.run(progress=False)
+    assert second["metadata"]["beam_resolution"] == simulator.beam_state.to_snapshot()
+    assert second["metadata"]["beam_resolution"] is not first_snapshot
+
+
+def test_healpix_results_include_fresh_beam_resolution(tmp_path):
+    data = _explicit_data(
+        tmp_path,
+        visibility={
+            "calculation_type": "direct_sum",
+            "sky_representation": "healpix_map",
+        },
+    )
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+
+    results = simulator.run(progress=False)
+
+    assert simulator._sky_model.healpix is not None
+    assert results["metadata"]["beam_resolution"] == (
+        simulator.beam_state.to_snapshot()
+    )
+    json.dumps(results["metadata"], allow_nan=False)
+
+
+def test_failed_solver_publishes_no_partial_result_metadata(tmp_path, monkeypatch):
+    simulator = Simulator.from_mapping(_explicit_data(tmp_path), base_dir=tmp_path)
+    simulator.setup()
+
+    def fail_solver(*args, **kwargs):
+        raise RuntimeError("solver failed")
+
+    monkeypatch.setattr(
+        simulator._simulator,
+        "calculate_visibilities",
+        fail_solver,
+    )
+
+    with pytest.raises(RuntimeError, match="solver failed"):
+        simulator.run(progress=False)
+
+    assert simulator.results is None
+
+
+def test_sampling_derivation_precedes_device_backend_network_and_sky(
+    tmp_path,
+    monkeypatch,
+):
+    simulator = Simulator.from_mapping(_explicit_data(tmp_path), base_dir=tmp_path)
+    events: list[str] = []
+    healpix_module = importlib.import_module("radiosim.utils.healpix")
+    original_device = importlib.import_module(
+        "radiosim.utils.device"
+    ).get_device_resources
+
+    def derive(**kwargs):
+        events.append("derive")
+        assert kwargs["selected_baselines"] == simulator.baselines
+        assert kwargs["beam_state"] is simulator.beam_state
+        assert kwargs["observation_frequencies_hz"] == (
+            simulator.config.frequency.channel_frequencies_hz
+        )
+        nside = kwargs["actual_nside"]
+        pixel = float(hp.nside2resol(nside))
+        return SimpleNamespace(
+            actual_nside=nside,
+            recommended_nside=nside,
+            actual_pixel_scale_rad=pixel,
+            product_feature_scale_rad=pixel * 10.0,
+            pixel_limit_rad=pixel * 2.0,
+            baseline_ant1=simulator.baselines[0].ant1,
+            baseline_ant2=simulator.baselines[0].ant2,
+            frequency_hz=simulator.config.frequency.channel_frequencies_hz[0],
+            handler_id_p="p",
+            handler_id_q="q",
+            metric_kind="analytic_aperture_support",
+            safety_factor=5,
+        )
+
+    def device():
+        events.append("device")
+        return original_device()
+
+    monkeypatch.setattr(
+        healpix_module,
+        "derive_beam_sampling_requirement",
+        derive,
+        raising=False,
+    )
+    monkeypatch.setattr("radiosim.utils.device.get_device_resources", device)
+    monkeypatch.setattr(
+        "radiosim.backends.get_backend",
+        lambda *args, **kwargs: (
+            events.append("backend")
+            or importlib.import_module("radiosim.backends.numpy_backend").NumPyBackend(
+                precision=kwargs["precision"]
+            )
+        ),
+    )
+    original_network = importlib.import_module(
+        "radiosim.utils.network"
+    ).get_network_status
+
+    def network(*args, **kwargs):
+        events.append("network")
+        return original_network(*args, **kwargs)
+
+    monkeypatch.setattr("radiosim.utils.network.get_network_status", network)
+    original_load = importlib.import_module(
+        "radiosim.core.sky.operations.parallel"
+    ).load_models_parallel
+
+    def load_sky(*args, **kwargs):
+        events.append("sky")
+        return original_load(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "radiosim.core.sky.operations.parallel.load_models_parallel",
+        load_sky,
+    )
+
+    simulator.setup()
+
+    assert events[0] == "derive"
+    assert events.index("derive") < events.index("device")
+    assert events.index("derive") < events.index("backend")
+    assert events.index("derive") < events.index("network")
+    assert events.index("derive") < events.index("sky")
+
+
+def test_invalid_sampling_derivation_retries_beam_construction_before_side_effects(
+    tmp_path,
+    monkeypatch,
+):
+    from radiosim.core.beam import BeamSamplingDerivationError
+
+    simulator = Simulator.from_mapping(_explicit_data(tmp_path), base_dir=tmp_path)
+    beam_module = importlib.import_module("radiosim.core.beam")
+    healpix_module = importlib.import_module("radiosim.utils.healpix")
+    original_load_beam_system = beam_module.load_beam_system
+    load_count = 0
+
+    def load_beam_system(*args, **kwargs):
+        nonlocal load_count
+        load_count += 1
+        return original_load_beam_system(*args, **kwargs)
+
+    def invalid_derivation(**kwargs):
+        raise BeamSamplingDerivationError("invalid canonical sampling state")
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("sampling failure crossed a runtime side-effect boundary")
+
+    monkeypatch.setattr(beam_module, "load_beam_system", load_beam_system)
+    monkeypatch.setattr(
+        healpix_module,
+        "derive_beam_sampling_requirement",
+        invalid_derivation,
+        raising=False,
+    )
+    monkeypatch.setattr("radiosim.utils.device.get_device_resources", forbidden)
+    monkeypatch.setattr("radiosim.backends.get_backend", forbidden)
+    monkeypatch.setattr("radiosim.utils.network.get_network_status", forbidden)
+    monkeypatch.setattr(
+        "radiosim.core.sky.operations.parallel.load_models_parallel",
+        forbidden,
+    )
+
+    for expected_count in (1, 2):
+        with pytest.raises(
+            BeamSamplingDerivationError,
+            match="invalid canonical sampling state",
+        ):
+            simulator.setup()
+        assert simulator._instrument_state is not None
+        assert simulator._beam_system is None
+        assert simulator.device_resources is None
+        assert load_count == expected_count
+
+
+def test_coarse_pre_sky_warning_is_exact_ordered_and_never_mutates_nside(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    data = _explicit_data(
+        tmp_path,
+        beams={
+            "mode": "analytic",
+            "model": {
+                "kind": "rectangular_aperture",
+                "north_length_m": 100.0,
+                "east_length_m": 80.0,
+            },
+        },
+        visibility={
+            "calculation_type": "direct_sum",
+            "sky_representation": "healpix_map",
+        },
+    )
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+    events: list[str] = []
+    simulator_module = importlib.import_module("radiosim.api.simulator")
+    original_warning = simulator_module.logger.warning
+    original_device = importlib.import_module(
+        "radiosim.utils.device"
+    ).get_device_resources
+
+    def warning(*args, **kwargs):
+        events.append("warning")
+        return original_warning(*args, **kwargs)
+
+    def device():
+        events.append("device")
+        return original_device()
+
+    monkeypatch.setattr(simulator_module.logger, "warning", warning)
+    monkeypatch.setattr("radiosim.utils.device.get_device_resources", device)
+
+    with caplog.at_level(logging.WARNING, logger="radiosim.api.simulator"):
+        simulator.setup()
+
+    requirement = importlib.import_module(
+        "radiosim.utils.healpix"
+    ).derive_beam_sampling_requirement(
+        selected_baselines=simulator.baselines,
+        beam_state=simulator.beam_state,
+        observation_frequencies_hz=(simulator.config.frequency.channel_frequencies_hz),
+        actual_nside=64,
+    )
+    expected = (
+        f"HEALPix nside=64 has pixel scale "
+        f"{requirement.actual_pixel_scale_rad:.6g} rad, above the Tier 3 "
+        f"beam-product limit {requirement.pixel_limit_rad:.6g} rad "
+        f"(smallest feature {requirement.product_feature_scale_rad:.6g} rad, "
+        f"safety factor 5, baseline "
+        f"{requirement.baseline_ant1.number}:{requirement.baseline_ant1.name}-"
+        f"{requirement.baseline_ant2.number}:{requirement.baseline_ant2.name}, "
+        f"frequency {requirement.frequency_hz:.6g} Hz). Use at least "
+        f"nside={requirement.recommended_nside}; the requested NSIDE is unchanged."
+    )
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "radiosim.api.simulator" and record.levelno == logging.WARNING
+    ]
+
+    assert messages == [expected]
+    assert events.index("warning") < events.index("device")
+    assert simulator._sky_model.healpix.nside == 64
+
+
+def test_post_sky_warning_uses_actual_loaded_nside_without_mutation(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    data = _explicit_data(
+        tmp_path,
+        visibility={
+            "calculation_type": "direct_sum",
+            "sky_representation": "healpix_map",
+        },
+    )
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+    pipeline = importlib.import_module("radiosim.core.sky.combine.pipeline")
+    original_prepare = pipeline.prepare_sky_model
+    requested_nsides: list[int] = []
+
+    def prepare_with_actual_nside(*args, **kwargs):
+        requested_nsides.append(kwargs["nside"])
+        kwargs["nside"] = 32
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "prepare_sky_model", prepare_with_actual_nside)
+
+    with caplog.at_level(logging.WARNING, logger="radiosim.api.simulator"):
+        simulator.setup()
+
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "radiosim.api.simulator" and record.levelno == logging.WARNING
+    ]
+    assert requested_nsides == [64]
+    assert simulator._sky_model.healpix.nside == 32
+    assert len(messages) == 1
+    assert messages[0].startswith("HEALPix nside=32 has pixel scale ")
+    assert messages[0].endswith("the requested NSIDE is unchanged.")
+
+
+def test_point_only_setup_derives_once_and_emits_no_nside_warning(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    simulator = Simulator.from_mapping(_explicit_data(tmp_path), base_dir=tmp_path)
+    healpix_module = importlib.import_module("radiosim.utils.healpix")
+    original_derive = healpix_module.derive_beam_sampling_requirement
+    actual_nsides: list[int] = []
+
+    def derive(**kwargs):
+        actual_nsides.append(kwargs["actual_nside"])
+        return original_derive(**kwargs)
+
+    monkeypatch.setattr(
+        healpix_module,
+        "derive_beam_sampling_requirement",
+        derive,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="radiosim.api.simulator"):
+        simulator.setup()
+
+    assert actual_nsides == [64]
+    assert simulator._sky_model.healpix is None
+    assert not any(
+        record.name == "radiosim.api.simulator" and record.levelno == logging.WARNING
+        for record in caplog.records
+    )
+
+
+def test_approximate_fwhm_advisor_is_absent_from_simulator_source() -> None:
+    source = inspect.getsource(importlib.import_module("radiosim.api.simulator"))
+
+    assert "beam_fwhm_rad" not in source
+    assert "nside_safety_factor" not in source
+    assert "1.22" not in source
+    assert "d_min" not in source
+    assert "lam_max" not in source

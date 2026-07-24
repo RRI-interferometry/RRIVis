@@ -1,13 +1,12 @@
 """Sky-model orchestration helpers for consumers.
 
 ``prepare_sky_model`` is the canonical user entry point for combining and
-materializing sky models.  It wraps the internal ``_combine_models`` engine
-with a beam-aware ``nside`` advisor and consistent materialization defaults.
+materializing sky models. It wraps the internal ``_combine_models`` engine
+with consistent materialization defaults.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from ..containers.model import SkyFormat, SkyModel
@@ -25,8 +24,6 @@ from .regrid import (
     _resolve_requested_healpix_frequencies,
     _validate_requested_healpix_grid,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def prepare_sky_model(
@@ -72,8 +69,6 @@ def prepare_sky_model(
     precision = resolve_combine_precision(opts.precision, models)
     backend = opts.backend
     memmap_path = opts.memmap_path
-    beam_fwhm_rad = opts.beam_fwhm_rad
-    nside_safety_factor = opts.nside_safety_factor
     subtraction_scaling_alpha = opts.subtraction_scaling_alpha
 
     # Single source of truth for hybrid auto-detection. ``target`` is None
@@ -83,34 +78,6 @@ def prepare_sky_model(
     target = resolve_target_representation(models, representation)
 
     requested_freqs = _resolve_requested_healpix_frequencies(frequencies)
-
-    # Beam-aware nside advisor: warn (advisory only, never raise) when the
-    # user-chosen nside is too coarse relative to the primary-beam FWHM.
-    # Runs before the single-model fast path so passing-through one model
-    # still gets the advisory.
-    if (
-        (target == SkyFormat.HEALPIX or target is None)
-        and beam_fwhm_rad is not None
-        and nside is not None
-    ):
-        from radiosim.utils.healpix import pixel_too_coarse, recommend_nside_for_beam
-
-        if pixel_too_coarse(
-            int(nside), float(beam_fwhm_rad), safety_factor=nside_safety_factor
-        ):
-            suggested = recommend_nside_for_beam(
-                float(beam_fwhm_rad), safety_factor=nside_safety_factor
-            )
-            logger.warning(
-                "prepare_sky_model: chosen nside=%d gives a pixel scale that "
-                "exceeds beam_fwhm/%g (beam FWHM=%.3g rad). Consider "
-                "nside=%d for at least %g pixels across the beam.",
-                int(nside),
-                nside_safety_factor,
-                float(beam_fwhm_rad),
-                suggested,
-                nside_safety_factor,
-            )
 
     # Single-model fast path: when no combine is needed and the caller didn't
     # request a specific representation, return the model unchanged.

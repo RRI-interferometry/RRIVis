@@ -65,6 +65,7 @@ if TYPE_CHECKING:
         BaselineSelectionConfig,
         InstrumentConfig,
     )
+    from radiosim.utils.healpix import BeamSamplingRequirement
 
 
 logger = logging.getLogger(__name__)
@@ -446,6 +447,38 @@ class Simulator:
         self._device_resources = None
         self._is_setup = False
 
+    def _requested_healpix_nside(self) -> int:
+        """Return the exact configured grid target or the materialization default."""
+        return next(
+            (
+                int(request.options["nside"])
+                for request in self._resolved.sky_model.sources
+                if request.options.get("nside") is not None
+            ),
+            64,
+        )
+
+    @staticmethod
+    def _warn_for_coarse_beam_sampling(
+        requirement: BeamSamplingRequirement,
+    ) -> bool:
+        """Log the deterministic advisory when the actual grid is too coarse."""
+        if requirement.actual_pixel_scale_rad <= requirement.pixel_limit_rad:
+            return False
+        p = f"{requirement.baseline_ant1.number}:{requirement.baseline_ant1.name}"
+        q = f"{requirement.baseline_ant2.number}:{requirement.baseline_ant2.name}"
+        logger.warning(
+            f"HEALPix nside={requirement.actual_nside} has pixel scale "
+            f"{requirement.actual_pixel_scale_rad:.6g} rad, above the Tier 3 "
+            f"beam-product limit {requirement.pixel_limit_rad:.6g} rad "
+            f"(smallest feature "
+            f"{requirement.product_feature_scale_rad:.6g} rad, safety factor 5, "
+            f"baseline {p}-{q}, frequency {requirement.frequency_hz:.6g} Hz). "
+            f"Use at least nside={requirement.recommended_nside}; the requested "
+            "NSIDE is unchanged."
+        )
+        return True
+
     def setup(self) -> Simulator:
         """
         Set up simulation components (antennas, baselines, sources).
@@ -468,10 +501,18 @@ class Simulator:
         if self._is_setup:
             return self
         self._ensure_instrument_state()
+        from radiosim.core.beam import BeamSamplingDerivationError
+
         try:
             self._ensure_beam_system()
             self._clear_later_runtime_state()
             return self._setup_after_instrument_state()
+        except BeamSamplingDerivationError:
+            # Sampling characterization is part of accepting the loaded beam
+            # state. A retry must rebuild it from the retained instrument state.
+            self._beam_system = None
+            self._clear_later_runtime_state()
+            raise
         except Exception:
             self._clear_later_runtime_state()
             raise
@@ -482,6 +523,28 @@ class Simulator:
             raise RuntimeError("Instrument resolution has not completed")
         if self._beam_system is None:
             raise RuntimeError("Beam resolution has not completed")
+
+        from radiosim.utils.healpix import derive_beam_sampling_requirement
+
+        visibility_config = self._resolved.visibility
+        sky_representation = visibility_config["sky_representation"]
+        allow_lossy_point_materialization = visibility_config.get(
+            "allow_lossy_point_materialization", False
+        )
+        requested_nside = self._requested_healpix_nside()
+        pre_sky_sampling = derive_beam_sampling_requirement(
+            selected_baselines=self.baselines,
+            beam_state=self.beam_state,
+            observation_frequencies_hz=(
+                self._resolved.frequency.channel_frequencies_hz
+            ),
+            actual_nside=requested_nside,
+        )
+        pre_sky_warning_emitted = False
+        if sky_representation == "healpix_map":
+            pre_sky_warning_emitted = self._warn_for_coarse_beam_sampling(
+                pre_sky_sampling
+            )
 
         # Import core modules
         from radiosim.backends import get_backend
@@ -540,13 +603,6 @@ class Simulator:
         logger.debug(
             f"Frequencies: {len(self._frequencies_hz)} channels, "
             f"{self._frequencies_hz[0] / 1e6:.1f} - {self._frequencies_hz[-1] / 1e6:.1f} MHz"
-        )
-
-        # Get visibility configuration
-        visibility_config = self._resolved.visibility
-        sky_representation = visibility_config["sky_representation"]
-        allow_lossy_point_materialization = visibility_config.get(
-            "allow_lossy_point_materialization", False
         )
 
         # Network connectivity check (before sky model loading)
@@ -612,14 +668,6 @@ class Simulator:
         region = build_sky_region(sky_config.region)
 
         frequency = float(self._frequencies_hz[0])
-        nside = next(
-            (
-                int(request.options["nside"])
-                for request in sky_config.sources
-                if request.options.get("nside") is not None
-            ),
-            64,
-        )
 
         # Collect all requested sky models
         sky_models = []
@@ -697,24 +745,10 @@ class Simulator:
 
         from radiosim.core.sky.combine.pipeline import prepare_sky_model
 
-        # Compute an approximate primary-beam FWHM for the nside advisor.
-        # Uses the standard uniform-aperture rule `λ/D · 1.22` at the lowest
-        # (widest-beam) frequency.  Falls back to None when no antenna-diameter
-        # info is available (advisor disabled).
-        beam_fwhm_rad: float | None = None
-        try:
-            diameters = [float(ant.diameter_m) for ant in self.antennas]
-            if diameters and len(self._frequencies_hz):
-                d_min = min(diameters)
-                lam_max = float(speed_of_light.value) / float(self._frequencies_hz[0])
-                beam_fwhm_rad = 1.22 * lam_max / d_min
-        except Exception:  # noqa: BLE001  # advisor is best-effort
-            beam_fwhm_rad = None
-
         self._sky_model = prepare_sky_model(
             sky_models,
             representation=sky_representation,
-            nside=nside,
+            nside=requested_nside,
             frequency=frequency,
             frequencies=self._frequencies_hz,
             allow_lossy=allow_lossy_point_materialization,
@@ -723,11 +757,26 @@ class Simulator:
             brightness_conversion=_brightness_conv,
             precision=_precision,
             backend=self._backend,
-            beam_fwhm_rad=beam_fwhm_rad,
         )
 
         # Get point source arrays for RIME calculator (only in point_sources mode)
         from radiosim.core.sky.containers.model import SkyFormat
+
+        if self._sky_model.healpix is not None:
+            actual_nside = int(self._sky_model.healpix.nside)
+            post_sky_sampling = derive_beam_sampling_requirement(
+                selected_baselines=self.baselines,
+                beam_state=self.beam_state,
+                observation_frequencies_hz=(
+                    self._resolved.frequency.channel_frequencies_hz
+                ),
+                actual_nside=actual_nside,
+            )
+            if not (
+                pre_sky_warning_emitted
+                and actual_nside == pre_sky_sampling.actual_nside
+            ):
+                _ = self._warn_for_coarse_beam_sampling(post_sky_sampling)
 
         sky_mode = SkyFormat(sky_representation)
         if sky_mode == SkyFormat.HEALPIX:
@@ -949,6 +998,7 @@ class Simulator:
                 "n_frequencies": len(self._frequencies_hz),
                 "config": self._resolved.to_json_safe(),
                 "instrument_resolution": instrument_resolution,
+                "beam_resolution": self.beam_state.to_snapshot(),
             },
         }
 

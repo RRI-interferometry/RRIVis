@@ -33,3 +33,37 @@ actions. ``run`` computes results; ``save``, ``plot``, and
 After setup, ``instrument`` returns the canonical resolved object, while
 ``antennas`` and ``baselines`` return its exact immutable tuples. Access before
 resolution raises ``RuntimeError``.
+
+Beam sampling lifecycle
+-----------------------
+
+``setup`` resolves the instrument, canonical beam assignments, and complete
+loaded ``BeamSystem`` before deriving HEALPix advice. The pre-sky derivation
+uses only selected canonical baselines, exact loaded handler feature scales,
+and every exact observation frequency. It runs before device inspection,
+backend initialization, network policy, or sky loading. Invalid or incomplete
+canonical state raises ``BeamSamplingDerivationError`` and retains only the
+instrument state, so retry rebuilds the beam system.
+
+When the resolved workflow uses HEALPix, the configured target NSIDE is checked
+before sky loading. After preparation, an existing HEALPix payload is checked
+again using its actual NSIDE. Point-only payloads have no post-load NSIDE
+advisory, and an unchanged requested/actual grid does not receive duplicate
+coarse-grid messages. Both checks are advisory only: ``Simulator`` never
+changes or resamples the requested or loaded NSIDE.
+
+Result beam provenance
+----------------------
+
+Every successful ``run`` includes
+``results["metadata"]["beam_resolution"]``. This is a fresh
+``LoadedBeamState.to_snapshot()`` for analytic, shared-FITS, per-antenna-FITS,
+and mixed modes in both point-source and HEALPix execution. It is detached and
+JSON-safe, including transport provenance where designed, while scientific
+fingerprints remain path-independent where designed.
+
+The result contains no live beam evaluator, ``BeamSystem``, ``UVBeam``, array,
+lock, logger, callable, observability reference choice, renderer state, or
+``BeamSamplingRequirement``. Snapshot mutation cannot alter
+``Simulator.beam_state`` or a later result. A failure before result
+construction publishes no partial beam metadata.
