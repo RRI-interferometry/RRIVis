@@ -1,5 +1,6 @@
 """Tests for observability planning."""
 
+import dataclasses
 import inspect
 import json
 import subprocess
@@ -479,6 +480,146 @@ print(json.dumps([name for name in forbidden if name in sys.modules]))
         assert not plan.footprint_mask[dec_idx, outside_idx]
         assert plan.footprint_provenance == "reference_beam_half_power"
         assert plan.power_convention == "half_trace_unpolarized"
+
+    def test_off_zenith_peak_and_exact_horizon_use_loaded_beam_normalization(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from radiosim.core.beam import BeamSystem
+        from radiosim.core.observability.geometry import _evaluate_reference_power
+
+        simulator = _tier3g_simulator(tmp_path)
+
+        def off_zenith_peak(
+            self,
+            antenna_id,
+            *,
+            altitude_rad,
+            azimuth_rad,
+            frequency_hz,
+            time_mjd,
+            backend=None,
+        ):
+            del self, antenna_id, azimuth_rad, frequency_hz, time_mjd, backend
+            altitude = np.asarray(altitude_rad)
+            za = np.pi / 2.0 - altitude
+            power = np.where(za < np.deg2rad(5.0), 0.25, 1.0)
+            result = np.zeros(za.shape + (2, 2), dtype=np.complex128)
+            result[..., 0, 0] = np.sqrt(2.0 * power)
+            result[altitude < 0.0] = 0.0
+            result.setflags(write=False)
+            return result
+
+        monkeypatch.setattr(BeamSystem, "evaluate_jones", off_zenith_peak)
+        plan = simulator.plan_observability(
+            footprint_step_seconds=120.0,
+            snapshot_step_seconds=120.0,
+            grid_resolution_deg=2.0,
+        )
+
+        zenith_ra = float(plan.track_ra_deg[0])
+        dec_index = int(np.argmin(np.abs(plan.dec_grid_deg - plan.latitude_deg)))
+        center_index = int(np.argmin(np.abs(plan.ra_grid_deg - zenith_ra)))
+        off_axis_index = int(np.argmin(np.abs(plan.ra_grid_deg - (zenith_ra + 10.0))))
+        assert not plan.footprint_mask[dec_index, center_index]
+        assert plan.footprint_mask[dec_index, off_axis_index]
+        assert plan.beam_projection.power_db[dec_index, center_index] == pytest.approx(
+            10.0 * np.log10(0.25),
+            abs=0.2,
+        )
+
+        horizon = _evaluate_reference_power(
+            beam_system=simulator.beam_system,
+            reference_antenna=simulator.instrument.antennas[0].id,
+            zenith_angle_rad=np.array([np.pi / 2.0, np.pi / 2.0 + 1e-8]),
+            azimuth_rad=np.array([0.0, 0.0]),
+            frequency_hz=100_000_000.0,
+            time_mjd=60_676.0,
+        )
+        np.testing.assert_allclose(
+            horizon,
+            np.array([1.0, 0.0]),
+            rtol=0.0,
+            atol=5e-16,
+        )
+
+    def test_public_models_reject_hostile_cross_field_state(self, tmp_path):
+        import radiosim.core.observability as observability
+
+        plan = _tier3g_simulator(tmp_path).plan_observability(
+            footprint_step_seconds=120.0,
+            snapshot_step_seconds=120.0,
+            grid_resolution_deg=10.0,
+        )
+        hostile_plan_values = (
+            {"track_labels": ()},
+            {"footprint_mask": np.zeros((1, 1), dtype=np.bool_)},
+            {"track_ra_deg": plan.track_ra_deg + 1.0},
+            {"observation_start_iso": "2024-12-31T23:59:59"},
+            {
+                "snapshots": (
+                    dataclasses.replace(
+                        plan.snapshots[0],
+                        zenith_dec_deg=plan.latitude_deg + 1.0,
+                    ),
+                )
+            },
+            {"reference_handler_id": " "},
+            {"reference_scientific_fingerprint": "x" * 64},
+            {"beam_state_fingerprint": "0" * 63},
+            {"reference_selection_reason": "first"},
+            {"power_convention": "diagonal_only"},
+        )
+        for values in hostile_plan_values:
+            with pytest.raises((TypeError, ValueError)):
+                dataclasses.replace(plan, **values)
+
+        with pytest.raises((TypeError, ValueError)):
+            observability.ObservabilitySourceMetrics(
+                ra_deg=np.array([0.0]),
+                dec_deg=np.array([0.0]),
+                flux_jy=np.array([1.0]),
+                x_coord=np.array([0.0]),
+                source_name=None,
+                visible_any=np.array([True]),
+                visible_fraction=np.array([1.0]),
+                min_separation_deg=np.array([0.0]),
+                first_visible_index=np.array([0]),
+                last_visible_index=np.array([0]),
+                top_visible_indices=np.array([5]),
+                nearby_indices=np.array([-2]),
+            )
+        with pytest.raises((TypeError, ValueError)):
+            observability.ObservabilitySourceMetrics(
+                ra_deg=np.array([0.0, 1.0]),
+                dec_deg=np.array([0.0, 1.0]),
+                flux_jy=np.array([10.0, 10.0]),
+                x_coord=np.array([0.0, 1.0]),
+                source_name=np.array(["a", "b"]),
+                visible_any=np.array([True, False]),
+                visible_fraction=np.array([0.0, 1.0]),
+                min_separation_deg=np.array([1.0, 2.0]),
+                first_visible_index=np.array([-1, 0]),
+                last_visible_index=np.array([-1, 0]),
+                top_visible_indices=np.array([1, 0]),
+                nearby_indices=np.array([0]),
+            )
+        with pytest.raises((TypeError, ValueError)):
+            observability.ObservabilitySourceMetrics(
+                ra_deg=np.array([0.0]),
+                dec_deg=np.array([0.0]),
+                flux_jy=np.array([1.0]),
+                x_coord=np.array([0.0]),
+                source_name=np.array([object()], dtype=object),
+                visible_any=np.array([True]),
+                visible_fraction=np.array([1.0]),
+                min_separation_deg=np.array([0.0]),
+                first_visible_index=np.array([0]),
+                last_visible_index=np.array([0]),
+                top_visible_indices=np.array([0]),
+                nearby_indices=np.array([], dtype=np.int64),
+            )
 
     def test_plan_provenance_is_json_safe_and_arrays_are_owned_read_only(
         self,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from importlib import import_module
 from numbers import Real
@@ -58,6 +59,7 @@ ReferenceSelectionReason = Literal[
     "explicit",
     "homogeneous_default_minimum_number",
 ]
+_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
 def _finite_float(value: object, field_name: str) -> float:
@@ -84,6 +86,34 @@ def _strict_nonnegative_int(value: object, field_name: str) -> int:
             f"{field_name} must be a strict nonnegative integer."
         )
     return value
+
+
+def _exact_finite_float(value: object, field_name: str) -> float:
+    if type(value) is not float or not math.isfinite(value):
+        raise TypeError(f"{field_name} must be an exact finite float")
+    return value
+
+
+def _exact_nonblank_string(value: object, field_name: str) -> str:
+    if type(value) is not str or not value or value != value.strip():
+        raise TypeError(f"{field_name} must be a nonblank stripped exact string")
+    return value
+
+
+def _exact_sha256(value: object, field_name: str) -> str:
+    if type(value) is not str or _SHA256_PATTERN.fullmatch(value) is None:
+        raise ValueError(f"{field_name} must be a lowercase SHA-256 string")
+    return value
+
+
+def _exact_utc_iso(value: object, field_name: str) -> str:
+    result = _exact_nonblank_string(value, field_name)
+    try:
+        time_module: Any = import_module("astropy.time")
+        _ = time_module.Time(result, format="isot", scale="utc")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a valid UTC ISO timestamp") from exc
+    return result
 
 
 def _owned_array(
@@ -125,6 +155,11 @@ def _copy_contour_groups(
                 raise ValueError(
                     f"{field_name}[{group_index}][{segment_index}] "
                     "must have shape (N, 2)"
+                )
+            if not np.all(np.isfinite(owned)):
+                raise ValueError(
+                    f"{field_name}[{group_index}][{segment_index}] "
+                    "must contain only finite values"
                 )
             copied.append(owned)
         copied_groups.append(tuple(copied))
@@ -382,20 +417,32 @@ class ObservabilitySnapshot:
     visible_source_mask: np.ndarray | None
 
     def __post_init__(self) -> None:
-        if type(self.label) is not str or not self.label:
-            raise TypeError("label must be a nonblank exact string")
-        if self.utc_iso is not None and type(self.utc_iso) is not str:
-            raise TypeError("utc_iso must be None or an exact string")
-        for name in ("lst_hours", "zenith_ra_deg", "zenith_dec_deg"):
-            value = getattr(self, name)
-            if type(value) is not float or not math.isfinite(value):
-                raise TypeError(f"{name} must be an exact finite float")
+        _ = _exact_nonblank_string(self.label, "label")
+        if self.utc_iso is not None:
+            _ = _exact_utc_iso(self.utc_iso, "utc_iso")
+        lst_hours = _exact_finite_float(self.lst_hours, "lst_hours")
+        zenith_ra_deg = _exact_finite_float(
+            self.zenith_ra_deg,
+            "zenith_ra_deg",
+        )
+        zenith_dec_deg = _exact_finite_float(
+            self.zenith_dec_deg,
+            "zenith_dec_deg",
+        )
+        if not 0.0 <= lst_hours < 24.0:
+            raise ValueError("lst_hours must be in [0, 24)")
+        if not -180.0 <= zenith_ra_deg <= 180.0:
+            raise ValueError("zenith_ra_deg must be in [-180, 180]")
+        if not -90.0 <= zenith_dec_deg <= 90.0:
+            raise ValueError("zenith_dec_deg must be in [-90, 90]")
         footprint = _owned_array(
             self.footprint_mask,
             field_name="footprint_mask",
             dtype=np.bool_,
             ndim=2,
         )
+        if footprint.size == 0:
+            raise ValueError("footprint_mask must be nonempty")
         visible = (
             None
             if self.visible_source_mask is None
@@ -450,15 +497,19 @@ class ObservabilitySourceMetrics:
                 dtype=dtype,
                 ndim=1,
             )
-        source_name = (
-            None
-            if self.source_name is None
-            else _owned_array(
+        if self.source_name is None:
+            source_name = None
+        else:
+            if type(self.source_name) is not np.ndarray or any(
+                type(value) not in (str, np.str_) for value in self.source_name.flat
+            ):
+                raise TypeError("source_name must be an exact ndarray of exact strings")
+            source_name = _owned_array(
                 self.source_name,
                 field_name="source_name",
+                dtype=np.str_,
                 ndim=1,
             )
-        )
         count = len(copied["ra_deg"])
         for name in (
             "dec_deg",
@@ -474,6 +525,61 @@ class ObservabilitySourceMetrics:
                 raise ValueError(f"{name} must match ra_deg length")
         if source_name is not None and len(source_name) != count:
             raise ValueError("source_name must match ra_deg length")
+        for name in (
+            "ra_deg",
+            "dec_deg",
+            "flux_jy",
+            "x_coord",
+            "visible_fraction",
+            "min_separation_deg",
+        ):
+            if not np.all(np.isfinite(copied[name])):
+                raise ValueError(f"{name} must contain only finite values")
+        if np.any((copied["ra_deg"] < 0.0) | (copied["ra_deg"] >= 360.0)):
+            raise ValueError("ra_deg must be in [0, 360)")
+        if np.any((copied["dec_deg"] < -90.0) | (copied["dec_deg"] > 90.0)):
+            raise ValueError("dec_deg must be in [-90, 90]")
+        if np.any(
+            (copied["visible_fraction"] < 0.0) | (copied["visible_fraction"] > 1.0)
+        ):
+            raise ValueError("visible_fraction must be in [0, 1]")
+        if np.any(copied["min_separation_deg"] < 0.0):
+            raise ValueError("min_separation_deg must be nonnegative")
+        if np.any(np.diff(copied["flux_jy"]) > 0.0):
+            raise ValueError("flux_jy must preserve stable descending source order")
+        expected_visible_any = copied["visible_fraction"] > 0.0
+        if not np.array_equal(copied["visible_any"], expected_visible_any):
+            raise ValueError("visible_any must match positive visible_fraction")
+        hidden = ~copied["visible_any"]
+        if np.any(copied["first_visible_index"][hidden] != -1) or np.any(
+            copied["last_visible_index"][hidden] != -1
+        ):
+            raise ValueError("hidden sources must use -1 first/last indices")
+        visible = copied["visible_any"]
+        if np.any(copied["first_visible_index"][visible] < 0) or np.any(
+            copied["last_visible_index"][visible]
+            < copied["first_visible_index"][visible]
+        ):
+            raise ValueError("visible sources require ordered nonnegative indices")
+        for name in ("first_visible_index", "last_visible_index"):
+            if np.any(copied[name] < -1):
+                raise ValueError(f"{name} values must be -1 or nonnegative")
+        for name in ("top_visible_indices", "nearby_indices"):
+            values = copied[name]
+            if np.any((values < 0) | (values >= count)):
+                raise ValueError(f"{name} values must index the source arrays")
+            if len(np.unique(values)) != len(values):
+                raise ValueError(f"{name} values must be unique")
+        expected_top = np.flatnonzero(visible)[: len(copied["top_visible_indices"])]
+        if not np.array_equal(copied["top_visible_indices"], expected_top):
+            raise ValueError(
+                "top_visible_indices must preserve stable descending flux order"
+            )
+        nearby = copied["nearby_indices"]
+        if np.any(visible[nearby]) or np.any(np.diff(nearby) <= 0):
+            raise ValueError(
+                "nearby_indices must select hidden sources in stable flux order"
+            )
         for name, value in copied.items():
             object.__setattr__(self, name, value)
         object.__setattr__(self, "source_name", source_name)
@@ -530,6 +636,102 @@ class ObservabilityPlan:
     power_convention: Literal["half_trace_unpolarized"]
 
     def __post_init__(self) -> None:
+        if type(self.x_axis) is not str or self.x_axis not in {"ra", "lst"}:
+            raise ValueError("x_axis must be 'ra' or 'lst'")
+        if type(self.mode) is not str or self.mode not in {"summary", "snapshots"}:
+            raise ValueError("mode must be 'summary' or 'snapshots'")
+        _ = _exact_nonblank_string(self.title, "title")
+        frequency_hz = _exact_finite_float(self.frequency_hz, "frequency_hz")
+        if frequency_hz <= 0.0:
+            raise ValueError("frequency_hz must be positive")
+        if type(self.channel_index) is not int or self.channel_index < 0:
+            raise TypeError("channel_index must be a strict nonnegative integer")
+        for name in ("latitude_deg", "longitude_deg", "height_m"):
+            _ = _exact_finite_float(getattr(self, name), name)
+        if not -90.0 <= self.latitude_deg <= 90.0:
+            raise ValueError("latitude_deg must be in [-90, 90]")
+        if not -180.0 <= self.longitude_deg <= 180.0:
+            raise ValueError("longitude_deg must be in [-180, 180]")
+        if type(self.window_source) is not str or self.window_source not in {
+            "resolved_utc",
+            "explicit_lst",
+        }:
+            raise ValueError("window_source has an unsupported literal")
+        if type(self.background_layer) is not str or self.background_layer not in {
+            "none",
+            "diffuse",
+        }:
+            raise ValueError("background_layer has an unsupported literal")
+        if type(self.footprint_model) is not str or self.footprint_model not in {
+            "beam_threshold",
+            "manual_circular",
+        }:
+            raise ValueError("footprint_model has an unsupported literal")
+        expected_provenance = (
+            "reference_beam_half_power"
+            if self.footprint_model == "beam_threshold"
+            else "manual_circular_display_approximation"
+        )
+        if self.footprint_provenance != expected_provenance:
+            raise ValueError("footprint_provenance does not match footprint_model")
+        if self.footprint_model == "beam_threshold":
+            if self.field_radius_deg is not None:
+                raise ValueError("beam_threshold requires field_radius_deg=None")
+        else:
+            radius = _exact_finite_float(self.field_radius_deg, "field_radius_deg")
+            if not 0.0 < radius <= 90.0:
+                raise ValueError("field_radius_deg must be in (0, 90]")
+        if type(
+            self.beam_time_reference
+        ) is not str or self.beam_time_reference not in {
+            "start",
+            "midpoint",
+            "end",
+        }:
+            raise ValueError("beam_time_reference has an unsupported literal")
+        reference_lst = _exact_finite_float(
+            self.beam_time_reference_lst_hours,
+            "beam_time_reference_lst_hours",
+        )
+        reference_mjd = _exact_finite_float(
+            self.beam_time_reference_mjd,
+            "beam_time_reference_mjd",
+        )
+        del reference_mjd
+        reference_ra = _exact_finite_float(
+            self.beam_time_reference_ra_deg,
+            "beam_time_reference_ra_deg",
+        )
+        if not 0.0 <= reference_lst < 24.0:
+            raise ValueError("beam_time_reference_lst_hours must be in [0, 24)")
+        if not -180.0 <= reference_ra <= 180.0:
+            raise ValueError("beam_time_reference_ra_deg must be in [-180, 180]")
+        expected_reference_ra = float(normalize_ra_deg(reference_lst * 15.0))
+        if not math.isclose(
+            reference_ra,
+            expected_reference_ra,
+            rel_tol=0.0,
+            abs_tol=1e-10,
+        ):
+            raise ValueError(
+                "beam_time_reference_ra_deg must match beam_time_reference_lst_hours"
+            )
+        _ = _exact_sha256(self.beam_state_fingerprint, "beam_state_fingerprint")
+        _ = _exact_nonblank_string(self.reference_handler_id, "reference_handler_id")
+        _ = _exact_sha256(
+            self.reference_scientific_fingerprint,
+            "reference_scientific_fingerprint",
+        )
+        if type(
+            self.reference_selection_reason
+        ) is not str or self.reference_selection_reason not in {
+            "explicit",
+            "homogeneous_default_minimum_number",
+        }:
+            raise ValueError("reference_selection_reason has an unsupported literal")
+        if self.power_convention != "half_trace_unpolarized":
+            raise ValueError("power_convention must be 'half_trace_unpolarized'")
+
         array_fields: tuple[tuple[str, np.dtype | type, int], ...] = (
             ("track_lst_hours", np.float64, 1),
             ("track_ra_deg", np.float64, 1),
@@ -548,6 +750,40 @@ class ObservabilityPlan:
                     ndim=ndim,
                 ),
             )
+        for name in (
+            "track_lst_hours",
+            "track_ra_deg",
+            "ra_grid_deg",
+            "dec_grid_deg",
+        ):
+            if not np.all(np.isfinite(cast(np.ndarray, getattr(self, name)))):
+                raise ValueError(f"{name} must contain only finite values")
+        if len(self.track_lst_hours) == 0:
+            raise ValueError("track arrays must be nonempty")
+        if np.any((self.track_lst_hours < 0.0) | (self.track_lst_hours >= 24.0)):
+            raise ValueError("track_lst_hours must be in [0, 24)")
+        if np.any((self.track_ra_deg < -180.0) | (self.track_ra_deg > 180.0)):
+            raise ValueError("track_ra_deg must be in [-180, 180]")
+        expected_track_ra = np.asarray(
+            normalize_ra_deg(self.track_lst_hours * 15.0),
+            dtype=np.float64,
+        )
+        if not np.allclose(
+            self.track_ra_deg,
+            expected_track_ra,
+            rtol=0.0,
+            atol=1e-10,
+        ):
+            raise ValueError("track_ra_deg must match track_lst_hours")
+        if len(self.ra_grid_deg) == 0 or len(self.dec_grid_deg) == 0:
+            raise ValueError("grid axes must be nonempty")
+        if np.any(np.diff(self.ra_grid_deg) <= 0.0) or np.any(
+            np.diff(self.dec_grid_deg) <= 0.0
+        ):
+            raise ValueError("grid axes must be strictly increasing")
+        grid_shape = (len(self.dec_grid_deg), len(self.ra_grid_deg))
+        if self.footprint_mask.shape != grid_shape:
+            raise ValueError("footprint_mask shape must match the plan grid")
         background = (
             None
             if self.projected_background is None
@@ -558,6 +794,12 @@ class ObservabilityPlan:
                 ndim=2,
             )
         )
+        if background is not None and background.shape != grid_shape:
+            raise ValueError("projected_background shape must match the plan grid")
+        if (self.background_layer == "none") != (background is None):
+            raise ValueError(
+                "projected_background availability must match background_layer"
+            )
         object.__setattr__(self, "projected_background", background)
         object.__setattr__(
             self,
@@ -583,11 +825,70 @@ class ObservabilityPlan:
             )
             for snapshot in self.snapshots
         )
+        if not copied_snapshots:
+            raise ValueError("snapshots must be nonempty")
+        for index, snapshot in enumerate(copied_snapshots):
+            if snapshot.footprint_mask.shape != grid_shape:
+                raise ValueError(
+                    f"snapshots[{index}].footprint_mask shape must match the plan grid"
+                )
         object.__setattr__(self, "snapshots", copied_snapshots)
-        if self.source_metrics is not None and (
-            type(self.source_metrics) is not ObservabilitySourceMetrics
+        if self.source_metrics is not None:
+            if type(self.source_metrics) is not ObservabilitySourceMetrics:
+                raise TypeError("source_metrics must be an exact public model")
+            metrics = ObservabilitySourceMetrics(
+                ra_deg=self.source_metrics.ra_deg,
+                dec_deg=self.source_metrics.dec_deg,
+                flux_jy=self.source_metrics.flux_jy,
+                x_coord=self.source_metrics.x_coord,
+                source_name=self.source_metrics.source_name,
+                visible_any=self.source_metrics.visible_any,
+                visible_fraction=self.source_metrics.visible_fraction,
+                min_separation_deg=self.source_metrics.min_separation_deg,
+                first_visible_index=self.source_metrics.first_visible_index,
+                last_visible_index=self.source_metrics.last_visible_index,
+                top_visible_indices=self.source_metrics.top_visible_indices,
+                nearby_indices=self.source_metrics.nearby_indices,
+            )
+            track_count = len(self.track_labels)
+            for name in ("first_visible_index", "last_visible_index"):
+                values = cast(np.ndarray, getattr(metrics, name))
+                if np.any(values >= track_count):
+                    raise ValueError(f"source_metrics.{name} exceeds the track grid")
+            for index, snapshot in enumerate(copied_snapshots):
+                if snapshot.visible_source_mask is not None and len(
+                    snapshot.visible_source_mask
+                ) != len(metrics.ra_deg):
+                    raise ValueError(
+                        f"snapshots[{index}].visible_source_mask length must match "
+                        "source_metrics"
+                    )
+            expected_x = np.asarray(
+                axis_from_ra_deg(metrics.ra_deg, self.x_axis),
+                dtype=np.float64,
+            )
+            if not np.allclose(
+                metrics.x_coord,
+                expected_x,
+                rtol=0.0,
+                atol=1e-10,
+            ):
+                raise ValueError("source_metrics.x_coord must match plan x_axis")
+            visibility_counts = metrics.visible_fraction * track_count
+            if not np.allclose(
+                visibility_counts,
+                np.rint(visibility_counts),
+                rtol=0.0,
+                atol=1e-10,
+            ):
+                raise ValueError(
+                    "source_metrics.visible_fraction must match the track grid"
+                )
+            object.__setattr__(self, "source_metrics", metrics)
+        elif any(
+            snapshot.visible_source_mask is not None for snapshot in copied_snapshots
         ):
-            raise TypeError("source_metrics must be an exact public model")
+            raise ValueError("snapshot visible_source_mask requires source_metrics")
         if type(self.beam_projection) is not BeamSkyProjection:
             raise TypeError("beam_projection must be an exact BeamSkyProjection")
         projection = BeamSkyProjection(
@@ -598,6 +899,24 @@ class ObservabilityPlan:
             zenith_dec_deg=self.beam_projection.zenith_dec_deg,
             max_za_deg=self.beam_projection.max_za_deg,
         )
+        if not np.array_equal(projection.ra_grid_deg, self.ra_grid_deg) or not (
+            np.array_equal(projection.dec_grid_deg, self.dec_grid_deg)
+        ):
+            raise ValueError("beam_projection axes must match the plan grid")
+        if not math.isclose(
+            projection.zenith_ra_deg,
+            self.beam_time_reference_ra_deg,
+            rel_tol=0.0,
+            abs_tol=1e-10,
+        ) or not math.isclose(
+            projection.zenith_dec_deg,
+            self.latitude_deg,
+            rel_tol=0.0,
+            abs_tol=1e-10,
+        ):
+            raise ValueError(
+                "beam_projection centre must match the plan beam-time reference"
+            )
         object.__setattr__(self, "beam_projection", projection)
         if type(self.beam_contours) is not tuple or any(
             type(contour) is not BeamContour for contour in self.beam_contours
@@ -619,14 +938,83 @@ class ObservabilityPlan:
             ),
         )
         if type(self.track_labels) is not tuple or any(
-            type(value) is not str for value in self.track_labels
+            type(value) is not str or not value or value != value.strip()
+            for value in self.track_labels
         ):
-            raise TypeError("track_labels must be an exact tuple of strings")
+            raise TypeError("track_labels must be an exact tuple of nonblank strings")
         if type(self.track_time_isos) is not tuple or any(
             value is not None and type(value) is not str
             for value in self.track_time_isos
         ):
             raise TypeError("track_time_isos must be an exact tuple")
+        track_count = len(self.track_lst_hours)
+        if (
+            len(self.track_labels) != track_count
+            or len(self.track_time_isos) != track_count
+            or len(self.track_ra_deg) != track_count
+        ):
+            raise ValueError("track labels, times, LST, and RA lengths must match")
+        if self.window_source == "resolved_utc":
+            for name in ("observation_start_iso", "observation_end_iso"):
+                _ = _exact_utc_iso(getattr(self, name), name)
+            if any(value is None for value in self.track_time_isos):
+                raise ValueError("resolved UTC tracks require exact UTC labels")
+            for index, value in enumerate(self.track_time_isos):
+                _ = _exact_utc_iso(value, f"track_time_isos[{index}]")
+            if self.track_labels != self.track_time_isos:
+                raise ValueError("resolved UTC track labels must equal UTC values")
+            if self.observation_start_iso != self.track_time_isos[0] or (
+                self.observation_end_iso != self.track_time_isos[-1]
+            ):
+                raise ValueError("UTC observation endpoints must match the track")
+            if any(snapshot.utc_iso is None for snapshot in copied_snapshots):
+                raise ValueError("resolved UTC snapshots require UTC values")
+        else:
+            if self.observation_start_iso is not None or (
+                self.observation_end_iso is not None
+            ):
+                raise ValueError("explicit LST windows cannot publish UTC endpoints")
+            if any(value is not None for value in self.track_time_isos):
+                raise ValueError("explicit LST tracks cannot publish UTC labels")
+            expected_labels = tuple(
+                f"LST {value:.6f}h" for value in self.track_lst_hours
+            )
+            if self.track_labels != expected_labels:
+                raise ValueError("explicit LST labels must match track_lst_hours")
+            if any(snapshot.utc_iso is not None for snapshot in copied_snapshots):
+                raise ValueError("explicit LST snapshots cannot publish UTC values")
+        for index, snapshot in enumerate(copied_snapshots):
+            expected_snapshot_ra = float(normalize_ra_deg(snapshot.lst_hours * 15.0))
+            if not math.isclose(
+                snapshot.zenith_ra_deg,
+                expected_snapshot_ra,
+                rel_tol=0.0,
+                abs_tol=1e-10,
+            ) or not math.isclose(
+                snapshot.zenith_dec_deg,
+                self.latitude_deg,
+                rel_tol=0.0,
+                abs_tol=1e-10,
+            ):
+                raise ValueError(
+                    f"snapshots[{index}] centre must match its LST and plan latitude"
+                )
+            expected_snapshot_label = (
+                snapshot.utc_iso
+                if self.window_source == "resolved_utc"
+                else f"LST {snapshot.lst_hours:.6f}h"
+            )
+            if snapshot.label != expected_snapshot_label:
+                raise ValueError(
+                    f"snapshots[{index}] label must match its window value"
+                )
+        for name, expected in (
+            ("lst_start_hours", float(self.track_lst_hours[0])),
+            ("lst_end_hours", float(self.track_lst_hours[-1])),
+        ):
+            value = _exact_finite_float(getattr(self, name), name)
+            if not math.isclose(value, expected, rel_tol=0.0, abs_tol=1e-10):
+                raise ValueError(f"{name} must match the track endpoints")
 
     def provenance_snapshot(self) -> dict[str, object]:
         """Return JSON-safe scalar identity, window, beam, and power facts."""
@@ -1103,7 +1491,7 @@ class ObservabilityPlanner:
             float(samples.ra_deg[index]),
         )
 
-    def _normalized_power(
+    def _reference_power(
         self,
         za_rad: np.ndarray,
         az_rad: np.ndarray,
@@ -1119,22 +1507,7 @@ class ObservabilityPlanner:
             frequency_hz=context.frequency_hz,
             time_mjd=float(time_mjd),
         )
-        peak = float(
-            _evaluate_reference_power(
-                beam_system=context.beam_system,
-                reference_antenna=context.reference_antenna,
-                zenith_angle_rad=np.array([0.0], dtype=np.float64),
-                azimuth_rad=np.array([0.0], dtype=np.float64),
-                frequency_hz=context.frequency_hz,
-                time_mjd=float(time_mjd),
-            )[0]
-        )
-        if not math.isfinite(peak) or peak <= 0.0:
-            raise BeamDisplayNormalizationError(
-                "Selected observability reference beam has no finite positive "
-                "zenith normalization."
-            )
-        return np.asarray(power / peak, dtype=np.float64)
+        return np.asarray(power, dtype=np.float64)
 
     def _membership(
         self,
@@ -1159,7 +1532,7 @@ class ObservabilityPlanner:
             zenith_dec_deg=self._context.location.latitude_deg,
         )
         return (
-            self._normalized_power(
+            self._reference_power(
                 za_rad,
                 az_rad,
                 time_mjd=time_mjd,
@@ -1440,11 +1813,18 @@ class ObservabilityPlanner:
         reference_mjd: float,
     ) -> tuple[BeamSkyProjection, tuple[BeamContour, ...]]:
         def power_func(za_rad: np.ndarray, az_rad: np.ndarray) -> np.ndarray:
-            return self._normalized_power(
+            power = self._reference_power(
                 za_rad,
                 az_rad,
                 time_mjd=reference_mjd,
             )
+            peak = float(np.max(power))
+            if not math.isfinite(peak) or peak <= 0.0:
+                raise BeamDisplayNormalizationError(
+                    "Selected observability reference beam has no finite positive "
+                    "sampled visible-hemisphere normalization."
+                )
+            return np.asarray(power / peak, dtype=np.float64)
 
         projection = compute_beam_power_on_full_sky_grid(
             power_func,

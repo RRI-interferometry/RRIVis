@@ -33,9 +33,12 @@ class _RGBAOverlay(TypedDict):
 def _owned_read_only_array(
     value: np.ndarray,
     *,
+    field_name: str,
     dtype: np.dtype | type | None = None,
 ) -> np.ndarray:
     """Return a detached C-contiguous, non-writeable ndarray."""
+    if type(value) is not np.ndarray:
+        raise TypeError(f"{field_name} must be an exact ndarray")
     result = np.array(value, dtype=dtype, copy=True, order="C")
     result.setflags(write=False)
     return result
@@ -70,15 +73,40 @@ class BeamSkyProjection:
     max_za_deg: float
 
     def __post_init__(self) -> None:
-        ra = _owned_read_only_array(self.ra_grid_deg, dtype=np.float64)
-        dec = _owned_read_only_array(self.dec_grid_deg, dtype=np.float64)
-        power = _owned_read_only_array(self.power_db, dtype=np.float64)
+        ra = _owned_read_only_array(
+            self.ra_grid_deg,
+            field_name="ra_grid_deg",
+            dtype=np.float64,
+        )
+        dec = _owned_read_only_array(
+            self.dec_grid_deg,
+            field_name="dec_grid_deg",
+            dtype=np.float64,
+        )
+        power = _owned_read_only_array(
+            self.power_db,
+            field_name="power_db",
+            dtype=np.float64,
+        )
         if ra.ndim != 1 or dec.ndim != 1:
             raise ValueError("beam projection axes must be one-dimensional")
+        if (
+            len(ra) == 0
+            or len(dec) == 0
+            or not np.all(np.isfinite(ra))
+            or not np.all(np.isfinite(dec))
+        ):
+            raise ValueError("beam projection axes must be nonempty and finite")
+        if len(ra) > 1 and np.any(np.diff(ra) <= 0.0):
+            raise ValueError("ra_grid_deg must be strictly increasing")
+        if len(dec) > 1 and np.any(np.diff(dec) <= 0.0):
+            raise ValueError("dec_grid_deg must be strictly increasing")
         if power.shape != (len(dec), len(ra)):
             raise ValueError(
                 "beam projection power_db shape must match (dec_grid, ra_grid)"
             )
+        if np.any(np.isinf(power)):
+            raise ValueError("beam projection power_db must not contain infinities")
         for name in ("zenith_ra_deg", "zenith_dec_deg", "max_za_deg"):
             value = getattr(self, name)
             if type(value) is not float or not np.isfinite(value):
@@ -108,9 +136,15 @@ class BeamContour:
         for index, segment in enumerate(self.segments):
             if type(segment) is not np.ndarray:
                 raise TypeError(f"segments[{index}] must be an exact ndarray")
-            owned = _owned_read_only_array(segment, dtype=np.float64)
+            owned = _owned_read_only_array(
+                segment,
+                field_name=f"segments[{index}]",
+                dtype=np.float64,
+            )
             if owned.ndim != 2 or owned.shape[1] != 2:
                 raise ValueError(f"segments[{index}] must have shape (N, 2)")
+            if not np.all(np.isfinite(owned)):
+                raise ValueError(f"segments[{index}] must be finite")
             copied.append(owned)
         object.__setattr__(self, "segments", tuple(copied))
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -33,6 +34,8 @@ def _owned_array(
     result = np.array(value, dtype=dtype, copy=True, order="C")
     if result.ndim != 1:
         raise ValueError(f"{field_name} must be one-dimensional")
+    if not np.all(np.isfinite(result)):
+        raise ValueError(f"{field_name} must contain only finite values")
     result.setflags(write=False)
     return result
 
@@ -75,23 +78,43 @@ class DriftScanLightcurve:
         )
         if len(integrated) != len(lst) or (mean is not None and len(mean) != len(lst)):
             raise ValueError("lightcurve arrays must have matching lengths")
+        if len(lst) == 0:
+            raise ValueError("lightcurve arrays must be nonempty")
+        if np.any((lst < 0.0) | (lst >= 24.0)):
+            raise ValueError("lst_hours values must be in [0, 24)")
         if self.horizon_masked is not True:
             raise ValueError("horizon_masked must be literal True")
         if type(self.frequency_hz) is not float or not math.isfinite(self.frequency_hz):
             raise TypeError("frequency_hz must be an exact finite float")
-        if type(self.nside) is not int or self.nside <= 0:
-            raise TypeError("nside must be a strict positive integer")
+        if self.frequency_hz <= 0.0:
+            raise ValueError("frequency_hz must be positive")
+        if (
+            type(self.nside) is not int
+            or self.nside <= 0
+            or self.nside & (self.nside - 1)
+        ):
+            raise TypeError("nside must be a strict positive HEALPix NSIDE")
         if type(self.beam_evaluation_time_mjd) is not float or not math.isfinite(
             self.beam_evaluation_time_mjd
         ):
             raise TypeError("beam_evaluation_time_mjd must be an exact finite float")
         if type(self.reference_antenna) is not AntennaId:
             raise TypeError("reference_antenna must be an exact AntennaId")
-        if type(self.reference_handler_id) is not str or not self.reference_handler_id:
-            raise TypeError("reference_handler_id must be a nonblank exact string")
+        if (
+            type(self.reference_handler_id) is not str
+            or not self.reference_handler_id
+            or self.reference_handler_id != self.reference_handler_id.strip()
+        ):
+            raise TypeError(
+                "reference_handler_id must be a nonblank stripped exact string"
+            )
         if (
             type(self.reference_scientific_fingerprint) is not str
-            or len(self.reference_scientific_fingerprint) != 64
+            or re.fullmatch(
+                r"[0-9a-f]{64}",
+                self.reference_scientific_fingerprint,
+            )
+            is None
         ):
             raise ValueError(
                 "reference_scientific_fingerprint must be a SHA-256 string"

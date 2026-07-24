@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 
 from radiosim.core.jones.beam.projection import (
+    BeamContour,
+    BeamSkyProjection,
     compute_beam_power_on_radec_grid,
     create_rgba_overlay,
     extract_contours,
@@ -26,6 +28,35 @@ def _gaussian_beam(za_rad, az_rad, hpbw_rad=np.deg2rad(10.0)):
 
 
 class TestComputeBeamPower:
+    def test_public_models_reject_hostile_array_state(self):
+        class MutableArray(np.ndarray):
+            pass
+
+        axis = np.array([0.0, 1.0])
+        with pytest.raises(TypeError, match="exact ndarray"):
+            BeamSkyProjection(
+                ra_grid_deg=axis.view(MutableArray),
+                dec_grid_deg=axis,
+                power_db=np.zeros((2, 2)),
+                zenith_ra_deg=0.0,
+                zenith_dec_deg=0.0,
+                max_za_deg=90.0,
+            )
+        with pytest.raises(ValueError, match="finite"):
+            BeamSkyProjection(
+                ra_grid_deg=np.array([0.0, np.nan]),
+                dec_grid_deg=axis,
+                power_db=np.zeros((2, 2)),
+                zenith_ra_deg=0.0,
+                zenith_dec_deg=0.0,
+                max_za_deg=90.0,
+            )
+        with pytest.raises(ValueError, match="finite"):
+            BeamContour(
+                level_db=0.0,
+                segments=(np.array([[0.0, np.inf]]),),
+            )
+
     def test_zenith_maps_to_peak(self):
         """The zenith point (RA_z, Dec_z) should have power ≈ 0 dB."""
         proj = compute_beam_power_on_radec_grid(

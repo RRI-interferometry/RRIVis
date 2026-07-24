@@ -78,6 +78,38 @@ class TestFractionalHorizonExcess:
 
 
 class TestComputeDriftScanLightcurveValidation:
+    @pytest.mark.parametrize(
+        ("changes", "match"),
+        [
+            ({"integrated_flux": np.array([3.0, np.nan])}, "finite"),
+            ({"reference_scientific_fingerprint": "g" * 64}, "SHA-256"),
+            ({"reference_handler_id": " handler "}, "stripped"),
+            ({"frequency_hz": 0.0}, "positive"),
+            ({"nside": 3}, "HEALPix NSIDE"),
+        ],
+    )
+    def test_public_model_rejects_hostile_state(self, changes, match):
+        values = {
+            "lst_hours": np.array([1.0, 2.0]),
+            "integrated_flux": np.array([3.0, 4.0]),
+            "mean_brightness": np.array([1.5, 2.0]),
+            "horizon_masked": True,
+            "frequency_hz": 150_000_000.0,
+            "nside": 1,
+            "beam_evaluation_time_mjd": 60_676.0,
+            "reference_antenna": _lightcurve(
+                np.array([0.0]),
+                np.array([1.0]),
+            ).reference_antenna,
+            "reference_handler_id": "handler",
+            "reference_scientific_fingerprint": "a" * 64,
+            "power_convention": "half_trace_unpolarized",
+        }
+        values.update(changes)
+
+        with pytest.raises((TypeError, ValueError), match=match):
+            DriftScanLightcurve(**values)
+
     def test_no_healpix_payload_raises(self, tmp_path, precision):
         import radiosim.core.observability as observability
         from radiosim.core.sky import create_from_arrays

@@ -77,7 +77,7 @@ def _evaluate_reference_power(
         )
     power = 0.5 * np.sum(np.abs(host_jones) ** 2, axis=(-2, -1))
     power = np.asarray(power, dtype=np.float64)
-    power[altitude.reshape(-1) <= 0.0] = 0.0
+    power[altitude.reshape(-1) < 0.0] = 0.0
     if not np.all(np.isfinite(power)):
         raise NonFiniteBeamResponseError(
             "Canonical observability beam power is non-finite."

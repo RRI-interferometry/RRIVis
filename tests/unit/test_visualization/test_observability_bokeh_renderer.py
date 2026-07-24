@@ -316,3 +316,38 @@ class TestTier3GRendererPersistence:
         assert str(caught.value.__cause__) == "controlled render write failure"
         assert not (tmp_path / "failed.html").exists()
         assert not tuple(tmp_path.glob(".failed.html.*"))
+
+    def test_cleanup_failure_preserves_primary_publication_error(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        import radiosim.core.observability as observability
+        import radiosim.visualization.observability.bokeh_renderer as renderer_module
+
+        renderer = ObservabilityBokehRenderer(_tier3g_plan(tmp_path))
+        layout = renderer.create_plot()
+        primary = RuntimeError("primary save failure")
+
+        def fail_save(*_args, **_kwargs):
+            raise primary
+
+        original_unlink = Path.unlink
+
+        def fail_private_cleanup(path, *args, **kwargs):
+            if path.name.startswith(".primary.html.") and path.suffix == ".tmp":
+                raise OSError("cleanup failure")
+            return original_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(renderer_module, "save", fail_save)
+        monkeypatch.setattr(Path, "unlink", fail_private_cleanup)
+
+        with pytest.raises(observability.ObservabilityOutputError) as caught:
+            renderer.save(
+                layout,
+                output_dir=tmp_path,
+                filename="primary.html",
+                overwrite=True,
+            )
+
+        assert caught.value.__cause__ is primary

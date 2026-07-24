@@ -171,6 +171,8 @@ class ObservabilityBokehRenderer:
                 f"Observability output already exists: {target}"
             ) from None
         temporary_path: Path | None = None
+        pending_error: ObservabilityOutputError | None = None
+        pending_cause: Exception | None = None
         try:
             with tempfile.NamedTemporaryFile(
                 mode="wb",
@@ -198,20 +200,29 @@ class ObservabilityBokehRenderer:
                     ) from None
                 _ = temporary_path.unlink()
                 temporary_path = None
-        except ObservabilityOutputCollisionError:
-            raise
+        except ObservabilityOutputCollisionError as exc:
+            pending_error = exc
         except Exception as exc:
-            raise ObservabilityOutputError(
+            pending_error = ObservabilityOutputError(
                 f"Failed to publish observability output: {target}"
-            ) from exc
-        finally:
-            if temporary_path is not None:
-                try:
-                    _ = temporary_path.unlink(missing_ok=True)
-                except OSError as cleanup_exc:
-                    raise ObservabilityOutputError(
-                        f"Failed to remove temporary output: {temporary_path}"
-                    ) from cleanup_exc
+            )
+            pending_cause = exc
+        if temporary_path is not None:
+            try:
+                _ = temporary_path.unlink(missing_ok=True)
+            except OSError as cleanup_exc:
+                cleanup_note = (
+                    f"Additionally failed to remove temporary output "
+                    f"{temporary_path}: {cleanup_exc}"
+                )
+                if pending_error is not None:
+                    pending_error.add_note(cleanup_note)
+                else:
+                    raise ObservabilityOutputError(cleanup_note) from cleanup_exc
+        if pending_error is not None:
+            if pending_cause is not None:
+                raise pending_error from pending_cause
+            raise pending_error from None
 
         if open_in_browser:
             import webbrowser
