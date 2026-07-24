@@ -141,6 +141,14 @@ def test_analytic_public_api_is_exact_and_preserves_object_identity() -> None:
         assert getattr(analytic, name) is getattr(defining_module, name)
 
 
+def test_analytic_public_api_uses_no_type_suppression() -> None:
+    initializer = (
+        REPOSITORY_ROOT / "src/radiosim/core/jones/beam/analytic/__init__.py"
+    ).read_text(encoding="utf-8")
+
+    assert "pyright: ignore" not in initializer
+
+
 def test_retained_aperture_primitives_cover_scalar_array_and_shape_behavior() -> None:
     from radiosim.core.jones.beam.analytic import (
         airy_voltage_pattern,

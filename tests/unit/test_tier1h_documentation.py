@@ -332,6 +332,10 @@ def test_tier3h2_final_runtime_and_science_truth_is_documented():
     assert "beam_system" in simulator
     assert "beam_state" in simulator
     assert "automatic NSIDE mutation" not in beam_guide
+    assert (
+        "accepts uniform resolved diameter arrays and rejects heterogeneous arrays"
+        not in " ".join(readme.split())
+    )
 
 
 def test_tier3h2_migration_guide_maps_every_removed_low_level_surface():

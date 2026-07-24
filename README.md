@@ -286,9 +286,11 @@ identity, diameter, location, and selected baselines; UVFITS output is rejected.
 The CLI `workflow` section controls post-run actions, while Python calls stay
 explicit.
 
-`Simulator.plot_observability()` is a helper associated with the Simulator. It
-accepts uniform resolved diameter arrays and rejects heterogeneous arrays before
-optional sky preparation. It is not a separate simulation engine or backend.
+`Simulator.plot_observability()` is a helper associated with the Simulator and
+uses the same loaded beam system. It selects the minimum-number antenna only
+when all assigned handlers are scientifically equivalent; heterogeneous beam
+assignments require an explicit canonical reference antenna. It is not a
+separate simulation engine or backend.
 
 ## Examples and documentation
 

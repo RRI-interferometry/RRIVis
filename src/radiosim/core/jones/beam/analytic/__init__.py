@@ -17,6 +17,13 @@ numerical_hpbw
     Diagnostic HPBW finder for beam pattern visualization.
 """
 
+from collections.abc import Callable as _Callable
+from typing import cast as _cast
+
+import numpy as _np
+from numpy.typing import NDArray as _NDArray
+
+from radiosim.core.jones.beam.analytic import numerical_hpbw as _numerical_hpbw
 from radiosim.core.jones.beam.analytic.aperture import (
     airy_voltage_pattern,
     compute_u_beam,
@@ -31,15 +38,17 @@ from radiosim.core.jones.beam.analytic.feed import (
     open_waveguide_pattern,
     prime_focus_angle,
 )
-from radiosim.core.jones.beam.analytic.numerical_hpbw import (
-    compute_hpbw_numerical,  # pyright: ignore[reportUnknownVariableType]
-)
 from radiosim.core.jones.beam.analytic.taper import (
     cosine_taper,
     gaussian_taper_pattern,
     parabolic_squared_taper,
     parabolic_taper,
     uniform_taper,
+)
+
+compute_hpbw_numerical = _cast(
+    _Callable[..., _NDArray[_np.float64]],
+    vars(_numerical_hpbw)["compute_hpbw_numerical"],
 )
 
 __all__ = [
