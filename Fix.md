@@ -2915,3 +2915,91 @@ optional data, and live network/registry behavior remain unobserved. Tier 3H.1,
 Tier 3H.2, and Tier 3I were not started. `BEAM-001`, `BEAM-002`, `BEAM-003`,
 `OBS-001`, and `OBS-002` remain **OPEN**; none is **DONE**. Tier 3H.1 is the next
 authorized separate slice.
+
+### 2026-07-24 Tier 3H.1 independent acceptance
+
+**Decision: Tier 3H.1 is accepted after corrections.** The strict start gate
+passed on clean `main` at implementation
+`1905fa0d5e2453677d41a9aafec190d2d8766f16`, parent
+`4c34f897d8ffdf67ed18b16b52069505f56b0ffd`, with `origin/main` at
+`112f52fb0f903e0361fb6ec38199c081f63a93ed` and divergence zero behind/28
+ahead. Python 3.11.13 and 3.12.13 both used pyuvdata 3.2.1.
+
+The implementation changed exactly four production, three documentation, and six
+test files. The additional `test_sky_prepare_options.py` and
+`test_tier1h_documentation.py` edits are separately authorized and narrow: they
+prove strict rejection of the two removed advisor fields and migrate only the
+obsolete pending-runtime documentation assertion. No dependency, lockfile, config,
+visibility solver, writer, observability, generated artifact, Tier 3H.2 deletion,
+or Tier 3I work leaked in.
+
+Independent scalar and real-healpy oracles confirmed the selected-baseline harmonic
+product over every exact observation frequency, cross/auto/shared/mixed endpoint
+semantics, deterministic tie order, analytic aperture support, conservative FITS
+native-grid representation bounds, the exact factor-five limit, and the smallest
+satisfying power-of-two NSIDE through 65536. Advice never mutates requested or
+loaded NSIDE and performs no beam evaluation, FITS read, or diameter/FWHM
+approximation.
+
+Regression-first probes found three material defect groups. A fresh pure import
+eagerly loaded device and network modules through `utils/__init__.py`; public
+requirements admitted forged handler IDs and endpoint-kind/metric contradictions;
+and derivation admitted duplicate/noncanonical baselines, invalid handler-frequency
+ordering, or inconsistent loaded assignment order without uniformly raising its
+owned typed error. The fresh-import test failed in both interpreters, hostile
+requirement selections failed before correction, and four durable derivation tests
+failed in both interpreters.
+
+Correction `7d202a2f47c9e4870e9da57e0010362f2d9fd9c7`
+(`fix(beam): correct Tier 3H.1 sampling contract`) changes only the explicitly
+authorized `utils/__init__.py`, `utils/healpix.py`,
+`test_beam_sampling.py`, and `test_healpix_utils.py`. It preserves all existing
+utility exports lazily, records and validates exact endpoint handler kinds and
+canonical IDs, enforces metric-kind consistency, validates detached canonical
+baseline/loaded-state copies, rejects duplicates, and converts malformed canonical
+state to `BeamSamplingDerivationError`. Five durable regressions cover the
+discovered boundaries.
+
+Corrected external probes passed 22 hostile-state and 28 science/ownership cases in
+each interpreter; only six temporary-fixture pyuvdata deprecations appeared per
+science run. NumPy/Numba/JAX result-provenance checks all passed under Python 3.11;
+NumPy/Numba passed under Python 3.12 with its expected unavailable-JAX skip.
+Lifecycle sentinels proved pre-sky fail-closed ordering, exact BeamSystem retention
+after backend failure, post-sky cleanup, deterministic retry, no partial result,
+exact warning text and ULP boundary behavior, and no NSIDE mutation.
+
+Successful point, HEALPix, analytic, shared-FITS, per-antenna-FITS, and mixed runs
+publish exactly one new metadata key, `beam_resolution`, equal to a fresh detached
+JSON-safe loaded-state snapshot. No runtime evaluator, BeamSystem, UVBeam,
+backend/device array, requirement, observability or renderer state, lock, logger,
+callable, or mutable alias enters it. The old FWHM utilities/options and approximate
+`1.22` logic are absent without aliases or suppression. README/API/beam-guide
+claims match active science and do not claim automatic resampling, physical FITS
+bandwidth, Tier 3H.2 cleanup, writer redesign, or whole-tier completion.
+
+The exact Tier 3H.1 boundary passed 110/110 in both Pythons with no warnings or
+skips. The removed-field/documentation boundary passed 50/50 in each. Tier 3G
+regression collected 109 in each, passing 108 with its one established optional
+data skip and two established warning events. Full suites collected 2,794:
+Python 3.11 reported 2,793 passed/one skip/26 warnings; Python 3.12 reported 2,787
+passed/seven skips/26 warnings. The skips are one unmounted optional-Vivaldi-data
+case plus six unavailable-JAX cases on 3.12. The warning categories remain one
+disjointness override, eight FITS-unit syntax, 12 lossy HEALPix, one numerical
+multiply, and four Matplotlib figure-reuse events. There were no failures, xfails,
+xpasses, Tier 3H.1 markers, or new warning categories.
+
+Ruff lint and the 286-file format check passed. Pyright remained at 3,692
+diagnostics in both environments under the unchanged 4,600 ceiling; direct checks
+of the four implementation production modules reported 131 historical diagnostics
+and zero on lines changed since the parent. YAML validation reproduced 101/11/1
+channels, the offline example completed with five antennas/15 baselines/two
+channels, and a removed clean-source Sphinx build reproduced the classified
+40-event baseline. Import/API identity, whitespace, exact scope, removal,
+ownership, metadata, no-I/O, marker, later-tier leakage, and generated-artifact
+audits passed. All temporary trees were removed.
+
+Nothing was pushed or published. Remote CI, physical GPU, non-macOS, mounted
+optional data, and live network/registry behavior remain unobserved. Tier 3H.2 and
+Tier 3I were not implemented. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and
+`OBS-002` remain **OPEN**; none is **DONE**. Tier 3H.2 is now the next authorized
+separate slice; Tier 3I remains unauthorized pending Tier 3H.2 acceptance.
