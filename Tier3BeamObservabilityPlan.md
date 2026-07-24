@@ -3625,3 +3625,125 @@ platforms, mounted optional Vivaldi data, and live network/registry behavior rem
 unobserved. Tier 3G was not started. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`,
 and `OBS-002` remain **OPEN**; none is **DONE**. Tier 3G is now the next authorized
 separate slice.
+
+## 56. Tier 3G independent acceptance record
+
+**Verdict: ACCEPTED AFTER CORRECTIONS on 2026-07-24.** The fail-closed start gate
+passed on clean `main` at implementation
+`7d823e42ac32502ede96b9e0689e60711d22859c`
+(`feat(observability): use resolved beam references`), whose parent is
+`ca93c08ec908f2c00a2af48ba0a03d3543609dcf`. `origin/main` was
+`112f52fb0f903e0361fb6ec38199c081f63a93ed`; the checkout was zero behind and
+25 ahead. Python 3.11.13 and Python 3.12.13 both used pyuvdata 3.2.1.
+
+The implementation changed exactly 21 files, with 3,847 insertions and 1,556
+deletions. The 13 production files were `api/simulator.py`, `core/jones/__init__.py`,
+`core/jones/beam/__init__.py`, `core/jones/beam/projection.py`, the six
+`core/observability` files `__init__.py`, `errors.py`, `geometry.py`,
+`lightcurves.py`, `overlay.py`, and `planner.py`, and the three visualization files
+`visualization/__init__.py`, `visualization/observability/bokeh_renderer.py`, and
+`visualization/sky/__init__.py`. The eight test files were the projection,
+beam-solver integration, lightcurve, beam-analysis, overlay, planner, simulator
+instrument-integration, and Bokeh-renderer suites. The parent Jones initializer,
+beam Jones initializer, and beam-solver test changes had been separately authorized.
+The two initializers retain the parent `__all__`, star-import surface, object
+identity, `dir()`, reload, and concurrent-access behavior. The solver test replaces
+the obsolete Tier 3F rejection with canonical Tier 3G planning coverage. There was
+no dependency, lockfile, config, documentation, generated output, legacy-module
+deletion, NSIDE-advisor, Tier 3H.1/H.2, or Tier 3I implementation in the
+implementation commit.
+
+Independent source review confirmed that observability now consumes the exact
+resolved `BeamSystem`, canonical antenna identity, selected observation channel,
+and immutable planning models. No raw observability FITS path, diameter/FWHM
+fallback, `_fits_beam_power_func`, independent pyuvdata load, first-antenna or
+first-channel fallback, nearest-channel selection, `beam_reference`,
+`rectangular_approx`, `save_path`, permissive observability `**kwargs`, or default
+browser opening remains. Rendering accepts only immutable plan data, and planning
+failures precede renderer, output, and browser work. Package-root observability
+exports did not expand, visualization does not duplicate the core models, and the
+legacy production beam module remains for its later authorized cleanup slice.
+
+The first independent 21-case probe matrix passed 15 cases and failed six in both
+interpreters. It proved that membership power was incorrectly divided by zenith
+power, so an off-zenith native peak could exceed the intended normalized contract;
+exactly-on-horizon power was incorrectly forced to zero; public plan, source-metric,
+projection, contour, and lightcurve values admitted forged, inconsistent,
+subclassed, or non-finite state; and a renderer cleanup exception could replace the
+primary publication error. Regression-first tracked selections then failed 3/3,
+3/3, 2/2, and 1/1 as the complete ownership and cross-field invariant surface was
+enumerated.
+
+Correction `8a9ab69b70ff8cd13e437df9611c4bc94a82b7bf`
+(`fix(observability): correct Tier 3G planning contract`) changes only nine files
+inside the authorized Tier 3G boundary: projection, geometry, lightcurves, planner,
+the Bokeh renderer, and their four existing unit-test files. It preserves native
+loaded-beam power for membership while normalizing display projections to the
+sampled visible-sky maximum, excludes only directions below rather than on the
+horizon, and enforces exact immutable ownership, finiteness, identity, time/LST/UTC,
+frequency, axis, source-position, footprint, ranking, and cross-field consistency
+through every public model. It also preserves the primary publication failure and
+attaches cleanup failure as a note. Nine durable regressions cover the discovered
+boundaries.
+
+The corrected 49-case external matrix passed in each interpreter. Its eight warning
+events per run are only the temporary pyuvdata fixture's established
+`UVBeam.x_orientation` deprecation. Reference-equivalence coverage included a shared
+FITS handler with inert diameter, identical FITS bytes at distinct paths, the same
+path with different interpolation, distinct fingerprints with equal zenith values,
+heterogeneous analytic, mixed analytic/FITS, assignment order versus antenna number,
+explicit tagged references, numeric-looking names, case distinctions, and hostile
+subclasses. Equal science deduplicates only at the canonical scientific boundary;
+transport-distinct FITS paths and option-distinct loads remain distinct.
+
+An independent Jones oracle used
+`0.5 * real(trace(J @ J.conj().T))` and matched the implementation at zenith,
+off-axis points, the horizon, and below the horizon. Display normalization has an
+exact visible-sky maximum of one even when the native peak is off zenith; threshold
+membership uses native resolved-beam power and therefore does not silently alter
+the loaded scientific response. Exact and reordered sky channels, duplicates,
+nearly equal frequencies, asymmetric footprints, circular RA handling, zero-count
+metrics, source ranking, LST/UTC endpoints and labels, snapshot centers, and
+source/fraction-grid consistency all passed independent calculation. Planning
+side-effect sentinels, map failure/non-finite oracles, atomic publish/replace/collision
+races, linked renderer ranges, and browser-after-publication ordering also passed.
+
+Final verification after correction was:
+
+- the exact Tier 3G boundary collected 109 tests in each interpreter: 108 passed,
+  one established unmounted optional-Vivaldi-data case skipped, and two established
+  Matplotlib/healpy warning events; there were no failures, xfails, or xpasses;
+- the accepted Tier 3F boundary passed 123/123 without warnings in Python 3.11;
+  Python 3.12 passed 120 with its three established unavailable-JAX skips and no
+  warnings;
+- the independent matrix passed 49/49 in both interpreters, with no skip, xfail, or
+  xpass and only its eight classified fixture deprecations;
+- full suites collected 2,744 tests: Python 3.11 reported 2,743 passed, one
+  established optional-data skip, and 26 warnings; Python 3.12 reported 2,737
+  passed, the same data skip plus six unavailable-JAX skips, and the same 26
+  warnings. There were no failures, xfails, or xpasses;
+- the 26 full-suite warnings remain exactly one disjointness override, eight FITS
+  unit-syntax events, 12 lossy HEALPix advisories, one numerical-multiply event,
+  and four Matplotlib figure-reuse events. No Tier 3G skip/xfail or warning
+  suppression was added;
+- Ruff lint passed and all 285 files passed format checking. Pyright 1.1.408 passed
+  at 3,698 diagnostics in both environments under the unchanged 4,600 ceiling.
+  Direct checks of the 13 changed production modules reported 259 diagnostics
+  versus 591 at the parent and zero diagnostics on Tier 3G-added lines in either
+  interpreter;
+- all three shipped YAMLs validated at 101, 11, and one channel; the forced-offline
+  example completed with five antennas, 15 baselines, two channels, and `(1, 2)`
+  product shapes;
+- the clean temporary source-copy Sphinx 8.2.3 build succeeded with the accepted
+  40 raw events: 35 existing docstring/docutils events, one historical HERA
+  toctree event, three HERA highlighting events, and one theme-option event; and
+- whitespace, exact-scope, AST/import, ownership, public-export, fallback,
+  no-side-effect, atomic-publication, marker, later-tier leakage, and
+  generated-artifact searches passed. All external probe and Sphinx temporary
+  directories were removed.
+
+Nothing was pushed or published. Remote CI, physical GPU execution, non-macOS
+platforms, mounted optional data, and live network/registry behavior remain
+unobserved. Tier 3H.1, Tier 3H.2, and Tier 3I were not started.
+`BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**;
+none is **DONE**. Tier 3H.1 is now the next authorized separate slice.

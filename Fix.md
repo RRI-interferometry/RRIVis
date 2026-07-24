@@ -2840,3 +2840,78 @@ optional data, and live network/registry behavior remain unobserved. Tier 3G was
 not implemented. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002`
 remain **OPEN**; none is **DONE**. Tier 3G is now the next authorized separate
 slice.
+
+### 2026-07-24 Tier 3G independent acceptance
+
+**Decision: Tier 3G is accepted after corrections.** The strict start gate passed
+on clean `main` at implementation
+`7d823e42ac32502ede96b9e0689e60711d22859c`, parent
+`ca93c08ec908f2c00a2af48ba0a03d3543609dcf`, with `origin/main` at
+`112f52fb0f903e0361fb6ec38199c081f63a93ed` and divergence zero behind/25 ahead.
+Python 3.11.13 and 3.12.13 both used pyuvdata 3.2.1. The implementation changed
+exactly 21 files (13 production and eight tests), with 3,847 insertions and 1,556
+deletions. The two Jones initializer files and the migrated beam-solver test were
+separately authorized and retain exact parent public API and lazy-import behavior.
+No dependency, config, documentation, generated output, NSIDE, or later-tier scope
+was present.
+
+Source review confirmed one resolved `BeamSystem` supplies canonical antenna,
+frequency, power, projection, lightcurve, footprint, source-metric, and renderer
+data. Raw FITS/diameter inputs, independent loads, `_fits_beam_power_func`, first or
+nearest fallbacks, permissive compatibility arguments, default browser work,
+mutable public plans, and duplicate visualization models are absent. Planning and
+publication remain fail-closed and atomic.
+
+Independent regression-first probes found six bounded defect groups: membership
+power incorrectly normalized against zenith rather than retaining native loaded
+power; exact-horizon power was zeroed; plan and metric cross-fields admitted forged
+or contradictory state; projection/contour/lightcurve models admitted ndarray
+subclasses and non-finite or inconsistent axes/provenance; time/LST/UTC and source
+grid relationships were insufficiently enforced; and renderer cleanup could mask a
+primary publication failure. The initial external run was 15 passed/6 failed in
+both Pythons, followed by tracked 3/3, 3/3, 2/2, and 1/1 failing selections.
+
+Correction `8a9ab69b70ff8cd13e437df9611c4bc94a82b7bf`
+(`fix(observability): correct Tier 3G planning contract`) changes only projection,
+geometry, lightcurves, planner, the Bokeh renderer, and four existing Tier 3G unit
+suites. It separates native membership power from visible-sky display
+normalization, retains horizon evaluation, makes every public model exact, finite,
+immutable, and cross-field coherent, and preserves the primary publication error
+when cleanup also fails. Nine durable regressions cover the corrected boundaries.
+
+The corrected 49-case external matrix passed in both Pythons with only eight
+temporary pyuvdata fixture deprecations per run. It covered shared/distinct FITS
+references, identical bytes at different paths, option-distinct loads, equal zenith
+values with different fingerprints, heterogeneous analytic and mixed modes,
+assignment ordering, exact identity and hostile subclasses, reordered/duplicate/
+nearly equal sky channels, circular RA, asymmetric footprints, source metrics,
+side-effect sentinels, atomic file races, linked ranges, replacement, and browser
+ordering. An independent half-trace Jones oracle matched native power at zenith,
+off axis, the horizon, and below it; off-zenith-peak display normalization reached
+exactly one while membership retained native resolved-beam power.
+
+The exact Tier 3G boundary collected 109 tests in each environment: 108 passed,
+one established optional-Vivaldi-data skip, and two established warning events.
+The Tier 3F boundary passed 123/123 on Python 3.11 and 120 passed/three established
+optional-JAX skips on Python 3.12, without warnings. Full suites collected 2,744:
+Python 3.11 reported 2,743 passed, one skip, and 26 warnings; Python 3.12 reported
+2,737 passed, seven skips, and the same 26 warnings. There were no failures,
+xfails, or xpasses. The warnings remain exactly one disjointness override, eight
+FITS-unit events, 12 lossy HEALPix advisories, one numerical multiply, and four
+Matplotlib figure-reuse events.
+
+Ruff lint and the 285-file format check passed. Pyright remained at 3,698
+diagnostics in each environment under the unchanged 4,600 ceiling; direct reports
+for all 13 production modules decreased from 591 parent diagnostics to 259 and
+reported zero diagnostic on Tier 3G-added lines. The YAMLs validated at 101/11/1
+channels, the offline example completed at five antennas/15 baselines/two channels,
+and a removed clean-source Sphinx build reproduced the classified 40-event
+baseline. Import/API parity, whitespace, exact scope, ownership, fallback,
+side-effect, collision, marker, later-tier leakage, and generated-artifact checks
+passed; all temporary external probe trees were removed.
+
+Nothing was pushed or published. Remote CI, physical GPU, non-macOS, mounted
+optional data, and live network/registry behavior remain unobserved. Tier 3H.1,
+Tier 3H.2, and Tier 3I were not started. `BEAM-001`, `BEAM-002`, `BEAM-003`,
+`OBS-001`, and `OBS-002` remain **OPEN**; none is **DONE**. Tier 3H.1 is the next
+authorized separate slice.
