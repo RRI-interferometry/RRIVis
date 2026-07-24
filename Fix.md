@@ -3003,3 +3003,37 @@ optional data, and live network/registry behavior remain unobserved. Tier 3H.2 a
 Tier 3I were not implemented. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and
 `OBS-002` remain **OPEN**; none is **DONE**. Tier 3H.2 is now the next authorized
 separate slice; Tier 3I remains unauthorized pending Tier 3H.2 acceptance.
+
+### 2026-07-24 Tier 3H.2 pre-implementation scope correction
+
+**Documentation-only correction; Tier 3H.2 was not implemented.** The live
+`tests/unit/test_observability/test_overlay.py` contains
+`test_beam_contours_drawn_when_present`, a conditional test of
+`/Volumes/CrucialX8/beams/NF_HERA_Vivaldi_power_beam_nside128.fits` that skips with
+`Vivaldi FITS not mounted` when the volume is absent. The accepted plan required
+removing this mounted Vivaldi test in Section 31 and required no mounted-data test
+dependency in Sections 33 and 43, but the former Tier 3H.2 exact file list omitted
+the containing test file. Under Section 36, implementation therefore could not
+satisfy the final contract without an unauthorized edit.
+
+The plan now narrowly adds
+`tests/unit/test_observability/test_overlay.py` to Tier 3H.2. That authorization is
+only for removal of the mount-dependent test method and imports made unused solely
+by its removal; deterministic offline observability overlay coverage remains, and
+the test file is not a fifth module deletion. The four production module deletions
+are unchanged. The dual-Python focused verification boundary now includes
+`test_tier3_beam_cleanup.py`, `test_tier1h_documentation.py`, and
+`test_overlay.py`.
+
+No implementation, source, test, configuration, dependency, lockfile, generated
+artifact, or other documentation change occurred, and no implementation test was
+run. Historical Tier 3H.1 evidence remains accurate and unchanged. Historical
+HERA/Vivaldi filenames and measurements may remain only when clearly labeled
+historical, not as active supported behavior. No compatibility shim, fallback,
+schema rewrite, solver change, advisor redesign, Tier 3I work, or Tier 4 through 8
+work is authorized.
+
+`BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none
+is **DONE**. Tier 3H.2 remains unimplemented and is now the next executable task.
+Tier 3I remains unauthorized until Tier 3H.2 is separately implemented and
+independently accepted; final issue closure remains exclusively owned by Tier 3I.

@@ -2274,14 +2274,20 @@ flowchart LR
 ### 35.9 Tier 3H.2 — legacy removal and final truth surfaces
 
 - **Objective:** complete Sections 30 through 32, delete the four named modules and
-  every old runtime/export surface, and make all final docs truthful.
+  every old runtime/export surface, remove the single non-hermetic mounted Vivaldi
+  conditional test while preserving deterministic offline observability overlay
+  coverage, and make all final docs truthful.
 - **First red evidence:** legacy/raw-registry exports and residual imports remain;
   cleanup, public export, documentation, migration, and historical-truth tests fail.
 - **Production changes:** exact module deletion/export cutover, retained numeric
-  analytic API, residual-name cleanup, README/Sphinx/API/migration/HERA truth, and no
-  schema/YAML rewrite already completed in 3B.
+  analytic API, residual-name cleanup, removal of only the mount-dependent test method
+  and imports made unused solely by that removal, README/Sphinx/API/migration/HERA
+  truth, and no schema/YAML rewrite already completed in 3B.
 - **Scientific invariants:** canonical BeamSystem remains the only beam owner; no
   compatibility shim, fallback, stale supported claim, or solver behavior change.
+  Deterministic observability overlay tests remain. Historical Vivaldi documentation
+  may remain only when clearly labeled historical; no live network, registry,
+  repository-data, or mounted-volume dependency remains.
 - **Stop:** every final Tier 3 acceptance criterion is locally green and committed;
   all five issues still await the independent 3I whole-tier gate.
 - **Excluded:** advisor/result redesign, all Tiers 4 through 8, and unrelated debt.
@@ -2504,6 +2510,7 @@ docs/migration_guide.md
 docs/HERA_VSIM_ANALYSIS.md
 tests/unit/test_tier1h_documentation.py
 tests/unit/test_core/test_tier3_beam_cleanup.py
+tests/unit/test_observability/test_overlay.py
 ```
 
 Tier 3H.2 deletes, rather than rewrites, exactly these four module paths:
@@ -2544,7 +2551,7 @@ targets are:
 | 3F | different complex beams lose baseline phase in scalar HEALPix |
 | 3G | heterogeneous no-reference path or old first-channel/default behavior survives |
 | 3H.1 | widest-beam advisor, invalid/empty derivation, or missing result snapshot survives |
-| 3H.2 | legacy export/module/residual import or stale final docs survive |
+| 3H.2 | legacy export/module/residual import, stale final docs, or the mounted Vivaldi conditional test survives |
 | 3I | acceptance probes fail on any discovered whole-tier gap; no correction is made in 3I |
 
 Red evidence must show the intended contract failure, not syntax/import damage from
@@ -2566,7 +2573,7 @@ paths:
 | 3F | `tests/unit/test_jones tests/unit/test_core/test_beam_solver_integration.py tests/unit/test_core/test_visibility_backend.py tests/unit/test_simulator/test_api.py tests/unit/test_simulator/test_instrument_integration.py` |
 | 3G | `tests/unit/test_observability tests/unit/test_core/test_observability_lightcurve.py tests/unit/test_core/test_observability_rings.py tests/unit/test_jones/test_beam_analysis.py tests/unit/test_core/test_beam_projection.py tests/unit/test_visualization/test_observability_bokeh_renderer.py tests/unit/test_simulator/test_instrument_integration.py` |
 | 3H.1 | `tests/unit/test_utils/test_healpix_utils.py tests/unit/test_core/test_beam_sampling.py tests/unit/test_core/test_sky_pipeline.py tests/unit/test_simulator/test_api.py` |
-| 3H.2 | `tests/unit/test_core/test_tier3_beam_cleanup.py tests/unit/test_tier1h_documentation.py` |
+| 3H.2 | `tests/unit/test_core/test_tier3_beam_cleanup.py tests/unit/test_tier1h_documentation.py tests/unit/test_observability/test_overlay.py` |
 | 3I | the exact two commands below |
 
 Tier 3I runs this fixed whole-tier focused boundary; it contains no optional glob and
@@ -3885,3 +3892,38 @@ unobserved. Tier 3H.2 and Tier 3I were not started. `BEAM-001`, `BEAM-002`,
 `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none is **DONE**. Tier 3H.2
 is now the next authorized separate slice; Tier 3I remains unauthorized until
 Tier 3H.2 receives its own acceptance.
+
+## 58. Tier 3H.2 pre-implementation scope correction
+
+**Recorded on 2026-07-24; no implementation occurred.** The live
+`tests/unit/test_observability/test_overlay.py` contains the conditional
+`test_beam_contours_drawn_when_present`, which refers to
+`/Volumes/CrucialX8/beams/NF_HERA_Vivaldi_power_beam_nside128.fits` and skips with
+`Vivaldi FITS not mounted` when the volume is absent. Section 31 requires removal of
+that mounted Vivaldi conditional test, while Sections 33 and 43 require no mounted
+test dependency. The former Tier 3H.2 exact file list omitted its containing file, so
+Tier 3H.2 could not satisfy those requirements without violating the Section 36 stop
+rule for an unlisted required change.
+
+The Tier 3H.2 list now narrowly authorizes
+`tests/unit/test_observability/test_overlay.py` so the implementation slice can
+remove only that mount-dependent test method and imports made unused solely by its
+removal. The file is not a fifth module deletion, and its deterministic offline
+observability overlay tests remain. The four production module deletions are
+unchanged. The dual-Python focused boundary now names
+`test_tier3_beam_cleanup.py`, `test_tier1h_documentation.py`, and
+`test_overlay.py`.
+
+A consistency review found that every Section 31 action now has an authorized file,
+the four production deletion paths remain exact and unique, and no other required
+Tier 3H.2 action needs an unlisted file. Historical HERA/Vivaldi filenames and
+measurements may remain only as clearly labeled history, never as active supported
+behavior. This correction authorizes no compatibility shim, fallback, schema
+rewrite, solver change, advisor redesign, Tier 3I work, or Tier 4 through 8 work.
+No source, test, configuration, dependency, lockfile, generated file, or other
+documentation was changed, and no implementation test was run.
+
+Tier 3H.2 has not started and is the next authorized implementation slice.
+`BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` remain **OPEN**; none
+is **DONE**. Final issue closure remains exclusively owned by Tier 3I, which remains
+unauthorized until Tier 3H.2 is separately implemented and independently accepted.
