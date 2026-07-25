@@ -4,8 +4,8 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design gate complete; implementation not accepted |
-| Date | 2026-07-25 |
+| Status | Independently accepted after corrections; implementation not started |
+| Date | 2026-07-26 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
 | Baseline | `bf544540d83fefef77feb157b060c046276a3c25` |
@@ -2766,7 +2766,177 @@ errors before this design can be independently accepted.
 
 ## 47. Design-gate conclusion
 
-This specification closes every Tier 4 product, scientific, schema, API,
-safety, migration, and sequencing decision. `OUT-001` through `OUT-006` remain
-`OPEN`. No Tier 4 implementation has started. Tier 4A remains unauthorized
-pending a separate independent review and acceptance of this design.
+**Decision: the Tier 4 design is independently accepted after bounded
+corrections.** This specification closes every Tier 4 product, scientific,
+schema, API, safety, migration, and sequencing decision. `OUT-001` through
+`OUT-006` remain `OPEN`; no implementation issue is closed by design
+acceptance.
+
+### 47.1 Starting state and reviewed scope
+
+The fail-closed review started on clean `main` at design commit
+`d468f203989bbcd9f4a00b42f658fa669d5bd0be`
+(`docs(output): plan Tier 4 result integration`), parent
+`bf544540d83fefef77feb157b060c046276a3c25`. After fetch, local HEAD,
+`origin/main`, and remote `refs/heads/main` matched with zero divergence; the
+index, worktree, and untracked set were empty; both whitespace gates passed.
+GitHub Actions run `30168421011` was a successful `push` run for that exact
+design SHA. Quality and all six locked Linux/Intel-macOS/Apple-silicon-macOS
+Python 3.11/3.12 jobs succeeded.
+
+The review read `AGENTS.md`, `Fix.md`, this complete plan,
+`Tier2InstrumentPlan.md`, `Tier3BeamObservabilityPlan.md`, the complete design
+diff, and the live configuration-to-artifact implementation, tests, shipped
+YAML, examples, notebook, active docs, manifests, lockfile, and CI workflow.
+The design commit changed only this plan and `Fix.md`. Its current-state
+inventory was accurate: there is no public canonical result; run/result state
+is an aliased mutable mapping; time counts conflict; HDF5 loses correlations,
+promotes dtype, encodes baselines in names, and evaluates text; JSON is an
+incomplete summary; MS reconstructs coordinates and hides phase forcing;
+UVFITS is unavailable at the high level; and direct/workflow output policy is
+split. No material live-source claim remained uncorrected.
+
+### 47.2 Scientific, model, and provenance acceptance
+
+Independent float64 calculations confirmed the normalized-ceiling time rule:
+duration/cadence cases produced counts `1`, `3`, and `3` for equal, divisible,
+and `2.5/1`; a ratio `3 - 64 eps` produced `3`; `3 + 8 eps` normalized to `3`;
+and `3 + 64 eps` produced `4`. At ratio ten million, half the declared
+tolerance suppressed a noise-only extra center while twice the tolerance
+produced the limit-exceeding `10,000,001`. Infinite-ratio handling must raise
+before integer conversion or allocation. Astropy two-part JD preserved
+0.25-second centers across `2016-12-31T23:59:60`; a `2.2/1` grid selected
+centers `0,1,2` and truthfully allowed the last full exposure to end at `2.5`.
+The half-open-center/full-exposure interpretation is coherent and does not
+silently add or omit an intended center.
+
+The `(T,B,F,C)` public result, private `(T,B,F,2,2)` receptor cube, flattening
+to `XX,XY,YX,YY`, and Stokes `I = XX + YY` agree with Tier 2 selection and Tier
+3 RIME conventions. Explicit widths, selected auto/cross identity, immutable
+bytes-backed base arrays, exact-type factories, identity equality,
+unhashability, fieldwise scientific comparison, one transfer/one cast, and
+last-success publication are implementable without a compatibility mapping.
+The live-versus-loaded result distinction is enforceable. Scientific and
+provenance hashes have non-circular tagged inputs; performance, workflow
+paths, temporary names, publication time, and browser state are excluded as
+specified. No Tier 5 receptor, Tier 6 hybrid, or imported-calibration behavior
+is required.
+
+The width migration is now complete at its first breaking slice: 4B owns
+input/resolution, direct CLI, fixtures, all three YAMLs, the script, notebook,
+and every active width-bearing truth page. Grid widths are explicit in the
+configured unit; explicit widths match center count; single-channel data has no
+invented default; and resolution precedes backend/device work.
+
+### 47.3 Phase, storage, and standard-format acceptance
+
+Dual-interpreter pyuvdata 3.2.1 probes used two times, an auto and nontrivial
+cross from a three-antenna selected subset, two 1.5-MHz-spaced/width channels,
+four correlations, nontrivial phase, a flag, non-unit weights, and c64/c128.
+An independent Astropy zenith calculation matched the projected catalog at
+RA `2.9394969882` rad and Dec `-0.5339644046` rad. Independent local tangent
+bases matched cross-baseline projected UVWs within `5e-5` metre at both times,
+and the NumPy `exp(-2 pi i delta_w nu/c)` projection matched c64 within
+`1.27e-7` and c128 within `1.2e-15`. The explicit first-time-zenith sidereal
+projection, original zenith-drift record, antenna-2-minus-antenna-1 geometry,
+negative phase sign, and `force_phase=False` contract are accepted.
+
+Both environments produced time-major/baseline-inner BLTs and initial codes
+`-5,-7,-8,-6`; standard files returned AIPS order `-5,-6,-7,-8`, which
+round-tripped exactly after canonical remapping. MS stored c64 exactly and
+converted c128 to c64 with maximum probe difference `1.893e-7 Jy`; UVFITS
+preserved both c64 and c128 exactly. Times, widths, exposures, pairs, flags,
+weights, UVWs, antenna identity, and the sidereal catalog survived. Python
+3.11 emitted only the established uncalibrated-unit MS warning; Python 3.12
+also emitted the upstream NumPy `where`-without-`out` warning. Handles closed
+and all format trees were immediately removable. The corrected equal-spacing/
+equal-width UVFITS rule and no-`clobber` call signature are supported by direct
+failure evidence.
+
+Temporary h5py 3.14.0 and 3.16.0 probes preserved c64/c128 values and dtypes
+with gzip level 4, shuffle where declared, and Fletcher32; boolean
+gzip/Fletcher32, uncompressed coordinate Fletcher32, fixed `S2` labels,
+unfiltered UTF-8 scalars, and dimension labels all round-tripped. The complete
+tree, two-part time, four correlations, structural baselines, redundant
+identity checks, bounded JSON, exact dtype rejection, schema/version allowlist,
+pre-allocation limits, dynamic-evaluator prohibition, fingerprints, read-back,
+and legacy failure guidance form a coherent trust boundary.
+
+Summary JSON is accepted only as bounded, versioned, explicitly incomplete
+`.summary.json` with no reader and exact payload exclusions; HDF5 alone is the
+complete reconstructable RadioSim format. Standard formats return projected
+data rather than falsely reconstructing the native result.
+
+### 47.4 Workflow, API, visualization, and slicing acceptance
+
+The four collision policies, manifest ownership, unknown-directory rejection,
+TTY-only prompt, non-TTY failure, deterministic suffix range, sibling staging,
+logger close, read-back, fsync, directory exchange, rollback, cleanup error,
+and browser-last rules are exact. Linux `renameat2` no-replace/exchange and
+macOS `renameatx_np` exclusive/swap are the required primitives; no unsafe
+fallback exists. On the review host, the macOS symbols and flags were present,
+exclusive rename rejected an existing directory with `EEXIST`, directory swap
+preserved both trees, exclusive publication to an absent path succeeded, and
+directory fsync succeeded. Unsupported primitive/volume behavior remains a
+typed failure, never copy/delete emulation.
+
+Public signatures, lazy imports, error ownership, and validation order are
+complete. Direct `Simulator.save` owns one final artifact path and never reads
+workflow policy. Configuration-declared format and plot failures precede
+Simulator/backend work; post-run direct saves validate before path mutation.
+Renderers consume result coordinates, derive Stokes I explicitly, stage output,
+and open browsers only after publication. Every retained workflow and
+visualization control has one active owner; every removed control has exact
+migration text.
+
+The corrected structured audit passed with 47 numbered sections, six open
+issues, nine slices, no planned-path existence error, no ownership gap, and
+Tier 4I's exact two-file boundary. It specifically proves 4B width ownership,
+4C pre-runtime unavailability and result-consumer migration, direct-only 4D
+HDF5 with immediate unsafe-reader removal, immediate 4E generic-MS removal,
+complete 4F exports/configs/save transaction, 4G plot/config/workflow
+activation, and safe 4H deletion/dependency cleanup. Every focused command is
+valid in both Pixi environments; every common gate includes the affected
+executable samples and all public-truth slices run clean-copy Sphinx.
+
+All ambiguity-search matches were classified: `eval` and `force_phase=True`
+are historical defects or residual searches; `linspace`, `literal_eval`,
+fallback, and silent behavior are explicit prohibitions; `either` describes
+the observed interpreter warning difference. There is no normative TBD,
+TODO, maybe, possibly, alternative, implementation-defined choice, deferred
+decision, best effort, or scientifically silent conversion.
+
+### 47.5 Verification evidence and authorization
+
+The exact ten-module focused baseline collected 279 in each interpreter.
+Python 3.11.13 passed 279/279; Python 3.12.13 passed 278 with exactly one
+unavailable-JAX skip. There were zero failures, xfails, or xpasses and no
+warning summary. Ruff passed; all 283 files passed formatting; Pyright 1.1.408
+reported 3,225 diagnostics in each environment under the unchanged 4,600
+ceiling. The lock remains v7 with `default`, `py312`, `linux-64`, `osx-64`,
+and `osx-arm64`; pyuvdata remains 3.2.1 in both environments.
+
+The YAMLs validated at 101, 11, and one center channel. The forced-offline
+example completed with five antennas, 15 baselines, two frequencies, and
+`(1,2)` for every current correlation product, leaving no output. Clean-copy
+Sphinx 8.2.3 succeeded with the established 40 events: 35
+docutils/docstring, one HERA toctree, three HERA highlighting, and one theme
+option. Whitespace and changed-path gates passed.
+
+Correction `a42b96e117d66496cde75cfad09979719fa0d494`
+(`docs(output): correct Tier 4 design`) contains only this plan. It records the
+independently failing slice and dependency evidence before the corrections.
+No production source, durable test, fixture, YAML, example, dependency,
+lockfile, CI workflow, generated artifact, or Tier 4 implementation changed.
+
+Physical GPU execution, a distinct complex256 host path, live network/registry/
+external-data behavior, non-macOS dependency probes, and direct Linux atomic-
+primitive execution remain genuinely unobserved. The locked CI platform matrix
+and every future slice acceptance must test its applicable runtime; these
+boundaries are not claimed as observed.
+
+Tier 4A is now the only next authorized separate task, limited to its three
+test-only characterization files. Tier 4 implementation has not started.
+Tier 4B and every later slice remain unauthorized until Tier 4A is implemented
+and independently accepted. No PR, tag, release, or deployment is authorized
+or created by this acceptance.

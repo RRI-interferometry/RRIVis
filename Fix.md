@@ -3292,3 +3292,60 @@ generated artifact, or later-tier behavior was changed. `OUT-001`, `OUT-002`,
 `OUT-003`, `OUT-004`, `OUT-005`, and `OUT-006` all remain **OPEN**. Tier 4A
 remains unauthorized. The next task is an independent review and acceptance of
 `Tier4ResultOutputPlan.md`, not implementation.
+
+### 2026-07-26 Tier 4 design independent acceptance
+
+**The Tier 4 result/output design is independently accepted after bounded
+corrections.** `Tier4ResultOutputPlan.md` remains the governing implementation
+specification. This current status supersedes, but does not rewrite, the
+historical design-gate paragraph above that correctly left Tier 4A
+unauthorized pending this review.
+
+The fail-closed review began on clean `main` at design commit
+`d468f203989bbcd9f4a00b42f658fa669d5bd0be`
+(`docs(output): plan Tier 4 result integration`), parent
+`bf544540d83fefef77feb157b060c046276a3c25`. Local, tracking, and remote main
+matched with zero divergence. Exact-head GitHub Actions run `30168421011` was a
+successful push run; quality and all six locked OS/Python jobs succeeded.
+
+Independent source review confirmed the six live OUT defects and the plan's
+current-state trace. Dual-Python external probes confirmed the normalized
+half-open time grid, leap-second two-part JD, first-time-zenith standard
+projection, canonical/AIPS correlation reorder, c128-to-c64 Measurement Set
+conversion, c64/c128 UVFITS preservation, and declared HDF5 dtype/filter/string
+combinations. A macOS primitive probe confirmed exclusive rename, directory
+swap, and directory fsync behavior.
+
+The review found material planning defects before acceptance. pyuvdata 3.2.1
+UVFITS has no `clobber` keyword and requires multi-channel spacing to match
+channel width, not merely remain below it. The original slice lists also
+omitted first-use CLI, configuration, sample, documentation, export, and
+workflow paths; prematurely depended on 4F's high-level save API in 4D; and
+left unsafe HDF5/MS surfaces active until 4H. Correction
+`a42b96e117d66496cde75cfad09979719fa0d494`
+(`docs(output): correct Tier 4 design`) changes only the governing plan and
+records the failing evidence. The corrected structured audit reports all 47
+sections, nine slices, exact new/existing path state, zero ownership gaps, no
+unsafe active-path gap, and no normative ambiguity.
+
+The exact focused boundary passed 279/279 on Python 3.11.13 and 278 with one
+unavailable-JAX skip on Python 3.12.13, with zero failures, xfails, or xpasses.
+Ruff and all 283 formatting checks passed. Pyright 1.1.408 reported 3,225
+diagnostics in both environments under the unchanged 4,600 ceiling. YAML
+validation retained 101/11/1 channels; the offline example retained five
+antennas, 15 baselines, two frequencies, and `(1,2)` product shapes. Clean-copy
+Sphinx 8.2.3 succeeded with the established 40 classified events. No generated
+or task-specific temporary artifact remains in the repository.
+
+This acceptance changes planning records only. No Tier 4 production behavior,
+durable implementation test, fixture, configuration, dependency, lockfile, CI,
+example, or generated artifact changed, and Tier 4 implementation has not
+started. `OUT-001`, `OUT-002`, `OUT-003`, `OUT-004`, `OUT-005`, and `OUT-006`
+all remain **OPEN**; none is **DONE**.
+
+Tier 4A is now the only next authorized separate slice and remains limited to
+its three test-only characterization files. Tier 4B and all later slices remain
+unauthorized until Tier 4A is implemented and independently accepted. Physical
+GPU, distinct complex256, live network/registry/external-data, non-macOS
+dependency probes, and direct Linux atomic-primitive execution remain
+unobserved. No PR, tag, release, or deployment was created.
