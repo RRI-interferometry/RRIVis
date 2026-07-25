@@ -23,12 +23,14 @@ publication occurred during design.
 
 ## 2. Design-gate status
 
-This document completes the Tier 3 design gate only. The corrected design was
-independently accepted on 2026-07-21, so Tier 3A test/fixture work is now the only
-authorized implementation slice. Tier 3B and later work remain unauthorized until
-3A is separately implemented and accepted. `BEAM-001`, `BEAM-002`, `BEAM-003`,
-`OBS-001`, and `OBS-002` remain unresolved in implementation; design acceptance moved
-only `OBS-002` from `DECISION` to `OPEN` and marked no issue done.
+This document began as the Tier 3 design gate. The corrected design was
+independently accepted on 2026-07-21, and the separately gated Tier 3A through
+Tier 3H.2 slices were subsequently implemented and accepted. A fresh whole-tier
+Tier 3I review on 2026-07-25 independently accepted the integration at
+`aa01145b534c44c6b33a7681c1d103216ebf4313`; Section 60 records the complete
+evidence. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002` are now
+closed as **DONE**. Earlier slice records that state they were open remain
+historical and must not be read as the current status.
 
 The selected design has zero unresolved product or scientific decisions. Unsupported
 science fails closed and is assigned to a named later tier.
@@ -4060,3 +4062,142 @@ was created; the separately authorized `main` push occurs only after this
 acceptance record is committed and the remote advancement gate passes. Tier 3I
 was not started. `BEAM-001`, `BEAM-002`, `BEAM-003`, `OBS-001`, and `OBS-002`
 remain **OPEN**; none is **DONE**. Tier 3I is the next authorized separate task.
+
+## 60. Tier 3I independent whole-tier acceptance record
+
+Tier 3I was independently accepted on 2026-07-25 after a fresh, fail-closed
+whole-Tier-3 review. The review started on `main` at
+`aa01145b534c44c6b33a7681c1d103216ebf4313`
+(`fix(ci): restore cross-platform acceptance gates`), whose parent is
+`7eb057ec64f8a5f7a92d8cb178a84d7b87b3e9c1`. `origin/main` and the remote
+`refs/heads/main` were the same starting SHA, divergence was zero behind/zero
+ahead, and the worktree, index, and untracked state were empty. A final fetch
+immediately before documentation reconfirmed that exact state.
+
+The independently recomputed range from the governing Tier 3 baseline
+`8045bb49956ac7f4c04063fb1f9fb9d5928d5d8c` through `aa01145b` is linear:
+33 commits, zero merges, 99 paths, 27,261 insertions, and 5,581 deletions.
+Commit-by-commit review and exact-range audits found no Tier 4 implementation.
+The bounded CI correction at `aa01145b` changes exactly `pixi.toml`,
+`pixi.lock`, `tests/unit/test_cli/test_simulate.py`, and
+`tests/unit/test_release_metadata.py`, totaling 373 insertions and 171
+deletions. It preserves the CLI exit and complete incomplete-diameter guidance
+while making the Rich assertion whitespace-insensitive; constrains Numba to a
+Conda-resolvable `>=0.64,<0.67`; and verifies the complete environment/platform
+lock matrix, provenance, and platform/Python tags. It changes no production
+science, beam architecture, solver behavior, workflow job, platform, Python
+version, locked-install requirement, test command, timeout, or quality gate.
+
+The earlier Tier 3I attempt was correctly rejected because local evidence alone
+could not satisfy the mandatory exact-SHA CI gate. Run `30102386325` on
+`7eb057ec` had a Linux assertion failure caused by Rich physical-line wrapping
+and an Intel macOS locked-install failure caused by a PyPI llvmlite 0.46.0
+source build; the Intel test steps therefore did not run. The rejection was not
+rewritten. The bounded repair was then proven by exact-SHA push run
+`30151413894`: quality and all six OS/Python matrix jobs succeeded, including
+Intel macOS Python 3.11 and 3.12 locked installs followed by the complete
+non-slow tests (2,824 passed, six skipped in each job).
+The seven successful jobs were quality (`89662306859`), osx-arm64/Python 3.11
+(`89662306867`), osx-64/Python 3.12 (`89662306868`), linux-64/Python 3.12
+(`89662306870`), linux-64/Python 3.11 (`89662306872`),
+osx-arm64/Python 3.12 (`89662306878`), and osx-64/Python 3.11
+(`89662306888`).
+
+The source and public-API review established the following:
+
+- all four strict beam modes and all five accepted analytic variants resolve
+  through YAML, typed-config, mapping, and parameter constructors;
+- exact tagged `AntennaId` resolution rejects unknown, duplicate, incomplete,
+  and conflicting assignments deterministically, including numeric-looking
+  names distinct from antenna numbers;
+- each Simulator owns one local `BeamSystem`; same-key loading deduplicates,
+  scientifically distinct options remain distinct, publication is atomic and
+  retryable, and state/provenance/result snapshots are immutable, owned, and
+  detached;
+- the strict pyuvdata 3.2.1 scalar-E-field contract validates snapshots,
+  private copies, hashes, file races, identity basis, fixed X/Y feeds,
+  azimuth/zenith-angle coverage through the horizon, frequency coverage,
+  normalization, unit bandpass, finite values, and complex64/complex128
+  preservation before publication;
+- point and HEALPix solvers use the same canonical evaluator and implement
+  `J_p C J_q^H`, the negative geometric phase convention, endpoint
+  conjugation, and the half-trace unpolarized HEALPix power convention;
+- the advisor uses all selected baselines and exact observation frequencies,
+  including autos, applies the endpoint-product harmonic feature scale and
+  factor-five bound, reports typed failures, caps safely, and never mutates
+  NSIDE; and
+- observability is a sibling plan-before-render/output pipeline. Exact channel
+  and reference selection, deterministic homogeneous minimum-number default,
+  explicit heterogeneous reference, plan provenance, snapshots, sweeps, drift
+  scans, and overlays all use the selected canonical evaluator without
+  premature output or browser side effects.
+
+Independent adversarial probes were created outside the repository and removed
+afterward. The primary matrix passed 79/79 on Python 3.11 and 78 passed with one
+unavailable-JAX skip on Python 3.12; its 29 events per interpreter were 28
+pyuvdata future `x_orientation` fixture events and one future feed-default
+event. An additional explicit boundary matrix passed 8/8 in both interpreters,
+covering every accepted analytic config variant, manual auto and cross
+`J_p C J_q^H`, auto-only advice and factor five, homogeneous snapshot reference
+selection, drift-scan evaluator reuse, JSON-safe provenance, and overlay reuse.
+It produced no Python 3.11 warning and three upstream Healpy/Matplotlib pending
+deprecations on Python 3.12. Combined results were therefore 87 passed on
+Python 3.11 and 86 passed/one unavailable-JAX skip on Python 3.12.
+
+The fixed whole-tier focused boundary collected 954 tests. Python 3.11 passed
+954 with no skips, xfails, or xpasses; Python 3.12 passed 951 with exactly three
+unavailable-JAX skips and no xfails or xpasses. Both emitted only two established
+Healpy/Matplotlib figure-reuse events. Full suites then collected 2,830 tests:
+Python 3.11 passed all 2,830 in 309.98 seconds with no skips, xfails, or xpasses;
+Python 3.12 passed 2,824 in 283.44 seconds with exactly six unavailable-JAX
+skips and no xfails or xpasses. The six skips were one each in the JAX backend,
+sky backend, sky spectral, and visibility backend tests and two Jones-backend
+cases, all explicitly reporting that JAX was unavailable. Each full run retained
+exactly 26 established events: one disjointness advisory, eight FITS unit-syntax
+events, 12 lossy HEALPix advisories, one numerical-multiply event, and four
+Healpy/Matplotlib figure-reuse events. No new warning category appeared.
+
+Ruff and the 283-file format check passed. Pyright 1.1.408 reported 3,225
+diagnostics in each Pixi environment under the unchanged 4,600 ceiling.
+Lockfile parsing proved Conda Numba and llvmlite selections for both environments
+on every supported platform, with no selected PyPI variants. The three shipped
+YAMLs validated at 101, 11, and one frequency channel. The forced-offline
+example completed with five antennas, 15 baselines, two frequencies, and
+`(1, 2)` visibility-product shapes without save, plot, browser, network,
+registry, or mounted-data activity.
+
+The clean-copy Sphinx 8.2.3 build succeeded with the accepted 40-event baseline:
+35 historical docutils/docstring events, one HERA toctree event, three HERA
+highlighting events, and one unsupported theme-option event. It introduced no
+deleted-surface reference or new category, and its temporary tree was removed.
+Whitespace, exact scope, history, import identity, deleted-module, residual,
+mounted-path, documentation, suppression, compatibility/fallback, ignored-field,
+generated-artifact, and Tier 4 leakage audits passed. No Tier 3 behavior was
+masked by a new skip, skipif, xfail, warning filter, `pyright: ignore`,
+`type: ignore`, `noqa`, or broad exception suppression. The retained analytic
+surface is exactly the accepted 16 functions in accepted order and defining
+identity; obsolete managers, registries, handlers, composed/plotting helpers,
+and the mounted Vivaldi path are absent.
+
+The closure decisions are indivisible and all passed:
+
+- **BEAM-001 — DONE:** every accepted input reaches one assignment and the
+  shared Simulator/solver runtime; strict FITS failures are typed and no
+  accepted field is ignored.
+- **BEAM-002 — DONE:** the legacy manager/raw-ID/registry/fallback architecture
+  is absent; local deduplication, scientific distinction, atomic retry, and
+  detached provenance are proven.
+- **BEAM-003 — DONE:** the obsolete dictionary advisor is absent; canonical
+  selected-baseline/frequency product science, autos, factor five, typed errors,
+  caps, and nonmutation are proven.
+- **OBS-001 — DONE:** observability is the renderer-neutral sibling planning
+  pipeline with correct optional-sky and side-effect boundaries.
+- **OBS-002 — DONE:** equivalence fingerprints, deterministic homogeneous
+  defaults, explicit heterogeneous references, all accepted reference forms,
+  titles/provenance, snapshots, sweeps, drift scans, and overlays are proven.
+
+Physical GPU execution, live network/registry/external-data operation, and
+production deployment remain unobserved; this acceptance does not claim them.
+Tier 4 was neither designed nor implemented. The only possible next work is a
+separate Tier 4 design and governing-gate task. No PR, tag, release, or
+deployment was created.

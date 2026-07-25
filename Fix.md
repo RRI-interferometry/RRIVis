@@ -2,7 +2,7 @@
 
 | Plan metadata | Value |
 |---|---|
-| Status | Tier 1 locally accepted; Tier 2 accepted after correction; Tier 3A dependency/fixture work accepted after correction on 2026-07-21; all five Tier 3 issues remain open; remote CI not yet observed |
+| Status | Tier 1 accepted; Tier 2 accepted after correction; Tier 3 independently accepted on 2026-07-25; all five Tier 3 issues are done; exact-SHA remote CI observed green |
 | Prepared | 2026-07-14 |
 | Current release | 0.2.0 |
 | Baseline commit | `73ae7a3` (`main`, aligned with `origin/main`) |
@@ -187,11 +187,11 @@ Status values used below:
 | INS-001 | DONE | Per-antenna diameter map is ignored and loaded values are overwritten | 2 |
 | INS-002 | DONE | pyuvdata telescope flags are not wired | 2 |
 | INS-003 | DONE | Baseline-selection fields are ignored | 2 |
-| BEAM-001 | OPEN | Modern FITS/per-antenna beam config is not connected to `Simulator` | 3 |
-| BEAM-002 | OPEN | `BeamManager` expects a different legacy config contract | 3 |
-| BEAM-003 | OPEN | HEALPix NSIDE beam advisor reads antenna dictionaries incorrectly | 3 |
-| OBS-001 | OPEN | Observability is architecturally misclassified as a product | 3 |
-| OBS-002 | OPEN | Implement the accepted explicit-reference semantics for heterogeneous observability beams | 3 |
+| BEAM-001 | DONE | Modern FITS/per-antenna beam config is not connected to `Simulator` | 3 |
+| BEAM-002 | DONE | `BeamManager` expects a different legacy config contract | 3 |
+| BEAM-003 | DONE | HEALPix NSIDE beam advisor reads antenna dictionaries incorrectly | 3 |
+| OBS-001 | DONE | Observability is architecturally misclassified as a product | 3 |
+| OBS-002 | DONE | Implement the accepted explicit-reference semantics for heterogeneous observability beams | 3 |
 | OUT-001 | OPEN | Output controls are only partially honored | 4 |
 | OUT-002 | OPEN | Point, HEALPix, and writer time-grid counts disagree | 4 |
 | OUT-003 | OPEN | HDF5 drops correlations and forces `complex128` | 4 |
@@ -3133,3 +3133,117 @@ authorized `main` push follows only after this record is committed and the remot
 gate passes. Tier 3I was not started. `BEAM-001`, `BEAM-002`, `BEAM-003`,
 `OBS-001`, and `OBS-002` remain **OPEN**; none is **DONE**. Tier 3I is now the
 next authorized separate task and final issue closure remains there.
+
+### 2026-07-25 Tier 3I independent whole-tier acceptance
+
+Tier 3 is independently accepted and `BEAM-001`, `BEAM-002`, `BEAM-003`,
+`OBS-001`, and `OBS-002` are all **DONE**. This current closure supersedes, but
+does not rewrite, the historical slice records above that correctly left all
+five issues open.
+
+The fail-closed review started on clean `main` at
+`aa01145b534c44c6b33a7681c1d103216ebf4313`
+(`fix(ci): restore cross-platform acceptance gates`), parent
+`7eb057ec64f8a5f7a92d8cb178a84d7b87b3e9c1`. Local HEAD, `origin/main`, and
+remote `refs/heads/main` matched, with zero divergence and no staged,
+unstaged, or untracked path. The range from
+`8045bb49956ac7f4c04063fb1f9fb9d5928d5d8c` through `aa01145b` is linear:
+33 commits, zero merges, 99 paths, 27,261 insertions, and 5,581 deletions.
+
+The earlier Tier 3I attempt was validly rejected because exact-SHA CI had not
+passed: run `30102386325` at `7eb057ec` exposed Rich physical-line wrapping in
+one Linux CLI assertion and a PyPI llvmlite 0.46.0 source-build failure during
+the Intel macOS locked install, so Intel tests never ran. The bounded repair
+changes only `pixi.toml`, `pixi.lock`, the CLI simulation test, and the release
+metadata tests (373 insertions, 171 deletions). It preserves the CLI failure
+contract, adds Conda-resolvable Numba `>=0.64,<0.67`, and enforces the full
+environment/platform lock matrix and provenance without weakening workflows,
+platforms, Python versions, locked installs, tests, timeouts, or quality gates.
+Exact-SHA run `30151413894` then passed quality and all six OS/Python jobs,
+including both Intel macOS locked installs and full non-slow test execution.
+The successful jobs were quality (`89662306859`), osx-arm64/Python 3.11
+(`89662306867`), osx-64/Python 3.12 (`89662306868`), linux-64/Python 3.12
+(`89662306870`), linux-64/Python 3.11 (`89662306872`),
+osx-arm64/Python 3.12 (`89662306878`), and osx-64/Python 3.11
+(`89662306888`).
+
+Independent source, history, and API review proved all four beam modes, all five
+analytic variants, and all four public config constructors; exact tagged
+assignment and deterministic hostile-assignment failures; one Simulator-local
+`BeamSystem`; same-key deduplication with distinct scientific identities;
+atomic retry; and immutable, owned, detached state and result provenance. The
+pyuvdata 3.2.1 scalar-E-field contract proves snapshot/private-copy/hash/race
+handling, identity basis, fixed X/Y feeds, azimuth/zenith-angle horizon coverage,
+exact frequencies, normalization, unit bandpass, finite data, typed errors, and
+complex64/complex128 preservation.
+
+Both solvers use the canonical evaluator. Independent manual oracles confirmed
+`J_p C J_q^H` for autos and crosses, endpoint conjugation, negative geometric
+phase, and HEALPix half-trace unpolarized power across the accepted runtime
+families and available NumPy/Numba/JAX backends. The canonical advisor uses
+every selected baseline and exact frequency, including auto-only selections,
+endpoint-product harmonic feature scale, factor five, typed failures, and safe
+caps without mutating NSIDE. Observability is a sibling plan-before-render/output
+pipeline with exact channel/reference handling, deterministic homogeneous
+minimum-number default, mandatory explicit heterogeneous reference, canonical
+snapshots/sweeps/drift scans/overlays, JSON-safe detached provenance, and no
+premature file, plot, browser, network, registry, or mounted-data side effect.
+
+External primary probes passed 79/79 on Python 3.11 and 78 passed/one
+unavailable-JAX skip on Python 3.12, with 29 classified fixture/dependency
+future events in each. A supplemental explicit boundary passed 8/8 in both
+interpreters; it added every analytic config variant, manual auto/cross RIME,
+auto-only factor-five advice, and snapshot/drift/overlay evaluator reuse.
+It had no Python 3.11 warning and three upstream Healpy/Matplotlib pending
+deprecations on Python 3.12. Both external trees were removed.
+
+The fixed focused boundary collected 954: Python 3.11 passed 954, while Python
+3.12 passed 951 with exactly three unavailable-JAX skips. Full collection was
+2,830: Python 3.11 passed all 2,830 in 309.98 seconds; Python 3.12 passed 2,824
+in 283.44 seconds with exactly six unavailable-JAX skips. Every focused and
+full run had zero xfails and zero xpasses. Focused runs retained only two
+Healpy/Matplotlib figure-reuse events. Each full run retained exactly 26 known
+events: one disjointness advisory, eight FITS unit-syntax events, 12 lossy
+HEALPix advisories, one numerical-multiply event, and four Healpy/Matplotlib
+figure-reuse events. No new category appeared.
+
+Ruff and all 283 formatting checks passed. Pyright 1.1.408 reported 3,225
+diagnostics in both Pixi environments under the unchanged 4,600 ceiling.
+Lock parsing proved Conda Numba/llvmlite selections for every environment and
+supported platform, with no selected PyPI variant. The shipped YAMLs validated
+at 101, 11, and one channel. The forced-offline example completed at five
+antennas, 15 baselines, two frequencies, and `(1, 2)` product shapes.
+Clean-copy Sphinx 8.2.3 succeeded at the accepted 40 events: 35
+docutils/docstring, one HERA toctree, three HERA highlighting, and one theme
+option. All temporary trees were removed.
+
+Exact-range, whitespace, scope, import, deletion, legacy-residual,
+mounted-Vivaldi, documentation, suppression, compatibility/fallback,
+ignored-field, generated-artifact, and Tier 4 leakage audits passed. The
+retained analytic surface is exactly the accepted 16 defining functions.
+Obsolete managers, mutable registries, FITS handlers, analytic
+composed/plotting surfaces, identity fallbacks, and mounted Vivaldi activation
+are absent. No new skip, skipif, xfail, warning filter, `pyright: ignore`,
+`type: ignore`, `noqa`, or broad exception hides Tier 3 behavior.
+
+The final indivisible closure evidence is:
+
+- **BEAM-001 — DONE:** every accepted config reaches one canonical assignment,
+  Simulator evaluation, and both solvers; strict FITS failures are typed and no
+  accepted input is ignored.
+- **BEAM-002 — DONE:** one local `BeamSystem` replaces the legacy manager/raw-ID
+  registry/fallback surfaces and proves deduplication, scientific distinction,
+  atomic retry, and detached provenance.
+- **BEAM-003 — DONE:** canonical selected-baseline/frequency advice proves
+  endpoint-product science, autos, factor five, typed failures, caps, and
+  nonmutation; the dictionary advisor is gone.
+- **OBS-001 — DONE:** the renderer-neutral sibling planning architecture,
+  optional-sky errors, evaluator sharing, and side-effect boundary are proven.
+- **OBS-002 — DONE:** equivalence fingerprints, homogeneous defaults, explicit
+  heterogeneous references, accepted reference forms, titles/provenance,
+  snapshots, sweeps, drift scans, and overlays are proven.
+
+Physical GPU execution, live network/registry/external-data operation, and
+production deployment remain genuinely unobserved. Tier 4 was not designed or
+implemented; the next possible task is only its separate design/governing gate.
+No PR, tag, release, or deployment was created.
