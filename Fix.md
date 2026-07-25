@@ -3247,3 +3247,48 @@ Physical GPU execution, live network/registry/external-data operation, and
 production deployment remain genuinely unobserved. Tier 4 was not designed or
 implemented; the next possible task is only its separate design/governing gate.
 No PR, tag, release, or deployment was created.
+
+### 2026-07-25 Tier 4 design and governing gate
+
+Tier 3 remains independently accepted and `BEAM-001`, `BEAM-002`, `BEAM-003`,
+`OBS-001`, and `OBS-002` remain **DONE**. The Tier 4 design gate is complete.
+`Tier4ResultOutputPlan.md` is the governing implementation specification for
+the canonical observation-time grid, immutable result, solver cutover, safe
+versioned HDF5, truthful summary JSON, Measurement Set, UVFITS, visualization,
+and transactional output workflow.
+
+The fail-closed gate started on clean `main` at
+`bf544540d83fefef77feb157b060c046276a3c25`
+(`docs(beam): accept Tier 3 integration`), parent
+`aa01145b534c44c6b33a7681c1d103216ebf4313`. After fetch, local HEAD,
+`origin/main`, and remote `refs/heads/main` matched with zero divergence and no
+staged, unstaged, or untracked path. Exact-head GitHub Actions run
+`30165680809` was a successful push run; quality and all six locked
+OS/Python jobs succeeded. The two environments retained Python 3.11.13 and
+3.12.13, pyuvdata 3.2.1, Pyright 1.1.408, lock format v7, both environments,
+and all three locked platforms.
+
+Source-first review confirmed the six live OUT defects and every result/output
+call path. Offline temporary pyuvdata and h5py probes ran in both environments
+and were removed. They proved explicit standard-format phase projection,
+complex64 Measurement Set storage, complex64/complex128 UVFITS preservation,
+safe selected auto/cross handling, and h5py complex/string/dimension/atomic
+behavior. The required focused boundary collected 279: Python 3.11 passed all
+279; Python 3.12 passed 278 with one unavailable-JAX skip. There were no
+failures, xfails, or xpasses.
+
+Ruff passed, all 283 files passed formatting, and Pyright reported 3,225
+diagnostics in both environments under the unchanged 4,600 ceiling. The three
+YAMLs validated at 101, 11, and one channel. The offline example completed at
+five antennas, 15 baselines, two frequencies, and `(1, 2)` correlation-product
+shapes. Clean-copy Sphinx 8.2.3 succeeded with the accepted 40 events: 35
+docutils/docstring, one HERA toctree, one theme option, and three HERA
+highlighting events. Whitespace passed and no task-specific temporary output
+remained.
+
+This was documentation-only design work. No Tier 4 production code, durable
+implementation test, fixture, configuration, dependency, lockfile, CI,
+generated artifact, or later-tier behavior was changed. `OUT-001`, `OUT-002`,
+`OUT-003`, `OUT-004`, `OUT-005`, and `OUT-006` all remain **OPEN**. Tier 4A
+remains unauthorized. The next task is an independent review and acceptance of
+`Tier4ResultOutputPlan.md`, not implementation.
