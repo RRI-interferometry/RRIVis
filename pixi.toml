@@ -28,6 +28,8 @@ python = "*"
 pip = "*"
 # Numba (pulled by optional sky-model tooling) currently requires NumPy <2.5.
 numpy = ">=1.24,<2.5"
+# Keep PySM's Numba dependency on Conda to avoid unsupported PyPI source builds.
+numba = ">=0.64,<0.67"
 matplotlib = "*"
 astropy = "*"
 bokeh = "*"

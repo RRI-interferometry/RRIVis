@@ -178,8 +178,9 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libxkbcommon-1.11.0-he8b52b9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libxml2-2.13.8-h04c0eec_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libxslt-1.1.43-h7a3aeb2_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.1-hb9d3cd8_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.2-h25fd6f3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libzopfli-1.0.3-h9c3ff4c_0.tar.bz2
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/llvmlite-0.48.0-py311h9d99eea_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/lz4-4.4.5-py311h1c460e0_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/lz4-c-1.10.0-h5888daf_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/markupsafe-3.0.2-py311h2dc5d0c_1.conda
@@ -190,6 +191,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.5-h2d0b736_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/nlohmann_json-3.12.0-h3f2d84a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/nodejs-24.4.1-heeeca48_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/numba-0.66.0-py311hcdb8226_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/numcodecs-0.16.5-py311hed34c8f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/numpy-2.3.2-py311h2e04523_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openjpeg-2.5.3-h55fea9a_1.conda
@@ -264,7 +266,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/yarl-1.20.1-py311h2dc5d0c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zeromq-4.3.5-h3b0a872_7.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zfp-1.0.1-h909a3a2_5.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-1.3.1-hb9d3cd8_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-1.3.2-h25fd6f3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-ng-2.2.5-hde8ca8f_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.23.0-py311h49ec1c0_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb8e6e7a_2.conda
@@ -490,8 +492,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-3.23.0-pyhd8ed1ab_0.conda
       - pypi: ./
-      - pypi: https://files.pythonhosted.org/packages/12/b5/99cf8772fdd846c07da4fd70f07812a3c8fd17ea2409522c946bb0f2b277/llvmlite-0.46.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/19/16/aa6e3ba3cd45435c117d1101b278b646444ed05b7c712af631b91353f573/numba-0.64.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4c/6b/172507c551b194c8d31ac733b322842b8cf782cc3f8cdcecd7be9319b4a7/pyradiosky-1.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8e/02/1eade827452880961bc4657df24f72e7a76d764abff3e666433e1c8d1980/pyephem-9.99.tar.gz
@@ -816,8 +816,9 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libxcb-1.17.0-hf1f96e2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libxml2-16-2.15.1-ha1d9b0f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libxml2-2.15.1-h7b7ecba_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.1-hd23fc13_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-openmp-20.1.8-hf4e0ed4_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/llvmlite-0.48.0-py311hbe43510_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/lz4-4.4.5-py311h14c9969_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/lz4-c-1.10.0-h240833e_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/markupsafe-3.0.2-py311ha3cf9ac_1.conda
@@ -828,6 +829,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ncurses-6.5-h0622a9a_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/nlohmann_json-3.12.0-h92383a6_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/nodejs-24.4.1-h2e7699b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/numba-0.66.0-py311h7dd8c3b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/numcodecs-0.16.5-py311hca9a5ca_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/numpy-2.3.2-py311h09fcace_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/openjpeg-2.5.3-h036ada5_1.conda
@@ -874,14 +876,12 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/yaml-0.2.5-h4132b18_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/yarl-1.20.1-py311ha3cf9ac_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/zeromq-4.3.5-h7130eaa_7.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/zlib-1.3.1-hd23fc13_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/zlib-1.3.2-hbb4bfdb_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/zstandard-0.23.0-py311h13e5629_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/zstd-1.5.7-h8210216_2.conda
       - pypi: ./
-      - pypi: https://files.pythonhosted.org/packages/23/c9/a0fb41787d01d621046138da30f6c2100d80857bf34b3390dd68040f27a3/numba-0.64.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4c/6b/172507c551b194c8d31ac733b322842b8cf782cc3f8cdcecd7be9319b4a7/pyradiosky-1.1.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/74/cd/08ae687ba099c7e3d21fe2ea536500563ef1943c5105bf6ab4ee3829f68e/llvmlite-0.46.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/8e/02/1eade827452880961bc4657df24f72e7a76d764abff3e666433e1c8d1980/pyephem-9.99.tar.gz
       - pypi: https://files.pythonhosted.org/packages/b4/0c/ee81c6f2acd0a720d54c089de487bcfffb59c7c4adf4598c01f980f57f6e/pygdsm-1.6.4.tar.gz
       - pypi: https://files.pythonhosted.org/packages/d4/ae/d143d05238378965d7e18fc72a09cddd6b7f038fd8f6c37ade0401e22090/pysm3-3.4.0-py3-none-any.whl
@@ -1210,8 +1210,9 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libxcb-1.17.0-hdb1d25a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libxml2-16-2.15.1-h5ef1a60_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libxml2-2.15.1-h8d039ee_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.1-h8359307_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.2-h8088a28_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvm-openmp-20.1.8-hbb9b287_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvmlite-0.48.0-py311h68bb4d2_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/lz4-4.4.5-py311h3f5a5ee_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/lz4-c-1.10.0-h286801f_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/markupsafe-3.0.2-py311h4921393_1.conda
@@ -1222,6 +1223,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ncurses-6.5-h5e97a16_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/nlohmann_json-3.12.0-ha1acc90_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/nodejs-25.7.0-hbfc8e16_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/numba-0.66.0-py311h9d9bb2a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/numcodecs-0.16.5-py311hdb8e4fa_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/numpy-2.3.2-py311h0856f98_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/openjpeg-2.5.3-h889cd5d_1.conda
@@ -1268,14 +1270,12 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/yaml-0.2.5-h925e9cb_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/yarl-1.20.1-py311h4921393_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zeromq-4.3.5-h4818236_10.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.3.1-h8359307_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.3.2-h8088a28_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstandard-0.23.0-py311h3696347_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-h6491c7d_2.conda
       - pypi: ./
       - pypi: https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4c/6b/172507c551b194c8d31ac733b322842b8cf782cc3f8cdcecd7be9319b4a7/pyradiosky-1.1.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/7a/a1/2ad4b2367915faeebe8447f0a057861f646dbf5fbbb3561db42c65659cf3/llvmlite-0.46.0-cp311-cp311-macosx_11_0_arm64.whl
-      - pypi: https://files.pythonhosted.org/packages/89/a3/1a4286a1c16136c8896d8e2090d950e79b3ec626d3a8dc9620f6234d5a38/numba-0.64.0-cp311-cp311-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/8e/02/1eade827452880961bc4657df24f72e7a76d764abff3e666433e1c8d1980/pyephem-9.99.tar.gz
       - pypi: https://files.pythonhosted.org/packages/b4/0c/ee81c6f2acd0a720d54c089de487bcfffb59c7c4adf4598c01f980f57f6e/pygdsm-1.6.4.tar.gz
       - pypi: https://files.pythonhosted.org/packages/d4/ae/d143d05238378965d7e18fc72a09cddd6b7f038fd8f6c37ade0401e22090/pysm3-3.4.0-py3-none-any.whl
@@ -1452,6 +1452,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libxslt-1.1.43-h711ed8c_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.2-h25fd6f3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libzopfli-1.0.3-h9c3ff4c_0.tar.bz2
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/llvmlite-0.48.0-py312ha7fb451_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/lz4-4.4.5-py312h3d67a73_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/lz4-c-1.10.0-h5888daf_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/markupsafe-3.0.3-py312h8a5da7c_1.conda
@@ -1462,6 +1463,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.6-hdb14827_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/nlohmann_json-3.12.0-h54a6638_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/nodejs-26.5.0-hc039f44_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/numba-0.66.0-py312h6d1259f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/numcodecs-0.16.5-py312hf79963d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/numpy-2.4.6-py312h33ff503_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openjpeg-2.5.4-h55fea9a_0.conda
@@ -1770,12 +1772,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: https://files.pythonhosted.org/packages/1b/b4/116a78a309c975c05f69e6d26208d8e607fb84de8f0fa0090306d3cc63f0/ephem-4.2.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/2d/55/25c319845e9a4e08f16611ddbda56a192eb7b6ed13e1a2bff2da272ffb97/numba-0.66.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4c/6b/172507c551b194c8d31ac733b322842b8cf782cc3f8cdcecd7be9319b4a7/pyradiosky-1.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/74/96/56e1c805499c775cacec4c4b1485450329baf218be6d87f82d1292e25bc3/pygdsm-1.7.1.tar.gz
       - pypi: https://files.pythonhosted.org/packages/76/26/1173918bba8eed67a23c33eec2efea3709712302fdeb954b88168460c8c2/pysm3-3.4.5-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/80/f2/72409351db66d0a317ec5087e076f31fb7b773a640db8a90ce6b5cac9edd/llvmlite-0.48.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/8e/02/1eade827452880961bc4657df24f72e7a76d764abff3e666433e1c8d1980/pyephem-9.99.tar.gz
       osx-64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_2.conda
@@ -2137,6 +2137,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libzopfli-1.0.3-h046ec9c_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-openmp-22.1.8-h0d3cbff_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/llvmlite-0.48.0-py312h3a09f4c_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/lz4-4.4.5-py312ha706d14_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/lz4-c-1.10.0-h240833e_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/markupsafe-3.0.3-py312heb39f77_1.conda
@@ -2147,6 +2148,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ncurses-6.6-hcc0dc9a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/nlohmann_json-3.12.0-h06076ce_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/nodejs-26.4.0-h3e09207_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/numba-0.66.0-py312hac2cae0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/numcodecs-0.16.5-py312h86abcb1_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/numpy-2.4.6-py312h746d82c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/openjpeg-2.5.4-h52bb76a_0.conda
@@ -2208,9 +2210,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/74/96/56e1c805499c775cacec4c4b1485450329baf218be6d87f82d1292e25bc3/pygdsm-1.7.1.tar.gz
       - pypi: https://files.pythonhosted.org/packages/76/26/1173918bba8eed67a23c33eec2efea3709712302fdeb954b88168460c8c2/pysm3-3.4.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8e/02/1eade827452880961bc4657df24f72e7a76d764abff3e666433e1c8d1980/pyephem-9.99.tar.gz
-      - pypi: https://files.pythonhosted.org/packages/ae/a0/570e3dc53e5602b49108f62a13e529f1eec8bfc7ef37d49c825924dcf546/numba-0.66.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/b8/59/5849e612e6460c82b36396d91fd63d0126f72bbe9fe2f6a990bd1d03068f/ephem-4.2.1-cp312-cp312-macosx_10_13_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/dc/a0/acc8ffcd5bdc63df0097e22c719bfcd61b604358343089313a8aebbb24ab/llvmlite-0.48.0.tar.gz
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/aiobotocore-3.7.0-pyhcf101f3_0.conda
@@ -2571,6 +2571,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.2-h8088a28_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzopfli-1.0.3-h9f76cd9_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvm-openmp-22.1.8-hc7d1edf_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvmlite-0.48.0-py312hedd3284_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/lz4-4.4.5-py312h2b25a0d_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/lz4-c-1.10.0-h286801f_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/markupsafe-3.0.3-py312h04c11ed_1.conda
@@ -2581,6 +2582,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ncurses-6.6-h1d4f5a5_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/nlohmann_json-3.12.0-h784d473_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/nodejs-26.5.0-h00e74ec_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/numba-0.66.0-py312h85f139b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/numcodecs-0.16.5-py312h5978115_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/numpy-2.4.6-py312ha003a3f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/openjpeg-2.5.4-hd9e9057_0.conda
@@ -2639,11 +2641,9 @@ environments:
       - pypi: ./
       - pypi: https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4c/6b/172507c551b194c8d31ac733b322842b8cf782cc3f8cdcecd7be9319b4a7/pyradiosky-1.1.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/62/a3/70deb7f88461c1cd5d16aa990c2380604102661a427667b8950dcdccc27f/numba-0.66.0-cp312-cp312-macosx_12_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/74/96/56e1c805499c775cacec4c4b1485450329baf218be6d87f82d1292e25bc3/pygdsm-1.7.1.tar.gz
       - pypi: https://files.pythonhosted.org/packages/76/26/1173918bba8eed67a23c33eec2efea3709712302fdeb954b88168460c8c2/pysm3-3.4.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8e/02/1eade827452880961bc4657df24f72e7a76d764abff3e666433e1c8d1980/pyephem-9.99.tar.gz
-      - pypi: https://files.pythonhosted.org/packages/92/a2/28696a9e61e245d1a79816d29d106692a90a2b6e7d78c98b326db70827af/llvmlite-0.48.0-cp312-cp312-macosx_12_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/a1/0f/345f5801f90d1e0888bdaeb0ad23559cd1bcb50841247c90aa5edf243ed4/ephem-4.2.1-cp312-cp312-macosx_11_0_arm64.whl
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -7385,19 +7385,6 @@ packages:
   purls: []
   size: 244399
   timestamp: 1753273455036
-- conda: https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.1-hb9d3cd8_2.conda
-  sha256: d4bfe88d7cb447768e31650f06257995601f89076080e76df55e3112d4e47dc4
-  md5: edb0dca6bc32e4f4789199455a1dbeb8
-  depends:
-  - __glibc >=2.17,<3.0.a0
-  - libgcc >=13
-  constrains:
-  - zlib 1.3.1 *_2
-  license: Zlib
-  license_family: Other
-  purls: []
-  size: 60963
-  timestamp: 1727963148474
 - conda: https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.2-h25fd6f3_2.conda
   sha256: 55044c403570f0dc26e6364de4dc5368e5f3fc7ff103e867c487e2b5ab2bcda9
   md5: d87ff7921124eccd67248aa483c23fec
@@ -7427,6 +7414,42 @@ packages:
     - libzopfli >=1.0.3,<1.1.0a0
   size: 168074
   timestamp: 1607309189989
+- conda: https://conda.anaconda.org/conda-forge/linux-64/llvmlite-0.48.0-py311h9d99eea_1.conda
+  sha256: 69cd77c57e7131e656c572bce64d56dc8e0d3985f186b79b271d7b69b1e2b035
+  md5: 8feb02378d03e9d47d4eeffef04d0d73
+  depends:
+  - python
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - libstdcxx >=14
+  - zstd >=1.5.7,<1.6.0a0
+  - libzlib >=1.3.2,<2.0a0
+  - python_abi 3.11.* *_cp311
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/llvmlite?source=compressed-mapping
+  run_exports: {}
+  size: 40445444
+  timestamp: 1784232131907
+- conda: https://conda.anaconda.org/conda-forge/linux-64/llvmlite-0.48.0-py312ha7fb451_1.conda
+  sha256: 83d276b2105eaed8bec7bcd28406acbc02c88aaf9eca4394abadd0051bebdfac
+  md5: 765eece0b00be7efd8fa9d10789c806f
+  depends:
+  - python
+  - __glibc >=2.17,<3.0.a0
+  - libstdcxx >=14
+  - libgcc >=14
+  - python_abi 3.12.* *_cp312
+  - libzlib >=1.3.2,<2.0a0
+  - zstd >=1.5.7,<1.6.0a0
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/llvmlite?source=hash-mapping
+  run_exports: {}
+  size: 40434314
+  timestamp: 1784043435918
 - conda: https://conda.anaconda.org/conda-forge/linux-64/lz4-4.4.5-py311h1c460e0_1.conda
   sha256: a3c5fc64083cd168a65b0e5f8866e46edaeded85ed75f85a6c4dec9071447d5a
   md5: 987c0686ab1d618850db2fb0f837a88d
@@ -7748,6 +7771,60 @@ packages:
     - nodejs >=26.5.0,<27.0a0
   size: 19951948
   timestamp: 1783543358983
+- conda: https://conda.anaconda.org/conda-forge/linux-64/numba-0.66.0-py311hcdb8226_0.conda
+  sha256: 868ca603a05078e171b182039bd5b63bbc3c6a18a8344576203ecab2022a93e8
+  md5: 4f04cb6bc8e59950929aa80f313720dc
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - _openmp_mutex >=4.5
+  - libgcc >=14
+  - libstdcxx >=14
+  - llvmlite >=0.48.0,<0.49.0a0
+  - numpy >=1.22.3,<2.5
+  - numpy >=1.23,<3
+  - python >=3.11,<3.12.0a0
+  - python_abi 3.11.* *_cp311
+  constrains:
+  - cuda-python >=11.6
+  - scipy >=1.0
+  - cudatoolkit >=11.2
+  - cuda-version >=11.2
+  - tbb >=2021.6.0
+  - libopenblas !=0.3.6
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/numba?source=compressed-mapping
+  run_exports: {}
+  size: 5915681
+  timestamp: 1784209149661
+- conda: https://conda.anaconda.org/conda-forge/linux-64/numba-0.66.0-py312h6d1259f_0.conda
+  sha256: ec76898bf8f524428b92c11e0920fb7362f70b59466cbcb7b6cced9bd3156d2e
+  md5: 7194ca60421426dc149b8f63b789f01a
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - _openmp_mutex >=4.5
+  - libgcc >=14
+  - libstdcxx >=14
+  - llvmlite >=0.48.0,<0.49.0a0
+  - numpy >=1.22.3,<2.5
+  - numpy >=1.23,<3
+  - python >=3.12,<3.13.0a0
+  - python_abi 3.12.* *_cp312
+  constrains:
+  - scipy >=1.0
+  - libopenblas !=0.3.6
+  - tbb >=2021.6.0
+  - cuda-python >=11.6
+  - cudatoolkit >=11.2
+  - cuda-version >=11.2
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/numba?source=compressed-mapping
+  run_exports: {}
+  size: 5757353
+  timestamp: 1784209140914
 - conda: https://conda.anaconda.org/conda-forge/linux-64/numcodecs-0.16.5-py311hed34c8f_0.conda
   sha256: 4966f599ce228b4111322e1e3a93a594d4f75484fdfebb0b40fd2ab3bcc6c354
   md5: 8096e6b9a5caf339c473be92e3dd23e5
@@ -10067,18 +10144,6 @@ packages:
     - zfp >=1.0.1,<2.0a0
   size: 277694
   timestamp: 1766549572069
-- conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-1.3.1-hb9d3cd8_2.conda
-  sha256: 5d7c0e5f0005f74112a34a7425179f4eb6e73c92f5d109e6af4ddeca407c92ab
-  md5: c9f075ab2f33b3bbee9e62d4ad0a6cd8
-  depends:
-  - __glibc >=2.17,<3.0.a0
-  - libgcc >=13
-  - libzlib 1.3.1 hb9d3cd8_2
-  license: Zlib
-  license_family: Other
-  purls: []
-  size: 92286
-  timestamp: 1727963153079
 - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-1.3.2-h25fd6f3_2.conda
   sha256: 245c9ee8d688e23661b95e3c6dd7272ca936fabc03d423cdb3cdee1bbcf9f2f2
   md5: c2a01a08fc991620a74b32420e97868a
@@ -13479,7 +13544,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/pip?source=compressed-mapping
+  - pkg:pypi/pip?source=hash-mapping
   run_exports: {}
   size: 1203173
   timestamp: 1780262795392
@@ -15016,7 +15081,7 @@ packages:
   license: PSF-2.0
   license_family: PSF
   purls:
-  - pkg:pypi/typing-extensions?source=compressed-mapping
+  - pkg:pypi/typing-extensions?source=hash-mapping
   run_exports: {}
   size: 52631
   timestamp: 1783002732887
@@ -18863,18 +18928,6 @@ packages:
     - libxml2-16 >=2.15.3
   size: 40836
   timestamp: 1776377277986
-- conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.1-hd23fc13_2.conda
-  sha256: 8412f96504fc5993a63edf1e211d042a1fd5b1d51dedec755d2058948fcced09
-  md5: 003a54a4e32b02f7355b50a837e699da
-  depends:
-  - __osx >=10.13
-  constrains:
-  - zlib 1.3.1 *_2
-  license: Zlib
-  license_family: Other
-  purls: []
-  size: 57133
-  timestamp: 1727963183990
 - conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_2.conda
   sha256: 4c6da089952b2d70150c74234679d6f7ac04f4a98f9432dec724968f912691e7
   md5: 30439ff30578e504ee5e0b390afc8c65
@@ -18932,6 +18985,42 @@ packages:
     - llvm-openmp >=22.1.8
   size: 311645
   timestamp: 1781737360942
+- conda: https://conda.anaconda.org/conda-forge/osx-64/llvmlite-0.48.0-py311hbe43510_1.conda
+  sha256: 04408d1b8466ab37966d08843d373536556e85b8beef6714e7bfddc06ded6008
+  md5: 93d1986fcf4faebfb28329699dfc4393
+  depends:
+  - python
+  - python 3.11.* *_cpython
+  - libcxx >=19
+  - __osx >=11.0
+  - zstd >=1.5.7,<1.6.0a0
+  - libzlib >=1.3.2,<2.0a0
+  - python_abi 3.11.* *_cp311
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/llvmlite?source=hash-mapping
+  run_exports: {}
+  size: 32922660
+  timestamp: 1784043452143
+- conda: https://conda.anaconda.org/conda-forge/osx-64/llvmlite-0.48.0-py312h3a09f4c_1.conda
+  sha256: 8cf1ca093b9a3131834ec31ae0f57de9cf9dfb7a3bd7a6c05dde7af212a73832
+  md5: 131ae65ed6eeb0f7ea028b1096bccfb4
+  depends:
+  - python
+  - libcxx >=19
+  - __osx >=11.0
+  - python 3.12.* *_cpython
+  - python_abi 3.12.* *_cp312
+  - zstd >=1.5.7,<1.6.0a0
+  - libzlib >=1.3.2,<2.0a0
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/llvmlite?source=hash-mapping
+  run_exports: {}
+  size: 32911980
+  timestamp: 1784043470053
 - conda: https://conda.anaconda.org/conda-forge/osx-64/lz4-4.4.5-py311h14c9969_1.conda
   sha256: 19c210ec7daea8a550b26810e3ea319e35b121fbf7b3527a8653c4d480b03038
   md5: 642519b502f1a539b6f71c9a19795f48
@@ -19232,6 +19321,60 @@ packages:
     - nodejs >=26.4.0,<27.0a0
   size: 19513478
   timestamp: 1782378695091
+- conda: https://conda.anaconda.org/conda-forge/osx-64/numba-0.66.0-py311h7dd8c3b_0.conda
+  sha256: 94d9e377fc48237968fc552ef44342880fd63fe9b6a8b99d36f4c0b176774027
+  md5: ec4b7a617d754e6a5a797e3d61560c88
+  depends:
+  - __osx >=11.0
+  - libcxx >=19
+  - llvm-openmp >=19.1.7
+  - llvmlite >=0.48.0,<0.49.0a0
+  - numpy >=1.22.3,<2.5
+  - numpy >=1.23,<3
+  - python >=3.11,<3.12.0a0
+  - python >=3.11,<3.12.0a0 *_cpython
+  - python_abi 3.11.* *_cp311
+  constrains:
+  - tbb >=2021.6.0
+  - cuda-python >=11.6
+  - cuda-version >=11.2
+  - scipy >=1.0
+  - cudatoolkit >=11.2
+  - libopenblas !=0.3.6
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/numba?source=hash-mapping
+  run_exports: {}
+  size: 5911119
+  timestamp: 1784209416913
+- conda: https://conda.anaconda.org/conda-forge/osx-64/numba-0.66.0-py312hac2cae0_0.conda
+  sha256: cf08b5793966c2ba4a27bae2a102540f1801ef8ccbeada81faf2a661f79ea0d3
+  md5: 24dbc8f06e9c7be19373d1e6e7411b31
+  depends:
+  - __osx >=11.0
+  - libcxx >=19
+  - llvm-openmp >=19.1.7
+  - llvmlite >=0.48.0,<0.49.0a0
+  - numpy >=1.22.3,<2.5
+  - numpy >=1.23,<3
+  - python >=3.12,<3.13.0a0
+  - python >=3.12,<3.13.0a0 *_cpython
+  - python_abi 3.12.* *_cp312
+  constrains:
+  - scipy >=1.0
+  - cudatoolkit >=11.2
+  - cuda-version >=11.2
+  - libopenblas !=0.3.6
+  - tbb >=2021.6.0
+  - cuda-python >=11.6
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/numba?source=hash-mapping
+  run_exports: {}
+  size: 5745828
+  timestamp: 1784209463110
 - conda: https://conda.anaconda.org/conda-forge/osx-64/numcodecs-0.16.5-py311hca9a5ca_0.conda
   sha256: 9c1e617885e3aca5ad82dc6d4ba9e1bb78b9481e437a419574813c9fd36048b3
   md5: 2478786192da7b38840c3137aa408aec
@@ -20781,17 +20924,6 @@ packages:
     - zfp >=1.0.1,<2.0a0
   size: 211942
   timestamp: 1766458562226
-- conda: https://conda.anaconda.org/conda-forge/osx-64/zlib-1.3.1-hd23fc13_2.conda
-  sha256: 219edbdfe7f073564375819732cbf7cc0d7c7c18d3f546a09c2dfaf26e4d69f3
-  md5: c989e0295dcbdc08106fe5d9e935f0b9
-  depends:
-  - __osx >=10.13
-  - libzlib 1.3.1 hd23fc13_2
-  license: Zlib
-  license_family: Other
-  purls: []
-  size: 88544
-  timestamp: 1727963189976
 - conda: https://conda.anaconda.org/conda-forge/osx-64/zlib-1.3.2-hbb4bfdb_2.conda
   sha256: 5dd728cebca2e96fa48d41661f1a35ed0ee3cb722669eee4e2d854c6745655eb
   md5: 6276aa61ffc361cbf130d78cfb88a237
@@ -24316,18 +24448,6 @@ packages:
     - libxml2-16 >=2.15.3
   size: 41102
   timestamp: 1776377119495
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.1-h8359307_2.conda
-  sha256: ce34669eadaba351cd54910743e6a2261b67009624dbc7daeeafdef93616711b
-  md5: 369964e85dc26bfe78f41399b366c435
-  depends:
-  - __osx >=11.0
-  constrains:
-  - zlib 1.3.1 *_2
-  license: Zlib
-  license_family: Other
-  purls: []
-  size: 46438
-  timestamp: 1727963202283
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.2-h8088a28_2.conda
   sha256: 361415a698514b19a852f5d1123c5da746d4642139904156ddfca7c922d23a05
   md5: bc5a5721b6439f2f62a84f2548136082
@@ -24385,6 +24505,40 @@ packages:
     - llvm-openmp >=22.1.8
   size: 286313
   timestamp: 1781736516782
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvmlite-0.48.0-py311h68bb4d2_1.conda
+  sha256: dab73cd6e1c578605f6b097d397b33a443c3d3af3d2787e2d6c854f7afce4c25
+  md5: 68195ebca3b224b24d3dcc262587a469
+  depends:
+  - python
+  - libcxx >=19
+  - __osx >=11.0
+  - zstd >=1.5.7,<1.6.0a0
+  - python_abi 3.11.* *_cp311
+  - libzlib >=1.3.2,<2.0a0
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/llvmlite?source=hash-mapping
+  run_exports: {}
+  size: 30247529
+  timestamp: 1784043472913
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvmlite-0.48.0-py312hedd3284_1.conda
+  sha256: 172c61204e4c11fd94577fa88b834c5006c797330e834ee178684eeb7aca4381
+  md5: d4613099d7163819fabc3158d82330e3
+  depends:
+  - python
+  - libcxx >=19
+  - __osx >=11.0
+  - zstd >=1.5.7,<1.6.0a0
+  - python_abi 3.12.* *_cp312
+  - libzlib >=1.3.2,<2.0a0
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/llvmlite?source=hash-mapping
+  run_exports: {}
+  size: 30228229
+  timestamp: 1784043473570
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/lz4-4.4.5-py311h3f5a5ee_1.conda
   sha256: 173811f8706951db03a11f1548c3c89d4bd7a6a1d29cfc7fbfa4430b564ab3be
   md5: b653c160eba83c3e2b41127e90defb3e
@@ -24704,6 +24858,58 @@ packages:
     - nodejs >=26.5.0,<27.0a0
   size: 18185560
   timestamp: 1783543392996
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/numba-0.66.0-py311h9d9bb2a_0.conda
+  sha256: 02325fdc119376b8d305f4b970677240992d12dddc2be5713219e9c95b3c7fa9
+  md5: d49f7bfa026aa01b2f976c6c8919acd8
+  depends:
+  - __osx >=11.0
+  - libcxx >=19
+  - llvm-openmp >=19.1.7
+  - llvmlite >=0.48.0,<0.49.0a0
+  - numpy >=1.22.3,<2.5
+  - numpy >=1.23,<3
+  - python >=3.11,<3.12.0a0
+  - python_abi 3.11.* *_cp311
+  constrains:
+  - scipy >=1.0
+  - cuda-version >=11.2
+  - cudatoolkit >=11.2
+  - tbb >=2021.6.0
+  - libopenblas >=0.3.18,!=0.3.20
+  - cuda-python >=11.6
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/numba?source=hash-mapping
+  run_exports: {}
+  size: 5883488
+  timestamp: 1784229592693
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/numba-0.66.0-py312h85f139b_0.conda
+  sha256: 6f53375e3cbdce1dc8f207c67a479b92c5e532e5209e7c8bee6a31e315cf89ef
+  md5: f89dd7297e29fa88370733b47b8e9a07
+  depends:
+  - __osx >=11.0
+  - libcxx >=19
+  - llvm-openmp >=19.1.7
+  - llvmlite >=0.48.0,<0.49.0a0
+  - numpy >=1.22.3,<2.5
+  - numpy >=1.23,<3
+  - python >=3.12,<3.13.0a0
+  - python_abi 3.12.* *_cp312
+  constrains:
+  - cuda-version >=11.2
+  - scipy >=1.0
+  - cudatoolkit >=11.2
+  - cuda-python >=11.6
+  - libopenblas >=0.3.18,!=0.3.20
+  - tbb >=2021.6.0
+  license: BSD-2-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/numba?source=compressed-mapping
+  run_exports: {}
+  size: 5764501
+  timestamp: 1784209296332
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/numcodecs-0.16.5-py311hdb8e4fa_0.conda
   sha256: b5f13a685b40feda6769ca3dbb4bd633d29f6e5913acca39f1a1b19c462bfb3e
   md5: 74475a176afacb1108d4bd5fb75fd677
@@ -26298,17 +26504,6 @@ packages:
     - zfp >=1.0.1,<2.0a0
   size: 204043
   timestamp: 1766549790975
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.3.1-h8359307_2.conda
-  sha256: 58f8860756680a4831c1bf4f294e2354d187f2e999791d53b1941834c4b37430
-  md5: e3170d898ca6cb48f1bb567afb92f775
-  depends:
-  - __osx >=11.0
-  - libzlib 1.3.1 h8359307_2
-  license: Zlib
-  license_family: Other
-  purls: []
-  size: 77606
-  timestamp: 1727963209370
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.3.2-h8088a28_2.conda
   sha256: 8dd2ac25f0ba714263aac5832d46985648f4bfb9b305b5021d702079badc08d2
   md5: f1c0bce276210bed45a04949cfe8dc20
@@ -26422,39 +26617,10 @@ packages:
   - numpydoc>=1.6 ; extra == 'docs'
   - radiosim[gpu,numba,ms,dev,docs] ; extra == 'all'
   requires_python: '>=3.11'
-- pypi: https://files.pythonhosted.org/packages/12/b5/99cf8772fdd846c07da4fd70f07812a3c8fd17ea2409522c946bb0f2b277/llvmlite-0.46.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
-  name: llvmlite
-  version: 0.46.0
-  sha256: a3df43900119803bbc52720e758c76f316a9a0f34612a886862dfe0a5591a17e
-  requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/19/16/aa6e3ba3cd45435c117d1101b278b646444ed05b7c712af631b91353f573/numba-0.64.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
-  name: numba
-  version: 0.64.0
-  sha256: d17071b4ffc9d39b75d8e6c101a36f0c81b646123859898c9799cb31807c8f78
-  requires_dist:
-  - llvmlite>=0.46.0.dev0,<0.47
-  - numpy>=1.22,<2.5
-  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/1b/b4/116a78a309c975c05f69e6d26208d8e607fb84de8f0fa0090306d3cc63f0/ephem-4.2.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
   name: ephem
   version: 4.2.1
   sha256: f16ed34b60056eeae3d8afc78ec528981d5a90977e1bc734b9308279eb016791
-- pypi: https://files.pythonhosted.org/packages/23/c9/a0fb41787d01d621046138da30f6c2100d80857bf34b3390dd68040f27a3/numba-0.64.0.tar.gz
-  name: numba
-  version: 0.64.0
-  sha256: 95e7300af648baa3308127b1955b52ce6d11889d16e8cfe637b4f85d2fca52b1
-  requires_dist:
-  - llvmlite>=0.46.0.dev0,<0.47
-  - numpy>=1.22,<2.5
-  requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/2d/55/25c319845e9a4e08f16611ddbda56a192eb7b6ed13e1a2bff2da272ffb97/numba-0.66.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
-  name: numba
-  version: 0.66.0
-  sha256: 0999e3ee1b18c48e1fb51d11af35ef59852c7f4f50569c9550c25faef0616ad1
-  requires_dist:
-  - llvmlite>=0.48.0.dev0,<0.49
-  - numpy>=1.22,<2.5
-  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl
   name: toml
   version: 0.10.2
@@ -26485,14 +26651,6 @@ packages:
   - sphinx ; extra == 'doc'
   - pyradiosky[all,doc,test] ; extra == 'dev'
   requires_python: '>=3.11'
-- pypi: https://files.pythonhosted.org/packages/62/a3/70deb7f88461c1cd5d16aa990c2380604102661a427667b8950dcdccc27f/numba-0.66.0-cp312-cp312-macosx_12_0_arm64.whl
-  name: numba
-  version: 0.66.0
-  sha256: 53ca5900b7cab15109796030113a6b28576bae5ad7bb507ad6dd1360ddd81ba4
-  requires_dist:
-  - llvmlite>=0.48.0.dev0,<0.49
-  - numpy>=1.22,<2.5
-  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/74/96/56e1c805499c775cacec4c4b1485450329baf218be6d87f82d1292e25bc3/pygdsm-1.7.1.tar.gz
   name: pygdsm
   version: 1.7.1
@@ -26507,11 +26665,6 @@ packages:
   - pyephem
   - pytest
   requires_python: '>=3.9'
-- pypi: https://files.pythonhosted.org/packages/74/cd/08ae687ba099c7e3d21fe2ea536500563ef1943c5105bf6ab4ee3829f68e/llvmlite-0.46.0.tar.gz
-  name: llvmlite
-  version: 0.46.0
-  sha256: 227c9fd6d09dce2783c18b754b7cd9d9b3b3515210c46acc2d3c5badd9870ceb
-  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/76/26/1173918bba8eed67a23c33eec2efea3709712302fdeb954b88168460c8c2/pysm3-3.4.5-py3-none-any.whl
   name: pysm3
   version: 3.4.5
@@ -26542,35 +26695,12 @@ packages:
   - pytest-astropy ; extra == 'test'
   - xarray ; extra == 'test'
   requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/7a/a1/2ad4b2367915faeebe8447f0a057861f646dbf5fbbb3561db42c65659cf3/llvmlite-0.46.0-cp311-cp311-macosx_11_0_arm64.whl
-  name: llvmlite
-  version: 0.46.0
-  sha256: 82f3d39b16f19aa1a56d5fe625883a6ab600d5cc9ea8906cca70ce94cabba067
-  requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/80/f2/72409351db66d0a317ec5087e076f31fb7b773a640db8a90ce6b5cac9edd/llvmlite-0.48.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
-  name: llvmlite
-  version: 0.48.0
-  sha256: 416fa4c2c66c2c6dc6d0a402648c19206e548efa0aa1eff01ad5cdad0af8217d
-  requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/89/a3/1a4286a1c16136c8896d8e2090d950e79b3ec626d3a8dc9620f6234d5a38/numba-0.64.0-cp311-cp311-macosx_11_0_arm64.whl
-  name: numba
-  version: 0.64.0
-  sha256: 766156ee4b8afeeb2b2e23c81307c5d19031f18d5ce76ae2c5fb1429e72fa92b
-  requires_dist:
-  - llvmlite>=0.46.0.dev0,<0.47
-  - numpy>=1.22,<2.5
-  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/8e/02/1eade827452880961bc4657df24f72e7a76d764abff3e666433e1c8d1980/pyephem-9.99.tar.gz
   name: pyephem
   version: '9.99'
   sha256: 70836d7eab7824ef1fcfe102b751d97800d4a0ff6836d2e594ddb1c11e608b1f
   requires_dist:
   - ephem
-- pypi: https://files.pythonhosted.org/packages/92/a2/28696a9e61e245d1a79816d29d106692a90a2b6e7d78c98b326db70827af/llvmlite-0.48.0-cp312-cp312-macosx_12_0_arm64.whl
-  name: llvmlite
-  version: 0.48.0
-  sha256: d66c3beb4209087ddd4cf4ed2a0856b6887e6a913bdcf1aacfec9851cf2cba4e
-  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/97/72/63643987b3aeb1f6f2df813fcb53b03360f2c66f030aac8966997fc12125/ephem-4.2-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
   name: ephem
   version: '4.2'
@@ -26579,14 +26709,6 @@ packages:
   name: ephem
   version: 4.2.1
   sha256: 0017a0ff0eac2632943d37b9f12cfea65062e9dc0b3476d17a11319409f0b82f
-- pypi: https://files.pythonhosted.org/packages/ae/a0/570e3dc53e5602b49108f62a13e529f1eec8bfc7ef37d49c825924dcf546/numba-0.66.0.tar.gz
-  name: numba
-  version: 0.66.0
-  sha256: b900e63a0e26c05ea9a6d5a3a5a0a177cb64c5011887bf43edb8c3ed2c38d363
-  requires_dist:
-  - llvmlite>=0.48.0.dev0,<0.49
-  - numpy>=1.22,<2.5
-  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/b4/0c/ee81c6f2acd0a720d54c089de487bcfffb59c7c4adf4598c01f980f57f6e/pygdsm-1.6.4.tar.gz
   name: pygdsm
   version: 1.6.4
@@ -26631,11 +26753,6 @@ packages:
   name: ephem
   version: '4.2'
   sha256: 40aa89b316bd2cb6a5a1ed0f391983272626582cdf14e5c92cfe8d167b4a32c0
-- pypi: https://files.pythonhosted.org/packages/dc/a0/acc8ffcd5bdc63df0097e22c719bfcd61b604358343089313a8aebbb24ab/llvmlite-0.48.0.tar.gz
-  name: llvmlite
-  version: 0.48.0
-  sha256: 543b19f9ef8f3c7c60d1468191e4ee1b1537bf9f8a3d56f64c0ddd98de92edd2
-  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/e4/35/9634b1cd4be08c922fa24b416520f7dd48c6b4a50c4e470cd939abf3be2c/ephem-4.2-cp311-cp311-macosx_10_9_x86_64.whl
   name: ephem
   version: '4.2'

@@ -136,12 +136,14 @@ def test_simulate_reports_missing_diameter_without_an_implicit_default(
     args = _simulate_args(antenna_path)
     default_index = args.index("--default-diameter-m")
     del args[default_index : default_index + 2]
+    assert "--default-diameter-m" not in args
 
     result = CliRunner().invoke(cli, args)
 
+    normalized_output = " ".join(result.output.split())
     assert result.exit_code == 1
-    assert "incomplete antenna diameters" in result.output
-    assert "--default-diameter-m" in result.output
+    assert "incomplete antenna diameters" in normalized_output
+    assert "--default-diameter-m" in normalized_output
 
 
 def test_simulate_requires_explicit_location_and_start_time(
