@@ -1061,8 +1061,10 @@ The UVFITS adapter reuses the exact MS projection, BLT order, antenna metadata,
 time, UVW, integration, flag, weight, and AIPS correlation mapping. It sets
 `polarization_array` to an exact integer NumPy array before calling pyuvdata,
 because pyuvdata 3.2.1 creates a list that fails advanced indexing in its
-UVFITS writer. It calls `write_uvfits(..., force_phase=False)`.
-It passes `clobber=False`; atomic publication owns replacement.
+UVFITS writer. It calls `write_uvfits(..., force_phase=False)` with no
+`clobber` argument because the locked pyuvdata 3.2.1 UVFITS writer has no such
+keyword. Atomic publication owns replacement, and the writer passes only a
+fresh, exclusively created sibling temporary path to pyuvdata.
 
 Supported results satisfy all of these preflight rules:
 
@@ -1071,7 +1073,8 @@ Supported results satisfy all of these preflight rules:
 - one frequency, or evenly spaced centers within
   `32 * eps64 * max(abs(center))`;
 - equal channel widths within the same tolerance;
-- adjacent center spacing no greater than channel width;
+- for two or more channels, adjacent center spacing matches channel width
+  within that same tolerance;
 - the exact four linear correlations;
 - finite data, coordinates, weights, and metadata;
 - auto XX and YY imaginary magnitude no greater than
@@ -1552,6 +1555,7 @@ docs/api/io.rst
 docs/api/simulator.rst
 docs/index.rst
 docs/quickstart.rst
+docs/user_guide/beam_models.rst
 docs/user_guide/configuration.rst
 docs/user_guide/configuration_support.rst
 docs/migration_guide.md
@@ -1668,7 +1672,13 @@ or persistent repository path.
   projection and normalization. It preserved labels, pairs, times, exposure,
   widths, antennas, flags, weights, UVWs, and sidereal phase metadata.
 - UVFITS rejected unprojected data. It requires regular channels, compatible
-  widths, evenly spaced polarization codes, and non-metadata-only data.
+  widths, evenly spaced polarization codes, and non-metadata-only data. For two
+  or more channels, pyuvdata 3.2.1 requires center spacing to match channel
+  width; the weaker condition that spacing merely not exceed width fails its
+  public check.
+- The pyuvdata 3.2.1 `UVFITS.write_uvfits` signature has no `clobber` keyword.
+  Passing it raises `TypeError`; safe replacement must therefore be owned
+  entirely by RadioSim's fresh temporary path and atomic publisher.
 - A malformed width array failed `UVData.check()` with an exact shape error.
 - Python 3.12 MS writes emitted the upstream NumPy `where`-without-`out`
   warning in addition to the common uncalibrated-unit warning. Python 3.11
@@ -1755,15 +1765,19 @@ and error contracts without cutting over solvers or writers.
 fields, factories, immutability, and validation do not exist.
 
 **Production changes.** Add the three core model modules; extend resolved time
-and frequency state; require explicit widths; add exports and input resolution.
-The old result dictionary and old writers remain temporarily active and are
-not accepted final state.
+and frequency state; require explicit widths; add exports and input resolution;
+and migrate the direct CLI, every shipped configuration, fixture, executable
+sample, notebook, and active constructor/configuration page in the same slice.
+The old result dictionary and old writers remain temporarily active and are not
+accepted final state.
 
 **Scientific invariants.** Existing center frequencies, start instant,
 instrument, beam, and solver values do not change. Time-grid tests own new
 non-divisible semantics.
 
-**Workflow invariants.** No output or prompt behavior changes.
+**Workflow invariants.** No output or prompt behavior changes. Direct CLI
+frequency and width lists are resolved and length-checked before Simulator
+construction.
 
 **Breaking changes.** Required channel widths and new direct-constructor
 argument.
@@ -1791,15 +1805,21 @@ dictionary results, conflicting counts, repeated transfer, and absent lifecycle.
 
 **Production changes.** Change solver signatures and return cubes, use the
 resolved grid, build the result once, publish singular result, and correct
-memory estimation.
+memory estimation. Migrate every active dictionary-result consumer, including
+the runnable example and result documentation, in this slice.
 
 **Scientific invariants.** Tier 3 RIME equation, beam endpoints, baseline
 orientation/order, frequency order, phase sign, scalar split, and output dtype
 pass independent equations.
 
 **Workflow invariants.** Save and plot remain temporarily unavailable for the
-new result and raise typed pre-side-effect errors. Config-mode tests stub those
-actions until their assigned slices.
+new result and raise typed pre-side-effect errors. A CLI workflow preflight is
+called after pure configuration resolution but before Simulator construction;
+it rejects `save_results=True` or `plot_results=True`. The direct `simulate`
+command, which necessarily requests a saved artifact, is rejected at the same
+pre-runtime boundary. Python `save()` and `plot()` reject before filesystem or
+renderer work. Active docs state this bounded intermediate condition. No test
+stub bypasses production preflight.
 
 **Breaking changes.** `run()` return type, singular `result`, solver signatures,
 and removal of public dictionary access.
@@ -1826,7 +1846,11 @@ file publication.
 and atomicity tests fail before the new modules exist.
 
 **Production changes.** Add HDF5, result I/O errors, and atomic file utilities;
-wire HDF5 through explicit save dispatch and lazy exports.
+expose the direct HDF5 writer/reader through lazy exports; remove the unsafe
+legacy HDF5 functions and exports from the retained `writers.py`; and retain
+only its still-needed resolved-configuration artifact helper. `Simulator.save`
+remains unavailable until 4F, so 4D creates no transitional high-level
+dispatch.
 
 **Scientific invariants.** Exact c64/c128 values, four correlations, flags,
 weights, coordinates, identities, phase, and fingerprints round-trip.
@@ -1834,8 +1858,9 @@ weights, coordinates, identities, phase, and fingerprints round-trip.
 **Workflow invariants.** Python never prompts; validation and read-back precede
 path publication.
 
-**Breaking changes.** New versioned schema and rejection of all unversioned
-files.
+**Breaking changes.** New versioned schema, immediate removal of
+`save_visibilities_hdf5` and `load_visibilities_hdf5`, and rejection of all
+unversioned files.
 
 **Exclusions.** No MS, UVFITS, summary, CLI workflow transaction, plot, or
 legacy reader.
@@ -1861,7 +1886,9 @@ representability, optional dependency, atomic directory, and read-back tests
 fail on the current writer.
 
 **Production changes.** Add standard view and UVFITS modules; replace the MS
-module; extend atomic directory operations and lazy exports.
+module; remove the old generic MS functions, dask reader, and availability
+booleans; extend atomic directory operations and lazy exports. The dependency
+remains locked until 4H proves that no import survives.
 
 **Scientific invariants.** Projected data are compared to an independent
 reference; c128-to-c64 MS conversion is explicit and measured; UVFITS c64/c128
@@ -1871,7 +1898,8 @@ is preserved.
 write, and no caught validation error.
 
 **Breaking changes.** Canonical-result-only writer signatures and named
-`StandardVisibilityData` readers.
+`StandardVisibilityData` readers replace `write_ms`, `read_ms`,
+`read_ms_dask`, `ms_info`, and the public availability flags immediately.
 
 **Exclusions.** No summary, workflow transaction, plot, config cleanup, or
 issue closure.
@@ -1896,7 +1924,9 @@ rollback, suffix, logging, manifest, and browser-order tests fail.
 
 **Production changes.** Add summary and workflow artifact modules; replace
 workflow fields and orchestration; change direct CLI target semantics; complete
-file/directory dispatch.
+file/directory dispatch and lazy public exports; migrate all shipped workflow
+configuration and direct-save samples; and remove the 4C save preflight while
+retaining the plot preflight until 4G.
 
 **Scientific invariants.** Summary identifies exclusions; no workflow field
 enters result fingerprints.
@@ -1931,7 +1961,8 @@ assertions fail on reconstructed axes, old fields, dictionary examples, and
 missing widths.
 
 **Production changes.** Migrate visibility renderers, phase-unit input, configs,
-README, Sphinx docs, scripts, and notebook; clear notebook output.
+README, Sphinx docs, scripts, and notebook; clear notebook output; remove the
+remaining 4C plot preflight; and activate transactional workflow plotting.
 
 **Scientific invariants.** Plot x axes equal result coordinate arrays exactly;
 Stokes I derivation is explicit.
@@ -1963,10 +1994,12 @@ generic-format, compatibility, and stale dependency surface.
 **Tests-first evidence.** Residual/import/export/dependency assertions fail
 until old names and modules are absent.
 
-**Production changes.** Delete `writers.py`; remove old exports/functions,
-generic dask reader, availability booleans, stale helpers, and dask-ms
-dependency; update lockfile without changing the accepted environment/platform
-matrix.
+**Production changes.** Delete the now-inactive `writers.py`; remove remaining
+inactive dictionary/reconstructed-axis helpers and imports; remove the dask-ms
+dependency; and update the lockfile without changing the accepted
+environment/platform matrix. Unsafe HDF5 is already removed in 4D and generic
+MS/dask public surfaces are already removed in 4E; 4H must not keep them active
+until cleanup.
 
 **Scientific invariants.** No solver or canonical writer value changes.
 
@@ -2037,6 +2070,7 @@ tests/characterization/test_h5py_output_contract.py
 src/radiosim/__init__.py
 src/radiosim/api/__init__.py
 src/radiosim/api/simulator.py
+src/radiosim/cli/main.py
 src/radiosim/core/__init__.py
 src/radiosim/core/time_grid.py
 src/radiosim/core/phase_center.py
@@ -2045,6 +2079,7 @@ src/radiosim/core/runtime_config.py
 src/radiosim/io/config.py
 src/radiosim/io/config_resolution.py
 tests/fixtures/configs.py
+tests/unit/test_cli/test_simulate.py
 tests/unit/test_core/test_time_grid.py
 tests/unit/test_core/test_phase_center.py
 tests/unit/test_core/test_result.py
@@ -2053,16 +2088,26 @@ tests/unit/test_io/test_config.py
 tests/unit/test_io/test_config_resolution.py
 tests/unit/test_simulator/test_api.py
 tests/unit/test_simulator/test_instrument_integration.py
+tests/unit/test_tier1h_documentation.py
 configs/config.yaml
 configs/realistic_foreground_example.yaml
 antenna_layout_examples/example_telescope_config.yaml
 examples/scripts/simple_simulation.py
+README.md
+docs/api/simulator.rst
+docs/migration_guide.md
+docs/quickstart.rst
+docs/user_guide/configuration.rst
+docs/user_guide/configuration_support.rst
+examples/notebooks/01_basic_usage.ipynb
 ```
 
 ### Tier 4C
 
 ```text
 src/radiosim/api/simulator.py
+src/radiosim/cli/main.py
+src/radiosim/cli/workflow.py
 src/radiosim/core/result.py
 src/radiosim/core/visibility.py
 src/radiosim/core/visibility_healpix.py
@@ -2071,22 +2116,35 @@ src/radiosim/simulator/rime.py
 tests/unit/test_core/test_beam_solver_integration.py
 tests/unit/test_core/test_result.py
 tests/unit/test_core/test_visibility_backend.py
+tests/unit/test_cli/test_config_mode.py
+tests/unit/test_cli/test_simulate.py
 tests/unit/test_simulator/test_api.py
 tests/unit/test_simulator/test_instrument_integration.py
 tests/unit/test_simulator/test_result_integration.py
+tests/unit/test_tier1h_documentation.py
+README.md
+docs/api/simulator.rst
+docs/index.rst
+docs/migration_guide.md
+docs/quickstart.rst
+docs/user_guide/beam_models.rst
+examples/scripts/simple_simulation.py
+examples/notebooks/01_basic_usage.ipynb
 ```
 
 ### Tier 4D
 
 ```text
-src/radiosim/api/simulator.py
 src/radiosim/io/__init__.py
 src/radiosim/io/result_errors.py
 src/radiosim/io/atomic_paths.py
 src/radiosim/io/hdf5.py
+src/radiosim/io/writers.py
 tests/unit/test_io/test_hdf5_result.py
+tests/unit/test_io/test_measurement_set.py
 tests/unit/test_io/test_output_atomicity.py
-tests/unit/test_simulator/test_api.py
+tests/unit/test_tier1h_documentation.py
+docs/api/io.rst
 ```
 
 ### Tier 4E
@@ -2102,14 +2160,19 @@ tests/unit/test_io/test_measurement_set.py
 tests/unit/test_io/test_standard_visibility.py
 tests/unit/test_io/test_uvfits.py
 tests/unit/test_io/test_output_atomicity.py
+tests/unit/test_tier1h_documentation.py
+docs/api/io.rst
 ```
 
 ### Tier 4F
 
 ```text
+src/radiosim/__init__.py
+src/radiosim/api/__init__.py
 src/radiosim/api/simulator.py
 src/radiosim/cli/main.py
 src/radiosim/cli/workflow.py
+src/radiosim/io/__init__.py
 src/radiosim/io/config.py
 src/radiosim/io/config_resolution.py
 src/radiosim/io/result_format.py
@@ -2127,16 +2190,39 @@ tests/unit/test_io/test_config_paths.py
 tests/unit/test_io/test_config_resolution.py
 tests/unit/test_io/test_result_summary.py
 tests/unit/test_simulator/test_api.py
+tests/unit/test_tier1h_documentation.py
+configs/config.yaml
+configs/realistic_foreground_example.yaml
+antenna_layout_examples/example_telescope_config.yaml
+README.md
+docs/api/io.rst
+docs/api/simulator.rst
+docs/index.rst
+docs/migration_guide.md
+docs/quickstart.rst
+docs/user_guide/configuration.rst
+docs/user_guide/configuration_support.rst
+examples/scripts/simple_simulation.py
+examples/notebooks/01_basic_usage.ipynb
 ```
 
 ### Tier 4G
 
 ```text
 src/radiosim/api/simulator.py
+src/radiosim/cli/workflow.py
+src/radiosim/io/config.py
+src/radiosim/io/config_resolution.py
 src/radiosim/visualization/errors.py
 src/radiosim/visualization/bokeh_plots.py
 src/radiosim/visualization/gsm_plots.py
 tests/unit/test_visualization/test_result_plots.py
+tests/fixtures/configs.py
+tests/unit/test_cli/test_config_mode.py
+tests/unit/test_cli/test_output_workflow.py
+tests/unit/test_io/test_config.py
+tests/unit/test_io/test_config_resolution.py
+tests/unit/test_simulator/test_api.py
 tests/unit/test_tier1h_documentation.py
 README.md
 docs/api/io.rst
@@ -2146,11 +2232,19 @@ docs/quickstart.rst
 docs/user_guide/configuration.rst
 docs/user_guide/configuration_support.rst
 docs/migration_guide.md
+configs/config.yaml
+configs/realistic_foreground_example.yaml
+antenna_layout_examples/example_telescope_config.yaml
+examples/scripts/simple_simulation.py
 examples/notebooks/01_basic_usage.ipynb
 ```
 
-The three YAML files and Python example already receive scientific widths in
-4B; 4G verifies and documents them without a second behavior change.
+The three YAML files, Python example, notebook, and width-bearing documentation
+receive scientific widths in 4B. Files listed again in 4C, 4F, or 4G receive
+only the result, output-policy, or renderer migration owned by that later
+slice. In particular, 4G owns `visibility_phase_unit`, removal of the two old
+visualization fields, plot re-enablement, and final renderer truth; it does not
+reopen width semantics.
 
 ### Tier 4H
 
@@ -2161,13 +2255,8 @@ src/radiosim/api/simulator.py
 src/radiosim/core/__init__.py
 src/radiosim/core/visibility.py
 src/radiosim/io/__init__.py
-src/radiosim/io/measurement_set.py
 src/radiosim/io/writers.py
 src/radiosim/cli/workflow.py
-tests/unit/test_cli/test_config_mode.py
-tests/unit/test_core/test_beam_solver_integration.py
-tests/unit/test_io/test_measurement_set.py
-tests/unit/test_simulator/test_api.py
 tests/unit/test_tier1h_documentation.py
 tests/unit/test_tier4_result_output_acceptance.py
 pyproject.toml
@@ -2209,36 +2298,50 @@ pixi run --environment py312 -- python -m pytest \
 
 ```bash
 pixi run python -m pytest \
+  tests/unit/test_cli/test_simulate.py \
   tests/unit/test_core/test_time_grid.py \
   tests/unit/test_core/test_phase_center.py \
   tests/unit/test_core/test_result.py \
   tests/unit/test_core/test_runtime_config.py \
   tests/unit/test_io/test_config.py \
-  tests/unit/test_io/test_config_resolution.py
+  tests/unit/test_io/test_config_resolution.py \
+  tests/unit/test_simulator/test_api.py \
+  tests/unit/test_simulator/test_instrument_integration.py \
+  tests/unit/test_tier1h_documentation.py
 pixi run --environment py312 -- python -m pytest \
+  tests/unit/test_cli/test_simulate.py \
   tests/unit/test_core/test_time_grid.py \
   tests/unit/test_core/test_phase_center.py \
   tests/unit/test_core/test_result.py \
   tests/unit/test_core/test_runtime_config.py \
   tests/unit/test_io/test_config.py \
-  tests/unit/test_io/test_config_resolution.py
+  tests/unit/test_io/test_config_resolution.py \
+  tests/unit/test_simulator/test_api.py \
+  tests/unit/test_simulator/test_instrument_integration.py \
+  tests/unit/test_tier1h_documentation.py
 ```
 
 ### Tier 4C
 
 ```bash
 pixi run python -m pytest \
+  tests/unit/test_cli/test_config_mode.py \
+  tests/unit/test_cli/test_simulate.py \
   tests/unit/test_core/test_beam_solver_integration.py \
   tests/unit/test_core/test_visibility_backend.py \
   tests/unit/test_simulator/test_api.py \
   tests/unit/test_simulator/test_instrument_integration.py \
-  tests/unit/test_simulator/test_result_integration.py
+  tests/unit/test_simulator/test_result_integration.py \
+  tests/unit/test_tier1h_documentation.py
 pixi run --environment py312 -- python -m pytest \
+  tests/unit/test_cli/test_config_mode.py \
+  tests/unit/test_cli/test_simulate.py \
   tests/unit/test_core/test_beam_solver_integration.py \
   tests/unit/test_core/test_visibility_backend.py \
   tests/unit/test_simulator/test_api.py \
   tests/unit/test_simulator/test_instrument_integration.py \
-  tests/unit/test_simulator/test_result_integration.py
+  tests/unit/test_simulator/test_result_integration.py \
+  tests/unit/test_tier1h_documentation.py
 ```
 
 ### Tier 4D
@@ -2246,12 +2349,14 @@ pixi run --environment py312 -- python -m pytest \
 ```bash
 pixi run python -m pytest \
   tests/unit/test_io/test_hdf5_result.py \
+  tests/unit/test_io/test_measurement_set.py \
   tests/unit/test_io/test_output_atomicity.py \
-  tests/unit/test_simulator/test_api.py
+  tests/unit/test_tier1h_documentation.py
 pixi run --environment py312 -- python -m pytest \
   tests/unit/test_io/test_hdf5_result.py \
+  tests/unit/test_io/test_measurement_set.py \
   tests/unit/test_io/test_output_atomicity.py \
-  tests/unit/test_simulator/test_api.py
+  tests/unit/test_tier1h_documentation.py
 ```
 
 ### Tier 4E
@@ -2261,12 +2366,14 @@ pixi run python -m pytest \
   tests/unit/test_io/test_measurement_set.py \
   tests/unit/test_io/test_standard_visibility.py \
   tests/unit/test_io/test_uvfits.py \
-  tests/unit/test_io/test_output_atomicity.py
+  tests/unit/test_io/test_output_atomicity.py \
+  tests/unit/test_tier1h_documentation.py
 pixi run --environment py312 -- python -m pytest \
   tests/unit/test_io/test_measurement_set.py \
   tests/unit/test_io/test_standard_visibility.py \
   tests/unit/test_io/test_uvfits.py \
-  tests/unit/test_io/test_output_atomicity.py
+  tests/unit/test_io/test_output_atomicity.py \
+  tests/unit/test_tier1h_documentation.py
 ```
 
 ### Tier 4F
@@ -2281,7 +2388,8 @@ pixi run python -m pytest \
   tests/unit/test_io/test_config_paths.py \
   tests/unit/test_io/test_config_resolution.py \
   tests/unit/test_io/test_result_summary.py \
-  tests/unit/test_simulator/test_api.py
+  tests/unit/test_simulator/test_api.py \
+  tests/unit/test_tier1h_documentation.py
 pixi run --environment py312 -- python -m pytest \
   tests/unit/test_cli/test_config_mode.py \
   tests/unit/test_cli/test_output_workflow.py \
@@ -2291,16 +2399,27 @@ pixi run --environment py312 -- python -m pytest \
   tests/unit/test_io/test_config_paths.py \
   tests/unit/test_io/test_config_resolution.py \
   tests/unit/test_io/test_result_summary.py \
-  tests/unit/test_simulator/test_api.py
+  tests/unit/test_simulator/test_api.py \
+  tests/unit/test_tier1h_documentation.py
 ```
 
 ### Tier 4G
 
 ```bash
 pixi run python -m pytest \
+  tests/unit/test_cli/test_config_mode.py \
+  tests/unit/test_cli/test_output_workflow.py \
+  tests/unit/test_io/test_config.py \
+  tests/unit/test_io/test_config_resolution.py \
+  tests/unit/test_simulator/test_api.py \
   tests/unit/test_visualization/test_result_plots.py \
   tests/unit/test_tier1h_documentation.py
 pixi run --environment py312 -- python -m pytest \
+  tests/unit/test_cli/test_config_mode.py \
+  tests/unit/test_cli/test_output_workflow.py \
+  tests/unit/test_io/test_config.py \
+  tests/unit/test_io/test_config_resolution.py \
+  tests/unit/test_simulator/test_api.py \
   tests/unit/test_visualization/test_result_plots.py \
   tests/unit/test_tier1h_documentation.py
 ```
@@ -2343,9 +2462,11 @@ pixi run python examples/scripts/simple_simulation.py
 git diff --check
 ```
 
-After 4G, each gate also runs the clean-copy Sphinx command from the design
-request. Before 4G, it runs whenever a changed public signature appears in an
-active autodoc page. All generated and temporary content is removed.
+Every slice from 4B through 4H also runs the clean-copy Sphinx command from the
+design request because each changes an active public signature or truth page.
+4A runs it only if characterization unexpectedly requires a plan correction;
+4I always reruns it as part of whole-tier acceptance. All generated and
+temporary content is removed.
 
 The gate records pass/skip/xfail/xpass/warning totals, Pyright count against the
 unchanged 4,600 ceiling, YAML center counts, offline example counts/shapes,
@@ -2403,10 +2524,10 @@ No slice starts from an unaccepted predecessor.
 | duration/cadence solver inputs | `ObservationTimeGrid` | 4C |
 | missing channel widths | required explicit widths | 4B |
 | unversioned HDF5 | `radiosim.visibility` 1.0.0 | 4D |
-| `save/load_visibilities_hdf5` | `write/load_result_hdf5` | 4D/4H |
+| `save/load_visibilities_hdf5` | `write/load_result_hdf5` | 4D |
 | `json` | `summary_json` | 4F |
-| generic `write_ms/read_ms` | canonical MS functions | 4E/4H |
-| `read_ms_dask`, `ms_info`, availability flags | no public replacement; typed reader/errors | 4H |
+| generic `write_ms/read_ms` | canonical MS functions | 4E |
+| `read_ms_dask`, `ms_info`, availability flags | no public replacement; typed reader/errors | 4E |
 | hidden `force_phase` | explicit standard projection | 4E |
 | `save(output_dir, filename=...)` | exact final `path` | 4F |
 | workflow `overwrite` and confirmation skip | `collision_policy` | 4F |
@@ -2611,6 +2732,37 @@ No format is called lossless beyond its stated contract. HDF5 alone
 reconstructs a loaded canonical result. Summary JSON is explicitly incomplete.
 MS records mandatory precision conversion and projection. UVFITS declares and
 tests representability limits. There is no compatibility shim.
+
+### 46.4 Independent-review correction evidence
+
+The 2026-07-26 independent review disproved the claim in Section 46.3 that the
+original slice ownership was complete. Its external structured audit failed
+before correction because 4B required widths without owning the direct CLI and
+active width-bearing truth surfaces; 4C cut over the result while configured
+save/plot and direct CLI consumers had no production preflight; 4D depended on
+4F's not-yet-owned `Simulator.save`; 4F omitted lazy-export, shipped-config, and
+sample paths; and 4G omitted configuration/workflow paths needed to re-enable
+plots. The original 4H boundary also left the executable `eval`-based HDF5
+reader active until cleanup. Sections 34 through 37 now assign each of those
+paths and intermediate states to the first slice that needs them. Unsafe HDF5
+is deactivated in 4D, generic unsafe MS/dask surfaces in 4E, and `writers.py`
+remains only as a safe configuration-artifact helper until its 4H deletion.
+
+Two direct locked-dependency failures also corrected Section 20. Passing
+`clobber=False` to pyuvdata 3.2.1 UVFITS raised `TypeError` because the public
+writer has no such keyword. A two-channel case with width greater than center
+spacing passed the plan's original inequality but failed pyuvdata's public
+frequency-spacing check. The corrected contract passes only
+`force_phase=False` to a fresh exclusive temporary path and requires multi-
+channel spacing to match channel width within the declared tolerance.
+
+The corrected structured audit requires 47 numbered sections, nine slices,
+existing/new-path consistency, ownership of every first-use path, direct-only
+HDF5 in 4D, immediate unsafe-surface deactivation, final workflow exports in
+4F, renderer/workflow re-enablement in 4G, Tier 4I's exact two-file boundary,
+and classification of every ambiguity-token match. It must report zero
+existence, ownership, sequencing, unsafe-active-path, and normative-ambiguity
+errors before this design can be independently accepted.
 
 ## 47. Design-gate conclusion
 
