@@ -29,6 +29,15 @@ TIMES = Time(["2025-01-01T00:00:00", "2025-01-01T00:00:02"])
 ANTENNA_PAIRS = [(0, 0), (0, 2)]
 CANONICAL_CODES = np.array([-5, -7, -8, -6], dtype=np.int64)
 FILE_CODES = np.array([-5, -6, -7, -8], dtype=np.int64)
+UNCALIBRATED_UNIT_WARNING = (
+    "Writing in the MS file that the units of the data are uncalib, although "
+    "some CASA process will ignore this and assume the units are all in Jy "
+    "(or may not know how to handle data in these units)."
+)
+NUMPY_WHERE_WITHOUT_OUT_WARNING = (
+    "'where' used without 'out', expect unitialized memory in output. "
+    "If this is intentional, use out=None."
+)
 
 
 def _location_and_relative_ecef() -> tuple[EarthLocation, np.ndarray]:
@@ -139,19 +148,20 @@ def _catalog(uvdata: UVData) -> dict[str, object]:
 def _classify_warnings(
     captured: list[warnings.WarningMessage],
 ) -> set[str]:
+    known = {
+        (UserWarning, UNCALIBRATED_UNIT_WARNING): "uncalibrated-unit",
+        (UserWarning, NUMPY_WHERE_WITHOUT_OUT_WARNING): "numpy-where-without-out",
+    }
     categories: set[str] = set()
     unknown: list[str] = []
     for warning in captured:
         message = str(warning.message)
-        if "some CASA process will ignore this" in message:
-            categories.add("uncalibrated-unit")
-        elif "where" in message and "out" in message:
-            categories.add("numpy-where-without-out")
-        elif "mix of baseline conjugation states" in message:
-            categories.add("baseline-conjugation")
+        category = known.get((warning.category, message))
+        if category is not None:
+            categories.add(category)
         else:
             unknown.append(f"{warning.category.__name__}: {message}")
-    assert unknown == []
+    assert unknown == [], f"Unclassified warnings: {unknown}"
     return categories
 
 
@@ -163,12 +173,15 @@ def _write_ms_with_classified_warnings(
 ) -> set[str]:
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
-        uvdata.write_ms(
-            str(path),
-            clobber=clobber,
-            force_phase=False,
-        )
-    return _classify_warnings(captured)
+        try:
+            uvdata.write_ms(
+                str(path),
+                clobber=clobber,
+                force_phase=False,
+            )
+        finally:
+            categories = _classify_warnings(captured)
+    return categories
 
 
 def _write_uvfits_with_classified_warnings(
@@ -177,8 +190,18 @@ def _write_uvfits_with_classified_warnings(
 ) -> set[str]:
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
-        uvdata.write_uvfits(str(path), force_phase=False)
-    return _classify_warnings(captured)
+        try:
+            uvdata.write_uvfits(str(path), force_phase=False)
+        finally:
+            categories = _classify_warnings(captured)
+    return categories
+
+
+def _expected_ms_warning_categories(*, uncalibrated: bool = False) -> set[str]:
+    categories = {"uncalibrated-unit"} if uncalibrated else set()
+    if sys.version_info[:2] == (3, 12):
+        categories.add("numpy-where-without-out")
+    return categories
 
 
 def _assert_common_round_trip(expected: UVData, actual: UVData) -> None:
@@ -415,10 +438,20 @@ def test_dependency_explicit_phase_projection_matches_independent_calculation(
     )
 
 
-def test_dependency_polarization_list_requires_explicit_normalization(
+def test_dependency_polarization_list_affects_only_uvfits_until_normalized(
     tmp_path: Path,
 ) -> None:
-    """Characterizes list retention and the advanced UVFITS write boundary."""
+    """Characterizes the asymmetric MS and UVFITS list-write boundaries."""
+    ms_data = _new_uvdata()
+    assert isinstance(ms_data.polarization_array, list)
+    ms_data.phase_to_time(TIMES[0])
+    ms_path = tmp_path / "list-polarizations.ms"
+    categories = _write_ms_with_classified_warnings(ms_data, ms_path)
+    assert categories == _expected_ms_warning_categories()
+    assert ms_path.is_dir()
+    assert isinstance(ms_data.polarization_array, list)
+    shutil.rmtree(ms_path)
+
     uvdata = _new_uvdata()
     assert isinstance(uvdata.polarization_array, list)
     uvdata.phase_to_time(TIMES[0])
@@ -457,11 +490,7 @@ def test_dependency_measurement_set_round_trip_characterizes_dtype(
     path = tmp_path / f"round-trip-{np.dtype(dtype).name}.ms"
 
     categories = _write_ms_with_classified_warnings(expected, path)
-    assert categories <= {
-        "uncalibrated-unit",
-        "numpy-where-without-out",
-        "baseline-conjugation",
-    }
+    assert categories == _expected_ms_warning_categories()
     actual = UVData()
     actual.read_ms(str(path))
     _assert_common_round_trip(expected, actual)
@@ -496,13 +525,14 @@ def test_dependency_measurement_set_collision_replacement_and_unit_warning(
     path = tmp_path / "collision.ms"
 
     categories = _write_ms_with_classified_warnings(first, path)
-    assert "uncalibrated-unit" in categories
+    assert categories == _expected_ms_warning_categories(uncalibrated=True)
     with pytest.raises(OSError):
         _write_ms_with_classified_warnings(first, path, clobber=False)
 
     replacement = first.copy()
     replacement.data_array = replacement.data_array + np.float32(50.0)
-    _write_ms_with_classified_warnings(replacement, path, clobber=True)
+    categories = _write_ms_with_classified_warnings(replacement, path, clobber=True)
+    assert categories == _expected_ms_warning_categories(uncalibrated=True)
     actual = UVData()
     actual.read_ms(str(path))
     np.testing.assert_allclose(
@@ -513,6 +543,24 @@ def test_dependency_measurement_set_collision_replacement_and_unit_warning(
     )
     shutil.rmtree(path)
     assert not path.exists()
+
+    fabricated = warnings.WarningMessage(
+        UserWarning("somewhere arbitrary output changed"),
+        UserWarning,
+        "probe.py",
+        1,
+    )
+    with pytest.raises(AssertionError, match="Unclassified warnings"):
+        _classify_warnings([fabricated])
+
+    wrong_category = warnings.WarningMessage(
+        RuntimeWarning(NUMPY_WHERE_WITHOUT_OUT_WARNING),
+        RuntimeWarning,
+        "probe.py",
+        1,
+    )
+    with pytest.raises(AssertionError, match="Unclassified warnings"):
+        _classify_warnings([wrong_category])
 
 
 @pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
@@ -526,7 +574,7 @@ def test_dependency_uvfits_round_trip_preserves_supported_dtype(
     path = tmp_path / f"round-trip-{np.dtype(dtype).name}.uvfits"
 
     categories = _write_uvfits_with_classified_warnings(expected, path)
-    assert categories <= {"baseline-conjugation"}
+    assert categories == set()
     actual = UVData()
     actual.read_uvfits(str(path))
     _assert_common_round_trip(expected, actual)
