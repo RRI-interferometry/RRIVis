@@ -1,5 +1,7 @@
 """Backend parity tests for visibility/RIME calculations."""
 
+import inspect
+
 import numpy as np
 import pytest
 from astropy import units as u
@@ -147,6 +149,90 @@ def _healpix_model(*, polarized: bool = False) -> SkyModel:
         brightness_conversion="rayleigh-jeans",
         precision=PrecisionConfig.standard(),
     )
+
+
+def test_low_level_solvers_require_explicit_backend_and_canonical_frequencies(
+    tmp_path,
+):
+    instrument, beam_system = _solver_components(tmp_path)
+    common = {
+        "instrument": instrument,
+        "beam_system": beam_system,
+        "location": LOCATION,
+        "time_grid": TIME_GRID,
+        "frequencies": FREQS,
+    }
+    point = {
+        **common,
+        "source_arrays": _source_arrays(),
+    }
+    healpix = {
+        **common,
+        "sky_model": _healpix_model(),
+    }
+
+    for function, arguments in (
+        (calculate_visibility, point),
+        (calculate_visibility_healpix, healpix),
+    ):
+        assert (
+            inspect.signature(function).parameters["backend"].default
+            is inspect.Parameter.empty
+        )
+        with pytest.raises(TypeError, match="backend"):
+            function(**arguments)
+        with pytest.raises(TypeError, match="backend"):
+            function(**arguments, backend=None)
+
+    invalid_frequencies = (
+        None,
+        True,
+        np.float64(100e6),
+        [100e6],
+        np.array([], dtype=np.float64),
+        np.array([[100e6]], dtype=np.float64),
+        np.array([np.nan], dtype=np.float64),
+        np.array([0.0], dtype=np.float64),
+        np.array([101e6, 100e6], dtype=np.float64),
+    )
+    backend = get_backend("numpy")
+    for frequencies in invalid_frequencies:
+        for function, arguments in (
+            (calculate_visibility, point),
+            (calculate_visibility_healpix, healpix),
+        ):
+            with pytest.raises((TypeError, ValueError), match="frequencies"):
+                function(
+                    **{
+                        **arguments,
+                        "frequencies": frequencies,
+                        "backend": backend,
+                    }
+                )
+
+    for function, arguments, field_name, invalid in (
+        (calculate_visibility, point, "instrument", object()),
+        (calculate_visibility_healpix, healpix, "instrument", object()),
+        (calculate_visibility, point, "beam_system", object()),
+        (calculate_visibility_healpix, healpix, "beam_system", object()),
+        (calculate_visibility, point, "time_grid", object()),
+        (calculate_visibility_healpix, healpix, "time_grid", object()),
+    ):
+        with pytest.raises(TypeError, match=field_name):
+            function(
+                **{
+                    **arguments,
+                    field_name: invalid,
+                    "backend": backend,
+                }
+            )
+
+    with pytest.raises(TypeError, match="include_polarization"):
+        calculate_visibility_healpix(
+            **healpix,
+            backend=backend,
+            include_polarization=np.bool_(True),
+        )
 
 
 def test_point_source_visibility_numba_matches_numpy(tmp_path):

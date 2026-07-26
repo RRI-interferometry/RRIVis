@@ -16,6 +16,7 @@ from matplotlib.figure import Figure
 from pyradiosky import SkyModel as PyRadioSkyModel
 
 from radiosim.api import Simulator
+from radiosim.backends import get_backend
 from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import HealpixData, SkyFormat, SkyModel
@@ -279,6 +280,7 @@ class TestSparseVisibility:
             location=location,
             time_grid=time_grid,
             frequencies=freqs,
+            backend=get_backend("numpy"),
         )
         dense_vis = calculate_visibility_healpix(
             dense,
@@ -287,6 +289,7 @@ class TestSparseVisibility:
             location=location,
             time_grid=time_grid,
             frequencies=freqs,
+            backend=get_backend("numpy"),
         )
 
         np.testing.assert_allclose(

@@ -21,7 +21,7 @@ from astropy.coordinates import AltAz, SkyCoord
 from typing_extensions import override
 
 # Import backend abstraction
-from radiosim.backends import ArrayBackend, get_backend
+from radiosim.backends import ArrayBackend
 from radiosim.core.beam import BeamSystem
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
@@ -45,6 +45,30 @@ from radiosim.core.polarization import (
 from radiosim.core.sky.containers.constants import C_LIGHT
 
 logger = logging.getLogger(__name__)
+
+
+def _require_backend(backend: object) -> ArrayBackend:
+    if not isinstance(backend, ArrayBackend):
+        raise TypeError("backend must be an ArrayBackend")
+    return backend
+
+
+def _require_frequencies(frequencies: object) -> np.ndarray:
+    if type(frequencies) is not np.ndarray:
+        raise TypeError("frequencies must be an exact numpy.ndarray")
+    if (
+        frequencies.dtype != np.dtype("float64")
+        or frequencies.ndim != 1
+        or frequencies.size == 0
+        or not np.all(np.isfinite(frequencies))
+        or not np.all(frequencies > 0.0)
+        or not np.all(np.diff(frequencies) > 0.0)
+    ):
+        raise ValueError(
+            "frequencies must be a nonempty, finite, positive, strictly "
+            "increasing float64 array"
+        )
+    return frequencies
 
 
 class _ResolvedBeamJones(JonesTerm):
@@ -182,7 +206,7 @@ def calculate_visibility(
     location: Any,
     time_grid: "ObservationTimeGrid",
     frequencies: Any,
-    backend: ArrayBackend | None = None,
+    backend: ArrayBackend,
     jones_config: dict[str, Any] | None = None,
 ) -> Any:
     """
@@ -210,8 +234,8 @@ def calculate_visibility(
         Exact canonical UTC sample-center grid.
     frequencies : ndarray
         Canonical frequency centers in Hz.
-    backend : ArrayBackend, optional
-        Array backend used by supported kernels. If omitted, uses NumPy.
+    backend : ArrayBackend
+        Explicit array backend used by supported kernels.
         Options: get_backend("numpy"), get_backend("jax"), get_backend("numba")
     jones_config : dict, optional
         Configuration for Jones chain terms. Keys are term names ('K', 'E', 'G', etc.),
@@ -226,13 +250,10 @@ def calculate_visibility(
 
     Examples
     --------
-    >>> # Deterministic NumPy default
-    >>> vis = calculate_visibility(instrument, beam_system, source_arrays, ...)
-
-    >>> # Explicit optional backend
+    >>> # Explicit backend
     >>> from radiosim.backends import get_backend
-    >>> optional_backend = get_backend("jax")
-    >>> vis = calculate_visibility(..., backend=optional_backend)
+    >>> selected_backend = get_backend("jax")
+    >>> vis = calculate_visibility(..., backend=selected_backend)
     """
     if jones_config is None:
         jones_config = {}
@@ -252,10 +273,8 @@ def calculate_visibility(
         raise TypeError("beam_system must be an exact BeamSystem")
     if type(time_grid) is not ObservationTimeGrid:
         raise TypeError("time_grid must be an exact ObservationTimeGrid")
-
-    # Initialize backend (default to NumPy for backward compatibility)
-    if backend is None:
-        backend = get_backend("numpy")
+    backend = _require_backend(backend)
+    frequencies = _require_frequencies(frequencies)
 
     # Get array namespace from backend
     xp = backend.xp

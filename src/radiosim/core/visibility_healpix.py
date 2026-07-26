@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 import numpy as np
 from astropy.coordinates import AltAz
 
-from radiosim.backends import ArrayBackend, get_backend
+from radiosim.backends import ArrayBackend
 from radiosim.core.beam import BeamSystem
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
@@ -41,6 +41,36 @@ from radiosim.core.sky import (
 from radiosim.core.sky.containers.constants import C_LIGHT
 
 logger = logging.getLogger(__name__)
+
+
+def _require_backend(backend: object) -> ArrayBackend:
+    if not isinstance(backend, ArrayBackend):
+        raise TypeError("backend must be an ArrayBackend")
+    return backend
+
+
+def _require_frequencies(frequencies: object) -> np.ndarray:
+    if type(frequencies) is not np.ndarray:
+        raise TypeError("frequencies must be an exact numpy.ndarray")
+    if (
+        frequencies.dtype != np.dtype("float64")
+        or frequencies.ndim != 1
+        or frequencies.size == 0
+        or not np.all(np.isfinite(frequencies))
+        or not np.all(frequencies > 0.0)
+        or not np.all(np.diff(frequencies) > 0.0)
+    ):
+        raise ValueError(
+            "frequencies must be a nonempty, finite, positive, strictly "
+            "increasing float64 array"
+        )
+    return frequencies
+
+
+def _require_bool(value: object, *, field_name: str) -> bool:
+    if type(value) is not bool:
+        raise TypeError(f"{field_name} must be a bool")
+    return value
 
 
 def _canonical_antenna_id(
@@ -136,9 +166,9 @@ def calculate_visibility_healpix(
     location: Any,
     time_grid: "ObservationTimeGrid",
     frequencies: Any,
+    backend: ArrayBackend,
     output_units: str = "Jy",
     include_polarization: bool = False,
-    backend: ArrayBackend | None = None,
 ) -> Any:
     """
     Calculate visibility directly from HEALPix brightness temperature map.
@@ -184,12 +214,6 @@ def calculate_visibility_healpix(
     backend array
         Receptor visibility cube with shape ``(T, B, F, 2, 2)``.
     """
-    if sky_model.healpix is None:
-        raise ValueError(
-            "sky_model must contain a HEALPix payload. "
-            "Materialize a HEALPix payload first (for point-source catalogs) "
-            "or load a diffuse HEALPix model with frequencies=...."
-        )
     from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.time_grid import ObservationTimeGrid
 
@@ -199,8 +223,20 @@ def calculate_visibility_healpix(
         raise TypeError("beam_system must be an exact BeamSystem")
     if type(time_grid) is not ObservationTimeGrid:
         raise TypeError("time_grid must be an exact ObservationTimeGrid")
-    if backend is None:
-        backend = get_backend("numpy")
+    backend = _require_backend(backend)
+    frequencies = _require_frequencies(frequencies)
+    if type(output_units) is not str or output_units not in {"Jy", "K.sr"}:
+        raise ValueError("output_units must be 'Jy' or 'K.sr'")
+    include_polarization = _require_bool(
+        include_polarization,
+        field_name="include_polarization",
+    )
+    if sky_model.healpix is None:
+        raise ValueError(
+            "sky_model must contain a HEALPix payload. "
+            "Materialize a HEALPix payload first (for point-source catalogs) "
+            "or load a diffuse HEALPix model with frequencies=...."
+        )
     xp = backend.xp
     output_complex_dtype = backend.get_complex_dtype("output")
 

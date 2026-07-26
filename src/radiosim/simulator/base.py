@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from radiosim.backends.base import ArrayBackend
     from radiosim.core.beam import BeamSystem
     from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.sky.containers.model import SourceArrays
@@ -125,7 +126,7 @@ class VisibilitySimulator(ABC):
         beam_system: "BeamSystem",
         source_arrays: "SourceArrays",
         frequencies: np.ndarray,
-        backend: Any,
+        backend: "ArrayBackend",
         *,
         location: Any,
         time_grid: "ObservationTimeGrid",
