@@ -663,6 +663,150 @@ def _required_snapshot(value: object, *, field_name: str) -> FrozenMapping:
     return json_safe_mapping(cast(Mapping[str, object], value))
 
 
+def _snapshot_mapping(
+    snapshot: Mapping[str, object],
+    key: str,
+    *,
+    field_name: str,
+) -> Mapping[str, object]:
+    value = snapshot.get(key)
+    if not isinstance(value, Mapping):
+        raise InvalidResultError(f"{field_name}.{key} must be a mapping")
+    return cast(Mapping[str, object], value)
+
+
+def _snapshot_sequence(
+    snapshot: Mapping[str, object],
+    key: str,
+    *,
+    field_name: str,
+) -> Sequence[object]:
+    value = snapshot.get(key)
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise InvalidResultError(f"{field_name}.{key} must be a sequence")
+    return cast(Sequence[object], value)
+
+
+def _validate_loaded_identity_snapshots(
+    *,
+    instrument: FrozenMapping,
+    selection: FrozenMapping,
+    beam: FrozenMapping,
+    backend: FrozenMapping,
+    solver: FrozenMapping,
+    visibility_dtype: np.dtype[Any],
+    baseline_count: int,
+) -> None:
+    if instrument.get("schema_version") != "radiosim.instrument.v1":
+        raise InvalidResultError("instrument_snapshot has an invalid schema")
+    instrument_sha256 = instrument.get("instrument_sha256")
+    if (
+        type(instrument_sha256) is not str
+        or _SHA256.fullmatch(instrument_sha256) is None
+    ):
+        raise InvalidResultError("instrument_snapshot has an invalid fingerprint")
+    antennas = _snapshot_sequence(
+        instrument,
+        "antennas",
+        field_name="instrument_snapshot",
+    )
+    if not antennas:
+        raise InvalidResultError("instrument_snapshot.antennas must be nonempty")
+    antenna_numbers: set[int] = set()
+    for index, antenna in enumerate(antennas):
+        if not isinstance(antenna, Mapping):
+            raise InvalidResultError(
+                f"instrument_snapshot.antennas[{index}] must be a mapping"
+            )
+        number = cast(Mapping[str, object], antenna).get("number")
+        if type(number) is not int:
+            raise InvalidResultError(
+                "instrument_snapshot antenna numbers must be unique integers"
+            )
+        if number in antenna_numbers:
+            raise InvalidResultError(
+                "instrument_snapshot antenna numbers must be unique integers"
+            )
+        antenna_numbers.add(number)
+
+    if selection.get("schema_version") != "radiosim.baseline-selection.v1":
+        raise InvalidResultError("selection_snapshot has an invalid schema")
+    selected_ids = _snapshot_sequence(
+        selection,
+        "selected_ids",
+        field_name="selection_snapshot",
+    )
+    if len(selected_ids) != baseline_count:
+        raise ResultShapeError(
+            "selection_snapshot baseline count does not match visibilities"
+        )
+    seen_pairs: set[tuple[int, int]] = set()
+    for index, pair_value in enumerate(selected_ids):
+        if isinstance(pair_value, (str, bytes)) or not isinstance(pair_value, Sequence):
+            raise InvalidResultError(
+                f"selection_snapshot.selected_ids[{index}] must contain two integers"
+            )
+        pair_items = cast(Sequence[object], pair_value)
+        if len(pair_items) != 2:
+            raise InvalidResultError(
+                f"selection_snapshot.selected_ids[{index}] must contain two integers"
+            )
+        ant1, ant2 = pair_items[0], pair_items[1]
+        if type(ant1) is not int or type(ant2) is not int:
+            raise InvalidResultError(
+                f"selection_snapshot.selected_ids[{index}] must contain two integers"
+            )
+        pair = (ant1, ant2)
+        if ant1 not in antenna_numbers or ant2 not in antenna_numbers:
+            raise InvalidResultError(
+                "selection_snapshot contains an antenna outside instrument_snapshot"
+            )
+        if pair in seen_pairs:
+            raise InvalidResultError(
+                "selection_snapshot contains duplicate selected baselines"
+            )
+        seen_pairs.add(pair)
+
+    resolved_beam = _snapshot_mapping(
+        beam,
+        "resolved",
+        field_name="beam_snapshot",
+    )
+    if resolved_beam.get("instrument_fingerprint") != instrument_sha256:
+        raise InvalidResultError("beam_snapshot does not belong to instrument_snapshot")
+
+    backend_fields = {
+        "requested_backend",
+        "actual_backend",
+        "requested_precision",
+        "actual_precision",
+        "result_dtype",
+    }
+    if set(backend) != backend_fields:
+        raise InvalidResultError("backend_snapshot has unexpected fields")
+    try:
+        backend_identity = BackendResultProvenance(**dict(backend))
+    except (TypeError, ValueError, InvalidResultError) as exc:
+        raise InvalidResultError("backend_snapshot is invalid") from exc
+    if np.dtype(backend_identity.result_dtype) != visibility_dtype:
+        raise InvalidResultError(
+            "backend_snapshot result dtype does not match visibilities"
+        )
+
+    solver_fields = {
+        "solver",
+        "sky_representation",
+        "convention",
+        "execution_path",
+    }
+    if set(solver) != solver_fields:
+        raise InvalidResultError("solver_snapshot has unexpected fields")
+    try:
+        _ = SolverResultProvenance(**dict(solver))
+    except (TypeError, ValueError, InvalidResultError) as exc:
+        raise InvalidResultError("solver_snapshot is invalid") from exc
+
+
 def _assign(target: object, **values: object) -> None:
     for key, value in values.items():
         object.__setattr__(target, key, value)
@@ -941,6 +1085,15 @@ def build_loaded_simulation_result(
         snapshots.append(_required_snapshot(snapshot, field_name=field_name))
     frozen_instrument, frozen_selection, frozen_beam, frozen_backend, frozen_solver = (
         snapshots
+    )
+    _validate_loaded_identity_snapshots(
+        instrument=frozen_instrument,
+        selection=frozen_selection,
+        beam=frozen_beam,
+        backend=frozen_backend,
+        solver=frozen_solver,
+        visibility_dtype=visibility_array.dtype,
+        baseline_count=visibility_array.shape[1],
     )
     frozen_config = _runtime_snapshot(resolved_config_snapshot)
     frozen_configuration_provenance = _optional_snapshot(

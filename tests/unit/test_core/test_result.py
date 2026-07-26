@@ -202,7 +202,26 @@ def _oracle_array(digest, tag, value):
     _oracle_tag(digest, f"{tag}.data", canonical.tobytes(order="C"))
 
 
-def _independent_fingerprints(result):
+def _independent_fingerprints(
+    result,
+    *,
+    instrument_snapshot=None,
+    selection_snapshot=None,
+    beam_snapshot=None,
+    backend_snapshot=None,
+    solver_snapshot=None,
+):
+    if instrument_snapshot is None:
+        instrument_snapshot = result.instrument.to_snapshot()
+    if selection_snapshot is None:
+        selection_snapshot = result.selection.to_snapshot()
+    if beam_snapshot is None:
+        beam_snapshot = result.beam_state.to_snapshot()
+    if backend_snapshot is None:
+        backend_snapshot = result.backend.to_snapshot()
+    if solver_snapshot is None:
+        solver_snapshot = result.solver.to_snapshot()
+
     scientific = hashlib.sha256()
     _oracle_json(scientific, "schema", "radiosim.result.v1")
     for tag, array in (
@@ -222,11 +241,11 @@ def _independent_fingerprints(result):
     for tag, value in (
         ("correlations", result.correlations),
         ("polarization_basis", result.polarization_basis),
-        ("instrument", result.instrument.to_snapshot()),
-        ("selection", result.selection.to_snapshot()),
-        ("beam", result.beam_state.to_snapshot()),
+        ("instrument", instrument_snapshot),
+        ("selection", selection_snapshot),
+        ("beam", beam_snapshot),
         ("phase_center", result.phase_center.to_snapshot()),
-        ("solver", result.solver.to_snapshot()),
+        ("solver", solver_snapshot),
     ):
         _oracle_json(scientific, tag, value)
     scientific_hex = scientific.hexdigest()
@@ -234,7 +253,7 @@ def _independent_fingerprints(result):
     provenance = hashlib.sha256()
     for tag, value in (
         ("scientific_sha256", scientific_hex),
-        ("backend", result.backend.to_snapshot()),
+        ("backend", backend_snapshot),
         ("resolved_config", result.resolved_config),
         ("configuration_provenance", result.configuration_provenance),
         ("package_version", version("radiosim")),
@@ -242,6 +261,56 @@ def _independent_fingerprints(result):
     ):
         _oracle_json(provenance, tag, value)
     return scientific_hex, provenance.hexdigest()
+
+
+def _loaded_result_arguments(
+    result,
+    *,
+    instrument_snapshot=None,
+    selection_snapshot=None,
+    beam_snapshot=None,
+    backend_snapshot=None,
+    solver_snapshot=None,
+):
+    if instrument_snapshot is None:
+        instrument_snapshot = result.instrument.to_snapshot()
+    if selection_snapshot is None:
+        selection_snapshot = result.selection.to_snapshot()
+    if beam_snapshot is None:
+        beam_snapshot = result.beam_state.to_snapshot()
+    if backend_snapshot is None:
+        backend_snapshot = result.backend.to_snapshot()
+    if solver_snapshot is None:
+        solver_snapshot = result.solver.to_snapshot()
+    scientific, provenance = _independent_fingerprints(
+        result,
+        instrument_snapshot=instrument_snapshot,
+        selection_snapshot=selection_snapshot,
+        beam_snapshot=beam_snapshot,
+        backend_snapshot=backend_snapshot,
+        solver_snapshot=solver_snapshot,
+    )
+    return {
+        "visibilities": result.visibilities,
+        "flags": result.flags,
+        "weights": result.weights,
+        "time_grid": result.time_grid,
+        "frequencies_hz": result.frequencies_hz,
+        "channel_widths_hz": result.channel_widths_hz,
+        "correlations": result.correlations,
+        "phase_center": result.phase_center,
+        "instrument_snapshot": instrument_snapshot,
+        "selection_snapshot": selection_snapshot,
+        "beam_snapshot": beam_snapshot,
+        "backend_snapshot": backend_snapshot,
+        "solver_snapshot": solver_snapshot,
+        "resolved_config_snapshot": result.resolved_config,
+        "configuration_provenance_snapshot": result.configuration_provenance,
+        "performance_snapshot": result.performance.to_snapshot(),
+        "history": result.history,
+        "expected_scientific_sha256": scientific,
+        "expected_provenance_sha256": provenance,
+    }
 
 
 def test_result_factory_flattens_correlations_once_and_hardens_all_arrays(tmp_path):
@@ -464,6 +533,60 @@ def test_loaded_result_rejects_nonboolean_flags_instead_of_coercing(tmp_path):
             history=result.history,
             expected_scientific_sha256=result.scientific_sha256,
             expected_provenance_sha256=result.provenance_sha256,
+        )
+
+
+def test_loaded_result_rejects_self_consistent_invalid_identity_snapshots(tmp_path):
+    result, _ = _build(tmp_path)
+
+    invalid_selection = _json_tree(result.selection.to_snapshot())
+    invalid_selection["selected_ids"] = [[0, 99]]
+    with pytest.raises(InvalidResultError, match="selection"):
+        build_loaded_simulation_result(
+            **_loaded_result_arguments(
+                result,
+                selection_snapshot=invalid_selection,
+            )
+        )
+
+    wrong_count = _json_tree(result.selection.to_snapshot())
+    wrong_count["selected_ids"] = []
+    with pytest.raises(ResultShapeError, match="selection"):
+        build_loaded_simulation_result(
+            **_loaded_result_arguments(
+                result,
+                selection_snapshot=wrong_count,
+            )
+        )
+
+    wrong_backend = _json_tree(result.backend.to_snapshot())
+    wrong_backend["result_dtype"] = "complex64"
+    with pytest.raises(InvalidResultError, match="backend"):
+        build_loaded_simulation_result(
+            **_loaded_result_arguments(
+                result,
+                backend_snapshot=wrong_backend,
+            )
+        )
+
+    wrong_beam = _json_tree(result.beam_state.to_snapshot())
+    wrong_beam["resolved"]["instrument_fingerprint"] = "0" * 64
+    with pytest.raises(InvalidResultError, match="beam"):
+        build_loaded_simulation_result(
+            **_loaded_result_arguments(
+                result,
+                beam_snapshot=wrong_beam,
+            )
+        )
+
+    wrong_solver = _json_tree(result.solver.to_snapshot())
+    wrong_solver["convention"] = "invalid"
+    with pytest.raises(InvalidResultError, match="solver"):
+        build_loaded_simulation_result(
+            **_loaded_result_arguments(
+                result,
+                solver_snapshot=wrong_solver,
+            )
         )
 
 
