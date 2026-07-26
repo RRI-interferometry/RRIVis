@@ -7,7 +7,7 @@
 RadioSim is a Python package for radio-interferometric visibility simulation.
 It provides a strict configuration system, a high-level `Simulator` API,
 point-source and HEALPix direct-sum paths, analytic primary beams, sky-loader
-integration, and optional HDF5, JSON-summary, and Measurement Set output.
+integration, and an immutable canonical in-memory result.
 
 ## Current high-level scope
 
@@ -297,14 +297,12 @@ comparison against NumPy.
 
 ## Output and observability
 
-`Simulator.save()` currently dispatches HDF5, JSON summary, and optional
-Measurement Set output. Results contain the exact canonical antenna/baseline
-tuples, a detached JSON-safe instrument provenance snapshot, and
-`metadata["beam_resolution"]`, a fresh canonical loaded-beam snapshot. HDF5 and
-JSON preserve these metadata. Measurement Set construction uses canonical
-identity, diameter, location, and selected baselines; UVFITS output is rejected.
-The CLI `workflow` section controls post-run actions, while Python calls stay
-explicit.
+`Simulator.save()` and `Simulator.plot()` are deliberately unavailable in the
+current cutover and raise `ResultUnavailableError` before side effects. The
+immutable in-memory result contains exact canonical antenna/baseline tuples and
+detached instrument and beam snapshots. Legacy low-level writer utilities are
+not integrated with this canonical result. HDF5, standard-format output,
+transactions, and result rendering remain later separately gated work.
 
 `Simulator.plot_observability()` is a helper associated with the Simulator and
 uses the same loaded beam system. It selects the minimum-number antenna only

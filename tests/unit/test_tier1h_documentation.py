@@ -223,6 +223,25 @@ def test_current_docs_do_not_present_removed_simulator_patterns(path):
 
 
 @pytest.mark.parametrize(
+    "path",
+    (
+        REPOSITORY_ROOT / "README.md",
+        REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
+        REPOSITORY_ROOT / "docs" / "user_guide" / "instrument_resolution.rst",
+    ),
+    ids=lambda path: path.name,
+)
+def test_tier4c_output_docs_are_fail_closed(path):
+    text = path.read_text(encoding="utf-8")
+
+    assert "Simulator.save()` currently dispatches" not in text
+    assert "``Simulator.save`` dispatches" not in text
+    assert "HDF5 and JSON preserve" not in text
+    assert "ResultUnavailableError" in text
+    assert "later separately gated work" in text
+
+
+@pytest.mark.parametrize(
     "path", AUTHORIZED_BEAM_TRUTH_SURFACES, ids=lambda path: path.name
 )
 def test_tier3b_beam_truth_surfaces_do_not_present_flat_schema(path):

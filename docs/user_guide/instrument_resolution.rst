@@ -68,15 +68,12 @@ object and tuples. Solver adapters copy canonical values into fresh C-contiguous
 Results and output
 ------------------
 
-Results expose the exact canonical antenna and selected-baseline tuples plus a
-detached, JSON-safe ``instrument_resolution`` snapshot. HDF5 and JSON preserve
-that nested provenance without non-finite JSON values.
-
-Measurement Set output builds its telescope from canonical names, numbers,
-diameters, and Earth location. Local ENU positions are converted to ECEF and
-expressed relative to the telescope centre. Registry update checks are disabled.
-UVW and phasing remain owned by ``UVData.new`` and the existing force-phase
-boundary; the writer does not synthesize instrument identity or diameter.
+The immutable in-memory result exposes the exact canonical antenna and
+selected-baseline tuples plus detached, JSON-safe instrument and beam
+snapshots. ``Simulator.save`` and ``Simulator.plot`` currently raise
+``ResultUnavailableError`` before side effects. No HDF5, JSON-summary,
+Measurement Set, or UVFITS path is integrated with the canonical result in this
+slice; those output boundaries remain later separately gated work.
 
 Direct CLI and config mode
 --------------------------

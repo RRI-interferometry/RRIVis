@@ -131,8 +131,9 @@ does not establish complete accelerator coverage for the high-level workflow.
 Output boundary
 ---------------
 
-``Simulator.save`` dispatches HDF5, JSON summary, and optional Measurement Set
-output. HDF5 and JSON retain the deterministic instrument provenance snapshot.
-Measurement Set construction uses canonical names, numbers, diameters,
-location, and selected baselines; it does not promise a general round-trip or
-explicit phase-centre API. UVFITS output is rejected.
+``Simulator.save`` and ``Simulator.plot`` currently raise
+``ResultUnavailableError`` before filesystem, writer, renderer, logger, prompt,
+or browser work. Config-mode save/plot requests and the direct ``simulate``
+command fail at the same pre-runtime boundary. Legacy low-level writer
+utilities are not integrated with the canonical result; HDF5, standard-format
+output, transactions, and result rendering remain later separately gated work.
