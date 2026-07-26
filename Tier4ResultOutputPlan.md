@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Independently accepted after corrections; implementation not started |
+| Status | Tier 4A independently accepted after corrections; Tier 4B next authorized |
 | Date | 2026-07-26 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
@@ -2941,3 +2941,142 @@ test-only characterization files. Tier 4 implementation has not started.
 Tier 4B and every later slice remain unauthorized until Tier 4A is implemented
 and independently accepted. No PR, tag, release, or deployment is authorized
 or created by this acceptance.
+
+## Corrected Tier 4A characterization acceptance (2026-07-26)
+
+**Decision: Tier 4A is independently accepted after two bounded
+corrections.** The earlier rejection remains valid historical evidence. The
+original warning helper classified message substrings without warning classes,
+so `UserWarning("somewhere arbitrary output changed")` passed as the NumPy
+warning. The original polarization text also incorrectly implied that both
+projected MS and UVFITS writers rejected a Python-list `polarization_array`.
+Because those were material defects, the first review correctly stopped before
+the independent dependency probes and common gates.
+
+The corrected candidate is the linear sequence
+`ed7695cc69b5ff66921021fea6ff8a33ecdca8f7`
+(`test(output): characterize Tier 4 dependencies`),
+`d8b8962010f16aecc3157ec58147888bc4b81789`
+(`test(output): fail closed on dependency warnings`), and
+`4289b41a6380e6c38c68aee92596d1e850b866c1`
+(`docs(output): correct polarization characterization`), after baseline
+`e65479e06f2405680b014bc29ae9b2252e374d46`. The acceptance review started on
+clean `main` at `4289b41`, exactly two commits ahead of
+`origin/main` and remote `main`, which both remained at `ed7695cc`; the branch
+was zero behind and the index, worktree, and untracked set were empty. Original
+exact-head push run `30174270691` succeeded at `ed7695cc` in quality and all
+six locked OS/Python jobs.
+
+The original commit adds only the three Tier 4A characterization modules.
+Correction `d8b8962` changes only
+`tests/characterization/test_pyuvdata_321_output_contract.py`: known warnings
+now require the exact `(warning class, complete message)` tuple, unknown
+warnings assert, every caller classifies in `finally`, and every expected
+category set is exact. Correction `4289b41` changes only this plan and records
+the observed asymmetric list boundary. The complete corrected range changes no
+production source, configuration, dependency, lockfile, workflow, example,
+CI, or generated artifact.
+
+External adversarial checks proved all twelve warning cases. Exact class and
+message were accepted; the wrong class, substring lookalike, added prefix,
+added suffix, unknown warning, and known-plus-unknown set were rejected. Empty
+and two-known inputs returned exactly the empty and two-category sets. An
+unknown warning failed closed on both writer success and writer failure. In
+the latter case the classifier `AssertionError` deliberately superseded the
+writer exception while preserving that writer exception in `__context__`;
+this precedence is consistent with a characterization whose first obligation
+is never to hide an unclassified dependency warning. A writer failure with no
+warnings remained the original exception, while known warnings emitted during
+an expected collision were classified before the original collision exception
+propagated.
+
+Exact writer-warning sets were:
+
+- Python 3.11 calibrated MS: `{}`; uncalibrated MS:
+  `{"uncalibrated-unit"}`; UVFITS: `{}`.
+- Python 3.12 calibrated MS: `{"numpy-where-without-out"}`; uncalibrated MS:
+  `{"numpy-where-without-out", "uncalibrated-unit"}`; UVFITS: `{}`.
+
+No baseline-conjugation or platform fallback warning was accepted.
+
+Fresh pyuvdata 3.2.1 probes in both locked environments used three antennas, a
+selected auto and cross, two times, two frequencies and explicit widths, four
+correlations, complex phase, a flag, non-unit samples, finite UVWs, and both
+c64 and c128. `UVData.new` retained the Python list in canonical
+`[-5,-7,-8,-6]` order. Projected MS accepted the list unchanged, did not mutate
+it, and read back all four intended correlations in file order
+`[-5,-6,-7,-8]`. Projected UVFITS failed specifically at the integer-scalar
+index boundary until the list was converted to an integer ndarray, after which
+it wrote successfully. Invalid shapes and codes still failed validation. The
+plan is therefore internally consistent: this current dependency asymmetry is
+distinct from the target shared standard-format adapter, which normalizes the
+array before either writer.
+
+The same probes independently confirmed time-major/baseline-inner BLT ordering,
+identity, times, integration durations, centers, widths, flags, samples,
+sidereal projection, Astropy UVWs within one millimetre, and NumPy phase within
+fixture-scale c64/c128 tolerances. MS stored both inputs as c64 and matched an
+explicit c64 conversion; collision, replacement, closed-handle, and cleanup
+behavior passed. UVFITS preserved both c64 and c128, rejected unprojected,
+metadata-only, malformed-polarization, spacing/width, width-shape, and
+unsupported-`clobber` cases, and left removable artifacts. The locked versions
+were Python 3.11.13/3.12.13, NumPy 2.3.2/2.4.6, Astropy 7.1.0/8.0.1,
+pyuvdata 3.2.1, casacore 3.7.1/3.8.1, and h5py 3.14.0/3.16.0.
+
+Independent h5py checks in both environments preserved c64 and c128 dtypes and
+values, dimension labels, variable UTF-8 ASCII/non-ASCII strings, and fixed
+encoded ASCII. Object-string-to-fixed-string conversion failed as expected.
+Roughly one-MiB attributes and datasets, raw malformed shapes, and an unknown
+raw version were accepted at the dependency boundary. After replacement, an
+old open handle saw its old inode while a new handle saw the replacement; all
+handles closed and cleanup succeeded.
+
+Independent RadioSim probes used values different from the committed tests.
+They confirmed floor-like point counts, ceiling-like HEALPix counts,
+floor-reconstructed save/plot coordinates from the active observation start,
+divisible/equal-cadence agreement, aliased mutable result identity and nested
+products, HDF5 I preference/XX fallback with structural omission of XY/YX/YY
+and c64-to-c128 promotion, flattened metadata and missing schema markers, JSON
+summary omissions, arithmetic baseline evaluation without using `eval` in the
+probe, directory creation before unknown-format failure, scalar MS `obstime`
+despite multi-time data with an independently copied selection oracle, and
+both configuration and direct-save UVFITS rejection.
+
+The three-module characterization boundary collected 32 and passed 32 in each
+environment, with zero skips, xfails, xpasses, failures, or unclassified
+warning summary. The pyuvdata module alone passed 13/13 in each. The complete
+non-slow matrix collected 2,862 in both: Python 3.11 passed all 2,862; Python
+3.12 passed 2,856 with exactly six unavailable-JAX skips. Both had zero
+failures, xfails, or xpasses and exactly 26 established events: one
+disjointness advisory, eight FITS-unit syntax events, 12 lossy HEALPix
+advisories, one numerical-multiply event, and four figure-reuse events.
+
+Ruff passed; all 286 files passed formatting; and Pyright reported 3,225
+diagnostics in each environment under the unchanged 4,600 ceiling. The three
+YAMLs validated at 101, 11, and one channel. The forced-offline example
+completed with five antennas, 15 baselines, two frequencies, and `(1,2)` for
+each current product. Clean-copy Sphinx 8.2.3 succeeded with the established
+40 events: 35 docutils/docstring, one HERA toctree, three HERA highlighting,
+and one theme-option event. Whitespace passed.
+
+The exact-range audit found no skip, skipif, xfail, warning suppression,
+type/lint suppression, broad exception, registry update, mounted data, physical
+GPU, browser/prompt, persistent output, production change, or Tier 4B leakage.
+The only search matches were the word `ignore` inside the exact upstream
+uncalibrated-unit warning and two local `simplefilter("always")` calls that
+expose all writer warnings. Independent probes used no network or registry;
+the required Sphinx build used only its existing configured intersphinx
+inventories and introduced no new category. All files closed, all temporary
+probe/Sphinx trees were removed, and the repository remained free of generated
+artifacts.
+
+Physical GPU execution, non-macOS local dependency execution, live
+registry/external-data behavior, and behavior outside the two locked
+interpreters remain genuinely unobserved; the existing Sphinx intersphinx
+fetches are not evidence for output-path network behavior. Tier 4 production
+remains unchanged. `OUT-001` through `OUT-006` remain `OPEN`.
+
+Tier 4A is independently accepted. Tier 4B is the next authorized separate
+implementation slice, but it was not implemented by this acceptance. Tier 4C
+and all later slices remain unauthorized. No PR, tag, release, or deployment
+is part of this acceptance.
