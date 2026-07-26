@@ -4,8 +4,8 @@
 
 | Fact | Value |
 |---|---|
-| Status | Tier 4A independently accepted after corrections; Tier 4B next authorized |
-| Date | 2026-07-26 |
+| Status | Tier 4C independently accepted after corrections; Tier 4D next authorized |
+| Date | 2026-07-27 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
 | Baseline | `bf544540d83fefef77feb157b060c046276a3c25` |
@@ -3080,3 +3080,153 @@ Tier 4A is independently accepted. Tier 4B is the next authorized separate
 implementation slice, but it was not implemented by this acceptance. Tier 4C
 and all later slices remain unauthorized. No PR, tag, release, or deployment
 is part of this acceptance.
+
+## Retrospective Tier 4B independent acceptance (2026-07-27)
+
+**Decision: Tier 4B is independently accepted after one bounded correction.**
+This is a retrospective checkpoint repair, not a claim that the required
+review happened before the next implementation commit. Commit
+`a54f0a86692a28e3587730af7bb132cd857c37c4`
+(`refactor(model): resolve canonical simulation inputs`) implemented Tier 4B
+after the accepted Tier 4A checkpoint. Commit
+`ee72153f785619d42b7f1f1405f680b1f647b788`
+(`refactor(result): publish canonical simulation results`) was then committed
+before Tier 4B had its required independent acceptance. The user explicitly
+authorized repairing that governance conflict without rewriting published
+history. This record does not weaken the rule that no future slice may start
+from an unaccepted predecessor.
+
+The original Tier 4B push run was GitHub Actions `30185991070` at exact SHA
+`a54f0a86692a28e3587730af7bb132cd857c37c4`; quality and all six locked
+OS/Python jobs succeeded. A detached review at that exact SHA passed the
+original Tier 4B focused boundary 283/283 in Python 3.11.13 and 283/283 in
+Python 3.12.13. The implementation actually changed 41 paths rather than the
+33 paths listed prospectively. The eight additional paths were necessary
+explicit-channel-width fixture migrations:
+
+- `tests/characterization/test_tier4_current_behavior.py`
+- `tests/unit/test_core/test_beam_solver_integration.py`
+- `tests/unit/test_core/test_observability_lightcurve.py`
+- `tests/unit/test_jones/test_beam_analysis.py`
+- `tests/unit/test_observability/test_overlay.py`
+- `tests/unit/test_observability/test_planner.py`
+- `tests/unit/test_utils/test_frequency.py`
+- `tests/unit/test_visualization/test_observability_bokeh_renderer.py`
+
+The independent attack found that loaded result metadata could be internally
+self-consistent while referring to nonexistent instrument identity: a
+selection containing antenna ID 99 was accepted for an instrument containing
+only IDs 0 and 1. Regression-first correction
+`25e6a935d7747ee040e2facf795ec3f6120d7f1a`
+(`fix(result): validate loaded result identity`) makes loaded results validate
+instrument, selection, beam, backend, and solver snapshots and their mutual
+coherence. The corrected Tier 4B regression boundary passed 138/138 in each
+locked interpreter; the prior Tier 4A characterization still passed 31/31 in
+each. No later output writer was activated by this correction.
+
+Tier 4B is accepted at the corrected linear history. This retrospective
+acceptance authorizes reviewing the already-existing Tier 4C commit; it does
+not assert that Tier 4C was authorized when originally created. `OUT-001`
+through `OUT-006` remain **OPEN**.
+
+## Corrected Tier 4C independent acceptance (2026-07-27)
+
+**Decision: Tier 4C is independently accepted after bounded corrections.**
+The review started from clean `main` at
+`ee72153f785619d42b7f1f1405f680b1f647b788`, parent
+`a54f0a86692a28e3587730af7bb132cd857c37c4`. The original Tier 4C commit
+changed exactly 30 planned paths. Original exact-SHA GitHub Actions run
+`30189180484` succeeded in quality and all six locked OS/Python jobs.
+
+The review found and corrected three material defects:
+
+1. Point and HEALPix solvers silently selected a backend when `backend=None`
+   and accepted insufficiently strict frequency inputs. Commit
+   `65ee1b648b4371c697c0329082712395b6ba16e5`
+   (`fix(result): require explicit solver backend`) requires an explicit
+   backend throughout the low- and high-level signatures and validates an
+   exact base `float64`, one-dimensional, nonempty, finite, positive, strictly
+   increasing frequency array.
+2. `Simulator.run()` published `_result` before final progress/success
+   rendering, so a late reporting exception left a result visible from a
+   failed run. Commit
+   `8e51749e3de1f32eba598db5a611c5e7acadd078`
+   (`fix(result): publish after successful reporting`) moves publication
+   after successful reporting and adds late-failure and deterministic-clock
+   lifecycle tests.
+3. README and active Sphinx pages claimed that `save()` currently dispatched
+   HDF5, JSON, and Measurement Set output even though writer integration is a
+   later slice. Commit
+   `f86c2727bdb6265102034407198715da7c7549f7`
+   (`docs(result): correct output availability`) corrects those claims and
+   adds a durable documentation regression. The two active Sphinx pages were
+   outside the prospective Tier 4C path list; the user explicitly authorized
+   that narrow scope expansion after discovery.
+
+An independent scientific oracle used values absent from committed fixtures:
+antenna IDs 11 and 27, auto/cross/auto baseline ordering, cross-baseline ENU
+`[23,-8,5]`, 83.25 and 119.75 MHz channels, unequal explicit widths, a
+nondivisible 2.35-second observation, two off-zenith sources, nonzero
+per-channel Stokes Q/U/V, and heterogeneous full complex 2x2 Jones matrices.
+It independently formed
+`0.5[[I+Q,U-iV],[U+iV,I-Q]]`,
+`exp(-2*pi*i*(u*l+v*m+w*(n-1)))`, and `Jp*C*Jq^H`.
+Point-source maximum error was `2.95e-16` on Python 3.11 and `2.38e-16` on
+Python 3.12. Scalar HEALPix agreed within `3.91e-08`, polarized HEALPix within
+`6.36e-14`, and one-pixel point/HEALPix parity within `8.53e-09`. Complex64
+and complex128 result paths, cross-hand values, canonical time-major and
+baseline-inner ordering, baseline direction, phase sign, conjugation, flags,
+weights, and one/equal/divisible/nondivisible time controls all passed.
+
+A fresh independent backend recorded zero host transfers on solver failure,
+zero on result-factory pre-transfer failure, and exactly one transfer for each
+successful point, scalar-HEALPix, and polarized-HEALPix high-level result.
+The result factory remains the sole transfer, flattening, cast, flag, weight,
+snapshot, and hash owner. Atomic lifecycle tests cover new/setup state,
+failed first run, successful identity, failed retry retaining the prior
+result, later success replacement, late reporting failure retaining
+none/prior state, and post-transfer factory failure. Deterministic timing
+proved host, construction, and total timing boundaries. Adversarial
+immutability checks cover caller mutation, ndarray subclasses, memmaps,
+nonfinite values, shapes, dtypes, backend transfer errors, and nested
+metadata. Performance data remains excluded from scientific hashes.
+
+The public surface now has one singular `Simulator.result` and no plural
+`results`; `run()` returns the same canonical `SimulationResult` it publishes.
+Low- and high-level point and HEALPix calls require an explicit backend.
+`get_memory_estimate()` uses the canonical time grid. Python `save()` and
+`plot()` fail with typed errors before filesystem, import, logger, browser, or
+writer side effects. CLI config-mode and direct-mode preflights reject
+save/plot requests before runtime setup or output side effects. Legacy writer
+dictionaries and visualization baseline keys remain deferred Tier 4H utility
+surfaces, not active result paths.
+
+The corrected focused Tier 4C boundary collected 228 tests in each
+interpreter: 227 passed and one skipped because JAX is not installed. The
+corrected Tier 4B boundary passed 138/138 and Tier 4A passed 31/31 in each.
+The complete non-slow suite collected 2,904 tests in each locked interpreter:
+2,898 passed, six unavailable-JAX tests skipped, and 26 established warnings
+on both Python 3.11.13 and 3.12.13, with no failures, xfails, or xpasses.
+
+Ruff passed; all 293 files passed formatting. Pyright 1.1.408 reported 3,121
+diagnostics in each interpreter, below the unchanged 4,600 ceiling, and no
+changed production line added a diagnostic. YAML validation retained 101,
+11, and one channel. The forced-offline example completed with five antennas,
+15 baselines, two frequencies, and result shape `(1,15,2,4)` without output.
+All five notebook code cells remained valid JSON/Python, empty of stored
+outputs and execution counts, and used canonical attributes. Fresh-process
+imports did not load JAX, h5py, pyuvdata, casacore, Bokeh, Matplotlib,
+webbrowser, or writers. Clean-copy Sphinx 8.2.3 succeeded with the established
+40 classified events. Whitespace, scope, generated-artifact, and suppression
+audits passed.
+
+Physical GPU execution, local JAX execution, non-macOS local execution, live
+network/registry/external-data behavior, and dynamic notebook execution remain
+genuinely unobserved. The exact final acceptance SHA must still pass the seven
+GitHub Actions jobs after the authorized push; that post-record verification
+is a release gate and is not preclaimed here.
+
+Tier 4C accepts the canonical in-memory result cutover only. `OUT-001` through
+`OUT-006` remain **OPEN**; Tier 4 as a whole is not accepted. Tier 4D is the
+next authorized separate implementation slice and was not started here. No PR,
+tag, release, or deployment is part of this acceptance.
