@@ -31,17 +31,16 @@ rime O(N_src × N_bl × N_freq)
 >>>
 >>> # Calculate visibilities
 >>> visibilities = sim.calculate_visibilities(
-...     antennas=antennas,
-...     baselines=baselines,
-...     sources=sources,
-...     frequencies=freqs,
+...     instrument=instrument,
+...     beam_system=beam_system,
+...     source_arrays=source_arrays,
+...     frequencies=frequencies,
 ...     backend=backend,
 ...     location=location,
-...     obstime=obstime,
-...     wavelengths=wavelengths,
-...     duration_seconds=1.0,
-...     time_step_seconds=1.0,
+...     time_grid=time_grid,
 ... )
+>>> visibilities.shape
+(1, 15, 2, 2, 2)
 
 API Reference
 -------------

@@ -28,13 +28,22 @@ YAML, typed-model, mapping, and typed-parameter construction paths.
 
 The direct constructor rejects mappings and input models. Mapping/model inputs
 with relative paths require ``base_dir``. No constructor executes CLI workflow
-actions. ``run`` computes results; ``save``, ``plot``, and
-``plot_observability`` are explicit helpers.
+actions. ``run`` computes a canonical result. ``plot_observability`` remains an
+explicit helper independent of simulation-result rendering.
 
-Tier 4B exposes immutable time, phase-center, provenance, and result models.
-``Simulator.run()`` still returns the transitional result dictionary until the
-separately gated solver/result cutover; canonical writers are not available in
-this slice.
+``Simulator.run()`` returns an immutable
+:class:`~radiosim.core.result.SimulationResult`, and ``Simulator.result``
+returns the identical last successfully published object (or ``None`` before
+the first successful run). The visibility array shape is
+``(time, baseline, frequency, correlation)`` and the correlation order is
+``XX, XY, YX, YY``. Use ``result.stokes_i()`` for derived Stokes I.
+
+``Simulator.save()`` and ``Simulator.plot()`` remain present but raise
+:class:`~radiosim.core.result.ResultUnavailableError` before side effects until
+the separately gated canonical output and renderer workflows are implemented.
+Config-mode save/plot requests fail before runtime. The direct
+``radiosim simulate`` command is temporarily unavailable because it
+necessarily saves an artifact.
 
 After setup, ``instrument`` returns the canonical resolved object, while
 ``antennas`` and ``baselines`` return its exact immutable tuples. Access before
@@ -66,12 +75,12 @@ changes or resamples the requested or loaded NSIDE.
 Result beam provenance
 ----------------------
 
-Every successful ``run`` includes
-``results["metadata"]["beam_resolution"]``. This is a fresh
-``LoadedBeamState.to_snapshot()`` for analytic, shared-FITS, per-antenna-FITS,
-and mixed modes in both point-source and HEALPix execution. It is detached and
-JSON-safe, including transport provenance where designed, while scientific
-fingerprints remain path-independent where designed.
+Every successful ``run`` includes the exact immutable loaded state at
+``result.beam_state``. Its ``to_snapshot()`` method returns a fresh detached,
+JSON-safe snapshot for analytic, shared-FITS, per-antenna-FITS, and mixed modes
+in both point-source and HEALPix execution, including transport provenance
+where designed. Scientific fingerprints remain path-independent where
+designed.
 
 The result contains no live beam evaluator, ``BeamSystem``, ``UVBeam``, array,
 lock, logger, callable, observability reference choice, renderer state, or

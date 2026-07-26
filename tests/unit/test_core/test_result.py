@@ -137,6 +137,31 @@ class _CountingBackend(NumPyBackend):
         return super().to_numpy(arr)
 
 
+def test_result_factory_records_its_own_host_transfer_timing(tmp_path):
+    simulator, _backend, provenance, solver, performance, receptor = _parts(tmp_path)
+    backend = _CountingBackend()
+
+    result = build_simulation_result(
+        receptor_visibilities=receptor,
+        backend=backend,
+        time_grid=simulator.config.observation.time_grid,
+        frequencies_hz=simulator.config.frequency.channel_frequencies_hz,
+        channel_widths_hz=simulator.config.frequency.channel_widths_hz,
+        instrument=simulator.instrument,
+        selection=simulator._instrument_state.selection,
+        beam_state=simulator.beam_state,
+        phase_center=PhaseCenter(),
+        backend_provenance=provenance,
+        solver_provenance=solver,
+        resolved_config=simulator.config.to_json_safe(),
+        configuration_provenance=None,
+        performance=performance,
+    )
+
+    assert backend.transfer_count == 1
+    assert result.performance.host_transfer_seconds >= 0.0
+
+
 def _json_tree(value):
     if isinstance(value, dict) or hasattr(value, "items"):
         return {str(key): _json_tree(item) for key, item in value.items()}

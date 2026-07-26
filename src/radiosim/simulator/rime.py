@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from radiosim.core.beam import BeamSystem
     from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.sky.containers.model import SourceArrays
+    from radiosim.core.time_grid import ObservationTimeGrid
 
 import numpy as np
 
@@ -96,15 +97,12 @@ class RIMESimulator(VisibilitySimulator):
     ...     frequencies=freqs,
     ...     backend=backend,
     ...     location=location,
-    ...     obstime=obstime,
-    ...     wavelengths=wavelengths,
-    ...     duration_seconds=1.0,
-    ...     time_step_seconds=1.0,
+    ...     time_grid=time_grid,
     ... )
     >>>
-    >>> # Access correlation products
-    >>> vis_xx = visibilities[(0, 1)]["XX"]
-    >>> vis_i = visibilities[(0, 1)]["I"]
+    >>> # Backend-native receptor matrix cube: time, baseline, frequency, 2, 2
+    >>> visibilities.shape
+    (1, 15, 2, 2, 2)
 
     See Also
     --------
@@ -154,13 +152,9 @@ class RIMESimulator(VisibilitySimulator):
         backend: Any,
         *,
         location: Any,
-        obstime: Any,
-        wavelengths: Any,
-        duration_seconds: float = 1.0,
-        time_step_seconds: float = 1.0,
-        return_correlations: bool = True,
+        time_grid: "ObservationTimeGrid",
         jones_config: dict[str, Any] | None = None,
-    ) -> dict[tuple[Any, Any], dict]:
+    ) -> Any:
         """
         Calculate visibilities using direct RIME summation.
 
@@ -185,24 +179,19 @@ class RIMESimulator(VisibilitySimulator):
         backend : ArrayBackend
             Computation backend (numpy, jax, or numba).
 
-        location, obstime, wavelengths
-            Observer coordinates, observation time, and wavelength array.
+        location : EarthLocation
+            Observer coordinates.
 
-        duration_seconds, time_step_seconds : float
-            Time-domain extent and cadence.
-
-        return_correlations : bool
-            Extract XX/XY/YX/YY/I when true.
+        time_grid : ObservationTimeGrid
+            Exact canonical UTC sample-center grid.
 
         jones_config : dict, optional
             Non-beam Jones term configuration.
 
         Returns
         -------
-        dict
-            Visibilities for each baseline.
-            Keys: (ant1, ant2) tuples
-            Values: dict with "XX", "XY", "YX", "YY", "I" arrays
+        backend array
+            Receptor cube with shape ``(T, B, F, 2, 2)``.
 
         Raises
         ------
@@ -225,12 +214,8 @@ class RIMESimulator(VisibilitySimulator):
             beam_system=beam_system,
             source_arrays=source_arrays,
             location=location,
-            obstime=obstime,
-            wavelengths=wavelengths,
-            freqs=frequencies,
-            duration_seconds=duration_seconds,
-            time_step_seconds=time_step_seconds,
-            return_correlations=return_correlations,
+            time_grid=time_grid,
+            frequencies=frequencies,
             backend=backend,
             jones_config=jones_config,
         )

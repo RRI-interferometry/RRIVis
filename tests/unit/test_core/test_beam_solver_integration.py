@@ -21,6 +21,7 @@ from radiosim.core.beam import BeamSystem
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.polarization import stokes_to_coherency
+from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
 from radiosim.io.instrument_config import AntennaNumberReference
@@ -36,6 +37,11 @@ FREQUENCIES = np.array([FREQUENCY_HZ], dtype=np.float64)
 WAVELENGTHS = np.array([c.value / FREQUENCY_HZ], dtype=np.float64) * u.m
 LOCATION = EarthLocation.from_geodetic(0.0 * u.deg, 0.0 * u.deg, 0.0 * u.m)
 OBSTIME = Time("2024-01-01T00:00:00")
+TIME_GRID = build_observation_time_grid(
+    start_time=OBSTIME.isot,
+    duration_seconds=1.0,
+    cadence_seconds=1.0,
+)
 ALTITUDE_RAD = np.pi / 3.0
 AZIMUTH_RAD = 0.0
 
@@ -344,14 +350,10 @@ def test_point_and_healpix_preserve_differential_complex_fits_phase(
             stokes_v=-0.1,
         ),
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
-        return_correlations=False,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         backend=backend,
-    )[view.selected_pairs[0]][0, 0]
+    )[0, 0, 0]
     healpix = calculate_visibility_healpix(
         sky_model=_healpix_sky(
             stokes_i=2.0,
@@ -363,14 +365,11 @@ def test_point_and_healpix_preserve_differential_complex_fits_phase(
         instrument=view,
         beam_system=beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         include_polarization=True,
         backend=backend,
-    )["visibilities"][0, 0, 0]
+    )[0, 0, 0]
     expected = _expected_matrix(
         beam_system,
         view,
@@ -385,7 +384,7 @@ def test_point_and_healpix_preserve_differential_complex_fits_phase(
     np.testing.assert_allclose(healpix, expected, rtol=1e-12, atol=1e-12)
 
 
-def test_i_only_healpix_constructs_full_rime_before_trace(
+def test_i_only_healpix_returns_full_receptor_matrix(
     tmp_path,
     monkeypatch,
 ):
@@ -402,11 +401,8 @@ def test_i_only_healpix_constructs_full_rime_before_trace(
         instrument=view,
         beam_system=beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         output_units="K.sr",
         backend=get_backend("numpy"),
     )
@@ -420,8 +416,8 @@ def test_i_only_healpix_constructs_full_rime_before_trace(
     )
 
     np.testing.assert_allclose(
-        result["visibilities"][0, 0, 0],
-        np.trace(expected),
+        result[0, 0, 0],
+        expected,
         rtol=1e-12,
         atol=1e-12,
     )
@@ -484,14 +480,10 @@ def test_point_healpix_full_matrix_parity_for_canonical_families(
             stokes_v=stokes_v,
         ),
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
-        return_correlations=False,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         backend=get_backend("numpy"),
-    )[view.selected_pairs[0]][0, 0]
+    )[0, 0, 0]
     healpix = calculate_visibility_healpix(
         sky_model=_healpix_sky(
             stokes_i=2.0,
@@ -503,14 +495,11 @@ def test_point_healpix_full_matrix_parity_for_canonical_families(
         instrument=view,
         beam_system=beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         include_polarization=True,
         backend=get_backend("numpy"),
-    )["visibilities"][0, 0, 0]
+    )[0, 0, 0]
 
     np.testing.assert_allclose(point, healpix, rtol=1e-12, atol=1e-12)
 
@@ -547,12 +536,8 @@ def test_point_healpix_auto_and_cross_matrix_parity(
             stokes_v=-0.1,
         ),
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
-        return_correlations=False,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         backend=get_backend("numpy"),
     )
     healpix = calculate_visibility_healpix(
@@ -566,19 +551,16 @@ def test_point_healpix_auto_and_cross_matrix_parity(
         instrument=view,
         beam_system=beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         include_polarization=True,
         backend=get_backend("numpy"),
-    )["visibilities"]
+    )
 
-    for index, pair in enumerate(pairs):
+    for index, _pair in enumerate(pairs):
         np.testing.assert_allclose(
-            point[pair][0, 0],
-            healpix[index, 0, 0],
+            point[0, index, 0],
+            healpix[0, index, 0],
             rtol=1e-12,
             atol=1e-12,
         )
@@ -619,12 +601,8 @@ def test_horizon_and_below_horizon_batches_skip_beam_evaluation(
         beam_system=beam_system,
         source_arrays=point_sources,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
-        return_correlations=False,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         backend=get_backend("numpy"),
     )
     healpix = calculate_visibility_healpix(
@@ -637,17 +615,14 @@ def test_horizon_and_below_horizon_batches_skip_beam_evaluation(
         instrument=view,
         beam_system=beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         include_polarization=True,
         backend=get_backend("numpy"),
     )
 
-    np.testing.assert_array_equal(point[view.selected_pairs[0]], 0.0)
-    np.testing.assert_array_equal(healpix["visibilities"], 0.0)
+    np.testing.assert_array_equal(point, 0.0)
+    np.testing.assert_array_equal(healpix, 0.0)
 
 
 def test_empty_point_source_batch_skips_fits_evaluation(
@@ -676,16 +651,12 @@ def test_empty_point_source_batch_skips_fits_evaluation(
         beam_system=beam_system,
         source_arrays=source_arrays,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
-        return_correlations=False,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         backend=get_backend("numpy"),
     )
 
-    np.testing.assert_array_equal(result[view.selected_pairs[0]], 0.0)
+    np.testing.assert_array_equal(result, 0.0)
 
 
 def test_healpix_evaluates_once_per_handler_id_not_numeric_equality(
@@ -722,11 +693,8 @@ def test_healpix_evaluates_once_per_handler_id_not_numeric_equality(
         instrument=view,
         beam_system=beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         output_units="K.sr",
         backend=get_backend("numpy"),
     )
@@ -763,11 +731,8 @@ def test_healpix_shared_handler_is_evaluated_once_per_batch(
         instrument=view,
         beam_system=beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQUENCIES,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
         include_polarization=True,
         backend=get_backend("numpy"),
     )
@@ -828,8 +793,7 @@ def test_high_level_point_run_activates_every_accepted_beam_family(
     assert simulator.beam_system.state is simulator.beam_state
     assert not hasattr(simulator, "_beam_config")
     assert not hasattr(simulator, "_beam_manager")
-    visibility = next(iter(results["visibilities"].values()))["I"]
-    assert np.all(np.isfinite(visibility))
+    assert np.all(np.isfinite(results.visibilities))
 
 
 def test_high_level_i_only_healpix_parallel_hands_use_half_power(
@@ -840,12 +804,12 @@ def test_high_level_i_only_healpix_parallel_hands_use_half_power(
         base_dir=tmp_path,
     )
 
-    visibility = next(iter(simulator.run(progress=False)["visibilities"].values()))
+    visibility = simulator.run(progress=False).visibilities[0, 0, 0]
 
-    np.testing.assert_allclose(visibility["XX"], visibility["I"] / 2.0)
-    np.testing.assert_allclose(visibility["YY"], visibility["I"] / 2.0)
-    np.testing.assert_array_equal(visibility["XY"], 0.0)
-    np.testing.assert_array_equal(visibility["YX"], 0.0)
+    np.testing.assert_allclose(visibility[0], (visibility[0] + visibility[3]) / 2.0)
+    np.testing.assert_allclose(visibility[3], (visibility[0] + visibility[3]) / 2.0)
+    np.testing.assert_array_equal(visibility[1], 0.0)
+    np.testing.assert_array_equal(visibility[2], 0.0)
 
 
 @pytest.mark.parametrize("family", ["analytic", "shared_fits", "mixed"])
@@ -886,11 +850,10 @@ def test_high_level_healpix_run_activates_every_accepted_beam_family(
 
     results = simulator.run(progress=False)
 
-    visibility = next(iter(results["visibilities"].values()))
-    assert np.all(np.isfinite(visibility["I"]))
+    assert np.all(np.isfinite(results.stokes_i()))
     np.testing.assert_allclose(
-        visibility["I"],
-        visibility["XX"] + visibility["YY"],
+        results.stokes_i(),
+        results.visibilities[..., 0] + results.visibilities[..., 3],
     )
 
 
@@ -985,11 +948,8 @@ def test_beam_dictionary_in_jones_config_is_rejected(
             beam_system=beam_system,
             source_arrays=_source_arrays(stokes_i=1.0),
             location=LOCATION,
-            obstime=OBSTIME,
-            wavelengths=WAVELENGTHS,
-            freqs=FREQUENCIES,
-            duration_seconds=1.0,
-            time_step_seconds=1.0,
+            time_grid=TIME_GRID,
+            frequencies=FREQUENCIES,
             backend=get_backend("numpy"),
             jones_config={"beam": {}},
         )
@@ -1036,7 +996,6 @@ def test_removed_solver_beam_keywords_raise_ordinary_type_errors(
             frequencies=FREQUENCIES,
             backend=get_backend("numpy"),
             location=LOCATION,
-            obstime=OBSTIME,
-            wavelengths=WAVELENGTHS,
+            time_grid=TIME_GRID,
             beam_manager=object(),
         )

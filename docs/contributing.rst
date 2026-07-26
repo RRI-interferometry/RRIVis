@@ -129,8 +129,9 @@ Use NumPy-style docstrings:
 .. code-block:: python
 
    def calculate_visibility(
-       baselines: np.ndarray,
-       sources: List[Source],
+       instrument: SolverInstrumentView,
+       source_arrays: Mapping[str, np.ndarray],
+       time_grid: ObservationTimeGrid,
        frequencies: np.ndarray,
    ) -> np.ndarray:
        """
@@ -138,23 +139,25 @@ Use NumPy-style docstrings:
 
        Parameters
        ----------
-       baselines : np.ndarray
-           Baseline coordinates, shape (n_baselines, 3).
-       sources : List[Source]
-           List of source objects.
+       instrument : SolverInstrumentView
+           Canonical selected instrument and baseline view.
+       source_arrays : Mapping[str, np.ndarray]
+           Prepared point-source arrays.
+       time_grid : ObservationTimeGrid
+           Exact canonical integration sample centers.
        frequencies : np.ndarray
            Frequency array in Hz.
 
        Returns
        -------
        np.ndarray
-           Complex visibilities, shape (n_baselines, n_frequencies).
+           Receptor visibilities, shape (time, baseline, frequency, 2, 2).
 
        Examples
        --------
-       >>> vis = calculate_visibility(baselines, sources, freqs)
+       >>> vis = calculate_visibility(instrument, sources, time_grid, freqs)
        >>> print(vis.shape)
-       (100, 50)
+       (2, 100, 50, 2, 2)
 
        Notes
        -----

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from radiosim.core.beam import BeamSystem
     from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.sky.containers.model import SourceArrays
+    from radiosim.core.time_grid import ObservationTimeGrid
 
 import numpy as np
 
@@ -47,8 +48,7 @@ class VisibilitySimulator(ABC):
     ...     frequencies=freqs,
     ...     backend=backend,
     ...     location=location,
-    ...     obstime=obstime,
-    ...     wavelengths=wavelengths,
+    ...     time_grid=time_grid,
     ... )
     """
 
@@ -128,13 +128,9 @@ class VisibilitySimulator(ABC):
         backend: Any,
         *,
         location: Any,
-        obstime: Any,
-        wavelengths: Any,
-        duration_seconds: float = 1.0,
-        time_step_seconds: float = 1.0,
-        return_correlations: bool = True,
+        time_grid: "ObservationTimeGrid",
         jones_config: dict[str, Any] | None = None,
-    ) -> dict[tuple[Any, Any], dict]:
+    ) -> Any:
         """
         Calculate visibilities for all baselines.
 
@@ -161,32 +157,20 @@ class VisibilitySimulator(ABC):
             Provides array operations (numpy-like API) and device management.
             Use get_backend("numpy"), get_backend("jax"), etc.
 
-        location, obstime, wavelengths
-            Observer coordinates, observation time, and wavelength array.
+        location : EarthLocation
+            Observer coordinates.
 
-        duration_seconds, time_step_seconds : float
-            Time-domain extent and cadence.
-
-        return_correlations : bool
-            Extract XX/XY/YX/YY/I when true; otherwise return matrices.
+        time_grid : ObservationTimeGrid
+            Exact canonical UTC sample-center grid.
 
         jones_config : dict, optional
             Non-beam Jones term configuration.
 
         Returns
         -------
-        dict
-            Visibilities for each baseline.
-            Keys: (ant1, ant2) tuples matching input baselines
-            Values: dict with correlation products:
-                - "XX": complex array, shape (N_freq,)
-                - "XY": complex array, shape (N_freq,)
-                - "YX": complex array, shape (N_freq,)
-                - "YY": complex array, shape (N_freq,)
-                - "I": complex array, shape (N_freq,) - Stokes I visibility
-
-            If return_correlations=False:
-                Values: ndarray of shape (N_freq, 2, 2) - raw visibility matrices
+        backend array
+            Receptor cube with shape ``(T, B, F, 2, 2)`` in canonical time,
+            selected-baseline, frequency, receptor-row, receptor-column order.
 
         Raises
         ------

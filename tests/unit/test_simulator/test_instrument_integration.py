@@ -8,7 +8,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
-import astropy.units as u
 import numpy as np
 import pytest
 from astropy.constants import c
@@ -21,6 +20,7 @@ from radiosim.backends import get_backend
 from radiosim.core.beam import BeamSystem
 from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.instrument_resolution import DiameterResolutionError
+from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
 from radiosim.io.config import RadioSimConfig
@@ -341,23 +341,23 @@ def test_point_and_healpix_keep_canonical_negative_phase_sign(tmp_path, monkeypa
     instrument, beam_system = _one_metre_solver_components(tmp_path)
     location = EarthLocation.from_geodetic(0.0, 0.0, 0.0)
     obstime = Time("2024-01-01T00:00:00")
-    wavelengths = np.array([wavelength_m]) * u.m
     frequencies = np.array([frequency_hz])
+    time_grid = build_observation_time_grid(
+        start_time=obstime.isot,
+        duration_seconds=1.0,
+        cadence_seconds=1.0,
+    )
 
     point_result = calculate_visibility(
         instrument=instrument,
         beam_system=beam_system,
         source_arrays=_point_source_arrays(frequency_hz),
         location=location,
-        obstime=obstime,
-        wavelengths=wavelengths,
-        freqs=frequencies,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
-        return_correlations=False,
+        time_grid=time_grid,
+        frequencies=frequencies,
         backend=get_backend("numpy"),
     )
-    point_matrix = point_result[(1, 2)][0, 0]
+    point_matrix = point_result[0, 0, 0]
 
     healpix_result = calculate_visibility_healpix(
         sky_model=SimpleNamespace(
@@ -369,11 +369,8 @@ def test_point_and_healpix_keep_canonical_negative_phase_sign(tmp_path, monkeypa
         instrument=instrument,
         beam_system=beam_system,
         location=location,
-        obstime=obstime,
-        wavelengths=wavelengths,
-        freqs=frequencies,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=time_grid,
+        frequencies=frequencies,
         output_units="K.sr",
         backend=get_backend("numpy"),
     )
@@ -381,7 +378,8 @@ def test_point_and_healpix_keep_canonical_negative_phase_sign(tmp_path, monkeypa
     assert point_matrix[0, 0] == pytest.approx(-1j)
     assert point_matrix[1, 1] == pytest.approx(-1j)
     assert point_matrix[0, 1] == 0.0
-    assert healpix_result["visibilities"][0, 0, 0] == pytest.approx(-1j)
+    assert healpix_result[0, 0, 0, 0, 0] == pytest.approx(-0.5j)
+    assert healpix_result[0, 0, 0, 1, 1] == pytest.approx(-0.5j)
 
 
 def test_memory_estimation_uses_canonical_selected_inventory_counts(tmp_path):
@@ -409,6 +407,7 @@ def test_memory_estimation_uses_canonical_selected_inventory_counts(tmp_path):
         "n_baselines": 3,
         "n_sources": 4,
         "n_frequencies": 5,
+        "n_times": 1,
     }
     assert estimate["precision_factor"] == 1.0
 

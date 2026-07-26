@@ -414,7 +414,7 @@ def test_construction_crosses_no_runtime_output_plot_or_browser_boundary(
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
 
     assert simulator.device_resources is None
-    assert simulator.results is None
+    assert simulator.result is None
 
 
 def test_invalid_mapping_fails_before_device_backend_network_or_loader(
@@ -653,79 +653,44 @@ def test_result_metadata_uses_json_safe_scientific_snapshot_without_workflow(
     )
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
 
-    results = simulator.run(progress=False)
-    metadata = results["metadata"]
+    result = simulator.run(progress=False)
 
-    assert results["antennas"] is simulator.antennas
-    assert results["baselines"] is simulator.baselines
-    assert metadata["requested_backend"] == "numpy"
-    assert metadata["backend"] == "numpy-cpu"
-    assert metadata["requested_precision"] == metadata["precision"]
-    assert metadata["config"]["frequency"]["channel_frequencies_hz"] == [
+    assert result.instrument is simulator.instrument
+    assert result.selection is simulator._instrument_state.selection
+    assert result.beam_state is simulator.beam_state
+    assert result.backend.requested_backend == "numpy"
+    assert result.backend.actual_backend == "numpy-cpu"
+    assert result.backend.requested_precision == result.backend.actual_precision
+    assert result.resolved_config["frequency"]["channel_frequencies_hz"] == (
         100e6,
         101.25e6,
         109e6,
-    ]
-    assert "workflow" not in metadata["config"]
-    resolution = metadata["instrument_resolution"]
-    assert tuple(resolution) == (
-        "schema_version",
-        "instrument_sha256",
-        "name",
-        "source",
-        "location",
-        "antennas",
-        "baseline_selection",
     )
-    assert resolution["instrument_sha256"] == (
-        simulator.instrument.provenance.instrument_sha256
-    )
-    assert resolution["baseline_selection"]["selected_ids"] == [
-        [baseline.ant1.number, baseline.ant2.number] for baseline in simulator.baselines
-    ]
-    assert metadata["beam_resolution"] == simulator.beam_state.to_snapshot()
-    assert metadata["beam_resolution"] is not simulator.beam_state.to_snapshot()
-    assert "beam_sampling" not in metadata
-    assert "observability_reference" not in metadata
-    assert "renderer" not in metadata
-    json.dumps(metadata, allow_nan=False)
-
-    resolution["antennas"][0]["name"] = "mutated snapshot"
-    assert simulator.antennas[0].id.name != "mutated snapshot"
-    metadata["beam_resolution"]["handlers"][0]["handler_id"] = "mutated snapshot"
-    assert simulator.beam_state.handlers[0].handler_id != "mutated snapshot"
+    assert "workflow" not in result.resolved_config
+    json.dumps(result.to_summary_snapshot(), allow_nan=False)
 
     later = simulator.run(progress=False)
-    assert later["metadata"]["beam_resolution"] == simulator.beam_state.to_snapshot()
-    assert (
-        later["metadata"]["beam_resolution"]["handlers"][0]["handler_id"]
-        != "mutated snapshot"
-    )
+    assert later is simulator.result
+    assert later is not result
+    assert later.beam_state is simulator.beam_state
 
 
-def test_save_uses_only_explicit_output_choices_not_workflow(tmp_path, monkeypatch):
+def test_save_is_unavailable_before_writer_or_filesystem_work(tmp_path, monkeypatch):
+    from radiosim.core.result import ResultUnavailableError
+
     data = _explicit_data(
         tmp_path,
         workflow={"result_filename": "workflow-name", "result_format": "json"},
     )
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
-    simulator._results = {
-        "visibilities": {},
-        "frequencies": np.array([100e6]),
-        "baselines": {},
-        "metadata": {},
-    }
-    captured: dict[str, object] = {}
 
-    def record_writer(**kwargs):
-        captured.update(kwargs)
+    def forbidden(*args, **kwargs):
+        pytest.fail("save crossed a side-effect boundary")
 
-    monkeypatch.setattr("radiosim.io.writers.save_visibilities_hdf5", record_writer)
+    monkeypatch.setattr(Path, "mkdir", forbidden)
 
-    output = simulator.save(tmp_path / "saved")
-
-    assert output.name == "visibilities.h5"
-    assert captured["output_path"] == output
+    with pytest.raises(ResultUnavailableError, match="planned output workflow"):
+        simulator.save(tmp_path / "saved")
 
 
 def test_run_rejects_ignored_worker_control_before_setup(tmp_path):
@@ -819,18 +784,13 @@ def test_point_results_include_fresh_beam_resolution_for_every_mode(
     )
 
     first = simulator.run(progress=False)
-    first_snapshot = first["metadata"]["beam_resolution"]
-
-    assert first_snapshot == simulator.beam_state.to_snapshot()
-    json.dumps(first["metadata"], allow_nan=False)
-    assert "beam_sampling" not in first["metadata"]
+    assert first.beam_state is simulator.beam_state
+    first_snapshot = first.beam_state.to_snapshot()
     assert "reference_antenna" not in first_snapshot
-    first_snapshot["loaded_fingerprint"] = "mutated"
-    assert simulator.beam_state.loaded_fingerprint != "mutated"
 
     second = simulator.run(progress=False)
-    assert second["metadata"]["beam_resolution"] == simulator.beam_state.to_snapshot()
-    assert second["metadata"]["beam_resolution"] is not first_snapshot
+    assert second.beam_state is simulator.beam_state
+    assert second.beam_state.to_snapshot() is not first_snapshot
 
 
 def test_healpix_results_include_fresh_beam_resolution(tmp_path):
@@ -846,10 +806,8 @@ def test_healpix_results_include_fresh_beam_resolution(tmp_path):
     results = simulator.run(progress=False)
 
     assert simulator._sky_model.healpix is not None
-    assert results["metadata"]["beam_resolution"] == (
-        simulator.beam_state.to_snapshot()
-    )
-    json.dumps(results["metadata"], allow_nan=False)
+    assert results.beam_state is simulator.beam_state
+    json.dumps(results.to_summary_snapshot(), allow_nan=False)
 
 
 def test_failed_solver_publishes_no_partial_result_metadata(tmp_path, monkeypatch):
@@ -868,7 +826,7 @@ def test_failed_solver_publishes_no_partial_result_metadata(tmp_path, monkeypatc
     with pytest.raises(RuntimeError, match="solver failed"):
         simulator.run(progress=False)
 
-    assert simulator.results is None
+    assert simulator.result is None
 
 
 def test_sampling_derivation_precedes_device_backend_network_and_sky(

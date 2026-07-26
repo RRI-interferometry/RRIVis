@@ -215,18 +215,19 @@ Missing, ambiguous, non-finite, non-positive, or unmatched state raises
 Visibility-result provenance
 ----------------------------
 
-Every successful point-source or HEALPix run adds exactly one beam metadata
-entry:
+Every successful point-source or HEALPix run publishes the exact immutable
+loaded beam state:
 
 .. code-block:: python
 
-   results["metadata"]["beam_resolution"]
+   result = simulator.run()
+   beam_snapshot = result.beam_state.to_snapshot()
 
-Its value is a fresh detached ``LoadedBeamState.to_snapshot()``. The JSON-safe
-snapshot records mode, canonical antenna assignments, analytic dimensions and
+``to_snapshot()`` returns a fresh detached JSON-safe snapshot. It records mode,
+canonical antenna assignments, analytic dimensions and
 parameters, FITS resolved transport provenance and validated domains, handler
 IDs, deduplication relationships, feature scales, and deterministic
 fingerprints. It contains no ``UVBeam``, evaluator, data or backend array,
 ``BeamSystem``, lock, logger, renderer state, observability reference choice, or
-``BeamSamplingRequirement``. Mutating one result snapshot cannot change the
+``BeamSamplingRequirement``. Mutating a returned snapshot cannot change the
 Simulator state or a later result.

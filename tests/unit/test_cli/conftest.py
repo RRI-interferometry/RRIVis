@@ -25,8 +25,8 @@ def recording_simulator(monkeypatch):
 
     def run(self, *args, **kwargs):
         self.ran = True
-        self._results = {}
-        return self._results
+        self._result = object()
+        return self._result
 
     def save(self, *args, **kwargs):
         self.save_calls.append((args, kwargs))

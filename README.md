@@ -77,16 +77,30 @@ From Python, a YAML path is passed to `from_yaml`:
 from radiosim import Simulator
 
 simulator = Simulator.from_yaml("configs/config.yaml")
-results = simulator.run(progress=True)
-print(f"Computed {len(results['visibilities'])} baselines")
-
-# Saving is an explicit API action.
-simulator.save("output", format="hdf5")
+result = simulator.run(progress=True)
+print(result.visibilities.shape)  # time, baseline, frequency, correlation
+assert result is simulator.result
 ```
 
 `Simulator.from_yaml()` resolves scientific runtime state but does not execute
 the document's CLI-only `workflow` actions. Config mode owns saving, logging,
 plotting, prompting, skipping, and browser behavior.
+
+`Simulator.run()` returns an immutable `SimulationResult`. Its canonical
+visibility shape is `(time, baseline, frequency, correlation)`, with
+correlations ordered as `XX, XY, YX, YY`. Coordinates and derived Stokes I are
+available through `result.time_grid`, `result.frequencies_hz`,
+`result.channel_widths_hz`, `result.correlations`, and `result.stokes_i()`;
+`result.flags`, `result.weights`, `result.scientific_sha256`, and
+`result.provenance_sha256` complete the current result surface.
+
+Result saving and plotting are deliberately unavailable during the Tier 4C
+cutover: `Simulator.save()` and `Simulator.plot()` raise
+`ResultUnavailableError` before creating output. Config-mode save/plot requests
+fail before runtime, and the direct `radiosim simulate` command is temporarily
+unavailable because it necessarily requests a saved artifact. Canonical HDF5
+and standard-format output, transactions, and rendering arrive in later
+separately gated slices.
 
 For a small programmatic run:
 
@@ -129,7 +143,10 @@ simulator = Simulator.from_parameters(
         offline=True,
     ),
 )
-results = simulator.run(progress=False)
+result = simulator.run(progress=False)
+assert result is simulator.result
+print(result.visibilities.shape)
+print(result.stokes_i().shape)
 ```
 
 The other public construction paths are:

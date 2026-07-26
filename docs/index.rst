@@ -66,11 +66,15 @@ Quick example
    from radiosim import Simulator
 
    simulator = Simulator.from_yaml("configs/config.yaml")
-   results = simulator.run(progress=True)
-   print(len(results["visibilities"]))
+   result = simulator.run(progress=True)
+   print(result.visibilities.shape)
+   assert result is simulator.result
 
 The YAML ``workflow`` section is executed only by config-mode CLI orchestration.
-Python callers save and plot through explicit method calls.
+During the canonical-result cutover, result saving and plotting are unavailable:
+``Simulator.save`` and ``Simulator.plot`` raise ``ResultUnavailableError``
+before side effects. Config-mode save/plot requests and direct ``simulate``
+requests fail before runtime. Canonical output and rendering are later slices.
 
 Indices and tables
 ==================

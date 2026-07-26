@@ -25,6 +25,33 @@ The direct `Simulator(resolved_runtime)` constructor accepts only
 `ResolvedSimulationConfig`. Passing a YAML path to `from_config`, or passing
 raw mappings/backend scalars to the direct constructor, is no longer valid.
 
+## Canonical simulation results
+
+`Simulator.run()` now returns an immutable `SimulationResult`, and the singular
+`Simulator.result` property exposes the identical last successful result.
+There is no plural `Simulator.results` alias or dictionary adapter.
+
+```python
+result = simulator.run()
+assert result is simulator.result
+
+visibilities = result.visibilities  # (time, baseline, frequency, correlation)
+assert result.correlations == ("XX", "XY", "YX", "YY")
+stokes_i = result.stokes_i()
+```
+
+Coordinates, masks, provenance, and fingerprints are available through
+`result.time_grid`, `result.frequencies_hz`, `result.channel_widths_hz`,
+`result.flags`, `result.weights`, `result.scientific_sha256`, and
+`result.provenance_sha256`. Stored Stokes I and per-baseline correlation
+dictionaries have no replacement; derive Stokes I from the canonical array.
+
+During this bounded cutover, `Simulator.save()` and `Simulator.plot()` raise
+`ResultUnavailableError` before side effects. Config-mode save/plot requests
+also fail before runtime, and direct `radiosim simulate` is temporarily
+unavailable because it necessarily saves. Canonical HDF5 and standard-format
+writers, transactional output, and result rendering are later gated slices.
+
 ## Instrument input
 
 Before migration, telescope identity, layout, location, and diameter could be

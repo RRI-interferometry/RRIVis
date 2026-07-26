@@ -155,11 +155,12 @@ def test_simple_example_help_and_offline_smoke(tmp_path):
         timeout=30,
     )
     assert help_result.returncode == 0, help_result.stderr
-    assert "--no-plot" in help_result.stdout
-    assert "--save" in help_result.stdout
+    assert "--progress" in help_result.stdout
+    assert "--save" not in help_result.stdout
+    assert "--plot" not in help_result.stdout
 
     smoke_result = subprocess.run(
-        [sys.executable, str(script), "--no-plot"],
+        [sys.executable, str(script)],
         cwd=tmp_path,
         check=False,
         capture_output=True,
@@ -168,6 +169,7 @@ def test_simple_example_help_and_offline_smoke(tmp_path):
     )
     assert smoke_result.returncode == 0, smoke_result.stderr
     assert "Simulation complete" in smoke_result.stdout
+    assert "Visibility shape (T, B, F, C): (1, 15, 2, 4)" in smoke_result.stdout
     assert not (tmp_path / "simulation_output").exists()
 
 
@@ -191,6 +193,13 @@ def test_notebook_source_uses_current_public_api_and_has_no_stale_outputs():
     assert "Simulator.from_config(" not in source
     assert "simulator._" not in source
     assert ".benchmark(" not in source
+    assert "result = simulator.run(" in source
+    assert "result.visibilities" in source
+    assert "result.stokes_i()" in source
+    assert "simulator.result" in source
+    assert 'results["visibilities"]' not in source
+    assert "simulator.save(" not in source
+    assert "simulator.plot(" not in source
     for cell in notebook["cells"]:
         assert cell.get("id")
         if cell.get("cell_type") == "code":

@@ -20,14 +20,22 @@ YAML construction
    from radiosim import Simulator
 
    simulator = Simulator.from_yaml("configs/config.yaml")
-   results = simulator.run(progress=False)
-   print(f"Baselines: {len(results['visibilities'])}")
-
-   # Saving is explicit in Python.
-   simulator.save("output", format="hdf5")
+   result = simulator.run(progress=False)
+   print(f"Result shape: {result.visibilities.shape}")
+   print(f"Stokes-I shape: {result.stokes_i().shape}")
+   assert result is simulator.result
 
 ``from_yaml`` resolves scientific configuration but never executes CLI
 ``workflow`` actions.
+
+The canonical result also exposes ``flags``, ``weights``, ``time_grid``,
+``frequencies_hz``, ``channel_widths_hz``, ``correlations``,
+``scientific_sha256``, and ``provenance_sha256``. Saving and result plotting
+are deliberately unavailable in this slice: ``Simulator.save`` and
+``Simulator.plot`` raise ``ResultUnavailableError`` before output mutation.
+Config-mode save/plot requests and direct ``simulate`` requests fail before
+runtime; output transactions, standard formats, and canonical rendering are
+implemented in later slices.
 
 Typed parameter construction
 ----------------------------
@@ -74,7 +82,8 @@ Typed parameter construction
            offline=True,
        ),
    )
-   results = simulator.run(progress=False)
+   result = simulator.run(progress=False)
+   assert result is simulator.result
 
 After ``setup`` or ``run``, ``simulator.instrument`` is the canonical immutable
 instrument, and ``antennas`` and ``baselines`` are canonical tuples. Results

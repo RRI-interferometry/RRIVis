@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.sky.containers.model import SourceArrays
+    from radiosim.core.time_grid import ObservationTimeGrid
 
 import astropy.units as u
 import numpy as np
 from astropy.coordinates import AltAz, SkyCoord
-from astropy.time import TimeDelta
 from typing_extensions import override
 
 # Import backend abstraction
@@ -41,8 +41,8 @@ from radiosim.core.jones import (
 # Import polarization utilities
 from radiosim.core.polarization import (
     stokes_to_coherency,
-    visibility_to_correlations,
 )
+from radiosim.core.sky.containers.constants import C_LIGHT
 
 logger = logging.getLogger(__name__)
 
@@ -180,15 +180,11 @@ def calculate_visibility(
     beam_system: BeamSystem,
     source_arrays: "SourceArrays",
     location: Any,
-    obstime: Any,
-    wavelengths: Any,
-    freqs: Any,
-    duration_seconds: float,
-    time_step_seconds: float,
-    return_correlations: bool = True,
+    time_grid: "ObservationTimeGrid",
+    frequencies: Any,
     backend: ArrayBackend | None = None,
     jones_config: dict[str, Any] | None = None,
-) -> dict:
+) -> Any:
     """
     Calculate complex visibility using full polarization (RIME).
 
@@ -210,15 +206,10 @@ def calculate_visibility(
         ``pa_deg``, ``spectral_coeffs``.
     location : EarthLocation
         Observer's geographical location.
-    obstime : Time
-        Observation time.
-    wavelengths : Quantity
-        Wavelength array corresponding to frequencies (with units).
-    freqs : ndarray
-        Frequency array in Hz.
-    return_correlations : bool, optional
-        If True, extract and return correlation products (XX, XY, YX, YY, I).
-        If False, return raw 2×2 visibility matrices.
+    time_grid : ObservationTimeGrid
+        Exact canonical UTC sample-center grid.
+    frequencies : ndarray
+        Canonical frequency centers in Hz.
     backend : ArrayBackend, optional
         Array backend used by supported kernels. If omitted, uses NumPy.
         Options: get_backend("numpy"), get_backend("jax"), get_backend("numba")
@@ -226,18 +217,12 @@ def calculate_visibility(
         Configuration for Jones chain terms. Keys are term names ('K', 'E', 'G', etc.),
         values are dicts with 'enabled' (bool) and term-specific parameters.
         Example: {'G': {'enabled': True, 'sigma': 0.02}, 'Z': {'enabled': True, 'tec': 1e16}}
-    duration_seconds : float
-        Total observation duration in seconds. Controls the number of time samples.
-    time_step_seconds : float
-        Time step between samples in seconds. Number of time steps = duration / time_step.
-
     Returns
     -------
-    dict
-        Numeric antenna pairs map to correlation dictionaries when
-        ``return_correlations`` is true, or to visibility matrices otherwise.
-        Correlation arrays have shape ``(N_times, N_freq)``. Matrix arrays have
-        shape ``(N_times, N_freq, 2, 2)``.
+    backend array
+        Receptor visibility cube with shape ``(T, B, F, 2, 2)`` in exact
+        time-grid, selected-baseline, frequency, receptor-row, receptor-column
+        order.
 
     Examples
     --------
@@ -259,11 +244,14 @@ def calculate_visibility(
         )
 
     from radiosim.core.instrument_adapters import SolverInstrumentView
+    from radiosim.core.time_grid import ObservationTimeGrid
 
     if type(instrument) is not SolverInstrumentView:
         raise TypeError("instrument must be a SolverInstrumentView")
     if type(beam_system) is not BeamSystem:
         raise TypeError("beam_system must be an exact BeamSystem")
+    if type(time_grid) is not ObservationTimeGrid:
+        raise TypeError("time_grid must be an exact ObservationTimeGrid")
 
     # Initialize backend (default to NumPy for backward compatibility)
     if backend is None:
@@ -278,30 +266,18 @@ def calculate_visibility(
     _dec_rad = source_arrays["dec_rad"]
     _ref_freq = source_arrays["ref_freq"]
 
-    # Calculate number of time steps
-    n_times = max(1, int(duration_seconds / time_step_seconds))
-    n_freq = len(wavelengths)
-
-    # Initialize visibilities dictionary with time dimension
-    # Each baseline gets a (N_times, N_freq, 2, 2) array for visibility matrices
-    visibilities_matrices = {
-        key: backend.zeros_complex(
-            (n_times, n_freq, 2, 2),
-            dtype=output_complex_dtype,
-        )
-        for key in instrument.selected_pairs
-    }
+    n_times = len(time_grid)
+    n_baselines = len(instrument.selected_pairs)
+    n_freq = len(frequencies)
+    sample_times = time_grid.as_astropy()
+    visibilities = backend.zeros_complex(
+        (n_times, n_baselines, n_freq, 2, 2),
+        dtype=output_complex_dtype,
+    )
 
     # Handle empty source arrays
     if len(_ra_rad) == 0:
-        if return_correlations:
-            return {
-                key: _extract_correlations(backend.to_numpy(val))
-                for key, val in visibilities_matrices.items()
-            }
-        return {
-            key: backend.to_numpy(val) for key, val in visibilities_matrices.items()
-        }
+        return visibilities
 
     # Build SkyCoord from RA/Dec arrays (time-invariant)
     source_coords = SkyCoord(
@@ -335,6 +311,17 @@ def calculate_visibility(
     source_per_channel_u_orig = source_arrays["per_channel_stokes_u"]
     source_per_channel_v_orig = source_arrays["per_channel_stokes_v"]
     source_channel_frequencies = source_arrays["channel_frequencies"]
+    has_polarized_sources = any(
+        value is not None and bool(np.any(np.asarray(value) != 0))
+        for value in (
+            source_stokes_Q_orig,
+            source_stokes_U_orig,
+            source_stokes_V_orig,
+            source_per_channel_q_orig,
+            source_per_channel_u_orig,
+            source_per_channel_v_orig,
+        )
+    )
 
     # Gaussian morphology
     _maj = source_arrays["major_arcsec"]
@@ -360,10 +347,7 @@ def calculate_visibility(
     # TIME LOOP: Iterate over time steps, updating source positions each step
     # ===========================================================================
     for time_idx in range(n_times):
-        # Update observation time for this step
-        current_obstime = obstime + TimeDelta(
-            time_step_seconds * time_idx, format="sec"
-        )
+        current_obstime = sample_times[time_idx]
 
         # Transform source coordinates to AltAz frame (changes with time!)
         altaz = source_coords.transform_to(
@@ -385,6 +369,7 @@ def calculate_visibility(
         source_stokes_Q_t = source_stokes_Q_orig[above_horizon]
         source_stokes_U_t = source_stokes_U_orig[above_horizon]
         source_stokes_V_t = source_stokes_V_orig[above_horizon]
+        is_unpolarized = not has_polarized_sources
         source_spectral_indices_t = source_spectral_indices_orig[above_horizon]
         source_ref_freq_t = source_ref_freq_orig[above_horizon]
         source_rm_t = source_rm_orig[above_horizon]
@@ -471,9 +456,7 @@ def calculate_visibility(
             gauss_b_t = backend.asarray(gauss_b_t, dtype=backend.default_real_dtype)
             gauss_c_t = backend.asarray(gauss_c_t, dtype=backend.default_real_dtype)
 
-        for freq_idx, (wavelength, freq) in enumerate(
-            zip(wavelengths, freqs, strict=True)
-        ):
+        for freq_idx, freq in enumerate(frequencies):
             # Resolve Stokes at this observation frequency. Short-circuits to
             # nearest-channel lookup when per_channel_flux is populated;
             # otherwise applies spectral-index extrapolation + Faraday rotation.
@@ -502,12 +485,6 @@ def calculate_visibility(
             # Coherency matrices: (n_sources, 2, 2)
             coherency_matrices = stokes_to_coherency(
                 I_scaled, Q_scaled, U_scaled, V_scaled, xp=xp
-            )
-
-            is_unpolarized = bool(
-                backend.to_numpy(
-                    xp.all((Q_scaled == 0) & (U_scaled == 0) & (V_scaled == 0))
-                )
             )
 
             # Build JonesChain (without K — K is applied separately)
@@ -543,22 +520,21 @@ def calculate_visibility(
                 )
 
             # Compute visibilities per baseline
-            for (ant1, ant2), baseline_vector in zip(
-                instrument.selected_pairs,
-                instrument.baseline_vectors_enu_m,
-                strict=True,
+            for baseline_idx, ((ant1, ant2), baseline_vector) in enumerate(
+                zip(
+                    instrument.selected_pairs,
+                    instrument.baseline_vectors_enu_m,
+                    strict=True,
+                )
             ):
                 J_p = jones_antenna_cache[ant1]  # (n_sources, 2, 2)
                 J_q = jones_antenna_cache[ant2]
 
                 # Geometric phase (K) applied separately
-                bl_u, bl_v, bl_w = (
-                    backend.asarray(
-                        baseline_vector,
-                        dtype=backend.default_real_dtype,
-                    )
-                    / wavelength.value
-                )
+                bl_u, bl_v, bl_w = backend.asarray(
+                    baseline_vector,
+                    dtype=backend.default_real_dtype,
+                ) / (float(C_LIGHT) / float(freq))
                 b_dot_s = bl_u * l_dir + bl_v * m_dir + bl_w * (n_dir - 1.0)
                 phase = backend.exp(-2j * np.pi * b_dot_s)
 
@@ -590,27 +566,13 @@ def calculate_visibility(
                     backend.sum(V_all, axis=0),
                     dtype=output_complex_dtype,
                 )
-                visibilities_matrices[(ant1, ant2)] = backend.set_at(
-                    visibilities_matrices[(ant1, ant2)],
-                    (time_idx, freq_idx),
+                visibilities = backend.set_at(
+                    visibilities,
+                    (time_idx, baseline_idx, freq_idx),
                     visibility_matrix,
                 )
 
-    # Convert backend arrays to numpy for output
-    result_matrices = {
-        key: backend.to_numpy(val) for key, val in visibilities_matrices.items()
-    }
-
-    # Convert to correlation products if requested
-    if return_correlations:
-        visibilities_correlations = {}
-        for baseline_key, vis_matrix_array in result_matrices.items():
-            visibilities_correlations[baseline_key] = _extract_correlations(
-                vis_matrix_array
-            )
-        return visibilities_correlations
-
-    return result_matrices
+    return visibilities
 
 
 def _build_jones_chain(
@@ -738,56 +700,3 @@ def _build_jones_chain(
         chain.add_term(b_jones)
 
     return chain
-
-
-def _extract_correlations(vis_matrix_array):
-    """
-    Extract correlation products from visibility matrix array.
-
-    Parameters:
-    -----------
-    vis_matrix_array : ndarray
-        Array of visibility matrices, shape (N_freq, 2, 2)
-
-    Returns:
-    --------
-    dict: Dictionary with keys "XX", "XY", "YX", "YY", "I"
-        Each value is an array of shape (N_freq,)
-    """
-    correlations = visibility_to_correlations(vis_matrix_array)
-    return correlations
-
-
-def calculate_modulus_phase(visibilities):
-    """
-    Calculate the modulus (amplitude) and phase of visibilities.
-
-    Works with both old scalar format and new correlation dict format.
-
-    Parameters:
-    -----------
-    visibilities : dict
-        Dictionary of visibilities for each baseline.
-        Can be scalar complex arrays (old format) or dicts of correlations (new format).
-
-    Returns:
-    --------
-    tuple: (moduli, phases)
-        moduli: Dictionary of amplitudes
-        phases: Dictionary of phases in radians
-    """
-    moduli = {}
-    phases = {}
-
-    for key, val in visibilities.items():
-        if isinstance(val, dict):
-            # New format: dict of correlations
-            # Use Stokes I for amplitude/phase
-            moduli[key] = np.abs(val["I"])
-            phases[key] = np.angle(val["I"])
-        else:
-            # Old format: scalar complex array
-            moduli[key] = np.abs(val)
-            phases[key] = np.angle(val)
-
-    return moduli, phases

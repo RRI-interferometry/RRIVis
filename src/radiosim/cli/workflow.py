@@ -34,6 +34,36 @@ _ERROR_LABELS = {
 }
 
 
+class WorkflowOutputError(RuntimeError):
+    """A requested CLI result workflow is unavailable in the current slice."""
+
+
+def ensure_result_workflow_available(
+    *,
+    save_results: bool,
+    plot_results: bool,
+) -> None:
+    """Reject unavailable Tier 4C result work before runtime construction."""
+    requested: list[str] = []
+    if save_results:
+        requested.append("saving")
+    if plot_results:
+        requested.append("plotting")
+    if requested:
+        subject = "result " + " and ".join(requested)
+        verb = "are" if len(requested) > 1 else "is"
+        raise WorkflowOutputError(
+            f"{subject} {verb} temporarily unavailable in Tier 4C; saving requires the "
+            "planned output workflow and plotting requires the canonical result "
+            "renderer"
+        )
+
+
+def render_workflow_error(error: WorkflowOutputError, *, command: str) -> None:
+    """Render a normal unsupported intermediate workflow without traceback."""
+    click.echo(f"Workflow unavailable for {command} — {error}")
+
+
 def render_configuration_error(
     error: ConfigResolutionError,
     *,
@@ -128,6 +158,11 @@ def run_cli_workflow(
     verbose: int = 0,
 ) -> tuple[Path, ...]:
     """Execute resolved output policy after a successful simulation run."""
+    ensure_result_workflow_available(
+        save_results=workflow.save_results,
+        plot_results=workflow.plot_results,
+    )
+
     from radiosim.utils.logging import (
         print_info,
         print_warning,
@@ -210,7 +245,10 @@ def run_cli_workflow(
 
 __all__ = [
     "deterministic_run_subdir",
+    "ensure_result_workflow_available",
     "render_configuration_error",
     "render_resolved_summary",
+    "render_workflow_error",
     "run_cli_workflow",
+    "WorkflowOutputError",
 ]

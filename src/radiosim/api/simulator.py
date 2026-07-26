@@ -4,11 +4,12 @@ Examples
 --------
 >>> from radiosim.api import Simulator
 >>> sim = Simulator.from_yaml("config.yaml")
->>> results = sim.run()
->>> sim.save("output/")
+>>> result = sim.run()
+>>> result is sim.result
+True
 
 >>> sim = Simulator.from_mapping(config_data, base_dir=project_dir)
->>> results = sim.run()
+>>> result = sim.run()
 
 >>> sim = Simulator.from_config(config_model, base_dir=project_dir)
 """
@@ -47,11 +48,13 @@ if TYPE_CHECKING:
     )
     from radiosim.core.observability import ObservabilityPlan
     from radiosim.core.precision import PrecisionConfig
+    from radiosim.core.result import SimulationResult
     from radiosim.core.runtime_config import (
         ConfigurationProvenance,
         ResolvedConfiguration,
         ResolvedSimulationConfig,
     )
+    from radiosim.core.sky.containers.point import SourceArrays
     from radiosim.io.beam_config import BeamsConfig
     from radiosim.io.config import (
         ExecutionConfig,
@@ -110,13 +113,13 @@ class Simulator:
     --------
     >>> # Basic usage with a YAML document
     >>> sim = Simulator.from_yaml("config.yaml")
-    >>> results = sim.run()
-    >>> sim.plot()
-    >>> sim.save("output/")
+    >>> result = sim.run()
+    >>> result is sim.result
+    True
 
     >>> # Programmatic mapping usage
     >>> sim = Simulator.from_mapping(config_data, base_dir=project_dir)
-    >>> results = sim.run()
+    >>> result = sim.run()
 
     See Also
     --------
@@ -134,7 +137,7 @@ class Simulator:
         self.version = __version__
         self._resolved = resolved
         self._provenance: ConfigurationProvenance | None = None
-        self._results: dict[str, Any] | None = None
+        self._result: SimulationResult | None = None
         self._backend_name = resolved.execution.backend_strategy
         self._precision = resolved.execution.precision
         self._simulator_name = resolved.execution.simulator
@@ -146,9 +149,9 @@ class Simulator:
         self._instrument_state = None
         self._beam_system: BeamSystem | None = None
         self._beam_system_lock = threading.RLock()
-        self._source_arrays: dict | None = None
+        self._source_arrays: SourceArrays | None = None
         self._sky_model = None  # SkyModel for healpix_map representation
-        self._location = None
+        self._location: Any | None = None
         self._obstime = None
         self._frequencies_hz: np.ndarray | None = None
         self._wavelengths = None
@@ -313,9 +316,9 @@ class Simulator:
         return self._provenance
 
     @property
-    def results(self) -> dict[str, Any] | None:
-        """Get simulation results (None if not yet run)."""
-        return self._results
+    def result(self) -> SimulationResult | None:
+        """Return the last successfully published canonical result."""
+        return self._result
 
     @property
     def instrument(self) -> ResolvedInstrument:
@@ -798,7 +801,7 @@ class Simulator:
         self,
         progress: bool = True,
         n_workers: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> SimulationResult:
         """
         Run the visibility simulation.
 
@@ -811,21 +814,16 @@ class Simulator:
 
         Returns
         -------
-        dict
-            Dictionary containing simulation results:
-            - visibilities: Complex visibility data per baseline
-            - baselines: Baseline information
-            - frequencies: Frequency array in Hz
-            - antennas: Antenna information
-            - sources: Source list
-            - metadata: Additional metadata
+        SimulationResult
+            Immutable canonical result with dimensions ``(T, B, F, 4)`` and
+            correlation order ``XX, XY, YX, YY``.
 
         Examples
         --------
         >>> sim = Simulator.from_yaml("config.yaml")
-        >>> results = sim.run()
-        >>> print(results.keys())
-        dict_keys(['visibilities', 'baselines', 'frequencies', ...])
+        >>> result = sim.run()
+        >>> result is sim.result
+        True
         """
         if n_workers is not None:
             raise NotImplementedError(
@@ -839,6 +837,20 @@ class Simulator:
         # Set up if not already done
         if not self._is_setup:
             self.setup()
+
+        backend = self._backend
+        solver = self._simulator
+        instrument_view = self._solver_instrument_view
+        frequencies = self._frequencies_hz
+        location = self._location
+        if (
+            backend is None
+            or solver is None
+            or instrument_view is None
+            or frequencies is None
+            or location is None
+        ):
+            raise RuntimeError("Simulation setup did not publish complete solver state")
 
         if progress:
             print_header(
@@ -883,133 +895,104 @@ class Simulator:
         _sky_mode = SkyFormat(self._resolved.visibility["sky_representation"])
         print_info(f"Running visibility simulation ({_sky_mode.value} mode)...")
 
-        # Calculate visibilities based on sky representation
-        duration_seconds = self._resolved.observation.duration_seconds
-        time_step_seconds = self._resolved.observation.time_step_seconds
+        solver_started = time.perf_counter()
 
         if _sky_mode == SkyFormat.HEALPIX and self._sky_model is not None:
-            # Use direct HEALPix visibility calculation
             from radiosim.core.visibility_healpix import calculate_visibility_healpix
 
-            use_pol = (
-                self._sky_model is not None
-                and self._sky_model.has_polarized_healpix_maps
-            )
-
-            healpix_result = calculate_visibility_healpix(
+            use_pol = self._sky_model.has_polarized_healpix_maps
+            receptor_visibilities = calculate_visibility_healpix(
                 sky_model=self._sky_model,
-                instrument=self._solver_instrument_view,
+                instrument=instrument_view,
                 beam_system=self.beam_system,
-                location=self._location,
-                obstime=self._obstime,
-                wavelengths=self._wavelengths,
-                freqs=self._frequencies_hz,
-                duration_seconds=duration_seconds,
-                time_step_seconds=time_step_seconds,
+                location=location,
+                time_grid=self._resolved.observation.time_grid,
+                frequencies=frequencies,
                 output_units="Jy",
                 include_polarization=use_pol,
-                backend=self._backend,
+                backend=backend,
             )
-
-            # Convert healpix result format to match RIME format for compatibility
-            # healpix returns: {"visibilities": (n_bl, n_t, n_f[, 2, 2]), ...}
-            # RIME returns: {(ant1, ant2): {"I": ..., "XX": ..., ...}, ...}
-            visibilities = {}
-            baseline_keys = healpix_result["baseline_keys"]
-            vis_array = healpix_result["visibilities"]
-
-            if healpix_result.get("polarized", False):
-                # Polarized: vis_array is (n_bl, n_t, n_f, 2, 2)
-                for bl_idx, bl_key in enumerate(baseline_keys):
-                    V = vis_array[bl_idx]  # (n_t, n_f, 2, 2)
-                    visibilities[bl_key] = {
-                        "XX": V[..., 0, 0],
-                        "XY": V[..., 0, 1],
-                        "YX": V[..., 1, 0],
-                        "YY": V[..., 1, 1],
-                        "I": V[..., 0, 0] + V[..., 1, 1],  # XX + YY = I
-                    }
-            else:
-                # Scalar: vis_array is (n_bl, n_t, n_f)
-                for bl_idx, bl_key in enumerate(baseline_keys):
-                    parallel_hand = cast(Any, vis_array[bl_idx] / 2.0)
-                    visibilities[bl_key] = {
-                        "I": vis_array[bl_idx],
-                        "XX": parallel_hand,
-                        "YY": parallel_hand,
-                        "XY": np.zeros_like(vis_array[bl_idx]),
-                        "YX": np.zeros_like(vis_array[bl_idx]),
-                    }
-
         else:
-            # Use point source RIME calculation (original behavior)
-            visibilities = self._simulator.calculate_visibilities(
-                instrument=self._solver_instrument_view,
+            use_pol = True
+            if self._source_arrays is None:
+                raise RuntimeError("Point-source setup did not publish source arrays")
+            receptor_visibilities = solver.calculate_visibilities(
+                instrument=instrument_view,
                 beam_system=self.beam_system,
                 source_arrays=self._source_arrays,
-                frequencies=self._frequencies_hz,
-                backend=self._backend,
-                # Required kwargs for RIME
-                location=self._location,
-                obstime=self._obstime,
-                wavelengths=self._wavelengths,
-                # Time-stepping parameters
-                duration_seconds=duration_seconds,
-                time_step_seconds=time_step_seconds,
-                return_correlations=True,
+                frequencies=frequencies,
+                backend=backend,
+                location=location,
+                time_grid=self._resolved.observation.time_grid,
                 jones_config=None,
             )
 
-        t_total = time.perf_counter() - t_start
-
-        # Compile results
-        n_sky = self._sky_model.n_sky_elements_for(_sky_mode) if self._sky_model else 0
+        solver_seconds = time.perf_counter() - solver_started
         if self._instrument_state is None:
             raise RuntimeError("Instrument resolution has not completed")
-        instrument_resolution = self.instrument.to_snapshot()
-        instrument_resolution["baseline_selection"] = (
-            self._instrument_state.selection.to_snapshot()
+        from radiosim.core.phase_center import PhaseCenter
+        from radiosim.core.precision import PrecisionConfig
+        from radiosim.core.result import (
+            BackendResultProvenance,
+            ResultPerformance,
+            SolverResultProvenance,
+            build_simulation_result,
         )
 
-        self._results = {
-            "visibilities": visibilities,
-            "frequencies": self._frequencies_hz,
-            "baselines": self.baselines,
-            "antennas": self.antennas,
-            "source_arrays": self._source_arrays,
-            "sky_model": self._sky_model,
-            "location": self._location,
-            "obstime": self._obstime,
-            "wavelengths": self._wavelengths,
-            "timing": {"total": t_total, "setup": t_setup},
-            "metadata": {
-                "version": self.version,
-                "backend": self._backend.name,
-                "requested_backend": self._resolved.execution.backend_strategy,
-                "precision": self._backend.precision.model_dump(mode="json")
-                if self._backend.precision
-                else None,
-                "requested_precision": self._resolved.execution.precision.model_dump(
+        actual_precision = backend.precision or PrecisionConfig.standard()
+        result_dtype = np.dtype(backend.get_complex_dtype("output")).name
+        elapsed_before_result = time.perf_counter() - t_start
+        performance = ResultPerformance(
+            setup_seconds=t_setup,
+            solver_seconds=solver_seconds,
+            result_construction_seconds=0.0,
+            host_transfer_seconds=0.0,
+            total_seconds=elapsed_before_result,
+        )
+        result = build_simulation_result(
+            receptor_visibilities=receptor_visibilities,
+            backend=backend,
+            time_grid=self._resolved.observation.time_grid,
+            frequencies_hz=self._resolved.frequency.channel_frequencies_hz,
+            channel_widths_hz=self._resolved.frequency.channel_widths_hz,
+            instrument=self.instrument,
+            selection=self._instrument_state.selection,
+            beam_state=self.beam_state,
+            phase_center=PhaseCenter(),
+            backend_provenance=BackendResultProvenance(
+                requested_backend=self._resolved.execution.backend_strategy,
+                actual_backend=backend.name,
+                requested_precision=self._resolved.execution.precision.model_dump(
                     mode="json"
                 ),
-                "simulator": self._simulator.name,
-                "sky_representation": _sky_mode.value,
-                "n_antennas": len(self.antennas),
-                "n_baselines": len(self.baselines),
-                "n_sky_elements": n_sky,
-                "n_frequencies": len(self._frequencies_hz),
-                "config": self._resolved.to_json_safe(),
-                "instrument_resolution": instrument_resolution,
-                "beam_resolution": self.beam_state.to_snapshot(),
-            },
-        }
+                actual_precision=actual_precision.model_dump(mode="json"),
+                result_dtype=result_dtype,
+            ),
+            solver_provenance=SolverResultProvenance(
+                solver="rime",
+                sky_representation=(
+                    "healpix_map" if _sky_mode == SkyFormat.HEALPIX else "point_sources"
+                ),
+                convention="radiosim.rime-zenith-drift.v1",
+                execution_path="polarized" if use_pol else "scalar",
+            ),
+            resolved_config=self._resolved.to_json_safe(),
+            configuration_provenance=(
+                None if self._provenance is None else self._provenance.to_json_safe()
+            ),
+            performance=performance,
+            history=(f"RadioSim {self.version} canonical visibility simulation",),
+        )
+        self._result = result
 
         if progress:
             print_success(
-                f"Simulation complete! ({t_total:.3f}s total, setup {t_setup:.3f}s)"
+                "Simulation complete! "
+                f"({result.performance.total_seconds:.3f}s total, "
+                f"setup {result.performance.setup_seconds:.3f}s)"
             )
 
-        return self._results
+        return result
 
     def plot(
         self,
@@ -1019,175 +1002,13 @@ class Simulator:
         show: bool = True,
         overwrite: bool = False,
     ) -> list[Path]:
-        """
-        Generate visualization plots.
+        """Reject plotting until the canonical result renderer is implemented."""
+        from radiosim.core.result import ResultUnavailableError
 
-        Parameters
-        ----------
-        plot_type : str, optional
-            Type of plot to generate:
-            - "all": All available plots (default)
-            - "antenna": Antenna layout (2D and 3D)
-            - "visibility": Visibility amplitude/phase vs time
-            - "heatmap": Visibility frequency-time heatmaps
-            - "frequency": Visibility modulus/phase vs frequency
-        output_dir : str or Path, optional
-            Directory to save plots. If None, displays interactively.
-        backend : str, optional
-            Plotting backend ("bokeh", "matplotlib").
-        show : bool, optional
-            Whether to display plots (default: True).
-
-        Raises
-        ------
-        RuntimeError
-            If no results are available (run simulation first).
-
-        Notes
-        -----
-        Generated plots (when plot_type="all"):
-        - antenna_layout.html: 2D antenna positions (E vs N)
-        - antenna_layout_3d.html: 3D antenna positions (Plotly)
-        - visibility-phase-lsts.html: Visibility amp/phase vs time
-        - heatmaps-freq-time.html: Frequency-time heatmaps
-        - modulus-phase-freq.html: Visibility vs frequency
-
-        Examples
-        --------
-        >>> sim.run()
-        >>> sim.plot(plot_type="antenna")
-        >>> sim.plot(plot_type="all", output_dir="plots/")
-        """
-        if self._results is None:
-            raise RuntimeError(
-                "No results to plot. Run simulation first with sim.run()"
-            )
-
-        print_info(f"Generating {plot_type} plots with {backend}...")
-
-        if output_dir:
-            output_dir = Path(output_dir)
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Snapshot of HTML files already in output_dir before plotting (to detect new ones).
-        # If overwrite=True, skip the snapshot so all post-plot HTML files are returned.
-        html_before: set[Path] = set()
-        if output_dir and not overwrite:
-            html_before = set(output_dir.glob("*.html"))
-
-        # Antenna layout plot
-        if plot_type in ["antenna", "all"]:
-            from radiosim.visualization.bokeh_plots import (
-                plot_antenna_layout,
-                plot_antenna_layout_3d_plotly,
-                plot_heatmaps,
-                plot_modulus_vs_frequency,
-                plot_visibility,
-            )
-
-            # 2D antenna layout
-            plot_antenna_layout(
-                self.antennas,
-                plotting=backend,
-                save_simulation_data=output_dir is not None,
-                folder_path=str(output_dir) if output_dir else None,
-                open_in_browser=show,
-            )
-
-            # 3D antenna layout (Plotly)
-            plot_antenna_layout_3d_plotly(
-                self.antennas,
-                save_simulation_data=output_dir is not None,
-                folder_path=str(output_dir) if output_dir else None,
-                open_in_browser=show,
-            )
-
-        # Visibility time-series plots require multi-time data
-        if plot_type in ["visibility", "heatmap", "all"]:
-            # Check if we have multi-time data
-            from radiosim.core.visibility import calculate_modulus_phase
-
-            moduli, phases = calculate_modulus_phase(self._results["visibilities"])
-
-            # Check if data has time dimension
-            first_baseline = list(moduli.keys())[0]
-            has_time_data = moduli[first_baseline].ndim == 2  # Shape (n_times, n_freq)
-
-            if has_time_data and moduli[first_baseline].shape[0] > 1:
-                # Multi-time data - generate time-series plots
-                logger.debug(f"Generating {plot_type} plots with multi-time data")
-
-                # Generate time points array
-                duration_sec = self._resolved.observation.duration_seconds
-                time_step_sec = self._resolved.observation.time_step_seconds
-                n_times = max(1, int(duration_sec / time_step_sec))
-
-                if self._obstime:
-                    start_mjd = self._obstime.mjd
-                    time_points_mjd = np.array(
-                        [
-                            start_mjd + (i * time_step_sec / 86400.0)
-                            for i in range(n_times)
-                        ]
-                    )
-                else:
-                    time_points_mjd = np.linspace(0, duration_sec / 86400.0, n_times)
-
-                if plot_type in ["visibility", "all"]:
-                    plot_visibility(
-                        moduli_over_time=moduli,
-                        phases_over_time=phases,
-                        baselines=self.baselines,
-                        mjd_time_points=time_points_mjd,
-                        freqs=self._frequencies_hz,
-                        total_seconds=duration_sec,
-                        plotting=backend,
-                        save_simulation_data=True,
-                        folder_path=str(output_dir) if output_dir else None,
-                        open_in_browser=show,
-                    )
-
-                if plot_type in ["heatmap", "all"]:
-                    plot_heatmaps(
-                        moduli_over_time=moduli,
-                        phases_over_time=phases,
-                        baselines=self.baselines,
-                        freqs=self._frequencies_hz,
-                        total_seconds=duration_sec,
-                        mjd_time_points=time_points_mjd,
-                        plotting=backend,
-                        save_simulation_data=True,
-                        folder_path=str(output_dir) if output_dir else None,
-                        open_in_browser=show,
-                    )
-
-                if plot_type in ["frequency", "all"]:
-                    plot_modulus_vs_frequency(
-                        moduli_over_time=moduli,
-                        phases_over_time=phases,
-                        baselines=self.baselines,
-                        freqs=self._frequencies_hz,
-                        mjd_time_points=time_points_mjd,
-                        plotting=backend,
-                        save_simulation_data=True,
-                        folder_path=str(output_dir) if output_dir else None,
-                        open_in_browser=show,
-                    )
-            else:
-                # Single-time data
-                print_warning(
-                    f"Plot type '{plot_type}' requires multi-time data. "
-                    f"Current: {moduli[first_baseline].shape[0] if has_time_data else 1} time step(s). "
-                    "Use plot_type='antenna' for single-time results."
-                )
-
-        # Collect newly written HTML files
-        saved_paths: list[Path] = []
-        if output_dir:
-            html_after = set(output_dir.glob("*.html"))
-            saved_paths = sorted(html_after - html_before)
-
-        return saved_paths
+        raise ResultUnavailableError(
+            "result plotting remains unavailable until the canonical result "
+            "renderer is implemented"
+        )
 
     def plan_observability(
         self,
@@ -1452,186 +1273,13 @@ class Simulator:
         overwrite: bool = False,
         filename: str | None = None,
     ) -> Path:
-        """
-        Save simulation results to disk.
+        """Reject saving until the planned canonical output workflow exists."""
+        from radiosim.core.result import ResultUnavailableError
 
-        Parameters
-        ----------
-        output_dir : str or Path
-            Output directory path.
-        format : str, optional
-            Output format: "hdf5" (default), "json", "ms" (Measurement Set).
-        overwrite : bool, optional
-            Overwrite existing files (default: False).
-        filename : str, optional
-            Output filename stem (without extension). Defaults to
-            "visibilities" for HDF5/JSON and "simulation" for MS.
-
-        Returns
-        -------
-        Path
-            Path to saved output file.
-
-        Raises
-        ------
-        RuntimeError
-            If no results are available.
-        ImportError
-            If MS format requested but python-casacore not installed.
-
-        Examples
-        --------
-        >>> sim.run()
-        >>> output_path = sim.save("output/", format="hdf5")
-        >>> print(f"Saved to {output_path}")
-
-        Save as Measurement Set for use with CASA/QuartiCal:
-
-        >>> output_path = sim.save("output/", format="ms")
-        >>> # Can now run: quartical output/simulation.ms
-
-        Notes
-        -----
-        The MS format is compatible with:
-        - CASA: ``casabrowser output/simulation.ms``
-        - QuartiCal: ``goquartical output/simulation.ms``
-        - WSClean: ``wsclean -name image output/simulation.ms``
-        """
-        if self._results is None:
-            raise RuntimeError(
-                "No results to save. Run simulation first with sim.run()"
-            )
-
-        from radiosim.io.writers import save_visibilities_hdf5
-
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        logger.debug(f"Saving results to {output_dir}...")
-
-        if format.lower() == "hdf5":
-            stem = filename or "visibilities"
-            output_path = output_dir / f"{stem}.h5"
-
-            if output_path.exists() and not overwrite:
-                raise FileExistsError(
-                    f"{output_path} already exists. Use overwrite=True to overwrite."
-                )
-
-            # Calculate time points for observation
-            duration_sec = self._resolved.observation.duration_seconds
-            time_step_sec = self._resolved.observation.time_step_seconds
-            n_times = max(1, int(duration_sec / time_step_sec))
-
-            # Generate time points in MJD
-            if self._obstime:
-                start_mjd = self._obstime.mjd
-                time_mjd = np.array(
-                    [
-                        start_mjd
-                        + (i * time_step_sec / 86400.0)  # Convert seconds to days
-                        for i in range(n_times)
-                    ]
-                )
-            else:
-                time_mjd = np.linspace(0, duration_sec / 86400.0, n_times)
-
-            # Convert visibility format for HDF5 writer
-            # Our format: {(ant1, ant2): {"I": (n_times, n_freq), ...}}
-            # Writer expects: {(ant1, ant2): [(n_freq,), (n_freq,), ...]}
-            # We need to split the time dimension into a list of arrays
-            visibilities_for_writer = {}
-            for bl_key, vis_dict in self._results["visibilities"].items():
-                if isinstance(vis_dict, dict):
-                    vis_array = vis_dict.get("I", vis_dict.get("XX", np.array([])))
-                    # Split (n_times, n_freq) into list of (n_freq,) arrays
-                    if vis_array.ndim == 2:
-                        visibilities_for_writer[bl_key] = [
-                            vis_array[i] for i in range(vis_array.shape[0])
-                        ]
-                    else:
-                        visibilities_for_writer[bl_key] = [vis_array]
-                else:
-                    vis_array = vis_dict
-                    if vis_array.ndim == 2:
-                        visibilities_for_writer[bl_key] = [
-                            vis_array[i] for i in range(vis_array.shape[0])
-                        ]
-                    else:
-                        visibilities_for_writer[bl_key] = [vis_array]
-
-            save_visibilities_hdf5(
-                output_path=output_path,
-                visibilities=visibilities_for_writer,
-                frequencies=self._results["frequencies"],
-                time_points_mjd=time_mjd,
-                metadata=self._results["metadata"],
-            )
-
-            logger.debug(f"Saved HDF5 to {output_path}")
-            return output_path
-
-        elif format.lower() == "json":
-            import json
-
-            stem = filename or "visibilities"
-            output_path = output_dir / f"{stem}.json"
-
-            if output_path.exists() and not overwrite:
-                raise FileExistsError(
-                    f"{output_path} already exists. Use overwrite=True to overwrite."
-                )
-
-            # Convert complex arrays to serializable format
-            json_data = {
-                "metadata": self._results["metadata"],
-                "frequencies": self._results["frequencies"].tolist(),
-                "n_baselines": len(self._results["baselines"]),
-            }
-
-            with open(output_path, "w") as f:
-                json.dump(json_data, f, indent=2, allow_nan=False)
-
-            logger.debug(f"Saved JSON to {output_path}")
-            return output_path
-
-        elif format.lower() == "ms":
-            from radiosim.io.measurement_set import (
-                CASACORE_AVAILABLE,
-                PYUVDATA_AVAILABLE,
-                write_ms,
-            )
-
-            if not (CASACORE_AVAILABLE and PYUVDATA_AVAILABLE):
-                raise ImportError(
-                    "Measurement Set support not available.\n"
-                    "Install with: pip install radiosim[ms]\n"
-                    "Or: pip install python-casacore"
-                )
-
-            stem = filename or "simulation"
-            output_path = output_dir / f"{stem}.ms"
-
-            if self._instrument_state is None:
-                raise RuntimeError("Instrument resolution has not completed")
-
-            write_ms(
-                output_path=output_path,
-                visibilities=self._results["visibilities"],
-                frequencies=self._results["frequencies"],
-                instrument=self.instrument,
-                selection=self._instrument_state.selection,
-                obstime=self._results["obstime"],
-                overwrite=overwrite,
-            )
-
-            logger.debug(f"Saved MS to {output_path}")
-            return output_path
-
-        else:
-            raise ValueError(
-                f"Unknown format: {format}. Supported: 'hdf5', 'json', 'ms'"
-            )
+        raise ResultUnavailableError(
+            "result saving remains unavailable until the planned output workflow "
+            "is implemented"
+        )
 
     def get_memory_estimate(self) -> dict[str, Any]:
         """
@@ -1664,6 +1312,7 @@ class Simulator:
             n_baselines=len(self.baselines),
             n_sources=len(self._source_arrays["ra_rad"]) if self._source_arrays else 0,
             n_frequencies=len(self._frequencies_hz),
+            n_times=len(self._resolved.observation.time_grid),
         )
 
         # Adjust for precision if configured
@@ -1691,6 +1340,6 @@ class Simulator:
 
     def __repr__(self) -> str:
         """String representation of Simulator."""
-        status = "configured" if self._results is None else "completed"
+        status = "configured" if self._result is None else "completed"
         backend = self._backend.name if self._backend else self._backend_name
         return f"<Simulator v{self.version} [{status}] backend={backend}>"

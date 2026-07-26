@@ -20,6 +20,7 @@ from radiosim.core.instrument_adapters import (
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.containers.healpix import HealpixData
 from radiosim.core.sky.containers.model import SkyModel
+from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
 from tests.fixtures.configs import valid_config_mapping
@@ -28,6 +29,11 @@ FREQS = np.array([100e6], dtype=np.float64)
 WAVELENGTHS = np.array([c.value / FREQS[0]], dtype=np.float64) * u.m
 LOCATION = EarthLocation.from_geodetic(0.0 * u.deg, 0.0 * u.deg, 0.0 * u.m)
 OBSTIME = Time("2024-01-01T00:00:00")
+TIME_GRID = build_observation_time_grid(
+    start_time=OBSTIME.isot,
+    duration_seconds=1.0,
+    cadence_seconds=1.0,
+)
 
 
 def _solver_components(tmp_path) -> tuple[SolverInstrumentView, object]:
@@ -153,11 +159,8 @@ def test_point_source_visibility_numba_matches_numpy(tmp_path):
         beam_system=beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQS,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
         backend=numpy_backend,
     )
     actual = calculate_visibility(
@@ -165,21 +168,38 @@ def test_point_source_visibility_numba_matches_numpy(tmp_path):
         beam_system=beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQS,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
         backend=numba_backend,
     )
 
-    for corr in ("XX", "XY", "YX", "YY", "I"):
-        np.testing.assert_allclose(
-            actual[(0, 1)][corr],
-            expected[(0, 1)][corr],
-            rtol=1e-10,
-            atol=1e-10,
-        )
+    np.testing.assert_allclose(actual, expected, rtol=1e-10, atol=1e-10)
+
+
+def test_point_source_per_channel_polarization_uses_full_matrix_path(tmp_path):
+    instrument, beam_system = _solver_components(tmp_path)
+    sources = _source_arrays()
+    sources["stokes_q"] = np.zeros(2, dtype=np.float64)
+    sources["stokes_u"] = np.zeros(2, dtype=np.float64)
+    sources["stokes_v"] = np.zeros(2, dtype=np.float64)
+    sources["per_channel_flux"] = np.array([[1.0, 0.5]], dtype=np.float64)
+    sources["per_channel_stokes_q"] = np.array([[0.2, 0.0]], dtype=np.float64)
+    sources["per_channel_stokes_u"] = np.array([[0.0, 0.1]], dtype=np.float64)
+    sources["per_channel_stokes_v"] = np.zeros((1, 2), dtype=np.float64)
+    sources["channel_frequencies"] = FREQS.copy()
+
+    result = calculate_visibility(
+        instrument=instrument,
+        beam_system=beam_system,
+        source_arrays=sources,
+        location=LOCATION,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
+        backend=get_backend("numpy"),
+    )
+
+    assert np.any(np.abs(result[..., 0, 1]) > 0.0)
+    assert np.any(np.abs(result[..., 1, 0]) > 0.0)
 
 
 def test_point_source_visibility_jax_matches_numpy(tmp_path):
@@ -192,11 +212,8 @@ def test_point_source_visibility_jax_matches_numpy(tmp_path):
         beam_system=beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQS,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
         backend=numpy_backend,
     )
     actual = calculate_visibility(
@@ -204,17 +221,14 @@ def test_point_source_visibility_jax_matches_numpy(tmp_path):
         beam_system=beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQS,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
         backend=jax_backend,
     )
 
     np.testing.assert_allclose(
-        actual[(0, 1)]["I"],
-        expected[(0, 1)]["I"],
+        actual,
+        expected,
         rtol=1e-5,
         atol=1e-7,
     )
@@ -242,17 +256,13 @@ def test_point_source_fast_precision_casts_explicitly_at_output_boundary(tmp_pat
         beam_system=simulator.beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQS,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
         backend=backend,
     )
 
-    for correlation in ("XX", "XY", "YX", "YY", "I"):
-        assert actual[(0, 1)][correlation].dtype == np.dtype(np.complex64)
-        assert np.all(np.isfinite(actual[(0, 1)][correlation]))
+    assert actual.dtype == np.dtype(np.complex64)
+    assert np.all(np.isfinite(actual))
 
 
 def test_polarized_healpix_fast_precision_casts_explicitly_at_output_boundary(
@@ -279,17 +289,14 @@ def test_polarized_healpix_fast_precision_casts_explicitly_at_output_boundary(
         instrument=instrument,
         beam_system=simulator.beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQS,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
         include_polarization=True,
         backend=backend,
     )
 
-    assert actual["visibilities"].dtype == np.dtype(np.complex64)
-    assert np.all(np.isfinite(actual["visibilities"]))
+    assert actual.dtype == np.dtype(np.complex64)
+    assert np.all(np.isfinite(actual))
 
 
 @pytest.mark.parametrize("polarized", [False, True])
@@ -304,11 +311,8 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
         instrument=instrument,
         beam_system=beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQS,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
         include_polarization=polarized,
         backend=numpy_backend,
     )
@@ -317,18 +321,15 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
         instrument=instrument,
         beam_system=beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQS,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
         include_polarization=polarized,
         backend=numba_backend,
     )
 
     np.testing.assert_allclose(
-        actual["visibilities"],
-        expected["visibilities"],
+        actual,
+        expected,
         rtol=1e-10,
         atol=1e-10,
     )
@@ -350,14 +351,11 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
         beam_system=beam_system,
         source_arrays=_source_arrays(),
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQS,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
         backend=backend,
     )
-    assert point_result[(0, 1)]["I"].shape == (1, 1)
+    assert point_result.shape == (1, 1, 1, 2, 2)
 
     first = beam_system.evaluate_jones(
         AntennaId(0, "ANT0"),
@@ -380,16 +378,12 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
         instrument=view,
         beam_system=beam_system,
         location=LOCATION,
-        obstime=OBSTIME,
-        wavelengths=WAVELENGTHS,
-        freqs=FREQS,
-        duration_seconds=1.0,
-        time_step_seconds=1.0,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
         backend=backend,
     )
 
-    assert healpix_result["baseline_keys"] == ((0, 1),)
-    assert healpix_result["visibilities"].shape == (1, 1, 1)
+    assert healpix_result.shape == (1, 1, 1, 2, 2)
 
 
 def test_point_beam_rejects_inconsistent_solver_antenna_number(tmp_path):

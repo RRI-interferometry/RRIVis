@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from importlib.metadata import PackageNotFoundError, version
@@ -716,6 +717,7 @@ def build_simulation_result(
     from radiosim.core.phase_center import PhaseCenter
     from radiosim.core.time_grid import ObservationTimeGrid
 
+    construction_started = time.perf_counter()
     checked_backend = _require_backend(backend)
     for value, expected, field_name in (
         (time_grid, ObservationTimeGrid, "time_grid"),
@@ -741,10 +743,12 @@ def build_simulation_result(
         raise InvalidResultError("selection contains a baseline outside instrument")
 
     frequencies, widths = _coordinates(frequencies_hz, channel_widths_hz)
+    transfer_started = time.perf_counter()
     try:
         host = checked_backend.to_numpy(receptor_visibilities)
     except Exception as exc:
         raise InvalidResultError("backend host transfer failed") from exc
+    host_transfer_seconds = time.perf_counter() - transfer_started
     if type(host) is not np.ndarray:
         host = np.asarray(host)
     expected_shape = (
@@ -814,6 +818,18 @@ def build_simulation_result(
         configuration_provenance=frozen_provenance,
         history=frozen_history,
     )
+    construction_elapsed = time.perf_counter() - construction_started
+    result_construction_seconds = max(
+        0.0,
+        construction_elapsed - host_transfer_seconds,
+    )
+    measured_performance = ResultPerformance(
+        setup_seconds=performance.setup_seconds,
+        solver_seconds=performance.solver_seconds,
+        result_construction_seconds=result_construction_seconds,
+        host_transfer_seconds=host_transfer_seconds,
+        total_seconds=performance.total_seconds + construction_elapsed,
+    )
     result = object.__new__(SimulationResult)
     _assign(
         result,
@@ -834,7 +850,7 @@ def build_simulation_result(
         solver=solver_provenance,
         resolved_config=frozen_config,
         configuration_provenance=frozen_provenance,
-        performance=performance,
+        performance=measured_performance,
         history=frozen_history,
         scientific_sha256=scientific,
         provenance_sha256=provenance_hash,

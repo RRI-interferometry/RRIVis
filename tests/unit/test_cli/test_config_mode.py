@@ -117,7 +117,7 @@ def test_relative_antenna_and_output_overrides_use_invocation_cwd(
     invocation_dir.mkdir()
     config_path = write_config_yaml(
         document_dir,
-        valid_config_mapping(document_dir, workflow={"save_results": True}),
+        valid_config_mapping(document_dir, workflow={"save_log": True}),
     )
     override_antenna = invocation_dir / "override.txt"
     override_antenna.write_text((document_dir / "antennas.txt").read_text())
@@ -381,28 +381,11 @@ def test_workflow_forwards_save_and_plot_policy_after_run(
 
     result = _invoke_config(CliRunner(), config_path)
 
-    assert result.exit_code == 0, result.output
-    simulator = recording_simulator.instances[0]
+    assert result.exit_code == 1
+    assert "result saving and plotting are temporarily unavailable" in result.output
+    assert recording_simulator.instances == []
     output_dir = tmp_path / "output" / "chosen-run"
-    assert simulator.save_calls == [
-        (
-            (output_dir,),
-            {"format": "json", "overwrite": True, "filename": "science"},
-        )
-    ]
-    assert simulator.plot_calls == [
-        (
-            (),
-            {
-                "plot_type": "all",
-                "output_dir": output_dir,
-                "backend": "matplotlib",
-                "show": True,
-                "overwrite": True,
-            },
-        )
-    ]
-    assert output_dir.exists()
+    assert not output_dir.exists()
 
 
 def test_existing_output_conflict_aborts_without_overwrite(
@@ -423,9 +406,9 @@ def test_existing_output_conflict_aborts_without_overwrite(
         input="n\n",
     )
 
-    assert result.exit_code == 0
-    assert recording_simulator.instances[0].ran is True
-    assert recording_simulator.instances[0].save_calls == []
+    assert result.exit_code == 1
+    assert "temporarily unavailable" in result.output
+    assert recording_simulator.instances == []
     assert (output_dir / "existing.txt").read_text() == "keep"
 
 
@@ -439,7 +422,7 @@ def test_generated_run_subdir_is_deterministic_from_resolved_science(
         tmp_path,
         workflow={
             "run_subdir": None,
-            "save_results": True,
+            "save_log": True,
             "overwrite": True,
             "skip_overwrite_confirmation": True,
         },
@@ -465,3 +448,33 @@ def test_root_help_exposes_tri_state_options_without_implicit_backend_default():
         line for line in result.output.splitlines() if "--backend" in line
     )
     assert "default" not in backend_line.lower()
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    [
+        {"save_results": True},
+        {"plot_results": True},
+        {"save_results": True, "plot_results": True},
+    ],
+)
+def test_tier4c_unavailable_result_workflow_fails_before_simulator_construction(
+    tmp_path,
+    recording_simulator,
+    workflow,
+):
+    output_dir = tmp_path / "must-not-exist"
+    config_path = write_config_yaml(
+        tmp_path,
+        valid_config_mapping(
+            tmp_path,
+            workflow={"output_dir": str(output_dir), **workflow},
+        ),
+    )
+
+    result = _invoke_config(CliRunner(), config_path)
+
+    assert result.exit_code == 1
+    assert "temporarily unavailable" in result.output
+    assert recording_simulator.instances == []
+    assert not output_dir.exists()

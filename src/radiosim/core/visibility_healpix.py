@@ -23,11 +23,10 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from radiosim.core.instrument_adapters import SolverInstrumentView
+    from radiosim.core.time_grid import ObservationTimeGrid
 
-import astropy.units as u
 import numpy as np
 from astropy.coordinates import AltAz
-from astropy.time import TimeDelta
 
 from radiosim.backends import ArrayBackend, get_backend
 from radiosim.core.beam import BeamSystem
@@ -39,6 +38,7 @@ from radiosim.core.sky import (
     brightness_temp_to_flux_density,
     rayleigh_jeans_factor,
 )
+from radiosim.core.sky.containers.constants import C_LIGHT
 
 logger = logging.getLogger(__name__)
 
@@ -134,15 +134,12 @@ def calculate_visibility_healpix(
     instrument: "SolverInstrumentView",
     beam_system: BeamSystem,
     location: Any,
-    obstime: Any,
-    wavelengths: Any,
-    freqs: Any,
-    duration_seconds: float,
-    time_step_seconds: float,
+    time_grid: "ObservationTimeGrid",
+    frequencies: Any,
     output_units: str = "Jy",
     include_polarization: bool = False,
     backend: ArrayBackend | None = None,
-) -> dict:
+) -> Any:
     """
     Calculate visibility directly from HEALPix brightness temperature map.
 
@@ -170,35 +167,22 @@ def calculate_visibility_healpix(
         Canonical per-antenna beam evaluator.
     location : EarthLocation
         Observer's geographical location.
-    obstime : Time
-        Observation start time.
-    wavelengths : Quantity
-        Wavelength array with units.
-    freqs : ndarray
-        Frequency array in Hz.
-    duration_seconds : float
-        Total observation duration in seconds.
-    time_step_seconds : float
-        Time step for integration in seconds.
+    time_grid : ObservationTimeGrid
+        Exact canonical UTC sample-center grid.
+    frequencies : ndarray
+        Canonical frequency centers in Hz.
     output_units : str, default="Jy"
         Output units: "Jy" (convert to Jansky) or "K.sr" (keep temperature ×
         solid angle). In polarized mode, always "Jy".
     include_polarization : bool, default=False
         If True and sky model has polarized HEALPix maps, compute full 2×2
         visibility matrices using the RIME with Jones beam matrices. Output
-        shape becomes ``(n_baselines, n_times, n_freqs, 2, 2)``.
+        The returned cube retains the same canonical shape in both paths.
 
     Returns
     -------
-    dict
-        Dictionary containing:
-        - visibilities: Complex visibility array. Scalar mode:
-          ``(n_baselines, n_times, n_freqs)``.
-          Polarized mode: ``(n_baselines, n_times, n_freqs, 2, 2)``.
-        - times: Time array
-        - frequencies: Frequency array
-        - baselines: Baseline info
-        - metadata: Additional information
+    backend array
+        Receptor visibility cube with shape ``(T, B, F, 2, 2)``.
     """
     if sky_model.healpix is None:
         raise ValueError(
@@ -207,11 +191,14 @@ def calculate_visibility_healpix(
             "or load a diffuse HEALPix model with frequencies=...."
         )
     from radiosim.core.instrument_adapters import SolverInstrumentView
+    from radiosim.core.time_grid import ObservationTimeGrid
 
     if type(instrument) is not SolverInstrumentView:
         raise TypeError("instrument must be a SolverInstrumentView")
     if type(beam_system) is not BeamSystem:
         raise TypeError("beam_system must be an exact BeamSystem")
+    if type(time_grid) is not ObservationTimeGrid:
+        raise TypeError("time_grid must be an exact ObservationTimeGrid")
     if backend is None:
         backend = get_backend("numpy")
     xp = backend.xp
@@ -234,14 +221,13 @@ def calculate_visibility_healpix(
         f"Pixel solid angle: {omega_pixel:.6f} sr ({np.degrees(np.sqrt(omega_pixel)):.3f}\u00b0)"
     )
 
-    # Setup time steps
-    n_times = int(np.ceil(duration_seconds / time_step_seconds))
-    times = np.arange(n_times) * time_step_seconds
+    n_times = len(time_grid)
+    sample_times = time_grid.as_astropy()
 
     # Setup baseline info
-    baseline_keys = instrument.selected_pairs
-    n_baselines = len(baseline_keys)
-    n_freqs = len(freqs)
+    selected_pairs = instrument.selected_pairs
+    n_baselines = len(selected_pairs)
+    n_freqs = len(frequencies)
 
     # Pre-compute baseline vectors in local ENU
     baseline_vectors = backend.asarray(
@@ -249,17 +235,10 @@ def calculate_visibility_healpix(
         dtype=backend.default_real_dtype,
     )
 
-    # Initialize output array
-    if use_polarization:
-        visibilities = backend.zeros_complex(
-            (n_baselines, n_times, n_freqs, 2, 2),
-            dtype=output_complex_dtype,
-        )
-    else:
-        visibilities = backend.zeros_complex(
-            (n_baselines, n_times, n_freqs),
-            dtype=output_complex_dtype,
-        )
+    visibilities = backend.zeros_complex(
+        (n_times, n_baselines, n_freqs, 2, 2),
+        dtype=output_complex_dtype,
+    )
 
     logger.info(
         f"Computing visibilities: {n_times} times \u00d7 {n_freqs} freqs "
@@ -270,9 +249,7 @@ def calculate_visibility_healpix(
     # TIME LOOP
     # ==========================================================================
     for time_idx in range(n_times):
-        current_obstime = obstime + TimeDelta(
-            time_step_seconds * time_idx, format="sec"
-        )
+        current_obstime = sample_times[time_idx]
 
         # Transform pixel coordinates to AltAz
         altaz = pixel_coords.transform_to(
@@ -302,7 +279,7 @@ def calculate_visibility_healpix(
         dir_n_xp = backend.asarray(dir_n, dtype=backend.default_real_dtype)
 
         # Collect selected antenna numbers in canonical instrument order.
-        selected_numbers = {number for pair in baseline_keys for number in pair}
+        selected_numbers = {number for pair in selected_pairs for number in pair}
         ant_nums = tuple(
             number
             for number in instrument.antenna_numbers
@@ -312,10 +289,8 @@ def calculate_visibility_healpix(
         # ======================================================================
         # FREQUENCY LOOP
         # ======================================================================
-        for freq_idx, (wavelength, freq) in enumerate(
-            zip(wavelengths, freqs, strict=True)
-        ):
-            wavelength_m = wavelength.to(u.m).value
+        for freq_idx, freq in enumerate(frequencies):
+            wavelength_m = float(C_LIGHT) / float(freq)
             jones_cache = _evaluate_beam_batch_by_antenna(
                 beam_system=beam_system,
                 instrument=instrument,
@@ -389,7 +364,7 @@ def calculate_visibility_healpix(
                 # Compute visibility for each baseline
                 # V_pq = Σ_pix phase_pix * J_p @ C_pix @ J_q^H
                 for bl_idx, ((ant1, ant2), bl_vec) in enumerate(
-                    zip(baseline_keys, baseline_vectors, strict=True)
+                    zip(selected_pairs, baseline_vectors, strict=True)
                 ):
                     bl_u, bl_v, bl_w = bl_vec / wavelength_m
                     delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)
@@ -404,7 +379,7 @@ def calculate_visibility_healpix(
 
                     visibilities = backend.set_at(
                         visibilities,
-                        (bl_idx, time_idx, freq_idx),
+                        (time_idx, bl_idx, freq_idx),
                         backend.asarray(
                             backend.sum(V_all, axis=0),
                             dtype=output_complex_dtype,
@@ -451,7 +426,7 @@ def calculate_visibility_healpix(
                 )
                 coherency = coherency * (signal / 2.0)[:, None, None]
                 for bl_idx, ((ant1, ant2), bl_vec) in enumerate(
-                    zip(baseline_keys, baseline_vectors, strict=True)
+                    zip(selected_pairs, baseline_vectors, strict=True)
                 ):
                     bl_u, bl_v, bl_w = bl_vec / wavelength_m
                     delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)
@@ -463,13 +438,14 @@ def calculate_visibility_healpix(
                         J_q_H,
                     )
                     V_all = V_all * phase[:, None, None]
-                    matrix = backend.sum(V_all, axis=0)
-                    vis = backend.asarray(
-                        matrix[0, 0] + matrix[1, 1],
+                    matrix = backend.asarray(
+                        backend.sum(V_all, axis=0),
                         dtype=output_complex_dtype,
                     )
                     visibilities = backend.set_at(
-                        visibilities, (bl_idx, time_idx, freq_idx), vis
+                        visibilities,
+                        (time_idx, bl_idx, freq_idx),
+                        matrix,
                     )
 
         if time_idx % 10 == 0 or time_idx == n_times - 1:
@@ -477,31 +453,10 @@ def calculate_visibility_healpix(
                 f"Time step {time_idx + 1}/{n_times}: {n_visible} pixels visible"
             )
 
-    # Prepare output
-    result = {
-        "visibilities": backend.to_numpy(visibilities),
-        "times": times,
-        "frequencies": freqs,
-        "baseline_keys": baseline_keys,
-        "n_baselines": n_baselines,
-        "n_times": n_times,
-        "n_freqs": n_freqs,
-        "output_units": "Jy" if use_polarization else output_units,
-        "polarized": use_polarization,
-        "metadata": {
-            "model": sky_model.model_name,
-            "nside": nside,
-            "n_pixels": n_pixels,
-            "pixel_solid_angle_sr": omega_pixel,
-            "n_frequencies": n_freqs,
-            "stokes": "IQUV" if use_polarization else "I",
-        },
-    }
-
     logger.info(
         f"HEALPix visibility calculation complete. "
         f"Output units: {'Jy' if use_polarization else output_units}, "
         f"mode: {pol_label}"
     )
 
-    return result
+    return visibilities

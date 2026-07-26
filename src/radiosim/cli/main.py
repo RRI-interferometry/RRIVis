@@ -291,13 +291,6 @@ def run_config_mode(
     offline: bool | None = None,
 ) -> int:
     """Resolve one document, run its scientific state, then its workflow."""
-    from radiosim.utils.logging import (
-        get_logger,
-        print_info,
-        print_success,
-        setup_logging,
-    )
-
     if quiet:
         level = logging.ERROR
     elif verbose >= 2:
@@ -307,16 +300,18 @@ def run_config_mode(
     else:
         level = logging.INFO
 
-    setup_logging(level=level)
-    logger = get_logger("radiosim.cli")
-
     if not config_flag:
-        logger.error("No configuration file specified")
-        logger.info("Usage: radiosim --config config.yaml")
+        click.echo("No configuration file specified")
+        click.echo("Usage: radiosim --config config.yaml")
         return 1
 
     config_path = Path(config_flag)
-    print_info(f"Loading configuration from: {config_path}")
+
+    from radiosim.cli.workflow import (
+        WorkflowOutputError,
+        ensure_result_workflow_available,
+        render_workflow_error,
+    )
 
     try:
         from radiosim.io.config import load_config
@@ -344,18 +339,36 @@ def run_config_mode(
             ),
             check_input_paths=True,
         )
+        ensure_result_workflow_available(
+            save_results=bundle.workflow.save_results,
+            plot_results=bundle.workflow.plot_results,
+        )
     except ConfigResolutionError as error:
         from radiosim.cli.workflow import render_configuration_error
 
         render_configuration_error(error, command="config mode")
         return 1
+    except WorkflowOutputError as error:
+        render_workflow_error(error, command="config mode")
+        return 1
     except Exception as error:
-        logger.error(f"Configuration setup failed: {error}")
+        click.echo(f"Configuration setup failed: {error}")
         if verbose >= 2:
             import traceback
 
             traceback.print_exc()
         return 1
+
+    from radiosim.utils.logging import (
+        get_logger,
+        print_info,
+        print_success,
+        setup_logging,
+    )
+
+    _ = setup_logging(level=level)
+    logger = get_logger("radiosim.cli")
+    print_info(f"Loading configuration from: {config_path}")
 
     from radiosim.api.simulator import Simulator
 
@@ -413,6 +426,21 @@ def run_simulate_mode(
     time_step_seconds: float = 1.0,
 ) -> int:
     """Resolve typed scientific parameters, run, and save explicitly."""
+    from radiosim.cli.workflow import (
+        WorkflowOutputError,
+        ensure_result_workflow_available,
+        render_workflow_error,
+    )
+
+    try:
+        ensure_result_workflow_available(
+            save_results=True,
+            plot_results=False,
+        )
+    except WorkflowOutputError as error:
+        render_workflow_error(error, command="simulate")
+        return 1
+
     from radiosim.utils.logging import get_logger, setup_logging
 
     setup_logging()

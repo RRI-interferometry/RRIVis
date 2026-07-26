@@ -55,24 +55,10 @@ def test_simulate_uses_typed_parameters_and_preserves_nonuniform_hz(
         ),
     )
 
-    assert result.exit_code == 0, result.output
-    simulator = recording_simulator.instances[0]
-    assert simulator.ran is True
-    assert simulator.config.frequency.channel_frequencies_hz == (
-        100e6,
-        101.5e6,
-        108e6,
-    )
-    assert simulator.config.frequency.channel_widths_hz == (1e6, 0.5e6, 2e6)
-    assert simulator.config.frequency.source_mode == "explicit"
-    assert simulator.config.execution.backend_strategy == "numpy"
-    assert simulator.config.instrument.location.latitude_deg == pytest.approx(-30.72152)
-    assert simulator.config.instrument.default_diameter_m == 14.0
-    assert simulator.config.baseline_selection.correlations == "all"
-    assert simulator.config.observation.start_time_iso.startswith("2025-01-01T00:00:00")
-    assert simulator.save_calls == [
-        ((str(output_dir),), {"format": "json", "overwrite": False})
-    ]
+    assert result.exit_code == 1
+    assert "result saving is temporarily unavailable" in result.output
+    assert recording_simulator.instances == []
+    assert not output_dir.exists()
 
 
 @pytest.mark.parametrize(
@@ -92,10 +78,9 @@ def test_simulate_resolves_registered_sky_alias_to_typed_inputs(
         cli, _simulate_args(antenna_path, "--sky-model", sky_alias)
     )
 
-    assert result.exit_code == 0, result.output
-    runtime = recording_simulator.instances[0].config
-    assert runtime.sky_model.sources[0].kind == kind
-    assert runtime.visibility["sky_representation"] == representation
+    assert result.exit_code == 1
+    assert "temporarily unavailable" in result.output
+    assert recording_simulator.instances == []
 
 
 @pytest.mark.parametrize(
@@ -114,7 +99,7 @@ def test_simulate_rejects_invalid_frequency_sequences_through_resolver(
     result = CliRunner().invoke(cli, args)
 
     assert result.exit_code == 1
-    assert "channel_frequencies_hz" in result.output
+    assert "temporarily unavailable" in result.output
     assert recording_simulator.instances == []
 
 
@@ -129,7 +114,7 @@ def test_simulate_rejects_width_length_mismatch_before_simulator_construction(
     result = CliRunner().invoke(cli, args)
 
     assert result.exit_code == 1
-    assert "same number" in " ".join(result.output.split())
+    assert "temporarily unavailable" in result.output
     assert recording_simulator.instances == []
 
 
@@ -142,7 +127,7 @@ def test_simulate_rejects_missing_antenna_before_simulator_construction(
 
     assert result.exit_code == 1
     assert recording_simulator.instances == []
-    assert "instrument.source.path" in result.output
+    assert "temporarily unavailable" in result.output
 
 
 def test_simulate_reports_missing_diameter_without_an_implicit_default(
@@ -162,8 +147,7 @@ def test_simulate_reports_missing_diameter_without_an_implicit_default(
 
     normalized_output = " ".join(result.output.split())
     assert result.exit_code == 1
-    assert "incomplete antenna diameters" in normalized_output
-    assert "--default-diameter-m" in normalized_output
+    assert "temporarily unavailable" in normalized_output
 
 
 def test_simulate_requires_explicit_location_and_start_time(
@@ -219,3 +203,27 @@ def test_root_help_uses_real_native_layout_and_scopes_config_path_override():
     assert "--antenna-layout antenna_layout_examples/hera_5.txt" in normalized
     assert "Path override for a config layout_file instrument source" in normalized
     assert "HERA65.csv" not in result.output
+
+
+def test_direct_simulate_fails_at_tier4c_output_preflight_before_runtime(
+    tmp_path,
+    recording_simulator,
+):
+    antenna_path = write_minimal_antenna_file(tmp_path)
+    output = tmp_path / "must-not-exist"
+
+    result = CliRunner().invoke(
+        cli,
+        _simulate_args(
+            antenna_path,
+            "--sky-model",
+            "test",
+            "--output",
+            str(output),
+        ),
+    )
+
+    assert result.exit_code == 1
+    assert "temporarily unavailable" in result.output
+    assert recording_simulator.instances == []
+    assert not output.exists()

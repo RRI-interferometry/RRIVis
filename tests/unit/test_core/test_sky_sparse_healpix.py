@@ -10,7 +10,6 @@ import astropy.units as u
 import healpy as hp
 import numpy as np
 import pytest
-from astropy.constants import c
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from matplotlib.figure import Figure
@@ -23,6 +22,7 @@ from radiosim.core.sky import HealpixData, SkyFormat, SkyModel
 from radiosim.core.sky.io.serialization import to_pyradiosky
 from radiosim.core.sky.loaders.pyradiosky import _load_pyradiosky_healpix
 from radiosim.core.sky.operations.operations import materialize_point_sources_model
+from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
 from radiosim.visualization import plot_healpix_map
 from tests.fixtures.configs import valid_config_mapping
@@ -266,31 +266,30 @@ class TestSparseVisibility:
         instrument = SolverInstrumentView.from_state(simulator._instrument_state)
         location = EarthLocation.from_geodetic(0.0 * u.deg, 0.0 * u.deg, 0.0 * u.m)
         obstime = Time("2024-01-01T00:00:00")
-        wavelengths = np.array([c.value / freqs[0]], dtype=np.float64) * u.m
+        time_grid = build_observation_time_grid(
+            start_time=obstime.isot,
+            duration_seconds=1.0,
+            cadence_seconds=1.0,
+        )
 
         sparse_vis = calculate_visibility_healpix(
             sparse,
             instrument=instrument,
             beam_system=simulator.beam_system,
             location=location,
-            obstime=obstime,
-            wavelengths=wavelengths,
-            freqs=freqs,
-            duration_seconds=1.0,
-            time_step_seconds=1.0,
+            time_grid=time_grid,
+            frequencies=freqs,
         )
         dense_vis = calculate_visibility_healpix(
             dense,
             instrument=instrument,
             beam_system=simulator.beam_system,
             location=location,
-            obstime=obstime,
-            wavelengths=wavelengths,
-            freqs=freqs,
-            duration_seconds=1.0,
-            time_step_seconds=1.0,
+            time_grid=time_grid,
+            frequencies=freqs,
         )
 
         np.testing.assert_allclose(
-            sparse_vis["visibilities"], dense_vis["visibilities"]
+            sparse_vis,
+            dense_vis,
         )

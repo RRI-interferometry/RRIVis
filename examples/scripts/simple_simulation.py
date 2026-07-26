@@ -2,8 +2,7 @@
 """Run a small deterministic RadioSim visibility simulation.
 
 The built-in example uses NumPy, local test sources, and the bundled five-
-antenna layout. It needs no network access and writes nothing unless ``--save``
-or ``--plot`` is supplied.
+antenna layout. It needs no network access and writes no output artifacts.
 """
 
 from __future__ import annotations
@@ -29,28 +28,6 @@ def _parser() -> argparse.ArgumentParser:
             "Override the YAML backend. With the built-in example, omission uses "
             "the deterministic NumPy default."
         ),
-    )
-    parser.add_argument(
-        "--save",
-        action="store_true",
-        help="Save HDF5 results to --output-dir.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("simulation_output"),
-        help="Directory used only when --save or --plot is requested.",
-    )
-    plot_group = parser.add_mutually_exclusive_group()
-    plot_group.add_argument(
-        "--plot",
-        action="store_true",
-        help="Write antenna plots without opening a browser.",
-    )
-    plot_group.add_argument(
-        "--no-plot",
-        action="store_true",
-        help="Explicitly disable plotting (the default).",
     )
     parser.add_argument(
         "--progress",
@@ -143,25 +120,14 @@ def main() -> int:
     estimate = simulator.get_memory_estimate()
     print(f"Estimated memory: {estimate.get('total_human', 'unavailable')}")
 
-    results = simulator.run(progress=args.progress)
-    visibilities = results["visibilities"]
-    sample_baseline = next(iter(visibilities))
-    products = visibilities[sample_baseline]
-    shapes = {name: value.shape for name, value in products.items()}
-    print(f"Visibility baselines: {len(visibilities)}")
-    print(f"Sample baseline: {sample_baseline}")
-    print(f"Sample product shapes: {shapes}")
-
-    if args.save:
-        saved = simulator.save(args.output_dir, format="hdf5")
-        print(f"Saved results: {saved}")
-    if args.plot:
-        paths = simulator.plot(
-            plot_type="antenna",
-            output_dir=args.output_dir,
-            show=False,
-        )
-        print(f"Saved plots: {len(paths)}")
+    result = simulator.run(progress=args.progress)
+    assert result is simulator.result
+    assert result.visibilities.shape == (1, 15, 2, 4)
+    print(f"Visibility shape (T, B, F, C): {result.visibilities.shape}")
+    print(f"Correlations: {', '.join(result.correlations)}")
+    print(f"Stokes-I shape: {result.stokes_i().shape}")
+    print(f"Scientific fingerprint: {result.scientific_sha256}")
+    print(f"Provenance fingerprint: {result.provenance_sha256}")
 
     print("Simulation complete")
     return 0
