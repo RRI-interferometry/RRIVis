@@ -1655,10 +1655,11 @@ or persistent repository path.
 - MS and UVFITS rejected unprojected data when `force_phase=False`.
 - Hidden force phase projected to a fixed ICRS zenith at the first timestamp.
   This proves the need for the explicit Section 14 transformation.
-- `UVData.new` retained `polarization_array` as a Python list. MS and UVFITS
-  advanced-index paths failed with `TypeError` until the adapter replaced it
-  with an integer NumPy array.
-- After explicit projection and integer polarization normalization, MS
+- `UVData.new` retained `polarization_array` as a Python list. The projected MS
+  writer accepted that list unchanged, while the UVFITS advanced-index path
+  failed with `TypeError` until the adapter replaced it with an integer NumPy
+  array.
+- After explicit projection and shared integer polarization normalization, MS
   preserved complex64, data, flags, weights, correlations, selected pairs,
   times, widths, exposure, antenna names/numbers, UVWs, and sidereal catalog.
 - pyuvdata/casacore stored complex128 MS input as complex64. The observed
