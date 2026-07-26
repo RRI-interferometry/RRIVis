@@ -188,6 +188,34 @@ def test_last_success_publication_is_atomic_across_failures_and_retries(
     assert transfers == 2
 
 
+def test_late_success_rendering_failure_never_publishes_a_result(
+    tmp_path,
+    monkeypatch,
+):
+    import radiosim.api.simulator as simulator_module
+
+    simulator = Simulator.from_mapping(_mapping(tmp_path), base_dir=tmp_path)
+    simulator.setup()
+    native_print_success = simulator_module.print_success
+
+    def fail_success_rendering(message):
+        if message.startswith("Simulation complete"):
+            raise RuntimeError("controlled late success-rendering failure")
+        native_print_success(message)
+
+    monkeypatch.setattr(simulator_module, "print_success", fail_success_rendering)
+    with pytest.raises(RuntimeError, match="late success-rendering failure"):
+        simulator.run(progress=True)
+    assert simulator.result is None
+
+    monkeypatch.setattr(simulator_module, "print_success", native_print_success)
+    first = simulator.run(progress=False)
+    monkeypatch.setattr(simulator_module, "print_success", fail_success_rendering)
+    with pytest.raises(RuntimeError, match="late success-rendering failure"):
+        simulator.run(progress=True)
+    assert simulator.result is first
+
+
 def test_memory_estimate_uses_exact_canonical_time_count(tmp_path, monkeypatch):
     simulator = Simulator.from_mapping(_mapping(tmp_path), base_dir=tmp_path)
     simulator.setup()
@@ -204,32 +232,83 @@ def test_memory_estimate_uses_exact_canonical_time_count(tmp_path, monkeypatch):
     assert captured["n_times"] == len(simulator.config.observation.time_grid) == 3
 
 
-def test_save_and_plot_are_typed_unavailable_without_side_effects(tmp_path):
+def test_save_and_plot_are_typed_unavailable_without_side_effects(
+    tmp_path,
+    monkeypatch,
+):
+    import builtins
+    import logging
+    import webbrowser
+
     simulator = Simulator.from_mapping(_mapping(tmp_path), base_dir=tmp_path)
     output = tmp_path / "must-not-exist"
 
-    for operation, message in (
-        (
-            lambda: simulator.save(output),
-            "planned output workflow",
-        ),
-        (
-            lambda: simulator.plot(output_dir=output),
-            "canonical result renderer",
-        ),
-    ):
-        with pytest.raises(ResultUnavailableError, match=message):
-            operation()
-        assert not output.exists()
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("unavailable result workflow crossed a side-effect boundary")
 
+    native_import = builtins.__import__
+    forbidden_imports = (
+        "h5py",
+        "pyuvdata",
+        "casacore",
+        "radiosim.io.writers",
+        "radiosim.visualization",
+        "bokeh",
+        "matplotlib",
+    )
+
+    def guarded_import(name, *args, **kwargs):
+        if name.startswith(forbidden_imports):
+            pytest.fail(f"unavailable result workflow imported {name}")
+        return native_import(name, *args, **kwargs)
+
+    def assert_fail_closed():
+        for operation, message in (
+            (
+                lambda: simulator.save(
+                    output,
+                    format="hostile",
+                    overwrite=True,
+                    filename="../escape",
+                ),
+                "planned output workflow",
+            ),
+            (
+                lambda: simulator.plot(
+                    plot_type="hostile",
+                    output_dir=output,
+                    backend="hostile",
+                    show=True,
+                    overwrite=True,
+                ),
+                "canonical result renderer",
+            ),
+        ):
+            with pytest.raises(ResultUnavailableError, match=message):
+                operation()
+
+    with monkeypatch.context() as guarded:
+        guarded.setattr(builtins, "__import__", guarded_import)
+        guarded.setattr(builtins, "open", forbidden)
+        guarded.setattr(Path, "exists", forbidden)
+        guarded.setattr(Path, "mkdir", forbidden)
+        guarded.setattr(logging, "getLogger", forbidden)
+        guarded.setattr(webbrowser, "open", forbidden)
+        assert_fail_closed()
+
+    assert not output.exists()
     simulator.run(progress=False)
-    for operation in (
-        lambda: simulator.save(output),
-        lambda: simulator.plot(output_dir=output),
-    ):
-        with pytest.raises(ResultUnavailableError):
-            operation()
-        assert not output.exists()
+
+    with monkeypatch.context() as guarded:
+        guarded.setattr(builtins, "__import__", guarded_import)
+        guarded.setattr(builtins, "open", forbidden)
+        guarded.setattr(Path, "exists", forbidden)
+        guarded.setattr(Path, "mkdir", forbidden)
+        guarded.setattr(logging, "getLogger", forbidden)
+        guarded.setattr(webbrowser, "open", forbidden)
+        assert_fail_closed()
+
+    assert not output.exists()
 
 
 def test_solver_api_has_only_the_canonical_time_grid_contract():

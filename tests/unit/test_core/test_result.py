@@ -162,6 +162,40 @@ def test_result_factory_records_its_own_host_transfer_timing(tmp_path):
     assert result.performance.host_transfer_seconds >= 0.0
 
 
+def test_result_factory_timing_owns_transfer_and_extends_total_through_hashing(
+    tmp_path,
+    monkeypatch,
+):
+    import radiosim.core.result as result_module
+
+    simulator, _backend, provenance, solver, performance, receptor = _parts(tmp_path)
+    backend = _CountingBackend()
+    ticks = iter((10.0, 12.0, 15.0, 19.0))
+    monkeypatch.setattr(result_module.time, "perf_counter", lambda: next(ticks))
+
+    result = build_simulation_result(
+        receptor_visibilities=receptor,
+        backend=backend,
+        time_grid=simulator.config.observation.time_grid,
+        frequencies_hz=simulator.config.frequency.channel_frequencies_hz,
+        channel_widths_hz=simulator.config.frequency.channel_widths_hz,
+        instrument=simulator.instrument,
+        selection=simulator._instrument_state.selection,
+        beam_state=simulator.beam_state,
+        phase_center=PhaseCenter(),
+        backend_provenance=provenance,
+        solver_provenance=solver,
+        resolved_config=simulator.config.to_json_safe(),
+        configuration_provenance=None,
+        performance=performance,
+    )
+
+    assert backend.transfer_count == 1
+    assert result.performance.host_transfer_seconds == 3.0
+    assert result.performance.result_construction_seconds == 6.0
+    assert result.performance.total_seconds == performance.total_seconds + 9.0
+
+
 def _json_tree(value):
     if isinstance(value, dict) or hasattr(value, "items"):
         return {str(key): _json_tree(item) for key, item in value.items()}

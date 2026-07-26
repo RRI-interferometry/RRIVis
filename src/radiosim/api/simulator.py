@@ -983,7 +983,6 @@ class Simulator:
             performance=performance,
             history=(f"RadioSim {self.version} canonical visibility simulation",),
         )
-        self._result = result
 
         if progress:
             print_success(
@@ -992,6 +991,7 @@ class Simulator:
                 f"setup {result.performance.setup_seconds:.3f}s)"
             )
 
+        self._result = result
         return result
 
     def plot(
