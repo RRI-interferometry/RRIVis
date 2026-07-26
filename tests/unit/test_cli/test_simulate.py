@@ -20,6 +20,8 @@ def _simulate_args(antenna_path, *extra: str) -> list[str]:
         "14",
         "--frequencies",
         "100,101.5,108",
+        "--channel-widths-mhz",
+        "1,0.5,2",
         "--latitude",
         "-30.72152",
         "--longitude",
@@ -61,6 +63,7 @@ def test_simulate_uses_typed_parameters_and_preserves_nonuniform_hz(
         101.5e6,
         108e6,
     )
+    assert simulator.config.frequency.channel_widths_hz == (1e6, 0.5e6, 2e6)
     assert simulator.config.frequency.source_mode == "explicit"
     assert simulator.config.execution.backend_strategy == "numpy"
     assert simulator.config.instrument.location.latitude_deg == pytest.approx(-30.72152)
@@ -105,11 +108,28 @@ def test_simulate_rejects_invalid_frequency_sequences_through_resolver(
     antenna_path = write_minimal_antenna_file(tmp_path)
     args = _simulate_args(antenna_path)
     args[args.index("--frequencies") + 1] = frequencies
+    count = len(frequencies.split(","))
+    args[args.index("--channel-widths-mhz") + 1] = ",".join(["1"] * count)
 
     result = CliRunner().invoke(cli, args)
 
     assert result.exit_code == 1
     assert "channel_frequencies_hz" in result.output
+    assert recording_simulator.instances == []
+
+
+def test_simulate_rejects_width_length_mismatch_before_simulator_construction(
+    tmp_path,
+    recording_simulator,
+):
+    antenna_path = write_minimal_antenna_file(tmp_path)
+    args = _simulate_args(antenna_path)
+    args[args.index("--channel-widths-mhz") + 1] = "1,1"
+
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 1
+    assert "same number" in " ".join(result.output.split())
     assert recording_simulator.instances == []
 
 
@@ -161,6 +181,8 @@ def test_simulate_requires_explicit_location_and_start_time(
             "CLI Array",
             "--frequencies",
             "100,101",
+            "--channel-widths-mhz",
+            "1,1",
         ],
     )
 
@@ -179,6 +201,7 @@ def test_simulate_help_documents_required_observation_inputs():
         "--longitude",
         "--height",
         "--start-time",
+        "--channel-widths-mhz",
     ):
         line = next(line for line in result.output.splitlines() if option in line)
         assert "required" in line.lower()

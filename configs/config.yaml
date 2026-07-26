@@ -34,6 +34,7 @@ obs_frequency:
   starting_frequency: 50
   frequency_interval: 1.0
   frequency_bandwidth: 100
+  channel_width: 1.0
   frequency_unit: MHz
 
 sky_model:

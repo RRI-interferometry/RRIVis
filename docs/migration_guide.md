@@ -15,6 +15,7 @@ simulator = Simulator.from_parameters(
     instrument=instrument,
     baseline_selection=baseline_selection,
     channel_frequencies_hz=(100_000_000.0, 101_500_000.0),
+    channel_widths_hz=(1_000_000.0, 1_000_000.0),
     start_time="2025-01-01T00:00:00",
     sky_model=sky_model,
 )
@@ -184,8 +185,9 @@ directly instead of selecting identity or analytic fallback behavior.
 
 ## Frequency and configuration I/O
 
-Frequency input requires `mode: grid` or `mode: explicit`; the explicit field
-is `channel_frequencies_hz`. `load_config()` returns a resolved bundle,
+Frequency input requires `mode: grid` or `mode: explicit`; explicit centers in
+`channel_frequencies_hz` require matching `channel_widths_hz`. Grid input
+requires `channel_width` in `frequency_unit`. `load_config()` returns a resolved bundle,
 `resolve_config()` accepts a mapping/model plus source context, and
 `dump_config()` accepts only a `RadioSimConfig` input model. Removed custom
 model methods should be replaced by those functions or standard `model_dump`.

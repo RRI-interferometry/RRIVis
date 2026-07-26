@@ -118,6 +118,7 @@ simulator = Simulator.from_parameters(
     instrument=instrument,
     baseline_selection=BaselineSelectionConfig(correlations="all"),
     channel_frequencies_hz=(100_000_000.0, 101_500_000.0, 108_000_000.0),
+    channel_widths_hz=(1_000_000.0, 1_000_000.0, 1_000_000.0),
     start_time="2025-01-01T00:00:00",
     duration_seconds=1.0,
     time_step_seconds=1.0,
@@ -173,6 +174,7 @@ obs_time:
 obs_frequency:
   mode: explicit
   channel_frequencies_hz: [100000000.0, 101500000.0, 108000000.0]
+  channel_widths_hz: [1000000.0, 1000000.0, 1000000.0]
 
 sky_model:
   sources:
@@ -205,8 +207,9 @@ workflow:
 ```
 
 For a uniform frequency grid, use `mode: grid` with positive
-`starting_frequency`, `frequency_interval`, `frequency_bandwidth`, and one of
-`Hz`, `kHz`, `MHz`, or `GHz`. The bandwidth must be an integral number of
+`starting_frequency`, `frequency_interval`, `frequency_bandwidth`, a positive
+`channel_width`, and one of `Hz`, `kHz`, `MHz`, or `GHz`. The bandwidth must be
+an integral number of
 intervals. RadioSim constructs `start + index * interval`; it does not alter
 the requested spacing with `linspace`.
 

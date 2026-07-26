@@ -47,6 +47,7 @@ Local formats also require explicit identity and geodetic location:
    obs_frequency:
      mode: explicit
      channel_frequencies_hz: [100000000.0, 101500000.0, 108000000.0]
+     channel_widths_hz: [1000000.0, 1000000.0, 1000000.0]
 
    sky_model:
      sources:

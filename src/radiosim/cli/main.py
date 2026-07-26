@@ -48,6 +48,7 @@ BackendStrategy = Literal["auto", "numpy", "jax", "numba"]
         "  # Run with CLI arguments\n"
         "  radiosim simulate --antenna-layout "
         "antenna_layout_examples/hera_5.txt --frequencies 100,150,200 "
+        "--channel-widths-mhz 1,1,1 "
         "--telescope-name HERA --default-diameter-m 14 "
         "--latitude -30.7 --longitude 21.4 --height 1073 "
         "--start-time 2025-01-01T00:00:00\n\n"
@@ -152,6 +153,12 @@ def cli(
     help="Frequencies in MHz (comma-separated, e.g., '100,150,200')",
 )
 @click.option(
+    "--channel-widths-mhz",
+    required=True,
+    type=str,
+    help="Required channel widths in MHz, matching --frequencies",
+)
+@click.option(
     "--sky-model",
     type=click.Choice(["test", "gleam", "gsm"]),
     default="test",
@@ -207,6 +214,7 @@ def simulate(
     default_diameter_m: float | None,
     correlations: Literal["all", "cross", "auto"],
     frequencies: str,
+    channel_widths_mhz: str,
     sky_model: str,
     output: str,
     output_format: str,
@@ -226,6 +234,7 @@ def simulate(
             default_diameter_m=default_diameter_m,
             correlations=correlations,
             frequencies=frequencies,
+            channel_widths_mhz=channel_widths_mhz,
             sky_model=sky_model,
             output=output,
             output_format=output_format,
@@ -391,6 +400,7 @@ def run_simulate_mode(
     default_diameter_m: float | None,
     correlations: Literal["all", "cross", "auto"],
     frequencies: str,
+    channel_widths_mhz: str,
     sky_model: str,
     output: str,
     output_format: str,
@@ -415,6 +425,19 @@ def run_simulate_mode(
         logger.info("Expected comma-separated numbers, e.g., '100,150,200'")
         return 1
     channel_frequencies_hz = tuple(value * 1e6 for value in frequency_mhz)
+    try:
+        width_mhz = [float(value.strip()) for value in channel_widths_mhz.split(",")]
+    except ValueError:
+        logger.error(f"Invalid channel widths format: {channel_widths_mhz}")
+        logger.info("Expected comma-separated numbers, e.g., '1,1,1'")
+        return 1
+    if len(width_mhz) != len(frequency_mhz):
+        logger.error(
+            "--channel-widths-mhz must contain the same number of values "
+            "as --frequencies"
+        )
+        return 1
+    channel_widths_hz = tuple(value * 1e6 for value in width_mhz)
 
     logger.info(f"Running simulation with {len(frequency_mhz)} frequencies")
     logger.info(f"Antenna layout: {antenna_layout}")
@@ -488,6 +511,7 @@ def run_simulate_mode(
             instrument=instrument,
             baseline_selection=baseline_selection,
             channel_frequencies_hz=channel_frequencies_hz,
+            channel_widths_hz=channel_widths_hz,
             start_time=start_time,
             duration_seconds=duration_seconds,
             time_step_seconds=time_step_seconds,

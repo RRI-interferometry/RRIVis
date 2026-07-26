@@ -71,6 +71,7 @@ def _instrument_mapping(tmp_path, *, include_diameters: bool = True):
         "obs_frequency": {
             "mode": "explicit",
             "channel_frequencies_hz": [100_000_000.0],
+            "channel_widths_hz": [1_000_000.0],
         },
         "sky_model": {
             "sources": [{"kind": "test_sources", "num_sources": 1, "seed": 7}]

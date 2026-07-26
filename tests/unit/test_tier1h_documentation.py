@@ -107,6 +107,7 @@ def test_shipped_config_uses_strict_schema_and_resolves(config_path):
     }
     assert bundle.runtime.beams.mode == "analytic"
     assert bundle.runtime.frequency.channel_frequencies_hz
+    assert bundle.runtime.frequency.channel_widths_hz
     assert bundle.provenance.source.config_path == config_path.resolve()
 
 
@@ -121,6 +122,7 @@ def test_default_config_generator_emits_tier1_input_shape(tmp_path):
     assert document["execution"]["backend"] == "numpy"
     assert document["workflow"]["save_results"] is False
     assert config.obs_frequency.channel_frequencies_hz == (100_000_000.0,)
+    assert config.obs_frequency.channel_widths_hz == (1_000_000.0,)
 
 
 def test_shipped_input_model_serializes_and_reloads_at_input_boundary(tmp_path):
@@ -138,6 +140,7 @@ def test_shipped_input_model_serializes_and_reloads_at_input_boundary(tmp_path):
 
     assert reloaded_input == input_config
     assert resolved.runtime.frequency.channel_frequencies_hz
+    assert resolved.runtime.frequency.channel_widths_hz
 
 
 def test_simple_example_help_and_offline_smoke(tmp_path):
@@ -178,6 +181,7 @@ def test_notebook_source_uses_current_public_api_and_has_no_stale_outputs():
     )
 
     assert "Simulator.from_parameters(" in source
+    assert "channel_widths_hz=" in source
     assert "instrument=instrument" in source
     assert "baseline_selection=baseline_selection" in source
     assert "antenna_layout=" not in source

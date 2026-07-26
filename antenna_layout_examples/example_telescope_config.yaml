@@ -26,6 +26,7 @@ obs_time:
 obs_frequency:
   mode: explicit
   channel_frequencies_hz: [150000000.0]
+  channel_widths_hz: [1000000.0]
 
 sky_model:
   sources:

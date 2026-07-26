@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from radiosim.core.runtime_config import (
     FrozenMapping,
     ResolvedConfiguration,
+    ResolvedFrequencyConfig,
     ResolvedSimulationConfig,
 )
 from radiosim.io.config_resolution import (
@@ -62,12 +63,13 @@ def test_resolved_dataclasses_and_nested_mappings_are_immutable(tmp_path):
         bundle.provenance.override_origins["execution.backend"] = "override"
 
 
-def test_runtime_has_no_workflow_field_or_numpy_array(tmp_path):
+def test_runtime_has_no_workflow_field_and_only_canonical_time_arrays(tmp_path):
     bundle = resolved_config(tmp_path)
 
     assert not hasattr(bundle.runtime, "workflow")
-    assert _contains_numpy_array(bundle.runtime) is False
+    assert _contains_numpy_array(bundle.runtime) is True
     assert _contains_numpy_array(bundle.provenance) is False
+    assert bundle.runtime.observation.time_grid.utc_jd1.flags.writeable is False
 
 
 def test_frequency_as_numpy_returns_independent_float64_arrays(tmp_path):
@@ -76,18 +78,48 @@ def test_frequency_as_numpy_returns_independent_float64_arrays(tmp_path):
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [100e6, 101.25e6, 109e6],
+            "channel_widths_hz": [1e6, 2e6, 3e6],
         },
     ).runtime.frequency
 
     first = frequency.as_numpy()
     second = frequency.as_numpy()
+    first_widths = frequency.widths_as_numpy()
+    second_widths = frequency.widths_as_numpy()
     first[1] = 999e6
+    first_widths[1] = 999e6
 
     assert first.dtype == np.float64
     assert second.dtype == np.float64
+    assert first_widths.dtype == np.float64
+    assert second_widths.dtype == np.float64
     assert second.tolist() == [100e6, 101.25e6, 109e6]
+    assert second_widths.tolist() == [1e6, 2e6, 3e6]
     assert frequency.channel_frequencies_hz == (100e6, 101.25e6, 109e6)
+    assert frequency.channel_widths_hz == (1e6, 2e6, 3e6)
     assert not np.shares_memory(first, second)
+    assert not np.shares_memory(first_widths, second_widths)
+
+
+def test_resolved_frequency_rejects_hostile_scalar_state():
+    with pytest.raises(TypeError, match="source_mode"):
+        ResolvedFrequencyConfig(
+            channel_frequencies_hz=(100e6,),
+            channel_widths_hz=(1e6,),
+            source_mode="inferred",
+        )
+    with pytest.raises(TypeError, match="boolean"):
+        ResolvedFrequencyConfig(
+            channel_frequencies_hz=(True,),
+            channel_widths_hz=(1e6,),
+            source_mode="explicit",
+        )
+    with pytest.raises(TypeError, match="boolean"):
+        ResolvedFrequencyConfig(
+            channel_frequencies_hz=(100e6,),
+            channel_widths_hz=(True,),
+            source_mode="explicit",
+        )
 
 
 @pytest.mark.parametrize(
@@ -109,6 +141,7 @@ def test_grid_frequency_resolution_preserves_requested_interval(
             "starting_frequency": start,
             "frequency_interval": interval,
             "frequency_bandwidth": bandwidth,
+            "channel_width": interval,
             "frequency_unit": unit,
         },
     )
@@ -119,6 +152,7 @@ def test_grid_frequency_resolution_preserves_requested_interval(
         102e6,
     )
     assert bundle.runtime.frequency.source_mode == "grid"
+    assert bundle.runtime.frequency.channel_widths_hz == (1e6, 1e6, 1e6)
 
 
 def test_one_explicit_channel_is_not_reconstructed(tmp_path):
@@ -127,6 +161,7 @@ def test_one_explicit_channel_is_not_reconstructed(tmp_path):
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [123_456_789.125],
+            "channel_widths_hz": [12_345.0],
         },
     )
 
@@ -142,6 +177,7 @@ def test_resolution_copies_caller_mapping_list_array_and_nested_map(tmp_path):
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": channels,
+            "channel_widths_hz": [1e6, 1e6, 1e6],
         },
         sky_sources=sources,
     )
@@ -191,6 +227,7 @@ def test_provenance_is_versioned_json_safe_and_workflow_distinguishable(tmp_path
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [100e6, 101.5e6, 108e6],
+            "channel_widths_hz": [1e6, 1e6, 1e6],
         },
     )
 

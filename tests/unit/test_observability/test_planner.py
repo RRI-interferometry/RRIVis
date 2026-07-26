@@ -108,6 +108,7 @@ def _tier3g_mapping(
         "obs_frequency": {
             "mode": "explicit",
             "channel_frequencies_hz": list(frequencies),
+            "channel_widths_hz": [1_000_000.0] * len(frequencies),
         },
         "sky_model": {
             "sources": [{"kind": "test_sources", "num_sources": 1, "seed": 7}]

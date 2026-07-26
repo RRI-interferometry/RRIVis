@@ -42,9 +42,13 @@ if TYPE_CHECKING:
         AntennaId,
         AntennaProvenance,
         InstrumentProvenance,
+        LoadedSimulationResult,
+        ObservationTimeGrid,
+        PhaseCenter,
         ResolvedAntenna,
         ResolvedEarthLocation,
         ResolvedInstrument,
+        SimulationResult,
         calculate_visibility,
     )
     from radiosim.simulator import (
@@ -59,6 +63,16 @@ if TYPE_CHECKING:
 
 _LAZY_EXPORTS = {
     "Simulator": ("radiosim.api.simulator", "Simulator"),
+    "SimulationResult": ("radiosim.core.result", "SimulationResult"),
+    "LoadedSimulationResult": (
+        "radiosim.core.result",
+        "LoadedSimulationResult",
+    ),
+    "ObservationTimeGrid": (
+        "radiosim.core.time_grid",
+        "ObservationTimeGrid",
+    ),
+    "PhaseCenter": ("radiosim.core.phase_center", "PhaseCenter"),
     "get_backend": ("radiosim.backends", "get_backend"),
     "list_backends": ("radiosim.backends", "list_backends"),
     "AntennaId": ("radiosim.core", "AntennaId"),
@@ -107,6 +121,10 @@ __all__ = [
     "__description__",
     # High-level API
     "Simulator",
+    "SimulationResult",
+    "LoadedSimulationResult",
+    "ObservationTimeGrid",
+    "PhaseCenter",
     # Backend selection
     "get_backend",
     "list_backends",

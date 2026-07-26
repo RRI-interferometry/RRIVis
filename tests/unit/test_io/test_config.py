@@ -462,6 +462,7 @@ def test_json_and_yaml_serialization_use_ordinary_lists_and_mappings(tmp_path):
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [100e6, 101.5e6, 108e6],
+            "channel_widths_hz": [1e6, 2e6, 3e6],
         },
     )
     output = tmp_path / "roundtrip.yaml"
@@ -522,18 +523,24 @@ def test_standard_model_dump_mapping_round_trips_preset_precision(tmp_path):
                 "starting_frequency": 100.0,
                 "frequency_interval": 1.0,
                 "frequency_bandwidth": 2.0,
+                "channel_width": 1.0,
                 "frequency_unit": "MHz",
             },
             (100e6, 101e6, 102e6),
         ),
         (
-            {"mode": "explicit", "channel_frequencies_hz": [100e6]},
+            {
+                "mode": "explicit",
+                "channel_frequencies_hz": [100e6],
+                "channel_widths_hz": [1e6],
+            },
             (100e6,),
         ),
         (
             {
                 "mode": "explicit",
                 "channel_frequencies_hz": [100e6, 101.25e6, 109e6],
+                "channel_widths_hz": [1e6, 1e6, 1e6],
             },
             (100e6, 101.25e6, 109e6),
         ),
@@ -559,6 +566,7 @@ def test_dump_config_preserves_paths_maps_order_precision_and_workflow(tmp_path)
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [100e6, 101.25e6, 109e6],
+            "channel_widths_hz": [1e6, 1e6, 1e6],
         },
         sky_sources=[
             {"kind": "test_sources", "num_sources": 1},
@@ -643,7 +651,8 @@ def test_dump_config_preserves_defaulted_union_discriminators(tmp_path):
                 update={"sources": (TestSourcesConfig(),)}
             ),
             "obs_frequency": ExplicitFrequencyConfig(
-                channel_frequencies_hz=(100e6, 101.25e6, 109e6)
+                channel_frequencies_hz=(100e6, 101.25e6, 109e6),
+                channel_widths_hz=(1e6, 1e6, 1e6),
             ),
         }
     )
@@ -796,7 +805,13 @@ def test_precision_default_and_declared_backend_values_are_input_only():
 
 def test_explicit_numpy_container_is_owned_by_model():
     values = np.array([100e6, 101.5e6, 108e6])
-    frequency = ExplicitFrequencyConfig(channel_frequencies_hz=values)
+    widths = np.array([1e6, 2e6, 3e6])
+    frequency = ExplicitFrequencyConfig(
+        channel_frequencies_hz=values,
+        channel_widths_hz=widths,
+    )
     values[1] = 999e6
+    widths[1] = 999e6
 
     assert frequency.channel_frequencies_hz == (100e6, 101.5e6, 108e6)
+    assert frequency.channel_widths_hz == (1e6, 2e6, 3e6)

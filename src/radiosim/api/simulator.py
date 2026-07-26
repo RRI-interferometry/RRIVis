@@ -240,6 +240,7 @@ class Simulator:
         instrument: InstrumentConfig,
         baseline_selection: BaselineSelectionConfig | None = None,
         channel_frequencies_hz: Sequence[float],
+        channel_widths_hz: Sequence[float],
         start_time: str,
         duration_seconds: float = 1.0,
         time_step_seconds: float = 1.0,
@@ -279,6 +280,7 @@ class Simulator:
             "obs_frequency": {
                 "mode": "explicit",
                 "channel_frequencies_hz": channel_frequencies_hz,
+                "channel_widths_hz": channel_widths_hz,
             },
             "sky_model": cls._input_section(sky_model),
         }

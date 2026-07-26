@@ -115,6 +115,7 @@ def test_equivalent_yaml_mapping_and_model_resolve_identically(tmp_path):
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [100e6, 101.25e6, 109e6],
+            "channel_widths_hz": [1e6, 1e6, 1e6],
         },
         execution={"backend": "jax", "offline": True},
         workflow={"output_dir": "document-output"},
@@ -184,7 +185,8 @@ def test_typed_model_normalization_preserves_defaulted_union_discriminators(
                 update={"sources": (TestSourcesConfig(),)}
             ),
             "obs_frequency": ExplicitFrequencyConfig(
-                channel_frequencies_hz=(100e6, 101.25e6, 109e6)
+                channel_frequencies_hz=(100e6, 101.25e6, 109e6),
+                channel_widths_hz=(1e6, 1e6, 1e6),
             ),
         }
     )
@@ -575,7 +577,10 @@ def test_complete_override_matrix_replaces_only_named_logical_values(tmp_path):
         backend="auto",
         precision=PrecisionInput(preset="fast"),
         offline=False,
-        obs_frequency=ExplicitFrequencyConfig(channel_frequencies_hz=[120e6, 123.5e6]),
+        obs_frequency=ExplicitFrequencyConfig(
+            channel_frequencies_hz=[120e6, 123.5e6],
+            channel_widths_hz=[1e6, 1e6],
+        ),
         location=InstrumentLocationConfig(
             longitude_deg=2.0,
             latitude_deg=1.0,

@@ -121,6 +121,7 @@ def _tier3g_plan(
             "obs_frequency": {
                 "mode": "explicit",
                 "channel_frequencies_hz": [150_000_000.0],
+                "channel_widths_hz": [1_000_000.0],
             },
             "sky_model": {
                 "sources": [{"kind": "test_sources", "num_sources": 1, "seed": 1}]

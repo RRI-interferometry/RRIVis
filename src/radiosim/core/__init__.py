@@ -85,6 +85,7 @@ from radiosim.core.instrument import (
     ResolvedInstrument,
 )
 from radiosim.core.observation import get_location_and_time
+from radiosim.core.phase_center import PhaseCenter
 from radiosim.core.polarization import (
     apply_jones_matrices,
     stokes_to_coherency,
@@ -101,6 +102,23 @@ from radiosim.core.precision import (
     get_real_dtype,
     resolve_precision,
 )
+from radiosim.core.result import (
+    BackendResultProvenance,
+    InvalidPhaseCenterError,
+    InvalidResultError,
+    InvalidTimeGridError,
+    LoadedSimulationResult,
+    ResultCoordinateError,
+    ResultError,
+    ResultPerformance,
+    ResultShapeError,
+    ResultUnavailableError,
+    SimulationResult,
+    SolverResultProvenance,
+    TimeGridLimitError,
+    build_loaded_simulation_result,
+    build_simulation_result,
+)
 from radiosim.core.runtime_config import (
     ConfigurationProvenance,
     FrozenMapping,
@@ -112,6 +130,11 @@ from radiosim.core.runtime_config import (
     ResolvedSimulationConfig,
     ResolvedSkyModelConfig,
     ResolvedSkySourceRequest,
+)
+from radiosim.core.time_grid import (
+    MAX_TIME_SAMPLES,
+    ObservationTimeGrid,
+    build_observation_time_grid,
 )
 
 if TYPE_CHECKING:
@@ -235,6 +258,26 @@ __all__ = [
     "ResolvedUniformTaper",
     # Observation
     "get_location_and_time",
+    "ObservationTimeGrid",
+    "build_observation_time_grid",
+    "MAX_TIME_SAMPLES",
+    "PhaseCenter",
+    # Results
+    "SimulationResult",
+    "LoadedSimulationResult",
+    "BackendResultProvenance",
+    "SolverResultProvenance",
+    "ResultPerformance",
+    "build_simulation_result",
+    "build_loaded_simulation_result",
+    "ResultError",
+    "ResultUnavailableError",
+    "InvalidResultError",
+    "ResultShapeError",
+    "ResultCoordinateError",
+    "InvalidPhaseCenterError",
+    "InvalidTimeGridError",
+    "TimeGridLimitError",
     # Polarization
     "stokes_to_coherency",
     "apply_jones_matrices",

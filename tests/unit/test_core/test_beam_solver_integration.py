@@ -142,6 +142,7 @@ def _beam_mapping(
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [FREQUENCY_HZ],
+            "channel_widths_hz": [1e6],
         },
         sky_model={"sources": [sky_source]},
         visibility={

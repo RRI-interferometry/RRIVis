@@ -44,6 +44,7 @@ def _explicit_data(tmp_path: Path, **section_overrides: object) -> dict[str, obj
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [100e6, 101.25e6, 109e6],
+            "channel_widths_hz": [1e6, 1e6, 1e6],
         },
         **section_overrides,
     )
@@ -73,6 +74,7 @@ def _from_parameters(
             data["baseline_selection"]
         ),
         channel_frequencies_hz=channels,
+        channel_widths_hz=frequency["channel_widths_hz"],
         start_time=observation["start_time"],
         duration_seconds=observation["duration_seconds"],
         time_step_seconds=observation["time_step_seconds"],
@@ -117,6 +119,7 @@ def test_public_constructor_signatures_are_disjoint_and_explicit():
             "instrument",
             "baseline_selection",
             "channel_frequencies_hz",
+            "channel_widths_hz",
             "start_time",
             "duration_seconds",
             "time_step_seconds",

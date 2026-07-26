@@ -30,6 +30,7 @@ from radiosim.core.beam.models import (
 from radiosim.core.precision import PrecisionConfig
 
 if TYPE_CHECKING:
+    from radiosim.core.time_grid import ObservationTimeGrid
     from radiosim.io.config import CliWorkflowConfig
     from radiosim.io.config_resolution import ConfigurationSource
     from radiosim.io.instrument_config import (
@@ -160,9 +161,28 @@ def _require_absolute(path: Path | None, field_name: str) -> None:
 class ResolvedObservationConfig:
     """Resolved observation timing."""
 
-    start_time_iso: str
-    duration_seconds: float
-    time_step_seconds: float
+    time_grid: ObservationTimeGrid
+
+    def __post_init__(self) -> None:
+        from radiosim.core.time_grid import ObservationTimeGrid
+
+        if type(self.time_grid) is not ObservationTimeGrid:
+            raise TypeError("time_grid must be an ObservationTimeGrid")
+
+    @property
+    def start_time_iso(self) -> str:
+        """Forward the canonical start for uncutover Tier 4B consumers."""
+        return self.time_grid.start_time_iso
+
+    @property
+    def duration_seconds(self) -> float:
+        """Forward the configured duration for uncutover Tier 4B consumers."""
+        return self.time_grid.duration_seconds
+
+    @property
+    def time_step_seconds(self) -> float:
+        """Forward canonical cadence for uncutover Tier 4B consumers."""
+        return self.time_grid.cadence_seconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,19 +190,45 @@ class ResolvedFrequencyConfig:
     """Exact immutable channel samples expressed in Hz."""
 
     channel_frequencies_hz: tuple[float, ...]
+    channel_widths_hz: tuple[float, ...]
     source_mode: Literal["grid", "explicit"]
 
     def __post_init__(self) -> None:
-        copied = tuple(float(value) for value in self.channel_frequencies_hz)
+        if type(self.source_mode) is not str or self.source_mode not in {
+            "grid",
+            "explicit",
+        }:
+            raise TypeError("source_mode must be 'grid' or 'explicit'")
+        if any(
+            isinstance(value, (bool, np.bool_))
+            for value in (*self.channel_frequencies_hz, *self.channel_widths_hz)
+        ):
+            raise TypeError("frequency centers and widths cannot be boolean")
+        try:
+            copied = tuple(float(value) for value in self.channel_frequencies_hz)
+            widths = tuple(float(value) for value in self.channel_widths_hz)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise TypeError("frequency centers and widths must be numeric") from exc
         if not copied:
             raise ValueError("channel_frequencies_hz must be nonempty")
         if any(not math.isfinite(value) or value <= 0.0 for value in copied):
             raise ValueError("channel frequencies must be finite and positive")
+        if any(right <= left for left, right in zip(copied, copied[1:], strict=False)):
+            raise ValueError("channel frequencies must be strictly increasing")
+        if len(widths) != len(copied):
+            raise ValueError("channel widths must match channel frequencies")
+        if any(not math.isfinite(value) or value <= 0.0 for value in widths):
+            raise ValueError("channel widths must be finite and positive")
         object.__setattr__(self, "channel_frequencies_hz", copied)
+        object.__setattr__(self, "channel_widths_hz", widths)
 
     def as_numpy(self) -> np.ndarray:
         """Return a newly owned float64 array on every call."""
         return np.array(self.channel_frequencies_hz, dtype=np.float64, copy=True)
+
+    def widths_as_numpy(self) -> np.ndarray:
+        """Return newly owned float64 channel widths on every call."""
+        return np.array(self.channel_widths_hz, dtype=np.float64, copy=True)
 
 
 @dataclass(frozen=True, slots=True)

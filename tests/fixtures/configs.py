@@ -83,6 +83,7 @@ def valid_config_mapping(
             "starting_frequency": 100.0,
             "frequency_interval": 1.0,
             "frequency_bandwidth": 2.0,
+            "channel_width": 1.0,
             "frequency_unit": "MHz",
         },
         "sky_model": {
@@ -181,6 +182,7 @@ def legacy_runtime_config_mapping(
             "starting_frequency": 100.0,
             "frequency_interval": 1.0,
             "frequency_bandwidth": 2.0,
+            "channel_width": 1.0,
             "frequency_unit": "MHz",
         },
         "sky_model": {"sources": [{"kind": "test_sources", "num_sources": 2}]},

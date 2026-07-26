@@ -19,6 +19,7 @@ def _nonuniform_frequency_config():
     return {
         "mode": "explicit",
         "channel_frequencies_hz": [100e6, 101.5e6, 108e6],
+        "channel_widths_hz": [1e6, 1e6, 1e6],
     }
 
 
@@ -38,6 +39,8 @@ def test_typed_model_preserves_nonuniform_explicit_frequencies(tmp_path):
         101.5e6,
         108e6,
     )
+    assert config.obs_frequency.channel_widths_hz == (1e6, 1e6, 1e6)
+    assert dumped_frequency["channel_widths_hz"] == (1e6, 1e6, 1e6)
 
 
 def test_yaml_round_trip_preserves_nonuniform_explicit_frequencies(tmp_path):
@@ -50,12 +53,19 @@ def test_yaml_round_trip_preserves_nonuniform_explicit_frequencies(tmp_path):
     assert reloaded.runtime.frequency.channel_frequencies_hz == (
         config.obs_frequency.channel_frequencies_hz
     )
+    assert reloaded.runtime.frequency.channel_widths_hz == (
+        config.obs_frequency.channel_widths_hz
+    )
 
 
 def test_explicit_one_channel_is_valid():
-    frequency = ExplicitFrequencyConfig(channel_frequencies_hz=[100e6])
+    frequency = ExplicitFrequencyConfig(
+        channel_frequencies_hz=[100e6],
+        channel_widths_hz=[1e6],
+    )
 
     assert frequency.channel_frequencies_hz == (100e6,)
+    assert frequency.channel_widths_hz == (1e6,)
 
 
 @pytest.mark.parametrize(
@@ -76,16 +86,25 @@ def test_explicit_one_channel_is_valid():
 )
 def test_explicit_rejects_invalid_sequences(values):
     with pytest.raises(ValidationError):
-        ExplicitFrequencyConfig(channel_frequencies_hz=values)
+        ExplicitFrequencyConfig(
+            channel_frequencies_hz=values,
+            channel_widths_hz=[1e6] * len(values),
+        )
 
 
 def test_explicit_numpy_input_is_copied_to_tuple():
     values = np.array([100e6, 101.5e6, 108e6])
 
-    frequency = ExplicitFrequencyConfig(channel_frequencies_hz=values)
+    widths = np.array([1e6, 1e6, 1e6])
+    frequency = ExplicitFrequencyConfig(
+        channel_frequencies_hz=values,
+        channel_widths_hz=widths,
+    )
     values[1] = 999e6
+    widths[1] = 999e6
 
     assert frequency.channel_frequencies_hz == (100e6, 101.5e6, 108e6)
+    assert frequency.channel_widths_hz == (1e6, 1e6, 1e6)
 
 
 def test_discriminated_union_requires_mode_and_forbids_mixed_fields():
@@ -98,6 +117,7 @@ def test_discriminated_union_requires_mode_and_forbids_mixed_fields():
             {
                 "mode": "explicit",
                 "channel_frequencies_hz": [100e6],
+                "channel_widths_hz": [1e6],
                 "starting_frequency": 100.0,
             }
         )
@@ -108,6 +128,7 @@ def test_discriminated_union_requires_mode_and_forbids_mixed_fields():
                 "starting_frequency": 100.0,
                 "frequency_interval": 1.0,
                 "frequency_bandwidth": 2.0,
+                "channel_width": 1.0,
                 "channel_frequencies_hz": [100e6],
             }
         )
@@ -127,10 +148,12 @@ def test_grid_all_units_validate(unit, starting, interval, bandwidth):
         starting_frequency=starting,
         frequency_interval=interval,
         frequency_bandwidth=bandwidth,
+        channel_width=interval,
         frequency_unit=unit,
     )
 
     assert frequency.n_channels == 3
+    assert frequency.channel_width == pytest.approx(interval)
 
 
 def test_grid_rejects_nonintegral_interval_count():
@@ -139,6 +162,7 @@ def test_grid_rejects_nonintegral_interval_count():
             starting_frequency=100.0,
             frequency_interval=0.3,
             frequency_bandwidth=1.0,
+            channel_width=0.3,
         )
 
 
@@ -153,16 +177,23 @@ def test_grid_validation_does_not_call_linspace(monkeypatch):
         starting_frequency=100.0,
         frequency_interval=0.25,
         frequency_bandwidth=1.0,
+        channel_width=0.25,
     )
 
     assert frequency.n_channels == 5
 
 
 def test_explicit_tuple_dumps_as_json_list():
-    frequency = ExplicitFrequencyConfig(channel_frequencies_hz=[100e6, 101.5e6, 108e6])
+    frequency = ExplicitFrequencyConfig(
+        channel_frequencies_hz=[100e6, 101.5e6, 108e6],
+        channel_widths_hz=[1e6, 1e6, 1e6],
+    )
 
-    assert frequency.model_dump(mode="json")["channel_frequencies_hz"] == [
+    dumped = frequency.model_dump(mode="json")
+
+    assert dumped["channel_frequencies_hz"] == [
         100e6,
         101.5e6,
         108e6,
     ]
+    assert dumped["channel_widths_hz"] == [1e6, 1e6, 1e6]

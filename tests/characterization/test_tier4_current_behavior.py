@@ -49,6 +49,7 @@ def _solver_components(
             frequency={
                 "mode": "explicit",
                 "channel_frequencies_hz": FREQUENCIES_HZ.tolist(),
+                "channel_widths_hz": [1e6] * len(FREQUENCIES_HZ),
             },
         ),
         base_dir=tmp_path,
@@ -149,6 +150,7 @@ def _controlled_simulator(
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [100e6, 101e6],
+            "channel_widths_hz": [1e6, 1e6],
         },
         obs_time={
             "start_time": START.isot,
@@ -244,6 +246,7 @@ def test_current_run_and_results_expose_one_mutable_nested_alias(
         frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [100e6],
+            "channel_widths_hz": [1e6],
         },
         obs_time={
             "duration_seconds": 1.0,

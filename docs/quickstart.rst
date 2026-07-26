@@ -63,6 +63,7 @@ Typed parameter construction
        instrument=instrument,
        baseline_selection=BaselineSelectionConfig(correlations="all"),
        channel_frequencies_hz=(100_000_000.0, 101_500_000.0),
+       channel_widths_hz=(1_000_000.0, 1_000_000.0),
        start_time="2025-01-01T00:00:00",
        sky_model={
            "sources": [{"kind": "test_sources", "num_sources": 3}]
@@ -109,6 +110,7 @@ Configuration file
    obs_frequency:
      mode: explicit
      channel_frequencies_hz: [100000000.0, 101500000.0]
+     channel_widths_hz: [1000000.0, 1000000.0]
 
    sky_model:
      sources:

@@ -94,6 +94,7 @@ def _built_in_simulator(backend: str | None):
         instrument=instrument,
         baseline_selection=BaselineSelectionConfig(correlations="all"),
         channel_frequencies_hz=(100_000_000.0, 105_000_000.0),
+        channel_widths_hz=(1_000_000.0, 1_000_000.0),
         start_time="2025-01-01T00:00:00",
         duration_seconds=1.0,
         time_step_seconds=1.0,

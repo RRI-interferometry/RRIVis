@@ -1253,6 +1253,7 @@ class FrequencyGridConfig(StrictFrozenModel):
     starting_frequency: PositiveFiniteFloat
     frequency_interval: PositiveFiniteFloat
     frequency_bandwidth: PositiveFiniteFloat
+    channel_width: PositiveFiniteFloat
     frequency_unit: Literal["Hz", "kHz", "MHz", "GHz"] = "MHz"
 
     @model_validator(mode="after")
@@ -1276,6 +1277,7 @@ class ExplicitFrequencyConfig(StrictFrozenModel):
 
     mode: Literal["explicit"] = "explicit"
     channel_frequencies_hz: tuple[float, ...]
+    channel_widths_hz: tuple[float, ...]
 
     @field_validator("channel_frequencies_hz", mode="before")
     @classmethod
@@ -1313,6 +1315,49 @@ class ExplicitFrequencyConfig(StrictFrozenModel):
         if any(right <= left for left, right in zip(copied, copied[1:], strict=False)):
             raise ValueError("channel frequencies must be strictly increasing")
         return tuple(copied)
+
+    @field_validator("channel_widths_hz", mode="before")
+    @classmethod
+    def copy_and_validate_widths(cls, value: Any) -> tuple[float, ...]:
+        if isinstance(value, (str, bytes, Mapping)):
+            raise ValueError(
+                "channel_widths_hz must be a non-string one-dimensional sequence"
+            )
+        if isinstance(value, np.ndarray):
+            if value.ndim != 1:
+                raise ValueError("channel_widths_hz must be one-dimensional")
+            items = value.tolist()
+        else:
+            try:
+                items = list(value)
+            except TypeError as exc:
+                raise ValueError(
+                    "channel_widths_hz must be a one-dimensional sequence"
+                ) from exc
+        if not items:
+            raise ValueError("channel_widths_hz must be nonempty")
+        copied: list[float] = []
+        for item in items:
+            if isinstance(item, (bool, np.bool_)):
+                raise ValueError("channel widths cannot be boolean")
+            if isinstance(item, (str, bytes, Mapping, Sequence)):
+                raise ValueError("channel_widths_hz must be one-dimensional")
+            try:
+                width = float(item)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("channel widths must be numeric") from exc
+            if not math.isfinite(width) or width <= 0.0:
+                raise ValueError("channel widths must be finite and positive")
+            copied.append(width)
+        return tuple(copied)
+
+    @model_validator(mode="after")
+    def validate_coordinate_lengths(self) -> ExplicitFrequencyConfig:
+        if len(self.channel_widths_hz) != len(self.channel_frequencies_hz):
+            raise ValueError(
+                "channel_widths_hz must match channel_frequencies_hz length"
+            )
+        return self
 
 
 ObsFrequencyConfig = Annotated[
@@ -2403,6 +2448,7 @@ def create_default_config(output_path: str | Path) -> None:
         "obs_frequency": {
             "mode": "explicit",
             "channel_frequencies_hz": [100_000_000.0],
+            "channel_widths_hz": [1_000_000.0],
         },
         "execution": {
             "backend": "numpy",

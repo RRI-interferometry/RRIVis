@@ -58,7 +58,8 @@ Scientific ownership
    * - ``sky_model``
      - Strict source requests for point or HEALPix preparation
    * - ``obs_time`` / ``obs_frequency``
-     - Validated cadence and exact frequency samples
+     - Canonical UTC sample centers and exposures, exact frequency centers,
+       and required positive channel widths
    * - ``visibility``
      - Point-source or HEALPix direct sum
    * - ``execution``

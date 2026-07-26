@@ -43,6 +43,7 @@ from radiosim.core.runtime_config import (
     json_safe_mapping,
 )
 from radiosim.core.sky.registry import loader_registry
+from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.io.config import (
     CliWorkflowConfig,
     ConfigIssue,
@@ -790,6 +791,7 @@ def _resolve_frequency(config: ObsFrequencyConfig) -> ResolvedFrequencyConfig:
     if isinstance(config, ExplicitFrequencyConfig):
         return ResolvedFrequencyConfig(
             channel_frequencies_hz=config.channel_frequencies_hz,
+            channel_widths_hz=config.channel_widths_hz,
             source_mode="explicit",
         )
     factor = _FREQUENCY_UNIT_TO_HZ[config.frequency_unit]
@@ -799,6 +801,7 @@ def _resolve_frequency(config: ObsFrequencyConfig) -> ResolvedFrequencyConfig:
     channels = tuple(start_hz + index * interval_hz for index in range(n_intervals + 1))
     return ResolvedFrequencyConfig(
         channel_frequencies_hz=channels,
+        channel_widths_hz=(config.channel_width * factor,) * len(channels),
         source_mode="grid",
     )
 
@@ -1429,9 +1432,11 @@ def resolve_config(
                 region=_source_common_value(candidate.sky_model.region),
             ),
             observation=ResolvedObservationConfig(
-                start_time_iso=_normalize_start_time(candidate.obs_time.start_time),
-                duration_seconds=candidate.obs_time.duration_seconds,
-                time_step_seconds=candidate.obs_time.time_step_seconds,
+                time_grid=build_observation_time_grid(
+                    start_time=_normalize_start_time(candidate.obs_time.start_time),
+                    duration_seconds=candidate.obs_time.duration_seconds,
+                    cadence_seconds=candidate.obs_time.time_step_seconds,
+                ),
             ),
             frequency=frequency,
             visibility=FrozenMapping(candidate.visibility.model_dump(mode="python")),
