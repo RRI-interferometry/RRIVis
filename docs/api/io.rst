@@ -120,10 +120,20 @@ writer APIs never prompt.
 The reader treats every file as hostile.  It validates the exact object and
 attribute allowlists, links, ranks, shapes, dtypes, byte order, dimension
 labels, units, chunks, filters, and :class:`HDF5ReadLimits` before allocating
-science arrays.  UTF-8 strings and compact JSON are bounded and parsed without
-dynamic evaluation.  The legacy unversioned files are rejected because they had
-unsafe baseline-name parsing and incomplete scientific fields; there is no
-legacy reader.
+payloads.  RadioSim-authored text and compact JSON use inspectable fixed-width
+UTF-8 datasets: scalar widths are encoded byte widths, array widths are the
+maximum encoded element width, and short values use trailing NUL padding only.
+VLEN strings, ASCII-tagged text where UTF-8 is required, oversized fixed
+items, oversized fixed datasets, and aggregate JSON widths are rejected from
+metadata before any value-read API or payload allocation.  After that preflight,
+the reader validates padding and strict UTF-8 and parses JSON without dynamic
+evaluation.
+
+The legacy unversioned files are rejected because they had unsafe baseline-name
+parsing and incomplete scientific fields; there is no legacy reader.  Files
+written by the rejected VLEN `1.0.0` implementation are also unsafe inputs and
+are rejected; there is no VLEN compatibility reader, migration shim, or
+fallback.
 
 The legacy unsafe HDF5 function pair was removed immediately with no
 compatibility aliases.  High-level ``Simulator.save`` integration remains

@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Tier 4C independently accepted after corrections; Tier 4D next authorized |
+| Status | Tier 4C independently accepted after corrections; Tier 4D text correction pending independent acceptance |
 | Date | 2026-07-27 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
@@ -696,39 +696,51 @@ serialization time.
 | `/coordinates/baseline/antenna1_number` | `(B,)` | `<i8` |
 | `/coordinates/baseline/antenna2_number` | `(B,)` | `<i8` |
 | `/coordinates/baseline/vector_enu_m` | `(B,3)` | `<f8`, unit metre |
-| `/instrument/name` | scalar | variable-length UTF-8 |
+| `/instrument/name` | scalar | fixed-width UTF-8, byte width = `max(1, len(encoded))` |
 | `/instrument/antenna/number` | `(A,)` | `<i8` |
-| `/instrument/antenna/name` | `(A,)` | variable-length UTF-8 |
+| `/instrument/antenna/name` | `(A,)` | fixed-width UTF-8, one maximum encoded byte width |
 | `/instrument/antenna/position_enu_m` | `(A,3)` | `<f8`, unit metre |
 | `/instrument/antenna/diameter_m` | `(A,)` | `<f8`, unit metre |
 | `/instrument/location/itrs_xyz_m` | `(3,)` | `<f8`, unit metre |
 | `/instrument/location/geodetic_lon_lat_height` | `(3,)` | `<f8`, degree, degree, metre |
-| `/phase_center/kind` | scalar | variable-length UTF-8 |
-| `/phase_center/frame` | scalar | variable-length UTF-8 |
+| `/phase_center/kind` | scalar | fixed-width UTF-8, byte width = `max(1, len(encoded))` |
+| `/phase_center/frame` | scalar | fixed-width UTF-8, byte width = `max(1, len(encoded))` |
 | `/phase_center/azimuth_rad` | scalar | `<f8` |
 | `/phase_center/altitude_rad` | scalar | `<f8` |
 | `/phase_center/time_dependent` | scalar | HDF5 boolean |
 | `/phase_center/geometric_phase_sign` | scalar | `<i1` |
-| `/phase_center/w_reference` | scalar | variable-length UTF-8 |
-| `/provenance/instrument_json` | scalar | variable-length UTF-8 JSON |
-| `/provenance/selection_json` | scalar | variable-length UTF-8 JSON |
-| `/provenance/beam_json` | scalar | variable-length UTF-8 JSON |
-| `/provenance/backend_json` | scalar | variable-length UTF-8 JSON |
-| `/provenance/solver_json` | scalar | variable-length UTF-8 JSON |
-| `/provenance/resolved_config_json` | scalar | variable-length UTF-8 JSON |
-| `/provenance/configuration_source_json` | scalar | variable-length UTF-8 JSON or JSON `null` |
-| `/provenance/performance_json` | scalar | variable-length UTF-8 JSON |
-| `/provenance/history_json` | scalar | variable-length UTF-8 JSON array |
+| `/phase_center/w_reference` | scalar | fixed-width UTF-8, byte width = `max(1, len(encoded))` |
+| `/provenance/instrument_json` | scalar | fixed-width UTF-8 JSON |
+| `/provenance/selection_json` | scalar | fixed-width UTF-8 JSON |
+| `/provenance/beam_json` | scalar | fixed-width UTF-8 JSON |
+| `/provenance/backend_json` | scalar | fixed-width UTF-8 JSON |
+| `/provenance/solver_json` | scalar | fixed-width UTF-8 JSON |
+| `/provenance/resolved_config_json` | scalar | fixed-width UTF-8 JSON |
+| `/provenance/configuration_source_json` | scalar | fixed-width UTF-8 JSON or JSON `null` |
+| `/provenance/performance_json` | scalar | fixed-width UTF-8 JSON |
+| `/provenance/history_json` | scalar | fixed-width UTF-8 JSON array |
 
 Each numeric dataset has exact dimension labels matching the table. Baseline
 identity is data, never a group name. Antenna numbers are canonical numbers,
 not positional indices. Baseline vectors are redundant verification data and
 must match antenna positions and the selection snapshot within `1e-9` metre.
 
-JSON is UTF-8, sorted by key, encoded with separators `,` and `:`, and rejects
-non-finite constants. Structured coordinate datasets are authoritative;
-snapshots must agree with them. Strings contain no NUL and are bounded by the
-reader limits.
+Every RadioSim-authored UTF-8 dataset is fixed-width HDF5 UTF-8 storage; no
+accepted `radiosim.visibility` 1.0.0 text dataset uses VLEN storage. Scalar
+strings use `max(1, len(encoded_utf8))` bytes. One-dimensional string arrays
+use one deterministic width equal to the maximum encoded UTF-8 length, with
+`max(1, ...)` for an empty array. Width is a byte count, not a character
+count. The writer strictly encodes UTF-8 and rejects embedded NUL before
+importing h5py or mutating the filesystem. It writes explicitly encoded bytes
+with trailing NUL padding only; it never uses object arrays or content
+truncation. JSON is UTF-8, sorted by key, encoded with separators `,` and `:`,
+and rejects non-finite constants and NUL-bearing values.
+
+Structured coordinate datasets are authoritative; snapshots must agree with
+them. The reader requires a positive, inspectable fixed UTF-8 item size with
+UTF-8 character set and trailing-NUL padding metadata. It rejects VLEN and
+ASCII-tagged text during metadata inspection, strips only valid trailing NUL
+padding, and rejects embedded or non-trailing NUL patterns.
 
 ### 16.3 Chunks, filters, and ordering
 
@@ -810,21 +822,30 @@ Validation order is fixed:
 3. require exact schema name, then exact supported version;
 4. require the exact group/dataset allowlist and reject links and object
    references;
-5. inspect ranks, shapes, dtypes, byte order, dimension labels, chunks, and
-   filter allowlist without loading payloads;
-6. compute all element and byte counts with Python integers and enforce every
-   limit;
-7. read bounded UTF-8 and parse JSON with `json.loads`, a rejecting
-   `parse_constant`, and no object hook;
-8. validate coordinate monotonicity, finite values, positivity, exact
+5. inspect ranks, shapes, dtypes, byte order, dimension labels, chunks,
+   filters, and fixed UTF-8 item size without loading payloads;
+6. reject VLEN text and ASCII-tagged text immediately, then enforce the
+   positive fixed item-size `max_single_string_bytes` limit;
+7. compute every element count and dataset byte count with Python integers,
+   including fixed string arrays, and enforce `max_single_dataset_bytes`;
+8. sum the exact fixed scalar widths of all JSON datasets and enforce
+   `max_total_json_bytes` before reading any JSON payload;
+9. allocate only bounded fixed-size destinations, read UTF-8 bytes, strip
+   valid trailing NUL padding, and reject invalid padding or strict UTF-8;
+10. parse JSON with `json.loads`, a rejecting `parse_constant`, and no object
+    hook;
+11. validate coordinate monotonicity, finite values, positivity, exact
    correlations, baseline membership/order, antenna uniqueness, phase
    coherence, and snapshot agreement;
-9. read science arrays, allowing HDF5 to verify Fletcher32;
-10. construct `LoadedSimulationResult` through its validated factory;
-11. recompute and compare both fingerprints.
+12. read science arrays, allowing HDF5 to verify Fletcher32;
+13. construct `LoadedSimulationResult` through its validated factory;
+14. recompute and compare both fingerprints.
 
 An unknown version raises `UnsupportedSchemaVersionError` before payload
-allocation. Malformed shape, dtype, link, filter, JSON, coordinate, checksum,
+allocation. VLEN files produced by the rejected implementation are unsafe
+inputs and are rejected as soon as their datatype metadata is inspected; no
+VLEN compatibility reader, migration shim, or fallback exists. Malformed
+shape, dtype, encoding, padding, link, filter, JSON, coordinate, checksum,
 fingerprint, or snapshot input raises `UnsafeResultInputError`. Error text
 identifies the failing path and invariant without echoing untrusted bulk data.
 
@@ -1285,8 +1306,10 @@ directory, including old logs and plots; it does not touch output-root siblings.
 4. Save request, format, result type, extension, representability, dependency
    availability, target kind, collision, and prompt validation precede parent
    creation.
-5. Writer import precedes path creation only after pure request validation;
-   optional heavy imports occur after result representability checks.
+5. Writer import precedes path creation only after pure request and text
+   representability validation; every UTF-8 value is encoded, checked for NUL,
+   and assigned its fixed byte width before h5py import or filesystem mutation.
+   Optional heavy imports occur after those checks.
 6. A temporary artifact is fully written, closed, read back, and verified
    before final overwrite or publish.
 7. Plot contract validation precedes staging; rendering precedes publication;
@@ -1689,9 +1712,11 @@ or persistent repository path.
 
 - h5py 3.14.0 and 3.16.0 preserved complex64 and complex128 dtype and values.
 - Dimension labels round-tripped.
-- Variable UTF-8 strings preserved ASCII and `β`; fixed UTF-8 worked from
-  explicitly encoded bytes. Direct object-string to fixed-string conversion
-  failed, so the schema uses variable UTF-8 except fixed ASCII labels.
+- Fixed UTF-8 strings preserved ASCII and `β` when written from explicitly
+  encoded bytes and an explicit UTF-8 low-level memory type. Direct
+  object-string to fixed-string conversion failed; that earlier conversion
+  failure selected VLEN in the original plan, but it does not prohibit the
+  fixed representation used by the corrected writer.
 - A 1 MiB JSON attribute and a 1 MiB scalar UTF-8 dataset both worked. The
   schema still uses datasets for bounded provenance and keeps root attributes
   small.
@@ -3024,12 +3049,26 @@ were Python 3.11.13/3.12.13, NumPy 2.3.2/2.4.6, Astropy 7.1.0/8.0.1,
 pyuvdata 3.2.1, casacore 3.7.1/3.8.1, and h5py 3.14.0/3.16.0.
 
 Independent h5py checks in both environments preserved c64 and c128 dtypes and
-values, dimension labels, variable UTF-8 ASCII/non-ASCII strings, and fixed
-encoded ASCII. Object-string-to-fixed-string conversion failed as expected.
-Roughly one-MiB attributes and datasets, raw malformed shapes, and an unknown
-raw version were accepted at the dependency boundary. After replacement, an
-old open handle saw its old inode while a new handle saw the replacement; all
-handles closed and cleanup succeeded.
+values, dimension labels, fixed UTF-8 ASCII/non-ASCII strings written from
+explicitly encoded byte arrays, and fixed ASCII correlation labels.
+Object-string-to-fixed-string conversion failed as expected; that earlier
+conversion failure selected VLEN in the original plan, but low-level writes
+with explicitly encoded bytes and an explicit UTF-8 memory type make fixed
+UTF-8 viable on both locked stacks. Roughly one-MiB attributes and datasets,
+raw malformed shapes, and an unknown raw version were accepted at the
+dependency boundary. After replacement, an old open handle saw its old inode
+while a new handle saw the replacement; all handles closed and cleanup
+succeeded.
+
+The independent Tier 4D review rejected the original VLEN reader after fresh
+subprocess probes with `max_single_string_bytes=64`. Python 3.11/h5py 3.14
+showed native RSS deltas of approximately 6.2, 33.9, and 67.5 MiB for 1, 8,
+and 16 MiB scalar and indexed payloads; Python 3.12/h5py 3.16 showed 6.1,
+46.5, and 92.6 MiB. Python peak allocation remained approximately 3 KiB.
+The destination buffer limit therefore did not bound HDF5's native VLEN
+allocation before rejection. VLEN is prohibited because its encoded size is
+not inspectable before value access; fixed widths make every relevant limit a
+metadata calculation.
 
 Independent RadioSim probes used values different from the committed tests.
 They confirmed floor-like point counts, ceiling-like HEALPix counts,
@@ -3230,3 +3269,60 @@ Tier 4C accepts the canonical in-memory result cutover only. `OUT-001` through
 `OUT-006` remain **OPEN**; Tier 4 as a whole is not accepted. Tier 4D is the
 next authorized separate implementation slice and was not started here. No PR,
 tag, release, or deployment is part of this acceptance.
+
+## Tier 4D bounded fixed-width correction (2026-07-27)
+
+**Status: implementation correction only; fresh independent Tier 4D acceptance
+remains pending.** The correction starts from clean `main` at
+`76bb8ecdba8efc904150e21e88f11f7df1a9af6e`, with `origin/main` aligned and no
+divergence. It does not accept Tier 4D and does not begin Tier 4E.
+
+The independent Tier 4D rejection showed that the existing VLEN reader's
+`limit + 1` destination bounded Python-visible storage but not HDF5 native
+allocation. Fresh readers with `max_single_string_bytes=64` grew by about
+6.2/33.9/67.5 MiB for 1/8/16 MiB payloads on Python 3.11/h5py 3.14 and
+6.1/46.5/92.6 MiB on Python 3.12/h5py 3.16; scalar and indexed datasets
+behaved alike while Python peak allocation stayed about 3 KiB.
+
+The adopted replacement keeps schema name and version `radiosim.visibility`
+`1.0.0` unchanged. All RadioSim-authored UTF-8 datasets are fixed-width,
+explicitly encoded UTF-8 byte storage: scalar width is `max(1, len(encoded))`,
+array width is the deterministic maximum encoded byte length, and short values
+use trailing NUL padding only. The writer preflights strict UTF-8, NUL rules,
+JSON finiteness, widths, and payload construction before h5py import or any
+filesystem mutation. The reader rejects VLEN and ASCII text from metadata,
+enforces fixed item, dataset, and aggregate JSON byte limits before value
+access, then reads only bounded fixed-size destinations. Rejected VLEN 1.0.0
+files have no compatibility reader or migration path.
+
+Tests-first regressions cover fixed-width output, encoded non-ASCII widths,
+deterministic antenna arrays, scalar/indexed VLEN fail-closed behavior and
+no-value-access ordering, all fixed-width limits, exact and over-boundary
+values, strict UTF-8, NUL padding, empty values, handle cleanup, fingerprints,
+scientific dtype/correlation/flag/weight/identity/atomicity contracts, and
+fresh-reader native RSS across increasing hostile payload sizes. The focused
+fresh-reader native RSS across increasing hostile payload sizes. The final
+focused boundary collected 225 tests and passed 225/225 in both locked
+interpreters; the adjacent characterization/result/integration boundary
+collected 28 and passed 28/28 in both. The final full non-slow boundary
+collected 3,064 tests in each interpreter: 3,058 passed, six unavailable-JAX
+tests skipped, 26 established warnings, and zero failures, xfails, or xpasses
+in both.
+
+Ruff lint and the repository format check passed (298 files). Repository
+Pyright reported 3,074 diagnostics in both environments under the unchanged
+4,600 ceiling, with no baseline change; direct Pyright on the changed HDF5
+module reported zero diagnostics in both. The three shipped YAMLs validated
+at 101, 11, and one channel, and the forced-offline example completed with
+five antennas, 15 baselines, two frequencies, and `(1,15,2,4)` output shape.
+Fresh `radiosim.io` imports loaded none of h5py, pyuvdata, or casacore, and
+the HDF5 unit/import guards covered the remaining heavy-module boundary.
+Tracked-source clean-copy Sphinx 8.2.3 succeeded with the established 40
+events: 35 docutils/docstring, one HERA toctree, three HERA highlighting, and
+one theme-option event. Whitespace and exact-scope audits passed.
+
+The focused correction suite is the evidence boundary for this implementation;
+the next step is a separate independent acceptance review. Final commit,
+push, and exact-SHA CI status are recorded in the task handoff; this record
+does not claim independent Tier 4D acceptance. `OUT-001` through `OUT-006`
+remain **OPEN**.

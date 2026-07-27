@@ -3538,3 +3538,62 @@ whole is not accepted.
 
 Tier 4D is now the next authorized separate implementation slice. It was not
 started during this review. No PR, tag, release, or deployment was created.
+
+### 2026-07-27 Tier 4D bounded HDF5 text correction
+
+**Status: implementation correction complete locally; independent Tier 4D
+acceptance remains pending.** This correction starts from clean `main` at
+`76bb8ecdba8efc904150e21e88f11f7df1a9af6e`, with local `main` and
+`origin/main` aligned and zero divergence. It does not begin Tier 4E.
+
+The independent rejection reproduced payload-proportional native allocation in
+the VLEN reader. With `max_single_string_bytes=64`, fresh Python 3.11/h5py
+3.14 readers grew by approximately 6.2, 33.9, and 67.5 MiB for 1, 8, and
+16 MiB scalar and indexed payloads. Python 3.12/h5py 3.16 readers grew by
+approximately 6.1, 46.5, and 92.6 MiB. Python peak allocation stayed near
+3 KiB. The `limit + 1` destination therefore bounded Python-visible storage
+but did not bound HDF5's native VLEN allocation before rejection.
+
+The correction replaces every RadioSim-authored UTF-8 dataset with fixed-width
+UTF-8 storage while retaining `radiosim.visibility` version `1.0.0`. Scalar
+width is `max(1, len(encoded_utf8))`; one-dimensional arrays use one width equal
+to the maximum encoded byte length; short values contain trailing NUL padding
+only. Explicitly encoded byte arrays and an explicit UTF-8 low-level memory
+type are used for h5py writes because direct object-to-fixed conversion is not
+supported by the locked h5py versions. Strict UTF-8, NUL, JSON, and width
+validation occurs before h5py import or filesystem mutation.
+
+The reader now rejects VLEN and ASCII-tagged text during metadata inspection,
+enforces fixed-item, dataset, and aggregate-JSON byte limits using Python
+integers before payload access, reads only bounded fixed-size destinations, and
+validates trailing padding and strict UTF-8 afterward. Rejected VLEN 1.0.0
+files are unsafe inputs; there is no VLEN compatibility reader, migration
+shim, or fallback.
+
+Tests-first regressions cover writer storage and encoded widths, scalar/indexed
+VLEN no-value-access order, fixed string and aggregate JSON preflight limits,
+boundary and malformed UTF-8/NUL cases, empty values, handle cleanup,
+fingerprints, scientific c64/c128/four-correlation/flag/weight/identity and
+atomicity contracts, and fresh subprocess native-RSS behavior for increasing
+hostile payloads. The final focused boundary collected 225 tests and passed
+225/225 in both locked interpreters; the adjacent characterization/result/
+integration boundary collected 28 and passed 28/28 in both. The final full
+non-slow boundary collected 3,064 tests in each interpreter: 3,058 passed,
+six unavailable-JAX tests skipped, 26 established warnings, and zero
+failures, xfails, or xpasses in both.
+
+Ruff lint and the repository format check passed (298 files). Repository
+Pyright reported 3,074 diagnostics in both environments under the unchanged
+4,600 ceiling, with no baseline change; direct Pyright on the changed HDF5
+module reported zero diagnostics in both. The three shipped YAMLs validated
+at 101, 11, and one channel, and the forced-offline example completed with
+five antennas, 15 baselines, two frequencies, and `(1,15,2,4)` output shape.
+Fresh `radiosim.io` imports loaded none of h5py, pyuvdata, or casacore, and
+the HDF5 unit/import guards covered the remaining heavy-module boundary.
+Tracked-source clean-copy Sphinx 8.2.3 succeeded with the established 40
+events: 35 docutils/docstring, one HERA toctree, three HERA highlighting, and
+one theme-option event. Whitespace and exact-scope audits passed.
+
+Final dual-interpreter verification, commit, push, and exact-SHA CI status are
+recorded in the task handoff; this record does not claim independent Tier 4D
+acceptance. `OUT-001` through `OUT-006` remain **OPEN**.

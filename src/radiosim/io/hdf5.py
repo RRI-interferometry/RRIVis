@@ -186,6 +186,7 @@ class _PreparedResult:
     configuration_source: dict[str, object] | None
     performance: dict[str, object]
     history: list[str]
+    text_payloads: dict[str, bytes | tuple[bytes, ...]]
 
 
 def _import_h5py() -> Any:
@@ -224,10 +225,38 @@ def _mapping_tree(value: object, *, field_name: str) -> dict[str, object]:
     return cast(dict[str, object], converted)
 
 
-def _encode_json(value: object, *, field_name: str) -> str:
+def _contains_nul(value: object) -> bool:
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, Mapping):
+        return any(
+            _contains_nul(key) or _contains_nul(item)
+            for key, item in cast(Mapping[object, object], value).items()
+        )
+    if isinstance(value, (tuple, list)):
+        return any(_contains_nul(item) for item in cast(Sequence[object], value))
+    return False
+
+
+def _encode_text(value: object, *, field_name: str) -> bytes:
+    if type(value) is not str:
+        raise FormatRepresentationError(f"{field_name} must be text")
+    try:
+        payload = value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise FormatRepresentationError(f"{field_name} is not strict UTF-8") from exc
+    if b"\x00" in payload:
+        raise FormatRepresentationError(f"{field_name} contains a NUL byte")
+    return payload
+
+
+def _encode_json(value: object, *, field_name: str) -> bytes:
+    converted = _json_tree(value)
+    if _contains_nul(converted):
+        raise FormatRepresentationError(f"{field_name} contains a NUL byte")
     try:
         encoded = json.dumps(
-            _json_tree(value),
+            converted,
             sort_keys=True,
             separators=(",", ":"),
             allow_nan=False,
@@ -238,9 +267,64 @@ def _encode_json(value: object, *, field_name: str) -> str:
         raise FormatRepresentationError(
             f"{field_name} cannot be represented as finite UTF-8 JSON"
         ) from exc
-    if b"\x00" in payload:
-        raise FormatRepresentationError(f"{field_name} contains a NUL byte")
-    return encoded
+    return payload
+
+
+def _prepare_text_payloads(
+    result: SimulationResult,
+    instrument: dict[str, object],
+    selection: dict[str, object],
+    beam: dict[str, object],
+    backend: dict[str, object],
+    solver: dict[str, object],
+    resolved_config: dict[str, object],
+    configuration_source: dict[str, object] | None,
+    performance: dict[str, object],
+    history: list[str],
+) -> dict[str, bytes | tuple[bytes, ...]]:
+    payloads: dict[str, bytes | tuple[bytes, ...]] = {
+        "instrument/name": _encode_text(
+            result.instrument.name,
+            field_name="instrument/name",
+        ),
+        "instrument/antenna/name": tuple(
+            _encode_text(
+                antenna.id.name,
+                field_name=f"instrument/antenna/name[{index}]",
+            )
+            for index, antenna in enumerate(result.instrument.antennas)
+        ),
+        "phase_center/kind": _encode_text(
+            result.phase_center.kind,
+            field_name="phase_center/kind",
+        ),
+        "phase_center/frame": _encode_text(
+            result.phase_center.frame,
+            field_name="phase_center/frame",
+        ),
+        "phase_center/w_reference": _encode_text(
+            result.phase_center.w_reference,
+            field_name="phase_center/w_reference",
+        ),
+    }
+    provenance_values = {
+        "instrument_json": instrument,
+        "selection_json": selection,
+        "beam_json": beam,
+        "backend_json": backend,
+        "solver_json": solver,
+        "resolved_config_json": resolved_config,
+        "configuration_source_json": configuration_source,
+        "performance_json": performance,
+        "history_json": history,
+    }
+    payloads.update(
+        {
+            f"provenance/{name}": _encode_json(value, field_name=name)
+            for name, value in provenance_values.items()
+        }
+    )
+    return payloads
 
 
 def _prepare_result(result: object) -> _PreparedResult:
@@ -316,6 +400,18 @@ def _prepare_result(result: object) -> _PreparedResult:
         raise FormatRepresentationError(
             "SimulationResult failed canonical scientific equality preflight"
         )
+    text_payloads = _prepare_text_payloads(
+        typed,
+        instrument,
+        selection,
+        beam,
+        backend,
+        solver,
+        resolved_config,
+        configuration_source,
+        performance,
+        history,
+    )
     return _PreparedResult(
         loaded=loaded,
         instrument=instrument,
@@ -327,6 +423,7 @@ def _prepare_result(result: object) -> _PreparedResult:
         configuration_source=configuration_source,
         performance=performance,
         history=history,
+        text_payloads=text_payloads,
     )
 
 
@@ -365,6 +462,31 @@ def _create_dataset(
 
 def _write_dataset_payload(dataset: Any, payload: object) -> None:
     dataset[...] = payload
+
+
+def _write_fixed_string_payload(
+    dataset: Any,
+    h5py: Any,
+    payload: np.ndarray,
+) -> None:
+    if payload.size == 0:
+        return
+    memory_type = h5py.h5t.C_S1.copy()
+    file_space = dataset.id.get_space()
+    memory_space = (
+        h5py.h5s.create(h5py.h5s.SCALAR)
+        if payload.shape == ()
+        else h5py.h5s.create_simple(payload.shape)
+    )
+    try:
+        memory_type.set_size(int(payload.dtype.itemsize))
+        memory_type.set_cset(h5py.h5t.CSET_UTF8)
+        memory_type.set_strpad(h5py.h5t.STR_NULLPAD)
+        dataset.id.write(memory_space, file_space, payload, mtype=memory_type)
+    finally:
+        memory_space.close()
+        file_space.close()
+        memory_type.close()
 
 
 def _set_attribute(owner: Any, name: str, value: object) -> None:
@@ -445,17 +567,20 @@ def _string_dataset(
     handle: Any,
     h5py: Any,
     path: str,
-    data: str | Sequence[str],
+    data: bytes | Sequence[bytes],
     *,
     spec: _DatasetSpec,
 ) -> Any:
-    dtype = h5py.string_dtype(encoding="utf-8")
-    if type(data) is str:
-        payload: object = data
+    if isinstance(data, bytes):
+        width = max(1, len(data))
+        payload = np.asarray(data, dtype=np.dtype(f"S{width}"))
         shape: tuple[int, ...] = ()
     else:
-        payload = np.asarray(tuple(data), dtype=object)
-        shape = tuple(payload.shape)
+        values = tuple(data)
+        width = max(1, max((len(value) for value in values), default=0))
+        payload = np.asarray(values, dtype=np.dtype(f"S{width}"))
+        shape = (len(values),)
+    dtype = h5py.string_dtype(encoding="utf-8", length=width)
     dataset = _create_dataset(
         handle,
         path,
@@ -463,7 +588,7 @@ def _string_dataset(
         dtype=dtype,
         options={},
     )
-    _write_dataset_payload(dataset, payload)
+    _write_fixed_string_payload(dataset, h5py, payload)
     _set_dimensions(dataset, spec.dimensions)
     return dataset
 
@@ -577,7 +702,7 @@ def _write_hdf5_content(
         handle,
         h5py,
         "instrument/name",
-        result.instrument.name,
+        prepared.text_payloads["instrument/name"],
         spec=specs["instrument/name"],
     )
     antennas = result.instrument.antennas
@@ -591,7 +716,7 @@ def _write_hdf5_content(
         handle,
         h5py,
         "instrument/antenna/name",
-        [antenna.id.name for antenna in antennas],
+        prepared.text_payloads["instrument/antenna/name"],
         spec=specs["instrument/antenna/name"],
     )
     _numeric_dataset(
@@ -622,9 +747,12 @@ def _write_hdf5_content(
 
     phase = result.phase_center
     for path, value in (
-        ("phase_center/kind", phase.kind),
-        ("phase_center/frame", phase.frame),
-        ("phase_center/w_reference", phase.w_reference),
+        ("phase_center/kind", prepared.text_payloads["phase_center/kind"]),
+        ("phase_center/frame", prepared.text_payloads["phase_center/frame"]),
+        (
+            "phase_center/w_reference",
+            prepared.text_payloads["phase_center/w_reference"],
+        ),
     ):
         _string_dataset(handle, h5py, path, value, spec=specs[path])
     for path, value in (
@@ -640,23 +768,22 @@ def _write_hdf5_content(
             spec=specs[path],
         )
 
-    provenance_values = {
-        "instrument_json": prepared.instrument,
-        "selection_json": prepared.selection,
-        "beam_json": prepared.beam,
-        "backend_json": prepared.backend,
-        "solver_json": prepared.solver,
-        "resolved_config_json": prepared.resolved_config,
-        "configuration_source_json": prepared.configuration_source,
-        "performance_json": prepared.performance,
-        "history_json": prepared.history,
-    }
-    for name, value in provenance_values.items():
+    for name in (
+        "instrument_json",
+        "selection_json",
+        "beam_json",
+        "backend_json",
+        "solver_json",
+        "resolved_config_json",
+        "configuration_source_json",
+        "performance_json",
+        "history_json",
+    ):
         _string_dataset(
             handle,
             h5py,
             f"provenance/{name}",
-            _encode_json(value, field_name=name),
+            cast(bytes, prepared.text_payloads[f"provenance/{name}"]),
             spec=specs[f"provenance/{name}"],
         )
 
@@ -1111,24 +1238,70 @@ def _filter_ids(dataset: Any) -> tuple[int, ...]:
     )
 
 
+def _fixed_utf8_itemsize(dataset: Any, h5py: Any, *, path: str) -> int:
+    string_info = h5py.check_string_dtype(dataset.dtype)
+    if string_info is None or string_info.encoding != "utf-8":
+        raise UnsafeResultInputError(
+            f"HDF5 dataset /{path} must use fixed UTF-8 storage"
+        )
+    itemsize = string_info.length
+    if itemsize is None:
+        raise UnsafeResultInputError(
+            f"HDF5 dataset /{path} uses variable-length UTF-8; "
+            "fixed-width UTF-8 is required"
+        )
+    if type(itemsize) is not int or itemsize <= 0:
+        raise UnsafeResultInputError(
+            f"HDF5 dataset /{path} has an invalid fixed UTF-8 item size"
+        )
+    type_id = dataset.id.get_type()
+    try:
+        if type_id.get_class() != h5py.h5t.STRING:
+            raise UnsafeResultInputError(
+                f"HDF5 dataset /{path} must use fixed UTF-8 storage"
+            )
+        if type_id.is_variable_str():
+            raise UnsafeResultInputError(
+                f"HDF5 dataset /{path} uses variable-length UTF-8; "
+                "fixed-width UTF-8 is required"
+            )
+        if type_id.get_cset() != h5py.h5t.CSET_UTF8:
+            raise UnsafeResultInputError(
+                f"HDF5 dataset /{path} must use fixed UTF-8 storage"
+            )
+        declared_size = type_id.get_size()
+        if type(declared_size) is not int or declared_size <= 0:
+            raise UnsafeResultInputError(
+                f"HDF5 dataset /{path} has an invalid fixed UTF-8 item size"
+            )
+        if type_id.get_strpad() != h5py.h5t.STR_NULLPAD:
+            raise UnsafeResultInputError(
+                f"HDF5 dataset /{path} must use trailing NUL padding"
+            )
+    finally:
+        type_id.close()
+    if declared_size != itemsize or int(dataset.dtype.itemsize) != itemsize:
+        raise UnsafeResultInputError(
+            f"HDF5 dataset /{path} has inconsistent fixed UTF-8 item size"
+        )
+    return itemsize
+
+
 def _validate_dataset_metadata(
     dataset: Any,
     spec: _DatasetSpec,
     h5py: Any,
     *,
     path: str,
+    limits: HDF5ReadLimits | None = None,
 ) -> None:
     if tuple(dataset.shape) != spec.shape:
         raise UnsafeResultInputError(f"HDF5 dataset /{path} has an invalid shape")
     if spec.dtype == "utf8":
-        string_info = h5py.check_string_dtype(dataset.dtype)
-        if (
-            string_info is None
-            or string_info.encoding != "utf-8"
-            or string_info.length is not None
-        ):
+        itemsize = _fixed_utf8_itemsize(dataset, h5py, path=path)
+        if limits is not None and itemsize > limits.max_single_string_bytes:
             raise UnsafeResultInputError(
-                f"HDF5 dataset /{path} must use variable UTF-8"
+                f"HDF5 dataset /{path} exceeds max_single_string_bytes"
             )
     elif dataset.dtype.str != spec.dtype:
         raise UnsafeResultInputError(f"HDF5 dataset /{path} has an invalid dtype")
@@ -1264,14 +1437,27 @@ def _enforce_dataset_byte_limits(
     limits: HDF5ReadLimits,
 ) -> None:
     for path, dataset in datasets.items():
-        if dataset.dtype.kind == "O":
-            continue
         element_count = math.prod(int(value) for value in dataset.shape)
         byte_count = element_count * int(dataset.dtype.itemsize)
         if byte_count > limits.max_single_dataset_bytes:
             raise UnsafeResultInputError(
                 f"HDF5 dataset /{path} exceeds max_single_dataset_bytes"
             )
+
+
+def _enforce_json_byte_limits(
+    datasets: Mapping[str, Any],
+    limits: HDF5ReadLimits,
+) -> None:
+    declared_total = 0
+    for path in _JSON_PATHS:
+        dataset = datasets[path]
+        element_count = math.prod(int(value) for value in dataset.shape)
+        declared_total += element_count * int(dataset.dtype.itemsize)
+    if declared_total > limits.max_total_json_bytes:
+        raise UnsafeResultInputError(
+            "HDF5 JSON declared fixed-width storage exceeds max_total_json_bytes"
+        )
 
 
 def _bounded_dataset_text(
@@ -1282,7 +1468,9 @@ def _bounded_dataset_text(
     index: int | None = None,
 ) -> tuple[str, int]:
     if type(limit) is not int or limit <= 0:
-        raise UnsafeResultInputError(f"HDF5 string /{path} has an invalid size limit")
+        raise UnsafeResultInputError(
+            f"HDF5 string /{path} has an invalid max_single_string_bytes"
+        )
     try:
         shape = tuple(int(value) for value in dataset.shape)
     except Exception as exc:
@@ -1300,22 +1488,16 @@ def _bounded_dataset_text(
         )
 
     h5py = _import_h5py()
-    source_type: Any = None
+    itemsize = _fixed_utf8_itemsize(dataset, h5py, path=path)
+    if itemsize > limit:
+        raise UnsafeResultInputError(
+            f"HDF5 string /{path} exceeds max_single_string_bytes"
+        )
     file_space: Any = None
     memory_space: Any = None
     memory_type: Any = None
     primary_error: BaseException | None = None
     try:
-        source_type = dataset.id.get_type()
-        if (
-            source_type.get_class() != h5py.h5t.STRING
-            or not source_type.is_variable_str()
-            or source_type.get_cset() != h5py.h5t.CSET_UTF8
-        ):
-            raise UnsafeResultInputError(
-                f"HDF5 dataset /{path} must use variable UTF-8"
-            )
-
         file_space = dataset.id.get_space()
         expected_space_type = h5py.h5s.SCALAR if index is None else h5py.h5s.SIMPLE
         if file_space.get_simple_extent_type() != expected_space_type:
@@ -1324,10 +1506,7 @@ def _bounded_dataset_text(
             )
 
         try:
-            buffer_size = limit + 1
-            if buffer_size <= limit or buffer_size > int(np.iinfo(np.intp).max):
-                raise OverflowError("bounded string buffer size is not representable")
-            destination_dtype = np.dtype(f"S{buffer_size}")
+            destination_dtype = np.dtype(f"S{itemsize}")
             destination = np.zeros(
                 () if index is None else (1,),
                 dtype=destination_dtype,
@@ -1338,9 +1517,9 @@ def _bounded_dataset_text(
             ) from exc
 
         memory_type = h5py.h5t.C_S1.copy()
-        memory_type.set_size(buffer_size)
+        memory_type.set_size(itemsize)
         memory_type.set_cset(h5py.h5t.CSET_UTF8)
-        memory_type.set_strpad(h5py.h5t.STR_NULLTERM)
+        memory_type.set_strpad(h5py.h5t.STR_NULLPAD)
         if index is None:
             memory_space = h5py.h5s.create(h5py.h5s.SCALAR)
         else:
@@ -1354,7 +1533,14 @@ def _bounded_dataset_text(
                 destination,
                 mtype=memory_type,
             )
-        except Exception as exc:
+        except (
+            MemoryError,
+            OSError,
+            OverflowError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as exc:
             raise UnsafeResultInputError(
                 f"HDF5 string /{path} could not be read safely"
             ) from exc
@@ -1365,24 +1551,31 @@ def _bounded_dataset_text(
             if value == 0:
                 terminator = offset
                 break
-        if terminator is None:
-            raise UnsafeResultInputError(f"HDF5 string /{path} exceeds its size limit")
-        if any(value != 0 for value in raw[terminator + 1 :]):
+        if terminator is not None and any(
+            value != 0 for value in raw[terminator + 1 :]
+        ):
             raise UnsafeResultInputError(
                 f"HDF5 string /{path} contains invalid NUL padding"
             )
-        payload = bytes(raw[:terminator])
+        payload = bytes(raw if terminator is None else raw[:terminator])
         try:
             text = payload.decode("utf-8", errors="strict")
         except UnicodeDecodeError as exc:
             raise UnsafeResultInputError(
                 f"HDF5 string /{path} is not strict UTF-8"
             ) from exc
-        return text, terminator
+        return text, len(payload)
     except UnsafeResultInputError as exc:
         primary_error = exc
         raise
-    except Exception as exc:
+    except (
+        MemoryError,
+        OSError,
+        OverflowError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ) as exc:
         wrapped = UnsafeResultInputError(
             f"HDF5 string /{path} could not be read safely"
         )
@@ -1393,12 +1586,12 @@ def _bounded_dataset_text(
         raise
     finally:
         cleanup_error: Exception | None = None
-        for handle in (file_space, memory_space, memory_type, source_type):
+        for handle in (file_space, memory_space, memory_type):
             if handle is None:
                 continue
             try:
                 handle.close()
-            except Exception as exc:
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
                 if cleanup_error is None:
                     cleanup_error = exc
         if cleanup_error is not None and primary_error is None:
@@ -1833,9 +2026,16 @@ def _load_open_file(
         visibility_dtype=counts[4],
     )
     for path, spec in specs.items():
-        _validate_dataset_metadata(datasets[path], spec, h5py, path=path)
+        _validate_dataset_metadata(
+            datasets[path],
+            spec,
+            h5py,
+            path=path,
+            limits=limits,
+        )
     _enforce_axis_limits(counts, limits)
     _enforce_dataset_byte_limits(datasets, limits)
+    _enforce_json_byte_limits(datasets, limits)
     snapshots = _read_json_snapshots(datasets, limits)
     time_grid, frequencies, widths, phase_center, correlations = (
         _validate_structured_identity(datasets, snapshots, limits)

@@ -6,7 +6,6 @@ import json
 import os
 import subprocess
 import sys
-import tracemalloc
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from types import SimpleNamespace
@@ -128,6 +127,68 @@ def _independent_result(tmp_path: Path, dtype: str):
     )
 
 
+def _unicode_antenna_result(tmp_path: Path):
+    from radiosim.backends import get_backend
+    from radiosim.core.result import (
+        BackendResultProvenance,
+        ResultPerformance,
+        SolverResultProvenance,
+    )
+
+    mapping = _mapping(tmp_path)
+    layout = Path(mapping["instrument"]["source"]["path"])
+    layout.write_text(
+        "Name Number BeamID E N U Diameter\n"
+        "Antenna-é 0 0 0 0 0 14\n"
+        "天線 1 0 10 0 0 14\n",
+        encoding="utf-8",
+    )
+    simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
+    simulator._ensure_instrument_state()
+    simulator._ensure_beam_system()
+    backend = get_backend("numpy")
+    provenance = BackendResultProvenance(
+        requested_backend="numpy",
+        actual_backend=backend.name,
+        requested_precision={"output": "complex128"},
+        actual_precision={"output": "complex128"},
+        result_dtype="complex128",
+    )
+    solver = SolverResultProvenance(
+        solver="rime",
+        sky_representation="point_sources",
+        convention="radiosim.rime-zenith-drift.v1",
+        execution_path="polarized",
+    )
+    performance = ResultPerformance(
+        setup_seconds=1.0,
+        solver_seconds=2.0,
+        result_construction_seconds=0.5,
+        host_transfer_seconds=0.25,
+        total_seconds=3.75,
+    )
+    receptor = np.arange(2 * 1 * 2 * 4, dtype=np.float64).reshape(2, 1, 2, 2, 2)
+    receptor = receptor.astype(np.complex128)
+    receptor += 1j * receptor
+    return build_simulation_result(
+        receptor_visibilities=receptor,
+        backend=backend,
+        time_grid=simulator.config.observation.time_grid,
+        frequencies_hz=simulator.config.frequency.channel_frequencies_hz,
+        channel_widths_hz=simulator.config.frequency.channel_widths_hz,
+        instrument=simulator.instrument,
+        selection=simulator._instrument_state.selection,
+        beam_state=simulator.beam_state,
+        phase_center=PhaseCenter(),
+        backend_provenance=provenance,
+        solver_provenance=solver,
+        resolved_config=simulator.config.to_json_safe(),
+        configuration_provenance=None,
+        performance=performance,
+        history=("unicode-antennas",),
+    )
+
+
 def _multi_baseline_result(tmp_path: Path):
     _unused, backend, provenance, solver, performance, _receptor = _parts(tmp_path)
     mapping = _mapping(tmp_path)
@@ -231,23 +292,6 @@ def _write_text_probe(
     return path
 
 
-def _read_text_probe(
-    tmp_path: Path,
-    payload: object,
-    *,
-    limit: int,
-    index: int | None = None,
-) -> tuple[str, int]:
-    path = _write_text_probe(tmp_path, payload, indexed=index is not None)
-    with h5py.File(path, "r") as handle:
-        return hdf5_module._bounded_dataset_text(
-            handle["value"],
-            path="value",
-            limit=limit,
-            index=index,
-        )
-
-
 def _record_dataset_casts(monkeypatch) -> list[str]:
     calls: list[str] = []
     original_astype = h5py.Dataset.astype
@@ -258,6 +302,127 @@ def _record_dataset_casts(monkeypatch) -> list[str]:
 
     monkeypatch.setattr(h5py.Dataset, "astype", recording_astype)
     return calls
+
+
+def _write_fixed_utf8_payload(dataset: h5py.Dataset, payload: object) -> None:
+    if isinstance(payload, str):
+        payload = payload.encode("utf-8")
+    if isinstance(payload, bytes):
+        encoded = np.asarray(payload, dtype=np.dtype(f"S{max(1, len(payload))}"))
+    else:
+        values = tuple(
+            value.encode("utf-8") if isinstance(value, str) else value
+            for value in payload
+        )
+        width = max(1, max((len(value) for value in values), default=0))
+        encoded = np.asarray(values, dtype=np.dtype(f"S{width}"))
+    width = int(encoded.dtype.itemsize)
+    memory_type = h5py.h5t.C_S1.copy()
+    file_space = dataset.id.get_space()
+    memory_space = (
+        h5py.h5s.create(h5py.h5s.SCALAR)
+        if encoded.shape == ()
+        else h5py.h5s.create_simple(encoded.shape)
+    )
+    try:
+        memory_type.set_size(width)
+        memory_type.set_cset(h5py.h5t.CSET_UTF8)
+        memory_type.set_strpad(h5py.h5t.STR_NULLPAD)
+        dataset.id.write(memory_space, file_space, encoded, mtype=memory_type)
+    finally:
+        memory_space.close()
+        file_space.close()
+        memory_type.close()
+
+
+def _replace_fixed_dataset(
+    path: Path,
+    dataset_path: str,
+    payload: object,
+    *,
+    width: int | None = None,
+) -> None:
+    with h5py.File(path, "r+") as handle:
+        original = handle[dataset_path]
+        assert isinstance(original, h5py.Dataset)
+        attributes = dict(original.attrs)
+        shape = tuple(int(value) for value in original.shape)
+        if isinstance(payload, str):
+            values = payload.encode("utf-8")
+            inferred_width = len(values)
+        elif isinstance(payload, bytes):
+            values = payload
+            inferred_width = len(payload)
+        else:
+            values = tuple(
+                value.encode("utf-8") if isinstance(value, str) else value
+                for value in payload
+            )
+            inferred_width = max((len(value) for value in values), default=0)
+        itemsize = max(1, inferred_width) if width is None else width
+        assert itemsize > 0
+        del handle[dataset_path]
+        replacement = handle.create_dataset(
+            dataset_path,
+            shape=shape,
+            dtype=h5py.string_dtype(encoding="utf-8", length=itemsize),
+        )
+        _write_fixed_utf8_payload(replacement, values)
+        for key, value in attributes.items():
+            replacement.attrs[key] = value
+
+
+def _write_fixed_text_probe(
+    tmp_path: Path,
+    payload: object,
+    *,
+    indexed: bool = False,
+    width: int | None = None,
+) -> Path:
+    path = tmp_path / "fixed-text-probe.h5"
+    if indexed:
+        values = tuple(
+            value.encode("utf-8") if isinstance(value, str) else value
+            for value in payload
+        )
+        inferred_width = max((len(value) for value in values), default=0)
+        shape = (len(values),)
+    else:
+        values = payload.encode("utf-8") if isinstance(payload, str) else payload
+        inferred_width = len(values)
+        shape = ()
+    itemsize = max(1, inferred_width) if width is None else width
+    with h5py.File(path, "w") as handle:
+        dataset = handle.create_dataset(
+            "value",
+            shape=shape,
+            dtype=h5py.string_dtype(encoding="utf-8", length=itemsize),
+        )
+        _write_fixed_utf8_payload(dataset, values)
+    return path
+
+
+def _read_fixed_text_probe(
+    tmp_path: Path,
+    payload: object,
+    *,
+    limit: int,
+    index: int | None = None,
+    width: int | None = None,
+) -> tuple[str, int]:
+    path = _write_fixed_text_probe(
+        tmp_path,
+        payload,
+        indexed=index is not None,
+        width=width,
+    )
+    with h5py.File(path, "r") as handle:
+        return hdf5_module._bounded_dataset_text(
+            handle["value"],
+            path="value",
+            limit=limit,
+            index=index,
+        )
 
 
 def test_hdf5_read_limits_are_exact_frozen_positive_integer_contract():
@@ -355,6 +520,28 @@ def test_writer_reader_round_trip_preserves_non_ascii_history(tmp_path):
     loaded = load_result_hdf5(output)
 
     assert loaded.history == history
+
+
+def test_writer_uses_encoded_fixed_utf8_width_for_unicode_antenna_names(tmp_path):
+    result = _unicode_antenna_result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "unicode-antennas.h5")
+    names = tuple(antenna.id.name for antenna in result.instrument.antennas)
+    expected_width = max(len(name.encode("utf-8")) for name in names)
+
+    with h5py.File(output, "r") as handle:
+        dataset = handle["instrument/antenna/name"]
+        info = h5py.check_string_dtype(dataset.dtype)
+        assert info is not None
+        assert info.encoding == "utf-8"
+        assert info.length == expected_width
+        assert dataset.dtype.kind == "S"
+        assert dataset.shape == (len(names),)
+        assert dataset[:].dtype == np.dtype(f"S{expected_width}")
+        assert dataset.asstr()[:].tolist() == list(names)
+
+    loaded = load_result_hdf5(output)
+    assert loaded.scientifically_equal(result)
+    assert loaded.provenance_sha256 == result.provenance_sha256
 
 
 @pytest.mark.parametrize(
@@ -479,7 +666,17 @@ def test_independent_h5py_inspection_matches_exact_schema(
             string_info = h5py.check_string_dtype(dataset.dtype)
             assert string_info is not None
             assert string_info.encoding == "utf-8"
-            assert string_info.length is None
+            assert type(string_info.length) is int
+            assert string_info.length > 0
+            assert dataset.dtype.kind == "S"
+            type_id = dataset.id.get_type()
+            try:
+                assert type_id.is_variable_str() is False
+                assert type_id.get_cset() == h5py.h5t.CSET_UTF8
+                assert type_id.get_strpad() == h5py.h5t.STR_NULLPAD
+                assert type_id.get_size() == string_info.length
+            finally:
+                type_id.close()
             assert dataset.chunks is None
             assert dataset.compression is None
             assert dataset.shuffle is False
@@ -504,6 +701,39 @@ def test_writer_rejects_complex256_before_dependency_or_filesystem_side_effect(
     )
 
     with pytest.raises(FormatRepresentationError, match="complex256"):
+        write_result_hdf5(result, output)
+
+    assert not output.parent.exists()
+
+
+def test_writer_rejects_embedded_nul_before_dependency_or_filesystem_side_effect(
+    tmp_path,
+    monkeypatch,
+):
+    import radiosim.core.result as result_module
+
+    result = _result(tmp_path)
+    history = ("contains\x00nul",)
+    object.__setattr__(result, "history", history)
+    object.__setattr__(
+        result,
+        "provenance_sha256",
+        result_module._provenance_hash(
+            scientific_sha256=result.scientific_sha256,
+            backend_snapshot=result.backend.to_snapshot(),
+            resolved_config=result.resolved_config,
+            configuration_provenance=result.configuration_provenance,
+            history=history,
+        ),
+    )
+    output = tmp_path / "missing" / "embedded-nul.h5"
+    monkeypatch.setattr(
+        hdf5_module,
+        "_import_h5py",
+        lambda: (_ for _ in ()).throw(AssertionError("h5py imported")),
+    )
+
+    with pytest.raises(FormatRepresentationError, match="NUL"):
         write_result_hdf5(result, output)
 
     assert not output.parent.exists()
@@ -1036,11 +1266,10 @@ def test_invalid_phase_center_is_rejected(tmp_path):
 def test_hostile_json_matrix(tmp_path, dataset_path, payload):
     result = _result(tmp_path)
     output = write_result_hdf5(result, tmp_path / "json.h5")
-    _replace_dataset(
+    _replace_fixed_dataset(
         output,
         dataset_path,
-        data=payload,
-        dtype=h5py.string_dtype(encoding="utf-8"),
+        payload.encode("utf-8"),
     )
 
     with pytest.raises(UnsafeResultInputError):
@@ -1050,11 +1279,10 @@ def test_hostile_json_matrix(tmp_path, dataset_path, payload):
 def test_malformed_utf8_string_is_rejected(tmp_path):
     result = _result(tmp_path)
     output = write_result_hdf5(result, tmp_path / "utf8.h5")
-    _replace_dataset(
+    _replace_fixed_dataset(
         output,
         "provenance/history_json",
-        data=b"\xff",
-        dtype=h5py.string_dtype(encoding="utf-8"),
+        b"\xff",
     )
 
     with pytest.raises(UnsafeResultInputError, match="UTF-8"):
@@ -1081,14 +1309,13 @@ def test_embedded_nul_root_string_is_rejected(tmp_path):
 def test_oversized_utf8_dataset_is_rejected(tmp_path):
     result = _result(tmp_path)
     output = write_result_hdf5(result, tmp_path / "oversized-string.h5")
-    _replace_dataset(
+    _replace_fixed_dataset(
         output,
         "instrument/name",
-        data="x" * 1_048_577,
-        dtype=h5py.string_dtype(encoding="utf-8"),
+        b"x" * 1_048_577,
     )
 
-    with pytest.raises(UnsafeResultInputError, match="size limit"):
+    with pytest.raises(UnsafeResultInputError, match="max_single_string_bytes"):
         load_result_hdf5(output)
 
 
@@ -1108,7 +1335,7 @@ def test_oversized_scalar_vlen_dataset_rejects_before_high_level_value_access(
 
     with pytest.raises(
         UnsafeResultInputError,
-        match="HDF5 string /instrument/name exceeds its size limit",
+        match="variable-length UTF-8",
     ):
         load_result_hdf5(
             output,
@@ -1134,7 +1361,7 @@ def test_oversized_indexed_vlen_dataset_rejects_before_high_level_value_access(
 
     with pytest.raises(
         UnsafeResultInputError,
-        match=(r"HDF5 string /instrument/antenna/name\[1\] exceeds its size limit"),
+        match="variable-length UTF-8",
     ):
         load_result_hdf5(
             output,
@@ -1160,7 +1387,7 @@ def test_oversized_vlen_provenance_json_rejects_before_high_level_value_access(
 
     with pytest.raises(
         UnsafeResultInputError,
-        match="HDF5 string /provenance/history_json exceeds its size limit",
+        match="variable-length UTF-8",
     ):
         load_result_hdf5(
             output,
@@ -1171,28 +1398,28 @@ def test_oversized_vlen_provenance_json_rejects_before_high_level_value_access(
 
 
 @pytest.mark.parametrize("text", ["café", "東京"])
-def test_bounded_scalar_vlen_utf8_returns_strict_text_and_byte_count(
+def test_bounded_scalar_fixed_utf8_returns_strict_text_and_byte_count(
     tmp_path,
     text,
 ):
     expected_bytes = len(text.encode("utf-8"))
 
-    assert _read_text_probe(
+    assert _read_fixed_text_probe(
         tmp_path,
         text,
         limit=expected_bytes,
     ) == (text, expected_bytes)
 
 
-def test_bounded_indexed_vlen_utf8_returns_only_selected_non_ascii_text(tmp_path):
-    values = ["left", "中央", "right"]
+def test_bounded_indexed_fixed_utf8_returns_only_selected_non_ascii_text(tmp_path):
+    values = [b"left", "中央", b"right"]
 
-    assert _read_text_probe(
+    assert _read_fixed_text_probe(
         tmp_path,
         values,
-        limit=len(values[1].encode("utf-8")),
+        limit=len("中央".encode()),
         index=1,
-    ) == (values[1], len(values[1].encode("utf-8")))
+    ) == ("中央", len("中央".encode()))
 
 
 @pytest.mark.parametrize(
@@ -1204,47 +1431,400 @@ def test_bounded_indexed_vlen_utf8_returns_only_selected_non_ascii_text(tmp_path
         ("ééé", 5, None),
     ],
 )
-def test_bounded_vlen_utf8_distinguishes_exact_and_one_over_byte_limits(
+def test_bounded_fixed_utf8_distinguishes_exact_and_one_over_byte_limits(
     tmp_path,
     payload,
     limit,
     expected,
 ):
     if expected is None:
-        with pytest.raises(UnsafeResultInputError, match="size limit"):
-            _read_text_probe(tmp_path, payload, limit=limit)
+        with pytest.raises(UnsafeResultInputError, match="max_single_string_bytes"):
+            _read_fixed_text_probe(
+                tmp_path,
+                payload.encode("utf-8"),
+                limit=limit,
+                width=len(payload.encode("utf-8")),
+            )
     else:
-        assert _read_text_probe(tmp_path, payload, limit=limit) == expected
+        assert (
+            _read_fixed_text_probe(
+                tmp_path,
+                payload.encode("utf-8"),
+                limit=limit,
+                width=len(payload.encode("utf-8")),
+            )
+            == expected
+        )
 
 
-def test_bounded_vlen_invalid_utf8_is_rejected_strictly(tmp_path):
+def test_bounded_fixed_invalid_utf8_is_rejected_strictly(tmp_path):
     with pytest.raises(UnsafeResultInputError, match="strict UTF-8"):
-        _read_text_probe(tmp_path, b"\xff", limit=8)
+        _read_fixed_text_probe(tmp_path, b"\xff", limit=8, width=8)
 
 
-@pytest.mark.parametrize("payload_size", [1 << 20, 8 << 20])
-def test_hostile_vlen_reads_have_bounded_python_peak_and_no_high_level_cast(
+def test_fixed_utf8_rejects_embedded_or_non_trailing_nul(tmp_path):
+    with pytest.raises(UnsafeResultInputError, match="invalid NUL padding"):
+        _read_fixed_text_probe(
+            tmp_path,
+            b"ab\x00cd",
+            limit=5,
+            width=5,
+        )
+
+
+def test_fixed_utf8_accepts_empty_value_with_one_byte_storage(tmp_path):
+    assert _read_fixed_text_probe(tmp_path, b"", limit=1, width=1) == ("", 0)
+
+
+def test_fixed_ascii_is_rejected_where_utf8_is_required(tmp_path):
+    path = tmp_path / "ascii.h5"
+    with h5py.File(path, "w") as handle:
+        handle.create_dataset("value", data=np.asarray(b"text", dtype="S4"))
+
+    with h5py.File(path, "r") as handle:
+        with pytest.raises(UnsafeResultInputError, match="fixed UTF-8"):
+            hdf5_module._bounded_dataset_text(
+                handle["value"],
+                path="value",
+                limit=4,
+            )
+
+
+def test_vlen_text_rejects_before_any_value_access(tmp_path, monkeypatch):
+    path = _write_text_probe(tmp_path, "hostile")
+    with h5py.File(path, "r") as handle:
+        dataset = handle["value"]
+        read_calls: list[str] = []
+
+        class SpyDatasetId:
+            def get_type(self):
+                return dataset.id.get_type()
+
+            def get_space(self):
+                raise AssertionError("dataspace inspection followed VLEN rejection")
+
+            def read(self, *args, **kwargs):
+                read_calls.append("read")
+                raise AssertionError("payload read followed VLEN rejection")
+
+        proxy = SimpleNamespace(
+            dtype=dataset.dtype,
+            shape=dataset.shape,
+            id=SpyDatasetId(),
+        )
+        casts = _record_dataset_casts(monkeypatch)
+        monkeypatch.setattr(
+            h5py.Dataset,
+            "__getitem__",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("Dataset.__getitem__ called")
+            ),
+        )
+        monkeypatch.setattr(
+            h5py.Dataset,
+            "asstr",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("Dataset.asstr called")
+            ),
+        )
+
+        with pytest.raises(UnsafeResultInputError, match="variable-length UTF-8"):
+            hdf5_module._bounded_dataset_text(
+                proxy,
+                path="value",
+                limit=64,
+            )
+
+        assert read_calls == []
+        assert casts == []
+
+
+@pytest.mark.parametrize(
+    "dataset_path",
+    (
+        "instrument/name",
+        "phase_center/kind",
+        "phase_center/frame",
+        "phase_center/w_reference",
+        "provenance/instrument_json",
+        "provenance/selection_json",
+        "provenance/beam_json",
+        "provenance/backend_json",
+        "provenance/solver_json",
+        "provenance/resolved_config_json",
+        "provenance/configuration_source_json",
+        "provenance/performance_json",
+        "provenance/history_json",
+    ),
+)
+def test_every_scalar_vlen_text_dataset_fails_closed_before_payload_access(
     tmp_path,
     monkeypatch,
-    payload_size,
+    dataset_path,
 ):
-    path = _write_text_probe(tmp_path, "h" * payload_size)
-    casts = _record_dataset_casts(monkeypatch)
-    with h5py.File(path, "r") as handle:
-        tracemalloc.start()
-        try:
-            with pytest.raises(UnsafeResultInputError, match="size limit"):
-                hdf5_module._bounded_dataset_text(
-                    handle["value"],
-                    path="value",
-                    limit=64,
-                )
-            _current, peak = tracemalloc.get_traced_memory()
-        finally:
-            tracemalloc.stop()
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "scalar-vlen.h5")
+    _replace_dataset(
+        output,
+        dataset_path,
+        data="hostile-vlen",
+        dtype=h5py.string_dtype(encoding="utf-8"),
+    )
+    accesses: list[str] = []
+    original_getitem = h5py.Dataset.__getitem__
 
-    assert casts == []
-    assert peak < 2 * 1024 * 1024
+    def recording_getitem(dataset, key, **kwargs):
+        accesses.append(dataset.name)
+        return original_getitem(dataset, key, **kwargs)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", recording_getitem)
+    monkeypatch.setattr(
+        h5py.Dataset,
+        "astype",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Dataset.astype called")
+        ),
+    )
+    monkeypatch.setattr(
+        h5py.Dataset,
+        "asstr",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Dataset.asstr called")
+        ),
+    )
+    monkeypatch.setattr(
+        hdf5_module,
+        "_bounded_dataset_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("bounded text reader called")
+        ),
+    )
+    monkeypatch.setattr(
+        hdf5_module,
+        "_parse_json",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("JSON parser called")
+        ),
+    )
+    monkeypatch.setattr(
+        hdf5_module,
+        "_read_numeric",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("numeric payload read")
+        ),
+    )
+
+    with pytest.raises(UnsafeResultInputError, match="variable-length UTF-8"):
+        load_result_hdf5(output)
+
+    assert accesses == []
+
+
+def test_indexed_vlen_text_dataset_fails_closed_before_payload_access(
+    tmp_path,
+    monkeypatch,
+):
+    result = _multi_baseline_result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "indexed-vlen.h5")
+    _replace_dataset(
+        output,
+        "instrument/antenna/name",
+        data=["left", "hostile-vlen", "right"],
+        dtype=h5py.string_dtype(encoding="utf-8"),
+    )
+    bounded_calls: list[str] = []
+    monkeypatch.setattr(
+        hdf5_module,
+        "_bounded_dataset_text",
+        lambda *args, **kwargs: bounded_calls.append("called") or ("", 0),
+    )
+
+    with pytest.raises(UnsafeResultInputError, match="variable-length UTF-8"):
+        load_result_hdf5(output)
+
+    assert bounded_calls == []
+
+
+def test_fixed_string_limit_is_enforced_before_low_level_value_read(tmp_path):
+    path = _write_fixed_text_probe(tmp_path, b"x" * 65, width=65)
+    with h5py.File(path, "r") as handle:
+        dataset = handle["value"]
+        reads: list[str] = []
+
+        class SpyDatasetId:
+            def get_type(self):
+                return dataset.id.get_type()
+
+            def get_space(self):
+                raise AssertionError("fixed width was not preflighted")
+
+            def read(self, *args, **kwargs):
+                reads.append("read")
+                raise AssertionError("fixed width payload was read")
+
+        with pytest.raises(UnsafeResultInputError, match="max_single_string_bytes"):
+            hdf5_module._bounded_dataset_text(
+                SimpleNamespace(
+                    dtype=dataset.dtype,
+                    shape=dataset.shape,
+                    id=SpyDatasetId(),
+                ),
+                path="value",
+                limit=64,
+            )
+
+        assert reads == []
+
+
+def test_fixed_string_array_total_bytes_are_enforced_before_value_read(tmp_path):
+    path = _write_fixed_text_probe(
+        tmp_path,
+        (b"left", b"right"),
+        indexed=True,
+        width=8,
+    )
+    with h5py.File(path, "r") as handle:
+        dataset = handle["value"]
+        with pytest.raises(UnsafeResultInputError, match="max_single_dataset_bytes"):
+            hdf5_module._enforce_dataset_byte_limits(
+                {"value": dataset},
+                HDF5ReadLimits(max_single_dataset_bytes=15),
+            )
+
+
+def test_hostile_vlen_rss_is_payload_size_independent_in_fresh_readers(tmp_path):
+    child = r"""
+import json
+import resource
+import sys
+import tracemalloc
+from types import SimpleNamespace
+
+import h5py
+
+from radiosim.io.hdf5 import HDF5ReadLimits, _bounded_dataset_text
+
+
+def rss_bytes():
+    value = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    return value if sys.platform == "darwin" else value * 1024
+
+
+path = sys.argv[1]
+index = None if sys.argv[2] == "none" else int(sys.argv[2])
+limits = HDF5ReadLimits(max_single_string_bytes=64)
+with h5py.File(path, "r") as handle:
+    dataset = handle["value"]
+    _ = dataset.shape
+    reads = []
+
+    class SpyDatasetId:
+        def get_type(self):
+            return dataset.id.get_type()
+
+        def get_space(self):
+            raise AssertionError("VLEN rejection requested a dataspace")
+
+        def read(self, *args, **kwargs):
+            reads.append("read")
+            raise AssertionError("VLEN rejection read a payload")
+
+    proxy = SimpleNamespace(
+        dtype=dataset.dtype,
+        shape=dataset.shape,
+        id=SpyDatasetId(),
+    )
+    getitem = h5py.Dataset.__getitem__
+    astype = h5py.Dataset.astype
+    asstr = h5py.Dataset.asstr
+    h5py.Dataset.__getitem__ = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("Dataset.__getitem__ called")
+    )
+    h5py.Dataset.astype = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("Dataset.astype called")
+    )
+    h5py.Dataset.asstr = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("Dataset.asstr called")
+    )
+    baseline = rss_bytes()
+    tracemalloc.start()
+    try:
+        try:
+            _bounded_dataset_text(
+                proxy,
+                path="value",
+                limit=limits.max_single_string_bytes,
+                index=index,
+            )
+        except Exception as exc:
+            outcome = type(exc).__name__
+            message = str(exc)
+        else:
+            outcome = "accepted"
+            message = ""
+        _current, python_peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+        h5py.Dataset.__getitem__ = getitem
+        h5py.Dataset.astype = astype
+        h5py.Dataset.asstr = asstr
+    print(json.dumps({
+        "outcome": outcome,
+        "message": message,
+        "python_peak": python_peak,
+        "rss_delta": rss_bytes() - baseline,
+        "id_read_calls": len(reads),
+    }, sort_keys=True))
+"""
+    observations: dict[tuple[int, bool], dict[str, object]] = {}
+    for payload_size in (1 << 20, 8 << 20):
+        payload = b"h" * payload_size
+        for indexed in (False, True):
+            path = tmp_path / f"rss-{payload_size}-{indexed}.h5"
+            with h5py.File(path, "w") as handle:
+                if indexed:
+                    dataset = handle.create_dataset(
+                        "value",
+                        shape=(1,),
+                        dtype=h5py.string_dtype(encoding="utf-8"),
+                    )
+                    dataset[0] = payload
+                else:
+                    dataset = handle.create_dataset(
+                        "value",
+                        shape=(),
+                        dtype=h5py.string_dtype(encoding="utf-8"),
+                    )
+                    dataset[()] = payload
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    child,
+                    str(path),
+                    "0" if indexed else "none",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            assert completed.returncode == 0, completed.stderr
+            observations[(payload_size, indexed)] = json.loads(completed.stdout)
+
+    for observation in observations.values():
+        assert observation["outcome"] == "UnsafeResultInputError"
+        assert "variable-length UTF-8" in observation["message"]
+        assert observation["id_read_calls"] == 0
+        assert observation["python_peak"] < 1 * 1024 * 1024
+
+    # Repeated post-correction runs stayed below 2 MiB; this allowance covers
+    # allocator noise while remaining far below the pre-correction growth.
+    tolerance = 8 * 1024 * 1024
+    for indexed in (False, True):
+        small = observations[(1 << 20, indexed)]["rss_delta"]
+        large = observations[(8 << 20, indexed)]["rss_delta"]
+        assert large - small <= tolerance
+        assert max(small, large) <= tolerance
 
 
 def test_repeated_hostile_vlen_reads_close_hdf5_handles(tmp_path):
@@ -1253,7 +1833,10 @@ def test_repeated_hostile_vlen_reads_close_hdf5_handles(tmp_path):
 
     for _ in range(20):
         with h5py.File(path, "r") as handle:
-            with pytest.raises(UnsafeResultInputError, match="size limit"):
+            with pytest.raises(
+                UnsafeResultInputError,
+                match="variable-length UTF-8",
+            ):
                 hdf5_module._bounded_dataset_text(
                     handle["value"],
                     path="value",
@@ -1262,12 +1845,25 @@ def test_repeated_hostile_vlen_reads_close_hdf5_handles(tmp_path):
         assert h5py.h5f.get_obj_count() == baseline
 
 
-def test_aggregate_json_limit_is_enforced(tmp_path):
+def test_aggregate_json_limit_is_enforced_before_any_json_payload_read(
+    tmp_path,
+    monkeypatch,
+):
     result = _result(tmp_path)
     output = write_result_hdf5(result, tmp_path / "aggregate-json.h5")
+    reads: list[str] = []
+    original_bounded = hdf5_module._bounded_dataset_text
+
+    def recording_bounded(dataset, *, path, limit, index=None):
+        reads.append(path)
+        return original_bounded(dataset, path=path, limit=limit, index=index)
+
+    monkeypatch.setattr(hdf5_module, "_bounded_dataset_text", recording_bounded)
 
     with pytest.raises(UnsafeResultInputError, match="max_total_json_bytes"):
         load_result_hdf5(output, limits=HDF5ReadLimits(max_total_json_bytes=1))
+
+    assert reads == []
 
 
 def test_aggregate_json_limit_counts_non_ascii_utf8_bytes(monkeypatch):
@@ -1455,17 +2051,16 @@ def test_structured_snapshot_mismatch_is_rejected(tmp_path):
         raw = handle["provenance/instrument_json"].asstr()[()]
         snapshot = json.loads(raw)
         snapshot["antennas"][0]["diameter_m"] += 1.0
-        del handle["provenance/instrument_json"]
-        handle.create_dataset(
-            "provenance/instrument_json",
-            data=json.dumps(
-                snapshot,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ),
-            dtype=h5py.string_dtype("utf-8"),
-        )
+    _replace_fixed_dataset(
+        output,
+        "provenance/instrument_json",
+        json.dumps(
+            snapshot,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8"),
+    )
 
     with pytest.raises(UnsafeResultInputError):
         load_result_hdf5(output)
@@ -1481,16 +2076,15 @@ def test_frequency_snapshot_mismatch_is_rejected_before_science_read(
         raw = handle["provenance/resolved_config_json"].asstr()[()]
     snapshot = json.loads(raw)
     snapshot["frequency"]["channel_frequencies_hz"][0] = 99_000_000.0
-    _replace_dataset(
+    _replace_fixed_dataset(
         output,
         "provenance/resolved_config_json",
-        data=json.dumps(
+        json.dumps(
             snapshot,
             sort_keys=True,
             separators=(",", ":"),
             allow_nan=False,
-        ),
-        dtype=h5py.string_dtype("utf-8"),
+        ).encode("utf-8"),
     )
     reads: list[str] = []
     original_getitem = h5py.Dataset.__getitem__
