@@ -69,6 +69,15 @@ _ROOT_ATTRIBUTES: Final = {
     "dimension_order",
     "visibility_unit",
 }
+_ROOT_ATTRIBUTE_READ_ORDER: Final = (
+    "schema_name",
+    "schema_version",
+    "radiosim_version",
+    "scientific_sha256",
+    "provenance_sha256",
+    "dimension_order",
+    "visibility_unit",
+)
 _GROUPS: Final = {
     "coordinates",
     "coordinates/baseline",
@@ -362,6 +371,33 @@ def _set_attribute(owner: Any, name: str, value: object) -> None:
     owner.attrs[name] = value
 
 
+def _set_root_text_attribute(
+    owner: Any,
+    h5py: Any,
+    name: str,
+    value: object,
+) -> None:
+    if type(value) is not str:
+        raise FormatRepresentationError(f"root attribute {name} must be text")
+    try:
+        payload = value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise FormatRepresentationError(
+            f"root attribute {name} is not strict UTF-8"
+        ) from exc
+    if not payload or b"\x00" in payload:
+        raise FormatRepresentationError(
+            f"root attribute {name} violates the text contract"
+        )
+    dtype = h5py.string_dtype(encoding="utf-8", length=len(payload))
+    owner.attrs.create(
+        name,
+        np.bytes_(payload),
+        shape=(),
+        dtype=dtype,
+    )
+
+
 def _numeric_dataset(
     handle: Any,
     path: str,
@@ -458,7 +494,7 @@ def _write_hdf5_content(
         ("dimension_order", DIMENSION_ORDER),
         ("visibility_unit", VISIBILITY_UNIT),
     ):
-        _set_attribute(handle, key, value)
+        _set_root_text_attribute(handle, h5py, key, value)
 
     _numeric_dataset(
         handle,
@@ -777,28 +813,92 @@ def _root_text(value: object, *, name: str, limit: int) -> str:
     return text
 
 
-def _read_root_attributes(handle: Any, limits: HDF5ReadLimits) -> dict[str, str]:
-    available = set(handle.attrs)
-    values: dict[str, str] = {}
-    for name in _ROOT_ATTRIBUTES & available:
-        attribute_id = handle.attrs.get_id(name)
+def _root_attribute_exists(handle: Any, h5py: Any, name: str) -> bool:
+    return bool(h5py.h5a.exists(handle.id, name.encode("utf-8")))
+
+
+def _read_bounded_root_text(
+    handle: Any,
+    h5py: Any,
+    *,
+    name: str,
+    limit: int,
+) -> str:
+    attribute_id = handle.attrs.get_id(name)
+    try:
         if attribute_id.shape != ():
             raise UnsafeResultInputError(f"root attribute {name} must be a scalar")
-        values[name] = _root_text(
-            handle.attrs[name],
+        type_id = attribute_id.get_type()
+        try:
+            if type_id.get_class() != h5py.h5t.STRING:
+                raise UnsafeResultInputError(f"root attribute {name} must be text")
+            if type_id.is_variable_str():
+                raise UnsafeResultInputError(
+                    f"root attribute {name} uses an unbounded variable-length string"
+                )
+            if type_id.get_cset() != h5py.h5t.CSET_UTF8:
+                raise UnsafeResultInputError(
+                    f"root attribute {name} must use fixed-length UTF-8 storage"
+                )
+            declared_size = int(type_id.get_size())
+            storage_size = int(attribute_id.get_storage_size())
+            if (
+                declared_size <= 0
+                or declared_size > limit
+                or storage_size != declared_size
+            ):
+                raise UnsafeResultInputError(
+                    f"root attribute {name} violates the bounded string contract"
+                )
+        finally:
+            type_id.close()
+    finally:
+        attribute_id.close()
+    return _root_text(
+        handle.attrs[name],
+        name=name,
+        limit=limit,
+    )
+
+
+def _read_root_attributes(
+    handle: Any,
+    h5py: Any,
+    limits: HDF5ReadLimits,
+) -> dict[str, str]:
+    if not _root_attribute_exists(handle, h5py, "schema_name"):
+        raise LegacyHDF5Error()
+    values = {
+        "schema_name": _read_bounded_root_text(
+            handle,
+            h5py,
+            name="schema_name",
+            limit=limits.max_single_string_bytes,
+        )
+    }
+    if values["schema_name"] != SCHEMA_NAME:
+        raise UnsafeResultInputError("HDF5 schema_name is not radiosim.visibility")
+    if not _root_attribute_exists(handle, h5py, "schema_version"):
+        raise UnsafeResultInputError("HDF5 schema_version root attribute is missing")
+    values["schema_version"] = _read_bounded_root_text(
+        handle,
+        h5py,
+        name="schema_version",
+        limit=limits.max_single_string_bytes,
+    )
+    if values["schema_version"] != SCHEMA_VERSION:
+        raise UnsupportedSchemaVersionError(values["schema_version"])
+    if int(h5py.h5a.get_num_attrs(handle.id)) != len(_ROOT_ATTRIBUTES) or any(
+        not _root_attribute_exists(handle, h5py, name) for name in _ROOT_ATTRIBUTES
+    ):
+        raise UnsafeResultInputError("HDF5 root attribute allowlist mismatch")
+    for name in _ROOT_ATTRIBUTE_READ_ORDER[2:]:
+        values[name] = _read_bounded_root_text(
+            handle,
+            h5py,
             name=name,
             limit=limits.max_single_string_bytes,
         )
-    if "schema_name" not in values:
-        raise LegacyHDF5Error()
-    if values["schema_name"] != SCHEMA_NAME:
-        raise UnsafeResultInputError("HDF5 schema_name is not radiosim.visibility")
-    if "schema_version" not in values:
-        raise UnsafeResultInputError("HDF5 schema_version root attribute is missing")
-    if values["schema_version"] != SCHEMA_VERSION:
-        raise UnsupportedSchemaVersionError(values["schema_version"])
-    if available != _ROOT_ATTRIBUTES:
-        raise UnsafeResultInputError("HDF5 root attribute allowlist mismatch")
     if values["dimension_order"] != DIMENSION_ORDER:
         raise UnsafeResultInputError("HDF5 dimension_order is invalid")
     if values["visibility_unit"] != VISIBILITY_UNIT:
@@ -1617,7 +1717,7 @@ def _load_open_file(
     h5py: Any,
     limits: HDF5ReadLimits,
 ) -> LoadedSimulationResult:
-    root = _read_root_attributes(handle, limits)
+    root = _read_root_attributes(handle, h5py, limits)
     datasets = _inspect_tree(handle, h5py)
     counts = _checked_axis_counts(datasets)
     specs = _metadata_specs(

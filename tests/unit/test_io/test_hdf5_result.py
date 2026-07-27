@@ -307,12 +307,24 @@ def test_independent_h5py_inspection_matches_exact_schema(
         assert groups == GROUPS
         assert datasets == DATASETS
         assert set(handle.attrs) == ROOT_ATTRIBUTES
-        assert handle.attrs["schema_name"] == "radiosim.visibility"
-        assert handle.attrs["schema_version"] == "1.0.0"
-        assert handle.attrs["dimension_order"] == "time,baseline,frequency,correlation"
-        assert handle.attrs["visibility_unit"] == "Jy"
-        assert handle.attrs["scientific_sha256"] == result.scientific_sha256
-        assert handle.attrs["provenance_sha256"] == result.provenance_sha256
+        root_values = {}
+        for name in ROOT_ATTRIBUTES:
+            attribute_id = handle.attrs.get_id(name)
+            type_id = attribute_id.get_type()
+            assert attribute_id.shape == ()
+            assert type_id.get_class() == h5py.h5t.STRING
+            assert type_id.is_variable_str() is False
+            assert type_id.get_cset() == h5py.h5t.CSET_UTF8
+            assert attribute_id.get_storage_size() == type_id.get_size()
+            value = handle.attrs[name]
+            assert type(value) is np.bytes_
+            root_values[name] = bytes(value).decode("utf-8", errors="strict")
+        assert root_values["schema_name"] == "radiosim.visibility"
+        assert root_values["schema_version"] == "1.0.0"
+        assert root_values["dimension_order"] == "time,baseline,frequency,correlation"
+        assert root_values["visibility_unit"] == "Jy"
+        assert root_values["scientific_sha256"] == result.scientific_sha256
+        assert root_values["provenance_sha256"] == result.provenance_sha256
         assert "creation_time" not in handle.attrs
 
         vis = handle["data/visibilities"]
@@ -543,7 +555,14 @@ def test_unknown_schema_version_fails_before_science_payload_read(
     result = _result(tmp_path)
     output = write_result_hdf5(result, tmp_path / "unknown.h5")
     with h5py.File(output, "r+") as handle:
-        handle.attrs.modify("schema_version", "999.0.0")
+        del handle.attrs["schema_version"]
+        version = b"999.0.0"
+        handle.attrs.create(
+            "schema_version",
+            np.bytes_(version),
+            shape=(),
+            dtype=h5py.string_dtype(encoding="utf-8", length=len(version)),
+        )
 
     reads: list[str] = []
     original_getitem = h5py.Dataset.__getitem__
@@ -556,6 +575,82 @@ def test_unknown_schema_version_fails_before_science_payload_read(
     with pytest.raises(UnsupportedSchemaVersionError, match="999.0.0"):
         load_result_hdf5(output)
     assert not any(name.startswith("/data/") for name in reads)
+
+
+def test_unknown_schema_version_precedes_other_root_attribute_reads(
+    tmp_path,
+    monkeypatch,
+):
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "unknown-root-order.h5")
+    with h5py.File(output, "r+") as handle:
+        del handle.attrs["schema_version"]
+        version = b"999.0.0"
+        handle.attrs.create(
+            "schema_version",
+            np.bytes_(version),
+            shape=(),
+            dtype=h5py.string_dtype(encoding="utf-8", length=len(version)),
+        )
+        del handle.attrs["radiosim_version"]
+        handle.attrs["radiosim_version"] = "hostile variable-length payload"
+
+    reads: list[str] = []
+    original_getitem = h5py.AttributeManager.__getitem__
+
+    def recording_getitem(attributes, name):
+        reads.append(name)
+        return original_getitem(attributes, name)
+
+    monkeypatch.setattr(h5py.AttributeManager, "__getitem__", recording_getitem)
+    with pytest.raises(UnsupportedSchemaVersionError, match="999.0.0"):
+        load_result_hdf5(output)
+    assert reads == ["schema_name", "schema_version"]
+
+
+@pytest.mark.parametrize("attribute_name", ["schema_name", "radiosim_version"])
+@pytest.mark.parametrize("storage", ["fixed", "variable"])
+def test_oversized_root_attribute_is_rejected_before_value_read(
+    tmp_path,
+    monkeypatch,
+    attribute_name,
+    storage,
+):
+    result = _result(tmp_path)
+    output = write_result_hdf5(
+        result,
+        tmp_path / f"oversized-root-{attribute_name}-{storage}.h5",
+    )
+    payload = b"x" * 4096
+    with h5py.File(output, "r+") as handle:
+        del handle.attrs[attribute_name]
+        if storage == "fixed":
+            handle.attrs.create(
+                attribute_name,
+                np.bytes_(payload),
+                shape=(),
+                dtype=h5py.string_dtype(encoding="utf-8", length=len(payload)),
+            )
+        else:
+            handle.attrs[attribute_name] = payload.decode("ascii")
+
+    reads: list[str] = []
+    original_getitem = h5py.AttributeManager.__getitem__
+
+    def recording_getitem(attributes, name):
+        reads.append(name)
+        return original_getitem(attributes, name)
+
+    monkeypatch.setattr(h5py.AttributeManager, "__getitem__", recording_getitem)
+    with pytest.raises(
+        UnsafeResultInputError,
+        match=f"root attribute {attribute_name}",
+    ):
+        load_result_hdf5(
+            output,
+            limits=HDF5ReadLimits(max_single_string_bytes=64),
+        )
+    assert attribute_name not in reads
 
 
 @pytest.mark.parametrize(
@@ -595,7 +690,14 @@ def test_hostile_schema_and_fingerprint_matrix(tmp_path, mutation, error_type):
             del handle.attrs["visibility_unit"]
             handle.attrs["visibility_unit"] = np.int64(1)
         elif mutation == "oversized_root_string":
-            handle.attrs.modify("radiosim_version", "x" * 1_048_577)
+            del handle.attrs["radiosim_version"]
+            payload = b"x" * 1_048_577
+            handle.attrs.create(
+                "radiosim_version",
+                np.bytes_(payload),
+                shape=(),
+                dtype=h5py.string_dtype(encoding="utf-8", length=len(payload)),
+            )
         elif mutation == "extra_root_attribute":
             handle.attrs["unknown"] = "x"
         elif mutation == "missing_group":
@@ -893,7 +995,13 @@ def test_embedded_nul_root_string_is_rejected(tmp_path):
     output = write_result_hdf5(result, tmp_path / "nul.h5")
     with h5py.File(output, "r+") as handle:
         del handle.attrs["visibility_unit"]
-        handle.attrs["visibility_unit"] = np.bytes_(b"J\x00y")
+        payload = b"J\x00y"
+        handle.attrs.create(
+            "visibility_unit",
+            np.bytes_(payload),
+            shape=(),
+            dtype=h5py.string_dtype(encoding="utf-8", length=len(payload)),
+        )
 
     with pytest.raises(UnsafeResultInputError, match="bounded string"):
         load_result_hdf5(output)
