@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tracemalloc
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from types import SimpleNamespace
@@ -213,6 +214,52 @@ def _replace_dataset(
             replacement.attrs[key] = value
 
 
+def _write_text_probe(
+    tmp_path: Path,
+    payload: object,
+    *,
+    indexed: bool = False,
+) -> Path:
+    path = tmp_path / "bounded-text-probe.h5"
+    with h5py.File(path, "w") as handle:
+        data = np.asarray(payload, dtype=object) if indexed else payload
+        handle.create_dataset(
+            "value",
+            data=data,
+            dtype=h5py.string_dtype(encoding="utf-8"),
+        )
+    return path
+
+
+def _read_text_probe(
+    tmp_path: Path,
+    payload: object,
+    *,
+    limit: int,
+    index: int | None = None,
+) -> tuple[str, int]:
+    path = _write_text_probe(tmp_path, payload, indexed=index is not None)
+    with h5py.File(path, "r") as handle:
+        return hdf5_module._bounded_dataset_text(
+            handle["value"],
+            path="value",
+            limit=limit,
+            index=index,
+        )
+
+
+def _record_dataset_casts(monkeypatch) -> list[str]:
+    calls: list[str] = []
+    original_astype = h5py.Dataset.astype
+
+    def recording_astype(dataset, *args, **kwargs):
+        calls.append(dataset.name)
+        return original_astype(dataset, *args, **kwargs)
+
+    monkeypatch.setattr(h5py.Dataset, "astype", recording_astype)
+    return calls
+
+
 def test_hdf5_read_limits_are_exact_frozen_positive_integer_contract():
     limits = HDF5ReadLimits()
 
@@ -284,6 +331,30 @@ def test_versioned_hdf5_round_trip_is_scientifically_exact(tmp_path, dtype):
     assert loaded.scientific_sha256 == result.scientific_sha256
     assert loaded.provenance_sha256 == result.provenance_sha256
     assert loaded.history == result.history
+
+
+def test_writer_reader_round_trip_preserves_non_ascii_history(tmp_path):
+    import radiosim.core.result as result_module
+
+    result = _result(tmp_path)
+    history = ("simulé 東京",)
+    object.__setattr__(result, "history", history)
+    object.__setattr__(
+        result,
+        "provenance_sha256",
+        result_module._provenance_hash(
+            scientific_sha256=result.scientific_sha256,
+            backend_snapshot=result.backend.to_snapshot(),
+            resolved_config=result.resolved_config,
+            configuration_provenance=result.configuration_provenance,
+            history=history,
+        ),
+    )
+
+    output = write_result_hdf5(result, tmp_path / "non-ascii-history.h5")
+    loaded = load_result_hdf5(output)
+
+    assert loaded.history == history
 
 
 @pytest.mark.parametrize(
@@ -1021,12 +1092,219 @@ def test_oversized_utf8_dataset_is_rejected(tmp_path):
         load_result_hdf5(output)
 
 
+def test_oversized_scalar_vlen_dataset_rejects_before_high_level_value_access(
+    tmp_path,
+    monkeypatch,
+):
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "oversized-scalar-vlen.h5")
+    _replace_dataset(
+        output,
+        "instrument/name",
+        data="s" * (4 * 1024 * 1024),
+        dtype=h5py.string_dtype(encoding="utf-8"),
+    )
+    casts = _record_dataset_casts(monkeypatch)
+
+    with pytest.raises(
+        UnsafeResultInputError,
+        match="HDF5 string /instrument/name exceeds its size limit",
+    ):
+        load_result_hdf5(
+            output,
+            limits=HDF5ReadLimits(max_single_string_bytes=1_048_576),
+        )
+
+    assert "/instrument/name" not in casts
+
+
+def test_oversized_indexed_vlen_dataset_rejects_before_high_level_value_access(
+    tmp_path,
+    monkeypatch,
+):
+    result = _multi_baseline_result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "oversized-indexed-vlen.h5")
+    _replace_dataset(
+        output,
+        "instrument/antenna/name",
+        data=["small-left", "i" * (4 * 1024 * 1024), "small-right"],
+        dtype=h5py.string_dtype(encoding="utf-8"),
+    )
+    casts = _record_dataset_casts(monkeypatch)
+
+    with pytest.raises(
+        UnsafeResultInputError,
+        match=(r"HDF5 string /instrument/antenna/name\[1\] exceeds its size limit"),
+    ):
+        load_result_hdf5(
+            output,
+            limits=HDF5ReadLimits(max_single_string_bytes=1_048_576),
+        )
+
+    assert "/instrument/antenna/name" not in casts
+
+
+def test_oversized_vlen_provenance_json_rejects_before_high_level_value_access(
+    tmp_path,
+    monkeypatch,
+):
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "oversized-provenance-vlen.h5")
+    _replace_dataset(
+        output,
+        "provenance/history_json",
+        data="p" * (4 * 1024 * 1024),
+        dtype=h5py.string_dtype(encoding="utf-8"),
+    )
+    casts = _record_dataset_casts(monkeypatch)
+
+    with pytest.raises(
+        UnsafeResultInputError,
+        match="HDF5 string /provenance/history_json exceeds its size limit",
+    ):
+        load_result_hdf5(
+            output,
+            limits=HDF5ReadLimits(max_single_string_bytes=1_048_576),
+        )
+
+    assert "/provenance/history_json" not in casts
+
+
+@pytest.mark.parametrize("text", ["café", "東京"])
+def test_bounded_scalar_vlen_utf8_returns_strict_text_and_byte_count(
+    tmp_path,
+    text,
+):
+    expected_bytes = len(text.encode("utf-8"))
+
+    assert _read_text_probe(
+        tmp_path,
+        text,
+        limit=expected_bytes,
+    ) == (text, expected_bytes)
+
+
+def test_bounded_indexed_vlen_utf8_returns_only_selected_non_ascii_text(tmp_path):
+    values = ["left", "中央", "right"]
+
+    assert _read_text_probe(
+        tmp_path,
+        values,
+        limit=len(values[1].encode("utf-8")),
+        index=1,
+    ) == (values[1], len(values[1].encode("utf-8")))
+
+
+@pytest.mark.parametrize(
+    ("payload", "limit", "expected"),
+    [
+        ("abcd", 4, ("abcd", 4)),
+        ("abcde", 4, None),
+        ("éé", 4, ("éé", 4)),
+        ("ééé", 5, None),
+    ],
+)
+def test_bounded_vlen_utf8_distinguishes_exact_and_one_over_byte_limits(
+    tmp_path,
+    payload,
+    limit,
+    expected,
+):
+    if expected is None:
+        with pytest.raises(UnsafeResultInputError, match="size limit"):
+            _read_text_probe(tmp_path, payload, limit=limit)
+    else:
+        assert _read_text_probe(tmp_path, payload, limit=limit) == expected
+
+
+def test_bounded_vlen_invalid_utf8_is_rejected_strictly(tmp_path):
+    with pytest.raises(UnsafeResultInputError, match="strict UTF-8"):
+        _read_text_probe(tmp_path, b"\xff", limit=8)
+
+
+@pytest.mark.parametrize("payload_size", [1 << 20, 8 << 20])
+def test_hostile_vlen_reads_have_bounded_python_peak_and_no_high_level_cast(
+    tmp_path,
+    monkeypatch,
+    payload_size,
+):
+    path = _write_text_probe(tmp_path, "h" * payload_size)
+    casts = _record_dataset_casts(monkeypatch)
+    with h5py.File(path, "r") as handle:
+        tracemalloc.start()
+        try:
+            with pytest.raises(UnsafeResultInputError, match="size limit"):
+                hdf5_module._bounded_dataset_text(
+                    handle["value"],
+                    path="value",
+                    limit=64,
+                )
+            _current, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+    assert casts == []
+    assert peak < 2 * 1024 * 1024
+
+
+def test_repeated_hostile_vlen_reads_close_hdf5_handles(tmp_path):
+    path = _write_text_probe(tmp_path, "l" * (2 * 1024 * 1024))
+    baseline = h5py.h5f.get_obj_count()
+
+    for _ in range(20):
+        with h5py.File(path, "r") as handle:
+            with pytest.raises(UnsafeResultInputError, match="size limit"):
+                hdf5_module._bounded_dataset_text(
+                    handle["value"],
+                    path="value",
+                    limit=64,
+                )
+        assert h5py.h5f.get_obj_count() == baseline
+
+
 def test_aggregate_json_limit_is_enforced(tmp_path):
     result = _result(tmp_path)
     output = write_result_hdf5(result, tmp_path / "aggregate-json.h5")
 
     with pytest.raises(UnsafeResultInputError, match="max_total_json_bytes"):
         load_result_hdf5(output, limits=HDF5ReadLimits(max_total_json_bytes=1))
+
+
+def test_aggregate_json_limit_counts_non_ascii_utf8_bytes(monkeypatch):
+    payloads = {
+        "provenance/instrument_json": "{}",
+        "provenance/selection_json": "{}",
+        "provenance/beam_json": "{}",
+        "provenance/backend_json": "{}",
+        "provenance/solver_json": "{}",
+        "provenance/resolved_config_json": "{}",
+        "provenance/configuration_source_json": "null",
+        "provenance/performance_json": "{}",
+        "provenance/history_json": '["é"]',
+    }
+    returned = {
+        path: (text, len(text.encode("utf-8"))) for path, text in payloads.items()
+    }
+    datasets = {path: object() for path in payloads}
+    total = sum(byte_count for _text, byte_count in returned.values())
+
+    monkeypatch.setattr(
+        hdf5_module,
+        "_bounded_dataset_text",
+        lambda dataset, *, path, limit: returned[path],
+    )
+
+    values = hdf5_module._read_json_snapshots(
+        datasets,
+        HDF5ReadLimits(max_total_json_bytes=total),
+    )
+    assert values["history"] == ["é"]
+
+    with pytest.raises(UnsafeResultInputError, match="max_total_json_bytes"):
+        hdf5_module._read_json_snapshots(
+            datasets,
+            HDF5ReadLimits(max_total_json_bytes=total - 1),
+        )
 
 
 def test_corrupted_fletcher32_chunk_is_rejected(tmp_path):

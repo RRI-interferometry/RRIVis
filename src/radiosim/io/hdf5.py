@@ -1281,25 +1281,130 @@ def _bounded_dataset_text(
     limit: int,
     index: int | None = None,
 ) -> tuple[str, int]:
-    selection: object = () if index is None else index
+    if type(limit) is not int or limit <= 0:
+        raise UnsafeResultInputError(f"HDF5 string /{path} has an invalid size limit")
     try:
-        raw = dataset.astype(f"S{limit + 1}")[selection]
+        shape = tuple(int(value) for value in dataset.shape)
     except Exception as exc:
         raise UnsafeResultInputError(
-            f"HDF5 string /{path} could not be read safely"
+            f"HDF5 string /{path} has invalid shape metadata"
         ) from exc
-    payload = bytes(raw)
-    if len(payload) > limit:
-        raise UnsafeResultInputError(f"HDF5 string /{path} exceeds its size limit")
-    if b"\x00" in payload:
-        raise UnsafeResultInputError(f"HDF5 string /{path} contains a NUL byte")
-    try:
-        text = payload.decode("utf-8", errors="strict")
-    except UnicodeDecodeError as exc:
+    if index is None:
+        if shape != ():
+            raise UnsafeResultInputError(
+                f"HDF5 string /{path} must use a scalar dataset"
+            )
+    elif type(index) is not int or len(shape) != 1 or index < 0 or index >= shape[0]:
         raise UnsafeResultInputError(
-            f"HDF5 string /{path} is not strict UTF-8"
-        ) from exc
-    return text, len(payload)
+            f"HDF5 string /{path} has an invalid indexed selection"
+        )
+
+    h5py = _import_h5py()
+    source_type: Any = None
+    file_space: Any = None
+    memory_space: Any = None
+    memory_type: Any = None
+    primary_error: BaseException | None = None
+    try:
+        source_type = dataset.id.get_type()
+        if (
+            source_type.get_class() != h5py.h5t.STRING
+            or not source_type.is_variable_str()
+            or source_type.get_cset() != h5py.h5t.CSET_UTF8
+        ):
+            raise UnsafeResultInputError(
+                f"HDF5 dataset /{path} must use variable UTF-8"
+            )
+
+        file_space = dataset.id.get_space()
+        expected_space_type = h5py.h5s.SCALAR if index is None else h5py.h5s.SIMPLE
+        if file_space.get_simple_extent_type() != expected_space_type:
+            raise UnsafeResultInputError(
+                f"HDF5 string /{path} has an invalid dataspace"
+            )
+
+        try:
+            buffer_size = limit + 1
+            if buffer_size <= limit or buffer_size > int(np.iinfo(np.intp).max):
+                raise OverflowError("bounded string buffer size is not representable")
+            destination_dtype = np.dtype(f"S{buffer_size}")
+            destination = np.zeros(
+                () if index is None else (1,),
+                dtype=destination_dtype,
+            )
+        except (MemoryError, OverflowError, TypeError, ValueError) as exc:
+            raise UnsafeResultInputError(
+                f"HDF5 string /{path} limit cannot be allocated safely"
+            ) from exc
+
+        memory_type = h5py.h5t.C_S1.copy()
+        memory_type.set_size(buffer_size)
+        memory_type.set_cset(h5py.h5t.CSET_UTF8)
+        memory_type.set_strpad(h5py.h5t.STR_NULLTERM)
+        if index is None:
+            memory_space = h5py.h5s.create(h5py.h5s.SCALAR)
+        else:
+            memory_space = h5py.h5s.create_simple((1,))
+            file_space.select_hyperslab((index,), (1,))
+
+        try:
+            dataset.id.read(
+                memory_space,
+                file_space,
+                destination,
+                mtype=memory_type,
+            )
+        except Exception as exc:
+            raise UnsafeResultInputError(
+                f"HDF5 string /{path} could not be read safely"
+            ) from exc
+
+        raw = memoryview(cast(Any, destination)).cast("B")
+        terminator: int | None = None
+        for offset, value in enumerate(raw):
+            if value == 0:
+                terminator = offset
+                break
+        if terminator is None:
+            raise UnsafeResultInputError(f"HDF5 string /{path} exceeds its size limit")
+        if any(value != 0 for value in raw[terminator + 1 :]):
+            raise UnsafeResultInputError(
+                f"HDF5 string /{path} contains invalid NUL padding"
+            )
+        payload = bytes(raw[:terminator])
+        try:
+            text = payload.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise UnsafeResultInputError(
+                f"HDF5 string /{path} is not strict UTF-8"
+            ) from exc
+        return text, terminator
+    except UnsafeResultInputError as exc:
+        primary_error = exc
+        raise
+    except Exception as exc:
+        wrapped = UnsafeResultInputError(
+            f"HDF5 string /{path} could not be read safely"
+        )
+        primary_error = wrapped
+        raise wrapped from exc
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        cleanup_error: Exception | None = None
+        for handle in (file_space, memory_space, memory_type, source_type):
+            if handle is None:
+                continue
+            try:
+                handle.close()
+            except Exception as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
+        if cleanup_error is not None and primary_error is None:
+            raise UnsafeResultInputError(
+                f"HDF5 string /{path} handle cleanup failed"
+            ) from cleanup_error
 
 
 def _parse_json(text: str, *, path: str) -> object:
