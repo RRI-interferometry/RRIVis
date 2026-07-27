@@ -16,8 +16,7 @@ measurement_set
 """
 
 from importlib import import_module
-from importlib.util import find_spec
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from radiosim.core.runtime_config import (
@@ -65,6 +64,12 @@ if TYPE_CHECKING:
         load_result_hdf5,
         write_result_hdf5,
     )
+    from radiosim.io.measurement_set import (
+        read_measurement_set,
+        write_measurement_set,
+    )
+    from radiosim.io.standard_visibility import StandardVisibilityData
+    from radiosim.io.uvfits import read_uvfits, write_uvfits
 
 
 _LAZY_EXPORTS = {
@@ -162,6 +167,26 @@ _LAZY_EXPORTS = {
         "radiosim.io.hdf5",
         "load_result_hdf5",
     ),
+    "StandardVisibilityData": (
+        "radiosim.io.standard_visibility",
+        "StandardVisibilityData",
+    ),
+    "write_measurement_set": (
+        "radiosim.io.measurement_set",
+        "write_measurement_set",
+    ),
+    "read_measurement_set": (
+        "radiosim.io.measurement_set",
+        "read_measurement_set",
+    ),
+    "write_uvfits": (
+        "radiosim.io.uvfits",
+        "write_uvfits",
+    ),
+    "read_uvfits": (
+        "radiosim.io.uvfits",
+        "read_uvfits",
+    ),
 }
 
 
@@ -182,38 +207,6 @@ def __getattr__(name: str) -> object:
 def __dir__() -> list[str]:
     """Include lazy public I/O objects in interactive discovery."""
     return sorted(set(globals()) | set(_LAZY_EXPORTS))
-
-
-# Measurement Set imports stay lazy so configuration-only imports do not load
-# pyuvdata or other optional scientific I/O dependencies.
-def write_ms(*args: Any, **kwargs: Any) -> Any:
-    from radiosim.io.measurement_set import write_ms as implementation
-
-    return implementation(*args, **kwargs)
-
-
-def read_ms(*args: Any, **kwargs: Any) -> Any:
-    from radiosim.io.measurement_set import read_ms as implementation
-
-    return implementation(*args, **kwargs)
-
-
-def read_ms_dask(*args: Any, **kwargs: Any) -> Any:
-    from radiosim.io.measurement_set import read_ms_dask as implementation
-
-    return implementation(*args, **kwargs)
-
-
-def ms_info(*args: Any, **kwargs: Any) -> Any:
-    from radiosim.io.measurement_set import ms_info as implementation
-
-    return implementation(*args, **kwargs)
-
-
-PYUVDATA_AVAILABLE = find_spec("pyuvdata") is not None
-CASACORE_AVAILABLE = find_spec("casacore") is not None
-DASKMS_AVAILABLE = find_spec("daskms") is not None
-MS_AVAILABLE = PYUVDATA_AVAILABLE and CASACORE_AVAILABLE
 
 
 __all__ = [
@@ -256,13 +249,10 @@ __all__ = [
     "HDF5ReadLimits",
     "write_result_hdf5",
     "load_result_hdf5",
-    # Measurement Set I/O
-    "write_ms",
-    "read_ms",
-    "read_ms_dask",
-    "ms_info",
-    "MS_AVAILABLE",
-    "PYUVDATA_AVAILABLE",
-    "CASACORE_AVAILABLE",
-    "DASKMS_AVAILABLE",
+    # Standard visibility projection and exchange formats
+    "StandardVisibilityData",
+    "write_measurement_set",
+    "read_measurement_set",
+    "write_uvfits",
+    "read_uvfits",
 ]

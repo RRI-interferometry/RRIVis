@@ -12,6 +12,7 @@ import radiosim.io.hdf5 as hdf5_module
 from radiosim.io.hdf5 import load_result_hdf5, write_result_hdf5
 from radiosim.io.result_errors import (
     AtomicWriteError,
+    AtomicWriteUnsupportedError,
     OutputCollisionError,
     OutputPathError,
     OverwriteRefusedError,
@@ -389,3 +390,42 @@ def test_parent_directory_fsync_failure_is_typed_after_publication(
         write_result_hdf5(result, target)
 
     assert load_result_hdf5(target).scientifically_equal(result)
+
+
+def test_directory_no_replace_and_exchange_primitives(tmp_path):
+    first = tmp_path / "first.ms"
+    second = tmp_path / "second.ms"
+    final = tmp_path / "final.ms"
+    first.mkdir()
+    second.mkdir()
+    (first / "value").write_text("first", encoding="utf-8")
+    (second / "value").write_text("second", encoding="utf-8")
+    parent_fd = os.open(tmp_path, os.O_RDONLY)
+    try:
+        atomic_paths.publish_directory_no_clobber(first, final, parent_fd)
+        assert (final / "value").read_text(encoding="utf-8") == "first"
+        with pytest.raises(OutputCollisionError):
+            atomic_paths.publish_directory_no_clobber(second, final, parent_fd)
+        atomic_paths.exchange_directories(second, final, parent_fd)
+    finally:
+        os.close(parent_fd)
+    assert (final / "value").read_text(encoding="utf-8") == "second"
+    assert (second / "value").read_text(encoding="utf-8") == "first"
+
+
+def test_directory_platform_support_fails_closed(monkeypatch):
+    monkeypatch.setattr(atomic_paths.sys, "platform", "unsupported")
+    with pytest.raises(AtomicWriteUnsupportedError):
+        atomic_paths.require_atomic_directory_support()
+
+
+def test_exclusive_sibling_temporary_directory_has_ms_suffix(tmp_path):
+    target = tmp_path / "result.ms"
+    parent_fd = os.open(tmp_path, os.O_RDONLY)
+    try:
+        temporary = atomic_paths.create_sibling_temporary_directory(target, parent_fd)
+    finally:
+        os.close(parent_fd)
+    assert temporary.is_dir()
+    assert temporary.name.startswith(".result.ms.")
+    assert temporary.name.endswith(".tmp.ms")

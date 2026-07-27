@@ -1,658 +1,534 @@
-# radiosim/io/measurement_set.py
-"""Measurement Set I/O for RadioSim.
-
-This module provides functions for reading and writing CASA Measurement Set
-format, enabling interoperability with standard radio astronomy tools like
-CASA, QuartiCal, WSClean, and other calibration pipelines.
-
-The implementation uses pyuvdata as the primary backend, with optional
-dask-ms support for very large datasets.
-
-Requirements
-------------
-- pyuvdata >= 2.4 (required)
-- python-casacore >= 3.5 (required for MS format)
-- dask-ms >= 0.2.20 (optional, for large datasets)
-
-Examples
---------
-Write simulation results to MS through the public Simulator boundary:
-
->>> simulator.run(progress=False)
->>> simulator.save("output", format="ms", filename="simulation")
-
-Read MS back into memory:
-
->>> from radiosim.io.measurement_set import read_ms
->>> data = read_ms("simulation.ms")
->>> print(data["visibilities"].shape)
-
-References
-----------
-- CASA Measurement Set format: https://casa.nrao.edu/
-- pyuvdata documentation: https://pyuvdata.readthedocs.io/
-- dask-ms documentation: https://dask-ms.readthedocs.io/
-- Africanus I paper (dask-ms): https://arxiv.org/abs/2412.12052
-"""
+"""Canonical Measurement Set projection, validation, and atomic publication."""
 
 from __future__ import annotations
 
-import importlib.util
-import warnings
+import os
+import re
+import stat
+from importlib import import_module
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from radiosim.core.instrument import (
-        ResolvedBaselineSelection,
-        ResolvedInstrument,
-    )
+from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
-from astropy.coordinates import EarthLocation
-from astropy.time import Time
 
-# Check for pyuvdata availability
-try:
-    from pyuvdata import Telescope, UVData
-    from pyuvdata.utils import ECEF_from_ENU
+from radiosim.core.result import SimulationResult
+from radiosim.io.atomic_paths import (
+    create_sibling_temporary_directory,
+    exchange_directories,
+    fsync_directory,
+    open_parent_directory,
+    publish_directory_no_clobber,
+    remove_temporary_directory,
+    require_atomic_directory_support,
+    validate_input_directory,
+    validate_output_directory_target,
+)
+from radiosim.io.result_errors import (
+    AtomicWriteError,
+    OptionalResultDependencyError,
+    OutputCollisionError,
+    PartialCleanupError,
+    ResultIOError,
+    UnsafeResultInputError,
+)
+from radiosim.io.standard_visibility import (
+    StandardReadLimits,
+    StandardVisibilityData,
+    enforce_standard_read_limits,
+    normalize_autocorrelations,
+    project_simulation_result,
+    standard_visibility_from_uvdata,
+    validate_projection_result,
+    validate_standard_metadata,
+)
 
-    PYUVDATA_AVAILABLE = True
-except ImportError:
-    PYUVDATA_AVAILABLE = False
-    warnings.warn(
-        "pyuvdata not available. Install with: pip install pyuvdata\n"
-        "MS I/O functionality will be disabled.",
-        stacklevel=2,
-    )
-
-# Check for python-casacore availability
-CASACORE_AVAILABLE = importlib.util.find_spec("casacore.tables") is not None
-if not CASACORE_AVAILABLE and PYUVDATA_AVAILABLE:
-    warnings.warn(
-        "python-casacore not available. Install with: pip install python-casacore\n"
-        "MS format support will be disabled.",
-        stacklevel=2,
-    )
-
-# Check for dask-ms availability (optional)
-try:
-    from daskms import xds_from_ms
-
-    DASKMS_AVAILABLE = True
-except ImportError:
-    DASKMS_AVAILABLE = False
-
-
-def _check_ms_dependencies():
-    """Check that MS dependencies are available."""
-    if not PYUVDATA_AVAILABLE:
-        raise ImportError(
-            "pyuvdata is required for MS I/O. Install with:\n  pip install pyuvdata"
-        )
-    if not CASACORE_AVAILABLE:
-        raise ImportError(
-            "python-casacore is required for MS format. Install with:\n"
-            "  pip install python-casacore\n"
-            "Or install RadioSim with MS support:\n"
-            "  pip install radiosim[ms]"
-        )
+_COLUMN_NAME = re.compile(r"[A-Z][A-Z0-9_]*\Z")
 
 
-def _visibility_row(
-    values: object,
+def _pyuvdata_version() -> str:
+    try:
+        return version("pyuvdata")
+    except PackageNotFoundError:
+        return "unavailable"
+
+
+def _import_standard_dependencies() -> type[Any]:
+    """Import MS dependencies only after pure operation preflight succeeds."""
+    pyuvdata_version = _pyuvdata_version()
+    try:
+        pyuvdata = import_module("pyuvdata")
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise OptionalResultDependencyError(
+            "format=ms missing_package=pyuvdata "
+            f"pyuvdata_version={pyuvdata_version} "
+            "install_extra=radiosim[ms]"
+        ) from exc
+    try:
+        _ = import_module("casacore.tables")
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise OptionalResultDependencyError(
+            "format=ms missing_package=python-casacore "
+            f"pyuvdata_version={pyuvdata_version} "
+            "install_extra=radiosim[ms]"
+        ) from exc
+    return pyuvdata.UVData
+
+
+def _validate_data_column(value: object) -> str:
+    if type(value) is not str or _COLUMN_NAME.fullmatch(value) is None:
+        raise TypeError("data_column must be an uppercase Measurement Set column name")
+    return value
+
+
+def _read_ms(
+    path: Path,
     *,
-    pair: tuple[int, int],
-    polarization: str,
-    time_index: int,
-    n_times: int,
-    n_freqs: int,
-) -> np.ndarray:
-    """Return one exact frequency row without repeating or truncating samples."""
-    array = np.asarray(values)
-    expected_shape = (n_times, n_freqs)
-    if array.shape == (n_freqs,) and n_times == 1:
-        row = array
-    elif array.shape == expected_shape:
-        row = array[time_index]
-    else:
-        raise ValueError(
-            f"visibility {pair} polarization {polarization!r} has shape "
-            f"{array.shape}; expected {expected_shape}"
+    data_column: str,
+    read_data: bool,
+) -> Any:
+    uvdata_class = _import_standard_dependencies()
+    try:
+        if not read_data:
+            return _read_ms_metadata(path, data_column=data_column)
+        uvdata = uvdata_class()
+        uvdata.read_ms(
+            str(path),
+            data_column=data_column,
+            background_lsts=False,
+            ignore_single_chan=False,
+            run_check=True,
+            fix_autos=False,
         )
-    if not np.issubdtype(row.dtype, np.number):
-        raise ValueError(
-            f"visibility {pair} polarization {polarization!r} must be numeric"
-        )
-    if not np.all(np.isfinite(row)):
-        raise ValueError(
-            f"visibility {pair} polarization {polarization!r} must be finite"
-        )
-    return np.asarray(row, dtype=np.complex128)
+    except ResultIOError:
+        raise
+    except Exception as exc:
+        raise UnsafeResultInputError(
+            f"could not read validated Measurement Set path: {path}"
+        ) from exc
+    return uvdata
 
 
-def write_ms(
-    output_path: str | Path,
-    visibilities: dict[tuple[int, int], dict[str, np.ndarray] | np.ndarray],
-    frequencies: np.ndarray,
-    instrument: ResolvedInstrument,
-    selection: ResolvedBaselineSelection,
-    obstime: Time,
-    polarizations: list[str] | None = None,
-    channel_width: float | None = None,
-    integration_time: float = 1.0,
+def _table_column(table: Any, name: str) -> np.ndarray:
+    if name not in table.colnames():
+        raise UnsafeResultInputError(
+            f"Measurement Set table lacks required column {name}"
+        )
+    return np.asarray(table.getcol(name))
+
+
+def _read_ms_metadata(path: Path, *, data_column: str) -> SimpleNamespace:
+    """Inspect bounded MS coordinates and subtables without reading DATA."""
+    tables = import_module("casacore.tables")
+    opened: list[Any] = []
+
+    def open_table(location: Path) -> Any:
+        handle = tables.table(
+            str(location),
+            readonly=True,
+            ack=False,
+        )
+        opened.append(handle)
+        return handle
+
+    try:
+        main = open_table(path)
+        if data_column not in main.colnames():
+            raise UnsafeResultInputError(
+                f"Measurement Set lacks requested column {data_column}"
+            )
+        antenna1 = _table_column(main, "ANTENNA1").astype(np.int64, copy=False)
+        antenna2 = _table_column(main, "ANTENNA2").astype(np.int64, copy=False)
+        time_seconds = _table_column(main, "TIME").astype(
+            np.float64,
+            copy=False,
+        )
+        uvw = _table_column(main, "UVW").astype(np.float64, copy=False)
+        exposures = _table_column(main, "EXPOSURE").astype(
+            np.float64,
+            copy=False,
+        )
+        if not (
+            antenna1.shape
+            == antenna2.shape
+            == time_seconds.shape
+            == exposures.shape
+            == (int(main.nrows()),)
+        ):
+            raise UnsafeResultInputError(
+                "Measurement Set MAIN metadata shapes are inconsistent"
+            )
+        if uvw.shape != (int(main.nrows()), 3):
+            raise UnsafeResultInputError(
+                "Measurement Set UVW metadata shape is invalid"
+            )
+
+        spectral = open_table(path / "SPECTRAL_WINDOW")
+        if int(spectral.nrows()) != 1:
+            frequency_array = np.empty(0, dtype=np.float64)
+            width_array = np.empty(0, dtype=np.float64)
+        else:
+            frequency_array = np.asarray(
+                spectral.getcell("CHAN_FREQ", 0),
+                dtype=np.float64,
+            )
+            width_array = np.asarray(
+                spectral.getcell("CHAN_WIDTH", 0),
+                dtype=np.float64,
+            )
+
+        polarization = open_table(path / "POLARIZATION")
+        if int(polarization.nrows()) != 1:
+            polarization_array = np.empty(0, dtype=np.int64)
+        else:
+            casa_codes = np.asarray(
+                polarization.getcell("CORR_TYPE", 0),
+                dtype=np.int64,
+            )
+            casa_to_aips = {9: -5, 10: -7, 11: -8, 12: -6}
+            polarization_array = np.array(
+                [casa_to_aips.get(int(code), 0) for code in casa_codes],
+                dtype=np.int64,
+            )
+        expected_shape = (
+            f"[{int(frequency_array.size)}, {int(polarization_array.size)}]"
+        )
+        data_shapes = main.getcolshapestring(data_column)
+        if len(data_shapes) != int(main.nrows()) or any(
+            shape != expected_shape for shape in data_shapes
+        ):
+            raise UnsafeResultInputError(
+                "Measurement Set DATA cell shapes disagree with its subtables"
+            )
+
+        antennas = open_table(path / "ANTENNA")
+        all_antenna_names = _table_column(antennas, "NAME").astype(str)
+        all_antenna_positions = _table_column(antennas, "POSITION").astype(
+            np.float64,
+            copy=False,
+        )
+        antenna_numbers = np.flatnonzero(all_antenna_names != "").astype(
+            np.int64,
+            copy=False,
+        )
+        used_antenna_numbers = np.unique(np.concatenate((antenna1, antenna2)))
+        if (
+            np.any(used_antenna_numbers < 0)
+            or np.any(used_antenna_numbers >= int(antennas.nrows()))
+            or not set(used_antenna_numbers.tolist()).issubset(
+                set(antenna_numbers.tolist())
+            )
+        ):
+            raise UnsafeResultInputError(
+                "Measurement Set baselines reference unknown antennas"
+            )
+        antenna_names = all_antenna_names[antenna_numbers]
+        antenna_positions = all_antenna_positions[antenna_numbers]
+
+        field = open_table(path / "FIELD")
+        phase_directions = _table_column(field, "PHASE_DIR").astype(
+            np.float64,
+            copy=False,
+        )
+        phase_keywords = field.getcolkeywords("PHASE_DIR")
+        measure_info = phase_keywords.get("MEASINFO", {})
+        reference: object = None
+        if isinstance(measure_info, dict):
+            reference = cast(dict[str, object], measure_info).get("Ref")
+        if phase_directions.size == 2 and reference in {"ICRS", "J2000"}:
+            longitude, latitude = phase_directions.reshape(-1)
+            phase_catalog: dict[int, dict[str, object]] = {
+                0: {
+                    "cat_type": "sidereal",
+                    "cat_frame": "icrs",
+                    "cat_lon": float(longitude),
+                    "cat_lat": float(latitude),
+                }
+            }
+        else:
+            phase_catalog = {}
+
+        pairs = set(zip(antenna1.tolist(), antenna2.tolist(), strict=True))
+        return SimpleNamespace(
+            Ntimes=int(np.unique(time_seconds).size),
+            Nbls=len(pairs),
+            Nfreqs=int(frequency_array.size),
+            Npols=int(polarization_array.size),
+            Nblts=int(main.nrows()),
+            Nspws=int(spectral.nrows()),
+            polarization_array=polarization_array,
+            freq_array=frequency_array,
+            channel_width=width_array,
+            phase_center_catalog=phase_catalog,
+            time_array=time_seconds / 86400.0 + 2400000.5,
+            integration_time=exposures,
+            uvw_array=uvw,
+            telescope=SimpleNamespace(
+                Nants=int(antenna_numbers.size),
+                antenna_numbers=antenna_numbers,
+                antenna_names=antenna_names,
+                antenna_positions=antenna_positions,
+            ),
+        )
+    finally:
+        for handle in reversed(opened):
+            handle.close()
+
+
+def _write_ms(uvdata: Any, path: Path, **kwargs: object) -> None:
+    uvdata.write_ms(str(path), **kwargs)
+
+
+def _assert_round_trip(
+    expected: StandardVisibilityData,
+    observed: StandardVisibilityData,
+) -> None:
+    """Require the declared MS storage contract after writer readback."""
+    if observed.format != "ms":
+        raise AtomicWriteError("temporary MS readback has the wrong format")
+    for field_name in (
+        "correlations",
+        "source_scientific_sha256",
+        "source_provenance_sha256",
+    ):
+        if getattr(observed, field_name) != getattr(expected, field_name):
+            raise AtomicWriteError(f"temporary MS readback changed {field_name}")
+    for field_name in (
+        "flags",
+        "antenna1_numbers",
+        "antenna2_numbers",
+    ):
+        if not np.array_equal(
+            getattr(observed, field_name),
+            getattr(expected, field_name),
+        ):
+            raise AtomicWriteError(f"temporary MS readback changed {field_name}")
+    comparisons = (
+        ("visibilities", 5e-6, 1e-7),
+        ("weights", 5e-6, 1e-7),
+        ("frequencies_hz", 0.0, 1e-6),
+        ("channel_widths_hz", 0.0, 1e-9),
+        ("exposure_seconds", 0.0, 1e-9),
+        ("uvw_m", 0.0, 1e-6),
+    )
+    for field_name, relative, absolute in comparisons:
+        if not np.allclose(
+            getattr(observed, field_name),
+            getattr(expected, field_name),
+            rtol=relative,
+            atol=absolute,
+        ):
+            raise AtomicWriteError(f"temporary MS readback changed {field_name}")
+    expected_jd = expected.utc_jd1 + expected.utc_jd2
+    observed_jd = observed.utc_jd1 + observed.utc_jd2
+    if not np.allclose(observed_jd, expected_jd, rtol=0.0, atol=5e-10):
+        raise AtomicWriteError("temporary MS readback changed time coordinates")
+    if observed.phase_center != expected.phase_center:
+        raise AtomicWriteError("temporary MS readback changed projected phase")
+    if not _telescope_metadata_equal(
+        expected.telescope_snapshot,
+        observed.telescope_snapshot,
+    ):
+        raise AtomicWriteError("temporary MS readback changed telescope metadata")
+
+
+def _telescope_metadata_equal(expected: Any, observed: Any) -> bool:
+    if (
+        expected["name"] != observed["name"]
+        or expected["instrument"] != observed["instrument"]
+        or not np.allclose(
+            expected["location_itrs_xyz_m"],
+            observed["location_itrs_xyz_m"],
+            rtol=0.0,
+            atol=1e-6,
+        )
+    ):
+        return False
+    expected_antennas = expected["antennas"]
+    observed_antennas = observed["antennas"]
+    if len(expected_antennas) != len(observed_antennas):
+        return False
+    for expected_antenna, observed_antenna in zip(
+        expected_antennas,
+        observed_antennas,
+        strict=True,
+    ):
+        if (
+            expected_antenna["number"] != observed_antenna["number"]
+            or expected_antenna["name"] != observed_antenna["name"]
+            or expected_antenna["diameter_m"] != observed_antenna["diameter_m"]
+            or not np.allclose(
+                expected_antenna["position_enu_m"],
+                observed_antenna["position_enu_m"],
+                rtol=0.0,
+                atol=1e-6,
+            )
+        ):
+            return False
+    return True
+
+
+def _verify_temporary_measurement_set(
+    expected: StandardVisibilityData,
+    temporary: Path,
+) -> None:
+    metadata = _read_ms(temporary, data_column="DATA", read_data=False)
+    enforce_standard_read_limits(metadata, StandardReadLimits())
+    validate_standard_metadata(metadata)
+    loaded = _read_ms(temporary, data_column="DATA", read_data=True)
+    observed = standard_visibility_from_uvdata(loaded, format="ms")
+    _assert_round_trip(expected, observed)
+
+
+def _cleanup_temporary(temporary: Path, cause: BaseException) -> None:
+    try:
+        remove_temporary_directory(temporary)
+    except Exception as cleanup_error:
+        error = PartialCleanupError(temporary)
+        error.add_note(f"cleanup failure: {cleanup_error!r}")
+        raise error from cause
+
+
+def write_measurement_set(
+    result: SimulationResult,
+    path: str | Path,
+    *,
     overwrite: bool = False,
 ) -> Path:
-    """Write canonical instrument state and selected visibilities to an MS.
-
-    Parameters
-    ----------
-    output_path : str or Path
-        Path to output MS file (will be a directory).
-    visibilities : dict
-        Dictionary mapping baseline tuples (ant1, ant2) to visibility data.
-        Each value can be either:
-        - Dict with polarization keys ("XX", "XY", "YX", "YY" or "I", "Q", "U", "V")
-        - Single numpy array (assumed to be Stokes I or XX)
-    frequencies : np.ndarray
-        Array of observation frequencies in Hz.
-    instrument : ResolvedInstrument
-        Complete canonical telescope identity, location, antennas, and diameters.
-    selection : ResolvedBaselineSelection
-        Exact canonical baseline subset represented by ``visibilities``.
-    obstime : Time
-        Observation time (can be single Time or array of Times).
-    polarizations : list of str, optional
-        List of polarization labels. If None, auto-detected from visibility keys.
-        Common options: ["XX", "XY", "YX", "YY"] or ["RR", "RL", "LR", "LL"].
-    channel_width : float, optional
-        Channel width in Hz. If None, inferred from frequency array.
-    integration_time : float, optional
-        Integration time in seconds (default: 1.0).
-    overwrite : bool, optional
-        Overwrite existing MS file (default: False).
-
-    Returns
-    -------
-    Path
-        Path to the created MS file.
-
-    Raises
-    ------
-    ImportError
-        If pyuvdata or python-casacore is not installed.
-    FileExistsError
-        If output path exists and overwrite=False.
-    ValueError
-        If input data is invalid.
-
-    Notes
-    -----
-    The MS format is the standard for radio interferometry data exchange.
-    After creating an MS, you can:
-
-    - View in CASA: ``casabrowser output.ms``
-    - Calibrate with QuartiCal: ``goquartical output.ms``
-    - Image with WSClean: ``wsclean -name image output.ms``
-
-    See Also
-    --------
-    read_ms : Read visibility data from MS format.
-    """
-    _check_ms_dependencies()
-
-    from radiosim.core.instrument import (
-        ResolvedBaselineSelection,
-        ResolvedInstrument,
+    """Project and atomically publish one canonical result as Measurement Set."""
+    typed = validate_projection_result(result, format_name="ms")
+    _ = normalize_autocorrelations(typed)
+    require_atomic_directory_support()
+    final = validate_output_directory_target(
+        path,
+        extension=".ms",
+        overwrite=overwrite,
     )
+    _ = _import_standard_dependencies()
+    projected = project_simulation_result(typed, format="ms")
 
-    if type(instrument) is not ResolvedInstrument:
-        raise TypeError("instrument must be a ResolvedInstrument")
-    if type(selection) is not ResolvedBaselineSelection:
-        raise TypeError("selection must be a ResolvedBaselineSelection")
-    if selection.provenance.instrument_sha256 != (
-        instrument.provenance.instrument_sha256
-    ):
-        raise ValueError("selection does not belong to instrument")
-
-    from radiosim.core.baseline_resolution import generate_resolved_baselines
-    from radiosim.core.instrument_adapters import ResolvedInstrumentState
-
-    all_baselines = generate_resolved_baselines(instrument)
-    _ = ResolvedInstrumentState(
-        instrument=instrument,
-        all_baselines=all_baselines,
-        selection=selection,
-    )
-
-    output_path = Path(output_path)
-
-    if output_path.exists() and not overwrite:
-        raise FileExistsError(
-            f"MS already exists: {output_path}\nUse overwrite=True to replace it."
-        )
-
-    antenna_numbers = [antenna.id.number for antenna in instrument.antennas]
-    antenna_names = [antenna.id.name for antenna in instrument.antennas]
-    antenna_diameters = [antenna.diameter_m for antenna in instrument.antennas]
-    antenna_positions_enu = np.asarray(
-        [antenna.position_enu_m for antenna in instrument.antennas],
-        dtype=np.float64,
-    )
-
-    frequencies = np.asarray(frequencies, dtype=np.float64)
-    if frequencies.ndim != 1 or frequencies.size == 0:
-        raise ValueError("frequencies must be a nonempty one-dimensional array")
-    if not np.all(np.isfinite(frequencies)) or np.any(frequencies <= 0.0):
-        raise ValueError("frequencies must contain finite positive values")
-
-    baseline_list = list(selection.provenance.selected_ids)
-    if set(visibilities) != set(baseline_list):
-        raise ValueError(
-            "visibilities must contain exactly the selected canonical baseline pairs"
-        )
-
-    # Determine polarizations from visibility data.
-    sample_vis = visibilities[baseline_list[0]]
-    if isinstance(sample_vis, dict):
-        if polarizations is None:
-            # Auto-detect polarization type
-            vis_keys = set(sample_vis.keys())
-            if vis_keys & {"XX", "XY", "YX", "YY"}:
-                polarizations = ["XX", "XY", "YX", "YY"]
-            elif vis_keys & {"RR", "RL", "LR", "LL"}:
-                polarizations = ["RR", "RL", "LR", "LL"]
-            elif vis_keys & {"I", "Q", "U", "V"}:
-                # Convert Stokes to linear feeds for MS compatibility
-                polarizations = ["XX", "XY", "YX", "YY"]
-            else:
-                polarizations = list(vis_keys)[:4]
-    else:
-        # Single array - assume unpolarized (XX only or Stokes I)
-        polarizations = ["XX"]
-
-    if not polarizations or any(type(value) is not str for value in polarizations):
-        raise ValueError("polarizations must be a nonempty list of strings")
-    if len(set(polarizations)) != len(polarizations):
-        raise ValueError("polarizations must be unique")
-
-    n_pols = len(polarizations)
-    n_freqs = len(frequencies)
-
-    # Calculate channel width
-    if channel_width is None:
-        if n_freqs > 1:
-            channel_width = np.abs(frequencies[1] - frequencies[0])
-        else:
-            channel_width = 1e6  # Default 1 MHz
-    assert channel_width is not None
-    if not np.isfinite(channel_width) or channel_width <= 0.0:
-        raise ValueError("channel_width must be finite and positive")
-    if not np.isfinite(integration_time) or integration_time <= 0.0:
-        raise ValueError("integration_time must be finite and positive")
-
-    # Handle time - ensure it's an array
-    if obstime.isscalar:
-        times = np.array([obstime.jd])
-    else:
-        times = obstime.jd
-
-    times = np.asarray(times, dtype=np.float64)
-    if times.ndim != 1 or times.size == 0 or not np.all(np.isfinite(times)):
-        raise ValueError("obstime must provide a nonempty finite one-dimensional axis")
-
-    n_times = len(times)
-
-    # Build baseline list and data arrays
-    n_baselines = len(baseline_list)
-    n_blts = n_baselines * n_times
-
-    # Create antenna pair arrays
-    ant_1_array = np.zeros(n_blts, dtype=int)
-    ant_2_array = np.zeros(n_blts, dtype=int)
-    time_array = np.zeros(n_blts)
-
-    # Create data array
-    # Shape: (Nblts, Nfreqs, Npols)
-    data_array = np.zeros((n_blts, n_freqs, n_pols), dtype=np.complex128)
-    flag_array = np.zeros((n_blts, n_freqs, n_pols), dtype=bool)
-    nsample_array = np.ones((n_blts, n_freqs, n_pols), dtype=float)
-
-    # Fill arrays
-    blt_idx = 0
-    for _t_idx, time_jd in enumerate(times):
-        for _bl_idx, (ant1, ant2) in enumerate(baseline_list):
-            ant_1_array[blt_idx] = ant1
-            ant_2_array[blt_idx] = ant2
-            time_array[blt_idx] = time_jd
-
-            bl_key = (ant1, ant2)
-            vis_data = visibilities[bl_key]
-            if isinstance(vis_data, dict):
-                for p_idx, pol in enumerate(polarizations):
-                    values = vis_data.get(pol)
-                    scale = 1.0
-                    if values is None and pol == "XX" and "I" in vis_data:
-                        values = vis_data["I"]
-                        scale = 0.5
-                    if values is None:
-                        continue
-                    data_array[blt_idx, :, p_idx] = (
-                        _visibility_row(
-                            values,
-                            pair=bl_key,
-                            polarization=pol,
-                            time_index=_t_idx,
-                            n_times=n_times,
-                            n_freqs=n_freqs,
-                        )
-                        * scale
-                    )
-            else:
-                data_array[blt_idx, :, 0] = _visibility_row(
-                    vis_data,
-                    pair=bl_key,
-                    polarization=polarizations[0],
-                    time_index=_t_idx,
-                    n_times=n_times,
-                    n_freqs=n_freqs,
-                )
-
-            blt_idx += 1
-
-    location = EarthLocation.from_geocentric(
-        *instrument.location.itrs_xyz_m,
-        unit="m",
-    )
-    absolute_ecef = np.asarray(
-        ECEF_from_ENU(antenna_positions_enu, center_loc=location),
-        dtype=np.float64,
-    )
-    center_ecef = np.asarray(instrument.location.itrs_xyz_m, dtype=np.float64)
-    relative_ecef = absolute_ecef - center_ecef
-    antenna_positions_ecef = {
-        number: np.array(relative_ecef[index], dtype=np.float64, copy=True)
-        for index, number in enumerate(antenna_numbers)
-    }
-
-    # Create Telescope object
-    telescope = Telescope.new(
-        name=instrument.name,
-        location=location,
-        antenna_positions=antenna_positions_ecef,
-        antenna_names=antenna_names,
-        antenna_numbers=antenna_numbers,
-        antenna_diameters=antenna_diameters,
-        instrument=instrument.name,
-        update_from_known=False,
-    )
-
-    # Create UVData object
-    uvd = UVData.new(
-        freq_array=frequencies,
-        polarization_array=polarizations,
-        times=times,
-        antpairs=baseline_list,
-        telescope=telescope,
-        do_blt_outer=True,  # Cartesian product of times × baselines
-        time_axis_faster_than_bls=False,
-        update_telescope_from_known=False,
-    )
-
-    # Set the data
-    uvd.data_array = data_array
-    uvd.flag_array = flag_array
-    uvd.nsample_array = nsample_array
-
-    # Set integration time
-    uvd.integration_time = np.full(n_blts, integration_time)
-
-    # Set channel width
-    uvd.channel_width = np.full(n_freqs, channel_width)
-
-    # Validate the UVData object
+    parent_fd: int | None = None
+    temporary: Path | None = None
+    temporary_fd: int | None = None
+    published = False
     try:
-        uvd.check()
-    except Exception as e:
-        warnings.warn(f"UVData validation warning: {e}", stacklevel=2)
-
-    # Write to MS format
-    uvd.write_ms(str(output_path), clobber=overwrite, force_phase=True)
-
-    return output_path
-
-
-def read_ms(
-    input_path: str | Path,
-    data_column: str = "DATA",
-    include_flags: bool = True,
-) -> dict[str, Any]:
-    """Read visibility data from CASA Measurement Set format.
-
-    Parameters
-    ----------
-    input_path : str or Path
-        Path to input MS file.
-    data_column : str, optional
-        Name of the data column to read (default: "DATA").
-        Other options: "CORRECTED_DATA", "MODEL_DATA".
-    include_flags : bool, optional
-        Whether to include flag data (default: True).
-
-    Returns
-    -------
-    dict
-        Dictionary containing:
-        - visibilities : np.ndarray with shape (Nblts, Nfreqs, Npols)
-        - frequencies : np.ndarray with shape (Nfreqs,)
-        - times : np.ndarray with shape (Ntimes,) in JD
-        - ant_1_array : np.ndarray with shape (Nblts,)
-        - ant_2_array : np.ndarray with shape (Nblts,)
-        - uvw_array : np.ndarray with shape (Nblts, 3)
-        - polarizations : list of str
-        - flags : np.ndarray (if include_flags=True)
-        - antenna_names : list of str
-        - antenna_positions : np.ndarray with shape (Nants, 3)
-        - telescope_name : str
-        - telescope_location : EarthLocation
-
-    Raises
-    ------
-    ImportError
-        If pyuvdata or python-casacore is not installed.
-    FileNotFoundError
-        If input MS does not exist.
-
-    Examples
-    --------
-    >>> from radiosim.io.measurement_set import read_ms
-    >>> data = read_ms("observation.ms")
-    >>> print(f"Shape: {data['visibilities'].shape}")
-    >>> print(f"Frequencies: {data['frequencies'] / 1e6} MHz")
-
-    Notes
-    -----
-    This function uses pyuvdata to read the MS file, which handles
-    all the complexity of the MS format including subtables.
-
-    See Also
-    --------
-    write_ms : Write visibility data to MS format.
-    """
-    _check_ms_dependencies()
-
-    input_path = Path(input_path)
-
-    if not input_path.exists():
-        raise FileNotFoundError(f"MS not found: {input_path}")
-
-    # Read MS using pyuvdata
-    uvd = UVData()
-    uvd.read(str(input_path), data_column=data_column)
-
-    # Extract data
-    result = {
-        "visibilities": uvd.data_array,
-        "frequencies": uvd.freq_array.flatten(),
-        "times": np.unique(uvd.time_array),
-        "time_array": uvd.time_array,
-        "ant_1_array": uvd.ant_1_array,
-        "ant_2_array": uvd.ant_2_array,
-        "uvw_array": uvd.uvw_array,
-        "polarizations": uvd.get_pols(),
-        "antenna_names": uvd.telescope.antenna_names,
-        "antenna_positions": uvd.telescope.antenna_positions,
-        "telescope_name": uvd.telescope.name,
-        "telescope_location": uvd.telescope.location,
-        "n_antennas": uvd.telescope.Nants,
-        "n_baselines": uvd.Nbls,
-        "n_times": uvd.Ntimes,
-        "n_frequencies": uvd.Nfreqs,
-        "n_polarizations": uvd.Npols,
-    }
-
-    if include_flags:
-        result["flags"] = uvd.flag_array
-        result["nsample_array"] = uvd.nsample_array
-
-    return result
-
-
-def read_ms_dask(
-    input_path: str | Path,
-    columns: list[str] | None = None,
-    chunks: dict[str, int] | None = None,
-) -> list[Any]:
-    """Read MS using dask-ms for large datasets.
-
-    This function uses dask-ms to read MS files lazily, which is more
-    memory-efficient for very large datasets.
-
-    Parameters
-    ----------
-    input_path : str or Path
-        Path to input MS file.
-    columns : list of str, optional
-        Columns to read. If None, reads common columns.
-    chunks : dict, optional
-        Chunking specification for dask arrays.
-        Default: {"row": 100000}
-
-    Returns
-    -------
-    list of xarray.Dataset
-        List of xarray datasets, one per DATA_DESC_ID partition.
-
-    Raises
-    ------
-    ImportError
-        If dask-ms is not installed.
-
-    Examples
-    --------
-    >>> from radiosim.io.measurement_set import read_ms_dask
-    >>> datasets = read_ms_dask("large_observation.ms")
-    >>> # Process lazily
-    >>> for ds in datasets:
-    ...     data = ds.DATA.data  # dask array
-    ...     result = data.mean().compute()  # compute on demand
-
-    Notes
-    -----
-    dask-ms is recommended for MS files larger than available RAM.
-    Install with: pip install dask-ms
-
-    See Also
-    --------
-    read_ms : Read MS into memory using pyuvdata.
-    """
-    if not DASKMS_AVAILABLE:
-        raise ImportError(
-            "dask-ms is required for lazy reading. Install with:\n  pip install dask-ms"
+        parent_fd = open_parent_directory(final.parent, create=True)
+        temporary = create_sibling_temporary_directory(final, parent_fd)
+        payload = temporary / "payload.ms"
+        _write_ms(
+            projected.uvdata,
+            payload,
+            clobber=False,
+            force_phase=False,
         )
+        _verify_temporary_measurement_set(projected.data, payload)
+        temporary_fd = open_parent_directory(temporary, create=False)
+        try:
+            target_status = os.stat(
+                final.name,
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            target_status = None
+        if target_status is not None and not stat.S_ISDIR(target_status.st_mode):
+            raise OutputCollisionError(
+                f"publication target is no longer a directory: {final}"
+            )
+        if overwrite and target_status is not None:
+            exchange_directories(
+                payload,
+                final,
+                parent_fd,
+                source_parent_fd=temporary_fd,
+            )
+            published = True
+        else:
+            publish_directory_no_clobber(
+                payload,
+                final,
+                parent_fd,
+                source_parent_fd=temporary_fd,
+            )
+            published = True
+        os.close(temporary_fd)
+        temporary_fd = None
+        try:
+            fsync_directory(parent_fd)
+        except OSError as exc:
+            raise AtomicWriteError(
+                f"published Measurement Set but directory fsync failed: {final}"
+            ) from exc
+        try:
+            remove_temporary_directory(temporary)
+        except Exception as exc:
+            raise PartialCleanupError(temporary) from exc
+        temporary = None
+        try:
+            fsync_directory(parent_fd)
+        except OSError as exc:
+            raise AtomicWriteError(
+                f"published Measurement Set but temporary cleanup fsync failed: {final}"
+            ) from exc
+    except PartialCleanupError:
+        raise
+    except Exception as exc:
+        if temporary_fd is not None:
+            try:
+                os.close(temporary_fd)
+            except OSError:
+                pass
+            temporary_fd = None
+        if temporary is not None:
+            _cleanup_temporary(temporary, exc)
+        if isinstance(exc, ResultIOError):
+            raise
+        if published:
+            raise AtomicWriteError(
+                f"atomic Measurement Set publication completed with an error: {final}"
+            ) from exc
+        raise AtomicWriteError(
+            f"atomic Measurement Set transaction failed before publication: {final}"
+        ) from exc
+    finally:
+        if temporary_fd is not None:
+            try:
+                os.close(temporary_fd)
+            except OSError:
+                pass
+        if parent_fd is not None:
+            try:
+                os.close(parent_fd)
+            except OSError:
+                pass
+    return final
 
-    input_path = Path(input_path)
 
-    if not input_path.exists():
-        raise FileNotFoundError(f"MS not found: {input_path}")
+def read_measurement_set(
+    path: str | Path,
+    *,
+    data_column: str = "DATA",
+    limits: StandardReadLimits = StandardReadLimits(),
+) -> StandardVisibilityData:
+    """Read and validate one bounded canonical Measurement Set view."""
+    column = _validate_data_column(data_column)
+    if type(limits) is not StandardReadLimits:
+        raise TypeError("limits must be an exact StandardReadLimits")
+    source = validate_input_directory(path)
+    _ = _import_standard_dependencies()
+    metadata = _read_ms(source, data_column=column, read_data=False)
+    enforce_standard_read_limits(metadata, limits)
+    validate_standard_metadata(metadata)
+    loaded = _read_ms(source, data_column=column, read_data=True)
+    try:
+        return standard_visibility_from_uvdata(loaded, format="ms")
+    except ResultIOError:
+        raise
+    except Exception as exc:
+        raise UnsafeResultInputError(
+            f"Measurement Set failed canonical validation: {source}"
+        ) from exc
 
-    if columns is None:
-        columns = ["DATA", "FLAG", "UVW", "TIME", "ANTENNA1", "ANTENNA2"]
 
-    if chunks is None:
-        chunks = {"row": 100000}
-
-    # Read MS using dask-ms
-    datasets = xds_from_ms(str(input_path), columns=columns, chunks=chunks)
-
-    return list(datasets)
-
-
-def ms_info(input_path: str | Path) -> dict[str, Any]:
-    """Get summary information about a Measurement Set.
-
-    Parameters
-    ----------
-    input_path : str or Path
-        Path to input MS file.
-
-    Returns
-    -------
-    dict
-        Dictionary with MS summary information including:
-        - n_rows: Total number of rows
-        - n_antennas: Number of antennas
-        - n_baselines: Number of baselines
-        - n_times: Number of time stamps
-        - n_channels: Number of frequency channels
-        - n_polarizations: Number of polarizations
-        - frequencies: Frequency array (Hz)
-        - time_range: (min_time, max_time) in MJD
-        - telescope_name: Name of telescope
-        - antenna_names: List of antenna names
-
-    Examples
-    --------
-    >>> from radiosim.io.measurement_set import ms_info
-    >>> info = ms_info("observation.ms")
-    >>> print(f"Antennas: {info['n_antennas']}")
-    >>> print(f"Channels: {info['n_channels']}")
-    >>> print(f"Time range: {info['time_range']} MJD")
-    """
-    _check_ms_dependencies()
-
-    input_path = Path(input_path)
-
-    if not input_path.exists():
-        raise FileNotFoundError(f"MS not found: {input_path}")
-
-    # Use pyuvdata for quick info (reads only metadata)
-    uvd = UVData()
-
-    # Read just header info
-    uvd.read(str(input_path), read_data=False)
-
-    time_jd = uvd.time_array
-    time_mjd = time_jd - 2400000.5  # JD to MJD
-
-    info = {
-        "n_rows": uvd.Nblts,
-        "n_antennas": uvd.telescope.Nants,
-        "n_baselines": uvd.Nbls,
-        "n_times": uvd.Ntimes,
-        "n_channels": uvd.Nfreqs,
-        "n_polarizations": uvd.Npols,
-        "frequencies": uvd.freq_array.flatten(),
-        "time_range": (time_mjd.min(), time_mjd.max()),
-        "telescope_name": uvd.telescope.name,
-        "antenna_names": uvd.telescope.antenna_names,
-        "polarizations": uvd.get_pols(),
-        "channel_width": uvd.channel_width[0]
-        if uvd.channel_width is not None
-        else None,
-        "integration_time": uvd.integration_time[0]
-        if uvd.integration_time is not None
-        else None,
-    }
-
-    return info
+__all__ = ["read_measurement_set", "write_measurement_set"]

@@ -70,17 +70,6 @@ Instrument sources
    :undoc-members:
    :show-inheritance:
 
-Measurement Set I/O
--------------------
-
-Measurement Set support requires ``python-casacore`` or ``radiosim[ms]``.
-Its current generic API is retained unchanged until the later standard-format
-slice.  Measurement Set has not been migrated to the canonical result model.
-
-.. automodule:: radiosim.io.measurement_set
-   :members:
-   :show-inheritance:
-
 Versioned HDF5 results
 ----------------------
 
@@ -137,8 +126,72 @@ fallback.
 
 The legacy unsafe HDF5 function pair was removed immediately with no
 compatibility aliases.  High-level ``Simulator.save`` integration remains
-unavailable until a later slice.  Summary JSON, canonical Measurement Set
-migration, and UVFITS are also later slices.
+unavailable until a later slice.
+
+Standard visibility exchange
+----------------------------
+
+Measurement Set and UVFITS exports use one shared projection of an exact
+``SimulationResult`` and return an immutable ``StandardVisibilityData`` from
+their readers.  Neither reader reconstructs a native ``SimulationResult`` or
+``LoadedSimulationResult``.  The projection preserves the canonical time-major,
+baseline-inner layout and explicitly maps ``XX, XY, YX, YY`` into each file's
+standard ordering.  It derives the ICRS first-time zenith from the first
+two-part UTC centre, phases exactly once before writing, records both source
+fingerprints and the original zenith-drift semantics in HISTORY, and never
+mutates the source result.
+
+.. autoclass:: radiosim.io.standard_visibility.StandardVisibilityData
+   :members:
+
+.. autoclass:: radiosim.io.standard_visibility.ProjectedPhaseCenter
+   :members:
+
+.. autoclass:: radiosim.io.standard_visibility.StandardReadLimits
+   :members:
+
+Measurement Set
+~~~~~~~~~~~~~~~
+
+.. autofunction:: radiosim.io.measurement_set.write_measurement_set
+
+.. autofunction:: radiosim.io.measurement_set.read_measurement_set
+
+Measurement Set support is loaded only for a requested operation.  Its
+optional dependencies are installed with ``radiosim[ms]``.  DATA storage is
+complex64: complex64 input is retained within the documented tolerance, while
+complex128 input is explicitly converted and recorded as lossy in HISTORY.
+The writer passes ``force_phase=False`` and publishes a verified sibling
+temporary directory with atomic no-replace or directory exchange.  Readers
+inspect metadata and enforce ``StandardReadLimits`` before loading science
+arrays.  Arbitrary canonical selected-baseline subsets, autos, crosses, and
+explicit per-channel widths use the same standard projection.  The former
+generic Measurement Set surface and its availability booleans are removed.
+
+UVFITS
+~~~~~~
+
+.. autofunction:: radiosim.io.uvfits.write_uvfits
+
+.. autofunction:: radiosim.io.uvfits.read_uvfits
+
+UVFITS preserves supported complex64 and complex128 visibility storage, but it
+requires one to 255 canonically numbered antennas and a regular spectral grid
+whose equal channel width matches the channel spacing.  Unsupported results
+are rejected before optional dependencies or filesystem mutation; use HDF5 or
+Measurement Set instead.  UVFITS is not lossless for arbitrary nonuniform
+channels, complex256, the original time-varying AltAz phase, the complete
+configuration tree, or provenance beyond bounded HISTORY records.
+
+The writer uses a fresh sibling regular file, passes ``force_phase=False``,
+performs a complete read-back, and then uses the regular-file atomic
+publication contract.  The reader validates FITS random-group and antenna
+table headers before pyuvdata data allocation and then returns only validated
+``StandardVisibilityData``.
+
+These direct APIs do not extend ``Simulator.save``.  That high-level dispatch
+remains reserved for Tier 4F.  Standard-format optional dependencies stay lazy,
+and the atomic writers never prompt.
 
 Resolved-configuration workflow artifact
 ----------------------------------------

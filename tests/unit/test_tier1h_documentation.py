@@ -273,8 +273,35 @@ def test_tier4d_hdf5_documentation_is_complete_and_bounded():
         assert required in text
     assert "save_visibilities_hdf5" not in text
     assert "load_visibilities_hdf5" not in text
-    assert "Measurement Set has been migrated" not in text
-    assert "UVFITS is available" not in text
+    for required in (
+        "StandardVisibilityData",
+        "first-time zenith",
+        "ICRS",
+        "complex128",
+        "complex64",
+        "UVFITS",
+        "Measurement Set",
+        "atomic",
+        "optional dependencies",
+        "write_measurement_set",
+        "read_measurement_set",
+        "write_uvfits",
+        "read_uvfits",
+        "Simulator.save",
+        "Tier 4F",
+    ):
+        assert required in text
+    for removed in (
+        "write_ms",
+        "read_ms",
+        "read_ms_dask",
+        "ms_info",
+        "PYUVDATA_AVAILABLE",
+        "CASACORE_AVAILABLE",
+        "DASKMS_AVAILABLE",
+        "MS_AVAILABLE",
+    ):
+        assert removed not in text
 
 
 @pytest.mark.parametrize(
