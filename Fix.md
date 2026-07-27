@@ -3597,3 +3597,53 @@ one theme-option event. Whitespace and exact-scope audits passed.
 Final dual-interpreter verification, commit, push, and exact-SHA CI status are
 recorded in the task handoff; this record does not claim independent Tier 4D
 acceptance. `OUT-001` through `OUT-006` remain **OPEN**.
+
+### 2026-07-27 Tier 4D independent acceptance
+
+**Decision: Tier 4D is independently accepted after the bounded fixed-width
+HDF5 correction.** Tier 4E is the next authorized separate implementation
+slice and was not started. Tier 4 as a whole remains unaccepted.
+
+The independent start gate found clean `main`, no untracked files, exact
+alignment of local `HEAD` and `origin/main` at
+`dc5a9d3f6cb1fa400e4c33ffba9b4c28ae704418`, zero divergence, and clean
+whitespace checks. The reviewed implementation range is the exact cumulative
+Tier 4D range from `3580d6cfea28a053d0fa10c2527c399efa317936` through
+`dc5a9d3f6cb1fa400e4c33ffba9b4c28ae704418`, consisting of
+`2f4aa4185101a741ed892e693cccd6c2ff1fc150`,
+`9da23f88e73e7c082dc2ce1b7f40294b40b9c19e`,
+`76bb8ecdba8efc904150e21e88f11f7df1a9af6e`, and
+`dc5a9d3f6cb1fa400e4c33ffba9b4c28ae704418`. Its cumulative implementation
+scope was exactly the 13 paths recorded in `Tier4ResultOutputPlan.md`; no
+later-tier or dependency/configuration/CI/workflow leakage was found.
+
+Independent h5py schema inspection and c64/c128 scientific round trips passed.
+The c128 fixture used non-ASCII antenna identity, nontrivial geometry,
+nonuniform frequencies and widths, all four correlations, flags, and
+non-unit weights; it round-tripped shape `(3, 6, 3, 4)` with independently
+recomputed fingerprints. The c64 fixture round-tripped shape `(2, 1, 2, 4)`
+with exact flags and weights. The public fresh-reader VLEN matrix passed in
+both Python 3.11/h5py 3.14 and Python 3.12/h5py 3.16: scalar and indexed
+1/8/8/8/16 MiB hostile payloads were rejected with approximately 2.85–3.60
+MiB and 3.26–4.69 MiB RSS ranges respectively, zero payload-read hooks, and
+approximately 150–160 KiB Python peaks. Fixed-width valid controls loaded;
+declared oversized fixed-width controls rejected during metadata preflight.
+The independent 29-case hostile matrix and independent public atomicity
+injection suite both passed with typed failures, preserved targets, readable
+post-publication results, and no temporary residue.
+
+The focused boundary passed `225/225` in both interpreters; adjacent passed
+`28/28` in both; full non-slow passed `3,058/3,058` in both with six expected
+unavailable-JAX skips, 26 established warnings, and zero failures, xfails, or
+xpasses. Ruff, formatting, repository Pyright (3,074 diagnostics under the
+unchanged 4,600 ceiling), direct Pyright on every Tier 4D production module,
+three YAML validations, the offline example, fresh-process import isolation,
+whitespace/scope/unsafe-parser/artifact audits, and clean-copy Sphinx 8.2.3
+with the established 40 events all passed. Implementation CI run
+[`30279814160`](https://github.com/RRI-interferometry/RadioSim/actions/runs/30279814160)
+matched the implementation SHA and all seven jobs succeeded.
+
+Genuinely unobserved behavior remains physical GPU execution, local JAX
+execution, non-macOS local execution, live network/registry/external-data
+behavior, power-loss durability, and dynamic notebook execution. `OUT-001`
+through `OUT-006` remain **OPEN**. No Tier 4E implementation was made.

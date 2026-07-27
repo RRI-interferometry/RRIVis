@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Tier 4C independently accepted after corrections; Tier 4D text correction pending independent acceptance |
+| Status | Tier 4D independently accepted after the bounded fixed-width correction; Tier 4E is the next authorized separate implementation slice and was not started |
 | Date | 2026-07-27 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
@@ -3300,7 +3300,6 @@ deterministic antenna arrays, scalar/indexed VLEN fail-closed behavior and
 no-value-access ordering, all fixed-width limits, exact and over-boundary
 values, strict UTF-8, NUL padding, empty values, handle cleanup, fingerprints,
 scientific dtype/correlation/flag/weight/identity/atomicity contracts, and
-fresh-reader native RSS across increasing hostile payload sizes. The focused
 fresh-reader native RSS across increasing hostile payload sizes. The final
 focused boundary collected 225 tests and passed 225/225 in both locked
 interpreters; the adjacent characterization/result/integration boundary
@@ -3326,3 +3325,91 @@ the next step is a separate independent acceptance review. Final commit,
 push, and exact-SHA CI status are recorded in the task handoff; this record
 does not claim independent Tier 4D acceptance. `OUT-001` through `OUT-006`
 remain **OPEN**.
+
+## Tier 4D independent acceptance (2026-07-27)
+
+**Decision: Tier 4D is independently accepted after the bounded fixed-width
+HDF5 correction.** Tier 4E is the next authorized separate implementation
+slice and was not started. Tier 4 as a whole remains unaccepted.
+
+The mandatory starting gate was independently rechecked before review:
+`main` was clean with no untracked files, `HEAD` and `origin/main` were both
+`dc5a9d3f6cb1fa400e4c33ffba9b4c28ae704418`, divergence was `0/0`, and both
+whitespace checks passed. The reviewed cumulative implementation range is
+`3580d6cfea28a053d0fa10c2527c399efa317936..dc5a9d3f6cb1fa400e4c33ffba9b4c28ae704418`
+with the four implementation/correction commits:
+
+- `2f4aa4185101a741ed892e693cccd6c2ff1fc150` — safe versioned HDF5 result;
+- `9da23f88e73e7c082dc2ce1b7f40294b40b9c19e` — bounded root attributes;
+- `76bb8ecdba8efc904150e21e88f11f7df1a9af6e` — bounded dataset strings;
+- `dc5a9d3f6cb1fa400e4c33ffba9b4c28ae704418` — fixed-width replacement.
+
+The cumulative implementation scope was exactly these 13 paths: `Fix.md`,
+`Tier4ResultOutputPlan.md`, `docs/api/io.rst`, the five `src/radiosim/io/`
+modules (`__init__.py`, `atomic_paths.py`, `hdf5.py`, `result_errors.py`,
+`writers.py`), `tests/characterization/test_tier4_current_behavior.py`,
+the three I/O tests (`test_hdf5_result.py`, `test_measurement_set.py`,
+`test_output_atomicity.py`), and `tests/unit/test_tier1h_documentation.py`.
+No dependency, lockfile, CI, configuration, solver, workflow, plotting,
+release, issue-closure, or Tier 4E+ file entered the reviewed range.
+
+Independent h5py inspection confirmed the exact `radiosim.visibility` 1.0.0
+root attributes, object tree, fixed-width UTF-8 text storage, trailing-NUL
+padding contract, numeric dtypes, dimensions, chunks, filters, and labels.
+An independent non-ASCII c128 fixture round-tripped shape `(3, 6, 3, 4)`
+with frequencies `[83.25, 119.75, 203.125]` MHz, unequal widths
+`[1.25, 2.75, 0.875]` MHz, two flags, weights `[0.25, 7.125]`, custom
+antenna identity/geometry, and independently recomputed fingerprints. An
+independent c64 fixture round-tripped exactly with shape `(2, 1, 2, 4)`, one
+flag, and weights `[0.375, 5.5]`. The scientific values, axes, correlations,
+metadata, fingerprints, and detached loaded state were independently checked;
+no VLEN compatibility reader exists.
+
+The public `load_result_hdf5` native-memory gate ran in fresh subprocesses in
+both locked environments (Python 3.11.13/h5py 3.14.0 and Python
+3.12.13/h5py 3.16.0). Scalar and indexed VLEN datasets were tested at 1, 8,
+8, 8, and 16 MiB with `max_single_string_bytes=64`. Python 3.11 RSS deltas
+were approximately 2.85–3.60 MiB and Python peaks were approximately 150 KiB;
+Python 3.12 RSS deltas were approximately 3.26–4.69 MiB and Python peaks were
+approximately 159–160 KiB. The three repeated 8 MiB runs in each path stayed
+within the same payload-independent bound. Every VLEN case raised the typed
+fixed-width rejection before `Dataset.__getitem__`, `astype`, `asstr`,
+`_bounded_dataset_text`, or `_read_numeric`; no payload-read hook was reached.
+Fixed-width valid controls loaded successfully, while a declared 65-byte
+fixed-width control under a 64-byte limit was rejected with zero value-read
+hooks. The reader's metadata-before-value order makes the low-level HDF5 read
+path unreachable for these rejections.
+
+An independent 29-case hostile matrix rejected missing, symlink, directory,
+FIFO, random, truncated, legacy, wrong-schema/version, root-attribute,
+VLEN/ASCII, tree/link/reference/virtual, dtype/shape/filter, fixed-string,
+JSON, structured-snapshot, fingerprint, and Fletcher32-corrupted inputs with
+typed, bounded, path-specific errors and no hostile payload echo. Independent
+public failure injection also passed for no-clobber, writer, verification,
+publication, directory-fsync, and successful transactions: old targets were
+preserved before publication, published files remained readable after a
+post-publication fsync failure, and no sibling temporary remained.
+
+The exact dual-interpreter focused boundary passed `225/225` and the adjacent
+boundary passed `28/28` in Python 3.11 and 3.12. Each full non-slow suite
+collected 3,064 tests and reported `3,058 passed`, six unavailable-JAX skips,
+26 established warnings, and zero failures, xfails, or xpasses. Ruff passed;
+298 files were already formatted; repository Pyright reported 3,074
+diagnostics under the unchanged 4,600 ceiling in both environments, while
+direct Pyright over every Tier 4D production module reported zero diagnostics
+in both. All three shipped YAMLs validated (101, 11, and one channel), and
+the forced-offline example completed with `(1, 15, 2, 4)` visibility output.
+Fresh process imports preserved lazy optional dependencies and removed legacy
+HDF5 names. A clean tracked-source Sphinx 8.2.3 build succeeded with the
+established 40 events: 35 docutils/docstring, one HERA toctree, three HERA
+highlighting, and one theme-option event. Whitespace, unsafe-parser,
+compatibility, suppression, scope, and generated-artifact audits passed.
+
+Implementation CI run
+[`30279814160`](https://github.com/RRI-interferometry/RadioSim/actions/runs/30279814160)
+matched the implementation SHA and completed successfully in all seven jobs:
+quality/docs/types, Linux 3.11, Linux 3.12, macOS x86-64 3.11, macOS x86-64
+3.12, macOS arm64 3.11, and macOS arm64 3.12. Physical GPU execution, local
+JAX execution, non-macOS local execution, live network/registry/external-data
+behavior, power-loss durability, and dynamic notebook execution remain
+genuinely unobserved. `OUT-001` through `OUT-006` remain **OPEN**.
