@@ -8,7 +8,9 @@ Submodules
 config
     Pydantic-based configuration management.
 writers
-    Data output writers (HDF5, YAML).
+    Resolved-configuration YAML artifact writer.
+hdf5
+    Versioned canonical-result HDF5 I/O.
 measurement_set
     CASA Measurement Set I/O (requires python-casacore).
 """
@@ -58,7 +60,11 @@ if TYPE_CHECKING:
         WorkflowOverrides,
         resolve_config,
     )
-    from radiosim.io.writers import load_visibilities_hdf5, save_visibilities_hdf5
+    from radiosim.io.hdf5 import (
+        HDF5ReadLimits,
+        load_result_hdf5,
+        write_result_hdf5,
+    )
 
 
 _LAZY_EXPORTS = {
@@ -144,13 +150,17 @@ _LAZY_EXPORTS = {
         "radiosim.core.runtime_config",
         "ResolvedConfiguration",
     ),
-    "save_visibilities_hdf5": (
-        "radiosim.io.writers",
-        "save_visibilities_hdf5",
+    "HDF5ReadLimits": (
+        "radiosim.io.hdf5",
+        "HDF5ReadLimits",
     ),
-    "load_visibilities_hdf5": (
-        "radiosim.io.writers",
-        "load_visibilities_hdf5",
+    "write_result_hdf5": (
+        "radiosim.io.hdf5",
+        "write_result_hdf5",
+    ),
+    "load_result_hdf5": (
+        "radiosim.io.hdf5",
+        "load_result_hdf5",
     ),
 }
 
@@ -242,9 +252,10 @@ __all__ = [
     "ResolvedExecutionConfig",
     "ResolvedSimulationConfig",
     "ResolvedConfiguration",
-    # Writers
-    "save_visibilities_hdf5",
-    "load_visibilities_hdf5",
+    # Canonical HDF5 result I/O
+    "HDF5ReadLimits",
+    "write_result_hdf5",
+    "load_result_hdf5",
     # Measurement Set I/O
     "write_ms",
     "read_ms",

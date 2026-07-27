@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -12,8 +13,8 @@ from pyuvdata.utils import ENU_from_ECEF
 
 import radiosim.io.measurement_set as measurement_set_module
 from radiosim.api import Simulator
+from radiosim.io import writers
 from radiosim.io.measurement_set import write_ms
-from radiosim.io.writers import load_visibilities_hdf5, save_visibilities_hdf5
 from tests.fixtures.configs import valid_config_mapping
 
 
@@ -269,40 +270,19 @@ def test_write_ms_aligns_time_major_rows_with_local_pyuvdata_contract(
     )
 
 
-def test_hdf5_round_trip_preserves_nested_instrument_resolution_metadata(tmp_path):
-    output = tmp_path / "metadata.h5"
-    metadata = {
-        "instrument_resolution": {
-            "schema_version": "radiosim.instrument.v1",
-            "selected_ids": [[0, 1]],
-        }
-    }
-
-    save_visibilities_hdf5(
-        output_path=output,
-        visibilities={(0, 1): [np.array([1.0 + 0.0j])]},
-        frequencies=np.array([100e6]),
-        time_points_mjd=np.array([60_000.0]),
-        metadata=metadata,
-    )
-
-    loaded = load_visibilities_hdf5(output)
-    assert (
-        loaded["metadata"]["instrument_resolution"] == metadata["instrument_resolution"]
-    )
+def test_unsafe_legacy_hdf5_api_is_removed_from_retained_writer_module():
+    assert not hasattr(writers, "save_visibilities_hdf5")
+    assert not hasattr(writers, "load_visibilities_hdf5")
+    assert "h5py" not in writers.__dict__
+    assert "h5py" not in sys.modules or writers.__dict__.get("h5py") is None
 
 
-def test_hdf5_rejects_nonfinite_nested_metadata_before_creating_output(tmp_path):
-    output = tmp_path / "nonfinite" / "metadata.h5"
+def test_unsafe_legacy_hdf5_api_is_not_publicly_exported():
+    import radiosim.io as io
 
-    with pytest.raises(ValueError):
-        save_visibilities_hdf5(
-            output_path=output,
-            visibilities={(0, 1): [np.array([1.0 + 0.0j])]},
-            frequencies=np.array([100e6]),
-            time_points_mjd=np.array([60_000.0]),
-            metadata={"instrument_resolution": {"diameter_m": float("nan")}},
-        )
-
-    assert not output.exists()
-    assert not output.parent.exists()
+    assert "save_visibilities_hdf5" not in io.__all__
+    assert "load_visibilities_hdf5" not in io.__all__
+    with pytest.raises(AttributeError):
+        io.__getattr__("save_visibilities_hdf5")
+    with pytest.raises(AttributeError):
+        io.__getattr__("load_visibilities_hdf5")

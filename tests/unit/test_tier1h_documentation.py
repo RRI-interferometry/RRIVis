@@ -241,6 +241,38 @@ def test_tier4c_output_docs_are_fail_closed(path):
     assert "later separately gated work" in text
 
 
+def test_tier4d_hdf5_documentation_is_complete_and_bounded():
+    text = (REPOSITORY_ROOT / "docs" / "api" / "io.rst").read_text(encoding="utf-8")
+
+    for required in (
+        "radiosim.visibility",
+        "1.0.0",
+        ".h5",
+        "write_result_hdf5",
+        "load_result_hdf5",
+        "HDF5ReadLimits",
+        "SimulationResult",
+        "LoadedSimulationResult",
+        "complex64",
+        "complex128",
+        "XX, XY, YX, YY",
+        "flags",
+        "weights",
+        "scientific fingerprint",
+        "provenance fingerprint",
+        "atomic",
+        "read-back",
+        "legacy unversioned",
+        "Simulator.save",
+        "later slice",
+    ):
+        assert required in text
+    assert "save_visibilities_hdf5" not in text
+    assert "load_visibilities_hdf5" not in text
+    assert "Measurement Set has been migrated" not in text
+    assert "UVFITS is available" not in text
+
+
 @pytest.mark.parametrize(
     "path", AUTHORIZED_BEAM_TRUTH_SURFACES, ids=lambda path: path.name
 )

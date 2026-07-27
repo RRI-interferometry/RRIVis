@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import ast
-import inspect
 from pathlib import Path
 
-import h5py
 import numpy as np
 import pytest
 from astropy import units as u
@@ -23,7 +20,6 @@ from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
 from radiosim.io.config import RadioSimConfig, collect_unsupported_issues
-from radiosim.io.writers import load_visibilities_hdf5
 from tests.fixtures.configs import valid_config_mapping
 
 FREQUENCIES_HZ = np.array([100_000_000.0], dtype=np.float64)
@@ -187,32 +183,6 @@ def test_save_and_plot_are_unavailable_before_side_effects(
             simulator.plot(output_dir=output, show=False)
 
     assert not output.exists()
-
-
-def test_legacy_hdf5_reader_evaluates_arithmetic_baseline_text(
-    tmp_path: Path,
-) -> None:
-    """Retain the locked Tier 4A reader characterization until Tier 4H."""
-    path = tmp_path / "legacy-eval.h5"
-    with h5py.File(path, "w") as handle:
-        group = handle.create_group("baseline_(1 + 1, 3 * 2)")
-        group.create_dataset(
-            "complex_visibility",
-            data=np.ones((1, 1), dtype=np.complex128),
-        )
-
-    loaded = load_visibilities_hdf5(path)
-    assert set(loaded["visibilities"]) == {(2, 6)}
-
-    tree = ast.parse(inspect.getsource(load_visibilities_hdf5))
-    direct_eval_calls = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "eval"
-    ]
-    assert len(direct_eval_calls) == 1
 
 
 def test_uvfits_remains_rejected_by_config_and_all_direct_save_is_unavailable(

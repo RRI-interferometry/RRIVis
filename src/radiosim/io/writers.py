@@ -1,100 +1,11 @@
 # radiosim/io/writers.py
-"""Data output writers for RadioSim.
+"""Retained resolved-configuration artifact writer for RadioSim workflows."""
 
-This module provides functions for writing simulation results to various formats:
-- HDF5 for visibility data
-- YAML for configuration files
-"""
-
-import json
-import math
 from pathlib import Path
 from typing import Any
 
-import h5py
-import numpy as np
 import yaml
-
-
-def _hdf5_metadata_value(value: Any) -> Any:
-    """Validate and serialize one metadata value before touching the output path."""
-    if hasattr(value, "model_dump"):
-        value = value.model_dump(mode="json")
-    if isinstance(value, (float, np.floating)) and not math.isfinite(float(value)):
-        raise ValueError("HDF5 metadata numbers must be finite")
-    if isinstance(value, (str, int, float, bool, np.integer, np.floating)):
-        return value
-    if isinstance(value, (dict, list, tuple)):
-        return "__radiosim_json__:" + json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
-    if isinstance(value, np.ndarray):
-        if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
-            raise ValueError("HDF5 metadata arrays must contain only finite values")
-        return str(value)
-    return str(value)
-
-
-def save_visibilities_hdf5(
-    output_path: str | Path,
-    visibilities: dict[tuple, list],
-    frequencies: np.ndarray,
-    time_points_mjd: np.ndarray,
-    metadata: dict[str, Any] | None = None,
-) -> str:
-    """Save visibility data to HDF5 format.
-
-    Parameters
-    ----------
-    output_path : str or Path
-        Path to output HDF5 file
-    visibilities : dict
-        Dictionary mapping baseline tuples (ant_i, ant_j) to visibility arrays
-    frequencies : np.ndarray
-        Array of observation frequencies in Hz
-    time_points_mjd : np.ndarray
-        Array of time points in MJD
-    metadata : dict, optional
-        Additional metadata to store as HDF5 attributes
-
-    Returns
-    -------
-    str
-        Path to the saved file
-    """
-    output_path = Path(output_path)
-    prepared_metadata = {
-        key: _hdf5_metadata_value(value)
-        for key, value in (metadata or {}).items()
-        if value is not None
-    }
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with h5py.File(output_path, "w") as h5file:
-        # Create a group for each baseline
-        for key, vis in visibilities.items():
-            baseline_group = h5file.create_group(f"baseline_{key}")
-
-            # Save complex visibility
-            vis_array = np.stack(vis)  # Convert to 2D NumPy array
-            baseline_group.create_dataset(
-                "complex_visibility",
-                data=vis_array.astype(np.complex128),
-                dtype="complex128",
-            )
-
-        # Save frequencies and time points
-        h5file.create_dataset("frequencies", data=frequencies)
-        h5file.create_dataset("time_points_mjd", data=time_points_mjd)
-
-        # Save metadata as attributes (flatten complex objects)
-        for key, value in prepared_metadata.items():
-            h5file.attrs[key] = value
-
-    return str(output_path)
+from typing_extensions import override
 
 
 def save_config_yaml(
@@ -120,10 +31,11 @@ def save_config_yaml(
 
     # Custom YAML dumper for better readability
     class FormattedDumper(yaml.Dumper):
-        def write_line_break(self, data=None):
+        @override
+        def write_line_break(self, data: str | None = None) -> None:
             # Add a blank line between top-level sections
             if self.indent == 0:
-                self.stream.write("\n")
+                _ = self.stream.write("\n")
             super().write_line_break(data)
 
     with open(output_path, "w") as f:
@@ -132,63 +44,3 @@ def save_config_yaml(
         )
 
     return str(output_path)
-
-
-def load_visibilities_hdf5(
-    input_path: str | Path,
-) -> dict[str, Any]:
-    """Load visibility data from HDF5 format.
-
-    Parameters
-    ----------
-    input_path : str or Path
-        Path to input HDF5 file
-
-    Returns
-    -------
-    dict
-        Dictionary containing:
-        - 'visibilities': dict mapping baseline tuples to visibility arrays
-        - 'frequencies': frequency array
-        - 'time_points_mjd': time points array
-        - 'metadata': dict of metadata attributes
-    """
-    input_path = Path(input_path)
-
-    result = {
-        "visibilities": {},
-        "frequencies": None,
-        "time_points_mjd": None,
-        "metadata": {},
-    }
-
-    with h5py.File(input_path, "r") as h5file:
-        # Load visibilities from baseline groups
-        for key in h5file.keys():
-            if key.startswith("baseline_"):
-                # Parse baseline tuple from group name
-                baseline_str = key.replace("baseline_", "")
-                # Handle both (i, j) and "i_j" formats
-                if baseline_str.startswith("("):
-                    baseline = eval(baseline_str)
-                else:
-                    parts = baseline_str.split("_")
-                    baseline = (int(parts[0]), int(parts[1]))
-
-                result["visibilities"][baseline] = h5file[key]["complex_visibility"][:]
-
-        # Load frequencies and time points
-        if "frequencies" in h5file:
-            result["frequencies"] = h5file["frequencies"][:]
-        if "time_points_mjd" in h5file:
-            result["time_points_mjd"] = h5file["time_points_mjd"][:]
-
-        # Load metadata attributes
-        for attr_name, attr_value in h5file.attrs.items():
-            if isinstance(attr_value, str) and attr_value.startswith(
-                "__radiosim_json__:"
-            ):
-                attr_value = json.loads(attr_value.removeprefix("__radiosim_json__:"))
-            result["metadata"][attr_name] = attr_value
-
-    return result
