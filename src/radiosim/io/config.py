@@ -53,6 +53,7 @@ from radiosim.core.sky.containers.constants import (
     DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST,
 )
 from radiosim.io.model_base import StrictFrozenModel
+from radiosim.io.result_format import ResultFormat
 
 if TYPE_CHECKING:
     from radiosim.core.runtime_config import ResolvedConfiguration
@@ -1488,17 +1489,48 @@ class CliWorkflowConfig(StrictFrozenModel):
     output_dir: Path = Path("output")
     run_subdir: str | None = None
     result_filename: str = "visibilities"
-    result_format: Literal["hdf5", "json", "ms", "uvfits"] = "hdf5"
+    result_format: ResultFormat = ResultFormat.HDF5
     save_results: bool = False
-    overwrite: bool = False
-    skip_overwrite_confirmation: bool = False
-    prompt_for_output_suffix: bool = False
+    collision_policy: Literal["error", "replace", "suffix", "prompt"] = "error"
     plot_results: bool = False
     open_plots_in_browser: bool = False
     plotting_backend: Literal["bokeh", "matplotlib"] = "bokeh"
     save_log: bool = False
     angle_unit: Literal["degrees", "radians", ""] = ""
     sky_model_frequency_hz: PositiveFiniteFloat | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_removed_output_policy(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping):
+            return value
+        mapping = cast(Mapping[str, object], value)
+        guidance = {
+            "overwrite": (
+                "workflow.overwrite: removed before v1.0; use workflow.collision_policy"
+            ),
+            "skip_overwrite_confirmation": (
+                "workflow.skip_overwrite_confirmation: removed before v1.0; "
+                "use collision_policy=replace"
+            ),
+            "prompt_for_output_suffix": (
+                "workflow.prompt_for_output_suffix: removed before v1.0; "
+                "use collision_policy=suffix"
+            ),
+        }
+        for field_name in (
+            "overwrite",
+            "skip_overwrite_confirmation",
+            "prompt_for_output_suffix",
+        ):
+            if field_name in mapping:
+                raise ValueError(guidance[field_name])
+        if mapping.get("result_format") == "json":
+            raise ValueError(
+                "workflow.result_format=json: removed before v1.0; "
+                "use summary_json or hdf5"
+            )
+        return mapping
 
     @field_validator("run_subdir")
     @classmethod
@@ -1855,15 +1887,6 @@ def collect_semantic_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
                 )
             )
 
-    if config.workflow.skip_overwrite_confirmation and not config.workflow.overwrite:
-        issues.append(
-            ConfigIssue(
-                "workflow.skip_overwrite_confirmation",
-                "overwrite_confirmation_contradiction",
-                "requires workflow.overwrite=true",
-                category="workflow",
-            )
-        )
     source = config.instrument.source
     if (
         isinstance(source, KnownTelescopeSourceConfig)
@@ -1962,18 +1985,6 @@ def collect_unsupported_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...
             "spherical-harmonic calculation is not implemented until Tier 7",
         )
     workflow = config.workflow
-    if workflow.result_format == "uvfits":
-        add(
-            "workflow.result_format",
-            "uvfits_unsupported",
-            "UVFITS workflow output is not implemented until Tier 4",
-        )
-    if workflow.prompt_for_output_suffix:
-        add(
-            "workflow.prompt_for_output_suffix",
-            "output_suffix_prompt_unsupported",
-            "suffix prompting is not implemented until Tier 4",
-        )
     if workflow.angle_unit:
         add(
             "workflow.angle_unit",
@@ -2044,6 +2055,20 @@ _REMOVED_FIELD_GUIDANCE: dict[str, tuple[str, str]] = {
     "output": (
         "top-level 'output' was removed",
         "Move CLI-only output policy to 'workflow'.",
+    ),
+    "workflow.overwrite": (
+        "workflow.overwrite: removed before v1.0; use workflow.collision_policy",
+        "Use collision_policy=error, replace, suffix, or prompt.",
+    ),
+    "workflow.skip_overwrite_confirmation": (
+        "workflow.skip_overwrite_confirmation: removed before v1.0; "
+        "use collision_policy=replace",
+        "Use collision_policy=replace.",
+    ),
+    "workflow.prompt_for_output_suffix": (
+        "workflow.prompt_for_output_suffix: removed before v1.0; "
+        "use collision_policy=suffix",
+        "Use collision_policy=suffix.",
     ),
     "antenna_layout.fixed_HPBW": (
         "fixed_HPBW was removed because it had no live runtime reader",
@@ -2158,6 +2183,51 @@ def _removed_beam_schema_issues(data: Mapping[str, Any]) -> tuple[ConfigIssue, .
     )
 
 
+def _removed_workflow_schema_issues(
+    data: Mapping[str, Any],
+) -> tuple[ConfigIssue, ...]:
+    workflow = data.get("workflow")
+    if not isinstance(workflow, Mapping):
+        return ()
+    workflow_mapping = cast(Mapping[str, object], workflow)
+    messages = {
+        "overwrite": (
+            "workflow.overwrite: removed before v1.0; use workflow.collision_policy"
+        ),
+        "skip_overwrite_confirmation": (
+            "workflow.skip_overwrite_confirmation: removed before v1.0; "
+            "use collision_policy=replace"
+        ),
+        "prompt_for_output_suffix": (
+            "workflow.prompt_for_output_suffix: removed before v1.0; "
+            "use collision_policy=suffix"
+        ),
+    }
+    issues = [
+        ConfigIssue(
+            f"workflow.{field_name}",
+            "removed_field",
+            message,
+            stage="schema",
+            category="schema",
+        )
+        for field_name, message in messages.items()
+        if field_name in workflow_mapping
+    ]
+    if workflow_mapping.get("result_format") == "json":
+        issues.append(
+            ConfigIssue(
+                "workflow.result_format",
+                "removed_value",
+                "workflow.result_format=json: removed before v1.0; "
+                "use summary_json or hdf5",
+                stage="schema",
+                category="schema",
+            )
+        )
+    return _ordered_issues(issues)
+
+
 def _dotted_path(location: Sequence[str | int]) -> str:
     path = ""
     for item in location:
@@ -2223,27 +2293,49 @@ def schema_issues_from_validation_error(
 def collect_schema_issues(data: Mapping[str, Any]) -> tuple[ConfigIssue, ...]:
     """Validate a complete document without constructing a partial model."""
     removed_beams = _removed_beam_schema_issues(data)
+    removed_workflow = _removed_workflow_schema_issues(data)
     validation_data: Mapping[str, Any] = data
-    if removed_beams:
+    if removed_beams or removed_workflow:
         validation_copy = dict(data)
         beams = data.get("beams")
         if isinstance(beams, Mapping):
+            beam_mapping = cast(Mapping[str, object], beams)
             sanitized_beams = {
                 key: value
-                for key, value in beams.items()
+                for key, value in beam_mapping.items()
                 if key not in _REMOVED_BEAM_FIELD_GUIDANCE
             }
             if "mode" not in sanitized_beams:
                 sanitized_beams = {"mode": "analytic"}
             validation_copy["beams"] = sanitized_beams
+        workflow = data.get("workflow")
+        if isinstance(workflow, Mapping):
+            workflow_mapping = cast(Mapping[str, object], workflow)
+            sanitized_workflow = {
+                key: value
+                for key, value in workflow_mapping.items()
+                if key
+                not in {
+                    "overwrite",
+                    "skip_overwrite_confirmation",
+                    "prompt_for_output_suffix",
+                }
+            }
+            if sanitized_workflow.get("result_format") == "json":
+                sanitized_workflow["result_format"] = "hdf5"
+            validation_copy["workflow"] = sanitized_workflow
         validation_data = validation_copy
     try:
         _ = RadioSimConfig.model_validate(dict(validation_data))
     except ValidationError as error:
         return _ordered_issues(
-            (*removed_beams, *schema_issues_from_validation_error(error))
+            (
+                *removed_beams,
+                *removed_workflow,
+                *schema_issues_from_validation_error(error),
+            )
         )
-    return _ordered_issues(removed_beams)
+    return _ordered_issues((*removed_beams, *removed_workflow))
 
 
 _ENVIRONMENT_PATH = re.compile(r"\$(?:\{[^}]+\}|[A-Za-z_][A-Za-z0-9_]*)")
@@ -2458,6 +2550,8 @@ def create_default_config(output_path: str | Path) -> None:
         },
         "workflow": {
             "output_dir": "output",
+            "result_format": "hdf5",
+            "collision_policy": "error",
             "save_results": False,
             "plot_results": False,
             "open_plots_in_browser": False,

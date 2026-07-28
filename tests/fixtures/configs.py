@@ -113,6 +113,7 @@ def valid_config_mapping(
             "run_subdir": "run",
             "result_filename": "visibilities",
             "result_format": "hdf5",
+            "collision_policy": "error",
             "save_results": False,
             "plot_results": False,
             "open_plots_in_browser": False,

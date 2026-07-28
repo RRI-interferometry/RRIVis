@@ -51,6 +51,8 @@ execution:
 
 workflow:
   output_dir: output
+  result_format: hdf5
+  collision_policy: error
   save_results: false
   plot_results: false
   open_plots_in_browser: false

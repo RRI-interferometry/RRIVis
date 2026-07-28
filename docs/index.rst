@@ -55,8 +55,9 @@ Current high-level support
 - backend and precision selection through resolved configuration; and
 - observability plotting as a ``Simulator`` helper.
 
-FITS/mixed/per-antenna beams, receptor physics, heterogeneous observability,
-UVFITS output, and later simulator modes are not supported.
+FITS/mixed/per-antenna beams, HDF5, summary JSON, Measurement Set, and UVFITS
+output are supported within their documented contracts. Receptor physics and
+later simulator modes remain separate work.
 
 Quick example
 -------------
@@ -71,10 +72,10 @@ Quick example
    assert result is simulator.result
 
 The YAML ``workflow`` section is executed only by config-mode CLI orchestration.
-During the canonical-result cutover, result saving and plotting are unavailable:
-``Simulator.save`` and ``Simulator.plot`` raise ``ResultUnavailableError``
-before side effects. Config-mode save/plot requests and direct ``simulate``
-requests fail before runtime. Canonical output and rendering are later slices.
+``Simulator.save`` and direct ``simulate --output`` use one exact final artifact
+path and never prompt. Config mode publishes one owned, manifested run directory
+under the selected ``error``, ``replace``, ``suffix``, or TTY-only ``prompt``
+collision policy. Canonical result plotting remains a later Tier 4G slice.
 
 Indices and tables
 ==================

@@ -3,14 +3,39 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import stat
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
 
 from radiosim.core.precision import PrecisionConfig
+from radiosim.io.atomic_paths import (
+    create_sibling_temporary_directory,
+    exchange_directories,
+    fsync_directory,
+    open_parent_directory,
+    publish_directory_no_clobber,
+    remove_temporary_directory,
+)
 from radiosim.io.config_resolution import ConfigResolutionError
+from radiosim.io.result_errors import (
+    AtomicWriteError,
+    OutputCollisionError,
+    OverwriteRefusedError,
+    PartialCleanupError,
+    ResultIOError,
+    UnsafeOutputDirectoryError,
+)
+from radiosim.io.result_format import ResultFormat, require_result_dependencies
+from radiosim.io.workflow_artifacts import (
+    validate_owned_run_directory,
+    write_resolved_config_artifact,
+    write_workflow_manifest,
+)
 
 if TYPE_CHECKING:
     from radiosim.api.simulator import Simulator
@@ -35,7 +60,21 @@ _ERROR_LABELS = {
 
 
 class WorkflowOutputError(RuntimeError):
-    """A requested CLI result workflow is unavailable in the current slice."""
+    """A requested CLI result workflow violates the orchestration contract."""
+
+
+class NonInteractivePromptError(WorkflowOutputError):
+    """Prompt collision policy was requested without an interactive TTY."""
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowExecutionPlan:
+    """Read-only preflight decision consumed only after simulation succeeds."""
+
+    enabled: bool
+    declined: bool
+    target: Path | None
+    publish_mode: str | None
 
 
 def ensure_result_workflow_available(
@@ -43,25 +82,18 @@ def ensure_result_workflow_available(
     save_results: bool,
     plot_results: bool,
 ) -> None:
-    """Reject unavailable Tier 4C result work before runtime construction."""
-    requested: list[str] = []
-    if save_results:
-        requested.append("saving")
+    """Retain only the Tier 4G plot preflight before runtime construction."""
     if plot_results:
-        requested.append("plotting")
-    if requested:
-        subject = "result " + " and ".join(requested)
-        verb = "are" if len(requested) > 1 else "is"
         raise WorkflowOutputError(
-            f"{subject} {verb} temporarily unavailable in Tier 4C; saving requires the "
-            "planned output workflow and plotting requires the canonical result "
-            "renderer"
+            "result plotting remains unavailable until the Tier 4G canonical "
+            "result renderer is implemented"
         )
+    _ = save_results
 
 
-def render_workflow_error(error: WorkflowOutputError, *, command: str) -> None:
-    """Render a normal unsupported intermediate workflow without traceback."""
-    click.echo(f"Workflow unavailable for {command} — {error}")
+def render_workflow_error(error: RuntimeError, *, command: str) -> None:
+    """Render one typed workflow failure without traceback."""
+    click.echo(f"Workflow failed for {command} — {error}")
 
 
 def render_configuration_error(
@@ -149,6 +181,173 @@ def _artifact_mapping(
     }
 
 
+def _path_status(path: Path) -> os.stat_result | None:
+    try:
+        return path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise UnsafeOutputDirectoryError(
+            f"could not inspect workflow output target: {path}"
+        ) from exc
+
+
+def _validate_target_ancestors(path: Path) -> None:
+    current = Path(path.anchor)
+    for component in path.parts[1:-1]:
+        current = current / component
+        status = _path_status(current)
+        if status is None:
+            continue
+        if stat.S_ISLNK(status.st_mode) or not stat.S_ISDIR(status.st_mode):
+            raise UnsafeOutputDirectoryError(
+                f"workflow output ancestor is unsafe: {current}"
+            )
+
+
+def _is_empty_directory(path: Path) -> bool:
+    status = _path_status(path)
+    if status is None:
+        return False
+    if stat.S_ISLNK(status.st_mode) or not stat.S_ISDIR(status.st_mode):
+        return False
+    try:
+        return next(path.iterdir(), None) is None
+    except OSError as exc:
+        raise UnsafeOutputDirectoryError(
+            f"could not inspect workflow output directory: {path}"
+        ) from exc
+
+
+def _validate_format_preflight(
+    workflow: CliWorkflowConfig,
+    runtime: ResolvedSimulationConfig,
+) -> None:
+    if not workflow.save_results:
+        return
+    result_format = workflow.result_format
+    if type(result_format) is not ResultFormat:
+        raise TypeError("workflow.result_format must resolve to ResultFormat")
+    require_result_dependencies(result_format)
+    output_precision = runtime.execution.precision.output
+    if result_format in {ResultFormat.MS, ResultFormat.UVFITS} and str(
+        output_precision
+    ) in {"complex256", "float128"}:
+        raise WorkflowOutputError(
+            f"{result_format.value} cannot represent the configured output precision"
+        )
+
+
+def _suffix_target(base: Path) -> Path:
+    for index in range(1, 1000):
+        candidate = base.with_name(f"{base.name}-{index:03d}")
+        if _path_status(candidate) is None:
+            return candidate
+    raise OutputCollisionError(
+        f"workflow suffix policy exhausted candidates -001 through -999: {base}"
+    )
+
+
+def preflight_cli_workflow(
+    workflow: CliWorkflowConfig,
+    *,
+    runtime: ResolvedSimulationConfig,
+) -> WorkflowExecutionPlan:
+    """Resolve collision policy and prompt outcome without filesystem mutation."""
+    ensure_result_workflow_available(
+        save_results=workflow.save_results,
+        plot_results=workflow.plot_results,
+    )
+    any_output = workflow.save_results or workflow.plot_results or workflow.save_log
+    if not any_output:
+        return WorkflowExecutionPlan(False, False, None, None)
+    _validate_format_preflight(workflow, runtime)
+    run_subdir = workflow.run_subdir or deterministic_run_subdir(runtime)
+    target = Path(os.path.abspath(os.path.normpath(workflow.output_dir / run_subdir)))
+    _validate_target_ancestors(target)
+    status = _path_status(target)
+    if status is None:
+        return WorkflowExecutionPlan(True, False, target, "no_clobber")
+    if _is_empty_directory(target):
+        return WorkflowExecutionPlan(True, False, target, "exchange")
+    if workflow.collision_policy == "suffix":
+        return WorkflowExecutionPlan(
+            True,
+            False,
+            _suffix_target(target),
+            "no_clobber",
+        )
+    if stat.S_ISLNK(status.st_mode) or not stat.S_ISDIR(status.st_mode):
+        raise UnsafeOutputDirectoryError(
+            f"workflow output target is not a safe directory: {target}"
+        )
+    try:
+        _ = validate_owned_run_directory(target)
+    except UnsafeOutputDirectoryError:
+        raise
+    if workflow.collision_policy == "error":
+        raise OverwriteRefusedError(f"owned workflow run already exists: {target}")
+    if workflow.collision_policy == "prompt":
+        stream = click.get_text_stream("stdin")
+        if not stream.isatty():
+            raise NonInteractivePromptError(
+                f"collision policy prompt requires a TTY for owned run: {target}"
+            )
+        if not click.confirm(
+            f"Replace owned workflow run {target}?",
+            default=False,
+            show_default=True,
+        ):
+            return WorkflowExecutionPlan(False, True, target, None)
+    return WorkflowExecutionPlan(True, False, target, "exchange")
+
+
+def _close_file_handler(handler: logging.FileHandler | None) -> None:
+    if handler is None:
+        return
+    root = logging.getLogger()
+    root.removeHandler(handler)
+    try:
+        handler.flush()
+        handler.close()
+    except Exception as exc:
+        raise AtomicWriteError("workflow file logger failed to flush or close") from exc
+
+
+def _fsync_staged_tree(staging: Path) -> None:
+    for path in sorted(staging.rglob("*"), key=lambda item: item.as_posix()):
+        status = path.lstat()
+        if stat.S_ISLNK(status.st_mode):
+            raise UnsafeOutputDirectoryError(
+                f"staged workflow contains a symbolic link: {path}"
+            )
+        if stat.S_ISREG(status.st_mode):
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        elif not stat.S_ISDIR(status.st_mode):
+            raise UnsafeOutputDirectoryError(
+                f"staged workflow contains a special file: {path}"
+            )
+    for directory in sorted(
+        (path for path in staging.rglob("*") if path.is_dir()),
+        key=lambda item: len(item.parts),
+        reverse=True,
+    ):
+        descriptor = open_parent_directory(directory, create=False)
+        try:
+            fsync_directory(descriptor)
+        finally:
+            os.close(descriptor)
+    descriptor = open_parent_directory(staging, create=False)
+    try:
+        fsync_directory(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def run_cli_workflow(
     simulator: Simulator,
     workflow: CliWorkflowConfig,
@@ -156,99 +355,127 @@ def run_cli_workflow(
     runtime: ResolvedSimulationConfig,
     provenance: ConfigurationProvenance,
     verbose: int = 0,
+    plan: WorkflowExecutionPlan | None = None,
 ) -> tuple[Path, ...]:
-    """Execute resolved output policy after a successful simulation run."""
-    ensure_result_workflow_available(
-        save_results=workflow.save_results,
-        plot_results=workflow.plot_results,
-    )
+    """Build, verify, and atomically publish one complete owned run."""
+    execution_plan = plan or preflight_cli_workflow(workflow, runtime=runtime)
+    if execution_plan.declined or not execution_plan.enabled:
+        return ()
+    if execution_plan.target is None or execution_plan.publish_mode is None:
+        raise WorkflowOutputError("workflow preflight produced an incomplete plan")
 
     from radiosim.utils.logging import (
         print_info,
-        print_warning,
-        setup_logging,
     )
 
-    any_output = workflow.save_results or workflow.plot_results or workflow.save_log
-    if not any_output:
-        return ()
-
-    run_subdir = workflow.run_subdir or deterministic_run_subdir(runtime)
-    output_dir = workflow.output_dir / run_subdir
-    overwrite = workflow.overwrite
-
-    if output_dir.exists() and any(output_dir.iterdir()):
-        if workflow.skip_overwrite_confirmation:
-            print_warning(
-                "Output folder exists (confirmation skipped); existing files may "
-                "be overwritten."
+    target = execution_plan.target
+    parent_fd: int | None = None
+    staging: Path | None = None
+    handler: logging.FileHandler | None = None
+    published = False
+    artifact_names: list[str] = []
+    try:
+        parent_fd = open_parent_directory(target.parent, create=True)
+        staging = create_sibling_temporary_directory(target, parent_fd)
+        if workflow.save_log:
+            log_path = staging / "simulation.log"
+            try:
+                handler = logging.FileHandler(log_path, encoding="utf-8", delay=False)
+                handler.setLevel(logging.DEBUG if verbose >= 2 else logging.INFO)
+                logging.getLogger().addHandler(handler)
+            except Exception as exc:
+                raise AtomicWriteError(
+                    "workflow file logger could not be initialized in staging"
+                ) from exc
+            artifact_names.append(log_path.name)
+            print_info(f"Logging to staged run for: {target / log_path.name}")
+        config_path = write_resolved_config_artifact(
+            _artifact_mapping(runtime, workflow, provenance),
+            staging / "resolved-config.yaml",
+        )
+        artifact_names.append(config_path.name)
+        if workflow.save_results:
+            result_path = simulator.save(
+                staging / workflow.result_filename,
+                format=workflow.result_format,
+                overwrite=False,
             )
-        else:
-            print_warning(f"Output folder already exists: {output_dir}")
-            answer = (
-                click.prompt(
-                    "Overwrite existing files? [y/N]",
-                    default="n",
-                    show_default=False,
+            artifact_names.append(result_path.name)
+        _close_file_handler(handler)
+        handler = None
+        artifact_paths = tuple(staging / name for name in artifact_names)
+        _ = write_workflow_manifest(staging, artifact_paths)
+        _fsync_staged_tree(staging)
+        if execution_plan.publish_mode == "no_clobber":
+            publish_directory_no_clobber(staging, target, parent_fd)
+            staging = None
+        elif execution_plan.publish_mode == "exchange":
+            status = _path_status(target)
+            if (
+                status is None
+                or stat.S_ISLNK(status.st_mode)
+                or not stat.S_ISDIR(status.st_mode)
+            ):
+                raise OutputCollisionError(
+                    f"workflow replacement target changed after preflight: {target}"
                 )
-                .strip()
-                .lower()
+            if not _is_empty_directory(target):
+                _ = validate_owned_run_directory(target)
+            exchange_directories(staging, target, parent_fd)
+            published = True
+            old_run = staging
+            try:
+                remove_temporary_directory(old_run)
+            except Exception as exc:
+                if old_run.exists():
+                    raise PartialCleanupError(old_run) from exc
+            staging = None
+        else:
+            raise WorkflowOutputError(
+                f"unknown workflow publication mode: {execution_plan.publish_mode}"
             )
-            if answer not in {"y", "yes"}:
-                print_warning("Aborted. No files were modified.")
-                return ()
-            overwrite = True
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    saved_files: list[Path] = []
-
-    if workflow.save_log:
-        log_file = output_dir / "simulation.log"
-        setup_logging(
-            level=logging.DEBUG if verbose >= 2 else logging.INFO,
-            log_file=str(log_file),
-        )
-        saved_files.append(log_file)
-        print_info(f"Logging to: {log_file}")
-
-    from radiosim.io.writers import save_config_yaml
-
-    artifact_path = output_dir / "resolved-config.yaml"
-    save_config_yaml(
-        _artifact_mapping(runtime, workflow, provenance),
-        artifact_path,
-    )
-    saved_files.append(artifact_path)
-
-    if workflow.save_results:
-        data_path = simulator.save(
-            output_dir,
-            format=workflow.result_format,
-            overwrite=overwrite,
-            filename=workflow.result_filename,
-        )
-        if data_path:
-            saved_files.append(Path(data_path))
-
-    if workflow.plot_results:
-        plot_paths = simulator.plot(
-            plot_type="all",
-            output_dir=output_dir,
-            backend=workflow.plotting_backend,
-            show=workflow.open_plots_in_browser,
-            overwrite=overwrite,
-        )
-        saved_files.extend(Path(path) for path in plot_paths or ())
-
-    return tuple(saved_files)
+        published = True
+        fsync_directory(parent_fd)
+        final_names = ["manifest.json", *artifact_names]
+        return tuple(target / name for name in final_names)
+    except PartialCleanupError:
+        raise
+    except Exception as exc:
+        try:
+            _close_file_handler(handler)
+        except Exception as close_error:
+            exc.add_note(f"logger cleanup failure: {close_error!r}")
+        if staging is not None:
+            try:
+                remove_temporary_directory(staging)
+            except Exception as cleanup_error:
+                if staging.exists():
+                    error = PartialCleanupError(staging)
+                    error.add_note(f"cleanup failure: {cleanup_error!r}")
+                    raise error from exc
+        if isinstance(exc, (ResultIOError, WorkflowOutputError)):
+            raise
+        if published:
+            raise AtomicWriteError(
+                f"workflow run published with a post-publication error: {target}"
+            ) from exc
+        raise AtomicWriteError(
+            f"workflow transaction failed before publication: {target}"
+        ) from exc
+    finally:
+        if parent_fd is not None:
+            os.close(parent_fd)
 
 
 __all__ = [
     "deterministic_run_subdir",
     "ensure_result_workflow_available",
+    "NonInteractivePromptError",
+    "preflight_cli_workflow",
     "render_configuration_error",
     "render_resolved_summary",
     "render_workflow_error",
     "run_cli_workflow",
+    "WorkflowExecutionPlan",
     "WorkflowOutputError",
 ]

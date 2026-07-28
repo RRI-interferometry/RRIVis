@@ -125,8 +125,23 @@ are rejected; there is no VLEN compatibility reader, migration shim, or
 fallback.
 
 The legacy unsafe HDF5 function pair was removed immediately with no
-compatibility aliases.  High-level ``Simulator.save`` integration remains
-unavailable until a later slice.
+compatibility aliases.  High-level ``Simulator.save`` dispatches this writer
+only for ``ResultFormat.HDF5``.
+
+Truthful summary JSON
+---------------------
+
+.. autofunction:: radiosim.io.summary_json.write_result_summary_json
+
+``ResultFormat.SUMMARY_JSON`` uses the canonical ``.summary.json`` extension
+and schema ``radiosim.result-summary`` version ``1.0.0``.  It reports result
+shape, dtype, units, fingerprints, flags/weights summaries, canonical axes,
+detached identity/provenance snapshots, performance, and history.  It
+explicitly excludes visibility samples, full flags and weights, full
+coordinates, and antenna/baseline geometry.  The complete UTF-8 payload is
+limited to 16 MiB before filesystem mutation and uses the atomic regular-file
+publication policy.  It has no reader and cannot reconstruct a result; HDF5 is
+the complete reconstructable RadioSim format.
 
 Standard visibility exchange
 ----------------------------
@@ -189,12 +204,25 @@ publication contract.  The reader validates FITS random-group and antenna
 table headers before pyuvdata data allocation and then returns only validated
 ``StandardVisibilityData``.
 
-These direct APIs do not extend ``Simulator.save``.  That high-level dispatch
-remains reserved for Tier 4F.  Standard-format optional dependencies stay lazy,
-and the atomic writers never prompt.
+``Simulator.save`` dispatches these writers only for ``ResultFormat.MS`` and
+``ResultFormat.UVFITS``.  Standard-format optional dependencies stay lazy, and
+the atomic writers never prompt.
 
-Resolved-configuration workflow artifact
-----------------------------------------
+Owned CLI workflow transaction
+------------------------------
 
-``radiosim.io.writers`` temporarily retains only the resolved-configuration
-YAML artifact helper needed by the pre-workflow state.
+Config-mode CLI output is one staged run directory containing
+``manifest.json``, ``resolved-config.yaml``, optional ``simulation.log``, and
+the selected result artifact.  The strict
+``radiosim.workflow-manifest.v1`` manifest lists sorted safe relative paths and
+SHA-256 hashes.  A nonempty run is replaceable only when that manifest validates
+the exact contained artifacts; malformed, traversing, linked, aliased, or
+unlisted content never authorizes replacement.
+
+``collision_policy`` is exactly ``error``, ``replace``, ``suffix``, or
+``prompt``.  Prompting occurs only for a valid owned run on a TTY and before
+simulation or filesystem mutation.  Python and direct ``simulate`` never
+prompt.  The CLI writes, verifies, closes, hashes, and fsyncs staging before one
+atomic directory publish.  Failure before publication removes staging and
+preserves the old run; browser work remains after publication and plotting
+stays disabled until Tier 4G.

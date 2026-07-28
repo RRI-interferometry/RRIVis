@@ -31,11 +31,34 @@ from pathlib import Path
 from typing import Literal, cast
 
 import click
+from typing_extensions import override
 
 from radiosim.__about__ import __description__, __version__
 
 _BACKEND_CHOICES = click.Choice(["auto", "numpy", "jax", "numba"])
 BackendStrategy = Literal["auto", "numpy", "jax", "numba"]
+_LEGACY_JSON_GUIDANCE = (
+    "format 'json' was removed before v1.0 because it did not contain visibility "
+    "data; use 'summary_json' for metadata or 'hdf5' for a lossless RadioSim result"
+)
+
+
+class _ResultFormatChoice(click.Choice[str]):
+    """Parse exact CLI formats while preserving the legacy migration error."""
+
+    @override
+    def convert(
+        self,
+        value: object,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> str:
+        if value == "json":
+            self.fail(_LEGACY_JSON_GUIDANCE, param, ctx)
+        return super().convert(value, param, ctx)
+
+
+_RESULT_FORMAT_CHOICES = _ResultFormatChoice(["hdf5", "summary_json", "ms", "uvfits"])
 
 
 @click.group(
@@ -165,11 +188,16 @@ def cli(
     show_default=True,
     help="Sky model to use",
 )
-@click.option("--output", default="output/", show_default=True, help="Output directory")
+@click.option(
+    "--output",
+    default="visibilities.h5",
+    show_default=True,
+    help="Exact final result artifact path",
+)
 @click.option(
     "--format",
     "output_format",
-    type=click.Choice(["hdf5", "json", "ms"]),
+    type=_RESULT_FORMAT_CHOICES,
     default="hdf5",
     show_default=True,
     help="Output format",
@@ -309,9 +337,10 @@ def run_config_mode(
 
     from radiosim.cli.workflow import (
         WorkflowOutputError,
-        ensure_result_workflow_available,
+        preflight_cli_workflow,
         render_workflow_error,
     )
+    from radiosim.io.result_errors import ResultIOError
 
     try:
         from radiosim.io.config import load_config
@@ -339,16 +368,16 @@ def run_config_mode(
             ),
             check_input_paths=True,
         )
-        ensure_result_workflow_available(
-            save_results=bundle.workflow.save_results,
-            plot_results=bundle.workflow.plot_results,
+        workflow_plan = preflight_cli_workflow(
+            bundle.workflow,
+            runtime=bundle.runtime,
         )
     except ConfigResolutionError as error:
         from radiosim.cli.workflow import render_configuration_error
 
         render_configuration_error(error, command="config mode")
         return 1
-    except WorkflowOutputError as error:
+    except (WorkflowOutputError, ResultIOError) as error:
         render_workflow_error(error, command="config mode")
         return 1
     except Exception as error:
@@ -358,6 +387,10 @@ def run_config_mode(
 
             traceback.print_exc()
         return 1
+
+    if workflow_plan.declined:
+        click.echo("Workflow declined; no simulation or output work was performed.")
+        return 0
 
     from radiosim.utils.logging import (
         get_logger,
@@ -392,6 +425,7 @@ def run_config_mode(
             runtime=bundle.runtime,
             provenance=bundle.provenance,
             verbose=verbose,
+            plan=workflow_plan,
         )
     except Exception as error:
         logger.error(f"CLI workflow failed: {error}")
@@ -426,21 +460,6 @@ def run_simulate_mode(
     time_step_seconds: float = 1.0,
 ) -> int:
     """Resolve typed scientific parameters, run, and save explicitly."""
-    from radiosim.cli.workflow import (
-        WorkflowOutputError,
-        ensure_result_workflow_available,
-        render_workflow_error,
-    )
-
-    try:
-        ensure_result_workflow_available(
-            save_results=True,
-            plot_results=False,
-        )
-    except WorkflowOutputError as error:
-        render_workflow_error(error, command="simulate")
-        return 1
-
     from radiosim.utils.logging import get_logger, setup_logging
 
     setup_logging()
@@ -494,6 +513,19 @@ def run_simulate_mode(
             InstrumentLocationConfig,
             LayoutFileSourceConfig,
         )
+        from radiosim.io.result_format import (
+            ResultFormat,
+            preflight_result_target,
+            require_result_dependencies,
+        )
+
+        result_format = ResultFormat(output_format)
+        _ = preflight_result_target(
+            output,
+            result_format,
+            overwrite=False,
+        )
+        require_result_dependencies(result_format)
 
         loader_name, defaults = loader_registry.resolve_request(sky_model, {})
         meta = loader_registry.meta(sky_model)
@@ -548,10 +580,14 @@ def run_simulate_mode(
             execution=execution,
         )
 
-        simulator.run()
-        simulator.save(output, format=output_format, overwrite=False)
+        _ = simulator.run()
+        saved_path = simulator.save(
+            output,
+            format=result_format,
+            overwrite=False,
+        )
 
-        logger.info(f"Results saved to: {output}")
+        logger.info(f"Results saved to: {saved_path}")
         return 0
 
     except ConfigResolutionError as error:

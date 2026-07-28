@@ -46,11 +46,29 @@ Coordinates, masks, provenance, and fingerprints are available through
 `result.provenance_sha256`. Stored Stokes I and per-baseline correlation
 dictionaries have no replacement; derive Stokes I from the canonical array.
 
-During this bounded cutover, `Simulator.save()` and `Simulator.plot()` raise
-`ResultUnavailableError` before side effects. Config-mode save/plot requests
-also fail before runtime, and direct `radiosim simulate` is temporarily
-unavailable because it necessarily saves. Canonical HDF5 and standard-format
-writers, transactional output, and result rendering are later gated slices.
+`Simulator.save()` now takes an exact final artifact path:
+
+```python
+from radiosim import ResultFormat
+
+simulator.save("output/result", format=ResultFormat.HDF5)
+simulator.save("output/result", format=ResultFormat.SUMMARY_JSON)
+```
+
+The old `output_dir`, `filename`, and string-format arguments have no
+compatibility overload. `json` was removed because it did not contain
+visibilities: use `summary_json` for metadata or `hdf5` for a lossless RadioSim
+result. Workflow `overwrite`, `skip_overwrite_confirmation`, and
+`prompt_for_output_suffix` were replaced directly:
+
+- `workflow.overwrite: removed before v1.0; use workflow.collision_policy`
+- `workflow.skip_overwrite_confirmation: removed before v1.0; use collision_policy=replace`
+- `workflow.prompt_for_output_suffix: removed before v1.0; use collision_policy=suffix`
+- `workflow.result_format=json: removed before v1.0; use summary_json or hdf5`
+
+Use `collision_policy: error|replace|suffix|prompt`. Prompting is CLI-only,
+TTY-only, and limited to valid owned manifested runs. Result plotting remains
+unavailable until Tier 4G.
 
 ## Instrument input
 

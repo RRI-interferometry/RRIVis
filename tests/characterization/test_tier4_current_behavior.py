@@ -20,6 +20,7 @@ from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
 from radiosim.io.config import RadioSimConfig, collect_unsupported_issues
+from radiosim.io.result_format import ResultFormat
 from tests.fixtures.configs import valid_config_mapping
 
 FREQUENCIES_HZ = np.array([100_000_000.0], dtype=np.float64)
@@ -166,7 +167,7 @@ def test_run_publishes_one_immutable_canonical_result(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("operation", ["save", "plot"])
 @pytest.mark.parametrize("run_first", [False, True])
-def test_save_and_plot_are_unavailable_before_side_effects(
+def test_save_requires_a_result_while_plot_remains_unavailable(
     tmp_path: Path,
     operation: str,
     run_first: bool,
@@ -174,21 +175,33 @@ def test_save_and_plot_are_unavailable_before_side_effects(
     simulator = _canonical_simulator(tmp_path)
     if run_first:
         simulator.run(progress=False)
-    output = tmp_path / f"{operation}-must-not-exist"
+    output = tmp_path / f"{operation}.h5"
 
+    if operation == "save" and run_first:
+        assert simulator.save(output, format=ResultFormat.HDF5) == output
+        assert output.is_file()
+        return
     with pytest.raises(ResultUnavailableError):
         if operation == "save":
-            simulator.save(output, format="hdf5")
+            simulator.save(output, format=ResultFormat.HDF5)
         else:
             simulator.plot(output_dir=output, show=False)
 
     assert not output.exists()
 
 
-def test_uvfits_remains_rejected_by_config_and_all_direct_save_is_unavailable(
+def test_uvfits_config_and_direct_save_are_available(
     tmp_path: Path,
 ) -> None:
-    data = valid_config_mapping(tmp_path, workflow={"result_format": "uvfits"})
+    data = valid_config_mapping(
+        tmp_path,
+        frequency={
+            "mode": "explicit",
+            "channel_frequencies_hz": [100e6, 101e6],
+            "channel_widths_hz": [1e6, 1e6],
+        },
+        workflow={"result_format": "uvfits"},
+    )
     config = RadioSimConfig.model_validate(data)
     issues = collect_unsupported_issues(config)
     uvfits = [
@@ -196,13 +209,13 @@ def test_uvfits_remains_rejected_by_config_and_all_direct_save_is_unavailable(
         for issue in issues
         if issue.path == "workflow.result_format" and issue.code == "uvfits_unsupported"
     ]
-    assert len(uvfits) == 1
-    assert uvfits[0].stage == "unsupported"
+    assert uvfits == []
 
     fixture_dir = tmp_path / "direct-fixture"
     fixture_dir.mkdir()
-    simulator = _canonical_simulator(fixture_dir)
-    output_dir = tmp_path / "direct-uvfits"
-    with pytest.raises(ResultUnavailableError):
-        simulator.save(output_dir, format="uvfits")
-    assert not output_dir.exists()
+    simulator = Simulator.from_mapping(data, base_dir=fixture_dir)
+    simulator.run(progress=False)
+    output = tmp_path / "direct.uvfits"
+
+    assert simulator.save(output, format=ResultFormat.UVFITS) == output
+    assert output.is_file()

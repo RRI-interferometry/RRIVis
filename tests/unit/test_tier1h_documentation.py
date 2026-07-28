@@ -227,18 +227,19 @@ def test_current_docs_do_not_present_removed_simulator_patterns(path):
     (
         REPOSITORY_ROOT / "README.md",
         REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
-        REPOSITORY_ROOT / "docs" / "user_guide" / "instrument_resolution.rst",
     ),
     ids=lambda path: path.name,
 )
-def test_tier4c_output_docs_are_fail_closed(path):
+def test_tier4f_output_docs_are_exact_and_keep_plotting_fail_closed(path):
     text = path.read_text(encoding="utf-8")
 
-    assert "Simulator.save()` currently dispatches" not in text
-    assert "``Simulator.save`` dispatches" not in text
+    assert "ResultFormat" in text
+    assert "summary JSON" in text
+    assert "HDF5" in text
+    assert "exact final" in text
+    assert "Tier 4G" in text
     assert "HDF5 and JSON preserve" not in text
-    assert "ResultUnavailableError" in text
-    assert "later separately gated work" in text
+    assert "result saving and plotting are deliberately unavailable" not in text
 
 
 def test_tier4d_hdf5_documentation_is_complete_and_bounded():
@@ -268,7 +269,13 @@ def test_tier4d_hdf5_documentation_is_complete_and_bounded():
         "no VLEN compatibility reader",
         "legacy unversioned",
         "Simulator.save",
-        "later slice",
+        "ResultFormat.HDF5",
+        "result-summary",
+        "summary JSON",
+        "16 MiB",
+        "workflow-manifest.v1",
+        "collision_policy",
+        "browser",
     ):
         assert required in text
     assert "save_visibilities_hdf5" not in text
@@ -288,7 +295,7 @@ def test_tier4d_hdf5_documentation_is_complete_and_bounded():
         "write_uvfits",
         "read_uvfits",
         "Simulator.save",
-        "Tier 4F",
+        "Simulator.save",
     ):
         assert required in text
     for removed in (

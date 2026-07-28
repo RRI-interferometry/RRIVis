@@ -6,6 +6,7 @@ import pytest
 from click.testing import CliRunner
 
 from radiosim.cli.main import cli
+from radiosim.io.result_format import ResultFormat
 from tests.fixtures.configs import write_minimal_antenna_file
 
 
@@ -30,6 +31,8 @@ def _simulate_args(antenna_path, *extra: str) -> list[str]:
         "1073",
         "--start-time",
         "2025-01-01T00:00:00",
+        "--output",
+        str(antenna_path.parent / "direct-result"),
         *extra,
     ]
 
@@ -38,7 +41,7 @@ def test_simulate_uses_typed_parameters_and_preserves_nonuniform_hz(
     tmp_path, recording_simulator
 ):
     antenna_path = write_minimal_antenna_file(tmp_path)
-    output_dir = tmp_path / "output"
+    output_path = tmp_path / "output-summary"
 
     result = CliRunner().invoke(
         cli,
@@ -47,18 +50,28 @@ def test_simulate_uses_typed_parameters_and_preserves_nonuniform_hz(
             "--sky-model",
             "test",
             "--output",
-            str(output_dir),
+            str(output_path),
             "--format",
-            "json",
+            "summary_json",
             "--backend",
             "numpy",
         ),
     )
 
-    assert result.exit_code == 1
-    assert "result saving is temporarily unavailable" in result.output
-    assert recording_simulator.instances == []
-    assert not output_dir.exists()
+    assert result.exit_code == 0, result.output
+    simulator = recording_simulator.instances[0]
+    assert simulator.config.frequency.channel_frequencies_hz == (
+        100e6,
+        101.5e6,
+        108e6,
+    )
+    assert simulator.config.frequency.channel_widths_hz == (1e6, 0.5e6, 2e6)
+    assert simulator.save_calls == [
+        (
+            (str(output_path),),
+            {"format": ResultFormat.SUMMARY_JSON, "overwrite": False},
+        )
+    ]
 
 
 @pytest.mark.parametrize(
@@ -78,9 +91,10 @@ def test_simulate_resolves_registered_sky_alias_to_typed_inputs(
         cli, _simulate_args(antenna_path, "--sky-model", sky_alias)
     )
 
-    assert result.exit_code == 1
-    assert "temporarily unavailable" in result.output
-    assert recording_simulator.instances == []
+    assert result.exit_code == 0, result.output
+    simulator = recording_simulator.instances[0]
+    assert simulator.config.sky_model.sources[0].kind == kind
+    assert simulator.config.visibility["sky_representation"] == representation
 
 
 @pytest.mark.parametrize(
@@ -99,7 +113,7 @@ def test_simulate_rejects_invalid_frequency_sequences_through_resolver(
     result = CliRunner().invoke(cli, args)
 
     assert result.exit_code == 1
-    assert "temporarily unavailable" in result.output
+    assert "obs_frequency.explicit.channel_frequencies_hz" in result.output
     assert recording_simulator.instances == []
 
 
@@ -114,7 +128,7 @@ def test_simulate_rejects_width_length_mismatch_before_simulator_construction(
     result = CliRunner().invoke(cli, args)
 
     assert result.exit_code == 1
-    assert "temporarily unavailable" in result.output
+    assert "--channel-widths-mhz must contain the same number" in result.output
     assert recording_simulator.instances == []
 
 
@@ -127,7 +141,7 @@ def test_simulate_rejects_missing_antenna_before_simulator_construction(
 
     assert result.exit_code == 1
     assert recording_simulator.instances == []
-    assert "temporarily unavailable" in result.output
+    assert "instrument.source.path" in result.output
 
 
 def test_simulate_reports_missing_diameter_without_an_implicit_default(
@@ -147,7 +161,7 @@ def test_simulate_reports_missing_diameter_without_an_implicit_default(
 
     normalized_output = " ".join(result.output.split())
     assert result.exit_code == 1
-    assert "temporarily unavailable" in normalized_output
+    assert "incomplete antenna diameters" in normalized_output
 
 
 def test_simulate_requires_explicit_location_and_start_time(
@@ -205,7 +219,7 @@ def test_root_help_uses_real_native_layout_and_scopes_config_path_override():
     assert "HERA65.csv" not in result.output
 
 
-def test_direct_simulate_fails_at_tier4c_output_preflight_before_runtime(
+def test_direct_simulate_saves_exact_final_target_without_workflow_policy(
     tmp_path,
     recording_simulator,
 ):
@@ -223,7 +237,33 @@ def test_direct_simulate_fails_at_tier4c_output_preflight_before_runtime(
         ),
     )
 
-    assert result.exit_code == 1
-    assert "temporarily unavailable" in result.output
+    assert result.exit_code == 0, result.output
+    simulator = recording_simulator.instances[0]
+    assert simulator.ran is True
+    assert simulator.save_calls == [
+        (
+            (str(output),),
+            {"format": ResultFormat.HDF5, "overwrite": False},
+        )
+    ]
+
+
+def test_direct_simulate_rejects_legacy_json_with_exact_guidance(
+    tmp_path,
+    recording_simulator,
+):
+    antenna_path = write_minimal_antenna_file(tmp_path)
+
+    result = CliRunner().invoke(
+        cli,
+        _simulate_args(antenna_path, "--format", "json"),
+    )
+
+    normalized = " ".join(result.output.split())
+    assert result.exit_code == 2
+    assert (
+        "format 'json' was removed before v1.0 because it did not contain "
+        "visibility data; use 'summary_json' for metadata or 'hdf5' for a "
+        "lossless RadioSim result"
+    ) in normalized
     assert recording_simulator.instances == []
-    assert not output.exists()

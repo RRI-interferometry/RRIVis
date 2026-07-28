@@ -78,9 +78,7 @@ workflow:
   result_filename: realistic_foreground
   result_format: hdf5
   save_results: true
-  overwrite: false
-  skip_overwrite_confirmation: false
-  prompt_for_output_suffix: false
+  collision_policy: error
   plot_results: false
   open_plots_in_browser: false
   plotting_backend: bokeh

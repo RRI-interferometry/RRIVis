@@ -370,7 +370,7 @@ def test_workflow_is_absent_from_runtime_state(tmp_path):
         tmp_path,
         workflow={
             "result_filename": "workflow-name",
-            "result_format": "json",
+            "result_format": "summary_json",
             "save_results": True,
             "plot_results": True,
             "open_plots_in_browser": True,
@@ -675,12 +675,17 @@ def test_result_metadata_uses_json_safe_scientific_snapshot_without_workflow(
     assert later.beam_state is simulator.beam_state
 
 
-def test_save_is_unavailable_before_writer_or_filesystem_work(tmp_path, monkeypatch):
+def test_save_rejects_absent_result_before_writer_or_filesystem_work(
+    tmp_path, monkeypatch
+):
     from radiosim.core.result import ResultUnavailableError
 
     data = _explicit_data(
         tmp_path,
-        workflow={"result_filename": "workflow-name", "result_format": "json"},
+        workflow={
+            "result_filename": "workflow-name",
+            "result_format": "summary_json",
+        },
     )
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
 
@@ -689,8 +694,79 @@ def test_save_is_unavailable_before_writer_or_filesystem_work(tmp_path, monkeypa
 
     monkeypatch.setattr(Path, "mkdir", forbidden)
 
-    with pytest.raises(ResultUnavailableError, match="planned output workflow"):
+    with pytest.raises(ResultUnavailableError, match="no successfully published"):
         simulator.save(tmp_path / "saved")
+
+
+@pytest.mark.parametrize(
+    ("format_name", "module_name", "writer_name", "extension"),
+    [
+        ("HDF5", "radiosim.io.hdf5", "write_result_hdf5", ".h5"),
+        (
+            "SUMMARY_JSON",
+            "radiosim.io.summary_json",
+            "write_result_summary_json",
+            ".summary.json",
+        ),
+        ("MS", "radiosim.io.measurement_set", "write_measurement_set", ".ms"),
+        ("UVFITS", "radiosim.io.uvfits", "write_uvfits", ".uvfits"),
+    ],
+)
+def test_save_dispatches_exact_typed_format_to_final_artifact(
+    tmp_path,
+    monkeypatch,
+    format_name,
+    module_name,
+    writer_name,
+    extension,
+):
+    from radiosim.io.result_format import ResultFormat
+    from tests.unit.test_core.test_result import _build
+
+    result, _ = _build(tmp_path)
+    simulator = object.__new__(Simulator)
+    simulator._result = result
+    calls = []
+
+    def writer(observed_result, path, *, overwrite):
+        calls.append((observed_result, path, overwrite))
+        return Path(path)
+
+    monkeypatch.setattr(importlib.import_module(module_name), writer_name, writer)
+    selected = getattr(ResultFormat, format_name)
+    target = simulator.save(
+        tmp_path / "artifact",
+        format=selected,
+        overwrite=True,
+    )
+
+    assert target == tmp_path / f"artifact{extension}"
+    assert calls == [(result, target, True)]
+
+
+def test_save_default_is_hdf5_and_rejects_strings_before_writer_import(
+    tmp_path, monkeypatch
+):
+    from radiosim.io.result_format import ResultFormat
+    from tests.unit.test_core.test_result import _build
+
+    result, _ = _build(tmp_path)
+    simulator = object.__new__(Simulator)
+    simulator._result = result
+    calls = []
+
+    def writer(observed_result, path, *, overwrite):
+        calls.append((observed_result, path, overwrite))
+        return Path(path)
+
+    monkeypatch.setattr("radiosim.io.hdf5.write_result_hdf5", writer)
+    assert simulator.save(tmp_path / "default") == tmp_path / "default.h5"
+    assert calls == [(result, tmp_path / "default.h5", False)]
+
+    with pytest.raises(TypeError, match="ResultFormat"):
+        simulator.save(tmp_path / "invalid", format="hdf5")
+    assert not (tmp_path / "invalid.h5").exists()
+    assert ResultFormat.HDF5.value == "hdf5"
 
 
 def test_run_rejects_ignored_worker_control_before_setup(tmp_path):

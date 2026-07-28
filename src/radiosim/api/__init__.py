@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from radiosim.core.phase_center import PhaseCenter
     from radiosim.core.result import LoadedSimulationResult, SimulationResult
     from radiosim.core.time_grid import ObservationTimeGrid
+    from radiosim.io.result_format import ResultFormat
 
 _LAZY_EXPORTS = {
     "Simulator": ("radiosim.api.simulator", "Simulator"),
@@ -25,6 +26,7 @@ _LAZY_EXPORTS = {
         "ObservationTimeGrid",
     ),
     "PhaseCenter": ("radiosim.core.phase_center", "PhaseCenter"),
+    "ResultFormat": ("radiosim.io.result_format", "ResultFormat"),
 }
 
 
@@ -50,4 +52,5 @@ __all__ = [
     "LoadedSimulationResult",
     "ObservationTimeGrid",
     "PhaseCenter",
+    "ResultFormat",
 ]

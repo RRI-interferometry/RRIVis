@@ -251,7 +251,7 @@ def test_config_mode_renders_override_error_hierarchy(
             "obs_time.time_step_seconds",
         ),
         (
-            lambda data: data["workflow"].update({"result_format": "uvfits"}),
+            lambda data: data["workflow"].update({"result_format": "json"}),
             "workflow.result_format",
         ),
         (
@@ -369,9 +369,9 @@ def test_workflow_forwards_save_and_plot_policy_after_run(
         workflow={
             "run_subdir": "chosen-run",
             "result_filename": "science",
-            "result_format": "json",
+            "result_format": "summary_json",
             "save_results": True,
-            "overwrite": True,
+            "collision_policy": "replace",
             "plot_results": True,
             "open_plots_in_browser": True,
             "plotting_backend": "matplotlib",
@@ -382,7 +382,7 @@ def test_workflow_forwards_save_and_plot_policy_after_run(
     result = _invoke_config(CliRunner(), config_path)
 
     assert result.exit_code == 1
-    assert "result saving and plotting are temporarily unavailable" in result.output
+    assert "result plotting remains unavailable" in result.output
     assert recording_simulator.instances == []
     output_dir = tmp_path / "output" / "chosen-run"
     assert not output_dir.exists()
@@ -396,7 +396,7 @@ def test_existing_output_conflict_aborts_without_overwrite(
     (output_dir / "existing.txt").write_text("keep")
     data = valid_config_mapping(
         tmp_path,
-        workflow={"save_results": True, "overwrite": False},
+        workflow={"save_results": True, "collision_policy": "error"},
     )
     config_path = write_config_yaml(tmp_path, data)
 
@@ -407,7 +407,7 @@ def test_existing_output_conflict_aborts_without_overwrite(
     )
 
     assert result.exit_code == 1
-    assert "temporarily unavailable" in result.output
+    assert "workflow manifest is missing" in result.output
     assert recording_simulator.instances == []
     assert (output_dir / "existing.txt").read_text() == "keep"
 
@@ -423,8 +423,7 @@ def test_generated_run_subdir_is_deterministic_from_resolved_science(
         workflow={
             "run_subdir": None,
             "save_log": True,
-            "overwrite": True,
-            "skip_overwrite_confirmation": True,
+            "collision_policy": "replace",
         },
     )
     config_path = write_config_yaml(tmp_path, data)
@@ -450,15 +449,43 @@ def test_root_help_exposes_tri_state_options_without_implicit_backend_default():
     assert "default" not in backend_line.lower()
 
 
+def test_save_workflow_runs_and_publishes_owned_manifest(
+    tmp_path,
+    recording_simulator,
+):
+    output_dir = tmp_path / "output"
+    config_path = write_config_yaml(
+        tmp_path,
+        valid_config_mapping(
+            tmp_path,
+            workflow={
+                "output_dir": str(output_dir),
+                "save_results": True,
+                "result_format": "summary_json",
+            },
+        ),
+    )
+
+    result = _invoke_config(CliRunner(), config_path)
+
+    assert result.exit_code == 0, result.output
+    assert recording_simulator.instances[0].ran is True
+    run = output_dir / "run"
+    assert sorted(path.name for path in run.iterdir()) == [
+        "manifest.json",
+        "resolved-config.yaml",
+        "visibilities.summary.json",
+    ]
+
+
 @pytest.mark.parametrize(
     "workflow",
     [
-        {"save_results": True},
         {"plot_results": True},
         {"save_results": True, "plot_results": True},
     ],
 )
-def test_tier4c_unavailable_result_workflow_fails_before_simulator_construction(
+def test_tier4g_plot_workflow_fails_before_simulator_construction(
     tmp_path,
     recording_simulator,
     workflow,
@@ -475,6 +502,6 @@ def test_tier4c_unavailable_result_workflow_fails_before_simulator_construction(
     result = _invoke_config(CliRunner(), config_path)
 
     assert result.exit_code == 1
-    assert "temporarily unavailable" in result.output
+    assert "Tier 4G" in result.output
     assert recording_simulator.instances == []
     assert not output_dir.exists()

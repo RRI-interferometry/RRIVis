@@ -11,13 +11,12 @@ Basic usage:
 
     >>> # High-level API
     >>> sim = radiosim.Simulator.from_yaml("config.yaml")
-    >>> results = sim.run()
-    >>> sim.plot()
-    >>> sim.save("output/")
+    >>> result = sim.run()
+    >>> sim.save("output/result")
 
     >>> # Programmatic API
     >>> sim = radiosim.Simulator.from_mapping(config_data, base_dir=project_dir)
-    >>> results = sim.run()
+    >>> result = sim.run()
 
 For more information, see https://github.com/RRI-interferometry/RadioSim
 """
@@ -51,6 +50,7 @@ if TYPE_CHECKING:
         SimulationResult,
         calculate_visibility,
     )
+    from radiosim.io.result_format import ResultFormat
     from radiosim.simulator import (
         RIMESimulator,
         VisibilitySimulator,
@@ -73,6 +73,7 @@ _LAZY_EXPORTS = {
         "ObservationTimeGrid",
     ),
     "PhaseCenter": ("radiosim.core.phase_center", "PhaseCenter"),
+    "ResultFormat": ("radiosim.io.result_format", "ResultFormat"),
     "get_backend": ("radiosim.backends", "get_backend"),
     "list_backends": ("radiosim.backends", "list_backends"),
     "AntennaId": ("radiosim.core", "AntennaId"),
@@ -125,6 +126,7 @@ __all__ = [
     "LoadedSimulationResult",
     "ObservationTimeGrid",
     "PhaseCenter",
+    "ResultFormat",
     # Backend selection
     "get_backend",
     "list_backends",

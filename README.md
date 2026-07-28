@@ -94,13 +94,12 @@ available through `result.time_grid`, `result.frequencies_hz`,
 `result.flags`, `result.weights`, `result.scientific_sha256`, and
 `result.provenance_sha256` complete the current result surface.
 
-Result saving and plotting are deliberately unavailable during the Tier 4C
-cutover: `Simulator.save()` and `Simulator.plot()` raise
-`ResultUnavailableError` before creating output. Config-mode save/plot requests
-fail before runtime, and the direct `radiosim simulate` command is temporarily
-unavailable because it necessarily requests a saved artifact. Canonical HDF5
-and standard-format output, transactions, and rendering arrive in later
-separately gated slices.
+Save the last successful result to one exact final path with the typed
+`ResultFormat` enum. HDF5 is complete and reconstructable, summary JSON
+(`SUMMARY_JSON`) is bounded metadata only, and MS/UVFITS are standard-format
+projections. Python
+and direct `simulate` calls never prompt or generate suffixes. Canonical result
+plotting remains fail-closed until Tier 4G.
 
 For a small programmatic run:
 
@@ -217,6 +216,7 @@ workflow:
   output_dir: output
   result_filename: visibilities
   result_format: hdf5
+  collision_policy: error
   save_results: false
   plot_results: false
   open_plots_in_browser: false
@@ -297,12 +297,13 @@ comparison against NumPy.
 
 ## Output and observability
 
-`Simulator.save()` and `Simulator.plot()` are deliberately unavailable in the
-current cutover and raise `ResultUnavailableError` before side effects. The
-immutable in-memory result contains exact canonical antenna/baseline tuples and
-detached instrument and beam snapshots. Legacy low-level writer utilities are
-not integrated with this canonical result. HDF5, standard-format output,
-transactions, and result rendering remain later separately gated work.
+`Simulator.save(path, format=ResultFormat.HDF5)` uses the exact final artifact
+path. Missing canonical extensions are appended; conflicting extensions and
+string format arguments are rejected. Config mode stages the config artifact,
+optional log, and selected result together, verifies a strict ownership
+manifest, and publishes one run directory atomically under the selected
+collision policy. The old run survives every pre-publication failure.
+Canonical result rendering remains separately gated Tier 4G work.
 
 `Simulator.plot_observability()` is a helper associated with the Simulator and
 uses the same loaded beam system. It selects the minimum-number antenna only

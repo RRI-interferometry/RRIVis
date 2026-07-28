@@ -28,6 +28,7 @@ import numpy as np
 from astropy.constants import c as speed_of_light
 
 from radiosim.__about__ import __version__
+from radiosim.io.result_format import ResultFormat
 from radiosim.utils.logging import (
     console,
     print_header,
@@ -1268,18 +1269,42 @@ class Simulator:
 
     def save(
         self,
-        output_dir: str | Path,
-        format: str = "hdf5",
+        path: str | Path,
+        /,
+        *,
+        format: ResultFormat = ResultFormat.HDF5,
         overwrite: bool = False,
-        filename: str | None = None,
     ) -> Path:
-        """Reject saving until the planned canonical output workflow exists."""
+        """Save the last successful result to one exact final artifact path."""
         from radiosim.core.result import ResultUnavailableError
-
-        raise ResultUnavailableError(
-            "result saving remains unavailable until the planned output workflow "
-            "is implemented"
+        from radiosim.io.result_format import (
+            normalize_result_path,
+            require_result_format,
         )
+
+        if self._result is None:
+            raise ResultUnavailableError(
+                "no successfully published SimulationResult is available to save"
+            )
+        typed_format = require_result_format(format)
+        final = normalize_result_path(path, typed_format)
+        if typed_format is ResultFormat.HDF5:
+            from radiosim.io.hdf5 import write_result_hdf5
+
+            return write_result_hdf5(self._result, final, overwrite=overwrite)
+        if typed_format is ResultFormat.SUMMARY_JSON:
+            from radiosim.io.summary_json import write_result_summary_json
+
+            return write_result_summary_json(self._result, final, overwrite=overwrite)
+        if typed_format is ResultFormat.MS:
+            from radiosim.io.measurement_set import write_measurement_set
+
+            return write_measurement_set(self._result, final, overwrite=overwrite)
+        if typed_format is ResultFormat.UVFITS:
+            from radiosim.io.uvfits import write_uvfits
+
+            return write_uvfits(self._result, final, overwrite=overwrite)
+        raise AssertionError("unreachable ResultFormat dispatch")
 
     def get_memory_estimate(self) -> dict[str, Any]:
         """

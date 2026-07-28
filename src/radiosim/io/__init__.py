@@ -68,7 +68,9 @@ if TYPE_CHECKING:
         read_measurement_set,
         write_measurement_set,
     )
+    from radiosim.io.result_format import ResultFormat
     from radiosim.io.standard_visibility import StandardVisibilityData
+    from radiosim.io.summary_json import write_result_summary_json
     from radiosim.io.uvfits import read_uvfits, write_uvfits
 
 
@@ -167,6 +169,11 @@ _LAZY_EXPORTS = {
         "radiosim.io.hdf5",
         "load_result_hdf5",
     ),
+    "ResultFormat": ("radiosim.io.result_format", "ResultFormat"),
+    "write_result_summary_json": (
+        "radiosim.io.summary_json",
+        "write_result_summary_json",
+    ),
     "StandardVisibilityData": (
         "radiosim.io.standard_visibility",
         "StandardVisibilityData",
@@ -249,6 +256,8 @@ __all__ = [
     "HDF5ReadLimits",
     "write_result_hdf5",
     "load_result_hdf5",
+    "ResultFormat",
+    "write_result_summary_json",
     # Standard visibility projection and exchange formats
     "StandardVisibilityData",
     "write_measurement_set",

@@ -30,12 +30,16 @@ def recording_simulator(monkeypatch):
 
     def save(self, *args, **kwargs):
         self.save_calls.append((args, kwargs))
-        output_dir = Path(args[0])
-        output_dir.mkdir(parents=True, exist_ok=True)
-        suffix = {"hdf5": ".h5", "json": ".json", "ms": ".ms"}[
-            kwargs.get("format", "hdf5")
-        ]
-        return output_dir / f"{kwargs.get('filename', 'visibilities')}{suffix}"
+        target = Path(args[0])
+        result_format = kwargs["format"]
+        if not target.name.endswith(result_format.extension):
+            target = target.with_name(target.name + result_format.extension)
+        if result_format.value == "ms":
+            target.mkdir()
+            (target / "table.dat").write_bytes(b"test measurement set")
+        else:
+            target.write_bytes(b"test result")
+        return target
 
     def plot(self, *args, **kwargs):
         self.plot_calls.append((args, kwargs))

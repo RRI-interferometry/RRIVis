@@ -574,8 +574,7 @@ def test_dump_config_preserves_paths_maps_order_precision_and_workflow(tmp_path)
         ],
         workflow={
             "output_dir": str(tmp_path / "custom-output"),
-            "overwrite": True,
-            "skip_overwrite_confirmation": True,
+            "collision_policy": "replace",
         },
     )
     data["execution"]["precision"] = {
@@ -611,7 +610,7 @@ def test_dump_config_preserves_paths_maps_order_precision_and_workflow(tmp_path)
         "flux_limit": 0.5,
     }
     assert document["execution"]["precision"]["coordinates"]["uvw"] == "float32"
-    assert document["workflow"]["overwrite"] is True
+    assert document["workflow"]["collision_policy"] == "replace"
     assert "runtime" not in document
     assert "provenance" not in document
     assert config.model_dump(mode="json") == before
@@ -741,10 +740,7 @@ def test_semantic_collector_aggregates_stably_without_mutating_config(tmp_path):
             "backend": "jax",
             "precision": {"preset": "ultra", "output": "float128"},
         },
-        workflow={
-            "overwrite": False,
-            "skip_overwrite_confirmation": True,
-        },
+        workflow={"collision_policy": "error"},
     )
     before = config.model_dump(mode="json")
 
@@ -759,7 +755,6 @@ def test_semantic_collector_aggregates_stably_without_mutating_config(tmp_path):
         "execution.precision",
         "execution.precision.preset.ultra",
         "obs_time.time_step_seconds",
-        "workflow.skip_overwrite_confirmation",
     } <= {item.path for item in first}
     assert config.model_dump(mode="json") == before
 
@@ -774,7 +769,7 @@ def test_unsupported_collector_accepts_final_beam_modes_for_runtime(tmp_path):
         visibility={"calculation_type": "spherical_harmonic"},
         workflow={
             "result_format": "uvfits",
-            "prompt_for_output_suffix": True,
+            "collision_policy": "suffix",
             "angle_unit": "degrees",
             "sky_model_frequency_hz": 150e6,
         },
@@ -785,8 +780,6 @@ def test_unsupported_collector_accepts_final_beam_modes_for_runtime(tmp_path):
 
     assert {
         "visibility.calculation_type",
-        "workflow.result_format",
-        "workflow.prompt_for_output_suffix",
         "workflow.angle_unit",
         "workflow.sky_model_frequency_hz",
     } <= paths

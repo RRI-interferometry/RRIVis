@@ -131,9 +131,11 @@ does not establish complete accelerator coverage for the high-level workflow.
 Output boundary
 ---------------
 
-``Simulator.save`` and ``Simulator.plot`` currently raise
-``ResultUnavailableError`` before filesystem, writer, renderer, logger, prompt,
-or browser work. Config-mode save/plot requests and the direct ``simulate``
-command fail at the same pre-runtime boundary. Legacy low-level writer
-utilities are not integrated with the canonical result; HDF5, standard-format
-output, transactions, and result rendering remain later separately gated work.
+``Simulator.save`` accepts an exact final artifact path and a typed
+``ResultFormat`` for HDF5, summary JSON, Measurement Set, or UVFITS. Direct
+Python and ``simulate`` calls never prompt or suffix. Config mode preflights
+``collision_policy`` and manifest ownership before runtime, builds the complete
+run in sibling staging, and publishes atomically. Summary JSON is explicitly
+incomplete metadata; HDF5 is the complete reconstructable result.
+``Simulator.plot`` and configured result plotting remain rejected before
+runtime until Tier 4G.

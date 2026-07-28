@@ -10,6 +10,7 @@ import pytest
 
 from radiosim.api import Simulator
 from radiosim.core.result import ResultUnavailableError, SimulationResult
+from radiosim.io.result_format import ResultFormat
 from tests.fixtures.configs import valid_config_mapping
 
 
@@ -232,7 +233,7 @@ def test_memory_estimate_uses_exact_canonical_time_count(tmp_path, monkeypatch):
     assert captured["n_times"] == len(simulator.config.observation.time_grid) == 3
 
 
-def test_save_and_plot_are_typed_unavailable_without_side_effects(
+def test_save_requires_result_and_plot_remains_unavailable_without_side_effects(
     tmp_path,
     monkeypatch,
 ):
@@ -241,7 +242,7 @@ def test_save_and_plot_are_typed_unavailable_without_side_effects(
     import webbrowser
 
     simulator = Simulator.from_mapping(_mapping(tmp_path), base_dir=tmp_path)
-    output = tmp_path / "must-not-exist"
+    output = tmp_path / "must-not-exist.h5"
 
     def forbidden(*_args, **_kwargs):
         pytest.fail("unavailable result workflow crossed a side-effect boundary")
@@ -262,17 +263,8 @@ def test_save_and_plot_are_typed_unavailable_without_side_effects(
             pytest.fail(f"unavailable result workflow imported {name}")
         return native_import(name, *args, **kwargs)
 
-    def assert_fail_closed():
-        for operation, message in (
-            (
-                lambda: simulator.save(
-                    output,
-                    format="hostile",
-                    overwrite=True,
-                    filename="../escape",
-                ),
-                "planned output workflow",
-            ),
+    def assert_fail_closed(*, include_save: bool):
+        operations = [
             (
                 lambda: simulator.plot(
                     plot_type="hostile",
@@ -283,7 +275,20 @@ def test_save_and_plot_are_typed_unavailable_without_side_effects(
                 ),
                 "canonical result renderer",
             ),
-        ):
+        ]
+        if include_save:
+            operations.insert(
+                0,
+                (
+                    lambda: simulator.save(
+                        output,
+                        format=ResultFormat.HDF5,
+                        overwrite=True,
+                    ),
+                    "no successfully published SimulationResult",
+                ),
+            )
+        for operation, message in operations:
             with pytest.raises(ResultUnavailableError, match=message):
                 operation()
 
@@ -294,7 +299,7 @@ def test_save_and_plot_are_typed_unavailable_without_side_effects(
         guarded.setattr(Path, "mkdir", forbidden)
         guarded.setattr(logging, "getLogger", forbidden)
         guarded.setattr(webbrowser, "open", forbidden)
-        assert_fail_closed()
+        assert_fail_closed(include_save=True)
 
     assert not output.exists()
     simulator.run(progress=False)
@@ -306,9 +311,11 @@ def test_save_and_plot_are_typed_unavailable_without_side_effects(
         guarded.setattr(Path, "mkdir", forbidden)
         guarded.setattr(logging, "getLogger", forbidden)
         guarded.setattr(webbrowser, "open", forbidden)
-        assert_fail_closed()
+        assert_fail_closed(include_save=False)
 
     assert not output.exists()
+    assert simulator.save(output, format=ResultFormat.HDF5) == output
+    assert output.is_file()
 
 
 def test_solver_api_has_only_the_canonical_time_grid_contract():

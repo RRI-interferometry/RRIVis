@@ -70,6 +70,7 @@ Local formats also require explicit identity and geodetic location:
      output_dir: output
      result_filename: visibilities
      result_format: hdf5
+     collision_policy: error
      save_results: false
      plot_results: false
      open_plots_in_browser: false
@@ -94,6 +95,12 @@ Execution and workflow
 global offline policy. ``workflow`` is CLI-only post-run orchestration.
 ``ResolvedSimulationConfig`` excludes workflow state, and Python constructors
 never save, plot, prompt, skip, log, or open a browser implicitly.
+
+``result_format`` accepts exactly ``hdf5``, ``summary_json``, ``ms``, or
+``uvfits``. HDF5 is complete; summary JSON is metadata-only. The four
+``collision_policy`` values are ``error``, ``replace``, ``suffix``, and
+``prompt``. Only ``prompt`` may ask a question, only for a valid owned run on
+an actual TTY. A manifest safely defines run-directory ownership.
 
 Loading and serialization
 -------------------------

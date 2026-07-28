@@ -30,12 +30,22 @@ YAML construction
 
 The canonical result also exposes ``flags``, ``weights``, ``time_grid``,
 ``frequencies_hz``, ``channel_widths_hz``, ``correlations``,
-``scientific_sha256``, and ``provenance_sha256``. Saving and result plotting
-are deliberately unavailable in this slice: ``Simulator.save`` and
-``Simulator.plot`` raise ``ResultUnavailableError`` before output mutation.
-Config-mode save/plot requests and direct ``simulate`` requests fail before
-runtime; output transactions, standard formats, and canonical rendering are
-implemented in later slices.
+``scientific_sha256``, and ``provenance_sha256``. Save an exact final artifact
+through the typed API:
+
+.. code-block:: python
+
+   from radiosim import ResultFormat
+
+   hdf5_path = simulator.save(
+       "output/example",
+       format=ResultFormat.HDF5,
+   )
+
+HDF5 is complete and reconstructable. ``SUMMARY_JSON`` is bounded metadata
+only; ``MS`` and ``UVFITS`` are explicit standard-format projections. Python
+and direct ``simulate`` calls never prompt or apply CLI suffix policy.
+Canonical result plotting remains fail-closed until Tier 4G.
 
 Typed parameter construction
 ----------------------------

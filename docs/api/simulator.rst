@@ -38,12 +38,22 @@ the first successful run). The visibility array shape is
 ``(time, baseline, frequency, correlation)`` and the correlation order is
 ``XX, XY, YX, YY``. Use ``result.stokes_i()`` for derived Stokes I.
 
-``Simulator.save()`` and ``Simulator.plot()`` remain present but raise
-:class:`~radiosim.core.result.ResultUnavailableError` before side effects until
-the separately gated canonical output and renderer workflows are implemented.
-Config-mode save/plot requests fail before runtime. The direct
-``radiosim simulate`` command is temporarily unavailable because it
-necessarily saves an artifact.
+``Simulator.save(path, /, *, format=ResultFormat.HDF5, overwrite=False)``
+treats ``path`` as the exact final artifact target.  It supports HDF5,
+metadata-only summary JSON, Measurement Set, and UVFITS through the typed
+``ResultFormat`` enum.  Missing canonical extensions are appended; conflicting
+extensions and string format arguments are rejected.  Python APIs never
+prompt, suffix, or read CLI workflow policy.
+
+.. code-block:: python
+
+   from radiosim import ResultFormat
+
+   simulator.save("results/run", format=ResultFormat.HDF5)
+   simulator.save("results/run", format=ResultFormat.SUMMARY_JSON)
+
+``Simulator.plot()`` remains fail-closed until the separately gated Tier 4G
+canonical result renderer.  Config-mode plotting is rejected before runtime.
 
 After setup, ``instrument`` returns the canonical resolved object, while
 ``antennas`` and ``baselines`` return its exact immutable tuples. Access before
