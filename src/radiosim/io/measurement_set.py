@@ -160,6 +160,54 @@ def _table_cell_shape(table: Any, name: str, *, row: int = 0) -> str:
     return typed_shapes[0]
 
 
+def _validate_ms_column_descriptor(
+    table: Any,
+    name: str,
+    *,
+    value_types: set[str],
+    ndim: int,
+    shape: tuple[int, ...] | None = None,
+) -> None:
+    if name not in table.colnames():
+        raise UnsafeResultInputError(
+            f"Measurement Set table lacks required column {name}"
+        )
+    raw_descriptor: object = table.getcoldesc(name)
+    if not isinstance(raw_descriptor, dict):
+        raise UnsafeResultInputError(
+            f"Measurement Set column {name} has unsafe descriptor metadata"
+        )
+    descriptor = cast(dict[str, object], raw_descriptor)
+    if descriptor.get("valueType") not in value_types:
+        raise UnsafeResultInputError(
+            f"Measurement Set column {name} has an unsupported value type"
+        )
+    descriptor_ndim = descriptor.get("ndim")
+    if ndim == 0:
+        if descriptor_ndim not in (None, 0):
+            raise UnsafeResultInputError(
+                f"Measurement Set column {name} must be scalar"
+            )
+    elif descriptor_ndim != ndim:
+        raise UnsafeResultInputError(
+            f"Measurement Set column {name} has an unsupported rank"
+        )
+    if shape is not None and descriptor.get("shape") is not None:
+        declared_shape = descriptor.get("shape")
+        try:
+            shape_tuple = tuple(
+                int(item) for item in np.asarray(declared_shape).reshape(-1)
+            )
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise UnsafeResultInputError(
+                f"Measurement Set column {name} has unsafe shape metadata"
+            ) from exc
+        if shape_tuple != shape:
+            raise UnsafeResultInputError(
+                f"Measurement Set column {name} has an unsupported shape"
+            )
+
+
 def _bounded_history_storage(path: Path) -> None:
     """Bound variable-length HISTORY storage before any string value access."""
     pending = [path]
@@ -322,6 +370,9 @@ def _read_ms_metadata(
         antennas = open_table(path / "ANTENNA")
         field = open_table(path / "FIELD")
         history_table = open_table(path / "HISTORY")
+        data_description = open_table(path / "DATA_DESCRIPTION")
+        feed = open_table(path / "FEED")
+        observation = open_table(path / "OBSERVATION")
         if int(spectral.nrows()) != 1:
             raise UnsafeResultInputError(
                 "Measurement Set must contain one SPECTRAL_WINDOW row"
@@ -332,11 +383,214 @@ def _read_ms_metadata(
             )
         if int(field.nrows()) != 1:
             raise UnsafeResultInputError("Measurement Set must contain one FIELD row")
+        if int(data_description.nrows()) != 1:
+            raise UnsafeResultInputError(
+                "Measurement Set must contain one DATA_DESCRIPTION row"
+            )
+        if int(observation.nrows()) != 1:
+            raise UnsafeResultInputError(
+                "Measurement Set must contain one OBSERVATION row"
+            )
         antenna_rows = int(antennas.nrows())
         if antenna_rows <= 0:
             raise UnsafeResultInputError("Measurement Set ANTENNA table is empty")
         if antenna_rows > limits.max_antennas:
             raise UnsafeResultInputError("standard input exceeds max_antennas")
+        feed_rows = int(feed.nrows())
+        if feed_rows != antenna_rows:
+            raise UnsafeResultInputError(
+                "Measurement Set FEED must contain one row per ANTENNA row"
+            )
+        for column in (
+            "SPECTRAL_WINDOW_ID",
+            "POLARIZATION_ID",
+        ):
+            _validate_ms_column_descriptor(
+                data_description,
+                column,
+                value_types={"int"},
+                ndim=0,
+            )
+        _validate_ms_column_descriptor(
+            data_description,
+            "FLAG_ROW",
+            value_types={"boolean"},
+            ndim=0,
+        )
+        _validate_ms_column_descriptor(
+            observation,
+            "TIME_RANGE",
+            value_types={"double"},
+            ndim=1,
+            shape=(2,),
+        )
+        _validate_ms_column_descriptor(
+            observation,
+            "FLAG_ROW",
+            value_types={"boolean"},
+            ndim=0,
+        )
+        for column in ("OBSERVER", "PROJECT", "TELESCOPE_NAME"):
+            _validate_ms_column_descriptor(
+                observation,
+                column,
+                value_types={"string"},
+                ndim=0,
+            )
+        for column in (
+            "ANTENNA_ID",
+            "FEED_ID",
+            "NUM_RECEPTORS",
+            "SPECTRAL_WINDOW_ID",
+        ):
+            _validate_ms_column_descriptor(
+                feed,
+                column,
+                value_types={"int"},
+                ndim=0,
+            )
+        for column in ("TIME", "INTERVAL"):
+            _validate_ms_column_descriptor(
+                feed,
+                column,
+                value_types={"double"},
+                ndim=0,
+            )
+        _validate_ms_column_descriptor(
+            feed,
+            "POSITION",
+            value_types={"double"},
+            ndim=1,
+            shape=(3,),
+        )
+        _validate_ms_column_descriptor(
+            feed,
+            "POLARIZATION_TYPE",
+            value_types={"string"},
+            ndim=1,
+        )
+        _validate_ms_column_descriptor(
+            feed,
+            "POL_RESPONSE",
+            value_types={"complex", "dcomplex"},
+            ndim=2,
+        )
+        _validate_ms_column_descriptor(
+            feed,
+            "RECEPTOR_ANGLE",
+            value_types={"double"},
+            ndim=1,
+        )
+        if (
+            _table_scalar(data_description, "SPECTRAL_WINDOW_ID") != 0
+            or _table_scalar(data_description, "POLARIZATION_ID") != 0
+            or _table_scalar(data_description, "FLAG_ROW") is not False
+        ):
+            raise UnsafeResultInputError(
+                "Measurement Set DATA_DESCRIPTION row is unsupported"
+            )
+        for row in range(feed_rows):
+            if (
+                _table_cell_shape(feed, "POSITION", row=row) != "[3]"
+                or _table_cell_shape(feed, "POLARIZATION_TYPE", row=row) != "[2]"
+                or _table_cell_shape(feed, "POL_RESPONSE", row=row) != "[2, 2]"
+                or _table_cell_shape(feed, "RECEPTOR_ANGLE", row=row) != "[2]"
+            ):
+                raise UnsafeResultInputError(
+                    "Measurement Set FEED cell shapes are unsupported"
+                )
+        for column in (
+            "ANTENNA1",
+            "ANTENNA2",
+            "FIELD_ID",
+            "DATA_DESC_ID",
+            "ARRAY_ID",
+            "SCAN_NUMBER",
+        ):
+            _validate_ms_column_descriptor(
+                main,
+                column,
+                value_types={"int"},
+                ndim=0,
+            )
+        for column in ("TIME", "EXPOSURE"):
+            _validate_ms_column_descriptor(
+                main,
+                column,
+                value_types={"double"},
+                ndim=0,
+            )
+        _validate_ms_column_descriptor(
+            main,
+            "UVW",
+            value_types={"double"},
+            ndim=1,
+            shape=(3,),
+        )
+        _validate_ms_column_descriptor(
+            main,
+            data_column,
+            value_types={"complex", "dcomplex"},
+            ndim=2,
+        )
+        _validate_ms_column_descriptor(
+            main,
+            "FLAG",
+            value_types={"boolean"},
+            ndim=2,
+        )
+        if "WEIGHT_SPECTRUM" in main.colnames():
+            weight_column = "WEIGHT_SPECTRUM"
+            _validate_ms_column_descriptor(
+                main,
+                weight_column,
+                value_types={"float", "double"},
+                ndim=2,
+            )
+        else:
+            weight_column = "WEIGHT"
+            _validate_ms_column_descriptor(
+                main,
+                weight_column,
+                value_types={"float", "double"},
+                ndim=1,
+            )
+        _validate_ms_column_descriptor(
+            spectral,
+            "NUM_CHAN",
+            value_types={"int"},
+            ndim=0,
+        )
+        _validate_ms_column_descriptor(
+            spectral,
+            "CHAN_FREQ",
+            value_types={"double"},
+            ndim=1,
+        )
+        _validate_ms_column_descriptor(
+            spectral,
+            "CHAN_WIDTH",
+            value_types={"double"},
+            ndim=1,
+        )
+        _validate_ms_column_descriptor(
+            polarization,
+            "NUM_CORR",
+            value_types={"int"},
+            ndim=0,
+        )
+        _validate_ms_column_descriptor(
+            polarization,
+            "CORR_TYPE",
+            value_types={"int"},
+            ndim=1,
+        )
+        _validate_ms_column_descriptor(
+            field,
+            "PHASE_DIR",
+            value_types={"double"},
+            ndim=2,
+        )
         frequency_count = _table_scalar(spectral, "NUM_CHAN")
         polarization_count = _table_scalar(polarization, "NUM_CORR")
         if type(frequency_count) is not int or frequency_count <= 0:
@@ -349,6 +603,32 @@ def _read_ms_metadata(
             raise UnsafeResultInputError(
                 "Measurement Set must declare exactly four correlations"
             )
+        expected_data_shape = (int(frequency_count), int(polarization_count))
+        _validate_ms_column_descriptor(
+            main,
+            data_column,
+            value_types={"complex", "dcomplex"},
+            ndim=2,
+            shape=expected_data_shape,
+        )
+        _validate_ms_column_descriptor(
+            main,
+            "FLAG",
+            value_types={"boolean"},
+            ndim=2,
+            shape=expected_data_shape,
+        )
+        _validate_ms_column_descriptor(
+            main,
+            weight_column,
+            value_types={"float", "double"},
+            ndim=2 if weight_column == "WEIGHT_SPECTRUM" else 1,
+            shape=(
+                expected_data_shape
+                if weight_column == "WEIGHT_SPECTRUM"
+                else (int(polarization_count),)
+            ),
+        )
         expected_frequency_shape = f"[{frequency_count}]"
         if (
             _table_cell_shape(spectral, "CHAN_FREQ") != expected_frequency_shape
@@ -391,22 +671,6 @@ def _read_ms_metadata(
         )
         if potential_data_bytes > limits.max_data_bytes:
             raise UnsafeResultInputError("standard input exceeds max_data_bytes")
-        data_descriptor = main.getcoldesc(data_column)
-        if (
-            data_descriptor.get("valueType") not in {"complex", "dcomplex"}
-            or data_descriptor.get("ndim") != 2
-        ):
-            raise UnsafeResultInputError(
-                "Measurement Set DATA column has an unsupported descriptor"
-            )
-        declared_shape = data_descriptor.get("shape")
-        if declared_shape is not None and tuple(
-            int(item) for item in np.asarray(declared_shape).reshape(-1)
-        ) != (int(frequency_count), int(polarization_count)):
-            raise UnsafeResultInputError(
-                "Measurement Set DATA descriptor disagrees with its subtables"
-            )
-
         projection_record, history_messages = _bounded_ms_history(
             path,
             history_table,
@@ -419,6 +683,11 @@ def _read_ms_metadata(
         antenna2_chunks: list[np.ndarray] = []
         time_chunks: list[np.ndarray] = []
         expected_shape = f"[{frequency_count}, {polarization_count}]"
+        expected_weight_shape = (
+            expected_shape
+            if weight_column == "WEIGHT_SPECTRUM"
+            else f"[{polarization_count}]"
+        )
         for start in range(0, main_rows, _MS_METADATA_CHUNK_ROWS):
             count = min(_MS_METADATA_CHUNK_ROWS, main_rows - start)
             antenna1_chunk = np.asarray(
@@ -462,19 +731,22 @@ def _read_ms_metadata(
                     raise UnsafeResultInputError("standard input exceeds max_times")
                 if len(unique_pairs) > limits.max_baselines:
                     raise UnsafeResultInputError("standard input exceeds max_baselines")
-            if declared_shape is None:
-                shapes = main.getcolshapestring(
-                    data_column,
-                    start,
-                    count,
-                    1,
-                )
-                if len(shapes) != count or any(
-                    shape != expected_shape for shape in shapes
-                ):
-                    raise UnsafeResultInputError(
-                        "Measurement Set DATA cell shapes disagree with its subtables"
-                    )
+            shape_checks = (
+                (data_column, expected_shape),
+                ("FLAG", expected_shape),
+                (weight_column, expected_weight_shape),
+            )
+            for column, expected in shape_checks:
+                descriptor = main.getcoldesc(column)
+                if descriptor.get("shape") is None:
+                    shapes = main.getcolshapestring(column, start, count, 1)
+                    if len(shapes) != count or any(
+                        shape != expected for shape in shapes
+                    ):
+                        raise UnsafeResultInputError(
+                            f"Measurement Set {column} cell shapes disagree with "
+                            "its subtables"
+                        )
             antenna1_chunks.append(antenna1_chunk)
             antenna2_chunks.append(antenna2_chunk)
             time_chunks.append(time_chunk)

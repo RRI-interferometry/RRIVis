@@ -7,7 +7,7 @@ import stat
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -195,6 +195,10 @@ def _bounded_primary_projection_history(path: Path) -> dict[str, object]:
             raise UnsafeResultInputError(
                 "UVFITS input changed to a non-regular file during preflight"
             )
+        if status.st_size % _FITS_BLOCK_BYTES != 0:
+            raise UnsafeResultInputError(
+                "UVFITS input has partial trailing FITS block bytes"
+            )
         consumed = 0
         while consumed + _FITS_BLOCK_BYTES <= _MAX_PRIMARY_HEADER_BYTES:
             block = os.read(descriptor, _FITS_BLOCK_BYTES)
@@ -265,6 +269,27 @@ def _inspect_uvfits_headers(
         ) as handle:
             if len(handle) < 2:
                 raise UnsafeResultInputError("UVFITS input lacks the antenna table")
+            last_info = handle.fileinfo(len(handle) - 1)
+            if not isinstance(last_info, dict):
+                raise UnsafeResultInputError(
+                    "UVFITS input lacks a bounded final HDU location"
+                )
+            last_info = cast(dict[str, object], last_info)
+            try:
+                dat_loc = last_info.get("datLoc")
+                dat_span = last_info.get("datSpan")
+                if type(dat_loc) is not int or type(dat_span) is not int:
+                    raise ValueError("FITS HDU offsets must be integers")
+                final_hdu_end = dat_loc + dat_span
+                file_size = int(path.stat().st_size)
+            except (KeyError, TypeError, ValueError, OSError) as exc:
+                raise UnsafeResultInputError(
+                    "UVFITS input has unsafe final HDU metadata"
+                ) from exc
+            if final_hdu_end != file_size:
+                raise UnsafeResultInputError(
+                    "UVFITS input has trailing bytes after its final HDU"
+                )
             primary = handle[0].header
             if primary.get("SIMPLE") is not True or primary.get("GROUPS") is not True:
                 raise UnsafeResultInputError(

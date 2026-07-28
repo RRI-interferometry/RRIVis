@@ -287,6 +287,92 @@ def test_measurement_set_declared_rows_reject_before_any_full_column_read(
     assert allocation_calls == []
 
 
+def test_measurement_set_rejects_wrong_main_column_descriptor_before_casting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = build_standard_result(tmp_path, dtype="complex64")
+    target = tmp_path / "wrong-time-type.ms"
+    _write_checked(result, target)
+
+    class WrappedMain:
+        def __init__(self, inner: object) -> None:
+            self._inner = inner
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._inner, name)
+
+        def getcoldesc(self, name: str) -> dict[str, object]:
+            descriptor = dict(self._inner.getcoldesc(name))
+            if name == "TIME":
+                descriptor["valueType"] = "string"
+            return descriptor
+
+        def getcol(self, name: str, *args: object) -> object:
+            values = self._inner.getcol(name, *args)
+            if name == "TIME":
+                return np.asarray(values).astype(str)
+            return values
+
+    real_import = measurement_set.import_module
+    real_table = table
+
+    class FakeTables:
+        @staticmethod
+        def table(location: str | Path, **kwargs: object) -> object:
+            opened = real_table(str(location), **kwargs)
+            if Path(location) == target:
+                return WrappedMain(opened)
+            return opened
+
+    def import_spy(name: str) -> object:
+        if name == "casacore.tables":
+            return FakeTables
+        return real_import(name)
+
+    monkeypatch.setattr(measurement_set, "import_module", import_spy)
+    with pytest.raises(UnsafeResultInputError, match="TIME"):
+        measurement_set._read_ms_metadata(
+            target,
+            data_column="DATA",
+            limits=StandardReadLimits(),
+        )
+
+
+def test_measurement_set_rejects_missing_feed_before_science_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = build_standard_result(tmp_path, dtype="complex64")
+    target = tmp_path / "missing-feed.ms"
+    _write_checked(result, target)
+    shutil.rmtree(target / "FEED")
+
+    data_reads = 0
+    real_read = measurement_set._read_ms
+
+    def recording_read(
+        path: Path,
+        *,
+        data_column: str,
+        read_data: bool,
+        limits: StandardReadLimits | None = None,
+    ) -> object:
+        nonlocal data_reads
+        data_reads += int(read_data)
+        return real_read(
+            path,
+            data_column=data_column,
+            read_data=read_data,
+            limits=limits,
+        )
+
+    monkeypatch.setattr(measurement_set, "_read_ms", recording_read)
+    with pytest.raises(UnsafeResultInputError):
+        read_measurement_set(target)
+    assert data_reads == 0
+
+
 def _mutate_ms_projection_record(
     path: Path,
     mutation: str,

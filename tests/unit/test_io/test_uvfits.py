@@ -375,6 +375,61 @@ def test_uvfits_rejects_truncated_and_symlink_inputs(tmp_path: Path) -> None:
         read_uvfits(linked)
 
 
+def test_uvfits_rejects_partial_trailing_block_before_science_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = build_standard_result(tmp_path, dtype="complex64")
+    valid = write_uvfits(result, tmp_path / "valid-tail.uvfits")
+    hostile = tmp_path / "partial-tail.uvfits"
+    hostile.write_bytes(valid.read_bytes() + b"BAD")
+
+    science_reads = 0
+    real_read = uvfits_module._read_uvfits
+
+    def recording_read(path: Path, *, read_data: bool) -> object:
+        nonlocal science_reads
+        science_reads += int(read_data)
+        return real_read(path, read_data=read_data)
+
+    monkeypatch.setattr(uvfits_module, "_read_uvfits", recording_read)
+    with pytest.raises(UnsafeResultInputError, match="trailing|block"):
+        read_uvfits(hostile)
+    assert science_reads == 0
+
+
+def test_uvfits_rejects_extra_full_trailing_block_before_science_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = build_standard_result(tmp_path, dtype="complex64")
+    valid = write_uvfits(result, tmp_path / "valid-full-tail.uvfits")
+    hostile = tmp_path / "full-tail.uvfits"
+    hostile.write_bytes(valid.read_bytes() + b"\x00" * 2880)
+
+    science_reads = 0
+    real_read = uvfits_module._read_uvfits
+
+    def recording_read(path: Path, *, read_data: bool) -> object:
+        nonlocal science_reads
+        science_reads += int(read_data)
+        return real_read(path, read_data=read_data)
+
+    monkeypatch.setattr(uvfits_module, "_read_uvfits", recording_read)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(UnsafeResultInputError, match="trailing|HDU|header"):
+            read_uvfits(hostile)
+    assert [(item.category.__name__, str(item.message)) for item in caught] == [
+        (
+            "AstropyUserWarning",
+            "Unexpected extra padding at the end of the file.  "
+            "This padding may not be preserved when saving changes.",
+        )
+    ]
+    assert science_reads == 0
+
+
 def test_uvfits_optional_dependency_failure_precedes_parent_creation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
