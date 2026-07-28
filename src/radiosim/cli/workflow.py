@@ -14,12 +14,13 @@ import click
 
 from radiosim.core.precision import PrecisionConfig
 from radiosim.io.atomic_paths import (
+    capture_directory_identity,
     create_sibling_temporary_directory,
     exchange_directories,
     fsync_directory,
     open_parent_directory,
     publish_directory_no_clobber,
-    remove_temporary_directory,
+    remove_directory_by_identity,
 )
 from radiosim.io.config_resolution import ConfigResolutionError
 from radiosim.io.result_errors import (
@@ -109,10 +110,20 @@ class WorkflowExecutionPlan:
             )
         _revalidate_replacement_directory(path, identity, phase=phase)
 
-    def remove_replacement(self, path: Path) -> None:
-        """Bind one final identity check directly to recursive cleanup."""
-        self.revalidate_replacement(path, phase="at cleanup")
-        remove_temporary_directory(path)
+    def remove_replacement(self, path: Path, parent_fd: int) -> None:
+        """Remove the exchange residual through its captured identity only."""
+        identity = self._replacement_identity
+        if type(identity) is not _ReplacementDirectoryIdentity:
+            raise WorkflowOutputError(
+                "workflow exchange plan lacks a valid replacement identity"
+            )
+        remove_directory_by_identity(
+            path,
+            parent_fd,
+            expected_st_dev=identity.st_dev,
+            expected_st_ino=identity.st_ino,
+            expected_file_type=identity.file_type,
+        )
 
 
 def ensure_result_workflow_available(
@@ -527,12 +538,19 @@ def run_cli_workflow(
     target = execution_plan.target
     parent_fd: int | None = None
     staging: Path | None = None
+    staging_identity: tuple[int, int, int] | None = None
     handler: logging.FileHandler | None = None
     published = False
     artifact_names: list[str] = []
     try:
         parent_fd = open_parent_directory(target.parent, create=True)
         staging = create_sibling_temporary_directory(target, parent_fd)
+        captured_staging = capture_directory_identity(staging, parent_fd)
+        staging_identity = (
+            captured_staging.st_dev,
+            captured_staging.st_ino,
+            captured_staging.file_type,
+        )
         if workflow.save_log:
             log_path = staging / "simulation.log"
             try:
@@ -584,13 +602,12 @@ def run_cli_workflow(
                 staging = None
                 raise residual_error from exc
             try:
-                execution_plan.remove_replacement(old_run)
+                execution_plan.remove_replacement(old_run, parent_fd)
             except Exception as exc:
-                if _path_status(old_run) is not None:
-                    residual_error = PartialCleanupError(old_run)
-                    _fsync_published_parent_or_note(parent_fd, residual_error)
-                    staging = None
-                    raise residual_error from exc
+                residual_error = PartialCleanupError(old_run)
+                _fsync_published_parent_or_note(parent_fd, residual_error)
+                staging = None
+                raise residual_error from exc
             staging = None
         else:
             raise WorkflowOutputError(
@@ -607,11 +624,18 @@ def run_cli_workflow(
             _close_file_handler(handler)
         except Exception as close_error:
             exc.add_note(f"logger cleanup failure: {close_error!r}")
-        if staging is not None:
+        if staging is not None and staging_identity is not None:
+            assert parent_fd is not None
             try:
-                remove_temporary_directory(staging)
+                remove_directory_by_identity(
+                    staging,
+                    parent_fd,
+                    expected_st_dev=staging_identity[0],
+                    expected_st_ino=staging_identity[1],
+                    expected_file_type=staging_identity[2],
+                )
             except Exception as cleanup_error:
-                if staging.exists():
+                if _path_status(staging) is not None:
                     error = PartialCleanupError(staging)
                     error.add_note(f"cleanup failure: {cleanup_error!r}")
                     raise error from exc

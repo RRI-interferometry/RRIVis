@@ -6,9 +6,9 @@ import ctypes
 import errno
 import os
 import secrets
-import shutil
 import stat
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from radiosim.io.result_errors import (
@@ -28,6 +28,15 @@ _LINUX_RENAME_NOREPLACE = 1
 _LINUX_RENAME_EXCHANGE = 2
 _DARWIN_RENAME_SWAP = 0x00000002
 _DARWIN_RENAME_EXCL = 0x00000004
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectoryIdentity:
+    """One directory identity captured through a no-follow parent lookup."""
+
+    st_dev: int
+    st_ino: int
+    file_type: int
 
 
 def _host_platform() -> str:
@@ -440,16 +449,255 @@ def exchange_directories(
     )
 
 
-def remove_temporary_directory(path: Path) -> None:
-    """Remove one exact temporary directory without following a symlink."""
-    status = _path_kind(path)
-    if status is None:
-        return
+def _require_descriptor_cleanup_support() -> None:
+    """Fail closed unless directory-descriptor cleanup is available."""
+    required = {os.open, os.rmdir, os.stat, os.unlink}
+    if _NOFOLLOW == 0 or not required.issubset(os.supports_dir_fd):
+        raise AtomicWriteUnsupportedError(
+            "identity-bound directory cleanup requires no-follow dir_fd support"
+        )
+    if os.listdir not in os.supports_fd:
+        raise AtomicWriteUnsupportedError(
+            "identity-bound directory cleanup requires descriptor enumeration"
+        )
+
+
+def _identity_from_status(status: os.stat_result) -> _DirectoryIdentity:
+    """Convert one verified directory status into a comparison identity."""
+    return _DirectoryIdentity(
+        st_dev=status.st_dev,
+        st_ino=status.st_ino,
+        file_type=stat.S_IFMT(status.st_mode),
+    )
+
+
+def _require_safe_directory_identity(
+    status: os.stat_result,
+    *,
+    path: Path,
+) -> _DirectoryIdentity:
+    """Reject every non-directory identity before recursive cleanup begins."""
     if stat.S_ISLNK(status.st_mode) or not stat.S_ISDIR(status.st_mode):
         raise AtomicWriteError(
             f"temporary cleanup target is not a safe directory: {path}"
         )
-    shutil.rmtree(path)
+    return _identity_from_status(status)
+
+
+def _require_matching_directory_entry(
+    name: str,
+    parent_fd: int,
+    expected: _DirectoryIdentity,
+    *,
+    path: Path,
+) -> None:
+    """Require a parent-relative entry to retain one exact directory identity."""
+    try:
+        status = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError as exc:
+        raise AtomicWriteError(f"temporary cleanup target disappeared: {path}") from exc
+    except OSError as exc:
+        raise AtomicWriteError(
+            f"could not inspect temporary cleanup target: {path}"
+        ) from exc
+    observed = _require_safe_directory_identity(status, path=path)
+    if observed != expected:
+        raise AtomicWriteError(f"temporary cleanup target changed identity: {path}")
+
+
+def _open_matching_directory(
+    name: str,
+    parent_fd: int,
+    expected: _DirectoryIdentity,
+    *,
+    path: Path,
+) -> int:
+    """Open one exact child directory without following a link."""
+    try:
+        descriptor = os.open(
+            name,
+            _DIRECTORY_FLAGS | _NOFOLLOW,
+            dir_fd=parent_fd,
+        )
+    except FileNotFoundError as exc:
+        raise AtomicWriteError(f"temporary cleanup target disappeared: {path}") from exc
+    except OSError as exc:
+        raise AtomicWriteError(
+            f"could not open temporary cleanup target safely: {path}"
+        ) from exc
+    try:
+        status = os.fstat(descriptor)
+        observed = _require_safe_directory_identity(status, path=path)
+        if observed != expected:
+            raise AtomicWriteError(f"temporary cleanup target changed identity: {path}")
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _remove_pinned_directory_contents(directory_fd: int, *, path: Path) -> None:
+    """Remove one opened directory tree through verified relative entries only."""
+    try:
+        child_names = os.listdir(directory_fd)
+    except OSError as exc:
+        raise AtomicWriteError(
+            f"could not enumerate temporary cleanup directory: {path}"
+        ) from exc
+    for name in child_names:
+        child_path = path / name
+        try:
+            status = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise AtomicWriteError(
+                f"could not inspect temporary cleanup entry: {child_path}"
+            ) from exc
+        if stat.S_ISDIR(status.st_mode) and not stat.S_ISLNK(status.st_mode):
+            expected = _identity_from_status(status)
+            child_fd = _open_matching_directory(
+                name,
+                directory_fd,
+                expected,
+                path=child_path,
+            )
+            try:
+                _remove_pinned_directory_contents(child_fd, path=child_path)
+                _require_matching_directory_entry(
+                    name,
+                    directory_fd,
+                    expected,
+                    path=child_path,
+                )
+                os.rmdir(name, dir_fd=directory_fd)
+            except OSError as exc:
+                raise AtomicWriteError(
+                    f"could not remove temporary cleanup directory: {child_path}"
+                ) from exc
+            finally:
+                os.close(child_fd)
+            continue
+        if stat.S_ISREG(status.st_mode) or stat.S_ISLNK(status.st_mode):
+            try:
+                os.unlink(name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise AtomicWriteError(
+                    f"could not remove temporary cleanup entry: {child_path}"
+                ) from exc
+            continue
+        raise AtomicWriteError(
+            f"temporary cleanup directory contains an unsafe entry: {child_path}"
+        )
+
+
+def capture_directory_identity(path: Path, parent_fd: int) -> _DirectoryIdentity:
+    """Capture a safe directory identity through an already-open parent."""
+    _require_descriptor_cleanup_support()
+    normalized = normalize_path(path, field_name="path")
+    try:
+        status = os.stat(
+            normalized.name,
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+    except OSError as exc:
+        raise AtomicWriteError(
+            f"could not inspect temporary cleanup target: {normalized}"
+        ) from exc
+    return _require_safe_directory_identity(status, path=normalized)
+
+
+def _remove_directory_by_identity(
+    path: Path,
+    parent_fd: int,
+    *,
+    expected_st_dev: int,
+    expected_st_ino: int,
+    expected_file_type: int,
+) -> None:
+    """Remove one exact directory through a pinned descriptor traversal.
+
+    The caller supplies an identity captured before this cleanup phase.  The
+    entry is opened relative to the existing parent descriptor, verified with
+    ``fstat``, traversed only through directory descriptors, then rechecked
+    immediately before its top-level directory entry is removed.
+    """
+    _require_descriptor_cleanup_support()
+    normalized = normalize_path(path, field_name="path")
+    expected = _DirectoryIdentity(
+        st_dev=expected_st_dev,
+        st_ino=expected_st_ino,
+        file_type=expected_file_type,
+    )
+    if expected.file_type != stat.S_IFDIR:
+        raise AtomicWriteError(
+            f"temporary cleanup target has an invalid expected type: {normalized}"
+        )
+    descriptor = _open_matching_directory(
+        normalized.name,
+        parent_fd,
+        expected,
+        path=normalized,
+    )
+    try:
+        _remove_pinned_directory_contents(descriptor, path=normalized)
+        _require_matching_directory_entry(
+            normalized.name,
+            parent_fd,
+            expected,
+            path=normalized,
+        )
+        try:
+            os.rmdir(normalized.name, dir_fd=parent_fd)
+        except OSError as exc:
+            raise AtomicWriteError(
+                f"could not remove temporary cleanup directory: {normalized}"
+            ) from exc
+    finally:
+        os.close(descriptor)
+
+
+def remove_directory_by_identity(
+    path: Path,
+    parent_fd: int,
+    *,
+    expected_st_dev: int,
+    expected_st_ino: int,
+    expected_file_type: int,
+) -> None:
+    """Invoke the private descriptor-bound I/O cleanup implementation."""
+    _remove_directory_by_identity(
+        path,
+        parent_fd,
+        expected_st_dev=expected_st_dev,
+        expected_st_ino=expected_st_ino,
+        expected_file_type=expected_file_type,
+    )
+
+
+def remove_temporary_directory(path: Path) -> None:
+    """Remove one temporary directory with descriptor-bound cleanup."""
+    normalized = normalize_path(path, field_name="path")
+    parent_fd = open_parent_directory(normalized.parent, create=False)
+    try:
+        try:
+            identity = capture_directory_identity(normalized, parent_fd)
+        except AtomicWriteError as exc:
+            if isinstance(exc.__cause__, FileNotFoundError):
+                return
+            raise
+        remove_directory_by_identity(
+            normalized,
+            parent_fd,
+            expected_st_dev=identity.st_dev,
+            expected_st_ino=identity.st_ino,
+            expected_file_type=identity.file_type,
+        )
+    finally:
+        os.close(parent_fd)
 
 
 def fsync_file(descriptor: int) -> None:

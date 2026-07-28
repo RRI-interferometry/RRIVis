@@ -23,9 +23,11 @@ from radiosim.cli.workflow import (
     preflight_cli_workflow,
     run_cli_workflow,
 )
+from radiosim.io.atomic_paths import remove_temporary_directory
 from radiosim.io.config import CliWorkflowConfig, RadioSimConfig
 from radiosim.io.result_errors import (
     AtomicWriteError,
+    AtomicWriteUnsupportedError,
     OutputCollisionError,
     OverwriteRefusedError,
     PartialCleanupError,
@@ -506,10 +508,10 @@ def test_cleanup_failure_reports_exact_residual_path(tmp_path, monkeypatch):
     def fail_save(path, **kwargs):
         raise RuntimeError("injected writer failure")
 
-    def fail_cleanup(path):
+    def fail_cleanup(path, *args, **kwargs):
         raise OSError("injected cleanup failure")
 
-    monkeypatch.setattr(workflow_module, "remove_temporary_directory", fail_cleanup)
+    monkeypatch.setattr(workflow_module, "remove_directory_by_identity", fail_cleanup)
     with pytest.raises(PartialCleanupError) as caught:
         run_cli_workflow(
             SimpleNamespace(save=fail_save),
@@ -526,7 +528,7 @@ def test_cleanup_failure_reports_exact_residual_path(tmp_path, monkeypatch):
     assert (target / "old-result.h5").read_bytes() == b"old bytes"
 
     monkeypatch.undo()
-    workflow_module.remove_temporary_directory(residual)
+    remove_temporary_directory(residual)
 
 
 def test_successful_logging_closes_handler_before_publication(tmp_path):
@@ -617,7 +619,7 @@ def test_replacement_race_preserves_unknown_exchanged_out_directory(
     workflow = _replacement_workflow(target)
     plan = preflight_cli_workflow(workflow, runtime=bundle.runtime)
     original_exchange = workflow_module.exchange_directories
-    original_cleanup = workflow_module.remove_temporary_directory
+    original_cleanup = workflow_module.remove_directory_by_identity
     validated_aside = target.with_name("validated-owned-aside")
     sentinel = b"unique unknown user bytes"
     exchanged_out: list[Path] = []
@@ -631,12 +633,16 @@ def test_replacement_race_preserves_unknown_exchanged_out_directory(
         exchanged_out.append(staging)
         assert (staging / "unknown.bin").read_bytes() == sentinel
 
-    def record_cleanup(path):
+    def record_cleanup(path, parent_fd, **kwargs):
         cleanup_calls.append(path)
-        original_cleanup(path)
+        original_cleanup(path, parent_fd, **kwargs)
 
     monkeypatch.setattr(workflow_module, "exchange_directories", race_then_exchange)
-    monkeypatch.setattr(workflow_module, "remove_temporary_directory", record_cleanup)
+    monkeypatch.setattr(
+        workflow_module,
+        "remove_directory_by_identity",
+        record_cleanup,
+    )
 
     with pytest.raises(PartialCleanupError) as caught:
         run_cli_workflow(
@@ -693,8 +699,10 @@ def test_replacement_race_rejects_valid_owned_directory_with_wrong_identity(
     monkeypatch.setattr(workflow_module, "exchange_directories", race_then_exchange)
     monkeypatch.setattr(
         workflow_module,
-        "remove_temporary_directory",
-        lambda path: pytest.fail("wrong-identity residual reached recursive cleanup"),
+        "remove_directory_by_identity",
+        lambda *args, **kwargs: pytest.fail(
+            "wrong-identity residual reached recursive cleanup"
+        ),
     )
 
     with pytest.raises(PartialCleanupError) as caught:
@@ -745,8 +753,10 @@ def test_post_exchange_content_change_preserves_exact_residual(
     )
     monkeypatch.setattr(
         workflow_module,
-        "remove_temporary_directory",
-        lambda path: pytest.fail("changed residual reached recursive cleanup"),
+        "remove_directory_by_identity",
+        lambda *args, **kwargs: pytest.fail(
+            "changed residual reached recursive cleanup"
+        ),
     )
 
     with pytest.raises(PartialCleanupError) as caught:
@@ -776,7 +786,7 @@ def test_swap_after_post_exchange_validation_never_reaches_recursive_cleanup(
     workflow = _replacement_workflow(target)
     plan = preflight_cli_workflow(workflow, runtime=bundle.runtime)
     original_revalidate = workflow_module._revalidate_replacement_directory
-    original_cleanup = workflow_module.remove_temporary_directory
+    original_cleanup = workflow_module.remove_directory_by_identity
     validated_aside = target.with_name("validated-owned-residual-aside")
     sentinel = b"unknown bytes after post-exchange validation"
     cleanup_calls: list[Path] = []
@@ -791,16 +801,20 @@ def test_swap_after_post_exchange_validation_never_reaches_recursive_cleanup(
             path.mkdir()
             (path / "unknown.bin").write_bytes(sentinel)
 
-    def record_cleanup(path):
+    def record_cleanup(path, parent_fd, **kwargs):
         cleanup_calls.append(path)
-        original_cleanup(path)
+        original_cleanup(path, parent_fd, **kwargs)
 
     monkeypatch.setattr(
         workflow_module,
         "_revalidate_replacement_directory",
         revalidate_then_swap,
     )
-    monkeypatch.setattr(workflow_module, "remove_temporary_directory", record_cleanup)
+    monkeypatch.setattr(
+        workflow_module,
+        "remove_directory_by_identity",
+        record_cleanup,
+    )
 
     with pytest.raises(PartialCleanupError) as caught:
         run_cli_workflow(
@@ -813,7 +827,7 @@ def test_swap_after_post_exchange_validation_never_reaches_recursive_cleanup(
 
     residual = caught.value.residual_path
     assert (residual / "unknown.bin").read_bytes() == sentinel
-    assert cleanup_calls == []
+    assert cleanup_calls == [residual]
     assert (validated_aside / "old-result.h5").read_bytes() == b"validated owned"
     assert validate_owned_run_directory(target).run_directory == target
 
@@ -829,11 +843,11 @@ def test_post_exchange_cleanup_failure_retains_exact_old_run_residual(
     plan = preflight_cli_workflow(workflow, runtime=bundle.runtime)
     cleanup_attempts: list[Path] = []
 
-    def fail_cleanup(path):
+    def fail_cleanup(path, *args, **kwargs):
         cleanup_attempts.append(path)
         raise OSError("injected post-exchange cleanup failure")
 
-    monkeypatch.setattr(workflow_module, "remove_temporary_directory", fail_cleanup)
+    monkeypatch.setattr(workflow_module, "remove_directory_by_identity", fail_cleanup)
 
     with pytest.raises(PartialCleanupError) as caught:
         run_cli_workflow(
@@ -1036,3 +1050,356 @@ def test_normal_replacement_removes_only_exact_validated_owned_run(tmp_path):
     assert (sibling / "keep.bin").read_bytes() == b"keep sibling"
     assert tuple(logging.getLogger().handlers) == before_handlers
     assert not any(path.name.startswith(".run.") for path in target.parent.iterdir())
+
+
+def test_cleanup_swap_after_final_validation_preserves_unknown_residual(
+    tmp_path,
+    monkeypatch,
+):
+    """Never delete an unknown directory swapped in after validation."""
+    workflow_module = importlib.import_module("radiosim.cli.workflow")
+    bundle = resolved_config(tmp_path)
+    target = _owned_run(tmp_path / "runs" / "run", content=b"validated owned")
+    workflow = _replacement_workflow(target)
+    plan = preflight_cli_workflow(workflow, runtime=bundle.runtime)
+    original_cleanup = workflow_module.remove_directory_by_identity
+    validated_aside = target.with_name("validated-owned-after-final-check")
+    sentinel = b"unknown bytes swapped after final validation"
+    cleanup_calls: list[Path] = []
+
+    def swap_then_cleanup(path, parent_fd, **kwargs):
+        cleanup_calls.append(path)
+        path.rename(validated_aside)
+        path.mkdir()
+        (path / "unknown.bin").write_bytes(sentinel)
+        original_cleanup(path, parent_fd, **kwargs)
+
+    monkeypatch.setattr(
+        workflow_module,
+        "remove_directory_by_identity",
+        swap_then_cleanup,
+    )
+
+    with pytest.raises(PartialCleanupError) as caught:
+        run_cli_workflow(
+            SimpleNamespace(),
+            workflow,
+            runtime=bundle.runtime,
+            provenance=bundle.provenance,
+            plan=plan,
+        )
+
+    assert caught.value.residual_path == cleanup_calls[0]
+    residual = caught.value.residual_path
+    assert (residual / "unknown.bin").read_bytes() == sentinel
+    assert (validated_aside / "old-result.h5").read_bytes() == b"validated owned"
+    assert validate_owned_run_directory(target).run_directory == target
+
+
+def test_cleanup_swap_after_descriptor_open_preserves_unknown_residual(
+    tmp_path,
+    monkeypatch,
+):
+    """Traversal stays pinned when the residual pathname is replaced post-open."""
+    atomic_paths = importlib.import_module("radiosim.io.atomic_paths")
+    bundle = resolved_config(tmp_path)
+    target = _owned_run(tmp_path / "runs" / "run", content=b"validated owned")
+    workflow = _replacement_workflow(target)
+    plan = preflight_cli_workflow(workflow, runtime=bundle.runtime)
+    original_contents = atomic_paths._remove_pinned_directory_contents
+    validated_aside = target.with_name("validated-owned-after-descriptor-open")
+    sentinel = b"unknown bytes after descriptor open"
+    swapped = False
+
+    def swap_after_open(descriptor, *, path):
+        nonlocal swapped
+        if not swapped:
+            swapped = True
+            path.rename(validated_aside)
+            path.mkdir()
+            (path / "unknown.bin").write_bytes(sentinel)
+        original_contents(descriptor, path=path)
+
+    monkeypatch.setattr(
+        atomic_paths,
+        "_remove_pinned_directory_contents",
+        swap_after_open,
+    )
+
+    with pytest.raises(PartialCleanupError) as caught:
+        run_cli_workflow(
+            SimpleNamespace(),
+            workflow,
+            runtime=bundle.runtime,
+            provenance=bundle.provenance,
+            plan=plan,
+        )
+
+    residual = caught.value.residual_path
+    assert residual.is_dir()
+    assert (residual / "unknown.bin").read_bytes() == sentinel
+    assert not (validated_aside / "unknown.bin").exists()
+    assert validate_owned_run_directory(target).run_directory == target
+
+
+def test_cleanup_swap_before_top_level_removal_preserves_unknown_residual(
+    tmp_path,
+    monkeypatch,
+):
+    """The final parent-relative identity inspection precedes top-level rmdir."""
+    atomic_paths = importlib.import_module("radiosim.io.atomic_paths")
+    bundle = resolved_config(tmp_path)
+    target = _owned_run(tmp_path / "runs" / "run", content=b"validated owned")
+    workflow = _replacement_workflow(target)
+    plan = preflight_cli_workflow(workflow, runtime=bundle.runtime)
+    original_contents = atomic_paths._remove_pinned_directory_contents
+    validated_aside = target.with_name("validated-owned-before-top-level-rmdir")
+    sentinel = b"unknown bytes before top-level removal"
+    swapped = False
+
+    def cleanup_then_swap(descriptor, *, path):
+        nonlocal swapped
+        original_contents(descriptor, path=path)
+        if not swapped:
+            swapped = True
+            path.rename(validated_aside)
+            path.mkdir()
+            (path / "unknown.bin").write_bytes(sentinel)
+
+    monkeypatch.setattr(
+        atomic_paths,
+        "_remove_pinned_directory_contents",
+        cleanup_then_swap,
+    )
+
+    with pytest.raises(PartialCleanupError) as caught:
+        run_cli_workflow(
+            SimpleNamespace(),
+            workflow,
+            runtime=bundle.runtime,
+            provenance=bundle.provenance,
+            plan=plan,
+        )
+
+    residual = caught.value.residual_path
+    assert (residual / "unknown.bin").read_bytes() == sentinel
+    assert validate_owned_run_directory(target).run_directory == target
+
+
+@pytest.mark.parametrize(
+    "replacement_kind",
+    [
+        "missing",
+        "symlink",
+        "file",
+        "fifo",
+        "empty_directory",
+        "nonempty_directory",
+        "valid_owned_directory",
+    ],
+)
+def test_cleanup_boundary_target_kind_attacks_preserve_unknown_residual(
+    tmp_path,
+    monkeypatch,
+    replacement_kind,
+):
+    """Every non-identical cleanup target fails before child traversal."""
+    workflow_module = importlib.import_module("radiosim.cli.workflow")
+    atomic_paths = importlib.import_module("radiosim.io.atomic_paths")
+    bundle = resolved_config(tmp_path)
+    target = _owned_run(tmp_path / "runs" / "run", content=b"validated owned")
+    workflow = _replacement_workflow(target)
+    plan = preflight_cli_workflow(workflow, runtime=bundle.runtime)
+    original_cleanup = workflow_module.remove_directory_by_identity
+    validated_aside = target.with_name(f"validated-owned-{replacement_kind}")
+    unknown_target = target.with_name(f"unknown-{replacement_kind}")
+    sentinel = f"unknown {replacement_kind} bytes".encode()
+    cleanup_paths: list[Path] = []
+
+    def swap_then_cleanup(path, parent_fd, **kwargs):
+        cleanup_paths.append(path)
+        path.rename(validated_aside)
+        if replacement_kind == "missing":
+            pass
+        elif replacement_kind == "symlink":
+            unknown_target.mkdir()
+            (unknown_target / "unknown.bin").write_bytes(sentinel)
+            path.symlink_to(unknown_target, target_is_directory=True)
+        elif replacement_kind == "file":
+            path.write_bytes(sentinel)
+        elif replacement_kind == "fifo":
+            os.mkfifo(path)
+        elif replacement_kind == "empty_directory":
+            path.mkdir()
+        elif replacement_kind == "nonempty_directory":
+            path.mkdir()
+            (path / "unknown.bin").write_bytes(sentinel)
+        else:
+            _owned_run(path, content=sentinel)
+        original_cleanup(path, parent_fd, **kwargs)
+
+    monkeypatch.setattr(
+        workflow_module,
+        "remove_directory_by_identity",
+        swap_then_cleanup,
+    )
+    monkeypatch.setattr(
+        atomic_paths,
+        "_remove_pinned_directory_contents",
+        lambda *args, **kwargs: pytest.fail(
+            "changed cleanup target reached child enumeration"
+        ),
+    )
+
+    with pytest.raises(PartialCleanupError) as caught:
+        run_cli_workflow(
+            SimpleNamespace(),
+            workflow,
+            runtime=bundle.runtime,
+            provenance=bundle.provenance,
+            plan=plan,
+        )
+
+    residual = caught.value.residual_path
+    assert residual == cleanup_paths[0]
+    assert (validated_aside / "old-result.h5").read_bytes() == b"validated owned"
+    if replacement_kind == "missing":
+        assert not residual.exists()
+    elif replacement_kind == "symlink":
+        assert residual.is_symlink()
+        assert (unknown_target / "unknown.bin").read_bytes() == sentinel
+    elif replacement_kind == "file":
+        assert residual.read_bytes() == sentinel
+    elif replacement_kind == "fifo":
+        assert residual.exists()
+    elif replacement_kind == "empty_directory":
+        assert residual.is_dir() and not any(residual.iterdir())
+    elif replacement_kind == "nonempty_directory":
+        assert (residual / "unknown.bin").read_bytes() == sentinel
+    else:
+        assert validate_owned_run_directory(residual).run_directory == residual
+        assert (residual / "old-result.h5").read_bytes() == sentinel
+    assert validate_owned_run_directory(target).run_directory == target
+
+
+def test_prepublication_staging_swap_preserves_unknown_residual(tmp_path, monkeypatch):
+    """Writer rollback never recursively deletes a substituted staging path."""
+    workflow_module = importlib.import_module("radiosim.cli.workflow")
+    bundle = resolved_config(tmp_path)
+    target = _owned_run(tmp_path / "runs" / "run", content=b"validated owned")
+    workflow = CliWorkflowConfig(
+        output_dir=target.parent,
+        run_subdir=target.name,
+        save_results=True,
+        result_format="hdf5",
+        collision_policy="replace",
+    )
+    plan = preflight_cli_workflow(workflow, runtime=bundle.runtime)
+    original_cleanup = workflow_module.remove_directory_by_identity
+    sentinel = b"unknown bytes replacing failed staging"
+    validated_aside: list[Path] = []
+
+    def fail_save(path, **kwargs):
+        Path(path).with_suffix(".h5").write_bytes(b"partial")
+        raise RuntimeError("injected writer failure")
+
+    def swap_then_cleanup(path, parent_fd, **kwargs):
+        aside = path.with_name(f"{path.name}.validated")
+        validated_aside.append(aside)
+        path.rename(aside)
+        path.mkdir()
+        (path / "unknown.bin").write_bytes(sentinel)
+        original_cleanup(path, parent_fd, **kwargs)
+
+    monkeypatch.setattr(
+        workflow_module,
+        "remove_directory_by_identity",
+        swap_then_cleanup,
+    )
+
+    with pytest.raises(PartialCleanupError) as caught:
+        run_cli_workflow(
+            SimpleNamespace(save=fail_save),
+            workflow,
+            runtime=bundle.runtime,
+            provenance=bundle.provenance,
+            plan=plan,
+        )
+
+    residual = caught.value.residual_path
+    assert (residual / "unknown.bin").read_bytes() == sentinel
+    assert validated_aside[0].is_dir()
+    assert (target / "old-result.h5").read_bytes() == b"validated owned"
+
+
+def test_pinned_cleanup_removes_nested_tree_without_following_symlink(tmp_path):
+    """A legitimate tree is removed only through its verified descriptors."""
+    atomic_paths = importlib.import_module("radiosim.io.atomic_paths")
+    parent = tmp_path / "parent"
+    candidate = parent / "candidate"
+    nested = candidate / "nested" / "deeper"
+    nested.mkdir(parents=True)
+    (candidate / "top.bin").write_bytes(b"top")
+    (nested / "deep.bin").write_bytes(b"deep")
+    (candidate / "empty").mkdir()
+    external = tmp_path / "external.bin"
+    external.write_bytes(b"do not follow")
+    (candidate / "external-link").symlink_to(external)
+    for index in range(32):
+        (candidate / f"small-{index:02d}.bin").write_bytes(b"x")
+
+    parent_fd = atomic_paths.open_parent_directory(parent, create=False)
+    try:
+        identity = atomic_paths.capture_directory_identity(candidate, parent_fd)
+        atomic_paths.remove_directory_by_identity(
+            candidate,
+            parent_fd,
+            expected_st_dev=identity.st_dev,
+            expected_st_ino=identity.st_ino,
+            expected_file_type=identity.file_type,
+        )
+    finally:
+        os.close(parent_fd)
+
+    assert not candidate.exists()
+    assert external.read_bytes() == b"do not follow"
+
+
+def test_pinned_cleanup_rejects_special_nested_entry(tmp_path):
+    """Unexpected special entries are left in a recoverable residual tree."""
+    atomic_paths = importlib.import_module("radiosim.io.atomic_paths")
+    parent = tmp_path / "parent"
+    candidate = parent / "candidate"
+    candidate.mkdir(parents=True)
+    fifo = candidate / "unsafe.fifo"
+    os.mkfifo(fifo)
+
+    parent_fd = atomic_paths.open_parent_directory(parent, create=False)
+    try:
+        identity = atomic_paths.capture_directory_identity(candidate, parent_fd)
+        with pytest.raises(AtomicWriteError, match="unsafe entry"):
+            atomic_paths.remove_directory_by_identity(
+                candidate,
+                parent_fd,
+                expected_st_dev=identity.st_dev,
+                expected_st_ino=identity.st_ino,
+                expected_file_type=identity.file_type,
+            )
+    finally:
+        os.close(parent_fd)
+
+    assert fifo.exists()
+
+
+def test_pinned_cleanup_fails_closed_without_no_follow_support(tmp_path, monkeypatch):
+    """Platforms without no-follow descriptor semantics never fall back."""
+    atomic_paths = importlib.import_module("radiosim.io.atomic_paths")
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    parent_fd = atomic_paths.open_parent_directory(tmp_path, create=False)
+    try:
+        monkeypatch.setattr(atomic_paths, "_NOFOLLOW", 0)
+        with pytest.raises(AtomicWriteUnsupportedError, match="no-follow"):
+            atomic_paths.capture_directory_identity(candidate, parent_fd)
+    finally:
+        os.close(parent_fd)
