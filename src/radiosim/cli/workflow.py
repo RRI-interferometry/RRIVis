@@ -68,6 +68,16 @@ class NonInteractivePromptError(WorkflowOutputError):
 
 
 @dataclass(frozen=True, slots=True)
+class _ReplacementDirectoryIdentity:
+    """Exact directory identity and content contract approved for replacement."""
+
+    st_dev: int
+    st_ino: int
+    file_type: int
+    content_contract: str
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowExecutionPlan:
     """Read-only preflight decision consumed only after simulation succeeds."""
 
@@ -75,6 +85,34 @@ class WorkflowExecutionPlan:
     declined: bool
     target: Path | None
     publish_mode: str | None
+    _replacement_identity: _ReplacementDirectoryIdentity | None = None
+
+    def validate_for_execution(self) -> None:
+        """Reject internally inconsistent plans before workflow mutation."""
+        if self.publish_mode == "exchange":
+            if type(self._replacement_identity) is not _ReplacementDirectoryIdentity:
+                raise WorkflowOutputError(
+                    "workflow exchange plan lacks a valid replacement identity"
+                )
+        elif self._replacement_identity is not None:
+            raise WorkflowOutputError(
+                "workflow non-exchange plan unexpectedly contains a "
+                "replacement identity"
+            )
+
+    def revalidate_replacement(self, path: Path, *, phase: str) -> None:
+        """Revalidate the private replacement identity without exposing it."""
+        identity = self._replacement_identity
+        if type(identity) is not _ReplacementDirectoryIdentity:
+            raise WorkflowOutputError(
+                "workflow exchange plan lacks a valid replacement identity"
+            )
+        _revalidate_replacement_directory(path, identity, phase=phase)
+
+    def remove_replacement(self, path: Path) -> None:
+        """Bind one final identity check directly to recursive cleanup."""
+        self.revalidate_replacement(path, phase="at cleanup")
+        remove_temporary_directory(path)
 
 
 def ensure_result_workflow_available(
@@ -219,6 +257,91 @@ def _is_empty_directory(path: Path) -> bool:
         ) from exc
 
 
+def _replacement_identity(
+    path: Path,
+    status: os.stat_result,
+    *,
+    content_contract: str,
+) -> _ReplacementDirectoryIdentity:
+    if stat.S_ISLNK(status.st_mode) or not stat.S_ISDIR(status.st_mode):
+        raise UnsafeOutputDirectoryError(
+            f"workflow replacement target is not a safe directory: {path}"
+        )
+    if content_contract not in {"empty", "owned"}:
+        raise WorkflowOutputError(
+            f"unknown workflow replacement content contract: {content_contract}"
+        )
+    return _ReplacementDirectoryIdentity(
+        st_dev=status.st_dev,
+        st_ino=status.st_ino,
+        file_type=stat.S_IFMT(status.st_mode),
+        content_contract=content_contract,
+    )
+
+
+def _require_replacement_identity(
+    path: Path,
+    expected: _ReplacementDirectoryIdentity,
+    *,
+    phase: str,
+) -> os.stat_result:
+    status = _path_status(path)
+    if status is None:
+        raise OutputCollisionError(
+            f"workflow replacement target disappeared {phase}: {path}"
+        )
+    if stat.S_ISLNK(status.st_mode) or not stat.S_ISDIR(status.st_mode):
+        raise OutputCollisionError(
+            f"workflow replacement target changed kind {phase}: {path}"
+        )
+    observed = (
+        status.st_dev,
+        status.st_ino,
+        stat.S_IFMT(status.st_mode),
+    )
+    authorized = (
+        expected.st_dev,
+        expected.st_ino,
+        expected.file_type,
+    )
+    if observed != authorized:
+        raise OutputCollisionError(
+            f"workflow replacement target changed identity {phase}: {path}"
+        )
+    return status
+
+
+def _revalidate_replacement_directory(
+    path: Path,
+    expected: _ReplacementDirectoryIdentity,
+    *,
+    phase: str,
+) -> None:
+    _ = _require_replacement_identity(path, expected, phase=phase)
+    if expected.content_contract == "empty":
+        if not _is_empty_directory(path):
+            raise UnsafeOutputDirectoryError(
+                f"workflow replacement target is no longer empty {phase}: {path}"
+            )
+    elif expected.content_contract == "owned":
+        _ = validate_owned_run_directory(path)
+    else:
+        raise WorkflowOutputError(
+            "workflow replacement identity has an invalid content contract"
+        )
+    _ = _require_replacement_identity(path, expected, phase=phase)
+
+
+def _fsync_published_parent_or_note(
+    parent_fd: int,
+    error: PartialCleanupError,
+) -> None:
+    try:
+        fsync_directory(parent_fd)
+    except Exception as sync_error:
+        error.add_note(f"published parent fsync failure: {sync_error!r}")
+
+
 def _validate_format_preflight(
     workflow: CliWorkflowConfig,
     runtime: ResolvedSimulationConfig,
@@ -269,7 +392,23 @@ def preflight_cli_workflow(
     if status is None:
         return WorkflowExecutionPlan(True, False, target, "no_clobber")
     if _is_empty_directory(target):
-        return WorkflowExecutionPlan(True, False, target, "exchange")
+        identity = _replacement_identity(
+            target,
+            status,
+            content_contract="empty",
+        )
+        _revalidate_replacement_directory(
+            target,
+            identity,
+            phase="during preflight",
+        )
+        return WorkflowExecutionPlan(
+            True,
+            False,
+            target,
+            "exchange",
+            identity,
+        )
     if workflow.collision_policy == "suffix":
         return WorkflowExecutionPlan(
             True,
@@ -285,6 +424,16 @@ def preflight_cli_workflow(
         _ = validate_owned_run_directory(target)
     except UnsafeOutputDirectoryError:
         raise
+    identity = _replacement_identity(
+        target,
+        status,
+        content_contract="owned",
+    )
+    _revalidate_replacement_directory(
+        target,
+        identity,
+        phase="during preflight",
+    )
     if workflow.collision_policy == "error":
         raise OverwriteRefusedError(f"owned workflow run already exists: {target}")
     if workflow.collision_policy == "prompt":
@@ -299,7 +448,13 @@ def preflight_cli_workflow(
             show_default=True,
         ):
             return WorkflowExecutionPlan(False, True, target, None)
-    return WorkflowExecutionPlan(True, False, target, "exchange")
+    return WorkflowExecutionPlan(
+        True,
+        False,
+        target,
+        "exchange",
+        identity,
+    )
 
 
 def _close_file_handler(handler: logging.FileHandler | None) -> None:
@@ -363,6 +518,7 @@ def run_cli_workflow(
         return ()
     if execution_plan.target is None or execution_plan.publish_mode is None:
         raise WorkflowOutputError("workflow preflight produced an incomplete plan")
+    execution_plan.validate_for_execution()
 
     from radiosim.utils.logging import (
         print_info,
@@ -410,25 +566,31 @@ def run_cli_workflow(
             publish_directory_no_clobber(staging, target, parent_fd)
             staging = None
         elif execution_plan.publish_mode == "exchange":
-            status = _path_status(target)
-            if (
-                status is None
-                or stat.S_ISLNK(status.st_mode)
-                or not stat.S_ISDIR(status.st_mode)
-            ):
-                raise OutputCollisionError(
-                    f"workflow replacement target changed after preflight: {target}"
-                )
-            if not _is_empty_directory(target):
-                _ = validate_owned_run_directory(target)
+            execution_plan.revalidate_replacement(
+                target,
+                phase="before exchange",
+            )
             exchange_directories(staging, target, parent_fd)
             published = True
             old_run = staging
             try:
-                remove_temporary_directory(old_run)
+                execution_plan.revalidate_replacement(
+                    old_run,
+                    phase="after exchange",
+                )
             except Exception as exc:
-                if old_run.exists():
-                    raise PartialCleanupError(old_run) from exc
+                residual_error = PartialCleanupError(old_run)
+                _fsync_published_parent_or_note(parent_fd, residual_error)
+                staging = None
+                raise residual_error from exc
+            try:
+                execution_plan.remove_replacement(old_run)
+            except Exception as exc:
+                if _path_status(old_run) is not None:
+                    residual_error = PartialCleanupError(old_run)
+                    _fsync_published_parent_or_note(parent_fd, residual_error)
+                    staging = None
+                    raise residual_error from exc
             staging = None
         else:
             raise WorkflowOutputError(

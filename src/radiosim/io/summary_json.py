@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import stat
-from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
 import numpy as np
 
 from radiosim.core.result import SimulationResult
+from radiosim.core.runtime_config import FrozenMapping
 from radiosim.io.atomic_paths import (
     create_sibling_temporary,
     fsync_directory,
@@ -32,6 +33,8 @@ from radiosim.io.result_errors import (
 from radiosim.io.result_format import ResultFormat, normalize_result_path
 
 _MAX_SUMMARY_BYTES = 16 * 1024 * 1024
+_MAX_SUMMARY_NESTING = 32
+_MAX_SUMMARY_NODES = 100_000
 _EXCLUDED_PAYLOADS = [
     "visibility_samples",
     "flags_array",
@@ -43,25 +46,186 @@ _EXCLUDED_PAYLOADS = [
 ]
 
 
+def _summary_scalar(value: object) -> str | int | float | bool | None:
+    value_type = type(value)
+    if value is None or value_type is bool or value_type is int:
+        return cast(str | int | float | bool | None, value)
+    if value_type is str:
+        text = cast(str, value)
+        if "\x00" in text:
+            raise SummaryContractError(
+                "canonical result contains invalid summary metadata: "
+                "summary strings must be NUL-free"
+            )
+        try:
+            _ = text.encode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise SummaryContractError(
+                "canonical result contains invalid summary metadata: "
+                "summary strings must contain valid UTF-8 text"
+            ) from exc
+        return text
+    if value_type is float:
+        number = cast(float, value)
+        if not math.isfinite(number):
+            raise SummaryContractError(
+                "canonical result contains invalid summary metadata: "
+                "summary floats must be finite"
+            )
+        return number
+    if isinstance(value, np.bool_):
+        return cast(bool, value.item())
+    if isinstance(value, np.integer):
+        return value.item()
+    if isinstance(value, np.floating):
+        number = value.item()
+        if not math.isfinite(number):
+            raise SummaryContractError(
+                "canonical result contains invalid summary metadata: "
+                "summary NumPy floats must be finite"
+            )
+        return number
+    if isinstance(value, np.str_):
+        text = value.item()
+        if "\x00" in text:
+            raise SummaryContractError(
+                "canonical result contains invalid summary metadata: "
+                "summary strings must be NUL-free"
+            )
+        try:
+            _ = text.encode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise SummaryContractError(
+                "canonical result contains invalid summary metadata: "
+                "summary strings must contain valid UTF-8 text"
+            ) from exc
+        return text
+    raise SummaryContractError(
+        "canonical result contains invalid summary metadata: "
+        f"summary contains unsupported exact value type: {value_type.__name__}"
+    )
+
+
+def _set_tree_value(
+    destination: dict[str, object] | list[object],
+    slot: str | int,
+    value: object,
+) -> None:
+    if isinstance(destination, list):
+        if type(slot) is not int:
+            raise RuntimeError("internal summary sequence slot must be an integer")
+        destination[slot] = value
+        return
+    if type(slot) is not str:
+        raise RuntimeError("internal summary mapping slot must be a string")
+    destination[slot] = value
+
+
 def _json_tree(value: object) -> object:
-    if isinstance(value, Mapping):
-        mapping = cast(Mapping[object, object], value)
-        normalized: dict[str, object] = {}
-        for key, item in mapping.items():
-            if type(key) is not str or "\x00" in key:
-                raise ValueError("summary mapping keys must be NUL-free strings")
-            normalized[key] = _json_tree(item)
-        return normalized
-    if isinstance(value, (tuple, list)):
-        sequence = cast(Sequence[object], value)
-        return [_json_tree(item) for item in sequence]
-    if isinstance(value, np.generic):
-        return _json_tree(cast(object, value.item()))
-    if isinstance(value, str):
-        if type(value) is not str or "\x00" in value:
-            raise ValueError("summary strings must be exact and NUL-free")
-        _ = value.encode("utf-8", errors="strict")
-    return value
+    holder: list[object] = [None]
+    worklist: list[
+        tuple[
+            object,
+            int,
+            frozenset[int],
+            dict[str, object] | list[object],
+            str | int,
+        ]
+    ]
+    worklist = [(value, 1, frozenset(), holder, 0)]
+    scheduled_nodes = 1
+    while worklist:
+        source, nesting, ancestors, destination, slot = worklist.pop()
+        source_type = type(source)
+        if source_type is dict or source_type is FrozenMapping:
+            if nesting > _MAX_SUMMARY_NESTING:
+                raise SummaryContractError(
+                    "canonical result contains invalid summary metadata: "
+                    "summary nesting exceeds the explicit "
+                    f"{_MAX_SUMMARY_NESTING}-level limit"
+                )
+            source_id = id(source)
+            if source_id in ancestors:
+                raise SummaryContractError(
+                    "canonical result contains invalid summary metadata: "
+                    "summary container cycle is not supported"
+                )
+            child_ancestors = ancestors | {source_id}
+            mapping = cast(dict[object, object] | FrozenMapping, source)
+            child_count = len(mapping)
+            if scheduled_nodes + child_count > _MAX_SUMMARY_NODES:
+                raise SummaryContractError(
+                    "canonical result contains invalid summary metadata: "
+                    "summary node count exceeds the explicit "
+                    f"{_MAX_SUMMARY_NODES}-node limit"
+                )
+            scheduled_nodes += child_count
+            normalized_mapping: dict[str, object] = {}
+            _set_tree_value(destination, slot, normalized_mapping)
+            items: list[tuple[str, object]] = []
+            for key, item in mapping.items():
+                if type(key) is not str or "\x00" in key:
+                    raise SummaryContractError(
+                        "canonical result contains invalid summary metadata: "
+                        "summary mapping keys must be NUL-free exact strings"
+                    )
+                try:
+                    _ = key.encode("utf-8", errors="strict")
+                except UnicodeError as exc:
+                    raise SummaryContractError(
+                        "canonical result contains invalid summary metadata: "
+                        "summary mapping keys must contain valid UTF-8 text"
+                    ) from exc
+                items.append((key, item))
+            for key, item in reversed(items):
+                worklist.append(
+                    (
+                        item,
+                        nesting + 1,
+                        child_ancestors,
+                        normalized_mapping,
+                        key,
+                    )
+                )
+            continue
+        if source_type is list or source_type is tuple:
+            if nesting > _MAX_SUMMARY_NESTING:
+                raise SummaryContractError(
+                    "canonical result contains invalid summary metadata: "
+                    "summary nesting exceeds the explicit "
+                    f"{_MAX_SUMMARY_NESTING}-level limit"
+                )
+            source_id = id(source)
+            if source_id in ancestors:
+                raise SummaryContractError(
+                    "canonical result contains invalid summary metadata: "
+                    "summary container cycle is not supported"
+                )
+            child_ancestors = ancestors | {source_id}
+            sequence = cast(list[object] | tuple[object, ...], source)
+            child_count = len(sequence)
+            if scheduled_nodes + child_count > _MAX_SUMMARY_NODES:
+                raise SummaryContractError(
+                    "canonical result contains invalid summary metadata: "
+                    "summary node count exceeds the explicit "
+                    f"{_MAX_SUMMARY_NODES}-node limit"
+                )
+            scheduled_nodes += child_count
+            normalized_sequence: list[object] = [None] * child_count
+            _set_tree_value(destination, slot, normalized_sequence)
+            for index in range(child_count - 1, -1, -1):
+                worklist.append(
+                    (
+                        sequence[index],
+                        nesting + 1,
+                        child_ancestors,
+                        normalized_sequence,
+                        index,
+                    )
+                )
+            continue
+        _set_tree_value(destination, slot, _summary_scalar(source))
+    return holder[0]
 
 
 def _summary_payload(result: SimulationResult) -> dict[str, object]:
@@ -137,7 +301,9 @@ def _summary_payload(result: SimulationResult) -> dict[str, object]:
             raise TypeError("summary root did not normalize to an object")
         normalized = cast(dict[str, object], tree)
         return dict(sorted(normalized.items()))
-    except (RecursionError, TypeError, ValueError, OverflowError) as exc:
+    except SummaryContractError:
+        raise
+    except (TypeError, ValueError, OverflowError) as exc:
         raise SummaryContractError(
             "canonical result could not be represented by the summary schema"
         ) from exc
@@ -158,7 +324,9 @@ def _encode_summary(result: SimulationResult) -> bytes:
             )
             + "\n"
         ).encode("utf-8", errors="strict")
-    except (RecursionError, TypeError, ValueError, UnicodeError) as exc:
+    except SummaryContractError:
+        raise
+    except (TypeError, ValueError, OverflowError, UnicodeError) as exc:
         raise SummaryContractError(
             "canonical result contains invalid summary metadata"
         ) from exc

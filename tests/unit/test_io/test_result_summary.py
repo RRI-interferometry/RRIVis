@@ -5,8 +5,12 @@ from __future__ import annotations
 import importlib
 import inspect
 import json
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from radiosim.api.simulator import Simulator
@@ -18,6 +22,32 @@ from radiosim.io.result_errors import (
     SummaryContractError,
 )
 from tests.unit.test_core.test_result import _build
+
+
+def _exception_chain(error: BaseException) -> tuple[type[BaseException], ...]:
+    chain: list[type[BaseException]] = []
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        chain.append(type(current))
+        current = current.__cause__ or current.__context__
+    return tuple(chain)
+
+
+def _nested_summary_payload(nesting: int, kind: str) -> dict[str, object]:
+    value: object = None
+    for level in range(nesting - 1):
+        container = kind
+        if kind == "alternating":
+            container = "list" if level % 2 == 0 else "dict"
+        if container == "list":
+            value = [value]
+        elif container == "tuple":
+            value = (value,)
+        else:
+            value = {"nested": value}
+    return {"nested": value}
 
 
 def test_result_format_module_exposes_exact_typed_values_and_extensions():
@@ -292,9 +322,10 @@ def test_summary_recursion_failure_is_typed_and_precedes_path_mutation(
         lambda observed: {"nested": nested},
     )
 
-    with pytest.raises(SummaryContractError, match="invalid summary metadata"):
+    with pytest.raises(SummaryContractError, match="nesting") as caught:
         module.write_result_summary_json(result, output_parent / "summary")
 
+    assert RecursionError not in _exception_chain(caught.value)
     assert not output_parent.exists()
 
 
@@ -312,3 +343,260 @@ def test_summary_nul_text_is_rejected_before_path_mutation(tmp_path, monkeypatch
         module.write_result_summary_json(result, output_parent / "summary")
 
     assert not output_parent.exists()
+
+
+@pytest.mark.parametrize("kind", ["list", "dict", "alternating", "tuple"])
+def test_summary_explicit_nesting_boundary_is_exact_and_pre_filesystem(
+    tmp_path,
+    monkeypatch,
+    kind,
+):
+    result, _ = _build(tmp_path)
+    module = importlib.import_module("radiosim.io.summary_json")
+    limit = module._MAX_SUMMARY_NESTING
+    accepted = _nested_summary_payload(limit, kind)
+    monkeypatch.setattr(module, "_summary_payload", lambda observed: accepted)
+    accepted_target = module.write_result_summary_json(
+        result,
+        tmp_path / f"accepted-{kind}",
+    )
+    assert accepted_target.is_file()
+
+    rejected = _nested_summary_payload(limit + 1, kind)
+    monkeypatch.setattr(module, "_summary_payload", lambda observed: rejected)
+    rejected_parent = tmp_path / f"rejected-{kind}"
+    with pytest.raises(SummaryContractError, match="nesting") as caught:
+        module.write_result_summary_json(result, rejected_parent / "summary")
+
+    assert RecursionError not in _exception_chain(caught.value)
+    assert not rejected_parent.exists()
+
+
+def test_summary_explicit_node_boundary_precedes_json_serialization(
+    tmp_path,
+    monkeypatch,
+):
+    result, _ = _build(tmp_path)
+    module = importlib.import_module("radiosim.io.summary_json")
+    limit = module._MAX_SUMMARY_NODES
+    exact = {"items": [None] * (limit - 2)}
+    monkeypatch.setattr(module, "_summary_payload", lambda observed: exact)
+    assert module._encode_summary(result)
+
+    over = {"items": [None] * (limit - 1)}
+    monkeypatch.setattr(module, "_summary_payload", lambda observed: over)
+    monkeypatch.setattr(
+        module.json,
+        "dumps",
+        lambda *args, **kwargs: pytest.fail(
+            "over-limit summary reached JSON serialization"
+        ),
+    )
+    rejected_parent = tmp_path / "node-limit-rejected"
+    with pytest.raises(SummaryContractError, match="node"):
+        module.write_result_summary_json(result, rejected_parent / "summary")
+    assert not rejected_parent.exists()
+
+
+def test_very_deep_summary_is_explicitly_rejected_in_fresh_process(tmp_path):
+    script = textwrap.dedent(
+        f"""
+        import sys
+        from pathlib import Path
+
+        from radiosim.io import summary_json
+        from radiosim.io.result_errors import SummaryContractError
+        from tests.unit.test_core.test_result import _build
+
+        root = Path({str(tmp_path)!r})
+        result, _ = _build(root)
+        nested = None
+        for _ in range(2_000):
+            nested = [nested]
+        summary_json._summary_payload = lambda observed: {{"nested": nested}}
+        sys.setrecursionlimit(100)
+        parent = root / "subprocess-must-not-exist"
+        try:
+            summary_json.write_result_summary_json(result, parent / "summary")
+        except SummaryContractError as error:
+            current = error
+            seen = set()
+            while current is not None and id(current) not in seen:
+                seen.add(id(current))
+                if isinstance(current, RecursionError):
+                    raise AssertionError("raw RecursionError in exception chain")
+                current = current.__cause__ or current.__context__
+            assert "nesting" in str(error)
+            assert not parent.exists()
+        else:
+            raise AssertionError("deep summary was accepted")
+        """
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+@pytest.mark.parametrize("cycle_kind", ["list", "dict", "mutual"])
+def test_summary_cycles_are_rejected_without_recursion_or_path_mutation(
+    tmp_path,
+    monkeypatch,
+    cycle_kind,
+):
+    result, _ = _build(tmp_path)
+    module = importlib.import_module("radiosim.io.summary_json")
+    if cycle_kind == "list":
+        value: object = []
+        value.append(value)
+    elif cycle_kind == "dict":
+        value = {}
+        value["self"] = value
+    else:
+        list_value: list[object] = []
+        dict_value = {"list": list_value}
+        list_value.append(dict_value)
+        value = list_value
+    monkeypatch.setattr(
+        module,
+        "_summary_payload",
+        lambda observed: {"cycle": value},
+    )
+    output_parent = tmp_path / f"cycle-{cycle_kind}"
+
+    with pytest.raises(SummaryContractError, match="cycle|alias") as caught:
+        module.write_result_summary_json(result, output_parent / "summary")
+
+    assert RecursionError not in _exception_chain(caught.value)
+    assert not output_parent.exists()
+
+
+def test_summary_detaches_repeated_container_aliases_within_node_limit(
+    tmp_path,
+    monkeypatch,
+):
+    result, _ = _build(tmp_path)
+    module = importlib.import_module("radiosim.io.summary_json")
+    shared = ["detached value"]
+    monkeypatch.setattr(
+        module,
+        "_summary_payload",
+        lambda observed: {"first": shared, "second": shared},
+    )
+    target = module.write_result_summary_json(result, tmp_path / "alias-bounded")
+    payload = json.loads(target.read_text(encoding="utf-8"))
+
+    assert payload == {
+        "first": ["detached value"],
+        "second": ["detached value"],
+    }
+    assert payload["first"] is not payload["second"]
+
+
+def test_summary_rejects_wide_mapping_before_serialization(
+    tmp_path,
+    monkeypatch,
+):
+    result, _ = _build(tmp_path)
+    module = importlib.import_module("radiosim.io.summary_json")
+    wide = {f"key-{index}": None for index in range(module._MAX_SUMMARY_NODES)}
+    monkeypatch.setattr(module, "_summary_payload", lambda observed: wide)
+    monkeypatch.setattr(
+        module.json,
+        "dumps",
+        lambda *args, **kwargs: pytest.fail(
+            "wide over-limit mapping reached JSON serialization"
+        ),
+    )
+    output_parent = tmp_path / "wide-rejected"
+
+    with pytest.raises(SummaryContractError, match="node"):
+        module.write_result_summary_json(result, output_parent / "summary")
+
+    assert not output_parent.exists()
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"nul-key\x00": "value"},
+        {"invalid-unicode": "\ud800"},
+        {"nan": float("nan")},
+        {"positive-infinity": float("inf")},
+        {"negative-infinity": float("-inf")},
+        {1: "invalid key"},
+        {"object-array": np.asarray([object()], dtype=object)},
+        {"datetime-scalar": np.datetime64("2026-01-01")},
+    ],
+)
+def test_summary_rejects_broad_invalid_values_before_path_mutation(
+    tmp_path,
+    monkeypatch,
+    invalid,
+):
+    result, _ = _build(tmp_path)
+    module = importlib.import_module("radiosim.io.summary_json")
+    monkeypatch.setattr(module, "_summary_payload", lambda observed: invalid)
+    output_parent = tmp_path / "invalid-rejected"
+
+    with pytest.raises(SummaryContractError):
+        module.write_result_summary_json(result, output_parent / "summary")
+
+    assert not output_parent.exists()
+
+
+def test_summary_accepts_supported_finite_numpy_scalars(tmp_path, monkeypatch):
+    result, _ = _build(tmp_path)
+    module = importlib.import_module("radiosim.io.summary_json")
+    monkeypatch.setattr(
+        module,
+        "_summary_payload",
+        lambda observed: {
+            "boolean": np.bool_(True),
+            "float": np.float64(1.25),
+            "integer": np.int64(7),
+            "string": np.str_("valid"),
+        },
+    )
+
+    target = module.write_result_summary_json(result, tmp_path / "numpy-scalars")
+
+    assert json.loads(target.read_text(encoding="utf-8")) == {
+        "boolean": True,
+        "float": 1.25,
+        "integer": 7,
+        "string": "valid",
+    }
+
+
+def test_summary_rejects_hostile_container_subclasses_without_calling_hooks(
+    tmp_path,
+    monkeypatch,
+):
+    result, _ = _build(tmp_path)
+    module = importlib.import_module("radiosim.io.summary_json")
+
+    class HostileList(list):
+        def __iter__(self):
+            pytest.fail("unsupported list subclass iterator executed")
+
+    class HostileDict(dict):
+        def items(self):
+            pytest.fail("unsupported dict subclass items executed")
+
+    for index, invalid in enumerate((HostileList([1]), HostileDict(value=1))):
+        monkeypatch.setattr(
+            module,
+            "_summary_payload",
+            lambda observed, invalid=invalid: {"invalid": invalid},
+        )
+        output_parent = tmp_path / f"hostile-{index}"
+        with pytest.raises(SummaryContractError, match="unsupported"):
+            module.write_result_summary_json(result, output_parent / "summary")
+        assert not output_parent.exists()
