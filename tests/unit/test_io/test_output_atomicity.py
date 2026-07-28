@@ -9,7 +9,9 @@ import pytest
 
 import radiosim.io.atomic_paths as atomic_paths
 import radiosim.io.hdf5 as hdf5_module
+import radiosim.io.measurement_set as measurement_set_module
 from radiosim.io.hdf5 import load_result_hdf5, write_result_hdf5
+from radiosim.io.measurement_set import read_measurement_set
 from radiosim.io.result_errors import (
     AtomicWriteError,
     AtomicWriteUnsupportedError,
@@ -21,6 +23,8 @@ from radiosim.io.result_errors import (
     UnsafeOutputDirectoryError,
 )
 from tests.unit.test_core.test_result import _build
+from tests.unit.test_io.test_measurement_set import _write_checked
+from tests.unit.test_io.test_standard_visibility import build_standard_result
 
 
 def _result(tmp_path: Path):
@@ -308,6 +312,120 @@ def test_replace_failure_preserves_old_target_and_removes_temporary(
     assert isinstance(caught.value.__cause__, OSError)
     assert target.read_bytes() == b"old bytes"
     assert _temporary_artifacts(target) == ()
+
+
+def test_ms_overwrite_cleanup_failure_during_old_payload_removal_is_truthful(
+    tmp_path,
+    monkeypatch,
+):
+    first = build_standard_result(tmp_path / "first", dtype="complex64")
+    second = build_standard_result(tmp_path / "second", dtype="complex64")
+    target = tmp_path / "during-cleanup.ms"
+    _write_checked(first, target)
+    real_remove = measurement_set_module.remove_temporary_directory
+
+    def remove_part_then_fail(path):
+        path = Path(path)
+        if path.name == "payload.ms":
+            victim = next(item for item in path.rglob("*") if item.is_file())
+            victim.unlink()
+            raise OSError("cleanup failed after partial removal")
+        real_remove(path)
+
+    monkeypatch.setattr(
+        measurement_set_module,
+        "remove_temporary_directory",
+        remove_part_then_fail,
+    )
+    with pytest.raises(PartialCleanupError) as caught:
+        _write_checked(second, target, overwrite=True)
+
+    residual = caught.value.residual_path
+    assert residual.name == "payload.ms"
+    assert residual.is_dir()
+    assert "only partially intact" in "\n".join(caught.value.__notes__)
+    assert (
+        read_measurement_set(target).source_scientific_sha256
+        == second.scientific_sha256
+    )
+    real_remove(residual.parent)
+
+
+def test_ms_overwrite_outer_container_cleanup_failure_reports_container(
+    tmp_path,
+    monkeypatch,
+):
+    first = build_standard_result(tmp_path / "first", dtype="complex64")
+    second = build_standard_result(tmp_path / "second", dtype="complex64")
+    target = tmp_path / "outer-cleanup.ms"
+    _write_checked(first, target)
+    real_remove = measurement_set_module.remove_temporary_directory
+
+    def remove_payload_then_fail(path):
+        path = Path(path)
+        if path.name == "payload.ms":
+            real_remove(path)
+            return
+        raise OSError("outer container cleanup failed")
+
+    monkeypatch.setattr(
+        measurement_set_module,
+        "remove_temporary_directory",
+        remove_payload_then_fail,
+    )
+    with pytest.raises(PartialCleanupError) as caught:
+        _write_checked(second, target, overwrite=True)
+
+    residual = caught.value.residual_path
+    assert residual.name.endswith(".tmp.ms")
+    assert residual.is_dir()
+    assert not (residual / "payload.ms").exists()
+    assert (
+        read_measurement_set(target).source_scientific_sha256
+        == second.scientific_sha256
+    )
+    real_remove(residual)
+
+
+def test_ms_overwrite_postexchange_fsync_retains_readable_old_payload(
+    tmp_path,
+    monkeypatch,
+):
+    first = build_standard_result(tmp_path / "first", dtype="complex64")
+    second = build_standard_result(tmp_path / "second", dtype="complex64")
+    target = tmp_path / "exchange-fsync.ms"
+    _write_checked(first, target)
+    real_remove = measurement_set_module.remove_temporary_directory
+    calls = 0
+
+    def fail_first_fsync(_descriptor):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("postexchange fsync failed")
+
+    monkeypatch.setattr(
+        measurement_set_module,
+        "fsync_directory",
+        fail_first_fsync,
+    )
+    with pytest.raises(PartialCleanupError) as caught:
+        _write_checked(second, target, overwrite=True)
+
+    residual = caught.value.residual_path
+    assert residual.name == "payload.ms"
+    assert (
+        read_measurement_set(residual).source_scientific_sha256
+        == first.scientific_sha256
+    )
+    assert (
+        read_measurement_set(target).source_scientific_sha256
+        == second.scientific_sha256
+    )
+    assert "old Measurement Set was retained" in "\n".join(
+        caught.value.__notes__,
+    )
+    real_remove(residual.parent)
 
 
 def test_no_clobber_publish_rejects_a_concurrent_target_without_changing_it(

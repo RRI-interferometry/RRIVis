@@ -31,6 +31,23 @@ CANONICAL_CODES: Final = np.array([-5, -7, -8, -6], dtype=np.int64)
 FILE_CODES: Final = np.array([-5, -6, -7, -8], dtype=np.int64)
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _PROJECTION_HISTORY_LIMIT = 16_000
+_MAX_PROJECTION_JSON_DEPTH = 64
+_PYUVDATA_HISTORY_TRAILING = re.compile(
+    r"Read/written with pyuvdata version: [0-9A-Za-z][0-9A-Za-z.+-]*\.\Z"
+)
+_PROJECTION_RECORD_FIELDS = {
+    "schema",
+    "projected_phase",
+    "source_scientific_sha256",
+    "source_provenance_sha256",
+    "input_visibility_dtype",
+    "stored_visibility_dtype",
+    "input_weight_dtype",
+    "stored_weight_dtype",
+    "instrument",
+    "beam",
+    "solver",
+}
 
 
 def _exact_text(value: object, *, field_name: str) -> str:
@@ -139,6 +156,16 @@ class ProjectedPhaseCenter:
             self.transformation,
             field_name="transformation",
         )
+        if transformation != PROJECTION_TRANSFORMATION:
+            raise ValueError("transformation has an unsupported identity")
+        if (
+            reference_jd1 != float(round(reference_jd1))
+            or abs(reference_jd2) > 0.5
+            or reference_jd1 + reference_jd2 <= 0.0
+        ):
+            raise ValueError(
+                "reference UTC JD must use a coherent canonical two-part value"
+            )
         object.__setattr__(self, "longitude_rad", longitude)
         object.__setattr__(self, "latitude_rad", latitude)
         object.__setattr__(self, "reference_utc_jd1", reference_jd1)
@@ -764,7 +791,10 @@ def _projection_history(
         ensure_ascii=False,
         allow_nan=False,
     )
-    if len(encoded.encode("utf-8")) > _PROJECTION_HISTORY_LIMIT:
+    if (
+        len((PROJECTION_HISTORY_PREFIX + encoded).encode("utf-8"))
+        > _PROJECTION_HISTORY_LIMIT
+    ):
         record["instrument"] = {
             "name": result.instrument.name,
             "instrument_sha256": result.instrument.provenance.instrument_sha256,
@@ -782,7 +812,23 @@ def _projection_history(
             ensure_ascii=False,
             allow_nan=False,
         )
-    return history, PROJECTION_HISTORY_PREFIX + encoded
+    projection_line = PROJECTION_HISTORY_PREFIX + encoded
+    complete_history = "\n".join(history + (projection_line,))
+    try:
+        complete_encoded = complete_history.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise FormatRepresentationError(
+            "standard projection HISTORY must be strict UTF-8"
+        ) from exc
+    if "\x00" in complete_history:
+        raise FormatRepresentationError(
+            "standard projection HISTORY must not contain NUL"
+        )
+    if len(complete_encoded) > _PROJECTION_HISTORY_LIMIT:
+        raise FormatRepresentationError(
+            "standard projection HISTORY exceeds 16000 UTF-8 bytes"
+        )
+    return history, projection_line
 
 
 def project_simulation_result(
@@ -1121,10 +1167,118 @@ def validate_standard_metadata(uvdata: Any) -> None:
         )
 
 
-def _projection_record(history: object) -> tuple[dict[str, object], tuple[str, ...]]:
+class _DuplicateProjectionKey(ValueError):
+    """Internal sentinel for duplicate JSON object names."""
+
+
+def _reject_json_constant(value: str) -> object:
+    raise ValueError(f"non-finite JSON constant {value}")
+
+
+def _projection_object(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateProjectionKey(key)
+        result[key] = value
+    return result
+
+
+def _validate_json_depth(
+    value: object,
+    *,
+    depth: int = 1,
+) -> None:
+    if depth > _MAX_PROJECTION_JSON_DEPTH:
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY exceeds maximum JSON nesting"
+        )
+    if type(value) is dict:
+        for child in cast(dict[str, object], value).values():
+            _validate_json_depth(child, depth=depth + 1)
+    elif type(value) is list:
+        for child in cast(list[object], value):
+            _validate_json_depth(child, depth=depth + 1)
+
+
+def _validate_projection_record(record: dict[str, object]) -> None:
+    fields = set(record)
+    if fields not in (
+        _PROJECTION_RECORD_FIELDS,
+        _PROJECTION_RECORD_FIELDS | {"provenance_omitted"},
+    ):
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY has unexpected record fields"
+        )
+    if record.get("schema") != PROJECTED_PHASE_SCHEMA:
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY has the wrong schema"
+        )
+    if "provenance_omitted" in record and record["provenance_omitted"] is not True:
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY has invalid omission metadata"
+        )
+    for name in ("instrument", "beam", "solver"):
+        if type(record[name]) is not dict:
+            raise UnsafeResultInputError(
+                f"standard input projection HISTORY {name} must be an object"
+            )
+    for name in (
+        "source_scientific_sha256",
+        "source_provenance_sha256",
+    ):
+        value = record[name]
+        if type(value) is not str or _SHA256.fullmatch(value) is None:
+            raise UnsafeResultInputError(
+                f"standard input projection HISTORY {name} is invalid"
+            )
+    input_visibility_dtype = record["input_visibility_dtype"]
+    stored_visibility_dtype = record["stored_visibility_dtype"]
+    if input_visibility_dtype not in {"complex64", "complex128"} or (
+        stored_visibility_dtype not in {"complex64", "complex128"}
+    ):
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY has invalid visibility dtypes"
+        )
+    if record["input_weight_dtype"] not in {"float32", "float64"} or (
+        record["stored_weight_dtype"] != "float32"
+    ):
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY has invalid weight dtypes"
+        )
+    projected = record["projected_phase"]
+    if type(projected) is not dict:
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY lacks projected_phase"
+        )
+    try:
+        _ = ProjectedPhaseCenter(**cast(dict[str, Any], projected))
+    except Exception as exc:
+        raise UnsafeResultInputError(
+            "standard input projected phase record is invalid"
+        ) from exc
+
+
+def projection_record_from_history(
+    history: object,
+) -> tuple[dict[str, object], tuple[str, ...]]:
     if type(history) is not str:
         raise FormatRepresentationError(
             "standard input must contain RadioSim projection HISTORY"
+        )
+    if "\x00" in history:
+        raise UnsafeResultInputError("standard input projection HISTORY contains NUL")
+    try:
+        encoded_history = history.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY is not strict UTF-8"
+        ) from exc
+    if len(encoded_history) > _PROJECTION_HISTORY_LIMIT:
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY exceeds 16000 UTF-8 bytes"
         )
     lines = tuple(line.strip() for line in history.splitlines() if line.strip())
     record_indices = [
@@ -1144,13 +1298,27 @@ def _projection_record(history: object) -> tuple[dict[str, object], tuple[str, .
         )
     )
     try:
-        decoded, end = json.JSONDecoder().raw_decode(encoded)
+        decoded, end = json.JSONDecoder(
+            parse_constant=_reject_json_constant,
+            object_pairs_hook=_projection_object,
+        ).raw_decode(encoded)
+    except _DuplicateProjectionKey as exc:
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY contains a duplicate JSON key"
+        ) from exc
     except (json.JSONDecodeError, RecursionError) as exc:
         raise UnsafeResultInputError(
             "standard input projection HISTORY is invalid JSON"
         ) from exc
+    except ValueError as exc:
+        message = (
+            "standard input projection HISTORY contains a non-finite JSON constant"
+            if "non-finite JSON constant" in str(exc)
+            else "standard input projection HISTORY is invalid JSON"
+        )
+        raise UnsafeResultInputError(message) from exc
     trailing = encoded[end:].strip()
-    if trailing and not trailing.startswith("Read/written with pyuvdata version:"):
+    if trailing and _PYUVDATA_HISTORY_TRAILING.fullmatch(trailing) is None:
         raise UnsafeResultInputError(
             "standard input projection HISTORY has unexpected trailing content"
         )
@@ -1158,10 +1326,13 @@ def _projection_record(history: object) -> tuple[dict[str, object], tuple[str, .
         raise UnsafeResultInputError(
             "standard input projection HISTORY must be a JSON object"
         )
-    return cast(dict[str, object], decoded), lines
+    record = cast(dict[str, object], decoded)
+    _validate_json_depth(record)
+    _validate_projection_record(record)
+    return record, lines
 
 
-def _projected_phase_from_uvdata(
+def projected_phase_from_uvdata(
     uvdata: Any,
     record: Mapping[str, object],
 ) -> ProjectedPhaseCenter:
@@ -1240,13 +1411,20 @@ def standard_visibility_from_uvdata(
     uvdata: Any,
     *,
     format: Literal["ms", "uvfits"],
+    expected_projection_record: Mapping[str, object] | None = None,
 ) -> StandardVisibilityData:
     """Canonicalize fully loaded rectangular UVData into immutable axes."""
     validate_standard_metadata(uvdata)
+    record, history = projection_record_from_history(uvdata.history)
+    if expected_projection_record is not None and record != dict(
+        expected_projection_record
+    ):
+        raise UnsafeResultInputError(
+            "loaded projection HISTORY disagrees with the bounded preflight record"
+        )
+    phase = projected_phase_from_uvdata(uvdata, record)
     if uvdata.data_array is None:
         raise UnsafeResultInputError("standard input science data were not loaded")
-    record, history = _projection_record(uvdata.history)
-    phase = _projected_phase_from_uvdata(uvdata, record)
     times = np.asarray(uvdata.time_array, dtype=np.float64)
     unique_times = np.unique(times)
     pairs = list(
@@ -1314,8 +1492,8 @@ def standard_visibility_from_uvdata(
     )
     time_module = import_module("astropy.time")
     astropy_times = time_module.Time(unique_times, format="jd", scale="utc")
-    scientific = record.get("source_scientific_sha256")
-    provenance = record.get("source_provenance_sha256")
+    scientific = cast(str, record["source_scientific_sha256"])
+    provenance = cast(str, record["source_provenance_sha256"])
     return build_standard_visibility_data(
         format=format,
         visibilities=np.asarray(data),
@@ -1342,8 +1520,8 @@ def standard_visibility_from_uvdata(
         telescope_snapshot=_snapshot_from_uvdata(uvdata),
         phase_center=phase,
         history=history,
-        source_scientific_sha256=(scientific if type(scientific) is str else None),
-        source_provenance_sha256=(provenance if type(provenance) is str else None),
+        source_scientific_sha256=scientific,
+        source_provenance_sha256=provenance,
     )
 
 

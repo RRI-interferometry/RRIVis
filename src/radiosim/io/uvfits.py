@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -37,10 +38,16 @@ from radiosim.io.standard_visibility import (
     enforce_standard_read_limits,
     normalize_autocorrelations,
     project_simulation_result,
+    projection_record_from_history,
     standard_visibility_from_uvdata,
     validate_projection_result,
     validate_standard_metadata,
 )
+
+_FITS_BLOCK_BYTES = 2880
+_FITS_CARD_BYTES = 80
+_MAX_PRIMARY_HEADER_BYTES = 262_144
+_MAX_PROJECTION_HISTORY_BYTES = 16_000
 
 
 def _pyuvdata_version() -> str:
@@ -173,10 +180,81 @@ def _read_uvfits(path: Path, *, read_data: bool) -> Any:
     return uvdata
 
 
-def _inspect_uvfits_headers(path: Path, limits: StandardReadLimits) -> None:
+def _bounded_primary_projection_history(path: Path) -> dict[str, object]:
+    """Scan the primary header incrementally before constructing an Astropy header."""
+    descriptor: int | None = None
+    history = bytearray()
+    end_found = False
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        status = os.fstat(descriptor)
+        if not stat.S_ISREG(status.st_mode):
+            raise UnsafeResultInputError(
+                "UVFITS input changed to a non-regular file during preflight"
+            )
+        consumed = 0
+        while consumed + _FITS_BLOCK_BYTES <= _MAX_PRIMARY_HEADER_BYTES:
+            block = os.read(descriptor, _FITS_BLOCK_BYTES)
+            if len(block) != _FITS_BLOCK_BYTES:
+                raise UnsafeResultInputError(
+                    "UVFITS primary header is truncated before END"
+                )
+            consumed += len(block)
+            for offset in range(0, _FITS_BLOCK_BYTES, _FITS_CARD_BYTES):
+                card = block[offset : offset + _FITS_CARD_BYTES]
+                keyword = card[:8]
+                if keyword == b"HISTORY ":
+                    value = card[8:].rstrip(b" ")
+                    additional = len(value) + (1 if history else 0)
+                    if len(history) + additional > _MAX_PROJECTION_HISTORY_BYTES:
+                        raise UnsafeResultInputError(
+                            "UVFITS projection HISTORY exceeds 16000 bytes"
+                        )
+                    if history:
+                        history.extend(b"\n")
+                    history.extend(value)
+                if keyword == b"END     ":
+                    end_found = True
+                    break
+            if end_found:
+                break
+        if not end_found:
+            raise UnsafeResultInputError(
+                "UVFITS primary header exceeds the bounded size or lacks END"
+            )
+    except ResultIOError:
+        raise
+    except OSError as exc:
+        raise UnsafeResultInputError(
+            f"UVFITS primary header could not be read safely: {path}"
+        ) from exc
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+    try:
+        history_text = bytes(history).decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise UnsafeResultInputError(
+            "UVFITS projection HISTORY is not strict UTF-8"
+        ) from exc
+    record, _lines = projection_record_from_history(history_text)
+    return record
+
+
+def _inspect_uvfits_headers(
+    path: Path,
+    limits: StandardReadLimits,
+) -> dict[str, object]:
     """Bound FITS random-group dimensions before pyuvdata science allocation."""
     if type(limits) is not StandardReadLimits:
         raise TypeError("limits must be an exact StandardReadLimits")
+    projection_record = _bounded_primary_projection_history(path)
     try:
         fits = import_module("astropy.io.fits")
         with fits.open(
@@ -228,6 +306,7 @@ def _inspect_uvfits_headers(path: Path, limits: StandardReadLimits) -> None:
         raise UnsafeResultInputError(
             f"UVFITS header inspection failed: {path}"
         ) from exc
+    return projection_record
 
 
 def _assert_round_trip(
@@ -330,12 +409,19 @@ def _verify_temporary_uvfits(
     expected: StandardVisibilityData,
     temporary: Path,
 ) -> None:
-    _inspect_uvfits_headers(temporary, StandardReadLimits())
+    projection_record = _inspect_uvfits_headers(
+        temporary,
+        StandardReadLimits(),
+    )
     metadata = _read_uvfits(temporary, read_data=False)
     enforce_standard_read_limits(metadata, StandardReadLimits())
     validate_standard_metadata(metadata)
     loaded = _read_uvfits(temporary, read_data=True)
-    observed = standard_visibility_from_uvdata(loaded, format="uvfits")
+    observed = standard_visibility_from_uvdata(
+        loaded,
+        format="uvfits",
+        expected_projection_record=projection_record,
+    )
     _assert_round_trip(expected, observed)
 
 
@@ -442,14 +528,18 @@ def read_uvfits(
         source = validate_input_regular_file(path)
     except ResultIOError as exc:
         raise UnsafeResultInputError(str(exc)) from exc
-    _inspect_uvfits_headers(source, limits)
+    projection_record = _inspect_uvfits_headers(source, limits)
     _ = _import_pyuvdata()
     metadata = _read_uvfits(source, read_data=False)
     enforce_standard_read_limits(metadata, limits)
     validate_standard_metadata(metadata)
     loaded = _read_uvfits(source, read_data=True)
     try:
-        return standard_visibility_from_uvdata(loaded, format="uvfits")
+        return standard_visibility_from_uvdata(
+            loaded,
+            format="uvfits",
+            expected_projection_record=projection_record,
+        )
     except ResultIOError:
         raise
     except Exception as exc:

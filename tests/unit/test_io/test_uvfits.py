@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import inspect
+import json
 import os
+import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
 from astropy.io import fits
-from astropy.io.fits.verify import VerifyWarning
-from astropy.utils.exceptions import AstropyDeprecationWarning
 from pyuvdata import UVData
 
 import radiosim.io.uvfits as uvfits_module
@@ -24,9 +25,11 @@ from radiosim.io.result_errors import (
     UnsafeResultInputError,
 )
 from radiosim.io.standard_visibility import (
+    PROJECTION_HISTORY_PREFIX,
     StandardReadLimits,
     StandardVisibilityData,
     project_simulation_result,
+    projection_record_from_history,
 )
 from radiosim.io.uvfits import read_uvfits, write_uvfits
 from tests.unit.test_io.test_standard_visibility import build_standard_result
@@ -196,23 +199,173 @@ def test_uvfits_header_limits_precede_pyuvdata_data_read(
     assert data_reads == 0
 
 
+def _insert_primary_history_bytes(
+    source: Path,
+    target: Path,
+    *,
+    byte_count: int,
+) -> None:
+    original = source.read_bytes()
+    end_offset = next(
+        offset
+        for offset in range(0, len(original), 80)
+        if original[offset : offset + 8] == b"END     "
+    )
+    original_header_size = ((end_offset + 80 + 2879) // 2880) * 2880
+    history_cards = b"".join(
+        b"HISTORY " + (b"X" * min(72, byte_count - offset)).ljust(72)
+        for offset in range(0, byte_count, 72)
+    )
+    new_header = (
+        original[:end_offset] + history_cards + original[end_offset : end_offset + 80]
+    )
+    new_header += b" " * (-len(new_header) % 2880)
+    target.write_bytes(new_header + original[original_header_size:])
+
+
+def test_uvfits_oversized_primary_history_rejects_before_json_or_science(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = build_standard_result(tmp_path, dtype="complex64")
+    valid = write_uvfits(result, tmp_path / "bounded.uvfits")
+    hostile = tmp_path / "oversized-history.uvfits"
+    _insert_primary_history_bytes(valid, hostile, byte_count=1024 * 1024)
+    json_reads = 0
+    science_reads = 0
+    real_projection_record = uvfits_module.projection_record_from_history
+    real_read = uvfits_module._read_uvfits
+
+    def recording_projection_record(history):
+        nonlocal json_reads
+        json_reads += 1
+        return real_projection_record(history)
+
+    def recording_read(path, *, read_data):
+        nonlocal science_reads
+        if read_data:
+            science_reads += 1
+        return real_read(path, read_data=read_data)
+
+    monkeypatch.setattr(
+        uvfits_module,
+        "projection_record_from_history",
+        recording_projection_record,
+    )
+    monkeypatch.setattr(uvfits_module, "_read_uvfits", recording_read)
+    with pytest.raises(UnsafeResultInputError, match="HISTORY|header"):
+        read_uvfits(hostile)
+    assert json_reads == 0
+    assert science_reads == 0
+
+
+def test_uvfits_hostile_history_subprocess_allocation_is_bounded(
+    tmp_path: Path,
+) -> None:
+    result = build_standard_result(tmp_path, dtype="complex64")
+    valid = write_uvfits(result, tmp_path / "subprocess-bounded.uvfits")
+    hostile = tmp_path / "subprocess-hostile.uvfits"
+    _insert_primary_history_bytes(valid, hostile, byte_count=1024 * 1024)
+    script = """
+import json
+import resource
+import sys
+import tracemalloc
+import radiosim.io.uvfits as module
+
+science_reads = 0
+json_reads = 0
+real_read = module._read_uvfits
+real_projection = module.projection_record_from_history
+
+def recording_read(path, *, read_data):
+    global science_reads
+    science_reads += int(read_data)
+    return real_read(path, read_data=read_data)
+
+def recording_projection(history):
+    global json_reads
+    json_reads += 1
+    return real_projection(history)
+
+module._read_uvfits = recording_read
+module.projection_record_from_history = recording_projection
+module._import_pyuvdata()
+tracemalloc.start()
+try:
+    module.read_uvfits(sys.argv[1])
+except Exception as exc:
+    rejection = type(exc).__name__
+    message = str(exc)
+else:
+    rejection = None
+    message = ""
+_current, peak = tracemalloc.get_traced_memory()
+print(json.dumps({
+    "rejection": rejection,
+    "message": message,
+    "python_peak": peak,
+    "native_rss": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+    "science_reads": science_reads,
+    "json_reads": json_reads,
+}))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(hostile)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    observed = json.loads(completed.stdout.splitlines()[-1])
+    assert observed["rejection"] == "UnsafeResultInputError"
+    assert "HISTORY" in observed["message"]
+    assert observed["python_peak"] < 4 * 1024 * 1024
+    assert observed["native_rss"] > 0
+    assert observed["science_reads"] == 0
+    assert observed["json_reads"] == 0
+
+
+def test_uvfits_projection_history_rejects_before_science_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = build_standard_result(tmp_path, dtype="complex64")
+    valid = write_uvfits(result, tmp_path / "valid-history.uvfits")
+    raw = UVData()
+    raw.read_uvfits(str(valid))
+    record, _lines = projection_record_from_history(raw.history)
+    record["schema"] = "attacker.projection.v1"
+    raw.history = PROJECTION_HISTORY_PREFIX + json.dumps(
+        record,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    hostile = tmp_path / "hostile-history.uvfits"
+    raw.write_uvfits(str(hostile), force_phase=False)
+
+    science_reads = 0
+    real_read = uvfits_module._read_uvfits
+
+    def recording_read(path, *, read_data):
+        nonlocal science_reads
+        if read_data:
+            science_reads += 1
+        return real_read(path, read_data=read_data)
+
+    monkeypatch.setattr(uvfits_module, "_read_uvfits", recording_read)
+    with pytest.raises((UnsafeResultInputError, FormatRepresentationError)):
+        read_uvfits(hostile)
+    assert science_reads == 0
+
+
 def test_uvfits_rejects_truncated_and_symlink_inputs(tmp_path: Path) -> None:
     truncated = tmp_path / "truncated.uvfits"
     truncated.write_bytes(b"SIMPLE  =                    T")
-    with pytest.warns(
-        (AstropyDeprecationWarning, VerifyWarning),
-    ) as caught:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         with pytest.raises(UnsafeResultInputError):
             read_uvfits(truncated)
-    expected_categories = (
-        [VerifyWarning]
-        if sys.version_info >= (3, 12)
-        else [AstropyDeprecationWarning, VerifyWarning]
-    )
-    assert [type(item.message) for item in caught] == expected_categories
-    if sys.version_info < (3, 12):
-        assert "indent function is deprecated" in str(caught[0].message)
-    assert "Header size is not multiple of 2880" in str(caught[-1].message)
+    assert caught == []
 
     destination = tmp_path / "destination.uvfits"
     destination.write_bytes(b"safe")

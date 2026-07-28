@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import inspect
+import json
+import math
 import os
 import shutil
+import subprocess
 import sys
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from casacore.tables import table
 from pyuvdata import UVData
 
 import radiosim.io as io
@@ -23,6 +28,7 @@ from radiosim.io.measurement_set import (
 from radiosim.io.result_errors import (
     AtomicWriteError,
     AtomicWriteUnsupportedError,
+    FormatRepresentationError,
     OptionalResultDependencyError,
     OutputCollisionError,
     OutputPathError,
@@ -31,6 +37,7 @@ from radiosim.io.result_errors import (
     UnsafeResultInputError,
 )
 from radiosim.io.standard_visibility import (
+    PROJECTION_HISTORY_PREFIX,
     StandardReadLimits,
     StandardVisibilityData,
     project_simulation_result,
@@ -186,11 +193,16 @@ def test_measurement_set_metadata_limits_precede_data_read(
     data_reads = 0
     real_read = measurement_set._read_ms
 
-    def recording_read(path, *, data_column, read_data):
+    def recording_read(path, *, data_column, read_data, limits=None):
         nonlocal data_reads
         if read_data:
             data_reads += 1
-        return real_read(path, data_column=data_column, read_data=read_data)
+        return real_read(
+            path,
+            data_column=data_column,
+            read_data=read_data,
+            limits=limits,
+        )
 
     monkeypatch.setattr(measurement_set, "_read_ms", recording_read)
     with pytest.raises(UnsafeResultInputError, match="max_times"):
@@ -199,6 +211,266 @@ def test_measurement_set_metadata_limits_precede_data_read(
             limits=StandardReadLimits(max_times=1),
         )
     assert data_reads == 0
+
+
+def test_measurement_set_declared_rows_reject_before_any_full_column_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "hostile.ms"
+    target.mkdir()
+    allocation_calls: list[tuple[str, str]] = []
+
+    class HostileMain:
+        def nrows(self) -> int:
+            return 1_000_000_000
+
+        def colnames(self) -> list[str]:
+            return [
+                "DATA",
+                "ANTENNA1",
+                "ANTENNA2",
+                "TIME",
+                "UVW",
+                "EXPOSURE",
+            ]
+
+        def getcol(self, name: str, *_args: object, **_kwargs: object) -> object:
+            allocation_calls.append(("getcol", name))
+            raise AssertionError("attacker-sized full column allocation")
+
+        def getcolshapestring(
+            self,
+            name: str,
+            *_args: object,
+            **_kwargs: object,
+        ) -> object:
+            allocation_calls.append(("getcolshapestring", name))
+            raise AssertionError("attacker-sized shape-list allocation")
+
+        def getcell(self, name: str, *_args: object, **_kwargs: object) -> object:
+            allocation_calls.append(("getcell", name))
+            raise AssertionError("attacker-sized cell allocation")
+
+        def close(self) -> None:
+            return None
+
+    fake_tables = SimpleNamespace(
+        table=lambda *_args, **_kwargs: HostileMain(),
+    )
+    real_import = measurement_set.import_module
+
+    def import_spy(name: str) -> object:
+        if name == "casacore.tables":
+            return fake_tables
+        return real_import(name)
+
+    monkeypatch.setattr(measurement_set, "import_module", import_spy)
+    monkeypatch.setattr(
+        measurement_set,
+        "_import_standard_dependencies",
+        lambda: object,
+    )
+
+    with pytest.raises(UnsafeResultInputError):
+        read_measurement_set(
+            target,
+            limits=StandardReadLimits(
+                max_times=1,
+                max_baselines=1,
+                max_frequencies=1,
+                max_antennas=1,
+                max_visibility_elements=1,
+                max_data_bytes=1,
+            ),
+        )
+    assert allocation_calls == []
+
+
+def _mutate_ms_projection_record(
+    path: Path,
+    mutation: str,
+) -> None:
+    history = table(str(path / "HISTORY"), readonly=False, ack=False)
+    try:
+        for row in range(int(history.nrows())):
+            message = history.getcell("MESSAGE", row)
+            if not message.startswith(PROJECTION_HISTORY_PREFIX):
+                continue
+            encoded = message[len(PROJECTION_HISTORY_PREFIX) :]
+            record = json.loads(encoded)
+            if mutation == "schema":
+                record["schema"] = "attacker.projection.v1"
+            elif mutation == "nonfinite":
+                record["projected_phase"]["longitude_rad"] = math.nan
+            elif mutation == "object_fingerprint":
+                record["source_scientific_sha256"] = {"forged": True}
+            elif mutation == "integer_fingerprint":
+                record["source_provenance_sha256"] = 7
+            else:
+                raise AssertionError(f"unknown mutation {mutation}")
+            history.putcell(
+                "MESSAGE",
+                row,
+                PROJECTION_HISTORY_PREFIX
+                + json.dumps(
+                    record,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
+            return
+    finally:
+        history.close()
+    raise AssertionError("projection record was not found")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "schema",
+        "nonfinite",
+        "object_fingerprint",
+        "integer_fingerprint",
+    ),
+)
+def test_measurement_set_projection_history_rejects_before_science_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    result = build_standard_result(tmp_path, dtype="complex64")
+    target = tmp_path / f"history-{mutation}.ms"
+    _write_checked(result, target)
+    _mutate_ms_projection_record(target, mutation)
+    science_reads = 0
+    real_read = measurement_set._read_ms
+
+    def recording_read(path, *, data_column, read_data, limits=None):
+        nonlocal science_reads
+        if read_data:
+            science_reads += 1
+        return real_read(
+            path,
+            data_column=data_column,
+            read_data=read_data,
+            limits=limits,
+        )
+
+    monkeypatch.setattr(measurement_set, "_read_ms", recording_read)
+    with pytest.raises((UnsafeResultInputError, FormatRepresentationError)):
+        read_measurement_set(target)
+    assert science_reads == 0
+
+
+def test_measurement_set_oversized_history_storage_rejects_before_json_or_science(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = build_standard_result(tmp_path, dtype="complex64")
+    target = _write_checked(result, tmp_path / "oversized-history.ms")
+    (target / "HISTORY" / "hostile-padding").write_bytes(b"X" * (1024 * 1024))
+    json_reads = 0
+    science_reads = 0
+    real_projection_record = measurement_set.projection_record_from_history
+    real_read = measurement_set._read_ms
+
+    def recording_projection_record(history):
+        nonlocal json_reads
+        json_reads += 1
+        return real_projection_record(history)
+
+    def recording_read(path, *, data_column, read_data, limits=None):
+        nonlocal science_reads
+        if read_data:
+            science_reads += 1
+        return real_read(
+            path,
+            data_column=data_column,
+            read_data=read_data,
+            limits=limits,
+        )
+
+    monkeypatch.setattr(
+        measurement_set,
+        "projection_record_from_history",
+        recording_projection_record,
+    )
+    monkeypatch.setattr(measurement_set, "_read_ms", recording_read)
+    with pytest.raises(UnsafeResultInputError, match="HISTORY storage"):
+        read_measurement_set(target)
+    assert json_reads == 0
+    assert science_reads == 0
+
+
+def test_measurement_set_hostile_history_subprocess_allocation_is_bounded(
+    tmp_path: Path,
+) -> None:
+    result = build_standard_result(tmp_path, dtype="complex64")
+    target = _write_checked(result, tmp_path / "subprocess-history.ms")
+    (target / "HISTORY" / "hostile-padding").write_bytes(b"X" * (1024 * 1024))
+    script = """
+import json
+import resource
+import sys
+import tracemalloc
+import radiosim.io.measurement_set as module
+
+science_reads = 0
+json_reads = 0
+real_read = module._read_ms
+real_projection = module.projection_record_from_history
+
+def recording_read(path, *, data_column, read_data, limits=None):
+    global science_reads
+    science_reads += int(read_data)
+    return real_read(
+        path,
+        data_column=data_column,
+        read_data=read_data,
+        limits=limits,
+    )
+
+def recording_projection(history):
+    global json_reads
+    json_reads += 1
+    return real_projection(history)
+
+module._read_ms = recording_read
+module.projection_record_from_history = recording_projection
+module._import_standard_dependencies()
+tracemalloc.start()
+try:
+    module.read_measurement_set(sys.argv[1])
+except Exception as exc:
+    rejection = type(exc).__name__
+    message = str(exc)
+else:
+    rejection = None
+    message = ""
+_current, peak = tracemalloc.get_traced_memory()
+print(json.dumps({
+    "rejection": rejection,
+    "message": message,
+    "python_peak": peak,
+    "native_rss": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+    "science_reads": science_reads,
+    "json_reads": json_reads,
+}))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(target)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    observed = json.loads(completed.stdout.splitlines()[-1])
+    assert observed["rejection"] == "UnsafeResultInputError"
+    assert "HISTORY storage" in observed["message"]
+    assert observed["python_peak"] < 4 * 1024 * 1024
+    assert observed["native_rss"] > 0
+    assert observed["science_reads"] == 0
+    assert observed["json_reads"] == 0
 
 
 def test_measurement_set_optional_dependency_failure_has_no_path_effect(
@@ -368,9 +640,11 @@ def test_measurement_set_old_directory_cleanup_failure_is_recoverable(
         read_measurement_set(target).source_scientific_sha256
         == second.scientific_sha256
     )
+    assert caught.value.residual_path.name == "payload.ms"
+    assert caught.value.residual_path.parent.name.endswith(".tmp.ms")
     assert caught.value.residual_path.is_dir()
     assert str(caught.value.residual_path) in str(caught.value)
-    real_remove(caught.value.residual_path)
+    real_remove(caught.value.residual_path.parent)
 
 
 def test_measurement_set_parent_fsync_failure_leaves_verified_final(

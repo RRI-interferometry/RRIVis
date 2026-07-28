@@ -39,12 +39,18 @@ from radiosim.io.standard_visibility import (
     enforce_standard_read_limits,
     normalize_autocorrelations,
     project_simulation_result,
+    projected_phase_from_uvdata,
+    projection_record_from_history,
     standard_visibility_from_uvdata,
     validate_projection_result,
     validate_standard_metadata,
 )
 
 _COLUMN_NAME = re.compile(r"[A-Z][A-Z0-9_]*\Z")
+_MS_METADATA_CHUNK_ROWS = 4096
+_MS_HISTORY_ROWS_LIMIT = 1024
+_MS_HISTORY_STORAGE_LIMIT = 262_144
+_MS_HISTORY_ENTRY_LIMIT = 4096
 
 
 def _pyuvdata_version() -> str:
@@ -87,11 +93,18 @@ def _read_ms(
     *,
     data_column: str,
     read_data: bool,
+    limits: StandardReadLimits | None = None,
 ) -> Any:
     uvdata_class = _import_standard_dependencies()
     try:
         if not read_data:
-            return _read_ms_metadata(path, data_column=data_column)
+            if type(limits) is not StandardReadLimits:
+                raise TypeError("metadata inspection requires exact StandardReadLimits")
+            return _read_ms_metadata(
+                path,
+                data_column=data_column,
+                limits=limits,
+            )
         uvdata = uvdata_class()
         uvdata.read_ms(
             str(path),
@@ -118,8 +131,167 @@ def _table_column(table: Any, name: str) -> np.ndarray:
     return np.asarray(table.getcol(name))
 
 
-def _read_ms_metadata(path: Path, *, data_column: str) -> SimpleNamespace:
-    """Inspect bounded MS coordinates and subtables without reading DATA."""
+def _table_scalar(table: Any, name: str, *, row: int = 0) -> object:
+    if name not in table.colnames():
+        raise UnsafeResultInputError(
+            f"Measurement Set table lacks required column {name}"
+        )
+    descriptor = table.getcoldesc(name)
+    if descriptor.get("ndim") not in (None, 0):
+        raise UnsafeResultInputError(f"Measurement Set column {name} must be scalar")
+    return table.getcell(name, row)
+
+
+def _table_cell_shape(table: Any, name: str, *, row: int = 0) -> str:
+    if name not in table.colnames():
+        raise UnsafeResultInputError(
+            f"Measurement Set table lacks required column {name}"
+        )
+    shapes: object = table.getcolshapestring(name, row, 1, 1)
+    if type(shapes) is not list:
+        raise UnsafeResultInputError(
+            f"Measurement Set column {name} has unsafe shape metadata"
+        )
+    typed_shapes = cast(list[object], shapes)
+    if len(typed_shapes) != 1 or type(typed_shapes[0]) is not str:
+        raise UnsafeResultInputError(
+            f"Measurement Set column {name} has unsafe shape metadata"
+        )
+    return typed_shapes[0]
+
+
+def _bounded_history_storage(path: Path) -> None:
+    """Bound variable-length HISTORY storage before any string value access."""
+    pending = [path]
+    total = 0
+    entries = 0
+    while pending:
+        directory = pending.pop()
+        try:
+            iterator = os.scandir(directory)
+        except OSError as exc:
+            raise UnsafeResultInputError(
+                "Measurement Set HISTORY storage cannot be inspected safely"
+            ) from exc
+        with iterator:
+            for entry in iterator:
+                entries += 1
+                if entries > _MS_HISTORY_ENTRY_LIMIT:
+                    raise UnsafeResultInputError(
+                        "Measurement Set HISTORY has too many storage entries"
+                    )
+                try:
+                    status = entry.stat(follow_symlinks=False)
+                except OSError as exc:
+                    raise UnsafeResultInputError(
+                        "Measurement Set HISTORY storage cannot be inspected safely"
+                    ) from exc
+                if stat.S_ISLNK(status.st_mode):
+                    raise UnsafeResultInputError(
+                        "Measurement Set HISTORY storage contains a symbolic link"
+                    )
+                if stat.S_ISDIR(status.st_mode):
+                    pending.append(Path(entry.path))
+                    continue
+                if not stat.S_ISREG(status.st_mode):
+                    raise UnsafeResultInputError(
+                        "Measurement Set HISTORY storage contains a special file"
+                    )
+                total += int(status.st_size)
+                if total > _MS_HISTORY_STORAGE_LIMIT:
+                    raise UnsafeResultInputError(
+                        "Measurement Set HISTORY storage exceeds the bounded limit"
+                    )
+
+
+def _bounded_ms_history(
+    path: Path,
+    history: Any,
+) -> tuple[dict[str, object], tuple[str, ...]]:
+    _bounded_history_storage(path / "HISTORY")
+    row_count = int(history.nrows())
+    if row_count <= 0:
+        raise UnsafeResultInputError("Measurement Set HISTORY is empty")
+    if row_count > _MS_HISTORY_ROWS_LIMIT:
+        raise UnsafeResultInputError(
+            "Measurement Set HISTORY exceeds the bounded row limit"
+        )
+    if "MESSAGE" not in history.colnames():
+        raise UnsafeResultInputError(
+            "Measurement Set HISTORY lacks required MESSAGE column"
+        )
+    descriptor = history.getcoldesc("MESSAGE")
+    if (
+        descriptor.get("valueType") != "string"
+        or descriptor.get("ndim") not in (None, 0)
+        or descriptor.get("dataManagerType") != "StandardStMan"
+    ):
+        raise UnsafeResultInputError(
+            "Measurement Set HISTORY MESSAGE storage is not safely bounded"
+        )
+    max_length = descriptor.get("maxlen", 0)
+    if type(max_length) is not int or max_length < 0 or max_length > 16_000:
+        raise UnsafeResultInputError(
+            "Measurement Set HISTORY MESSAGE has an unsafe declared length"
+        )
+    messages: list[str] = []
+    encoded_total = 0
+    for row in range(row_count):
+        message = history.getcell("MESSAGE", row)
+        if type(message) is not str:
+            raise UnsafeResultInputError(
+                "Measurement Set HISTORY MESSAGE must be an exact string"
+            )
+        if "\x00" in message:
+            raise UnsafeResultInputError("Measurement Set HISTORY MESSAGE contains NUL")
+        try:
+            encoded = message.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as exc:
+            raise UnsafeResultInputError(
+                "Measurement Set HISTORY MESSAGE is not strict UTF-8"
+            ) from exc
+        encoded_total += len(encoded) + (1 if messages else 0)
+        if encoded_total > 16_000:
+            raise UnsafeResultInputError(
+                "Measurement Set projection HISTORY exceeds 16000 UTF-8 bytes"
+            )
+        messages.append(message)
+    record, _lines = projection_record_from_history("\n".join(messages))
+    return record, tuple(messages)
+
+
+def _chunked_column(
+    table: Any,
+    name: str,
+    *,
+    rows: int,
+    dtype: np.dtype[Any],
+) -> np.ndarray:
+    if name not in table.colnames():
+        raise UnsafeResultInputError(
+            f"Measurement Set table lacks required column {name}"
+        )
+    chunks: list[np.ndarray] = []
+    for start in range(0, rows, _MS_METADATA_CHUNK_ROWS):
+        count = min(_MS_METADATA_CHUNK_ROWS, rows - start)
+        chunks.append(
+            np.asarray(
+                table.getcol(name, start, count, 1),
+                dtype=dtype,
+            )
+        )
+    if not chunks:
+        return np.empty(0, dtype=dtype)
+    return np.concatenate(chunks, axis=0)
+
+
+def _read_ms_metadata(
+    path: Path,
+    *,
+    data_column: str,
+    limits: StandardReadLimits,
+) -> SimpleNamespace:
+    """Inspect bounded MS coordinates and subtables without reading science."""
     tables = import_module("casacore.tables")
     opened: list[Any] = []
 
@@ -138,76 +310,248 @@ def _read_ms_metadata(path: Path, *, data_column: str) -> SimpleNamespace:
             raise UnsafeResultInputError(
                 f"Measurement Set lacks requested column {data_column}"
             )
-        antenna1 = _table_column(main, "ANTENNA1").astype(np.int64, copy=False)
-        antenna2 = _table_column(main, "ANTENNA2").astype(np.int64, copy=False)
-        time_seconds = _table_column(main, "TIME").astype(
-            np.float64,
-            copy=False,
+        main_rows = int(main.nrows())
+        if main_rows <= 0:
+            raise UnsafeResultInputError("Measurement Set MAIN has no rows")
+        if main_rows > int(limits.max_times) * int(limits.max_baselines):
+            raise UnsafeResultInputError(
+                "Measurement Set MAIN rows exceed max_times * max_baselines"
+            )
+        spectral = open_table(path / "SPECTRAL_WINDOW")
+        polarization = open_table(path / "POLARIZATION")
+        antennas = open_table(path / "ANTENNA")
+        field = open_table(path / "FIELD")
+        history_table = open_table(path / "HISTORY")
+        if int(spectral.nrows()) != 1:
+            raise UnsafeResultInputError(
+                "Measurement Set must contain one SPECTRAL_WINDOW row"
+            )
+        if int(polarization.nrows()) != 1:
+            raise UnsafeResultInputError(
+                "Measurement Set must contain one POLARIZATION row"
+            )
+        if int(field.nrows()) != 1:
+            raise UnsafeResultInputError("Measurement Set must contain one FIELD row")
+        antenna_rows = int(antennas.nrows())
+        if antenna_rows <= 0:
+            raise UnsafeResultInputError("Measurement Set ANTENNA table is empty")
+        if antenna_rows > limits.max_antennas:
+            raise UnsafeResultInputError("standard input exceeds max_antennas")
+        frequency_count = _table_scalar(spectral, "NUM_CHAN")
+        polarization_count = _table_scalar(polarization, "NUM_CORR")
+        if type(frequency_count) is not int or frequency_count <= 0:
+            raise UnsafeResultInputError(
+                "Measurement Set has an invalid declared channel count"
+            )
+        if frequency_count > limits.max_frequencies:
+            raise UnsafeResultInputError("standard input exceeds max_frequencies")
+        if type(polarization_count) is not int or polarization_count != 4:
+            raise UnsafeResultInputError(
+                "Measurement Set must declare exactly four correlations"
+            )
+        expected_frequency_shape = f"[{frequency_count}]"
+        if (
+            _table_cell_shape(spectral, "CHAN_FREQ") != expected_frequency_shape
+            or _table_cell_shape(spectral, "CHAN_WIDTH") != expected_frequency_shape
+            or _table_cell_shape(polarization, "CORR_TYPE") != f"[{polarization_count}]"
+            or _table_cell_shape(field, "PHASE_DIR") != "[1, 2]"
+        ):
+            raise UnsafeResultInputError(
+                "Measurement Set subtable cell shapes disagree with declared counts"
+            )
+        antenna_name_descriptor = antennas.getcoldesc("NAME")
+        antenna_position_descriptor = antennas.getcoldesc("POSITION")
+        if (
+            antenna_name_descriptor.get("valueType") != "string"
+            or antenna_name_descriptor.get("ndim") not in (None, 0)
+            or antenna_position_descriptor.get("valueType") != "double"
+            or antenna_position_descriptor.get("ndim") != 1
+            or tuple(
+                int(item)
+                for item in np.asarray(
+                    antenna_position_descriptor.get("shape"),
+                ).reshape(-1)
+            )
+            != (3,)
+        ):
+            raise UnsafeResultInputError(
+                "Measurement Set ANTENNA column shapes are unsupported"
+            )
+        visibility_elements = (
+            int(main_rows) * int(frequency_count) * int(polarization_count)
         )
-        uvw = _table_column(main, "UVW").astype(np.float64, copy=False)
-        exposures = _table_column(main, "EXPOSURE").astype(
-            np.float64,
-            copy=False,
+        if visibility_elements > limits.max_visibility_elements:
+            raise UnsafeResultInputError(
+                "standard input exceeds max_visibility_elements"
+            )
+        potential_data_bytes = visibility_elements * (
+            np.dtype("complex128").itemsize
+            + np.dtype("bool").itemsize
+            + np.dtype("float32").itemsize
+        )
+        if potential_data_bytes > limits.max_data_bytes:
+            raise UnsafeResultInputError("standard input exceeds max_data_bytes")
+        data_descriptor = main.getcoldesc(data_column)
+        if (
+            data_descriptor.get("valueType") not in {"complex", "dcomplex"}
+            or data_descriptor.get("ndim") != 2
+        ):
+            raise UnsafeResultInputError(
+                "Measurement Set DATA column has an unsupported descriptor"
+            )
+        declared_shape = data_descriptor.get("shape")
+        if declared_shape is not None and tuple(
+            int(item) for item in np.asarray(declared_shape).reshape(-1)
+        ) != (int(frequency_count), int(polarization_count)):
+            raise UnsafeResultInputError(
+                "Measurement Set DATA descriptor disagrees with its subtables"
+            )
+
+        projection_record, history_messages = _bounded_ms_history(
+            path,
+            history_table,
+        )
+
+        unique_times: set[float] = set()
+        unique_pairs: set[tuple[int, int]] = set()
+        time_pair_rows: set[tuple[float, int, int]] = set()
+        antenna1_chunks: list[np.ndarray] = []
+        antenna2_chunks: list[np.ndarray] = []
+        time_chunks: list[np.ndarray] = []
+        expected_shape = f"[{frequency_count}, {polarization_count}]"
+        for start in range(0, main_rows, _MS_METADATA_CHUNK_ROWS):
+            count = min(_MS_METADATA_CHUNK_ROWS, main_rows - start)
+            antenna1_chunk = np.asarray(
+                main.getcol("ANTENNA1", start, count, 1),
+                dtype=np.int64,
+            )
+            antenna2_chunk = np.asarray(
+                main.getcol("ANTENNA2", start, count, 1),
+                dtype=np.int64,
+            )
+            time_chunk = np.asarray(
+                main.getcol("TIME", start, count, 1),
+                dtype=np.float64,
+            )
+            if (
+                antenna1_chunk.shape != (count,)
+                or antenna2_chunk.shape != (count,)
+                or time_chunk.shape != (count,)
+                or not np.all(np.isfinite(time_chunk))
+            ):
+                raise UnsafeResultInputError(
+                    "Measurement Set MAIN identity metadata is malformed"
+                )
+            for time_value, first, second in zip(
+                time_chunk.tolist(),
+                antenna1_chunk.tolist(),
+                antenna2_chunk.tolist(),
+                strict=True,
+            ):
+                time_key = float(time_value)
+                pair = (int(first), int(second))
+                unique_times.add(time_key)
+                unique_pairs.add(pair)
+                key = (time_key, pair[0], pair[1])
+                if key in time_pair_rows:
+                    raise UnsafeResultInputError(
+                        "Measurement Set contains a duplicate time-baseline row"
+                    )
+                time_pair_rows.add(key)
+                if len(unique_times) > limits.max_times:
+                    raise UnsafeResultInputError("standard input exceeds max_times")
+                if len(unique_pairs) > limits.max_baselines:
+                    raise UnsafeResultInputError("standard input exceeds max_baselines")
+            if declared_shape is None:
+                shapes = main.getcolshapestring(
+                    data_column,
+                    start,
+                    count,
+                    1,
+                )
+                if len(shapes) != count or any(
+                    shape != expected_shape for shape in shapes
+                ):
+                    raise UnsafeResultInputError(
+                        "Measurement Set DATA cell shapes disagree with its subtables"
+                    )
+            antenna1_chunks.append(antenna1_chunk)
+            antenna2_chunks.append(antenna2_chunk)
+            time_chunks.append(time_chunk)
+        if main_rows != len(unique_times) * len(unique_pairs):
+            raise UnsafeResultInputError(
+                "Measurement Set is not rectangular time-by-baseline data"
+            )
+        if len(time_pair_rows) != main_rows:
+            raise UnsafeResultInputError(
+                "Measurement Set has incomplete rectangular coverage"
+            )
+
+        antenna1 = np.concatenate(antenna1_chunks)
+        antenna2 = np.concatenate(antenna2_chunks)
+        time_seconds = np.concatenate(time_chunks)
+        uvw = _chunked_column(
+            main,
+            "UVW",
+            rows=main_rows,
+            dtype=np.dtype("float64"),
+        )
+        exposures = _chunked_column(
+            main,
+            "EXPOSURE",
+            rows=main_rows,
+            dtype=np.dtype("float64"),
         )
         if not (
             antenna1.shape
             == antenna2.shape
             == time_seconds.shape
             == exposures.shape
-            == (int(main.nrows()),)
-        ):
+            == (main_rows,)
+        ) or uvw.shape != (main_rows, 3):
             raise UnsafeResultInputError(
                 "Measurement Set MAIN metadata shapes are inconsistent"
             )
-        if uvw.shape != (int(main.nrows()), 3):
-            raise UnsafeResultInputError(
-                "Measurement Set UVW metadata shape is invalid"
-            )
 
-        spectral = open_table(path / "SPECTRAL_WINDOW")
-        if int(spectral.nrows()) != 1:
-            frequency_array = np.empty(0, dtype=np.float64)
-            width_array = np.empty(0, dtype=np.float64)
-        else:
-            frequency_array = np.asarray(
-                spectral.getcell("CHAN_FREQ", 0),
-                dtype=np.float64,
-            )
-            width_array = np.asarray(
-                spectral.getcell("CHAN_WIDTH", 0),
-                dtype=np.float64,
-            )
-
-        polarization = open_table(path / "POLARIZATION")
-        if int(polarization.nrows()) != 1:
-            polarization_array = np.empty(0, dtype=np.int64)
-        else:
-            casa_codes = np.asarray(
-                polarization.getcell("CORR_TYPE", 0),
-                dtype=np.int64,
-            )
-            casa_to_aips = {9: -5, 10: -7, 11: -8, 12: -6}
-            polarization_array = np.array(
-                [casa_to_aips.get(int(code), 0) for code in casa_codes],
-                dtype=np.int64,
-            )
-        expected_shape = (
-            f"[{int(frequency_array.size)}, {int(polarization_array.size)}]"
+        frequency_array = np.asarray(
+            spectral.getcell("CHAN_FREQ", 0),
+            dtype=np.float64,
         )
-        data_shapes = main.getcolshapestring(data_column)
-        if len(data_shapes) != int(main.nrows()) or any(
-            shape != expected_shape for shape in data_shapes
+        width_array = np.asarray(
+            spectral.getcell("CHAN_WIDTH", 0),
+            dtype=np.float64,
+        )
+        if frequency_array.shape != (frequency_count,) or width_array.shape != (
+            frequency_count,
         ):
             raise UnsafeResultInputError(
-                "Measurement Set DATA cell shapes disagree with its subtables"
+                "Measurement Set spectral metadata shapes are inconsistent"
             )
+        casa_codes = np.asarray(
+            polarization.getcell("CORR_TYPE", 0),
+            dtype=np.int64,
+        )
+        if casa_codes.shape != (polarization_count,):
+            raise UnsafeResultInputError(
+                "Measurement Set polarization metadata shape is inconsistent"
+            )
+        casa_to_aips = {9: -5, 10: -7, 11: -8, 12: -6}
+        polarization_array = np.array(
+            [casa_to_aips.get(int(code), 0) for code in casa_codes],
+            dtype=np.int64,
+        )
 
-        antennas = open_table(path / "ANTENNA")
         all_antenna_names = _table_column(antennas, "NAME").astype(str)
         all_antenna_positions = _table_column(antennas, "POSITION").astype(
             np.float64,
             copy=False,
         )
+        if all_antenna_names.shape != (antenna_rows,) or (
+            all_antenna_positions.shape != (antenna_rows, 3)
+        ):
+            raise UnsafeResultInputError(
+                "Measurement Set ANTENNA metadata shapes are inconsistent"
+            )
         antenna_numbers = np.flatnonzero(all_antenna_names != "").astype(
             np.int64,
             copy=False,
@@ -215,7 +559,7 @@ def _read_ms_metadata(path: Path, *, data_column: str) -> SimpleNamespace:
         used_antenna_numbers = np.unique(np.concatenate((antenna1, antenna2)))
         if (
             np.any(used_antenna_numbers < 0)
-            or np.any(used_antenna_numbers >= int(antennas.nrows()))
+            or np.any(used_antenna_numbers >= antenna_rows)
             or not set(used_antenna_numbers.tolist()).issubset(
                 set(antenna_numbers.tolist())
             )
@@ -226,7 +570,6 @@ def _read_ms_metadata(path: Path, *, data_column: str) -> SimpleNamespace:
         antenna_names = all_antenna_names[antenna_numbers]
         antenna_positions = all_antenna_positions[antenna_numbers]
 
-        field = open_table(path / "FIELD")
         phase_directions = _table_column(field, "PHASE_DIR").astype(
             np.float64,
             copy=False,
@@ -249,13 +592,12 @@ def _read_ms_metadata(path: Path, *, data_column: str) -> SimpleNamespace:
         else:
             phase_catalog = {}
 
-        pairs = set(zip(antenna1.tolist(), antenna2.tolist(), strict=True))
-        return SimpleNamespace(
-            Ntimes=int(np.unique(time_seconds).size),
-            Nbls=len(pairs),
+        metadata = SimpleNamespace(
+            Ntimes=len(unique_times),
+            Nbls=len(unique_pairs),
             Nfreqs=int(frequency_array.size),
             Npols=int(polarization_array.size),
-            Nblts=int(main.nrows()),
+            Nblts=main_rows,
             Nspws=int(spectral.nrows()),
             polarization_array=polarization_array,
             freq_array=frequency_array,
@@ -270,7 +612,11 @@ def _read_ms_metadata(path: Path, *, data_column: str) -> SimpleNamespace:
                 antenna_names=antenna_names,
                 antenna_positions=antenna_positions,
             ),
+            history="\n".join(history_messages),
+            projection_record=projection_record,
         )
+        _ = projected_phase_from_uvdata(metadata, projection_record)
+        return metadata
     finally:
         for handle in reversed(opened):
             handle.close()
@@ -373,11 +719,20 @@ def _verify_temporary_measurement_set(
     expected: StandardVisibilityData,
     temporary: Path,
 ) -> None:
-    metadata = _read_ms(temporary, data_column="DATA", read_data=False)
+    metadata = _read_ms(
+        temporary,
+        data_column="DATA",
+        read_data=False,
+        limits=StandardReadLimits(),
+    )
     enforce_standard_read_limits(metadata, StandardReadLimits())
     validate_standard_metadata(metadata)
     loaded = _read_ms(temporary, data_column="DATA", read_data=True)
-    observed = standard_visibility_from_uvdata(loaded, format="ms")
+    observed = standard_visibility_from_uvdata(
+        loaded,
+        format="ms",
+        expected_projection_record=metadata.projection_record,
+    )
     _assert_round_trip(expected, observed)
 
 
@@ -388,6 +743,30 @@ def _cleanup_temporary(temporary: Path, cause: BaseException) -> None:
         error = PartialCleanupError(temporary)
         error.add_note(f"cleanup failure: {cleanup_error!r}")
         raise error from cause
+
+
+def _cleanup_published_directory(
+    temporary: Path,
+    *,
+    old_measurement_set: Path | None,
+) -> None:
+    """Remove post-publication residue while reporting its exact live path."""
+    if old_measurement_set is not None:
+        try:
+            remove_temporary_directory(old_measurement_set)
+        except Exception as exc:
+            if old_measurement_set.exists():
+                error = PartialCleanupError(old_measurement_set)
+                error.add_note(
+                    "old Measurement Set cleanup was incomplete; the reported "
+                    "residual may be only partially intact"
+                )
+                raise error from exc
+    try:
+        remove_temporary_directory(temporary)
+    except Exception as exc:
+        if temporary.exists():
+            raise PartialCleanupError(temporary) from exc
 
 
 def write_measurement_set(
@@ -412,6 +791,7 @@ def write_measurement_set(
     temporary: Path | None = None
     temporary_fd: int | None = None
     published = False
+    old_measurement_set: Path | None = None
     try:
         parent_fd = open_parent_directory(final.parent, create=True)
         temporary = create_sibling_temporary_directory(final, parent_fd)
@@ -444,6 +824,7 @@ def write_measurement_set(
                 source_parent_fd=temporary_fd,
             )
             published = True
+            old_measurement_set = payload
         else:
             publish_directory_no_clobber(
                 payload,
@@ -457,14 +838,22 @@ def write_measurement_set(
         try:
             fsync_directory(parent_fd)
         except OSError as exc:
+            if old_measurement_set is not None and old_measurement_set.exists():
+                error = PartialCleanupError(old_measurement_set)
+                error.add_note(
+                    "parent-directory fsync failed after exchange; the old "
+                    "Measurement Set was retained at the reported path"
+                )
+                raise error from exc
             raise AtomicWriteError(
                 f"published Measurement Set but directory fsync failed: {final}"
             ) from exc
-        try:
-            remove_temporary_directory(temporary)
-        except Exception as exc:
-            raise PartialCleanupError(temporary) from exc
+        _cleanup_published_directory(
+            temporary,
+            old_measurement_set=old_measurement_set,
+        )
         temporary = None
+        old_measurement_set = None
         try:
             fsync_directory(parent_fd)
         except OSError as exc:
@@ -517,12 +906,21 @@ def read_measurement_set(
         raise TypeError("limits must be an exact StandardReadLimits")
     source = validate_input_directory(path)
     _ = _import_standard_dependencies()
-    metadata = _read_ms(source, data_column=column, read_data=False)
+    metadata = _read_ms(
+        source,
+        data_column=column,
+        read_data=False,
+        limits=limits,
+    )
     enforce_standard_read_limits(metadata, limits)
     validate_standard_metadata(metadata)
     loaded = _read_ms(source, data_column=column, read_data=True)
     try:
-        return standard_visibility_from_uvdata(loaded, format="ms")
+        return standard_visibility_from_uvdata(
+            loaded,
+            format="ms",
+            expected_projection_record=metadata.projection_record,
+        )
     except ResultIOError:
         raise
     except Exception as exc:

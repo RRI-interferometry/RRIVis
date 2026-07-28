@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import json
 import math
 from pathlib import Path
 
@@ -19,13 +20,20 @@ from radiosim.core.result import (
     SolverResultProvenance,
     build_simulation_result,
 )
-from radiosim.io.result_errors import FormatRepresentationError
+from radiosim.io.result_errors import (
+    FormatRepresentationError,
+    UnsafeResultInputError,
+)
 from radiosim.io.standard_visibility import (
+    PROJECTED_PHASE_SCHEMA,
+    PROJECTION_HISTORY_PREFIX,
+    PROJECTION_TRANSFORMATION,
     ProjectedPhaseCenter,
     StandardReadLimits,
     StandardVisibilityData,
     build_standard_visibility_data,
     project_simulation_result,
+    projection_record_from_history,
 )
 
 
@@ -454,3 +462,118 @@ def test_shared_projection_rejects_large_parallel_auto_imaginary_part(
 
     with pytest.raises(FormatRepresentationError, match="autocorrelation"):
         project_simulation_result(result, format="ms")
+
+
+def _projection_json_record() -> dict[str, object]:
+    return {
+        "schema": PROJECTED_PHASE_SCHEMA,
+        "projected_phase": {
+            "schema_version": PROJECTED_PHASE_SCHEMA,
+            "kind": "sidereal",
+            "frame": "icrs",
+            "longitude_rad": 1.25,
+            "latitude_rad": -0.4,
+            "reference_utc_jd1": 2460676.0,
+            "reference_utc_jd2": 0.5,
+            "original_phase_snapshot": dict(PhaseCenter().to_snapshot()),
+            "transformation": PROJECTION_TRANSFORMATION,
+        },
+        "source_scientific_sha256": "a" * 64,
+        "source_provenance_sha256": "b" * 64,
+        "input_visibility_dtype": "complex128",
+        "stored_visibility_dtype": "complex64",
+        "input_weight_dtype": "float64",
+        "stored_weight_dtype": "float32",
+        "instrument": {"name": "array"},
+        "beam": {"kind": "analytic"},
+        "solver": {"solver": "rime"},
+    }
+
+
+def _projection_history(record: dict[str, object]) -> str:
+    return PROJECTION_HISTORY_PREFIX + json.dumps(
+        record,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_projection_history_rejects_duplicate_keys_and_nonfinite_constants(
+    constant: str,
+) -> None:
+    valid = _projection_history(_projection_json_record())
+    decoded, _lines = projection_record_from_history(valid)
+    assert decoded["schema"] == PROJECTED_PHASE_SCHEMA
+
+    duplicate = valid.replace(
+        "{",
+        '{"schema":"radiosim.projected-phase-center.v1",',
+        1,
+    )
+    with pytest.raises(UnsafeResultInputError, match="duplicate"):
+        projection_record_from_history(duplicate)
+
+    nonfinite = valid.replace(
+        '"longitude_rad":1.25',
+        f'"longitude_rad":{constant}',
+    )
+    with pytest.raises(UnsafeResultInputError, match="non-finite|constant"):
+        projection_record_from_history(nonfinite)
+
+
+@pytest.mark.parametrize(
+    ("history", "message"),
+    [
+        ("\ud800", "UTF-8"),
+        (PROJECTION_HISTORY_PREFIX + "{}\x00", "NUL"),
+        ("ordinary history", "exactly one"),
+        (
+            PROJECTION_HISTORY_PREFIX + "{}\n" + PROJECTION_HISTORY_PREFIX + "{}",
+            "exactly one",
+        ),
+        (PROJECTION_HISTORY_PREFIX + "{}trailing", "trailing"),
+        (PROJECTION_HISTORY_PREFIX + "[]", "JSON object"),
+    ],
+)
+def test_projection_history_rejects_unsafe_text_and_structure(
+    history: str,
+    message: str,
+) -> None:
+    with pytest.raises(
+        (UnsafeResultInputError, FormatRepresentationError),
+        match=message,
+    ):
+        projection_record_from_history(history)
+
+
+def test_projection_history_rejects_oversized_utf8_before_json_decode() -> None:
+    history = PROJECTION_HISTORY_PREFIX + '{"value":"' + ("é" * 8_000) + '"}'
+    with pytest.raises(UnsafeResultInputError, match="16000 UTF-8 bytes"):
+        projection_record_from_history(history)
+
+
+def test_projection_history_rejects_spoofed_pyuvdata_trailing_marker() -> None:
+    history = (
+        _projection_history(_projection_json_record())
+        + " Read/written with pyuvdata version: 3.2.1.attacker"
+    )
+    with pytest.raises(UnsafeResultInputError, match="trailing"):
+        projection_record_from_history(history)
+
+
+def test_projection_history_enforces_exact_depth_boundary() -> None:
+    at_limit = _projection_json_record()
+    nested: object = "leaf"
+    for _ in range(62):
+        nested = {"child": nested}
+    at_limit["instrument"] = nested
+    projection_record_from_history(_projection_history(at_limit))
+
+    over_limit = _projection_json_record()
+    nested = "leaf"
+    for _ in range(63):
+        nested = {"child": nested}
+    over_limit["instrument"] = nested
+    with pytest.raises(UnsafeResultInputError, match="nesting"):
+        projection_record_from_history(_projection_history(over_limit))
