@@ -4,8 +4,8 @@
 
 | Fact | Value |
 |---|---|
-| Status | Tier 4D independently accepted after the bounded fixed-width correction; Tier 4E is the next authorized separate implementation slice and was not started |
-| Date | 2026-07-27 |
+| Status | Tier 4E independently accepted after bounded standard-format preflight corrections; Tier 4F remains the next authorized separate slice and was not started |
+| Date | 2026-07-28 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
 | Baseline | `bf544540d83fefef77feb157b060c046276a3c25` |
@@ -3413,3 +3413,115 @@ quality/docs/types, Linux 3.11, Linux 3.12, macOS x86-64 3.11, macOS x86-64
 JAX execution, non-macOS local execution, live network/registry/external-data
 behavior, power-loss durability, and dynamic notebook execution remain
 genuinely unobserved. `OUT-001` through `OUT-006` remain **OPEN**.
+
+## Tier 4E independent acceptance (2026-07-28)
+
+**Decision: Tier 4E is independently accepted after bounded standard-format
+preflight corrections.** Tier 4F remains a separate authorized slice and was
+not implemented. Tier 4 as a whole remains unaccepted; `OUT-001` through
+`OUT-006` remain **OPEN**.
+
+The independent start gate found clean `main` at
+`9c505a6acf98513104b81ed1322f30d82fdf97fe`, parent
+`ca7ce82beb898f9ce48e987c03225c0b3fdcd479`, exact `origin/main` alignment,
+zero divergence, clean whitespace checks, and no untracked files. The reviewed
+implementation range was exactly
+`b89197ab246796804f2393d2be79ab50ae66597b..9c505a6acf98513104b81ed1322f30d82fdf97fe`.
+It covered the 11 paths listed by the review range: the IO API, atomic path,
+Measurement Set, standard-visibility, and UVFITS sources; their four IO tests;
+the Tier 1H documentation test; and `docs/api/io.rst`. No dependency, lock,
+CI, configuration schema, Simulator, CLI, HDF5, summary, plotting, Tier 4F,
+or later-tier path entered that range.
+
+The review independently reproduced predecessor hazards at `ca7ce82`: a
+hostile one-billion-row MAIN descriptor reached an unbounded `getcol` before
+the reader's limit rejection, and the old history parser accepted non-finite
+JSON, duplicate keys, and forged projection objects. The live `9c505a6` code
+also exposed three bounded-input defects during regression-first review:
+
+- MS column descriptors were not checked before typed science access, so a
+  wrong MAIN descriptor could reach a cast path;
+- a missing required FEED table could reach the science reader instead of
+  failing in metadata preflight; and
+- UVFITS partial and extra full trailing FITS blocks could be accepted by the
+  Astropy/pyuvdata path.
+
+The separate correction commit
+`51c7f948ba6daf7a3f0f2454812dc4bb3b80c511` (`fix(io): harden standard format
+preflight`) adds descriptor, rank, shape, required-subtable, and bounded-cell
+checks before MS history/science access, and rejects both partial file blocks
+and bytes after the final UVFITS HDU before pyuvdata science allocation. The
+tests-first regressions are
+`test_measurement_set_rejects_wrong_main_column_descriptor_before_casting`,
+`test_measurement_set_rejects_missing_feed_before_science_read`,
+`test_uvfits_rejects_partial_trailing_block_before_science_read`, and
+`test_uvfits_rejects_extra_full_trailing_block_before_science_read`. The
+known Astropy warning for an extra full padding block is captured and asserted
+as part of the malformed-input probe; it is not suppressed.
+
+Independent scientific and raw-reader checks used NumPy/Astropy/pyuvdata and
+casacore expectations constructed outside `project_simulation_result`. In both
+locked interpreters, c64 and c128 fixtures matched the MS and UVFITS raw
+contracts, including times, exposure, UVW, frequencies, widths, flags,
+weights, antenna identity, correlations, projection history, and fingerprints.
+MS c128 values were checked against the independently calculated c64 storage
+conversion; the maximum observed fixture difference was zero. MS raw
+`CORR_TYPE` was `[9, 10, 11, 12]`; raw pyuvdata readback exposed file
+polarization codes `[-5, -6, -7, -8]`. UVFITS c64/c128 readback retained its
+input dtype, had a valid random-groups primary header, and contained exactly
+one projection-history record.
+
+Fresh child-process hostile allocation matrices used 1, 8, and 16 MiB
+attacker-controlled HISTORY payloads. MS inputs rejected before JSON parsing,
+casacore science reads, or pyuvdata allocation with payload-independent
+Python peaks of about 0.70 MiB (Python 3.11) and 0.68 MiB (Python 3.12); the
+native RSS deltas, measured after dependency prewarm, stayed approximately
+13.58–13.75 MiB and 13.30–13.55 MiB respectively. UVFITS inputs rejected
+before Astropy/pyuvdata science access with approximately 22 KiB Python peaks
+and 0–16 KiB RSS deltas, invariant across payload sizes. Existing injected
+atomicity checks covered no-clobber, temporary cleanup, verification failure,
+exchange, old-payload cleanup, outer cleanup, final fsync/close, and preserved
+the published target after post-publication cleanup failure.
+
+The exact dual-interpreter focused boundary collected 173 tests and passed
+173/173 in Python 3.11.13 and 3.12.13. The adjacent characterization/result/
+integration boundary collected 180 and passed 180/180 in both. The complete
+non-slow suite collected 3,142 tests and passed 3,136 in each interpreter:
+the six skips were independently identified as unavailable-JAX cases
+(`No module named 'jax'`) in the backend, Jones, sky-backend,
+visibility-backend, and spectral-dispatch tests; there were no xfails or
+xpasses. The 26 warnings were the established set: one disjointness
+`UserWarning`, eight FITS-unit `VerifyWarning`s, twelve existing HEALPix
+conversion `UserWarning`s, one NumPy `RuntimeWarning`, and four existing
+Matplotlib figure-reuse `UserWarning`s. No new warning category or suppression
+was introduced. The four new regression tests account for the live 3,136
+count relative to the earlier 3,132-test CI baseline.
+
+Ruff lint passed and all 302 files passed formatting. Repository Pyright
+1.1.408 reported 3,058 diagnostics in both environments, below the unchanged
+4,600 ceiling; direct Pyright over every Tier 4E production module
+(`io/__init__.py`, `atomic_paths.py`, `measurement_set.py`,
+`standard_visibility.py`, and `uvfits.py`) reported zero diagnostics in both.
+All three YAML surfaces validated at 101, 11, and one channel. The
+forced-offline example completed with five antennas, 15 baselines, two
+frequencies, and `(1, 15, 2, 4)` output without artifacts. Fresh-process
+imports preserved lazy optional dependencies and removed legacy MS/dask
+exports. The clean-copy Sphinx 8.2.3 build succeeded with the established 40
+classified events. Whitespace, unsafe-parser, scope, generated-artifact,
+direct-final-path, hidden-phase, and Tier 4F leakage audits passed.
+
+The original exact-SHA run
+[`30320486857`](https://github.com/RRI-interferometry/RadioSim/actions/runs/30320486857)
+matched `9c505a6acf98513104b81ed1322f30d82fdf97fe` and passed all seven jobs:
+quality/docs plus Linux 3.11/3.12, macOS x86-64 3.11/3.12, and macOS arm64
+3.11/3.12. The separate correction push matched
+`51c7f948ba6daf7a3f0f2454812dc4bb3b80c511` and its exact seven-job CI run
+`30325124598` also passed. The final post-record push and exact-SHA CI run
+are the release gate for this acceptance record and are reported in the
+handoff.
+
+Physical GPU execution, local JAX execution, non-macOS local execution, live
+network/registry/external-data behavior, power-loss durability, external
+filesystem race behavior, and dynamic notebook execution remain genuinely
+unobserved. No Tier 4F implementation, configuration expansion, dependency
+change, PR, tag, release, or deployment was created.

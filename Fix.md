@@ -3647,3 +3647,65 @@ Genuinely unobserved behavior remains physical GPU execution, local JAX
 execution, non-macOS local execution, live network/registry/external-data
 behavior, power-loss durability, and dynamic notebook execution. `OUT-001`
 through `OUT-006` remain **OPEN**. No Tier 4E implementation was made.
+
+### 2026-07-28 Tier 4E independent acceptance
+
+**Tier 4E is independently accepted after bounded standard-format preflight
+corrections.** Tier 4F remains the next authorized separate slice and was not
+implemented. Tier 4 as a whole remains unaccepted; `OUT-001` through
+`OUT-006` remain **OPEN**.
+
+The review began from clean `main` at
+`9c505a6acf98513104b81ed1322f30d82fdf97fe`, parent
+`ca7ce82beb898f9ce48e987c03225c0b3fdcd479`, with exact `origin/main`
+alignment and zero divergence. The exact review range was
+`b89197ab246796804f2393d2be79ab50ae66597b..9c505a6acf98513104b81ed1322f30d82fdf97fe`.
+Its 11-path scope stayed within the standard IO/API/tests/docs boundary; no
+dependency, lock, CI, configuration, Simulator, CLI, HDF5, summary, plotting,
+Tier 4F, or later-tier change was present.
+
+Independent review reproduced the predecessor's unbounded MS `getcol` and
+unsafe history-parser cases at `ca7ce82`. On the live correction target it
+found and fixed wrong MS descriptor typing, missing FEED preflight, and
+partial/full trailing UVFITS acceptance. Tests failed before each production
+fix and pass afterward. Commit
+`51c7f948ba6daf7a3f0f2454812dc4bb3b80c511` (`fix(io): harden standard format
+preflight`) is separate from this acceptance record. It validates required MS
+subtables, descriptor value types/ranks/shapes, and bounded cells before
+history/science access, and verifies the complete UVFITS block/HDU extent
+before pyuvdata science allocation. The upstream Astropy full-tail warning is
+classified by an exact test assertion, not hidden.
+
+The independent NumPy/Astropy/pyuvdata/casacore oracle passed for c64 and c128
+in both Python 3.11.13 and 3.12.13: canonical data, native storage/readback,
+times, exposure, UVW, spectral metadata, flags, weights, antenna identity,
+correlation codes, projection history, and fingerprints matched. MS c128
+storage was independently checked as c64 with zero observed fixture error;
+UVFITS retained c128. The hostile 1/8/16 MiB HISTORY matrices rejected before
+science allocation with payload-independent Python/native memory behavior;
+MS RSS deltas stayed about 13.58–13.75 MiB and 13.30–13.55 MiB, while UVFITS
+stayed at 0–16 KiB after dependency prewarm. Atomicity injection covered
+verification, exchange, cleanup, final fsync/close, and target preservation.
+
+The exact focused gate passed 173/173 in both interpreters; the adjacent
+boundary passed 180/180 in both. The full non-slow suite passed 3,136/3,142
+in both, with exactly six established unavailable-JAX skips, 26 established
+warnings, and no xfail/xpass. Ruff lint and the 302-file format check passed;
+repository Pyright reported 3,058 diagnostics under the unchanged 4,600
+ceiling and direct Pyright over all five Tier 4E production modules reported
+zero in both. The three YAMLs validated at 101/11/1 channels, the offline
+example returned five antennas, 15 baselines, two frequencies, and
+`(1,15,2,4)`, fresh imports preserved optional-dependency laziness, and the
+clean-copy Sphinx 8.2.3 build retained the established 40 events. Whitespace,
+scope, artifact, unsafe-parser, direct-final-path, hidden-phase, and Tier 4F
+audits passed.
+
+Original exact-SHA CI run
+[`30320486857`](https://github.com/RRI-interferometry/RadioSim/actions/runs/30320486857)
+matched `9c505a6acf98513104b81ed1322f30d82fdf97fe` and passed all seven jobs.
+Correction CI run `30325124598` matched
+`51c7f948ba6daf7a3f0f2454812dc4bb3b80c511` and passed all seven jobs. The
+post-record final-SHA run is the last release gate and is reported in the
+handoff. Physical GPU/JAX/non-macOS execution, live external behavior,
+power-loss durability, external filesystem races, and dynamic notebooks remain
+unobserved. No Tier 4F implementation or broader scope was created.
