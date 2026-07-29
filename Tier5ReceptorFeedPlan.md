@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted; 5A independently accepted after bounded corrections (`568855f`, and this Tier 5A acceptance); 5B authorized. Implementation not started. |
+| Status | Design accepted; 5A independently accepted (`568855f`, Tier 5A acceptance); 5B implemented (`40d17fb`, `3925a33`) and independently accepted after two bounded plan corrections (§30.2, §30.5, §35 Tier 5B); 5C authorized. |
 | Date | 2026-07-29 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
@@ -1589,6 +1589,7 @@ src/radiosim/core/jones/chain.py
 src/radiosim/core/jones/receptor.py
 src/radiosim/core/polarization.py
 src/radiosim/core/result.py
+src/radiosim/core/runtime_config.py
 src/radiosim/core/visibility.py
 src/radiosim/core/visibility_healpix.py
 src/radiosim/io/__init__.py
@@ -1637,14 +1638,26 @@ tests/unit/test_core/test_result.py
 tests/unit/test_io/test_config.py
 tests/unit/test_io/test_config_resolution.py
 tests/unit/test_io/test_hdf5_result.py
+tests/unit/test_io/test_instrument_config.py
 tests/unit/test_io/test_measurement_set.py
 tests/unit/test_io/test_standard_visibility.py
 tests/unit/test_io/test_summary_json.py
 tests/unit/test_io/test_uvfits.py
 tests/unit/test_simulator/test_api.py
+tests/unit/test_simulator/test_instrument_integration.py
 tests/unit/test_simulator/test_result_integration.py
 tests/unit/test_visualization/
 ```
+
+**Correction (Tier 5B acceptance).** §30.2 omitted
+`src/radiosim/core/runtime_config.py` and this list omitted
+`tests/unit/test_io/test_instrument_config.py` and
+`tests/unit/test_simulator/test_instrument_integration.py`; all three are
+touched by 5B for the reasons recorded in the §35 Tier 5B correction above.
+`tests/characterization/test_tier5_current_behavior.py` was already listed
+(§30.4) as a file the tier as a whole creates and repeatedly modifies, so no
+addition was needed there. No decision, slice boundary, or other slice's file
+list changed.
 
 ### 30.6 Configuration, examples, documentation, manifests
 
@@ -2027,17 +2040,38 @@ src/radiosim/__init__.py
 src/radiosim/api/simulator.py
 src/radiosim/core/__init__.py
 src/radiosim/core/receptor.py
+src/radiosim/core/runtime_config.py
 src/radiosim/io/__init__.py
 src/radiosim/io/config.py
 src/radiosim/io/config_resolution.py
 src/radiosim/io/receptor_config.py
+tests/characterization/test_tier5_current_behavior.py
 tests/fixtures/configs.py
 tests/unit/test_core/test_receptor_resolution.py
 tests/unit/test_io/test_config.py
 tests/unit/test_io/test_config_resolution.py
+tests/unit/test_io/test_instrument_config.py
 tests/unit/test_io/test_receptor_config.py
 tests/unit/test_simulator/test_api.py
+tests/unit/test_simulator/test_instrument_integration.py
 ```
+
+**Correction (Tier 5B acceptance).** The original list omitted four files the
+slice cannot avoid touching: `src/radiosim/core/runtime_config.py` (the
+resolved runtime carries `ReceptorsConfig` from `io/config_resolution.py` to
+`Simulator`; the field cannot reach `Simulator.setup()` without a
+`ResolvedSimulationConfig` field for it — a plan omission, not scope creep);
+`tests/characterization/test_tier5_current_behavior.py` (already granted to
+5A/5C, but 5B must flip the `OWNED BY: Tier 5B` absence pin it introduced, and
+must repair one adjacent unmarked pin in the same Q2 test that asserted
+`"_ensure_receptor" not in` the `Simulator.setup` source — a 5A authoring
+defect: that assertion pinned exactly the fact 5B's writable-file list already
+told 5B to change, but 5A left it unmarked while marking its sibling absence
+pin); and `tests/unit/test_io/test_instrument_config.py` /
+`tests/unit/test_simulator/test_instrument_integration.py` (each pins the
+literal ten-element — nine before 5B — top-level section tuple and must learn
+the new `receptors` section). None of these four additions changes a
+decision, a slice boundary, or any other slice's file list.
 
 ### Tier 5C
 
