@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     from radiosim.io.config import CliWorkflowConfig
 
 
+logger = logging.getLogger(__name__)
+
 _ERROR_LABELS = {
     "ConfigSourceError": "source",
     "ConfigParseError": "parse",
@@ -124,20 +126,6 @@ class WorkflowExecutionPlan:
             expected_st_ino=identity.st_ino,
             expected_file_type=identity.file_type,
         )
-
-
-def ensure_result_workflow_available(
-    *,
-    save_results: bool,
-    plot_results: bool,
-) -> None:
-    """Retain only the Tier 4G plot preflight before runtime construction."""
-    if plot_results:
-        raise WorkflowOutputError(
-            "result plotting remains unavailable until the Tier 4G canonical "
-            "result renderer is implemented"
-        )
-    _ = save_results
 
 
 def render_workflow_error(error: RuntimeError, *, command: str) -> None:
@@ -372,6 +360,44 @@ def _validate_format_preflight(
         )
 
 
+def _validate_plot_preflight(workflow: CliWorkflowConfig) -> None:
+    """Reject an unrenderable plot request before any directory or run work."""
+    if not workflow.plot_results:
+        return
+    from radiosim.visualization.errors import ResultPlotContractError
+
+    if workflow.plotting_backend != "bokeh":
+        raise ResultPlotContractError(
+            "only the bokeh result renderer is implemented; "
+            f"workflow.plotting_backend={workflow.plotting_backend!r}"
+        )
+    if workflow.visibility_phase_unit not in ("radians", "degrees"):
+        raise ResultPlotContractError(
+            "workflow.visibility_phase_unit must be 'radians' or 'degrees'; "
+            f"received {workflow.visibility_phase_unit!r}"
+        )
+
+
+def _open_published_plots(paths: tuple[Path, ...]) -> None:
+    """Open published plots last; a browser failure never unpublishes data."""
+    import webbrowser
+
+    from radiosim.visualization.errors import ResultBrowserError
+
+    for path in paths:
+        try:
+            webbrowser.open(path.as_uri())
+        except Exception as exc:
+            failure = ResultBrowserError(
+                f"published plot could not be opened in a browser: {path}"
+            )
+            failure.__cause__ = exc
+            logger.error(
+                f"{type(failure).__name__}: {failure} "
+                f"(published output is unaffected; cause {exc!r})"
+            )
+
+
 def _suffix_target(base: Path) -> Path:
     for index in range(1, 1000):
         candidate = base.with_name(f"{base.name}-{index:03d}")
@@ -388,10 +414,7 @@ def preflight_cli_workflow(
     runtime: ResolvedSimulationConfig,
 ) -> WorkflowExecutionPlan:
     """Resolve collision policy and prompt outcome without filesystem mutation."""
-    ensure_result_workflow_available(
-        save_results=workflow.save_results,
-        plot_results=workflow.plot_results,
-    )
+    _validate_plot_preflight(workflow)
     any_output = workflow.save_results or workflow.plot_results or workflow.save_log
     if not any_output:
         return WorkflowExecutionPlan(False, False, None, None)
@@ -542,6 +565,7 @@ def run_cli_workflow(
     handler: logging.FileHandler | None = None
     published = False
     artifact_names: list[str] = []
+    plot_names: list[str] = []
     try:
         parent_fd = open_parent_directory(target.parent, create=True)
         staging = create_sibling_temporary_directory(target, parent_fd)
@@ -575,6 +599,28 @@ def run_cli_workflow(
                 overwrite=False,
             )
             artifact_names.append(result_path.name)
+        if workflow.plot_results:
+            rendered = simulator.plot(
+                plot_type="all",
+                output_dir=staging,
+                backend=workflow.plotting_backend,
+                show=False,
+                overwrite=False,
+                visibility_phase_unit=workflow.visibility_phase_unit,
+            )
+            if type(rendered) is not tuple or not rendered:
+                raise WorkflowOutputError(
+                    "the result renderer declared no staged workflow plot files"
+                )
+            for candidate in rendered:
+                plot_path = Path(candidate)
+                if plot_path.parent != staging:
+                    raise WorkflowOutputError(
+                        "the result renderer wrote outside the staged run "
+                        f"directory: {plot_path}"
+                    )
+                artifact_names.append(plot_path.name)
+                plot_names.append(plot_path.name)
         _close_file_handler(handler)
         handler = None
         artifact_paths = tuple(staging / name for name in artifact_names)
@@ -616,7 +662,10 @@ def run_cli_workflow(
         published = True
         fsync_directory(parent_fd)
         final_names = ["manifest.json", *artifact_names]
-        return tuple(target / name for name in final_names)
+        final_paths = tuple(target / name for name in final_names)
+        if plot_names and workflow.open_plots_in_browser:
+            _open_published_plots(tuple(target / name for name in plot_names))
+        return final_paths
     except PartialCleanupError:
         raise
     except Exception as exc:
@@ -655,7 +704,6 @@ def run_cli_workflow(
 
 __all__ = [
     "deterministic_run_subdir",
-    "ensure_result_workflow_available",
     "NonInteractivePromptError",
     "preflight_cli_workflow",
     "render_configuration_error",

@@ -362,8 +362,16 @@ def test_config_mode_and_python_api_consume_same_backend_and_precision(
 
 
 def test_workflow_forwards_save_and_plot_policy_after_run(
-    tmp_path, recording_simulator
+    tmp_path, recording_simulator, monkeypatch
 ):
+    import webbrowser
+
+    opened: list[str] = []
+    monkeypatch.setattr(
+        webbrowser,
+        "open",
+        lambda url, *args, **kwargs: opened.append(url),
+    )
     data = valid_config_mapping(
         tmp_path,
         workflow={
@@ -374,18 +382,35 @@ def test_workflow_forwards_save_and_plot_policy_after_run(
             "collision_policy": "replace",
             "plot_results": True,
             "open_plots_in_browser": True,
-            "plotting_backend": "matplotlib",
+            "plotting_backend": "bokeh",
+            "visibility_phase_unit": "degrees",
         },
     )
     config_path = write_config_yaml(tmp_path, data)
 
     result = _invoke_config(CliRunner(), config_path)
 
-    assert result.exit_code == 1
-    assert "result plotting remains unavailable" in result.output
-    assert recording_simulator.instances == []
+    assert result.exit_code == 0, result.output
+    simulator = recording_simulator.instances[0]
+    assert simulator.ran is True
+    assert len(simulator.plot_calls) == 1
+    _args, kwargs = simulator.plot_calls[0]
+    assert kwargs["show"] is False
+    assert kwargs["backend"] == "bokeh"
+    assert kwargs["visibility_phase_unit"] == "degrees"
     output_dir = tmp_path / "output" / "chosen-run"
-    assert not output_dir.exists()
+    assert Path(kwargs["output_dir"]) != output_dir
+    assert sorted(path.name for path in output_dir.iterdir()) == [
+        "antenna_layout.html",
+        "manifest.json",
+        "resolved-config.yaml",
+        "science.summary.json",
+        "visibility-phase-lsts.html",
+    ]
+    assert opened == [
+        (output_dir / "antenna_layout.html").as_uri(),
+        (output_dir / "visibility-phase-lsts.html").as_uri(),
+    ]
 
 
 def test_existing_output_conflict_aborts_without_overwrite(
@@ -481,11 +506,15 @@ def test_save_workflow_runs_and_publishes_owned_manifest(
 @pytest.mark.parametrize(
     "workflow",
     [
-        {"plot_results": True},
-        {"save_results": True, "plot_results": True},
+        {"plot_results": True, "plotting_backend": "matplotlib"},
+        {
+            "save_results": True,
+            "plot_results": True,
+            "plotting_backend": "matplotlib",
+        },
     ],
 )
-def test_tier4g_plot_workflow_fails_before_simulator_construction(
+def test_tier4g_unrenderable_plot_workflow_fails_before_simulator_construction(
     tmp_path,
     recording_simulator,
     workflow,
@@ -502,6 +531,6 @@ def test_tier4g_plot_workflow_fails_before_simulator_construction(
     result = _invoke_config(CliRunner(), config_path)
 
     assert result.exit_code == 1
-    assert "Tier 4G" in result.output
+    assert "bokeh" in result.output
     assert recording_simulator.instances == []
     assert not output_dir.exists()

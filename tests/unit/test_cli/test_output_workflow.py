@@ -19,7 +19,6 @@ from radiosim.cli.workflow import (
     NonInteractivePromptError,
     WorkflowExecutionPlan,
     WorkflowOutputError,
-    ensure_result_workflow_available,
     preflight_cli_workflow,
     run_cli_workflow,
 )
@@ -131,11 +130,36 @@ def test_legacy_json_format_fails_with_exact_migration_guidance(tmp_path):
         RadioSimConfig.model_validate(data)
 
 
-def test_save_workflow_is_available_while_plot_workflow_remains_rejected():
-    ensure_result_workflow_available(save_results=True, plot_results=False)
+def test_tier4g_removes_the_dedicated_plot_availability_preflight():
+    import radiosim.cli.workflow as workflow_module
 
-    with pytest.raises(Exception, match="plot"):
-        ensure_result_workflow_available(save_results=False, plot_results=True)
+    assert not hasattr(workflow_module, "ensure_result_workflow_available")
+    assert "ensure_result_workflow_available" not in workflow_module.__all__
+
+
+def test_plot_contract_preflight_precedes_every_directory_decision(tmp_path):
+    from radiosim.visualization.errors import ResultPlotContractError
+
+    bundle = resolved_config(tmp_path)
+    runs = tmp_path / "runs"
+    workflow = CliWorkflowConfig(
+        output_dir=runs,
+        run_subdir="run",
+        plot_results=True,
+        plotting_backend="matplotlib",
+    )
+
+    with pytest.raises(ResultPlotContractError, match="bokeh"):
+        preflight_cli_workflow(workflow, runtime=bundle.runtime)
+
+    assert not runs.exists()
+    accepted = preflight_cli_workflow(
+        workflow.model_copy(update={"plotting_backend": "bokeh"}),
+        runtime=bundle.runtime,
+    )
+    assert accepted.enabled is True
+    assert accepted.target == runs / "run"
+    assert not runs.exists()
 
 
 def test_direct_simulate_uses_exact_final_target_and_never_prompts(
@@ -194,16 +218,19 @@ def test_direct_simulate_uses_exact_final_target_and_never_prompts(
     }
 
 
-def test_config_mode_plot_preflight_remains_before_runtime(
+def test_config_mode_plot_contract_failure_precedes_runtime(
     tmp_path, recording_simulator
 ):
-    data = valid_config_mapping(tmp_path, workflow={"plot_results": True})
+    data = valid_config_mapping(
+        tmp_path,
+        workflow={"plot_results": True, "plotting_backend": "matplotlib"},
+    )
     config_path = write_config_yaml(tmp_path, data)
 
     result = CliRunner().invoke(cli, ["--config", str(config_path)])
 
     assert result.exit_code == 1
-    assert "plot" in result.output
+    assert "bokeh" in result.output
     assert recording_simulator.instances == []
 
 
@@ -557,24 +584,178 @@ def test_successful_logging_closes_handler_before_publication(tmp_path):
     assert (renamed / "simulation.log").is_file()
 
 
-def test_plot_preflight_never_opens_browser(tmp_path, monkeypatch):
+def _staging_plotter(target: Path, staged: list[Path], recorded: list[dict]):
+    """Return a renderer double that writes only into the staged run directory."""
+
+    def plot(**kwargs):
+        recorded.append(dict(kwargs))
+        directory = Path(kwargs["output_dir"])
+        assert directory != target
+        written = []
+        for name in ("antenna_layout.html", "visibility-phase-lsts.html"):
+            path = directory / name
+            path.write_text("<html></html>", encoding="utf-8")
+            written.append(path)
+        staged.extend(written)
+        return tuple(written)
+
+    return plot
+
+
+def test_workflow_plots_into_staging_and_opens_published_paths_last(
+    tmp_path, monkeypatch
+):
     bundle = resolved_config(tmp_path)
+    target = tmp_path / "runs" / "run"
     workflow = CliWorkflowConfig(
-        output_dir=tmp_path / "runs",
-        run_subdir="run",
+        output_dir=target.parent,
+        run_subdir=target.name,
+        plot_results=True,
+        open_plots_in_browser=True,
+        visibility_phase_unit="degrees",
+    )
+    staged: list[Path] = []
+    recorded: list[dict] = []
+    opened: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        webbrowser,
+        "open",
+        lambda url, *args, **kwargs: opened.append((url, target.is_dir())),
+    )
+
+    artifacts = run_cli_workflow(
+        SimpleNamespace(plot=_staging_plotter(target, staged, recorded)),
+        workflow,
+        runtime=bundle.runtime,
+        provenance=bundle.provenance,
+    )
+
+    assert len(recorded) == 1
+    assert recorded[0]["show"] is False
+    assert recorded[0]["backend"] == "bokeh"
+    assert recorded[0]["overwrite"] is False
+    assert recorded[0]["visibility_phase_unit"] == "degrees"
+    assert [path.name for path in artifacts] == [
+        "manifest.json",
+        "resolved-config.yaml",
+        "antenna_layout.html",
+        "visibility-phase-lsts.html",
+    ]
+    assert all(path.parent == target and path.is_file() for path in artifacts)
+    assert not any(path.exists() for path in staged)
+    assert [url for url, _ in opened] == [
+        (target / "antenna_layout.html").as_uri(),
+        (target / "visibility-phase-lsts.html").as_uri(),
+    ]
+    assert all(existed for _url, existed in opened)
+    assert validate_owned_run_directory(target).run_directory == target
+
+
+def test_workflow_never_opens_a_browser_when_the_flag_is_false(tmp_path, monkeypatch):
+    bundle = resolved_config(tmp_path)
+    target = tmp_path / "runs" / "run"
+    workflow = CliWorkflowConfig(
+        output_dir=target.parent,
+        run_subdir=target.name,
+        plot_results=True,
+        open_plots_in_browser=False,
+    )
+    monkeypatch.setattr(
+        webbrowser,
+        "open",
+        lambda *args, **kwargs: pytest.fail("workflow opened an unrequested browser"),
+    )
+
+    artifacts = run_cli_workflow(
+        SimpleNamespace(plot=_staging_plotter(target, [], [])),
+        workflow,
+        runtime=bundle.runtime,
+        provenance=bundle.provenance,
+    )
+
+    assert target / "visibility-phase-lsts.html" in artifacts
+
+
+def test_workflow_renderer_failure_leaves_no_published_run(tmp_path, monkeypatch):
+    bundle = resolved_config(tmp_path)
+    target = tmp_path / "runs" / "run"
+    workflow = CliWorkflowConfig(
+        output_dir=target.parent,
+        run_subdir=target.name,
         plot_results=True,
         open_plots_in_browser=True,
     )
     monkeypatch.setattr(
         webbrowser,
         "open",
-        lambda *args, **kwargs: pytest.fail("Tier 4F opened a browser"),
+        lambda *args, **kwargs: pytest.fail("browser opened after a render failure"),
     )
 
-    with pytest.raises(Exception, match="plot"):
-        preflight_cli_workflow(workflow, runtime=bundle.runtime)
+    def failing_plot(**_kwargs):
+        raise RuntimeError("controlled renderer failure")
 
-    assert not (tmp_path / "runs").exists()
+    with pytest.raises(AtomicWriteError):
+        run_cli_workflow(
+            SimpleNamespace(plot=failing_plot),
+            workflow,
+            runtime=bundle.runtime,
+            provenance=bundle.provenance,
+        )
+
+    assert not target.exists()
+    assert list(target.parent.iterdir()) == []
+
+
+def test_workflow_renderer_escaping_staging_is_rejected(tmp_path, monkeypatch):
+    bundle = resolved_config(tmp_path)
+    target = tmp_path / "runs" / "run"
+    escape = tmp_path / "escape.html"
+    workflow = CliWorkflowConfig(
+        output_dir=target.parent,
+        run_subdir=target.name,
+        plot_results=True,
+    )
+
+    def escaping_plot(**_kwargs):
+        escape.write_text("<html></html>", encoding="utf-8")
+        return (escape,)
+
+    with pytest.raises(WorkflowOutputError, match="outside the staged run"):
+        run_cli_workflow(
+            SimpleNamespace(plot=escaping_plot),
+            workflow,
+            runtime=bundle.runtime,
+            provenance=bundle.provenance,
+        )
+
+    assert not target.exists()
+
+
+def test_workflow_browser_failure_keeps_the_published_run(tmp_path, monkeypatch):
+    bundle = resolved_config(tmp_path)
+    target = tmp_path / "runs" / "run"
+    workflow = CliWorkflowConfig(
+        output_dir=target.parent,
+        run_subdir=target.name,
+        plot_results=True,
+        open_plots_in_browser=True,
+    )
+
+    def failing_open(*_args, **_kwargs):
+        raise OSError("no browser available")
+
+    monkeypatch.setattr(webbrowser, "open", failing_open)
+
+    artifacts = run_cli_workflow(
+        SimpleNamespace(plot=_staging_plotter(target, [], [])),
+        workflow,
+        runtime=bundle.runtime,
+        provenance=bundle.provenance,
+    )
+
+    assert (target / "visibility-phase-lsts.html").is_file()
+    assert validate_owned_run_directory(target).run_directory == target
+    assert target / "antenna_layout.html" in artifacts
 
 
 def test_concurrent_target_creation_never_overwrites_racing_directory(tmp_path):

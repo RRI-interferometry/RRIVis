@@ -45,7 +45,12 @@ def recording_simulator(monkeypatch):
         self.plot_calls.append((args, kwargs))
         output_dir = Path(kwargs["output_dir"])
         output_dir.mkdir(parents=True, exist_ok=True)
-        return [output_dir / "plot.html"]
+        written = []
+        for name in ("antenna_layout.html", "visibility-phase-lsts.html"):
+            path = output_dir / name
+            path.write_text("<html></html>", encoding="utf-8")
+            written.append(path)
+        return tuple(written)
 
     monkeypatch.setattr(Simulator, "__init__", recording_init)
     monkeypatch.setattr(Simulator, "run", run)
