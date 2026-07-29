@@ -86,7 +86,6 @@ numba = [
 
 # Measurement Set I/O
 ms = [
-    "dask-ms>=0.2.20",
     "python-casacore>=3.5",
     "xarray>=2023.1",
 ]

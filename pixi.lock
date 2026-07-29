@@ -26602,7 +26602,6 @@ packages:
   - jax[tpu]>=0.4.20 ; extra == 'tpu'
   - numba>=0.58 ; extra == 'numba'
   - dask[complete]>=2024.1.0 ; extra == 'numba'
-  - dask-ms>=0.2.20 ; extra == 'ms'
   - python-casacore>=3.5 ; extra == 'ms'
   - xarray>=2023.1 ; extra == 'ms'
   - pytest>=7.4 ; extra == 'dev'
