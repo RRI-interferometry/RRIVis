@@ -241,6 +241,8 @@ def test_save_requires_result_and_plot_remains_unavailable_without_side_effects(
     import logging
     import webbrowser
 
+    from radiosim.visualization.errors import ResultPlotContractError
+
     simulator = Simulator.from_mapping(_mapping(tmp_path), base_dir=tmp_path)
     output = tmp_path / "must-not-exist.h5"
 
@@ -253,7 +255,10 @@ def test_save_requires_result_and_plot_remains_unavailable_without_side_effects(
         "pyuvdata",
         "casacore",
         "radiosim.io.writers",
-        "radiosim.visualization",
+        "radiosim.visualization.bokeh_plots",
+        "radiosim.visualization.gsm_plots",
+        "radiosim.visualization.observability",
+        "radiosim.visualization.sky",
         "bokeh",
         "matplotlib",
     )
@@ -273,7 +278,8 @@ def test_save_requires_result_and_plot_remains_unavailable_without_side_effects(
                     show=True,
                     overwrite=True,
                 ),
-                "canonical result renderer",
+                ResultPlotContractError,
+                "plot_type must be one of",
             ),
         ]
         if include_save:
@@ -285,11 +291,23 @@ def test_save_requires_result_and_plot_remains_unavailable_without_side_effects(
                         format=ResultFormat.HDF5,
                         overwrite=True,
                     ),
+                    ResultUnavailableError,
                     "no successfully published SimulationResult",
                 ),
             )
-        for operation, message in operations:
-            with pytest.raises(ResultUnavailableError, match=message):
+            operations.append(
+                (
+                    lambda: simulator.plot(
+                        output_dir=output,
+                        show=True,
+                        overwrite=True,
+                    ),
+                    ResultUnavailableError,
+                    "requires a successfully published SimulationResult",
+                ),
+            )
+        for operation, error_type, message in operations:
+            with pytest.raises(error_type, match=message):
                 operation()
 
     with monkeypatch.context() as guarded:

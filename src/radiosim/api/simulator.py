@@ -74,6 +74,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+#: Declared canonical plot files, kept here so importing the API never imports
+#: Bokeh, Plotly, or any renderer module.
+_PLOT_FILENAMES: dict[str, str] = {
+    "antenna": "antenna_layout.html",
+    "visibility": "visibility-phase-lsts.html",
+    "heatmap": "heatmaps-freq-time.html",
+    "frequency": "modulus-phase-freq.html",
+}
+
+_PLOT_FAMILIES: dict[str, tuple[str, ...]] = {
+    "all": ("antenna", "visibility", "heatmap", "frequency"),
+    "antenna": ("antenna",),
+    "visibility": ("visibility",),
+    "heatmap": ("heatmap",),
+    "frequency": ("frequency",),
+}
+
 
 def _runtime_loader_value(value: Any) -> Any:
     """Copy immutable resolved loader values into ordinary call arguments."""
@@ -997,19 +1014,139 @@ class Simulator:
 
     def plot(
         self,
-        plot_type: str = "all",
+        *,
+        plot_type: Literal[
+            "all",
+            "antenna",
+            "visibility",
+            "heatmap",
+            "frequency",
+        ] = "all",
         output_dir: str | Path | None = None,
-        backend: str = "bokeh",
+        backend: Literal["bokeh", "matplotlib"] = "bokeh",
         show: bool = True,
         overwrite: bool = False,
-    ) -> list[Path]:
-        """Reject plotting until the canonical result renderer is implemented."""
-        from radiosim.core.result import ResultUnavailableError
+        visibility_phase_unit: Literal["radians", "degrees"] = "radians",
+    ) -> tuple[Path, ...]:
+        """Render the published canonical result into one explicit directory.
 
-        raise ResultUnavailableError(
-            "result plotting remains unavailable until the canonical result "
-            "renderer is implemented"
+        Every requested renderer consumes the published `SimulationResult`
+        coordinate arrays directly.  Contract validation and collision checks
+        precede any filesystem work; browser presentation follows publication
+        of every declared file.
+
+        Parameters
+        ----------
+        plot_type
+            Which canonical plot family to render.
+        output_dir
+            Required explicit directory receiving the declared HTML files.
+        backend
+            Rendering backend; only ``bokeh`` is implemented.
+        show
+            Open each published file in a browser after all files are written.
+        overwrite
+            Replace declared files that already exist.
+        visibility_phase_unit
+            Display unit for visibility phase; canonical values stay radians.
+
+        Returns
+        -------
+        tuple of Path
+            The published plot files in deterministic declaration order.
+        """
+        from radiosim.core.result import ResultUnavailableError
+        from radiosim.io.result_errors import OutputCollisionError, OutputPathError
+        from radiosim.visualization.errors import (
+            ResultBrowserError,
+            ResultPlotContractError,
         )
+
+        if plot_type not in _PLOT_FAMILIES:
+            raise ResultPlotContractError(
+                f"plot_type must be one of {sorted(_PLOT_FAMILIES)}; "
+                f"received {plot_type!r}"
+            )
+        if backend != "bokeh":
+            raise ResultPlotContractError(
+                "only the bokeh result renderer is implemented; "
+                f"received backend {backend!r}"
+            )
+        if type(show) is not bool:
+            raise ResultPlotContractError("show must be a boolean")
+        if type(overwrite) is not bool:
+            raise ResultPlotContractError("overwrite must be a boolean")
+        if visibility_phase_unit not in ("radians", "degrees"):
+            raise ResultPlotContractError(
+                "visibility_phase_unit must be 'radians' or 'degrees'; "
+                f"received {visibility_phase_unit!r}"
+            )
+
+        result = self._result
+        if result is None:
+            raise ResultUnavailableError(
+                "plotting requires a successfully published SimulationResult"
+            )
+        if output_dir is None:
+            raise OutputPathError("plotting requires an explicit output_dir")
+        if not isinstance(output_dir, (str, Path)):
+            raise OutputPathError("output_dir must be a string or Path")
+
+        directory = Path(output_dir)
+        requested = _PLOT_FAMILIES[plot_type]
+        targets = tuple(directory / _PLOT_FILENAMES[name] for name in requested)
+        for target in targets:
+            if target.is_symlink() or (target.exists() and not target.is_file()):
+                raise OutputCollisionError(
+                    f"plot target is not a safe regular file: {target}"
+                )
+            if target.exists() and not overwrite:
+                raise OutputCollisionError(f"plot target already exists: {target}")
+
+        from radiosim.visualization.bokeh_plots import (
+            plot_antenna_layout,
+            plot_heatmaps,
+            plot_modulus_vs_frequency,
+            plot_visibility,
+        )
+
+        directory.mkdir(parents=True, exist_ok=True)
+        for name, target in zip(requested, targets, strict=True):
+            if name == "antenna":
+                plot_antenna_layout(
+                    result.instrument.antennas,
+                    save_simulation_data=True,
+                    folder_path=str(directory),
+                    open_in_browser=False,
+                )
+                continue
+            renderer = {
+                "visibility": plot_visibility,
+                "heatmap": plot_heatmaps,
+                "frequency": plot_modulus_vs_frequency,
+            }[name]
+            renderer(
+                result,
+                output_path=target,
+                visibility_phase_unit=visibility_phase_unit,
+            )
+        for target in targets:
+            if not target.is_file() or target.is_symlink():
+                raise ResultPlotContractError(
+                    f"declared plot file was not published: {target}"
+                )
+
+        if show:
+            import webbrowser
+
+            for target in targets:
+                try:
+                    webbrowser.open(target.as_uri())
+                except Exception as exc:
+                    raise ResultBrowserError(
+                        f"published plot could not be opened in a browser: {target}"
+                    ) from exc
+        return targets
 
     def plan_observability(
         self,

@@ -1,20 +1,31 @@
 # radiosim/visualization/bokeh_plots.py
+"""Canonical-result Bokeh renderers and antenna layout helpers.
+
+The visibility renderers consume an exact :class:`SimulationResult`.  They read
+the published coordinate arrays directly — canonical UTC time centers, channel
+centers, baseline order, and correlation labels — and never reconstruct an axis
+from durations, cadences, or scalar start times.  Stokes I is derived
+explicitly as ``XX + YY`` through :meth:`SimulationResult.stokes_i`.
+
+Renderers never open a browser.  Browser presentation belongs to the caller and
+always follows publication of the rendered files.
+"""
+
+from __future__ import annotations
 
 import logging
 import os
-import tempfile
 import webbrowser
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
 # Note: avoid Matplotlib here to keep plotting browser-native via Bokeh/Plotly
 import numpy as np
-from astropy.time import Time
 from bokeh.io import save
 from bokeh.layouts import column
 from bokeh.models import (
     ColorBar,
     ColumnDataSource,
-    DatetimeTicker,
     HoverTool,
     LabelSet,
     Legend,
@@ -24,593 +35,488 @@ from bokeh.palettes import Inferno256, Turbo256
 from bokeh.plotting import figure
 from bokeh.resources import CDN
 
+from radiosim.visualization.errors import ResultPlotContractError
+
+if TYPE_CHECKING:
+    from bokeh.models import UIElement
+
+    from radiosim.core.result import SimulationResult
+
 logger = logging.getLogger(__name__)
 
+PHASE_UNITS: tuple[str, ...] = ("radians", "degrees")
+TIME_AXIS_LABEL = "Time (MJD, UTC)"
+FREQUENCY_AXIS_LABEL = "Frequency (Hz)"
 
-def _baseline_pairs(baselines):
-    """Return selected numeric pairs from canonical baseline models."""
-    return tuple((baseline.ant1.number, baseline.ant2.number) for baseline in baselines)
+VISIBILITY_PLOT_FILENAME = "visibility-phase-lsts.html"
+HEATMAP_PLOT_FILENAME = "heatmaps-freq-time.html"
+FREQUENCY_PLOT_FILENAME = "modulus-phase-freq.html"
+ANTENNA_LAYOUT_FILENAME = "antenna_layout.html"
+
+
+def _require_result(result: object) -> SimulationResult:
+    """Reject every input that is not an exact published simulation result."""
+    from radiosim.core.result import SimulationResult
+
+    if type(result) is not SimulationResult:
+        raise ResultPlotContractError(
+            "visibility renderers require an exact SimulationResult; "
+            f"received {type(result).__name__}"
+        )
+    return result
+
+
+def _require_phase_unit(value: object) -> str:
+    if value not in PHASE_UNITS:
+        raise ResultPlotContractError(
+            f"visibility_phase_unit must be 'radians' or 'degrees'; received {value!r}"
+        )
+    return str(value)
+
+
+def _require_output_path(value: object) -> Path | None:
+    if value is None:
+        return None
+    if not isinstance(value, (str, Path)):
+        raise ResultPlotContractError("output_path must be a string or Path")
+    return Path(value)
+
+
+def _baseline_labels(result: SimulationResult) -> tuple[tuple[int, int], ...]:
+    """Return selected numeric pairs in the exact published baseline order."""
+    return tuple(
+        (baseline.ant1.number, baseline.ant2.number)
+        for baseline in result.selection.baselines
+    )
+
+
+def _stokes_i(result: SimulationResult) -> np.ndarray:
+    """Return the explicit ``XX + YY`` Stokes I cube with shape ``(T, B, F)``."""
+    stokes = result.stokes_i()
+    expected = (
+        len(result.time_grid),
+        len(result.selection.baselines),
+        int(result.frequencies_hz.size),
+    )
+    if stokes.shape != expected:
+        raise ResultPlotContractError(
+            f"canonical Stokes I shape {stokes.shape} does not match the "
+            f"published coordinate shape {expected}"
+        )
+    return stokes
+
+
+def _phase(values: np.ndarray, unit: str) -> np.ndarray:
+    """Unwrap in radians, then convert once into the requested display unit."""
+    unwrapped = np.unwrap(np.angle(values), axis=0)
+    if unit == "degrees":
+        return np.degrees(unwrapped)
+    return unwrapped
+
+
+def _phase_axis_label(unit: str) -> str:
+    return f"Phase of Visibility ({unit})"
+
+
+def _baseline_color(index: int, total: int) -> str:
+    return Turbo256[int((index / max(total, 1)) * 255)]
+
+
+def _persist_bokeh_document(
+    doc: UIElement,
+    filename: str,
+    title: str,
+    save_flag: bool,
+    folder_path: str | Path | None,
+    open_flag: bool,
+    save_message: str | None = None,
+) -> str | None:
+    """Save a Bokeh document to an explicit folder; never invent a temporary one."""
+    if open_flag and not (save_flag and folder_path):
+        raise ResultPlotContractError(
+            "opening a plot in a browser requires an explicit output folder"
+        )
+    if not (save_flag and folder_path):
+        return None
+
+    target_path = os.path.join(str(folder_path), filename)
+    save(doc, filename=target_path, resources=CDN, title=title)
+    logger.debug(f"{save_message or f'Saved {title} to'} {target_path}")
+
+    if open_flag:
+        webbrowser.open(Path(target_path).resolve().as_uri())
+
+    return target_path
+
+
+def save_plot_document(
+    doc: UIElement,
+    output_path: str | Path,
+    *,
+    title: str,
+) -> Path:
+    """Write one standalone Bokeh document to an exact declared path."""
+    target = Path(output_path)
+    save(doc, filename=str(target), resources=CDN, title=title)
+    return target
 
 
 def plot_visibility(
-    moduli_over_time,
-    phases_over_time,
-    baselines,
-    mjd_time_points,
-    freqs,
-    total_seconds,
-    plotting="bokeh",
-    save_simulation_data=False,
-    folder_path=None,
-    angle_unit="radians",
-    open_in_browser=False,
-):
+    result: SimulationResult,
+    *,
+    output_path: str | Path | None = None,
+    visibility_phase_unit: Literal["radians", "degrees"] = "radians",
+) -> UIElement:
+    """Plot Stokes I modulus and phase against the canonical UTC time centers.
+
+    Parameters
+    ----------
+    result
+        The exact published :class:`SimulationResult` to render.
+    output_path
+        Optional exact file path receiving the standalone HTML document.
+    visibility_phase_unit
+        Display unit for phase; the canonical values remain radians.
     """
-    Create plots of the modulus and phase of visibility versus time for each baseline.
+    canonical = _require_result(result)
+    unit = _require_phase_unit(visibility_phase_unit)
+    target = _require_output_path(output_path)
 
-    Parameters:
-    moduli_over_time (dict): Dictionary of visibility moduli over time for each baseline.
-    phases_over_time (dict): Dictionary of visibility phases over time for each baseline.
-    baselines (dict): Dictionary of baselines between antennas.
-    time_points (ndarray): Array of time points corresponding to the observations.
-    freqs (ndarray): Array of frequencies used in the observations.
-    total_seconds (float): Total duration of the observation in seconds.
-    plotting (str): Plotting library to use ('matplotlib' or 'bokeh').
-    angle_unit (str): Unit for displaying angles ('degrees' or 'radians').
-    open_in_browser (bool): Open the rendered HTML in the default browser.
+    times = canonical.time_grid.to_mjd()
+    stokes = _stokes_i(canonical)
+    labels = _baseline_labels(canonical)
+    phase_label = _phase_axis_label(unit)
 
-    Returns:
-    Figure object: The generated plot figure(s) based on the specified plotting library.
-    """
+    plots: list[Any] = []
+    for index, label in enumerate(labels):
+        channel = stokes[:, index, 0]
+        modulus = np.abs(channel)
+        phase = _phase(channel, unit)
 
-    # Convert MJD to human-readable datetime
-    time_points_datetime = Time(mjd_time_points, format="mjd").to_datetime()
-
-    baseline_keys = _baseline_pairs(baselines)
-    colors = Turbo256
-
-    # Convert phase values based on angle_unit
-    phases_converted = {}
-    for key in phases_over_time:
-        if angle_unit == "degrees":
-            phases_converted[key] = np.degrees(phases_over_time[key])
-        else:
-            phases_converted[key] = phases_over_time[key]
-
-    # Determine y-axis label for phase plots
-    phase_label = f"Phase of Visibility ({angle_unit})"
-
-    if plotting == "bokeh":
-        # Bokeh plotting
-        plots = []
-        for key in baseline_keys:
-            # # Check if polarization is included by examining the shape of the data
-            # if moduli_over_time[key].shape[-1] == 2:
-            #     # Ex component
-            #     p_mod_ex = figure(
-            #         width=800,
-            #         height=300,
-            #         title=f"Modulus of Visibility (Ex) vs Time for Baseline {key}",
-            #     )
-            #     p_mod_ex.line(
-            #         time_points,
-            #         moduli_over_time[key][:, 0, 0],
-            #         line_width=2,
-            #         legend_label=f"Ex Baseline {key}",
-            #     )
-            #     p_mod_ex.xaxis.axis_label = "Time (seconds)"
-            #     p_mod_ex.yaxis.axis_label = "Modulus of Visibility"
-            #     p_mod_ex.legend.location = "top_left"
-
-            #     # Ey component
-            #     p_mod_ey = figure(
-            #         width=800,
-            #         height=300,
-            #         title=f"Modulus of Visibility (Ey) vs Time for Baseline {key}",
-            #     )
-            #     p_mod_ey.line(
-            #         time_points,
-            #         moduli_over_time[key][:, 0, 1],
-            #         line_width=2,
-            #         legend_label=f"Ey Baseline {key}",
-            #     )
-            #     p_mod_ey.xaxis.axis_label = "Time (seconds)"
-            #     p_mod_ey.yaxis.axis_label = "Modulus of Visibility"
-            #     p_mod_ey.legend.location = "top_left"
-
-            #     # Phase components for Ex and Ey
-            #     p_phase_ex = figure(
-            #         width=800,
-            #         height=300,
-            #         title=f"Phase of Visibility (Ex) vs Time for Baseline {key}",
-            #     )
-            #     p_phase_ex.line(
-            #         time_points,
-            #         phases_over_time[key][:, 0, 0],
-            #         line_width=2,
-            #         legend_label=f"Ex Baseline {key}",
-            #     )
-            #     p_phase_ex.xaxis.axis_label = "Time (seconds)"
-            #     p_phase_ex.yaxis.axis_label = "Phase of Visibility (radians)"
-            #     p_phase_ex.legend.location = "top_left"
-
-            #     p_phase_ey = figure(
-            #         width=800,
-            #         height=300,
-            #         title=f"Phase of Visibility (Ey) vs Time for Baseline {key}",
-            #     )
-            #     p_phase_ey.line(
-            #         time_points,
-            #         phases_over_time[key][:, 0, 1],
-            #         line_width=2,
-            #         legend_label=f"Ey Baseline {key}",
-            #     )
-            #     p_phase_ey.xaxis.axis_label = "Time (seconds)"
-            #     p_phase_ey.yaxis.axis_label = "Phase of Visibility (radians)"
-            #     p_phase_ey.legend.location = "top_left"
-
-            #     plots.extend([p_mod_ex, p_mod_ey, p_phase_ex, p_phase_ey])
-            # else:
-
-            # Define a ticker with finer granularity (e.g., hourly ticks)
-            datetime_ticker = DatetimeTicker(
-                desired_num_ticks=12
-            )  # Adjust `desired_num_ticks` as needed
-
-            # No polarization, single component
-            p_mod = figure(
-                width=800,
-                height=300,
-                title=f"Modulus of Visibility vs Time for Baseline {key}",
-                x_axis_type="datetime",
-            )
-            p_mod.line(
-                time_points_datetime,
-                moduli_over_time[key][:, 0],
-                line_width=2,
-                legend_label=f"Baseline {key}",
-            )
-            p_mod.xaxis.axis_label = "Time"
-            p_mod.yaxis.axis_label = "Modulus of Visibility"
-            p_mod.legend.location = "top_left"
-            p_mod.xaxis.ticker = datetime_ticker
-
-            p_phase = figure(
-                width=800,
-                height=300,
-                title=f"Phase of Visibility vs Time for Baseline {key}",
-                x_axis_type="datetime",
-            )
-            p_phase.line(
-                time_points_datetime,
-                np.unwrap(phases_converted[key][:, 0]),
-                line_width=2,
-                legend_label=f"Baseline {key}",
-            )
-            p_phase.xaxis.axis_label = "Time"
-            p_phase.yaxis.axis_label = phase_label
-            p_phase.legend.location = "top_left"
-            p_phase.xaxis.ticker = datetime_ticker
-
-            plots.append(p_mod)
-            plots.append(p_phase)
-
-        combined_mod = figure(
-            width=1400,
-            height=1400,
-            title="Modulus of Visibility vs Time for All Baselines",
-            x_axis_type="datetime",
+        p_mod = figure(
+            width=800,
+            height=300,
+            title=f"Modulus of Visibility vs Time for Baseline {label}",
         )
+        p_mod.line(times, modulus, line_width=2, legend_label=f"Baseline {label}")
+        p_mod.xaxis.axis_label = TIME_AXIS_LABEL
+        p_mod.yaxis.axis_label = "Modulus of Visibility (Stokes I)"
+        p_mod.legend.location = "top_left"
 
-        lines = []
-        for idx, key in enumerate(baseline_keys):
-            color = colors[int((idx / len(baseline_keys)) * 255)]
-            line = combined_mod.line(
-                time_points_datetime,
-                moduli_over_time[key][:, 0],
-                line_width=2,
-                color=color,
-                name=str(key),
-            )
-            lines.append((f"Baseline {key}", [line]))
+        p_phase = figure(
+            width=800,
+            height=300,
+            title=f"Phase of Visibility vs Time for Baseline {label}",
+        )
+        p_phase.line(times, phase, line_width=2, legend_label=f"Baseline {label}")
+        p_phase.xaxis.axis_label = TIME_AXIS_LABEL
+        p_phase.yaxis.axis_label = phase_label
+        p_phase.legend.location = "top_left"
 
-            hover = HoverTool(
-                renderers=[line],
+        plots.append(p_mod)
+        plots.append(p_phase)
+
+    combined_mod = figure(
+        width=1400,
+        height=1400,
+        title="Modulus of Visibility vs Time for All Baselines",
+    )
+    combined_phase = figure(
+        width=1400,
+        height=1400,
+        title="Combined Phase of Visibility vs Time for All Baselines",
+    )
+    modulus_items: list[tuple[str, list[Any]]] = []
+    phase_items: list[tuple[str, list[Any]]] = []
+    for index, label in enumerate(labels):
+        channel = stokes[:, index, 0]
+        color = _baseline_color(index, len(labels))
+        modulus_line = combined_mod.line(
+            times,
+            np.abs(channel),
+            line_width=2,
+            color=color,
+            name=str(label),
+        )
+        modulus_items.append((f"Baseline {label}", [modulus_line]))
+        combined_mod.add_tools(
+            HoverTool(
+                renderers=[modulus_line],
                 tooltips=[
-                    ("Time", "@x{%F %T}"),
+                    ("Time (MJD)", "@x"),
                     ("Value", "@y"),
-                    ("Baseline", str(key)),
+                    ("Baseline", str(label)),
                 ],
-                formatters={"@x": "datetime"},
                 mode="mouse",
             )
-            combined_mod.add_tools(hover)
+        )
+        phase_line = combined_phase.line(
+            times,
+            _phase(channel, unit),
+            line_width=2,
+            color=color,
+            name=str(label),
+        )
+        phase_items.append((f"Baseline {label}", [phase_line]))
+        combined_phase.add_tools(
+            HoverTool(
+                renderers=[phase_line],
+                tooltips=[
+                    ("Time (MJD)", "@x"),
+                    ("Value", "@y"),
+                    ("Baseline", str(label)),
+                ],
+                mode="mouse",
+            )
+        )
 
-        combined_mod.xaxis.axis_label = "Time"
-        combined_mod.yaxis.axis_label = "Modulus of Visibility"
-        combined_mod.xaxis.ticker = DatetimeTicker(desired_num_ticks=12)
-
+    combined_mod.xaxis.axis_label = TIME_AXIS_LABEL
+    combined_mod.yaxis.axis_label = "Modulus of Visibility (Stokes I)"
+    combined_phase.xaxis.axis_label = TIME_AXIS_LABEL
+    combined_phase.yaxis.axis_label = phase_label
+    for target_figure, items in (
+        (combined_mod, modulus_items),
+        (combined_phase, phase_items),
+    ):
         legend = Legend(
-            items=lines,
+            items=items,
             location="center",
             click_policy="hide",
             title="Baselines",
         )
         legend.ncols = 10
-        combined_mod.add_layout(legend, "below")
+        target_figure.add_layout(legend, "below")
 
-        # combined_mod.xaxis.axis_label = "Time"
-        # combined_mod.yaxis.axis_label = "Modulus of Visibility"
-        # combined_mod.legend.label_text_font_size = "8pt"
-        # combined_mod.legend.spacing = 1
-        # combined_mod.legend.location = "top_left"
-        # combined_mod.legend.click_policy = "hide"  # Allow toggling baselines on/off
-        # combined_mod.xaxis.ticker = DatetimeTicker(desired_num_ticks=12)
+    plots.append(combined_mod)
+    plots.append(combined_phase)
+    document = column(*plots)
 
-        # Combined Phase vs Time
-        combined_phase = figure(
-            width=1400,
-            height=1400,
-            title="Combined Phase of Visibility vs Time for All Baselines",
-            x_axis_type="datetime",
-        )
-        lines = []
-        for idx, key in enumerate(baseline_keys):
-            color = colors[int((idx / len(baseline_keys)) * 255)]
-            line = combined_phase.line(
-                time_points_datetime,
-                np.unwrap(phases_converted[key][:, 0]),
-                line_width=2,
-                color=color,
-                # legend_label=f"Baseline {key}",
-                name=str(key),  # Convert key to string
-            )
-            lines.append((f"Baseline {key}", [line]))
-
-            # Add hover tool for this line
-            hover = HoverTool(
-                renderers=[line],
-                tooltips=[
-                    ("Time", "@x{%F %T}"),  # Time in human-readable format
-                    ("Value", "@y"),  # Value (phase)
-                    ("Baseline", str(key)),  # Convert key to string for tooltip
-                ],
-                formatters={"@x": "datetime"},  # Formatter for time
-                mode="mouse",
-            )
-            combined_phase.add_tools(hover)
-
-        combined_phase.xaxis.axis_label = "Time"
-        combined_phase.yaxis.axis_label = phase_label
-        # combined_phase.legend.location = "top_left"
-        # combined_phase.legend.label_text_font_size = "8pt"
-        # combined_phase.legend.spacing = 1
-        # combined_phase.legend.click_policy = "hide"  # Allow toggling baselines on/off
-        combined_phase.xaxis.ticker = DatetimeTicker(desired_num_ticks=12)
-
-        # Create a scrollable legend
-        legend = Legend(
-            items=lines,  # Use the collected line renderers
-            location="center",
-            click_policy="hide",  # Allow clicking to hide/show lines
-            title="Baselines",
-        )
-
-        legend.ncols = 10
-
-        # Restrict legend height to make it scrollable
-        combined_phase.add_layout(legend, "below")
-
-        plots.append(combined_mod)
-        plots.append(combined_phase)
-
-        # Combine plots into a column
-        plot_column = column(*plots)
-
-        _persist_bokeh_document(
-            plot_column,
-            filename="visibility-phase-lsts.html",
-            title="Visibility/Phase Plots",
-            save_flag=save_simulation_data,
-            folder_path=folder_path,
-            open_flag=open_in_browser,
-            save_message="Saved visibility plots column to",
-        )
-
-        return plot_column
-
-    else:
-        return None
-    #     # Matplotlib plotting
-    #     num_baselines = len(baselines)
-    #     fig1, ax1 = plt.subplots(num_baselines, 2, figsize=(15, 5 * num_baselines))
-
-    #     for i, key in enumerate(baseline_keys):
-    #         # # If polarization is included, plot both Ex and Ey components
-    #         # if moduli_over_time[key].shape[-1] == 2:
-    #         #     ax1[i, 0].plot(
-    #         #         time_points,
-    #         #         moduli_over_time[key][:, 0, 0],
-    #         #         marker="o",
-    #         #         label=f"Ex Baseline {key}",
-    #         #     )
-    #         #     ax1[i, 0].plot(
-    #         #         time_points,
-    #         #         moduli_over_time[key][:, 0, 1],
-    #         #         marker="o",
-    #         #         label=f"Ey Baseline {key}",
-    #         #     )
-    #         #     ax1[i, 0].set_xlabel("Time (seconds)")
-    #         #     ax1[i, 0].set_ylabel("Modulus of Visibility")
-    #         #     ax1[i, 0].set_title(
-    #         #         f"Modulus of Visibility (Ex, Ey) vs Time for Baseline {key}"
-    #         #     )
-    #         #     ax1[i, 0].legend()
-    #         #     ax1[i, 0].grid(True)
-
-    #         #     ax1[i, 1].plot(
-    #         #         time_points,
-    #         #         phases_over_time[key][:, 0, 0],
-    #         #         marker="o",
-    #         #         label=f"Ex Baseline {key}",
-    #         #     )
-    #         #     ax1[i, 1].plot(
-    #         #         time_points,
-    #         #         phases_over_time[key][:, 0, 1],
-    #         #         marker="o",
-    #         #         label=f"Ey Baseline {key}",
-    #         #     )
-    #         #     ax1[i, 1].set_xlabel("Time (seconds)")
-    #         #     ax1[i, 1].set_ylabel("Phase of Visibility (radians)")
-    #         #     ax1[i, 1].set_title(
-    #         #         f"Phase of Visibility (Ex, Ey) vs Time for Baseline {key}"
-    #         #     )
-    #         #     ax1[i, 1].legend()
-    #         #     ax1[i, 1].grid(True)
-    #         # else:
-    #         # No polarization, single component
-    #         # ax1[i, 0].plot(
-    #         #     time_points,
-    #         #     moduli_over_time[key][:, 0],
-    #         #     marker="o",
-    #         #     label=f"Baseline {key}",
-    #         # )
-    #         # ax1[i, 0].set_xlabel("Time")
-    #         # ax1[i, 0].set_ylabel("Modulus of Visibility")
-    #         # ax1[i, 0].set_title(f"Modulus of Visibility vs Time for Baseline {key}")
-    #         # ax1[i, 0].legend()
-    #         # ax1[i, 0].grid(True)
-
-    #         # ax1[i, 1].plot(
-    #         #     time_points,
-    #         #     np.unwrap(phases_over_time[key][:, 0]),
-    #         #     marker="o",
-    #         #     label=f"Baseline {key}",
-    #         # )
-    #         # ax1[i, 1].set_xlabel("Time")
-    #         # ax1[i, 1].set_ylabel("Phase of Visibility (radians)")
-    #         # ax1[i, 1].set_title(f"Phase of Visibility vs Time for Baseline {key}")
-    #         # ax1[i, 1].legend()
-    #         # ax1[i, 1].grid(True)
-
-    #     plt.tight_layout()
-    #     return fig1
+    if target is not None:
+        save_plot_document(document, target, title="Visibility/Phase Plots")
+    return document
 
 
 def plot_heatmaps(
-    moduli_over_time,
-    phases_over_time,
-    baselines,
-    freqs,
-    total_seconds,
-    mjd_time_points,
-    plotting="bokeh",
-    save_simulation_data=False,
-    folder_path=None,
-    open_in_browser=False,
-):
-    """
-    Create heatmaps for visibility modulus and phase over time and frequency.
+    result: SimulationResult,
+    *,
+    output_path: str | Path | None = None,
+    visibility_phase_unit: Literal["radians", "degrees"] = "radians",
+) -> UIElement:
+    """Render Stokes I modulus and phase over the canonical time/frequency grid."""
+    canonical = _require_result(result)
+    unit = _require_phase_unit(visibility_phase_unit)
+    target = _require_output_path(output_path)
 
-    Parameters:
-    moduli_over_time (dict): Dictionary of visibility moduli over time for each baseline.
-    phases_over_time (dict): Dictionary of visibility phases over time for each baseline.
-    baselines (dict): Dictionary of baselines between antennas.
-    freqs (ndarray): Array of frequencies used in the observations.
-    total_seconds (float): Total duration of the observation in seconds.
-    plotting (str): Plotting library to use ('matplotlib' or 'bokeh').
-    open_in_browser (bool): Open the rendered HTML in the default browser.
+    times = canonical.time_grid.to_mjd()
+    frequencies = canonical.frequencies_hz
+    stokes = _stokes_i(canonical)
+    labels = _baseline_labels(canonical)
+    phase_label = _phase_axis_label(unit)
 
-    Returns:
-    Figure object: The generated heatmap figure(s) based on the specified plotting library.
-    """
+    extent = {
+        "x": [float(times[0])],
+        "y": [float(frequencies[0])],
+        "dw": [float(times[-1] - times[0])],
+        "dh": [float(frequencies[-1] - frequencies[0])],
+    }
 
-    # Convert MJD to human-readable datetime
-    time_points_datetime = Time(mjd_time_points, format="mjd").to_datetime()
-    baseline_keys = _baseline_pairs(baselines)
+    plots: list[Any] = []
+    for index, label in enumerate(labels):
+        moduli_total = np.abs(stokes[:, index, :])
+        phases_total = _phase(stokes[:, index, :], unit)
 
-    if plotting == "bokeh":
-        plots = []
-        for key in baseline_keys:
-            # if moduli_over_time[key].shape[-1] == 2:
-            #     # Combine Ex and Ey components
-            #     moduli_total = np.sqrt(
-            #         moduli_over_time[key][:, :, 0] ** 2
-            #         + moduli_over_time[key][:, :, 1] ** 2
-            #     )
-            #     phases_total = np.sqrt(
-            #         phases_over_time[key][:, :, 0] ** 2
-            #         + phases_over_time[key][:, :, 1] ** 2
-            #     )
-            # else:
-            moduli_total = moduli_over_time[key]
-            phases_total = np.unwrap(phases_over_time[key], axis=0)
-
-            # Create a LinearColorMapper for the heatmap
-            modulus_mapper = LinearColorMapper(
-                palette=Inferno256, low=moduli_total.min(), high=moduli_total.max()
+        for values, title, axis_label in (
+            (
+                moduli_total,
+                f"Modulus of Visibility Heatmap for Baseline {label}",
+                "Modulus of Visibility (Stokes I)",
+            ),
+            (
+                phases_total,
+                f"Phase of Visibility Heatmap for Baseline {label}",
+                phase_label,
+            ),
+        ):
+            mapper = LinearColorMapper(
+                palette=Inferno256,
+                low=float(values.min()),
+                high=float(values.max()),
             )
-            phase_mapper = LinearColorMapper(
-                palette=Inferno256, low=phases_total.min(), high=phases_total.max()
+            source = ColumnDataSource({"image": [values.T], **extent})
+            panel = figure(width=800, height=300, title=title)
+            panel.image(
+                image="image",
+                x="x",
+                y="y",
+                dw="dw",
+                dh="dh",
+                color_mapper=mapper,
+                source=source,
             )
-            # Ensure data is in the correct format (list of 2D arrays)
-            moduli_image = [
-                moduli_total.T
-            ]  # Transpose to match Bokeh's image orientation
-            phases_image = [phases_total.T]
-
-            # Modulus heatmap
-            p_mod = figure(
-                width=800,
-                height=300,
-                title=f"Modulus of Visibility Heatmap for Baseline {key}",
-                x_axis_type="datetime",
+            panel.xaxis.axis_label = TIME_AXIS_LABEL
+            panel.yaxis.axis_label = FREQUENCY_AXIS_LABEL
+            color_bar = ColorBar(
+                color_mapper=mapper,
+                location=(0, 0),
+                title=axis_label,
             )
-            p_mod.image(
-                image=moduli_image,
-                x=time_points_datetime[0],  # Start of the datetime range
-                y=freqs[0] / 1e6,  # Start of frequency in MHz
-                dw=(time_points_datetime[-1] - time_points_datetime[0]).total_seconds()
-                * 1e3,  # Time duration in ms
-                dh=(freqs[-1] - freqs[0]) / 1e6,  # Frequency range in MHz
-                color_mapper=modulus_mapper,
+            panel.add_layout(color_bar, "right")
+            plots.append(panel)
+
+    document = column(*plots, sizing_mode="stretch_both")
+    if target is not None:
+        save_plot_document(document, target, title="Visibility Heatmaps")
+    return document
+
+
+def plot_modulus_vs_frequency(
+    result: SimulationResult,
+    *,
+    output_path: str | Path | None = None,
+    visibility_phase_unit: Literal["radians", "degrees"] = "radians",
+) -> UIElement:
+    """Plot Stokes I against the canonical channel centers at peak modulus."""
+    canonical = _require_result(result)
+    unit = _require_phase_unit(visibility_phase_unit)
+    target = _require_output_path(output_path)
+
+    times = canonical.time_grid.to_mjd()
+    frequencies = canonical.frequencies_hz
+    stokes = _stokes_i(canonical)
+    labels = _baseline_labels(canonical)
+    phase_label = _phase_axis_label(unit)
+
+    moduli = np.abs(stokes)
+    peak_indices = tuple(
+        int(np.argmax(moduli[:, index, :].max(axis=1))) for index in range(len(labels))
+    )
+
+    plots: list[Any] = []
+    for index, label in enumerate(labels):
+        peak = peak_indices[index]
+        peak_mjd = float(times[peak])
+
+        p_mod = figure(
+            width=800,
+            height=300,
+            title=(
+                f"Modulus of Visibility vs Frequency for Baseline {label} "
+                f"at MJD {peak_mjd:.8f}"
+            ),
+        )
+        p_mod.line(
+            frequencies,
+            moduli[peak, index, :],
+            line_width=2,
+            legend_label=f"Baseline {label}",
+        )
+        p_mod.xaxis.axis_label = FREQUENCY_AXIS_LABEL
+        p_mod.yaxis.axis_label = "Modulus of Visibility (Stokes I)"
+        p_mod.legend.location = "top_left"
+
+        p_phase = figure(
+            width=800,
+            height=300,
+            title=(
+                f"Phase of Visibility vs Frequency for Baseline {label} "
+                f"at MJD {peak_mjd:.8f}"
+            ),
+        )
+        p_phase.line(
+            frequencies,
+            _phase(stokes[peak, index, :], unit),
+            line_width=2,
+            legend_label=f"Baseline {label}",
+        )
+        p_phase.xaxis.axis_label = FREQUENCY_AXIS_LABEL
+        p_phase.yaxis.axis_label = phase_label
+        p_phase.legend.location = "top_left"
+
+        plots.append(p_mod)
+        plots.append(p_phase)
+
+    combined_mod = figure(
+        width=1400,
+        height=1400,
+        title="Modulus of Visibility vs Frequency for All Baselines at Peak Modulus",
+    )
+    combined_phase = figure(
+        width=1400,
+        height=1400,
+        title="Phase of Visibility vs Frequency for All Baselines at Peak Modulus",
+    )
+    modulus_items: list[tuple[str, list[Any]]] = []
+    phase_items: list[tuple[str, list[Any]]] = []
+    for index, label in enumerate(labels):
+        peak = peak_indices[index]
+        color = _baseline_color(index, len(labels))
+        modulus_line = combined_mod.line(
+            frequencies,
+            moduli[peak, index, :],
+            line_width=2,
+            color=color,
+            name=str(label),
+        )
+        modulus_items.append((f"Baseline {label}", [modulus_line]))
+        combined_mod.add_tools(
+            HoverTool(
+                renderers=[modulus_line],
+                tooltips=[
+                    ("Frequency (Hz)", "@x"),
+                    ("Value", "@y"),
+                    ("Baseline", str(label)),
+                ],
+                mode="mouse",
             )
-            p_mod.xaxis.axis_label = "Time"
-            p_mod.yaxis.axis_label = "Frequency (MHz)"
-            p_mod.xaxis.ticker = DatetimeTicker(desired_num_ticks=12)  # Add finer ticks
-
-            # Add color bar for modulus heatmap
-            color_bar_mod = ColorBar(color_mapper=modulus_mapper, location=(0, 0))
-            p_mod.add_layout(color_bar_mod, "right")
-
-            # Phase heatmap
-            p_phase = figure(
-                width=800,
-                height=300,
-                title=f"Phase of Visibility Heatmap for Baseline {key}",
-                x_axis_type="datetime",
+        )
+        phase_line = combined_phase.line(
+            frequencies,
+            _phase(stokes[peak, index, :], unit),
+            line_width=2,
+            color=color,
+            name=str(label),
+        )
+        phase_items.append((f"Baseline {label}", [phase_line]))
+        combined_phase.add_tools(
+            HoverTool(
+                renderers=[phase_line],
+                tooltips=[
+                    ("Frequency (Hz)", "@x"),
+                    ("Value", "@y"),
+                    ("Baseline", str(label)),
+                ],
+                mode="mouse",
             )
-            p_phase.image(
-                image=phases_image,
-                x=time_points_datetime[0],  # Start of the datetime range
-                y=freqs[0] / 1e6,  # Start of frequency in MHz
-                dw=(time_points_datetime[-1] - time_points_datetime[0]).total_seconds()
-                * 1e3,  # Time duration in ms
-                dh=(freqs[-1] - freqs[0]) / 1e6,  # Frequency range in MHz
-                color_mapper=phase_mapper,
-            )
-            p_phase.xaxis.axis_label = "Time"
-            p_phase.yaxis.axis_label = "Frequency (MHz)"
-            p_phase.xaxis.ticker = DatetimeTicker(
-                desired_num_ticks=12
-            )  # Add finer ticks
-
-            # Add color bar for phase heatmap
-            color_bar_phase = ColorBar(color_mapper=phase_mapper, location=(0, 0))
-            p_phase.add_layout(color_bar_phase, "right")
-
-            plots.append(p_mod)
-            plots.append(p_phase)
-
-        # Combine plots into a column
-        plot_column = column(*plots, sizing_mode="stretch_both")
-
-        _persist_bokeh_document(
-            plot_column,
-            filename="heatmaps-freq-time.html",
-            title="Visibility Heatmaps",
-            save_flag=save_simulation_data,
-            folder_path=folder_path,
-            open_flag=open_in_browser,
-            save_message="Saved heatmaps column to",
         )
 
-        return plot_column
+    combined_mod.xaxis.axis_label = FREQUENCY_AXIS_LABEL
+    combined_mod.yaxis.axis_label = "Modulus of Visibility (Stokes I)"
+    combined_phase.xaxis.axis_label = FREQUENCY_AXIS_LABEL
+    combined_phase.yaxis.axis_label = phase_label
+    for target_figure, items in (
+        (combined_mod, modulus_items),
+        (combined_phase, phase_items),
+    ):
+        legend = Legend(
+            items=items,
+            location="center",
+            click_policy="hide",
+            title="Baselines",
+        )
+        legend.ncols = 10
+        target_figure.add_layout(legend, "below")
 
-    else:
-        return None
-        # # Matplotlib plotting
-        # num_baselines = len(baselines)
-        # fig2, ax2 = plt.subplots(num_baselines, 2, figsize=(15, 5 * num_baselines))
+    plots.append(combined_mod)
+    plots.append(combined_phase)
+    document = column(*plots, sizing_mode="stretch_both")
 
-        # for i, key in enumerate(baseline_keys):
-        #     # if moduli_over_time[key].shape[-1] == 2:
-        #     #     # Combine Ex and Ey components
-        #     #     moduli_total = np.sqrt(
-        #     #         moduli_over_time[key][:, :, 0] ** 2
-        #     #         + moduli_over_time[key][:, :, 1] ** 2
-        #     #     )
-        #     #     phases_total = np.sqrt(
-        #     #         phases_over_time[key][:, :, 0] ** 2
-        #     #         + phases_over_time[key][:, :, 1] ** 2
-        #     #     )
-        #     # else:
-        #     moduli_total = moduli_over_time[key]
-        #     phases_total = phases_over_time[key]
-
-        #     # Modulus heatmap
-        #     im0 = ax2[i, 0].imshow(
-        #         moduli_total,
-        #         aspect="auto",
-        #         origin="lower",
-        #         extent=[freqs[0] / 1e6, freqs[-1] / 1e6, 0, total_seconds],
-        #         cmap="twilight",  # Updated color scheme to 'twilight'
-        #     )
-        #     ax2[i, 0].set_xlabel("Frequency (MHz)")
-        #     ax2[i, 0].set_ylabel("Time (seconds)")
-        #     ax2[i, 0].set_title(f"Modulus of Visibility for Baseline {key}")
-        #     fig2.colorbar(im0, ax=ax2[i, 0])
-
-        #     # Phase heatmap
-        #     im1 = ax2[i, 1].imshow(
-        #         np.unwrap(phases_total),
-        #         aspect="auto",
-        #         origin="lower",
-        #         extent=[freqs[0] / 1e6, freqs[-1] / 1e6, 0, total_seconds],
-        #         cmap="twilight",  # Updated color scheme to 'twilight'
-        #     )
-        #     ax2[i, 1].set_xlabel("Frequency (MHz)")
-        #     ax2[i, 1].set_ylabel("Time (seconds)")
-        #     ax2[i, 1].set_title(f"Phase of Visibility for Baseline {key}")
-        #     fig2.colorbar(im1, ax=ax2[i, 1])
-
-        # plt.tight_layout()
-        # return fig2
-
-
-def _persist_bokeh_document(
-    doc,
-    filename,
-    title,
-    save_flag,
-    folder_path,
-    open_flag,
-    save_message=None,
-):
-    """
-    Save a Bokeh document when persistence or browser viewing is requested.
-    Returns the path if a file was written, else None.
-    """
-    needs_file = (save_flag and folder_path) or open_flag
-    target_path = None
-
-    if needs_file:
-        if save_flag and folder_path:
-            target_dir = folder_path
-        else:
-            target_dir = tempfile.mkdtemp(prefix="radiosim_")
-        target_path = os.path.join(target_dir, filename)
-
-        save(doc, filename=target_path, resources=CDN, title=title)
-
-        if save_flag and folder_path:
-            message = save_message or f"Saved {title} to"
-            logger.debug(f"{message} {target_path}")
-
-        if open_flag:
-            webbrowser.open(Path(target_path).resolve().as_uri())
-
-    return target_path
+    if target is not None:
+        save_plot_document(
+            document,
+            target,
+            title="Visibility Modulus/Phase vs Frequency",
+        )
+    return document
 
 
 def plot_antenna_layout(
@@ -690,7 +596,7 @@ def plot_antenna_layout(
 
     _persist_bokeh_document(
         p,
-        filename="antenna_layout.html",
+        filename=ANTENNA_LAYOUT_FILENAME,
         title="Antenna Layout (2D)",
         save_flag=save_simulation_data,
         folder_path=folder_path,
@@ -712,7 +618,7 @@ def plot_antenna_layout_3d_plotly(
 
     Parameters:
     - antennas: canonical resolved antenna tuple.
-    - save_simulation_data (bool): if True and folder_path provided, saves HTML there; else uses a temp dir.
+    - save_simulation_data (bool): if True and folder_path provided, saves HTML there.
     - folder_path (str or None): directory to save HTML when saving.
     - open_in_browser (bool): open the HTML in a browser.
 
@@ -727,6 +633,11 @@ def plot_antenna_layout_3d_plotly(
             f"Plotly not available for 3D antenna layout ({exc}); skipping 3D plot."
         )
         return None
+
+    if not (save_simulation_data and folder_path):
+        raise ResultPlotContractError(
+            "the 3D antenna layout requires an explicit output folder"
+        )
 
     e, n, u, hover = [], [], [], []
     for ant in antennas:
@@ -874,10 +785,10 @@ def plot_antenna_layout_3d_plotly(
             )
         )
     except Exception:
-        # If any of these fail (e.g., textposition in some plotly versions), continue without axis adornments
+        # If any of these fail, continue without axis adornments
         pass
 
-    # Add antenna diameter disks (EN plane at each U). Use filled Mesh3d for up to 150 ants; else draw perimeters.
+    # Add antenna diameter disks (EN plane at each U).
     try:
         diameters = [float(ant.diameter_m) for ant in antennas]
         # Use fewer segments for performance, and batch all circles in one trace
@@ -933,17 +844,15 @@ def plot_antenna_layout_3d_plotly(
             text=labels,
             textposition="top center",
             textfont={"size": 8, "color": "#222"},
-            hovertemplate="Ant %{text}<br>E=%{x:.2f} m<br>N=%{y:.2f} m<br>U=%{z:.2f} m<extra></extra>",
+            hovertemplate=(
+                "Ant %{text}<br>E=%{x:.2f} m<br>N=%{y:.2f} m<br>U=%{z:.2f} m"
+                "<extra></extra>"
+            ),
             showlegend=False,
         )
     )
 
-    # Decide output path
-    if save_simulation_data and folder_path:
-        out_dir = folder_path
-    else:
-        out_dir = tempfile.mkdtemp(prefix="radiosim_")
-    html_path = os.path.join(out_dir, "antenna_layout_3d.html")
+    html_path = os.path.join(str(folder_path), "antenna_layout_3d.html")
 
     try:
         # Build centered HTML wrapper with fixed figure size
@@ -974,220 +883,3 @@ def plot_antenna_layout_3d_plotly(
     except Exception as exc:
         logger.warning(f"Failed to save 3D Plotly layout ({exc})")
         return None
-
-
-def plot_modulus_vs_frequency(
-    moduli_over_time,
-    phases_over_time,
-    baselines,
-    freqs,
-    mjd_time_points,
-    plotting="bokeh",
-    save_simulation_data=False,
-    folder_path=None,
-    open_in_browser=False,
-):
-    """
-    Create plots of the modulus of visibility versus frequency at a specific time point.
-
-    Parameters:
-    moduli_over_time (dict): Dictionary of visibility moduli over time for each baseline.
-    phases_over_time (dict): Dictionary of visibility phases over time for each baseline.
-    baselines (dict): Dictionary of baselines between antennas.
-    freqs (ndarray): Array of frequencies used in the observations.
-    time_index (int): Index of the time point at which to plot the modulus.
-    plotting (str): Plotting library to use ('matplotlib' or 'bokeh').
-    open_in_browser (bool): Open the rendered HTML in the default browser.
-
-    Returns:
-    Figure object: The generated plot figure(s) based on the specified plotting library.
-    """
-    baseline_keys = _baseline_pairs(baselines)
-    colors = Turbo256
-
-    # Convert MJD to human-readable datetime
-    time_points_datetime = Time(mjd_time_points, format="mjd").to_datetime()
-
-    # Find the time index of maximum modulus for each baseline
-    max_time_indices = {
-        key: np.argmax(moduli_over_time[key].max(axis=1)) for key in baseline_keys
-    }
-
-    if plotting == "bokeh":
-        plots = []
-        for key in baseline_keys:
-            max_time_index = max_time_indices[key]
-            max_time_utc = time_points_datetime[max_time_index]
-            # Modulus
-            # if moduli_over_time[key].shape[-1] == 2:
-            #     # Combine Ex and Ey components at the specified time index
-            #     moduli_total = np.sqrt(
-            #         moduli_over_time[key][time_index, :, 0] ** 2
-            #         + moduli_over_time[key][time_index, :, 1] ** 2
-            #     )
-            # else:
-            moduli_total = moduli_over_time[key][max_time_index, :]
-
-            p_mod = figure(
-                width=800,
-                height=300,
-                title=f"Modulus of Visibility vs Frequency for Baseline {key} at {max_time_utc}",
-            )
-            p_mod.line(
-                freqs / 1e6, moduli_total, line_width=2, legend_label=f"Baseline {key}"
-            )
-            p_mod.xaxis.axis_label = "Frequency (MHz)"
-            p_mod.yaxis.axis_label = "Modulus of Visibility"
-            p_mod.legend.location = "top_left"
-
-            # Phase
-            phases_total = np.unwrap(phases_over_time[key][max_time_index, :])
-            p_phase = figure(
-                width=800,
-                height=300,
-                title=f"Phase of Visibility vs Frequency for Baseline {key} at {max_time_utc}",
-            )
-            p_phase.line(
-                freqs / 1e6, phases_total, line_width=2, legend_label=f"Baseline {key}"
-            )
-            p_phase.xaxis.axis_label = "Frequency (MHz)"
-            p_phase.yaxis.axis_label = "Phase of Visibility (radians)"
-            p_phase.legend.location = "top_left"
-
-            plots.append(p_mod)
-            plots.append(p_phase)
-
-        # Find the global maximum modulus time index across all baselines
-        global_max_time_index = max(max_time_indices.values())
-        global_max_time_utc = time_points_datetime[global_max_time_index]
-
-        # Combined Modulus vs Frequency
-        combined_mod = figure(
-            width=1400,
-            height=1400,
-            title=f"Modulus of Visibility vs Frequency for All Baselines at {global_max_time_utc}",
-        )
-
-        lines = []
-        for idx, key in enumerate(baseline_keys):
-            max_time_index = max_time_indices[key]
-            color = colors[int((idx / len(baseline_keys)) * 255)]
-            line = combined_mod.line(
-                freqs / 1e6,
-                moduli_over_time[key][max_time_index, :],
-                line_width=2,
-                color=color,
-                name=str(key),
-            )
-            lines.append((f"Baseline {key}", [line]))
-
-            hover = HoverTool(
-                renderers=[line],
-                tooltips=[
-                    ("Frequency", "@x MHz"),
-                    ("Value", "@y"),
-                    ("Baseline", str(key)),
-                ],
-                mode="mouse",
-            )
-            combined_mod.add_tools(hover)
-
-        combined_mod.xaxis.axis_label = "Frequency (MHz)"
-        combined_mod.yaxis.axis_label = "Modulus of Visibility"
-
-        legend = Legend(
-            items=lines,
-            location="center",
-            click_policy="hide",
-            title="Baselines",
-        )
-        legend.ncols = 10
-        combined_mod.add_layout(legend, "below")
-
-        # Combined Phase vs Frequency
-        combined_phase = figure(
-            width=1400,
-            height=1400,
-            title=f"Phase of Visibility vs Frequency for All Baselines at {global_max_time_utc}",
-        )
-
-        lines = []
-        for idx, key in enumerate(baseline_keys):
-            max_time_index = max_time_indices[key]
-            color = colors[int((idx / len(baseline_keys)) * 255)]
-            line = combined_phase.line(
-                freqs / 1e6,
-                np.unwrap(phases_over_time[key][max_time_index, :]),
-                line_width=2,
-                color=color,
-                name=str(key),
-            )
-            lines.append((f"Baseline {key}", [line]))
-
-            hover = HoverTool(
-                renderers=[line],
-                tooltips=[
-                    ("Frequency", "@x MHz"),
-                    ("Value", "@y radians"),
-                    ("Baseline", str(key)),
-                ],
-                mode="mouse",
-            )
-            combined_phase.add_tools(hover)
-
-        combined_phase.xaxis.axis_label = "Frequency (MHz)"
-        combined_phase.yaxis.axis_label = "Phase of Visibility (radians)"
-
-        legend = Legend(
-            items=lines,
-            location="center",
-            click_policy="hide",
-            title="Baselines",
-        )
-        legend.ncols = 10
-        combined_phase.add_layout(legend, "below")
-
-        plots.append(combined_mod)
-        plots.append(combined_phase)
-
-        plot_column = column(*plots, sizing_mode="stretch_both")
-
-        _persist_bokeh_document(
-            plot_column,
-            filename="modulus-phase-freq.html",
-            title="Visibility Modulus/Phase vs Frequency",
-            save_flag=save_simulation_data,
-            folder_path=folder_path,
-            open_flag=open_in_browser,
-            save_message="Saved Modulus vs Frequency column to",
-        )
-
-        return plot_column
-
-    else:
-        return None
-        # # Matplotlib plotting
-        # num_baselines = len(baselines)
-        # fig3, ax3 = plt.subplots(num_baselines, 1, figsize=(15, 5 * num_baselines))
-
-        # for i, key in enumerate(baseline_keys):
-        #     # if moduli_over_time[key].shape[-1] == 2:
-        #     #     # Combine Ex and Ey components at the specified time index
-        #     #     moduli_total = np.sqrt(
-        #     #         moduli_over_time[key][time_index, :, 0] ** 2
-        #     #         + moduli_over_time[key][time_index, :, 1] ** 2
-        #     #     )
-        #     # else:
-        #     moduli_total = moduli_over_time[key][time_index, :]
-
-        #     ax3[i].plot(freqs / 1e6, moduli_total, marker="o", label=f"Baseline {key}")
-        #     ax3[i].set_xlabel("Frequency (MHz)")
-        #     ax3[i].set_ylabel("Modulus of Visibility")
-        #     ax3[i].set_title(
-        #         f"Modulus of Visibility vs Frequency for Baseline {key} at Time {time_index} seconds"
-        #     )
-        #     ax3[i].legend()
-        #     ax3[i].grid(True)
-
-        # plt.tight_layout()
-        # return fig3

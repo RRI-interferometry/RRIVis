@@ -167,7 +167,7 @@ def test_run_publishes_one_immutable_canonical_result(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("operation", ["save", "plot"])
 @pytest.mark.parametrize("run_first", [False, True])
-def test_save_requires_a_result_while_plot_remains_unavailable(
+def test_save_and_plot_both_require_one_published_result(
     tmp_path: Path,
     operation: str,
     run_first: bool,
@@ -175,15 +175,26 @@ def test_save_requires_a_result_while_plot_remains_unavailable(
     simulator = _canonical_simulator(tmp_path)
     if run_first:
         simulator.run(progress=False)
-    output = tmp_path / f"{operation}.h5"
+    output = tmp_path / operation
 
-    if operation == "save" and run_first:
-        assert simulator.save(output, format=ResultFormat.HDF5) == output
-        assert output.is_file()
+    if run_first:
+        if operation == "save":
+            target = output.with_suffix(".h5")
+            assert simulator.save(target, format=ResultFormat.HDF5) == target
+            assert target.is_file()
+            return
+        published = simulator.plot(
+            plot_type="visibility",
+            output_dir=output,
+            show=False,
+        )
+        assert [path.name for path in published] == ["visibility-phase-lsts.html"]
+        assert published[0].is_file()
         return
+
     with pytest.raises(ResultUnavailableError):
         if operation == "save":
-            simulator.save(output, format=ResultFormat.HDF5)
+            simulator.save(output.with_suffix(".h5"), format=ResultFormat.HDF5)
         else:
             simulator.plot(output_dir=output, show=False)
 
