@@ -4,8 +4,8 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted; 5A independently accepted (`568855f`, Tier 5A acceptance); 5B implemented (`40d17fb`, `3925a33`) and independently accepted after two bounded plan corrections (§30.2, §30.5, §35 Tier 5B); 5C authorized. |
-| Date | 2026-07-29 |
+| Status | Design accepted; 5A independently accepted (`568855f`, Tier 5A acceptance); 5B implemented (`40d17fb`, `3925a33`) and independently accepted after two bounded plan corrections (§30.2, §30.5, §35 Tier 5B); 5C implemented (`deedf8d`, `2bae364`, `0524e56`) and independently accepted after two bounded plan corrections (§34.3 tests-first S3 wording, §34.3 pin-ownership text for the 5A D4 pin); 5D authorized. |
+| Date | 2026-07-30 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
 | Baseline | `1472c3c` (`docs(output): accept Tier 4 integration`) |
@@ -1805,9 +1805,34 @@ failure leaves no loaded beam and no output path.
 and `BasisTransformJones` as real unitary physics. Not yet wired into the
 solver.
 
-**Tests-first evidence.** S2, S3, S4, S6, S7, S8, S9 fail at the start of the
+**Tests-first evidence.** S2, S4, S6, S7, S8, S9 fail at the start of the
 slice: the `V`-sign tests fail against the current construction, and every
-receptor-matrix test fails against the identity stubs.
+receptor-matrix test fails against the identity stubs. **Correction (5C
+acceptance).** S3 (the coherency round trip) does not fail at the start: it is
+convention-agnostic. The baseline's `stokes_to_coherency` and
+`coherency_to_stokes` were already a self-consistent pair under the mirrored
+sign (V derived from `C[1,0]` inverts `C[0,1] = (U − iV)/2` exactly), so the
+round trip held before the correction and continues to hold after it. The
+sign itself is pinned by S2, S4, and the dedicated
+"derives V from the upper-right element" assertions, not by S3. This does not
+change any implementation requirement; it corrects the tests-first claim.
+
+**Correction (5C acceptance) — pin ownership.** The 5A pin
+`test_four_correlation_constant_sites_are_independent_literal_copies` carried
+two clauses beyond the four-independent-literal-copies contract it names:
+that `core/polarization_basis.py` does not exist, and that no circular label
+(`"RR"`, `"LL"`, `"rr"`, `"ll"`) appears anywhere under `src/`. Both clauses
+are collateral to defect D4, not part of it, and Tier 5C's own mandated
+deliverable (this section and §35: add `core/polarization_basis.py`, whose
+tables necessarily name `"RR"`/`"LL"`) falsifies both by construction. 5C
+correctly narrowed the test to (a) assert the file now exists, and (b) assert
+none of the four duplicated sites (`core/result.py`, `io/hdf5.py`,
+`io/standard_visibility.py`, `io/measurement_set.py`) has imported the new
+module or gained a circular label — which is the property D4 actually
+protects. Future slices citing this pin should read it as owned by Tier 5E
+and Tier 5F for the four-independent-copies contract, with the file-existence
+and circular-label-scan clauses narrowed by Tier 5C as described here, not as
+a blanket absence guarantee over all of `src/`.
 
 **Production changes.** Add `src/radiosim/core/polarization_basis.py`; correct
 `stokes_to_coherency` and `coherency_to_stokes` in
