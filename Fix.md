@@ -4591,3 +4591,291 @@ independently accepted; Tier 5B is authorized and remains limited to the
 writable-file list in `Tier5ReceptorFeedPlan.md` §35 Tier 5B. Tier 5C through
 5I remain unauthorized until each predecessor slice is implemented and
 independently accepted. No PR, tag, release, or deployment was created.
+
+### 2026-07-29 Tier 5B independent acceptance
+
+**Tier 5B is independently accepted; Tier 5C is authorized.** The review range
+was `46e8a82..3925a33`, exactly two commits: `40d17fb`
+(`feat(config): add the typed receptor configuration and resolution`) and
+`3925a33` (`feat(simulator): resolve receptors between instrument and beam
+resolution`).
+
+**Scope.** `git diff 46e8a82..3925a33 --stat` touches exactly sixteen files.
+Fourteen are the Tier5ReceptorFeedPlan.md §35 Tier 5B grant plus one
+undeclared but harmless addition, `tests/unit/test_simulator/test_api.py`
+(already granted). Four touched files were not in the original §35 Tier 5B
+list and were adjudicated individually: `src/radiosim/core/runtime_config.py`
+(a plan omission — `ResolvedSimulationConfig` cannot carry `ReceptorsConfig`
+from `io/config_resolution.py` to `Simulator.setup()` without a field for it;
+the change is a single additive dataclass field with a
+module-load-order-safe default factory, ratified);
+`tests/characterization/test_tier5_current_behavior.py` (two hunks: the
+`OWNED BY: Tier 5B` absence pin correctly flipped from
+`test_no_receptor_configuration_surface_exists_yet` to
+`test_receptor_configuration_surface_exists`, and one unmarked pin in
+`test_resolve_instrument_has_exactly_one_caller_inside_the_simulator`
+repaired from `assert "_ensure_receptor" not in simulator_source` to
+`assert instrument_position < receptor_position < beam_position` — read in
+full via `git show 46e8a82:tests/characterization/test_tier5_current_behavior.py`,
+this test's own docstring states it "Records the Q2 answer: the receptor
+resolution host is `Simulator`" and anticipates exactly this ordering; its
+sibling absence-pin test in the same file carried the `OWNED BY: Tier 5B`
+marker and this one did not, which is the authoring inconsistency the 5A
+acceptance's blanket "every marker matched its slice" claim missed — ratified
+as a genuine 5A authoring defect, correctly repaired without weakening the
+Q2 caller-uniqueness assertion, which is untouched); and
+`tests/unit/test_io/test_instrument_config.py` /
+`tests/unit/test_simulator/test_instrument_integration.py` (each pins the
+literal top-level section-name tuple by direct list equality and must learn
+the tenth section — a one-line mechanical addition each, ratified). Both
+commits were independently re-verified green in isolation: `40d17fb` checked
+out in a detached worktree (no branch created) ran its own touched-file set
+plus the full non-slow suite at **3466 passed, 6 skipped** on py311 before
+`3925a33`'s five additional `test_api.py` tests existed; `3925a33` is the
+current `main` tip.
+
+**Gates.** Full non-slow suite on py311: **3471 passed, 6 skipped, 26
+warnings**, reproducing the claimed arithmetic exactly —
+3388 (5A baseline) + 31 (`test_receptor_config.py`, collected independently)
++ 44 (`test_receptor_resolution.py`) + 3 (`test_config_resolution.py`
+receptor cases, isolated with `-k receptor`) + 5 (`test_api.py` receptor
+cases) = 3471. The touched-file set re-ran clean on py312
+(`.pixi/envs/py312`, Python 3.12.13): **497 passed**. `pixi run lint`
+reported all checks passed; `pixi run format --check` reported 315 files
+already formatted. All three shipped YAMLs
+(`configs/config.yaml`, `configs/realistic_foreground_example.yaml`,
+`antenna_layout_examples/example_telescope_config.yaml`) validated
+successfully via `radiosim validate`. A fresh interpreter importing
+`radiosim`, `radiosim.core`, and `radiosim.io` left `healpy`, `pyuvdata`,
+`h5py`, `casacore`, `bokeh`, and `matplotlib` all absent from `sys.modules`.
+`git status` was clean before and after review; neither commit carries a
+co-author line.
+
+**Schema fidelity (§16/§27).** `src/radiosim/io/receptor_config.py` was read
+in full: `ReceptorDefinitionConfig`, `ReceptorOverrideConfig`, and
+`ReceptorsConfig` match Section 16's models field-for-field, including the
+two `model_validator` rules (override content, duplicate-reference
+rejection) and the reused Tier 2 `AntennaReference` union. All seven §16.1
+YAML modes were re-run via `test_every_documented_receptor_mode_validates`
+and independently re-executed by hand in this review with
+`RadioSimConfig.model_validate`; all seven validate, and the omitted-section
+case is byte-for-byte the explicit-default case
+(`test_omitted_section_is_exactly_the_explicit_default`). Six §27 messages
+were spot-checked verbatim against `io/config.py`'s
+`_REMOVED_FIELD_GUIDANCE`/`_receptor_literal_guidance` and against a live
+`collect_schema_issues()` call in this review (the repaired `feeds` hint —
+confirmed it no longer names the rejected `beams.feed_model` and instead
+names `'receptors'` with `'default.basis'`, `'default.feed_rotation_deg'`,
+and `'output_basis'`; `receptors.default.feed_type`; `receptors.default.basis`;
+`receptors.default.n_feeds`; `receptors.default.feed_angle_deg`;
+`receptors.output_basis`), plus the four `resolve_receptors()` runtime
+messages, all reproduced exactly via `pytest.raises` in this review's own
+session, independent of the implementer's tests. `ConfigIssue.message` and
+`.hint` were confirmed to be bare strings with `path` as a separate field —
+the §27 "field: message" rendering is documentation style, not a literal
+format contract, and every test asserts the three fields separately, not a
+concatenated string. Strictness confirmed: `extra="forbid"` and
+`frozen=True` on all three models; a content-free override
+(`{"antenna": ...}` with neither `basis` nor `feed_rotation_deg`) is
+rejected; a duplicate identical reference (same antenna named twice, by
+number, by name, and by mismatched normalized name whitespace) is rejected.
+
+**Resolution correctness (§17.3).** `src/radiosim/core/receptor.py` was read
+in full. Precedence (default, then declared-order overrides, each replacing
+only its declared fields) is correct and independently re-verified by hand
+against `test_partial_override_replaces_only_the_declared_fields` and
+`test_provenance_records_the_ordered_override_applications`. Identifier
+normalization is consistent with Tier 2 (`by_number`/`by_name` keyed off the
+already-resolved `AntennaId`, reusing the canonical antenna, not a re-parsed
+reference). Rotation normalization was independently re-derived with
+`math.remainder`: `180.0 -> 180.0`, `-180.0 -> -180.0 -> (special-cased) ->
+180.0`, `540.0 -> -180.0 -> 180.0`, `-450.0 -> -90.0`, confirming the
+half-open interval `(-180, 180]` in degrees and `(-pi, pi]` in radians is
+exact, not approximate, at the documented boundary. §12.2 feed angles were
+recomputed by hand: linear nominal `(pi/2, 0)`, circular nominal `(0, 0)`,
+both offset by the same `chi` — matches `_feed_angles()` exactly.
+`receptor_sha256` is self-checking in `ResolvedReceptorSet.__post_init__`
+(tamper test reproduced independently: replacing the stored hash with 64
+zero characters raises `ValueError` naming `receptor_sha256`) and stable
+under override reordering that produces the same resolved set
+(`test_receptor_sha256_is_stable_under_override_reordering`, independently
+re-run) while still changing whenever any resolved value changes (four
+parametrized cases, independently re-run). `ResolvedReceptor`,
+`ReceptorOverrideApplication`, `ReceptorProvenance`, and `ResolvedReceptorSet`
+are all `@dataclass(frozen=True, slots=True)`; direct mutation attempts raise
+`FrozenInstanceError` and the antenna mapping is a `MappingProxyType`,
+independently reproduced.
+
+One adversarial probe not in the implementer's suite was constructed and run
+in this review's own scratchpad: an instrument with a non-`fixed` mount type
+on one antenna, combined with a `receptors.overrides` entry naming an absent
+antenna number. Section 17.3 lists override validation as steps 2-3 and the
+Section 11.2 geometry rejection as step 6, which would predict
+`ReceptorAssignmentError` first; `resolve_receptors()` actually raises
+`UnsupportedFeedGeometryError` first, because the mount-type loop runs before
+override staging in the source. This is a real deviation from the letter of
+the §17.3 step ordering. It was ruled **not material**: both errors are
+terminal, pure, side-effect-free rejections raised before any beam load or
+output path (confirmed independently, see the ordering gate below); no
+default/override precedence value is affected, only which of two
+simultaneous rejection reasons a user sees first in a rare double-fault
+configuration; and correcting it would require touching `resolve_receptors()`
+beyond what any failing test currently requires. Recorded here as an
+observation for 5C/5D reviewers, not as a defect.
+
+**Lifecycle wiring (§25.2).** `_ensure_receptor_set()` is idempotent
+(`self._receptor_set is not None: return`, independently confirmed by
+`test_receptor_resolution_is_idempotent_and_retained`: the same object
+identity survives a repeated call and a subsequent `setup()`) and is called
+from both `Simulator.setup()` (between `_ensure_instrument_state()` and
+`_ensure_beam_system()`) and `Simulator.plan_observability()` (which reaches
+the resolved instrument independently of `setup()`). Failure-before-side-effect
+was independently re-verified by reading
+`test_receptor_failure_precedes_beam_load_and_leaves_no_runtime_state` in
+full: it monkeypatches `radiosim.core.beam.load_beam_system`,
+`resolve_beam_assignments`, `radiosim.backends.get_backend`,
+`radiosim.utils.device.get_device_resources`, and
+`radiosim.utils.network.get_network_status` to fail the test if called at
+all, then confirms a bad receptor override raises `ReceptorAssignmentError`
+with `simulator._receptor_set`, `_beam_system`, and `_backend` all still
+`None`, `_is_setup` still `False`, and no `output` directory created — this
+review re-ran it in isolation and confirms it exercises the real code path,
+not a mock of `resolve_receptors` itself. `Simulator.receptors` was confirmed
+read-only in this review by direct inspection
+(`Simulator.receptors.fset is None`); it raises
+`RuntimeError("Receptor resolution has not completed")` before resolution,
+independently reproduced.
+
+**Inertness invariant.** Proved empirically, not merely by reading the diff.
+A two-antenna, three-frequency point-source simulation was run three times
+through the public `Simulator` API from an independent scratchpad script:
+once at `46e8a82` in a detached worktree (isolated via `PYTHONPATH`
+override, since the shared pixi environment's editable install otherwise
+resolves `radiosim` back to the `main` worktree regardless of the invoking
+directory — confirmed and corrected before trusting any isolated-worktree
+result in this review), once at `3925a33` with the default (omitted)
+`receptors:` section, and once at `3925a33` with an explicit
+`receptors: {default: {basis: circular}, output_basis: circular}` section.
+All three runs produced `result.visibilities` arrays that are
+`np.array_equal`-identical bit for bit, all three produced identical
+`instrument.provenance.instrument_sha256`
+(`8bc41ecc6389d710d7d3c6c84714e278f128c7701286e3bcae4287099384399e`), and all
+three produced `result.correlations == ("XX", "XY", "YX", "YY")` with
+`result.polarization_basis == "linear_xy"` even in the circular-receptor run.
+`result.scientific_sha256` differed across all three runs, including between
+the two `46e8a82`/`3925a33`-default runs that share every input value; this
+is consistent with the fingerprint covering per-run temporary-directory
+paths (a fresh `tempfile.TemporaryDirectory()` per run) rather than any
+receptor-related change, and is expected since `core/result.py` is untouched
+by either commit. This directly confirms the declared interim behavior: a
+`circular` receptor configuration validates, resolves, and is retained on
+`Simulator.receptors`, but currently produces visibilities and a result
+identical to the default in every observable respect.
+
+**Risk adjudications.**
+
+(1) Silent inertness until 5D — **ratified, no guard required**. §34.2 states
+plainly that "the resolved set is produced and validated but is not yet
+consumed by the solver," with no interim rejection specified, and this is the
+design the whole-tier gate (`e29e592` acceptance) already reviewed and
+accepted as a deliberate multi-slice scaffold. Checked against `Fix.md` §4.2:
+the `receptors:` field is not silently validated and then falsely implied to
+have affected the simulation — nothing in any currently-reachable output
+(the summary JSON still emits the hard-coded literal `"linear_xy"`
+regardless of `receptors:`, confirmed by inspection and by the inertness
+proof above) claims a circular basis was applied. The only place the
+resolved set is visible is the advanced, undocumented-to-end-users
+`Simulator.receptors` property, whose own docstring and every touching
+commit message states the inertness explicitly. A user-facing CLI warning
+for a non-default `receptors:` block would strengthen truthfulness further,
+but is not required to close this slice: 5C and 5D are already planned,
+scoped, and the very next two authorizations, and inventing a warning now
+would add unplanned production surface outside §35's Tier 5B grant. Not a
+rejection.
+
+(2) §27 P-term rejection unreachable until 5D — **confirmed**. `grep`
+confirms `Simulator.run()` passes `jones_config=None` unconditionally
+(`api/simulator.py:974`; line number stable at this review), and no config
+path from `RadioSimConfig` reaches `jones_config` at all. `resolve_receptors()`
+has no parameter through which a P-term enablement could even be observed.
+Implementing the "non-zero `feed_rotation_deg` cannot be combined with an
+enabled parallactic-angle term" rejection now would be untestable dead code;
+correctly deferred to 5D, which is where `receptors` and `jones_config`
+first meet.
+
+(3) `mount_type=None` accepted — **ratified**. `ResolvedAntenna.mount_type`
+is typed `str | None`, and every current instrument source that does not
+carry explicit mount metadata sets it to `None`
+(`io/instrument_sources.py:352,444,556`) — this is the common case for local
+antenna-layout files, not an edge case. §11.2 rejects mount types "other
+than fixed"; `None` is unspecified, not "other than fixed," and rejecting it
+would break the overwhelming majority of existing configs and tests with no
+way to declare "fixed" explicitly at the instrument level today. Directly
+tested (`test_fixed_and_unspecified_mount_types_are_accepted`) and confirmed
+correct.
+
+(4) §27 message-format reading — **ratified, path-prefix-free is correct**.
+Independently confirmed via a live `collect_schema_issues()` call in this
+review: `issue.message` and `issue.hint` are bare strings, `issue.path`
+carries the field location as a separate attribute, matching every other
+`_REMOVED_FIELD_GUIDANCE` entry in the file and every runtime error's
+`str(error.value)` (no class-name or path prefix baked in). The plan's
+"path: message" rendering in §27 is documentation style, not a literal
+contract, and every test in `test_receptor_config.py` asserts the fields
+separately, confirming this reading.
+
+(5) int→float coercion for `feed_rotation_deg` — **ratified, expected
+Pydantic v2 strict-mode behavior**. Independently reproduced:
+`ReceptorDefinitionConfig(feed_rotation_deg=30)` yields `30.0`
+(`type(...) is float`) even under `Field(strict=True)`, because Pydantic v2
+strict mode accepts exact, lossless `int` input for a `float` field. This is
+the identical `_StrictFiniteFloat` pattern already used throughout
+`io/instrument_config.py` (confirmed by direct comparison), not a defect
+introduced here, and it is explicitly pinned by
+`test_feed_rotation_accepts_an_exact_integer_like_the_instrument_schema`,
+whose name states the precedent.
+
+(6) Two commits instead of one — **ratified as a non-material process
+deviation**. `Tier5ReceptorFeedPlan.md` §34.2 suggests a single 5B commit and
+§37 states "no slice may be split across two commits." The implementer split
+5B into `40d17fb` (schema, resolved model, resolution, config wiring) and
+`3925a33` (Simulator lifecycle wiring) instead. Both commits were
+independently re-verified green in isolation (above), together they touch
+exactly the corrected §35 Tier 5B file list with nothing extra, no
+slice-5C-or-later behavior crossed the boundary, and the split follows a
+coherent layer boundary (configuration/resolution, then lifecycle
+integration) that arguably improves reviewability over one large commit.
+Read literally this is non-compliant with §37; it was not treated as a
+rejection because neither commit is broken, neither commit exceeds its
+combined scope, and the deviation carries no correctness, safety, or
+scope-creep consequence. Recorded here rather than silently accepted; future
+slices should still target exactly one commit as designed.
+
+**Plan corrections made** (commit `d54b229`, `docs(feeds): correct Tier 5
+design`, landed before this acceptance): `Tier5ReceptorFeedPlan.md` §35 Tier
+5B gained `src/radiosim/core/runtime_config.py`,
+`tests/characterization/test_tier5_current_behavior.py`,
+`tests/unit/test_io/test_instrument_config.py`, and
+`tests/unit/test_simulator/test_instrument_integration.py`; §30.2 gained
+`src/radiosim/core/runtime_config.py`; §30.5 gained
+`tests/unit/test_io/test_instrument_config.py` and
+`tests/unit/test_simulator/test_instrument_integration.py`; §1's status line
+was updated. No decision, scientific claim, slice boundary, or other slice's
+file list changed.
+
+**Unobserved at this review.** `pixi run typecheck`/Pyright, Sphinx, and the
+offline example were not run (not required until whole-tier acceptance per
+§33). The precedence-order probe (risk item above) was constructed only for
+the mount-type-vs-override-assignment pairing; the remaining
+`InvalidReceptorConfigError`/`AmbiguousOutputBasisError`
+cross-combinations were not separately fault-injected. No PR, tag, release,
+or deployment was created.
+
+This acceptance changes planning records only. No Tier 5 production code,
+test, fixture, configuration, or dependency file was changed by this review
+beyond the bounded plan corrections in `d54b229`. `POL-001` remains **OPEN**
+and `POL-002` remains **ROADMAP**; neither is closed at this slice. Tier 5B
+is independently accepted; Tier 5C is authorized and remains limited to the
+writable-file list in `Tier5ReceptorFeedPlan.md` §35 Tier 5C. Tier 5D through
+5I remain unauthorized until each predecessor slice is implemented and
+independently accepted. No PR, tag, release, or deployment was created.
