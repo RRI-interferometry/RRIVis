@@ -149,8 +149,10 @@ from radiosim.core.polarization import (
     mueller_from_jones,
     stokes_to_coherency,
 )
+from radiosim.core.receptor import resolve_receptors
 from radiosim.core.result import SimulationResult
 from radiosim.core.visibility import _build_jones_chain
+from radiosim.io.receptor_config import ReceptorsConfig
 from tests.fixtures.configs import valid_config_mapping
 
 FREQUENCIES_HZ = np.array([100_000_000.0], dtype=np.float64)
@@ -189,6 +191,23 @@ def _solver_components(tmp_path: Path) -> tuple[SolverInstrumentView, BeamSystem
         SolverInstrumentView.from_state(simulator._instrument_state),
         simulator.beam_system,
     )
+
+
+def _resolve_instrument(tmp_path: Path):
+    """Return the canonical ResolvedInstrument behind ``_solver_components``."""
+    simulator = Simulator.from_mapping(
+        valid_config_mapping(
+            tmp_path,
+            frequency={
+                "mode": "explicit",
+                "channel_frequencies_hz": FREQUENCIES_HZ.tolist(),
+                "channel_widths_hz": [1e6],
+            },
+        ),
+        base_dir=tmp_path,
+    )
+    simulator._ensure_instrument_state()
+    return simulator._instrument_state.instrument
 
 
 class _ConstantJones(JonesTerm):
@@ -327,35 +346,78 @@ def test_polarization_docstring_carries_the_iau_hbs_attribution() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Receptor stubs (defect D1/D2)
+# Receptor terms (defect D1/D2)
 # ---------------------------------------------------------------------------
 
 
-def test_receptor_and_basis_transform_terms_currently_return_identity() -> None:
-    """Pins both Tier 5 Jones stubs as identity regardless of construction.
+def test_receptor_and_basis_transform_terms_carry_real_physics(tmp_path) -> None:
+    """Pins both Tier 5 Jones terms as the Section 18.2 / 18.3 mathematics.
 
-    OWNED BY: Tier 5C, which replaces both constructors and both matrices with
-    the Section 18.2 / 18.3 physics.
+    At the baseline both classes accepted a permissive ``feed_type`` /
+    ``from_basis`` / ``to_basis`` construction and returned the identity
+    regardless, so a configured circular array silently produced linear
+    visibilities.  Tier 5C removed both stub constructors and implemented the
+    real matrices; the terms are still not wired into any chain, which is
+    Tier 5D.
+
+    FLIPPED BY: Tier 5C, in the same commit as the implementation.
     """
     backend = get_backend("numpy")
     identity = np.eye(2, dtype=np.complex128)
 
-    for term in (
-        ReceptorConfigJones(feed_type="linear"),
-        ReceptorConfigJones(feed_type="circular"),
-        BasisTransformJones(from_basis="linear", to_basis="circular"),
-        BasisTransformJones(from_basis="circular", to_basis="linear"),
+    # The permissive stub constructors are gone outright (Section 24).
+    for call in (
+        lambda: ReceptorConfigJones(feed_type="linear"),
+        lambda: ReceptorConfigJones(feed_type="circular"),
+        lambda: BasisTransformJones(from_basis="linear", to_basis="circular"),
+        lambda: BasisTransformJones(from_basis="circular", to_basis="linear"),
+        ReceptorConfigJones,
+        BasisTransformJones,
     ):
-        jones = term.compute_jones(0, None, 0, 0, backend)
-        np.testing.assert_array_equal(np.asarray(jones), identity)
+        with pytest.raises(TypeError):
+            call()
 
-    assert ReceptorConfigJones().name == "C"
-    assert BasisTransformJones().name == "H"
-    assert ReceptorConfigJones().is_direction_dependent is False
-    assert BasisTransformJones().is_direction_dependent is False
-    # Both already declare unitarity, which is true only because they are I2.
-    assert ReceptorConfigJones(feed_type="circular").is_unitary() is True
-    assert BasisTransformJones().is_unitary() is True
+    instrument, _ = _solver_components(tmp_path)
+    resolved = _resolve_instrument(tmp_path)
+
+    # Default linear array: both terms are exactly I2, so the default
+    # configuration cannot perturb any existing result.
+    linear = resolve_receptors(ReceptorsConfig(), resolved)
+    for term in (
+        ReceptorConfigJones(receptors=linear, instrument=instrument),
+        BasisTransformJones(receptors=linear, instrument=instrument),
+    ):
+        for antenna_idx in range(len(instrument.antenna_numbers)):
+            jones = term.compute_jones(antenna_idx, None, 0, 0, backend)
+            np.testing.assert_array_equal(np.asarray(jones), identity)
+
+    # Circular array: C is the Section 18.1 basis matrix, H stays I2 because
+    # the native basis already is the output basis.
+    circular = resolve_receptors(
+        ReceptorsConfig.model_validate({"default": {"basis": "circular"}}),
+        resolved,
+    )
+    receptor_term = ReceptorConfigJones(receptors=circular, instrument=instrument)
+    transform_term = BasisTransformJones(receptors=circular, instrument=instrument)
+    np.testing.assert_allclose(
+        np.asarray(receptor_term.compute_jones(0, None, 0, 0, backend)),
+        PLAN_S_MATRIX,
+        rtol=0.0,
+        atol=1e-15,
+    )
+    np.testing.assert_array_equal(
+        np.asarray(transform_term.compute_jones(0, None, 0, 0, backend)),
+        identity,
+    )
+
+    assert receptor_term.name == "C"
+    assert transform_term.name == "H"
+    assert receptor_term.is_direction_dependent is False
+    assert transform_term.is_direction_dependent is False
+    # Unitarity is now a truthful claim rather than an artefact of being I2.
+    assert receptor_term.is_unitary() is True
+    assert transform_term.is_unitary() is True
+    assert receptor_term.is_diagonal() is False
 
 
 # ---------------------------------------------------------------------------
