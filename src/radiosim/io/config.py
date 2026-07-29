@@ -1496,8 +1496,7 @@ class CliWorkflowConfig(StrictFrozenModel):
     open_plots_in_browser: bool = False
     plotting_backend: Literal["bokeh", "matplotlib"] = "bokeh"
     save_log: bool = False
-    angle_unit: Literal["degrees", "radians", ""] = ""
-    sky_model_frequency_hz: PositiveFiniteFloat | None = None
+    visibility_phase_unit: Literal["radians", "degrees"] = "radians"
 
     @model_validator(mode="before")
     @classmethod
@@ -1517,11 +1516,21 @@ class CliWorkflowConfig(StrictFrozenModel):
                 "workflow.prompt_for_output_suffix: removed before v1.0; "
                 "use collision_policy=suffix"
             ),
+            "angle_unit": (
+                "workflow.angle_unit: removed before v1.0; "
+                "use workflow.visibility_phase_unit"
+            ),
+            "sky_model_frequency_hz": (
+                "workflow.sky_model_frequency_hz: removed before v1.0; "
+                "no Tier 4 sky renderer consumes it"
+            ),
         }
         for field_name in (
             "overwrite",
             "skip_overwrite_confirmation",
             "prompt_for_output_suffix",
+            "angle_unit",
+            "sky_model_frequency_hz",
         ):
             if field_name in mapping:
                 raise ValueError(guidance[field_name])
@@ -1983,19 +1992,6 @@ def collect_unsupported_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...
             "visibility.calculation_type",
             "spherical_harmonic_unsupported",
             "spherical-harmonic calculation is not implemented until Tier 7",
-        )
-    workflow = config.workflow
-    if workflow.angle_unit:
-        add(
-            "workflow.angle_unit",
-            "angle_unit_unsupported",
-            "workflow angle-unit control is not implemented until Tier 4",
-        )
-    if workflow.sky_model_frequency_hz is not None:
-        add(
-            "workflow.sky_model_frequency_hz",
-            "sky_model_frequency_unsupported",
-            "workflow sky-model frequency control is not implemented until Tier 4",
         )
     return _ordered_issues(issues)
 
@@ -2556,6 +2552,7 @@ def create_default_config(output_path: str | Path) -> None:
             "plot_results": False,
             "open_plots_in_browser": False,
             "save_log": False,
+            "visibility_phase_unit": "radians",
         },
     }
     with Path(output_path).open("w", encoding="utf-8") as stream:

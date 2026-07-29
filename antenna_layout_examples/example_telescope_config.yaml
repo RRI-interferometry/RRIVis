@@ -57,3 +57,4 @@ workflow:
   plot_results: false
   open_plots_in_browser: false
   save_log: false
+  visibility_phase_unit: radians

@@ -726,10 +726,51 @@ def test_workflow_field_constraints_have_no_side_effects(tmp_path):
         {"result_filename": "result.h5"},
         {"result_format": "HDF5"},
         {"plotting_backend": "plotly"},
-        {"sky_model_frequency_hz": float("nan")},
+        {"visibility_phase_unit": "gradians"},
+        {"visibility_phase_unit": ""},
+        {"visibility_phase_unit": None},
     ):
         with pytest.raises(ValidationError):
             CliWorkflowConfig.model_validate(patch)
+
+
+def test_tier4g_visibility_phase_unit_replaces_the_removed_plot_fields():
+    workflow = CliWorkflowConfig()
+
+    assert workflow.visibility_phase_unit == "radians"
+    assert CliWorkflowConfig(visibility_phase_unit="degrees").visibility_phase_unit == (
+        "degrees"
+    )
+    assert "angle_unit" not in CliWorkflowConfig.model_fields
+    assert "sky_model_frequency_hz" not in CliWorkflowConfig.model_fields
+    for field_name, expected in (
+        (
+            "angle_unit",
+            "workflow.angle_unit: removed before v1.0; "
+            "use workflow.visibility_phase_unit",
+        ),
+        (
+            "sky_model_frequency_hz",
+            "workflow.sky_model_frequency_hz: removed before v1.0; "
+            "no Tier 4 sky renderer consumes it",
+        ),
+    ):
+        with pytest.raises(ValidationError) as error:
+            CliWorkflowConfig.model_validate({field_name: "degrees"})
+        assert expected in str(error.value)
+
+
+def test_tier4g_removed_plot_fields_are_schema_errors_in_a_full_document(tmp_path):
+    data = valid_config_mapping(tmp_path)
+    data["workflow"]["angle_unit"] = "degrees"
+
+    issues = collect_schema_issues(data)
+
+    assert any(
+        "use workflow.visibility_phase_unit" in issue.message for issue in issues
+    )
+    with pytest.raises(ValidationError):
+        RadioSimConfig.model_validate(data)
 
 
 def test_semantic_collector_aggregates_stably_without_mutating_config(tmp_path):
@@ -770,20 +811,16 @@ def test_unsupported_collector_accepts_final_beam_modes_for_runtime(tmp_path):
         workflow={
             "result_format": "uvfits",
             "collision_policy": "suffix",
-            "angle_unit": "degrees",
-            "sky_model_frequency_hz": 150e6,
+            "visibility_phase_unit": "degrees",
         },
     )
 
     issues = collect_unsupported_issues(config)
     paths = {issue.path for issue in issues}
 
-    assert {
-        "visibility.calculation_type",
-        "workflow.angle_unit",
-        "workflow.sky_model_frequency_hz",
-    } <= paths
+    assert {"visibility.calculation_type"} <= paths
     assert not any(path.startswith("beams.") for path in paths)
+    assert not any(path.startswith("workflow.") for path in paths)
     assert all(issue.stage == "unsupported" for issue in issues)
 
 

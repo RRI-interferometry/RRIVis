@@ -72,5 +72,4 @@ workflow:
   open_plots_in_browser: false
   plotting_backend: bokeh
   save_log: false
-  angle_unit: ''
-  sky_model_frequency_hz: null
+  visibility_phase_unit: radians

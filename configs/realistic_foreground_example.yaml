@@ -83,3 +83,4 @@ workflow:
   open_plots_in_browser: false
   plotting_backend: bokeh
   save_log: false
+  visibility_phase_unit: radians
