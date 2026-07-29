@@ -19,7 +19,7 @@ This document is the governing implementation specification for Tier 5. It is
 not Tier 5 implementation. Every characterization statement below was taken
 from the working tree at `1472c3c` and every cited line number is true at that
 commit. Where a fact could not be established from source at this gate it is
-recorded as an open question in Section 46 rather than asserted.
+recorded as an open question in Section 43 rather than asserted.
 
 ## 2. Design-only authority
 
@@ -516,7 +516,7 @@ Slice 5A must produce written evidence for this correction — a reproduction of
 the R2/R4 table and an explicit statement of what `codex-africanus` actually
 implements — before slice 5C changes the sign. If 5A's evidence contradicts this
 section, the design must be amended and re-accepted, not silently followed. See
-Section 46, open question Q1.
+Section 43, open question Q1.
 
 ## 11. Design decision 2 — supported receptor bases
 
@@ -729,7 +729,7 @@ provenance — the HDF5 receptor group, the summary JSON receptor block, and the
 `RADIOSIM_PROJECTION_JSON=` history record — never inferred by a reader from
 `feed_array`.
 
-See Section 46, open question Q3, on validating `feed_angle` for `r`/`l` feeds
+See Section 43, open question Q3, on validating `feed_angle` for `r`/`l` feeds
 against pyuvdata 3.2.1 `check()`.
 
 ## 15. Design decision 6 — illumination versus receptor schema separation
@@ -1652,7 +1652,7 @@ Not established at this gate and required from slice 5A: whether pyuvdata
 `polarization_array=["rr","rl","lr","ll"]` together with
 `Telescope.new(feeds=["r","l"], feed_angle=[[0.0, 0.0], ...])` and no
 `x_orientation`; and the exact on-disk code ordering pyuvdata produces for
-circular data. See Section 46, Q3.
+circular data. See Section 43, Q3.
 
 ## 32. Tests-first implementation strategy
 
