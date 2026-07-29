@@ -749,3 +749,66 @@ def test_resolution_accepts_every_final_beam_mode_without_loading_uvbeam(
     )
 
     assert bundle.runtime.beams.mode == beams["mode"]
+
+
+def test_receptor_section_is_carried_into_the_runtime_configuration(tmp_path):
+    from radiosim.io.receptor_config import ReceptorsConfig
+
+    data = valid_config_mapping(tmp_path)
+    data["receptors"] = {
+        "default": {"basis": "circular", "feed_rotation_deg": 30.0},
+        "overrides": [
+            {"antenna": {"kind": "number", "number": 1}, "feed_rotation_deg": -15.0}
+        ],
+        "output_basis": "linear",
+    }
+
+    bundle = resolve_config(
+        data,
+        source=ConfigurationSource.for_mapping(
+            base_dir=tmp_path,
+            invocation_dir=tmp_path,
+        ),
+    )
+    receptors = bundle.runtime.receptors
+
+    assert type(receptors) is ReceptorsConfig
+    assert receptors.default.basis == "circular"
+    assert receptors.default.feed_rotation_deg == 30.0
+    assert receptors.output_basis == "linear"
+    assert len(receptors.overrides) == 1
+    assert receptors.overrides[0].feed_rotation_deg == -15.0
+
+
+def test_omitted_receptor_section_resolves_to_the_default_runtime_value(tmp_path):
+    from radiosim.io.receptor_config import ReceptorsConfig
+
+    bundle = resolve_config(
+        valid_config_mapping(tmp_path),
+        source=ConfigurationSource.for_mapping(
+            base_dir=tmp_path,
+            invocation_dir=tmp_path,
+        ),
+    )
+
+    assert bundle.runtime.receptors == ReceptorsConfig()
+    assert bundle.runtime.receptors.output_basis == "auto"
+
+
+def test_receptor_resolution_is_not_performed_at_configuration_time(tmp_path):
+    data = valid_config_mapping(tmp_path)
+    data["receptors"] = {
+        "overrides": [
+            {"antenna": {"kind": "number", "number": 91}, "basis": "circular"}
+        ]
+    }
+
+    bundle = resolve_config(
+        data,
+        source=ConfigurationSource.for_mapping(
+            base_dir=tmp_path,
+            invocation_dir=tmp_path,
+        ),
+    )
+
+    assert bundle.runtime.receptors.overrides[0].antenna.number == 91

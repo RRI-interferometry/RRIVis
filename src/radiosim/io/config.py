@@ -1576,6 +1576,10 @@ from radiosim.io.instrument_config import (  # noqa: E402
     KnownTelescopeSourceConfig,
     LayoutFileSourceConfig,
 )
+from radiosim.io.receptor_config import (  # noqa: E402
+    ReceptorDefinitionConfig,
+    ReceptorsConfig,
+)
 
 _REMOVED_BEAM_FIELD_GUIDANCE: dict[str, str] = {
     "beam_mode": (
@@ -1700,6 +1704,7 @@ class RadioSimConfig(StrictFrozenModel):
     baseline_selection: BaselineSelectionConfig = Field(
         default_factory=BaselineSelectionConfig
     )
+    receptors: ReceptorsConfig = Field(default_factory=ReceptorsConfig)
     sky_model: SkyModelConfig
     obs_time: ObsTimeConfig
     obs_frequency: ObsFrequencyConfig
@@ -2021,8 +2026,20 @@ _REMOVED_FIELD_GUIDANCE: dict[str, tuple[str, str]] = {
         "Use 'instrument.location' with longitude_deg, latitude_deg, and height_m.",
     ),
     "feeds": (
-        "top-level receptor/feed configuration was removed because it had no active physics",
-        "Analytic-beam illumination remains under 'beams.feed_model'; receptor physics belongs to Tier 5.",
+        "top-level 'feeds' was replaced by the Tier 5 receptor model",
+        "Use the 'receptors' section with 'default.basis', 'default.feed_rotation_deg', and 'output_basis'.",
+    ),
+    "receptors.default.feed_type": (
+        "removed before v1.0; use 'basis'",
+        "Set receptors.default.basis to 'linear' or 'circular'.",
+    ),
+    "receptors.default.n_feeds": (
+        "removed before v1.0; every antenna has exactly two feeds",
+        "Single-feed and multi-feed antennas are rejected until Tier 7 implements them.",
+    ),
+    "receptors.default.feed_angle_deg": (
+        "removed before v1.0; use 'feed_rotation_deg'",
+        "feed_rotation_deg is an offset from the nominal orientation for the selected basis.",
     ),
     "all_antenna_diameter": (
         "all_antenna_diameter was removed by the Tier 2 instrument cutover",
@@ -2117,6 +2134,8 @@ _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
     "instrument.location": tuple(InstrumentLocationConfig.model_fields),
     "beams": ("mode", "model", "beam", "assignments", "analytic_model"),
     "baseline_selection": tuple(BaselineSelectionConfig.model_fields),
+    "receptors": tuple(ReceptorsConfig.model_fields),
+    "receptors.default": tuple(ReceptorDefinitionConfig.model_fields),
     "sky_model": tuple(SkyModelConfig.model_fields),
     "obs_time": tuple(ObsTimeConfig.model_fields),
     "workflow": tuple(CliWorkflowConfig.model_fields),
@@ -2224,6 +2243,28 @@ def _removed_workflow_schema_issues(
     return _ordered_issues(issues)
 
 
+_RECEPTOR_BASIS_GUIDANCE = (
+    "input should be 'linear' or 'circular'",
+    "Tier 5 supports exactly two receptor bases; elliptical and mixed-feed "
+    "receptors are Tier 7.",
+)
+_RECEPTOR_OUTPUT_BASIS_GUIDANCE = (
+    "input should be 'auto', 'linear' or 'circular'",
+    "Use 'auto' for a homogeneous array; name a basis explicitly for a mixed array.",
+)
+
+
+def _receptor_literal_guidance(path: str) -> tuple[str, str] | None:
+    """Return the exact Tier 5 message and hint for one receptor literal path."""
+    if path == "receptors.output_basis":
+        return _RECEPTOR_OUTPUT_BASIS_GUIDANCE
+    if path == "receptors.default.basis":
+        return _RECEPTOR_BASIS_GUIDANCE
+    if path.startswith("receptors.overrides[") and path.endswith("].basis"):
+        return _RECEPTOR_BASIS_GUIDANCE
+    return None
+
+
 def _dotted_path(location: Sequence[str | int]) -> str:
     path = ""
     for item in location:
@@ -2256,6 +2297,10 @@ def schema_issues_from_validation_error(
                 "per_antenna_fits, or mixed."
             )
             code = "removed_value"
+        if code == "literal_error":
+            receptor_guidance = _receptor_literal_guidance(path)
+            if receptor_guidance is not None:
+                message, hint = receptor_guidance
         if code == "extra_forbidden":
             message = "unknown or removed field"
             if path in _REMOVED_FIELD_GUIDANCE:

@@ -693,13 +693,14 @@ def test_mueller_from_jones_is_module_public_but_unimplemented() -> None:
         mueller_from_jones(np.eye(2, dtype=np.complex128))
 
 
-def test_no_receptor_configuration_surface_exists_yet() -> None:
-    """Pins the absent Tier 5 production surfaces.
+def test_receptor_configuration_surface_exists() -> None:
+    """Pins the Tier 5B production surfaces that replaced the 5A absence pin.
 
-    OWNED BY: Tier 5B, which introduces every path asserted absent here.
+    Flipped by Tier 5B, which introduced every path this test once asserted
+    absent.  The Section 25.2 ordering is pinned by the Q2 test above.
     """
     from radiosim.io.config import RadioSimConfig
 
-    assert "receptors" not in RadioSimConfig.model_fields
-    assert not (SOURCE_ROOT / "radiosim" / "core" / "receptor.py").exists()
-    assert not (SOURCE_ROOT / "radiosim" / "io" / "receptor_config.py").exists()
+    assert "receptors" in RadioSimConfig.model_fields
+    assert (SOURCE_ROOT / "radiosim" / "core" / "receptor.py").exists()
+    assert (SOURCE_ROOT / "radiosim" / "io" / "receptor_config.py").exists()

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
         BaselineSelectionConfig,
         InstrumentConfig,
     )
+    from radiosim.io.receptor_config import ReceptorsConfig
 
 JsonScalar = str | int | float | bool | None
 JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -401,6 +402,13 @@ class ConfigurationProvenance:
         )
 
 
+def _default_receptors_config() -> ReceptorsConfig:
+    """Return the default receptor input without importing I/O at module load."""
+    from radiosim.io.receptor_config import ReceptorsConfig
+
+    return ReceptorsConfig()
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedSimulationConfig:
     """The complete scientific/runtime configuration with no workflow state."""
@@ -413,17 +421,21 @@ class ResolvedSimulationConfig:
     frequency: ResolvedFrequencyConfig
     visibility: FrozenMapping
     execution: ResolvedExecutionConfig
+    receptors: ReceptorsConfig = field(default_factory=_default_receptors_config)
 
     def __post_init__(self) -> None:
         from radiosim.io.instrument_config import (
             BaselineSelectionConfig,
             InstrumentConfig,
         )
+        from radiosim.io.receptor_config import ReceptorsConfig
 
         if type(self.instrument) is not InstrumentConfig:
             raise TypeError("instrument must be an InstrumentConfig")
         if type(self.baseline_selection) is not BaselineSelectionConfig:
             raise TypeError("baseline_selection must be a BaselineSelectionConfig")
+        if type(self.receptors) is not ReceptorsConfig:
+            raise TypeError("receptors must be a ReceptorsConfig")
         if type(self.beams) not in (
             ResolvedAnalyticBeamsInput,
             ResolvedSharedFITSBeamsInput,

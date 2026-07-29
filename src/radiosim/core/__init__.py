@@ -102,6 +102,19 @@ from radiosim.core.precision import (
     get_real_dtype,
     resolve_precision,
 )
+from radiosim.core.receptor import (
+    AmbiguousOutputBasisError,
+    InvalidReceptorConfigError,
+    ReceptorAssignmentError,
+    ReceptorError,
+    ReceptorProvenance,
+    ResolvedReceptor,
+    ResolvedReceptorSet,
+    UnsupportedBasisTransformError,
+    UnsupportedFeedGeometryError,
+    UnsupportedReceptorBasisError,
+    resolve_receptors,
+)
 from radiosim.core.result import (
     BackendResultProvenance,
     InvalidPhaseCenterError,
@@ -192,6 +205,18 @@ __all__ = [
     "BaselineSelectionCriteriaSnapshot",
     "BaselineSelectionProvenance",
     "ResolvedBaselineSelection",
+    # Canonical receptor models
+    "ResolvedReceptor",
+    "ResolvedReceptorSet",
+    "ReceptorProvenance",
+    "resolve_receptors",
+    "ReceptorError",
+    "InvalidReceptorConfigError",
+    "UnsupportedReceptorBasisError",
+    "UnsupportedFeedGeometryError",
+    "AmbiguousOutputBasisError",
+    "UnsupportedBasisTransformError",
+    "ReceptorAssignmentError",
     # Beams
     "BeamSystem",
     "LoadedBeamState",

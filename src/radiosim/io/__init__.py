@@ -74,6 +74,11 @@ if TYPE_CHECKING:
         read_measurement_set,
         write_measurement_set,
     )
+    from radiosim.io.receptor_config import (
+        ReceptorDefinitionConfig,
+        ReceptorOverrideConfig,
+        ReceptorsConfig,
+    )
     from radiosim.io.result_format import ResultFormat
     from radiosim.io.standard_visibility import StandardVisibilityData
     from radiosim.io.summary_json import write_result_summary_json
@@ -175,6 +180,15 @@ _LAZY_EXPORTS = {
         "radiosim.io.hdf5",
         "load_result_hdf5",
     ),
+    "ReceptorsConfig": ("radiosim.io.receptor_config", "ReceptorsConfig"),
+    "ReceptorDefinitionConfig": (
+        "radiosim.io.receptor_config",
+        "ReceptorDefinitionConfig",
+    ),
+    "ReceptorOverrideConfig": (
+        "radiosim.io.receptor_config",
+        "ReceptorOverrideConfig",
+    ),
     "ResultFormat": ("radiosim.io.result_format", "ResultFormat"),
     "write_result_summary_json": (
         "radiosim.io.summary_json",
@@ -230,6 +244,9 @@ __all__ = [
     "dump_config",
     "create_default_config",
     "BeamsConfig",
+    "ReceptorsConfig",
+    "ReceptorDefinitionConfig",
+    "ReceptorOverrideConfig",
     "SkyModelConfig",
     "FrequencyGridConfig",
     "ExplicitFrequencyConfig",
