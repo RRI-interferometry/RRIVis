@@ -53,8 +53,8 @@ correction stands.**  Retrieved 2026-07-29:
   docstring** (`src/radiosim/core/polarization.py:22-27`), which labels the
   current ``C[0,1] = (U - iV)/2`` the "Africanus/Pauli" convention and claims it
   "Matches: Codex-Africanus".  Africanus implements the opposite sign.
-  ``test_polarization_docstring_still_claims_the_africanus_attribution`` pins
-  that false claim so 5C removes it deliberately.
+  ``test_polarization_docstring_carries_the_iau_hbs_attribution`` pinned that
+  false claim at 5A and, after the Tier 5C flip, pins its removal.
 * Contrary evidence, recorded rather than suppressed: ``pyradiosky``
   (RadioAstronomySoftwareGroup, ``src/pyradiosky/utils.py``
   ``stokes_to_coherency``) builds ``0.5 * [[I+Q, U-1j*V], [U+1j*V, I-Q]]``, and
@@ -223,20 +223,21 @@ class _ConstantJones(JonesTerm):
 # ---------------------------------------------------------------------------
 
 
-def test_stokes_to_coherency_currently_places_minus_iv_in_the_upper_right() -> None:
-    """Pins the baseline C[0,1] = (U - iV)/2.
+def test_stokes_to_coherency_places_plus_iv_in_the_upper_right() -> None:
+    """Pins the corrected C[0,1] = (U + iV)/2.
 
-    OWNED BY: Tier 5C, which corrects the upper-right element to (U + iV)/2 per
-    Tier5ReceptorFeedPlan.md Section 10.2 and the Q1 evidence in this module's
-    docstring.
+    FLIPPED BY: Tier 5C.  The baseline built ``C[0,1] = (U - iV)/2`` and this
+    test pinned it; Tier 5C applied the Section 10.2 correction, ratified by the
+    Q1 evidence in this module's docstring, so the pin now records the corrected
+    construction.  Tier 5 preserves this from here on.
     """
     stokes_i, stokes_q, stokes_u, stokes_v = 10.0, 2.0, -1.0, 0.5
     coherency = stokes_to_coherency(stokes_i, stokes_q, stokes_u, stokes_v)
 
     expected = 0.5 * np.array(
         [
-            [stokes_i + stokes_q, stokes_u - 1j * stokes_v],
-            [stokes_u + 1j * stokes_v, stokes_i - stokes_q],
+            [stokes_i + stokes_q, stokes_u + 1j * stokes_v],
+            [stokes_u - 1j * stokes_v, stokes_i - stokes_q],
         ],
         dtype=np.complex128,
     )
@@ -250,21 +251,22 @@ def test_stokes_to_coherency_currently_places_minus_iv_in_the_upper_right() -> N
         atol=1e-15,
     )
     # The sign is only observable in the cross hands, and only for V != 0.
-    assert coherency[0, 1].imag == pytest.approx(-stokes_v / 2.0)
-    assert coherency[1, 0].imag == pytest.approx(+stokes_v / 2.0)
+    assert coherency[0, 1].imag == pytest.approx(+stokes_v / 2.0)
+    assert coherency[1, 0].imag == pytest.approx(-stokes_v / 2.0)
 
 
-def test_coherency_to_stokes_currently_derives_v_from_the_lower_left_element() -> None:
-    """Pins the baseline inverse V = 2 * Im(C[1,0]) and its round trip.
+def test_coherency_to_stokes_derives_v_from_the_upper_right_element() -> None:
+    """Pins the corrected inverse V = 2 * Im(C[0,1]) and its round trip.
 
-    OWNED BY: Tier 5C, which must move the derivation to C[0,1] in the same
-    commit; changing only one direction breaks the round trip.
+    FLIPPED BY: Tier 5C.  The baseline derived V from ``C[1,0]``; the derivation
+    moved to ``C[0,1]`` in the same commit as the forward correction, because
+    changing only one direction would break the round trip pinned below.
     """
     stokes = (7.5, -1.25, 3.0, -2.0)
     coherency = stokes_to_coherency(*stokes)
 
     assert coherency_to_stokes(coherency)[3] == pytest.approx(
-        2.0 * coherency[1, 0].imag
+        2.0 * coherency[0, 1].imag
     )
     np.testing.assert_allclose(
         np.asarray(coherency_to_stokes(coherency), dtype=np.float64),
@@ -274,45 +276,54 @@ def test_coherency_to_stokes_currently_derives_v_from_the_lower_left_element() -
     )
 
 
-def test_current_convention_maps_a_positive_v_source_to_pure_ll() -> None:
-    """Pins the circular consequence of the baseline V sign.
+def test_corrected_convention_maps_a_positive_v_source_to_pure_rr() -> None:
+    """Pins the circular consequence of the corrected V sign.
 
-    Under the Section 18.1 basis matrix S a source with V = +I currently emerges
-    as pure LL, which is the observable defect Section 10.2 names.
+    Under the Section 18.1 basis matrix S a source with V = +I emerges as pure
+    RR.  The baseline produced pure LL, which is the observable defect
+    Section 10.2 names.
 
-    OWNED BY: Tier 5C, after which the same source must emerge as pure RR.
+    FLIPPED BY: Tier 5C, in the same commit as the construction change.
     """
     total_flux = 4.0
     coherency = stokes_to_coherency(total_flux, 0.0, 0.0, total_flux)
     circular = PLAN_S_MATRIX @ coherency @ PLAN_S_MATRIX.conj().T
 
     # RR is index [0, 0] and LL is index [1, 1] in the (R, L) row ordering.
-    assert circular[0, 0].real == pytest.approx(0.0, abs=1e-15)
-    assert circular[1, 1].real == pytest.approx(total_flux, abs=1e-15)
+    assert circular[0, 0].real == pytest.approx(total_flux, abs=1e-15)
+    assert circular[1, 1].real == pytest.approx(0.0, abs=1e-15)
 
-    # Stated as the general baseline relations RR = (I - V)/2, LL = (I + V)/2.
+    # Stated as the Section 18.4 relations RR = (I + V)/2, LL = (I - V)/2.
     stokes_i, stokes_v = 9.0, 3.0
     circular = (
         PLAN_S_MATRIX
         @ stokes_to_coherency(stokes_i, 0.0, 0.0, stokes_v)
         @ PLAN_S_MATRIX.conj().T
     )
-    assert circular[0, 0].real == pytest.approx((stokes_i - stokes_v) / 2.0)
-    assert circular[1, 1].real == pytest.approx((stokes_i + stokes_v) / 2.0)
+    assert circular[0, 0].real == pytest.approx((stokes_i + stokes_v) / 2.0)
+    assert circular[1, 1].real == pytest.approx((stokes_i - stokes_v) / 2.0)
 
 
-def test_polarization_docstring_still_claims_the_africanus_attribution() -> None:
-    """Pins the module docstring claim that the Q1 evidence refutes.
+def test_polarization_docstring_carries_the_iau_hbs_attribution() -> None:
+    """Pins the removal of the module docstring claim the Q1 evidence refuted.
 
-    ``codex-africanus`` implements ``XY = U + iV``; the docstring claims the
-    opposite sign matches it.
+    The baseline text labelled ``C[0,1] = (U - iV)/2`` the "Africanus/Pauli"
+    convention and claimed it matched codex-africanus, which in fact implements
+    ``XY = U + iV``.  Tier 5C replaced the text with the IAU/HBS attribution and
+    an explicit statement of the pyradiosky divergence (risk register).
 
-    OWNED BY: Tier 5C, which replaces this text with the IAU/HBS attribution.
+    FLIPPED BY: Tier 5C, in the same commit as the construction change.
     """
     docstring = polarization_module.__doc__ or ""
-    assert "C[0,1] = (U - iV) / 2  (Africanus/Pauli)" in docstring
-    assert "Matches: Codex-Africanus" in docstring
-    assert "NOT: (U + iV) / 2      (Smirnov 2011 alternative)" in docstring
+    assert "Africanus/Pauli" not in docstring
+    assert "Matches: Codex-Africanus" not in docstring
+    assert "NOT: (U + iV) / 2      (Smirnov 2011 alternative)" not in docstring
+
+    assert "C[0,1] = (U + iV) / 2" in docstring
+    assert "Hamaker, Bregman & Sault 1996" in docstring
+    assert "Smirnov 2011" in docstring
+    assert "codex-africanus" in docstring
+    assert "pyradiosky" in docstring
 
 
 # ---------------------------------------------------------------------------

@@ -9,8 +9,8 @@ CONVENTION CHOICES (Critical for correctness):
 
 1. **Stokes → Coherency: "Half-Power" / Density Matrix Convention**
 
-   C = (1/2) * [[I+Q,    U-iV  ],
-                [U+iV,   I-Q   ]]
+   C = (1/2) * [[I+Q,    U+iV  ],
+                [U-iV,   I-Q   ]]
 
    Physical meaning: A source with flux I splits power between two feeds:
    - V_XX = (I+Q)/2  (half the power in X feed)
@@ -19,12 +19,36 @@ CONVENTION CHOICES (Critical for correctness):
 
    This ensures a 1 Jy source produces 1 Jy total visibility, not 2 Jy.
 
-2. **Stokes V Sign: Africanus/Pauli Convention**
+2. **Stokes V Sign: IAU / Hamaker-Bregman-Sault Convention**
 
-   C[0,1] = (U - iV) / 2  (Africanus/Pauli)
-   NOT: (U + iV) / 2      (Smirnov 2011 alternative)
+   C[0,1] = (U + iV) / 2
 
-   Matches: Codex-Africanus, matvis, pfb-imaging, Wikipedia
+   The upper-right (XY) element carries ``+iV``; the lower-left (YX) element
+   carries ``-iV``. Equivalently ``V = i(<e_y e_x*> - <e_x e_y*>)``.
+
+   This is the convention of the primary references, verified term by term
+   during the Tier 5A evidence gate:
+
+   - Hamaker, Bregman & Sault 1996, A&AS 117, 137: Eq. (3) fixes the coherency
+     ordering ``(e_x e_x*, e_x e_y*, e_y e_x*, e_y e_y*)`` and Eq. (9), the
+     inverse of the Eq. (8) Stokes map, gives ``<e_x e_y*> = (U + iV)/2``.
+   - Smirnov 2011, A&A 527, A106, Eq. (7): ``B = [[I+Q, U+iV], [U-iV, I-Q]]``,
+     with the circular form of Section 6.3 giving ``RR = I + V``.
+   - codex-africanus (``africanus/model/coherency/conversion.py``):
+     ``"XY": u + v*1j``, ``"YX": u - v*1j``, ``"RR": i + v``, ``"LL": i - v``.
+
+   Observable consequence: under the linear-to-circular basis matrix
+   ``S = (1/sqrt 2) [[1, i], [1, -i]]`` this yields ``RR = (I+V)/2`` and
+   ``LL = (I-V)/2``, so a source with ``V = +I`` emerges as pure RR.
+
+   **Divergence from pyradiosky.** ``pyradiosky.utils.stokes_to_coherency``
+   builds the mirror of the matrix above, ``C[0,1] = (U - iV) / 2``, as does
+   Hamaker 2006, A&A 456, 395 Eq. (3). RadioSim deliberately follows
+   the HBS 1996 / Smirnov 2011 / africanus sign instead. No RadioSim data path
+   mixes the two: the ``pyradiosky_file`` loader reads Stokes I/Q/U/V columns
+   and never a pyradiosky-built coherency matrix. A user combining RadioSim
+   cross-hand visibilities with a pyradiosky-computed coherency must flip the
+   sign of V. All V = 0 results are identical under either convention.
 
 3. **Stokes I Extraction: Simple Sum (No Division)**
 
@@ -37,9 +61,9 @@ CONVENTION CHOICES (Critical for correctness):
    J[feed, sky_basis]: rows=feeds (X,Y), columns=sky basis (θ,φ)
 
 References:
-- Smirnov 2011: "Revisiting the RIME I" (Eq. 4 for brightness matrix)
-- Hamaker & Bregman 1996: IAU polarization conventions
-- Africanus docs: Stokes/correlation mapping
+- Hamaker, Bregman & Sault 1996, A&AS 117, 137: Eqs. (3), (8), (9)
+- Smirnov 2011, A&A 527, A106: "Revisiting the RIME I", Eq. (7)
+- codex-africanus: Stokes/correlation mapping
 - Price 2015: "Bayesian optimal mapping" (basis rotations)
 """
 
@@ -50,10 +74,10 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
     """
     Convert Stokes parameters to 2×2 coherency matrix.
 
-    Uses "half-power" / density matrix convention with Africanus/Pauli V sign:
+    Uses the "half-power" / density matrix convention with the IAU/HBS V sign:
 
-    C = (1/2) * [[I+Q,    U-iV  ],
-                 [U+iV,   I-Q   ]]
+    C = (1/2) * [[I+Q,    U+iV  ],
+                 [U-iV,   I-Q   ]]
 
     ENERGY CONSERVATION: For a source with flux I, this produces visibilities
     where V_XX + V_YY = I (not 2I), ensuring physical correctness.
@@ -68,7 +92,8 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
         Linear polarization at 45° (Stokes U) in Jy. Default 0.
     stokes_V : float or array, optional
         Circular polarization (Stokes V) in Jy. Default 0.
-        Note: Sign convention matches Africanus, opposite of Smirnov 2011.
+        Note: Sign convention follows HBS 1996 / Smirnov 2011 / africanus,
+        i.e. ``C[0,1] = (U + iV)/2``. This is the mirror of pyradiosky's.
 
     Returns
     -------
@@ -101,7 +126,7 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
 
     >>> # Circular polarization
     >>> C = stokes_to_coherency(stokes_I=5.0, stokes_V=2.0)
-    >>> C[0, 1].imag  # → -1.0 (Africanus: U-iV → -iV)
+    >>> C[0, 1].imag  # → +1.0 (IAU/HBS: U+iV → +iV)
     """
     # Convert to arrays for consistent handling.
     stokes_I = xp.asarray(stokes_I, dtype=float)
@@ -109,17 +134,17 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
     stokes_U = xp.asarray(stokes_U, dtype=float)
     stokes_V = xp.asarray(stokes_V, dtype=float)
 
-    # Fill coherency matrix with Africanus/half-power convention.
+    # Fill coherency matrix with the IAU/HBS half-power convention.
     row_x = xp.stack(
         [
             stokes_I + stokes_Q,
-            stokes_U - 1j * stokes_V,
+            stokes_U + 1j * stokes_V,
         ],
         axis=-1,
     )
     row_y = xp.stack(
         [
-            stokes_U + 1j * stokes_V,
+            stokes_U - 1j * stokes_V,
             stokes_I - stokes_Q,
         ],
         axis=-1,
@@ -353,11 +378,11 @@ def coherency_to_stokes(coherency):
     ...     [stokes_I, stokes_Q, stokes_U, stokes_V], [I2, Q2, U2, V2]
     ... )  # → True
 
-    With half-power convention C = [[I+Q, U-iV], [U+iV, I-Q]] / 2:
+    With half-power convention C = [[I+Q, U+iV], [U-iV, I-Q]] / 2:
     - I: C[0,0] + C[1,1] = (I+Q)/2 + (I-Q)/2 = I (no factor needed!)
     - Q: C[0,0] - C[1,1] = (I+Q)/2 - (I-Q)/2 = Q (no factor needed!)
-    - U: C[0,1] + C[1,0] = (U-iV)/2 + (U+iV)/2 = U (no factor needed!)
-    - V: Im(C[1,0]) = Im((U+iV)/2) = V/2, so V = 2*Im(C[1,0]) (factor of 2!)
+    - U: C[0,1] + C[1,0] = (U+iV)/2 + (U-iV)/2 = U (no factor needed!)
+    - V: Im(C[0,1]) = Im((U+iV)/2) = V/2, so V = 2*Im(C[0,1]) (factor of 2!)
 
     The /2 in the coherency definition causes terms to cancel for I, Q, U.
     Only V genuinely needs the factor of 2.
@@ -379,11 +404,11 @@ def coherency_to_stokes(coherency):
     # stokes_Q = (I+Q)/2 - (I-Q)/2 = Q
     stokes_Q = coherency[..., 0, 0].real - coherency[..., 1, 1].real
 
-    # stokes_U = (U-iV)/2 + (U+iV)/2 = U (taking real part)
+    # stokes_U = (U+iV)/2 + (U-iV)/2 = U (taking real part)
     stokes_U = coherency[..., 0, 1].real + coherency[..., 1, 0].real
 
-    # stokes_V: Im(C[1,0]) = Im((U+iV)/2) = V/2, so multiply by 2
-    stokes_V = 2 * coherency[..., 1, 0].imag
+    # stokes_V: Im(C[0,1]) = Im((U+iV)/2) = V/2, so multiply by 2
+    stokes_V = 2 * coherency[..., 0, 1].imag
 
     return stokes_I, stokes_Q, stokes_U, stokes_V
 
