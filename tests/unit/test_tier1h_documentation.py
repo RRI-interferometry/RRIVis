@@ -230,16 +230,89 @@ def test_current_docs_do_not_present_removed_simulator_patterns(path):
     ),
     ids=lambda path: path.name,
 )
-def test_tier4f_output_docs_are_exact_and_keep_plotting_fail_closed(path):
+def test_tier4f_output_docs_are_exact(path):
     text = path.read_text(encoding="utf-8")
 
     assert "ResultFormat" in text
     assert "summary JSON" in text
     assert "HDF5" in text
     assert "exact final" in text
-    assert "Tier 4G" in text
     assert "HDF5 and JSON preserve" not in text
     assert "result saving and plotting are deliberately unavailable" not in text
+
+
+TIER4G_TRUTH_SURFACES = (
+    REPOSITORY_ROOT / "README.md",
+    REPOSITORY_ROOT / "docs" / "index.rst",
+    REPOSITORY_ROOT / "docs" / "quickstart.rst",
+    REPOSITORY_ROOT / "docs" / "api" / "io.rst",
+    REPOSITORY_ROOT / "docs" / "api" / "simulator.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
+)
+
+
+@pytest.mark.parametrize("path", TIER4G_TRUTH_SURFACES, ids=lambda path: path.name)
+def test_tier4g_active_docs_drop_every_removed_plot_surface(path):
+    text = path.read_text(encoding="utf-8")
+
+    assert "angle_unit" not in text
+    assert "sky_model_frequency_hz" not in text
+    assert "Tier 4G" not in text
+    assert "fail-closed" not in text
+    assert "result plotting remains unavailable" not in text
+    assert "remains rejected" not in text
+
+
+def test_tier4g_configuration_docs_own_the_visibility_phase_unit():
+    for path in (
+        REPOSITORY_ROOT / "README.md",
+        REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst",
+        REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
+    ):
+        text = path.read_text(encoding="utf-8")
+        assert "visibility_phase_unit" in text
+        assert "radians" in text
+        assert "degrees" in text
+
+
+def test_tier4g_simulator_docs_describe_the_canonical_renderer():
+    text = (REPOSITORY_ROOT / "docs" / "api" / "simulator.rst").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Simulator.plot" in text
+    assert "visibility_phase_unit" in text
+    assert "Stokes I" in text
+    assert "browser" in text
+    for required in ("plot_type", "output_dir", "overwrite"):
+        assert required in text
+
+
+def test_tier4g_migration_guide_maps_the_removed_visualization_fields():
+    migration = (REPOSITORY_ROOT / "docs" / "migration_guide.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "workflow.angle_unit: removed before v1.0; "
+        "use workflow.visibility_phase_unit" in migration
+    )
+    assert (
+        "workflow.sky_model_frequency_hz: removed before v1.0; "
+        "no Tier 4 sky renderer consumes it" in migration
+    )
+    assert "result plotting remains" not in migration
+
+
+@pytest.mark.parametrize("path", SHIPPED_CONFIGS, ids=lambda path: path.name)
+def test_tier4g_shipped_configs_declare_only_active_workflow_fields(path):
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    workflow = document["workflow"]
+
+    assert "angle_unit" not in workflow
+    assert "sky_model_frequency_hz" not in workflow
+    assert workflow["visibility_phase_unit"] in {"radians", "degrees"}
 
 
 def test_tier4d_hdf5_documentation_is_complete_and_bounded():

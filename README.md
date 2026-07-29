@@ -98,8 +98,16 @@ Save the last successful result to one exact final path with the typed
 `ResultFormat` enum. HDF5 is complete and reconstructable, summary JSON
 (`SUMMARY_JSON`) is bounded metadata only, and MS/UVFITS are standard-format
 projections. Python
-and direct `simulate` calls never prompt or generate suffixes. Canonical result
-plotting remains fail-closed until Tier 4G.
+and direct `simulate` calls never prompt or generate suffixes.
+
+`Simulator.plot(plot_type=..., output_dir=..., backend="bokeh", show=...,
+overwrite=..., visibility_phase_unit=...)` renders the published
+`SimulationResult` into one explicit directory. The renderers read the
+canonical coordinate arrays directly — MJD time centers from
+`result.time_grid`, channel centers from `result.frequencies_hz`, and the
+published baseline order — and derive Stokes I explicitly as `XX + YY`. Phase
+is displayed in `radians` (default) or `degrees`. Browsers open only after
+every declared file is written.
 
 For a small programmatic run:
 
@@ -220,8 +228,14 @@ workflow:
   save_results: false
   plot_results: false
   open_plots_in_browser: false
+  plotting_backend: bokeh
+  visibility_phase_unit: radians
   save_log: false
 ```
+
+`visibility_phase_unit` is exactly `radians` or `degrees` and controls only the
+displayed phase axis; canonical stored values stay in radians. Removed workflow
+fields are rejected with exact migration text; see the migration guide.
 
 For a uniform frequency grid, use `mode: grid` with positive
 `starting_frequency`, `frequency_interval`, `frequency_bandwidth`, a positive
@@ -302,8 +316,11 @@ path. Missing canonical extensions are appended; conflicting extensions and
 string format arguments are rejected. Config mode stages the config artifact,
 optional log, and selected result together, verifies a strict ownership
 manifest, and publishes one run directory atomically under the selected
-collision policy. The old run survives every pre-publication failure.
-Canonical result rendering remains separately gated Tier 4G work.
+collision policy. The old run survives every pre-publication failure. When
+`plot_results` is enabled the renderers write into that same staged directory
+with browser presentation disabled, the manifest records every rendered file,
+and `open_plots_in_browser` opens the published paths last. A browser failure
+is reported separately and never unpublishes the run.
 
 `Simulator.plot_observability()` is a helper associated with the Simulator and
 uses the same loaded beam system. It selects the minimum-number antenna only

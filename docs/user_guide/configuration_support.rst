@@ -137,5 +137,12 @@ Python and ``simulate`` calls never prompt or suffix. Config mode preflights
 ``collision_policy`` and manifest ownership before runtime, builds the complete
 run in sibling staging, and publishes atomically. Summary JSON is explicitly
 incomplete metadata; HDF5 is the complete reconstructable result.
-``Simulator.plot`` and configured result plotting remain rejected before
-runtime until Tier 4G.
+``Simulator.plot`` renders the published result into one explicit directory
+from the canonical coordinate arrays.  Configured workflow plotting is
+preflighted before runtime — only ``plotting_backend: bokeh`` is implemented —
+then staged with the run and opened from published paths last.
+
+Retained visualization controls are ``plot_results``, ``open_plots_in_browser``,
+``plotting_backend``, and ``visibility_phase_unit`` (exactly ``radians`` or
+``degrees``).  Every other visualization input was removed and is rejected with
+exact migration text.

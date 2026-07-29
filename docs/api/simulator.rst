@@ -52,8 +52,36 @@ prompt, suffix, or read CLI workflow policy.
    simulator.save("results/run", format=ResultFormat.HDF5)
    simulator.save("results/run", format=ResultFormat.SUMMARY_JSON)
 
-``Simulator.plot()`` remains fail-closed until the separately gated Tier 4G
-canonical result renderer.  Config-mode plotting is rejected before runtime.
+``Simulator.plot()`` renders the published canonical result:
+
+.. code-block:: python
+
+   plots = simulator.plot(
+       plot_type="all",
+       output_dir="output/plots",
+       backend="bokeh",
+       show=True,
+       overwrite=False,
+       visibility_phase_unit="radians",
+   )
+
+Every parameter is keyword-only.  ``plot_type`` is exactly ``all``, ``antenna``,
+``visibility``, ``heatmap``, or ``frequency``; ``output_dir`` is required and
+explicit; only the ``bokeh`` backend is implemented.  The renderers consume the
+published coordinate arrays directly — MJD time centers from
+``result.time_grid``, channel centers in hertz from ``result.frequencies_hz``,
+and the exact published baseline order — and never reconstruct an axis from a
+duration, cadence, or scalar start time.  Stokes I is derived explicitly as
+``XX + YY`` through ``SimulationResult.stokes_i``.
+
+``visibility_phase_unit`` is exactly ``radians`` or ``degrees`` and affects only
+the displayed phase axis.  Contract validation and collision checks precede all
+filesystem work: an unknown plot family, backend, or phase unit raises
+``ResultPlotContractError``, a missing ``output_dir`` raises ``OutputPathError``,
+and an existing declared file without ``overwrite=True`` raises
+``OutputCollisionError``.  A browser is opened only after every declared file is
+published, and a browser failure raises ``ResultBrowserError`` without removing
+published output.
 
 After setup, ``instrument`` returns the canonical resolved object, while
 ``antennas`` and ``baselines`` return its exact immutable tuples. Access before

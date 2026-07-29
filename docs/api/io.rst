@@ -224,5 +224,7 @@ unlisted content never authorizes replacement.
 simulation or filesystem mutation.  Python and direct ``simulate`` never
 prompt.  The CLI writes, verifies, closes, hashes, and fsyncs staging before one
 atomic directory publish.  Failure before publication removes staging and
-preserves the old run; browser work remains after publication and plotting
-stays disabled until Tier 4G.
+preserves the old run.  Configured plots are rendered into the same staged
+directory with browser presentation disabled, recorded in the ownership
+manifest, and opened from their published paths only after the atomic publish
+succeeds.

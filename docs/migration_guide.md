@@ -67,8 +67,25 @@ result. Workflow `overwrite`, `skip_overwrite_confirmation`, and
 - `workflow.result_format=json: removed before v1.0; use summary_json or hdf5`
 
 Use `collision_policy: error|replace|suffix|prompt`. Prompting is CLI-only,
-TTY-only, and limited to valid owned manifested runs. Result plotting remains
-unavailable until Tier 4G.
+TTY-only, and limited to valid owned manifested runs.
+
+The two ambiguous visualization inputs were removed with the same exact text:
+
+- `workflow.angle_unit: removed before v1.0; use workflow.visibility_phase_unit`
+- `workflow.sky_model_frequency_hz: removed before v1.0; no Tier 4 sky renderer consumes it`
+
+`visibility_phase_unit` is exactly `radians` (default) or `degrees` and controls
+only the displayed visibility phase axis. There is no workflow sky-image
+renderer, so no workflow field selects a sky-model frequency; a future sky
+renderer requires its own typed request.
+
+`Simulator.plot` is keyword-only and takes `plot_type`, `output_dir`, `backend`,
+`show`, `overwrite`, and `visibility_phase_unit`. The visibility renderers
+`plot_visibility`, `plot_heatmaps`, and `plot_modulus_vs_frequency` now accept a
+single `SimulationResult` positional argument; the old `moduli_over_time`,
+`phases_over_time`, `mjd_time_points`, `total_seconds`, `freqs`, `baselines`,
+and `angle_unit` parameters are removed. Rebuild plots from
+`simulator.run()` output instead of assembling per-baseline dictionaries.
 
 ## Instrument input
 

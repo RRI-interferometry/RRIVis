@@ -75,7 +75,9 @@ The YAML ``workflow`` section is executed only by config-mode CLI orchestration.
 ``Simulator.save`` and direct ``simulate --output`` use one exact final artifact
 path and never prompt. Config mode publishes one owned, manifested run directory
 under the selected ``error``, ``replace``, ``suffix``, or TTY-only ``prompt``
-collision policy. Canonical result plotting remains a later Tier 4G slice.
+collision policy. ``Simulator.plot`` renders the published result into one
+explicit directory from the canonical coordinate arrays, and configured
+workflow plots are staged with the run and opened only after publication.
 
 Indices and tables
 ==================

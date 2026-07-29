@@ -74,6 +74,8 @@ Local formats also require explicit identity and geodetic location:
      save_results: false
      plot_results: false
      open_plots_in_browser: false
+     plotting_backend: bokeh
+     visibility_phase_unit: radians
      save_log: false
 
 See :doc:`instrument_resolution` for source formats, precedence, baseline
@@ -101,6 +103,13 @@ never save, plot, prompt, skip, log, or open a browser implicitly.
 ``collision_policy`` values are ``error``, ``replace``, ``suffix``, and
 ``prompt``. Only ``prompt`` may ask a question, only for a valid owned run on
 an actual TTY. A manifest safely defines run-directory ownership.
+
+The visualization controls are ``plot_results``, ``open_plots_in_browser``,
+``plotting_backend`` (only ``bokeh`` is implemented), and
+``visibility_phase_unit``, which is exactly ``radians`` or ``degrees`` and
+changes only the displayed phase axis. Configured plots render into the staged
+run directory and their published paths are opened last. Removed workflow
+fields are rejected with exact migration text; see :doc:`../migration_guide`.
 
 Loading and serialization
 -------------------------

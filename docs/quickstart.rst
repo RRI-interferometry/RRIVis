@@ -45,7 +45,20 @@ through the typed API:
 HDF5 is complete and reconstructable. ``SUMMARY_JSON`` is bounded metadata
 only; ``MS`` and ``UVFITS`` are explicit standard-format projections. Python
 and direct ``simulate`` calls never prompt or apply CLI suffix policy.
-Canonical result plotting remains fail-closed until Tier 4G.
+
+Render the published result into one explicit directory:
+
+.. code-block:: python
+
+   plots = simulator.plot(
+       plot_type="all",
+       output_dir="output/plots",
+       show=False,
+       visibility_phase_unit="radians",
+   )
+
+The renderers consume ``result.time_grid``, ``result.frequencies_hz``, and the
+published baseline order directly, and derive Stokes I as ``XX + YY``.
 
 Typed parameter construction
 ----------------------------
