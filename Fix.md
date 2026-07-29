@@ -4879,3 +4879,207 @@ is independently accepted; Tier 5C is authorized and remains limited to the
 writable-file list in `Tier5ReceptorFeedPlan.md` §35 Tier 5C. Tier 5D through
 5I remain unauthorized until each predecessor slice is implemented and
 independently accepted. No PR, tag, release, or deployment was created.
+
+### 2026-07-30 Tier 5C independent acceptance
+
+**Tier 5C is independently accepted; Tier 5D is authorized.** The review range
+was `4c543ad..0524e56`, exactly three commits: `deedf8d` (`feat(core): add the
+canonical polarization basis table`), `2bae364` (`fix(pol): correct the Stokes
+V coherency sign`), and `0524e56` (`feat(jones): implement receptor and
+basis-transform mathematics`). This is the scientifically most consequential
+slice reviewed so far in Tier 5: it changes a sign convention that flips which
+physical hand (RR vs LL) a circularly-polarized source appears in.
+
+**Independent mathematical re-derivation.** Before reading the implementation,
+`S B S^H` was recomputed by hand and numerically from HBS 1996 Eq. (3)/(9):
+reading Eq. (3)'s ordered coherency vector `(e_x e_x*, e_x e_y*, e_y e_x*,
+e_y e_y*)` against Eq. (9)'s inverse Stokes map gives
+`<e_x e_y*> = (U + iV)/2`, i.e. `C[0,1] = (U + iV)/2` — confirming the plan's
+§10.2 correction and Smirnov 2011 Eq. (7) independently, without reading
+RadioSim source. A numpy probe run in this review's own scratchpad
+(`/private/tmp/.../scratchpad`) confirmed, for random `(I,Q,U,V)`, that
+`S · ½[[I+Q,U+iV],[U−iV,I−Q]] · S^H` gives exactly
+`RR=(I+V)/2, RL=(Q+iU)/2, LR=(Q−iU)/2, LL=(I−V)/2` (the §18.4 table), and that
+the *mirrored* (baseline) sign gives `RR=(I−V)/2` — reproducing the plan's
+claim that a `V=+I` source emerges as pure LL under the old sign, pure RR
+under the corrected one. Rotation invariants were independently verified:
+`S·R(χ) = diag(e^{-iχ}, e^{+iχ})·S` for five χ values, `S` and every `R(χ)`
+unitary, and unpolarized energy conservation (`V[0,0]+V[1,1]=I`,
+cross-hands zero) in both bases across `χ ∈ {0°,30°,45°,90°,−15°}`. All of
+these were then re-checked by calling the actual production functions
+(`stokes_to_coherency`, `receptor_matrix`, `basis_transform_matrix`) directly
+— every value matched the hand/numpy derivation to floating-point precision,
+including S6 (`(H C)^H (H C) = I₂` for all 16 `(basis, output_basis)` pairs
+at 5 rotations), S9 (`T(lin→circ) @ T(circ→lin) = I₂`, and `T(circ→lin)` is
+exactly `S^H`), and S7/S8 (linear rotation rotates `Q,U` by `2χ`; circular
+rotation phases `RL`/`LR` by `e^{∓2iχ}` and leaves `RR,LL` invariant).
+
+**Mirror-exact solver probe, reproduced independently.** The implementer's
+commit message claims a before/after probe over both solver paths: unpolarized
+and Q/U-only visibilities bit-identical, `V≠0` visibilities differing only in
+the cross hands by exchanging `V_01`/`V_10`, with `V_00+V_11` bit-identical.
+This review built its own version rather than trusting the claim: two
+detached, PYTHONPATH-isolated worktrees at `4c543ad` and `0524e56` (the
+5B-reviewer-noted editable-install pitfall confirmed still present —
+`pixi run python -c "import radiosim; print(radiosim.__file__)"` resolves to
+the main checkout regardless of `cwd` — so `PYTHONPATH=<worktree>/src` was
+prepended explicitly for every worktree run, and this was verified to load
+the worktree copy before use). A three-antenna array was run through the
+`Simulator` API for unpolarized, Q/U-only, and `V≠0` `test_sources` skies, on
+**both** the point-source path and the HEALPix path (`sky_representation:
+healpix_map`, `nside=8`, `has_polarized_healpix_maps` confirmed `True` so
+`include_polarization` was exercised at `True` on both sides of the fix). On
+both paths, independently: unpolarized and Q/U-only visibility cubes were
+bit-for-bit `np.array_equal` identical pre/post; the `V≠0` cube had zero `XX`
+and `YY` (parallel-hand) difference, `post[...,XY] == pre[...,YX]` and
+`post[...,YX] == pre[...,XY]` exactly (the claimed cross-hand exchange), and
+`pre[XX]+pre[YY] == post[XX]+post[YY]` bit-for-bit. The claim is confirmed,
+independently, on both solver paths.
+
+**Code and test review.** `core/polarization.py`, `core/polarization_basis.py`,
+`core/jones/receptor.py`, and the four touched/new test files were read in
+full. `stokes_to_coherency` builds exactly `C[0,1]=(U+iV)/2`,
+`C[1,0]=(U−iV)/2`; `coherency_to_stokes` derives `V = 2·Im(C[0,1])`; both
+match §10.1/§10.2 and the S2/S3 oracle exactly (verified with the production
+functions above). The docstring no longer claims "Africanus/Pauli" or
+"Matches: Codex-Africanus" (both refuted at 5A: codex-africanus implements
+`XY=U+iV`, the *corrected* sign, not the baseline's), cites HBS 1996 Eqs.
+3/8/9, Smirnov 2011 Eq. 7, and africanus `"XY": u+v*1j` verbatim-consistent
+with the 5A evidence docstring, and states the pyradiosky divergence
+explicitly (pyradiosky mirrors the old sign; RadioSim's `pyradiosky_file`
+loader reads Stokes columns only, never a pyradiosky coherency, so no data
+path mixes conventions) — all confirmed true by direct docstring inspection,
+not merely by the tests asserting it.
+
+`core/jones/receptor.py`: `ReceptorConfigJones` (`C_p = M(basis_p)@R(χ_p)`)
+and `BasisTransformJones` (`H_p = T(basis_p→output_basis)`) implement exactly
+the §18.2/§18.3 tables; `_matrix_for` is the only place either matrix is
+built, so there is no code path left returning identity except where the
+table says `I₂` genuinely (`linear→linear_xy`, `circular→circular_rl`). The
+permissive stub constructors are gone outright: `feed_type=`, `from_basis=`,
+`to_basis=`, and bare positional construction all raise `TypeError` naming
+`receptors:`/`instrument=` as the replacement, reproduced independently in
+this review, not merely by re-running the shipped tests. `AntennaId`
+resolution (`_antenna_id`, `_receptors_in_instrument_order`) matches
+`_ResolvedBeamJones._antenna_id` (`core/visibility.py:119-129`) in mechanism
+(same type check, same `IndexError`→`InstrumentAdapterInvariantError`
+translation); the receptor term additionally rejects negative `antenna_idx`
+explicitly, which the beam term does not — a stricter, not weaker, check, and
+not a defect. `is_unitary()` is unconditionally `True` and is now a truthful
+claim (every accepted matrix is a product of unitaries) rather than an
+artefact of being `I₂`; `is_diagonal()`/`is_scalar()` are `True` exactly on
+the `I₂` cases the plan names and conservative (`False`) elsewhere, correctly
+documented as optimization hints, not correctness claims. Returned matrices do
+not alias internal state (`np.array(..., copy=True)`/fresh `@` products,
+independently confirmed by mutating a returned matrix and re-fetching).
+Confirmed by grep: no solver/chain file imports `ReceptorConfigJones` or
+`BasisTransformJones` except the lazy-export table in `jones/__init__.py`
+(already present pre-5C) and a docstring mention in `jones/base.py` — neither
+term is wired into any chain, matching the 5C exclusion.
+
+**Test files.** `test_polarization.py` (61 tests), `test_polarization_basis.py`
+(13), `test_basis_transform.py` (81), and `test_receptor.py` (75) were read in
+full: every oracle is transcribed from the plan text (not imported from
+RadioSim source), covering S2–S9 exhaustively including randomized round-trip
+batches (512 samples), heterogeneous per-antenna arrays, and every
+`(basis, χ, output_basis)` combination for unitarity.
+
+**Risk rulings.**
+
+1. **Pin narrowing of `test_four_correlation_constant_sites_are_independent_
+   literal_copies` — ruled legitimate necessity, not a scope violation.** The
+   5A pin's blanket clauses ("`polarization_basis.py` does not exist", "no
+   circular label anywhere in `src/`") are collateral to defect D4, and Tier
+   5C's own mandated deliverable (§34.3/§35: add `core/polarization_basis.py`,
+   whose tables necessarily contain `"RR"`/`"LL"`) falsifies both by
+   construction — the plan required 5C to do the thing the old pin forbade.
+   The narrowed test preserves the property D4 actually protects (the four
+   duplicated sites — `result.py`, `hdf5.py`, `standard_visibility.py`,
+   `measurement_set.py` — still carry independent literals and have not
+   silently imported the new module or gained a circular label), verified
+   independently by grep in this review. Plan text corrected in `0bc73bd`
+   (see below) so future slices read the pin's true scope.
+2. **Duplicate basis `Literal`** (`receptor.py`'s
+   `PolarizationBasisName = Literal["linear_xy","circular_rl"]` vs.
+   `polarization_basis.py`'s `PolarizationBasis`, same two values) — ruled a
+   minor, non-material duplication. `Literal[str, ...]` creates no runtime
+   type distinctness in Python, so no correctness risk exists today; drift is
+   guarded by `test_the_basis_names_agree_with_the_resolved_receptor_set`,
+   which compares the *values* of `receptor._OUTPUT_BASIS_BY_NATIVE` against
+   `POLARIZATION_BASES`. Consolidating onto one alias is a reasonable future
+   cleanup (candidate for whichever of 5E/5F next touches `receptor.py`) but
+   not required for 5C acceptance.
+3. **S3 round-trip test not failing pre-slice** — ruled a real but immaterial
+   inaccuracy in the plan's tests-first claim, confirmed independently: a
+   hand-written mirrored-sign `stokes_to_coherency`/`coherency_to_stokes` pair
+   round-trips exactly, because the forward and inverse were already
+   self-consistent under the wrong convention (V from `C[1,0]` inverts
+   `C[0,1]=(U−iV)/2`). The sign itself is pinned by S2/S4 and the dedicated
+   "V from the upper-right element" assertions, which do discriminate old vs.
+   new, so no implementation gap follows from this. Plan text corrected.
+4. **HEALPix `include_polarization=False` default** — confirmed out of 5C's
+   writable-file scope (`io/config.py:560` was not touched, correctly); the
+   default is exercised correctly when a caller sets it (this review's own
+   HEALPix probe forced it via `has_polarized_healpix_maps`). Flagged for 5D
+   as the plan already does; no action required at 5C.
+5. **Conservative `is_scalar()`/`is_diagonal()` hints** — confirmed correct
+   and exactly as specified: `True` only on the `I₂` cases, `False`
+   (conservative) elsewhere, explicitly documented as optimization hints, not
+   correctness claims. No issue.
+6. **Read-only exported constant** (`LINEAR_TO_CIRCULAR`, module-level,
+   `setflags(write=False)`) — confirmed genuinely immutable
+   (`LINEAR_TO_CIRCULAR[0,0] = 5` raises `ValueError` in a fresh interpreter,
+   reproduced in this review) while every value handed to a caller
+   (`receptor_matrix`, `basis_transform_matrix`) is a fresh, writable array —
+   confirmed no caller can be handed the frozen constant itself. No issue.
+
+**Gates.** Full non-slow suite on py311: **3701 passed, 6 skipped, 26
+warnings**, reproducing the claimed arithmetic exactly — 3471 (5B baseline)
++ 230 (61+13+81+75, the four new/rewritten test files, collected
+independently) = 3701. The five touched test files re-ran clean on py312
+(`.pixi/envs/py312`, Python 3.12.13): **248 passed**, matching
+61+13+81+75+18. `pixi run lint` reported all checks passed; `pixi run
+check-format` reported 320 files already formatted. All three shipped YAMLs
+(`configs/config.yaml` — 101 channels; `configs/realistic_foreground_
+example.yaml` — 11; `antenna_layout_examples/example_telescope_config.yaml`
+— 1) validated via `radiosim validate`, unchanged from the 5B record. `git
+status` was clean before and after review; none of the three commits carries
+a co-author line. `deedf8d` was not independently re-run in full isolation
+(only `2bae364`, per the task's explicit instruction); `2bae364` was checked
+out in its own detached, PYTHONPATH-isolated worktree and ran its own touched
+test files (79 passed) plus the full non-slow `tests/unit/test_core` suite
+(2019 passed, 3 skipped) green in isolation, before `0524e56`'s receptor-term
+tests existed.
+
+**Scope.** `git diff 4c543ad..0524e56 --stat` touches exactly nine files, all
+within the ten-file `Tier5ReceptorFeedPlan.md` §35 Tier 5C grant (the tenth,
+`core/jones/__init__.py`, was correctly left untouched — the two Jones
+classes were already lazily exported there before this slice). No file
+outside the grant was touched.
+
+**Plan corrections (`0bc73bd`, `docs(feeds): correct Tier 5 design`), made
+before this acceptance, changing no decision:** §34.3's tests-first evidence
+line corrected to remove S3 (risk 3, above); a corrective paragraph added to
+§34.3 documenting the true scope of the 5A D4 pin as narrowed by 5C (risk 1,
+above); the status header updated to record 5C's acceptance and 5D's
+authorization.
+
+**Unobserved items, carried forward.** The §11.3 modelling-assumption text
+required to appear in `docs/user_guide/jones_matrices.rst` (in addition to the
+`ResolvedReceptorSet` docstring, already present since 5B) is not yet in that
+file — correctly out of 5C's scope (Tier 5G owns documentation); flagged so
+5G does not omit it. `InvalidReceptorConfigError`/`UnsupportedReceptorBasisError`
+cross-combinations at the `resolve_receptors()` boundary were not
+re-fault-injected in this review (out of 5C's file scope; already covered by
+the 5B acceptance record).
+
+This acceptance changes planning records only. No Tier 5 production code,
+test, fixture, configuration, or dependency file was changed by this review
+beyond the bounded plan corrections in `0bc73bd`. `POL-001` remains **OPEN**
+and `POL-002` remains **ROADMAP**; neither is closed at this slice — the V
+sign correction and receptor Jones mathematics are necessary but not
+sufficient, since neither term is wired into the solver yet. Tier 5C is
+independently accepted; Tier 5D is authorized and remains limited to the
+writable-file list in `Tier5ReceptorFeedPlan.md` §35 Tier 5D. Tier 5E through
+5I remain unauthorized until each predecessor slice is implemented and
+independently accepted. No PR, tag, release, or deployment was created.
