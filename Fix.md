@@ -3709,3 +3709,87 @@ post-record final-SHA run is the last release gate and is reported in the
 handoff. Physical GPU/JAX/non-macOS execution, live external behavior,
 power-loss durability, external filesystem races, and dynamic notebooks remain
 unobserved. No Tier 4F implementation or broader scope was created.
+
+### 2026-07-29 Tier 4F independent acceptance
+
+**Tier 4F is independently accepted.** Tier 4G is the next authorized separate
+slice and was not implemented. Tier 4 as a whole remains unaccepted;
+`OUT-001` through `OUT-006` remain **OPEN**.
+
+The review covered exactly three commits on clean `main`,
+`00ba138..33cb938`: `b647a47` (`feat(output): unify result workflow policy`),
+`db4ea58` (`fix(output): harden Tier 4F safety`), and `33cb938`
+(`fix(output): bind workflow cleanup identity`). The 34-path diffstat matched
+the Tier 4F production/test/config/doc surface (`workflow.py`,
+`result_format.py`, `summary_json.py`, `workflow_artifacts.py`, `config.py`,
+`api/simulator.py`, `cli/main.py`, lazy exports, shipped YAML/docs/notebook,
+and the corresponding test files). One file outside the declared §35 list was
+touched: `io/atomic_paths.py`, only in the third commit, replacing
+`shutil.rmtree`-based temporary-directory cleanup with descriptor-pinned,
+identity-verified removal (`capture_directory_identity`,
+`remove_directory_by_identity`) shared by the workflow publisher and the
+existing Tier 4E `measurement_set.py` cleanup path. This is judged in-scope
+hardening of a primitive the Tier 4F transaction directly depends on, not
+unauthorized breadth: no plot cutover, documentation sweep beyond the declared
+doc files, obsolete-module deletion, dependency change, or issue closure was
+present anywhere in the range.
+
+Independent code reading covered `cli/workflow.py`, `io/atomic_paths.py`,
+`io/result_format.py`, `io/summary_json.py`, and `io/workflow_artifacts.py` in
+full, plus their tests. The four collision policies, the empty/absent
+fast-path shared by all policies, the owned-manifest ownership check (exact
+SHA-256 recomputation and exact top-level content-set match), the
+staging-then-atomic-directory-exchange/no-clobber publish, and the
+non-TTY/TTY prompt gate were traced end to end. `Simulator.save` dispatch,
+`ResultFormat` extension/dependency preflight, and the summary JSON bounded
+serializer (16 MiB cap, NUL/UTF-8/finite checks, cycle and nesting/node
+limits, `sort_keys=True`/`indent=2`/`allow_nan=False`) were read against
+Tier4ResultOutputPlan.md §18, §22, and §23. `core/result.py` and
+`core/runtime_config.py` (both outside the Tier 4F file list and untouched by
+this diff) already carry the workflow/scientific separation: `workflow` keys
+are explicitly excluded before fingerprinting and `ResolvedSimulationConfig`
+is documented as carrying no workflow state, so the "no workflow field enters
+result fingerprints" invariant holds by construction and is not disturbed by
+this slice.
+
+Beyond the shipped test suite, this review wrote a standalone script
+(outside the repository, under the reviewer's scratch directory) exercising
+22 adversarial scenarios directly against `preflight_cli_workflow` and
+`run_cli_workflow` with a fake `Simulator`: all four collision policies
+against an absent target, a plain-file target, an empty directory, and a
+nonempty owned directory; a symlinked target (rejected under `error`,
+`replace`, and `prompt`, with the real directory and the link itself both
+left untouched); a non-TTY `prompt` request (raises
+`NonInteractivePromptError` before any mutation); an injected writer failure
+inside staging (old owned run and its sibling set are byte-identical
+afterward); and an injected `exchange_directories` failure after full staging
+(old owned run preserved). All 22 passed. One environment artifact was found
+and is noted, not counted as a defect: macOS resolves `/tmp` and `/var`
+through symlinks, so `tempfile.TemporaryDirectory()` paths (unlike pytest's
+already-resolved `tmp_path`) trip the pre-existing (pre-4F,
+`io/atomic_paths.py::_validate_existing_ancestors`, present at `00ba138`)
+ancestor-symlink rejection; the shipped test suite is unaffected because
+`tmp_path` is already resolved, and the reviewer's script was adjusted to use
+a resolved scratch root.
+
+The exact Tier 4F focused gate (§36) collected 389 and passed 389/389 in both
+Python 3.11.13 and 3.12.13. The full non-slow suite (no test in the repository
+carries the `slow` marker, so `-m "not slow"` and an unfiltered run are
+identical) collected 3,243 in each interpreter: 3,237 passed, six established
+unavailable-JAX skips, 26 established warnings, and no failures, xfails, or
+xpasses in either — an increase of exactly 101 passing tests over the Tier 4E
+baseline (3,136/3,142), consistent with the two large new test files.
+Ruff lint (`ruff check .`) and the 307-file format check
+(`ruff format --check .`) both passed. `pixi run radiosim validate` accepted
+all three shipped YAML configs (`configs/config.yaml`,
+`configs/realistic_foreground_example.yaml`,
+`antenna_layout_examples/example_telescope_config.yaml`) with their existing
+channel counts.
+
+`git status` was clean before and after the review; none of the three
+production commits contains a co-author line of any kind.
+
+Live CI, GPU/JAX execution, non-macOS filesystems, Pyright, Sphinx build
+classification, and real (non-injected) power-loss durability were not
+exercised in this review and remain unobserved. No Tier 4G implementation or
+broader scope was created.
