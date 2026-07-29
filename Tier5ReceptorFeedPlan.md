@@ -1643,11 +1643,21 @@ tests/unit/test_io/test_measurement_set.py
 tests/unit/test_io/test_standard_visibility.py
 tests/unit/test_io/test_summary_json.py
 tests/unit/test_io/test_uvfits.py
+tests/unit/test_core/test_sky_sparse_healpix.py
+tests/unit/test_core/test_visibility_backend.py
 tests/unit/test_simulator/test_api.py
 tests/unit/test_simulator/test_instrument_integration.py
 tests/unit/test_simulator/test_result_integration.py
 tests/unit/test_visualization/
 ```
+
+**Correction (Tier 5D implementation).** This list omitted
+`tests/unit/test_core/test_sky_sparse_healpix.py` and
+`tests/unit/test_core/test_visibility_backend.py`; both call
+`calculate_visibility` and `calculate_visibility_healpix` directly and
+therefore must supply the required `receptors` argument that §28 and §34.4
+declare. Added above for the reasons recorded in the §35 Tier 5D correction.
+No decision, slice boundary, or other slice's file list changed.
 
 **Correction (Tier 5B acceptance).** §30.2 omitted
 `src/radiosim/core/runtime_config.py` and this list omitted
@@ -2123,11 +2133,35 @@ src/radiosim/core/visibility.py
 src/radiosim/core/visibility_healpix.py
 src/radiosim/simulator/base.py
 src/radiosim/simulator/rime.py
+tests/characterization/test_tier4_current_behavior.py
+tests/characterization/test_tier5_current_behavior.py
 tests/unit/test_core/test_beam_solver_integration.py
 tests/unit/test_core/test_receptor_solver.py
+tests/unit/test_core/test_sky_sparse_healpix.py
+tests/unit/test_core/test_visibility_backend.py
 tests/unit/test_jones/test_chain_order.py
 tests/unit/test_simulator/test_api.py
+tests/unit/test_simulator/test_instrument_integration.py
 ```
+
+**Correction (Tier 5D implementation).** The original list granted 5D only the
+four test modules it adds or rewrites, but the slice's declared breaking
+change — `receptors` becomes a required parameter with no default on
+`calculate_visibility` and `calculate_visibility_healpix` (§28, §34.4) — makes
+every direct caller of those two functions a file 5D cannot avoid touching.
+Five files were added:
+`tests/characterization/test_tier5_current_behavior.py` (5D must flip the two
+`OWNED BY: Tier 5D` pins it inherits, and one adjacent unmarked pin in the same
+group — `test_point_solver_chain_contains_only_the_beam_term_by_default` — that
+pinned exactly the `E`-only chain inventory 5D's writable-file list already told
+5D to change, the same 5A authoring pattern recorded in the Tier 5B
+correction); and `tests/characterization/test_tier4_current_behavior.py`,
+`tests/unit/test_core/test_sky_sparse_healpix.py`,
+`tests/unit/test_core/test_visibility_backend.py`, and
+`tests/unit/test_simulator/test_instrument_integration.py`, each of which calls
+one or both solvers directly and gains nothing but the new argument and a
+`_ensure_receptor_set()` line in its local fixture. No decision, scientific
+claim, slice boundary, or other slice's file list changes.
 
 ### Tier 5E
 
