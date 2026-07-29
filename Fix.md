@@ -3966,3 +3966,150 @@ Live CI, GPU/JAX execution, non-macOS filesystems, Pyright, matplotlib-backend
 rendering (only bokeh is implemented and only bokeh was exercised), and real
 (non-injected) power-loss durability were not exercised in this review and
 remain unobserved. No Tier 4H implementation or broader scope was created.
+
+### 2026-07-29 Tier 4H independent acceptance
+
+**Tier 4H is independently accepted.** Tier 4I is the next authorized
+separate slice and was not started. Tier 4 as a whole remains unaccepted;
+`OUT-001` through `OUT-006` remain **OPEN**.
+
+The review covered exactly three commits on clean `main`, `3243a78..419cca8`:
+`37c735e` (`test(output): add forbidden-residual assertions`), `9ed6ccd`
+(`refactor(output): remove obsolete result paths`), and `419cca8`
+(`chore(deps): drop dask-ms from the ms extra`). The full diffstat is five
+files — `pixi.lock` (1 line), `pyproject.toml` (1 line),
+`src/radiosim/io/__init__.py` (10 lines), `src/radiosim/io/writers.py`
+(46 lines, deleted), and the new
+`tests/unit/test_tier4_result_output_acceptance.py` (393 lines) — a strict
+subset of the exact §35 Tier 4H writable list; nothing outside that list was
+touched, and `git diff 3243a78..419cca8 -- tests/` shows only the one new
+file with no modification to any pre-existing test.
+
+**Removals.** `src/radiosim/io/writers.py` is gone (`git show 9ed6ccd --
+src/radiosim/io/writers.py` shows a clean deletion of `save_config_yaml` and
+its `FormattedDumper` helper). Grepping `src/`, `tests/`, `configs/`, and the
+tracked `docs/*.rst`/`docs/api/*.rst` for every §24-ledgered removed symbol
+(`save_config_yaml`, `save_visibilities_hdf5`, `load_visibilities_hdf5`,
+`write_ms`, `read_ms`, `read_ms_dask`, `ms_info`, `MS_AVAILABLE`,
+`DASKMS_AVAILABLE`, `PYUVDATA_AVAILABLE`, `CASACORE_AVAILABLE`) found no
+surviving definition or reference outside the acceptance test itself and the
+pre-existing `test_tier1h_documentation.py`/`test_measurement_set.py`
+residual-assertion tests; the only production-code hits for `write_ms`/
+`read_ms` are pyuvdata's own `UVData.write_ms`/`read_ms` methods invoked from
+`measurement_set.py`, an unrelated external namespace. No `Simulator.results`
+attribute and no `"json"` `ResultFormat` value exist (`ResultFormat` only
+defines `HDF5`, `SUMMARY_JSON`, `MS`, `UVFITS`). Fresh-process probes:
+`python -c "import radiosim.io.writers"` raised `ModuleNotFoundError`;
+`radiosim.io.save_config_yaml` raised `AttributeError`; importing `radiosim`,
+then `radiosim.api` and `radiosim.io`, left `pyuvdata`, `casacore`,
+`dask_ms`/`daskms`, and `xarray` absent from `sys.modules` in both cases.
+
+**Lock blast radius.** `git show 419cca8 -- pixi.lock` is exactly one deleted
+line: `- dask-ms>=0.2.20 ; extra == 'ms'` under the pyuvdata `requires_dist`
+block, matching the implementer's claim precisely. `pixi lock --check`
+reported "Lock-file was already up-to-date". `pixi install --locked -e
+default` and `pixi install --locked -e py312` both succeeded. Parsing
+`pixi.lock`'s `environments` map confirms both `default` and `py312` retain
+all three platforms (`linux-64`, `osx-64`, `osx-arm64`) — six env×platform
+combinations, unchanged. `pyuvdata = "==3.2.1"` remains pinned in `pixi.toml`
+and matches all six conda lock entries. `dask-ms`/`daskms` is absent from
+`pyproject.toml`, `pixi.toml`, and `pixi.lock` in their entirety (not just the
+one deleted line), and the package is genuinely absent from the installed
+environment (`importlib.util.find_spec` returns `None` for both `daskms` and
+`dask_ms`).
+
+**Tests-first evidence.** A detached `git worktree add --detach <scratch>
+37c735e` checkout (no branch; removed with `git worktree remove --force`
+immediately after, main tree untouched) ran the new acceptance file in
+isolation: **7 failed, 75 passed**, exactly matching the implementer's claim.
+The seven failures were `test_removed_modules_have_no_source_file
+[radiosim.io.writers]`, `test_removed_modules_are_not_importable
+[radiosim.io.writers]`, `test_io_package_docstring_lists_no_removed_submodule`,
+`test_removed_names_are_defined_nowhere_in_the_package[save_config_yaml]`,
+`test_dask_ms_is_absent_from_the_python_manifest`,
+`test_dask_ms_is_absent_from_the_pixi_manifest_and_lock`, and
+`test_removed_modules_fail_in_a_fresh_process[radiosim.io.writers]` — every
+one targets exactly the 4H removal, none an unrelated regression. At the
+current tree the same file passes **82/82** on Python 3.11.13 in isolation.
+
+**Counts.** The full non-slow suite (no test carries the `slow` marker) on
+Python 3.11.13 collected and reported **3,359 passed, 6 skipped, 26
+warnings** — the recorded Tier 4G baseline (3,277/6/26) plus exactly the 82
+new acceptance-file tests and zero removed, matching the claimed arithmetic
+exactly. The exact §36 Tier 4H focused gate
+(`test_tier4_result_output_acceptance.py`, `test_measurement_set.py`,
+`test_api.py`, `test_tier1h_documentation.py`) collected and passed 240/240
+on both Python 3.11.13 and 3.12.13.
+
+**Invariants.** `git diff 3243a78..419cca8 -- 'src/radiosim/core/*'
+'src/radiosim/io/hdf5.py' 'src/radiosim/io/measurement_set.py'
+'src/radiosim/io/uvfits.py' 'src/radiosim/io/standard_visibility.py'
+'src/radiosim/io/summary_json.py' 'src/radiosim/simulator/*'` is empty — no
+solver or canonical-writer value changed, and no output-policy file changed.
+The HDF5/MS/UVFITS round-trip suites (`-k "hdf5 or measurement_set or uvfits
+or round_trip or roundtrip"`) passed 262/262; the MS suite specifically
+(`test_measurement_set.py` plus `test_pyuvdata_321_output_contract.py`)
+passed 41/41 with `dask-ms`/`daskms` confirmed absent from the environment.
+All three shipped YAMLs (`configs/config.yaml`,
+`configs/realistic_foreground_example.yaml`,
+`antenna_layout_examples/example_telescope_config.yaml`) validated. `pixi run
+lint` reported "All checks passed!"; `pixi run check-format` reported "309
+files already formatted". `make -C docs html` (via `pixi run python -m
+sphinx -b html docs docs/_build/html_review`, a clean rebuild) reported
+exactly **42 warnings**, matching the Tier 4G-recorded ambient baseline
+line-for-line (40 clean-checkout warnings plus the same two untracked-local
+`toc.not_included` warnings for the `docs/superpowers/` scratch files that
+are `.gitignore`d and absent from `git ls-files`); zero warnings are
+attributable to this diff. `git status` was clean before and after the
+review; none of the three commits contains a co-author line.
+
+**Adjudications of the implementer-flagged items.**
+
+- **(a) `src/radiosim/io/readers.py` left in place.** Adjudicated as
+  correct discipline, not a material defect. It is an inert, unreferenced
+  h5py debug script (`read_hdf5_file`/`print_attributes`/`print_contents`
+  plus a `__main__` block hardcoding `"visibility.h5"`); it is not imported
+  by `src/radiosim/io/__init__.py`, not in `__all__` or `_LAZY_EXPORTS`, not
+  imported anywhere else under `src/`, and not referenced in any tracked
+  doc (the two `docs/` grep hits for "readers" are unrelated prose — a
+  changelog line about antenna-loader `file_format` renaming and an
+  `io.rst` sentence about the MS/UVFITS reader *functions* — neither names
+  this file). It is genuinely unreachable. It is absent from both the §35
+  Tier 4H writable list and the §29.3 removal inventory, and §34.8's "unsafe
+  reader" language is satisfied by the 4D removal of unsafe HDF5 eval
+  parsing, not by this script. Deleting an unlisted file without plan
+  authority would itself have been the scope violation; leaving it for a
+  future authorized slice (4I or later) is the correct call under this
+  program's exact-writable-list discipline.
+- **(b) `xarray>=2023.1` retained in the `ms` extra.** Adjudicated as
+  correct discipline, not a material defect, on the same reasoning: §29.6
+  authorizes only the dask-ms removal, `xarray` is not imported anywhere
+  under `src/radiosim/io/measurement_set.py`, `standard_visibility.py`, or
+  `uvfits.py` (confirmed by grep — its only source-tree hit is inside the
+  new acceptance test's own manifest-parsing code), and pyuvdata's own MS
+  backend does not import it. It is very likely a second dask-ms-only
+  leftover, but removing it was not authorized in this slice and is a
+  reasonable candidate to flag for 4I or a follow-up dependency-cleanup
+  slice rather than a silent extra removal here.
+- **(c) Dead string `"radiosim.io.writers"` in
+  `test_result_integration.py:257`'s forbidden-import tuple.** Adjudicated
+  as harmless residue, not a defect. Read the file directly: the tuple is
+  consumed by a `builtins.__import__` guard that fails the test if anything
+  *attempts* to import a listed name; since nothing in the reachable code
+  paths ever imports the now-deleted `radiosim.io.writers`, this entry is a
+  permanently-true no-op condition, not a false assertion — it does not
+  cause a false pass or false failure. `test_result_integration.py` is not
+  in the §35 Tier 4H writable list, so the implementer correctly declined to
+  touch it; the stale string is cosmetic and safe to clean up whenever that
+  file is next legitimately opened.
+- **(d) `ms` extra is now pyuvdata(core)+python-casacore.** Confirmed
+  empirically: `dask_ms`/`daskms` resolve to `None` via
+  `importlib.util.find_spec` in the active environment, and the full MS test
+  suite (`test_measurement_set.py` plus
+  `test_pyuvdata_321_output_contract.py`, 41 tests) passes with dask-ms
+  present nowhere in the manifest, lock, or installed environment.
+
+**Unobserved.** Live CI, GPU/JAX execution, non-macOS filesystems, Pyright,
+and real (non-injected) power-loss durability were not exercised in this
+review and remain unobserved. No Tier 4I implementation or broader scope was
+created.
