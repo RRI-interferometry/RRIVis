@@ -454,18 +454,20 @@ def test_jones_chain_composes_the_first_added_term_leftmost() -> None:
     )
 
 
-def test_point_solver_currently_adds_chain_terms_in_z_t_e_p_d_g_b_order(
+def test_point_solver_adds_chain_terms_in_the_canonical_order(
     tmp_path: Path,
 ) -> None:
-    """Pins the current inverted solver term order Z T E P D G B.
+    """Pins the Section 19.1 solver term order H G B D P C E T Z.
 
-    Combined with the composition rule above this yields J = Z T E P D G B, so
-    the bandpass currently reaches the sky field first.
+    At the baseline the additions ran in the inverted order Z T E P D G B, so
+    the bandpass reached the sky field first.  Combined with the composition
+    rule above, the corrected order yields J = H G B D P C E T Z with K applied
+    separately.
 
-    OWNED BY: Tier 5D, which reorders the additions to the Section 19.1
-    canonical chain.
+    FLIPPED BY: Tier 5D, in the same commit as the reordering.
     """
     instrument, beam_system = _solver_components(tmp_path)
+    receptors = resolve_receptors(ReceptorsConfig(), _resolve_instrument(tmp_path))
     n_sources = 2
     chain = _build_jones_chain(
         get_backend("numpy"),
@@ -486,24 +488,34 @@ def test_point_solver_currently_adds_chain_terms_in_z_t_e_p_d_g_b_order(
         LOCATION,
         60_676.0,
         beam_system,
+        receptors,
     )
 
     assert [term.name for term in chain.terms] == [
-        "Z",
-        "T",
-        "E",
-        "P",
-        "D",
+        "H",
         "G",
         "B",
+        "D",
+        "P",
+        "C",
+        "E",
+        "T",
+        "Z",
     ]
 
 
-def test_point_solver_chain_contains_only_the_beam_term_by_default(
+def test_point_solver_chain_always_carries_the_receptor_terms(
     tmp_path: Path,
 ) -> None:
-    """Pins that E is the only always-enabled chain term at the baseline."""
+    """Pins H, C, and E as the always-enabled chain terms.
+
+    At the baseline E was the only always-enabled term, so no receptor state
+    could reach the visibilities.
+
+    FLIPPED BY: Tier 5D, in the same commit as the solver integration.
+    """
     instrument, beam_system = _solver_components(tmp_path)
+    receptors = resolve_receptors(ReceptorsConfig(), _resolve_instrument(tmp_path))
     chain = _build_jones_chain(
         get_backend("numpy"),
         {},
@@ -516,20 +528,29 @@ def test_point_solver_chain_contains_only_the_beam_term_by_default(
         LOCATION,
         60_676.0,
         beam_system,
+        receptors,
     )
-    assert [term.name for term in chain.terms] == ["E"]
+    assert [term.name for term in chain.terms] == ["H", "C", "E"]
 
 
 def test_healpix_solver_never_constructs_a_jones_chain() -> None:
     """Pins the HEALPix path as a direct beam evaluation with no chain.
 
-    OWNED BY: Tier 5D, which must route the receptor terms into this path too
-    (S12) without reintroducing a divergent second chain implementation.
+    Tier 5D routed the receptor terms into this path by left-multiplying the
+    per-antenna beam Jones by the constant ``H_p @ C_p`` (Section 19.3), which
+    is exact because both terms are direction, time, and frequency independent.
+    No second chain implementation was introduced.
+
+    FLIPPED BY: Tier 5D, in the same commit as the solver integration.
     """
     source = inspect.getsource(visibility_healpix_module)
     assert "JonesChain" not in source
     assert "_build_jones_chain" not in source
     assert "beam_system.evaluate_jones" in source
+    # The receptor factor reaches this path as a matrix, not as a chain.
+    assert "_receptor_transforms" in source
+    assert "basis_transform_matrix" in source
+    assert "receptor_matrix" in source
 
     # The point-source path is the only chain builder today.
     assert "JonesChain" in inspect.getsource(visibility_module)

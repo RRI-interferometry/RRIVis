@@ -37,10 +37,15 @@ from radiosim.core.jones import (
     PolarizationLeakageJones,
     TroposphereJones,
 )
+from radiosim.core.jones.receptor import BasisTransformJones, ReceptorConfigJones
 
 # Import polarization utilities
 from radiosim.core.polarization import (
     stokes_to_coherency,
+)
+from radiosim.core.receptor import (
+    ResolvedReceptorSet,
+    UnsupportedFeedGeometryError,
 )
 from radiosim.core.sky.containers.constants import C_LIGHT
 
@@ -51,6 +56,37 @@ def _require_backend(backend: object) -> ArrayBackend:
     if not isinstance(backend, ArrayBackend):
         raise TypeError("backend must be an ArrayBackend")
     return backend
+
+
+def _require_receptors(receptors: object) -> ResolvedReceptorSet:
+    if type(receptors) is not ResolvedReceptorSet:
+        raise TypeError(
+            "receptors must be an exact ResolvedReceptorSet from resolve_receptors()"
+        )
+    return receptors
+
+
+def _reject_parallactic_rotation(
+    jones_config: Any,
+    receptors: ResolvedReceptorSet,
+) -> None:
+    """Reject an enabled ``P`` term combined with a rotated receptor.
+
+    ``ParallacticAngleJones`` is a Tier 7 identity stub and Tier 5 accepts only
+    a static topocentric feed rotation, so composing the two would silently
+    omit the time-dependent part of the receptor orientation
+    (``Tier5ReceptorFeedPlan.md`` Sections 12.3 and 27).
+    """
+    if not jones_config.get("P", {}).get("enabled", False):
+        return
+    if any(
+        receptor.feed_rotation_rad != 0.0
+        for receptor in receptors.receptor_by_antenna.values()
+    ):
+        raise UnsupportedFeedGeometryError(
+            "a non-zero feed_rotation_deg cannot be combined with an enabled "
+            "parallactic-angle term until Tier 7 implements it."
+        )
 
 
 def _require_frequencies(frequencies: object) -> np.ndarray:
@@ -207,6 +243,7 @@ def calculate_visibility(
     time_grid: "ObservationTimeGrid",
     frequencies: Any,
     backend: ArrayBackend,
+    receptors: ResolvedReceptorSet,
     jones_config: dict[str, Any] | None = None,
 ) -> Any:
     """
@@ -214,7 +251,8 @@ def calculate_visibility(
 
     Implements: V_pq = Σ_sources J_p @ C_source @ J_q^H
 
-    Where J is the total Jones matrix chain: J = B @ G @ D @ P @ E @ T @ Z @ K
+    Where J is the canonical Jones chain J = H @ G @ B @ D @ P @ C @ E @ T @ Z,
+    with K applied separately as a scalar phase.
 
     Parameters
     ----------
@@ -237,6 +275,11 @@ def calculate_visibility(
     backend : ArrayBackend
         Explicit array backend used by supported kernels.
         Options: get_backend("numpy"), get_backend("jax"), get_backend("numba")
+    receptors : ResolvedReceptorSet
+        Canonical resolved receptor inventory from ``resolve_receptors()``.
+        Supplies the per-antenna receptor term ``C`` and basis transform ``H``.
+        The default configuration (linear feeds, zero rotation, ``auto``) makes
+        both terms exactly the identity.
     jones_config : dict, optional
         Configuration for Jones chain terms. Keys are term names ('K', 'E', 'G', etc.),
         values are dicts with 'enabled' (bool) and term-specific parameters.
@@ -275,6 +318,8 @@ def calculate_visibility(
         raise TypeError("time_grid must be an exact ObservationTimeGrid")
     backend = _require_backend(backend)
     frequencies = _require_frequencies(frequencies)
+    receptors = _require_receptors(receptors)
+    _reject_parallactic_rotation(jones_config, receptors)
 
     # Get array namespace from backend
     xp = backend.xp
@@ -519,6 +564,7 @@ def calculate_visibility(
                 location,
                 time_mjd=float(current_obstime.mjd),
                 beam_system=beam_system,
+                receptors=receptors,
             )
 
             # Per-antenna Jones cache: compute chain once per antenna
@@ -606,9 +652,16 @@ def _build_jones_chain(
     location: Any,
     time_mjd: Any,
     beam_system: BeamSystem,
+    receptors: ResolvedReceptorSet,
 ) -> JonesChain:
-    """Build a JonesChain with configured terms (K excluded).
+    """Build a JonesChain in the canonical Section 19.1 order (K excluded).
 
+    Terms are added correlator-side first, because ``JonesChain`` composes
+    ``terms[0] @ ... @ terms[-1]``::
+
+        J = H @ G @ B @ D @ P @ C @ E @ T @ Z
+
+    ``H``, ``C``, and ``E`` are always present; every other term is optional.
     K is excluded because it requires baseline coordinates and is applied
     separately as a scalar phase multiplication for efficiency.
 
@@ -634,70 +687,24 @@ def _build_jones_chain(
         Current observation time in MJD.
     beam_system : BeamSystem
         Canonical per-antenna beam evaluator.
+    receptors : ResolvedReceptorSet
+        Canonical resolved receptor inventory supplying the C and H terms.
 
     Returns
     -------
     JonesChain
-        Chain with E (and optionally Z, T, P, D, G, B) terms.
+        Chain with H, C, and E (and optionally G, B, D, P, T, Z) terms, added
+        in the canonical Section 19.1 order.
     """
     n_antennas = len(instrument.antenna_numbers)
+    receptors = _require_receptors(receptors)
+    _reject_parallactic_rotation(jones_config, receptors)
     chain = JonesChain(backend)
 
-    # Z term: Ionosphere (optional)
-    z_config = jones_config.get("Z", {})
-    if z_config.get("enabled", False):
-        tec = z_config.get("tec", 1e16)
-        tec_array = np.full(n_antennas, tec)
-        z_jones = IonosphereJones(
-            tec=tec_array,
-            frequencies=np.array([freq]),
-            include_faraday=z_config.get("include_faraday", True),
-            include_delay=z_config.get("include_delay", True),
-        )
-        chain.add_term(z_jones)
-
-    # T term: Troposphere (optional)
-    t_config = jones_config.get("T", {})
-    if t_config.get("enabled", False):
-        t_jones = TroposphereJones(
-            n_antennas=n_antennas,
-            frequencies=np.array([freq]),
-            elevations=alt_rad,
-        )
-        chain.add_term(t_jones)
-
-    # E term: one exact canonical BeamSystem adapter (always enabled).
-    e_jones = _ResolvedBeamJones(
-        beam_system=beam_system,
-        instrument=instrument,
-        altitude_rad=alt_rad,
-        azimuth_rad=az_rad,
-        frequency_hz=float(freq),
-        time_mjd=float(time_mjd),
-    )
-    chain.add_term(e_jones)
-
-    # P term: Parallactic angle (optional)
-    p_config = jones_config.get("P", {})
-    if p_config.get("enabled", False):
-        ant_latitudes = np.full(n_antennas, location.lat.rad)
-        source_positions = np.column_stack([az_rad, alt_rad])
-        p_jones = ParallacticAngleJones(
-            antenna_latitudes=ant_latitudes,
-            source_positions=source_positions,
-            times=np.array([0.0]),
-            mount_type=p_config.get("mount_type", "altaz"),
-        )
-        chain.add_term(p_jones)
-
-    # D term: Polarization leakage (optional)
-    d_config = jones_config.get("D", {})
-    if d_config.get("enabled", False):
-        d_jones = PolarizationLeakageJones(
-            n_antennas=n_antennas,
-            d_terms=d_config.get("d_terms"),
-        )
-        chain.add_term(d_jones)
+    # H term: reporting-basis transform, leftmost because the correlator
+    # performs it (always enabled; exactly I2 when every antenna's native
+    # basis already is the resolved output basis).
+    chain.add_term(BasisTransformJones(receptors=receptors, instrument=instrument))
 
     # G term: Electronic gains (optional)
     g_config = jones_config.get("G", {})
@@ -717,5 +724,66 @@ def _build_jones_chain(
             bandpass_gains=b_config.get("bandpass_gains"),
         )
         chain.add_term(b_jones)
+
+    # D term: Polarization leakage (optional)
+    d_config = jones_config.get("D", {})
+    if d_config.get("enabled", False):
+        d_jones = PolarizationLeakageJones(
+            n_antennas=n_antennas,
+            d_terms=d_config.get("d_terms"),
+        )
+        chain.add_term(d_jones)
+
+    # P term: Parallactic angle (optional)
+    p_config = jones_config.get("P", {})
+    if p_config.get("enabled", False):
+        ant_latitudes = np.full(n_antennas, location.lat.rad)
+        source_positions = np.column_stack([az_rad, alt_rad])
+        p_jones = ParallacticAngleJones(
+            antenna_latitudes=ant_latitudes,
+            source_positions=source_positions,
+            times=np.array([0.0]),
+            mount_type=p_config.get("mount_type", "altaz"),
+        )
+        chain.add_term(p_jones)
+
+    # C term: receptor configuration, between the electronics-side DIEs and
+    # the sky-side DDEs (always enabled; exactly I2 for a linear receptor with
+    # zero rotation).
+    chain.add_term(ReceptorConfigJones(receptors=receptors, instrument=instrument))
+
+    # E term: one exact canonical BeamSystem adapter (always enabled).
+    e_jones = _ResolvedBeamJones(
+        beam_system=beam_system,
+        instrument=instrument,
+        altitude_rad=alt_rad,
+        azimuth_rad=az_rad,
+        frequency_hz=float(freq),
+        time_mjd=float(time_mjd),
+    )
+    chain.add_term(e_jones)
+
+    # T term: Troposphere (optional)
+    t_config = jones_config.get("T", {})
+    if t_config.get("enabled", False):
+        t_jones = TroposphereJones(
+            n_antennas=n_antennas,
+            frequencies=np.array([freq]),
+            elevations=alt_rad,
+        )
+        chain.add_term(t_jones)
+
+    # Z term: Ionosphere (optional)
+    z_config = jones_config.get("Z", {})
+    if z_config.get("enabled", False):
+        tec = z_config.get("tec", 1e16)
+        tec_array = np.full(n_antennas, tec)
+        z_jones = IonosphereJones(
+            tec=tec_array,
+            frequencies=np.array([freq]),
+            include_faraday=z_config.get("include_faraday", True),
+            include_delay=z_config.get("include_delay", True),
+        )
+        chain.add_term(z_jones)
 
     return chain

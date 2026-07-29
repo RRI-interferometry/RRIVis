@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from radiosim.backends.base import ArrayBackend
     from radiosim.core.beam import BeamSystem
     from radiosim.core.instrument_adapters import SolverInstrumentView
+    from radiosim.core.receptor import ResolvedReceptorSet
     from radiosim.core.sky.containers.model import SourceArrays
     from radiosim.core.time_grid import ObservationTimeGrid
 
@@ -130,6 +131,7 @@ class VisibilitySimulator(ABC):
         *,
         location: Any,
         time_grid: "ObservationTimeGrid",
+        receptors: "ResolvedReceptorSet",
         jones_config: dict[str, Any] | None = None,
     ) -> Any:
         """
@@ -164,6 +166,10 @@ class VisibilitySimulator(ABC):
         time_grid : ObservationTimeGrid
             Exact canonical UTC sample-center grid.
 
+        receptors : ResolvedReceptorSet
+            Canonical resolved receptor inventory supplying the per-antenna
+            receptor term C and reporting-basis transform H.
+
         jones_config : dict, optional
             Non-beam Jones term configuration.
 
@@ -192,15 +198,18 @@ class VisibilitySimulator(ABC):
             - C_s: 2×2 coherency matrix for source s (from Stokes params)
             - ^H: Hermitian conjugate
 
-        The full Jones chain is: J = B @ G @ D @ P @ E @ T @ Z @ K
-            - K: Geometric phase (fringe rotation)
-            - E: Primary beam response
+        The canonical Jones chain is J = H @ G @ B @ D @ P @ C @ E @ T @ Z,
+        with K applied separately as a scalar phase:
+            - H: Reporting-basis transform
             - G: Electronic gains
             - B: Bandpass
             - D: Polarization leakage
             - P: Parallactic angle
-            - Z: Ionosphere (Faraday rotation)
+            - C: Receptor configuration (basis and feed rotation)
+            - E: Primary beam response
             - T: Troposphere
+            - Z: Ionosphere (Faraday rotation)
+            - K: Geometric phase (fringe rotation)
         """
         pass
 

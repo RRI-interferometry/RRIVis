@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from radiosim.backends.base import ArrayBackend
     from radiosim.core.beam import BeamSystem
     from radiosim.core.instrument_adapters import SolverInstrumentView
+    from radiosim.core.receptor import ResolvedReceptorSet
     from radiosim.core.sky.containers.model import SourceArrays
     from radiosim.core.time_grid import ObservationTimeGrid
 
@@ -154,6 +155,7 @@ class RIMESimulator(VisibilitySimulator):
         *,
         location: Any,
         time_grid: "ObservationTimeGrid",
+        receptors: "ResolvedReceptorSet",
         jones_config: dict[str, Any] | None = None,
     ) -> Any:
         """
@@ -185,6 +187,9 @@ class RIMESimulator(VisibilitySimulator):
 
         time_grid : ObservationTimeGrid
             Exact canonical UTC sample-center grid.
+
+        receptors : ResolvedReceptorSet
+            Canonical resolved receptor inventory supplying the C and H terms.
 
         jones_config : dict, optional
             Non-beam Jones term configuration.
@@ -218,6 +223,7 @@ class RIMESimulator(VisibilitySimulator):
             time_grid=time_grid,
             frequencies=frequencies,
             backend=backend,
+            receptors=receptors,
             jones_config=jones_config,
         )
 

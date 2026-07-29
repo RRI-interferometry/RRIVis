@@ -32,7 +32,9 @@ from radiosim.backends import ArrayBackend
 from radiosim.core.beam import BeamSystem
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
+from radiosim.core.jones.receptor import basis_transform_matrix, receptor_matrix
 from radiosim.core.polarization import stokes_to_coherency
+from radiosim.core.receptor import ResolvedReceptorSet
 from radiosim.core.sky import (
     SkyModel,
     brightness_temp_to_flux_density,
@@ -73,6 +75,45 @@ def _require_bool(value: object, *, field_name: str) -> bool:
     return value
 
 
+def _require_receptors(receptors: object) -> ResolvedReceptorSet:
+    if type(receptors) is not ResolvedReceptorSet:
+        raise TypeError(
+            "receptors must be an exact ResolvedReceptorSet from resolve_receptors()"
+        )
+    return receptors
+
+
+def _receptor_transforms(
+    *,
+    receptors: ResolvedReceptorSet,
+    instrument: "SolverInstrumentView",
+    antenna_numbers: tuple[int, ...],
+) -> dict[int, np.ndarray]:
+    """Return the constant ``H_p @ C_p`` for each selected antenna.
+
+    The HEALPix path builds no Jones chain; it evaluates the beam directly.
+    ``C`` and ``H`` are direction, time, and frequency
+    independent, so left-multiplying the per-antenna beam Jones by the single
+    constant product is exactly the canonical chain restricted to the terms
+    this path carries (``Tier5ReceptorFeedPlan.md`` Section 19.3).
+    """
+    transforms: dict[int, np.ndarray] = {}
+    for antenna_number in antenna_numbers:
+        antenna_id = _canonical_antenna_id(instrument, antenna_number)
+        try:
+            receptor = receptors.receptor_by_antenna[antenna_id]
+        except KeyError as exc:
+            raise InstrumentAdapterInvariantError(
+                "the resolved receptor set does not cover solver antenna "
+                f"number={antenna_id.number}, name={antenna_id.name!r}"
+            ) from exc
+        transforms[antenna_number] = basis_transform_matrix(
+            receptor.basis,
+            receptors.output_basis,
+        ) @ receptor_matrix(receptor.basis, receptor.feed_rotation_rad)
+    return transforms
+
+
 def _canonical_antenna_id(
     instrument: "SolverInstrumentView",
     antenna_number: int,
@@ -98,8 +139,13 @@ def _evaluate_beam_batch_by_antenna(
     frequency_hz: float,
     time_mjd: float,
     backend: ArrayBackend,
+    receptor_transforms: dict[int, np.ndarray],
 ) -> dict[int, Any]:
-    """Evaluate every selected handler once and share it by canonical ID."""
+    """Evaluate every selected handler once and share it by canonical ID.
+
+    The shared beam evaluation is deduplicated by handler, but the receptor
+    factor is per antenna, so ``H_p @ C_p`` is applied after the lookup.
+    """
     handler_by_antenna = dict(beam_system.state.assignment_handler_ids)
     handler_cache: dict[str, Any] = {}
     result: dict[int, Any] = {}
@@ -131,7 +177,12 @@ def _evaluate_beam_batch_by_antenna(
                 time_mjd=float(time_mjd),
                 backend=backend,
             )
-        result[antenna_number] = handler_cache[handler_id]
+        beam_jones = handler_cache[handler_id]
+        transform = backend.asarray(
+            receptor_transforms[antenna_number],
+            dtype=beam_jones.dtype,
+        )
+        result[antenna_number] = backend.matmul(transform, beam_jones)
     return result
 
 
@@ -167,6 +218,7 @@ def calculate_visibility_healpix(
     time_grid: "ObservationTimeGrid",
     frequencies: Any,
     backend: ArrayBackend,
+    receptors: ResolvedReceptorSet,
     output_units: str = "Jy",
     include_polarization: bool = False,
 ) -> Any:
@@ -201,6 +253,11 @@ def calculate_visibility_healpix(
         Exact canonical UTC sample-center grid.
     frequencies : ndarray
         Canonical frequency centers in Hz.
+    receptors : ResolvedReceptorSet
+        Canonical resolved receptor inventory from ``resolve_receptors()``.
+        Every antenna's beam Jones is left-multiplied by the constant
+        ``H_p @ C_p``, in both the polarized and the scalar path, so cross-hand
+        outputs are zero in the reported basis rather than by assumption.
     output_units : str, default="Jy"
         Output units: "Jy" (convert to Jansky) or "K.sr" (keep temperature ×
         solid angle). In polarized mode, always "Jy".
@@ -231,6 +288,7 @@ def calculate_visibility_healpix(
         include_polarization,
         field_name="include_polarization",
     )
+    receptors = _require_receptors(receptors)
     if sky_model.healpix is None:
         raise ValueError(
             "sky_model must contain a HEALPix payload. "
@@ -321,6 +379,11 @@ def calculate_visibility_healpix(
             for number in instrument.antenna_numbers
             if number in selected_numbers
         )
+        receptor_transforms = _receptor_transforms(
+            receptors=receptors,
+            instrument=instrument,
+            antenna_numbers=ant_nums,
+        )
 
         # ======================================================================
         # FREQUENCY LOOP
@@ -336,6 +399,7 @@ def calculate_visibility_healpix(
                 frequency_hz=float(freq),
                 time_mjd=float(current_obstime.mjd),
                 backend=backend,
+                receptor_transforms=receptor_transforms,
             )
 
             if use_polarization:

@@ -34,7 +34,7 @@ START_ISO = "2025-01-01T00:00:00"
 
 def _solver_components(
     tmp_path: Path,
-) -> tuple[SolverInstrumentView, object]:
+) -> tuple[SolverInstrumentView, object, object]:
     simulator = Simulator.from_mapping(
         valid_config_mapping(
             tmp_path,
@@ -47,10 +47,12 @@ def _solver_components(
         base_dir=tmp_path,
     )
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     return (
         SolverInstrumentView.from_state(simulator._instrument_state),
         simulator.beam_system,
+        simulator.receptors,
     )
 
 
@@ -91,7 +93,7 @@ def test_point_and_healpix_use_the_same_canonical_time_count(
     cadence: float,
     expected_count: int,
 ) -> None:
-    instrument, beam_system = _solver_components(tmp_path)
+    instrument, beam_system, receptors = _solver_components(tmp_path)
     backend = get_backend("numpy")
     time_grid = build_observation_time_grid(
         start_time=START_ISO,
@@ -107,6 +109,7 @@ def test_point_and_healpix_use_the_same_canonical_time_count(
         time_grid=time_grid,
         frequencies=FREQUENCIES_HZ,
         backend=backend,
+        receptors=receptors,
     )
     healpix = calculate_visibility_healpix(
         sky_model=_tiny_healpix_model(),
@@ -116,6 +119,7 @@ def test_point_and_healpix_use_the_same_canonical_time_count(
         time_grid=time_grid,
         frequencies=FREQUENCIES_HZ,
         backend=backend,
+        receptors=receptors,
     )
 
     expected_shape = (

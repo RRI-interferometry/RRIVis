@@ -180,6 +180,7 @@ def _solver_components(
         base_dir=tmp_path,
     )
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     return (
         simulator,
@@ -334,7 +335,7 @@ def test_point_and_healpix_preserve_differential_complex_fits_phase(
             },
         ],
     }
-    _simulator, original_view, beam_system = _solver_components(tmp_path, beams)
+    simulator, original_view, beam_system = _solver_components(tmp_path, beams)
     view = _zero_baseline(original_view)
     backend = get_backend("numpy")
     monkeypatch.setattr(point_visibility, "SkyCoord", _FixedAltAzSkyCoord)
@@ -353,6 +354,7 @@ def test_point_and_healpix_preserve_differential_complex_fits_phase(
         time_grid=TIME_GRID,
         frequencies=FREQUENCIES,
         backend=backend,
+        receptors=simulator.receptors,
     )[0, 0, 0]
     healpix = calculate_visibility_healpix(
         sky_model=_healpix_sky(
@@ -369,6 +371,7 @@ def test_point_and_healpix_preserve_differential_complex_fits_phase(
         frequencies=FREQUENCIES,
         include_polarization=True,
         backend=backend,
+        receptors=simulator.receptors,
     )[0, 0, 0]
     expected = _expected_matrix(
         beam_system,
@@ -388,7 +391,7 @@ def test_i_only_healpix_returns_full_receptor_matrix(
     tmp_path,
     monkeypatch,
 ):
-    _simulator, original_view, beam_system = _solver_components(
+    simulator, original_view, beam_system = _solver_components(
         tmp_path,
         {"mode": "analytic"},
         heterogeneous_diameters=True,
@@ -405,6 +408,7 @@ def test_i_only_healpix_returns_full_receptor_matrix(
         frequencies=FREQUENCIES,
         output_units="K.sr",
         backend=get_backend("numpy"),
+        receptors=simulator.receptors,
     )
     expected = _expected_matrix(
         beam_system,
@@ -465,7 +469,7 @@ def test_point_healpix_full_matrix_parity_for_canonical_families(
                     },
                 ],
             }
-    _simulator, original_view, beam_system = _solver_components(tmp_path, beams)
+    simulator, original_view, beam_system = _solver_components(tmp_path, beams)
     view = _zero_baseline(original_view)
     monkeypatch.setattr(point_visibility, "SkyCoord", _FixedAltAzSkyCoord)
     monkeypatch.setattr(healpix_visibility, "rayleigh_jeans_factor", lambda *_: 1.0)
@@ -483,6 +487,7 @@ def test_point_healpix_full_matrix_parity_for_canonical_families(
         time_grid=TIME_GRID,
         frequencies=FREQUENCIES,
         backend=get_backend("numpy"),
+        receptors=simulator.receptors,
     )[0, 0, 0]
     healpix = calculate_visibility_healpix(
         sky_model=_healpix_sky(
@@ -499,6 +504,7 @@ def test_point_healpix_full_matrix_parity_for_canonical_families(
         frequencies=FREQUENCIES,
         include_polarization=True,
         backend=get_backend("numpy"),
+        receptors=simulator.receptors,
     )[0, 0, 0]
 
     np.testing.assert_allclose(point, healpix, rtol=1e-12, atol=1e-12)
@@ -508,7 +514,7 @@ def test_point_healpix_auto_and_cross_matrix_parity(
     tmp_path,
     monkeypatch,
 ):
-    _simulator, original_view, beam_system = _solver_components(
+    simulator, original_view, beam_system = _solver_components(
         tmp_path,
         {"mode": "analytic"},
         heterogeneous_diameters=True,
@@ -539,6 +545,7 @@ def test_point_healpix_auto_and_cross_matrix_parity(
         time_grid=TIME_GRID,
         frequencies=FREQUENCIES,
         backend=get_backend("numpy"),
+        receptors=simulator.receptors,
     )
     healpix = calculate_visibility_healpix(
         sky_model=_healpix_sky(
@@ -555,6 +562,7 @@ def test_point_healpix_auto_and_cross_matrix_parity(
         frequencies=FREQUENCIES,
         include_polarization=True,
         backend=get_backend("numpy"),
+        receptors=simulator.receptors,
     )
 
     for index, _pair in enumerate(pairs):
@@ -570,7 +578,7 @@ def test_horizon_and_below_horizon_batches_skip_beam_evaluation(
     tmp_path,
     monkeypatch,
 ):
-    _simulator, view, beam_system = _solver_components(
+    simulator, view, beam_system = _solver_components(
         tmp_path,
         {"mode": "analytic"},
     )
@@ -604,6 +612,7 @@ def test_horizon_and_below_horizon_batches_skip_beam_evaluation(
         time_grid=TIME_GRID,
         frequencies=FREQUENCIES,
         backend=get_backend("numpy"),
+        receptors=simulator.receptors,
     )
     healpix = calculate_visibility_healpix(
         sky_model=SimpleNamespace(
@@ -619,6 +628,7 @@ def test_horizon_and_below_horizon_batches_skip_beam_evaluation(
         frequencies=FREQUENCIES,
         include_polarization=True,
         backend=get_backend("numpy"),
+        receptors=simulator.receptors,
     )
 
     np.testing.assert_array_equal(point, 0.0)
@@ -630,7 +640,7 @@ def test_empty_point_source_batch_skips_fits_evaluation(
     monkeypatch,
 ):
     fits = write_scalar_efield_beamfits(tmp_path)
-    _simulator, view, beam_system = _solver_components(
+    simulator, view, beam_system = _solver_components(
         tmp_path,
         {
             "mode": "shared_fits",
@@ -654,6 +664,7 @@ def test_empty_point_source_batch_skips_fits_evaluation(
         time_grid=TIME_GRID,
         frequencies=FREQUENCIES,
         backend=get_backend("numpy"),
+        receptors=simulator.receptors,
     )
 
     np.testing.assert_array_equal(result, 0.0)
@@ -678,7 +689,7 @@ def test_healpix_evaluates_once_per_handler_id_not_numeric_equality(
             },
         ],
     }
-    _simulator, view, beam_system = _solver_components(tmp_path, beams)
+    simulator, view, beam_system = _solver_components(tmp_path, beams)
     calls: list[AntennaId] = []
     original_evaluate = BeamSystem.evaluate_jones
 
@@ -697,6 +708,7 @@ def test_healpix_evaluates_once_per_handler_id_not_numeric_equality(
         frequencies=FREQUENCIES,
         output_units="K.sr",
         backend=get_backend("numpy"),
+        receptors=simulator.receptors,
     )
 
     assert len(beam_system.state.handlers) == 2
@@ -709,7 +721,7 @@ def test_healpix_shared_handler_is_evaluated_once_per_batch(
     monkeypatch,
 ):
     shared = write_scalar_efield_beamfits(tmp_path)
-    _simulator, view, beam_system = _solver_components(
+    simulator, view, beam_system = _solver_components(
         tmp_path,
         {
             "mode": "shared_fits",
@@ -735,6 +747,7 @@ def test_healpix_shared_handler_is_evaluated_once_per_batch(
         frequencies=FREQUENCIES,
         include_polarization=True,
         backend=get_backend("numpy"),
+        receptors=simulator.receptors,
     )
 
     assert len(beam_system.state.handlers) == 1
@@ -936,7 +949,7 @@ def test_beam_dictionary_in_jones_config_is_rejected(
     tmp_path,
     monkeypatch,
 ):
-    _simulator, view, beam_system = _solver_components(
+    simulator, view, beam_system = _solver_components(
         tmp_path,
         {"mode": "analytic"},
     )
@@ -952,6 +965,7 @@ def test_beam_dictionary_in_jones_config_is_rejected(
             frequencies=FREQUENCIES,
             backend=get_backend("numpy"),
             jones_config={"beam": {}},
+            receptors=simulator.receptors,
         )
 
 
@@ -959,7 +973,7 @@ def test_removed_solver_beam_keywords_raise_ordinary_type_errors(
     tmp_path,
     monkeypatch,
 ):
-    _simulator, view, beam_system = _solver_components(
+    simulator, view, beam_system = _solver_components(
         tmp_path,
         {"mode": "analytic"},
     )
@@ -981,12 +995,14 @@ def test_removed_solver_beam_keywords_raise_ordinary_type_errors(
             source_arrays=_source_arrays(stokes_i=1.0),
             beam_manager=object(),
             **common,
+            receptors=simulator.receptors,
         )
     with pytest.raises(TypeError, match="beam_config"):
         calculate_visibility_healpix(
             sky_model=_healpix_sky(stokes_i=1.0, polarized=False),
             beam_config={},
             **common,
+            receptors=simulator.receptors,
         )
     with pytest.raises(TypeError, match="beam_manager"):
         RIMESimulator().calculate_visibilities(

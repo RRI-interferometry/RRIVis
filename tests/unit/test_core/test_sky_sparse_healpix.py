@@ -263,6 +263,7 @@ class TestSparseVisibility:
         )
         simulator = Simulator.from_mapping(data, base_dir=tmp_path)
         simulator._ensure_instrument_state()
+        simulator._ensure_receptor_set()
         simulator._ensure_beam_system()
         instrument = SolverInstrumentView.from_state(simulator._instrument_state)
         location = EarthLocation.from_geodetic(0.0 * u.deg, 0.0 * u.deg, 0.0 * u.m)
@@ -281,6 +282,7 @@ class TestSparseVisibility:
             time_grid=time_grid,
             frequencies=freqs,
             backend=get_backend("numpy"),
+            receptors=simulator.receptors,
         )
         dense_vis = calculate_visibility_healpix(
             dense,
@@ -290,6 +292,7 @@ class TestSparseVisibility:
             time_grid=time_grid,
             frequencies=freqs,
             backend=get_backend("numpy"),
+            receptors=simulator.receptors,
         )
 
         np.testing.assert_allclose(

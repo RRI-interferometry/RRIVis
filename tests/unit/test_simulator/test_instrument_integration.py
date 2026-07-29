@@ -20,6 +20,7 @@ from radiosim.backends import get_backend
 from radiosim.core.beam import BeamSystem
 from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.instrument_resolution import DiameterResolutionError
+from radiosim.core.receptor import ResolvedReceptorSet
 from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
@@ -82,7 +83,7 @@ def _instrument_mapping(tmp_path, *, include_diameters: bool = True):
 
 def _one_metre_solver_components(
     tmp_path,
-) -> tuple[SolverInstrumentView, BeamSystem]:
+) -> tuple[SolverInstrumentView, BeamSystem, ResolvedReceptorSet]:
     mapping = _instrument_mapping(tmp_path)
     mapping["instrument"]["source"]["path"] = str(tmp_path / "one-metre.txt")
     (tmp_path / "one-metre.txt").write_text(
@@ -93,10 +94,12 @@ def _one_metre_solver_components(
     )
     simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     return (
         SolverInstrumentView.from_state(simulator._instrument_state),
         simulator.beam_system,
+        simulator.receptors,
     )
 
 
@@ -339,7 +342,7 @@ def test_point_and_healpix_keep_canonical_negative_phase_sign(tmp_path, monkeypa
     monkeypatch.setattr(BeamSystem, "evaluate_jones", identity_jones)
     wavelength_m = 2.0
     frequency_hz = c.value / wavelength_m
-    instrument, beam_system = _one_metre_solver_components(tmp_path)
+    instrument, beam_system, receptors = _one_metre_solver_components(tmp_path)
     location = EarthLocation.from_geodetic(0.0, 0.0, 0.0)
     obstime = Time("2024-01-01T00:00:00")
     frequencies = np.array([frequency_hz])
@@ -357,6 +360,7 @@ def test_point_and_healpix_keep_canonical_negative_phase_sign(tmp_path, monkeypa
         time_grid=time_grid,
         frequencies=frequencies,
         backend=get_backend("numpy"),
+        receptors=receptors,
     )
     point_matrix = point_result[0, 0, 0]
 
@@ -374,6 +378,7 @@ def test_point_and_healpix_keep_canonical_negative_phase_sign(tmp_path, monkeypa
         frequencies=frequencies,
         output_units="K.sr",
         backend=get_backend("numpy"),
+        receptors=receptors,
     )
 
     assert point_matrix[0, 0] == pytest.approx(-1j)

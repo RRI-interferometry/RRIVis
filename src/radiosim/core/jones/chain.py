@@ -14,18 +14,30 @@ from radiosim.core.jones.base import JonesTerm
 class JonesChain:
     """Manages the ordered chain of per-antenna Jones matrices.
 
-    The Jones chain represents the multiplicative sequence of instrumental
-    and propagation effects applied to the signal, sky → correlator:
+    The chain composes ``terms[0] @ terms[1] @ ... @ terms[-1]``: terms are
+    stored left-to-right and iterated in reverse, so the **last** term added is
+    the sky-side factor applied first to the incoming signal and the **first**
+    term added is the correlator-side factor applied last.
 
-        J_total = B @ G @ D @ P @ E @ T @ Z @ K   (core 8 terms)
+    The canonical factorization, leftmost nearest the correlator
+    (``Tier5ReceptorFeedPlan.md`` Section 19.1):
 
-    Extended terms can be inserted at any position, e.g.:
+        J_total = H @ G @ B @ D @ P @ C @ E @ T @ Z   (K applied separately)
 
-        J_total = B @ G @ GAINCURVE @ X @ DF @ D @ P @ C @ E @ Ee @ a @ dE
-                  @ F @ T @ Z @ W @ K @ Kd @ Rc
+    so the canonical add order is H, G, B, D, P, C, E, T, Z.  ``H`` is leftmost
+    because the reporting-basis change happens at the correlator; ``C`` sits
+    between the sky-side direction-dependent terms (``E``, ``T``, ``Z``) and the
+    electronics-side direction-independent ones (``D``, ``G``, ``B``), because
+    leakage and gains are defined in the receptor's own basis.  ``K`` is applied
+    separately as a scalar phase because it needs baseline coordinates.
 
-    Terms are stored left-to-right and iterated in reverse so that the
-    rightmost (sky-side) term is applied first to the incoming signal.
+    Extended terms are inserted at their physical position, e.g.:
+
+        J_total = H @ G @ GAINCURVE @ B @ X @ DF @ D @ P @ C @ E @ Ee @ a @ dE
+                  @ F @ T @ Z @ W   (K, Kd, Rc applied separately)
+
+    Order matters: ``C`` and ``H`` are the first factors RadioSim composes that
+    do not commute with their neighbours.
 
     Notes:
         Only ``JonesTerm`` subclasses may be added here.  Baseline-dependent
@@ -38,10 +50,11 @@ class JonesChain:
         >>> backend = get_backend("numpy")
         >>> chain = JonesChain(backend)
         >>>
-        >>> # Add Jones terms (sky → correlator order, rightmost first)
-        >>> chain.add_term(GeometricPhaseJones(...))  # K
-        >>> chain.add_term(primary_beam_term)  # E, supplied by the high-level solver
+        >>> # Add terms correlator-side first; the last added is applied first
+        >>> chain.add_term(basis_transform_term)  # H
         >>> chain.add_term(GainJones(...))  # G
+        >>> chain.add_term(receptor_config_term)  # C
+        >>> chain.add_term(primary_beam_term)  # E, supplied by the solver
         >>>
         >>> # Compute total Jones matrix for antenna 0, source 5
         >>> J = chain.compute_antenna_jones(

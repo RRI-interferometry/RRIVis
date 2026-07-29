@@ -38,23 +38,25 @@ TIME_GRID = build_observation_time_grid(
 )
 
 
-def _solver_components(tmp_path) -> tuple[SolverInstrumentView, object]:
+def _solver_components(tmp_path) -> tuple[SolverInstrumentView, object, object]:
     data = valid_config_mapping(
         tmp_path,
         baseline_selection={"correlations": "cross"},
     )
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     return (
         SolverInstrumentView.from_state(simulator._instrument_state),
         simulator.beam_system,
+        simulator.receptors,
     )
 
 
 def _heterogeneous_solver_components(
     tmp_path,
-) -> tuple[SolverInstrumentView, object]:
+) -> tuple[SolverInstrumentView, object, object]:
     data = valid_config_mapping(
         tmp_path,
         baseline_selection={"correlations": "cross"},
@@ -72,10 +74,12 @@ def _heterogeneous_solver_components(
     (tmp_path / "antennas.txt").write_text("\n".join(lines) + "\n")
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     return (
         SolverInstrumentView.from_state(simulator._instrument_state),
         simulator.beam_system,
+        simulator.receptors,
     )
 
 
@@ -154,13 +158,14 @@ def _healpix_model(*, polarized: bool = False) -> SkyModel:
 def test_low_level_solvers_require_explicit_backend_and_canonical_frequencies(
     tmp_path,
 ):
-    instrument, beam_system = _solver_components(tmp_path)
+    instrument, beam_system, receptors = _solver_components(tmp_path)
     common = {
         "instrument": instrument,
         "beam_system": beam_system,
         "location": LOCATION,
         "time_grid": TIME_GRID,
         "frequencies": FREQS,
+        "receptors": receptors,
     }
     point = {
         **common,
@@ -238,7 +243,7 @@ def test_low_level_solvers_require_explicit_backend_and_canonical_frequencies(
 def test_point_source_visibility_numba_matches_numpy(tmp_path):
     numpy_backend = _get_optional_backend("numpy")
     numba_backend = _get_optional_backend("numba")
-    instrument, beam_system = _solver_components(tmp_path)
+    instrument, beam_system, receptors = _solver_components(tmp_path)
 
     expected = calculate_visibility(
         instrument=instrument,
@@ -248,6 +253,7 @@ def test_point_source_visibility_numba_matches_numpy(tmp_path):
         time_grid=TIME_GRID,
         frequencies=FREQS,
         backend=numpy_backend,
+        receptors=receptors,
     )
     actual = calculate_visibility(
         instrument=instrument,
@@ -257,13 +263,14 @@ def test_point_source_visibility_numba_matches_numpy(tmp_path):
         time_grid=TIME_GRID,
         frequencies=FREQS,
         backend=numba_backend,
+        receptors=receptors,
     )
 
     np.testing.assert_allclose(actual, expected, rtol=1e-10, atol=1e-10)
 
 
 def test_point_source_per_channel_polarization_uses_full_matrix_path(tmp_path):
-    instrument, beam_system = _solver_components(tmp_path)
+    instrument, beam_system, receptors = _solver_components(tmp_path)
     sources = _source_arrays()
     sources["stokes_q"] = np.zeros(2, dtype=np.float64)
     sources["stokes_u"] = np.zeros(2, dtype=np.float64)
@@ -282,6 +289,7 @@ def test_point_source_per_channel_polarization_uses_full_matrix_path(tmp_path):
         time_grid=TIME_GRID,
         frequencies=FREQS,
         backend=get_backend("numpy"),
+        receptors=receptors,
     )
 
     assert np.any(np.abs(result[..., 0, 1]) > 0.0)
@@ -291,7 +299,7 @@ def test_point_source_per_channel_polarization_uses_full_matrix_path(tmp_path):
 def test_point_source_visibility_jax_matches_numpy(tmp_path):
     numpy_backend = _get_optional_backend("numpy")
     jax_backend = _get_optional_backend("jax")
-    instrument, beam_system = _solver_components(tmp_path)
+    instrument, beam_system, receptors = _solver_components(tmp_path)
 
     expected = calculate_visibility(
         instrument=instrument,
@@ -301,6 +309,7 @@ def test_point_source_visibility_jax_matches_numpy(tmp_path):
         time_grid=TIME_GRID,
         frequencies=FREQS,
         backend=numpy_backend,
+        receptors=receptors,
     )
     actual = calculate_visibility(
         instrument=instrument,
@@ -310,6 +319,7 @@ def test_point_source_visibility_jax_matches_numpy(tmp_path):
         time_grid=TIME_GRID,
         frequencies=FREQS,
         backend=jax_backend,
+        receptors=receptors,
     )
 
     np.testing.assert_allclose(
@@ -333,8 +343,10 @@ def test_point_source_fast_precision_casts_explicitly_at_output_boundary(tmp_pat
     )
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     instrument = SolverInstrumentView.from_state(simulator._instrument_state)
+    receptors = simulator.receptors
     backend = _StrictOutputBackend(precision=precision)
 
     actual = calculate_visibility(
@@ -345,6 +357,7 @@ def test_point_source_fast_precision_casts_explicitly_at_output_boundary(tmp_pat
         time_grid=TIME_GRID,
         frequencies=FREQS,
         backend=backend,
+        receptors=receptors,
     )
 
     assert actual.dtype == np.dtype(np.complex64)
@@ -366,8 +379,10 @@ def test_polarized_healpix_fast_precision_casts_explicitly_at_output_boundary(
     )
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     instrument = SolverInstrumentView.from_state(simulator._instrument_state)
+    receptors = simulator.receptors
     backend = _StrictOutputBackend(precision=precision)
 
     actual = calculate_visibility_healpix(
@@ -379,6 +394,7 @@ def test_polarized_healpix_fast_precision_casts_explicitly_at_output_boundary(
         frequencies=FREQS,
         include_polarization=True,
         backend=backend,
+        receptors=receptors,
     )
 
     assert actual.dtype == np.dtype(np.complex64)
@@ -390,7 +406,7 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
     sky_model = _healpix_model(polarized=polarized)
     numpy_backend = _get_optional_backend("numpy")
     numba_backend = _get_optional_backend("numba")
-    instrument, beam_system = _solver_components(tmp_path)
+    instrument, beam_system, receptors = _solver_components(tmp_path)
 
     expected = calculate_visibility_healpix(
         sky_model,
@@ -401,6 +417,7 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
         frequencies=FREQS,
         include_polarization=polarized,
         backend=numpy_backend,
+        receptors=receptors,
     )
     actual = calculate_visibility_healpix(
         sky_model,
@@ -411,6 +428,7 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
         frequencies=FREQS,
         include_polarization=polarized,
         backend=numba_backend,
+        receptors=receptors,
     )
 
     np.testing.assert_allclose(
@@ -424,7 +442,7 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
 def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
     tmp_path,
 ):
-    view, beam_system = _heterogeneous_solver_components(tmp_path)
+    view, beam_system, receptors = _heterogeneous_solver_components(tmp_path)
     backend = _get_optional_backend("numpy")
 
     assert view.antenna_numbers == (0, 1)
@@ -440,6 +458,7 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
         time_grid=TIME_GRID,
         frequencies=FREQS,
         backend=backend,
+        receptors=receptors,
     )
     assert point_result.shape == (1, 1, 1, 2, 2)
 
@@ -467,13 +486,14 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
         time_grid=TIME_GRID,
         frequencies=FREQS,
         backend=backend,
+        receptors=receptors,
     )
 
     assert healpix_result.shape == (1, 1, 1, 2, 2)
 
 
 def test_point_beam_rejects_inconsistent_solver_antenna_number(tmp_path):
-    view, beam_system = _solver_components(tmp_path)
+    view, beam_system, receptors = _solver_components(tmp_path)
     beam = visibility_module._ResolvedBeamJones(
         beam_system=beam_system,
         instrument=view,

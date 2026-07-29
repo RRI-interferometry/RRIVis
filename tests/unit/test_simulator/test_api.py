@@ -688,6 +688,100 @@ def test_receptor_failure_precedes_beam_load_and_leaves_no_runtime_state(
     assert not (tmp_path / "output").exists()
 
 
+def test_run_hands_the_resolved_receptor_set_to_the_point_solver(
+    tmp_path,
+    monkeypatch,
+):
+    simulator = Simulator.from_mapping(_explicit_data(tmp_path), base_dir=tmp_path)
+    simulator.setup()
+    captured: dict[str, object] = {}
+    original = simulator._simulator.calculate_visibilities
+
+    def record(**kwargs):
+        captured.update(kwargs)
+        return original(**kwargs)
+
+    monkeypatch.setattr(simulator._simulator, "calculate_visibilities", record)
+    simulator.run(progress=False)
+
+    assert captured["receptors"] is simulator.receptors
+
+
+def test_run_hands_the_resolved_receptor_set_to_the_healpix_solver(
+    tmp_path,
+    monkeypatch,
+):
+    data = _explicit_data(
+        tmp_path,
+        visibility={
+            "calculation_type": "direct_sum",
+            "sky_representation": "healpix_map",
+        },
+    )
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+    simulator.setup()
+    captured: dict[str, object] = {}
+    healpix_module = importlib.import_module("radiosim.core.visibility_healpix")
+    original = healpix_module.calculate_visibility_healpix
+
+    def record(**kwargs):
+        captured.update(kwargs)
+        return original(**kwargs)
+
+    monkeypatch.setattr(healpix_module, "calculate_visibility_healpix", record)
+    simulator.run(progress=False)
+
+    assert captured["receptors"] is simulator.receptors
+
+
+def test_a_circular_receptor_configuration_changes_the_published_visibilities(
+    tmp_path,
+):
+    """A configured basis reaches the result; the labels are still Tier 5E's."""
+    sources = [
+        {
+            "kind": "test_sources",
+            "representation": "point_sources",
+            "num_sources": 40,
+            "distribution": "uniform",
+            "seed": 5,
+            "dec_deg": -30.0,
+            "stokes_v_fraction": 0.9,
+        }
+    ]
+    results = {}
+    for basis in ("linear", "circular"):
+        base_dir = tmp_path / basis
+        base_dir.mkdir()
+        data = _explicit_data(base_dir, sky_model={"sources": sources})
+        data["receptors"] = {"default": {"basis": basis}}
+        simulator = Simulator.from_mapping(data, base_dir=base_dir)
+        results[basis] = simulator.run(progress=False)
+
+    linear = np.asarray(results["linear"].visibilities)
+    circular = np.asarray(results["circular"].visibilities)
+
+    assert np.max(np.abs(linear)) > 0.0
+    assert not np.allclose(linear, circular)
+    # Stokes V lands in the cross hands of a linear array and in the parallel
+    # hands of a circular one.
+    assert np.max(np.abs(circular[..., 1])) < 1e-12
+    assert np.max(np.abs(linear[..., 1])) > 1e-6
+    # Total intensity is basis independent (Section 18.6).
+    np.testing.assert_allclose(
+        circular[..., 0] + circular[..., 3],
+        linear[..., 0] + linear[..., 3],
+        rtol=1e-10,
+        atol=1e-12,
+    )
+    # Tier 5D deliberately does not touch the result model: the correlation
+    # labels and basis are still the linear literals until Tier 5E makes them
+    # data driven.
+    for result in results.values():
+        assert result.correlations == ("XX", "XY", "YX", "YY")
+        assert result.polarization_basis == "linear_xy"
+
+
 def test_observability_resolves_receptors_before_beam_work(tmp_path):
     simulator = Simulator.from_mapping(_explicit_data(tmp_path), base_dir=tmp_path)
 

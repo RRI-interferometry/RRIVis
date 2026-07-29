@@ -958,6 +958,7 @@ class Simulator:
                 output_units="Jy",
                 include_polarization=use_pol,
                 backend=backend,
+                receptors=self.receptors,
             )
         else:
             use_pol = True
@@ -971,6 +972,7 @@ class Simulator:
                 backend=backend,
                 location=location,
                 time_grid=self._resolved.observation.time_grid,
+                receptors=self.receptors,
                 jones_config=None,
             )
 
