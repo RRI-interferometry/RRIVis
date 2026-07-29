@@ -610,6 +610,92 @@ def test_setup_uses_resolved_backend_precision_frequency_and_runtime_fields(tmp_
     assert simulator._frequencies_hz.flags.owndata
 
 
+def test_setup_resolves_receptors_between_instrument_and_beam_state(tmp_path):
+    simulator = Simulator.from_mapping(_explicit_data(tmp_path), base_dir=tmp_path)
+
+    with pytest.raises(RuntimeError, match="^Receptor resolution has not completed$"):
+        _ = simulator.receptors
+
+    simulator.setup()
+
+    assert simulator.receptors.output_basis == "linear_xy"
+    assert len(simulator.receptors.receptor_by_antenna) == len(simulator.antennas)
+    assert len(simulator.receptors.provenance.receptor_sha256) == 64
+
+
+def test_receptor_resolution_is_idempotent_and_retained(tmp_path):
+    simulator = Simulator.from_mapping(_explicit_data(tmp_path), base_dir=tmp_path)
+
+    simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
+    first = simulator.receptors
+    simulator._ensure_receptor_set()
+
+    assert simulator.receptors is first
+
+    simulator.setup()
+
+    assert simulator.receptors is first
+
+
+def test_non_default_receptor_configuration_resolves_through_setup(tmp_path):
+    data = _explicit_data(tmp_path)
+    data["receptors"] = {
+        "default": {"basis": "circular", "feed_rotation_deg": 30.0},
+        "output_basis": "circular",
+    }
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+
+    simulator.setup()
+
+    resolved = simulator.receptors
+    assert resolved.output_basis == "circular_rl"
+    for receptor in resolved.receptor_by_antenna.values():
+        assert receptor.basis == "circular"
+        assert receptor.feed_array == ("r", "l")
+
+
+def test_receptor_failure_precedes_beam_load_and_leaves_no_runtime_state(
+    tmp_path,
+    monkeypatch,
+):
+    from radiosim.core.receptor import ReceptorAssignmentError
+
+    data = _explicit_data(tmp_path)
+    data["receptors"] = {
+        "overrides": [
+            {"antenna": {"kind": "number", "number": 91}, "basis": "circular"}
+        ]
+    }
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("receptor resolution failure initiated later setup work")
+
+    monkeypatch.setattr("radiosim.core.beam.load_beam_system", forbidden)
+    monkeypatch.setattr("radiosim.core.beam.resolve_beam_assignments", forbidden)
+    monkeypatch.setattr("radiosim.backends.get_backend", forbidden)
+    monkeypatch.setattr("radiosim.utils.device.get_device_resources", forbidden)
+    monkeypatch.setattr("radiosim.utils.network.get_network_status", forbidden)
+
+    with pytest.raises(ReceptorAssignmentError):
+        simulator.setup()
+
+    assert simulator._receptor_set is None
+    assert simulator._beam_system is None
+    assert simulator._backend is None
+    assert simulator._is_setup is False
+    assert not (tmp_path / "output").exists()
+
+
+def test_observability_resolves_receptors_before_beam_work(tmp_path):
+    simulator = Simulator.from_mapping(_explicit_data(tmp_path), base_dir=tmp_path)
+
+    simulator.plan_observability(channel_index=0)
+
+    assert simulator.receptors.output_basis == "linear_xy"
+
+
 def test_setup_passes_resolved_glob_matches_without_re_globbing(tmp_path, monkeypatch):
     for name in ("b.skyh5", "a.skyh5"):
         (tmp_path / name).touch()

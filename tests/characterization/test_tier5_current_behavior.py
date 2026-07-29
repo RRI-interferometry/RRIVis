@@ -608,9 +608,9 @@ def test_resolve_instrument_has_exactly_one_caller_inside_the_simulator() -> Non
 
     simulator_source = inspect.getsource(Simulator.setup)
     instrument_position = simulator_source.index("self._ensure_instrument_state()")
+    receptor_position = simulator_source.index("self._ensure_receptor_set()")
     beam_position = simulator_source.index("self._ensure_beam_system()")
-    assert instrument_position < beam_position
-    assert "_ensure_receptor" not in simulator_source
+    assert instrument_position < receptor_position < beam_position
 
     import radiosim.io.config_resolution as config_resolution_module
 

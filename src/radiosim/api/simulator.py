@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     )
     from radiosim.core.observability import ObservabilityPlan
     from radiosim.core.precision import PrecisionConfig
+    from radiosim.core.receptor import ResolvedReceptorSet
     from radiosim.core.result import SimulationResult
     from radiosim.core.runtime_config import (
         ConfigurationProvenance,
@@ -165,6 +166,7 @@ class Simulator:
 
         # Canonical state is assigned atomically before later setup work.
         self._instrument_state = None
+        self._receptor_set: ResolvedReceptorSet | None = None
         self._beam_system: BeamSystem | None = None
         self._beam_system_lock = threading.RLock()
         self._source_arrays: SourceArrays | None = None
@@ -360,6 +362,13 @@ class Simulator:
         return self._instrument_state.selection.baselines
 
     @property
+    def receptors(self) -> ResolvedReceptorSet:
+        """Return the exact canonical resolved receptor set."""
+        if self._receptor_set is None:
+            raise RuntimeError("Receptor resolution has not completed")
+        return self._receptor_set
+
+    @property
     def beam_system(self) -> BeamSystem:
         """Return the exact successfully loaded canonical BeamSystem."""
         if self._beam_system is None:
@@ -426,6 +435,25 @@ class Simulator:
             selection=selection,
         )
         self._instrument_state = state
+
+    def _ensure_receptor_set(self) -> None:
+        """Resolve and atomically retain the canonical receptor set.
+
+        Receptor resolution is pure and runs after instrument resolution and
+        before any beam load, backend selection, device transfer, filesystem
+        access, or network access (``Tier5ReceptorFeedPlan.md`` Section 25.2).
+        """
+        if self._receptor_set is not None:
+            return
+        if self._instrument_state is None:
+            raise RuntimeError("Instrument resolution has not completed")
+
+        from radiosim.core.receptor import resolve_receptors
+
+        self._receptor_set = resolve_receptors(
+            self._resolved.receptors,
+            self._instrument_state.instrument,
+        )
 
     def _ensure_beam_system(self) -> None:
         """Resolve and atomically retain one complete canonical BeamSystem."""
@@ -527,6 +555,7 @@ class Simulator:
         from radiosim.core.beam import BeamSamplingDerivationError
 
         try:
+            self._ensure_receptor_set()
             self._ensure_beam_system()
             self._clear_later_runtime_state()
             return self._setup_after_instrument_state()
@@ -1191,6 +1220,7 @@ class Simulator:
         )
 
         self._ensure_instrument_state()
+        self._ensure_receptor_set()
         self._ensure_beam_system()
 
         frequencies = self._resolved.frequency.channel_frequencies_hz
