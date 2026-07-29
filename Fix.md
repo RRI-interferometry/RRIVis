@@ -3793,3 +3793,176 @@ Live CI, GPU/JAX execution, non-macOS filesystems, Pyright, Sphinx build
 classification, and real (non-injected) power-loss durability were not
 exercised in this review and remain unobserved. No Tier 4G implementation or
 broader scope was created.
+
+### 2026-07-29 Tier 4G independent acceptance
+
+**Tier 4G is independently accepted.** Tier 4H is the next authorized separate
+slice and was not implemented. Tier 4 as a whole remains unaccepted;
+`OUT-001` through `OUT-006` remain **OPEN**.
+
+The review covered exactly four commits on clean `main`, `f360427..b38b700`:
+`7432cc3` (`feat(config): add visibility phase unit input`), `93f9bb0`
+(`feat(plot): migrate visibility renderers to canonical results`), `be1fef4`
+(`feat(output): activate transactional workflow plotting`), and `b38b700`
+(`docs(output): align canonical result surfaces`). The touched-file set was
+enumerated from `git show --stat` on each commit and compared line-for-line
+against the exact §35 Tier 4G writable list. Every file matched except four,
+each of which the implementer had declared in advance:
+
+- `tests/unit/test_simulator/test_result_integration.py` — the old test
+  asserted `plot()` always raised; now that 4G activates plotting, the test
+  necessarily changes to assert contract-error-before-setup and
+  result-unavailable-after-setup, and narrows the forbidden-import tuple from
+  the now-lazy `radiosim.visualization` package to its four heavy submodules
+  (`bokeh_plots`, `gsm_plots`, `observability`, `sky`). Ratified: a direct,
+  unavoidable consequence of the renderer activation this slice authorizes,
+  not new scope.
+- `tests/characterization/test_tier4_current_behavior.py` — the plot branch
+  of `test_save_requires_a_result_while_plot_remains_unavailable` (renamed
+  `test_save_and_plot_both_require_one_published_result`) now asserts a
+  published HTML file post-run instead of an unconditional raise. Ratified:
+  same necessary consequence as above.
+- `src/radiosim/visualization/__init__.py` — converted to a lazy
+  `__getattr__`/`__dir__` module so importing the package, or rejecting a
+  plot request, never imports Bokeh/Plotly/Matplotlib/healpy. Ratified: this
+  is what makes the fail-closed import-boundary invariant in item (a)
+  possible at all; verified empirically (below), not merely by reading code.
+- `tests/unit/test_cli/conftest.py` — the `Simulator.plot` test double now
+  writes real placeholder HTML files instead of returning a path to a
+  nonexistent file. Ratified: required by `run_cli_workflow`'s new
+  `artifact_names`/manifest-hashing path, which reads the declared files back
+  to hash and verify them; a non-existent declared file would make every
+  workflow-plotting test in `test_output_workflow.py` fail for a reason
+  unrelated to what those tests check.
+
+No other file outside the declared list was touched, and no declared file
+was touched in a way inconsistent with its slice ownership (e.g. no width
+semantics were reopened in the three shipped YAMLs; only
+`visibility_phase_unit` and the docs/config/notebook text changed).
+
+Independent code reading covered `src/radiosim/visualization/bokeh_plots.py`
+(full), `src/radiosim/visualization/__init__.py`/`errors.py` (full),
+`src/radiosim/api/simulator.py::plot` (full), and
+`src/radiosim/cli/workflow.py::_validate_plot_preflight`,
+`preflight_cli_workflow`, `run_cli_workflow`, and `_open_published_plots`
+(full), against Tier4ResultOutputPlan.md §21, §22.2, §23.2, and §25.
+`plot_visibility`, `plot_heatmaps`, and `plot_modulus_vs_frequency` all take
+a single positional `SimulationResult`, read `result.time_grid.to_mjd()` and
+`result.frequencies_hz` verbatim, and derive Stokes I via
+`result.stokes_i()` (`visibilities[..., 0] + visibilities[..., 3]`, i.e.
+`XX + YY`; correlation order `(XX, XY, YX, YY)` is enforced elsewhere in
+`core/result.py`). The heatmap renderer's image extent uses only
+`float(times[0])`, `float(times[-1] - times[0])`, `float(frequencies[0])`,
+and `float(frequencies[-1] - frequencies[0])` — derived from the exact
+coordinate arrays, never from duration/cadence/scalar-start — which is a
+legitimate Bokeh `image()` anchoring technique, not axis reconstruction.
+`_validate_plot_preflight` runs as the first statement inside
+`preflight_cli_workflow`, before `any_output`/format/target resolution, so an
+unrenderable request (non-bokeh backend, invalid phase unit) is rejected
+before any directory decision, matching §23.2 item 7. `run_cli_workflow`
+calls `simulator.plot(output_dir=staging, show=False, ...)`, rejects any
+declared file whose parent is not the staging directory
+(`WorkflowOutputError`), publishes atomically, and only then calls
+`_open_published_plots`, which catches and logs (never raises) a browser
+failure so the CLI transaction still succeeds; the direct API
+(`Simulator.plot(show=True)`) is deliberately stricter and raises
+`ResultBrowserError` on the same failure. The one retained
+`webbrowser.open` call site inside `_persist_bokeh_document` (used by
+`plot_antenna_layout`/`plot_antenna_layout_3d_plotly`) is unreachable from
+any workflow or `Simulator.plot()` path: `grep` across `src/radiosim/`
+confirms the only caller of `plot_antenna_layout` from `Simulator.plot()`
+passes `open_in_browser=False` explicitly, and neither `cli/workflow.py` nor
+`Simulator.plot()` ever calls `plot_antenna_layout_3d_plotly` or
+`plot_observability`.
+
+Beyond reading, this review ran its own empirical probes, not just the
+shipped tests:
+
+- A fresh `pixi run python -c ...` process imported `radiosim`, built a
+  `Simulator` from a HERA-5 config, and called `sim.plot(...)` before
+  `run()`. `ResultUnavailableError` was raised and
+  `bokeh`/`matplotlib`/`healpy`/`plotly` and the heavy visualization
+  submodules were absent from `sys.modules` afterward; touching
+  `radiosim.visualization.plot_visibility` afterward did load `bokeh`,
+  confirming the laziness is real rather than pre-cached.
+- An end-to-end `pixi run radiosim --config <scratch>.yaml` run (5-antenna
+  HERA layout, 3 channels, `save_results: true`, `plot_results: true`,
+  `open_plots_in_browser: false`, `visibility_phase_unit: degrees`, run in
+  `/private/tmp/.../scratchpad`) published `manifest.json`,
+  `resolved-config.yaml`, `simulation.log`, `visibilities.h5`, and all four
+  declared plot HTML files under one run directory with no files outside it;
+  the manifest listed SHA-256 hashes for every one of the seven artifacts.
+- Loading the published HDF5 result back with `load_result_hdf5` and
+  decoding the gzip+base64 Bokeh `ndarray` blobs embedded in the published
+  HTML confirmed, by exact array equality (`np.array_equal`, no tolerance):
+  the `visibility-phase-lsts.html` time axis equals `result.time_grid.to_mjd()`
+  bit-for-bit; the `modulus-phase-freq.html` frequency axis equals
+  `result.frequencies_hz` bit-for-bit; the heatmap extent literals
+  (`x`, `dw`, `y`, `dh`) equal the corresponding first/last/difference of
+  those same two arrays; and the plotted modulus for baseline 0, channel 0
+  equals `np.abs(visibilities[:, 0, 0, 0] + visibilities[:, 0, 0, 3])`
+  computed independently from the raw saved array.
+- The shipped `tests/unit/test_cli/test_output_workflow.py` scenarios for a
+  renderer failure leaving no published run, a renderer writing outside
+  staging being rejected, and a browser failure keeping the published run
+  intact were read and confirmed to exercise exactly the injected-failure
+  gates this review would otherwise have had to write by hand; all three
+  passed in the full suite run below.
+
+The exact focused Tier 4G gate (test_result_plots.py, test_output_workflow.py,
+test_config_mode.py, test_config.py, test_result_integration.py,
+test_tier4_current_behavior.py, test_tier1h_documentation.py) collected 264
+and passed 264/264 on Python 3.12.13 (`pixi run -e py312 python -m pytest
+<those seven files> -q`). The full non-slow suite
+(`pixi run test -- -m "not slow"`, default py311 environment) collected 3,283
+and reported **3,277 passed, 6 skipped, 26 warnings** — an increase of exactly
+40 passing tests over the recorded Tier 4F baseline (3,237/6/26), fully
+accounted for by the new `tests/unit/test_visualization/test_result_plots.py`
+(20 collected cases, several parametrized), the new
+`test_tier4g_*` cases added to `test_config.py`, `test_output_workflow.py`,
+`test_config_mode.py`, and `test_tier1h_documentation.py`, and the renamed
+`test_tier4_current_behavior.py`/`test_result_integration.py` cases — no test
+was deleted without a same-slice replacement. `pixi run lint` (`ruff check .`)
+reported "All checks passed!"; `pixi run check-format` (`ruff format --check
+.`) reported "309 files already formatted". `pixi run radiosim validate`
+accepted all three shipped YAML configs (`configs/config.yaml`,
+`configs/realistic_foreground_example.yaml`,
+`antenna_layout_examples/example_telescope_config.yaml`).
+
+`make -C docs html` (invoked as `pixi run python -m sphinx -b html docs
+docs/_build/html -w <warnings.log>`) reported **42 warnings** in the ambient
+working tree, matching the implementer's claim but not, by itself,
+distinguishing a real regression from noise. This review built the same
+Sphinx configuration a second time from a `git worktree add --detach
+<scratch> f360427` checkout (a detached worktree, not a new branch; removed
+with `git worktree remove --force` immediately after, main tree untouched
+throughout) with `PYTHONPATH` pointed at that worktree's `src/` so autodoc
+imported the pre-4G module bodies. That build reported **40 warnings** —
+matching the Tier 4F-recorded baseline exactly. Diffing the two warning logs
+after normalizing the worktree path prefix showed the extra two lines in the
+42-warning run were both `toc.not_included` warnings for
+`docs/superpowers/plans/2026-06-21-core-sky-cleanup.md` and
+`docs/superpowers/specs/2026-06-21-core-sky-cleanup-design.md` — files dated
+over a month before the Tier 4G commits, listed in `.gitignore`
+(`docs/superpowers/`), absent from `git ls-files`, and untouched by any of
+the four reviewed commits. Sphinx scans the literal directory tree
+regardless of `.gitignore`, so these two warnings appear in-place at both
+commits whenever the local untracked directory exists, and are absent from
+both when it does not (as in the clean worktree). After excluding those two
+lines, the remaining 40-line warning sets from the two builds are line-for-
+line identical. **Net new warnings attributable to the four Tier 4G commits:
+zero**, satisfying the acceptance criterion; the raw 42-vs-40 numbers the
+implementer and this review both observed are explained entirely by ambient
+untracked local files, not by anything in the diff.
+
+`git status` was clean before and after the review; none of the four
+production commits contains a co-author line of any kind; the working tree
+was confirmed byte-identical to `b38b700` (`git status --porcelain` empty,
+`git rev-parse HEAD` = `b38b700a0870b3de9bd54a885358cf741db6c917`) after every
+scratch artifact was written exclusively under
+`/private/tmp/.../scratchpad`.
+
+Live CI, GPU/JAX execution, non-macOS filesystems, Pyright, matplotlib-backend
+rendering (only bokeh is implemented and only bokeh was exercised), and real
+(non-injected) power-loss durability were not exercised in this review and
+remain unobserved. No Tier 4H implementation or broader scope was created.

@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Tier 4F independently accepted; Tier 4G remains the next authorized separate slice and was not started |
+| Status | Tier 4G independently accepted; Tier 4H remains the next authorized separate slice and was not started |
 | Date | 2026-07-29 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
