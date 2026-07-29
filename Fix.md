@@ -4303,3 +4303,108 @@ prior acceptance record was modified. `POL-001` remains **OPEN** and `POL-002`
 remains **ROADMAP**. Tier 5A remains unauthorized. The next task is an
 independent review and acceptance of `Tier5ReceptorFeedPlan.md`, not
 implementation.
+
+### 2026-07-29 Tier 5 design independent acceptance
+
+**The Tier 5 receptor/polarization design is independently accepted after a
+bounded correction.** `Tier5ReceptorFeedPlan.md` remains the governing
+implementation specification. This current status supersedes, but does not
+rewrite, the design-gate paragraph above that correctly left Tier 5A
+unauthorized pending this review.
+
+The fail-closed review began on clean `main` at design commit `5b4c17b`
+(`docs(feeds): plan Tier 5 receptor integration`), parent `1472c3c`
+(`docs(output): accept Tier 4 integration`). The review confirmed the commit
+touched exactly `Fix.md` and `Tier5ReceptorFeedPlan.md`, changed no §5 issue
+register row, and modified no prior acceptance record.
+
+Independent source review re-verified every load-bearing characterization
+claim by reading the cited lines directly, not by trusting the plan's prose:
+the `feeds:` rejection and its stale hint pointing at the also-removed
+`beams.feed_model` (`io/config.py:2023-2026`, `:1629-1632`); the nine strict
+`RadioSimConfig` sections under `extra="forbid"`; the four independent
+correlation-label/AIPS-code sites plus the pyuvdata `feeds=["x","y"]` /
+`polarization_array=["xx","xy","yx","yy"]` construction literals
+(`core/result.py:32`, `io/hdf5.py:58-60`, `io/standard_visibility.py:29-31`,
+`:887`, `:898`); the literal `"linear_xy"` hashed into the scientific
+fingerprint (`core/result.py:408`) and `stokes_i()` indexing `0`/`3` without
+consulting `self.correlations` (`:512-519`); the scalar `e·I₂` E-Jones
+boundary (`core/beam/runtime.py:372-388`); the exact `JonesChain` composition
+`terms[0] @ ... @ terms[-1]` (`core/jones/chain.py:166,184`) and the current
+`Z T E P D G B` add order (`core/visibility.py:647-719`), independently
+recomputed to be the exact reverse of the Hamaker-Bregman-Sault/Smirnov
+canonical order; the current `stokes_to_coherency` construction
+`C[0,1] = (U − iV)/2` with no test pinning the sign (`core/polarization.py:112-131`,
+confirmed the only caller of the function in
+`tests/unit/test_core/test_beam_solver_integration.py:279` derives its own
+oracle from the same function under test, so it cannot pin the convention);
+and that `visibility_healpix.py` constructs no `JonesChain` and calls
+`beam_system.evaluate_jones` directly. Every one of these matched the plan
+exactly. A parallel independent probe of the installed pyuvdata 3.2.1 source
+confirmed all AIPS/feed-geometry claims in Section 31 (circular codes,
+`feed_array`/`feed_angle` shapes and defaults, the deprecated `x_orientation`
+path, the `Nfeeds ∈ {1,2}` constraint, and the `pyproject.toml>=2.4` pin); a
+live `Telescope.new(feeds=["r","l"], feed_angle=[[0,0],...], mount_type="fixed")`
+call succeeded with no `x_orientation`, which is consistent with, but not a
+substitute for, the plan's own gated Q3 probe requirement in 5A.
+
+The Stokes `V` sign question (Section 10.2, Q1) was independently re-derived
+from first principles rather than taken on the plan's authority. Computing
+`S B S^H` for `S = (1/√2)[[1,i],[1,-i]]` (rows `R,L`, columns `x,y`) against
+the plan's corrected brightness matrix `B = ½[[I+Q,U+iV],[U−iV,I−Q]]`
+reproduces exactly the claimed `V_RR=(I+V)/2, V_RL=(Q+iU)/2, V_LR=(Q−iU)/2,
+V_LL=(I−V)/2`; the same computation against the current baseline matrix
+`B=½[[I+Q,U−iV],[U+iV,I−Q]]` reproduces exactly the claimed mirrored table
+`V_RR=(I−V)/2, V_LL=(I+V)/2`, confirming a `V=+I` source would emerge as pure
+`LL` under the unmodified code. The rotation invariants (`S R(χ) =
+diag(e^{-iχ},e^{+iχ}) S`, the `2χ` rotation of `Q,U`, and the
+`e^{∓2iχ}` cross-hand phase) were independently re-derived and hold exactly.
+This confirms the plan's Section 18 mathematics is internally consistent and
+correctly computed from its own stated conventions. Whether R2-R4 is in fact
+the convention actually implemented by `codex-africanus`/`matvis` could not be
+settled independently in this workspace (the package is not installed here),
+which is precisely why the plan gates the sign correction behind Slice 5A
+evidence rather than asserting it as already proven. That gate is adequate:
+Section 34.1 requires the R2/R4 reproduction and the `codex-africanus`
+statement before any sign change, and requires the design to be amended and
+re-accepted if the evidence disagrees.
+
+`Fix.md` §14 coverage was checked line by line: all six design decisions
+(Sections 10-15) are resolved, all seven implementation-work items map to a
+named slice, all eight required tests map to concrete test files and cases in
+Section 29, the sixteen-criterion mapping of exit criteria and the
+twenty-five-criterion whole-tier acceptance gate (Section 39) cover every
+`POL-001`/`POL-002` closure requirement (Section 40), and Tier 7 boundaries
+(P-term/parallactic interaction, elliptical/multi-feed receptors, D/G
+calibration) are excluded with explicit typed rejections, not silent
+identity (Section 11.2, 12.3, 27, 42).
+
+Slice quality was checked against the Section 35 writable-file lists: 5A-5I
+are each scoped to a small, independently acceptable, tests-first commit;
+5B is gated on Q2 (the exact `resolve_receptors()` call site), 5C on Q1 (the
+`V`-sign evidence), and 5F on Q3 (the pyuvdata circular-write probe), matching
+the risk register; no slice depends on unstated future work; and 5D's
+deliberate choice to leave the result still stamped `linear_xy` while testing
+circular behavior against the raw `(2,2)` cube is explicit and does not hide
+a scope gap.
+
+One documentation-only defect was found and corrected before this acceptance:
+four internal cross-references (lines then 22, 519, 732, 1655) pointed at a
+nonexistent "Section 46" for the open-questions section, which is actually
+Section 43. Correction `568855f`
+(`docs(feeds): correct Tier 5 design`) fixes only those four references; it
+changes no characterization claim, scientific decision, slice boundary, or
+file list.
+
+This acceptance changes planning records only. No Tier 5 production code,
+test, fixture, configuration, dependency, lockfile, CI definition, or
+generated artifact was changed, and no §5 issue register row was modified.
+`POL-001` remains **OPEN** and `POL-002` remains **ROADMAP**; neither is
+closed by a design gate. Tier 5A is now the only next authorized slice and
+remains limited to its two characterization/probe test files
+(`tests/characterization/test_tier5_current_behavior.py`,
+`tests/characterization/test_pyuvdata_321_polarization_contract.py`); Tier 5B
+through 5I remain unauthorized until each predecessor slice is implemented
+and independently accepted. No dual-Python run, CI check, Pyright, Ruff,
+Sphinx, YAML validation, or offline example was executed at this review. No
+PR, tag, release, or deployment was created.
