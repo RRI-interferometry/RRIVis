@@ -497,7 +497,22 @@ def test_four_correlation_constant_sites_are_independent_literal_copies() -> Non
     """Pins the four duplicated correlation contracts of Section 6.3.
 
     OWNED BY: Tier 5E and Tier 5F, which replace all four with the single
-    ``radiosim.core.polarization_basis`` constant.
+    ``radiosim.core.polarization_basis`` constant.  The four literal copies
+    below are still independent, so the defect this pins is untouched.
+
+    NARROWED BY: Tier 5C.  Two clauses of the 5A pin were collateral rather
+    than part of the D4 contract, and Tier 5C's own mandated deliverables
+    (Sections 34.3 and 35: add ``core/polarization_basis.py``; rewrite the
+    ``core/polarization.py`` attribution to cite codex-africanus, whose
+    mapping names ``"RR"`` and ``"LL"``) falsify both:
+
+    * ``polarization_basis.py`` now exists -- but nothing imports it yet, which
+      is the property that actually matters to 5E/5F and is asserted below.
+    * circular labels now appear in ``src/`` -- so the scan below asserts they
+      have not reached any of the four duplicated sites, which is the property
+      the original clause was protecting.
+
+    The four-independent-copies assertions are unchanged.
     """
     assert result_module._CORRELATIONS == ("XX", "XY", "YX", "YY")
     assert hdf5_module.CORRELATIONS == ("XX", "XY", "YX", "YY")
@@ -528,15 +543,22 @@ def test_four_correlation_constant_sites_are_independent_literal_copies() -> Non
         'CANONICAL_CORRELATIONS: Final = ("XX", "XY", "YX", "YY")'
         in inspect.getsource(standard_visibility_module)
     )
-    assert not (SOURCE_ROOT / "radiosim" / "core" / "polarization_basis.py").exists()
+    # Tier 5C added the shared table, but no production module consumes it yet:
+    # the four sites above still carry their own literals (defect D4 is open).
+    assert (SOURCE_ROOT / "radiosim" / "core" / "polarization_basis.py").exists()
+    for module in (result_module, hdf5_module, standard_visibility_module):
+        assert "core.polarization_basis" not in inspect.getsource(module)
 
-    # No circular AIPS code and no circular label appears anywhere in src/.
-    circular_hits = [
-        path
+    # Circular labels must not have reached any of the four duplicated sites:
+    # those stay linear-only until Tier 5E and Tier 5F rewire them.
+    circular_hits = {
+        path.name
         for path in (SOURCE_ROOT / "radiosim").rglob("*.py")
         if any(token in path.read_text() for token in ('"RR"', '"LL"', '"rr"', '"ll"'))
-    ]
-    assert circular_hits == []
+    }
+    assert circular_hits.isdisjoint(
+        {"result.py", "hdf5.py", "standard_visibility.py", "measurement_set.py"}
+    )
 
 
 def test_pyuvdata_construction_is_hard_coded_to_the_linear_basis() -> None:

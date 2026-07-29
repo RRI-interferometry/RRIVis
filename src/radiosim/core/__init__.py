@@ -91,6 +91,10 @@ from radiosim.core.polarization import (
     stokes_to_coherency,
     visibility_to_correlations,
 )
+from radiosim.core.polarization_basis import (
+    CORRELATION_LABELS,
+    PolarizationBasis,
+)
 from radiosim.core.precision import (
     COMPLEX256_AVAILABLE,
     FLOAT128_AVAILABLE,
@@ -307,6 +311,9 @@ __all__ = [
     "stokes_to_coherency",
     "apply_jones_matrices",
     "visibility_to_correlations",
+    # Polarization basis
+    "PolarizationBasis",
+    "CORRELATION_LABELS",
     # Sky Model (unified)
     "SkyModel",
     "GSMObserver08",
