@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted, 5A authorized. Independently accepted after a bounded correction (`568855f`); implementation not started. |
+| Status | Design accepted; 5A independently accepted after bounded corrections (`568855f`, and this Tier 5A acceptance); 5B authorized. Implementation not started. |
 | Date | 2026-07-29 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
@@ -690,7 +690,7 @@ both bases — but Tier 5 requires it to *derive* those indices from
 
 ### 14.2 The two accepted correlation coordinate sets
 
-| Basis token | Labels | In-memory AIPS codes | On-disk AIPS code order | pyuvdata `feeds` | pyuvdata `polarization_array` |
+| Basis token | Labels | In-memory AIPS codes | Round-trip AIPS code order | pyuvdata `feed_array` | pyuvdata `polarization_array` |
 |---|---|---|---|---|---|
 | `linear_xy` | `("XX","XY","YX","YY")` | `(-5, -7, -8, -6)` | `(-5, -6, -7, -8)` = `XX,YY,XY,YX` | `["x","y"]` | `["xx","xy","yx","yy"]` |
 | `circular_rl` | `("RR","RL","LR","LL")` | `(-1, -3, -4, -2)` | `(-1, -2, -3, -4)` = `RR,LL,RL,LR` | `["r","l"]` | `["rr","rl","lr","ll"]` |
@@ -699,8 +699,24 @@ The linear row reproduces the existing constants exactly
 (`src/radiosim/io/hdf5.py:59-60`,
 `src/radiosim/io/standard_visibility.py:29-31`), so no linear behavior changes.
 The circular row follows the same two rules: in-memory order is the row-major
-matrix order; on-disk order is descending AIPS code, which is what pyuvdata
-produces when writing FITS/MS.
+matrix order; the descending code order is what a `UVData` in either basis
+reports in `polarization_array` after a UVFITS write/read round trip, and what
+pyuvdata's *reader* produces from a Measurement Set on read-back.
+
+**Correction (Tier 5A, Q3).** This column is labelled "On-disk AIPS code
+order" in the design-gate text; Tier 5A's independent pyuvdata 3.2.1 probe
+(`tests/characterization/test_pyuvdata_321_polarization_contract.py`) found
+that label is only literally true for UVFITS, whose polarization axis is a
+monotonic `CRVAL`/`CDELT` sequence and is genuinely written in this descending
+order. For a Measurement Set, the `POLARIZATION` table's `CORR_TYPE` column
+preserves the **in-memory** order passed to `UVData.new` (verified: circular
+`CORR_TYPE = [5, 6, 7, 8]` = `RR,RL,LR,LL`, not the descending row above); the
+descending order only appears after `UVData.read_ms()` canonicalizes the axis
+on the way back into memory. Tier 5F must not expect `(-1,-2,-3,-4)` when
+inspecting `CORR_TYPE` directly, only when inspecting `UVData.polarization_array`
+post-read. The `pyuvdata feeds` column is also corrected below (§14.4); no
+correlation-coordinate contract, decision, or slice boundary changes as a
+result — see Section 43 Q3.
 
 This table becomes **one** module-level constant, exported once and imported by
 `core/result.py`, `io/hdf5.py`, and `io/standard_visibility.py`, replacing the
@@ -711,7 +727,10 @@ four independent copies (defect D4).
 RadioSim does not write `CORR_TYPE` directly; pyuvdata derives it from
 `polarization_array` using the casacore `Stokes` enumeration (R8):
 `RR=5, RL=6, LR=7, LL=8, XX=9, XY=10, YX=11, YY=12`. Tier 5 keeps that
-delegation and validates it on read-back.
+delegation and validates it on read-back. This is the in-memory order, not the
+Section 14.2 descending order (Tier 5A, Q3): a circular write keeps
+`CORR_TYPE = [5, 6, 7, 8]`, and only `UVData.read_ms()` reorders it to
+`(-1,-2,-3,-4)` in `polarization_array`.
 `src/radiosim/io/measurement_set.py:595-604` currently requires
 `NUM_CORR == 4`, which remains correct for both bases; the downstream label
 check in `src/radiosim/io/standard_visibility.py` becomes basis-aware.
@@ -728,6 +747,20 @@ basis for any downstream reader to interpret the data correctly. The per-antenna
 provenance — the HDF5 receptor group, the summary JSON receptor block, and the
 `RADIOSIM_PROJECTION_JSON=` history record — never inferred by a reader from
 `feed_array`.
+
+**Correction (Tier 5A, Q3).** Tier 5F must construct `Telescope.new(...)` with
+an explicit `feed_array` of shape `(Nants, Nfeeds)` (and `feed_angle` of the
+same shape), not the convenience `feeds=[...]` parameter this section
+previously implied for both bases. The installed pyuvdata 3.2.1
+(`pyuvdata/telescopes.py:884-950`) routes `feeds` only through
+`set_feeds_from_x_orientation`, which `Telescope.new` invokes solely when
+`x_orientation` is also supplied; without it, `feeds` is silently ignored and
+`feed_array` stays `None`. The existing linear writer
+(`src/radiosim/io/standard_visibility.py:887`) works today only because it
+also passes `x_orientation="east"`; Tier 5F's circular path has no
+`x_orientation` to supply (§22.1) and so must pass `feed_array` directly. This
+corrects the construction form only; the recorded output-basis and
+`feed_array`/`polarization_array` contract above is otherwise unchanged.
 
 See Section 43, open question Q3, on validating `feed_angle` for `r`/`l` feeds
 against pyuvdata 3.2.1 `check()`.
@@ -1257,7 +1290,7 @@ read-back / atomic-publish ordering.
 | `:29-31` | three linear-only constants | import the Section 20.1 table |
 | `:478-482`, `:686-688` | reject anything but the linear tuple | accept either accepted tuple; reject reorderings and mixed labels |
 | `:727` | `for correlation_index in (0, 3):` | `for correlation_index in parallel_hand_indices(correlations):` |
-| `:887` | `feeds=["x","y"]` | `feeds=list(PYUVDATA_FEEDS[basis])` |
+| `:887` | `feeds=["x","y"]` | `feed_array=tile(PYUVDATA_FEEDS[basis])` (corrected construction form, Tier 5A Q3 — `feeds=` alone is silently ignored by pyuvdata 3.2.1 without `x_orientation`) |
 | `:887` `x_orientation="east"` | fixed | retained for `linear_xy`; for `circular_rl` the plan uses explicit `feed_array`/`feed_angle` and omits the deprecated `x_orientation` (see Q3) |
 | `:898` | `polarization_array=["xx","xy","yx","yy"]` | `list(PYUVDATA_POLARIZATIONS[basis])` |
 | `:925-932` | assert `CANONICAL_CODES` | assert `AIPS_CODES_CANONICAL[basis]` |
@@ -2222,6 +2255,7 @@ Section 39 pass. A partial success closes no issue.
 | `scientific_sha256` churn breaks recorded evidence | B8 is declared in the ledger; Tier 4 acceptance records are historical and are not rewritten |
 | HDF5 `2.0.0` bump strands previously written files | pre-v1 policy; the rejection message names Tier 5 explicitly and there is no upgrade path by design |
 | Scope creep into other Jones terms | Section 42 exclusions; slice file lists exclude every other term file |
+| After 5C, RadioSim's coherency `V` sign diverges from pyradiosky's (added Tier 5A) | `pyradiosky`'s own `stokes_to_coherency` builds `(U - iV)/2` (the sign RadioSim is leaving) and Hamaker 2006 A&A 456, 395 Eq. (3) prints the same form, so the two packages will disagree on cross-hand `V` sign post-5C. Verified no RadioSim data-path defect results: the `pyradiosky_file` loader (`src/radiosim/core/sky/loaders/pyradiosky.py`) reads Stokes `I/Q/U/V` columns from `pyradiosky`'s sky model, never a `pyradiosky`-built coherency matrix, so no conversion in RadioSim's own pipeline uses the opposing convention. 5C's docstring replacement and 5G's documentation sweep must state the divergence explicitly so a user combining RadioSim visibilities with a pyradiosky-based coherency computation does not assume a shared `V` sign. |
 
 ## 42. Explicit exclusions and Tier 6+ boundary
 
@@ -2249,15 +2283,37 @@ These are unresolved at the design gate and are recorded rather than assumed.
 Each names the slice that must resolve it and what happens if the evidence
 contradicts this plan.
 
-**Q1 — The Stokes `V` convention (blocks 5C).** Section 10.2 asserts that the
-mainstream RIME literature (R2, R3, R4) uses `C[0,1] = (U + iV)/2` under the
-IAU `V` definition (R5), and that
+**Q1 — The Stokes `V` convention (blocks 5C). RESOLVED by Tier 5A; Section 10.2
+stands.** Section 10.2 asserts that the mainstream RIME literature (R2, R3, R4)
+uses `C[0,1] = (U + iV)/2` under the IAU `V` definition (R5), and that
 `src/radiosim/core/polarization.py:112-113` is the mirror of it. The docstring
 at `:22-27` attributes the current form to "Africanus/Pauli". Slice 5A must
 reproduce the R2/R4 table from the sources and state explicitly what
 `codex-africanus` implements. If the evidence supports the current form, this
 plan's Section 10.2, Section 18.4, and the sign of `S` in Section 18.1 must be
 amended and re-accepted before 5C proceeds.
+
+**Correction (Tier 5A independent acceptance).** 5A resolved this using R1
+(Hamaker, Bregman & Sault 1996, A&AS 117, 137, Paper I, Eq. 8/9) and R3
+(Smirnov 2011, A&A 527, A106, Eq. 7 and §6.3) rather than R2/R4: R2 was not
+needed, and R4 (Thompson, Moran & Swenson §4.7) could not be retrieved from any
+open-access route tried and is recorded as unconfirmed. Both retrieved sources
+give `C[0,1] = (U + iV)/2` and `RR = I + V`, independently re-derived by the
+5A acceptance reviewer by direct matrix arithmetic from the quoted equations
+(not by trusting 5A's prose), confirming Section 10.2 stands. Separately, 5A's
+fetch of `codex-africanus` (`ska-sa/codex-africanus`,
+`africanus/model/coherency/conversion.py`) found it implements
+`"XY": u + v*1j` and `"RR": i + v` — the corrected sign this plan moves
+*to*, not the sign RadioSim's current source docstring claims it matches. That
+docstring's own "Matches: Codex-Africanus" attribution
+(`src/radiosim/core/polarization.py:22-27`) is therefore false; this plan never
+asserted otherwise (`codex-africanus` is not one of R1-R8 and Section 10.2 only
+compares the baseline against R2-R4), so no Section 10.2/18.1/18.4 amendment is
+required — the false attribution is a source-code defect Tier 5C's planned
+docstring replacement already corrects. Recorded contrary evidence: pyradiosky
+(`stokes_to_coherency`) and Hamaker 2006 A&A 456, 395 Eq. (3) both use the
+current `(U - iV)/2` form; see the new pyradiosky-divergence risk in Section
+41.
 
 **Q2 — Where `resolve_receptors()` is invoked (blocks 5B).** Section 25.2 places
 it after instrument resolution and before beam loading. Whether that is inside
@@ -2266,16 +2322,39 @@ instrument first exists in the Tier 1/Tier 2 pipeline. 5B must establish the
 exact call site from source and record it; the *ordering* requirement is fixed
 by this plan and is not negotiable, only its host function is.
 
-**Q3 — pyuvdata circular-feed acceptance (blocks 5F, not 5A).** Section 14.4 and
-Section 22.1 assume that `Telescope.new(feeds=["r","l"], feed_angle=[[0,0],...],
-mount_type="fixed")` together with `polarization_array=["rr","rl","lr","ll"]`
-passes `UVData.check()` and writes valid MS and UVFITS in pyuvdata 3.2.1, and
-that the on-disk AIPS order is descending code order `(-1,-2,-3,-4)`. The
-installed source supports the parameter values
-(`pyuvdata/telescopes.py:404-431`, `utils/pol.py:37`) but the writer round trip
-was not executed at this gate. 5A must probe it. If pyuvdata requires
-`x_orientation` even for circular feeds, or produces a different on-disk order,
-Section 14.2 and Section 22.1 must be amended.
+**Q3 — pyuvdata circular-feed acceptance (blocks 5F, not 5A). RESOLVED by Tier
+5A; Section 14.2/22.1 hold with two corrections applied above.** Section 14.4
+and Section 22.1 assume that `Telescope.new(feeds=["r","l"],
+feed_angle=[[0,0],...], mount_type="fixed")` together with
+`polarization_array=["rr","rl","lr","ll"]` passes `UVData.check()` and writes
+valid MS and UVFITS in pyuvdata 3.2.1, and that the on-disk AIPS order is
+descending code order `(-1,-2,-3,-4)`. The installed source supports the
+parameter values (`pyuvdata/telescopes.py:404-431`, `utils/pol.py:37`) but the
+writer round trip was not executed at this gate. 5A must probe it. If pyuvdata
+requires `x_orientation` even for circular feeds, or produces a different
+on-disk order, Section 14.2 and Section 22.1 must be amended.
+
+**Correction (Tier 5A independent acceptance).** 5A's live probes
+(`tests/characterization/test_pyuvdata_321_polarization_contract.py`, 11
+tests, re-run independently on both py311 and py312) confirm the *outcome*
+holds — circular `feed_array`/`feed_angle`/`polarization_array` pass
+`check()`, and both writers round-trip — with two construction-level
+corrections, both applied directly to Sections 14.2 and 14.4 above rather than
+left only in this open question: (a) the `feeds=["r","l"]` convenience
+argument does not configure anything by itself in pyuvdata 3.2.1 — it is
+silently ignored unless `x_orientation` is also supplied
+(`pyuvdata/telescopes.py:884-950`), so Tier 5F must construct `feed_array`
+directly, not `feeds`; (b) the "on-disk" descending code order
+`(-1,-2,-3,-4)` is literally true for UVFITS but for a Measurement Set it is
+produced by pyuvdata's *reader* canonicalizing `polarization_array` on
+read-back — the MS `POLARIZATION.CORR_TYPE` column itself preserves the
+in-memory order (verified: circular `CORR_TYPE = [5,6,7,8]`, not
+`(-1,-2,-3,-4)`). Neither correction changes the Q3 verdict, the slice
+boundary, or the decision that 5F may proceed on this contract; `x_orientation`
+is also confirmed not required for, and not rejected alongside, circular feeds,
+and pyuvdata performs no `feed_array`/`polarization_array` cross-validation, so
+RadioSim must enforce that coupling itself (already implied by Section 22.1's
+basis-aware rejection of mixed labels).
 
 **Q4 — Fate of `visibility_to_correlations` (resolved in 5H).** The function
 (`src/radiosim/core/polarization.py:217`) returns hard-keyed linear labels plus
@@ -2288,6 +2367,21 @@ that evidence.
 publicly exported, which is state 4 of the §4.2 truthfulness rule masquerading
 as state 1. 5H either removes it or gates it explicitly as Tier 7. It is not
 Tier 5 physics either way.
+
+**Correction (Tier 5A independent acceptance) — premise corrected, resolution
+unchanged.** 5A found the "publicly exported" premise false: `mueller_from_jones`
+is absent from `radiosim.core.__all__` and from the `radiosim.core` namespace
+(`hasattr(radiosim.core, "mueller_from_jones")` is `False`); it is reachable
+only as `radiosim.core.polarization.mueller_from_jones`, an undecorated public
+module-level name with no leading underscore. `jones_matrix_power` and
+`stokes_I_only_visibility` are in the same state; `apply_jones_matrices`,
+`visibility_to_correlations`, and `stokes_to_coherency` are the three names
+`radiosim.core` actually re-exports. The accurate description is therefore: a
+module-level public name, unreachable from the package's advertised surface,
+that raises `NotImplementedError` — closer to an unadvertised stub than to
+"state 4 masquerading as state 1", since nothing at the `radiosim.core` import
+boundary claims it works. This does not change 5H's task: it still either
+removes the name or gates it explicitly as Tier 7, on the same evidence.
 
 ## 44. Design-gate verification evidence
 

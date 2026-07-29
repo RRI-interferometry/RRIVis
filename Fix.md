@@ -4408,3 +4408,186 @@ through 5I remain unauthorized until each predecessor slice is implemented
 and independently accepted. No dual-Python run, CI check, Pyright, Ruff,
 Sphinx, YAML validation, or offline example was executed at this review. No
 PR, tag, release, or deployment was created.
+
+### 2026-07-29 Tier 5A independent acceptance
+
+**Tier 5A is independently accepted; Tier 5B is authorized.** The review range
+was `e29e592..e827278`, exactly one commit, `e827278`
+(`test(pol): characterize Tier 5 polarization baseline`).
+
+**Scope.** `git show e827278 --stat` touches exactly the two files
+`Tier5ReceptorFeedPlan.md` §35 grants 5A:
+`tests/characterization/test_tier5_current_behavior.py` (705 lines, 18 tests)
+and `tests/characterization/test_pyuvdata_321_polarization_contract.py` (507
+lines, 11 tests). No production, config, dependency, plan, or record file was
+touched, and the commit message carries no co-author line.
+
+**Gates.** Both new files were re-run in isolation, independently of the
+implementer's report: 29 passed on py311 (`.pixi/envs/default`, Python
+3.11.13) and 29 passed on py312 (`.pixi/envs/py312`, Python 3.12.13), matching
+the commit's claimed 18+11. The full non-slow suite was run twice on py311:
+**3388 passed, 6 skipped, 26 warnings** both times (335 s baseline + 29 new =
+3388, matching `Fix.md`'s recorded Tier 5 starting baseline of 3359). `pixi run
+lint` reported all checks passed; `pixi run check-format` reported 311 files
+already formatted; `git status` was clean before and after review.
+
+**Characterization truth.** Both files were read in full. Every pinned
+behavior was independently re-verified by reading the cited production source
+directly, not by trusting the test's assertions: `stokes_to_coherency`'s
+literal `C = 0.5*[[I+Q, U-1jV],[U+1jV, I-Q]]` construction
+(`src/radiosim/core/polarization.py:105-131`); `coherency_to_stokes` deriving
+`V` from `2*coherency[1,0].imag`; the module docstring's exact
+`"C[0,1] = (U - iV) / 2  (Africanus/Pauli)"` / `"Matches: Codex-Africanus"` /
+`"NOT: (U + iV) / 2 (Smirnov 2011 alternative)"` text (`:20-27`);
+`ReceptorConfigJones`/`BasisTransformJones` both returning `xp.eye(2)`
+unconditionally (`src/radiosim/core/jones/receptor.py`); `JonesChain`'s
+`for term in reversed(self.terms): J_total = term_jones @ J_total`
+(`src/radiosim/core/jones/chain.py:166-184`), independently multiplied out by
+hand to confirm first-added-term-leftmost composition and the resulting
+`Z T E P D G B` product from `_build_jones_chain`'s literal `Z`, `T`, `E`, `P`,
+`D`, `G`, `B` add order (`src/radiosim/core/visibility.py:597-721`); zero
+occurrences of `JonesChain`/`_build_jones_chain` and one occurrence of
+`beam_system.evaluate_jones` in `visibility_healpix.py`; the four literal
+correlation-constant sites in `core/result.py:32`, `io/hdf5.py:59-60`,
+`io/standard_visibility.py:29-31`; `stokes_i()`'s literal
+`self.visibilities[..., 0] + self.visibilities[..., 3]` with no
+`correlations` reference (`core/result.py:512-519`); `mueller_from_jones`
+absent from `radiosim.core.__all__` and `hasattr(radiosim.core, ...)` false;
+and the absence of `radiosim/core/receptor.py`, `radiosim/io/receptor_config.py`,
+`radiosim/core/polarization_basis.py`, and a `receptors` field on
+`RadioSimConfig`. No test's oracle was found to be re-derived from the
+function under test — every physics-bearing oracle (the `(U∓iV)/2` matrix, the
+`first @ second` composition product, the `["Z","T","E","P","D","G","B"]`
+name list, the direct-index `visibilities[...,0]+visibilities[...,3]`
+computation in the `stokes_i` test) is a hand-written literal or independent
+arithmetic construction, not a second call into the code under test. Every
+test that a later slice must flip carries an `OWNED BY: Tier 5x` marker, and
+each was checked against §34's per-slice production-change lists (5C for the
+`V`-sign and receptor-stub tests, 5D for the chain-order and HEALPix-routing
+tests, 5E/5F jointly for the four-constant-site test, 5E alone for `stokes_i`
+and the polarization-basis-literal test, 5B for the no-receptor-surface test,
+5H for the superseded-helper and `mueller_from_jones` tests) — every marker
+matched its slice's stated production changes.
+
+**Q1 independent verification (the scientific heart).** The HBS 1996 Eq. (9)
+`S` matrix quoted in the test docstring,
+`S = 0.5*[[1,1,0,0],[0,0,1,i],[0,0,1,-i],[1,-1,0,0]]`, was multiplied against
+`[I,Q,U,V]` by hand in a fresh Python session (not the implementer's), against
+the Eq. (3) ordering `(e_x e_x*, e_x e_y*, e_y e_x*, e_y e_y*)`: row index 1
+(`<e_x e_y*>`) came out to `(U+iV)/2` for both a pure-`V` case and a general
+`I,Q,U,V` case, exactly as claimed. Smirnov 2011's Eq. (7) brightness matrix
+`B=[[I+Q,U+iV],[U-iV,I-Q]]` was independently combined with the standard
+linear-to-circular `H=(1/√2)[[1,i],[1,-i]]` and gave `RR=I+V`, `LL=I-V`
+exactly, confirming §6.3. `codex-africanus`'s
+`africanus/model/coherency/conversion.py` was fetched live from
+`ska-sa/codex-africanus` on GitHub (not taken from the docstring's quotation)
+and confirmed verbatim: `"XY": lambda u, v: u + v * 1j`,
+`"YX": lambda u, v: u - v * 1j`, `"RR": lambda i, v: i + v + 0j`,
+`"LL": lambda i, v: i - v + 0j`. This independently confirms `codex-africanus`
+implements the corrected sign this plan moves *to*, not the sign RadioSim's
+own module docstring claims it matches — the docstring's "Matches:
+Codex-Africanus" attribution for the current `(U-iV)/2` form is false. The
+recorded contrary evidence was also independently confirmed: the installed
+`pyradiosky` package's `stokes_to_coherency`
+(`.pixi/envs/default/lib/python3.11/site-packages/pyradiosky/utils.py:105-119`)
+literally builds `0.5*[[I+Q, U-1j*V],[U+1j*V, I-Q]]`, matching RadioSim's
+current (pre-5C) form, not the literature majority. Verdict: Section 10.2's
+correction stands; the evidence does not require Section 10.2, 18.1, or 18.4
+to be amended.
+
+**Q2 verification.** `resolve_instrument(` appears in exactly two files under
+`src/radiosim`: its own definition in `core/instrument_resolution.py` and its
+one call site in `api/simulator.py:414` (inside `_ensure_instrument_state`).
+`Simulator.setup()` calls `self._ensure_instrument_state()` at line 526 before
+`self._ensure_beam_system()` at line 530, confirmed by direct index comparison
+of the two call-site offsets in the method source. `Simulator.observability()`
+calls both helpers directly at lines 1193-1194. `resolve_instrument` does not
+appear anywhere in `io/config_resolution.py`. All as claimed.
+
+**Q3 verification.** The pyuvdata contract file was confirmed to be a real
+probe of the installed dependency — real `Telescope.new`, `UVData.new`,
+`write_ms`/`read_ms`, `write_uvfits`/`read_uvfits`, and `casacore.tables.table`
+calls against `tmp_path`, no mocking — and both files' tests were re-run to
+completion above. Two highest-consequence corrections were spot-checked
+directly against the installed source rather than trusted from the test: (a)
+`pyuvdata/telescopes.py:884-950` (installed 3.2.1,
+`.pixi/envs/default/lib/python3.11/site-packages/pyuvdata/telescopes.py`)
+confirmed `feed_array`/`feed_angle` are only populated from the `feeds`
+parameter inside the branch gated on `x_orientation is not None`, so
+`Telescope.new(feeds=[...])` without `x_orientation` leaves `feed_array` at
+its default and the `feeds` argument has no effect; (b) the test file's own MS
+round-trip assertion at
+`test_dependency_measurement_set_round_trips_both_bases` reads
+`POLARIZATION.CORR_TYPE` directly with `casacore.tables.table` and asserts it
+equals the **in-memory** order (`[5,6,7,8]` for circular, `[9,10,11,12]` for
+linear), while the same test's `readback.polarization_array` (populated by
+`UVData.read_ms()`) is the descending canonical order — confirming the reader,
+not the MS layout, produces the descending order. Both re-ran green in this
+review's isolated run above.
+
+**Adjudications.**
+
+(i) §10.2/§43-Q1 misattribution — **confirmed**. `codex-africanus` implements
+the sign the plan proposes to move to, not the current one; RadioSim's own
+source docstring is what falsely claims the current form matches it. The
+plan's own text never asserted this (`codex-africanus` is not one of R1-R8),
+so the correction applied to §43 Q1 documents which references actually
+resolved the question (R1/R3, not R2/R4 as anticipated; R4 unretrievable) and
+records the false attribution as a source-code defect Tier 5C already plans to
+fix. No decision or slice boundary changed.
+
+(ii) §43-Q3 `Telescope.new(feeds=...)` construction form — **confirmed**.
+Independently re-verified against `pyuvdata/telescopes.py:884-950`; corrected
+Section 14.4 and the §22.1 write-path table to require `feed_array` construction
+directly rather than the `feeds=` convenience parameter for any basis without
+an `x_orientation`.
+
+(iii) §14.2 "on-disk order" wording — **confirmed**. True for UVFITS, but for
+a Measurement Set it is pyuvdata's reader canonicalizing `polarization_array`
+on read-back, not the raw `CORR_TYPE` column (which preserves in-memory
+order). Corrected §14.2 and §14.3 wording; no contract, decision, or slice
+boundary change.
+
+(iv) §43-Q5 "publicly exported" premise — **confirmed false**.
+`mueller_from_jones` is absent from `radiosim.core.__all__` and from
+`hasattr(radiosim.core, ...)`; reachable only via
+`radiosim.core.polarization.mueller_from_jones`. Corrected Q5's premise; 5H's
+task (remove or gate as Tier 7) is unchanged.
+
+(v) New pyradiosky-divergence risk — **confirmed, and correctly scoped as a
+documentation risk, not a data-path defect**. `pyradiosky_file`
+(`src/radiosim/core/sky/loaders/pyradiosky.py`) reads `sky.stokes` (Stokes
+`I/Q/U/V`) from the `pyradiosky` sky model at every call site inspected; it
+never calls or consumes `pyradiosky`'s own `stokes_to_coherency`. Added to the
+risk register (§41) as instructed, with no change to 5C's decision.
+
+**Plan corrections made** (commit `568855f0fbe029a4bb1786fd40f1248b9904fd30`
+already fixed the four stale Section-46 cross-references before this review;
+this acceptance adds a second, separate correction commit, below). Bounded
+corrections applied to `Tier5ReceptorFeedPlan.md`: §14.2 table header and
+"on-disk order" paragraph, §14.3, §14.4, the §22.1 `:887` write-path row, and
+§43 Q1/Q3/Q5, each annotated in place as a "Correction (Tier 5A...)" addendum;
+§41 risk register gained the pyradiosky-divergence row; §1's status line was
+updated. No decision, slice boundary, writable-file list, or test contract
+changed — each correction is additive text clarifying which reference or
+mechanism resolved an open question, exactly as Section 34.1's "if the
+evidence contradicts, amend and re-accept" clause anticipates, and as verified
+above, the evidence did not force any of Section 10.2, 14.2's descending-order
+contract, 18.1, or 18.4 to change.
+
+**Unobserved at this review.** Thompson, Moran & Swenson §4.7 (R4) remains
+unretrieved, as it was for the implementer; Hamaker 2006 A&A 456, 395 Eq. (3)
+was not independently fetched (its content was taken on the implementer's
+word, cross-checked only indirectly via the installed `pyradiosky` source
+agreeing with the claimed sign). No CI run, Pyright, Sphinx build, or YAML
+validation was executed at this review. `git show 568855f --stat` was not
+re-inspected in this session beyond the log; its prior acceptance
+(`e29e592`) was taken as given per the governing precedent.
+
+This acceptance changes planning records only. No Tier 5 production code,
+test, fixture, configuration, or dependency file was changed by this review.
+`POL-001` remains **OPEN** and `POL-002` remains **ROADMAP**. Tier 5A is
+independently accepted; Tier 5B is authorized and remains limited to the
+writable-file list in `Tier5ReceptorFeedPlan.md` §35 Tier 5B. Tier 5C through
+5I remain unauthorized until each predecessor slice is implemented and
+independently accepted. No PR, tag, release, or deployment was created.
