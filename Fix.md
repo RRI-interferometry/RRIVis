@@ -4246,3 +4246,60 @@ execution were not exercised by this review.
 **Disposition.** `OUT-001`, `OUT-002`, `OUT-003`, `OUT-004`, `OUT-005`, and
 `OUT-006` are flipped from OPEN to DONE in the §5 issue register above. Tier 5
 design is the next authorized work.
+
+### 2026-07-29 Tier 5 receptor and polarization design gate
+
+Tier 4 remains independently accepted and `OUT-001` through `OUT-006` remain
+**DONE**. The Tier 5 design gate is complete.
+[`Tier5ReceptorFeedPlan.md`](Tier5ReceptorFeedPlan.md) is the governing
+implementation specification for the typed receptor configuration model, the
+resolved per-antenna receptor set, the `C` and `H` Jones terms, the corrected
+brightness-matrix convention, the Jones chain order, data-driven correlation
+coordinates, and basis-aware HDF5, Measurement Set, UVFITS, summary, and plot
+output.
+
+The gate was authored on clean `main` at `1472c3c`
+(`docs(output): accept Tier 4 integration`), parent `93bff96`
+(`docs(output): accept Tier 4H obsolete-path removal`), with no staged,
+unstaged, or untracked path at the start.
+
+Source-first review established the live shape of both issues. `POL-001` is no
+longer "silently ignored": Tier 1 removed the top-level `feeds` section
+entirely, `RadioSimConfig` declares nine strict sections with `extra="forbid"`,
+and a `feeds:` block is rejected as a `removed_field` issue whose hint still
+points at the also-removed `beams.feed_model`. `POL-002` is unchanged:
+`ReceptorConfigJones` and `BasisTransformJones` accept basis arguments, ignore
+them, return the 2×2 identity, and declare `is_unitary() -> True`. Three further
+constraints were confirmed and are load-bearing for the design: the accepted
+E-Jones is restricted to a scalar `e·I₂` so it commutes with any receptor
+factor; the correlation labels, AIPS codes, and basis string are hard-coded at
+four independent sites plus the pyuvdata construction call; and `JonesChain`
+composes `terms[0] @ … @ terms[-1]`, which inverts the Hamaker–Bregman–Sault
+factor order for the current add sequence, currently unobservable because every
+present factor commutes.
+
+The plan resolves all six `Fix.md` §14 design decisions with cited conventions,
+specifies the exact receptor schema, resolved model, precedence, Jones
+mathematics, chain order, correlation-coordinate contract, error taxonomy,
+rejection messages, test matrix, and nine tests-first slices (5A–5I) with exact
+per-slice writable file lists and independent acceptance criteria. It records
+five explicitly open questions, two of which block slices: the Stokes `V`
+sign convention must be evidenced in 5A before 5C may change it, and pyuvdata
+3.2.1 circular-feed writer acceptance must be probed in 5A before 5F may depend
+on it.
+
+One baseline suite run was executed in the default pixi environment. Because
+the `test` pixi task is `python -m pytest tests/`, the appended focused paths
+widened the selection, so the run was the full suite: 3359 passed, 6 skipped,
+26 warnings, exit code 0, with no failure, xfail, or xpass. CI, the dual-Python
+boundary, Pyright, Ruff, formatting, Sphinx, the YAML validations, and the
+offline example were not executed at this gate, and no pyuvdata circular-write
+probe was performed.
+
+This was documentation-only design work. No Tier 5 production code, test,
+fixture, configuration, dependency, lockfile, CI definition, generated
+artifact, or later-tier behavior was changed, and no §5 issue register row or
+prior acceptance record was modified. `POL-001` remains **OPEN** and `POL-002`
+remains **ROADMAP**. Tier 5A remains unauthorized. The next task is an
+independent review and acceptance of `Tier5ReceptorFeedPlan.md`, not
+implementation.
