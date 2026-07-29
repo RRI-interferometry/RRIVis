@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Tier 4H independently accepted; Tier 4I remains the next authorized separate slice and was not started |
+| Status | Tier 4 accepted as a whole (Tier 4I, 2026-07-29); `OUT-001` through `OUT-006` closed; Tier 5 design is the next authorized work |
 | Date | 2026-07-29 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
@@ -2966,6 +2966,20 @@ test-only characterization files. Tier 4 implementation has not started.
 Tier 4B and every later slice remain unauthorized until Tier 4A is implemented
 and independently accepted. No PR, tag, release, or deployment is authorized
 or created by this acceptance.
+
+## 48. Tier 4 whole-tier acceptance appendix (Tier 4I, 2026-07-29)
+
+**VERDICT: ACCEPTED.** The complete indivisible Tier 4 range
+`bf54454..93bff96` (slices 4A through 4H) is accepted as one whole under
+§34.9. The full acceptance record, including the Section 42/43 criteria
+checklist, exact gate counts, adjudications of the `readers.py`/`xarray`
+leftovers, and unobserved items, is recorded in `Fix.md` under
+"2026-07-29 Tier 4 whole-tier acceptance (Tier 4I)". `OUT-001` through
+`OUT-006` are closed in `Fix.md` §5. This slice changed no production source,
+test, configuration, dependency, or generated artifact; it changed only this
+plan's §1 status row and this appendix, plus `Fix.md`. Tier 5 design is the
+next authorized work; no Tier 5 implementation was made or authorized by this
+acceptance.
 
 ## Corrected Tier 4A characterization acceptance (2026-07-26)
 

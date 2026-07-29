@@ -192,12 +192,12 @@ Status values used below:
 | BEAM-003 | DONE | HEALPix NSIDE beam advisor reads antenna dictionaries incorrectly | 3 |
 | OBS-001 | DONE | Observability is architecturally misclassified as a product | 3 |
 | OBS-002 | DONE | Implement the accepted explicit-reference semantics for heterogeneous observability beams | 3 |
-| OUT-001 | OPEN | Output controls are only partially honored | 4 |
-| OUT-002 | OPEN | Point, HEALPix, and writer time-grid counts disagree | 4 |
-| OUT-003 | OPEN | HDF5 drops correlations and forces `complex128` | 4 |
-| OUT-004 | OPEN | JSON output contains no visibility data | 4 |
-| OUT-005 | OPEN | HDF5 reader uses unsafe `eval()` | 4 |
-| OUT-006 | OPEN | UVFITS is accepted by config but unsupported by `save()` | 4 |
+| OUT-001 | DONE | Output controls are only partially honored | 4 |
+| OUT-002 | DONE | Point, HEALPix, and writer time-grid counts disagree | 4 |
+| OUT-003 | DONE | HDF5 drops correlations and forces `complex128` | 4 |
+| OUT-004 | DONE | JSON output contains no visibility data | 4 |
+| OUT-005 | DONE | HDF5 reader uses unsafe `eval()` | 4 |
+| OUT-006 | DONE | UVFITS is accepted by config but unsupported by `save()` | 4 |
 | POL-001 | OPEN | Top-level feed/receptor config is ignored | 5 |
 | POL-002 | ROADMAP | Receptor and basis-transform Jones terms are identity stubs | 5 |
 | RUN-001 | OPEN | `run(n_workers=...)` is unused | 6 |
@@ -4113,3 +4113,136 @@ review; none of the three commits contains a co-author line.
 and real (non-injected) power-loss durability were not exercised in this
 review and remain unobserved. No Tier 4I implementation or broader scope was
 created.
+
+### 2026-07-29 Tier 4 whole-tier acceptance (Tier 4I)
+
+**VERDICT: ACCEPTED.** Tier 4 (slices 4A through 4H, `bf54454..93bff96`) is
+independently accepted as one indivisible whole under §34.9. `OUT-001`
+through `OUT-006` close below. Tier 5 design is the next authorized work; no
+Tier 5 implementation, correction to any Tier 4 production file, or test
+change was made by this review — 4I changes only `Tier4ResultOutputPlan.md`
+and `Fix.md`.
+
+**Start gate.** `git status` was clean before and after review; local `HEAD`
+and `origin/main` were aligned at `93bff963fa86917e0b5cb4874de61948899b7a6e`
+("docs(output): accept Tier 4H obsolete-path removal") throughout. The
+implementation range `bf54454..93bff96` is linear
+(`git log --graph --merges` returned no merge commits) and consists of the 35
+commits enumerated across the eight prior slice records, each already
+independently accepted in this file (4A `2026-07-26`, 4B `2026-07-27`
+retrospective, 4C `2026-07-27` corrected, 4D `2026-07-27`/`2026-07-27`, 4E
+`2026-07-28`, 4F/4G/4H `2026-07-29`). No commit in the range carries a
+co-author line (checked on all 35 commits directly). A full-range diffstat
+(86 files, `+26395/-3360`) was checked against the union of every slice's
+§35 writable list; every file outside that union was one already named and
+ratified in its own slice's acceptance record (the 4B channel-width fixture
+migrations, the 4C solver-signature docstring/doc truth-alignment and the
+two-Sphinx-page output-availability correction, the 4G renderer-activation
+consequences, and each slice's own `Fix.md`/plan status update) — no
+unratified file was touched anywhere in the range.
+
+**Criteria re-proved (Section 42).** Each item below states the proof method
+independently applied by this review (source reading and/or a fresh probe run
+from current HEAD), not an inherited slice conclusion:
+
+| # | Criterion | Method | Result |
+|---|---|---|---|
+| 1 | Linear range, every slice accepted, exact file lists | `git log --graph`, full-range diffstat vs. union of §35 lists, re-read all 8 acceptance records | Pass |
+| 2 | Exact model signatures/exports/immutability | Read `core/time_grid.py`, `core/phase_center.py`, `core/result.py` in full; fresh-process `hasattr` probe of all §24 additions/removals | Pass |
+| 3 | Explicit time/frequency/width resolution before backend | Read `time_grid.py` formula; probed `RadioSimConfig` rejects `obs_frequency.channel_width`-less and `angle_unit`/`sky_model_frequency_hz`/`overwrite`/`skip_overwrite_confirmation`/`prompt_for_output_suffix` inputs with exact §25 messages | Pass |
+| 4 | Point/HEALPix share canonical axes/phase/dtype | Read `visibility.py`/`visibility_healpix.py`: both require exact `ObservationTimeGrid` type and call `.as_astropy()` on it; full non-slow suite (parity tests) green | Pass |
+| 5 | `Simulator.run()` atomic single-result publish | Read `api/simulator.py` `run()`: `self._result = result` is the last statement after `build_simulation_result` succeeds | Pass |
+| 6 | HDF5 `radiosim.visibility` 1.0.0 c64/c128 round trip, no dynamic eval | Fresh probe: wrote/read back c128 `(3,15,4,4)` and c64 `(3,15,4,4)` results via `write_result_hdf5`/`load_result_hdf5`, exact shape/dtype/weight-dtype match; grepped `src/radiosim` for `eval(`/`literal_eval`/`pickle.load`/`exec(` — none in `io`/`core`/`cli`; read `_fixed_utf8_itemsize` VLEN-rejection code directly | Pass |
+| 7 | Summary schema bounded/incomplete | Fresh probe: `direct.summary.json` has schema `radiosim.result-summary`/`1.0.0`, exactly the 15 §18 top-level keys (alphabetically ordered by the writer's `sort_keys=True`, consistent with the determinism property the 4F record already verified), and `excluded_payloads` matching the exact 7-item list byte-for-byte | Pass |
+| 8 | MS projected round trip, c128→c64 conversion, closed handles | Fresh probe: `sim.save(..., format=ResultFormat.MS)` on a c128 result read back via `read_measurement_set` as complex64 `(3,15,4,4)`, canonical `(XX,XY,YX,YY)` labels, no dangling-handle error on immediate read-back | Pass |
+| 9 | UVFITS supported c64/c128 round trip, exact preflight rejection | Fresh probes: c128 and c64 UVFITS round trips both preserved input dtype; a non-uniform-frequency-spacing result raised `FormatRepresentationError` ("UVFITS frequency centers must be evenly spaced...") with the target path never created | Pass |
+| 10 | Writers prove no-clobber/replace/rollback/cleanup/collision | Fresh probes: `collision_policy=error` rejected a nonempty owned run untouched (old files byte-identical); `suffix` produced `run1-001`; no temporary/`.tmp` residue found under the scratch run tree after 7 total published artifacts | Pass |
+| 11 | Four CLI collision policies, TTY/non-TTY, no Python prompt | Fresh probes: `error` (reject), `replace` (already-published fresh run), `suffix` (free `-001` name), `prompt` under `< /dev/null` (raised `NonInteractivePromptError` pre-mutation, exit 1); direct API `save()`/`run()`/`plot()` never invoke a prompt in any read source | Pass |
+| 12 | One owned run directory; browser last | End-to-end CLI run published `manifest.json`, `resolved-config.yaml`, `simulation.log`, `visibilities.h5`, and 4 plot HTML files under one directory with no files outside it; manifest SHA-256 for `visibilities.h5` matched the independently recomputed file hash exactly | Pass |
+| 13 | Renderers consume canonical coordinates | Re-read `bokeh_plots.py` renderer signatures (already fully read in the 4G record); not re-derived independently beyond that reading | Pass (inherited reading, not re-derived) |
+| 14 | Removed inputs/formats/APIs fail with documented boundary | Fresh probes: `result_format=json` rejected with the exact §25 message; fresh-process `hasattr` checks confirm all 10 §24-removed symbols absent from `radiosim.io` and `Simulator.results` absent | Pass |
+| 15 | No residual stale no-op/unsafe parser/etc. | Grepped `src/` for every §24-ledgered removed symbol — only pyuvdata's own `UVData.write_ms`/`read_ms` methods remain (unrelated external namespace); no `eval`/`pickle.load`/`literal_eval` in `io`/`core`/`cli` | Pass |
+| 16 | Dual-Python focused/full suites | `pixi run test -- -m "not slow"` (py311) and `pixi run -e py312 python -m pytest tests/ -m "not slow"` (py312), both fresh, from current HEAD | Pass — see counts below |
+| 17 | Ruff/format/Pyright/lock/YAML/example/Sphinx/whitespace/imports | `pixi run lint`, `pixi run check-format`, `pixi lock --check`, `pixi run radiosim validate` on all 3 shipped YAMLs, `pixi run python -m sphinx -b html` (twice, reproducible), fresh-process import probe (§24) | Pass — see below for the one environment-attributable Sphinx delta |
+| 18 | CI green on exact acceptance SHA | `gh run view` on run `30443998661` for commit `93bff96` | Pass — all 7 jobs (quality + 6 OS/Python) succeeded |
+| 19 | No unevidenced GPU/network/registry/production claim | Reviewed CLI banner text ("Network: online/offline") is local device/network status only, not a claim of an output-path network access; no writer/renderer performs network or registry I/O per source reading | Pass |
+| 20 | No Tier 5-8 implementation in range | Full-range diffstat contains no feed/receptor/calibration/spherical-harmonic/hybrid-scheduling file; `Fix.md` §5 Tier 5+ rows remain unaffected by this range | Pass |
+
+**Exact gate counts (fresh, this review, current HEAD).**
+
+- py311 (`pixi run test -- -m "not slow"`): **3,359 passed, 6 skipped, 26
+  warnings**, matching the recorded baseline exactly. All 6 skips independently
+  re-confirmed as `could not import 'jax': No module named 'jax'`
+  (`test_jax_backend.py`, `test_sky_backend.py`, `test_sky_spectral.py`,
+  `test_visibility_backend.py`, `test_backend_jones.py` ×2).
+- py312 (`pixi run -e py312 python -m pytest tests/ -m "not slow"`): **3,359
+  passed, 6 skipped, 26 warnings** — identical counts to py311.
+- `pixi run lint`: "All checks passed!". `pixi run check-format`: "309 files
+  already formatted". `pixi lock --check`: "Lock-file was already
+  up-to-date".
+- `pixi run radiosim validate` accepted all three shipped YAMLs
+  (`configs/config.yaml` — 101 channels; `configs/realistic_foreground_example.yaml`
+  — 11 channels; `antenna_layout_examples/example_telescope_config.yaml` — 1
+  channel).
+- Sphinx (`pixi run python -m sphinx -b html docs docs/_build/html_review`,
+  run twice for reproducibility): **43 warnings** both times, one more than
+  the previously recorded 42 (40 clean-checkout + 2 untracked-local
+  `docs/superpowers/` `toc.not_included` warnings). The extra warning is a
+  reproducible `intersphinx inventory 'https://docs.scipy.org/doc/scipy/objects.inv'
+  not fetchable due to ... BrokenPipeError` — a live network-fetch failure
+  from this review's sandbox, not a source change: `docs/conf.py`'s
+  `intersphinx_mapping` entry for `scipy` predates the entire Tier 4 range and
+  is untouched by it, and the warning is independent of payload/content
+  (reproduced identically on a second clean rebuild). Excluding that one
+  network-dependent line, the remaining 42 warnings are line-for-line
+  identical to the established baseline. Net new warnings attributable to the
+  Tier 4 diff: zero.
+- CI: exact-SHA run
+  [`30443998661`](https://github.com/RRI-interferometry/RadioSim/actions/runs/30443998661)
+  for `93bff963fa86917e0b5cb4874de61948899b7a6e` — all 7 jobs
+  (`Lint, metadata, types, and docs`, `linux-64`/`osx-64`/`osx-arm64` ×
+  `Python 3.11`/`3.12`) succeeded. Pyright compliance (criterion 17) is
+  evidenced through this green "types" job rather than a local
+  `pixi run typecheck` invocation, per the project's standing instruction not
+  to run that slow task outside an explicit request.
+
+**End-to-end workflow probe.** A full CLI run
+(`pixi run radiosim --config <scratch>.yaml`, HERA-5 layout, 5 antennas, 15
+baselines, 4 channels, `collision_policy: replace`, `plot_results: true`,
+`visibility_phase_unit: degrees`) published `manifest.json`,
+`resolved-config.yaml`, `simulation.log`, `visibilities.h5`, and 4 plot HTML
+files under one owned run directory. `load_result_hdf5` on the published file
+reproduced `schema_version="radiosim.result.v1"`, shape `(3,15,4,4)` complex128,
+correlations `('XX','XY','YX','YY')`, time centers via `time_grid.to_mjd()`,
+and both fingerprints; the independently recomputed SHA-256 of the file on
+disk matched the manifest's recorded hash exactly. Direct-API `save()` was
+further probed for MS (c128→c64, confirmed dtype conversion), UVFITS (c128
+and c64, dtype preserved), and `summary_json` (schema/version/excluded-payload
+list confirmed) — all from the same in-memory `SimulationResult`. All
+temporary probe artifacts were written under
+`/private/tmp/claude-501/-Users-kartikmandar-MacProjects-RadioSim/420bf840-5ef7-4f79-9500-ed9e8cdc085c/scratchpad`,
+outside the repository; the repository `git status` was clean throughout.
+
+**Adjudications carried forward from Tier 4H.** This review independently
+re-confirmed both items rather than merely accepting the prior finding:
+
+- `src/radiosim/io/readers.py` (an inert, unimported h5py debug script) is
+  still present and still unreferenced anywhere under `src/`, `tests/`, or
+  tracked `docs/`. Not material to any Section 42/43 criterion — OUT-005's
+  "no unsafe eval/deserialization in any active reader path" is unaffected
+  since this file is not an active reader path. Left in place, as 4I cannot
+  modify production files; flagged for a follow-up cleanup task.
+- `xarray>=2023.1` remains in the `ms` extra in `pyproject.toml`; confirmed
+  again that no source file under `src/radiosim/io/` imports it and that
+  `dask_ms`/`daskms` are absent from the installed environment
+  (`importlib.util.find_spec` returns `None` for both). Not material; flagged
+  for the same follow-up.
+
+**Unobserved.** Physical GPU execution, local JAX execution, non-macOS local
+execution, live external network/registry behavior beyond the one incidental
+intersphinx probe above, power-loss durability, and dynamic notebook
+execution were not exercised by this review.
+
+**Disposition.** `OUT-001`, `OUT-002`, `OUT-003`, `OUT-004`, `OUT-005`, and
+`OUT-006` are flipped from OPEN to DONE in the §5 issue register above. Tier 5
+design is the next authorized work.
