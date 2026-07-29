@@ -7,12 +7,18 @@ Submodules
 ----------
 config
     Pydantic-based configuration management.
-writers
-    Resolved-configuration YAML artifact writer.
+workflow_artifacts
+    Resolved-configuration YAML artifact writer for staged CLI runs.
 hdf5
     Versioned canonical-result HDF5 I/O.
+summary_json
+    Bounded ``radiosim.result-summary`` JSON writer.
+standard_visibility
+    Canonical-to-standard visibility projection shared by MS and UVFITS.
 measurement_set
     CASA Measurement Set I/O (requires python-casacore).
+uvfits
+    UVFITS I/O (requires pyuvdata and Astropy FITS).
 """
 
 from importlib import import_module
