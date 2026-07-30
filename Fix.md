@@ -6006,3 +6006,245 @@ independently accepted; Tier 5G is authorized and remains limited to the
 writable-file list in `Tier5ReceptorFeedPlan.md` §35 Tier 5G. Tier 5H and 5I
 remain unauthorized until each predecessor slice is implemented and
 independently accepted. No PR, tag, release, or deployment was created.
+
+### 2026-07-30 Tier 5G independent acceptance
+
+**Tier 5G is independently accepted; Tier 5H is authorized.** Review range
+`eb26da0..70938c3`, exactly three commits: `9ae9347` and `ed55c07`
+(`docs(feeds): correct Tier 5 design`, the implementer's own bounded §35
+grant corrections) and `70938c3` (`docs(feeds): complete illumination and
+receptor split`, the terminology, configuration-guidance, documentation, and
+sample-parity slice). `9ae9347` and `ed55c07` each touch only
+`Tier5ReceptorFeedPlan.md` (`git show --stat` on both: one file each).
+`70938c3` touches exactly 19 files (`git show --stat 70938c3`), matching the
+post-correction §35 Tier 5G list line for line (the `feed.py -> illumination.py`
+rename counts as two files against the flat list, one diff entry against
+`git show --stat`).
+
+**Disclosed history rewrite.** The implementer reported soft-resetting two
+earlier, never-pushed commits (`d30ea72`, `d0a48b4`) to fix commit
+boundaries, claiming `git diff d0a48b4 HEAD` is empty. Both objects are still
+present but unreachable from any ref (`git for-each-ref --contains d0a48b4`:
+empty; `git branch --contains`: empty). `git diff d0a48b4 HEAD` was
+reproduced directly: no output, exit code 0. Claim confirmed.
+
+**Renames complete and behavior-neutral.** Repository-wide grep (`src/`,
+`tests/`, `docs/`, `configs/`, `README.md`, `CLAUDE.md`) for `_feed_response`,
+`_feed_angles` (beam-side), `theta_feed`, `corrugated_horn_pattern`,
+`open_waveguide_pattern`, `dipole_ground_plane_pattern`, and the
+`analytic.feed` module path: every hit is either a negative assertion in
+`test_tier1h_documentation.py`/`test_tier3_beam_cleanup.py` (proving the old
+name is gone), the migration-guide rename table (the one sanctioned
+exception), or a stale `.egg-info/SOURCES.txt` build artifact (not a tracked
+source). `core/receptor.py`'s own `_feed_angles` function is untouched and
+correctly out of scope (§15.1 makes `feed` a legitimate receptor-subsystem
+word; the rename inventory in §15.3 names only `core/beam/analytic.py`'s
+`_feed_angles`). `feed_array`, `feed_angle`, `x_orientation`, and
+`UnsupportedBeamFeedError` in `core/beam/fits.py`/`models.py`/`errors.py` are
+byte-identical in `git diff eb26da0..70938c3` (empty diff for all three
+files) — correctly untouched. `src/radiosim/core/jones/beam/analytic/feed.py`
+no longer exists; `illumination.py` defines
+`corrugated_horn_illumination`/`open_waveguide_illumination`/
+`dipole_ground_plane_illumination` with `theta_illumination` throughout, and
+`__init__.py` imports only the new names. A fresh-process import of
+`radiosim.core.beam.analytic` and
+`radiosim.core.jones.beam.analytic.illumination` succeeds.
+
+**Neutrality probe, reproduced empirically in isolated worktrees.** Built
+detached, `PYTHONPATH`-isolated worktrees at `eb26da0` and `70938c3`
+(verified isolation: `PYTHONPATH=<worktree>/src` makes `radiosim.__file__`
+resolve inside that worktree). Ran one end-to-end offline `Simulator`
+through each of the three renamed illumination paths
+(`beams.model.kind: analytical_illumination` with
+`illumination.kind: corrugated_horn` / `open_waveguide` /
+`dipole_ground_plane`, HERA-5 layout, 5 sources, 3 explicit frequencies) at
+both commits and compared `result.scientific_sha256`:
+
+| Illumination | `eb26da0` | `70938c3` |
+|---|---|---|
+| `corrugated_horn` | `ae1ed670...67ae1` | `ae1ed670...67ae1` |
+| `open_waveguide` | `eb1d6727...413e98` | `eb1d6727...413e98` |
+| `dipole_ground_plane` | `0f8abd45...3464da` | `0f8abd45...3464da` |
+
+All three pairs bit-identical. Beam evaluation is confirmed behavior-neutral
+across the rename.
+
+**Documentation truthfulness, read critically against the code, not
+paraphrased.**
+
+- `docs/api/io.rst`: schema `2.0.0` claim, the `receptors` group field list
+  (`output_basis`, `receptor_sha256`, `antenna_number`, `antenna_name`,
+  `basis`, `feed_rotation_rad`, `feed_angle_rad`), the summary-JSON
+  `receptors` block fields (`output_basis`, `receptor_sha256`,
+  `native_basis_counts`, `distinct_feed_rotations_deg`), and the full
+  polarization-mapping table (AIPS canonical `-5,-7,-8,-6`/`-1,-3,-4,-2`,
+  file-order `-5,-6,-7,-8`/`-1,-2,-3,-4`, `feed_array` `x,y`/`r,l`, MS
+  `CORR_TYPE` casacore Stokes 9-12/5-8) were each checked line for line
+  against `core/polarization_basis.py`, `io/hdf5.py`, `io/summary_json.py`,
+  and `io/measurement_set.py` (`_CASA_STOKES_FIRST`) and matched exactly. The
+  nominal `feed_angle_rad` claim (`(pi/2, 0)` linear, `(0, 0)` circular) and
+  the "readers reject a reordering rather than permute it" claim both match
+  `io/standard_visibility.py` (`_NOMINAL_FEED_ANGLES_RAD`,
+  `basis_for_correlations`) exactly.
+- `jones_matrices.rst`: the corrected `[[I+Q, U+iV],[U-iV, I-Q]]/2` matrix
+  matches `core/polarization.py`'s `stokes_to_coherency`. The `C`/`H`
+  mathematics (`C_p = M(basis) R(chi)`, `R(chi)` handedness, `S = (1/sqrt2)
+  [[1,i],[1,-i]]`, the four `T` cases) match `core/jones/receptor.py`
+  exactly, and the chain order
+  `J_p = H_p G_p B_p D_p P_p C_p E_p T_p Z_p` matches
+  `_build_jones_chain` in `core/visibility.py` verbatim, including the
+  comment documenting `terms[0] @ ... @ terms[-1]` composition. The §11.3
+  modelling-assumption text and the §12.3 parallactic-boundary text
+  (including the `UnsupportedFeedGeometryError` rejection) both match
+  `_reject_parallactic_rotation` and the `core/jones/receptor.py`
+  module docstring verbatim. All derived-correlation and rotation-invariant
+  formulas in the "Receptor and basis terms" section
+  (`V_xx=(I+Q)/2` ... `V_RR=(I+V)/2` ..., linear rotation by `2*chi`,
+  circular `RL` multiplied by `e^{-2i*chi}`) were independently
+  re-derived numerically with `stokes_to_coherency` + `receptor_matrix`
+  for non-trivial `I,Q,U,V,chi` and matched to floating-point precision.
+- The four previously-false claims (`simulator.rst` correlation
+  order/Stokes-I as `XX+YY`, `quickstart.rst` `XX+YY`, `jones.rst`
+  "later scientific boundary") are fixed and now basis-aware; the diffs for
+  `docs/api/simulator.rst`, `docs/quickstart.rst`, and `docs/api/jones.rst`
+  touch only the stated claims and minimal surrounding wording, matching the
+  `ed55c07` correction's own scope declaration. `stokes_i()` and
+  `bokeh_plots.py`'s `_stokes_i_label` both derive their labels from
+  `parallel_hand_indices(result.correlations)` with no hard-coded literal,
+  confirming the "sum of the two parallel hands" claim is mechanically true,
+  not just documented.
+- `configuration.rst`: all six §16.1 modes present (explicit homogeneous
+  linear, homogeneous circular, homogeneous linear rotated 45 degrees,
+  heterogeneous per-antenna rotations, heterogeneous bases with an explicit
+  output basis, circular-native-to-linear-output) were extracted verbatim
+  from the `.rst` source and each **run**: the four with no antenna overrides
+  ran against the shipped HERA-5 layout via `radiosim validate` +
+  `radiosim --config`; the two with per-antenna overrides
+  (`{kind: number, number: 3/7}`, `{kind: name, name: HERA-11}`) were run
+  against a 12-antenna layout constructed to contain those exact references
+  (the shipped HERA-5 layout does not), and both validated and ran to
+  completion (12 antennas, 78 baselines). All six succeeded.
+- `configuration_support.rst`/`beam_models.rst`/`index.rst`/`README.md`/
+  `CLAUDE.md` all state K/E/C/H as the implemented terms consistently with
+  `CLAUDE.md`'s own updated Implementation Status, and the corrected
+  coherency matrix appears identically in both `CLAUDE.md` and
+  `jones_matrices.rst`. `beam_models.rst`'s claim that rejecting circular
+  feeds in a BeamFITS *file* does not restrict the `receptors` model was
+  checked against the chain order (`E` acts in the sky-linear basis strictly
+  before `C`/`H` transform it) and against the FITS beam source (no
+  `circular` special-casing anywhere in `core/beam/fits.py`); consistent.
+  `migration_guide.md`'s rename table is complete, and the `V`-sign
+  correction and `scientific_sha256`-changes-for-every-result fingerprint-churn
+  note are both present and match the code. No new falsehood was found on any
+  of the twelve `TIER5G_TRUTH_SURFACES`.
+
+**New sample.** `configs/receptor_circular_example.yaml` validates
+(`radiosim validate`) and was run offline end to end, producing
+`result.correlations == ('RR','RL','LR','LL')` and
+`result.polarization_basis == 'circular_rl'` (5 antennas, 15 baselines, 3
+sources, 3 channels). `configs/config.yaml`'s explicit linear `receptors`
+block validates and is behaviorally equivalent to omitting the section
+(pinned by `test_tier5g_default_shipped_sample_spells_out_the_linear_default`,
+independently re-verified). All four shipped YAMLs (`config.yaml`,
+`realistic_foreground_example.yaml`, `receptor_circular_example.yaml`,
+`antenna_layout_examples/example_telescope_config.yaml`) validate.
+Reverting one pinned doc line (`schema version \`\`2.0.0\`\`` back to
+`1.0.0` in a scratch copy of `docs/api/io.rst`) was spot-checked against
+`test_tier5g_io_reference_is_truthful_about_schema_and_basis`, which failed
+as expected — the residual-scan tests genuinely pin the fixed text rather
+than trivially passing.
+
+**Plan corrections `9ae9347`/`ed55c07`, ratified.** Both are narrowly scoped:
+`9ae9347` adds `tests/unit/test_core/test_tier3_beam_cleanup.py` to the §35
+grant (that Tier 3H.2 file pins the exact renamed public surface and cannot
+be left stale) and extends the §15.3 `theta_feed` inventory to
+`illumination.py` (the renamed module would otherwise still carry the
+retired parameter name); `ed55c07` adds `docs/api/jones.rst`,
+`docs/api/simulator.rst`, and `docs/quickstart.rst` under the same
+Tier-5E-established precedent that already routed `docs/api/io.rst` to 5G
+(confirmed by reading the 2026-07-30 Tier 5E acceptance record above, which
+explicitly states this routing). Both commits' diffs were read in full: no
+file outside `Tier5ReceptorFeedPlan.md`, no decision, and no other slice's
+list changed. Ratified.
+
+**Gates.** `pixi run test -- -m "not slow"` (py311, `.pixi/envs/default`,
+Python 3.11): baseline at `eb26da0` reproduced independently as **3,832
+passed, 6 skipped, 26 warnings**; at `70938c3`, **3,881 passed, 6 skipped, 26
+warnings** — the claimed arithmetic (3,832 + 49 new/changed tests across the
+two touched test files) reconciles exactly. Touched files on py312
+(`.pixi/envs/py312`, Python 3.12.13): `test_tier3_beam_cleanup.py` +
+`test_tier1h_documentation.py` together collect and pass **130** tests,
+matching the claim exactly. `pixi run python -m ruff check .`: all checks
+passed. `pixi run python -m ruff format --check .`: 322 files already
+formatted. Fresh-process import of `radiosim`, `core.beam.analytic`,
+`core.jones.beam.analytic.illumination`, and the three renamed illumination
+functions: succeeded. `git status`: clean before and after review. Sphinx:
+reproduced **both** methods — in-tree `sphinx-build -b html docs
+docs/_build_review`: **42** warnings/errors; a `git archive HEAD` clean copy
+built the same way: **40** warnings/errors — both match the claimed ambient
+baselines exactly, with no new warnings attributable to this slice's
+documentation additions. No co-author line in any of the three commits
+(`9ae9347`, `ed55c07`, `70938c3`).
+
+**Risk rulings.**
+
+1. **Missing `automodule:: radiosim.core.jones.receptor` in `docs/api/jones.rst`**
+   (risk 2). Confirmed absent: the module is named once in prose ("the
+   receptor terms `C` and `H` in `radiosim.core.jones.receptor`") but never
+   given an `automodule` block, so `ReceptorConfigJones`/`BasisTransformJones`
+   docstrings do not render on the Sphinx API-reference page. Ruled
+   **acceptable deferral, not a defect**: no false claim results (the page
+   correctly points to `jones_matrices.rst` for the math, which independently
+   verified above); `docs/api/jones.rst` entered this slice's grant only
+   through `ed55c07`'s narrowly-scoped correction ("edits confined to those
+   four claims and the minimum surrounding wording"), so adding a new
+   `automodule` section there would itself have been a scope violation of
+   that correction's own declared boundary. Recorded for Tier 5H or a
+   dedicated documentation pass, not blocking.
+2. **`tests/unit/test_tier4_result_output_acceptance.py`'s `SHIPPED_CONFIGS`
+   tuple omits `configs/receptor_circular_example.yaml`** (risk 3/4). That
+   file is a *different* `SHIPPED_CONFIGS` tuple than
+   `test_tier1h_documentation.py`'s (which does include the new sample); it
+   is not on the Tier 5G §35 grant, so leaving it untouched is correct scope
+   discipline. Checked whether this is a real coverage gap: the only
+   assertion that tuple drives
+   (`test_shipped_configs_carry_no_removed_workflow_field`) is a workflow-field
+   residual scan, and `receptor_circular_example.yaml`'s workflow block was
+   read directly and contains no removed field and
+   `result_format: hdf5` (not `json`) — it would pass trivially if added.
+   Ruled **acceptable deferral, no undertested risk**; recommend a future
+   slice unify the two `SHIPPED_CONFIGS` tuples. `examples/README.md`'s
+   "Shipped configurations" list similarly omits the new sample but makes no
+   "only these" claim and is not on this slice's grant either — same ruling.
+3. **CLAUDE.md line ~132 stale Tier-3 class names** (risk 5, "the old
+   `AntennaType` class and named beam types... have been removed").
+   `git log -S "The old \`AntennaType\` class and named beam types"
+   --oneline -- CLAUDE.md` returns exactly one commit, `61cbc0f`, dated
+   2026-07-12 and confirmed an ancestor of `eb26da0`
+   (`git merge-base --is-ancestor 61cbc0f eb26da0`). Confirmed genuinely
+   pre-existing and untouched by this slice; left for the record as
+   instructed, not a 5G defect.
+
+**Unobserved items, carried forward.** `pixi run typecheck`/Pyright was not
+run (not required until whole-tier acceptance per §33). The neutrality probe
+covered exactly the three renamed illumination primitives at their default
+parameters with one small synthetic array; it did not sweep the full
+parameter space of `focal_ratio`/`q`/`b_over_lambda`/`height_wavelengths`
+combinations, though the rename diff itself is a pure identifier
+substitution with no logic touched, making broader sweeping low-value. No
+PR, tag, release, or deployment was created.
+
+This acceptance changes documentation, configuration, source-identifier, and
+test-pinning files only, within the exact §35 Tier 5G grant (as twice
+bounded-corrected). No Tier 5 scientific behavior changed: the neutrality
+probe confirms bit-identical `scientific_sha256` across the rename, and no
+production computation file (`core/polarization.py`, `core/jones/receptor.py`,
+`core/receptor.py`, `core/result.py` — all Tier 5H's) was touched. `POL-001`
+remains **OPEN** and `POL-002` remains **ROADMAP**: 5G completes the
+terminology split and truth-surface alignment, but §39's full whole-tier
+criteria still require Tier 5H's obsolete-path removal and Tier 5I's
+whole-tier acceptance before either issue can close. Tier 5G is independently
+accepted; Tier 5H is authorized and remains limited to the writable-file list
+in `Tier5ReceptorFeedPlan.md` §35 Tier 5H. Tier 5I remains unauthorized until
+5H is implemented and independently accepted. No PR, tag, release, or
+deployment was created.
