@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted, 6A authorized. Independently accepted with no bounded corrections; implementation not started. |
+| Status | Design accepted. Tier 6A (characterization, dependency contract, baseline fingerprints) independently accepted. Tier 6B (worker configuration schema and resolved runtime) is now the only authorized implementation slice. |
 | Date | 2026-07-30 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |

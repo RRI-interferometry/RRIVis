@@ -204,6 +204,7 @@ Status values used below:
 | RUN-002 | OPEN | Sky loading hard-codes `max_workers=8` | 6 |
 | RUN-003 | OPEN | High-level API forces point or HEALPix and cannot preserve hybrid sky | 6 |
 | RUN-004 | ROADMAP | Backend abstraction is not yet performance-bearing end to end | 6 |
+| SKY-001 | OPEN | Every VizieR point-catalog loader (`gleam`, `mals`, `lotss`, `vlssr`, `tgss`, `wenss`, `sumss`, `nvss`, `3c`, `vlass`) raises `TypeError` because commit `7b02bb2` made `_load_from_vizier_catalog`'s `precision` keyword-only while all four wrapper call sites in `core/sky/loaders/vizier/point_catalogs.py` still pass it positionally | standalone, bounded fix (pre-Tier 7) |
 | SCI-001 | ROADMAP | Most Jones classes are public identity-returning stubs | 7 |
 | SCI-002 | ROADMAP | Spherical-harmonic/m-mode mode is advertised but unimplemented | 7 |
 | SCI-003 | ROADMAP | Advanced beam-physics TODOs remain | 7 |
@@ -6942,3 +6943,261 @@ discard probe script (executed via `pixi run python`, no files under `src/`
 or `tests/` were written or modified). No dual-Python run, CI check, Pyright,
 Ruff, Sphinx, YAML validation, or offline example was executed. No PR, tag,
 release, or deployment was created; nothing was pushed.
+
+### 2026-07-30 Tier 6A independent acceptance
+
+**Tier 6A (characterization, dependency contract, and baseline fingerprints) is
+independently accepted.** Reviewed range `de9d207..bfe3edc`, a single commit
+`test(runtime): characterize Tier 6 baseline` adding exactly one file,
+`tests/characterization/test_tier6_current_behavior.py` (1,253 lines, 40 tests),
+carrying no co-author line. `git show bfe3edc --stat` confirmed this is the
+entire diff; `pixi.toml`, `pixi.lock`, and every production file under `src/`
+are untouched, matching the Section 33 6A grant exactly.
+
+**Gates, both environments.**
+
+```text
+pixi run python -m pytest tests/characterization/test_tier6_current_behavior.py -v          -> 40 passed (py311/default)
+pixi run --environment py312 python -m pytest tests/characterization/test_tier6_current_behavior.py -v -> 40 passed (py312)
+pixi run test                                                                                -> 3969 passed, 6 skipped, 26 warnings (py311/default)
+pixi run --environment py312 test                                                            -> 3969 passed, 6 skipped, 26 warnings (py312)
+pixi run lint                                                                                 -> All checks passed! (ruff check .)
+pixi run check-format                                                                         -> 324 files already formatted (ruff format --check .)
+git status                                                                                    -> clean before and after review edits
+```
+
+The claimed 3,969/6/26 both-environment count is confirmed. I independently
+re-derived the claimed pre-6A baseline of 3,929/6/26 by adding a detached git
+worktree at `de9d207` (outside the repository's tracked tree; removed after use)
+and running the main environment's already-installed interpreter against it
+directly: `3929 passed, 6 skipped, 26 warnings` — exactly 40 fewer than post-6A,
+confirming the 40 new tests are additive and nothing else in the suite moved.
+All 6 skips in both environments are the JAX-unavailability skips named in
+Section 5.5 (`pytest -rs`: `test_jax_backend.py:15` [1],
+`test_jones/test_backend_jones.py:20` [2], `test_sky_backend.py:123` [1],
+`test_visibility_backend.py:88` [1], `test_sky_spectral.py:556` [1] — see the
+Section 5.5 citation correction below); no other skip exists anywhere in the
+suite.
+
+**Fingerprint-mechanism check.** `_expected_for_environment()` keys every R1
+reference and every Section 13.4 workload digest by `_ENVIRONMENT_KEY =
+f"py{sys.version_info[0]}{sys.version_info[1]}"` and calls `pytest.fail()` with
+an explicit message naming the unmeasured environment if the key is absent —
+confirmed by reading the function directly; there is no silent fallback. I
+independently reproduced the claimed py311/py312 astropy divergence rather than
+trusting the docstring: `astropy.__version__` is `7.1.0` in `default`/py311 and
+`8.0.1` in `py312` (matches exactly); a standalone ICRS->AltAz transform for a
+fixed source and instant gave `alt=1.5668104524223894`, `az=1.8421809886141238`
+on py311 and `alt=1.5668104524079423`, `az=1.8421809682045542` on py312 — a
+~1.4e-11 rad altitude and ~2.0e-8 rad azimuth divergence, matching the module
+docstring's claimed magnitudes exactly (my probe used a slightly different
+coordinate setup than the module's internal one, so the literal last digits
+differ from the docstring's quoted values, but the divergence magnitude and its
+cause — astropy version, not solver nondeterminism — are independently
+confirmed). This is a real, external, environment-level effect, not a
+characterization defect.
+
+**Q1 evidence spot-check (fetched independently, not taken from the docstring).**
+
+- `https://api.anaconda.org/release/conda-forge/jaxlib/0.10.2` — confirmed CPU
+  builds for `linux-64`, `linux-aarch64`, `osx-64`, and `osx-arm64` across
+  cp311-cp314, with CUDA 12.9 variants on the Linux subdirs only and no CUDA
+  variant for macOS. Matches the module's platform/python table exactly.
+- `https://pypi.org/pypi/jaxlib/json` (latest release) — confirmed version
+  `0.11.0`, `requires_python ">=3.12"`, wheels for `macosx_11_0_arm64`,
+  `manylinux_2_27_{x86_64,aarch64}`, and `win_amd64` only — no macOS x86_64
+  wheel, no cp311 wheel. Matches the module's claim exactly.
+- `https://pypi.org/pypi/jaxlib/0.10.2/json` (pinned release) — confirmed
+  `requires_python ">=3.11"`, wheels for `macosx_11_0_arm64` and
+  `manylinux_2_27_{x86_64,aarch64}`, still no macOS x86_64 wheel, and
+  `requires_dist` includes `numpy>=2.0`. Matches the module's claim that
+  conda-forge is load-bearing (PyPI never covers `osx-64`) and independently
+  confirms the numpy-pin-interaction premise (`jaxlib` needs `numpy>=2.0`,
+  which is why a `numpy<2.0` pin selects the older `jax`/`jaxlib` 0.7.1 the
+  module reports from its own throwaway solve). I did not re-run the throwaway
+  pixi solves (permitted by the review charter); the resolved-version table and
+  the 0.7.1 fallback claim are accepted on the strength of this independently
+  sourced, coherent supporting evidence.
+
+**Characterization truth — pins independently re-derived from source, not
+taken from the module's prose:**
+
+- D1-D5 (hybrid unreachable): `VisibilityConfig.model_fields["sky_representation"]`
+  literal set, the `run()` point/HEALPix dispatch fork, and the D3 hybrid-discard
+  bit-identity probe were all re-run; all passed and reflect real source
+  behavior, not tautologies (the probe constructs a genuine hybrid `SkyModel`
+  via `materialize_healpix_model(..., clear_other=False)` with an inflated
+  HEALPix payload and asserts `np.array_equal` against an independent
+  point-only baseline run).
+- D6/D7 (worker policy): confirmed `max_workers=8` at `api/simulator.py:782` and
+  `parallel.py:118`; confirmed `ExecutionConfig.model_fields` is exactly
+  `{backend, precision, simulator, offline}`; confirmed `Simulator.run`'s live
+  signature is `(self, progress: bool = True, n_workers: int | None = None)`
+  with the docstring's stale "Number of parallel workers (default: auto)" line
+  and the `NotImplementedError` naming Tier 6, all read directly from
+  `api/simulator.py:847-880`.
+- D8-D15 (backend truthfulness/accumulation): reproduced `get_backend("auto")`
+  independently -> `NumbaBackend numba-cpu True` (xp is numpy); confirmed no
+  `@njit`/`@jit`/`@vectorize`/`@guvectorize`/`@cuda.jit` decorator exists
+  anywhere under `src/radiosim` via an independent regex grep (zero matches);
+  confirmed `prange` appears at `numba_backend.py:40` (import) and `:46`
+  (`prange = None` fallback) but never as a call `prange(`, so the D8 pin's
+  "imported, never called" claim is accurate, not a false negative from a
+  naive substring check. Confirmed `set_at` has exactly one call site in
+  `visibility.py` (line 634, inside the innermost `(t, b, f)` loop) and two
+  mutually exclusive call sites in `visibility_healpix.py` (lines 480 and 545,
+  the polarized and I-only branches, which never both execute for one call),
+  so the `_SetAtCountingBackend` count == `n_times * n_baselines * n_freqs`
+  pin is structurally sound for both solvers, not coincidental. Confirmed the
+  `H_p @ C_p` rebuild site (`visibility_healpix.py:382`) sits strictly between
+  the time-loop header (`:345`) and the frequency-loop header (`:391`) by
+  direct line-order comparison. Confirmed `RIMESimulator.supports_gpu` returns
+  unconditional `True` and its docstring still prints the pre-Tier-5 chain
+  order. Confirmed `ArrayBackend` has no `jit`/`vmap`/`jit_compile`/`compile`/
+  `supports_compilation` attributes while `NumbaBackend.jit_compile` and
+  `JAXBackend.jit`/`vmap` exist, by direct `hasattr` checks matching the pin.
+- D17/D18 (offline/degradation): confirmed `get_network_status(offline=True)`
+  never touches `_cached_status` and that a subsequent `is_online()` call
+  performs a real (mocked) socket probe; confirmed `require_service`'s source
+  branches only on `is_online()` with no `offline` parameter; confirmed the
+  `_kwargs_picklable` monkeypatch path logs "Falling back to thread pool." and
+  that `LoaderExecutionRecord` does not exist anywhere in
+  `core/sky/operations/parallel.py`.
+- `OWNED BY: Tier 6x` markers: cross-checked all 20 markers against Section 32's
+  slice objectives (6B for the typed schema, 6C for loader-worker/offline
+  behavior, 6D for the accumulation restructure, 6E for `run()` removal, 6F for
+  hybrid summation and its ancillary surfaces, 6H for backend truthfulness/
+  compilation/synchronize, 6I for the benchmark harness); every marker matches
+  the slice the plan assigns the corresponding flip to, and every test without
+  an `OWNED BY` marker (the two R1 fingerprint tests, the Section 13.4 workload
+  fingerprints, the registry-driven-executor test, and the NumPy-actual-backend
+  test) is behavior Section 21/§36 declares Tier 6 preserves, not flips. No
+  mismatch found.
+
+**Adjudications.**
+
+1. **Dead VizieR loaders.** Confirmed live: `load_gleam(flux_limit=1000.0,
+   precision=PrecisionConfig.standard())` raises `TypeError:
+   _load_from_vizier_catalog() takes from 1 to 3 positional arguments but 4
+   positional arguments (and 3 keyword-only arguments) were given`, reproduced
+   directly. `_load_from_vizier_catalog` (`core/sky/loaders/vizier/core.py:437-442`)
+   declares `precision` keyword-only after a bare `*`, while `load_gleam`
+   (`point_catalogs.py:72-80`), `load_mals` (`:121`), `load_lotss` (`:254`), and
+   the data-driven factory backing `vlssr`/`tgss`/`wenss`/`sumss`/`nvss`/`3c`/
+   `vlass` (`:162`) all still pass it as the fourth positional argument.
+   `git log` confirms `7b02bb2` ("refactor(sky): normalize loader contracts",
+   2026-06-25) introduced the keyword-only constraint without updating these
+   call sites; `git diff 7b02bb2~1 7b02bb2 -- .../vizier/core.py` shows the
+   signature change. This is a genuine, new-to-this-review, live defect outside
+   Tier 6A's Section 33 grant and outside Tier 6's stated scope. Added register
+   row `SKY-001` (exact text below) rather than fixing production code.
+2. **Per-environment R1/S8.** Confirmed real: `astropy.__version__` is `7.1.0`
+   in `default`/py311 and `8.0.1` in py312 (reproduced directly); an independent
+   ICRS->AltAz probe for a fixed source/instant reproduced the claimed
+   divergence magnitude (~1.4e-11 rad altitude, ~2.0e-8 rad azimuth) between the
+   two environments. This is a factual constraint on R1/S8, not a decision
+   change: amended Section 21 S8 and Section 27 R1 in
+   `Tier6HybridRuntimePlan.md` to state explicitly that the bit-identity
+   comparison is within one Python environment, never across, with a named
+   reason (astropy version, not solver nondeterminism) and an explicit
+   escalation path (a third environment adds its own pinned row rather than
+   loosening the assertion). Corrected in commit `54fd83d`.
+3. **§41 Q2 stale class name.** Confirmed: `BeamFITSHandler` does not exist
+   anywhere in `src/radiosim` (zero grep matches); the current shape is
+   `core/beam/fits.py`'s `_LoadedFITSHandler` reached through
+   `core/beam/runtime.py`'s `BeamSystem.evaluate_jones`. `BeamManager` is also
+   gone (only a stale rejection-message string survives at `io/config.py:2192`
+   naming it as removed since Tier 3). Corrected §41 Q2's class name and its
+   vague "the beam manager module" file-list note to name the two real modules,
+   in commit `54fd83d`. `CLAUDE.md`'s own beam-internals paragraph (line 134)
+   still names both `BeamFITSHandler` and a `beam/fits/` package that do not
+   exist; that correction is out of Tier 6A's authority (§26.4 authorizes only
+   three named `CLAUDE.md` lines, none of them this one) and is left for the
+   Tier 8 documentation sweep, not fixed here.
+4. **§5.5 skip-site citation drift.** Confirmed with `pytest -rs`: both
+   `test_backend_jones.py` skips and the one `test_visibility_backend.py` skip
+   are attributed to the shared `_get_optional_backend()` helper's single
+   `pytest.importorskip("jax")` call (`:20` and `:88` respectively), not to the
+   test-body call sites the plan additionally cited (`:116`, `:132`, `:301`).
+   `test_sky_backend.py:123` is a separate, literal `pytest.importorskip("jax")`
+   inside the test body itself (distinct from that file's own unused
+   helper-level import at `:24`), so that citation was already exact. Corrected
+   the Section 5.5 row in commit `54fd83d`.
+5. **`calculate_visibility` and `include_polarization`.** Confirmed
+   `core/visibility.py`'s `calculate_visibility` (point solver) has no
+   `include_polarization` parameter at all — it is unconditionally full
+   polarization; only `calculate_visibility_healpix` accepts it. Searched the
+   full plan text and found no place that assumes otherwise: §8.3's component
+   table, §9.5's `execution_path` note, and `api/simulator.py:964`'s `use_pol =
+   True` for the point branch are all consistent with the real signature. No
+   correction needed; the test file also calls the two solvers correctly
+   (`include_polarization` only on the HEALPix calls).
+6. **`"jax-cpu-cpu"` doubled suffix.** Confirmed live and pre-existing (not a
+   Tier 6 artifact): `backends/jax_backend.py`'s own module docstring (line 10)
+   documents `backend.name` as `'jax-cpu-cpu'`, and `JAXBackend.name`
+   (`:146`) builds `f"jax-{platform}-{backend_name}"` where both
+   `device.platform` and `jax.default_backend()` return `"cpu"` on a CPU
+   device. Added a Section 39 risk-register row in commit `54fd83d` so 6H's
+   B4/B5 registry-truthfulness tests assert this exact string rather than a
+   cleaner one invented for the occasion.
+7. **`prange` string-count nuance.** Confirmed accurate: `prange` appears at
+   `numba_backend.py:40` (`from numba import jit, prange`) and `:46`
+   (`prange = None`, an import-failure fallback), but the substring `prange(`
+   never appears, so `test_no_numba_kernel_decorator_exists_in_the_package`'s
+   `assert "prange(" not in numba_source` is a correct, non-tautological check
+   of "imported, advertised, never called." No correction needed.
+
+**Q2 ruling.** The thread-safety method is sound: one shared FITS handler
+evaluated from a four-thread pool over 64 distinct
+`(antenna, altitude, azimuth, frequency, time)` cases, compared case-by-case
+against serial evaluation, with a second repeat probe of 16 concurrent
+evaluations of one identical input — both bit-identical, 0 mismatches. This is
+positive evidence, correctly caveated in the module docstring as "one platform,
+one pyuvdata version, not a proof," with the per-worker-handler fallback kept in
+reserve for 6E. **Q2 is provisionally answered (no thread-safety failure
+observed) but not closed**; 6E must still treat it as a probe to be reconfirmed
+under its own real concurrent workload per the plan's own Q2 text, not as a
+substitute for 6E's obligation.
+
+**Operational note.** The commit message references clearing a corrupt
+`~/.astropy` cache entry during evidence-gathering. Confirmed this is outside
+the repository: no `.astropy`-named path exists anywhere under
+`/Users/kartikmandar/MacProjects/RadioSim` (excluding `.pixi/`), and `git
+status` was clean both before and after this review's own edits. No repository
+file was affected.
+
+**Corrections.** `docs(runtime): correct Tier 6 design` (commit `54fd83d`,
+`Tier6HybridRuntimePlan.md` only) makes four bounded, factual corrections found
+above (adjudications 2, 3, 4, and 6); none changes a design decision. Register
+row added for the newly discovered defect (Fix.md §5, this commit):
+
+```text
+| SKY-001 | OPEN | Every VizieR point-catalog loader (`gleam`, `mals`, `lotss`, `vlssr`, `tgss`, `wenss`, `sumss`, `nvss`, `3c`, `vlass`) raises `TypeError` because commit `7b02bb2` made `_load_from_vizier_catalog`'s `precision` keyword-only while all four wrapper call sites in `core/sky/loaders/vizier/point_catalogs.py` still pass it positionally | standalone, bounded fix (pre-Tier 7) |
+```
+
+**Unobserved items.** No GPU, TPU, or distributed hardware was exercised (none
+is claimed by 6A). The four throwaway pixi solves behind the Q1 version table
+were not independently re-run; the review instead independently re-fetched and
+cross-checked the underlying conda-forge/PyPI package metadata that makes those
+solves plausible (see the Q1 spot-check above), per the review charter's
+explicit permission not to re-run them. Q2's evidence is single-platform
+(macOS arm64) and single-pyuvdata-version (3.2.1), as the module itself states;
+this review did not gather independent thread-safety evidence of its own and
+relies on the module's probe plus 6E's standing obligation to reconfirm.
+`pixi run typecheck` was not run (project convention: not part of the standard
+gate unless explicitly requested, and not part of this review's charter).
+
+This acceptance changes planning and roadmap records only. No Tier 6 production
+code, test, fixture, configuration, dependency, lockfile, CI definition, or
+generated artifact was changed. `RUN-001`, `RUN-002`, `RUN-003` remain **OPEN**
+and `RUN-004` remains **ROADMAP**; none is closed by a characterization slice.
+`SKY-001` is newly **OPEN**. Tier 6A is accepted; **Tier 6B (worker
+configuration schema and resolved runtime) is now the only authorized next
+slice**, limited to its Section 33 file list
+(`core/runtime_config.py`, `io/__init__.py`, `io/config.py`,
+`io/config_resolution.py`, `tests/characterization/test_tier6_current_behavior.py`,
+`tests/fixtures/configs.py`, `tests/unit/test_io/test_config.py`,
+`tests/unit/test_io/test_config_resolution.py`,
+`tests/unit/test_simulator/test_worker_policy.py`); Tier 6C through 6J remain
+unauthorized until each predecessor slice is implemented and independently
+accepted. Nothing was pushed.
