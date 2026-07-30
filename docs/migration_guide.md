@@ -320,6 +320,22 @@ in the Jones chain. The solver entry points and the result factory gained a
 required `receptors` parameter with no default; pass the
 `ResolvedReceptorSet` that `resolve_receptors()` returns.
 
+Three superseded polarization helpers were removed outright, not deprecated,
+because Tier 5A's evidence showed each had no production caller:
+
+| Removed symbol | Replacement |
+| --- | --- |
+| `radiosim.core.polarization.visibility_to_correlations` | no replacement; it hard-keyed the pre-Tier-5 linear labels, which the basis-aware `CORRELATION_LABELS` table (`radiosim.core.polarization_basis`) supersedes |
+| `radiosim.core.polarization.mueller_from_jones` | no replacement; it only ever raised `NotImplementedError` and was never reachable from the `radiosim.core` package surface |
+| `radiosim.core.receptor.PolarizationBasisName` | `radiosim.core.polarization_basis.PolarizationBasis` |
+
+Each now fails immediately: `radiosim.core.visibility_to_correlations` raises
+`AttributeError`, and `from radiosim.core.polarization import
+mueller_from_jones` and `from radiosim.core.receptor import
+PolarizationBasisName` both raise `ImportError`. There is no migration text
+carried by those errors because none of the three had a replacement to name;
+this table is that replacement statement.
+
 Two scientific consequences have no opt-out:
 
 - **Stokes `V` sign.** `stokes_to_coherency` now builds

@@ -94,6 +94,7 @@ REFERENCE_SCAN_SUFFIXES = (".py", ".rst", ".md", ".yaml", ".yml", ".txt", ".cfg"
 # an exact-list assertion rather than an exemption, so a new reference anywhere --
 # including a new reference inside one of these files' neighbours -- fails.
 REFERENCE_RECORDING_FILES = (
+    "docs/migration_guide.md",
     "tests/characterization/test_tier5_current_behavior.py",
     "tests/unit/test_core/test_polarization.py",
     "tests/unit/test_core/test_receptor_resolution.py",
@@ -102,16 +103,19 @@ REFERENCE_RECORDING_FILES = (
 
 ALLOWED_REFERENCES = {
     "visibility_to_correlations": (
+        "docs/migration_guide.md",
         "tests/characterization/test_tier5_current_behavior.py",
         "tests/unit/test_core/test_polarization.py",
         "tests/unit/test_tier5_receptor_acceptance.py",
     ),
     "mueller_from_jones": (
+        "docs/migration_guide.md",
         "tests/characterization/test_tier5_current_behavior.py",
         "tests/unit/test_core/test_polarization.py",
         "tests/unit/test_tier5_receptor_acceptance.py",
     ),
     "PolarizationBasisName": (
+        "docs/migration_guide.md",
         "tests/unit/test_core/test_receptor_resolution.py",
         "tests/unit/test_tier5_receptor_acceptance.py",
     ),
@@ -201,9 +205,13 @@ def test_removed_names_are_defined_nowhere_in_the_package(name: str) -> None:
 def test_removed_names_are_referenced_nowhere_in_the_repository(name: str) -> None:
     """The Section 34.8 stop condition, executable.
 
-    ``src/``, ``configs/``, ``examples/``, and ``docs/`` must be completely
-    clean.  Inside ``tests/`` the only permitted references are the removal
-    records enumerated in :data:`ALLOWED_REFERENCES`.
+    ``src/``, ``configs/``, and ``examples/`` must be completely clean. Inside
+    ``tests/`` the only permitted references are the removal records enumerated
+    in :data:`ALLOWED_REFERENCES`. ``docs/migration_guide.md`` is the one
+    sanctioned ``docs/`` reference -- Tier 5I's routed migration-guide entry
+    naming these three removed symbols and stating each has no replacement
+    (Tier5ReceptorFeedPlan.md §35 Tier 5I); every other file under ``docs/``
+    stays clean.
     """
     references = sorted(
         path.relative_to(REPOSITORY_ROOT).as_posix()
@@ -212,7 +220,10 @@ def test_removed_names_are_referenced_nowhere_in_the_repository(name: str) -> No
     )
     assert references == sorted(ALLOWED_REFERENCES[name])
     assert all(reference in REFERENCE_RECORDING_FILES for reference in references)
-    assert all(reference.startswith("tests/") for reference in references)
+    assert all(
+        reference.startswith("tests/") or reference == "docs/migration_guide.md"
+        for reference in references
+    )
 
 
 # ---------------------------------------------------------------------------
