@@ -507,6 +507,127 @@ def _result_receptor_snapshot(
     return _receptor_result_snapshot(receptors.to_snapshot())
 
 
+def _mapping_or_empty(value: object) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        return cast(Mapping[str, object], value)
+    return {}
+
+
+_INSTRUMENT_LOCATION_SCIENTIFIC_KEYS = (
+    "longitude_deg",
+    "latitude_deg",
+    "height_m",
+    "itrs_xyz_m",
+    "source",
+    "location_source",
+)
+_INSTRUMENT_ANTENNA_SCIENTIFIC_KEYS = (
+    "number",
+    "name",
+    "position_enu_m",
+    "diameter_m",
+    "mount_type",
+    "beam_id",
+)
+_INSTRUMENT_ANTENNA_SOURCE_KEYS = (
+    "identity_source",
+    "position_source",
+    "diameter_source",
+    "mount_source",
+    "beam_id_source",
+)
+
+
+def _scientific_instrument_projection(
+    snapshot: Mapping[str, object],
+) -> dict[str, object]:
+    """Project an instrument snapshot onto its transport-free scientific facts.
+
+    The scientific fingerprint must depend only on the resolved science, never
+    on where a source file happened to live on disk, so equal science hashes
+    equally in every checkout.  This projection keeps exactly the facts that
+    :func:`radiosim.core.instrument._canonical_instrument_fingerprint_payload`
+    declares scientific -- the resolved values plus the field-source labels
+    that explain them, bound by ``instrument_sha256`` -- and drops the
+    transport facts that snapshot alongside them: the source path and locator,
+    the raw source hash, dependency versions, the registry policy, pre-override
+    source diameters, per-antenna source-record locators, and location
+    transport diagnostics.  The full snapshot, transport facts included,
+    remains stored on the result and inside ``provenance_sha256``.
+    """
+    source = _mapping_or_empty(snapshot.get("source"))
+    location = _mapping_or_empty(snapshot.get("location"))
+    antennas_value = snapshot.get("antennas")
+    antennas: Sequence[object]
+    if isinstance(antennas_value, (str, bytes)) or not isinstance(
+        antennas_value, Sequence
+    ):
+        antennas = ()
+    else:
+        antennas = cast(Sequence[object], antennas_value)
+    projected_antennas: list[dict[str, object]] = []
+    for antenna_value in antennas:
+        antenna = _mapping_or_empty(antenna_value)
+        provenance = _mapping_or_empty(antenna.get("provenance"))
+        projected: dict[str, object] = {
+            key: antenna.get(key) for key in _INSTRUMENT_ANTENNA_SCIENTIFIC_KEYS
+        }
+        projected["provenance"] = {
+            key: provenance.get(key) for key in _INSTRUMENT_ANTENNA_SOURCE_KEYS
+        }
+        projected_antennas.append(projected)
+    return {
+        "schema_version": snapshot.get("schema_version"),
+        "instrument_sha256": snapshot.get("instrument_sha256"),
+        "name": snapshot.get("name"),
+        "source": {
+            "telescope_name_source": source.get("telescope_name_source"),
+        },
+        "location": {
+            key: location.get(key) for key in _INSTRUMENT_LOCATION_SCIENTIFIC_KEYS
+        },
+        "antennas": projected_antennas,
+    }
+
+
+# Beam snapshot keys that carry filesystem transport rather than science: the
+# FITS source paths themselves, the config locator that authored them, and the
+# fingerprints whose payloads include those paths (a FITS
+# ``definition_fingerprint`` hashes the authored path, and the assignment,
+# state, and loaded fingerprints are built on top of it).  Every fact those
+# fingerprints bind scientifically survives the projection directly: analytic
+# model parameters, FITS handler content hashes and validated metadata, and
+# the antenna-to-definition mapping.
+_BEAM_TRANSPORT_KEYS = frozenset(
+    {
+        "path",
+        "resolved_path",
+        "path_provenance_key",
+        "definition_fingerprint",
+        "assignment_fingerprint",
+        "state_fingerprint",
+        "loaded_fingerprint",
+    }
+)
+
+
+def _scientific_beam_projection(value: object) -> object:
+    """Recursively drop filesystem-transport keys from a beam snapshot."""
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[str, object], value)
+        return {
+            key: _scientific_beam_projection(item)
+            for key, item in mapping.items()
+            if key not in _BEAM_TRANSPORT_KEYS
+        }
+    if isinstance(value, (str, bytes)):
+        return value
+    if isinstance(value, Sequence):
+        sequence = cast(Sequence[object], value)
+        return [_scientific_beam_projection(item) for item in sequence]
+    return value
+
+
 def _scientific_hash(
     *,
     visibilities: np.ndarray,
@@ -540,9 +661,13 @@ def _scientific_hash(
     _hash_json(digest, "correlations", correlations)
     _hash_json(digest, "polarization_basis", polarization_basis)
     _hash_json(digest, "receptor", receptor_snapshot)
-    _hash_json(digest, "instrument", instrument_snapshot)
+    _hash_json(
+        digest,
+        "instrument",
+        _scientific_instrument_projection(instrument_snapshot),
+    )
     _hash_json(digest, "selection", selection_snapshot)
-    _hash_json(digest, "beam", beam_snapshot)
+    _hash_json(digest, "beam", _scientific_beam_projection(beam_snapshot))
     _hash_json(digest, "phase_center", phase_snapshot)
     _hash_json(digest, "solver", solver_snapshot)
     return digest.hexdigest()
@@ -791,23 +916,32 @@ class LoadedSimulationResult(_ResultMethods):
 def _identity_snapshots(
     result: SimulationResult | LoadedSimulationResult,
 ) -> tuple[object, ...]:
+    """Return the scientific identity snapshots used by ``scientifically_equal``.
+
+    The instrument and beam snapshots pass through the same transport-free
+    scientific projections as ``scientific_sha256``, so equal science compares
+    equal regardless of which checkout resolved the source files.
+    """
     receptor_snapshot = _result_receptor_snapshot(result)
     if isinstance(result, SimulationResult):
-        return (
-            result.instrument.to_snapshot(),
-            result.selection.to_snapshot(),
-            result.beam_state.to_snapshot(),
-            receptor_snapshot,
-            result.backend.to_snapshot(),
-            result.solver.to_snapshot(),
-        )
+        instrument_snapshot: Mapping[str, object] = result.instrument.to_snapshot()
+        selection_snapshot: Mapping[str, object] = result.selection.to_snapshot()
+        beam_snapshot: Mapping[str, object] = result.beam_state.to_snapshot()
+        backend_snapshot: Mapping[str, object] = result.backend.to_snapshot()
+        solver_snapshot: Mapping[str, object] = result.solver.to_snapshot()
+    else:
+        instrument_snapshot = result.instrument_snapshot
+        selection_snapshot = result.selection_snapshot
+        beam_snapshot = result.beam_snapshot
+        backend_snapshot = result.backend_snapshot
+        solver_snapshot = result.solver_snapshot
     return (
-        result.instrument_snapshot,
-        result.selection_snapshot,
-        result.beam_snapshot,
+        _scientific_instrument_projection(instrument_snapshot),
+        selection_snapshot,
+        _scientific_beam_projection(beam_snapshot),
         receptor_snapshot,
-        result.backend_snapshot,
-        result.solver_snapshot,
+        backend_snapshot,
+        solver_snapshot,
     )
 
 

@@ -274,6 +274,82 @@ def _independent_receptor_entry(result):
     }
 
 
+def _independent_instrument_entry(snapshot):
+    """Re-derive the hashed instrument entry without reading production code.
+
+    The scientific digest covers only the transport-free scientific facts of
+    the instrument: the resolved values, the field-source labels explaining
+    them, and ``instrument_sha256``.  Source paths and locators, raw source
+    hashes, dependency versions, registry policy, pre-override diameters,
+    per-antenna source records, and location transport diagnostics stay out.
+    """
+    snapshot = _json_tree(snapshot)
+    return {
+        "schema_version": snapshot["schema_version"],
+        "instrument_sha256": snapshot["instrument_sha256"],
+        "name": snapshot["name"],
+        "source": {
+            "telescope_name_source": snapshot["source"]["telescope_name_source"],
+        },
+        "location": {
+            key: snapshot["location"][key]
+            for key in (
+                "longitude_deg",
+                "latitude_deg",
+                "height_m",
+                "itrs_xyz_m",
+                "source",
+                "location_source",
+            )
+        },
+        "antennas": [
+            {
+                "number": antenna["number"],
+                "name": antenna["name"],
+                "position_enu_m": antenna["position_enu_m"],
+                "diameter_m": antenna["diameter_m"],
+                "mount_type": antenna["mount_type"],
+                "beam_id": antenna["beam_id"],
+                "provenance": {
+                    key: antenna["provenance"][key]
+                    for key in (
+                        "identity_source",
+                        "position_source",
+                        "diameter_source",
+                        "mount_source",
+                        "beam_id_source",
+                    )
+                },
+            }
+            for antenna in snapshot["antennas"]
+        ],
+    }
+
+
+_BEAM_TRANSPORT_KEYS = {
+    "path",
+    "resolved_path",
+    "path_provenance_key",
+    "definition_fingerprint",
+    "assignment_fingerprint",
+    "state_fingerprint",
+    "loaded_fingerprint",
+}
+
+
+def _independent_beam_entry(value):
+    """Re-derive the hashed beam entry: drop filesystem-transport keys."""
+    if isinstance(value, dict) or hasattr(value, "items"):
+        return {
+            key: _independent_beam_entry(item)
+            for key, item in value.items()
+            if key not in _BEAM_TRANSPORT_KEYS
+        }
+    if isinstance(value, (tuple, list)):
+        return [_independent_beam_entry(item) for item in value]
+    return value
+
+
 def _independent_fingerprints(
     result,
     *,
@@ -317,9 +393,9 @@ def _independent_fingerprints(
         ("correlations", result.correlations),
         ("polarization_basis", result.polarization_basis),
         ("receptor", receptor_entry),
-        ("instrument", instrument_snapshot),
+        ("instrument", _independent_instrument_entry(instrument_snapshot)),
         ("selection", selection_snapshot),
-        ("beam", beam_snapshot),
+        ("beam", _independent_beam_entry(beam_snapshot)),
         ("phase_center", result.phase_center.to_snapshot()),
         ("solver", solver_snapshot),
     ):
@@ -594,6 +670,28 @@ def test_result_fingerprints_exclude_performance_workflow_and_output_paths(tmp_p
     assert (
         "workflow.output_dir" not in first.configuration_provenance["path_resolutions"]
     )
+
+
+def test_scientific_fingerprint_is_independent_of_source_checkout_location(tmp_path):
+    """Equal science hashes equally regardless of where sources live on disk.
+
+    The two builds are identical except for the directory holding the antenna
+    layout file, mimicking the same commit checked out at two filesystem
+    locations.  The absolute path stays visible in the stored snapshot and
+    keeps contributing to ``provenance_sha256`` through the resolved
+    configuration; only the scientific digest ignores it.
+    """
+    first, _ = _build(tmp_path / "checkout_a")
+    second, _ = _build(tmp_path / "checkout_b" / "nested")
+
+    first_reference = first.instrument.provenance.source_reference
+    second_reference = second.instrument.provenance.source_reference
+    assert first_reference != second_reference
+    assert first.instrument.to_snapshot()["source"]["reference"] == first_reference
+    assert first.scientific_sha256 == second.scientific_sha256
+    assert first.scientifically_equal(second)
+    assert second.scientifically_equal(first)
+    assert first.provenance_sha256 != second.provenance_sha256
 
 
 def test_loaded_result_rejects_nonboolean_flags_instead_of_coercing(tmp_path):
