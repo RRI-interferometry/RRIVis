@@ -1967,6 +1967,46 @@ requires a plan amendment, committed and accepted, before the deviating code.
 | C17 | `ArrayBackend` gains `add`, `stack`, `supports_compilation`, `compile`; `synchronize` widened | 6D, 6F, 6H | third-party backend implementers (none) |
 | C18 | jax-cpu becomes a declared pixi environment; six skips disappear | 6H | lockfile, CI job count |
 
+**Note on C11 and `RUN-005` (added at RUN-005 standalone acceptance,
+2026-07-30).** `RUN-005` (`Fix.md` §5, `scientific_sha256` path-dependence)
+was fixed standalone between Tier 6E and Tier 6F and already changed every
+recorded `scientific_sha256`, including the two Tier 6 R1 shipped-config
+pins in `tests/characterization/test_tier6_current_behavior.py`, which were
+re-pinned in the same standalone change. This is deliberately **not** folded
+into C11: the Tier 6D acceptance review already ruled that the path-dependence
+defect and C11's hybrid-summation churn are unrelated causes of the same
+symptom and must not be conflated (`Fix.md`, 6D acceptance record, "a new
+register row, not a Section 21/§27 C11/C12 ledger note"). This note only
+flags a practical consequence for whoever re-pins C11: the *pre-RUN-005*
+`scientific_sha256` values recorded in any earlier acceptance record are
+**not** the correct "before" baseline for 6F's re-pin diff, because a
+standalone, unrelated fix already moved them once. Diff against the
+current (post-RUN-005) pinned values, not the historical pre-fix ones (both
+are recorded in the `_SHIPPED_CONFIG_FINGERPRINTS` code comment and in
+`Fix.md`'s RUN-005 standalone acceptance note).
+
+**Candidate test addition for 6F (from RUN-005 standalone acceptance).** The
+RUN-005 fix's beam projection (`core/result.py::_scientific_beam_projection`)
+was verified checkout-path-independent for both analytic beams (via the
+committed `test_scientific_fingerprint_is_independent_of_source_checkout_location`,
+which only exercises the antenna-layout path since the three shipped configs
+use analytic beams) and, independently by the accepting reviewer using an
+uncommitted scratch script, for a FITS (`shared_fits`) beam. No FITS-beam
+checkout-independence regression test is committed. `tests/unit/test_core/
+test_result.py` and `tests/fixtures/configs.py` are already in 6F's Section 33
+grant, so adding one there requires no grant change; `tests/fixtures/
+beamfits.py` (already exists, not in 6F's grant) can be imported unmodified.
+**Gotcha for whoever writes it:** `write_scalar_efield_beamfits()` is not
+byte-reproducible across separate calls -- pyuvdata's beamfits writer embeds
+a write-time timestamp in a FITS HISTORY card (confirmed: two independent
+generations of the same fixture differ at byte offset 4519, the embedded
+`"YYYY-MM-DD HH:MM:SS.fff using pyuvdata version ..."` string) -- so the test
+must generate the fixture **once** and copy the identical bytes into two
+checkout directories, never regenerate independently, or the test will
+conflate write-time non-reproducibility with checkout-path dependence. This
+is a candidate addition, not a blocking gap: routed to 6F rather than treated
+as a defect in the standalone fix.
+
 ## 37. Final whole-tier acceptance criteria
 
 Tier 6J accepts Tier 6 only when all criteria pass as one indivisible gate.
