@@ -11,6 +11,7 @@ Available implementations:
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -302,11 +303,34 @@ class ArrayBackend(ABC):
 
         NumPy/Numba arrays are updated in place. Immutable backends such as
         JAX use their functional ``.at[index].set(...)`` update API.
+
+        This is a general-purpose helper and is deliberately *not* used to
+        accumulate solver output: a per-cell functional update copies the whole
+        cube on an immutable backend. The solvers assemble blocks with
+        :meth:`stack` instead (``Tier6HybridRuntimePlan.md`` Section 13.3).
         """
         if hasattr(arr, "at"):
             return arr.at[index].set(value)
         arr[index] = value
         return arr
+
+    def stack(self, arrays: Sequence[Any], axis: int = 0) -> Any:
+        """Assemble equal-shaped arrays along a new axis.
+
+        This is the solvers' one accumulation primitive. It is functional on
+        every backend -- the inputs are never written to -- so a whole block of
+        results is materialized in a single operation instead of ``O(T*B*F)``
+        per-cell updates.
+
+        Args:
+            arrays: Sequence of arrays that share one shape and dtype.
+            axis: Position of the new axis in the result.
+
+        Returns:
+            One array whose shape is the common input shape with ``axis``
+            inserted, and whose dtype is the common input dtype.
+        """
+        return self.xp.stack(arrays, axis=axis)
 
     def bincount(
         self,

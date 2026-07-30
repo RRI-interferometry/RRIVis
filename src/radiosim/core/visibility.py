@@ -107,6 +107,50 @@ def _require_frequencies(frequencies: object) -> np.ndarray:
     return frequencies
 
 
+def _host_preprocess_time_step(
+    source_coords: Any,
+    obstime: Any,
+    location: Any,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Named host-preprocessing stage for one time step.
+
+    ``Tier6HybridRuntimePlan.md`` Section 13.3 requires this stage to be named
+    rather than left implicit: it is the boundary below which the solver runs on
+    the host regardless of the selected backend, because it calls into astropy's
+    ``ICRS`` -> ``AltAz`` machinery, which has no backend-agnostic form. Its
+    outputs -- the horizon mask and the two visible-direction angle arrays --
+    are host ``float64`` arrays that the caller hands to ``backend.asarray``
+    exactly once per time step.
+
+    Returns
+    -------
+    tuple of ndarray
+        ``(above_horizon, altitude_rad_visible, azimuth_rad_visible)``.
+    """
+    altaz = source_coords.transform_to(AltAz(obstime=obstime, location=location))
+    az_rad = altaz.az.rad
+    alt_rad = altaz.alt.rad
+    above_horizon = alt_rad > 0
+    return above_horizon, alt_rad[above_horizon], az_rad[above_horizon]
+
+
+def _host_direction_cosines(
+    altitude_rad: np.ndarray,
+    azimuth_rad: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Direction cosines ``(l, m, n)`` in the local ENU frame, on the host.
+
+    The second half of the Section 13.3 host-preprocessing stage: a fixed-cost
+    trigonometric transform of the astropy output, evaluated once per time step
+    and then transferred once.
+    """
+    return (
+        np.cos(altitude_rad) * np.sin(azimuth_rad),
+        np.cos(altitude_rad) * np.cos(azimuth_rad),
+        np.sin(altitude_rad),
+    )
+
+
 class _ResolvedBeamJones(JonesTerm):
     """Private E-Jones adapter over one canonical :class:`BeamSystem`."""
 
@@ -334,14 +378,17 @@ def calculate_visibility(
     n_baselines = len(instrument.selected_pairs)
     n_freq = len(frequencies)
     sample_times = time_grid.as_astropy()
-    visibilities = backend.zeros_complex(
-        (n_times, n_baselines, n_freq, 2, 2),
-        dtype=output_complex_dtype,
-    )
 
-    # Handle empty source arrays
-    if len(_ra_rad) == 0:
-        return visibilities
+    def _zero_cube() -> Any:
+        return backend.zeros_complex(
+            (n_times, n_baselines, n_freq, 2, 2),
+            dtype=output_complex_dtype,
+        )
+
+    # Handle empty source arrays, and any degenerate axis: there is nothing to
+    # assemble, so return the canonical zero cube directly.
+    if len(_ra_rad) == 0 or n_times == 0 or n_baselines == 0 or n_freq == 0:
+        return _zero_cube()
 
     # Build SkyCoord from RA/Dec arrays (time-invariant)
     source_coords = SkyCoord(
@@ -409,26 +456,36 @@ def calculate_visibility(
 
     # ===========================================================================
     # TIME LOOP: Iterate over time steps, updating source positions each step
+    #
+    # Output accumulation follows Section 13.3 of Tier6HybridRuntimePlan.md:
+    # one (B, 2, 2) block per (time, frequency), one (B, F, 2, 2) block per
+    # time, and exactly one (T, B, F, 2, 2) assembly per call. Nothing is
+    # written into a pre-allocated cube, so an immutable-array backend performs
+    # one assembly instead of T*B*F whole-cube functional copies.
     # ===========================================================================
+    time_blocks: list[Any] = []
+    empty_time_block: Any = None
     for time_idx in range(n_times):
         current_obstime = sample_times[time_idx]
 
-        # Transform source coordinates to AltAz frame (changes with time!)
-        altaz = source_coords.transform_to(
-            AltAz(obstime=current_obstime, location=location)
+        # ---- host preprocessing (named stage; see _host_preprocess_time_step)
+        above_horizon, alt_rad_t, az_rad_t = _host_preprocess_time_step(
+            source_coords,
+            current_obstime,
+            location,
         )
-        az_rad = altaz.az.rad
-        alt_rad = altaz.alt.rad
-
-        # Filter out sources below the horizon
-        above_horizon = alt_rad > 0
         if not np.any(above_horizon):
-            # No sources visible at this time - skip to next time step
+            # No sources visible at this time - contribute an exactly zero block
+            # so the time axis keeps its slot in the single final assembly.
+            if empty_time_block is None:
+                empty_time_block = backend.zeros_complex(
+                    (n_baselines, n_freq, 2, 2),
+                    dtype=output_complex_dtype,
+                )
+            time_blocks.append(empty_time_block)
             continue
 
         # Apply horizon filter for this time step
-        az_rad_t = az_rad[above_horizon]
-        alt_rad_t = alt_rad[above_horizon]
         source_stokes_I_t = source_stokes_I_orig[above_horizon]
         source_stokes_Q_t = source_stokes_Q_orig[above_horizon]
         source_stokes_U_t = source_stokes_U_orig[above_horizon]
@@ -470,9 +527,7 @@ def calculate_visibility(
         n_sources = len(az_rad_t)
 
         # Calculate direction cosines (l, m, n) for this time step
-        l_np = np.cos(alt_rad_t) * np.sin(az_rad_t)
-        m_np = np.cos(alt_rad_t) * np.cos(az_rad_t)
-        n_np = np.sin(alt_rad_t)
+        l_np, m_np, n_np = _host_direction_cosines(alt_rad_t, az_rad_t)
         l_dir = backend.asarray(l_np, dtype=backend.default_real_dtype)
         m_dir = backend.asarray(m_np, dtype=backend.default_real_dtype)
         n_dir = backend.asarray(n_np, dtype=backend.default_real_dtype)
@@ -520,6 +575,7 @@ def calculate_visibility(
             gauss_b_t = backend.asarray(gauss_b_t, dtype=backend.default_real_dtype)
             gauss_c_t = backend.asarray(gauss_c_t, dtype=backend.default_real_dtype)
 
+        freq_blocks: list[Any] = []
         for freq_idx, freq in enumerate(frequencies):
             # Resolve Stokes at this observation frequency. Short-circuits to
             # nearest-channel lookup when per_channel_flux is populated;
@@ -584,13 +640,13 @@ def calculate_visibility(
                     antenna_number=ant_num,
                 )
 
-            # Compute visibilities per baseline
-            for baseline_idx, ((ant1, ant2), baseline_vector) in enumerate(
-                zip(
-                    instrument.selected_pairs,
-                    instrument.baseline_vectors_enu_m,
-                    strict=True,
-                )
+            # Compute visibilities per baseline, collecting one (2, 2) matrix
+            # per baseline for a single (B, 2, 2) assembly at this (t, f).
+            baseline_matrices: list[Any] = []
+            for (ant1, ant2), baseline_vector in zip(
+                instrument.selected_pairs,
+                instrument.baseline_vectors_enu_m,
+                strict=True,
             ):
                 J_p = jones_antenna_cache[ant1]  # (n_sources, 2, 2)
                 J_q = jones_antenna_cache[ant2]
@@ -631,13 +687,16 @@ def calculate_visibility(
                     backend.sum(V_all, axis=0),
                     dtype=output_complex_dtype,
                 )
-                visibilities = backend.set_at(
-                    visibilities,
-                    (time_idx, baseline_idx, freq_idx),
-                    visibility_matrix,
-                )
+                baseline_matrices.append(visibility_matrix)
 
-    return visibilities
+            # One (B, 2, 2) block for all baselines at this (time, frequency).
+            freq_blocks.append(backend.stack(baseline_matrices, axis=0))
+
+        # One (B, F, 2, 2) block for this time step.
+        time_blocks.append(backend.stack(freq_blocks, axis=1))
+
+    # One (T, B, F, 2, 2) cube, assembled in a single operation.
+    return backend.stack(time_blocks, axis=0)
 
 
 def _build_jones_chain(

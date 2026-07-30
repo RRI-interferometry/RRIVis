@@ -300,15 +300,30 @@ def _expected_for_environment(table: dict[str, Any], what: str) -> Any:
 
 
 class _SetAtCountingBackend(NumPyBackend):
-    """A NumPy backend that counts ``set_at`` calls, for the D11 accumulation pin."""
+    """A NumPy backend that counts accumulation calls, for the D11 pin.
+
+    Tier 6D flipped the two D11 pins that use this wrapper, so it now counts the
+    block assemblies that replaced the per-cell writes as well as the writes
+    themselves, and the pins assert that the ``set_at`` count is zero.
+    """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.set_at_calls = 0
+        self.stack_calls = 0
+        self.cube_assemblies: list[tuple[int, ...]] = []
 
     def set_at(self, arr: Any, index: Any, value: Any) -> Any:
         self.set_at_calls += 1
         return super().set_at(arr, index, value)
+
+    def stack(self, arrays: Any, axis: int = 0) -> Any:
+        result = super().stack(arrays, axis=axis)
+        self.stack_calls += 1
+        shape = tuple(np.asarray(result).shape)
+        if len(shape) == 5:
+            self.cube_assemblies.append(shape)
+        return result
 
 
 # =========================================================================
@@ -897,8 +912,14 @@ def test_point_solver_accumulates_one_set_at_per_time_baseline_frequency(
 ) -> None:
     """Pins D11 for the point solver.
 
-    OWNED BY: Tier 6D, which replaces per-cell ``set_at`` with one per-time block
-    assembly and asserts a single whole-cube assembly per call (R2).
+    OWNED BY: Tier 6D.  FLIPPED BY: Tier 6D -- the per-``(t, b, f)`` ``set_at``
+    accumulation is gone.  The solver now assembles one ``(B, 2, 2)`` block per
+    ``(time, frequency)``, one ``(B, F, 2, 2)`` block per time, and exactly one
+    ``(T, B, F, 2, 2)`` cube per call (Section 13.3, test R2), so the call count
+    drops from ``T*B*F`` functional whole-cube copies to ``T*F + T + 1``
+    assemblies and zero ``set_at`` calls.  The shape itself is asserted in
+    ``tests/unit/test_core/test_visibility_accumulation.py``; this pin only
+    records that the old shape is truly gone.
     """
     instrument, beam_system, receptors = _solver_components(tmp_path)
     backend = _SetAtCountingBackend()
@@ -913,8 +934,9 @@ def test_point_solver_accumulates_one_set_at_per_time_baseline_frequency(
         receptors=receptors,
     )
     n_times, n_baselines, n_freqs = cube.shape[:3]
-    assert backend.set_at_calls == n_times * n_baselines * n_freqs
-    assert backend.set_at_calls > 1
+    assert backend.set_at_calls == 0
+    assert backend.stack_calls == n_times * n_freqs + n_times + 1
+    assert backend.cube_assemblies == [tuple(np.asarray(cube).shape)]
 
 
 def test_healpix_solver_accumulates_one_set_at_per_time_baseline_frequency(
@@ -922,7 +944,8 @@ def test_healpix_solver_accumulates_one_set_at_per_time_baseline_frequency(
 ) -> None:
     """Pins D11 for the HEALPix solver.
 
-    OWNED BY: Tier 6D.
+    OWNED BY: Tier 6D.  FLIPPED BY: Tier 6D -- same restructure as the point
+    solver above, in both the scalar and the polarized HEALPix path.
     """
     instrument, beam_system, receptors = _solver_components(tmp_path)
     backend = _SetAtCountingBackend()
@@ -938,20 +961,27 @@ def test_healpix_solver_accumulates_one_set_at_per_time_baseline_frequency(
         include_polarization=False,
     )
     n_times, n_baselines, n_freqs = cube.shape[:3]
-    assert backend.set_at_calls == n_times * n_baselines * n_freqs
-    assert backend.set_at_calls > 1
+    assert backend.set_at_calls == 0
+    assert backend.stack_calls == n_times * n_freqs + n_times + 1
+    assert backend.cube_assemblies == [tuple(np.asarray(cube).shape)]
 
 
 def test_healpix_solver_rebuilds_the_constant_receptor_transforms_per_time() -> None:
     """Pins D12: ``H_p @ C_p`` is recomputed inside the time loop.
 
-    OWNED BY: Tier 6D, which hoists it above the loop.
+    OWNED BY: Tier 6D.  FLIPPED BY: Tier 6D -- the constant ``H_p @ C_p``
+    product, together with the selected-antenna tuple it is keyed by, is now
+    built once above the time loop instead of once per time sample.  The
+    frequency loop no longer enumerates: the restructure removed the last use of
+    ``freq_idx``, which only existed to index the per-cell output write.
     """
     source = _source("src/radiosim/core/visibility_healpix.py")
     time_loop = source.index("for time_idx in range(n_times):")
     transforms = source.index("receptor_transforms = _receptor_transforms(")
-    frequency_loop = source.index("for freq_idx, freq in enumerate(frequencies):")
-    assert time_loop < transforms < frequency_loop
+    frequency_loop = source.index("for freq in frequencies:")
+    assert transforms < time_loop < frequency_loop
+    assert source.count("receptor_transforms = _receptor_transforms(") == 1
+    assert "for freq_idx, freq in enumerate(frequencies):" not in source
 
 
 def test_backend_abstract_surface_omits_jit_vmap_and_jit_compile() -> None:

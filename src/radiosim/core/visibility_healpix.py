@@ -114,6 +114,50 @@ def _receptor_transforms(
     return transforms
 
 
+def _host_preprocess_time_step(
+    pixel_coords: Any,
+    obstime: Any,
+    location: Any,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Named host-preprocessing stage for one time step.
+
+    ``Tier6HybridRuntimePlan.md`` Section 13.3 requires this stage to be named
+    rather than left implicit: it is the boundary below which the solver runs on
+    the host regardless of the selected backend, because it calls into astropy's
+    ``ICRS`` -> ``AltAz`` machinery, which has no backend-agnostic form. Its
+    outputs -- the horizon mask and the two visible-direction angle arrays --
+    are host ``float64`` arrays that the caller hands to ``backend.asarray``
+    exactly once per time step.
+
+    Returns
+    -------
+    tuple of ndarray
+        ``(above_horizon, altitude_rad_visible, azimuth_rad_visible)``.
+    """
+    altaz = pixel_coords.transform_to(AltAz(obstime=obstime, location=location))
+    az_rad = altaz.az.rad
+    alt_rad = altaz.alt.rad
+    above_horizon = alt_rad > 0
+    return above_horizon, alt_rad[above_horizon], az_rad[above_horizon]
+
+
+def _host_direction_cosines(
+    altitude_rad: np.ndarray,
+    azimuth_rad: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Direction cosines ``(l, m, n)`` in the local ENU frame, on the host.
+
+    The second half of the Section 13.3 host-preprocessing stage: a fixed-cost
+    trigonometric transform of the astropy output, evaluated once per time step
+    and then transferred once. ``l`` is East, ``m`` is North, ``n`` is Up.
+    """
+    return (
+        np.cos(altitude_rad) * np.sin(azimuth_rad),
+        np.cos(altitude_rad) * np.cos(azimuth_rad),
+        np.sin(altitude_rad),
+    )
+
+
 def _canonical_antenna_id(
     instrument: "SolverInstrumentView",
     antenna_number: int,
@@ -329,66 +373,71 @@ def calculate_visibility_healpix(
         dtype=backend.default_real_dtype,
     )
 
-    visibilities = backend.zeros_complex(
-        (n_times, n_baselines, n_freqs, 2, 2),
-        dtype=output_complex_dtype,
-    )
-
     logger.info(
         f"Computing visibilities: {n_times} times \u00d7 {n_freqs} freqs "
         f"\u00d7 {n_baselines} baselines"
     )
 
+    # Any degenerate axis leaves nothing to assemble.
+    if n_times == 0 or n_baselines == 0 or n_freqs == 0:
+        return backend.zeros_complex(
+            (n_times, n_baselines, n_freqs, 2, 2),
+            dtype=output_complex_dtype,
+        )
+
+    # ``C`` and ``H`` are direction, time, and frequency independent, so the
+    # constant ``H_p @ C_p`` product is built once for the whole call rather
+    # than rebuilt inside the time loop (defect D12, Section 13.2).
+    selected_numbers = {number for pair in selected_pairs for number in pair}
+    ant_nums = tuple(
+        number for number in instrument.antenna_numbers if number in selected_numbers
+    )
+    receptor_transforms = _receptor_transforms(
+        receptors=receptors,
+        instrument=instrument,
+        antenna_numbers=ant_nums,
+    )
+
     # ==========================================================================
     # TIME LOOP
+    #
+    # Output accumulation follows Section 13.3 of Tier6HybridRuntimePlan.md:
+    # one (B, 2, 2) block per (time, frequency), one (B, F, 2, 2) block per
+    # time, and exactly one (T, B, F, 2, 2) assembly per call.
     # ==========================================================================
+    time_blocks: list[Any] = []
+    empty_time_block: Any = None
     for time_idx in range(n_times):
         current_obstime = sample_times[time_idx]
 
-        # Transform pixel coordinates to AltAz
-        altaz = pixel_coords.transform_to(
-            AltAz(obstime=current_obstime, location=location)
+        # ---- host preprocessing (named stage; see _host_preprocess_time_step)
+        above_horizon, alt_vis, az_vis = _host_preprocess_time_step(
+            pixel_coords,
+            current_obstime,
+            location,
         )
-        az_rad = altaz.az.rad
-        alt_rad = altaz.alt.rad
-
-        # Filter pixels above horizon
-        above_horizon = alt_rad > 0
         if not np.any(above_horizon):
+            # Contribute an exactly zero block so the time axis keeps its slot.
+            if empty_time_block is None:
+                empty_time_block = backend.zeros_complex(
+                    (n_baselines, n_freqs, 2, 2),
+                    dtype=output_complex_dtype,
+                )
+            time_blocks.append(empty_time_block)
             continue
 
         n_visible = np.sum(above_horizon)
 
-        # Get visible pixel indices and geometry
-        az_vis = az_rad[above_horizon]
-        alt_vis = alt_rad[above_horizon]
-
-        # Compute direction cosines (dir_l, dir_m, dir_n) in local ENU frame
-        # dir_l = East, dir_m = North, dir_n = Up (zenith)
-        dir_l = np.cos(alt_vis) * np.sin(az_vis)
-        dir_m = np.cos(alt_vis) * np.cos(az_vis)
-        dir_n = np.sin(alt_vis)
+        dir_l, dir_m, dir_n = _host_direction_cosines(alt_vis, az_vis)
         dir_l_xp = backend.asarray(dir_l, dtype=backend.default_real_dtype)
         dir_m_xp = backend.asarray(dir_m, dtype=backend.default_real_dtype)
         dir_n_xp = backend.asarray(dir_n, dtype=backend.default_real_dtype)
 
-        # Collect selected antenna numbers in canonical instrument order.
-        selected_numbers = {number for pair in selected_pairs for number in pair}
-        ant_nums = tuple(
-            number
-            for number in instrument.antenna_numbers
-            if number in selected_numbers
-        )
-        receptor_transforms = _receptor_transforms(
-            receptors=receptors,
-            instrument=instrument,
-            antenna_numbers=ant_nums,
-        )
-
         # ======================================================================
         # FREQUENCY LOOP
         # ======================================================================
-        for freq_idx, freq in enumerate(frequencies):
+        freq_blocks: list[Any] = []
+        for freq in frequencies:
             wavelength_m = float(C_LIGHT) / float(freq)
             jones_cache = _evaluate_beam_batch_by_antenna(
                 beam_system=beam_system,
@@ -463,8 +512,9 @@ def calculate_visibility_healpix(
 
                 # Compute visibility for each baseline
                 # V_pq = Σ_pix phase_pix * J_p @ C_pix @ J_q^H
-                for bl_idx, ((ant1, ant2), bl_vec) in enumerate(
-                    zip(selected_pairs, baseline_vectors, strict=True)
+                baseline_matrices: list[Any] = []
+                for (ant1, ant2), bl_vec in zip(
+                    selected_pairs, baseline_vectors, strict=True
                 ):
                     bl_u, bl_v, bl_w = bl_vec / wavelength_m
                     delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)
@@ -477,13 +527,11 @@ def calculate_visibility_healpix(
                     V_all = backend.matmul(backend.matmul(J_p, coherency), J_q_H)
                     V_all = V_all * phase[:, None, None]
 
-                    visibilities = backend.set_at(
-                        visibilities,
-                        (time_idx, bl_idx, freq_idx),
+                    baseline_matrices.append(
                         backend.asarray(
                             backend.sum(V_all, axis=0),
                             dtype=output_complex_dtype,
-                        ),
+                        )
                     )
 
             else:
@@ -525,8 +573,9 @@ def calculate_visibility_healpix(
                     dtype=backend.default_complex_dtype,
                 )
                 coherency = coherency * (signal / 2.0)[:, None, None]
-                for bl_idx, ((ant1, ant2), bl_vec) in enumerate(
-                    zip(selected_pairs, baseline_vectors, strict=True)
+                baseline_matrices = []
+                for (ant1, ant2), bl_vec in zip(
+                    selected_pairs, baseline_vectors, strict=True
                 ):
                     bl_u, bl_v, bl_w = bl_vec / wavelength_m
                     delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)
@@ -542,11 +591,13 @@ def calculate_visibility_healpix(
                         backend.sum(V_all, axis=0),
                         dtype=output_complex_dtype,
                     )
-                    visibilities = backend.set_at(
-                        visibilities,
-                        (time_idx, bl_idx, freq_idx),
-                        matrix,
-                    )
+                    baseline_matrices.append(matrix)
+
+            # One (B, 2, 2) block for all baselines at this (time, frequency).
+            freq_blocks.append(backend.stack(baseline_matrices, axis=0))
+
+        # One (B, F, 2, 2) block for this time step.
+        time_blocks.append(backend.stack(freq_blocks, axis=1))
 
         if time_idx % 10 == 0 or time_idx == n_times - 1:
             logger.debug(
@@ -559,4 +610,5 @@ def calculate_visibility_healpix(
         f"mode: {pol_label}"
     )
 
-    return visibilities
+    # One (T, B, F, 2, 2) cube, assembled in a single operation.
+    return backend.stack(time_blocks, axis=0)

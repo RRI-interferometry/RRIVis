@@ -100,7 +100,23 @@ def _get_optional_backend(name: str):
 
 
 class _StrictOutputBackend(NumPyBackend):
-    """Reject implicit complex-width changes at the output assignment boundary."""
+    """Reject implicit complex-width changes at the output assembly boundary.
+
+    Tier 6D moved that boundary from ``set_at`` to ``stack``: the solvers cast
+    every ``(2, 2)`` matrix to the declared output complex dtype before it joins
+    a block, so every array entering an assembly must already carry that dtype,
+    and the assembled block must carry it out unchanged.
+    """
+
+    def stack(self, arrays, axis=0):
+        expected = np.dtype(self.get_complex_dtype("output"))
+        for entry in arrays:
+            if np.asarray(entry).dtype != expected:
+                raise TypeError("unsafe implicit complex output cast")
+        result = super().stack(arrays, axis=axis)
+        if np.asarray(result).dtype != expected:
+            raise TypeError("unsafe implicit complex output cast")
+        return result
 
     def set_at(self, arr, index, value):
         if np.asarray(value).dtype != np.asarray(arr).dtype:
