@@ -1659,6 +1659,13 @@ therefore must supply the required `receptors` argument that §28 and §34.4
 declare. Added above for the reasons recorded in the §35 Tier 5D correction.
 No decision, slice boundary, or other slice's file list changed.
 
+**Correction (Tier 5E implementation).** This list omitted
+`tests/unit/test_tier4_result_output_acceptance.py`, which pins
+`hdf5_module.SCHEMA_VERSION == "1.0.0"` and must learn the `2.0.0` bump that B7
+and §21.5 assign to 5E. Added for the reason recorded in the §35 Tier 5E
+correction below. No decision, slice boundary, or other slice's file list
+changed.
+
 **Correction (Tier 5B acceptance).** §30.2 omitted
 `src/radiosim/core/runtime_config.py` and this list omitted
 `tests/unit/test_io/test_instrument_config.py` and
@@ -2173,6 +2180,60 @@ tests/unit/test_core/test_result.py
 tests/unit/test_io/test_hdf5_result.py
 tests/unit/test_simulator/test_result_integration.py
 ```
+
+**Correction (Tier 5E implementation).** The original list granted 5E the two
+production files it rewrites and four test modules, but three of the slice's own
+declared changes — the `receptors` parameter on `build_simulation_result` (B6,
+which §38 assigns to 5D **and 5E**), the HDF5 `1.0.0` → `2.0.0` bump (B7), and
+the `UnsupportedSchemaVersionError` message that §21.5 requires to name Tier 5 —
+make seven further files unavoidable. Added:
+
+- `src/radiosim/api/simulator.py`: the only production caller of
+  `build_simulation_result` (`:1001`). §34.5 requires `correlations` and
+  `polarization_basis` to be derived from `receptors.output_basis`, so the
+  factory must receive the resolved receptor set, and this call site is the only
+  route from `Simulator` to it. One added keyword argument, nothing else.
+- `src/radiosim/io/result_errors.py`: §21.5 requires the `1.0.0` rejection to
+  name Tier 5 as the boundary, and that message is composed inside
+  `UnsupportedSchemaVersionError.__init__` (`:70-79`). One additive `GUIDANCE`
+  class constant, following the existing `LegacyHDF5Error.GUIDANCE` precedent;
+  no error class is renamed, removed, or re-typed (§25.1 holds). The file is
+  also on 5F's list, which adds a *new* class to it — the two edits are
+  disjoint.
+- `tests/characterization/test_tier5_current_behavior.py`: already granted to
+  5A/5C/5B/5D as the file the tier repeatedly modifies (§30.4), but 5E must flip
+  the two `OWNED BY: Tier 5E` pins and the 5E-owned clauses of the
+  `OWNED BY: Tier 5E and Tier 5F` pin narrowed by 5C. Tier 5F's residue — the
+  `standard_visibility.py` literals, the absence of the shared table there, and
+  the `measurement_set.py` clause of the circular-label scan — is left asserted.
+- `tests/unit/test_simulator/test_api.py`: holds the 5D pin
+  `test_a_circular_receptor_configuration_changes_the_published_visibilities`,
+  whose closing block asserts the interim mislabeling ("still the linear
+  literals until Tier 5E makes them data driven"). 5E is the slice that
+  falsifies it.
+- `tests/unit/test_io/test_standard_visibility.py`: its module-level
+  `build_standard_result` helper (`:135`) calls `build_simulation_result`
+  directly and is imported by `test_measurement_set.py` and `test_uvfits.py`, so
+  the required `receptors` argument reaches it here and those two files need no
+  change. The file is also on 5F's list; 5E adds two lines to the fixture and
+  touches no assertion.
+- `tests/unit/test_tier4_result_output_acceptance.py`: pins
+  `hdf5_module.SCHEMA_VERSION == "1.0.0"` (`:222`), exactly the constant B7 and
+  §21.5 tell 5E to bump. One literal.
+- `tests/unit/test_core/test_polarization_basis.py` (5C's file):
+  `test_the_linear_row_preserves_the_existing_production_constants` imports
+  `radiosim.io.hdf5.CORRELATIONS` and `.AIPS_CODES` to prove the shared table's
+  linear row reproduced them. §20.1 and §28 tell 5E to delete both constants, so
+  those two clauses have no constant left to compare against and are removed;
+  the three `io/standard_visibility.py` clauses — 5F's residue — stay. This is
+  the same 5A/5C authoring pattern recorded in the Tier 5B and 5D corrections: a
+  test asserting exactly what a later slice's writable-file list already told it
+  to change, left unmarked.
+
+`tests/characterization/test_tier4_current_behavior.py` was granted but needed
+no change: its correlation assertions are linear and linear behavior is
+unchanged. No decision, scientific claim, slice boundary, or other slice's file
+list changes.
 
 ### Tier 5F
 
