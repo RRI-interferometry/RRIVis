@@ -89,7 +89,6 @@ from radiosim.core.phase_center import PhaseCenter
 from radiosim.core.polarization import (
     apply_jones_matrices,
     stokes_to_coherency,
-    visibility_to_correlations,
 )
 from radiosim.core.polarization_basis import (
     CORRELATION_LABELS,
@@ -310,7 +309,6 @@ __all__ = [
     # Polarization
     "stokes_to_coherency",
     "apply_jones_matrices",
-    "visibility_to_correlations",
     # Polarization basis
     "PolarizationBasis",
     "CORRELATION_LABELS",

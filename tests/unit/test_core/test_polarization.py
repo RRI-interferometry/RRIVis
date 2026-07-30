@@ -401,3 +401,72 @@ def test_module_docstring_records_the_pyradiosky_divergence() -> None:
 
     assert "pyradiosky" in docstring
     assert "(U - iV)" in docstring
+
+
+# ---------------------------------------------------------------------------
+# Tier 5H removals (Section 34.8, resolving Section 43 Q4 and Q5)
+# ---------------------------------------------------------------------------
+
+TIER5H_REMOVED_HELPERS = ("visibility_to_correlations", "mueller_from_jones")
+
+
+@pytest.mark.parametrize("name", TIER5H_REMOVED_HELPERS)
+def test_superseded_helper_is_gone_from_the_module(name: str) -> None:
+    """Section 34.8 removes both on the Tier 5A no-production-caller evidence."""
+    assert not hasattr(polarization_module, name)
+    with pytest.raises(AttributeError):
+        getattr(polarization_module, name)
+
+
+@pytest.mark.parametrize("name", TIER5H_REMOVED_HELPERS)
+def test_superseded_helper_cannot_be_imported(name: str) -> None:
+    with pytest.raises(ImportError):
+        exec(
+            compile(
+                f"from radiosim.core.polarization import {name}\n",
+                "<tier5h>",
+                "exec",
+            ),
+            {},
+        )
+
+
+def test_the_module_no_longer_hard_keys_the_linear_correlation_labels() -> None:
+    """``visibility_to_correlations`` was the last linear-only label table.
+
+    ``radiosim.core.polarization_basis.CORRELATION_LABELS`` is the sole
+    authority, so no executable dictionary in this module may key correlations
+    by literal linear labels.  Docstring prose -- which still cites the
+    codex-africanus ``"XY": u + v*1j`` mapping as a convention reference -- is
+    not code and is deliberately not scanned.
+    """
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(polarization_module))
+    labels = {"XX", "XY", "YX", "YY", "RR", "RL", "LR", "LL"}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key in node.keys:
+            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                assert key.value not in labels
+
+
+def test_the_surviving_helpers_are_untouched() -> None:
+    """Section 34.8's ledger names two helpers; their neighbours stay."""
+    for name in (
+        "stokes_to_coherency",
+        "coherency_to_stokes",
+        "apply_jones_matrices",
+        "stokes_I_only_visibility",
+        "jones_matrix_power",
+    ):
+        assert callable(getattr(polarization_module, name))
+
+
+def test_the_core_package_no_longer_re_exports_the_removed_helper() -> None:
+    import radiosim.core as core_package
+
+    assert "visibility_to_correlations" not in core_package.__all__
+    assert not hasattr(core_package, "visibility_to_correlations")

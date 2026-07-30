@@ -89,16 +89,21 @@ this.
 
 Q3 is answered in ``test_pyuvdata_321_polarization_contract.py``.
 
-Q4 — ``visibility_to_correlations`` (resolved in 5H).  It has no production
-caller; the only references outside its own module are the two re-export lines
-in ``radiosim.core.__init__``.  Pinned by
-``test_superseded_polarization_helpers_have_no_production_caller``.
+Q4 — ``visibility_to_correlations`` (resolved in 5H).  It had no production
+caller; the only references outside its own module were the two re-export lines
+in ``radiosim.core.__init__``.  **Flipped by Tier 5H**, which took the §24
+removal branch that this evidence selects.  The pin
+``test_superseded_polarization_helpers_have_no_production_caller`` now asserts
+that the function is gone and that the helpers §34.8 did *not* name still have
+no production caller.
 
-Q5 — ``mueller_from_jones`` (resolved in 5H).  It raises ``NotImplementedError``
-as the plan says, but it is **not** publicly exported: it is absent from
+Q5 — ``mueller_from_jones`` (resolved in 5H).  It raised ``NotImplementedError``
+as the plan says, but it was **not** publicly exported: it was absent from
 ``radiosim.core.__all__`` and from the ``radiosim.core`` namespace, reachable
-only as ``radiosim.core.polarization.mueller_from_jones``.  Pinned by
-``test_mueller_from_jones_is_module_public_but_unimplemented``.
+only as ``radiosim.core.polarization.mueller_from_jones``.  **Flipped by Tier
+5H**, which removed the stub outright rather than gating it as Tier 7, because
+§28 forbids pre-v1 deprecation shims.  The pin
+``test_mueller_from_jones_is_removed_not_gated`` records the removal.
 
 Contradictions for the 5A acceptance reviewer
 =============================================
@@ -117,6 +122,8 @@ Contradictions for the 5A acceptance reviewer
 4. Section 43 Q4 asks whether ``visibility_to_correlations`` has a production
    caller.  It does not — and neither do ``stokes_I_only_visibility``,
    ``apply_jones_matrices``, ``jones_matrix_power``, or ``mueller_from_jones``.
+   Tier 5H removed the two §34.8 names it acts on and deliberately kept the
+   other three, which the ledger does not name.
 """
 
 from __future__ import annotations
@@ -146,7 +153,6 @@ from radiosim.core.jones.chain import JonesChain
 from radiosim.core.jones.receptor import BasisTransformJones, ReceptorConfigJones
 from radiosim.core.polarization import (
     coherency_to_stokes,
-    mueller_from_jones,
     stokes_to_coherency,
 )
 from radiosim.core.receptor import resolve_receptors
@@ -746,14 +752,25 @@ def test_resolve_instrument_has_exactly_one_caller_inside_the_simulator() -> Non
 def test_superseded_polarization_helpers_have_no_production_caller() -> None:
     """Records the Q4 answer and the state of the other legacy helpers.
 
-    OWNED BY: Tier 5H, which decides the fate of each helper on this evidence.
+    Flipped by Tier 5H.  ``visibility_to_correlations`` and
+    ``mueller_from_jones`` are the two names §34.8's ledger acts on, and the
+    Q4 evidence below selected the §24 removal branch, so they are now asserted
+    absent rather than merely uncalled.  The remaining three share the same
+    no-caller state but are not on the ledger, so 5H kept them and this test
+    still pins them as uncalled.
     """
-    helpers = (
+    removed = (
         "visibility_to_correlations",
+        "mueller_from_jones",
+    )
+    for helper in removed:
+        defining = (SOURCE_ROOT / "radiosim" / "core" / "polarization.py").read_text()
+        assert helper not in defining, f"{helper} survived the Tier 5H removal"
+
+    helpers = (
         "stokes_I_only_visibility",
         "apply_jones_matrices",
         "jones_matrix_power",
-        "mueller_from_jones",
     )
     for helper in helpers:
         callers = sorted(
@@ -777,25 +794,30 @@ def test_superseded_polarization_helpers_have_no_production_caller() -> None:
     ]
 
 
-def test_mueller_from_jones_is_module_public_but_unimplemented() -> None:
-    """Records the Q5 answer, and one correction to its premise.
+def test_mueller_from_jones_is_removed_not_gated() -> None:
+    """Records the Q5 answer and the Tier 5H disposition that followed it.
 
     Section 43 Q5 states that ``mueller_from_jones`` "raises
-    ``NotImplementedError`` while being publicly exported".  The first half is
-    true; the second is not.  It is *not* re-exported from ``radiosim.core`` and
-    is not in ``radiosim.core.__all__`` — it is reachable only as
+    ``NotImplementedError`` while being publicly exported".  The first half was
+    true; the second was not.  It was never re-exported from ``radiosim.core``
+    and never in ``radiosim.core.__all__`` — it was reachable only as
     ``radiosim.core.polarization.mueller_from_jones``, an undecorated public
     module-level name.  ``jones_matrix_power`` and ``stokes_I_only_visibility``
-    are in the same state; ``apply_jones_matrices``,
-    ``visibility_to_correlations``, and ``stokes_to_coherency`` are the three
-    names the package does re-export.
+    remain in that state; they are not on §34.8's ledger.
 
-    OWNED BY: Tier 5H, which either removes it or gates it explicitly as Tier 7.
+    Flipped by Tier 5H, which took §34.8's removal branch rather than gating the
+    stub as Tier 7, because §28 forbids pre-v1 deprecation shims.  Nothing may
+    reach the name, and nothing may re-introduce a ``NotImplementedError``
+    placeholder in its place.
     """
     import radiosim.core as core_package
+    import radiosim.core.polarization as polarization_module
 
     assert "mueller_from_jones" not in core_package.__all__
     assert not hasattr(core_package, "mueller_from_jones")
+    assert not hasattr(polarization_module, "mueller_from_jones")
+    assert "NotImplementedError" not in inspect.getsource(polarization_module)
+
     assert sorted(
         name
         for name in core_package.__all__
@@ -812,11 +834,17 @@ def test_mueller_from_jones_is_module_public_but_unimplemented() -> None:
     ) == [
         "apply_jones_matrices",
         "stokes_to_coherency",
-        "visibility_to_correlations",
     ]
 
-    with pytest.raises(NotImplementedError):
-        mueller_from_jones(np.eye(2, dtype=np.complex128))
+    with pytest.raises(ImportError):
+        exec(
+            compile(
+                "from radiosim.core.polarization import mueller_from_jones\n",
+                "<tier5h>",
+                "exec",
+            ),
+            {},
+        )
 
 
 def test_receptor_configuration_surface_exists() -> None:

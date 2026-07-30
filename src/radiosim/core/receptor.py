@@ -34,12 +34,12 @@ from radiosim.core.instrument import (
     AntennaId,
     ResolvedInstrument,
 )
+from radiosim.core.polarization_basis import PolarizationBasis
 
 if TYPE_CHECKING:
     from radiosim.io.receptor_config import ReceptorsConfig
 
 ReceptorBasis = Literal["linear", "circular"]
-PolarizationBasisName = Literal["linear_xy", "circular_rl"]
 OutputBasisRule = Literal[
     "auto_homogeneous_linear",
     "auto_homogeneous_circular",
@@ -54,7 +54,7 @@ _NOMINAL_FEED_ARRAY: dict[str, tuple[str, str]] = {
 }
 _SUPPORTED_BASES = frozenset(_NOMINAL_FEED_ARRAY)
 _SUPPORTED_OUTPUT_REQUESTS = frozenset({"auto", "linear", "circular"})
-_OUTPUT_BASIS_BY_NATIVE: dict[str, PolarizationBasisName] = {
+_OUTPUT_BASIS_BY_NATIVE: dict[str, PolarizationBasis] = {
     "linear": "linear_xy",
     "circular": "circular_rl",
 }
@@ -210,7 +210,7 @@ class ReceptorProvenance:
 
 
 def _canonical_receptor_fingerprint_payload(
-    output_basis: PolarizationBasisName,
+    output_basis: PolarizationBasis,
     receptor_by_antenna: Mapping[AntennaId, ResolvedReceptor],
 ) -> dict[str, Any]:
     """Return the exact canonical receptor hash payload in antenna order."""
@@ -233,7 +233,7 @@ def _canonical_receptor_fingerprint_payload(
 
 
 def _compute_receptor_sha256(
-    output_basis: PolarizationBasisName,
+    output_basis: PolarizationBasis,
     receptor_by_antenna: Mapping[AntennaId, ResolvedReceptor],
 ) -> str:
     """Compute SHA-256 over the canonical UTF-8 JSON receptor payload."""
@@ -272,7 +272,7 @@ class ResolvedReceptorSet:
         Requested basis, resolution rule, override applications, and fingerprint.
     """
 
-    output_basis: PolarizationBasisName
+    output_basis: PolarizationBasis
     receptor_by_antenna: Mapping[AntennaId, ResolvedReceptor]
     provenance: ReceptorProvenance
 
@@ -538,7 +538,6 @@ __all__ = [
     "AmbiguousOutputBasisError",
     "InvalidReceptorConfigError",
     "OutputBasisRule",
-    "PolarizationBasisName",
     "ReceptorAssignmentError",
     "ReceptorBasis",
     "ReceptorError",

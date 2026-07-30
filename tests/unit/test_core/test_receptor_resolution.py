@@ -578,3 +578,54 @@ def test_resolution_rejects_foreign_argument_types(tmp_path):
         resolve_receptors(object(), instrument)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
         resolve_receptors(ReceptorsConfig(), object())  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Tier 5H: one authoritative polarization-basis literal (Section 34.8)
+# ---------------------------------------------------------------------------
+
+
+def test_polarization_basis_name_is_removed_from_the_receptor_module():
+    """The duplicate Literal Section 34.8 removes must be unreachable."""
+    import radiosim.core.receptor as receptor_module
+
+    removed = "PolarizationBasisName"
+    assert not hasattr(receptor_module, removed)
+    assert removed not in receptor_module.__all__
+    with pytest.raises(AttributeError):
+        getattr(receptor_module, removed)
+    with pytest.raises(ImportError):
+        exec(
+            compile(
+                "from radiosim.core.receptor import PolarizationBasisName\n",
+                "<tier5h>",
+                "exec",
+            ),
+            {},
+        )
+
+
+def test_the_receptor_module_consumes_the_canonical_basis_literal():
+    """``core/receptor.py`` must import ``PolarizationBasis``, not restate it."""
+    import radiosim.core.polarization_basis as basis_module
+    import radiosim.core.receptor as receptor_module
+
+    assert receptor_module.PolarizationBasis is basis_module.PolarizationBasis
+    assert set(receptor_module._OUTPUT_BASIS_BY_NATIVE.values()) == set(
+        basis_module.POLARIZATION_BASES
+    )
+
+
+def test_the_resolved_output_basis_is_a_canonical_basis_token(tmp_path):
+    """A resolved set must report a token the shared table recognizes."""
+    import radiosim.core.polarization_basis as basis_module
+
+    instrument = _instrument(tmp_path)
+    for basis, expected in (("linear", "linear_xy"), ("circular", "circular_rl")):
+        resolved = resolve_receptors(
+            ReceptorsConfig.model_validate({"default": {"basis": basis}}),
+            instrument,
+        )
+        assert resolved.output_basis == expected
+        assert resolved.output_basis in basis_module.POLARIZATION_BASES
+        assert resolved.output_basis in basis_module.CORRELATION_LABELS
