@@ -6248,3 +6248,247 @@ accepted; Tier 5H is authorized and remains limited to the writable-file list
 in `Tier5ReceptorFeedPlan.md` §35 Tier 5H. Tier 5I remains unauthorized until
 5H is implemented and independently accepted. No PR, tag, release, or
 deployment was created.
+
+### 2026-07-30 Tier 5H independent acceptance
+
+**Tier 5H is independently accepted; Tier 5I is authorized.** Review range
+`4e2bd5e..84c7cdc`, exactly two commits: `7abe2e6` (`docs(feeds): correct Tier
+5 design`, the implementer's own bounded §35 grant correction) and `84c7cdc`
+(`refactor(pol): remove superseded polarization paths`, the §34.8 removal
+slice). `7abe2e6` touches only `Tier5ReceptorFeedPlan.md` (`git show --stat`:
+one file, 25 insertions, 0 deletions). `84c7cdc` touches exactly seven files
+(`git show --stat 84c7cdc`): `src/radiosim/core/__init__.py`,
+`src/radiosim/core/polarization.py`, `src/radiosim/core/receptor.py`,
+`tests/characterization/test_tier5_current_behavior.py`,
+`tests/unit/test_core/test_polarization.py`,
+`tests/unit/test_core/test_receptor_resolution.py`, and the new
+`tests/unit/test_tier5_receptor_acceptance.py` — matching the §35 Tier 5H list
+exactly as corrected by `7abe2e6`, line for line.
+
+**Ledger walk (§34.8 against the diff and current source).**
+
+| §34.8 item | Disposition | Verified |
+|---|---|---|
+| `visibility_to_correlations` | Removed | `core/polarization.py` diff is a pure 112-line deletion (`git diff --numstat 4e2bd5e..84c7cdc -- src/radiosim/core/polarization.py` → `0\t112`); dropped from `core/__init__.py`'s eager import and `__all__`; `hasattr(radiosim.core, ...)` is `False`; `from radiosim.core.polarization import visibility_to_correlations` raises `ImportError`, reproduced by hand |
+| `mueller_from_jones` | Removed (not gated as Tier 7) | Same pure-deletion diff; §28 forbids pre-v1 deprecation shims, so the "gate as Tier 7" branch is correctly not taken; reproduced by hand: `ImportError` |
+| `core/receptor.py`'s `PolarizationBasisName` | Removed; `core/receptor.py` now imports `radiosim.core.polarization_basis.PolarizationBasis` | `receptor.py` diff shows the import added and every internal annotation (`_OUTPUT_BASIS_BY_NATIVE`, `_canonical_receptor_fingerprint_payload`, `_compute_receptor_sha256`, `ResolvedReceptorSet.output_basis`) retyped from the deleted alias to the shared one; `receptor_module.PolarizationBasis is polarization_basis_module.PolarizationBasis` is `True`; no import cycle (`polarization_basis.py` imports nothing from `radiosim`) |
+| Duplicated correlation constants | Already removed (5E, 5F) | `test_every_shared_correlation_table_is_defined_exactly_once` (new, in this commit) pins all five shared tables to `core/polarization_basis.py` alone; independently re-verified by AST-walking every `.py` file under `src/radiosim` myself |
+| `feed_type`/`from_basis`/`to_basis` kwargs | Already removed (5C); re-pinned here | Reproduced by hand: `ReceptorConfigJones(feed_type="linear")` and `BasisTransformJones(from_basis=..., to_basis=...)` each raise `TypeError` naming `receptors:` as the replacement, exactly the §24 text |
+| Vacuous `is_unitary()` overrides | Already replaced with a justified claim (5C); unchanged | `core/jones/receptor.py:305-307`'s `is_unitary` now reads "Always `True`: every accepted matrix is a product of unitaries" — a real claim backed by S6, not a stub. See risk ruling (2) below for the scope of "vacuous" |
+| Dead illumination duplicate | Already removed (5G renamed `feed.py` → `illumination.py`) | Confirmed no `feed.py` remnant and no illumination-named identifier in `core/receptor.py` |
+
+Every non-sanctioned reference is gone repository-wide: `grep -rl
+"visibility_to_correlations\|mueller_from_jones\|PolarizationBasisName" .
+--exclude-dir=.git --exclude-dir=.pixi` returns exactly six files —
+`Tier5ReceptorFeedPlan.md`, `Fix.md` (both outside `src/tests/configs/examples/docs`,
+so outside §34.8's stop condition), and the four sanctioned test files. Inside
+`src/`, `tests/`, `configs/`, `examples/`, `docs/` specifically, only the four
+test files remain, matching `tests/unit/test_tier5_receptor_acceptance.py`'s
+own `ALLOWED_REFERENCES` table exactly, which I reproduced independently
+rather than trusting the test's self-report.
+
+**Removal correctness.** `core/polarization.py`'s diff is 0 additions / 112
+deletions, confirmed above. `core/receptor.py` imports the unified `Literal`
+with no cycle (`polarization_basis.py` has zero `radiosim` imports). Fresh-
+process probes, reproduced by hand (not just via the test suite): `radiosim.core.visibility_to_correlations`
+→ `AttributeError`; `from radiosim.core.polarization import mueller_from_jones`
+→ `ImportError`; `from radiosim.core.receptor import PolarizationBasisName` →
+`ImportError`. `radiosim.core.__all__` (137 names) contains none of the three
+removed names and retains exactly the §24 additions already granted to earlier
+slices (`PolarizationBasis`, `CORRELATION_LABELS`, `ResolvedReceptor`,
+`ResolvedReceptorSet`, `ReceptorProvenance`, `resolve_receptors`, and the seven
+typed receptor errors) — all confirmed present by hand.
+
+**Tests-first.** Reproduced in a detached, `PYTHONPATH`-isolated worktree at
+`4e2bd5e` with `tests/unit/test_tier5_receptor_acceptance.py` copied in from
+`84c7cdc` (the file does not exist at `4e2bd5e`): **18 failed, 20 passed** —
+close to (not exactly) the ~19 estimate in this review's scope, and the
+shortfall is explained exactly: `test_removed_names_are_absent_from_the_core_package`
+is parametrized over all three removed names, but `mueller_from_jones` and
+`PolarizationBasisName` were never in `radiosim.core.__all__` even before 5H
+(per the §43 Q5 correction), so only the `visibility_to_correlations` case of
+that parametrization fails at the old tree — one fewer failure than a naive
+per-name count would predict. At `84c7cdc`, the full file and its three
+sibling touched-test-files pass completely (see gates below). The renamed
+characterization pin `test_mueller_from_jones_is_removed_not_gated` (from
+`test_mueller_from_jones_is_module_public_but_unimplemented`) preserves the
+file's stated contract ("a later slice must update the named test in the same
+commit that changes the behavior"): both the pin flip and the production
+removal are in the same commit, `84c7cdc`.
+
+**Bit-identity (reproduced).** Two detached worktrees at `4e2bd5e` and
+`84c7cdc`, `PYTHONPATH`-isolated (verified `import radiosim; radiosim.__file__`
+resolves inside each worktree, not the main checkout). Ran both shipped
+runnable configs (`configs/config.yaml`, linear default; `configs/
+receptor_circular_example.yaml`, circular; the latter has `save_results:
+false`, so both were driven through `Simulator.from_yaml(...).setup().run()`
+directly rather than the CLI) at both commits:
+
+| Config | Field | Old (`4e2bd5e`) | New (`84c7cdc`) |
+|---|---|---|---|
+| linear | `vis_sha256` | `cce1bfe8...` | `cce1bfe8...` (identical) |
+| linear | `flags_sha256` | `8e7e4faf...` | `8e7e4faf...` (identical) |
+| linear | `weights_sha256` | `d11c4150...` | `d11c4150...` (identical) |
+| linear | `receptor_sha256` | `01f7fd1a...` | `01f7fd1a...` (identical) |
+| circular | `vis_sha256` | `95890bc6...` | `95890bc6...` (identical) |
+| circular | `flags_sha256` | `d20d5d68...` | `d20d5d68...` (identical) |
+| circular | `weights_sha256` | `d47f9d8a...` | `d47f9d8a...` (identical) |
+| circular | `receptor_sha256` | `f39cfc87...` | `f39cfc87...` (identical) |
+
+`scientific_sha256` and `provenance_sha256` differed between the two runs at
+first. Traced to source, not behavior: both hash `instrument_snapshot`
+(`instrument.source.reference`, an absolute layout-file path) and
+`resolved_config`/`configuration_provenance` (absolute `base_dir`/
+`invocation_dir`), all resolved against each worktree's own absolute path —
+confirmed by dumping `sim._resolved.to_json_safe()` and
+`sim._provenance.to_json_safe()` at both commits and diffing after textually
+substituting each worktree's directory name: the two normalized dumps are
+byte-identical (`diff` exit 0). This is a path artifact of running two
+commits from two different directories simultaneously, not a scientific
+difference; the numeric hashes above, which do not carry any path, are the
+correct bit-identity evidence and they match exactly.
+
+**Gates.** `pixi run test -- -m "not slow"` (py311, `.pixi/envs/default`,
+Python 3.11): **3,929 passed, 6 skipped, 26 warnings** — matches the claimed
+arithmetic (`3,881 + 38 + 7 + 3 = 3,929`) exactly, baseline reproduced from
+the 5G acceptance record. The four touched-or-added test files on py312
+(`.pixi/envs/py312`, Python 3.12.13): `tests/characterization/
+test_tier5_current_behavior.py`, `tests/unit/test_core/test_polarization.py`,
+`tests/unit/test_core/test_receptor_resolution.py`,
+`tests/unit/test_tier5_receptor_acceptance.py` together collect and pass
+**171** tests (identical count on py311 for the same four files). This
+review's scope cited a touched-file py312 claim of 370; that figure could not
+be reconciled against any interpretation tried (the four touched test files
+alone, those four plus `tests/unit/test_core/`, or the full py312 non-slow
+suite all disagree), so it is recorded as unreconciled rather than repeated;
+**171** is this review's own independently measured, reproducible count.
+`pixi run lint`: all checks passed. `pixi run format -- --check`: 323 files
+already formatted. All four shipped YAMLs (`configs/config.yaml`,
+`configs/realistic_foreground_example.yaml`,
+`configs/receptor_circular_example.yaml`,
+`antenna_layout_examples/example_telescope_config.yaml`) validate via
+`radiosim validate`. Sphinx (`sphinx-build -b html docs <dir>`): **42**
+warnings/errors, matching the 5G-established in-tree baseline exactly; the
+full warning list was read line by line and none names `polarization.py`'s
+removed helpers or `receptor.py`'s removed literal — the only
+`polarization.py` warnings are pre-existing `jones_matrix_power` docstring
+formatting issues, untouched by this diff. Laziness probe: this commit's own
+`test_a_fresh_process_cannot_reach_any_removed_name` asserts `'h5py' not in
+sys.modules` and `'pyuvdata' not in sys.modules` after importing
+`radiosim.core`/`radiosim.core.polarization`/`radiosim.core.receptor` in a
+subprocess; reproduced, passes. `git status`: clean before and after review.
+No co-author line in either reviewed commit (`7abe2e6`, `84c7cdc`) nor in
+this acceptance's own commits. No dependency or lock changes:
+`git diff --stat 4e2bd5e..84c7cdc -- pixi.lock pyproject.toml` is empty.
+
+**Risk rulings.**
+
+1. **Missing `docs/migration_guide.md` entry for `visibility_to_correlations`**
+   (a genuinely re-exported name per the §43 Q5 correction, unlike
+   `mueller_from_jones`). Confirmed missing: `docs/migration_guide.md` names
+   every other Tier 5 breaking change (the `feeds` section, the stub-keyword
+   removal, the schema bump) but not this one, because
+   `docs/migration_guide.md` was never on 5H's own §35 grant — 5H could not
+   have added the entry without exceeding its writable file list. Reproduced
+   by hand: the three removed names now fail with a bare
+   `AttributeError`/`ImportError` carrying no migration text, unlike the
+   stub-keyword `TypeError`, so §39 criterion 17 is not yet fully met for B12.
+   Ruled **not a 5H defect; routed forward**: a bounded plan correction
+   (`d1d5f68`, this review) adds `docs/migration_guide.md` and
+   `tests/unit/test_tier5_receptor_acceptance.py` to Tier 5I's §35 grant, since
+   5I is the whole-tier gate that checks criterion 17 before closing
+   `POL-001`/`POL-002`, and documentation-only work does not conflict with
+   5I's own "Production changes: None" clause (which concerns RIME/solver/
+   config behavior). The correction also flags that
+   `ALLOWED_REFERENCES`/`REFERENCE_RECORDING_FILES` in
+   `tests/unit/test_tier5_receptor_acceptance.py` must be extended alongside
+   any such migration-guide sentence, or the new sentence fails the very
+   residual scan it completes (risk 3, below, made concrete).
+2. **Vacuous `is_unitary()` scope** (faraday/geometric/wterm). Read §34.8
+   verbatim: "remove the `feed_type` / `from_basis` / `to_basis` kwargs and
+   the vacuous `is_unitary()` overrides" is one clause about the same classes
+   named earlier in the same sentence (`ReceptorConfigJones`/
+   `BasisTransformJones`), not a repository-wide instruction; no other part
+   of §34.8 names Faraday, W-term, or K. Checked source: `geometric.py`'s
+   (`K`) `is_unitary() -> True` is a genuine, non-vacuous claim — K implements
+   real physics (pure phase, mathematically unitary), unlike a stub. `faraday.py`
+   (`F`) and `wterm.py` (`W`) both still return the 2×2 identity
+   (`core/jones/faraday.py`, `core/jones/wterm.py`; confirmed against
+   `CLAUDE.md`'s own Implementation Status list) and both still declare
+   `is_unitary() -> True` — trivially true of an identity matrix, but not
+   addressed anywhere in §34.8, and explicitly excluded from Tier 5's scope by
+   §42 ("any Jones term other than `C` and `H` ... remain identity stubs
+   owned by Tier 7"). Ruled: the implementer's narrow reading is correct;
+   F/W's `is_unitary` claims are Tier 7 (`SCI-001`) material, not a 5H
+   omission.
+3. **Exact-list `ALLOWED_REFERENCES` brittleness.** Confirmed: the scan in
+   `tests/unit/test_tier5_receptor_acceptance.py` is an exact-list equality
+   assertion (`assert references == sorted(ALLOWED_REFERENCES[name])`), not an
+   exemption list, so any legitimate new reference — including the
+   `docs/migration_guide.md` entry risk (1) routes to 5I — will fail the test
+   until the list is extended alongside it. Ruled: intentional strictness, not
+   a defect; recorded as a concrete follow-on obligation in the `d1d5f68`
+   correction rather than left implicit.
+4. **Untracked `project.md` staleness.** Confirmed outside git: `git
+   check-ignore -v project.md` → `.gitignore:125:project.md`; `git ls-files`
+   does not list it. Confirmed stale (references a `src/rrivis/...` package
+   layout and describes the now-removed `visibility_to_correlations` as
+   current behavior), but it is untracked and therefore outside every Tier 5
+   slice's file grant and outside §34.8's stop condition (`src/`, `tests/`,
+   `configs/`, `examples/`, tracked `docs/`). Ruled: pre-existing, out of
+   scope, recorded for the record only, not a 5H defect.
+5. **Three kept no-caller helpers** (`apply_jones_matrices`,
+   `stokes_I_only_visibility`, `jones_matrix_power`). Confirmed §34.8 never
+   names any of the three (re-read verbatim). Their no-production-caller state
+   is the same one recorded for `visibility_to_correlations` and
+   `mueller_from_jones` in the §43 Q4/Q5 evidence, but the ledger scopes
+   removal to exactly the named symbols, not to every helper sharing that
+   state. Ruled: keeping them is sound and is in fact required by scope
+   discipline — §34.8 authorizes removing only what it names, and removing an
+   unnamed helper would itself have been a scope violation of the same kind
+   this whole review is checking for.
+
+**Plan correction `7abe2e6`, ratified.** Narrowly scoped: adds
+`src/radiosim/core/__init__.py` and
+`tests/characterization/test_tier5_current_behavior.py` to the §35 Tier 5H
+grant. Both additions are forced, not discretionary: removing
+`visibility_to_correlations` from `polarization.py` without touching
+`core/__init__.py`'s eager `from radiosim.core.polarization import (...,
+visibility_to_correlations)` line would break `import radiosim.core`
+entirely (reproduced: the pre-correction import list would raise
+`ImportError` at package-import time), and the characterization file's
+Q4/Q5 pins are exactly the 5A evidence §34.8 acts on, requiring the same
+same-commit flip every other slice performed on its own predecessor pins.
+Both files are already in the tier-wide §30.2/§30.4 inventory and were
+granted to earlier slices, so this is an omission fix, not scope expansion.
+Ratified.
+
+**Plan correction `d1d5f68` (this review).** Adds `docs/migration_guide.md`
+and `tests/unit/test_tier5_receptor_acceptance.py` to the §35 Tier 5I grant,
+per risk ruling (1). Documentation only; changes no decision, no production
+behavior, and no other slice's file list.
+
+**Unobserved items, carried forward.** `pixi run typecheck`/Pyright was not
+run (not required until whole-tier acceptance per §33). The bit-identity
+probe used the `Simulator` API directly rather than the CLI for the circular
+config (`save_results: false` in the shipped sample), which exercises the
+identical `setup()`/`run()` code path the CLI itself calls, but does not
+independently re-verify the CLI's own file-writing code, which this slice
+did not touch. No PR, tag, release, or deployment was created.
+
+This acceptance changes no production behavior. `core/polarization.py`'s
+diff is a pure deletion, and both shipped runnable configurations produce
+bit-identical visibilities, flags, weights, and receptor fingerprints across
+the removal; the only hash differences observed (`scientific_sha256`,
+`provenance_sha256`) are explained exactly by this review's own use of two
+different absolute worktree paths, not by any change this slice made.
+`POL-001` remains **OPEN** and `POL-002` remains **ROADMAP**: 5H completes
+the obsolete-path removal ledger, but §39's full whole-tier criteria —
+including criterion 17, which is not yet fully met for the
+`visibility_to_correlations`/`mueller_from_jones` migration-guide gap this
+review routed to 5I — still require Tier 5I's whole-tier acceptance before
+either issue can close. Tier 5H is independently accepted; Tier 5I is
+authorized, and its writable file list is now `Fix.md`,
+`Tier5ReceptorFeedPlan.md`, `docs/migration_guide.md`, and
+`tests/unit/test_tier5_receptor_acceptance.py` per the `d1d5f68` correction.
+No PR, tag, release, or deployment was created.
