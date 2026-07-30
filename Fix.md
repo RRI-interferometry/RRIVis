@@ -7412,3 +7412,290 @@ now the only authorized next slice**, limited to its Section 33 file list
 `tests/unit/test_utils/test_offline_policy.py`); Tier 6D through 6J remain
 unauthorized until each predecessor slice is implemented and independently
 accepted. Nothing was pushed.
+
+### 2026-07-30 Tier 6C independent acceptance
+
+**Tier 6C (loader worker behavior and offline policy) is independently
+accepted.** Reviewed range `8e594f1..d3b4867`: plan correction `86d1519`
+(`docs(runtime): correct Tier 6 design`) followed by the implementation commit
+`d3b4867` (`feat(runtime): make the Tier 6C loader and offline policy
+effective`), neither carrying a co-author line. `git show --stat` on `d3b4867`
+confirms the touched set — `api/simulator.py`,
+`core/sky/operations/__init__.py`, `core/sky/operations/parallel.py`,
+`io/summary_json.py`, `utils/__init__.py`, `utils/network.py`,
+`tests/characterization/test_tier6_current_behavior.py`,
+`tests/unit/test_core/test_sky_pipeline.py`,
+`tests/unit/test_io/test_result_summary.py`,
+`tests/unit/test_simulator/test_worker_policy.py`,
+`tests/unit/test_utils/test_network.py`,
+`tests/unit/test_utils/test_offline_policy.py` — is a subset of 6B's granted
+Section 33 6C file list as amended by `86d1519`; `tests/unit/test_simulator/test_api.py`
+was granted but left unchanged (a permission, not a requirement).
+
+**Plan correction `86d1519`, ratified.** Adds
+`tests/unit/test_io/test_result_summary.py` to 6C's grant for the one-line
+key-set update Section 19 forces
+(`test_summary_json_is_exact_bounded_metadata_contract` asserts the summary
+document's top-level key set exactly). Independently confirmed the diff
+touches exactly one line in that file — inserting `"execution",` into the
+expected key list — and no other assertion in the file changes. The
+correction's two recorded notes are also ratified: the executed
+`LoaderExecutionRecord` correctly travels in `SimulationResult.history` as a
+`RADIOSIM_SKY_LOADER_JSON=` line rather than as a new `SimulationResult`
+field, because `core/result.py`, `io/writers.py`, and `io/readers.py` are
+outside 6C's grant and the HDF5 `2.0.0`→`3.0.0` bump belongs to 6G; and the
+summary document's `schema.version` correctly stays `1.0.0` per Section 19,
+with whether that document needs its own version explicitly left to 6G. Both
+are confirmed by reading `core/result.py` (empty diff against `8e594f1`) and
+`io/summary_json.py` (schema version literal untouched).
+
+**Gates, both environments.**
+
+```text
+pixi run test -- -m "not slow"                   -> 4039 passed, 6 skipped, 26 warnings (py311/default)
+pixi run -e py312 test -- -m "not slow"          -> 4039 passed, 6 skipped, 26 warnings (py312)
+pixi run lint                                    -> All checks passed! (ruff check .)
+pixi run -e py312 lint                           -> 9 UP042 (str+Enum) errors, identical file/line set to the
+                                                     6B-confirmed pre-existing condition (constants.py:14,26;
+                                                     footprint.py:19,32,40; result_format.py:19; beamfits.py:21,28,36);
+                                                     none of these files is in 6C's diff
+pixi run check-format                            -> 326 files already formatted (ruff format --check .)
+pixi run -e py312 check-format                   -> 2 files would reformat (test_cleanup_diffuse.py,
+                                                     test_instrument_sources.py), identical to the 6B-confirmed
+                                                     pre-existing condition; neither file is in 6C's diff
+git status                                       -> clean before and after review edits
+git log -3 --format="%H %s"                      -> no Co-Authored-By line in 86d1519 or d3b4867
+```
+
+The claimed 4,039 = 3,993 (accepted 6B baseline) + 46 new tests is confirmed
+by per-file `pytest --collect-only -q` counts in a detached, path-fixed
+worktree at `8e594f1` versus the working tree at `d3b4867` (not by counting
+`def test_` lines, which undercounts the two added
+`@pytest.mark.parametrize` axes in `test_sky_pipeline.py` and
+`test_worker_policy.py`):
+
+```text
+                                              8e594f1   d3b4867   delta
+tests/unit/test_core/test_sky_pipeline.py         5        22     +17
+tests/unit/test_simulator/test_worker_policy.py    6        19     +13
+tests/unit/test_utils/test_network.py             31        34      +3
+tests/unit/test_utils/test_offline_policy.py       0        13     +13  (new file)
+tests/unit/test_io/test_result_summary.py         41        41       0
+tests/characterization/test_tier6_current_behavior.py 41    41       0  (four pins renamed, net zero)
+                                              -----    -----    ----
+                                                124       170     +46
+```
+
+Both environments agree exactly (4,039 passed / 6 skipped / 26 warnings), and
+124 → 170 for the six touched test files reconciles precisely with 3,993 →
+4,039 for the full suite.
+
+**Hard-coded 8, confirmed gone.** `grep -rn "max_workers=8\|max_workers: int = 8\|max_workers = 8" src/`
+returns nothing. `load_models_parallel`'s signature has `max_workers: int` with
+no default (`inspect.signature(...).parameters["max_workers"].default is
+inspect.Parameter.empty`, verified directly). `api/simulator.py` passes
+`max_workers=sky_loading.max_workers` from `self._resolved.execution.sky_loading`,
+the only call site in `src/`.
+
+**Observable behavior, reproduced independently** (standalone probes against
+`load_models_parallel`, not the shipped test file):
+
+- *Pool clamp.* Monkeypatched `concurrent.futures.ThreadPoolExecutor` to
+  capture the constructor's `max_workers` kwarg, with 4 loader requests:
+  requested `{1, 2, 8}` → captured pool sizes `{1, 2, 4}` exactly (the
+  `min(len(loaders), max_workers)` clamp).
+- *E8 ordering.* Spied on both `ThreadPoolExecutor.__init__` and
+  `ProcessPoolExecutor.__init__` with a shared `threading.Event`; an explicit
+  `executor="process"` request with an unpicklable loader kwarg raised
+  `WorkerPolicyError` with the message
+  `"execution.sky_loading.executor=process was requested explicitly, but
+  loader arguments for test_sources cannot be pickled: cannot pickle
+  Unpicklable. Use execution.sky_loading.executor=auto to allow a thread
+  fallback, or thread to force it."` — byte-for-byte the Section 18.3
+  template — and the event was never set, confirming no pool of either class
+  was constructed before the rejection.
+- *Auto degradation recorded.* Forced `recommend_executor_for_loaders` to
+  return `"process"` for an unpicklable request under `executor="auto"`:
+  the call succeeded via a thread pool and returned a `LoaderExecutionRecord`
+  with `requested_executor="auto"`, `actual_executor="thread"`, and a non-`None`
+  `degraded_reason` naming the loader and the pickle failure — a degradation
+  is recorded, not merely logged.
+- *Determinism.* `max_workers` in `{1, 2, 8}` against 6 synthetic loader
+  requests under `executor="thread"` produced one identical SHA-256 over the
+  concatenated `ra_rad`/`dec_rad` arrays across all three pool sizes.
+- *Offline socket probe.* Read `utils/network.py` in full:
+  `is_online()`, `check_service()`, and `check_all_services()` each consult
+  `_offline_policy` before any `_check_socket` call and answer `False` /
+  all-unavailable without probing; `clear_cache()` reinstalls
+  `_offline_policy = False`. The shipped `tests/unit/test_utils/test_offline_policy.py`
+  monkeypatches `_check_socket` to append to a list on every call and asserts
+  the list stays empty under `set_offline_policy(True)` for all three gates
+  and for `require_service`; this suite passed (13/13) in the full run above.
+  `_run_one_loader` installs the policy (read from `offline_policy()` once in
+  `load_models_parallel`, before the pool is created) before resolving the
+  loader callable, so a spawned process starts from the run's policy rather
+  than a fresh module default.
+
+**Bit-identity, `8e594f1` vs `d3b4867`, PYTHONPATH-isolated detached
+worktree.** Following the 6B precedent, one worktree was checked out
+sequentially at both commits (holding the absolute antenna-layout path fixed,
+since `instrument_snapshot.source.reference` embeds it and a two-worktree
+comparison would produce a false mismatch for a path reason unrelated to the
+code). All three shipped configs were run with `Simulator.from_yaml(...).setup().run()`:
+
+```text
+configs/config.yaml:
+  scientific_sha256  8e594f1=3958ac4530...  d3b4867=3958ac4530...  IDENTICAL
+  raw vis SHA-256    8e594f1=cce1bfe86d...  d3b4867=cce1bfe86d...  IDENTICAL
+  provenance_sha256  8e594f1=41c585e579...  d3b4867=ba08d514c8...  CHANGED (expected)
+
+configs/receptor_circular_example.yaml:
+  scientific_sha256  8e594f1=3c4b825392...  d3b4867=3c4b825392...  IDENTICAL
+  raw vis SHA-256    8e594f1=95890bc680...  d3b4867=95890bc680...  IDENTICAL
+  provenance_sha256  8e594f1=d2790a09e9...  d3b4867=47b0690eb1...  CHANGED (expected)
+
+configs/realistic_foreground_example.yaml:
+  fails identically at both commits: SkyLoadAggregateError wrapping
+  "_load_from_vizier_catalog() takes from 1 to 3 positional arguments but 4
+  positional arguments (and 3 keyword-only arguments) were given" — the
+  known-OPEN SKY-001 defect, reproduced unchanged before and after 6C, not a
+  regression.
+```
+
+Visibilities and `scientific_sha256` are bit-identical for both runnable
+shipped configs; `provenance_sha256` changes for both, which is the
+§18.4-intended delta (the resolved `execution.sky_loading`/`solver` blocks
+and the new `RADIOSIM_SKY_LOADER_JSON=` history line both feed
+`resolved_config`/`history`, and therefore `provenance_sha256`, exactly as
+§18.4 already established in 6B and as risk #1 below confirms was the
+design's intent all along).
+
+**Message fidelity (§18.3 E8).** Verified verbatim above via the standalone
+probe: prefix, loader name, pickle-failure reason, and both remediation
+clauses (`executor=auto` / `executor=thread`) match Section 18.3's template
+exactly.
+
+**Pins.** `test_no_worker_value_is_recorded_in_provenance` keeps its original
+assertion body unchanged (`git diff 8e594f1 d3b4867 -- tests/characterization/test_tier6_current_behavior.py`
+shows only the docstring changed for this test); confirmed by reading
+`to_summary_snapshot()` (`core/result.py:667-707`, untouched by this commit —
+`git diff 8e594f1 d3b4867 -- src/radiosim/core/result.py` is empty) that it
+still embeds no `resolved_config`, no `history`, and no worker field of any
+kind, so the pin still proves what it claims. The summary-JSON document is
+confirmed a genuinely different, wider surface: `io/summary_json.py`'s
+`_summary_payload` embeds `result.resolved_config` and the new `_execution_summary(result)`
+block directly, neither of which reaches `to_summary_snapshot()`. The other
+four flipped pins (`test_sky_loading_hard_codes_eight_workers` →
+`test_sky_loading_consumes_the_resolved_worker_count`;
+`test_forced_offline_status_does_not_populate_the_module_cache` →
+`test_forced_offline_policy_short_circuits_the_socket_probe`;
+`test_require_service_consults_is_online_not_a_resolved_policy` →
+`test_require_service_consults_the_installed_offline_policy`;
+`test_process_executor_degrades_to_threads_with_only_a_log_warning` →
+`test_an_explicit_process_request_is_rejected_and_auto_degradation_recorded`)
+each now assert the closed behavior rather than the defect, read line by line
+against their diffs and confirmed non-vacuous.
+
+**Config count.** `configs/` contains exactly three simulation-config YAMLs
+(`config.yaml`, `receptor_circular_example.yaml`,
+`realistic_foreground_example.yaml`), matching the plan's own enumeration at
+`Tier6HybridRuntimePlan.md:338-340,2139-2142` ("the three shipped
+configurations are `point_sources`, `point_sources`, and a diffuse-only
+`healpix_map`"). A fourth YAML, `antenna_layout_examples/example_telescope_config.yaml`,
+is a complete strict config paired with a native layout file as a telescope/
+instrument-source worked example, not part of the plan's enumerated
+shipped-configuration fingerprint set; the implementer's "three shipped
+configs" count is correct as the plan itself defines the term.
+
+**Fresh-process laziness.** `python -c "import radiosim.core.sky.operations.parallel; assert 'healpy' not in sys.modules"`
+and the same for `radiosim.core.sky.operations` (the package `__init__`, which
+now re-exports `LoaderExecutionRecord`/`WorkerPolicyError`) and
+`radiosim.utils.network` all pass: none pulls in `healpy`.
+
+**No stale references.** `grep -rn "_kwargs_picklable" src/ tests/` returns
+nothing; the rename to `_pickle_probe` (risk #7) left no dangling references
+to the old name.
+
+**Risk adjudications.**
+
+1. *`provenance_sha256` changes for every run even with a config identical in
+   every explicit field.* By design (§18.4, established in 6B): the resolved
+   `sky_loading`/`solver` blocks and the new `RADIOSIM_SKY_LOADER_JSON=`
+   history line both feed `resolved_config`/`history`. No in-tree pin broke —
+   confirmed above the one pin whose scope this touches
+   (`test_no_worker_value_is_recorded_in_provenance`) is unaffected.
+2. *Process-wide offline policy, last-`setup()`-wins.* Inherent to §16.1's own
+   design, not a defect: the section explicitly specifies "the resolved
+   `execution.offline` value becomes **the single authority**... and must
+   survive both executor kinds," which requires process-wide state by
+   construction. The codebase's usage model is one simulation per process
+   (CLI entry point or a single script-level `Simulator`); no concurrent
+   multi-`Simulator` usage pattern exists in `src/` or `tests/` that would
+   race on it. No correction needed.
+3. *Gating widened to `check_service`/`check_all_services`, beyond §16.1's
+   literal text (which names only `is_online()`).* Read in full: since
+   `require_service` already gates through `is_online()` first, gating
+   `check_service`/`check_all_services` too is redundant for `require_service`'s
+   own call path but is not redundant for direct callers — `check_all_services()`
+   is called directly by `cli/main.py:661` (`radiosim status`). This is a sound
+   tightening consistent with §16.1's own "single authority" and §16.2's "no
+   accidental network access" intent, not scope creep: it closes the one gap
+   where a direct caller could still reach `_check_socket` while an offline
+   policy was installed. It changes no test contract (`grep` confirms
+   `check_service`/`check_all_services` have exactly one production call site
+   each, and the CLI status command sets no offline policy of its own). No
+   plan correction needed; documented here for the record.
+4. *`clear_cache()` also resets the offline policy.* Sound tightening, not
+   scope creep: `clear_cache()`'s own docstring is now "Intended for use in
+   tests... a test that forces it must not leak it into the next test," and
+   the process-wide nature of `_offline_policy` (risk #2) makes this
+   necessary for test isolation, not optional.
+5. *`load_models_parallel`'s `executor` default changed from `"thread"` to
+   `"auto"`.* `grep -rn "load_models_parallel(" src/ tests/` confirms exactly
+   one production call site (`api/simulator.py:805`), which always passes an
+   explicit `executor=sky_loading.executor` and is therefore unaffected by the
+   default. No other in-tree caller (production or test) omits `executor=`
+   when the resulting pool class matters. Inert today; a future direct caller
+   that omits `executor=` would newly observe `"auto"` resolution instead of a
+   forced thread pool, which is a forward-looking API-surface note, not a
+   live defect.
+6. *W5 exercises `racs` (CASDA) instead of a VizieR loader.* Correct
+   substitution, constrained by the open `SKY-001` defect (`Fix.md`
+   registry row): every VizieR point-catalog loader currently raises
+   `TypeError` from `_load_from_vizier_catalog`'s keyword-only `precision`
+   mismatch, independently reproduced above when
+   `configs/realistic_foreground_example.yaml` failed identically at both
+   `8e594f1` and `d3b4867`. `racs` is CASDA-backed
+   (`core/sky/loaders/vizier/racs.py`), a distinct network service from
+   VizieR, so it is unaffected by SKY-001 and exercises the identical
+   `require_service`/`is_online`/offline-policy code path that invariant S12
+   is actually about. No plan correction needed.
+7. *`_kwargs_picklable` renamed to `_pickle_probe` with a widened return type
+   (`bool` → `tuple[str, str] | None`).* Private helper, no public API or
+   backward-compatibility concern under the project's pre-v1.0 policy; the
+   widened return carries the loader name and pickle-failure reason needed by
+   both the new E8 rejection message and the degradation record. No dangling
+   references to the old name (confirmed above). Not a defect.
+
+**Unobserved items.** No GPU/TPU/distributed hardware was exercised (none is
+claimed by 6C). `pixi run typecheck` was not run, consistent with `CLAUDE.md`'s
+"do NOT run `pixi run typecheck` unless explicitly asked" (6B ran it only
+because that review's charter explicitly required the Pyright gate; this
+review's charter does not). The py312 lint/format deltas were traced to the
+identical pre-existing, environment-attributable condition 6B already
+root-caused (not re-derived further; out of 6C's scope). A live CASDA network
+request was not attempted (W5's `ConnectionError` path was verified via the
+shipped test suite and by reading the offline-gate code directly, not by
+observing a real network timeout).
+
+This acceptance changes planning/roadmap records and production/test code.
+Tier 6C is accepted; **Tier 6D (solver accumulation restructure) is now the
+only authorized next slice**, limited to its Section 33 file list
+(`backends/base.py`, `backends/numpy_backend.py`, `core/visibility.py`,
+`core/visibility_healpix.py`, `tests/characterization/test_tier6_current_behavior.py`,
+`tests/unit/test_backends/test_array_backend_helpers.py`,
+`tests/unit/test_core/test_beam_solver_integration.py`,
+`tests/unit/test_core/test_visibility_accumulation.py`,
+`tests/unit/test_core/test_visibility_backend.py`); Tier 6E through 6J remain
+unauthorized until each predecessor slice is implemented and independently
+accepted. Nothing was pushed.

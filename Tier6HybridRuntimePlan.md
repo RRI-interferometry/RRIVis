@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted. Tier 6A (characterization, dependency contract, baseline fingerprints) independently accepted. Tier 6B (worker configuration schema and resolved runtime) independently accepted, 2026-07-30. Tier 6C (loader worker behavior and offline policy) is now the only authorized implementation slice. |
+| Status | Design accepted. Tier 6A (characterization, dependency contract, baseline fingerprints) independently accepted. Tier 6B (worker configuration schema and resolved runtime) independently accepted, 2026-07-30. Tier 6C (loader worker behavior and offline policy) independently accepted, 2026-07-30. Tier 6D (solver accumulation restructure) is now the only authorized implementation slice. |
 | Date | 2026-07-30 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
