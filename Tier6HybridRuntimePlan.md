@@ -1371,7 +1371,7 @@ be satisfied by a skipped test.
 | E1 | hybrid with one payload | exact §18.3 message |
 | E2 | point request that would drop maps | exact §18.3 message |
 | E3 | healpix request that would rasterize | exact §18.3 message |
-| E4 | `backend: numba` | exact §18.3 message |
+| E4 | `backend: numba` | exact §18.3 message. **Correction (2026-07-30, Tier 6B implementation):** owned by **6H**, not 6B — the literal change ships with the rename it names (§32.2, §32.8) |
 | E5 | `execution.n_workers` | exact §18.3 message |
 | E6 | non-positive worker counts (both blocks) | exact §18.3 messages |
 | E7 | `solver.executor: process` | exact §18.3 message |
@@ -1524,11 +1524,40 @@ Exclusions: no production file, no `pixi.toml`, no `pixi.lock`.
 without changing any behavior yet.
 
 Work: `SkyLoadingConfig`, `SolverExecutionConfig`, the `ExecutionConfig`
-extension, the `numba`→`dask` literal change with its rejection message, the
-`execution.n_workers` rejection, the resolved dataclasses, the clamp, the origin
-tracking, and `to_json_safe` coverage. Tests E4-E7, W2 (config half).
+extension, the `execution.n_workers` rejection, the resolved dataclasses, the
+clamp, the origin tracking, and `to_json_safe` coverage. Tests E5-E7, W2
+(config half).
 
-Exclusions: no solver change, no loader driver change, no backend rename.
+**Correction (2026-07-30, Tier 6B implementation):** the `numba`→`dask`
+`execution.backend` literal change and its E4 rejection message move to **6H**,
+which is where the backend rename they describe actually happens. Two
+independent reasons, both discovered while implementing 6B:
+
+1. *Grant infeasibility.* The literal is not confined to the two config modules
+   6B may write. It is also declared at `cli/main.py:38-39`
+   (`_BACKEND_CHOICES = click.Choice([... "numba"])` and
+   `BackendStrategy = Literal[... "numba"]`), consumed by
+   `core/precision.py:131`, `:171`, `:789` for the backend/precision
+   compatibility rule, and asserted from the config side by
+   `tests/unit/test_cli/test_config_mode.py:54`, `:71`, `:469`,
+   `tests/unit/test_core/test_precision.py:122-123`, and
+   `tests/unit/test_backends/test_resolution.py:24`, `:96`, `:157`. None of
+   those files is in 6B's §33 grant; all but the two CLI files are already in
+   6H's.
+2. *Truthfulness.* 6B's own exclusion forbids the backend rename, so accepting
+   `execution.backend: dask` in 6B would create a config literal that no
+   registry entry can construct (`get_backend("dask")` does not exist until 6H)
+   while removing the only literal that reaches the backend that does exist.
+   That is precisely the §4.2 pattern the tier exists to remove, and papering
+   over it with a temporary `dask`→`NumbaBackend` alias would be backend work
+   6B is excluded from.
+
+The 6A pin `test_execution_config_has_no_worker_or_concurrency_field` therefore
+splits: 6B flips its `ExecutionConfig.model_fields` half and leaves the
+backend-literal half pinned in a separate test marked `OWNED BY: Tier 6H`.
+
+Exclusions: no solver change, no loader driver change, no backend rename, no
+`execution.backend` literal change.
 
 ### 32.3 Tier 6C — loader worker behavior and offline policy
 
@@ -1594,6 +1623,17 @@ docstring, `supports_compilation`/`compile`, the single compiled kernel, the
 `synchronize` correction, the HEALPix parity routing, the jax-cpu pixi
 feature/environment and the added CI job, and the removal of the six
 `importorskip` skips. Tests B1-B7.
+
+**Correction (2026-07-30, Tier 6B implementation):** this slice also owns the
+`execution.backend` `numba`→`dask` literal change, its verbatim §18.3 rejection
+message, and test E4, moved here from 6B for the two reasons recorded in §32.2.
+The literal must change in the same commit as the rename so no released state
+exposes a config name the registry cannot construct. That adds
+`src/radiosim/cli/main.py` (the `click.Choice` and `BackendStrategy` literal)
+and `tests/unit/test_cli/test_config_mode.py` (three config-side numba
+assertions, including the `--backend [auto|numpy|jax|numba]` help string) to
+this slice's §33 grant, and 6H must also flip the 6A pin
+`test_execution_config_backend_literal_still_offers_numba`.
 
 Exclusions: no new science, no GPU claim, no numba kernel.
 
@@ -1750,6 +1790,7 @@ src/radiosim/backends/base.py
 src/radiosim/backends/dask_backend.py
 src/radiosim/backends/jax_backend.py
 src/radiosim/backends/numpy_backend.py
+src/radiosim/cli/main.py
 src/radiosim/core/precision.py
 src/radiosim/core/result.py
 src/radiosim/core/visibility.py
@@ -1769,6 +1810,7 @@ tests/unit/test_backends/test_compilation_boundary.py
 tests/unit/test_backends/test_dask_backend.py
 tests/unit/test_backends/test_jax_backend.py
 tests/unit/test_backends/test_resolution.py
+tests/unit/test_cli/test_config_mode.py
 tests/unit/test_core/test_precision.py
 tests/unit/test_core/test_sky_backend.py
 tests/unit/test_core/test_sky_spectral.py
@@ -1780,6 +1822,14 @@ tests/unit/test_utils/test_device.py
 
 Note: `src/radiosim/backends/numba_backend.py` is deleted by the rename in this
 slice; the deletion is part of the grant.
+
+**Correction (2026-07-30, Tier 6B implementation):** `src/radiosim/cli/main.py`
+and `tests/unit/test_cli/test_config_mode.py` are added above because the
+`execution.backend` literal change moved into this slice (§32.2, §32.8) and the
+literal is declared a second time in the CLI (`cli/main.py:38-39`) and asserted
+from the config side in three places in `test_config_mode.py` (`:54`, `:71`,
+`:469`). No other slice was ever granted `cli/main.py`, so without this addition
+the CLI would keep offering a `--backend numba` choice the schema rejects.
 
 ### Tier 6I
 
