@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted; 5A independently accepted (`568855f`, Tier 5A acceptance); 5B implemented (`40d17fb`, `3925a33`) and independently accepted after two bounded plan corrections (§30.2, §30.5, §35 Tier 5B); 5C implemented (`deedf8d`, `2bae364`, `0524e56`) and independently accepted after two bounded plan corrections (§34.3 tests-first S3 wording, §34.3 pin-ownership text for the 5A D4 pin); 5D authorized. |
+| Status | Design accepted; 5A independently accepted (`568855f`, Tier 5A acceptance); 5B implemented (`40d17fb`, `3925a33`) and independently accepted after two bounded plan corrections (§30.2, §30.5, §35 Tier 5B); 5C implemented (`deedf8d`, `2bae364`, `0524e56`) and independently accepted after two bounded plan corrections (§34.3 tests-first S3 wording, §34.3 pin-ownership text for the 5A D4 pin); 5D implemented (`fe75356`) after a pre-emptive §35 Tier 5D grant correction (`ca121aa`) and independently accepted; 5E authorized. |
 | Date | 2026-07-30 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |

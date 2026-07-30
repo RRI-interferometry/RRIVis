@@ -5083,3 +5083,326 @@ independently accepted; Tier 5D is authorized and remains limited to the
 writable-file list in `Tier5ReceptorFeedPlan.md` §35 Tier 5D. Tier 5E through
 5I remain unauthorized until each predecessor slice is implemented and
 independently accepted. No PR, tag, release, or deployment was created.
+
+### 2026-07-30 Tier 5D independent acceptance
+
+**Tier 5D is independently accepted; Tier 5E is authorized.** The review range
+was `356d92f..fe75356`, exactly two commits: `ca121aa` (`docs(feeds): correct
+Tier 5 design`, the implementer's own pre-emptive §35 grant correction) and
+`fe75356` (`feat(solver): apply resolved receptors in the Jones chain`, the
+chain-order fix and solver integration). This is the slice that makes `C` and
+`H` — the first non-commuting factors RadioSim composes — actually reach the
+visibilities, and reorders the point solver's chain composition, so it was
+reviewed as the highest-value chain-order check available in the whole
+program.
+
+**Independent chain-order derivation, done before reading the production
+diff's own claim.** `core/jones/chain.py`'s `compute_antenna_jones` was read
+line by line: `J_total` starts at `I₂`, and the loop iterates
+`for term in reversed(self.terms): J_total = backend.matmul(J_term,
+J_total)`. Given `_build_jones_chain`'s literal `chain.add_term(...)` call
+order — `H`, `G` (optional), `B` (optional), `D` (optional), `P` (optional),
+`C` (always), `E` (always), `T` (optional), `Z` (optional) — `self.terms =
+[H, G, B, D, P, C, E, T, Z]`, so `reversed(self.terms) = [Z, T, E, C, P, D,
+B, G, H]`. Hand-tracing the fold: `J = Z`, then `T@Z`, then `E@T@Z`, then
+`C@E@T@Z`, then `P@C@E@T@Z`, then `D@P@C@E@T@Z`, then `B@D@P@C@E@T@Z`, then
+`G@B@D@P@C@E@T@Z`, then finally `H@G@B@D@P@C@E@T@Z`. This is exactly
+`Tier5ReceptorFeedPlan.md` §19.1's canonical factorization
+`J_p = H_p G_p B_p D_p P_p C_p E_p T_p Z_p` (K separate) — `C` sits precisely
+between `P` (electronics-side) and `E` (sky-side), matching the plan's stated
+reason (leakage/gains are defined in the receptor's own basis) exactly, not
+merely by name-inventory match. `tests/unit/test_jones/test_chain_order.py`'s
+`test_composed_chain_equals_h_times_c_times_e` independently pins the same
+fact at the numerical level, using a circular receptor in a linear output
+basis (so `H` and `C` are two different, non-commuting matrices) and
+asserting the composed antenna Jones equals `H @ C @ E` exactly
+(`rtol=0.0, atol=1e-15`) and differs from every permutation — this was read
+and re-derived by hand from `S` and `R(χ)` (Section 18.1), not merely
+executed. `chain.py`'s docstring change and the `JonesChain` composition rule
+itself (`terms[0] @ ... @ terms[-1]`) were confirmed unchanged — only the
+*add order* changed, exactly as §19.1 prescribes; no other class in
+`core/jones/` was touched.
+
+**Receptor threading, read in full.** `core/visibility.py` and
+`core/visibility_healpix.py` diffs were read start to finish, not just
+grepped. All five entry points (`calculate_visibility`,
+`calculate_visibility_healpix`, `VisibilitySimulator.run`,
+`RIMESimulator.run`, `_build_jones_chain`) gained a strictly-typed
+`receptors: ResolvedReceptorSet` parameter with no default, enforced by
+`_require_receptors()` (`type(receptors) is not ResolvedReceptorSet` →
+`TypeError`) in both `core/visibility.py` and `core/visibility_healpix.py`.
+`Simulator.run()` (`api/simulator.py`) gained **no new user-facing
+parameter** — its signature is unchanged (`progress`, `n_workers`); it passes
+the already-resolved `self.receptors` (a property backed by `self.
+_receptor_set`, populated by `resolve_receptors()` inside `_ensure_receptor_
+set()` since Tier 5B) to both solver calls. Read literally, §34.4's
+production-changes list names "`Simulator.run()`" among the things that
+"gain the `receptors` parameter," which could be misread as requiring a new
+keyword on the *public* `run()` method; the commit message clarifies the
+intended meaning ("`Simulator.run()` hands both paths the set resolved at
+setup"), and this is the only sound engineering reading: `beam_system` and
+`instrument` are the established precedent for values resolved once at
+`setup()` and reused by `run()` without being re-exposed as `run()`
+arguments, and forcing a user to pass `receptors=` back into `run()` after
+it was already resolved would create two competing sources of truth for the
+same state. **Ratified as a non-material, correct deviation** (adjudication
+(2) in this review, see also 5B's precedent of ratifying a two-commit split
+under a similarly literal-vs-intent reading of the plan text).
+
+`_receptor_transforms()` (`core/visibility_healpix.py`) computes the
+constant `H_p @ C_p` per antenna once per **time step** (called before the
+frequency loop, at `n_antennas` cost — trivial next to the O(pixels ×
+baselines × frequencies) RIME sum; confirmed by reading the loop nesting
+directly: `for time_idx ... : receptor_transforms = _receptor_transforms(...)
+; for freq_idx ...`). `_evaluate_beam_batch_by_antenna` left-multiplies this
+constant onto the handler-deduplicated beam Jones (`backend.matmul(transform,
+beam_jones)`), and the resulting `jones_cache` dict is used identically by
+**both** the polarized full-matrix path (`V_all = J_p @ coherency @ J_q^H`)
+and the scalar I-only path (`coherency = (I/2) I₂`, same `jones_cache`),
+confirmed by reading both branches — both apply the receptor factor rather
+than assuming zero cross hands, as §19.3 requires.
+
+**Dtype probe (requested check).** `_evaluate_beam_batch_by_antenna` casts
+the (always-`complex128`) receptor transform down to `beam_jones.dtype`
+before the matmul: `backend.asarray(receptor_transforms[antenna_number],
+dtype=beam_jones.dtype)`. `receptor_matrix`/`basis_transform_matrix`
+(`core/jones/receptor.py`) always return `complex128`; `beam_jones.dtype` is
+whatever `BeamSystem.evaluate_jones` was constructed to emit
+(`runtime.py:391`, `result_dtype` derived from the run's `PrecisionConfig`),
+which is `complex128` for the default and `.standard()`/`.precise()`/
+`.ultra()` presets and `complex64` only under `.fast()`. This is **not** a
+defect: the point-source path's `ReceptorConfigJones`/`BasisTransformJones`
+(`core/jones/receptor.py:340`) also always build their matrices as
+`complex128` and only reach the run's requested precision when the chain's
+final product is cast at the output boundary
+(`backend.asarray(..., dtype=output_complex_dtype)`), so both paths agree in
+spirit: the receptor phase is exact until the point where the implementation
+commits to the user's chosen working precision. Casting the exact
+`complex128` transform down to `beam_jones.dtype` *before* the matmul (rather
+than upcasting the beam and drifting into `complex128` intermediates under a
+`.fast()` run) is the correct precision-respecting choice per `CLAUDE.md`'s
+"respect the user's chosen dtype everywhere" instruction — the alternative
+(no cast, relying on `backend.matmul` promotion) would silently widen a
+`.fast()` run's per-antenna beam Jones to `complex128`, which is the actual
+silent-precision-drift failure mode. For the default precision preset used
+by every S1–S14 test and this review's own reproductions, the cast is a
+no-op (`complex128 == complex128`). No fault-injection test exists yet that
+exercises a `.fast()` circular run specifically; flagged as an unobserved
+item below rather than a defect, since S1–S14 do not require it and no
+plan section demands it.
+
+**Rejection ordering.** `_reject_parallactic_rotation()` is called in
+`calculate_visibility` immediately after the existing type checks
+(`instrument`, `beam_system`, `time_grid`, `backend`, `frequencies`,
+`receptors`) and before any source-array extraction, coherency construction,
+or beam evaluation; `tests/unit/test_core/test_receptor_solver.py`'s
+`test_parallactic_term_with_a_rotated_receptor_is_rejected_before_any_work`
+independently proves this by monkeypatching `stokes_to_coherency` to raise
+`AssertionError` if called and confirming `UnsupportedFeedGeometryError` is
+raised instead — reproduced by direct inspection, not merely trusted. The
+exact message was checked character-for-character against `Tier5Receptor
+FeedPlan.md` §27: `"a non-zero feed_rotation_deg cannot be combined with an
+enabled parallactic-angle term until Tier 7 implements it."` — matches
+verbatim in both `core/visibility.py`'s `_reject_parallactic_rotation` and
+`tests/unit/test_jones/test_chain_order.py`'s
+`test_parallactic_term_with_a_rotated_receptor_is_rejected`.
+
+**Placement of the P-rejection versus §25.2 — adjudicated, not a
+violation.** §25.2 governs where `resolve_receptors()` itself runs (after
+instrument resolution, before beam load) and says nothing about the
+`P`-plus-rotation check, because `resolve_receptors(config: ReceptorsConfig,
+instrument: ResolvedInstrument)` has no `jones_config` parameter through
+which a `P`-term enablement could ever be observed — confirmed again in this
+review by reading `core/receptor.py`'s `resolve_receptors` signature
+directly. The 5B acceptance record (above) already settled this: "`resolve_
+receptors()` has no parameter through which a P-term enablement could even
+be observed... correctly deferred to 5D, which is where `receptors` and
+`jones_config` first meet." Placing `_reject_parallactic_rotation` at the
+solver boundary (`calculate_visibility`/`_build_jones_chain`, the first place
+both values coexist) is therefore the only place §25.2 permits it, not a
+deviation from it. **Ratified** (adjudication (3)).
+
+**Bit-identity reproduction, independent of the implementer's claim.** Two
+detached, `PYTHONPATH`-isolated worktrees were built at `356d92f` and
+`fe75356` (the editable-install pitfall from the 5C review reconfirmed:
+`import radiosim` resolves to the main checkout regardless of `cwd`, so
+`PYTHONPATH=<worktree>/src:<worktree>` was set explicitly for every run, and
+`radiosim.__file__` was printed and checked to point into the correct
+worktree for every invocation). A three-antenna HERA-style array was run
+end-to-end through the `Simulator` API (`tests.fixtures.configs.valid_
+config_mapping`, two explicit frequency channels, two time samples) for four
+cases: point-source unpolarized, point-source polarized (`stokes_v_fraction`,
+`polarization_fraction` set), HEALPix unpolarized, HEALPix polarized
+(`nside=8`). Each case ran once per worktree (default receptors: linear,
+`χ=0`, `auto`, on both sides — the pre-5D worktree has no `receptors`
+parameter to pass at all, so this reproduces exactly the scenario S1
+requires) and the raw `(T, B, F, 4)` visibility cubes were saved to `.npy`
+and compared with `numpy.array_equal` in a separate process. **All four
+cases were bit-for-bit identical** (`max_abs_diff == 0.0` in every case):
+point-source unpolarized, point-source polarized, HEALPix unpolarized,
+HEALPix polarized. This independently confirms the commit message's claim
+without relying on it.
+
+**Physics probe reproduction, independent oracles.** A second standalone
+script (not importing any RadioSim polarization constant) ran the `Simulator`
+API against the current checkout for:
+
+- **S4/circular-V**: a source with `stokes_v_fraction=1.0` and a
+  `receptors: {default: {basis: circular}}` array — the parallel hand (`RR`,
+  reported as index `[...,0]` under the still-`linear_xy`-labelled result)
+  carried the full flux (`max |RR| ≈ 3.94`), while the cross hands and `LL`
+  were at floating-point-noise level (`≤ 1.1e-16` cross hands, `2.65e-33`
+  `LL`) — the `V=+I → pure RR` invariant, reproduced independently.
+- **S5**: unpolarized energy conservation — cross-hand magnitude `0.0`
+  (linear) and `7.05e-17` (circular, floating-point noise) across a
+  20-source, dec-spread sky.
+- **S8**: a circular array with `feed_rotation_deg=22.5` against an
+  unrotated circular reference, both carrying a polarized (`Q,U`) source —
+  `RR` and `LL` matched the reference exactly (`atol=1e-10`), and `RL`/`LR`
+  matched `e^{∓2iχ} ·` reference exactly (`atol=1e-9`).
+- **S10 (mixed array)**: one antenna forced to `circular` via `receptors.
+  overrides`, the array's `output_basis` set to `linear`, against a pure
+  linear array on the same polarized sky — the two visibility cubes matched
+  to `2.22e-15` (machine precision), independently confirming the
+  change-of-representation exactness the plan claims for ideal orthogonal
+  feeds.
+
+All four probes passed on the first run, with no adjustment beyond fixing an
+unrelated `multiprocessing`/`ProcessPoolExecutor` spawn-safety issue in the
+probe scripts themselves (top-level code needed an `if __name__ ==
+"__main__":` guard for the sky-model loader's parallel executor; this is a
+property of how the standalone scripts were invoked, not of RadioSim).
+
+**Pins.** `tests/characterization/test_tier5_current_behavior.py` at
+`356d92f` was grepped directly for `"OWNED BY: Tier 5D"` and returned exactly
+two hits: `test_point_solver_currently_adds_chain_terms_in_z_t_e_p_d_g_b_
+order` (pinning the stale `Z T E P D G B` order) and `test_healpix_solver_
+never_constructs_a_jones_chain` (pinning "no second chain implementation,"
+annotated `OWNED BY: Tier 5D, which must route the receptor terms into this
+path too"). `fe75356` renames and flips the first to `test_point_solver_adds_
+chain_terms_in_the_canonical_order`, asserting exactly `["H","G","B","D","P",
+"C","E","T","Z"]` — matching the independently hand-derived order above. The
+second, `test_healpix_solver_never_constructs_a_jones_chain`, keeps its core
+assertions true (no `JonesChain`, no `_build_jones_chain`, `beam_system.
+evaluate_jones` still used) and adds three new assertions
+(`_receptor_transforms`, `basis_transform_matrix`, `receptor_matrix` present
+in the module source) — its docstring was updated from `OWNED BY` to
+`FLIPPED BY`, though the boolean value of its original assertions did not
+itself invert; recorded here as a minor label imprecision (the pin was
+extended, not strictly flipped), not a defect, since the property it always
+protected (no divergent second chain implementation) remains true and
+independently verified by reading `core/visibility_healpix.py` directly.
+The third, adjacent, previously **unmarked** pin —
+`test_point_solver_chain_contains_only_the_beam_term_by_default` (asserting
+`["E"]`) — is renamed `test_point_solver_chain_always_carries_the_receptor_
+terms` and reflipped to assert `["H", "C", "E"]`. This is confirmed to be
+the same 5A authoring-defect pattern already ratified at the Tier 5B
+acceptance (a pin in the same characterization group that should have
+carried the `OWNED BY: Tier 5D` marker but did not, because it pinned
+exactly the "E-only by default" inventory fact that 5D's own writable-file
+grant already told 5D to change) — **ratified** (adjudication (7), same
+precedent).
+
+**Deviation and risk adjudications.**
+
+(1) **Plan correction `ca121aa` — ratified.** Each of the five added §35
+Tier 5D files was independently confirmed to be forced, not discretionary:
+`test_tier5_current_behavior.py` is where the two `OWNED BY` pins and the one
+adjacent unmarked pin actually live (5D cannot flip them without write access
+to this file); `test_tier4_current_behavior.py`, `test_sky_sparse_healpix.py`,
+`test_visibility_backend.py`, and `test_instrument_integration.py` each call
+`calculate_visibility` and/or `calculate_visibility_healpix` directly and
+would fail even to *import and run* once those functions required
+`receptors` with no default — confirmed by reading every diff hunk in all
+five files: every change is exactly a `simulator._ensure_receptor_set()`
+line plus a `receptors=...` keyword threaded through, with no other
+production or assertion-logic change smuggled in. `git diff ca121aa` (the
+correction commit) touches only `Tier5ReceptorFeedPlan.md`, and within it
+only §35's Tier 5D list — no decision, invariant, or other slice's grant was
+touched. Ratified.
+
+(2) **`Simulator.run()` gains no new parameter — ratified**, see above.
+
+(3) **P-rejection placed at the solver boundary, not inside `resolve_
+receptors()` — ratified**, see above; consistent with the already-settled
+5B reading of §25.2.
+
+(4) **Interim label dishonesty (risk #4 in the task brief) — acceptable,
+consistent with the 5B precedent on disclosed inertness.** §34.4's own
+Exclusions state plainly that "the result is still stamped `linear_xy` in
+this slice" and that 5D's circular tests assert on the raw `(2,2)` cube
+rather than on `result.correlations` — confirmed true by reading `api/
+simulator.py` (no `result.py`/`correlations`-producing code touched by this
+diff) and by reading every new test in `test_receptor_solver.py` and
+`test_api.py`, which do read the raw cube (`np.asarray(result.
+visibilities)`), never `result.correlations`. This is the same shape of
+disclosed, temporary inertness that the 5B acceptance record ruled
+acceptable for the resolved receptor set's invisibility to end users before
+5C/5D landed: the honest label is deferred to Tier 5E, which is already
+scoped and the very next authorized slice, and `test_api.py`'s new test
+(`test_a_circular_receptor_configuration_changes_the_published_
+visibilities`) is itself effectively a pinning test that will force 5E to
+either update or delete it once `result.correlations` becomes data-driven.
+Not a rejection.
+
+(5) **`include_polarization` default (risk #5) — confirmed untouched and
+plan-silent, as before.** `io/config.py` does not appear in `fe75356`'s
+diff --stat; §34.4 does not mention this default. No action required at 5D;
+carried forward to whichever slice next touches that config path.
+
+(6) **Per-time-step `_receptor_transforms` recompute (risk #6) — confirmed
+trivial, no defect.** See the O(n_ant) analysis above; the HEALPix path
+already recomputes several other per-time-step quantities (visibility
+altitude/azimuth, above-horizon masks) of comparable or greater cost, so this
+is consistent with the path's existing performance profile, not a new
+regression.
+
+**Gates.** Full non-slow suite, py311: **3745 passed, 6 skipped, 26
+warnings**, reproducing the claimed arithmetic exactly —
+3701 (5C baseline) + 41 (the two new files, `test_chain_order.py` and
+`test_receptor_solver.py`, collected independently via `pytest --collect-
+only`) + 3 (three new tests added to `test_api.py`:
+`test_run_hands_the_resolved_receptor_set_to_the_point_solver`, `test_run_
+hands_the_resolved_receptor_set_to_the_healpix_solver`, `test_a_circular_
+receptor_configuration_changes_the_published_visibilities`) = 3745. The nine
+touched-or-added test files re-ran clean on py312
+(`.pixi/envs/py312`, Python 3.12.13): **208 passed, 1 skipped** (209
+collected); the skip is `tests/unit/test_core/test_visibility_backend.py:88`,
+`"could not import 'jax': No module named 'jax'"` — the pre-existing,
+environment-only jax-backend-parity skip, unrelated to this slice. `pixi run
+lint` reported all checks passed; `pixi run check-format` reported 322 files
+already formatted (unchanged from the 5C record — no new files added outside
+`tests/`). All three shipped YAMLs validated via `radiosim validate`,
+unchanged from the 5B/5C record (`configs/config.yaml` — 101 channels;
+`configs/realistic_foreground_example.yaml` — 11; `antenna_layout_examples/
+example_telescope_config.yaml` — 1). `git status` was clean before and after
+review; neither commit in the review range carries a co-author line.
+
+**Scope.** `git diff 356d92f..fe75356 --stat` (across both commits in range)
+touches `Tier5ReceptorFeedPlan.md` (the `ca121aa` correction) plus exactly 15
+production/test files in `fe75356`, all within the corrected 16-file §35
+Tier 5D grant (`src/radiosim/core/instrument_adapters.py` was granted but
+correctly left untouched — no instrument-adapter change was needed). No file
+outside the grant was touched by either commit.
+
+**Unobserved items, carried forward.** A `.fast()`-precision circular
+HEALPix run was not separately fault-injected to directly measure the
+receptor-transform downcast's numerical effect (dtype probe above reasons
+about it from the code rather than from a dedicated float32 test); flagged
+for whichever future slice next touches HEALPix precision handling, not
+required for 5D acceptance since no plan section or S-invariant demands it.
+`pixi run typecheck`/Pyright, Sphinx, and the offline example were not run
+(not required until whole-tier acceptance per §33). No PR, tag, release, or
+deployment was created.
+
+This acceptance changes planning records only. No Tier 5 production code,
+test, fixture, configuration, or dependency file was changed by this review
+beyond ratifying the bounded `ca121aa` correction already on `main`. `POL-001`
+remains **OPEN** and `POL-002` remains **ROADMAP**; 5D makes receptor
+configuration reach the visibilities but the result model still reports
+everything as `linear_xy`/`XX,XY,YX,YY`, so neither issue closes at this
+slice. Tier 5D is independently accepted; Tier 5E is authorized and remains
+limited to the writable-file list in `Tier5ReceptorFeedPlan.md` §35 Tier 5E.
+Tier 5F through 5I remain unauthorized until each predecessor slice is
+implemented and independently accepted. No PR, tag, release, or deployment
+was created.
