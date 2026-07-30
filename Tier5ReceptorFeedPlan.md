@@ -2322,8 +2322,39 @@ docs/user_guide/beam_models.rst
 docs/user_guide/configuration.rst
 docs/user_guide/configuration_support.rst
 docs/user_guide/jones_matrices.rst
+tests/unit/test_core/test_tier3_beam_cleanup.py
 tests/unit/test_tier1h_documentation.py
 ```
+
+**Correction (Tier 5G implementation).** Added
+`tests/unit/test_core/test_tier3_beam_cleanup.py`. That Tier 3H.2 cleanup test
+pins the exact public analytic surface §34.7 renames: it asserts
+`analytic.__all__ == ANALYTIC_EXPORTS` with the literal names
+`corrugated_horn_pattern`, `open_waveguide_pattern`, and
+`dipole_ground_plane_pattern`, and it imports the module path
+`radiosim.core.jones.beam.analytic.feed` by name in three places (a submodule
+import, an `importlib.import_module` call in a fresh-process script, and an
+object-identity table). §34.7 mandates renaming exactly those three functions
+and rehoming exactly that module, so the mandated rename cannot land without
+updating this file; leaving it unedited makes the slice's own verification gate
+unreachable. The edit is confined to the renamed names and the renamed module
+path -- no assertion is weakened, added, or removed. No decision, invariant, or
+other slice boundary changes.
+
+**Correction (Tier 5G implementation).** §15.3's `theta_feed` rename inventory
+is extended from `src/radiosim/core/beam/analytic.py` to the already-granted
+`src/radiosim/core/jones/beam/analytic/illumination.py`. §15.3's table carries
+line numbers for `core/beam/analytic.py` only, but §15.1 makes `feed` an
+exclusively receptor-subsystem identifier, and §34.7 renames this module to
+`illumination.py` and its three pattern functions to `*_illumination`. Leaving
+`theta_feed` as the parameter name of `corrugated_horn_illumination` inside a
+module named `illumination.py` would leave decision 6 violated in the very file
+the slice renames to enforce it. The extension is bounded to that one file: the
+`theta_feed` parameter of the three renamed pattern functions becomes
+`theta_illumination`, and the docstring formulas naming the same quantity
+follow. The reflector-geometry function names (`prime_focus_angle`,
+`cassegrain_angle`, `compute_edge_angle`) are unchanged, as §15.3 requires. No
+other file, decision, or slice boundary changes.
 
 **Correction (Tier 5E independent acceptance).** Added `docs/api/io.rst`.
 Tier 5E (`aa667b9`) bumped `SCHEMA_VERSION` to `2.0.0` and made
