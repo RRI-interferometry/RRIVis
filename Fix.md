@@ -5406,3 +5406,303 @@ limited to the writable-file list in `Tier5ReceptorFeedPlan.md` §35 Tier 5E.
 Tier 5F through 5I remain unauthorized until each predecessor slice is
 implemented and independently accepted. No PR, tag, release, or deployment
 was created.
+
+### 2026-07-30 Tier 5E independent acceptance
+
+**Tier 5E is independently accepted; Tier 5F is authorized.** The review
+range was `1eee144..aa667b9`, exactly two commits: `c7fa228` (`docs(feeds):
+correct Tier 5 design`, the implementer's own pre-emptive §35 grant
+correction adding seven files forced by B6/B7/§21.5) and `aa667b9`
+(`feat(result): support linear and circular correlations`, the slice that
+ends the last surviving live dishonesty in the result model — a circular
+receptor configuration reaching the visibilities (Tier 5D) while the
+published `correlations`/`polarization_basis` stayed the hard-coded linear
+literals).
+
+**Honest labels end to end, reproduced live, not read off the diff.**
+`radiosim.core.polarization_basis` (from 5C) was confirmed to be the single
+source: `core/result.py` imports `CORRELATION_LABELS`,
+`basis_for_correlations`, and `parallel_hand_indices`; its local
+`_CORRELATIONS` literal is gone. `build_simulation_result` now requires a
+`receptors: ResolvedReceptorSet` parameter (both `api/simulator.py:1010` and
+every test-helper call site were checked to supply it), validates
+`set(receptors.receptor_by_antenna) == antenna_ids` before deriving
+`polarization_basis = receptors.output_basis` and
+`correlations = CORRELATION_LABELS[polarization_basis]`. A live circular run
+via `Simulator.from_mapping(..., receptors={"default": {"basis": "circular",
+"feed_rotation_deg": 30.0}})` produced `result.correlations == ('RR', 'RL',
+'LR', 'LL')`, `result.polarization_basis == 'circular_rl'`, and
+`result.stokes_i()` exactly equal to `visibilities[...,0] +
+visibilities[...,3]` (`RR+LL`, confirmed against the raw array, not just the
+method's own arithmetic); the default (no `receptors:` section) run
+reproduced `('XX','XY','YX','YY')`/`linear_xy` unchanged, both through a
+fresh `write_result_hdf5`/`load_result_hdf5` round trip with
+`loaded.scientific_sha256 == result.scientific_sha256` in both cases. A
+heterogeneous array (one antenna linear-native, one circular-native, common
+`output_basis: circular`) was also run: `native_basis_counts == {'linear':
+1, 'circular': 1}`, round-tripped through HDF5 with an unchanged scientific
+hash, and each antenna's per-row `basis` correctly diverged from the
+array-wide `output_basis` without being flagged — confirming the read-side
+cross-check (§21 item 4) validates only `receptors/output_basis` against
+`coordinates/correlation/basis`, not individual antenna native bases,
+exactly as §13's heterogeneous-array decision requires.
+`build_loaded_simulation_result` was read in full: it resolves the basis
+through `basis_for_correlations` (a `TypeError`/`ValueError`-raising exact
+dict lookup — a reordering of an accepted tuple is not itself a key, so it
+is rejected, not silently accepted) and separately checks
+`receptor_snapshot["output_basis"] == polarization_basis`.
+`tests/unit/test_core/test_result.py`'s new
+`test_loaded_result_rejects_every_unaccepted_correlation_axis` was confirmed
+to parametrize over a reordered linear tuple, a reordered circular tuple, a
+mixed linear/circular tuple, a short tuple, and a Stokes-labelled tuple
+(`I,Q,U,V`), all raising `InvalidResultError` naming both accepted tuples.
+
+**HDF5 2.0.0 trust model, read in full, then attacked independently.**
+`io/hdf5.py`'s diff was read start to finish. `SCHEMA_VERSION` is `"2.0.0"`;
+the required `coordinates/correlation/basis` fixed-UTF-8 dataset and the
+required `receptors/` group (`output_basis`, `receptor_sha256`, and
+per-antenna `antenna_number`/`antenna_name`/`basis`/`feed_rotation_rad`/
+`feed_angle_rad` in canonical antenna order) exist exactly as §21 items 2–3
+specify; `CORRELATIONS`/`AIPS_CODES` module constants are gone from
+`io/hdf5.py`. On read, `_validate_structured_identity` checks the
+`(labels, aips_codes, basis)` triple is exactly one §14.2 row *before*
+calling `_read_receptor_group`, which itself checks `output_basis` against
+the coordinate basis, antenna numbers and names element-for-element against
+the instrument datasets, per-antenna `basis` against `{"linear",
+"circular"}`, and `feed_rotation_rad`/`feed_angle_rad` finiteness — all
+inside `_validate_structured_identity`, which returns before `_load_open_file`
+reads `data/visibilities`, so every receptor-group rejection precedes the
+one large allocation in the read path. Eleven independent hostile files were
+hand-crafted in the scratchpad (real `Simulator` output mutated via raw
+`h5py`, not the implementer's own fixtures) and every one was rejected, by
+the expected exception type, before any large allocation:
+
+| Probe | Result |
+|---|---|
+| Mismatched triple (linear labels + circular AIPS codes) | `UnsafeResultInputError`: "HDF5 correlation coordinates are invalid ... must be exactly one accepted row for 'linear_xy'" |
+| Reordered labels (`XX,YY,XY,YX`) | `UnsafeResultInputError`, same message |
+| Receptor `output_basis` disagreeing with coordinate basis (circular file, receptor group flipped to `linear_xy`) | `UnsafeResultInputError`: "HDF5 receptor output basis disagrees with the correlation basis" |
+| Receptor antenna number outside the instrument | `UnsafeResultInputError`: "HDF5 receptor antenna numbers disagree with the instrument" |
+| Receptor antenna name outside the instrument | `UnsafeResultInputError`: "HDF5 receptor antenna names disagree with the instrument" |
+| Oversized `receptors/output_basis` (VLEN, ~10 KB) | `UnsafeResultInputError`: "must use fixed UTF-8 storage" — rejected on storage-type allowlist before any value read |
+| NUL byte embedded in `receptors/antenna_name` | `UnsafeResultInputError`: "contains invalid NUL padding" |
+| `schema_version = "1.0.0"` (written with the real writer's fixed-UTF-8 encoding, not a VLEN shortcut) | `UnsupportedSchemaVersionError`: "unsupported ... schema version: 1.0.0. Tier 5 replaced radiosim.visibility 1.0.0 with 2.0.0 ... There is no upgrade path by design" — names Tier 5 and the boundary exactly per §21.5 |
+| `receptors/` group deleted entirely | `UnsafeResultInputError`: "HDF5 object allowlist mismatch" |
+| Hostile per-antenna `basis` value (`"xenon"`) | `UnsafeResultInputError`: "must be one of ('linear', 'circular')" |
+| Non-finite `feed_rotation_rad` (`NaN`) | `UnsafeResultInputError`: "HDF5 receptor feed geometry is invalid" |
+
+A twelfth probe specifically targeted the opaque-`receptor_sha256` question
+(risk 4 below): `receptor_sha256` was swapped for a different, validly
+formatted SHA-256 while every antenna row was left untouched. `io/hdf5.py`
+does not itself recompute `receptor_sha256` from the antenna rows on read —
+but the swap was still rejected (`UnsafeResultInputError: "HDF5 result
+failed canonical model or fingerprint validation"`), because
+`build_loaded_simulation_result` folds the file's `receptor_sha256` value
+into the same receptor entry that `_scientific_hash` hashes, and the
+re-derived `scientific_sha256` no longer matched the file's stored root
+attribute. All Tier 4 safety properties were re-confirmed unchanged in this
+diff: fixed byte widths and storage-type allowlists (`_DatasetSpec`), NUL/
+UTF-8 checks, bounded string limits, the dataset/group allowlists (`_DATASETS`/
+`_GROUPS`, both updated to include the seven new objects), no dynamic
+evaluation, and the temporary-write/read-back/atomic-publish ordering in
+`write_result_hdf5` (unchanged in this diff).
+
+**Fingerprint (§23).** The scientific hash now includes
+`_hash_json(digest, "polarization_basis", polarization_basis)` (the real
+value, not the `"linear_xy"` literal) and a new
+`_hash_json(digest, "receptor", receptor_snapshot)` entry built from
+`_receptor_result_snapshot`, which projects exactly the four §21 file
+fields (`schema_version`, `output_basis`, `receptor_sha256`, and per-antenna
+`antenna_number`/`antenna_name`/`basis`/`feed_rotation_rad`/
+`feed_angle_rad`) and validates each defensively (type checks, SHA-256
+format, finite floats, no duplicate antenna numbers) whether the input came
+from a live `ResolvedReceptorSet.to_snapshot()` or a loaded HDF5 mapping —
+confirmed these two inputs hash identically by round-tripping a circular
+result through HDF5 and comparing `scientific_sha256` (`True` in the live
+probe). **Exclusion rationale adjudicated as sound.** The excluded fields —
+`requested_output_basis`, `output_basis_rule`, `override_applications`,
+`native_basis_counts`, and each row's `feed_array`/`source` — were read in
+`core/receptor.py`'s `to_snapshot()`: `feed_array` is a pure function of
+`basis` (`_NOMINAL_FEED_ARRAY[basis]`, enforced by `ResolvedReceptor.
+__post_init__`) carrying no independent information, and the rest describe
+*how* the resolved set was chosen (requested basis, resolution rule, override
+order/application) rather than *what* it resolved to. Excluding them is
+required for S14 (`receptor_sha256` — and therefore the scientific hash —
+stable under an override reordering that produces the same resolved set),
+which `test_scientific_fingerprint_is_stable_for_an_identical_receptor_set`
+confirms holds through the result-level hash, not just the receptor-level
+one. `instrument_sha256` was confirmed unchanged in the bit-identity
+reproduction below (identical 64-hex value in both the pre-5E and post-5E
+files), consistent with receptors being a sibling of the instrument (S14 of
+Section 17.1).
+
+**Bit-identity for default linear runs, reproduced in detached,
+PYTHONPATH-isolated worktrees.** `1eee144` and `aa667b9` were each checked
+out into their own `git worktree add --detach`, and the identical default
+(no `receptors:` section) simulation was run in each with
+`PYTHONPATH=<worktree>:<worktree>/src` so every import resolved to that
+worktree's own `src/radiosim`, confirmed by printing `radiosim.__file__`
+before each run. A full tree-diff of the two written HDF5 files (every
+group/dataset name, every attribute) showed: `data/visibilities`,
+`data/flags`, and `data/weights` byte-identical
+(`np.array_equal` `True` for all three); the only new objects in the
+post-5E file were exactly `coordinates/correlation/basis` and the seven
+`receptors/*` objects (nothing else appeared, nothing disappeared); the only
+changed root attributes were `schema_version` (`1.0.0` → `2.0.0`),
+`scientific_sha256`, and `provenance_sha256` — each matching its claimed
+plan authority (§21.5 for the version bump, §23/B8 for both hashes, since
+`provenance_sha256` hashes `scientific_sha256`); `instrument_sha256`,
+embedded inside `provenance/instrument_json`, was identical between the two
+files. The `provenance/configuration_source_json`, `instrument_json` (path
+fields only), and `performance_json` datasets differed only because the two
+probe runs used different temporary work directories and wall-clock timing —
+both pre-existing, run-to-run-variable fields unrelated to this slice's
+code, not a fifth changed object.
+
+**Fingerprint policy risk (4).** Adjudicated **sound**, per the twelfth
+hostile probe above: `receptor_sha256` is not independently recomputed from
+the antenna rows inside `io/hdf5.py`, but a swap is still caught because it
+enters the scientific hash as a value and the file's stored
+`scientific_sha256` is independently re-verified end to end. This is the
+same integrity model Tier 4 already uses for every other snapshot field
+(instrument, selection, beam, backend, solver) — none of those are
+recomputed from their own sub-fields inside `io/hdf5.py` either; all rely on
+the top-level scientific/provenance hash re-derivation. Not a defect.
+
+**Scope and deviation adjudication (item 6).** `git diff 1eee144..aa667b9
+--stat` touches exactly the thirteen files `c7fa228`'s corrected §35 Tier 5E
+grant lists (`Tier5ReceptorFeedPlan.md` itself, plus the two original
+production files, four original test files, and the six added-by-correction
+files: `api/simulator.py`, `io/result_errors.py`,
+`tests/unit/test_simulator/test_api.py`,
+`tests/unit/test_io/test_standard_visibility.py`,
+`tests/unit/test_tier4_result_output_acceptance.py`,
+`tests/unit/test_core/test_polarization_basis.py`) — no file outside the
+grant was touched, and `tests/characterization/test_tier5_current_behavior.py`
+(already granted, flipped rather than added) needed no addition. Each of
+`c7fa228`'s seven added files was re-derived independently rather than taken
+on the implementer's word: `api/simulator.py` is confirmed the only
+production caller of `build_simulation_result` (`grep -rn
+build_simulation_result src/` finds one call site); `io/result_errors.py`'s
+`UnsupportedSchemaVersionError.__init__` is confirmed the only place that
+composes the rejection text, so the §21.5 Tier-5-naming requirement can only
+land there; the four test-file additions were each confirmed to hold exactly
+the pin the correction names (the flipped `OWNED BY: Tier 5E` pins in
+`test_tier5_current_behavior.py`, the interim-mislabeling assertion in
+`test_api.py`, the `build_standard_result` helper's direct
+`build_simulation_result` call in `test_standard_visibility.py`, the
+`SCHEMA_VERSION == "1.0.0"` pin in
+`test_tier4_result_output_acceptance.py`, and the now-deleted-constant
+comparison in `test_polarization_basis.py`). No file was touched for a
+reason other than the one the correction states.
+
+**`to_summary_snapshot()` receptor block vs. §34.5's "no summary block"
+exclusion — adjudicated as correctly scoped, not a violation.** `io/
+summary_json.py` has a zero-line diff in this range and is not on 5E's §35
+grant; its existing `"correlation": {"labels": ..., "basis": ...}` block was
+confirmed to read `result.correlations`/`result.polarization_basis`
+directly (no `to_summary_snapshot()` call anywhere in the file), so it
+became truthful for a live circular run without any code change (confirmed:
+`{'basis': 'circular_rl', 'labels': ['RR','RL','LR','LL']}` in a saved
+`.summary.json`, with no top-level `"receptors"` key present). §20.2 —
+squarely inside the "exact correlation coordinate contract in the result
+model" section that defines 5E's chartered scope — explicitly states
+"`to_summary_snapshot()` gains a `receptor` block," and §34.6's own Tier 5F
+production changes separately list "add the summary receptor block" as
+5F's job. These are two different things: `to_summary_snapshot()` is a
+`core/result.py` method (5E's file) mandated by §20.2; the persisted
+summary JSON's new bounded `"receptors"` top-level block described in §23 is
+a change to `io/summary_json.py` (not on 5E's grant, explicitly assigned to
+5F by §34.6). The implementer's reading is correct.
+
+**Pins and residue (item 5).** The flipped pins —
+`test_two_of_four_correlation_constant_sites_now_share_the_table` (renamed
+from `test_four_correlation_constant_sites_are_independent_literal_copies`),
+`test_stokes_i_derives_its_indices_from_the_correlation_labels` (renamed
+from `test_stokes_i_uses_fixed_indices_without_consulting_correlations`),
+`test_polarization_basis_is_data_driven_at_every_result_construction_site`
+(renamed from `test_polarization_basis_is_a_literal_at_every_result_
+construction_site`), and the `test_api.py`/`test_tier4_result_output_
+acceptance.py`/`test_polarization_basis.py` edits — are read to affect only
+the `core/result.py`/`io/hdf5.py` clauses §34.5 charters to 5E; each
+renamed pin's surviving assertions (the `io/standard_visibility.py` three
+literal constants, the `measurement_set.py` clause of the circular-label
+scan, `test_pyuvdata_construction_is_hard_coded_to_the_linear_basis`
+unchanged byte-for-byte) were confirmed still present and still passing —
+the 5F residue is intact. Confirmed live: a circular result's `sim.save(...,
+format=ResultFormat.MS)` and `format=ResultFormat.UVFITS)` both raised
+`FormatRepresentationError` ("standard visibility formats require exact
+XX,XY,YX,YY correlations") rather than silently mislabeling or succeeding —
+this is risk 6's intended boundary, confirmed live rather than assumed from
+the unchanged source.
+
+**Remaining risk adjudications.** (1) `docs/api/io.rst` — confirmed false
+(states schema `1.0.0` and a fixed `XX,XY,YX,YY` set) and owned by no
+slice's §35 grant; routed to Tier 5G by the bounded correction below. (2)
+The duplicate `PolarizationBasisName` Literal in `core/receptor.py` —
+confirmed to predate 5E and to remain outside every slice's current §35
+grant (`src/radiosim/core/jones/receptor.py`, already on Tier 5H's list, is
+a different file); §34.8's Tier 5H text already reads "remove the
+duplicated correlation constants if any survive," so this is exactly what
+that slice already intends but its file grant omitted the one file where
+the survivor lives — routed to Tier 5H by the bounded correction below. (3)
+`_RECEPTOR_SCHEMA_VERSION` duplication (`core/result.py` and
+`core/receptor.py` each define their own copy of the same string) —
+mitigated, not eliminated, by
+`test_the_receptor_snapshot_schema_version_matches_the_receptor_module`,
+which asserts byte-for-byte equality and will fail CI the moment the two
+values diverge; adjudicated as an acceptable, test-guarded duplication, not
+a defect requiring a plan correction. (5) The path-dependent scientific
+hash via the layout file reference — confirmed pre-existing (predates 5E;
+`instrument_sha256` itself is path-independent, as shown by the two
+worktree runs producing an identical instrument hash despite different
+absolute layout paths; whatever path-dependency exists is elsewhere in the
+provenance chain, not newly introduced here) and out of this slice's scope;
+carried forward, not this review's to resolve. (6) See "Pins and residue"
+above: confirmed sound and intended.
+
+**Gates.** Full non-slow suite, py311: **3,785 passed, 6 skipped, 26
+warnings**, reproducing the claimed arithmetic exactly (3,745 5D baseline +
+40 new/changed-to-passing tests across the eight touched test files). The
+eight touched-or-corrected test files re-ran clean on py312
+(`.pixi/envs/py312`, Python 3.12.13): **401 passed** — this reviewer's own
+independent figure for the exact §35 Tier 5E test-file set (not a claim
+reproduced from the implementer; `test_measurement_set.py`/`test_uvfits.py`,
+which merely import `test_standard_visibility.py`'s helper, were also run
+separately and passed, 55 more, confirming the two-line fixture addition
+there does not disturb either format's own suite). `pixi run lint` reported
+all checks passed; `pixi run format`/`pixi run check-format` reported 322
+files already formatted (no reformatting needed). All three shipped YAMLs
+validated via `radiosim validate`, unchanged from the 5B/5C/5D record
+(`configs/config.yaml` — 101 channels; `configs/realistic_foreground_
+example.yaml` — 11; `antenna_layout_examples/example_telescope_config.yaml`
+— 1). `git status` was clean before and after review; neither commit in the
+review range, nor this review's own two commits, carries a co-author line.
+
+**Corrections made before acceptance.** `9fcb4c1` (`docs(feeds): correct
+Tier 5 design`) routes `docs/api/io.rst` to Tier 5G's §35 grant (risk 1) and
+`src/radiosim/core/receptor.py` plus `tests/unit/test_core/test_receptor_
+resolution.py` to Tier 5H's §35 grant (risk 2), and updates the plan's
+status header to record 5E's acceptance. Both corrections add exactly one
+paragraph and one file-list line each under their respective slice headings;
+no decision, scientific claim, slice boundary, or other slice's file list
+changes.
+
+**Unobserved items, carried forward.** `pixi run typecheck`/Pyright and a
+Sphinx build were not run (not required until whole-tier acceptance per
+§33). The MS/UVFITS circular-rejection checks above were run as ad hoc
+manual probes, not as new automated tests — that gap is Tier 5F's to close
+with real basis-aware writers, not this review's to add tests for. No PR,
+tag, release, or deployment was created.
+
+This acceptance changes planning records only beyond the bounded `9fcb4c1`
+correction. No Tier 5E production code, test, fixture, configuration, or
+dependency file was changed by this review. `POL-001` remains **OPEN** and
+`POL-002` remains **ROADMAP**; 5E ends the live correlation-label dishonesty
+and versions the HDF5 schema, but Measurement Set, UVFITS, the summary
+JSON's bounded receptor block, and plot text are still Tier 5F's, so neither
+issue closes at this slice. Tier 5E is independently accepted; Tier 5F is
+authorized and remains limited to the writable-file list in
+`Tier5ReceptorFeedPlan.md` §35 Tier 5F. Tier 5G through 5I remain
+unauthorized until each predecessor slice is implemented and independently
+accepted. No PR, tag, release, or deployment was created.
