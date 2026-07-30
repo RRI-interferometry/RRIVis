@@ -60,6 +60,10 @@ class FormatRepresentationError(ResultIOError):
     """A canonical result cannot be represented by the requested format."""
 
 
+class UnsupportedPolarizationBasisError(FormatRepresentationError):
+    """A correlation coordinate set is outside the two Tier 5 output bases."""
+
+
 class UnsafeResultInputError(ResultIOError):
     """An input file violates the safe canonical result contract."""
 
@@ -115,6 +119,7 @@ __all__ = [
     "SummaryContractError",
     "UnsafeOutputDirectoryError",
     "UnsafeResultInputError",
+    "UnsupportedPolarizationBasisError",
     "UnsupportedResultFormatError",
     "UnsupportedSchemaVersionError",
 ]

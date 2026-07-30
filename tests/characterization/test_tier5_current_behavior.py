@@ -587,7 +587,7 @@ def test_beam_jones_response_is_a_scalar_multiple_of_the_identity(
 # ---------------------------------------------------------------------------
 
 
-def test_two_of_four_correlation_constant_sites_now_share_the_table() -> None:
+def test_all_four_correlation_constant_sites_now_share_the_table() -> None:
     """Tracks the four duplicated correlation contracts of Section 6.3.
 
     OWNED BY: Tier 5E and Tier 5F, which replace all four with the single
@@ -600,69 +600,63 @@ def test_two_of_four_correlation_constant_sites_now_share_the_table() -> None:
     mapping names ``"RR"`` and ``"LL"``) falsified both.
 
     RENAMED AND FLIPPED BY: Tier 5E, for the two sites Section 35 grants it --
-    ``core/result.py`` and ``io/hdf5.py``.  Both now import the shared table
-    and their local literals are gone (defect D4 is closed for them).  The
-    ``io/standard_visibility.py`` site is Tier 5F's residue and is still
-    asserted below exactly as Tier 5A wrote it, together with the
-    ``measurement_set.py`` clause of the circular-label scan.
+    ``core/result.py`` and ``io/hdf5.py``.
+
+    RENAMED AND FLIPPED AGAIN BY: Tier 5F, for its own two sites.
+    ``io/standard_visibility.py`` no longer defines
+    ``CANONICAL_CORRELATIONS``, ``CANONICAL_CODES``, or ``FILE_CODES``; it
+    imports the shared table like the other three, so defect D4 is now closed
+    outright.  The circular-label scan that guarded the writer and the
+    Measurement Set path is inverted below: circular *labels* still appear
+    nowhere in either module, because both derive every label and code from the
+    shared table rather than spelling any basis out.
     """
     assert not hasattr(result_module, "_CORRELATIONS")
     assert not hasattr(hdf5_module, "CORRELATIONS")
     assert not hasattr(hdf5_module, "AIPS_CODES")
-    assert standard_visibility_module.CANONICAL_CORRELATIONS == (
-        "XX",
-        "XY",
-        "YX",
-        "YY",
-    )
-    np.testing.assert_array_equal(
-        standard_visibility_module.CANONICAL_CODES,
-        np.array([-5, -7, -8, -6], dtype=np.int64),
-    )
-    np.testing.assert_array_equal(
-        standard_visibility_module.FILE_CODES,
-        np.array([-5, -6, -7, -8], dtype=np.int64),
-    )
+    for name in ("CANONICAL_CORRELATIONS", "CANONICAL_CODES", "FILE_CODES"):
+        assert not hasattr(standard_visibility_module, name)
 
-    # Tier 5F's residue: the fourth site still carries its own literal.
-    assert (
-        'CANONICAL_CORRELATIONS: Final = ("XX", "XY", "YX", "YY")'
-        in inspect.getsource(standard_visibility_module)
-    )
-    assert "core.polarization_basis" not in inspect.getsource(
-        standard_visibility_module
-    )
-
-    # Tier 5E's two sites now consume the shared table and nothing else.
+    # All four sites now consume the shared table and nothing else.
     assert (SOURCE_ROOT / "radiosim" / "core" / "polarization_basis.py").exists()
-    for module in (result_module, hdf5_module):
+    for module in (result_module, hdf5_module, standard_visibility_module):
         source = inspect.getsource(module)
         assert "core.polarization_basis" in source
         assert '("XX", "XY", "YX", "YY")' not in source
         assert '("RR", "RL", "LR", "LL")' not in source
 
-    # Tier 5F's residue: circular labels must still not have reached the
-    # standard-format writer or the Measurement Set path.
-    circular_hits = {
+    # No production module spells a correlation label out any more: the writer,
+    # the Measurement Set path, and every other module read the shared table.
+    label_hits = {
         path.name
         for path in (SOURCE_ROOT / "radiosim").rglob("*.py")
-        if any(token in path.read_text() for token in ('"RR"', '"LL"', '"rr"', '"ll"'))
+        if path.name != "polarization_basis.py"
+        and any(
+            token in path.read_text()
+            for token in ('"RR"', '"LL"', '"rr"', '"ll"', '"XX"', '"YY"')
+        )
     }
-    assert circular_hits.isdisjoint({"standard_visibility.py", "measurement_set.py"})
+    assert label_hits.isdisjoint({"standard_visibility.py", "measurement_set.py"})
 
 
-def test_pyuvdata_construction_is_hard_coded_to_the_linear_basis() -> None:
+def test_pyuvdata_construction_is_basis_driven() -> None:
     """Pins the fourth correlation site, inside the standard-format writer.
 
-    OWNED BY: Tier 5F, which must derive both literals from the resolved
-    receptor set.
+    OWNED BY: Tier 5F.  FLIPPED BY: Tier 5F -- the writer now passes an
+    explicit per-basis ``feed_array``/``feed_angle`` pair (the Tier 5A Q3
+    construction-form correction) and a ``polarization_array`` read from
+    ``PYUVDATA_POLARIZATIONS``.  The deprecated ``x_orientation`` shorthand is
+    gone: pyuvdata 3.2.1 ignores it whenever ``feed_array`` and ``feed_angle``
+    are both supplied, so retaining it for the linear path would have been dead
+    code.
     """
     source = inspect.getsource(standard_visibility_module)
-    assert 'feeds=["x", "y"]' in source
-    assert 'x_orientation="east"' in source
-    assert 'polarization_array=["xx", "xy", "yx", "yy"]' in source
-    assert "feed_array" not in source
-    assert "feed_angle" not in source
+    assert 'feeds=["x", "y"]' not in source
+    assert "x_orientation" not in source
+    assert 'polarization_array=["xx", "xy", "yx", "yy"]' not in source
+    assert "feed_array=np.tile(" in source
+    assert "feed_angle=np.tile(" in source
+    assert "polarization_array=list(PYUVDATA_POLARIZATIONS[basis])" in source
 
 
 def test_stokes_i_derives_its_indices_from_the_correlation_labels() -> None:

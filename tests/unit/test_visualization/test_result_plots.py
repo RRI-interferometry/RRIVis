@@ -165,6 +165,94 @@ def test_heatmap_renderer_uses_exact_canonical_coordinate_extents(canonical_resu
         assert data["dh"] == [float(frequencies[-1] - frequencies[0])]
 
 
+# ---------------------------------------------------------------------------
+# Tier 5F: plot text is derived from result.correlations (Section 20.3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def circular_result(tmp_path_factory) -> SimulationResult:
+    tmp_path = tmp_path_factory.mktemp("circular_result_plots")
+    mapping = _mapping(tmp_path)
+    mapping["receptors"] = {"default": {"basis": "circular"}}
+    simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
+    return simulator.run(progress=False)
+
+
+def _axis_labels(document) -> set[str]:
+    from bokeh.models import ColorBar, LinearAxis
+
+    labels = {
+        str(axis.axis_label)
+        for axis in document.select({"type": LinearAxis})
+        if axis.axis_label
+    }
+    labels |= {
+        str(bar.title) for bar in document.select({"type": ColorBar}) if bar.title
+    }
+    return labels
+
+
+@pytest.mark.parametrize(
+    "renderer_name",
+    ["plot_visibility", "plot_heatmaps", "plot_modulus_vs_frequency"],
+)
+def test_stokes_i_axis_text_names_the_published_parallel_hands(
+    canonical_result,
+    circular_result,
+    renderer_name,
+):
+    import radiosim.visualization.bokeh_plots as bokeh_plots
+
+    renderer = getattr(bokeh_plots, renderer_name)
+
+    assert canonical_result.correlations == ("XX", "XY", "YX", "YY")
+    linear_labels = _axis_labels(renderer(canonical_result))
+    assert "Modulus of Visibility (Stokes I = XX + YY)" in linear_labels
+    assert not any("RR + LL" in label for label in linear_labels)
+
+    assert circular_result.correlations == ("RR", "RL", "LR", "LL")
+    circular_labels = _axis_labels(renderer(circular_result))
+    assert "Modulus of Visibility (Stokes I = RR + LL)" in circular_labels
+    assert not any("XX + YY" in label for label in circular_labels)
+
+
+def test_plot_layer_holds_no_correlation_table_of_its_own():
+    """Section 20.3: the renderer derives labels; it does not tabulate them."""
+    import inspect
+
+    import radiosim.visualization.bokeh_plots as bokeh_plots
+
+    source = inspect.getsource(bokeh_plots)
+    assert '("XX", "XY", "YX", "YY")' not in source
+    assert '("RR", "RL", "LR", "LL")' not in source
+    assert "parallel_hand_indices(result.correlations)" in source
+
+
+def test_circular_plot_artifacts_are_labeled_from_the_resolved_basis(
+    tmp_path,
+    monkeypatch,
+):
+    mapping = _mapping(tmp_path)
+    mapping["receptors"] = {"default": {"basis": "circular"}}
+    simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
+    simulator.run(progress=False)
+    _forbid_browser(monkeypatch)
+
+    output = tmp_path / "plots"
+    written = simulator.plot(output_dir=output, show=False)
+
+    assert written
+    rendered = [
+        path for path in output.rglob("*.html") if path.name != "antenna_layout.html"
+    ]
+    assert len(rendered) == 3
+    for path in rendered:
+        text = path.read_text(encoding="utf-8")
+        assert "Stokes I = RR + LL" in text
+        assert "XX + YY" not in text
+
+
 @pytest.mark.parametrize(
     "renderer_name",
     ["plot_visibility", "plot_heatmaps", "plot_modulus_vs_frequency"],

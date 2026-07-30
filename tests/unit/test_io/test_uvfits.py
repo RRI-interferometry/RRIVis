@@ -82,6 +82,106 @@ def test_uvfits_round_trip_preserves_supported_dtype_and_raw_contract(
         assert any(hdu.name == "AIPS AN" for hdu in handle)
 
 
+# ---------------------------------------------------------------------------
+# Tier 5F: UVFITS carries the resolved basis (Sections 14.2, 22)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("receptors", "labels", "file_codes", "feed_letters"),
+    [
+        (None, ("XX", "XY", "YX", "YY"), [-5, -6, -7, -8], ["x", "y"]),
+        (
+            {"default": {"basis": "circular"}},
+            ("RR", "RL", "LR", "LL"),
+            [-1, -2, -3, -4],
+            ["r", "l"],
+        ),
+    ],
+    ids=["linear", "circular"],
+)
+def test_uvfits_polarization_metadata_round_trips_both_bases(
+    tmp_path: Path,
+    receptors: dict[str, object] | None,
+    labels: tuple[str, ...],
+    file_codes: list[int],
+    feed_letters: list[str],
+) -> None:
+    """UVFITS stores the descending Section 14.2 code order in both bases."""
+    result = build_standard_result(tmp_path, receptors=receptors)
+    assert result.correlations == labels
+    target = tmp_path / "basis.uvfits"
+
+    assert write_uvfits(result, target) == target.absolute()
+    loaded = read_uvfits(target)
+    assert loaded.correlations == labels
+
+    raw = UVData()
+    raw.read_uvfits(str(target))
+    antenna_count = int(raw.telescope.Nants)
+    assert np.asarray(raw.polarization_array).tolist() == file_codes
+    assert raw.telescope.feed_array.tolist() == [feed_letters] * antenna_count
+    assert list(raw.telescope.mount_type) == ["fixed"] * antenna_count
+
+    with fits.open(target, mode="readonly", memmap=True) as handle:
+        primary = handle[0].header
+        assert abs(int(primary["NAXIS3"])) == 4
+        # The UVFITS polarization axis is a monotonic CRVAL/CDELT sequence.
+        assert int(primary["CRVAL3"]) == file_codes[0]
+        assert int(primary["CDELT3"]) == -1
+
+    expected = project_simulation_result(result, format="uvfits").data
+    np.testing.assert_allclose(
+        loaded.visibilities,
+        expected.visibilities,
+        rtol=5e-13,
+        atol=5e-13,
+    )
+
+
+def test_uvfits_history_records_the_resolved_basis(tmp_path: Path) -> None:
+    result = build_standard_result(
+        tmp_path,
+        receptors={"default": {"basis": "circular"}},
+    )
+    target = tmp_path / "circular-history.uvfits"
+    write_uvfits(result, target)
+
+    loaded = read_uvfits(target)
+    # UVFITS wraps long HISTORY cards, so the record spans several lines.
+    record, _lines = projection_record_from_history("\n".join(loaded.history))
+    assert record["polarization_basis"] == "circular_rl"
+    assert record["receptor_sha256"] == result.receptors.provenance.receptor_sha256
+
+
+def test_uvfits_rejects_a_record_basis_that_contradicts_the_code_axis(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A forged record cannot relabel a linear file as circular."""
+    result = build_standard_result(tmp_path)
+    target = tmp_path / "forged.uvfits"
+    write_uvfits(result, target)
+
+    original = uvfits_module.projection_record_from_history
+
+    def forge(history: object) -> tuple[dict[str, object], tuple[str, ...]]:
+        record, lines = original(history)
+        record["polarization_basis"] = "circular_rl"
+        return record, lines
+
+    # Both the bounded preflight and the loaded read must see the same forged
+    # record, so the rejection comes from the basis check and not from the
+    # preflight/loaded comparison.
+    monkeypatch.setattr(
+        "radiosim.io.standard_visibility.projection_record_from_history",
+        forge,
+    )
+    monkeypatch.setattr(uvfits_module, "projection_record_from_history", forge)
+    with pytest.raises(UnsafeResultInputError, match="polarization axis carries"):
+        _ = read_uvfits(target)
+
+
 @pytest.mark.parametrize(
     ("frequencies", "widths", "expected"),
     [

@@ -148,6 +148,140 @@ def test_measurement_set_round_trip_and_raw_storage(
     )
 
 
+# ---------------------------------------------------------------------------
+# Tier 5F: the Measurement Set carries the resolved basis (Sections 14.2, 22)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    (
+        "receptors",
+        "labels",
+        "corr_type",
+        "readback_codes",
+        "feed_letters",
+        "receptor_angle",
+    ),
+    [
+        (
+            None,
+            ("XX", "XY", "YX", "YY"),
+            [9, 10, 11, 12],
+            [-5, -6, -7, -8],
+            ["X", "Y"],
+            math.pi / 2.0,
+        ),
+        (
+            {"default": {"basis": "circular"}},
+            ("RR", "RL", "LR", "LL"),
+            [5, 6, 7, 8],
+            [-1, -2, -3, -4],
+            ["R", "L"],
+            0.0,
+        ),
+    ],
+    ids=["linear", "circular"],
+)
+def test_measurement_set_polarization_metadata_round_trips_both_bases(
+    tmp_path: Path,
+    receptors: dict[str, object] | None,
+    labels: tuple[str, ...],
+    corr_type: list[int],
+    readback_codes: list[int],
+    feed_letters: list[str],
+    receptor_angle: float,
+) -> None:
+    """CORR_TYPE keeps the in-memory order; the reader canonicalizes (Q3)."""
+    result = build_standard_result(
+        tmp_path,
+        dtype="complex64",
+        receptors=receptors,
+    )
+    assert result.correlations == labels
+    target = tmp_path / "basis.ms"
+
+    _write_checked(result, target)
+    loaded = read_measurement_set(target)
+    assert loaded.correlations == labels
+
+    # pyuvdata pads the ANTENNA and FEED subtables out to the highest antenna
+    # number, so the row count is not the selected antenna count.
+    feed_rows = max(antenna.id.number for antenna in result.instrument.antennas) + 1
+    with table(str(target / "POLARIZATION"), ack=False) as handle:
+        assert handle.getcol("NUM_CORR").tolist() == [4]
+        assert handle.getcol("CORR_TYPE").tolist() == [corr_type]
+    with table(str(target / "FEED"), ack=False) as handle:
+        polarization_type = handle.getcol("POLARIZATION_TYPE")
+        assert polarization_type["shape"] == [feed_rows, 2]
+        assert polarization_type["array"] == feed_letters * feed_rows
+        angles = np.asarray(handle.getcol("RECEPTOR_ANGLE"))
+        assert angles.shape == (feed_rows, 2)
+        selected = [antenna.id.number for antenna in result.instrument.antennas]
+        np.testing.assert_allclose(
+            angles[selected],
+            np.tile([receptor_angle, 0.0], (len(selected), 1)),
+            rtol=0.0,
+            atol=1e-9,
+        )
+
+    raw = UVData()
+    raw.read_ms(str(target))
+    antenna_count = int(raw.telescope.Nants)
+    assert np.asarray(raw.polarization_array).tolist() == readback_codes
+    assert (
+        raw.telescope.feed_array.tolist()
+        == [[letter.lower() for letter in feed_letters]] * antenna_count
+    )
+    np.testing.assert_allclose(
+        np.asarray(raw.telescope.feed_angle),
+        np.tile([receptor_angle, 0.0], (antenna_count, 1)),
+        rtol=0.0,
+        atol=1e-9,
+    )
+    assert list(raw.telescope.mount_type) == ["fixed"] * antenna_count
+
+    expected = project_simulation_result(result, format="ms").data
+    np.testing.assert_allclose(
+        loaded.visibilities,
+        expected.visibilities,
+        rtol=5e-6,
+        atol=1e-7,
+    )
+
+
+def test_measurement_set_history_records_the_resolved_basis(tmp_path: Path) -> None:
+    result = build_standard_result(
+        tmp_path,
+        dtype="complex64",
+        receptors={"default": {"basis": "circular"}},
+    )
+    target = tmp_path / "circular-history.ms"
+    _write_checked(result, target)
+
+    loaded = read_measurement_set(target)
+    record_lines = [
+        item for item in loaded.history if item.startswith(PROJECTION_HISTORY_PREFIX)
+    ]
+    assert len(record_lines) == 1
+    record = json.loads(record_lines[0][len(PROJECTION_HISTORY_PREFIX) :])
+    assert record["polarization_basis"] == "circular_rl"
+    assert record["receptor_sha256"] == result.receptors.provenance.receptor_sha256
+
+
+def test_measurement_set_reader_maps_both_casacore_stokes_ranges() -> None:
+    """Section 14.3: the casacore enumeration covers both accepted bases."""
+    assert measurement_set._CASA_TO_AIPS == {
+        5: -1,
+        6: -3,
+        7: -4,
+        8: -2,
+        9: -5,
+        10: -7,
+        11: -8,
+        12: -6,
+    }
+
+
 def test_measurement_set_collision_replace_and_no_residue(tmp_path: Path) -> None:
     first = build_standard_result(tmp_path / "first", dtype="complex64")
     second = build_standard_result(tmp_path / "second", dtype="complex64")

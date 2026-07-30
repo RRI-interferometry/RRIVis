@@ -7,10 +7,12 @@ import inspect
 import json
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+import radiosim.io.standard_visibility as standard_visibility_module
 from radiosim.api.simulator import Simulator
 from radiosim.backends import get_backend
 from radiosim.core.phase_center import PhaseCenter
@@ -23,6 +25,7 @@ from radiosim.core.result import (
 from radiosim.io.result_errors import (
     FormatRepresentationError,
     UnsafeResultInputError,
+    UnsupportedPolarizationBasisError,
 )
 from radiosim.io.standard_visibility import (
     PROJECTED_PHASE_SCHEMA,
@@ -31,9 +34,13 @@ from radiosim.io.standard_visibility import (
     ProjectedPhaseCenter,
     StandardReadLimits,
     StandardVisibilityData,
+    basis_for_file_codes,
     build_standard_visibility_data,
+    normalize_autocorrelations,
     project_simulation_result,
     projection_record_from_history,
+    require_feed_polarization_coupling,
+    require_polarization_basis,
 )
 
 
@@ -42,6 +49,7 @@ def _result_mapping(
     *,
     frequencies_hz: tuple[float, ...],
     channel_widths_hz: tuple[float, ...],
+    receptors: dict[str, object] | None = None,
 ) -> dict[str, object]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     layout = tmp_path / "standard-antennas.txt"
@@ -52,7 +60,7 @@ def _result_mapping(
         "A12 12 0 -8 29 5 19\n",
         encoding="utf-8",
     )
-    return {
+    mapping: dict[str, object] = {
         "instrument": {
             "source": {
                 "kind": "layout_file",
@@ -89,6 +97,9 @@ def _result_mapping(
         },
         "execution": {"backend": "numpy", "offline": True},
     }
+    if receptors is not None:
+        mapping["receptors"] = receptors
+    return mapping
 
 
 def build_standard_result(
@@ -97,6 +108,7 @@ def build_standard_result(
     dtype: str = "complex128",
     frequencies_hz: tuple[float, ...] = (100e6, 101.5e6),
     channel_widths_hz: tuple[float, ...] = (1.5e6, 1.5e6),
+    receptors: dict[str, object] | None = None,
 ):
     """Build a nontrivial canonical result with autos and crosses."""
     simulator = Simulator.from_mapping(
@@ -104,6 +116,7 @@ def build_standard_result(
             tmp_path,
             frequencies_hz=frequencies_hz,
             channel_widths_hz=channel_widths_hz,
+            receptors=receptors,
         ),
         base_dir=tmp_path,
     )
@@ -337,7 +350,9 @@ def test_standard_visibility_owns_bytes_backed_arrays_and_nested_state() -> None
     ("field", "value", "match"),
     [
         ("format", "hdf5", "format"),
-        ("correlations", ("XX", "YY", "XY", "YX"), "correlation"),
+        # Correlation-label rejection is typed as
+        # UnsupportedPolarizationBasisError from Tier 5F and is asserted by
+        # test_standard_visibility_rejects_reordered_and_mixed_correlations.
         ("visibilities", np.zeros((2, 2, 2, 3), dtype=np.complex64), "shape"),
         ("weights", np.ones((2, 2, 2, 4), dtype=np.float64), "float32"),
         ("exposure_seconds", np.array([2.0, 0.0]), "positive"),
@@ -466,6 +481,295 @@ def test_shared_projection_rejects_large_parallel_auto_imaginary_part(
         project_simulation_result(result, format="ms")
 
 
+# ---------------------------------------------------------------------------
+# Tier 5F: the standard-format writer is basis aware
+# ---------------------------------------------------------------------------
+
+CIRCULAR_RECEPTORS: dict[str, object] = {"default": {"basis": "circular"}}
+
+
+def test_standard_visibility_consumes_the_shared_correlation_table() -> None:
+    """Section 20.1: the fourth duplicated correlation site is gone (defect D4).
+
+    OWNED BY: Tier 5F.
+    """
+    source = inspect.getsource(standard_visibility_module)
+    assert "radiosim.core.polarization_basis" in source
+    assert '("XX", "XY", "YX", "YY")' not in source
+    assert '("RR", "RL", "LR", "LL")' not in source
+    for name in ("CANONICAL_CORRELATIONS", "CANONICAL_CODES", "FILE_CODES"):
+        assert not hasattr(standard_visibility_module, name)
+
+
+@pytest.mark.parametrize(
+    ("labels", "basis"),
+    [
+        (("XX", "XY", "YX", "YY"), "linear_xy"),
+        (("RR", "RL", "LR", "LL"), "circular_rl"),
+    ],
+    ids=["linear", "circular"],
+)
+def test_standard_visibility_accepts_both_accepted_correlation_sets(
+    labels: tuple[str, ...],
+    basis: str,
+) -> None:
+    standard = _standard_data(correlations=labels)
+    assert standard.correlations == labels
+    assert require_polarization_basis(labels) == basis
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [
+        ("XX", "YY", "XY", "YX"),
+        ("RR", "LL", "RL", "LR"),
+        ("XX", "XY", "LR", "LL"),
+        ("XX", "XY", "YX"),
+        "XXXYYXYY",
+        None,
+    ],
+)
+def test_standard_visibility_rejects_reordered_and_mixed_correlations(
+    labels: object,
+) -> None:
+    with pytest.raises(
+        UnsupportedPolarizationBasisError,
+        match="XX,XY,YX,YY or RR,RL,LR,LL",
+    ):
+        _ = require_polarization_basis(labels)
+    with pytest.raises(UnsupportedPolarizationBasisError):
+        _standard_data(correlations=labels)
+
+
+def test_nominal_feed_angles_match_the_resolved_receptor_convention(
+    tmp_path: Path,
+) -> None:
+    """Section 14.4: the written feed angles are the zero-rotation nominal pair."""
+    for receptors, basis in (
+        (None, "linear_xy"),
+        (CIRCULAR_RECEPTORS, "circular_rl"),
+    ):
+        simulator = Simulator.from_mapping(
+            _result_mapping(
+                tmp_path / basis,
+                frequencies_hz=(100e6, 101.5e6),
+                channel_widths_hz=(1.5e6, 1.5e6),
+                receptors=receptors,
+            ),
+            base_dir=tmp_path / basis,
+        )
+        simulator._ensure_instrument_state()
+        simulator._ensure_receptor_set()
+        resolved = simulator.receptors
+        assert resolved.output_basis == basis
+        for receptor in resolved.receptor_by_antenna.values():
+            assert receptor.feed_rotation_rad == 0.0
+            assert (
+                receptor.feed_angle_rad
+                == standard_visibility_module._NOMINAL_FEED_ANGLES_RAD[basis]
+            )
+
+
+@pytest.mark.parametrize("format_name", ["ms", "uvfits"])
+@pytest.mark.parametrize(
+    ("receptors", "basis", "labels", "feeds", "codes", "angles"),
+    [
+        (
+            None,
+            "linear_xy",
+            ("XX", "XY", "YX", "YY"),
+            ["x", "y"],
+            [-5, -7, -8, -6],
+            [math.pi / 2.0, 0.0],
+        ),
+        (
+            CIRCULAR_RECEPTORS,
+            "circular_rl",
+            ("RR", "RL", "LR", "LL"),
+            ["r", "l"],
+            [-1, -3, -4, -2],
+            [0.0, 0.0],
+        ),
+    ],
+    ids=["linear", "circular"],
+)
+def test_projection_writes_the_resolved_basis_into_pyuvdata(
+    tmp_path: Path,
+    format_name: str,
+    receptors: dict[str, object] | None,
+    basis: str,
+    labels: tuple[str, ...],
+    feeds: list[str],
+    codes: list[int],
+    angles: list[float],
+) -> None:
+    """Section 22.1: feed_array, feed_angle, and the code order follow the basis."""
+    result = build_standard_result(tmp_path, receptors=receptors)
+    assert result.polarization_basis == basis
+    assert result.correlations == labels
+
+    projected = project_simulation_result(result, format=format_name)
+    telescope = projected.uvdata.telescope
+    antenna_count = len(result.instrument.antennas)
+
+    assert telescope.feed_array.tolist() == [feeds] * antenna_count
+    np.testing.assert_allclose(
+        np.asarray(telescope.feed_angle),
+        np.tile(angles, (antenna_count, 1)),
+        rtol=0.0,
+        atol=0.0,
+    )
+    assert telescope.Nfeeds == 2
+    assert list(telescope.mount_type) == ["fixed"] * antenna_count
+    assert np.asarray(projected.uvdata.polarization_array).tolist() == codes
+    assert projected.data.correlations == labels
+    assert projected.uvdata.check() is True
+
+
+def test_projection_history_records_the_basis_and_receptor_fingerprint(
+    tmp_path: Path,
+) -> None:
+    """Section 22.3: the projection record gains two short scalars."""
+    result = build_standard_result(tmp_path, receptors=CIRCULAR_RECEPTORS)
+    projected = project_simulation_result(result, format="uvfits")
+    record, _lines = projection_record_from_history(projected.uvdata.history)
+    assert record["polarization_basis"] == "circular_rl"
+    assert record["receptor_sha256"] == result.receptors.provenance.receptor_sha256
+    assert (
+        len(projected.uvdata.history.encode("utf-8"))
+        <= standard_visibility_module._PROJECTION_HISTORY_LIMIT
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("polarization_basis", "elliptical"),
+        ("polarization_basis", 5),
+        ("receptor_sha256", "C" * 64),
+        ("receptor_sha256", "abc"),
+    ],
+)
+def test_projection_history_rejects_invalid_basis_or_receptor_fingerprint(
+    field: str,
+    value: object,
+) -> None:
+    record = _projection_json_record()
+    record[field] = value
+    with pytest.raises(UnsafeResultInputError):
+        _ = projection_record_from_history(_projection_history(record))
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["polarization_basis", "receptor_sha256"],
+)
+def test_projection_history_requires_the_new_record_fields(field: str) -> None:
+    record = _projection_json_record()
+    del record[field]
+    with pytest.raises(UnsafeResultInputError, match="unexpected record fields"):
+        _ = projection_record_from_history(_projection_history(record))
+
+
+@pytest.mark.parametrize(
+    ("codes", "basis"),
+    [
+        ([-5, -7, -8, -6], "linear_xy"),
+        ([-5, -6, -7, -8], "linear_xy"),
+        ([-1, -3, -4, -2], "circular_rl"),
+        ([-1, -2, -3, -4], "circular_rl"),
+    ],
+)
+def test_file_code_sets_identify_both_bases_in_either_order(
+    codes: list[int],
+    basis: str,
+) -> None:
+    """Section 14.2 as corrected: MS keeps memory order, UVFITS descends."""
+    assert basis_for_file_codes(np.asarray(codes, dtype=np.int64)) == basis
+
+
+@pytest.mark.parametrize(
+    "codes",
+    [
+        [-5, -6, -7, -1],
+        [-5, -6, -7],
+        [1, 2, 3, 4],
+        [-5, -5, -6, -7],
+    ],
+)
+def test_file_code_sets_reject_mixed_and_short_axes(codes: list[int]) -> None:
+    with pytest.raises(
+        FormatRepresentationError,
+        match="unsupported polarization layout",
+    ):
+        _ = basis_for_file_codes(np.asarray(codes, dtype=np.int64))
+
+
+def test_read_path_rejects_feeds_that_disagree_with_the_polarization_axis() -> None:
+    """Tier 5A Q3: pyuvdata does not couple feeds to polarizations; RadioSim does."""
+    mismatched = SimpleNamespace(
+        telescope=SimpleNamespace(feed_array=np.array([["r", "l"], ["r", "l"]])),
+    )
+    with pytest.raises(FormatRepresentationError, match="disagree with its"):
+        require_feed_polarization_coupling(mismatched, "linear_xy")
+
+    matching = SimpleNamespace(
+        telescope=SimpleNamespace(feed_array=np.array([["r", "l"], ["r", "l"]])),
+    )
+    require_feed_polarization_coupling(matching, "circular_rl")
+
+    # An input carrying no feed metadata is left to the format-specific reader.
+    require_feed_polarization_coupling(SimpleNamespace(telescope=None), "linear_xy")
+
+
+@pytest.mark.parametrize(
+    ("receptors", "labels"),
+    [
+        (None, ("XX", "XY", "YX", "YY")),
+        (CIRCULAR_RECEPTORS, ("RR", "RL", "LR", "LL")),
+    ],
+    ids=["linear", "circular"],
+)
+def test_autocorrelation_normalization_acts_on_the_parallel_hands_of_each_basis(
+    tmp_path: Path,
+    receptors: dict[str, object] | None,
+    labels: tuple[str, ...],
+) -> None:
+    """Section 22.1: the (0, 3) literal is derived, and the cross hands are kept."""
+    result = build_standard_result(tmp_path, receptors=receptors)
+    assert result.correlations == labels
+    forged = np.array(result.visibilities, copy=True)
+    auto_index = next(
+        index
+        for index, baseline in enumerate(result.selection.baselines)
+        if baseline.ant1 == baseline.ant2
+    )
+    forged[:, auto_index, :, 0] = 3.0 + 0.0j
+    forged[:, auto_index, :, 3] = 5.0 + 0.0j
+    forged[:, auto_index, :, 1] = 1.0 + 2.0j
+    forged[:, auto_index, :, 2] = 1.0 - 2.0j
+    object.__setattr__(
+        result,
+        "visibilities",
+        np.ndarray(forged.shape, dtype=forged.dtype, buffer=forged.tobytes()),
+    )
+
+    data, normalized = normalize_autocorrelations(result)
+    assert normalized == 0
+    np.testing.assert_array_equal(data[:, auto_index, :, 1], 1.0 + 2.0j)
+    np.testing.assert_array_equal(data[:, auto_index, :, 2], 1.0 - 2.0j)
+
+    forged = np.array(data, copy=True)
+    forged[:, auto_index, :, 3] += 1j
+    object.__setattr__(
+        result,
+        "visibilities",
+        np.ndarray(forged.shape, dtype=forged.dtype, buffer=forged.tobytes()),
+    )
+    with pytest.raises(FormatRepresentationError, match="parallel-hand"):
+        _ = normalize_autocorrelations(result)
+
+
 def _projection_json_record() -> dict[str, object]:
     return {
         "schema": PROJECTED_PHASE_SCHEMA,
@@ -486,6 +790,8 @@ def _projection_json_record() -> dict[str, object]:
         "stored_visibility_dtype": "complex64",
         "input_weight_dtype": "float64",
         "stored_weight_dtype": "float32",
+        "polarization_basis": "linear_xy",
+        "receptor_sha256": "c" * 64,
         "instrument": {"name": "array"},
         "beam": {"kind": "analytic"},
         "solver": {"solver": "rime"},

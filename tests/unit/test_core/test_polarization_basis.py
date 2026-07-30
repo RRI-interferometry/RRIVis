@@ -61,27 +61,19 @@ def test_the_linear_row_preserves_the_existing_production_constants() -> None:
     ``CORRELATIONS`` or ``AIPS_CODES`` -- it imports this table instead
     (Section 20.1), so the two clauses that compared against those constants
     have no constant left to compare against and were removed rather than
-    weakened.  The surviving clauses check the three
-    ``io/standard_visibility.py`` constants, which are Tier 5F's residue and
-    remain independent literals.
+    weakened.
+
+    NARROWED AGAIN BY: Tier 5F, for the same reason and by the same authority:
+    ``io/standard_visibility.py``'s ``CANONICAL_CORRELATIONS``,
+    ``CANONICAL_CODES``, and ``FILE_CODES`` are gone, so the three surviving
+    clauses now assert the pre-Tier-5 literal values directly.  Those values
+    are the pinned contract; the removed constants were only one expression of
+    them, and `tests/characterization/test_tier5_current_behavior.py` records
+    that all four sites now read this table.
     """
-    import numpy as np
-
-    from radiosim.io.standard_visibility import (
-        CANONICAL_CODES,
-        CANONICAL_CORRELATIONS,
-        FILE_CODES,
-    )
-
-    assert CORRELATION_LABELS["linear_xy"] == CANONICAL_CORRELATIONS
-    np.testing.assert_array_equal(
-        np.asarray(AIPS_CODES_CANONICAL["linear_xy"], dtype=np.int64),
-        CANONICAL_CODES,
-    )
-    np.testing.assert_array_equal(
-        np.asarray(AIPS_CODES_FILE_ORDER["linear_xy"], dtype=np.int64),
-        FILE_CODES,
-    )
+    assert CORRELATION_LABELS["linear_xy"] == ("XX", "XY", "YX", "YY")
+    assert AIPS_CODES_CANONICAL["linear_xy"] == (-5, -7, -8, -6)
+    assert AIPS_CODES_FILE_ORDER["linear_xy"] == (-5, -6, -7, -8)
 
 
 def test_tables_are_read_only_mappings() -> None:

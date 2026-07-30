@@ -5,14 +5,19 @@ from __future__ import annotations
 import os
 import re
 import stat
+from collections.abc import Mapping
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, cast
+from types import MappingProxyType, SimpleNamespace
+from typing import Any, Final, cast
 
 import numpy as np
 
+from radiosim.core.polarization_basis import (
+    AIPS_CODES_CANONICAL,
+    PolarizationBasis,
+)
 from radiosim.core.result import SimulationResult
 from radiosim.io.atomic_paths import (
     create_sibling_temporary_directory,
@@ -47,6 +52,25 @@ from radiosim.io.standard_visibility import (
 )
 
 _COLUMN_NAME = re.compile(r"[A-Z][A-Z0-9_]*\Z")
+
+# The casacore ``Stokes`` enumeration runs in the same row-major correlation
+# order as ``CORRELATION_LABELS``, starting at 5 for a circular basis and 9 for a
+# linear one (Section 14.3): RR=5, RL=6, LR=7, LL=8, XX=9, XY=10, YX=11, YY=12.
+# RadioSim never writes ``CORR_TYPE`` itself -- pyuvdata derives it -- so this
+# map exists only to translate a read axis back onto the shared AIPS table.
+_CASA_STOKES_FIRST: Final[Mapping[PolarizationBasis, int]] = MappingProxyType(
+    {
+        "circular_rl": 5,
+        "linear_xy": 9,
+    }
+)
+_CASA_TO_AIPS: Final[Mapping[int, int]] = MappingProxyType(
+    {
+        first + offset: AIPS_CODES_CANONICAL[basis][offset]
+        for basis, first in _CASA_STOKES_FIRST.items()
+        for offset in range(4)
+    }
+)
 _MS_METADATA_CHUNK_ROWS = 4096
 _MS_HISTORY_ROWS_LIMIT = 1024
 _MS_HISTORY_STORAGE_LIMIT = 262_144
@@ -807,9 +831,8 @@ def _read_ms_metadata(
             raise UnsafeResultInputError(
                 "Measurement Set polarization metadata shape is inconsistent"
             )
-        casa_to_aips = {9: -5, 10: -7, 11: -8, 12: -6}
         polarization_array = np.array(
-            [casa_to_aips.get(int(code), 0) for code in casa_codes],
+            [_CASA_TO_AIPS.get(int(code), 0) for code in casa_codes],
             dtype=np.int64,
         )
 

@@ -30,15 +30,16 @@ from radiosim.io.result_errors import (
     PartialCleanupError,
     ResultIOError,
     UnsafeResultInputError,
+    UnsupportedPolarizationBasisError,
 )
 from radiosim.io.standard_visibility import (
-    CANONICAL_CORRELATIONS,
     StandardReadLimits,
     StandardVisibilityData,
     enforce_standard_read_limits,
     normalize_autocorrelations,
     project_simulation_result,
     projection_record_from_history,
+    require_polarization_basis,
     standard_visibility_from_uvdata,
     validate_projection_result,
     validate_standard_metadata,
@@ -122,12 +123,15 @@ def _validate_uvfits_representability(result: object) -> SimulationResult:
                 atol=tolerance,
             ):
                 failures.append("UVFITS frequency spacing must equal channel width")
-    if typed.correlations != CANONICAL_CORRELATIONS:
-        failures.append("UVFITS requires exact XX,XY,YX,YY correlations")
     try:
-        _ = normalize_autocorrelations(typed)
-    except FormatRepresentationError as exc:
-        failures.append(str(exc))
+        _ = require_polarization_basis(typed.correlations)
+    except UnsupportedPolarizationBasisError as exc:
+        failures.append(f"UVFITS requires an accepted correlation set: {exc}")
+    else:
+        try:
+            _ = normalize_autocorrelations(typed)
+        except FormatRepresentationError as exc:
+            failures.append(str(exc))
 
     metadata_arrays = (
         typed.visibilities,

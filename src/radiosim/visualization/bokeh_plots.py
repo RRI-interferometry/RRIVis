@@ -4,8 +4,12 @@
 The visibility renderers consume an exact :class:`SimulationResult`.  They read
 the published coordinate arrays directly — canonical UTC time centers, channel
 centers, baseline order, and correlation labels — and never reconstruct an axis
-from durations, cadences, or scalar start times.  Stokes I is derived
-explicitly as ``XX + YY`` through :meth:`SimulationResult.stokes_i`.
+from durations, cadences, or scalar start times.  Stokes I is derived through
+:meth:`SimulationResult.stokes_i`, which sums the two parallel hands of the
+published correlation labels -- ``XX + YY`` in a linear basis and ``RR + LL`` in
+a circular one.  Every axis and legend string naming that sum is derived from
+``result.correlations``, so a circular run never displays linear labels.  This
+layer holds no correlation table of its own.
 
 Renderers never open a browser.  Browser presentation belongs to the caller and
 always follows publication of the rendered files.
@@ -90,8 +94,21 @@ def _baseline_labels(result: SimulationResult) -> tuple[tuple[int, int], ...]:
     )
 
 
+def _stokes_i_label(result: SimulationResult) -> str:
+    """Return the parallel-hand sum naming Stokes I in this result's basis."""
+    from radiosim.core.polarization_basis import parallel_hand_indices
+
+    first, second = parallel_hand_indices(result.correlations)
+    return f"{result.correlations[first]} + {result.correlations[second]}"
+
+
+def _modulus_axis_label(result: SimulationResult) -> str:
+    """Return the modulus axis text for this result's correlation labels."""
+    return f"Modulus of Visibility (Stokes I = {_stokes_i_label(result)})"
+
+
 def _stokes_i(result: SimulationResult) -> np.ndarray:
-    """Return the explicit ``XX + YY`` Stokes I cube with shape ``(T, B, F)``."""
+    """Return the parallel-hand Stokes I cube with shape ``(T, B, F)``."""
     stokes = result.stokes_i()
     expected = (
         len(result.time_grid),
@@ -186,6 +203,7 @@ def plot_visibility(
     stokes = _stokes_i(canonical)
     labels = _baseline_labels(canonical)
     phase_label = _phase_axis_label(unit)
+    modulus_label = _modulus_axis_label(canonical)
 
     plots: list[Any] = []
     for index, label in enumerate(labels):
@@ -200,7 +218,7 @@ def plot_visibility(
         )
         p_mod.line(times, modulus, line_width=2, legend_label=f"Baseline {label}")
         p_mod.xaxis.axis_label = TIME_AXIS_LABEL
-        p_mod.yaxis.axis_label = "Modulus of Visibility (Stokes I)"
+        p_mod.yaxis.axis_label = modulus_label
         p_mod.legend.location = "top_left"
 
         p_phase = figure(
@@ -271,7 +289,7 @@ def plot_visibility(
         )
 
     combined_mod.xaxis.axis_label = TIME_AXIS_LABEL
-    combined_mod.yaxis.axis_label = "Modulus of Visibility (Stokes I)"
+    combined_mod.yaxis.axis_label = modulus_label
     combined_phase.xaxis.axis_label = TIME_AXIS_LABEL
     combined_phase.yaxis.axis_label = phase_label
     for target_figure, items in (
@@ -312,6 +330,7 @@ def plot_heatmaps(
     stokes = _stokes_i(canonical)
     labels = _baseline_labels(canonical)
     phase_label = _phase_axis_label(unit)
+    modulus_label = _modulus_axis_label(canonical)
 
     extent = {
         "x": [float(times[0])],
@@ -329,7 +348,7 @@ def plot_heatmaps(
             (
                 moduli_total,
                 f"Modulus of Visibility Heatmap for Baseline {label}",
-                "Modulus of Visibility (Stokes I)",
+                modulus_label,
             ),
             (
                 phases_total,
@@ -385,6 +404,7 @@ def plot_modulus_vs_frequency(
     stokes = _stokes_i(canonical)
     labels = _baseline_labels(canonical)
     phase_label = _phase_axis_label(unit)
+    modulus_label = _modulus_axis_label(canonical)
 
     moduli = np.abs(stokes)
     peak_indices = tuple(
@@ -411,7 +431,7 @@ def plot_modulus_vs_frequency(
             legend_label=f"Baseline {label}",
         )
         p_mod.xaxis.axis_label = FREQUENCY_AXIS_LABEL
-        p_mod.yaxis.axis_label = "Modulus of Visibility (Stokes I)"
+        p_mod.yaxis.axis_label = modulus_label
         p_mod.legend.location = "top_left"
 
         p_phase = figure(
@@ -490,7 +510,7 @@ def plot_modulus_vs_frequency(
         )
 
     combined_mod.xaxis.axis_label = FREQUENCY_AXIS_LABEL
-    combined_mod.yaxis.axis_label = "Modulus of Visibility (Stokes I)"
+    combined_mod.yaxis.axis_label = modulus_label
     combined_phase.xaxis.axis_label = FREQUENCY_AXIS_LABEL
     combined_phase.yaxis.axis_label = phase_label
     for target_figure, items in (

@@ -135,6 +135,7 @@ def test_summary_json_is_exact_bounded_metadata_contract(tmp_path):
         "observation",
         "frequency",
         "correlation",
+        "receptors",
         "instrument",
         "phase_center",
         "beam",
@@ -158,6 +159,7 @@ def test_summary_json_is_exact_bounded_metadata_contract(tmp_path):
         "full_frequency_coordinate",
         "per_baseline_geometry",
         "per_antenna_geometry",
+        "per_antenna_receptor_definitions",
     ]
     encoded = target.read_bytes()
     assert encoded.endswith(b"\n")
@@ -172,6 +174,82 @@ def test_summary_json_is_exact_bounded_metadata_contract(tmp_path):
     payload["history"].append("mutated parsed payload")
     assert result.resolved_config
     assert "mutated parsed payload" not in result.history
+
+
+# ---------------------------------------------------------------------------
+# Tier 5F: the bounded receptor block (Section 23)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("receptors", "basis", "labels", "native_counts", "rotations"),
+    [
+        (
+            None,
+            "linear_xy",
+            ["XX", "XY", "YX", "YY"],
+            {"linear": 2, "circular": 0},
+            [0.0],
+        ),
+        (
+            {"default": {"basis": "circular"}},
+            "circular_rl",
+            ["RR", "RL", "LR", "LL"],
+            {"linear": 0, "circular": 2},
+            [0.0],
+        ),
+        (
+            {
+                "default": {"basis": "linear", "feed_rotation_deg": 30.0},
+                "overrides": [
+                    {
+                        "antenna": {"kind": "number", "number": 1},
+                        "feed_rotation_deg": -15.0,
+                    }
+                ],
+            },
+            "linear_xy",
+            ["XX", "XY", "YX", "YY"],
+            {"linear": 2, "circular": 0},
+            [-15.0, 30.0],
+        ),
+    ],
+    ids=["default_linear", "circular", "rotated_heterogeneous"],
+)
+def test_summary_receptor_block_is_truthful_and_bounded(
+    tmp_path,
+    receptors,
+    basis,
+    labels,
+    native_counts,
+    rotations,
+):
+    result, _ = _build(tmp_path, receptors=receptors)
+    writer = importlib.import_module(
+        "radiosim.io.summary_json"
+    ).write_result_summary_json
+
+    target = writer(result, tmp_path / "result", overwrite=False)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+
+    assert payload["correlation"] == {"labels": labels, "basis": basis}
+    assert set(payload["receptors"]) == {
+        "output_basis",
+        "receptor_sha256",
+        "native_basis_counts",
+        "distinct_feed_rotations_deg",
+    }
+    assert payload["receptors"]["output_basis"] == basis
+    assert (
+        payload["receptors"]["receptor_sha256"]
+        == result.receptors.provenance.receptor_sha256
+    )
+    assert payload["receptors"]["native_basis_counts"] == native_counts
+    assert payload["receptors"]["distinct_feed_rotations_deg"] == rotations
+    # Per-antenna receptor rows stay out of the bounded summary.
+    assert "receptors" not in payload["receptors"]
+    assert "feed_angle_rad" not in target.read_text(encoding="utf-8")
+    assert "per_antenna_receptor_definitions" in payload["excluded_payloads"]
 
 
 def test_simulator_save_rejects_absent_result_before_path_or_writer_work(

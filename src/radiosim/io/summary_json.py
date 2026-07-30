@@ -43,7 +43,37 @@ _EXCLUDED_PAYLOADS = [
     "full_frequency_coordinate",
     "per_baseline_geometry",
     "per_antenna_geometry",
+    "per_antenna_receptor_definitions",
 ]
+# Feed rotations are configured in degrees and stored in radians, so the round
+# trip through radians must not leak representation noise into the summary.  A
+# 1e-12-degree quantum is four orders of magnitude finer than any physically
+# meaningful feed orientation.
+_FEED_ROTATION_DECIMALS = 12
+
+
+def _receptor_summary(result: SimulationResult) -> dict[str, object]:
+    """Return the bounded receptor block for one canonical result.
+
+    Per-antenna receptor rows are deliberately absent: the summary is bounded
+    metadata by Tier 4 contract, and the complete per-antenna set lives in the
+    HDF5 ``receptors/`` group.  The distinct-rotation list is bounded by the
+    configured ``receptors`` section, which the embedded ``resolved_config``
+    already reproduces in full.
+    """
+    receptors = result.receptors
+    rotations = sorted(
+        {
+            round(math.degrees(receptor.feed_rotation_rad), _FEED_ROTATION_DECIMALS)
+            for receptor in receptors.receptor_by_antenna.values()
+        }
+    )
+    return {
+        "output_basis": receptors.output_basis,
+        "receptor_sha256": receptors.provenance.receptor_sha256,
+        "native_basis_counts": receptors.native_basis_counts,
+        "distinct_feed_rotations_deg": rotations,
+    }
 
 
 def _summary_scalar(value: object) -> str | int | float | bool | None:
@@ -279,6 +309,7 @@ def _summary_payload(result: SimulationResult) -> dict[str, object]:
                 "labels": list(result.correlations),
                 "basis": result.polarization_basis,
             },
+            "receptors": _receptor_summary(result),
             "instrument": {
                 "name": result.instrument.name,
                 "instrument_sha256": result.instrument.provenance.instrument_sha256,

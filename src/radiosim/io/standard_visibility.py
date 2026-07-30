@@ -9,26 +9,53 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
+from types import MappingProxyType
 from typing import Any, Final, Literal, cast
 
 import numpy as np
 from typing_extensions import override
 
 from radiosim.core.phase_center import PhaseCenter
+from radiosim.core.polarization_basis import (
+    AIPS_CODES_CANONICAL,
+    AIPS_CODES_FILE_ORDER,
+    CORRELATION_LABELS,
+    POLARIZATION_BASES,
+    PYUVDATA_FEEDS,
+    PYUVDATA_POLARIZATIONS,
+    PolarizationBasis,
+)
+from radiosim.core.polarization_basis import (
+    parallel_hand_indices as _parallel_hand_indices,
+)
 from radiosim.core.result import SimulationResult
 from radiosim.core.runtime_config import FrozenMapping, json_safe_mapping
 from radiosim.io.result_errors import (
     FormatRepresentationError,
     UnsafeResultInputError,
+    UnsupportedPolarizationBasisError,
 )
 
 STANDARD_SCHEMA: Final = "radiosim.standard-visibility.v1"
 PROJECTED_PHASE_SCHEMA: Final = "radiosim.projected-phase-center.v1"
 PROJECTION_TRANSFORMATION: Final = "astropy-zenith-icrs+pyuvdata-phase_to_time.v1"
 PROJECTION_HISTORY_PREFIX: Final = "RADIOSIM_PROJECTION_JSON="
-CANONICAL_CORRELATIONS: Final = ("XX", "XY", "YX", "YY")
-CANONICAL_CODES: Final = np.array([-5, -7, -8, -6], dtype=np.int64)
-FILE_CODES: Final = np.array([-5, -6, -7, -8], dtype=np.int64)
+
+# The nominal pyuvdata feed orientation for each output basis, written uniformly
+# for every antenna (Section 14.4).  These reproduce
+# ``radiosim.core.receptor``'s zero-rotation ``feed_angle_rad``: an unrotated
+# linear pair is ``(pi/2, 0)`` -- identical to what pyuvdata derives from the
+# retired east x-orientation shorthand -- and an unrotated circular pair is
+# ``(0, 0)``.  The per-antenna native basis and feed rotation are RadioSim
+# provenance, never inferred by a reader from ``feed_array``.
+_NOMINAL_FEED_ANGLES_RAD: Final[Mapping[PolarizationBasis, tuple[float, float]]] = (
+    MappingProxyType(
+        {
+            "linear_xy": (math.pi / 2.0, 0.0),
+            "circular_rl": (0.0, 0.0),
+        }
+    )
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _PROJECTION_HISTORY_LIMIT = 16_000
 _MAX_PROJECTION_JSON_DEPTH = 64
@@ -44,10 +71,126 @@ _PROJECTION_RECORD_FIELDS = {
     "stored_visibility_dtype",
     "input_weight_dtype",
     "stored_weight_dtype",
+    "polarization_basis",
+    "receptor_sha256",
     "instrument",
     "beam",
     "solver",
 }
+
+
+def _accepted_correlation_sets() -> str:
+    """Return the shared rejection text naming both accepted label tuples."""
+    return " or ".join(
+        ",".join(CORRELATION_LABELS[basis]) for basis in POLARIZATION_BASES
+    )
+
+
+def require_polarization_basis(correlations: object) -> PolarizationBasis:
+    """Return the output basis named by one accepted correlation label tuple.
+
+    Standard formats accept exactly the two Section 14.2 correlation coordinate
+    sets, each only in its canonical row-major order.  A reordering is rejected:
+    the correlation axis order is part of the contract.
+
+    Parameters
+    ----------
+    correlations
+        A sequence of correlation labels.
+
+    Returns
+    -------
+    PolarizationBasis
+        ``"linear_xy"`` or ``"circular_rl"``.
+
+    Raises
+    ------
+    UnsupportedPolarizationBasisError
+        The labels are not exactly one accepted tuple in its canonical order.
+    """
+    if isinstance(correlations, (str, bytes)) or not isinstance(correlations, Sequence):
+        raise UnsupportedPolarizationBasisError(
+            "correlations must be a sequence of correlation labels; expected "
+            f"exactly {_accepted_correlation_sets()} in that order"
+        )
+    labels = tuple(cast(Sequence[object], correlations))
+    for basis in POLARIZATION_BASES:
+        if labels == CORRELATION_LABELS[basis]:
+            return basis
+    raise UnsupportedPolarizationBasisError(
+        f"correlations={labels!r} is not an accepted correlation coordinate set; "
+        f"expected exactly {_accepted_correlation_sets()} in that order"
+    )
+
+
+def basis_for_file_codes(codes: object) -> PolarizationBasis:
+    """Return the output basis carried by one on-disk AIPS polarization axis.
+
+    Both accepted code sets are matched as sets, because a Measurement Set
+    stores the in-memory order in ``CORR_TYPE`` while UVFITS stores the
+    descending Section 14.2 order (Tier 5A, Q3).
+
+    Parameters
+    ----------
+    codes
+        The AIPS polarization codes read from a file.
+
+    Returns
+    -------
+    PolarizationBasis
+        The basis whose code set the axis matches exactly.
+
+    Raises
+    ------
+    FormatRepresentationError
+        The axis is not four codes drawn from exactly one accepted set.
+    """
+    values = np.asarray(codes, dtype=np.int64)
+    if values.shape == (4,):
+        observed = set(values.tolist())
+        for basis in POLARIZATION_BASES:
+            if observed == set(AIPS_CODES_FILE_ORDER[basis]):
+                return basis
+    raise FormatRepresentationError(
+        "standard input has an unsupported polarization layout"
+    )
+
+
+def require_feed_polarization_coupling(
+    uvdata: Any,
+    basis: PolarizationBasis,
+) -> None:
+    """Require the receptor feeds and the polarization axis to name one basis.
+
+    pyuvdata 3.2.1 does not cross-validate ``Telescope.feed_array`` against
+    ``UVData.polarization_array`` (Tier 5A, Q3), so RadioSim enforces the
+    coupling itself: a reader that trusted mismatched metadata would
+    misinterpret every visibility.  Inputs that carry no feed metadata at all
+    are left to the format-specific readers.
+
+    Parameters
+    ----------
+    uvdata
+        A ``UVData``-shaped object, or any metadata view exposing ``telescope``.
+    basis
+        The basis already established from the polarization axis.
+
+    Raises
+    ------
+    FormatRepresentationError
+        The declared feeds do not belong to ``basis``.
+    """
+    telescope = getattr(uvdata, "telescope", None)
+    feed_array = getattr(telescope, "feed_array", None)
+    if feed_array is None:
+        return
+    observed = {str(feed).lower() for feed in np.asarray(feed_array).reshape(-1)}
+    if observed != set(PYUVDATA_FEEDS[basis]):
+        raise FormatRepresentationError(
+            "standard input receptor feeds "
+            f"{sorted(observed)!r} disagree with its "
+            f"{','.join(CORRELATION_LABELS[basis])} polarization axis"
+        )
 
 
 def _exact_text(value: object, *, field_name: str) -> str:
@@ -474,12 +617,7 @@ def build_standard_visibility_data(
     if type(phase_center) is not ProjectedPhaseCenter:
         raise TypeError("phase_center must be an exact ProjectedPhaseCenter")
     phase_value = phase_center
-    if (
-        isinstance(correlations, (str, bytes))
-        or not isinstance(correlations, Sequence)
-        or tuple(cast(Sequence[object], correlations)) != CANONICAL_CORRELATIONS
-    ):
-        raise ValueError("correlations must be exactly XX, XY, YX, YY")
+    correlation_labels = CORRELATION_LABELS[require_polarization_basis(correlations)]
 
     visibility_array = _immutable_visibility(visibilities)
     flag_array = _immutable_array(
@@ -625,7 +763,7 @@ def build_standard_visibility_data(
         "exposure_seconds": exposure_array,
         "frequencies_hz": frequency_array,
         "channel_widths_hz": width_array,
-        "correlations": CANONICAL_CORRELATIONS,
+        "correlations": correlation_labels,
         "antenna1_numbers": antenna1_array,
         "antenna2_numbers": antenna2_array,
         "uvw_m": uvw_array,
@@ -683,10 +821,7 @@ def validate_projection_result(
     typed = result
     if typed.schema_version != "radiosim.result.v1":
         raise FormatRepresentationError("unsupported canonical result schema")
-    if typed.correlations != CANONICAL_CORRELATIONS:
-        raise FormatRepresentationError(
-            "standard visibility formats require exact XX,XY,YX,YY correlations"
-        )
+    _ = require_polarization_basis(typed.correlations)
     if typed.visibilities.dtype not in {
         np.dtype("complex64"),
         np.dtype("complex128"),
@@ -707,6 +842,13 @@ def validate_projection_result(
 def normalize_autocorrelations(
     result: SimulationResult,
 ) -> tuple[np.ndarray, int]:
+    """Force the parallel-hand autocorrelations of either basis onto the reals.
+
+    The parallel hands are ``XX``/``YY`` in a linear basis and ``RR``/``LL`` in a
+    circular one, so their indices are derived from the published correlation
+    labels rather than assumed to be ``(0, 3)``.
+    """
+    parallel_hands = _parallel_hand_indices(result.correlations)
     data = np.array(
         result.visibilities,
         dtype=result.visibilities.dtype,
@@ -724,7 +866,7 @@ def normalize_autocorrelations(
     for baseline_index, baseline in enumerate(result.selection.baselines):
         if baseline.ant1 != baseline.ant2:
             continue
-        for correlation_index in (0, 3):
+        for correlation_index in parallel_hands:
             values = np.asarray(data[:, baseline_index, :, correlation_index])
             real_values = np.asarray(np.real(values), dtype=real_dtype)
             imaginary_values = np.asarray(np.imag(values), dtype=real_dtype)
@@ -780,6 +922,8 @@ def _projection_history(
         "stored_visibility_dtype": stored_visibility_dtype,
         "input_weight_dtype": result.weights.dtype.name,
         "stored_weight_dtype": "float32",
+        "polarization_basis": result.polarization_basis,
+        "receptor_sha256": result.receptors.provenance.receptor_sha256,
         "instrument": _json_tree(result.instrument.to_snapshot()),
         "beam": _json_tree(result.beam_state.to_snapshot()),
         "solver": _json_tree(result.solver.to_snapshot()),
@@ -838,6 +982,7 @@ def project_simulation_result(
 ) -> _ProjectedVisibility:
     """Build, explicitly phase, check, and snapshot one standard UVData view."""
     typed = validate_projection_result(result, format_name=format)
+    basis = require_polarization_basis(typed.correlations)
     data, normalized_autos = normalize_autocorrelations(typed)
     stored_dtype = np.dtype("complex64") if format == "ms" else typed.visibilities.dtype
     data = np.array(data, dtype=stored_dtype, order="C", copy=True, subok=False)
@@ -883,8 +1028,14 @@ def project_simulation_result(
         antenna_names=[antenna.id.name for antenna in typed.instrument.antennas],
         antenna_numbers=antenna_numbers,
         antenna_diameters=[antenna.diameter_m for antenna in typed.instrument.antennas],
-        x_orientation="east",
-        feeds=["x", "y"],
+        feed_array=np.tile(
+            np.asarray(PYUVDATA_FEEDS[basis], dtype="<U1"),
+            (len(antenna_numbers), 1),
+        ),
+        feed_angle=np.tile(
+            np.asarray(_NOMINAL_FEED_ANGLES_RAD[basis], dtype=np.float64),
+            (len(antenna_numbers), 1),
+        ),
         mount_type="fixed",
         update_from_known=False,
     )
@@ -895,7 +1046,7 @@ def project_simulation_result(
     time_count, baseline_count, frequency_count, _ = data.shape
     uvdata = pyuvdata.UVData.new(
         freq_array=np.array(typed.frequencies_hz, dtype=np.float64, copy=True),
-        polarization_array=["xx", "xy", "yx", "yy"],
+        polarization_array=list(PYUVDATA_POLARIZATIONS[basis]),
         times=typed.time_grid.to_jd(),
         antpairs=pairs,
         telescope=telescope,
@@ -926,10 +1077,14 @@ def project_simulation_result(
         uvdata.polarization_array,
         dtype=np.int64,
     )
-    if not np.array_equal(uvdata.polarization_array, CANONICAL_CODES):
+    if not np.array_equal(
+        uvdata.polarization_array,
+        np.asarray(AIPS_CODES_CANONICAL[basis], dtype=np.int64),
+    ):
         raise FormatRepresentationError(
             "pyuvdata did not preserve canonical polarization order"
         )
+    require_feed_polarization_coupling(uvdata, basis)
     expected_unprojected_uvw = np.tile(
         np.asarray(
             [baseline.vector_enu_m for baseline in typed.selection.baselines],
@@ -1037,7 +1192,7 @@ def project_simulation_result(
             dtype=np.float64,
             copy=True,
         ),
-        correlations=CANONICAL_CORRELATIONS,
+        correlations=CORRELATION_LABELS[basis],
         antenna1_numbers=np.array(
             [first for first, _second in pairs],
             dtype=np.int64,
@@ -1098,8 +1253,14 @@ def enforce_standard_read_limits(
         raise UnsafeResultInputError("standard input exceeds max_data_bytes")
 
 
-def validate_standard_metadata(uvdata: Any) -> None:
-    """Validate format-independent metadata before science allocation."""
+def validate_standard_metadata(uvdata: Any) -> PolarizationBasis:
+    """Validate format-independent metadata before science allocation.
+
+    Returns
+    -------
+    PolarizationBasis
+        The output basis the input declares on its polarization axis.
+    """
     if int(getattr(uvdata, "Nspws", 0)) != 1:
         raise FormatRepresentationError(
             "standard input must contain exactly one spectral window"
@@ -1108,11 +1269,8 @@ def validate_standard_metadata(uvdata: Any) -> None:
         raise FormatRepresentationError(
             "standard input is not rectangular time-by-baseline data"
         )
-    codes = np.asarray(uvdata.polarization_array)
-    if codes.shape != (4,) or set(codes.tolist()) != set(FILE_CODES.tolist()):
-        raise FormatRepresentationError(
-            "standard input has an unsupported polarization layout"
-        )
+    basis = basis_for_file_codes(uvdata.polarization_array)
+    require_feed_polarization_coupling(uvdata, basis)
     if np.asarray(uvdata.freq_array).reshape(-1).shape != (
         int(uvdata.Nfreqs),
     ) or np.asarray(uvdata.channel_width).shape != (int(uvdata.Nfreqs),):
@@ -1165,6 +1323,7 @@ def validate_standard_metadata(uvdata: Any) -> None:
         raise FormatRepresentationError(
             "standard input frequencies, widths, and exposures must be positive"
         )
+    return basis
 
 
 class _DuplicateProjectionKey(ValueError):
@@ -1228,12 +1387,18 @@ def _validate_projection_record(record: dict[str, object]) -> None:
     for name in (
         "source_scientific_sha256",
         "source_provenance_sha256",
+        "receptor_sha256",
     ):
         value = record[name]
         if type(value) is not str or _SHA256.fullmatch(value) is None:
             raise UnsafeResultInputError(
                 f"standard input projection HISTORY {name} is invalid"
             )
+    if record["polarization_basis"] not in POLARIZATION_BASES:
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY polarization_basis is not one of "
+            f"{POLARIZATION_BASES!r}"
+        )
     input_visibility_dtype = record["input_visibility_dtype"]
     stored_visibility_dtype = record["stored_visibility_dtype"]
     if input_visibility_dtype not in {"complex64", "complex128"} or (
@@ -1414,13 +1579,19 @@ def standard_visibility_from_uvdata(
     expected_projection_record: Mapping[str, object] | None = None,
 ) -> StandardVisibilityData:
     """Canonicalize fully loaded rectangular UVData into immutable axes."""
-    validate_standard_metadata(uvdata)
+    basis = validate_standard_metadata(uvdata)
     record, history = projection_record_from_history(uvdata.history)
     if expected_projection_record is not None and record != dict(
         expected_projection_record
     ):
         raise UnsafeResultInputError(
             "loaded projection HISTORY disagrees with the bounded preflight record"
+        )
+    if record["polarization_basis"] != basis:
+        raise UnsafeResultInputError(
+            "standard input projection HISTORY declares "
+            f"polarization_basis={record['polarization_basis']!r} but its "
+            f"polarization axis carries {basis!r}"
         )
     phase = projected_phase_from_uvdata(uvdata, record)
     if uvdata.data_array is None:
@@ -1462,7 +1633,7 @@ def standard_visibility_from_uvdata(
     ]
     codes = np.asarray(uvdata.polarization_array, dtype=np.int64)
     canonical_indices = [
-        int(np.flatnonzero(codes == code)[0]) for code in CANONICAL_CODES
+        int(np.flatnonzero(codes == code)[0]) for code in AIPS_CODES_CANONICAL[basis]
     ]
     data = np.asarray(uvdata.data_array)[row_order][:, :, canonical_indices]
     flags = np.asarray(uvdata.flag_array)[row_order][:, :, canonical_indices]
@@ -1507,7 +1678,7 @@ def standard_visibility_from_uvdata(
             uvdata.channel_width,
             dtype=np.float64,
         ),
-        correlations=CANONICAL_CORRELATIONS,
+        correlations=CORRELATION_LABELS[basis],
         antenna1_numbers=np.array(
             [pair[0] for pair in pair_order],
             dtype=np.int64,
