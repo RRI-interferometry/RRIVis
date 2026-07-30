@@ -8521,3 +8521,253 @@ is now **DONE**. Tier 6F (hybrid sky representation and canonical summation)
 remains the only authorized implementation slice per the Tier 6E acceptance
 record above, unaffected by this standalone, out-of-band fix. Nothing was
 pushed.
+
+### 2026-07-31 Tier 6F independent acceptance
+
+**Tier 6F (hybrid sky representation and canonical summation) is
+independently accepted.** Reviewed range `6708b0e..fe5aa91`: `878b9fe`
+(`docs(runtime): correct Tier 6 design`, the plan correction) + `fe5aa91`
+(`feat(runtime): add the hybrid sky representation and canonical summation`,
+the implementation), no co-author line in either
+(`git log --format=%B 6708b0e..fe5aa91 | grep -i co-authored` empty; `git
+status` clean throughout). `git diff --stat 6708b0e..fe5aa91` touches exactly:
+`Tier6HybridRuntimePlan.md`, `configs/hybrid_sky_example.yaml`,
+`src/radiosim/api/simulator.py`, `src/radiosim/backends/base.py`,
+`src/radiosim/core/__init__.py`, `src/radiosim/core/hybrid.py` (new),
+`src/radiosim/core/result.py`, `src/radiosim/core/sky/combine/concat.py`,
+`src/radiosim/io/config.py`,
+`tests/characterization/test_tier6_current_behavior.py`,
+`tests/fixtures/configs.py`, `tests/integration/test_hybrid_end_to_end.py`
+(new), `tests/unit/test_core/test_hybrid_visibility.py` (new),
+`tests/unit/test_core/test_result.py`, `tests/unit/test_core/test_sky_combine.py`,
+`tests/unit/test_io/test_config.py`, `tests/unit/test_io/test_hdf5_result.py`,
+`tests/unit/test_io/test_standard_visibility.py`,
+`tests/unit/test_simulator/test_api.py` -- an exact match to 6F's Section 33
+grant as amended by `878b9fe` (which added the last two test files under the
+C10 "every construction site" rationale). No later-tier file (`core/beam/*`,
+`backends/dask_backend.py`, `benchmarks/*`, HDF5 schema files) was touched.
+
+**Hybrid correctness, read in full and reproduced independently.** Read
+`core/hybrid.py` end to end (333 lines) and the `api/simulator.py` wiring
+diff. `solve_sky` is the single call site for every representation (one
+`solve_sky(...)` call in `run()`, replacing the prior `if _sky_mode ==
+SkyFormat.HEALPIX / else` fork); component order is the fixed
+`HYBRID_COMPONENT_NAMES = ("point", "healpix")`, not configurable. Component
+identity is by construction, not by an equality check: `run()` builds
+`instrument_view`, `self.beam_system`, `location`, `self._resolved.observation
+.time_grid`, `frequencies`, `self.receptors`, and `backend` exactly once and
+passes the same references into the one `solve_sky` call, whose loop body
+reuses those same local variables for both the `point` and `healpix` branches.
+The shipped `test_hybrid_components_receive_the_identical_shared_objects`
+(H4) asserts `is`, not `==`, for `instrument`, `beam_system`, `location`,
+`time_grid`, `receptors`, `backend`, `frequencies` across the two component
+calls -- confirmed by reading the assertions, not just their names. Summation
+is `backend.add(total, cube)` (routes to `self.xp.add`, confirmed in
+`backends/base.py`), executed before the one `build_simulation_result` call;
+no second `SimulationResult` is ever constructed.
+
+Reproduced the additivity invariant independently, end to end through
+`Simulator.run()` (not just `solve_sky` in isolation, and not only the
+shipped test): wrote a standalone script that runs the `hybrid`,
+`point_sources`, and `healpix_map` variants of `tests.fixtures.configs
+.hybrid_config_mapping` and compares `.tobytes()` of the published
+`visibilities` cube. Result: `hybrid.tobytes() == (point + healpix).tobytes()`
+-- **bit-identical**, own construction, independent of
+`test_hybrid_is_bit_identical_to_the_sum_of_its_components`. Also ran the
+hybrid config at `execution.solver.workers` in `{1, 4}`: the published cube
+and `scientific_sha256` were identical across both worker counts. Ran the 19
+tests in `tests/unit/test_core/test_hybrid_visibility.py` and the 9 in
+`tests/integration/test_hybrid_end_to_end.py` directly (`python -m pytest
+<file>`, not through the `pixi run test` task, which silently appended
+`tests/` ahead of a path argument and ran the whole suite on a first
+attempt): 19/19 and 9/9 passed.
+
+**Risk #3 (`allow_lossy_point_materialization` named in the `point_sources`
+rejection) -- adjudicated, not accepted on the implementer's word.** Read
+`materialize_point_sources_model`
+(`core/sky/operations/operations.py:204-209`): when `sky.point is not None`
+it logs and returns the model unchanged, performing no conversion. Read
+`combine/pipeline.py:126-127`: when the point-target combine already has
+`sky.point is not None` it returns `sky` unchanged too, *before* the
+`allow_lossy` check is ever reached. Built a hybrid model (point + HEALPix,
+via `materialize_healpix_model(..., clear_other=False)`) and called
+`prepare_sky_model([hybrid], representation="point_sources", allow_lossy=...)`
+with the flag both `False` and `True`: **the resolved model's `formats`
+were identical in both cases** (`{HEALPIX, POINT_SOURCES}` survives either
+way), and `check_representation_compatibility` raised the identical
+`HybridSkyError` text in both cases -- the flag provably changes nothing for
+this antecedent. Then built a genuinely HEALPix-only model and repeated the
+same call: with the flag `False` it raises the pipeline's own (different)
+`ValueError`; with the flag `True` it succeeds and yields a point-only
+model. **Ruling: the message is not false.** It names a real, tested,
+functioning escape (`allow_lossy_point_materialization`) that governs the
+combine-time HEALPix-only-to-point conversion -- a different antecedent
+under the same point_sources/HEALPix interaction rule (§8.2 rule 2) -- not
+the antecedent that fires this particular rejection (a payload that already
+carries both formats). The plan's own §8.2 wording ("The message names
+`hybrid` and the existing `allow_lossy_point_materialization` escape")
+already scopes the mention as documentary rather than as a promise that the
+flag resolves this exact instance, and the `878b9fe` correction discloses the
+limitation transparently rather than concealing it. No message correction
+required; accepted as written.
+
+**Bit-identity for non-hybrid paths, reproduced in a single detached
+PYTHONPATH-isolated worktree (RUN-005-safe, sequential-checkout method).**
+One worktree at
+`/private/tmp/.../scratchpad/run5-wt`, checked out at `6708b0e` then at
+`fe5aa91` in sequence (never two worktrees at once, per the 6D/6C/6E
+precedent for this exact hygiene reason), run via `PYTHONPATH=<worktree>/src
+pixi run python <script>` using the main checkout's interpreter,
+`radiosim.__file__` printed and confirmed to resolve inside the worktree on
+every invocation:
+
+```text
+configs/config.yaml (py311):
+  6708b0e: scientific_sha256=b702a202924e...  cube_sha256=cce1bfe86dc8...
+  fe5aa91: scientific_sha256=4bbb74035b3d...  cube_sha256=cce1bfe86dc8...  cube IDENTICAL, fingerprint CHANGED (expected, C11)
+
+configs/receptor_circular_example.yaml (py311):
+  6708b0e: scientific_sha256=92ce5ce11f5b...  cube_sha256=95890bc680c2...
+  fe5aa91: scientific_sha256=be1e86fba578...  cube_sha256=95890bc680c2...  cube IDENTICAL, fingerprint CHANGED (expected, C11)
+```
+
+Both measured `fe5aa91` `scientific_sha256` and `cube_sha256` values match
+`_SHIPPED_CONFIG_FINGERPRINTS` and `_SHIPPED_CONFIG_CUBE_DIGESTS` in
+`tests/characterization/test_tier6_current_behavior.py` exactly. Both
+measured `6708b0e` values match the plan correction's recorded "immediately
+preceding (post-RUN-005, pre-6F)" values exactly. `provenance_sha256` also
+changed at `fe5aa91` (`af017a32...` -> `eff3b415...` for `config.yaml`),
+consistent with the declared `C12` row (a new `VisibilityConfig` field,
+`allow_lossy_point_rasterization`, enters `resolved_config` for every run
+regardless of representation).
+
+**C11 fingerprint move, verified, not merely trusted.** Read
+`_scientific_hash`/`_provenance_hash` in `core/result.py`: the former
+consumes `solver_snapshot` (now including `components` and
+`component_element_counts`), the latter never touches `performance`.
+Confirmed via the worktree measurements above that `scientific_sha256`
+changed while the raw cube did not, for py311. Confirmed py312 via the full
+suite (both shipped-config fingerprint tests parametrize/assert per
+environment and passed -- see gate counts below). **The RUN-005 portability
+property survives**: the `fe5aa91` measurement above was taken from a
+worktree at a path entirely distinct from the main checkout
+(`/private/tmp/.../run5-wt` vs `/Users/kartikmandar/MacProjects/RadioSim`)
+and still reproduced the pinned `scientific_sha256` exactly.
+
+**Q5 evidence, spot-checked.** Verified two claimed-clean surfaces by
+reading, not by trusting the "no update needed" inference: (1)
+`tests/unit/test_simulator/test_result_integration.py`'s `_mapping()` sets
+`sky_source["representation"] = "healpix_map"` on the *same* loader call
+when `sky_representation == "healpix_map"`, so the loaded model never has a
+point payload to rasterize -- correctly untouched by 6F. (2)
+`tests/unit/test_core/test_beam_solver_integration.py`'s `_beam_mapping()`
+follows the identical pattern. `configs/realistic_foreground_example.yaml`
+is `healpix_map` with a single `realistic_foreground` recipe source (its own
+registered representation is `("healpix_map",)`, per
+`core/sky/recipes/realistic_foreground.py:281`), so no top-level point
+contributor ever reaches the new gate; validated with `radiosim validate`
+(cannot run end to end, pre-existing SKY-001 VizieR positional-argument
+defect, unrelated to Tier 6). The four `tests/unit/test_simulator
+/test_api.py` tests that now set `allow_lossy_point_rasterization: true`
+explicitly (`test_run_hands_the_resolved_receptor_set_to_the_healpix_solver`,
+`test_healpix_results_include_fresh_beam_resolution`,
+`test_coarse_pre_sky_warning_is_exact_ordered_and_never_mutates_nside`,
+`test_post_sky_warning_uses_actual_loaded_nside_without_mutation`) all
+already used point-source fixtures under `healpix_map` for unrelated reasons
+(beam resolution and warning-ordering assertions) -- legitimate per Q5's own
+rule ("6F sets the new flag explicitly in that artifact rather than
+weakening the rule").
+
+**FITS-beam checkout-independence test, delivered and verified
+meaningful.** `tests/unit/test_core/test_result.py
+::test_scientific_fingerprint_is_checkout_independent_for_a_fits_beam`
+generates `write_scalar_efield_beamfits()` once and copies its bytes into
+two checkout directories (never regenerates), consistent with the
+non-byte-reproducible-fixture gotcha the plan correction routed here.
+Confirmed meaningful by reading the assertions, not just running them: it
+asserts the two checkouts' raw `beam_state.to_snapshot()` JSON *differ*
+(the absolute path is present) while `scientific_sha256` is identical --
+which would fail if a path leaked into the scientific hash. Ran directly:
+passed, alongside its antenna-layout sibling
+`test_scientific_fingerprint_is_independent_of_source_checkout_location`.
+
+**Pins.** All nine pre-existing `OWNED BY: Tier 6F` markers in
+`tests/characterization/test_tier6_current_behavior.py` are gone at HEAD
+(`grep -c "OWNED BY: Tier 6F"` = 0), each replaced by a test that exercises
+the closed behavior rather than merely renamed (verified by reading each:
+D1 hybrid literal + `allow_lossy_point_rasterization`, D2
+each-representation-runs-its-own-components, D3 hybrid-under-point now
+rejected, D3's setup-side fork now publishes both payloads for `hybrid`, D4
+combine-primitive-still-drops (unchanged, per Section 10.1) plus the
+boundary that a config can no longer reach it, D5's rasterization half now
+opt-in, D5's hard-error half message-only update, D19 memory estimate now
+sums every solved component, and the solver-seconds componentization test).
+The one 6I-owned pin narrowed
+(`test_there_is_no_benchmark_harness_task_or_performance_test`, D15, from
+asserting `tests/integration/` holds only `__init__.py` to allowing
+`test_hybrid_end_to_end.py` alongside it) is legitimate, not scope creep:
+`Tier6HybridRuntimePlan.md` §25.4 lists that file among the tier's new test
+files and §33's Tier 6F grant explicitly includes it, while the narrowed
+assertion still enforces every part of D15 that remains 6I's
+(`tests/performance/` empty, no `src/radiosim/benchmarks/`, no `bench` task
+in `pixi.toml`) unchanged.
+
+**Plan correction `878b9fe`, ratified.** The two added test files
+(`tests/unit/test_io/test_hdf5_result.py`,
+`tests/unit/test_io/test_standard_visibility.py`) were diffed directly: each
+gains exactly two keyword arguments (`components=("point",)`,
+`component_element_counts=(3,)` on `SolverResultProvenance`;
+`solver_point_seconds`/`solver_healpix_seconds` on `ResultPerformance`), zero
+assertions changed. The step-9 ordering note and the
+`allow_lossy_point_materialization`-inapplicability note were independently
+re-derived above (hybrid correctness paragraph; risk #3 paragraph) rather
+than taken on trust, and both hold.
+
+**Gates, both environments.**
+
+```text
+pixi run test -- -m "not slow"   (python -m pytest tests/ -m "not slow", both envs)
+  py311 (default): 4139 passed, 6 skipped, 26 warnings in 449.69s
+  py312:           4139 passed, 6 skipped, 26 warnings in 486.10s
+```
+
+Per-file arithmetic independently verified, not merely quoted: `--collect-only
+-q` at `6708b0e` in the isolated worktree gave **4112** total collected
+items; the same at `fe5aa91` gave **4145** -- a **+33** delta matching
+`4106 -> 4139` for the non-slow count exactly (skip count 6 and warning count
+26 both unchanged between the two runs). `pixi run lint` -- "All checks
+passed!". `pixi run format` -- "333 files left unchanged", `git status`
+clean after. `pixi run typecheck` intentionally not run, per `CLAUDE.md`.
+
+**Four shipped YAMLs.** All four (`config.yaml`,
+`receptor_circular_example.yaml`, `realistic_foreground_example.yaml`,
+`hybrid_sky_example.yaml`) pass `radiosim validate`. Ran
+`configs/hybrid_sky_example.yaml` end to end via the CLI: "Network: offline
+(forced) (no network-dependent models)", "Sky Mode: hybrid", "Sky Model: 20
+sources + 3072 pixels", completed and wrote its HDF5/manifest/resolved-config
+outputs, which were deleted after inspection (`git status` clean).
+
+**Fresh-process laziness.** `python -c "import radiosim"` does not import
+`radiosim.core.hybrid`; `import radiosim.core` does (eager, via `core
+/__init__.py`'s re-export), but neither `healpy` nor `jax` enters
+`sys.modules` as a result -- `core/hybrid.py`'s only non-`TYPE_CHECKING`
+imports are `time`, `dataclasses`, `typing`, `collections.abc`, and one
+function-local `from radiosim.core.visibility_healpix import
+calculate_visibility_healpix` inside `solve_sky`. The four
+`tests/unit/test_core/test_sky_core_dep_guard.py` laziness tests pass
+unmodified.
+
+**Honest unobserved items.** `pixi run typecheck` was not run, per
+`CLAUDE.md`'s standing instruction. The message-wording concern in risk #3
+was adjudicated as acceptable rather than fixed; no plan or code correction
+was made for it. `configs/realistic_foreground_example.yaml`'s pre-existing
+SKY-001 VizieR defect (unrelated to Tier 6) was not re-investigated, only
+confirmed still present and still irrelevant to 6F's scope. No GPU/TPU/
+distributed hardware was exercised (none is claimed by this slice).
+
+No material defect found. Tier 6F is accepted as delivered, with no bounded
+plan correction required beyond the already-ratified `878b9fe`. `RUN-001`
+through `RUN-004` remain open pending the rest of Tier 6; this acceptance
+does not close any of them. Tier 6G (hybrid serialization, HDF5 3.0.0,
+summary, and standard formats) is now the only authorized implementation
+slice. Nothing was pushed.
