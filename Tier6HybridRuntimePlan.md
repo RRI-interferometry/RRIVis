@@ -723,6 +723,24 @@ Consequences:
 (`self.xp.stack(arrays, axis=axis)`) for the assembly. `set_at` remains on the
 surface; it is simply no longer used in the solver hot path.
 
+**Correction (2026-07-30, Tier 6D implementation):** the sketch's per-time block
+shape is wrong and the two statements around it cannot both hold. No single
+`stack` of `T` blocks of shape `(F, B, 2, 2)` produces `(T, B, F, 2, 2)`: on
+`axis=0` it produces `(T, F, B, 2, 2)`, which needs a further transpose and
+returns a non-contiguous cube, contradicting "in one operation". The per-time
+block is therefore assembled as `(B, F, 2, 2)` — `stack(freq_blocks, axis=1)`
+over the `F` baseline blocks — so that the final `stack(time_blocks, axis=0)`
+produces the canonical `(T, B, F, 2, 2)` cube exactly, contiguously, and in one
+operation. Only the intermediate axis order changes; every binding property of
+the sketch is preserved (one `(B, 2, 2)` block per `(t, f)`, one block per `t`,
+one whole-cube assembly, no change to any computed number), so this is a
+notation correction and not a decision change. A time step with no source or
+pixel above the horizon contributes a pre-zeroed `(B, F, 2, 2)` block, which
+keeps its slot in the single final assembly without entering the frequency loop
+and without any assembly of its own. Degenerate axes (`T`, `B`, or `F` equal to
+zero, or an empty source batch) return the canonical zero cube directly, because
+there is nothing to assemble.
+
 ### 13.4 Backend parity matrix and tolerance
 
 | Workload | NumPy | JAX-CPU | Dask (NumPy arrays) | Requirement |
