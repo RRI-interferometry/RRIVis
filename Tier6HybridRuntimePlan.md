@@ -1077,6 +1077,37 @@ this only disambiguates wording that read, on a first pass, as naming the
 No visibility array shape, dtype, correlation order, weight, or flag semantics
 change anywhere in Tier 6.
 
+**Correction (2026-07-31, Tier 6G implementation) — the summary-JSON
+`schema.version` question, settled once.** Tier 6C flagged that this section
+authorizes the summary document to grow while naming no version bump, and
+routed the decision here (§33, Tier 6C correction). The resolution is that the
+summary schema moves `1.0.0` → `1.1.0`, and that this is deliberately *not* the
+major bump the HDF5 schema takes in the same slice. The two artifacts differ in
+kind, and the version field must say so:
+
+- The HDF5 bump is **major** because it is a hard incompatibility with no
+  upgrade path. `_read_root_attributes` (`io/hdf5.py:1105-1106`) rejects any
+  `schema_version` that is not exactly `SCHEMA_VERSION`, and
+  `_validate_loaded_identity_snapshots` (`core/result.py:1175-1184`) rejects a
+  `solver_snapshot` whose field set is not exactly the current one. A `2.0.0`
+  file is therefore unreadable by the `3.0.0` reader *and* a `3.0.0` file is
+  unreadable by the `2.0.0` reader. That is what `3.0.0` announces.
+- The summary bump is **minor** because Tier 6's changes to it are purely
+  additive and no reader exists to break. The document is write-only
+  (`write_result_summary_json` has no in-tree counterpart reader), and every
+  `1.0.0` key survives at the same path with the same meaning and the same
+  type. Tier 6 adds one top-level block (`execution`, 6C), two keys inside
+  `solver`, and two inside `performance` (6F, surfaced here). Calling that
+  `2.0.0` would tell a consumer its parser is broken when it is not.
+
+The version does move, rather than staying `1.0.0`, because the document shape
+did change: a version that never moves while the shape does is not a contract,
+and the repository's own
+`test_summary_json_is_exact_bounded_metadata_contract` asserts the exact
+top-level key set precisely so no shape change passes unnoticed. `1.1.0`
+records the growth honestly and leaves the major number available for the first
+removal or retyping.
+
 ## 20. Error taxonomy
 
 New typed errors, each subclassing an existing tier-appropriate base so no
@@ -1877,8 +1908,10 @@ decision:
 src/radiosim/core/result.py
 src/radiosim/io/hdf5.py
 src/radiosim/io/readers.py
+src/radiosim/io/result_errors.py
 src/radiosim/io/standard_visibility.py
 src/radiosim/io/summary_json.py
+docs/api/io.rst
 docs/migration_guide.md
 tests/integration/test_hybrid_end_to_end.py
 tests/unit/test_io/test_hdf5_result.py
@@ -1887,10 +1920,49 @@ tests/unit/test_io/test_standard_visibility.py
 tests/unit/test_io/test_uvfits.py
 tests/unit/test_io/test_measurement_set.py
 tests/unit/test_simulator/test_result_integration.py
+tests/unit/test_tier1h_documentation.py
+tests/unit/test_tier4_result_output_acceptance.py
 ```
 
 The summary-JSON tests live in `tests/unit/test_io/test_result_summary.py` at the
 baseline; there is no `test_summary_json.py`.
+
+**Correction (2026-07-31, Tier 6G implementation).** Four files are added above
+because the `2.0.0`→`3.0.0` bump this slice is defined by cannot be expressed
+without them. None adds behavior beyond §19; each is the single site that states
+the schema version the slice changes.
+
+1. `src/radiosim/io/result_errors.py` — §32.7 requires `2.0.0` to be "rejected on
+   read with a message naming Tier 6", but the rejection message is not written
+   in `io/hdf5.py`. `UnsupportedSchemaVersionError` composes it from a class
+   constant `GUIDANCE` (`io/result_errors.py:74-78`) whose text names Tier 5 and
+   tells the reader to "re-run the simulation to write a 2.0.0 file". The
+   raising site cannot override it: `__init__` takes only the offending version
+   string. Without this file the slice can bump the constant but cannot make the
+   rejection truthful, which is the half of the requirement that matters.
+2. `docs/api/io.rst` — states the schema version in prose three times
+   (`:76`, `:103`, `:141`), including the sentence "Re-run the simulation to
+   obtain a ``2.0.0`` file". §26 lists the documentation Tier 6 owns and omits
+   this file; that omission is an oversight, not a decision, because §26's own
+   rule is that a tier owns "exactly the statements its own changes make false",
+   and a `3.0.0` writer makes all three false the moment it lands. The grant is
+   for those three statements and the `1.0.0`/`2.0.0` rejection paragraph only;
+   the rest of `io.rst` is untouched and stays outside every Tier 6 grant.
+3. `tests/unit/test_tier1h_documentation.py` — pins the `io.rst` text that
+   item 2 corrects (`:324` requires the literal `"2.0.0"` in `io.rst`; `:785`
+   requires "schema version ``2.0.0``"). One-line-per-assertion update; no other
+   assertion in the file changes. The file is also in 6I's grant, for the
+   unrelated §26 items 1-4; the two grants do not overlap in content.
+4. `tests/unit/test_tier4_result_output_acceptance.py` — pins
+   `hdf5_module.SCHEMA_VERSION == "2.0.0"` at `:222`. This is a Tier 4
+   acceptance pin, not a Tier 6 characterization pin, so it carries no
+   `OWNED BY` line and no slice was granted it; it must move with the constant
+   or the suite cannot pass. Only that one assertion changes.
+
+No test in `tests/characterization/test_tier6_current_behavior.py` pins any
+serialization surface, so Tier 6G flips no `OWNED BY: Tier 6G` pin — there are
+none. That is consistent with §32.1, which lists the 6A characterization
+subjects and does not include the HDF5 schema version.
 
 ### Tier 6H
 
