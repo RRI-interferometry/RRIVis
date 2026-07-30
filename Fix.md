@@ -205,7 +205,7 @@ Status values used below:
 | RUN-003 | OPEN | High-level API forces point or HEALPix and cannot preserve hybrid sky | 6 |
 | RUN-004 | ROADMAP | Backend abstraction is not yet performance-bearing end to end | 6 |
 | SKY-001 | OPEN | Every VizieR point-catalog loader (`gleam`, `mals`, `lotss`, `vlssr`, `tgss`, `wenss`, `sumss`, `nvss`, `3c`, `vlass`) raises `TypeError` because commit `7b02bb2` made `_load_from_vizier_catalog`'s `precision` keyword-only while all four wrapper call sites in `core/sky/loaders/vizier/point_catalogs.py` still pass it positionally | standalone, bounded fix (pre-Tier 7) |
-| RUN-005 | OPEN | `scientific_sha256` embeds the antenna layout source file's absolute filesystem path (`io/instrument_sources.py`'s `source_reference=str(path)`, carried into `instrument_snapshot["reference"]` and hashed by `core/result.py::_scientific_hash`), so two runs of the identical config with bit-identical raw visibility cubes produce different `scientific_sha256` values solely because the repository checkout lives at a different absolute path; confirmed pre-existing and unaffected by Tier 6D (`core/instrument.py`, `io/instrument_sources.py`, `core/result.py` are untouched in `c5d79aa..87d7c79`) by reproducing the same divergence with cube-identical, fingerprint-different runs at `c5d79aa` from two detached worktrees | standalone, bounded fix (pre-Tier 7) |
+| RUN-005 | DONE | `scientific_sha256` embeds the antenna layout source file's absolute filesystem path (`io/instrument_sources.py`'s `source_reference=str(path)`, carried into `instrument_snapshot["reference"]` and hashed by `core/result.py::_scientific_hash`), so two runs of the identical config with bit-identical raw visibility cubes produce different `scientific_sha256` values solely because the repository checkout lives at a different absolute path; confirmed pre-existing and unaffected by Tier 6D (`core/instrument.py`, `io/instrument_sources.py`, `core/result.py` are untouched in `c5d79aa..87d7c79`) by reproducing the same divergence with cube-identical, fingerprint-different runs at `c5d79aa` from two detached worktrees | standalone, bounded fix (pre-Tier 7) |
 | SCI-001 | ROADMAP | Most Jones classes are public identity-returning stubs | 7 |
 | SCI-002 | ROADMAP | Spherical-harmonic/m-mode mode is advertised but unimplemented | 7 |
 | SCI-003 | ROADMAP | Advanced beam-physics TODOs remain | 7 |
@@ -8298,3 +8298,226 @@ implementation slice**, limited to its Section 33 file list
 `tests/unit/test_simulator/test_result_integration.py`); Tier 6G through 6J
 remain unauthorized until each predecessor slice is implemented and
 independently accepted. `RUN-005` remains **OPEN**. Nothing was pushed.
+
+### 2026-07-30 RUN-005 standalone fix acceptance
+
+**Independent adversarial acceptance of the standalone `RUN-005` fix
+(path-dependent `scientific_sha256`), fixed out-of-band and cherry-picked
+onto `main` between Tier 6E and Tier 6F.** Review range `e561236..99f4b33`,
+two commits: `03c0e12` (cherry-pick of out-of-band commit `33eb910`,
+`fix(result): exclude filesystem transport facts from scientific_sha256`)
+and `99f4b33` (`test(runtime): re-pin shipped-config fingerprints as
+portable`). **Accepted, with two bounded pre-acceptance plan corrections**
+(`0f9a9d4`, `docs(runtime): correct Tier 6 design`) and no defects found.
+
+**Cherry-pick fidelity.** `diff <(git diff 33eb910^..33eb910) <(git diff
+03c0e12^..03c0e12)` is empty. Neither commit carries a co-author line;
+author identity (`Kartik Mandar`) is preserved.
+
+**Projection soundness -- the core review.** Read `core/result.py`'s full
+diff and the instrument/beam snapshot sources it projects
+(`core/instrument.py::ResolvedInstrument.to_snapshot`,
+`core/beam/models.py`, `core/beam/fits.py::_scientific_fingerprint`) line by
+line, not from the commit message's summary.
+
+- The instrument projection (`_scientific_instrument_projection`)
+  reproduces `core/instrument.py::_canonical_instrument_fingerprint_payload`
+  field-for-field: `schema_version`, `instrument_sha256`, `name`,
+  `source.telescope_name_source`, `location.{longitude_deg, latitude_deg,
+  height_m, itrs_xyz_m, source, location_source}`, and per-antenna
+  `{number, name, position_enu_m, diameter_m, mount_type, beam_id,
+  provenance.{identity_source, position_source, diameter_source,
+  mount_source, beam_id_source}}`. Confirmed the dropped `location.reference`
+  field is exactly the leak: traced to
+  `instrument_resolution.py:759`, `reference=f"{source_reference} embedded
+  location"`, i.e. the absolute layout-file path with a suffix -- confirming
+  the projection removes the actual documented defect, not a proxy for it.
+- The beam projection (`_scientific_beam_projection`) recursively drops
+  exactly seven keys: `path`, `resolved_path`, `path_provenance_key`,
+  `definition_fingerprint`, `assignment_fingerprint`, `state_fingerprint`,
+  `loaded_fingerprint`. Grepped `core/beam/models.py` for `Path`-typed
+  fields: exactly two exist (`ResolvedFITSBeamDefinition.path`,
+  `BeamFileProvenance.resolved_path`), both in the drop list -- no path
+  field escapes projection.
+- **Fingerprint-by-fingerprint survival check (the "every scientific fact
+  survives directly" claim), traced by hand:**
+  - `definition_fingerprint` (analytic): hashes only `self.model`
+    (`_definition_fingerprint("analytic", self.model)`), and `model` itself
+    is a sibling field that survives the projection unchanged. Redundant,
+    safe to drop.
+  - `definition_fingerprint` (FITS): hashes `{path, normalization,
+    angular_interpolation, frequency_interpolation}`
+    (`beam/models.py:474-480`); `normalization`, `angular_interpolation`,
+    `frequency_interpolation` are also plain sibling fields of
+    `ResolvedFITSBeamDefinition` and survive directly (verified
+    `to_snapshot()` dumps every dataclass field, not only the ones named in
+    a payload). Only `path` is lost, correctly.
+  - `LoadedBeamHandlerState.scientific_fingerprint`: **not** in the drop
+    list (kept). Traced its construction
+    (`beam/fits.py::_scientific_fingerprint`, lines 830-893): built from
+    `file_sha256` (a file **content** hash, not the path),
+    `pyuvdata_version`, validated FITS metadata, `load_options`
+    (`normalization`/`angular_interpolation`/`frequency_interpolation`
+    again), and `observation_frequencies_hz` -- no path anywhere in this
+    payload. This is the field the task asked to re-verify explicitly, and
+    it is correctly retained and genuinely path-free by construction.
+  - `assignment_fingerprint`: hashes `canonical_antenna`,
+    `definition_fingerprint`, and an optional `effective_dimensions`
+    derived from `definition` + `antenna_diameter_m`. All three inputs
+    (`antenna_id`, `definition`, `antenna_diameter_m`) are sibling fields of
+    `ResolvedBeamAssignment` and survive directly; `effective_dimensions` is
+    a pure function of surviving data, not an independent fact.
+  - `state_fingerprint`: hashes `mode`, `instrument_fingerprint`, and the
+    list of (already-covered) `assignment_fingerprint`/
+    `definition_fingerprint` values -- all of which are sibling fields
+    (`mode`, `instrument_fingerprint`, `assignments`, `unique_definitions`)
+    that survive directly.
+  - `loaded_fingerprint`: hashes `resolved.state_fingerprint`, per-handler
+    `{kind, definition_fingerprint, scientific_fingerprint,
+    voltage_feature_scale_by_frequency}`, and the antenna-to-handler
+    assignment map -- all reproduced by the surviving sibling fields
+    `resolved`, `handlers`, and `assignment_handler_ids`.
+  - No fingerprint was found binding a fact that does not also appear as a
+    surviving plain key elsewhere in the projected tree, for either the
+    analytic or FITS beam path.
+- **Inverse-defect hunt (transport fact leaking into the scientific hash):**
+  none found. The only two `Path`-typed fields in the beam model are both
+  dropped; the only absolute-path string field on the instrument side
+  (`location.reference`) is dropped; `BeamFileProvenance.sha256` and
+  `scientific_fingerprint` are confirmed content hashes with no path input.
+
+**`scientifically_equal` consistency.** `_identity_snapshots` calls the same
+two projection functions as `_scientific_hash`; `build_simulation_result`
+and `build_loaded_simulation_result` both call `_scientific_hash` -- read
+directly, not inferred. HDF5 round-trip: wrote and read back a real
+`receptor_circular_example.yaml` result with `io/hdf5.py`'s
+`write_result_hdf5`/`load_result_hdf5`; loaded and original
+`scientific_sha256` and `provenance_sha256` matched exactly, and
+`scientifically_equal` held both directions. (Pre-existing test
+`test_result_fingerprints_are_stable_and_loaded_state_verifies_them` covers
+this same seam at the Python-object level; the HDF5 file round-trip was
+additionally exercised live.)
+
+**Portability probe (reproduced independently).** Built
+`configs/receptor_circular_example.yaml` twice: once from the live checkout,
+once from a `git archive HEAD` copy extracted into a scratch directory
+several path segments deeper. `source_reference` differed
+(`/Users/.../antenna_layout_examples/hera_5.txt` vs
+`/private/tmp/.../archive_checkout/antenna_layout_examples/hera_5.txt`).
+Result: `scientific_sha256` **identical** between the two runs and equal to
+`92ce5ce11f5bef77b4d306d6b944dbea97c9541d0d9e4e06b774a38bd47dc222` (the
+committed py311 re-pin for this config, independently reproduced, not
+copied from the diff); `provenance_sha256` **different**
+(`8efc19...` vs `5347ac...`); `scientifically_equal` true both directions.
+**Scientific-sensitivity probe:** added a fourth explicit channel frequency
+to the same config; `scientific_sha256` changed
+(`...dc222` -> `ecf0205a...`), confirming the projection was not
+over-broadened to the point of hiding a real scientific change.
+**FITS-beam portability + sensitivity (uncommitted scratch scripts, not
+part of the shipped suite -- see the routed candidate test above):** built a
+`shared_fits` beam config from one generated `beamfits` fixture whose bytes
+were copied (not regenerated) into two checkout directories;
+`scientific_sha256` identical, `provenance_sha256` different,
+`scientifically_equal` true both ways. Changing
+`frequency_interpolation` from `linear` to `cubic` on the same FITS
+beam changed `scientific_sha256` (`466703ba...` -> `b5608875...`),
+confirming FITS-path sensitivity too.
+
+**Re-pin integrity.** Re-measured both py311 R1 shipped-config fingerprints
+independently (targeted `pytest` runs of
+`test_shipped_default_config_scientific_fingerprint` and
+`test_shipped_circular_receptor_config_scientific_fingerprint`): both pass,
+and the `receptor_circular_example.yaml` value matches the portability
+probe's independently-computed digest above. Re-measured both py312
+fingerprints the same way (`pixi run -e py312`): both pass. The six §13.4
+raw-cube digests are untouched by the diff (`git diff e561236..HEAD --
+tests/characterization/test_tier6_current_behavior.py` touches only the two
+`_SHIPPED_CONFIG_FINGERPRINTS` entries and their surrounding docstrings/
+comments) and all six still pass
+(`test_section_13_4_workload_fingerprints`, 6/6). The superseded-values
+comment (`302deb27...`/`161fc98c...` and `b3c1a93e...`/`e670c35f...`) matches
+the pre-fix values recorded in the earlier `RUN-005` register entry and in
+this review's own git history. Docstring updates ("checkout-independent...
+still per-environment") are accurate per the portability probe above.
+
+**Gates.** Full non-slow suite, both environments, on the reviewing
+machine: **4106 passed, 6 skipped, 26 warnings** in py311
+(`python 3.11.13`) and identically 4106/6/26 in py312 (`python 3.12.13`),
+matching the claimed counts exactly. `ruff check .`: all checks passed.
+`ruff format --check .`: 330 files already formatted. All three shipped
+YAMLs (`configs/config.yaml`, `configs/receptor_circular_example.yaml`,
+`configs/realistic_foreground_example.yaml`) validate via `radiosim
+validate`. `git status` clean before and after the code-review portion of
+this session (only doc files were touched by this review itself).
+
+**Adjudications.**
+
+1. *Forward-looking hazard -- a future fact bound only through a dropped
+   fingerprint could silently vanish from the hash.* **Recorded as a risk,
+   no new guard test added now.** The fingerprint-by-fingerprint trace above
+   shows every one of the four dropped path-derived fingerprints is
+   currently a pure, redundant hash over sibling data that itself survives
+   the projection -- this is a load-bearing codebase convention (every
+   `*_fingerprint` field in `core/beam/models.py` is a digest over
+   already-present sibling fields, never the sole carrier of a fact), and
+   `core/result.py`'s own code comment already documents the invariant for
+   future maintainers. A generic automated guard (asserting the projection's
+   key-set against the snapshot's) would need to be schema-aware to avoid
+   false positives on genuinely-redundant fingerprint fields, which is more
+   machinery than this standalone fix's scope justifies; ordinary code
+   review discipline on any future `*_fingerprint` addition is the more
+   proportionate control.
+2. *No committed FITS-beam checkout-independence test.* **Routed to Tier
+   6F as a candidate addition**, via the plan correction `0f9a9d4`, rather
+   than accepted as a silent gap or treated as a defect in this fix --
+   the reviewer independently verified the property holds today (probe
+   above), so this is a coverage gap, not a correctness gap. The plan
+   correction records the non-byte-reproducible-fixture gotcha discovered
+   while building the probe, so 6F's implementer does not rediscover it the
+   hard way.
+3. *Non-byte-reproducible `beamfits` fixture.* Confirmed real:
+   `write_scalar_efield_beamfits()` called twice produces files differing
+   at byte offset 4519, a `"YYYY-MM-DD HH:MM:SS.fff using pyuvdata version
+   3.2.1."` HISTORY string with a live timestamp. Recorded in the plan
+   correction as guidance, not a defect (the fixture is a test tool, not
+   scientific-projection code).
+4. *Where should the superseded pins live?* Both: the inline code comment
+   in `test_tier6_current_behavior.py` (already present, correct, and the
+   right place for someone reading that file in isolation) and this
+   acceptance note (the durable historical record). No plan or code change
+   needed beyond what `99f4b33` already did.
+
+**Re-pinned values (py311 / py312), for the permanent record:**
+
+```text
+config.yaml:
+  py311: b702a202924e11740cfb359124881063f73b63c8d17a33c47d610aa2b977c247
+  py312: e570a9bc415731cfb63162e407c65f84c1615de766f21e89576b88f483add2b8
+receptor_circular_example.yaml:
+  py311: 92ce5ce11f5bef77b4d306d6b944dbea97c9541d0d9e4e06b774a38bd47dc222
+  py312: 7dd9e7a7fa6edd3f126b775f3eef5d9d7ecdd5de124ebc2503648e77f1d9effd
+```
+
+Superseded pre-fix values (checkout-path-dependent, no longer reproducible
+by design): `config.yaml` py311 `302deb27...`/py312 `161fc98c...`;
+`receptor_circular_example.yaml` py311 `b3c1a93e...`/py312 `e670c35f...`.
+
+**Honest unobserved items.** `pixi run typecheck` was not run, per
+`CLAUDE.md`'s standing instruction. `configs/realistic_foreground_example.yaml`
+was validated (`radiosim validate`) but not run end to end, consistent with
+6E's own record that this config "cannot be run at this gate" for unrelated
+reasons; the fix's effect on it was checked structurally instead (its beam
+and instrument snapshots go through the identical projection code path
+already verified against the other two configs). The FITS-beam portability
+and sensitivity probes were not committed to the tracked test suite --
+routed to 6F per adjudication (2) rather than added here, to keep this
+standalone fix's diff bounded to its own two commits plus documentation.
+No GPU/TPU/distributed hardware was exercised (none is claimed by this fix).
+
+This acceptance changes planning/roadmap records only (`Fix.md`'s `RUN-005`
+row and this entry, and the `Tier6HybridRuntimePlan.md` correction in
+`0f9a9d4`); no `src/` or `tests/` file was modified by this review. `RUN-005`
+is now **DONE**. Tier 6F (hybrid sky representation and canonical summation)
+remains the only authorized implementation slice per the Tier 6E acceptance
+record above, unaffected by this standalone, out-of-band fix. Nothing was
+pushed.
