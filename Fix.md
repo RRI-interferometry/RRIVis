@@ -7201,3 +7201,214 @@ slice**, limited to its Section 33 file list
 `tests/unit/test_simulator/test_worker_policy.py`); Tier 6C through 6J remain
 unauthorized until each predecessor slice is implemented and independently
 accepted. Nothing was pushed.
+
+### 2026-07-30 Tier 6B independent acceptance
+
+**Tier 6B (worker configuration schema and resolved runtime) is independently
+accepted.** Reviewed range `8d759f3..713f2a6`: plan correction `9a3b095`
+(`docs(runtime): correct Tier 6 design`) followed by the implementation commit
+`713f2a6` (`feat(runtime): type and resolve Tier 6B worker policy`), neither
+carrying a co-author line. `git show --stat` on `713f2a6` confirms the touched
+set — `core/runtime_config.py`, `io/__init__.py`, `io/config.py`,
+`io/config_resolution.py`, `tests/characterization/test_tier6_current_behavior.py`,
+`tests/unit/test_io/test_config.py`, `tests/unit/test_io/test_config_resolution.py`,
+`tests/unit/test_simulator/test_worker_policy.py` — is a subset of 6A's granted
+Section 33 6B file list; `tests/fixtures/configs.py` was granted but left
+unchanged (the new blocks have defaults, so the existing `valid_config_mapping`
+fixture already round-trips them without modification — a permission, not a
+requirement).
+
+**Plan correction `9a3b095`, ratified.** Moves the `execution.backend`
+`numba`→`dask` literal change and its E4 rejection message from 6B to 6H,
+recording no decision change. Independently confirmed both cited reasons: the
+literal is declared a second time at `cli/main.py:38-39`
+(`_BACKEND_CHOICES`/`BackendStrategy`), consumed by `core/precision.py:131,
+171, 789`, and asserted from the config side at
+`tests/unit/test_cli/test_config_mode.py:54, 71, 469`,
+`tests/unit/test_core/test_precision.py:122-123`, and
+`tests/unit/test_backends/test_resolution.py:24, 96, 157` — none of which was
+in 6B's grant, all but the CLI pair already in 6H's — and 6B's own exclusion of
+the backend rename means accepting `execution.backend=dask` in 6B would ship a
+config literal `get_backend()` cannot construct while removing the only
+literal that reaches the backend that does exist. `cli/main.py` and
+`tests/unit/test_cli/test_config_mode.py` are correctly added to 6H's grant.
+
+**Gates, both environments.**
+
+```text
+pixi run test                                    -> 3993 passed, 6 skipped, 26 warnings (py311/default)
+pixi run -e py312 test                           -> 3993 passed, 6 skipped, 26 warnings (py312)
+pixi run lint                                    -> All checks passed! (ruff check .)
+pixi run -e py312 lint                           -> 9 UP042 (str+Enum) errors, confirmed pre-existing at 8d759f3 in a
+                                                     detached worktree under the same py312 environment (env-attributable,
+                                                     not introduced by 713f2a6)
+pixi run check-format                            -> 325 files already formatted (ruff format --check .)
+pixi run -e py312 check-format                   -> 2 files would reformat, confirmed identical at 8d759f3 under py312
+                                                     (same env-attributable pre-existing condition)
+pixi run typecheck                               -> 2841 <= 4600 ceiling (py311/default)
+pixi run -e py312 typecheck                      -> 2841 <= 4600 ceiling (py312)
+git status                                       -> clean before and after review edits
+```
+
+The claimed 3,993 = 3,969 (accepted 6A baseline) + 24 new tests is confirmed by
+running the full suite directly (not by counting `def test_` lines, which
+undercounts two `@pytest.mark.parametrize("value", [0, -1, -8])` cases in
+`tests/unit/test_io/test_config.py` at 3 variants each). Both environments
+agree exactly. The py312 lint/format deltas are unrelated to this diff: neither
+touched file (`core/sky/containers/constants.py`, `.../footprint.py`,
+`io/result_format.py`, `tests/fixtures/beamfits.py` for lint;
+`tests/unit/test_core/test_cleanup_diffuse.py`,
+`tests/unit/test_io/test_instrument_sources.py` for format) appears in 6B's
+diff, and a detached `8d759f3` worktree reproduces the identical error/file set
+under the identical py312 environment.
+
+**Message fidelity (§18.3, all four schema-level messages 6B owns).** Wrote
+standalone probes against `ExecutionConfig`/`SkyLoadingConfig`/
+`SolverExecutionConfig` (not the shipped test file) and confirmed byte-for-byte
+matches, including the "honest superset" reading — non-integer, `bool`, and
+negative/zero inputs for both `max_workers` and `workers` all resolve to the
+single positive-integer message rather than a separate type-error string:
+
+```text
+execution.n_workers=4                                -> "execution.n_workers: not a field; use
+                                                          execution.sky_loading.max_workers for sky-loader
+                                                          concurrency or execution.solver.workers for solver
+                                                          concurrency."
+sky_loading.max_workers in {0, -1, 1.5, "x", True}    -> "execution.sky_loading.max_workers must be a positive
+                                                          integer or null (null means auto)."
+solver.workers in {0, -3, 2.5, True}                  -> "execution.solver.workers must be a positive integer."
+solver.executor="process"                             -> "execution.solver.executor=process: unsupported; the
+                                                          solver closure holds beam handlers and astropy objects
+                                                          that cannot cross a process boundary. Use
+                                                          execution.solver.executor=thread."
+```
+
+E4 (`backend: numba`) is correctly absent from 6B's message set per the ratified
+correction. `execution.n_workers` is rejected by an `ExecutionConfig`
+before-model validator following the `reject_removed_output_policy` precedent
+exactly (`Mapping` guard, field-name check, same exception type).
+
+**Resolution correctness, edge cases probed directly against
+`_resolve_sky_loading`/`_resolve_solver_execution`:**
+
+```text
+max_workers=None, 0 loader requests   -> 1            (min(max(0,1), cpu=10, 8))
+max_workers=None, 1 request           -> 1
+max_workers=None, 100 requests        -> 8             (cpu/8 ceiling)
+max_workers=3 (explicit), 0 requests  -> 3              (explicit values are not clamped by request_count)
+max_workers=1000 (explicit)           -> 1000           (explicit values are not capped at 8 either -- only
+                                                          None/auto is)
+solver workers=1,  0 time samples     -> 1
+solver workers=10, 3 time samples     -> 3               (clamped down)
+solver workers=1,  100 time samples   -> 1
+solver workers=5,  5 time samples     -> 5               (== boundary, not clamped)
+```
+
+All match §18.4's stated policy: only `max_workers: null` resolves through
+`min(requests, cpu_count, 8)`; explicit `max_workers` passes through unclamped;
+`solver.workers` is clamped to the time-sample count regardless of whether it
+was explicit or default.
+
+**Fingerprint policy (key concern), verified by reading `_scientific_hash`/
+`_provenance_hash` (`core/result.py:510-566`, unchanged by this diff — `git
+diff 8d759f3 713f2a6 -- src/radiosim/core/result.py` is empty) and empirically:**
+
+1. Same config, different worker values, at HEAD (`configs/config.yaml` vs. a
+   copy with `sky_loading.max_workers=7, solver.workers=3`): identical
+   `scientific_sha256` (`4bd53e33...`) and identical raw visibility-cube
+   SHA-256, different `provenance_sha256` (`14a8426d...` vs. `156102cc...`).
+2. Default `configs/config.yaml` at `8d759f3` vs. `713f2a6`: reproduced in a
+   single detached worktree checked out sequentially at both commits (holding
+   the absolute path fixed, since `instrument_snapshot.source.reference` embeds
+   the resolved absolute antenna-layout path and would otherwise make
+   `scientific_sha256` differ for a path reason unrelated to the code —
+   discovered when an initial two-separate-worktree attempt produced a false
+   mismatch). Result: identical `scientific_sha256` (`4bd53e33...`), identical
+   raw visibility-cube digest (`cce1bfe8...`); `provenance_sha256` changed
+   (`52764...` -> `14a842...`), the §18.4-intended delta. Repeated for
+   `configs/receptor_circular_example.yaml`: identical `scientific_sha256`
+   (`d9279e57...`) and raw digest (`95890bc6...`), changed `provenance_sha256`.
+
+Both reproductions match the commit's own claims exactly.
+
+**Interim no-op, verified by reading call sites (not only the pinning test).**
+`grep -n "ThreadPoolExecutor\|solver\.workers" core/visibility.py
+core/visibility_healpix.py simulator/rime.py` returns nothing — the solver
+genuinely reads no worker field. `api/simulator.py:782` still calls
+`load_models_parallel(..., max_workers=8)` as a bare literal, independent of
+`config.execution.sky_loading`. `tests/unit/test_simulator/test_worker_policy.py`
+pins both boundaries by monkeypatching the loader call (observes `[8]`
+regardless of a configured `max_workers=2`) and by source-grepping the three
+solver modules for `ThreadPoolExecutor`/`solver.workers`; both are real FORCE
+mechanisms for 6C and 6E respectively, not vacuous assertions.
+
+**Pins.** The 6A pin `test_execution_config_has_no_worker_or_concurrency_field`
+correctly splits: `test_execution_config_expresses_worker_policy_in_two_typed_blocks`
+flips the `ExecutionConfig.model_fields` half (now includes `sky_loading`,
+`solver`), and `test_execution_config_backend_literal_still_offers_numba`
+preserves the backend-literal assertion verbatim, docstring-marked `OWNED BY:
+Tier 6H` per the ratified `9a3b095` correction. The 6C/6E-owned
+`test_no_worker_value_is_recorded_in_provenance` scope note is honest: `git
+diff 8d759f3 713f2a6 -- tests/characterization/test_tier6_current_behavior.py`
+shows the assertion body (`to_summary_snapshot()` repr excludes
+`max_workers`/`n_workers`/`workers`) is byte-identical before and after — only
+the docstring was widened to note that `SimulationResult.resolved_config` (a
+different, wider surface than `to_summary_snapshot()`) now does carry the
+resolved policy. Confirmed `to_summary_snapshot()`
+(`core/result.py:667-707`) genuinely embeds no `resolved_config`, so the pin
+still proves what it claims to prove.
+
+**Risk adjudications.**
+
+1. *Provenance hash moving for every run.* By design (§18.4); no in-tree pin
+   broke — the full suite passes in both environments, and the one pin whose
+   scope the new provenance surface touches
+   (`test_no_worker_value_is_recorded_in_provenance`) was checked line-by-line
+   above and is unaffected.
+2. *Pre-clamp request in `input_snapshot`, not `override_origins`.* Sound
+   reading, not a deviation — `override_origins` values are typed
+   `ValueOrigin = Literal["default", "document", "override"]`
+   (`core/runtime_config.py:44`) and are structurally unable to hold an
+   integer. Verified empirically with `execution.solver.workers=999` against a
+   60-sample time grid: resolved `workers == 60`,
+   `input_snapshot["execution"]["solver"]["workers"] == 999`,
+   `override_origins["execution.solver.workers"] == "document"` (the label,
+   not the value). §18.4's "recorded in `ConfigurationProvenance` origins" was
+   genuinely ambiguous on a first read against the field named
+   `override_origins` two sentences earlier; corrected below.
+3. *Default template not advertising the new knobs.* Defensible — 6B's grant
+   (§32.2 Work/Exclusions) lists no documentation or CLI/template file, and
+   §26's documentation-truth obligations do not name a config template; the
+   new blocks have working defaults, so an unmodified template stays valid.
+4. *Fixtures file granted-but-unchanged.* Not a defect — a grant is a
+   permission to touch a file if needed, not an obligation; `tests/fixtures/configs.py`'s
+   `valid_config_mapping` already produces a document the new optional,
+   defaulted blocks validate against unmodified.
+5. *Empty integration dir.* Confirmed pre-existing and unrelated:
+   `tests/integration/__init__.py` is a 0-byte file dated March 8 (`git log
+   -- tests/integration/` last touched at `1f5eb6a`, long before Tier 6).
+
+**Correction.** `docs(runtime): correct Tier 6 design` (commit `6011616`,
+`Tier6HybridRuntimePlan.md` only) makes one bounded §18.4 wording correction
+(adjudication 2 above) and updates the status header (Tier 6B accepted, Tier 6C
+authorized); no design decision changes.
+
+**Unobserved items.** No GPU/TPU/distributed hardware was exercised (none is
+claimed by 6B). The py312 lint/format deltas were traced to a pre-existing,
+environment-attributable condition rather than independently root-caused
+further (out of 6B's scope; not a Tier 6 regression). `pixi run typecheck` was
+run in both environments because this review's charter explicitly required the
+Pyright ceiling gate, overriding the project's default convention of skipping
+it.
+
+This acceptance changes planning/roadmap records and production/test code.
+Tier 6B is accepted; **Tier 6C (loader worker behavior and offline policy) is
+now the only authorized next slice**, limited to its Section 33 file list
+(`api/simulator.py`, `core/sky/operations/__init__.py`,
+`core/sky/operations/parallel.py`, `io/summary_json.py`, `utils/__init__.py`,
+`utils/network.py`, `tests/characterization/test_tier6_current_behavior.py`,
+`tests/unit/test_core/test_sky_pipeline.py`, `tests/unit/test_simulator/test_api.py`,
+`tests/unit/test_simulator/test_worker_policy.py`, `tests/unit/test_utils/test_network.py`,
+`tests/unit/test_utils/test_offline_policy.py`); Tier 6D through 6J remain
+unauthorized until each predecessor slice is implemented and independently
+accepted. Nothing was pushed.
