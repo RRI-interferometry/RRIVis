@@ -186,7 +186,12 @@ the *same* environment as the pin.  Section 31 runs the gate in both, so 6D must
 compare py311 against the py311 pin and py312 against the py312 pin.  Both are
 recorded below, keyed by ``_ENVIRONMENT_KEY``; a third environment must be
 measured and added rather than have the assertion relaxed.  This also means no
-Tier 6 fingerprint may be treated as a portable constant in documentation.
+Tier 6 fingerprint may be treated as an environment-independent constant in
+documentation.  The environment is now the *only* axis of variation for the
+shipped-config ``scientific_sha256`` pins: since the RUN-005 fix
+(``fix(result): exclude filesystem transport facts from scientific_sha256``)
+those digests no longer depend on where the tree is checked out, so a given pin
+is reproducible on any machine running the same locked environment.
 """
 
 from __future__ import annotations
@@ -1215,14 +1220,23 @@ def test_recommend_executor_is_registry_driven() -> None:
 # =========================================================================
 
 
+# Re-pinned for the RUN-005 fix ("fix(result): exclude filesystem transport
+# facts from scientific_sha256"), which stopped the scientific digest hashing
+# the absolute antenna-layout path carried by the instrument snapshot and the
+# filesystem-transport keys of the beam snapshot.  The digests below are
+# therefore *checkout-independent*: the same commit checked out at any path
+# reproduces them.  They remain per-environment, because the astropy version
+# difference described in this module's docstring still moves the last bits of
+# every visibility.  The pre-fix, checkout-local values were
+# ``302deb27...`` / ``161fc98c...`` and ``b3c1a93e...`` / ``e670c35f...``.
 _SHIPPED_CONFIG_FINGERPRINTS: dict[str, dict[str, str]] = {
     "config.yaml": {
-        "py311": "302deb27aebed7fd9db23a51bf8e3ad038258de3b4752021d823c86e6ba8e685",
-        "py312": "161fc98c4d6a58303d31100648a2f5ec4794ed4307a32542752cb04bf31cb82e",
+        "py311": "b702a202924e11740cfb359124881063f73b63c8d17a33c47d610aa2b977c247",
+        "py312": "e570a9bc415731cfb63162e407c65f84c1615de766f21e89576b88f483add2b8",
     },
     "receptor_circular_example.yaml": {
-        "py311": "b3c1a93e7a6910593292871b0945bc2981a7250c8a171a1600baf1c495e988bf",
-        "py312": "e670c35f60d0c3094271a3e50d0ee8fc7020802ef02b4e3aa5e1a33f586a93cd",
+        "py311": "92ce5ce11f5bef77b4d306d6b944dbea97c9541d0d9e4e06b774a38bd47dc222",
+        "py312": "7dd9e7a7fa6edd3f126b775f3eef5d9d7ecdd5de124ebc2503648e77f1d9effd",
     },
 }
 
@@ -1231,8 +1245,8 @@ def test_shipped_default_config_scientific_fingerprint(tmp_path) -> None:
     """Records the R1 reference for ``configs/config.yaml``.
 
     The Tier 6D restructure must reproduce this digest bit-for-bit *in the same
-    environment*.  A change here is a scientific change and must be justified,
-    never re-pinned silently.
+    environment*, from any checkout location.  A change here is a scientific
+    change and must be justified, never re-pinned silently.
     """
     expected = _expected_for_environment(
         _SHIPPED_CONFIG_FINGERPRINTS["config.yaml"], "configs/config.yaml"
