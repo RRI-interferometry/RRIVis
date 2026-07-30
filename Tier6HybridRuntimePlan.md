@@ -1820,6 +1820,57 @@ tests/unit/test_simulator/test_api.py
 tests/unit/test_simulator/test_result_integration.py
 ```
 
+**Correction (2026-07-31, Tier 6F implementation):** this list omitted two test
+files that construct `SolverResultProvenance` and `ResultPerformance` directly
+and that the slice therefore cannot avoid:
+
+```text
+tests/unit/test_io/test_hdf5_result.py
+tests/unit/test_io/test_standard_visibility.py
+```
+
+`C10` already declares the blast radius of the two dataclass extensions as
+"every construction site". In the tree there are exactly four such sites: one in
+production (`api/simulator.py`, granted) and three in tests
+(`tests/unit/test_core/test_result.py`, granted, plus the two above). Every
+other apparently-affected test file — `tests/unit/test_io/test_output_atomicity.py`,
+`tests/unit/test_io/test_result_summary.py`, `tests/unit/test_io/test_uvfits.py`,
+`tests/unit/test_io/test_measurement_set.py`,
+`tests/unit/test_simulator/test_instrument_integration.py` — reaches the
+dataclasses through `tests/unit/test_core/test_result.py::_parts` and needs no
+edit. Both added files also appear in 6G's grant; 6F touches only the two
+`SolverResultProvenance(...)` / `ResultPerformance(...)` literals in each and
+changes no assertion, leaving 6G's serialization work untouched.
+
+The alternative — giving `components` and `component_element_counts` default
+values so the two files keep compiling — was rejected: a defaulted
+`component_element_counts` would let a construction site record a zero element
+count that criterion 7 requires to be true, and `C10`'s wording shows the plan
+already intended required fields.
+
+Two further notes from the same implementation, neither of which changes a
+decision:
+
+- **Where the §18.3 runtime rejections are evaluated.** §20.1 places the
+  representation-compatibility rejection at step 9, after combination, "because
+  the decision needs the *combined* model's payload set". That holds for the
+  `hybrid` rule and for the surviving-payload half of the `point_sources` rule.
+  It cannot hold for the `healpix_map` rule, whose message quotes `{n}` point
+  sources that combination has already folded into the map, nor for the
+  *dropped*-payload half of the `point_sources` rule (§8.2 rule 2 says it closes
+  `D3` **and** `D4`, but a `D4` combination leaves no HEALPix payload on the
+  resolved model to detect). The gate therefore runs at step 9 as specified and
+  is handed *both* the contributed model list and the resolved model. Nothing in
+  the ordering moves; the check simply reads two inputs instead of one.
+- **The `allow_lossy_point_materialization` escape named in the `point_sources`
+  message.** The message is emitted verbatim, but the flag does not gate the
+  rejection. `materialize_point_sources_model` returns a model that already
+  carries points unchanged (`core/sky/operations/operations.py:204-209`), so the
+  flag cannot convert the HEALPix payload of a hybrid model; honoring it here
+  would silently re-open `D3`. The flag keeps its real and tested function — a
+  HEALPix-*only* contributor under a point request — which the gate does not
+  touch. The message's other escape, `hybrid`, is always correct.
+
 ### Tier 6G
 
 ```text
