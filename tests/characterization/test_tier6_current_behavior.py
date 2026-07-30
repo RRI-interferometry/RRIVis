@@ -731,17 +731,40 @@ def test_sky_loading_hard_codes_eight_workers() -> None:
     assert signature.parameters["max_workers"].default == 8
 
 
-def test_execution_config_has_no_worker_or_concurrency_field() -> None:
-    """Pins D6/D7: no worker field exists anywhere in the schema.
+def test_execution_config_expresses_worker_policy_in_two_typed_blocks() -> None:
+    """Records the Tier 6B schema that closed the D6/D7 expressibility half.
 
-    OWNED BY: Tier 6B, which adds ``sky_loading`` and ``solver`` blocks.
+    Flipped by Tier 6B from the 6A pin
+    ``test_execution_config_has_no_worker_or_concurrency_field``, which asserted
+    that ``ExecutionConfig`` carried exactly ``{backend, precision, simulator,
+    offline}`` and therefore had nowhere to express a worker count.  The typed
+    blocks now exist and are resolved; they are not yet *consumed* -- see
+    ``tests/unit/test_simulator/test_worker_policy.py`` for the interim
+    boundary owned by 6C (loader) and 6E (solver).
     """
     assert set(ExecutionConfig.model_fields) == {
         "backend",
         "precision",
         "simulator",
         "offline",
+        "sky_loading",
+        "solver",
     }
+    execution = ExecutionConfig()
+    assert execution.sky_loading.max_workers is None
+    assert execution.sky_loading.executor == "auto"
+    assert execution.solver.workers == 1
+    assert execution.solver.executor == "thread"
+
+
+def test_execution_config_backend_literal_still_offers_numba() -> None:
+    """Pins the un-renamed backend literal, split out of the 6A worker pin.
+
+    OWNED BY: Tier 6H, which renames the backend and changes this literal to
+    ``dask`` with its Section 18.3 rejection message.  The 6A pin asserted this
+    together with the worker-field set; the two halves were separated when the
+    literal change moved from 6B to 6H (plan Sections 32.2, 32.8, 33).
+    """
     backend_literals = set(
         getattr(ExecutionConfig.model_fields["backend"].annotation, "__args__", ())
     )
@@ -767,9 +790,18 @@ def test_run_still_advertises_and_then_rejects_n_workers(tmp_path) -> None:
 
 
 def test_no_worker_value_is_recorded_in_provenance(tmp_path) -> None:
-    """Pins D6: no resolved worker count reaches any provenance snapshot.
+    """Pins D6: no resolved worker count reaches the bounded result snapshot.
 
     OWNED BY: Tier 6C and Tier 6E.
+
+    Scope note added by Tier 6B: the resolved worker policy now *does* reach
+    ``SimulationResult.resolved_config`` and therefore ``provenance_sha256``,
+    the HDF5 ``resolved_config_json`` and the summary JSON
+    (``tests/unit/test_simulator/test_worker_policy.py``).  What this pin still
+    records is the narrower fact 6C and 6E own: ``to_summary_snapshot()`` is a
+    bounded metadata view that embeds no resolved configuration, so no
+    *executed* worker count -- no loader execution record, no per-run solver
+    thread count -- is reported there yet.
     """
     result = Simulator.from_mapping(
         valid_config_mapping(tmp_path), base_dir=tmp_path

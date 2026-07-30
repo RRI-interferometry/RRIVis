@@ -36,8 +36,10 @@ from radiosim.core.runtime_config import (
     ResolvedFrequencyConfig,
     ResolvedObservationConfig,
     ResolvedSimulationConfig,
+    ResolvedSkyLoadingConfig,
     ResolvedSkyModelConfig,
     ResolvedSkySourceRequest,
+    ResolvedSolverExecutionConfig,
     ValueOrigin,
     freeze_runtime_value,
     json_safe_mapping,
@@ -53,7 +55,9 @@ from radiosim.io.config import (
     PrecisionInput,
     RadioSimConfig,
     RealisticForegroundSourceConfig,
+    SkyLoadingConfig,
     SkySourceConfig,
+    SolverExecutionConfig,
     StrictFrozenModel,
     collect_schema_issues,
     collect_semantic_issues,
@@ -663,6 +667,52 @@ def _document_origin(model: Any, field_name: str) -> ValueOrigin:
     return "document" if field_name in model.model_fields_set else "default"
 
 
+_AUTO_LOADER_WORKER_CEILING = 8
+
+
+def _resolve_sky_loading(
+    config: SkyLoadingConfig,
+    *,
+    request_count: int,
+) -> ResolvedSkyLoadingConfig:
+    """Resolve `max_workers` to an integer without executing any loader.
+
+    ``None`` means auto and becomes ``min(requests, cpu_count, 8)``: the auto
+    ceiling preserves the pre-Tier-6 hard-coded pool size instead of changing
+    performance while the value becomes configurable and recorded.
+    """
+    configured = config.max_workers
+    if configured is not None:
+        resolved = configured
+    else:
+        resolved = min(
+            max(request_count, 1),
+            os.cpu_count() or 1,
+            _AUTO_LOADER_WORKER_CEILING,
+        )
+    return ResolvedSkyLoadingConfig(
+        max_workers=max(resolved, 1),
+        executor=config.executor,
+    )
+
+
+def _resolve_solver_execution(
+    config: SolverExecutionConfig,
+    *,
+    time_sample_count: int,
+) -> ResolvedSolverExecutionConfig:
+    """Clamp solver workers to the time samples a partition can cover.
+
+    The pre-clamp request stays visible in
+    :attr:`ConfigurationProvenance.input_snapshot`, whose ``execution`` block is
+    the validated input document, so no requested value is lost by the clamp.
+    """
+    return ResolvedSolverExecutionConfig(
+        workers=min(config.workers, max(time_sample_count, 1)),
+        executor=config.executor,
+    )
+
+
 def _precision_input(value: Any) -> PrecisionInput:
     if isinstance(value, PrecisionInput):
         if value.preset is not None and not value.has_preset_custom_contradiction:
@@ -686,6 +736,18 @@ def _apply_overrides(
         "execution.precision": _document_origin(config.execution, "precision"),
         "execution.offline": _document_origin(config.execution, "offline"),
         "execution.simulator": _document_origin(config.execution, "simulator"),
+        "execution.sky_loading.max_workers": _document_origin(
+            config.execution.sky_loading, "max_workers"
+        ),
+        "execution.sky_loading.executor": _document_origin(
+            config.execution.sky_loading, "executor"
+        ),
+        "execution.solver.workers": _document_origin(
+            config.execution.solver, "workers"
+        ),
+        "execution.solver.executor": _document_origin(
+            config.execution.solver, "executor"
+        ),
         "instrument.location": "document",
         "obs_frequency": "document",
         "obs_time.start_time": "document",
@@ -1419,6 +1481,11 @@ def resolve_config(
         workflow_data = candidate.workflow.model_dump(mode="python")
         workflow_data["output_dir"] = output_dir
         resolved_workflow = CliWorkflowConfig.model_validate(workflow_data)
+        time_grid = build_observation_time_grid(
+            start_time=_normalize_start_time(candidate.obs_time.start_time),
+            duration_seconds=candidate.obs_time.duration_seconds,
+            cadence_seconds=candidate.obs_time.time_step_seconds,
+        )
         runtime = ResolvedSimulationConfig(
             instrument=instrument,
             beams=beam_config,
@@ -1432,13 +1499,7 @@ def resolve_config(
                 assume_disjoint=candidate.sky_model.assume_disjoint,
                 region=_source_common_value(candidate.sky_model.region),
             ),
-            observation=ResolvedObservationConfig(
-                time_grid=build_observation_time_grid(
-                    start_time=_normalize_start_time(candidate.obs_time.start_time),
-                    duration_seconds=candidate.obs_time.duration_seconds,
-                    cadence_seconds=candidate.obs_time.time_step_seconds,
-                ),
-            ),
+            observation=ResolvedObservationConfig(time_grid=time_grid),
             frequency=frequency,
             visibility=FrozenMapping(candidate.visibility.model_dump(mode="python")),
             execution=ResolvedExecutionConfig(
@@ -1446,6 +1507,14 @@ def resolve_config(
                 precision=precision,
                 simulator=candidate.execution.simulator,
                 offline=candidate.execution.offline,
+                sky_loading=_resolve_sky_loading(
+                    candidate.execution.sky_loading,
+                    request_count=len(sources),
+                ),
+                solver=_resolve_solver_execution(
+                    candidate.execution.solver,
+                    time_sample_count=len(time_grid),
+                ),
             ),
         )
         return ResolvedConfiguration(

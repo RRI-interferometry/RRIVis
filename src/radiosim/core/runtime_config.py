@@ -276,14 +276,49 @@ class ResolvedSkyModelConfig:
         return self.sources
 
 
+def _require_worker_count(value: Any, field_name: str) -> None:
+    if type(value) is not int:
+        raise TypeError(f"{field_name} must be an integer")
+    if value < 1:
+        raise ValueError(f"{field_name} must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSkyLoadingConfig:
+    """Loader-side concurrency policy with `max_workers` already resolved."""
+
+    max_workers: int
+    executor: Literal["auto", "thread", "process"]
+
+    def __post_init__(self) -> None:
+        _require_worker_count(self.max_workers, "max_workers")
+        if self.executor not in {"auto", "thread", "process"}:
+            raise ValueError("executor must be 'auto', 'thread', or 'process'")
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSolverExecutionConfig:
+    """Solver-side concurrency policy with `workers` already clamped."""
+
+    workers: int
+    executor: Literal["thread"]
+
+    def __post_init__(self) -> None:
+        _require_worker_count(self.workers, "workers")
+        if self.executor != "thread":
+            raise ValueError("executor must be 'thread'")
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedExecutionConfig:
-    """Requested backend strategy and frozen pre-backend precision."""
+    """Requested backend strategy, frozen precision, and worker policy."""
 
     backend_strategy: Literal["auto", "numpy", "jax", "numba"]
     precision: PrecisionConfig
     simulator: Literal["rime"]
     offline: bool
+    sky_loading: ResolvedSkyLoadingConfig
+    solver: ResolvedSolverExecutionConfig
 
     def __post_init__(self) -> None:
         if self.backend_strategy not in {"auto", "numpy", "jax", "numba"}:
@@ -294,6 +329,10 @@ class ResolvedExecutionConfig:
             raise ValueError("simulator must be 'rime'")
         if type(self.offline) is not bool:
             raise TypeError("offline must be a boolean")
+        if type(self.sky_loading) is not ResolvedSkyLoadingConfig:
+            raise TypeError("sky_loading must be a ResolvedSkyLoadingConfig")
+        if type(self.solver) is not ResolvedSolverExecutionConfig:
+            raise TypeError("solver must be a ResolvedSolverExecutionConfig")
 
     @property
     def backend(self) -> Literal["auto", "numpy", "jax", "numba"]:
@@ -482,8 +521,10 @@ __all__ = [
     "ResolvedFrequencyConfig",
     "ResolvedObservationConfig",
     "ResolvedSimulationConfig",
+    "ResolvedSkyLoadingConfig",
     "ResolvedSkyModelConfig",
     "ResolvedSkySourceRequest",
+    "ResolvedSolverExecutionConfig",
     "ValueOrigin",
     "freeze_runtime_value",
     "json_safe_mapping",

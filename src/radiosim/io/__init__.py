@@ -33,8 +33,10 @@ if TYPE_CHECKING:
         ResolvedFrequencyConfig,
         ResolvedObservationConfig,
         ResolvedSimulationConfig,
+        ResolvedSkyLoadingConfig,
         ResolvedSkyModelConfig,
         ResolvedSkySourceRequest,
+        ResolvedSolverExecutionConfig,
     )
     from radiosim.io.beam_config import BeamsConfig
     from radiosim.io.config import (
@@ -45,7 +47,9 @@ if TYPE_CHECKING:
         FrequencyGridConfig,
         PrecisionInput,
         RadioSimConfig,
+        SkyLoadingConfig,
         SkyModelConfig,
+        SolverExecutionConfig,
         create_default_config,
         dump_config,
         load_config,
@@ -95,6 +99,8 @@ _LAZY_EXPORTS = {
     "FrequencyGridConfig": ("radiosim.io.config", "FrequencyGridConfig"),
     "ExplicitFrequencyConfig": ("radiosim.io.config", "ExplicitFrequencyConfig"),
     "ExecutionConfig": ("radiosim.io.config", "ExecutionConfig"),
+    "SkyLoadingConfig": ("radiosim.io.config", "SkyLoadingConfig"),
+    "SolverExecutionConfig": ("radiosim.io.config", "SolverExecutionConfig"),
     "PrecisionInput": ("radiosim.io.config", "PrecisionInput"),
     "CliWorkflowConfig": ("radiosim.io.config", "CliWorkflowConfig"),
     "ConfigIssue": ("radiosim.io.config", "ConfigIssue"),
@@ -159,6 +165,14 @@ _LAZY_EXPORTS = {
     "ResolvedExecutionConfig": (
         "radiosim.core.runtime_config",
         "ResolvedExecutionConfig",
+    ),
+    "ResolvedSkyLoadingConfig": (
+        "radiosim.core.runtime_config",
+        "ResolvedSkyLoadingConfig",
+    ),
+    "ResolvedSolverExecutionConfig": (
+        "radiosim.core.runtime_config",
+        "ResolvedSolverExecutionConfig",
     ),
     "ResolvedSimulationConfig": (
         "radiosim.core.runtime_config",
@@ -251,6 +265,8 @@ __all__ = [
     "FrequencyGridConfig",
     "ExplicitFrequencyConfig",
     "ExecutionConfig",
+    "SkyLoadingConfig",
+    "SolverExecutionConfig",
     "PrecisionInput",
     "CliWorkflowConfig",
     "ConfigurationSource",
@@ -273,6 +289,8 @@ __all__ = [
     "ResolvedSkySourceRequest",
     "ResolvedSkyModelConfig",
     "ResolvedExecutionConfig",
+    "ResolvedSkyLoadingConfig",
+    "ResolvedSolverExecutionConfig",
     "ResolvedSimulationConfig",
     "ResolvedConfiguration",
     # Canonical HDF5 result I/O

@@ -17,6 +17,8 @@ from radiosim.io.config import (
     FrozenDict,
     PrecisionInput,
     RadioSimConfig,
+    SkyLoadingConfig,
+    SolverExecutionConfig,
     StrictFrozenModel,
     TestSourcesConfig,
     VisibilityConfig,
@@ -832,6 +834,149 @@ def test_precision_default_and_declared_backend_values_are_input_only():
     assert ExecutionConfig(backend="numba").backend == "numba"
     with pytest.raises(ValidationError):
         ExecutionConfig(backend=None)
+
+
+def test_tier6b_execution_declares_two_typed_worker_blocks_with_documented_defaults():
+    execution = ExecutionConfig()
+
+    assert set(ExecutionConfig.model_fields) == {
+        "backend",
+        "precision",
+        "simulator",
+        "offline",
+        "sky_loading",
+        "solver",
+    }
+    assert isinstance(execution.sky_loading, SkyLoadingConfig)
+    assert isinstance(execution.solver, SolverExecutionConfig)
+    assert execution.sky_loading.max_workers is None
+    assert execution.sky_loading.executor == "auto"
+    assert execution.solver.workers == 1
+    assert execution.solver.executor == "thread"
+    assert set(SkyLoadingConfig.model_fields) == {"max_workers", "executor"}
+    assert set(SolverExecutionConfig.model_fields) == {"workers", "executor"}
+    assert set(
+        getattr(SkyLoadingConfig.model_fields["executor"].annotation, "__args__", ())
+    ) == {"auto", "thread", "process"}
+    assert set(
+        getattr(
+            SolverExecutionConfig.model_fields["executor"].annotation, "__args__", ()
+        )
+    ) == {"thread"}
+    assert SkyLoadingConfig(max_workers=1).max_workers == 1
+    assert SkyLoadingConfig(max_workers=12).max_workers == 12
+    assert SkyLoadingConfig(executor="process").executor == "process"
+    assert SolverExecutionConfig(workers=4).workers == 4
+
+
+def test_tier6b_worker_blocks_are_strict_and_frozen():
+    assert issubclass(SkyLoadingConfig, StrictFrozenModel)
+    assert issubclass(SolverExecutionConfig, StrictFrozenModel)
+    for model, patch in (
+        (SkyLoadingConfig, {"workers": 2}),
+        (SkyLoadingConfig, {"max_wokers": 2}),
+        (SolverExecutionConfig, {"max_workers": 2}),
+    ):
+        with pytest.raises(ValidationError):
+            model.model_validate(patch)
+    loading = SkyLoadingConfig()
+    solver = SolverExecutionConfig()
+    with pytest.raises(ValidationError):
+        loading.max_workers = 2
+    with pytest.raises(ValidationError):
+        solver.workers = 2
+
+
+def test_tier6b_removed_execution_n_workers_names_both_replacements(tmp_path):
+    expected = (
+        "execution.n_workers: not a field; use execution.sky_loading.max_workers "
+        "for sky-loader concurrency or execution.solver.workers for solver "
+        "concurrency."
+    )
+    assert "n_workers" not in ExecutionConfig.model_fields
+
+    with pytest.raises(ValidationError) as direct:
+        ExecutionConfig.model_validate({"n_workers": 4})
+    assert expected in str(direct.value)
+
+    data = valid_config_mapping(tmp_path)
+    data["execution"]["n_workers"] = 4
+    issues = collect_schema_issues(data)
+
+    assert any(expected in issue.message for issue in issues)
+    with pytest.raises(ValidationError) as document:
+        RadioSimConfig.model_validate(data)
+    assert expected in str(document.value)
+
+
+@pytest.mark.parametrize("value", [0, -1, -8])
+def test_tier6b_non_positive_sky_loading_max_workers_is_rejected_verbatim(value):
+    expected = (
+        "execution.sky_loading.max_workers must be a positive integer or null "
+        "(null means auto)."
+    )
+
+    with pytest.raises(ValidationError) as error:
+        SkyLoadingConfig(max_workers=value)
+    assert expected in str(error.value)
+
+    with pytest.raises(ValidationError) as nested:
+        ExecutionConfig.model_validate({"sky_loading": {"max_workers": value}})
+    assert expected in str(nested.value)
+
+
+@pytest.mark.parametrize("value", [0, -1, -8])
+def test_tier6b_non_positive_solver_workers_is_rejected_verbatim(value):
+    expected = "execution.solver.workers must be a positive integer."
+
+    with pytest.raises(ValidationError) as error:
+        SolverExecutionConfig(workers=value)
+    assert expected in str(error.value)
+
+    with pytest.raises(ValidationError) as nested:
+        ExecutionConfig.model_validate({"solver": {"workers": value}})
+    assert expected in str(nested.value)
+
+
+def test_tier6b_solver_process_executor_is_rejected_verbatim(tmp_path):
+    expected = (
+        "execution.solver.executor=process: unsupported; the solver closure holds "
+        "beam handlers and astropy objects that cannot cross a process boundary. "
+        "Use execution.solver.executor=thread."
+    )
+
+    with pytest.raises(ValidationError) as error:
+        SolverExecutionConfig(executor="process")
+    assert expected in str(error.value)
+
+    data = valid_config_mapping(tmp_path)
+    data["execution"]["solver"] = {"executor": "process"}
+    issues = collect_schema_issues(data)
+
+    assert any(expected in issue.message for issue in issues)
+    with pytest.raises(ValidationError) as document:
+        RadioSimConfig.model_validate(data)
+    assert expected in str(document.value)
+
+
+def test_tier6b_worker_policy_round_trips_through_the_input_document(tmp_path):
+    data = valid_config_mapping(
+        tmp_path,
+        execution={
+            "sky_loading": {"max_workers": 3, "executor": "thread"},
+            "solver": {"workers": 2},
+        },
+    )
+    config = RadioSimConfig.model_validate(data)
+
+    dumped = config.model_dump(mode="json")
+
+    assert dumped["execution"]["sky_loading"] == {
+        "max_workers": 3,
+        "executor": "thread",
+    }
+    assert dumped["execution"]["solver"] == {"workers": 2, "executor": "thread"}
+    assert RadioSimConfig.model_validate(dumped).execution.solver.workers == 2
 
 
 def test_explicit_numpy_container_is_owned_by_model():

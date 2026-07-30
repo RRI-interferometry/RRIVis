@@ -1466,6 +1466,66 @@ class PrecisionInput(StrictFrozenModel):
         )
 
 
+_SKY_LOADING_MAX_WORKERS_GUIDANCE = (
+    "execution.sky_loading.max_workers must be a positive integer or null "
+    "(null means auto)."
+)
+_SOLVER_WORKERS_GUIDANCE = "execution.solver.workers must be a positive integer."
+_SOLVER_PROCESS_EXECUTOR_GUIDANCE = (
+    "execution.solver.executor=process: unsupported; the solver closure holds "
+    "beam handlers and astropy objects that cannot cross a process boundary. "
+    "Use execution.solver.executor=thread."
+)
+_REMOVED_EXECUTION_N_WORKERS_GUIDANCE = (
+    "execution.n_workers: not a field; use execution.sky_loading.max_workers "
+    "for sky-loader concurrency or execution.solver.workers for solver "
+    "concurrency."
+)
+
+
+def _positive_worker_count(value: Any, *, guidance: str) -> int:
+    """Return one strictly positive non-boolean integer worker count."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(guidance)
+    return value
+
+
+class SkyLoadingConfig(StrictFrozenModel):
+    """Loader-side concurrency policy for sky-model acquisition."""
+
+    max_workers: int | None = None
+    executor: Literal["auto", "thread", "process"] = "auto"
+
+    @field_validator("max_workers", mode="before")
+    @classmethod
+    def validate_max_workers(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return _positive_worker_count(
+            value,
+            guidance=_SKY_LOADING_MAX_WORKERS_GUIDANCE,
+        )
+
+
+class SolverExecutionConfig(StrictFrozenModel):
+    """Solver-side concurrency policy for visibility computation."""
+
+    workers: int = 1
+    executor: Literal["thread"] = "thread"
+
+    @field_validator("workers", mode="before")
+    @classmethod
+    def validate_workers(cls, value: Any) -> Any:
+        return _positive_worker_count(value, guidance=_SOLVER_WORKERS_GUIDANCE)
+
+    @field_validator("executor", mode="before")
+    @classmethod
+    def reject_process_executor(cls, value: Any) -> Any:
+        if value == "process":
+            raise ValueError(_SOLVER_PROCESS_EXECUTOR_GUIDANCE)
+        return value
+
+
 class ExecutionConfig(StrictFrozenModel):
     """Declared execution strategy; no backend construction occurs here."""
 
@@ -1475,6 +1535,17 @@ class ExecutionConfig(StrictFrozenModel):
     )
     simulator: Literal["rime"] = "rime"
     offline: bool = False
+    sky_loading: SkyLoadingConfig = Field(default_factory=SkyLoadingConfig)
+    solver: SolverExecutionConfig = Field(default_factory=SolverExecutionConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_removed_worker_field(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping):
+            return value
+        if "n_workers" in cast(Mapping[str, object], value):
+            raise ValueError(_REMOVED_EXECUTION_N_WORKERS_GUIDANCE)
+        return value
 
     @field_serializer("precision")
     def serialize_precision(self, value: PrecisionInput, info: Any) -> dict[str, Any]:
@@ -2632,12 +2703,14 @@ __all__ = [
     "RadioSimConfig",
     "RealisticForegroundSourceConfig",
     "SkyFootprintInput",
+    "SkyLoadingConfig",
     "SkyModelConfig",
     "SkyModelPrecisionInput",
     "SkyProvenanceInput",
     "SkyRegionEntryConfig",
     "SkySourceConfig",
     "Skyh5MultifileSourceConfig",
+    "SolverExecutionConfig",
     "StrictFrozenModel",
     "TestSourcesConfig",
     "VisibilityConfig",

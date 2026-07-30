@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import json
 import socket
 import webbrowser
 from dataclasses import FrozenInstanceError
@@ -15,6 +16,10 @@ from pydantic import ValidationError
 from radiosim.api import Simulator
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.registry.facade import SkyLoaderRegistry
+from radiosim.io import (
+    ResolvedSkyLoadingConfig,
+    ResolvedSolverExecutionConfig,
+)
 from radiosim.io.config import (
     ExplicitFrequencyConfig,
     PrecisionInput,
@@ -812,3 +817,165 @@ def test_receptor_resolution_is_not_performed_at_configuration_time(tmp_path):
     )
 
     assert bundle.runtime.receptors.overrides[0].antenna.number == 91
+
+
+def _resolve(tmp_path: Path, **overrides: object):
+    return resolve_config(
+        valid_config_mapping(tmp_path, **overrides),
+        source=ConfigurationSource.for_mapping(
+            base_dir=tmp_path,
+            invocation_dir=tmp_path,
+        ),
+    )
+
+
+def test_tier6b_worker_policy_resolves_to_typed_frozen_values(tmp_path):
+    bundle = _resolve(
+        tmp_path,
+        execution={
+            "sky_loading": {"max_workers": 3, "executor": "process"},
+            "solver": {"workers": 2},
+        },
+    )
+    execution = bundle.runtime.execution
+
+    assert type(execution.sky_loading) is ResolvedSkyLoadingConfig
+    assert type(execution.solver) is ResolvedSolverExecutionConfig
+    assert execution.sky_loading.max_workers == 3
+    assert execution.sky_loading.executor == "process"
+    assert execution.solver.workers == 2
+    assert execution.solver.executor == "thread"
+    with pytest.raises(FrozenInstanceError):
+        execution.solver.workers = 4
+    with pytest.raises(FrozenInstanceError):
+        execution.sky_loading.max_workers = 4
+
+
+def test_tier6b_auto_max_workers_is_the_request_cpu_and_eight_minimum(tmp_path):
+    import os
+
+    bundle = _resolve(tmp_path)
+    expected = min(1, os.cpu_count() or 1, 8)
+
+    assert bundle.runtime.sky_model.sources != ()
+    assert len(bundle.runtime.sky_model.sources) == 1
+    assert bundle.runtime.execution.sky_loading.max_workers == expected
+
+    many = _resolve(
+        tmp_path,
+        sky_sources=[
+            {
+                "kind": "test_sources",
+                "representation": "point_sources",
+                "num_sources": 2,
+                "distribution": "uniform",
+                "seed": index + 1,
+            }
+            for index in range(12)
+        ],
+    )
+    expected_many = min(12, os.cpu_count() or 1, 8)
+
+    assert len(many.runtime.sky_model.sources) == 12
+    assert many.runtime.execution.sky_loading.max_workers == expected_many
+    assert many.runtime.execution.sky_loading.max_workers <= 8
+
+
+def test_tier6b_solver_workers_are_clamped_to_the_time_sample_count(tmp_path):
+    bundle = _resolve(
+        tmp_path,
+        obs_time={
+            "start_time": "2025-01-01T00:00:00",
+            "duration_seconds": 2.0,
+            "time_step_seconds": 1.0,
+        },
+        execution={"solver": {"workers": 7}},
+    )
+
+    assert len(bundle.runtime.observation.time_grid) == 2
+    assert bundle.runtime.execution.solver.workers == 2
+    snapshot = bundle.provenance.input_snapshot
+    assert snapshot["execution"]["solver"]["workers"] == 7
+    assert bundle.provenance.override_origins["execution.solver.workers"] == "document"
+
+    unclamped = _resolve(
+        tmp_path,
+        obs_time={
+            "start_time": "2025-01-01T00:00:00",
+            "duration_seconds": 8.0,
+            "time_step_seconds": 1.0,
+        },
+        execution={"solver": {"workers": 7}},
+    )
+
+    assert len(unclamped.runtime.observation.time_grid) == 8
+    assert unclamped.runtime.execution.solver.workers == 7
+
+
+def test_tier6b_worker_policy_origins_are_recorded_for_defaults_and_documents(tmp_path):
+    default_bundle = _resolve(tmp_path)
+    origins = default_bundle.provenance.override_origins
+
+    for key in (
+        "execution.sky_loading.max_workers",
+        "execution.sky_loading.executor",
+        "execution.solver.workers",
+        "execution.solver.executor",
+    ):
+        assert origins[key] == "default"
+
+    documented = _resolve(
+        tmp_path,
+        execution={
+            "sky_loading": {"max_workers": 2},
+            "solver": {"workers": 1, "executor": "thread"},
+        },
+    )
+    documented_origins = documented.provenance.override_origins
+
+    assert documented_origins["execution.sky_loading.max_workers"] == "document"
+    assert documented_origins["execution.sky_loading.executor"] == "default"
+    assert documented_origins["execution.solver.workers"] == "document"
+    assert documented_origins["execution.solver.executor"] == "document"
+
+
+def test_tier6b_resolved_worker_policy_is_json_safe_and_carried_in_the_snapshot(
+    tmp_path,
+):
+    bundle = _resolve(
+        tmp_path,
+        execution={
+            "sky_loading": {"max_workers": 5, "executor": "thread"},
+            "solver": {"workers": 1},
+        },
+    )
+
+    snapshot = bundle.runtime.to_json_safe()
+
+    assert snapshot["execution"]["sky_loading"] == {
+        "max_workers": 5,
+        "executor": "thread",
+    }
+    assert snapshot["execution"]["solver"] == {"workers": 1, "executor": "thread"}
+    assert json.dumps(snapshot, allow_nan=False, sort_keys=True)
+
+
+def test_tier6b_resolved_worker_dataclasses_validate_their_own_invariants():
+    from radiosim.core import runtime_config
+
+    assert ResolvedSkyLoadingConfig is runtime_config.ResolvedSkyLoadingConfig
+    assert ResolvedSolverExecutionConfig is runtime_config.ResolvedSolverExecutionConfig
+    assert ResolvedSkyLoadingConfig(max_workers=1, executor="auto").max_workers == 1
+    assert ResolvedSolverExecutionConfig(workers=1, executor="thread").workers == 1
+    with pytest.raises(TypeError):
+        ResolvedSkyLoadingConfig(max_workers=None, executor="auto")
+    with pytest.raises(ValueError):
+        ResolvedSkyLoadingConfig(max_workers=0, executor="auto")
+    with pytest.raises(ValueError):
+        ResolvedSkyLoadingConfig(max_workers=2, executor="serial")
+    with pytest.raises(ValueError):
+        ResolvedSolverExecutionConfig(workers=0, executor="thread")
+    with pytest.raises(ValueError):
+        ResolvedSolverExecutionConfig(workers=2, executor="process")
+    with pytest.raises(TypeError):
+        ResolvedSolverExecutionConfig(workers=True, executor="thread")
