@@ -205,6 +205,7 @@ Status values used below:
 | RUN-003 | OPEN | High-level API forces point or HEALPix and cannot preserve hybrid sky | 6 |
 | RUN-004 | ROADMAP | Backend abstraction is not yet performance-bearing end to end | 6 |
 | SKY-001 | OPEN | Every VizieR point-catalog loader (`gleam`, `mals`, `lotss`, `vlssr`, `tgss`, `wenss`, `sumss`, `nvss`, `3c`, `vlass`) raises `TypeError` because commit `7b02bb2` made `_load_from_vizier_catalog`'s `precision` keyword-only while all four wrapper call sites in `core/sky/loaders/vizier/point_catalogs.py` still pass it positionally | standalone, bounded fix (pre-Tier 7) |
+| RUN-005 | OPEN | `scientific_sha256` embeds the antenna layout source file's absolute filesystem path (`io/instrument_sources.py`'s `source_reference=str(path)`, carried into `instrument_snapshot["reference"]` and hashed by `core/result.py::_scientific_hash`), so two runs of the identical config with bit-identical raw visibility cubes produce different `scientific_sha256` values solely because the repository checkout lives at a different absolute path; confirmed pre-existing and unaffected by Tier 6D (`core/instrument.py`, `io/instrument_sources.py`, `core/result.py` are untouched in `c5d79aa..87d7c79`) by reproducing the same divergence with cube-identical, fingerprint-different runs at `c5d79aa` from two detached worktrees | standalone, bounded fix (pre-Tier 7) |
 | SCI-001 | ROADMAP | Most Jones classes are public identity-returning stubs | 7 |
 | SCI-002 | ROADMAP | Spherical-harmonic/m-mode mode is advertised but unimplemented | 7 |
 | SCI-003 | ROADMAP | Advanced beam-physics TODOs remain | 7 |
@@ -7699,3 +7700,284 @@ only authorized next slice**, limited to its Section 33 file list
 `tests/unit/test_core/test_visibility_backend.py`); Tier 6E through 6J remain
 unauthorized until each predecessor slice is implemented and independently
 accepted. Nothing was pushed.
+
+### 2026-07-30 Tier 6D independent acceptance
+
+**Tier 6D (solver accumulation restructure) is independently accepted.**
+Reviewed range `c5d79aa..87d7c79`: plan correction `b4e3cef` (`docs(runtime):
+correct Tier 6 design`) followed by the implementation commit `87d7c79`
+(`refactor(runtime): assemble solver output in blocks instead of per cell`),
+neither carrying a co-author line. `git show --stat 87d7c79` confirms the
+touched set -- `backends/base.py`, `core/visibility.py`,
+`core/visibility_healpix.py`,
+`tests/characterization/test_tier6_current_behavior.py`,
+`tests/unit/test_backends/test_array_backend_helpers.py`,
+`tests/unit/test_core/test_visibility_accumulation.py`,
+`tests/unit/test_core/test_visibility_backend.py` -- a subset of 6D's Section
+33 grant; `backends/numpy_backend.py` and
+`tests/unit/test_core/test_beam_solver_integration.py` were granted but left
+unchanged (a permission, not a requirement -- confirmed both files have an
+empty diff against `c5d79aa`, and the 26-test
+`test_beam_solver_integration.py` suite still passes 26/26 unmodified).
+
+**Restructure review, both solvers.** Read `core/visibility.py` and
+`core/visibility_healpix.py` in full. Confirmed by direct grep: zero
+`backend.set_at(` call sites remain in either module's hot path (`set_at`
+appears only in its own definition on `ArrayBackend` and in the surface test
+`test_set_at_remains_on_the_surface_after_the_restructure`); `backend.stack(`
+appears exactly 3 times in each solver, matching the three assembly levels.
+Both solvers now: collect `baseline_matrices` (one `(2, 2)` matrix per
+baseline, each already cast to `output_complex_dtype`) and assemble them with
+`backend.stack(baseline_matrices, axis=0)` into one `(B, 2, 2)` block per
+`(time, frequency)`; append that to `freq_blocks` and assemble
+`backend.stack(freq_blocks, axis=1)` into one `(B, F, 2, 2)` block per time
+(the corrected §13.3 axis order, `axis=1` over the `F` blocks each shaped
+`(B, 2, 2)`); append that to `time_blocks` and assemble
+`backend.stack(time_blocks, axis=0)` once per call into the canonical
+`(T, B, F, 2, 2)` cube. `ArrayBackend.stack` (`backends/base.py`) is
+`self.xp.stack(arrays, axis=axis)`, concrete on the base class and inherited
+by every backend (confirmed `ArrayBackend.stack is NumPyBackend.stack` via the
+shipped test); every backend's `xp` property returns its own array-namespace
+module (`np` for NumPy/Dask, `jnp` for JAX), so `stack` is pure and
+non-mutating on every backend including JAX, which is the property Q3 and the
+JAX-adoption boundary (§13.6) both depend on -- read directly, not merely
+trusted.
+
+The HEALPix hoist (defect D12, first half) was checked for a genuine absence
+of time dependence, not just a line-order check: `_receptor_transforms`
+(unchanged by this diff, confirmed by its absence from the diff hunk) takes
+only `receptors`, `instrument`, and `antenna_numbers`, and internally reads
+only `receptor.basis`, `receptors.output_basis`, and
+`receptor.feed_rotation_rad` -- all static per-run configuration, no time
+argument anywhere in its signature or body. The call site moved from inside
+the time loop to directly after the new degenerate-axis guard, using
+`selected_pairs`/`baseline_vectors` that are already defined earlier in the
+function (lines 366/371, well before the new call site at line 391), so the
+hoist reads the same values it always did, just once instead of `T` times.
+The frequency loop no longer enumerates (`for freq in frequencies:`, not
+`for freq_idx, freq in enumerate(...)`), confirming the last use of
+`freq_idx` was removed along with the per-cell write it indexed.
+
+The bare-`np.*` HEALPix Stokes/Planck routing is confirmed untouched (the diff
+touches only the accumulation and hoist, not the Stokes-casting or
+Planck-branch code), correctly left for 6H per §13.2's own table row.
+
+**Boundary cases, read and independently exercised.** A time step with
+nothing above the horizon appends a lazily-created, reused `empty_time_block`
+(`backend.zeros_complex((n_baselines, n_freqs, 2, 2), ...)`, built once and
+referenced by every skipped time step rather than rebuilt) before `continue`,
+so it never enters the frequency loop and contributes no assembly of its own
+-- confirmed both by reading the code and by the shipped
+`test_a_time_with_no_visible_sources_still_contributes_one_block`, which
+asserts `backend.stack_shapes == [array.shape]` (only the one final cube
+assembly). A degenerate axis (`n_times == 0 or n_baselines == 0 or n_freq ==
+0`) or an empty source batch returns the zero cube directly before entering
+the time loop at all, confirmed both by reading the guard and by
+`test_empty_point_source_batch_assembles_nothing`, which asserts
+`backend.stack_shapes == []` (zero assemblies, not one). Both match the
+corrected §13.3 text exactly.
+
+**Pin-arithmetic check, reproduced by hand.** For a run with all `T` time
+steps above the horizon: `T` baseline-block assemblies per frequency across
+`F` frequencies gives `T*F` rank-3 assemblies; one `(B, F, 2, 2)` assembly per
+time step gives `T` more; one final cube assembly gives `+1`; total
+`T*F + T + 1`, matching both the flipped `test_tier6_current_behavior.py`
+pins and `test_visibility_accumulation.py`'s
+`_assert_block_assembly_shape`. Independently verified this is not a
+coincidental match to the *old* `T*B*F` count by construction: the new count
+has no `B` factor at all, because assembling all `B` baselines into one block
+is exactly the operation that replaces the old per-baseline `set_at` writes.
+
+**`_StrictOutputBackend` guard, proven load-bearing, not just read.** The
+guard was moved from `set_at` to `stack`
+(`tests/unit/test_core/test_visibility_backend.py`), asserting every array
+entering an assembly, and the assembled result, already carries
+`backend.get_complex_dtype("output")`. Rather than trust this from reading
+alone, the review temporarily removed the explicit
+`backend.asarray(..., dtype=output_complex_dtype)` cast around one
+`visibility_matrix` in `core/visibility.py` (point solver, cross-correlation
+branch), ran the full non-slow suite, confirmed
+`test_point_source_fast_precision_casts_explicitly_at_output_boundary` failed
+with `TypeError: unsafe implicit complex output cast` (the guard firing
+exactly as designed) and that
+`test_block_assembly_preserves_the_output_dtype_for_every_precision[fast]`
+failed independently with a `complex128`-vs-`complex64` dtype-mismatch
+assertion (two independent tests catching the same regression), then reverted
+the change (`git diff` against the file is empty after revert, confirmed).
+The guard is genuinely non-vacuous, not merely well-worded.
+
+**Bit-identity, reproduced independently in a detached, PYTHONPATH-isolated
+worktree at `c5d79aa`.** A standalone dump script (outside the shipped test
+suite) constructed 6 of the plan's 7 §13.4 workload shapes -- point
+unpolarized, point polarized, point Gaussian, point entirely below the
+horizon, HEALPix scalar, HEALPix polarized (heterogeneous receptor bases was
+not attempted, to avoid guessing an unfamiliar config schema under review time
+pressure) -- at both `standard` and `fast` precision, 12 cubes total, called
+`calculate_visibility`/`calculate_visibility_healpix` directly from each tree,
+and dumped each cube to `.npy`. `cmp` on all 12 `.npy` pairs:
+**12/12 byte-identical**, exceeding the charter's 6-of-14 minimum and
+spanning both solvers, both polarization states, and both precisions.
+Separately, `tests/characterization/test_tier6_current_behavior.py` was run
+directly (not through the `pixi run test` task, which silently appends the
+whole `tests/` tree to any extra path argument) in both environments: **41/41
+passed in py311 and 41/41 passed in py312**, including both 6A shipped-config
+fingerprint pins and all six §13.4 workload-fingerprint parametrizations.
+`configs/config.yaml` run end to end through `Simulator.from_yaml(...).setup().run()`
+gave `scientific_sha256 = 302deb27aebed7fd9db23a51bf8e3ad038258de3b4752021d823c86e6ba8e685`,
+matching 6A's py311 pin exactly, and its raw visibility cube's SHA-256
+(`cce1bfe86d...`) matches the value 6C's own review independently recorded for
+the same config, both before and after this slice -- a third, independent
+confirmation that nothing computed has changed since `c5d79aa`.
+
+**Q3 reproduction (peak host memory).** Reproduced with an isolated probe
+that brackets only the solver call (`solver.calculate_visibilities(...)`)
+with `tracemalloc`, not the whole `setup()+run()`, so the measurement is
+scoped to exactly what Q3 asks about. On this machine (`configs/config.yaml`,
+the `(60, 15, 101, 2, 2)` `complex128` cube, 5.548 MiB, confirmed identical
+shape/dtype/size to the module's own record):
+
+```text
+                                    c5d79aa (before)   87d7c79 (after)   delta
+peak above solver-call entry (MiB)  92.80              95.26             +2.46 (+2.6%)
+retained at solver-call return (MiB) 89.48             89.47             ~0
+```
+
+(three runs per tree; run-to-run spread under 0.01 MiB in both trees). The
+absolute numbers differ from the module's own recorded 94.359/97.718 MiB
+because that record brackets the *whole run* including `setup()`'s sky
+loading, while this probe deliberately isolates the solver call alone -- a
+different measurement scope, consistent with 6A's own precedent that an
+independently constructed probe need not reproduce a docstring's literal
+digits, only its claim. The claim holds under this independent, narrower
+probe too: the transient increase is a few MiB, far short of one cube
+(5.548 MiB), let alone a doubling of the ~90-95 MiB baseline, and nothing
+extra is retained once the call returns. Q3's conditional (fall back to a
+per-backend, pre-allocated-cube assembly strategy if peak memory doubles)
+correctly does not fire, and the single block-structured path is confirmed
+adequate for every backend.
+
+**Plan correction `b4e3cef`, ratified.** Independently re-derived the
+self-inconsistency it corrects: `stack`-ing `T` blocks of the sketch's stated
+shape `(F, B, 2, 2)` on `axis=0` inserts the new axis at position 0 while
+leaving every other axis in its original relative order, producing
+`(T, F, B, 2, 2)`, not the required `(T, B, F, 2, 2)` -- a genuine
+self-contradiction in the original §13.3 text, not a fabricated pretext for
+a decision change. The corrected reading -- per-time block `(B, F, 2, 2)`,
+built as `stack(freq_blocks, axis=1)` over `F` blocks each `(B, 2, 2)` --
+produces exactly `(T, B, F, 2, 2)` on the final `stack(..., axis=0)`, verified
+by the same axis-insertion rule and confirmed against the implementation and
+its passing shape-asserting tests. Every binding property the sketch stated
+(one block per `(t, f)`, one block per `t`, one whole-cube assembly, no
+change to any computed number) survives; only the stated intermediate shape
+changes. Notation-only; no decision changed. Ratified.
+
+**Gates, both environments.**
+
+```text
+pixi run test -- -m "not slow"                   -> 4057 passed, 6 skipped, 26 warnings (py311/default)
+pixi run -e py312 test -- -m "not slow"          -> 4057 passed, 6 skipped, 26 warnings (py312)
+pixi run lint                                    -> All checks passed! (ruff check .)
+pixi run -e py312 lint                           -> 9 UP042 (str+Enum) errors, identical file/line set to the
+                                                     6B/6C-confirmed pre-existing condition (constants.py:14,26;
+                                                     footprint.py:19,32,40; result_format.py:19; beamfits.py:21,28,36);
+                                                     none of these files is in 6D's diff
+pixi run check-format                            -> 328 files already formatted
+pixi run -e py312 check-format                   -> 2 files would reformat (test_cleanup_diffuse.py,
+                                                     test_instrument_sources.py), identical to the 6B/6C-confirmed
+                                                     pre-existing condition; neither file is in 6D's diff
+git status                                       -> clean before and after review edits
+git log -2 --format="%H %B"                      -> no Co-Authored-By line in b4e3cef or 87d7c79
+```
+
+The claimed `4,057 = 4,039` (accepted 6C baseline) `+ 18` new tests is
+confirmed: `pytest --collect-only -q` on the two new test files
+(`tests/unit/test_core/test_visibility_accumulation.py`,
+`tests/unit/test_backends/test_array_backend_helpers.py`) collects exactly 18
+tests, and `tests/characterization/test_tier6_current_behavior.py` still
+collects 41 (three pins flipped in place, net zero new tests), reconciling
+exactly with the full-suite delta. Both environments agree exactly
+(4,057 passed / 6 skipped / 26 warnings).
+
+**Config count and HDF5 writer.** `configs/` contains the same three
+shipped YAMLs as 6B/6C found (`config.yaml`, `receptor_circular_example.yaml`,
+`realistic_foreground_example.yaml`). Both runnable configs were driven
+through `Simulator.from_yaml(...).setup().run().save(...)` and each wrote a
+readable HDF5 file (`config.h5`, 1,272,557 bytes; `receptor_circular_example.h5`,
+97,342 bytes) with no error. `realistic_foreground_example.yaml` fails
+identically before and after this slice with the known-`OPEN` `SKY-001`
+`TypeError` from `_load_from_vizier_catalog`'s keyword-only `precision`
+mismatch -- reproduced directly, not a regression introduced by 6D.
+
+**Adjudication (1) -- the pre-existing path-dependent `scientific_sha256`
+discovery, verified independently, not taken on trust.** Confirmed real by
+direct experiment: two detached worktrees of the identical commit (`87d7c79`,
+at `/tmp/radiosim-6d-head-copy` and this checkout) running the byte-identical
+`configs/config.yaml` produced **identical raw-visibility-cube SHA-256**
+(`cce1bfe86d...` both) but **different `scientific_sha256`**
+(`302deb27...` vs `91550d35...`), because
+`io/instrument_sources.py`'s `_load_radiosim` sets
+`source_reference=str(path)` to the antenna layout file's absolute path
+(`/Users/.../antenna_layout_examples/hera_5.txt` vs
+`/private/tmp/.../antenna_layout_examples/hera_5.txt`), which reaches
+`instrument_snapshot["reference"]` and is hashed by
+`core/result.py::_scientific_hash`. Repeated the identical experiment at
+`c5d79aa` (two more detached worktrees, git-stash-free since each is its own
+checkout): same pattern -- identical cube SHA-256, different
+`scientific_sha256` by absolute path -- confirming the defect is genuinely
+**pre-existing and not introduced by Tier 6D**, corroborated structurally by
+`git diff c5d79aa..87d7c79 --stat -- core/instrument.py
+io/instrument_sources.py core/result.py` being empty (none of the three
+modules that produce or hash `source_reference` were touched by this slice).
+**Ruling: a new register row, not a Section 21/§27 C11/C12 ledger note.**
+C11/C12 record a different, *intentional* future change -- `scientific_sha256`
+changing when Tier 6F adds hybrid summation -- and conflating this
+unintentional, environment-artifact leak with that planned change would
+misfile it. Added register row `RUN-005` (exact text below) rather than
+fixing production code, consistent with the charter's "no production fixes"
+boundary; the fix (dropping the absolute path from what feeds the scientific
+hash, or hashing file content instead) is a standalone, bounded change
+outside Tier 6D's Section 33 grant.
+
+```text
+| RUN-005 | OPEN | `scientific_sha256` embeds the antenna layout source file's absolute filesystem path (`io/instrument_sources.py`'s `source_reference=str(path)`, carried into `instrument_snapshot["reference"]` and hashed by `core/result.py::_scientific_hash`), so two runs of the identical config with bit-identical raw visibility cubes produce different `scientific_sha256` values solely because the repository checkout lives at a different absolute path; confirmed pre-existing and unaffected by Tier 6D (`core/instrument.py`, `io/instrument_sources.py`, `core/result.py` are untouched in `c5d79aa..87d7c79`) by reproducing the same divergence with cube-identical, fingerprint-different runs at `c5d79aa` from two detached worktrees | standalone, bounded fix (pre-Tier 7) |
+```
+
+**Adjudication (2) -- the axis-order deviation.** Fully covered by plan
+correction `b4e3cef`, ratified above. No further action.
+
+**Adjudication (3) -- the `_StrictOutputBackend` guard move.** Granted:
+`tests/unit/test_core/test_visibility_backend.py` is explicitly named in
+6D's Section 33 file list. Confirmed non-vacuous by the empirical
+cast-removal probe described above, not merely by reading its source.
+
+**Unobserved items.** The 7th §13.4 workload (heterogeneous receptor bases)
+was not independently reproduced in the standalone dump script, to avoid
+guessing at an unfamiliar receptor-assignment config schema under review time
+pressure; the shipped `test_section_13_4_workload_fingerprints[heterogeneous_receptor_bases]`
+pin was run and passed in both environments instead, which is the same
+evidentiary weight 6A/6B/6C gave to shipped pins throughout. No GPU, TPU, or
+distributed hardware was exercised (none is claimed by 6D). `pixi run
+typecheck` was not run, consistent with `CLAUDE.md`'s standing instruction
+and this review's charter. The Q3 probe's absolute MiB figures are
+machine/scope-specific (see the Q3 section above for why they differ from the
+module's own recorded numbers); only the qualitative claim (sub-cube
+transient, no doubling, no extra retention) was independently confirmed, per
+the charter's own framing of Q3 as a conditional check rather than an exact
+replication.
+
+This acceptance changes planning/roadmap records and production/test code
+(the register addition and status-header update only; no `src/` or `tests/`
+file was modified by this review after the empirical dtype-guard probe was
+reverted, confirmed by `git status`/`git diff` being empty immediately before
+this commit). Tier 6D is accepted; **Tier 6E (solver worker policy and
+`run()` signature) is now the only authorized next slice**, limited to its
+Section 33 file list (`api/simulator.py`, `core/__init__.py`,
+`core/solver_partition.py`, `core/visibility.py`, `core/visibility_healpix.py`,
+`simulator/rime.py`, `docs/migration_guide.md`,
+`tests/characterization/test_tier6_current_behavior.py`,
+`tests/unit/test_core/test_solver_partition.py`,
+`tests/unit/test_simulator/test_api.py`,
+`tests/unit/test_simulator/test_worker_policy.py`,
+`tests/unit/test_tier4_result_output_acceptance.py`); Tier 6F through 6J
+remain unauthorized until each predecessor slice is implemented and
+independently accepted. `RUN-005` is newly **OPEN**. Nothing was pushed.
