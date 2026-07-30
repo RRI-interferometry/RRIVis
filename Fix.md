@@ -198,8 +198,8 @@ Status values used below:
 | OUT-004 | DONE | JSON output contains no visibility data | 4 |
 | OUT-005 | DONE | HDF5 reader uses unsafe `eval()` | 4 |
 | OUT-006 | DONE | UVFITS is accepted by config but unsupported by `save()` | 4 |
-| POL-001 | OPEN | Top-level feed/receptor config is ignored | 5 |
-| POL-002 | ROADMAP | Receptor and basis-transform Jones terms are identity stubs | 5 |
+| POL-001 | DONE | Top-level feed/receptor config is ignored | 5 |
+| POL-002 | DONE | Receptor and basis-transform Jones terms are identity stubs | 5 |
 | RUN-001 | OPEN | `run(n_workers=...)` is unused | 6 |
 | RUN-002 | OPEN | Sky loading hard-codes `max_workers=8` | 6 |
 | RUN-003 | OPEN | High-level API forces point or HEALPix and cannot preserve hybrid sky | 6 |
@@ -6492,3 +6492,147 @@ authorized, and its writable file list is now `Fix.md`,
 `Tier5ReceptorFeedPlan.md`, `docs/migration_guide.md`, and
 `tests/unit/test_tier5_receptor_acceptance.py` per the `d1d5f68` correction.
 No PR, tag, release, or deployment was created.
+
+### 2026-07-30 Tier 5 whole-tier acceptance (Tier 5I)
+
+**VERDICT: ACCEPTED.** The complete indivisible Tier 5 range `1472c3c..91072b6`
+(32 commits, slices 5A through 5H plus their design corrections) is accepted as
+one whole under `Tier5ReceptorFeedPlan.md` §34.9. `POL-001` and `POL-002` are
+closed in §5 below. This review was performed independently, from current
+source and live probes, not from the slice acceptance summaries; every prior
+record was read, but every criterion below was re-derived or re-run.
+
+**Step 0 — routed migration-guide obligation, completed first.** Commit
+`09320d8` (`docs(feeds): add receptor migration note`) adds the missing
+`docs/migration_guide.md` entry naming `visibility_to_correlations`,
+`mueller_from_jones`, and `core/receptor.py`'s `PolarizationBasisName` and
+stating each has no replacement, and extends
+`tests/unit/test_tier5_receptor_acceptance.py`'s `ALLOWED_REFERENCES` /
+`REFERENCE_RECORDING_FILES` to sanction that one `docs/` reference, plus
+relaxes the scan's `startswith("tests/")` assertion to also accept the exact
+string `docs/migration_guide.md` (the routed obligation could not be satisfied
+by the exact-list addition alone: that assertion is a second, independent
+check the `d1d5f68` correction did not separately name but which the new
+reference necessarily triggers). Reproduced: before this commit,
+`tests/unit/test_tier5_receptor_acceptance.py::test_removed_names_are_referenced_nowhere_in_the_repository`
+failed for all three names (3 failed, 3926 passed); after, the full file (38
+tests) passes. Touches only the two files the `d1d5f68` correction granted to
+5I; no production behavior changed.
+
+**Section 39 criteria checklist.**
+
+| # | Criterion | Proof method | Result |
+|---|---|---|---|
+| 1 | Linear range, every slice independently accepted, commits match §35 | Read: `git log --graph --oneline 1472c3c..91072b6` (32 commits, zero merges); read every 5A-5H `Fix.md` record; re-diffed two implementation commits (`0524e56` Tier 5C: 4 files, `daa97b8` Tier 5F: 13 files) against their corrected §35 grants, both exact | PASS |
+| 2 | Six design decisions (§10-15) implemented as specified | Read: single `stokes_to_coherency`/`coherency_to_stokes` pair (§10); `linear`/`circular` schema literal with typed rejections (§11); pyuvdata feed-angle convention reproduced in MS/UVFITS output (§12); heterogeneous common-basis resolution (§13); shared `CORRELATION_LABELS` table (§14); `illumination`/`receptor` identifier split, zero cross-contamination by grep (§15) | PASS |
+| 3 | `stokes_to_coherency`/`coherency_to_stokes` implement §9.1 exactly, round-trip (S2, S3) | Independent numpy computation (`sci_checks.py`), compared against production functions | PASS |
+| 4 | `ReceptorConfigJones`/`BasisTransformJones` implement §18 exactly, unitary in fact, no non-analytic identity | Read `is_unitary()`/`is_diagonal()`; independent `(HC)^H(HC)=I2` check over all 4 `(basis, chi, output_basis)` combinations; exhaustive §16/§27 schema walk (below) | PASS |
+| 5 | Circular table (S4) reproduced against R2/R4 independently | Independent numpy computation of `S B S^H`, matched `RR=(I+V)/2` etc. exactly | PASS |
+| 6 | Unpolarized energy conservation (S5), both bases, every rotation | Independent computation, 13 rotations spanning `[-pi, pi]`, both bases | PASS |
+| 7 | Rotation invariants S7/S8, round trips S6/S9, machine precision | Independent computation, `atol=1e-12` | PASS |
+| 8 | Heterogeneous array to one basis (S10); `auto` on mixed array rejected with exact message | End-to-end per-antenna-override config (linear default + 1 circular override, `output_basis: linear`); by-hand `AmbiguousOutputBasisError` reproduction matching §27 verbatim | PASS |
+| 9 | Point/HEALPix agree on common circular case (S12) | Re-ran `tests/unit/test_core/test_receptor_solver.py::test_point_and_healpix_agree_on_a_circular_case` | PASS |
+| 10 | Chain composes in §19.1 order (S13) | Read `core/visibility.py:707-787` add order (`H,G,B,D,P,C,E,T,Z`); re-ran `tests/unit/test_jones/test_chain_order.py` (10 tests, non-commuting synthetic terms) | PASS |
+| 11 | `.correlations`/`.polarization_basis` derived at every construction site; `stokes_i()` derives indices | Read all four `core/result.py` construction sites (:1142-1143, :1180-1181, :1327-1328, :1357-1358) — none hard-codes a literal | PASS |
+| 12 | HDF5 `2.0.0` round-trips both bases, rejects `1.0.0` and hostile reorderings | End-to-end HDF5 round trip both bases; by-hand mutation of a written file's `schema_version` to `1.0.0` (`UnsupportedSchemaVersionError`, names Tier 5, exact §21.5 text); by-hand mutation of `aips_codes` to the linear row inside a circular file (`UnsafeResultInputError`) | PASS |
+| 13 | MS/UVFITS round-trip both bases, `feed_array`/`feed_angle`/`polarization_array`/`CORR_TYPE` inspected | End-to-end write+read-back both bases: linear `feed_array=(x,y)`, `feed_angle=(pi/2,0)`; circular `feed_array=(r,l)`, `feed_angle=(0,0)`; MS/UVFITS `polarization_array` both canonicalize to descending `(-5..-8)`/`(-1..-4)` on read-back per §14.2; feed-rotation config confirms the *written* file carries the basis-nominal angle while the true per-antenna 45° rotation is recorded only in the HDF5 `receptors/` group (§14.4 by design, independently confirmed, not a defect) | PASS |
+| 14 | Summary JSON reports true basis/labels/receptor block; per-antenna definitions excluded | End-to-end summary JSON both bases (`"basis"`/`"labels"` match `result.correlations`); read `_EXCLUDED_PAYLOADS` in `io/summary_json.py`, contains `"per_antenna_receptor_definitions"` | PASS |
+| 15 | Every renderer derives polarization text from `result.correlations` | Read `visualization/bokeh_plots.py:101-102`: `parallel_hand_indices(result.correlations)`, no hard-coded label; end-to-end `plot()` succeeded for all 4 scratchpad configs | PASS |
+| 16 | `receptor_sha256`/`polarization_basis` enter scientific fingerprint; `instrument_sha256` unchanged (S14) | Ran matched linear/circular configs on the same instrument: `instrument_sha256` identical (`8c22fc54...`), `scientific_sha256` differs, `receptor_sha256` differs and matches the exact values recorded in the 2026-07-30 Tier 5H record's own bit-identity table (`01f7fd1a...` linear, `f39cfc87...` circular) | PASS |
+| 17 | Every removed input/constructor/constant/symbol/schema version fails with documented migration boundary | Full `tests/unit/test_tier5_receptor_acceptance.py` (38 tests) green after Step 0; by-hand `AttributeError`/`ImportError`/`TypeError` reproductions for all three removed names and both stub keywords | PASS |
+| 18 | No receptor identifier in illumination code, no illumination identifier in receptor code | `grep` both directions: zero receptor-named identifiers in `core/beam/analytic.py`/`core/jones/beam/analytic/`; the one `illumination.py` hit for "receptor" is a docstring cross-reference, not an identifier | PASS |
+| 19 | Every §27 message asserted verbatim | Re-ran the full existing config/receptor test suites; independently reproduced all 6 schema-level messages and all 3 runtime messages by hand, byte-for-byte against §27 | PASS |
+| 20 | `resolve_receptors()` failure leaves no loaded beam/backend/output path | Re-ran `tests/unit/test_simulator/test_api.py::test_receptor_failure_precedes_beam_load_and_leaves_no_runtime_state` (monkeypatches beam load, backend, network to `pytest.fail` if called) | PASS |
+| 21 | Dual-Python focused/full non-slow suites pass, only classified skips/established warnings | py311 `-m "not slow"`: **3929 passed, 6 skipped, 26 warnings** (269-287s); py312 full (no marker filter, superset): **3929 passed, 6 skipped, 26 warnings** (299s) — identical counts in both environments; all 6 skips are `could not import 'jax'` (unavailable-backend); the 26 warnings are the established pre-Tier-5 sky/healpix/matplotlib-reuse set, none naming Tier 5 code | PASS |
+| 22 | Ruff, format, Pyright ceiling, lock metadata, YAML, offline example, clean-copy Sphinx, whitespace, fresh imports, generated artifacts | `pixi run lint`: all checks passed. `pixi run check-format`: 323 files formatted. `pixi run typecheck`: 2840 <= 4600 ceiling. `pyproject.toml`/`docs/conf.py` version both `0.2.0`; `pixi.lock` well-formed. All 4 shipped YAMLs validate. Offline example (`examples/scripts/simple_simulation.py`) ran, reported "Network: offline (forced)", produced `XX,XY,YX,YY`. In-tree Sphinx: 42 warnings (matches established baseline). `git archive HEAD` clean-copy Sphinx: 40 warnings (matches established baseline). No trailing-whitespace/untracked artifacts found; `docs/_build` gitignored | PASS |
+| 23 | CI succeeds, quality + all six locked OS/Python jobs, exact SHA | `gh run view 30515580960 --json headSha,conclusion`: `headSha=91072b687c64ad3f91c630d468d1777e954bfeea` (exact acceptance SHA), `conclusion=success`; all 7 jobs green (`Lint, metadata, types, and docs`; `osx-64`/`osx-arm64`/`linux-64` × Python 3.11/3.12) | PASS |
+| 24 | No GPU/network/registry/external-data claim without evidence | Offline example and all end-to-end runs reported forced-offline network status; no physical-GPU claim anywhere in the reviewed range (JAX/Numba remain scaffolded per `CLAUDE.md`) | PASS |
+| 25 | No Tier 6-8 implementation in range | Re-read §42 exclusions; only `C`/`H` carry real physics, every other Jones term (`Z,T,P,D,G,B,F,W,Ee/a/dE,Kd/Rc/ff,X/Kx/DF,M/Q`) confirmed still identity-stub via `CLAUDE.md`'s own Implementation Status list and the 5H record's F/W ruling | PASS |
+
+**§40 evidence rows.**
+
+- **`POL-001`** (criteria 1,2,8,11,12,13,14,15,16,17,18,19,20): a typed
+  `receptors:` section exists (`io/receptor_config.py`), demonstrably changes
+  calculated correlations and fingerprints (linear vs. circular end-to-end
+  runs above), is recorded in HDF5/MS/UVFITS/summary JSON, enters the
+  scientific fingerprint, and every unsupported option — `feed_type`,
+  `n_feeds`, `feed_angle_deg`, an invalid `basis`, an invalid `output_basis`,
+  a non-`fixed` `mount_type`, a mixed array under `auto`, an out-of-range
+  override, a duplicate override, and a non-zero rotation combined with an
+  enabled `P` term — rejects with an exact, actionable, typed message,
+  independently reproduced by hand for every one. The `illumination`/`receptor`
+  terminology split is complete in both configuration (`beams.model.illumination.*`
+  vs. `receptors.*`) and identifiers (grep both directions, clean). **All
+  required evidence present.**
+- **`POL-002`** (criteria 3,4,5,6,7,9,10): `ReceptorConfigJones` and
+  `BasisTransformJones` compute real, independently-verified-unitary physics
+  (`C_p = M(basis) @ R(chi)`, `H_p = T(basis -> output_basis)`); the brightness
+  matrix follows the IAU/HBS convention (`V=+I` gives pure `RR`, independently
+  computed); both solver paths agree on a shared circular case; the chain
+  order (`H,G,B,D,P,C,E,T,Z`) is proven with non-commuting synthetic terms.
+  Closed **only** for `C` and `H`; `SCI-001` (every other term) remains
+  `ROADMAP` for Tier 7, untouched by this acceptance. **All required evidence
+  present.**
+
+**End-to-end workflow results (scratchpad, offline, `Simulator` API).** Four
+configs run through `setup().run()`, then `save()` for HDF5/summary_json/MS/
+UVFITS, then `plot(plot_type="all")`:
+
+| Config | Correlations | `output_basis` | `receptor_sha256` | HDF5/MS/UVFITS/summary/plots |
+|---|---|---|---|---|
+| linear default (hera_5, `receptors:` omitted-equivalent explicit) | `XX,XY,YX,YY` | `linear_xy` | `01f7fd1a...` | all 5 artifacts round-trip; matches Tier 5H's own recorded fingerprint exactly |
+| circular (`default.basis: circular`) | `RR,RL,LR,LL` | `circular_rl` | `f39cfc87...` | all 5 artifacts round-trip; matches Tier 5H's own recorded fingerprint exactly; MS/UVFITS `polarization_array` reads back `(-1,-2,-3,-4)` |
+| homogeneous linear, `feed_rotation_deg: 45.0` | `XX,XY,YX,YY` | `linear_xy` | distinct | all 5 artifacts round-trip; HDF5 `receptors/feed_angle_rad` = `(2.356, 0.785)` rad = `(135°, 45°)` per §12.2's `(pi/2+chi, chi)`; written MS/UVFITS carry the basis-nominal `(pi/2, 0)` by §14.4 design, not a defect |
+| per-antenna override (4 linear + 1 circular, `output_basis: linear`) | `XX,XY,YX,YY` | `linear_xy` | distinct | all 5 artifacts round-trip; summary `native_basis_counts={"linear":4,"circular":1}` |
+
+**§14 (`Fix.md`) exit-criteria proofs.** (1) *Top-level receptor configuration
+changes calculated correlations*: proven by the linear/circular table above —
+different labels, different `scientific_sha256`, identical `instrument_sha256`.
+(2) *Basis labels are scientifically correct and serialized*: the produced
+`(labels, codes, feed_array, feed_angle)` quadruple matches §14.2/§14.4 exactly
+in every written format, independently inspected. (3) *No receptor option
+silently returns identity*: the full §16 schema was walked — every accepted
+`basis`/`feed_rotation_deg`/`output_basis` combination either changes the
+resolved receptor (a non-default basis, rotation, or output basis all change
+`feed_array`/`feed_angle_rad`/`receptor_sha256`) or is the one analytically-
+identity default (`linear`, `chi=0`, `auto`->`linear_xy`); every field this
+plan retired (`feed_type`, `n_feeds`, `feed_angle_deg`) and every out-of-range
+value rejects with a typed, actionable `ConfigSchemaError`/`ReceptorError`,
+all reproduced by hand in this review.
+
+**CI observation.** `gh run view 30515580960` for `main` at `91072b687c64ad3f91c630d468d1777e954bfeea`
+(exact acceptance SHA): `conclusion=success`. All seven jobs green: `Lint,
+metadata, types, and docs`; `osx-64`/`osx-arm64`/`linux-64` each for Python
+3.11 and 3.12.
+
+**Inter-record consistency.** No contradiction found among the 5A-5H records
+on a full re-read. Every plan correction (`568855f, d54b229, ca121aa, c7fa228,
+9fcb4c1, 17b763b, 9ae9347, ed55c07, 7abe2e6, d1d5f68`, etc.) is either
+reviewer-authored during that slice's own acceptance or implementer-declared
+and reviewer-ratified in the next acceptance record, with no gap. Spot-checked
+two implementation commits' file lists against their corrected §35 grants
+(`0524e56` against Tier 5C, `daa97b8` against Tier 5F) — both match exactly,
+line for line.
+
+**Unobserved items, honestly carried forward.** No PDF of R4 (Thompson, Moran
+& Swenson) was retrieved at any point in Tier 5 (5A recorded this as
+unconfirmed; this review did not attempt it either, since R1/R3 already
+independently re-derive the same result). Physical GPU hardware, live network
+services, and the pyuvdata registry were not exercised (none is required by
+Tier 5's scope). No release, tag, or deployment was created. This review used
+the `Simulator` API directly for the end-to-end workflows rather than the
+`radiosim` CLI entry point for save/plot dispatch; the CLI's own argument
+parsing and file-writing wrapper around the identical `setup()`/`run()`/
+`save()`/`plot()` calls was not independently re-exercised (already true of
+several predecessor slice acceptances, e.g. 5H).
+
+**Scope.** No production source file changed as part of this acceptance.
+Exactly two files changed for the routed migration-guide obligation
+(`docs/migration_guide.md`, `tests/unit/test_tier5_receptor_acceptance.py`,
+commit `09320d8`), both within the `d1d5f68`-corrected §35 Tier 5I grant. This
+record itself, plus the `Tier5ReceptorFeedPlan.md` status update, are the only
+further changes. `git status` was clean before this review began and contains
+only the intended changes now. `POL-001` and `POL-002` are flipped to `DONE`
+in `Fix.md` §5 below. No Tier 6 implementation was made or authorized by this
+acceptance; Tier 6 design is the next authorized work. No PR, tag, release, or
+deployment was created; nothing was pushed.

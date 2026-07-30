@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted; 5A independently accepted (`568855f`, Tier 5A acceptance); 5B implemented (`40d17fb`, `3925a33`) and independently accepted after two bounded plan corrections (§30.2, §30.5, §35 Tier 5B); 5C implemented (`deedf8d`, `2bae364`, `0524e56`) and independently accepted after two bounded plan corrections (§34.3 tests-first S3 wording, §34.3 pin-ownership text for the 5A D4 pin); 5D implemented (`fe75356`) after a pre-emptive §35 Tier 5D grant correction (`ca121aa`) and independently accepted; 5E implemented (`aa667b9`) after a pre-emptive §35 Tier 5E grant correction (`c7fa228`) and independently accepted after two bounded plan corrections routing stale-truth-surface cleanup to 5G and 5H (§35 Tier 5G, §35 Tier 5H); 5F implemented (`daa97b8`) after a pre-emptive §35 Tier 5F grant correction (`17b763b`) and independently accepted, 2026-07-30; 5G implemented (`70938c3`) after two bounded §35 Tier 5G grant corrections (`9ae9347`, `ed55c07`) and independently accepted, 2026-07-30; 5H implemented (`84c7cdc`) after a §35 Tier 5H grant correction (`7abe2e6`) and independently accepted after one bounded §35 Tier 5I grant correction routing the missing migration-guide entry forward (`d1d5f68`), 2026-07-30; 5I authorized. |
+| Status | **Tier 5 accepted as a whole (Tier 5I, 2026-07-30); `POL-001` and `POL-002` closed.** Design accepted; 5A independently accepted (`568855f`, Tier 5A acceptance); 5B implemented (`40d17fb`, `3925a33`) and independently accepted after two bounded plan corrections (§30.2, §30.5, §35 Tier 5B); 5C implemented (`deedf8d`, `2bae364`, `0524e56`) and independently accepted after two bounded plan corrections (§34.3 tests-first S3 wording, §34.3 pin-ownership text for the 5A D4 pin); 5D implemented (`fe75356`) after a pre-emptive §35 Tier 5D grant correction (`ca121aa`) and independently accepted; 5E implemented (`aa667b9`) after a pre-emptive §35 Tier 5E grant correction (`c7fa228`) and independently accepted after two bounded plan corrections routing stale-truth-surface cleanup to 5G and 5H (§35 Tier 5G, §35 Tier 5H); 5F implemented (`daa97b8`) after a pre-emptive §35 Tier 5F grant correction (`17b763b`) and independently accepted, 2026-07-30; 5G implemented (`70938c3`) after two bounded §35 Tier 5G grant corrections (`9ae9347`, `ed55c07`) and independently accepted, 2026-07-30; 5H implemented (`84c7cdc`) after a §35 Tier 5H grant correction (`7abe2e6`) and independently accepted after one bounded §35 Tier 5I grant correction routing the missing migration-guide entry forward (`d1d5f68`), 2026-07-30; 5I completed the routed migration-guide obligation (`09320d8`) and accepted Tier 5 as a whole, 2026-07-30. Tier 6 design is the next authorized work. |
 | Date | 2026-07-30 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
@@ -13,7 +13,7 @@
 | Governing roadmap | `Fix.md` §4, §5, §6.7, §7.5, §14 |
 | Prior accepted architecture | `Tier2InstrumentPlan.md`, `Tier3BeamObservabilityPlan.md`, `Tier4ResultOutputPlan.md` |
 | Repository policy | `CLAUDE.md`, `AGENTS.md`, including the pre-v1 direct-replacement policy |
-| Issues in scope | `POL-001` (OPEN), `POL-002` (ROADMAP) |
+| Issues in scope | `POL-001` (DONE), `POL-002` (DONE) |
 
 This document is the governing implementation specification for Tier 5. It is
 not Tier 5 implementation. Every characterization statement below was taken
@@ -2767,3 +2767,25 @@ configuration, dependency, lockfile, CI definition, or generated artifact was
 changed. `POL-001` remains **OPEN** and `POL-002` remains **ROADMAP**. Tier 5A
 remains unauthorized. The next task is an independent review and acceptance of
 this document, not implementation.
+
+## 45. Tier 5 whole-tier acceptance appendix (Tier 5I, 2026-07-30)
+
+**VERDICT: ACCEPTED.** The complete indivisible Tier 5 range `1472c3c..91072b6`
+(slices 5A through 5H, 32 commits, zero merges) is accepted as one whole under
+§34.9. The full acceptance record — the §39/§40 criteria checklist, exact gate
+counts in both Python environments, the four end-to-end scratchpad workflows,
+the §14 (`Fix.md`) exit-criteria proofs, the CI observation at the exact
+acceptance SHA, and the honestly-listed unobserved items — is recorded in
+`Fix.md` under "2026-07-30 Tier 5 whole-tier acceptance (Tier 5I)". `POL-001`
+and `POL-002` are closed in `Fix.md` §5. Before the gate ran, this slice
+completed the one routed obligation from the Tier 5H acceptance (`d1d5f68`):
+commit `09320d8` added the missing `docs/migration_guide.md` entry for
+`visibility_to_correlations`, `mueller_from_jones`, and `core/receptor.py`'s
+`PolarizationBasisName`, and extended
+`tests/unit/test_tier5_receptor_acceptance.py`'s reference scan to sanction
+that one `docs/` reference. No other production source, test, configuration,
+dependency, or generated artifact changed. `SCI-001` (every Jones term other
+than `C` and `H`) remains `ROADMAP` for Tier 7 and is untouched by this
+acceptance. Tier 6 design is the next authorized work; no Tier 6 through
+Tier 8 implementation was made or authorized here. No PR, tag, release, or
+deployment was created.
