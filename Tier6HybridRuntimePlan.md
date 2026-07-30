@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted. Tier 6A (characterization, dependency contract, baseline fingerprints) independently accepted. Tier 6B (worker configuration schema and resolved runtime) is now the only authorized implementation slice. |
+| Status | Design accepted. Tier 6A (characterization, dependency contract, baseline fingerprints) independently accepted. Tier 6B (worker configuration schema and resolved runtime) independently accepted, 2026-07-30. Tier 6C (loader worker behavior and offline policy) is now the only authorized implementation slice. |
 | Date | 2026-07-30 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
@@ -1034,7 +1034,18 @@ existing style (`core/runtime_config.py:288-296`). `to_json_safe()`
 `resolved_config_json`, and the summary JSON, with no further work. The
 `workers` clamp needs the time-sample count, which is available on the resolved
 observation config, so the clamp is applied during resolution and the
-pre-clamp request is recorded in `ConfigurationProvenance` origins.
+pre-clamp request is recorded in `ConfigurationProvenance`.
+
+**Correction (2026-07-30, Tier 6B independent acceptance):** "recorded in
+`ConfigurationProvenance`" names the object, not its `override_origins` field.
+`override_origins` values are typed as `ValueOrigin = Literal["default",
+"document", "override"]` (`core/runtime_config.py:44`) and are therefore
+structurally unable to carry a pre-clamp integer; the pre-clamp request is
+recorded in `ConfigurationProvenance.input_snapshot` (the validated,
+pre-resolution input document), while `override_origins` continues to record
+only each field's document-vs-default provenance label. No decision changes;
+this only disambiguates wording that read, on a first pass, as naming the
+`override_origins` field specifically.
 
 ## 19. Exact serialization changes
 
