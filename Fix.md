@@ -6636,3 +6636,63 @@ only the intended changes now. `POL-001` and `POL-002` are flipped to `DONE`
 in `Fix.md` §5 below. No Tier 6 implementation was made or authorized by this
 acceptance; Tier 6 design is the next authorized work. No PR, tag, release, or
 deployment was created; nothing was pushed.
+
+### 2026-07-30 Tier 6 design gate
+
+Tier 5 remains independently accepted as a whole and `POL-001` and `POL-002`
+remain **DONE**. The Tier 6 design gate is complete.
+`Tier6HybridRuntimePlan.md` is the governing implementation specification for
+hybrid-sky simulation, loader and solver worker policy, and backend completion.
+
+The design was authored from source on clean `main` at
+`6928f59dc8adbe68d140db2de1f1503db3c926f1`
+(`docs(feeds): accept Tier 5 integration`), parent `09320d8`. Every
+characterization claim in the plan is cited to a file and line true at that
+commit. The plan records twenty confirmed defects (D1-D20) behind
+`RUN-001`..`RUN-004`, including three that the roadmap's own §7.2-§7.4 summaries
+did not yet name: `Simulator.setup()` silently discards a surviving second sky
+payload (`api/simulator.py:833-837`, with the combine pipeline preserving
+hybrids at `core/sky/combine/pipeline.py:113-115`, `:126-127`);
+`execution.offline` never reaches loader network enforcement because
+`get_network_status(offline=True)` does not populate the cache that
+`require_service()` consults (`utils/network.py:267-289`, `:172-199`,
+`:344-399`); and `get_backend("auto")` returns a backend named `"numba-cpu"`
+whose array namespace is NumPy, so `actual_backend` provenance misreports the
+executing implementation. That last claim and the absence of any Numba-compiled
+kernel were established by execution, not only by reading: `pixi run python -c
+"from radiosim.backends import get_backend; b=get_backend('auto'); print(b.name,
+type(b).__name__)"` printed `numba-cpu NumbaBackend` with `xp is numpy: True`,
+and `numba` resolves to 0.66.0 while `jax` is not importable in either
+environment and is not declared in `pixi.toml`.
+
+The plan's ten design decisions are: `sky_representation` gains a `hybrid`
+literal routed through the existing hybrid-preserving combine path; components
+are summed in the backend array domain into exactly one canonical
+`SimulationResult`; the existing disjointness gate is reused unchanged; loader
+and solver concurrency become two separate typed `execution` blocks;
+`Simulator.run(n_workers=...)` is removed rather than wired up; the per-cell
+`set_at` accumulation is restructured into per-time block assembly; the JAX
+adoption boundary is one compiled kernel behind a new backend capability;
+`NumbaBackend` is renamed `DaskBackend` and the `numba` backend name is
+retired rather than given fabricated kernels; precision precedence is preserved
+and extended; and the offline policy becomes authoritative under both executor
+kinds. Ten implementation slices (6A-6J) each carry an exact writable file list
+and independent acceptance. Five open questions are gated on slice evidence,
+the first of which — whether a CPU-only JAX is installable on all three locked
+platforms under the existing NumPy pin — blocks the backend slice because the
+mandated NumPy/JAX parity evidence cannot otherwise exist.
+
+The plan states explicitly that Tier 6 will produce no GPU, TPU, or distributed
+number, and no speedup claim of any kind that does not cite a committed
+benchmark record.
+
+This was documentation-only design work. No production code, test, fixture,
+configuration, dependency, lockfile, CI, or generated artifact was changed, and
+no §5 register row or prior acceptance record was modified. Three read-only
+probes were run (the two import checks and the backend-selection check quoted
+above); nothing else in the repository was executed, no test suite was run, no
+lint, format, type, or documentation check was run, and no remote operation of
+any kind was performed. `RUN-001`, `RUN-002`, `RUN-003`, and `RUN-004` all
+remain as recorded in §5. Tier 6A remains unauthorized. The next task is an
+independent review and acceptance of `Tier6HybridRuntimePlan.md`, not
+implementation.
