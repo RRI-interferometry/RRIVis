@@ -6696,3 +6696,249 @@ any kind was performed. `RUN-001`, `RUN-002`, `RUN-003`, and `RUN-004` all
 remain as recorded in §5. Tier 6A remains unauthorized. The next task is an
 independent review and acceptance of `Tier6HybridRuntimePlan.md`, not
 implementation.
+
+### 2026-07-30 Tier 6 design independent acceptance
+
+**The Tier 6 hybrid-runtime and backend-completion design is independently
+accepted with no bounded corrections.** `Tier6HybridRuntimePlan.md` remains
+the governing implementation specification. This entry supersedes, but does
+not rewrite, the design-gate paragraph above that correctly left Tier 6A
+unauthorized pending this review.
+
+The review began on clean `main` at design commit `9f41250`
+(`docs(runtime): plan Tier 6 hybrid and backend integration`), parent
+`6928f59` (`docs(feeds): accept Tier 5 integration`). `git show 9f41250 --stat`
+confirmed the commit touched exactly `Fix.md` (one appended status note) and
+`Tier6HybridRuntimePlan.md` (newly added, 2048 lines); no `Fix.md` §5 issue
+register row and no prior acceptance record was modified.
+
+**Characterization spot-check.** Every load-bearing claim checked below was
+read directly from source at the cited lines, not taken from the plan's
+prose, and every one matched exactly:
+
+- the exclusive point/HEALPix fork in `run()` (`api/simulator.py:947`, the
+  literal `if _sky_mode == SkyFormat.HEALPIX and self._sky_model is not
+  None:`) and the setup-side fork that nulls `_source_arrays` or extracts only
+  the point payload (`api/simulator.py:833-837`);
+- `core/sky/combine/pipeline.py:109-127`: a single-loader hybrid model with an
+  explicit `target` bypasses `_combine_models` (`sky = models[0]` at line
+  87-88) and then hits `if sky.point is not None: return sky` (lines 126-127)
+  or the symmetric HEALPix branch (lines 113-115), returning the hybrid
+  unchanged with both payloads intact; `_combine_as_hybrid`
+  (`engine.py:210-239`) independently confirmed to reduce each pile with
+  `allow_lossy_point_materialization=False` and no cross-format conversion;
+- **the hybrid-discard probe.** Built a tiny `point_sources` config
+  (`configs/config.yaml`, HERA-5, 200 test sources), ran it once for a
+  baseline result, then on a second run materialized a HEALPix map with every
+  pixel forced to `1.0e6` (an obviously detectable brightness temperature) on
+  top of the same point sky with `clear_other=False`, producing a genuine
+  hybrid `SkyModel` (`formats == {POINT_SOURCES, HEALPIX}`) while
+  `sky_representation` stayed `"point_sources"`. Feeding that hybrid model
+  through the unmodified `Simulator.run()` path reproduced
+  `api/simulator.py:833-837`'s extraction exactly
+  (`self._source_arrays = hybrid_sky.as_point_source_arrays()`) and returned
+  visibilities **bit-identical** to the point-only baseline
+  (`max |vis2 - vis1| = 0.0`, `np.array_equal` `True`, shape `(60, 15, 101,
+  4)` both runs). The 1e6 K HEALPix component contributed nothing, silently,
+  confirming D3 by execution, not only by reading;
+- `api/simulator.py:782` (`max_workers=8`) and
+  `core/sky/operations/parallel.py:118` (`max_workers: int = 8`) — both
+  confirmed hard-coded defaults;
+- `backends/base.py:300-309`: `set_at` is `arr.at[index].set(value)` when
+  `hasattr(arr, "at")` (JAX), else in-place `arr[index] = value` (NumPy/Numba)
+  — confirmed functional-copy semantics for JAX;
+- per-cell `set_at` accumulation confirmed inside the innermost
+  `(time, baseline, frequency)` loop in both `core/visibility.py` (around
+  line 630) and `core/visibility_healpix.py` (around lines 480 and 545), in
+  both the polarized and I-only branches;
+- `backends/jax_backend.py`'s `synchronize()` confirmed to call
+  `jax.block_until_ready(jnp.array(0))` — a freshly constructed throwaway
+  constant, never the caller's array;
+- **executed** `pixi run python -c "from radiosim.backends import
+  get_backend; b=get_backend('auto'); import numpy; print(b.name,
+  type(b).__name__, 'xp is numpy:', b.xp is numpy)"` → `numba-cpu
+  NumbaBackend xp is numpy: True`, reproducing D9 exactly;
+- **executed** `grep -rn "@njit|@jit|@vectorize|@guvectorize" src/radiosim/`
+  → no matches; `prange` is imported at `numba_backend.py:40` and never
+  called anywhere in the file — confirmed dead;
+- `simulator/rime.py:143-146`: `supports_gpu` returns unconditional `True`;
+  the class docstring (lines 45-53) still prints the pre-Tier-5 chain order
+  `J = B @ G @ D @ P @ E @ T @ Z @ K` with no receptor term — both confirmed
+  stale;
+- **executed** `pixi run python -c "import jax"` → `ModuleNotFoundError`;
+  `grep -n jax pixi.toml` → no matches — confirmed jax is neither installed
+  nor declared;
+- `tests/performance/` and `tests/integration/` confirmed to contain only
+  `__init__.py` (plus bytecode cache);
+- `.github/workflows/ci.yml` confirmed six `compatibility` matrix jobs
+  (`linux-64`/`osx-64`/`osx-arm64` × Python 3.11/3.12) plus one `quality`
+  job, all CPU runners, no GPU runner;
+- `Simulator.run(self, progress: bool = True, n_workers: int | None = None)`
+  confirmed at `api/simulator.py:847-851`; passing `n_workers` raises the
+  cited `NotImplementedError` naming Tier 6 (`:875-878`).
+
+Every one of these thirteen independent checks confirmed the plan's claim
+exactly; none contradicted it.
+
+**Decision rulings, the five hardest:**
+
+1. **Numba→Dask rename.** Satisfies `Fix.md` §15 item 10. The module
+   docstring already concedes `mode="gpu"` validates a device and runs
+   NumPy/Dask; no `@njit`/`@jit`/`@vectorize` decorator exists anywhere in
+   `src/radiosim/`; `jit_compile()` has no caller in `src/`. Writing a real
+   compiled kernel would mean reimplementing the polarized RIME contraction
+   as a `nopython` kernel that cannot call `JonesChain`, `BeamSystem`, or
+   astropy — a second scientific implementation requiring its own
+   cross-implementation validation under §4.4, correctly identified as
+   Tier-7-scale and out of `RUN-004`'s scope. Retiring the fabricated
+   capability and choosing an honest name is consistent with the pre-v1
+   policy (§4.1: prefer a coherent replacement over a misleading shim) and
+   the §4.2 truthfulness rule (a name may not imply a capability the class
+   does not have). Re-read §14 and §18.2 in full: nothing after the rename
+   implies numba/Dask compiles the RIME; `numba` remains a declared
+   dependency only because PySM needs it, and the plan says so explicitly.
+   **Ruling: sound.**
+2. **`run(n_workers=...)` removal vs §4.3 precedence discipline.** §4.3
+   requires one centralized, documented, provenance-recorded precedence
+   whenever several sources could supply the same value; it must not arise
+   from mutation order in `setup()`. Keeping a `run()` keyword alongside a
+   typed `execution.solver.workers` field would create exactly the
+   accidental two-source precedence §4.3 forbids. Confirmed no in-tree
+   caller passes `n_workers` (`grep -rn "\.run(.*n_workers" src/ tests/
+   examples/ docs/` — none), so removal breaks nothing in tree, and the
+   `TypeError` migration path matches the accepted Tier 5 precedent for
+   removed keywords. **Ruling: sound.**
+3. **Hybrid summation in the backend domain before one
+   `build_simulation_result`.** Read `core/result.py`'s `_scientific_hash`
+   and `_provenance_hash` directly: `_scientific_hash` takes a
+   `solver_snapshot` parameter but no `performance` parameter at all;
+   `_provenance_hash` takes `backend_snapshot`, `resolved_config`,
+   `configuration_provenance`, and `history` but likewise never
+   `performance`. This independently confirms the plan's claim that
+   component names/counts (routed through `solver_snapshot`) enter
+   `scientific_sha256` while timings (routed through `ResultPerformance`)
+   enter neither hash. `ResultPerformance.__post_init__`'s existing
+   coherence check (`total_seconds + allowance >= sum of components`) is
+   exactly the pattern the plan's proposed
+   `solver_point_seconds + solver_healpix_seconds <= solver_seconds +
+   allowance` extends. `SolverResultProvenance.sky_representation` is
+   confirmed a closed `Literal["point_sources", "healpix_map"]` validated in
+   `__post_init__` (`core/result.py:176`, `:186-187`), so adding `"hybrid"`
+   is a direct, minimal extension of an established pattern, not an
+   invented one. HDF5's `SCHEMA_VERSION` is confirmed literally `"2.0.0"`
+   today with a hard `UnsupportedSchemaVersionError` on mismatch — the
+   `3.0.0`-rejects-`2.0.0` design repeats this exact precedent with no
+   upgrade path, consistent with pre-v1 policy. **Ruling: sound.**
+4. **Time-axis-only solver parallelism with structural bit-identity.** Read
+   the full time loop in `core/visibility.py` (`for time_idx in
+   range(n_times): ...`): every per-time quantity (`az_rad_t`, `alt_rad_t`,
+   direction cosines, horizon-filtered source arrays) is recomputed from the
+   time-invariant `_orig` arrays inside the loop body, and the only
+   cross-iteration write is `backend.set_at(visibilities, (time_idx,
+   baseline_idx, freq_idx), ...)` — genuinely disjoint across `time_idx`
+   values, with no running accumulator carried between iterations. This
+   independently confirms §11.4's claim that the time axis is the only one
+   with no cross-iteration state and that each iteration writes a disjoint
+   output slice, so the bit-identity argument for `workers > 1` is
+   structural rather than assumed. The one real risk — whether the
+   `BeamSystem`/FITS handler objects shared across worker threads are
+   themselves thread-safe, which affects correctness of concurrent *reads*
+   even though writes are disjoint — is not silently assumed away: Q2
+   explicitly names it, requires a concurrent-vs-serial bit-identity probe
+   before 6E, and specifies the fallback (per-worker handler instances) if
+   the probe fails. **Ruling: sound, properly gated.**
+5. **JAX single-kernel boundary + `supports_compilation`/`compile` on
+   `ArrayBackend`.** The compiled surface is scoped to exactly one function
+   — the per-`(time, frequency)` baseline-batched contraction producing one
+   `(B, 2, 2)` block — which is precisely the block the §13.3 restructure
+   already assembles, so the boundary is mechanically checkable rather than
+   aspirational; the explicit out-of-scope list (Jones chain, beam
+   evaluation, Planck conversion, time loop, HEALPix Stokes assembly,
+   `vmap` over time/frequency, device placement, replacing astropy) closes
+   the obvious scope-creep paths. Confirmed `get_backend("auto")`'s current
+   precedence reads `JAX TPU → JAX GPU → Numba CUDA → Numba CPU → NumPy`
+   from source (`backends/__init__.py:157-197`) exactly as characterized,
+   and confirmed the existing `float128` rejection gate
+   (`if config.execution.backend in {"jax", "numba"}:` at
+   `io/config.py:1894`) is the exact site the plan extends to `"dask"`. Q1
+   properly blocks 6H on 6A's dependency evidence (jax-cpu resolvability on
+   all three locked platforms under the existing NumPy pin), with an
+   explicit narrowed-platform fallback and an explicit "amend and re-accept"
+   path if no platform resolves — it does not assume the dependency change
+   will succeed. **Ruling: sound, properly gated.**
+
+**§15 coverage.** All eleven `Fix.md` §15 implementation-work items map to a
+named slice (hybrid representation → 6F; same-coordinate components → §8.4,
+6F; canonical-result summation → §9, 6F; component provenance/timing → §9.4,
+6F; loader/solver policy split → 6B/6C/6E; hard-coded loader count removed →
+6C, W7; solver settings made effective or removed → `run(n_workers=...)`
+removed in 6E and `execution.solver.workers` made effective in the same
+slice, satisfying "effective **or** remove them" on both halves; HEALPix
+backend parity → 6D/6H; host/device transfer reduction and Astropy-boundary
+naming → §13.2-§13.3, 6D; Numba decision → §14, 6H; benchmarks before
+acceleration claims → §22-§23, 6I). Every required test in §15's list maps to
+a named §27 row (additivity → H1; no double counting → H5; coordinate
+identity → H2; NumPy/JAX parity → B1; loader-worker tests → W1/W2/W7;
+solver-worker tests → W3/W4/W6; offline-under-workers → W5/S12; backend
+error/fallback → B4-B6). The mandatory performance-record field list in §15
+maps one-to-one onto every field of the §23 `BenchmarkRecord` dataclass
+(hardware/accelerator → `platform`/`cpu_model`/`accelerator`/
+`accelerator_driver`; backend/version → `backend_requested`/`backend_actual`/
+`backend_version`; precision → the four `precision_*` fields plus
+`result_dtype`; problem-size counts → `n_antennas`..`n_frequencies`;
+setup/steady-state → `setup_seconds`/`steady_state_*`; compilation →
+`compile_seconds`; transfer → `host_transfer_seconds`; memory →
+`peak_host_bytes`/`backend_memory_info`; correctness → the five
+`*_deviation`/`tolerance_*`/`within_tolerance` fields), with no field
+omitted. §37's whole-tier exit criteria map onto §15's four exit-criteria
+bullets exactly as claimed, and §38's `RUN-001`..`RUN-004` closure table maps
+each issue to its supporting criteria. Q4's `PERF-001`-vs-narrowed-`RUN-004`
+framing is coherent: §38 closes `RUN-004` only for §13.1's defined scope and
+Q4 requires 6J to either file the accelerator-performance remainder as a new
+issue or leave `RUN-004` open with a narrowed description — it cannot vanish
+into Tier 7's Jones workstreams.
+
+**Slice-quality assessment.** The ten implementation slices (6A-6J) are each
+small and independently acceptable; §33's exact writable-file lists were
+spot-checked against §25's file inventory and are internally consistent
+(e.g., 6D's grant correctly excludes `core/solver_partition.py`, which first
+appears in 6E, and 6H correctly carries the `numba_backend.py` deletion
+alongside the `dask_backend.py` addition). §30's ordering rationale is
+sound: 6A produces the pinned fingerprints, dependency facts, and thread-
+safety-relevant evidence that 6D/6E/6H each depend on; 6D (behavior-neutral
+restructure) is correctly sequenced before 6E (worker use of the restructure)
+and 6F (hybrid, which needs per-time blocks); 6F precedes 6G so the
+serialization schema bump lands once with a final field set. Every slice
+begins from a red test (§29) and stops for independent acceptance (§35), and
+every open question (§41 Q1-Q5) names the exact slice it blocks and the
+evidence required, with no slice permitted to assume an answer.
+
+**Process conformance.** `git show 9f41250 --stat` confirmed only `Fix.md`
+and `Tier6HybridRuntimePlan.md` changed; no `Fix.md` §5 register row and no
+prior acceptance record were touched; the commit carries no co-author line.
+The plan's status header at review time correctly read "Design only... no
+implementation slice is authorized," baseline `6928f59`, date `2026-07-30`.
+§4's honesty section states plainly what Tier 6 will not claim (no GPU
+number, no JAX end-to-end speedup claim, no Numba-compiles-anything claim, no
+distributed-execution claim, no worker-makes-it-faster claim, no scientific-
+accuracy-improvement claim beyond the declared hybrid additivity change).
+
+**Corrections.** None. No factual, line-number, or decision defect was found
+in this review; no `docs(runtime): correct Tier 6 design` commit was
+necessary.
+
+This acceptance changes planning records only. No Tier 6 production code,
+test, fixture, configuration, dependency, lockfile, CI definition, or
+generated artifact was changed, and no `Fix.md` §5 issue register row was
+modified. `RUN-001`, `RUN-002`, `RUN-003` remain **OPEN** and `RUN-004`
+remains **ROADMAP**; none is closed by a design gate. Tier 6A is now the only
+authorized next slice, and remains limited to its single §33 file,
+`tests/characterization/test_tier6_current_behavior.py`; Tier 6B through 6J
+remain unauthorized until each predecessor slice is implemented and
+independently accepted. Verification commands actually run in this review
+were read-only: `git show`/`git log`/`grep`, the `get_backend("auto")` probe,
+the `import jax` probe, the `@njit`/`prange` greps, and the end-to-end hybrid-
+discard probe script (executed via `pixi run python`, no files under `src/`
+or `tests/` were written or modified). No dual-Python run, CI check, Pyright,
+Ruff, Sphinx, YAML validation, or offline example was executed. No PR, tag,
+release, or deployment was created; nothing was pushed.

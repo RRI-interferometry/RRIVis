@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | **Design only. No implementation slice is authorized until this design is independently accepted.** |
+| Status | Design accepted, 6A authorized. Independently accepted with no bounded corrections; implementation not started. |
 | Date | 2026-07-30 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
