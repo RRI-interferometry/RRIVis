@@ -8,6 +8,34 @@ Tier 6E makes the *solver* half effective (Sections 11.3, 11.5, 12.1, 32.5):
 ``execution.solver.workers`` now drives a thread pool over contiguous time
 blocks, ``run(n_workers=...)`` is gone, and the 6B interim pin below is flipped
 from "nothing reads the resolved count" to "both solvers do".
+
+Tier 6E evidence record -- Q2 reconfirmation
+============================================
+
+Plan Section 41 Q2 asks whether the FITS beam handlers and the ``BeamSystem``
+are safe to share across solver threads.  Tier 6A answered it provisionally with
+a synthetic probe -- four threads calling ``BeamSystem.evaluate_jones`` directly
+over 64 cases -- and its independent acceptance ruled that **6E must reconfirm
+under its own real workload** rather than inherit the answer.
+
+Reconfirmed here, on ``osx-arm64`` (Apple M1 Max, macOS 26.5.2), pyuvdata 3.2.1,
+in both locked environments (py311 / py312), by
+``test_tier6e_q2_shared_fits_and_analytic_beams_are_thread_safe``: a ``mixed``
+beam configuration -- antenna 0 on an analytic circular-aperture beam, antenna 1
+on a shared ``_LoadedFITSHandler`` wrapping pyuvdata ``UVBeam.interp`` -- driven
+through the *real* ``calculate_visibility`` solver over 8 time samples and 2
+frequencies at 2, 4 and 8 threads, compared against the serial run of byte-
+identical inputs.  Result: **max absolute deviation 0.0 and byte-identical cubes
+at every worker count**, i.e. 3/3 worker counts clean.  The companion
+``test_tier6e_point_solver_...``/``test_tier6e_healpix_solver_...`` matrices
+extend the same comparison to both solvers in both polarization states, 12
+further serial-vs-parallel comparisons, all byte-identical.
+
+The Q2 fallback -- giving each worker its own handler instance -- therefore does
+**not** fire, and ``core/beam/fits.py`` / ``core/beam/runtime.py`` are correctly
+absent from 6E's Section 33 file list.  As in 6A, this is positive evidence from
+one platform and one pyuvdata version, not a proof: a future divergence should
+reopen Q2 rather than be worked around.
 """
 
 from __future__ import annotations
