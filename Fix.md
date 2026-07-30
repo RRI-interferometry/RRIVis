@@ -7981,3 +7981,320 @@ Section 33 file list (`api/simulator.py`, `core/__init__.py`,
 `tests/unit/test_tier4_result_output_acceptance.py`); Tier 6F through 6J
 remain unauthorized until each predecessor slice is implemented and
 independently accepted. `RUN-005` is newly **OPEN**. Nothing was pushed.
+
+### 2026-07-30 Tier 6E independent acceptance
+
+**Tier 6E (solver worker policy and `run()` signature) is independently
+accepted.** Reviewed range `4022e1f..621567e`: `5f4fcf1`
+(`feat(runtime): add the deterministic solver time-axis partition`), `f184a6a`
+(`feat(runtime): make execution.solver.workers effective and remove
+run(n_workers)`), `621567e` (`docs(runtime): record the Tier 6E Q2
+thread-safety reconfirmation`), none carrying a co-author line
+(`git log --format=%B 4022e1f..621567e | grep -i co-authored` empty).
+`git show --stat` on all three commits confirms the touched set --
+`core/__init__.py`, `core/solver_partition.py` (new),
+`tests/unit/test_core/test_solver_partition.py` (new); `api/simulator.py`,
+`core/visibility.py`, `core/visibility_healpix.py`, `simulator/rime.py`,
+`docs/migration_guide.md`,
+`tests/characterization/test_tier6_current_behavior.py`,
+`tests/unit/test_simulator/test_api.py`,
+`tests/unit/test_simulator/test_worker_policy.py`,
+`tests/unit/test_tier4_result_output_acceptance.py`; `621567e` touches only
+`tests/unit/test_simulator/test_worker_policy.py` (docstring only) -- an exact
+match to 6E's Section 33 grant, no file outside it.
+
+**Partition correctness, read in full and probed adversarially.** Read
+`core/solver_partition.py` end to end (209 lines). Independently exercised
+`partition_time_axis`/`validate_time_partition` outside the shipped test
+suite: `n_times=1` with `workers` in `{1,5}`; `n_times=0`; the awkward ratios
+`7/3` (`(0,3),(3,5),(5,7)`) and `3/7` (clamps to 3 blocks of 1); `workers ==
+n_times == 10` (ten singleton blocks); `n_times=100, workers=3`
+(`(0,34),(34,67),(67,100)`, balanced within one); `workers=0`/`-1` and
+`n_times=-1` all raise `ValueError` naming the field. Confirmed by direct
+loop assertion for every case: exact coverage of `[0, n_times)`, contiguity,
+strictly increasing order, non-empty blocks, and block-size spread `<= 1`.
+`validate_time_partition` was probed with seven adversarial malformed
+partitions -- gap, overlap, out-of-order, over-covering, under-covering, a
+non-integer bound, and an empty partition against nonzero `n_times` -- all
+seven correctly raise `SolverPartitionError`. This matches and extends the
+shipped `tests/unit/test_core/test_solver_partition.py` (24 collected items),
+which independently sweeps `n_times in range(1, 33)` x
+`workers in (1,2,3,4,5,7,8,16,64)` for the same four properties.
+
+**Determinism, reproduced independently, byte-level.** Wrote a standalone
+script (outside `tests/unit/test_simulator/test_worker_policy.py`) that calls
+`calculate_visibility`/`calculate_visibility_healpix` directly with a shared
+`SolverInstrumentView`/`BeamSystem`/`ResolvedReceptorSet`, 8 time samples, 2
+frequencies: point solver x {polarized, unpolarized} x {workers=2, workers=4}
+and HEALPix solver x {polarized, unpolarized} x {workers=2, workers=4} -- **8
+of the 16 claimed comparisons, all `.tobytes()`-identical to the `workers=1`
+serial reference**, SHA-256-logged for each cube. The full 16 (both solvers x
+both polarization states x `workers` in `{2,4,8}`) plus the 3 Q2 comparisons
+were then run via the shipped
+`tests/unit/test_simulator/test_worker_policy.py -k "bit_identical or
+q2_shared"`: **15/15 passed**, each asserting `parallel.tobytes() ==
+serial.tobytes()` directly (not a digest comparison that could hide a
+byte-level difference under a hash collision). Spied on
+`radiosim.core.solver_partition.ThreadPoolExecutor` via `unittest.mock.patch`:
+with `workers=1`, zero `ThreadPoolExecutor` constructions across a 10-time-step
+run; with `workers=4`, exactly one construction, confirming `workers=1` truly
+takes the inline no-pool path rather than a pool of size 1.
+
+**Ordered reassembly, read and probed with inverted durations.** Read
+`execute_time_blocks`: futures are submitted in partition (time) order and
+`future.result()` is awaited in that same submitted order inside the `for`
+loop, so assembly order is submission order regardless of completion order.
+Probed directly: 4 workers over 8 time steps with **early blocks slow (0.4s,
+0.3s) and late blocks fast (0.15s, 0.02s)**, i.e. completion order is the
+reverse of time order -- the assembled output was still exactly
+`["t0","t1",...,"t7"]`, confirming reassembly order is structurally
+submission/time order, not completion order.
+
+**Failure semantics, probed directly.** A raising time block at `start=4`
+among 4 workers (`N=4`) propagates the worker's own exception type unwrapped
+(no pool-wrapper exception), `threading.enumerate()` before and after the call
+(with a 0.3-0.5s settle) shows zero leaked alive threads in both a
+`core/solver_partition.py`-level probe and a full `Simulator.run()`-level
+probe with a monkeypatched driver, in the latter case also confirming
+`simulator.result is None` -- consistent with `api/simulator.py` assigning
+`self._result` exactly once, at the end of `run()`, after both solver calls
+return. The shipped
+`test_tier6e_a_failing_time_block_propagates_without_partial_results` (which
+also asserts the finished-block set excludes the block *after* the failing
+one) passed independently in the full-suite run below. The
+`with ThreadPoolExecutor(...) as pool:` context manager's own `__exit__`
+supplies the "no hanging threads" guarantee: `cancel()` on not-yet-started
+futures is best-effort, but `shutdown(wait=True)` blocks until every already
+-running thread finishes before `execute_time_blocks` re-raises, so no thread
+outlives the call.
+
+**`run()` signature, reproduced directly.**
+`inspect.signature(Simulator.run)` is exactly
+`(self, *, progress: 'bool' = True) -> 'SimulationResult'`, matching the
+flipped `test_public_result_signatures_are_exact` pin verbatim. Calling
+`simulator.run(n_workers=1)` raises
+`TypeError: Simulator.run() got an unexpected keyword argument 'n_workers'`,
+reproduced directly (not only through the shipped test). Grepped `src/` for
+any remaining positional caller of `Simulator.run` with a `progress`
+argument: none found, so the `progress`-keyword-only change breaks no
+in-tree caller. `docs/migration_guide.md` gained a "Worker policy:
+`run(n_workers=...)` removed" section naming the exact replacement field,
+the exact `TypeError` text, and the bit-identity guarantee; read in full,
+accurate.
+
+**Default `workers=1` at `4022e1f` vs HEAD, one detached
+PYTHONPATH-isolated worktree (RUN-005-safe).** A single worktree was checked
+out sequentially at both commits (`PYTHONPATH=<worktree>/src:<worktree>` set
+explicitly for every run, `radiosim.__file__` printed and confirmed to
+resolve inside the worktree each time), following the 6D/6C precedent that a
+two-worktree comparison would produce a false `scientific_sha256` mismatch
+for the pre-existing `RUN-005` path reason. All three shipped configs, run
+through `Simulator.from_yaml(...).setup().run()`:
+
+```text
+configs/config.yaml:
+  scientific_sha256  4022e1f=723b93089d30...  621567e=723b93089d30...  IDENTICAL
+  raw vis SHA-256    4022e1f=cce1bfe86dc8...  621567e=cce1bfe86dc8...  IDENTICAL
+  provenance_sha256  4022e1f=5bae676bb3cd...  621567e=5bae676bb3cd...  IDENTICAL (expected: 6E adds no new resolved-config field, only makes an existing one effective)
+
+configs/receptor_circular_example.yaml:
+  scientific_sha256  4022e1f=cccea4348290...  621567e=cccea4348290...  IDENTICAL
+  raw vis SHA-256    4022e1f=95890bc680c2...  621567e=95890bc680c2...  IDENTICAL
+  provenance_sha256  4022e1f=82248f7995b2...  621567e=82248f7995b2...  IDENTICAL
+
+configs/realistic_foreground_example.yaml:
+  fails identically at both commits: SkyLoadAggregateError wrapping
+  "_load_from_vizier_catalog() takes from 1 to 3 positional arguments but 4
+  positional arguments (and 3 keyword-only arguments) were given" -- the
+  known-OPEN SKY-001 defect, unchanged.
+```
+
+The `provenance_sha256` identity (unlike 6C's expected delta) is itself
+evidence that 6E's default (`workers=1`) path adds nothing new to
+`resolved_config`: the resolved worker policy has been recorded since 6B, and
+`workers=1` was already the field's default before this slice, so nothing
+about the default run's resolved configuration changed. A follow-up probe
+with `execution.solver.workers=3` against a 2-time-sample fixture confirmed
+the resolved value clamps to `2` (not `3`) before the solver ever runs, and
+`provenance_sha256` differs from the `workers=1` run while `scientific_sha256`
+stays identical -- the clamp-and-record behavior and the bit-identity
+guarantee, both directly observed.
+
+**The 6A fingerprint pins pass unmodified, both environments.**
+`test_shipped_default_config_scientific_fingerprint`,
+`test_shipped_circular_receptor_config_scientific_fingerprint`, and all six
+`test_section_13_4_workload_fingerprints[...]` parametrizations: **8/8 passed
+in py311 and 8/8 passed in py312**, none touched by this slice's diff.
+
+**Q2 reconfirmation, scrutinized for vacuousness.** Read
+`test_tier6e_q2_shared_fits_and_analytic_beams_are_thread_safe`'s fixture
+construction: `_solver_inputs(tmp_path, beams=beams)` builds one
+`BeamSystem` (one `_LoadedFITSHandler` for antenna 1, one analytic evaluator
+for antenna 0 -- `len(handler_ids) == 2` asserted, i.e. exactly one handler
+per beam kind, not one per thread) and passes the *same* `beam_system` object
+to both the `workers=1` serial call and the `workers={2,4,8}` parallel call,
+so the parallel run genuinely exercises one shared `_LoadedFITSHandler`
+instance from multiple solver threads concurrently -- not a per-thread
+handler that would make the comparison vacuous. Reproduced: **3/3 worker
+counts (2, 4, 8) byte-identical to serial**, matching the recorded claim.
+Traced *why* this holds rather than accepting it as luck: `core/beam/runtime.py`
+line 217 constructs `self._lock = threading.RLock()` on `BeamSystem`, and line
+300 wraps the `self._beam.interp(...)` call (the pyuvdata `UVBeam.interp`
+entry point) in `with self._lock:` -- concurrent evaluation is serialized by
+RadioSim's own code, not merely hoped safe inside pyuvdata. This file predates
+6E (correctly absent from its Section 33 grant) and was not modified by this
+slice. Platform match confirmed on this review machine: `pyuvdata.__version__
+== "3.2.1"`, `uname -m == arm64`, `sw_vers` reports macOS 26.5.2 (Apple M1
+Max) -- the exact platform/version the evidence record names, strengthening
+confidence this is a genuine, reproducible measurement rather than a
+documentation-only claim.
+
+**Pins, all five plus the disclosed anchor move, verified.** (1)
+`test_worker_policy`'s 6B interim pin
+(`test_tier6b_solver_does_not_yet_read_the_resolved_worker_count`) is gone,
+replaced by
+`test_tier6e_both_solvers_consume_the_resolved_solver_execution_policy`,
+asserting `"solver_execution" in source` for all three modules and
+`"ThreadPoolExecutor" not in source` for the two solvers (the pool lives in
+exactly one module) -- read and confirmed true by grep. (2) D7
+(`test_run_still_advertises_and_then_rejects_n_workers` ->
+`test_run_no_longer_advertises_n_workers`): confirmed the new assertions
+match the actual runtime signature and rejection. (3) D6
+(`test_no_worker_value_is_recorded_in_provenance`, closed, assertions
+unchanged): see the dedicated ruling below. (4) The D12 anchor
+(`for time_idx in range(n_times):` -> `def _time_block(time_idx: int`):
+read both `core/visibility.py` and `core/visibility_healpix.py` diffs in
+full and confirmed the property being pinned -- `receptor_transforms` built
+once, above the per-time body, with the frequency loop still nested inside
+it -- survives structurally: `receptor_transforms = _receptor_transforms(`
+executes once at function scope (not inside `_time_block`), `def
+_time_block(` is defined once per module, and `for freq in frequencies:`
+lives inside `_time_block`'s body, in that exact order, matching
+`transforms < time_loop < frequency_loop` byte-offset-wise. (5) `test_api`
+and `test_tier4_result_output_acceptance`'s exact-signature-string pins:
+reproduced directly above (`run()` signature and `TypeError` text both
+match verbatim).
+
+**Risk ruling (1) -- `test_no_worker_value_is_recorded_in_provenance`
+closure, adjudicated deliberately, not rubber-stamped.** Read
+`api/simulator.py`'s `run()`: `solver_execution = self._resolved.execution.solver`
+is passed unchanged to both solver calls -- no second clamp, no
+re-derivation. Read `io/config_resolution.py::_resolve_solver_execution`:
+`workers=min(config.workers, max(time_sample_count, 1))` where
+`time_sample_count=len(time_grid)`, and that exact `time_grid` object is the
+same one stored at `ResolvedObservationConfig.time_grid` and later read by
+`run()` as `self._resolved.observation.time_grid` and passed to both solvers
+as their `n_times = len(time_grid)`. Because the clamp basis and the solver's
+actual `n_times` are provably the same object/length, `partition_time_axis`'s
+own defensive `block_count = min(workers, n_times)` can never fire as an
+*active* second clamp -- it is a structural invariant guard, not a second
+source of truth. Confirmed empirically: `workers=3` against a 2-sample time
+grid resolves to `resolved_config["execution"]["solver"]["workers"] == 2`
+*before* any solver call. Checked whether plan text demands a distinct
+*executed*-count field: §32.5 says only "provenance of the resolved worker
+count" (not an executed count), and §18.4's `ResolvedSolverExecutionConfig`
+docstring says `workers` is "already clamped to <= n_times" with "no further
+work" needed beyond `to_json_safe()` carrying it into `resolved_config`.
+Neither demands a second, executed-value field. **Ruling: the closure is
+correct. No defect, no plan correction needed.**
+
+**Risk ruling (2) -- W4's `threading.Barrier(4, timeout=60.0)`.** A
+deliberate, bounded trade-off: on correct behavior the test passes in
+milliseconds; on a regression to fewer than 4 concurrent workers it fails
+after a 60s wait with `BrokenBarrierError` rather than hanging indefinitely.
+Bounded, documented in the test's own docstring, consistent with how a solver
+policy regression should be caught. Not a defect.
+
+**Risk ruling (3) -- `solver_partition` imports `runtime_config`.** Read
+`core/runtime_config.py`'s import block: it imports from `core.beam.models`
+and `core.precision`, not from `core.solver_partition` -- no cycle. Confirmed
+by a fresh-process probe: `import radiosim` then
+`from radiosim.core import solver_partition` succeeds immediately with zero
+new threads spawned at import time (`threading.enumerate()` diff empty),
+i.e. `SERIAL_SOLVER_EXECUTION`'s module-level construction is a cheap frozen
+dataclass instantiation, not an eager side effect. Not a defect.
+
+**Risk ruling (4) -- astropy thread-safety, single-platform evidence.**
+Acknowledged as a limitation in the shipped test module's own docstring
+("positive evidence from one platform ... not a proof"), consistent with the
+evidentiary posture 6A already established for the same caveat. Not a
+defect; a standing limitation to watch, not something 6E could resolve
+without different hardware.
+
+**Risk ruling (5) -- no speedup claim, grepped.** Grepped every file 6E
+touched (`solver_partition.py`, `visibility.py`, `visibility_healpix.py`,
+`rime.py`, `simulator.py`, `migration_guide.md`) and all three commit
+messages for `speedup|faster|performance improvement|x faster` (case
+-insensitive): the only hit is `simulator/rime.py`'s pre-existing docstring
+line "Validation of faster approximate methods" (present since `2c2627fa`,
+2025-12-25, untouched by this diff, unrelated to solver concurrency). No
+speedup claim was introduced. Not a defect.
+
+**Gates, both environments.**
+
+```text
+pixi run test -- -m "not slow"           -> 4105 passed, 6 skipped, 26 warnings (py311/default)
+pixi run -e py312 test -- -m "not slow" -> 4105 passed, 6 skipped, 26 warnings (py312)
+pixi run lint                            -> All checks passed! (ruff check ., py311/default)
+pixi run -e py312 lint                   -> 9 UP042 (str+Enum) errors, identical file/line set to the
+                                             6B/6C/6D-confirmed pre-existing condition (constants.py:14,26;
+                                             footprint.py:19,32,40; result_format.py:19; beamfits.py:21,28,36);
+                                             none of these files is in 6E's diff
+pixi run check-format                    -> 330 files already formatted
+pixi run -e py312 check-format           -> 2 files would reformat (test_cleanup_diffuse.py,
+                                             test_instrument_sources.py), identical to the 6B/6C/6D-confirmed
+                                             pre-existing condition; neither file is in 6E's diff
+git status                               -> clean before and after review
+git log --format=%B 4022e1f..621567e | grep -i co-authored -> empty (no commit carries one)
+```
+
+`4,105 = 4,057` (accepted 6D baseline) `+ 24 + 24` is confirmed by
+`--collect-only` arithmetic, not merely repeated: `tests/unit/test_core/test_solver_partition.py`
+(new file) collects exactly 24 items; `tests/unit/test_simulator/test_worker_policy.py`
+collects 43 items at HEAD versus 19 at `4022e1f` (a detached worktree,
+collect-only, no execution) -- a net +24 in that file. `24 + 24 = 48 =
+4,105 - 4,057`, and `tests/characterization/test_tier6_current_behavior.py`
+collects the same 41 items at both commits (pins edited in place, net zero
+new tests), reconciling exactly.
+
+**Config count, three shipped YAMLs, unchanged.** `configs/` still contains
+exactly the three shipped YAMLs 6B-6D found; the runnable two produced the
+identical `scientific_sha256`/raw-cube SHA-256 pair reproduced above, and the
+third fails identically with the known-OPEN `SKY-001` defect. No HDF5 writer
+regression: not independently re-verified by this review (6D already did so
+for the identical two configs and this slice touches no writer code), noted
+under Unobserved items.
+
+**Unobserved items.** `pixi run typecheck` was not run, per `CLAUDE.md`'s
+standing instruction and this review's charter. No GPU, TPU, or distributed
+hardware was exercised (none is claimed by 6E; §5 risk ruling confirms no
+speedup or hardware claim exists to check). The HDF5 writer was not
+re-exercised by this review (6D already covered it for the same two runnable
+configs; 6E's diff touches no `io/` writer file). Only 8 of the 16 solver
+worker-invariance comparisons were reproduced by a review-authored,
+independent script; the remaining 8 were verified through the shipped,
+byte-level (`tobytes()`-equality, not digest-only) parametrized tests rather
+than re-implemented a second time, consistent with the evidentiary weight
+6A-6D gave to shipped pins throughout. `RUN-005` (path-dependent
+`scientific_sha256`) remains OPEN and unaffected by this slice; every
+cross-commit comparison in this review was performed inside one checkout for
+exactly that reason.
+
+This acceptance changes planning/roadmap records only (this entry and the
+status-header update); no `src/` or `tests/` file was modified by this review
+(`git status`/`git diff` empty immediately before this commit; all probes
+ran from a temporary scratch script and a disposable detached worktree, both
+outside the tracked tree). **Tier 6E is accepted; Tier 6F (hybrid sky
+representation and canonical summation) is now the only authorized
+implementation slice**, limited to its Section 33 file list
+(`api/simulator.py`, `backends/base.py`, `core/__init__.py`, `core/hybrid.py`,
+`core/result.py`, `core/sky/combine/concat.py`, `io/config.py`,
+`io/config_resolution.py`, `configs/hybrid_sky_example.yaml`,
+`tests/characterization/test_tier6_current_behavior.py`,
+`tests/fixtures/configs.py`, `tests/integration/test_hybrid_end_to_end.py`,
+`tests/unit/test_core/test_hybrid_visibility.py`,
+`tests/unit/test_core/test_result.py`, `tests/unit/test_core/test_sky_combine.py`,
+`tests/unit/test_io/test_config.py`, `tests/unit/test_simulator/test_api.py`,
+`tests/unit/test_simulator/test_result_integration.py`); Tier 6G through 6J
+remain unauthorized until each predecessor slice is implemented and
+independently accepted. `RUN-005` remains **OPEN**. Nothing was pushed.
