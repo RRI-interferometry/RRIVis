@@ -1,3 +1,15 @@
+# Circular-receptor example.
+#
+# Every antenna carries two ideal orthogonal right/left circular receptors, so
+# the result correlation axis is labelled RR, RL, LR, LL instead of the default
+# XX, XY, YX, YY. The in-memory correlation order is the row-major flattening of
+# the 2x2 visibility matrix in both bases, so index 0 and index 3 are always the
+# parallel hands.
+#
+# Run it offline exactly like the default sample:
+#   radiosim validate configs/receptor_circular_example.yaml
+#   radiosim --config configs/receptor_circular_example.yaml
+
 instrument:
   source:
     kind: layout_file
@@ -19,13 +31,12 @@ beams:
       kind: gaussian
       edge_taper_db: 10.0
 
-# Receptor model. This block is the explicit form of the default: two ideal
-# orthogonal linear feeds per antenna, no feed rotation, and a linear_xy output
-# basis, so the correlation axis is labelled XX, XY, YX, YY. Omitting the whole
-# section is equivalent. See configs/receptor_circular_example.yaml for R/L.
+# Receptor model. 'basis: circular' makes every antenna natively R/L, and
+# 'output_basis: auto' resolves to circular_rl because the array is homogeneous.
+# Name 'linear' or 'circular' explicitly to report a mixed array in one basis.
 receptors:
   default:
-    basis: linear
+    basis: circular
     feed_rotation_deg: 0.0
   overrides: []
   output_basis: auto
@@ -37,24 +48,23 @@ baseline_selection:
 
 obs_time:
   start_time: "2025-01-01T00:00:00"
-  duration_seconds: 3600
-  time_step_seconds: 60
+  duration_seconds: 60.0
+  time_step_seconds: 10.0
 
 obs_frequency:
-  mode: grid
-  starting_frequency: 50
-  frequency_interval: 1.0
-  frequency_bandwidth: 100
-  channel_width: 1.0
-  frequency_unit: MHz
+  mode: explicit
+  channel_frequencies_hz: [100000000.0, 101500000.0, 108000000.0]
+  channel_widths_hz: [1000000.0, 1000000.0, 1000000.0]
 
+# A circularly polarized source is the case that distinguishes the two bases:
+# Stokes V is carried entirely by the parallel hands RR and LL.
 sky_model:
   flux_unit: Jy
   sources:
     - kind: test_sources
-      num_sources: 200
+      num_sources: 3
       distribution: random
-      seed: 42
+      seed: 7
       flux_min: 1.0
       flux_max: 5.0
       dec_deg: -30.72
@@ -70,17 +80,17 @@ execution:
   precision:
     preset: standard
   simulator: rime
-  offline: false
+  offline: true
 
 workflow:
   output_dir: output
   run_subdir: null
   result_filename: visibilities
   result_format: hdf5
-  save_results: true
   collision_policy: error
+  save_results: false
   plot_results: false
   open_plots_in_browser: false
   plotting_backend: bokeh
-  save_log: false
   visibility_phase_unit: radians
+  save_log: false

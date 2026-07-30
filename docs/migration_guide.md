@@ -36,9 +36,14 @@ result = simulator.run()
 assert result is simulator.result
 
 visibilities = result.visibilities  # (time, baseline, frequency, correlation)
+assert result.polarization_basis == "linear_xy"      # data, not a constant
 assert result.correlations == ("XX", "XY", "YX", "YY")
 stokes_i = result.stokes_i()
 ```
+
+The correlation labels are no longer fixed. Read `result.correlations` and
+`result.polarization_basis` instead of hard-coding `XX, XY, YX, YY`; a circular
+result reports `RR, RL, LR, LL`. See the receptor section below.
 
 Coordinates, masks, provenance, and fingerprints are available through
 `result.time_grid`, `result.frequencies_hz`, `result.channel_widths_hz`,
@@ -136,7 +141,7 @@ Removed instrument fields map as follows:
 | `use_pyuvdata_telescope`, `use_pyuvdata_location`, `use_pyuvdata_antennas`, `use_pyuvdata_diameters` | choose exactly one discriminated source |
 | `antenna_layout.fixed_HPBW` | analytic configuration under `beams` |
 | `instrument.location.ra` / `.dec` | no replacement; explicit phase-centre input is not implemented |
-| top-level `feeds` | no replacement; receptor/feed physics is not implemented |
+| top-level `feeds` | the `receptors` section with `default.basis`, `default.feed_rotation_deg`, and `output_basis` |
 
 Unknown or removed keys fail validation with a focused replacement message.
 
@@ -244,6 +249,98 @@ signatures that accepted a manager, handler dictionary, or optional beam
 mapping must pass the exact canonical `BeamSystem` required by the current
 solver boundary. Missing low-level imports and old call signatures fail
 directly instead of selecting identity or analytic fallback behavior.
+
+### Illumination primitives renamed
+
+"Feed" now means the receiving receptor only. The beam subsystem's aperture
+**illumination** primitives were renamed so the two vocabularies cannot be
+confused, and the module that defines them was rehomed. The renames are direct;
+there are no aliases.
+
+| Removed name | Replacement |
+| --- | --- |
+| `radiosim.core.jones.beam.analytic.feed` (module) | `radiosim.core.jones.beam.analytic.illumination` |
+| `corrugated_horn_pattern` | `corrugated_horn_illumination` |
+| `open_waveguide_pattern` | `open_waveguide_illumination` |
+| `dipole_ground_plane_pattern` | `dipole_ground_plane_illumination` |
+| the `theta_feed` keyword on those three functions | `theta_illumination` |
+
+`prime_focus_angle`, `cassegrain_angle`, and `compute_edge_angle` keep their
+names and move with the module. Importing them from the package root
+`radiosim.core.jones.beam.analytic` is unaffected. `feed_array`, `feed_angle`,
+`x_orientation`, and `UnsupportedBeamFeedError` are **not** renamed: those
+describe the receiving receptor and are correctly named.
+
+## Receptors and polarization basis
+
+Receptor physics is implemented for ideal orthogonal two-feed receptors. The
+removed top-level `feeds` object is replaced by a `receptors` section, and the
+correlation labels, HDF5 schema, and Stokes `V` sign all changed with it. There
+is no compatibility flag for any of it.
+
+The `feeds` key is rejected with an exact pointer:
+
+- `feeds: top-level 'feeds' was replaced by the Tier 5 receptor model`
+
+The runnable replacement, which is also the default when the section is omitted,
+is:
+
+```yaml
+receptors:
+  default:
+    basis: linear
+    feed_rotation_deg: 0.0
+  overrides: []
+  output_basis: auto
+```
+
+Old receptor-shaped keys map as follows, each with its own exact message:
+
+| Rejected key | Replacement or reason |
+| --- | --- |
+| top-level `feeds` | the `receptors` section |
+| `receptors.default.feed_type` | `receptors.default.basis`, exactly `linear` or `circular` |
+| `receptors.default.n_feeds` | no replacement; every antenna has exactly two feeds, and single-feed or multi-feed antennas are rejected until Tier 7 |
+| `receptors.default.feed_angle_deg` | `receptors.default.feed_rotation_deg`, an offset from the nominal orientation of the selected basis |
+
+A `basis` other than `linear` or `circular`, and an `output_basis` other than
+`auto`, `linear`, or `circular`, are rejected at schema validation. Naming
+`output_basis: auto` for an array with mixed native bases is rejected at
+resolution with `AmbiguousOutputBasisError`, which reports both antenna counts;
+name the basis explicitly instead. A `mount_type` other than `fixed`, and a
+non-zero `feed_rotation_deg` combined with an enabled parallactic-angle term, are
+rejected with `UnsupportedFeedGeometryError`.
+
+The stub constructors are removed, not deprecated:
+`ReceptorConfigJones(feed_type=...)` and
+`BasisTransformJones(from_basis=..., to_basis=...)` no longer accept those
+keywords, or positional arguments. Both terms are now constructed from a
+resolved receptor set and a solver instrument view, and both are always present
+in the Jones chain. The solver entry points and the result factory gained a
+required `receptors` parameter with no default; pass the
+`ResolvedReceptorSet` that `resolve_receptors()` returns.
+
+Two scientific consequences have no opt-out:
+
+- **Stokes `V` sign.** `stokes_to_coherency` now builds
+  `[[I + Q, U + iV], [U - iV, I - Q]] / 2`, and `coherency_to_stokes` derives
+  `V` from the `[0, 1]` element to match. The previous matrix was the mirror
+  image under `V -> -V`. The blast radius is exactly the cross-hand
+  correlations of sources with non-zero Stokes `V`; every `V = 0` result, every
+  parallel hand, and every `stokes_i()` value is bit-identical to before.
+- **Fingerprints.** `scientific_sha256` changes for every result, because the
+  resolved receptor set is part of the canonical scientific identity. Do not
+  compare fingerprints across this boundary.
+
+HDF5 results moved to schema `2.0.0`, which adds the `receptors` group and makes
+the stored correlation labels basis-driven. Schema `1.0.0` files are rejected
+with `UnsupportedSchemaVersionError` and are not upgraded in place; re-run the
+simulation. Measurement Set, UVFITS, the summary JSON, and every renderer read
+the resolved basis rather than assuming the linear labels. See
+[`docs/api/io.rst`](api/io.rst) for the complete polarization mapping and
+[`docs/user_guide/jones_matrices.rst`](user_guide/jones_matrices.rst) for the
+receptor mathematics, the exactness assumption behind a basis change, and the
+parallactic-angle boundary.
 
 ## Frequency and configuration I/O
 

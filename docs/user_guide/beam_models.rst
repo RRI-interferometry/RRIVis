@@ -4,6 +4,19 @@ Beam Models
 ``beams`` is a strict discriminated union. Each document selects one complete
 mode; unknown fields and incomplete mode shapes are rejected.
 
+Illumination is not the receptor
+--------------------------------
+
+``beams`` owns aperture **illumination**: how a reflector is fed with power, in
+the vocabulary ``illumination``, ``taper``, and edge angle. The receiving
+**receptor** — which orthogonal feed pair each antenna has and which
+polarization basis results are reported in — is owned by the separate
+``receptors`` section documented in :doc:`configuration`. The two vocabularies
+are deliberately disjoint, in configuration and in source identifiers, so that
+"feed" never means two things at once. Choosing ``circular`` receptors does not
+change any beam model, and choosing an illumination model does not change any
+correlation label.
+
 Runtime boundary
 ----------------
 
@@ -103,11 +116,17 @@ The accepted FITS subset is deliberately scalar. RadioSim accepts finite
 grid, a fixed antenna mount, east-oriented linear X/Y feeds, a finite identity
 basis transform, unit bandpass, peak normalization, and a strictly increasing
 frequency axis. The evaluated voltage is the scalar complex response on the
-diagonal of a 2x2 E-Jones matrix. Power beams, circular feeds, non-identity
-bases, other coordinate systems or mounts, arbitrary cross-polarization, and
-full receptor/polarization physics are rejected. Angular interpolation is
-bilinear; frequency interpolation is exactly linear or cubic with no
-extrapolation or method fallback.
+diagonal of a 2x2 E-Jones matrix. Power beams, circular feeds in the *file*,
+non-identity bases, other coordinate systems or mounts, and arbitrary
+cross-polarization are rejected. Angular interpolation is bilinear; frequency
+interpolation is exactly linear or cubic with no extrapolation or method
+fallback.
+
+Rejecting circular feeds in a BeamFITS file does not restrict the receptor
+model. ``receptors`` supplies the receptor basis and any static feed rotation
+independently of the beam, and the scalar E-Jones response multiplies both bases
+identically. Polarization leakage and a beam that genuinely differs between the
+two feeds remain Tier 7 work.
 
 .. code-block:: yaml
 

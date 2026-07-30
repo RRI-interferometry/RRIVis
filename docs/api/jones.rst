@@ -2,10 +2,12 @@ Jones Matrix API
 ================
 
 The modules below expose the Jones framework. Exported classes do not all
-represent implemented high-level effects. Geometric phase and the canonical
-``BeamSystem`` scalar E-Jones adapter are the substantive effects in the
-current ``Simulator`` path; many other terms remain identity scaffolds or
-later-tier work.
+represent implemented high-level effects. Geometric phase, the canonical
+``BeamSystem`` scalar E-Jones adapter, and the receptor terms ``C`` and ``H``
+in ``radiosim.core.jones.receptor`` are the substantive effects in the current
+``Simulator`` path; many other terms remain identity scaffolds or later-tier
+work. See :doc:`../user_guide/jones_matrices` for the receptor mathematics and
+the chain order.
 
 Base and chain
 --------------
@@ -39,8 +41,10 @@ Scaffolded and low-level modules
 
 The remaining Jones modules are documented for development and inspection.
 Check each implementation and its scientific tests before use. A returned
-identity matrix is not a modeled physical effect. Full receptor, basis, and
-polarization physics remains a later scientific boundary.
+identity matrix is not a modeled physical effect. Polarization leakage,
+parallactic rotation, gains, bandpass, elliptical or non-orthogonal feed pairs,
+and a frequency- or time-dependent receptor basis remain a later scientific
+boundary.
 
 .. automodule:: radiosim.core.jones.ionosphere
    :members:

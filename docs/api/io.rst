@@ -73,8 +73,8 @@ Instrument sources
 Versioned HDF5 results
 ----------------------
 
-``radiosim.visibility`` schema version ``1.0.0`` is the complete,
-reconstructable Tier 4 result format.  Its canonical extension is ``.h5``.
+``radiosim.visibility`` schema version ``2.0.0`` is the complete,
+reconstructable result format.  Its canonical extension is ``.h5``.
 The direct APIs are:
 
 .. autofunction:: radiosim.io.hdf5.write_result_hdf5
@@ -92,8 +92,21 @@ contains detached identity and provenance snapshots rather than live
 instrument, beam, backend, or Simulator services.
 
 The schema losslessly preserves complex64 or complex128 visibilities in
-``time, baseline, frequency, correlation`` order, with the exact correlations
-``XX, XY, YX, YY``.  It also preserves flags, weights, two-part UTC sample
+``time, baseline, frequency, correlation`` order.  The correlation labels are
+data, not a constant: a ``linear_xy`` result stores ``XX, XY, YX, YY`` and a
+``circular_rl`` result stores ``RR, RL, LR, LL``, always in the row-major
+flattening of the 2x2 visibility matrix, so indices ``0`` and ``3`` are the
+parallel hands in both bases.  The written ``polarization_basis`` and
+``correlations`` are validated against each other on read, and only those two
+label tuples in that order are accepted.
+
+Schema ``2.0.0`` also stores a ``receptors`` group: the resolved
+``output_basis``, the ``receptor_sha256`` fingerprint, and per-antenna
+``antenna_number``, ``antenna_name``, ``basis``, ``feed_rotation_rad``, and
+``feed_angle_rad`` in canonical instrument antenna order.  A loaded result
+therefore reconstructs which receptor produced which correlation.
+
+The schema also preserves flags, weights, two-part UTC sample
 centres, integration durations, frequency centres and channel widths,
 canonical antenna and baseline identity and geometry, location, phase centre,
 and immutable provenance.  Both the scientific fingerprint and the
@@ -120,9 +133,12 @@ evaluation.
 
 The legacy unversioned files are rejected because they had unsafe baseline-name
 parsing and incomplete scientific fields; there is no legacy reader.  Files
-written by the rejected VLEN `1.0.0` implementation are also unsafe inputs and
+written by the rejected VLEN implementation are also unsafe inputs and
 are rejected; there is no VLEN compatibility reader, migration shim, or
-fallback.
+fallback.  Schema ``1.0.0`` files predate the receptor group and the
+basis-driven correlation labels; they are rejected with
+``UnsupportedSchemaVersionError`` and are not upgraded in place.  Re-run the
+simulation to obtain a ``2.0.0`` file.
 
 The legacy unsafe HDF5 function pair was removed immediately with no
 compatibility aliases.  High-level ``Simulator.save`` dispatches this writer
@@ -136,7 +152,12 @@ Truthful summary JSON
 ``ResultFormat.SUMMARY_JSON`` uses the canonical ``.summary.json`` extension
 and schema ``radiosim.result-summary`` version ``1.0.0``.  It reports result
 shape, dtype, units, fingerprints, flags/weights summaries, canonical axes,
-detached identity/provenance snapshots, performance, and history.  It
+detached identity/provenance snapshots, performance, and history.  Its
+``correlation`` block names the exact labels and the resolved
+``polarization_basis``, and its bounded ``receptors`` block reports
+``output_basis``, ``receptor_sha256``, ``native_basis_counts``, and the sorted
+``distinct_feed_rotations_deg``.  Per-antenna receptor rows are deliberately
+absent; the complete set lives in the HDF5 ``receptors`` group.  It
 explicitly excludes visibility samples, full flags and weights, full
 coordinates, and antenna/baseline geometry.  The complete UTF-8 payload is
 limited to 16 MiB before filesystem mutation and uses the atomic regular-file
@@ -150,11 +171,61 @@ Measurement Set and UVFITS exports use one shared projection of an exact
 ``SimulationResult`` and return an immutable ``StandardVisibilityData`` from
 their readers.  Neither reader reconstructs a native ``SimulationResult`` or
 ``LoadedSimulationResult``.  The projection preserves the canonical time-major,
-baseline-inner layout and explicitly maps ``XX, XY, YX, YY`` into each file's
-standard ordering.  It derives the ICRS first-time zenith from the first
-two-part UTC centre, phases exactly once before writing, records both source
-fingerprints and the original zenith-drift semantics in HISTORY, and never
-mutates the source result.
+baseline-inner layout and explicitly maps the result's own correlation labels —
+``XX, XY, YX, YY`` for ``linear_xy`` or ``RR, RL, LR, LL`` for ``circular_rl`` —
+into each file's standard ordering.  It derives the ICRS first-time zenith from
+the first two-part UTC centre, phases exactly once before writing, records both
+source fingerprints, the resolved ``polarization_basis``, the
+``receptor_sha256``, and the original zenith-drift semantics in HISTORY, and
+never mutates the source result.
+
+Polarization mapping
+~~~~~~~~~~~~~~~~~~~~
+
+One shared table, ``radiosim.core.polarization_basis``, owns every label and
+code for both bases.  No writer or reader hard-codes a second copy; the
+format-specific maps are derived from it.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 34 34
+
+   * - Surface
+     - ``linear_xy``
+     - ``circular_rl``
+   * - In-memory labels
+     - ``XX, XY, YX, YY``
+     - ``RR, RL, LR, LL``
+   * - Canonical AIPS codes
+     - ``-5, -7, -8, -6``
+     - ``-1, -3, -4, -2``
+   * - UVFITS stored axis order
+     - ``-5, -6, -7, -8``
+     - ``-1, -2, -3, -4``
+   * - pyuvdata ``feed_array``
+     - ``x, y``
+     - ``r, l``
+   * - Measurement Set ``CORR_TYPE``
+     - casacore ``Stokes`` 9-12
+     - casacore ``Stokes`` 5-8
+
+The canonical order is the row-major flattening of the 2x2 visibility matrix,
+which is what a freshly written Measurement Set's ``POLARIZATION`` table
+contains because pyuvdata preserves the order it is handed.  A UVFITS file
+stores its polarization axis in descending code order instead, and pyuvdata's
+Measurement Set reader canonicalizes ``polarization_array`` into that same
+descending order on read-back.  The two orders must not be confused.
+
+``feed_array`` records the nominal receptor orientation for the resolved output
+basis, written uniformly for every antenna: an unrotated linear pair has
+``feed_angle_rad`` ``(pi/2, 0)`` and an unrotated circular pair ``(0, 0)``.  The
+per-antenna native basis and feed rotation are RadioSim provenance and are never
+inferred by a reader from ``feed_array``.  Because pyuvdata does not
+cross-validate ``feed_array`` against ``polarization_array``, RadioSim enforces
+that coupling itself and rejects an input whose declared feeds disagree with its
+polarization axis.  Readers accept exactly the two label tuples above, in
+exactly those orders; a reordering is rejected rather than permuted, because the
+correlation axis order is part of the contract.
 
 .. autoclass:: radiosim.io.standard_visibility.StandardVisibilityData
    :members:

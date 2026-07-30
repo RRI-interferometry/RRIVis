@@ -22,20 +22,24 @@ The current `Simulator` path supports:
 - typed correlation, length, and axial-azimuth baseline selection;
 - analytic, shared-FITS, per-antenna-FITS, and mixed beam configuration through
   one canonical per-antenna beam system;
+- linear or circular two-feed receptors with a static feed rotation and one
+  resolved array-wide output polarization basis;
 - point-source or HEALPix direct-sum simulation;
 - requested NumPy, JAX, Numba, or `auto` backend selection through one
   resolver; and
 - `Simulator.plot_observability()` as a visualization helper.
 
 The strict schema rejects high-level behavior that is not connected yet,
-including receptor/feed physics, UVFITS output, and spherical-harmonic
-simulator modes. Heterogeneous beams are active in both visibility paths;
+including polarization leakage, parallactic rotation, gains, bandpass,
+elliptical or non-orthogonal feed pairs, and spherical-harmonic simulator
+modes. Heterogeneous beams are active in both visibility paths;
 observability requires an explicit canonical reference antenna unless all
 assigned handlers are scientifically equivalent.
 
-Only the geometric-phase and canonical scalar primary-beam Jones paths provide
-the current high-level forward-model effects. Other exported Jones classes are
-scaffolding and must not be treated as implemented science.
+The geometric-phase (K), canonical scalar primary-beam (E), receptor-configuration
+(C), and basis-transform (H) Jones paths provide the current high-level
+forward-model effects. Other exported Jones classes are scaffolding and must
+not be treated as implemented science.
 
 ## Install
 
@@ -87,11 +91,16 @@ the document's CLI-only `workflow` actions. Config mode owns saving, logging,
 plotting, prompting, skipping, and browser behavior.
 
 `Simulator.run()` returns an immutable `SimulationResult`. Its canonical
-visibility shape is `(time, baseline, frequency, correlation)`, with
-correlations ordered as `XX, XY, YX, YY`. Coordinates and derived Stokes I are
+visibility shape is `(time, baseline, frequency, correlation)`. The correlation
+axis is the row-major flattening of the 2x2 visibility matrix, so its labels
+follow the resolved polarization basis: `XX, XY, YX, YY` for `linear_xy` (the
+default) and `RR, RL, LR, LL` for `circular_rl`. Read `result.correlations` and
+`result.polarization_basis` rather than assuming the linear labels. Coordinates
+and derived Stokes I are
 available through `result.time_grid`, `result.frequencies_hz`,
 `result.channel_widths_hz`, `result.correlations`, and `result.stokes_i()`;
-`result.flags`, `result.weights`, `result.scientific_sha256`, and
+`result.flags`, `result.weights`, `result.receptors`,
+`result.scientific_sha256`, and
 `result.provenance_sha256` complete the current result surface.
 
 Save the last successful result to one exact final path with the typed
@@ -105,7 +114,8 @@ overwrite=..., visibility_phase_unit=...)` renders the published
 `SimulationResult` into one explicit directory. The renderers read the
 canonical coordinate arrays directly — MJD time centers from
 `result.time_grid`, channel centers from `result.frequencies_hz`, and the
-published baseline order — and derive Stokes I explicitly as `XX + YY`. Phase
+published baseline order — and derive Stokes I explicitly as the sum of the two
+parallel hands, labelled `XX + YY` or `RR + LL` for the result's own basis. Phase
 is displayed in `radians` (default) or `degrees`. Browsers open only after
 every declared file is written.
 
@@ -256,6 +266,32 @@ an analytic beam: there is no analytic fallback for a FITS declaration.
 FITS support is the documented scalar E-Jones subset, not arbitrary
 full-polarization BeamFITS.
 
+The `receptors` section is a separate concern from `beams`: `beams` describes how
+each aperture is *illuminated*, `receptors` describes the *receiving* feeds and
+the basis results are reported in. The section is optional, and omitting it is
+exactly equivalent to the explicit default:
+
+```yaml
+receptors:
+  default:
+    basis: linear            # or circular
+    feed_rotation_deg: 0.0
+  overrides: []              # per-antenna basis or rotation
+  output_basis: auto         # or linear / circular
+```
+
+`basis: circular` makes every antenna natively R/L, and `output_basis: auto`
+then resolves to `circular_rl`. Name `linear` or `circular` explicitly to report
+a mixed array in one basis; `auto` on a mixed array is rejected with both antenna
+counts. `feed_rotation_deg` is a finite static offset from the nominal
+orientation of the selected basis. Single-feed and multi-feed antennas,
+elliptical or non-orthogonal feed pairs, per-feed angles, a non-`fixed` mount
+type, and a frequency- or time-dependent basis are all rejected. See
+[`configs/receptor_circular_example.yaml`](configs/receptor_circular_example.yaml)
+for a runnable circular sample and
+[the Jones guide](docs/user_guide/jones_matrices.rst) for the receptor
+mathematics and the boundaries.
+
 HEALPix advice is derived from the smallest selected-baseline beam-product
 feature scale over every exact observation frequency. For endpoint voltage
 scales `s_p` and `s_q`, the product scale is
@@ -335,7 +371,8 @@ separate simulation engine or backend.
 - [Migration guide](docs/migration_guide.md)
 - [Python example](examples/scripts/simple_simulation.py)
 - [Basic notebook](examples/notebooks/01_basic_usage.ipynb)
-- [Two shipped YAML samples](configs/)
+- [Three shipped YAML samples](configs/), including
+  [`configs/receptor_circular_example.yaml`](configs/receptor_circular_example.yaml)
 - [Antenna layout formats](antenna_layout_examples/README_antenna_formats.md)
 
 ## Tests

@@ -51,13 +51,17 @@ Current high-level support
 - point-source and HEALPix direct-sum visibility paths;
 - canonical instruments with typed baseline selection;
 - analytic beams with heterogeneous positive antenna diameters;
+- linear or circular two-feed receptors with a static feed rotation and one
+  resolved array-wide output polarization basis;
 - exact grid or explicit-Hz frequency input;
 - backend and precision selection through resolved configuration; and
 - observability plotting as a ``Simulator`` helper.
 
 FITS/mixed/per-antenna beams, HDF5, summary JSON, Measurement Set, and UVFITS
-output are supported within their documented contracts. Receptor physics and
-later simulator modes remain separate work.
+output are supported within their documented contracts, and each records the
+resolved polarization basis. Polarization leakage, parallactic rotation, gains,
+bandpass, elliptical or non-orthogonal feed pairs, and later simulator modes
+remain separate work.
 
 Quick example
 -------------

@@ -192,21 +192,23 @@ def _cosine_taper(
 
 
 def _corrugated_horn(
-    theta_feed: np.ndarray,
+    theta_illumination: np.ndarray,
     q: float,
     *,
     real_dtype: np.dtype[Any],
 ) -> np.ndarray:
-    return np.cos(np.asarray(theta_feed, dtype=real_dtype)) ** real_dtype.type(q)
+    return np.cos(np.asarray(theta_illumination, dtype=real_dtype)) ** real_dtype.type(
+        q
+    )
 
 
 def _open_waveguide(
-    theta_feed: np.ndarray,
+    theta_illumination: np.ndarray,
     b_over_lambda: float,
     *,
     real_dtype: np.dtype[Any],
 ) -> tuple[np.ndarray, np.ndarray]:
-    theta = np.asarray(theta_feed, dtype=real_dtype)
+    theta = np.asarray(theta_illumination, dtype=real_dtype)
     e_plane = np.cos(theta)
     x = real_dtype.type(b_over_lambda) * np.sin(theta)
     denominator = real_dtype.type(1.0) - (real_dtype.type(2.0) * x) ** 2
@@ -221,12 +223,12 @@ def _open_waveguide(
 
 
 def _dipole_ground_plane(
-    theta_feed: np.ndarray,
+    theta_illumination: np.ndarray,
     height_wavelengths: float,
     *,
     real_dtype: np.dtype[Any],
 ) -> np.ndarray:
-    theta = np.asarray(theta_feed, dtype=real_dtype)
+    theta = np.asarray(theta_illumination, dtype=real_dtype)
     return np.cos(theta) * np.sin(
         real_dtype.type(2.0)
         * _pi(real_dtype)
@@ -299,35 +301,35 @@ def _observation_frequencies(
     return tuple(copied)
 
 
-def _feed_response(
+def _illumination_response(
     illumination: object,
-    theta_feed: np.ndarray,
+    theta_illumination: np.ndarray,
     *,
     real_dtype: np.dtype[Any],
 ) -> np.ndarray:
     if type(illumination) is ResolvedCorrugatedHornIllumination:
         return _corrugated_horn(
-            theta_feed,
+            theta_illumination,
             q=illumination.q,
             real_dtype=real_dtype,
         )
     if type(illumination) is ResolvedOpenWaveguideIllumination:
         e_plane, h_plane = _open_waveguide(
-            theta_feed,
+            theta_illumination,
             b_over_lambda=illumination.b_over_lambda,
             real_dtype=real_dtype,
         )
         return np.sqrt(np.abs(e_plane) * np.abs(h_plane))
     if type(illumination) is ResolvedDipoleGroundPlaneIllumination:
         return _dipole_ground_plane(
-            theta_feed,
+            theta_illumination,
             height_wavelengths=illumination.height_wavelengths,
             real_dtype=real_dtype,
         )
     raise TypeError("analytic definition contains an unsupported illumination")
 
 
-def _feed_angles(
+def _illumination_edge_angles(
     model: (
         ResolvedAnalyticalIlluminationBeamModel | ResolvedNumericalIlluminationBeamModel
     ),
@@ -358,7 +360,7 @@ def _derived_edge_taper_db(
     diameter_m: float,
 ) -> float:
     real_dtype = np.dtype(np.float64)
-    edge_angle = _feed_angles(
+    edge_angle = _illumination_edge_angles(
         model,
         np.array([diameter_m / 2.0], dtype=np.float64),
         diameter_m,
@@ -366,7 +368,7 @@ def _derived_edge_taper_db(
     )
     edge_response = float(
         np.abs(
-            _feed_response(
+            _illumination_response(
                 model.illumination,
                 edge_angle,
                 real_dtype=real_dtype,
@@ -543,9 +545,9 @@ def _numerical_voltage(
         model.n_radial,
         dtype=real_dtype,
     )
-    illumination = _feed_response(
+    illumination = _illumination_response(
         model.illumination,
-        _feed_angles(
+        _illumination_edge_angles(
             model,
             rho_m,
             diameter_m,

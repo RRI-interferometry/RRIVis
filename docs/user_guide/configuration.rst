@@ -39,6 +39,13 @@ Local formats also require explicit identity and geodetic location:
          kind: gaussian
          edge_taper_db: 10.0
 
+   receptors:
+     default:
+       basis: linear
+       feed_rotation_deg: 0.0
+     overrides: []
+     output_basis: auto
+
    obs_time:
      start_time: "2025-01-01T00:00:00"
      duration_seconds: 60.0
@@ -162,3 +169,107 @@ evaluation.
 
 An ``allow_network`` known-telescope source conflicts with global offline mode.
 Validation and offline tests never enumerate the live registry.
+
+Receptor declarations
+---------------------
+
+``receptors`` describes the *receiving* receptors: which pair of orthogonal
+feeds each antenna carries and which single basis the whole array is reported
+in. It is a separate concern from ``beams``, which describes how each reflector
+aperture is *illuminated*. The two vocabularies do not overlap: ``receptors``
+owns ``basis``, ``feed_rotation_deg``, and ``output_basis``, while ``beams``
+owns ``illumination``, ``taper``, and edge angles.
+
+The whole section is optional. Omitting it is exactly equivalent to::
+
+   receptors:
+     default:
+       basis: linear
+       feed_rotation_deg: 0.0
+     overrides: []
+     output_basis: auto
+
+``default.basis`` is exactly ``linear`` (feeds ``x``, ``y``) or ``circular``
+(feeds ``r``, ``l``, IAU sense). Every antenna carries exactly two ideal
+orthogonal feeds. ``default.feed_rotation_deg`` is a finite static offset from
+the nominal orientation of the selected basis, in degrees.
+``output_basis`` is ``auto``, ``linear``, or ``circular``, and selects the one
+basis every reported visibility is expressed in.
+
+Homogeneous circular, resolved automatically:
+
+.. code-block:: yaml
+
+   receptors:
+     default:
+       basis: circular
+     output_basis: auto      # resolves to circular_rl
+
+Homogeneous linear rotated 45 degrees:
+
+.. code-block:: yaml
+
+   receptors:
+     default:
+       basis: linear
+       feed_rotation_deg: 45.0
+
+Heterogeneous rotations within one basis, per antenna:
+
+.. code-block:: yaml
+
+   receptors:
+     default:
+       basis: linear
+     overrides:
+       - antenna: {kind: number, number: 3}
+         feed_rotation_deg: 30.0
+       - antenna: {kind: name, name: HERA-11}
+         feed_rotation_deg: -15.0
+
+Heterogeneous bases, with the common output basis named explicitly:
+
+.. code-block:: yaml
+
+   receptors:
+     default:
+       basis: linear
+     overrides:
+       - antenna: {kind: number, number: 7}
+         basis: circular
+     output_basis: circular    # every antenna transformed into R/L
+
+Circular-native receptors reported in a linear basis:
+
+.. code-block:: yaml
+
+   receptors:
+     default:
+       basis: circular
+     output_basis: linear
+
+``overrides`` entries use the same tagged ``antenna`` references as
+``instrument.diameter_overrides`` and ``beams.assignments``, so
+``{kind: number, number: N}`` and ``{kind: name, name: NAME}`` are both
+accepted. Each entry must set at least one of ``basis`` or
+``feed_rotation_deg``, and no two entries may resolve to the same canonical
+antenna.
+
+Correlation labels follow the resolved output basis. ``linear_xy`` reports
+``XX, XY, YX, YY`` and ``circular_rl`` reports ``RR, RL, LR, LL``; the
+correlation axis is the row-major flattening of the 2x2 visibility matrix in
+both cases, so indices ``0`` and ``3`` are always the parallel hands. Read
+``result.correlations`` and ``result.polarization_basis`` rather than assuming
+the linear labels. See :doc:`jones_matrices` for the receptor mathematics and
+the boundaries Tier 5 does not cross.
+
+Boundaries. ``output_basis: auto`` cannot resolve a mixed array and is rejected
+with a count of linear and circular antennas; name the basis instead. A
+``basis`` value other than ``linear`` or ``circular``, a single-feed or
+multi-feed antenna, elliptical or non-orthogonal feed pairs, independent
+per-feed angles, and a frequency- or time-dependent basis are all rejected. A
+mount type other than ``fixed`` is rejected, and a non-zero
+``feed_rotation_deg`` combined with an enabled parallactic-angle term is
+rejected, because the parallactic term is not implemented yet. The removed
+top-level ``feeds`` key is rejected with a pointer at this section; see
+:doc:`../migration_guide`.

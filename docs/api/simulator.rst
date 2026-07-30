@@ -35,8 +35,12 @@ explicit helper independent of simulation-result rendering.
 :class:`~radiosim.core.result.SimulationResult`, and ``Simulator.result``
 returns the identical last successfully published object (or ``None`` before
 the first successful run). The visibility array shape is
-``(time, baseline, frequency, correlation)`` and the correlation order is
-``XX, XY, YX, YY``. Use ``result.stokes_i()`` for derived Stokes I.
+``(time, baseline, frequency, correlation)``. The correlation axis is the
+row-major flattening of the 2x2 visibility matrix, so its labels follow the
+resolved polarization basis: ``XX, XY, YX, YY`` for ``linear_xy`` (the default)
+and ``RR, RL, LR, LL`` for ``circular_rl``. Read ``result.correlations`` and
+``result.polarization_basis`` rather than assuming the linear labels, and use
+``result.stokes_i()`` for derived Stokes I.
 
 ``Simulator.save(path, /, *, format=ResultFormat.HDF5, overwrite=False)``
 treats ``path`` as the exact final artifact target.  It supports HDF5,
@@ -71,8 +75,9 @@ explicit; only the ``bokeh`` backend is implemented.  The renderers consume the
 published coordinate arrays directly — MJD time centers from
 ``result.time_grid``, channel centers in hertz from ``result.frequencies_hz``,
 and the exact published baseline order — and never reconstruct an axis from a
-duration, cadence, or scalar start time.  Stokes I is derived explicitly as
-``XX + YY`` through ``SimulationResult.stokes_i``.
+duration, cadence, or scalar start time.  Stokes I is derived explicitly as the
+sum of the two parallel hands through ``SimulationResult.stokes_i``, and the
+axis label names them for the result's own basis (``XX + YY`` or ``RR + LL``).
 
 ``visibility_phase_unit`` is exactly ``radians`` or ``degrees`` and affects only
 the displayed phase axis.  Contract validation and collision checks precede all

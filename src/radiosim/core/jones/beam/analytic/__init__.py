@@ -2,8 +2,8 @@
 
 Canonical typed beam composition and runtime evaluation are privately owned by
 ``radiosim.core.beam.BeamSystem``. This package exposes only independent
-numeric aperture, taper, feed-pattern, reflector-geometry, and diagnostic HPBW
-functions.
+numeric aperture, taper, illumination-pattern, reflector-geometry, and
+diagnostic HPBW functions.
 
 Modules
 -------
@@ -11,8 +11,9 @@ aperture
     Aperture shape far-field patterns (Airy, sinc, elliptical Airy).
 taper
     Illumination taper functions (uniform, Gaussian, parabolic, cosine).
-feed
-    Feed pattern models and reflector geometry (prime-focus, Cassegrain).
+illumination
+    Aperture illumination patterns and reflector geometry (prime-focus,
+    Cassegrain).
 numerical_hpbw
     Diagnostic HPBW finder for beam pattern visualization.
 """
@@ -30,12 +31,12 @@ from radiosim.core.jones.beam.analytic.aperture import (
     elliptical_airy_voltage_pattern,
     sinc_voltage_pattern,
 )
-from radiosim.core.jones.beam.analytic.feed import (
+from radiosim.core.jones.beam.analytic.illumination import (
     cassegrain_angle,
     compute_edge_angle,
-    corrugated_horn_pattern,
-    dipole_ground_plane_pattern,
-    open_waveguide_pattern,
+    corrugated_horn_illumination,
+    dipole_ground_plane_illumination,
+    open_waveguide_illumination,
     prime_focus_angle,
 )
 from radiosim.core.jones.beam.analytic.taper import (
@@ -61,9 +62,9 @@ __all__ = [
     "parabolic_taper",
     "parabolic_squared_taper",
     "cosine_taper",
-    "corrugated_horn_pattern",
-    "open_waveguide_pattern",
-    "dipole_ground_plane_pattern",
+    "corrugated_horn_illumination",
+    "open_waveguide_illumination",
+    "dipole_ground_plane_illumination",
     "prime_focus_angle",
     "cassegrain_angle",
     "compute_edge_angle",

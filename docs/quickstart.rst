@@ -58,7 +58,9 @@ Render the published result into one explicit directory:
    )
 
 The renderers consume ``result.time_grid``, ``result.frequencies_hz``, and the
-published baseline order directly, and derive Stokes I as ``XX + YY``.
+published baseline order directly, and derive Stokes I as the sum of the two
+parallel hands — ``XX + YY`` in the default linear basis, ``RR + LL`` in a
+circular one.
 
 Typed parameter construction
 ----------------------------

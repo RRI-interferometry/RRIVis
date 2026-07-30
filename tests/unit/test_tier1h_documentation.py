@@ -34,6 +34,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SHIPPED_CONFIGS = (
     REPOSITORY_ROOT / "configs" / "config.yaml",
     REPOSITORY_ROOT / "configs" / "realistic_foreground_example.yaml",
+    REPOSITORY_ROOT / "configs" / "receptor_circular_example.yaml",
     REPOSITORY_ROOT / "antenna_layout_examples" / "example_telescope_config.yaml",
 )
 CURRENT_API_SURFACES = (
@@ -320,7 +321,7 @@ def test_tier4d_hdf5_documentation_is_complete_and_bounded():
 
     for required in (
         "radiosim.visibility",
-        "1.0.0",
+        "2.0.0",
         ".h5",
         "write_result_hdf5",
         "load_result_hdf5",
@@ -503,7 +504,7 @@ def test_tier3h2_final_runtime_and_science_truth_is_documented():
     assert "does not read FITS content" in beam_guide
     assert "no analytic fallback" in readme
     assert "scalar E-Jones" in jones
-    assert "Tier 5" in jones
+    assert "Tier 7" in jones
     assert "beam_system" in simulator
     assert "beam_state" in simulator
     assert "automatic NSIDE mutation" not in beam_guide
@@ -650,6 +651,230 @@ def test_backend_guide_uses_the_real_array_conversion_method():
 
     assert "backend.array(" not in text
     assert "backend.asarray(" in text
+
+
+TIER5G_TRUTH_SURFACES = (
+    REPOSITORY_ROOT / "README.md",
+    REPOSITORY_ROOT / "CLAUDE.md",
+    REPOSITORY_ROOT / "docs" / "index.rst",
+    REPOSITORY_ROOT / "docs" / "api" / "io.rst",
+    REPOSITORY_ROOT / "docs" / "api" / "jones.rst",
+    REPOSITORY_ROOT / "docs" / "api" / "simulator.rst",
+    REPOSITORY_ROOT / "docs" / "migration_guide.md",
+    REPOSITORY_ROOT / "docs" / "quickstart.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "beam_models.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "jones_matrices.rst",
+)
+
+
+@pytest.mark.parametrize("path", TIER5G_TRUTH_SURFACES, ids=lambda path: path.name)
+def test_tier5g_docs_no_longer_deny_receptor_physics(path):
+    text = " ".join(path.read_text(encoding="utf-8").split())
+
+    for stale in (
+        "receptor/feed physics is not implemented",
+        "including receptor/feed physics",
+        "Full receptor/basis/polarization physics",
+        "Receptor physics and later simulator modes remain separate work",
+        "full receptor/polarization physics are rejected",
+        "Full receptor, basis, and polarization physics remains a later "
+        "scientific boundary",
+    ):
+        assert stale not in text, (path, stale)
+
+
+@pytest.mark.parametrize("path", TIER5G_TRUTH_SURFACES, ids=lambda path: path.name)
+def test_tier5g_docs_never_present_the_linear_labels_as_the_only_labels(path):
+    text = " ".join(path.read_text(encoding="utf-8").split())
+
+    for stale in (
+        "the correlation order is ``XX, XY, YX, YY``",
+        "correlations ordered as `XX, XY, YX, YY`",
+        "with the exact correlations ``XX, XY, YX, YY``",
+        "Stokes I is derived explicitly as ``XX + YY`` through",
+        "derive Stokes I as ``XX + YY``",
+        "derive Stokes I explicitly as `XX + YY`",
+    ):
+        assert stale not in text, (path, stale)
+    if "XX + YY" in text or "XX, XY, YX, YY" in text:
+        # Wherever a page names the linear labels it must also name the
+        # circular ones, or it reads as the only possible axis.
+        assert "RR" in text, path
+
+
+@pytest.mark.parametrize("path", TIER5G_TRUTH_SURFACES, ids=lambda path: path.name)
+def test_tier5g_docs_publish_no_retired_illumination_identifier(path):
+    text = path.read_text(encoding="utf-8")
+
+    for retired in ("_feed_response", "_feed_angles"):
+        assert retired not in text, (path, retired)
+    if path.name == "migration_guide.md":
+        # The migration guide is the one surface that must still name the old
+        # identifiers, because that is what a reader is searching for.
+        return
+    for retired in (
+        "theta_feed",
+        "corrugated_horn_pattern",
+        "open_waveguide_pattern",
+        "dipole_ground_plane_pattern",
+        "analytic.feed",
+    ):
+        assert retired not in text, (path, retired)
+
+
+def test_tier5g_configuration_guide_documents_every_receptor_mode():
+    text = (REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst").read_text(
+        encoding="utf-8"
+    )
+
+    for required in (
+        "Receptor declarations",
+        "feed_rotation_deg",
+        "output_basis",
+        "basis: circular",
+        "basis: linear",
+        "output_basis: circular",
+        "output_basis: linear",
+        "output_basis: auto",
+        "{kind: number, number: 3}",
+        "{kind: name, name: HERA-11}",
+        "XX, XY, YX, YY",
+        "RR, RL, LR, LL",
+        "result.polarization_basis",
+        "parallel hands",
+        "mount type other than ``fixed``",
+    ):
+        assert required in text, required
+    assert "illumination" in text
+
+
+def test_tier5g_jones_guide_states_the_receptor_science_boundaries():
+    text = (REPOSITORY_ROOT / "docs" / "user_guide" / "jones_matrices.rst").read_text(
+        encoding="utf-8"
+    )
+    collapsed = " ".join(text.split())
+
+    for required in (
+        "ReceptorConfigJones",
+        "BasisTransformJones",
+        "Modelling assumption",
+        "Parallactic-angle boundary",
+        "Chain order",
+    ):
+        assert required in text, required
+    assert (
+        "is exact **only** when both feeds are ideal, orthogonal, and share a "
+        "common complex gain" in collapsed
+    )
+    assert "When Tier 7 implements ``D``" in collapsed
+    assert (
+        "``feed_rotation_deg`` is a **static** rotation in the topocentric frame"
+        in collapsed
+    )
+    assert "J_p = H_p\\, G_p\\, B_p\\, D_p\\, P_p\\, C_p\\, E_p\\, T_p\\, Z_p" in text
+    assert "V_{RR} &= (I + V)/2" in text
+    assert "U + iV" in text
+
+
+def test_tier5g_io_reference_is_truthful_about_schema_and_basis():
+    text = (REPOSITORY_ROOT / "docs" / "api" / "io.rst").read_text(encoding="utf-8")
+    collapsed = " ".join(text.split())
+
+    assert "schema version ``2.0.0``" in collapsed
+    assert "schema version ``1.0.0`` is the complete" not in collapsed
+    assert "explicitly maps ``XX, XY, YX, YY`` into each file" not in collapsed
+    for required in (
+        "receptors",
+        "output_basis",
+        "receptor_sha256",
+        "feed_rotation_rad",
+        "feed_angle_rad",
+        "RR, RL, LR, LL",
+        "circular_rl",
+        "linear_xy",
+        "Polarization mapping",
+        "UnsupportedSchemaVersionError",
+        "CORR_TYPE",
+        "feed_array",
+    ):
+        assert required in text, required
+
+
+def test_tier5g_migration_guide_maps_the_receptor_and_illumination_changes():
+    text = (REPOSITORY_ROOT / "docs" / "migration_guide.md").read_text(encoding="utf-8")
+
+    assert "no replacement; receptor/feed physics is not implemented" not in text
+    assert (
+        "| top-level `feeds` | the `receptors` section with `default.basis`, "
+        "`default.feed_rotation_deg`, and `output_basis` |" in text
+    )
+    for required in (
+        "## Receptors and polarization basis",
+        "receptors.default.feed_type",
+        "receptors.default.n_feeds",
+        "receptors.default.feed_angle_deg",
+        "AmbiguousOutputBasisError",
+        "UnsupportedFeedGeometryError",
+        "UnsupportedSchemaVersionError",
+        "ReceptorConfigJones(feed_type=...)",
+        "BasisTransformJones(from_basis=..., to_basis=...)",
+        "resolve_receptors()",
+        "scientific_sha256",
+        "Illumination primitives renamed",
+        "corrugated_horn_illumination",
+        "open_waveguide_illumination",
+        "dipole_ground_plane_illumination",
+        "radiosim.core.jones.beam.analytic.illumination",
+    ):
+        assert required in text, required
+    assert "[[I + Q, U + iV], [U - iV, I - Q]] / 2" in text
+
+
+def test_tier5g_claude_status_lists_the_implemented_jones_terms():
+    text = (REPOSITORY_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+    assert "Only **K** (`GeometricPhaseJones`, geometric phase) and **E**" not in text
+    assert "Only K and E implement real physics" not in text
+    assert "Only K, E, C, and H implement real physics" in text
+    assert "`B = (1/2) × [[I+Q, U+iV], [U-iV, I-Q]]`" in text
+    assert "[[I+Q, U-iV], [U+iV, I-Q]]" not in text
+    assert "`receptors`" in text
+    assert "J_p = H_p G_p B_p D_p P_p C_p E_p T_p Z_p" in text
+
+
+def test_tier5g_shipped_receptor_sample_declares_a_circular_array():
+    path = REPOSITORY_ROOT / "configs" / "receptor_circular_example.yaml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    config = RadioSimConfig.model_validate(document)
+    bundle = load_config(path)
+
+    assert document["receptors"]["default"]["basis"] == "circular"
+    assert document["receptors"]["output_basis"] == "auto"
+    assert config.receptors.default.basis == "circular"
+    assert config.receptors.default.feed_rotation_deg == 0.0
+    assert config.receptors.overrides == ()
+    assert config.receptors.output_basis == "auto"
+    assert bundle.runtime.receptors.output_basis == "auto"
+    assert document["execution"]["offline"] is True
+
+
+def test_tier5g_default_shipped_sample_spells_out_the_linear_default():
+    document = yaml.safe_load(
+        (REPOSITORY_ROOT / "configs" / "config.yaml").read_text(encoding="utf-8")
+    )
+
+    config = RadioSimConfig.model_validate(document)
+
+    assert document["receptors"]["default"]["basis"] == "linear"
+    assert (
+        config.receptors
+        == RadioSimConfig.model_validate(
+            {key: value for key, value in document.items() if key != "receptors"}
+        ).receptors
+    )
 
 
 def test_custom_sky_alias_documentation_uses_strict_options_envelope():

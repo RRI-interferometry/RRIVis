@@ -55,6 +55,10 @@ Scientific ownership
    * - ``beams``
      - ``analytic``, ``shared_fits``, ``per_antenna_fits``, and ``mixed`` all
        resolve and run through one canonical Simulator beam system
+   * - ``receptors``
+     - Linear or circular two-feed receptors per antenna, static
+       ``feed_rotation_deg``, and one resolved array-wide ``output_basis`` that
+       names the reported correlation labels
    * - ``sky_model``
      - Strict source requests for point or HEALPix preparation
    * - ``obs_time`` / ``obs_frequency``
@@ -81,9 +85,49 @@ Feature boundaries
 Heterogeneous positive antenna diameters are used by both point and HEALPix
 visibility paths. Observability selects the same canonical beam evaluator and
 requires an explicit reference antenna for scientifically heterogeneous
-assignments. Full receptor/basis/polarization physics, arbitrary BeamFITS
-variants, explicit Measurement Set phase centres, UVFITS writing,
-spherical-harmonic simulation, and worker control are not implemented.
+assignments.
+
+Receptor and polarization-basis physics is implemented for ideal orthogonal
+two-feed receptors: the receptor-configuration term ``C`` and the
+basis-transform term ``H`` are substantive, both bases run end to end, and the
+resolved basis names the correlation labels in memory, in HDF5, in the summary
+JSON, in Measurement Set and UVFITS exports, and in every renderer. Polarization
+leakage (``D``), parallactic rotation (``P``), gains (``G``), bandpass (``B``),
+elliptical or non-orthogonal feed pairs, single-feed and multi-feed antennas,
+and a frequency- or time-dependent receptor basis are not implemented. Arbitrary
+BeamFITS variants, explicit Measurement Set phase centres, spherical-harmonic
+simulation, and worker control are also not implemented.
+
+Receptor support by mode
+------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 22 44
+
+   * - Declaration
+     - Resolved ``output_basis``
+     - Reported correlations
+   * - omitted section, or ``basis: linear`` with ``output_basis: auto``
+     - ``linear_xy``
+     - ``XX, XY, YX, YY``
+   * - ``basis: circular`` with ``output_basis: auto``
+     - ``circular_rl``
+     - ``RR, RL, LR, LL``
+   * - any array with ``output_basis: linear``
+     - ``linear_xy``
+     - ``XX, XY, YX, YY``
+   * - any array with ``output_basis: circular``
+     - ``circular_rl``
+     - ``RR, RL, LR, LL``
+   * - mixed bases with ``output_basis: auto``
+     - rejected
+     - ``AmbiguousOutputBasisError`` naming both antenna counts
+
+A non-zero ``feed_rotation_deg`` is a static topocentric rotation for the whole
+observation, because the parallactic-angle term is not implemented. Combining it
+with an enabled parallactic term is rejected rather than silently dropping the
+time-dependent part.
 
 Beam support by stage
 ---------------------

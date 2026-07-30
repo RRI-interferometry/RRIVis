@@ -1,9 +1,14 @@
-"""Feed pattern models for radio astronomy beam modeling.
+"""Aperture illumination patterns for radio astronomy beam modeling.
 
-This module provides voltage-level feed illumination patterns and pure
+This module provides voltage-level aperture illumination patterns and pure
 reflector-geometry functions.
 
-Supported feed models:
+These identifiers belong to the illumination vocabulary of the beam subsystem
+and describe how a reflector aperture is illuminated.  They are unrelated to
+the receiving-receptor model in :mod:`radiosim.core.receptor`, which owns the
+``receptor``, ``feed``, ``basis``, and ``feed_rotation`` vocabulary.
+
+Supported illumination models:
 
 - **Corrugated horn**: ``E(theta) = cos^q(theta)``
 - **Open waveguide**: Separate E-plane and H-plane patterns
@@ -11,8 +16,8 @@ Supported feed models:
 
 Supported reflector geometries:
 
-- **Prime-focus**: ``theta_feed = 2 * arctan(rho / (2*F))``
-- **Cassegrain**: ``theta_feed = 2 * arctan(rho / (2*M*F))``
+- **Prime-focus**: ``theta_illumination = 2 * arctan(rho / (2*F))``
+- **Cassegrain**: ``theta_illumination = 2 * arctan(rho / (2*M*F))``
 
 References
 ----------
@@ -29,15 +34,15 @@ References
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# Feed pattern functions
+# Illumination pattern functions
 # ---------------------------------------------------------------------------
 
 
-def corrugated_horn_pattern(
-    theta_feed: np.ndarray,
+def corrugated_horn_illumination(
+    theta_illumination: np.ndarray,
     q: float = 1.15,
 ) -> np.ndarray:
-    """Corrugated horn feed pattern: ``E(theta) = cos^q(theta)``.
+    """Corrugated horn illumination pattern: ``E(theta) = cos^q(theta)``.
 
     A good approximation for corrugated (scalar) horns used on most
     modern radio telescopes. The parameter *q* controls the pattern
@@ -45,25 +50,25 @@ def corrugated_horn_pattern(
 
     Parameters
     ----------
-    theta_feed : np.ndarray
-        Feed angle in radians measured from the feed axis.
+    theta_illumination : np.ndarray
+        Illumination angle in radians measured from the feed axis.
     q : float, optional
         Cosine exponent controlling pattern rolloff (default 1.15).
 
     Returns
     -------
     np.ndarray
-        Voltage pattern values, same shape as ``theta_feed``.
+        Voltage pattern values, same shape as ``theta_illumination``.
     """
-    theta_feed = np.asarray(theta_feed, dtype=np.float64)
-    return np.cos(theta_feed) ** q
+    theta_illumination = np.asarray(theta_illumination, dtype=np.float64)
+    return np.cos(theta_illumination) ** q
 
 
-def open_waveguide_pattern(
-    theta_feed: np.ndarray,
+def open_waveguide_illumination(
+    theta_illumination: np.ndarray,
     b_over_lambda: float = 0.7,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Open-ended rectangular waveguide feed pattern.
+    """Open-ended rectangular waveguide illumination pattern.
 
     Returns separate E-plane and H-plane voltage patterns.
 
@@ -75,8 +80,8 @@ def open_waveguide_pattern(
 
     Parameters
     ----------
-    theta_feed : np.ndarray
-        Feed angle in radians measured from the feed axis.
+    theta_illumination : np.ndarray
+        Illumination angle in radians measured from the feed axis.
     b_over_lambda : float, optional
         Waveguide broad-wall dimension in wavelengths (default 0.7).
 
@@ -84,12 +89,12 @@ def open_waveguide_pattern(
     -------
     tuple[np.ndarray, np.ndarray]
         ``(E_plane, H_plane)`` voltage patterns, each same shape as
-        ``theta_feed``.
+        ``theta_illumination``.
     """
-    theta_feed = np.asarray(theta_feed, dtype=np.float64)
-    e_plane = np.cos(theta_feed)
+    theta_illumination = np.asarray(theta_illumination, dtype=np.float64)
+    e_plane = np.cos(theta_illumination)
 
-    sin_theta = np.sin(theta_feed)
+    sin_theta = np.sin(theta_illumination)
     x = b_over_lambda * sin_theta  # b * sin(theta) / lambda
     denom = 1.0 - (2.0 * x) ** 2
 
@@ -105,11 +110,11 @@ def open_waveguide_pattern(
     return e_plane, h_plane
 
 
-def dipole_ground_plane_pattern(
-    theta_feed: np.ndarray,
+def dipole_ground_plane_illumination(
+    theta_illumination: np.ndarray,
     height_wavelengths: float = 0.25,
 ) -> np.ndarray:
-    """Dipole over ground-plane feed pattern.
+    """Dipole over ground-plane illumination pattern.
 
     Computes ``E(theta) = cos(theta) * sin(2*pi*h*cos(theta))``, where
     *h* is the dipole height above the ground plane in wavelengths and
@@ -117,19 +122,19 @@ def dipole_ground_plane_pattern(
 
     Parameters
     ----------
-    theta_feed : np.ndarray
-        Feed angle in radians measured from the feed axis.
+    theta_illumination : np.ndarray
+        Illumination angle in radians measured from the feed axis.
     height_wavelengths : float, optional
         Dipole height above the ground plane in wavelengths (default 0.25).
 
     Returns
     -------
     np.ndarray
-        Voltage pattern values, same shape as ``theta_feed``.
+        Voltage pattern values, same shape as ``theta_illumination``.
     """
-    theta_feed = np.asarray(theta_feed, dtype=np.float64)
-    return np.cos(theta_feed) * np.sin(
-        2.0 * np.pi * height_wavelengths * np.cos(theta_feed)
+    theta_illumination = np.asarray(theta_illumination, dtype=np.float64)
+    return np.cos(theta_illumination) * np.sin(
+        2.0 * np.pi * height_wavelengths * np.cos(theta_illumination)
     )
 
 
@@ -142,10 +147,10 @@ def prime_focus_angle(
     rho: np.ndarray,
     focal_length: float,
 ) -> np.ndarray:
-    """Feed angle for a prime-focus reflector.
+    """Illumination angle for a prime-focus reflector.
 
-    Converts aperture radial position *rho* to the corresponding feed
-    angle via ``theta_feed = 2 * arctan(rho / (2*F))``.
+    Converts aperture radial position *rho* to the corresponding
+    illumination angle via ``theta_illumination = 2 * arctan(rho / (2*F))``.
 
     Parameters
     ----------
@@ -157,7 +162,7 @@ def prime_focus_angle(
     Returns
     -------
     np.ndarray
-        Feed angle in radians, same shape as ``rho``.
+        Illumination angle in radians, same shape as ``rho``.
     """
     rho = np.asarray(rho, dtype=np.float64)
     return 2.0 * np.arctan(rho / (2.0 * focal_length))
@@ -168,10 +173,10 @@ def cassegrain_angle(
     focal_length: float,
     magnification: float = 1.0,
 ) -> np.ndarray:
-    """Feed angle for a Cassegrain reflector.
+    """Illumination angle for a Cassegrain reflector.
 
     The effective focal length is ``F_eq = M * F``, so
-    ``theta_feed = 2 * arctan(rho / (2 * M * F))``.
+    ``theta_illumination = 2 * arctan(rho / (2 * M * F))``.
 
     Parameters
     ----------
@@ -185,7 +190,7 @@ def cassegrain_angle(
     Returns
     -------
     np.ndarray
-        Feed angle in radians, same shape as ``rho``.
+        Illumination angle in radians, same shape as ``rho``.
     """
     rho = np.asarray(rho, dtype=np.float64)
     f_eq = magnification * focal_length
@@ -198,7 +203,7 @@ def compute_edge_angle(
     reflector_type: str = "prime_focus",
     magnification: float = 1.0,
 ) -> float:
-    """Feed angle at the edge of the dish.
+    """Illumination angle at the edge of the dish.
 
     - Prime-focus: ``theta_edge = 2 * arctan(D / (4*F))``
     - Cassegrain: ``theta_edge = 2 * arctan(D / (4*M*F))``
@@ -217,7 +222,7 @@ def compute_edge_angle(
     Returns
     -------
     float
-        Edge feed angle in radians.
+        Edge illumination angle in radians.
 
     Raises
     ------
@@ -237,9 +242,9 @@ def compute_edge_angle(
 
 
 __all__ = [
-    "corrugated_horn_pattern",
-    "open_waveguide_pattern",
-    "dipole_ground_plane_pattern",
+    "corrugated_horn_illumination",
+    "open_waveguide_illumination",
+    "dipole_ground_plane_illumination",
     "prime_focus_angle",
     "cassegrain_angle",
     "compute_edge_angle",

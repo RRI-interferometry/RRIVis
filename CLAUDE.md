@@ -12,7 +12,7 @@ NOTE: Never think about backward compatibility in the code when doing edits, or 
 
 RadioSim is mid-build; several advertised capabilities are scaffolded but not yet wired into the compute path. When working here, assume:
 
-- **Jones terms**: Only **K** (`GeometricPhaseJones`, geometric phase) and **E** (the beam classes) implement real physics. Every other term — Z, T, P, D, G, B, F, W, C/H, Ee/a/dE, Kd/Rc/ff, X/Kx/DF, and baseline M/Q — is a stub whose `compute_jones()` returns the 2×2 identity (`TODO: implement properly`). They can be added to a chain but multiply by identity, so the forward model currently reflects only K (fringe) + E (beam).
+- **Jones terms**: **K** (`GeometricPhaseJones`, geometric phase), **E** (the beam classes), **C** (`ReceptorConfigJones`, receptor basis and static feed rotation), and **H** (`BasisTransformJones`, output-basis change) implement real physics. Every other term — Z, T, P, D, G, B, F, W, Ee/a/dE, Kd/Rc/ff, X/Kx/DF, and baseline M/Q — is a stub whose `compute_jones()` returns the 2×2 identity (`TODO: implement properly`). They can be added to a chain but multiply by identity, so the forward model currently reflects only K (fringe) + E (beam) + C/H (receptor and reporting basis). C and H are always added to the chain and are exactly the identity for the default homogeneous-linear, zero-rotation, `linear_xy` case.
 - **Backends**: `ArrayBackend` (NumPy/JAX/Numba), `get_backend()`, and `list_backends()` are complete, and the point-source RIME hot path in `core/visibility.py` *does* route its array ops through the backend (`backend.matmul`/`asarray`/`set_at`/`exp`/`conjugate_transpose`/`sum`); `JonesChain` composes terms with functional `backend.matmul` + `batch_eye` (no invalid in-place writes — `set_at` uses JAX's `.at[].set()`). **But GPU acceleration is still unrealized**: the per-time × per-frequency × per-baseline orchestration is host-side Python loops, coordinate transforms run on astropy/NumPy, and `jit`/`vmap`/`jit_compile` are defined but never applied — so a JAX backend bounces device↔host each iteration rather than accelerating (and `core/visibility_healpix.py` still uses bare `np.*` in places). Treat GPU acceleration as a roadmap item: the backend abstraction is wired into the matmul but is not yet performance-bearing.
 - **`visibility.calculation_type`**: only `direct_sum` works; `spherical_harmonic` passes config validation but raises `NotImplementedError` at runtime.
 
@@ -71,7 +71,9 @@ Source lives in `src/radiosim/`. Key entry points:
 
 - **`visibility.py`** — Core RIME: `V_pq = Σ J_p @ C @ J_q^H` for point sources
 - **`visibility_healpix.py`** — RIME for HEALPix diffuse maps (requires a populated `sky.healpix` payload)
-- **`polarization.py`** — Stokes ↔ Coherency with 1/2 factor: `C = (1/2) × [[I+Q, U-iV], [U+iV, I-Q]]`
+- **`polarization.py`** — Stokes ↔ Coherency with 1/2 factor: `B = (1/2) × [[I+Q, U+iV], [U-iV, I-Q]]` (IAU Stokes V; the mirror-image sign was corrected in Tier 5C)
+- **`polarization_basis.py`** — the single canonical correlation-coordinate table: `PolarizationBasis` (`linear_xy` / `circular_rl`), labels, AIPS codes in both canonical and file order, pyuvdata feeds, `basis_for_correlations()`, `parallel_hand_indices()`
+- **`receptor.py`** — `resolve_receptors()`, `ResolvedReceptorSet`, typed receptor errors; owns the receptor vocabulary (`receptor`, `feed`, `basis`, `feed_rotation`)
 - **`instrument.py` / `instrument_resolution.py`** — Canonical frozen instrument models and source-aware resolution; strict source loaders live in `io/instrument_sources.py`
 - **`baseline_resolution.py`** — Generates and selects canonical frozen baselines
 - **`observation.py`** — Observation context (time, location, pointing)
@@ -114,7 +116,7 @@ Key API: `load_diffuse_sky()` requires `frequencies=np.ndarray` or `obs_frequenc
 
 ### Jones Matrix Framework (`core/jones/`)
 
-46 exported classes (see `core/jones/__init__.py`), across the term files plus the `beam/` subpackage. **Only K and E implement real physics; every other term currently returns the 2×2 identity** (see Implementation Status).
+46 exported classes (see `core/jones/__init__.py`), across the term files plus the `beam/` subpackage. **Only K, E, C, and H implement real physics; every other term currently returns the 2×2 identity** (see Implementation Status).
 
 **Standard 8 terms** (composed in chain order K → Z → T → E → P → D → G → B; the chain applies them in reverse, sky-side first):
 
@@ -129,9 +131,11 @@ Key API: `load_diffuse_sky()` requires `frequencies=np.ndarray` or `obs_frequenc
 | G (Gains) | `gain.py` | `GainJones`, `ElevationGainJones` | DIE |
 | B (Bandpass) | `bandpass.py` | `BandpassJones` | DIE |
 
-Beam internals (the E term — the most developed subsystem): `beam/analytic/` is a package implementing a composable analytic beam — aperture shapes (`circular`/Airy, `rectangular`/sinc, `elliptical`), illumination tapers (`uniform`, `gaussian`, `parabolic`, `parabolic_squared`, `cosine`), feed models, and reflector geometries; `compute_hpbw_numerical()` (in `beam/analytic/numerical_hpbw.py`) is a diagnostic-only HPBW finder. `beam/fits/` holds `BeamFITSHandler` (pyuvdata UVBeam, peak normalization) and `BeamManager` (shared/per-antenna FITS beams). `AnalyticBeamJones` supports `diameter_per_antenna` for heterogeneous arrays. The old `AntennaType` class and named beam types (`airy`, `cosine`, `exponential`, `short_dipole`) have been removed.
+Beam internals (the E term — the most developed subsystem): `beam/analytic/` is a package implementing a composable analytic beam — aperture shapes (`circular`/Airy, `rectangular`/sinc, `elliptical`), illumination tapers (`uniform`, `gaussian`, `parabolic`, `parabolic_squared`, `cosine`), aperture illumination patterns (`illumination.py`: corrugated horn, open waveguide, dipole over ground plane), and reflector geometries; `compute_hpbw_numerical()` (in `beam/analytic/numerical_hpbw.py`) is a diagnostic-only HPBW finder. `beam/fits/` holds `BeamFITSHandler` (pyuvdata UVBeam, peak normalization) and `BeamManager` (shared/per-antenna FITS beams). `AnalyticBeamJones` supports `diameter_per_antenna` for heterogeneous arrays. The old `AntennaType` class and named beam types (`airy`, `cosine`, `exponential`, `short_dipole`) have been removed.
 
-**Extended terms**: `faraday.py` (F), `wterm.py` (W), `receptor.py` (C/H), `element_beam.py` (Ee/a/dE), `delay.py` (Kd/Rc/ff), `crosshand.py` (X/Kx/DF), `baseline_errors.py` (M/Q).
+**Extended terms**: `faraday.py` (F), `wterm.py` (W), `receptor.py` (C/H — implemented; `ReceptorConfigJones` and `BasisTransformJones` are built from a `ResolvedReceptorSet` plus a solver instrument view and are always added to the chain), `element_beam.py` (Ee/a/dE), `delay.py` (Kd/Rc/ff), `crosshand.py` (X/Kx/DF), `baseline_errors.py` (M/Q).
+
+**Terminology (do not mix)**: aperture **illumination** belongs to `core/beam/` and uses `illumination` / `taper` / `edge_angle`; the receiving **receptor** belongs to `core/receptor.py` and uses `receptor` / `feed` / `basis` / `feed_rotation`. Do not introduce `feed`-named identifiers into the beam subsystem or `illumination`-named identifiers into the receptor subsystem.
 
 **Architecture note**: `JonesBaselineTerm` in `baseline_errors.py` is a separate ABC for baseline-dependent effects (M, Q) that apply via Hadamard multiplication, NOT the matrix chain. They cannot be added to `JonesChain`.
 
@@ -168,7 +172,7 @@ To add a new Jones term: extend `JonesTerm` (or `JonesBaselineTerm`), implement 
 
 `V_pq(ν, t) = Σ_s J_p(s, ν, t) · C_s(ν) · J_q^H(s, ν, t)`
 
-**Critical**: The coherency matrix uses a 1/2 factor (`C = (1/2) × [[I+Q, U-iV], [U+iV, I-Q]]`) ensuring `V_XX + V_YY = I` (not 2I). Precision is fully controlled by PrecisionConfig — respect the user's chosen dtype everywhere, including coordinate conversions and phase calculations.
+**Critical**: The coherency matrix uses a 1/2 factor (`B = (1/2) × [[I+Q, U+iV], [U-iV, I-Q]]`, IAU Stokes V) ensuring `V_XX + V_YY = I` and `V_RR + V_LL = I` (not 2I). The Jones chain order is `J_p = H_p G_p B_p D_p P_p C_p E_p T_p Z_p` with K applied separately, leftmost nearest the correlator; `JonesChain` composes `terms[0] @ ... @ terms[-1]`, so terms are added in that same order. Precision is fully controlled by PrecisionConfig — respect the user's chosen dtype everywhere, including coordinate conversions and phase calculations.
 
 ## Code Style
 
@@ -188,6 +192,6 @@ approval.
 
 ## Configuration
 
-YAML config is validated by the strict Pydantic `RadioSimConfig` model and resolved by `load_config()`. Its top-level sections are `instrument`, `beams`, `baseline_selection`, `sky_model`, `obs_time`, `obs_frequency`, `visibility`, `execution`, and `workflow`. The `instrument` section selects exactly one typed source and owns location and diameter precedence; `baseline_selection` owns the canonical correlation, length, and axial-azimuth filters. See `configs/` for complete examples.
+YAML config is validated by the strict Pydantic `RadioSimConfig` model and resolved by `load_config()`. Its top-level sections are `instrument`, `beams`, `receptors`, `baseline_selection`, `sky_model`, `obs_time`, `obs_frequency`, `visibility`, `execution`, and `workflow`. The `instrument` section selects exactly one typed source and owns location and diameter precedence; `baseline_selection` owns the canonical correlation, length, and axial-azimuth filters; `receptors` owns the per-antenna receptor basis, the static `feed_rotation_deg`, and the single array-wide `output_basis` that names the reported correlation labels. See `configs/` for complete examples.
 
 TODO: Add an explicit contributor note that pre-`v1.0` API/config refactors should not preserve backward compatibility by default; prefer moving directly to the cleaner replacement unless a deprecation path is explicitly requested.
