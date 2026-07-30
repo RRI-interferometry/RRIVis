@@ -2390,16 +2390,41 @@ changes.
 ### Tier 5H
 
 ```text
+src/radiosim/core/__init__.py
 src/radiosim/core/jones/receptor.py
 src/radiosim/core/polarization.py
 src/radiosim/core/receptor.py
 src/radiosim/core/result.py
 src/radiosim/io/hdf5.py
 src/radiosim/io/standard_visibility.py
+tests/characterization/test_tier5_current_behavior.py
 tests/unit/test_core/test_polarization.py
 tests/unit/test_core/test_receptor_resolution.py
 tests/unit/test_tier5_receptor_acceptance.py
 ```
+
+**Correction (Tier 5H implementation).** Added
+`src/radiosim/core/__init__.py` and
+`tests/characterization/test_tier5_current_behavior.py`. Both are already in
+the tier-wide inventory (§30.2 and §30.4 respectively) and both were granted
+to slices 5A through 5F, but 5H's own list omitted them while assigning 5H
+the one task that cannot be completed without them. §34.8 requires
+`visibility_to_correlations` to be removed or converted on the 5A evidence,
+and §24 fixes the removal branch when 5A shows no production caller; 5A's
+recorded evidence (§43 Q4) is that its *only* references outside its defining
+module are the two re-export lines in `radiosim.core.__init__` — line 92 of
+the eager import block and line 313 of `__all__`. Removing the function
+without touching that file would leave `radiosim.core` importing a name that
+no longer exists, so the package would fail to import at all. Likewise,
+`tests/characterization/test_tier5_current_behavior.py` imports
+`mueller_from_jones` at module scope and asserts `visibility_to_correlations`
+is present in `radiosim.core.__all__`
+(`test_superseded_polarization_helpers_have_no_production_caller`,
+`test_mueller_from_jones_is_module_public_but_unimplemented`); those pins are
+the 5A evidence §34.8 acts on, and 5H must flip them in place exactly as 5B,
+5D, and 5E flipped their own predecessor pins in the same file. No other
+file, decision, or slice boundary changes; in particular this correction adds
+no production behavior and no new symbol.
 
 **Correction (Tier 5E independent acceptance).** Added
 `src/radiosim/core/receptor.py` and `tests/unit/test_core/test_
