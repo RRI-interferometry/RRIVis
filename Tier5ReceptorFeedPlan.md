@@ -2316,8 +2316,11 @@ README.md
 configs/config.yaml
 configs/receptor_circular_example.yaml
 docs/api/io.rst
+docs/api/jones.rst
+docs/api/simulator.rst
 docs/index.rst
 docs/migration_guide.md
+docs/quickstart.rst
 docs/user_guide/beam_models.rst
 docs/user_guide/configuration.rst
 docs/user_guide/configuration_support.rst
@@ -2325,6 +2328,23 @@ docs/user_guide/jones_matrices.rst
 tests/unit/test_core/test_tier3_beam_cleanup.py
 tests/unit/test_tier1h_documentation.py
 ```
+
+**Correction (Tier 5G implementation).** Added `docs/api/jones.rst`,
+`docs/api/simulator.rst`, and `docs/quickstart.rst`. These are the same class of
+defect the Tier 5E independent acceptance already ratified for `docs/api/io.rst`
+below: a truth surface that Tier 5E's own honest-labelling change falsifies, on
+no slice's §35 grant. Specifically, `docs/api/simulator.rst` states "the
+correlation order is ``XX, XY, YX, YY``" and "Stokes I is derived explicitly as
+``XX + YY``"; `docs/quickstart.rst` states the renderers "derive Stokes I as
+``XX + YY``"; and `docs/api/jones.rst` states "Full receptor, basis, and
+polarization physics remains a later scientific boundary". The first three are
+false for any `circular_rl` result after `aa667b9`, and the fourth is false for
+`C` and `H` after `0524e56`/`fe75356`. §34.7's objective is "align every truth
+surface", and §39's whole-tier criteria require exactly that, so leaving these
+three unedited would make the tier's own acceptance criteria unreachable while
+five neighbouring pages in the same `docs/` tree were corrected. Edits are
+confined to those four claims and the minimum surrounding wording. No other
+file, decision, invariant, or slice boundary changes.
 
 **Correction (Tier 5G implementation).** Added
 `tests/unit/test_core/test_tier3_beam_cleanup.py`. That Tier 3H.2 cleanup test
