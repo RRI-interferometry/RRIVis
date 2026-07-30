@@ -1698,11 +1698,41 @@ src/radiosim/utils/__init__.py
 src/radiosim/utils/network.py
 tests/characterization/test_tier6_current_behavior.py
 tests/unit/test_core/test_sky_pipeline.py
+tests/unit/test_io/test_result_summary.py
 tests/unit/test_simulator/test_api.py
 tests/unit/test_simulator/test_worker_policy.py
 tests/unit/test_utils/test_network.py
 tests/unit/test_utils/test_offline_policy.py
 ```
+
+**Correction (2026-07-30, Tier 6C implementation):** this list omitted
+`tests/unit/test_io/test_result_summary.py`, which the slice cannot avoid.
+Section 19 requires the summary JSON to gain an `execution` block, and
+`test_summary_json_is_exact_bounded_metadata_contract`
+(`tests/unit/test_io/test_result_summary.py:142`) asserts the document's
+top-level key set *exactly* — deliberately, so no key is ever added without a
+conscious edit. The file is added to this grant for the one-line key-set update;
+no other assertion in it changes. Two related notes, neither of which changes a
+decision:
+
+- The `execution` block carries the *requested* worker policy from
+  `resolved_config` and the *executed* `LoaderExecutionRecord`. The record is not
+  a new `SimulationResult` field: `core/result.py`, `io/writers.py`, and
+  `io/readers.py` are outside 6C's grant, and the HDF5 `2.0.0`→`3.0.0` bump that
+  a new provenance field would require belongs to 6G (Sections 19, 32.7). The
+  record therefore travels in `SimulationResult.history` as one
+  `RADIOSIM_SKY_LOADER_JSON=` line, following the established
+  `PROJECTION_HISTORY_PREFIX` convention (`io/standard_visibility.py:42`), and is
+  decoded by `LoaderExecutionRecord.from_history`. This also means the 6A pin
+  `test_no_worker_value_is_recorded_in_provenance` keeps its assertions: it
+  guards `to_summary_snapshot()`, the bounded metadata view, which is a different
+  surface from the summary-JSON document and stays free of runtime worker values.
+  That pin's remaining owner is 6E.
+- Adding a key grows the summary document while its `schema.version` stays
+  `1.0.0`. Section 19 authorizes the growth and names no version bump, and 6G
+  adds a further `solver` block to the same document on the same terms, so 6C
+  leaves the literal alone; whether the summary schema needs a version at all is
+  a question 6G should settle once, not a question 6C should answer twice.
 
 ### Tier 6D
 
