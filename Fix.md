@@ -5706,3 +5706,303 @@ authorized and remains limited to the writable-file list in
 `Tier5ReceptorFeedPlan.md` §35 Tier 5F. Tier 5G through 5I remain
 unauthorized until each predecessor slice is implemented and independently
 accepted. No PR, tag, release, or deployment was created.
+
+### 2026-07-30 Tier 5F independent acceptance
+
+**Tier 5F is independently accepted; Tier 5G is authorized.** Review range
+`71b3087..HEAD`, exactly two commits: `17b763b` (`docs(feeds): correct Tier 5
+design`, the implementer's own pre-emptive §35 grant correction) and
+`daa97b8` (`feat(output): record polarization basis in standard formats`, the
+slice that carries the resolved basis into Measurement Set, UVFITS, the
+summary JSON, and every renderer).
+
+**Scope.** `git diff --stat 71b3087..HEAD` touches exactly the plan file plus
+13 files: six production (`io/measurement_set.py`, `io/result_errors.py`,
+`io/standard_visibility.py`, `io/summary_json.py`, `io/uvfits.py`,
+`visualization/bokeh_plots.py`) and seven test files
+(`tests/characterization/test_tier5_current_behavior.py`,
+`tests/unit/test_core/test_polarization_basis.py`,
+`tests/unit/test_io/test_measurement_set.py`,
+`tests/unit/test_io/test_result_summary.py`,
+`tests/unit/test_io/test_standard_visibility.py`,
+`tests/unit/test_io/test_uvfits.py`,
+`tests/unit/test_visualization/test_result_plots.py`) -- exactly the
+`17b763b`-corrected §35 Tier 5F grant (the `test_summary_json.py` ->
+`test_result_summary.py` substitution, the two `test_tier5_current_behavior.py`
+pin flips, and the `test_polarization_basis.py` narrowing). No file outside
+the grant was touched. `radiosim.core.polarization_basis` (5C/5E's file) is
+untouched in this range, confirmed by an empty
+`git diff --stat 71b3087..HEAD -- src/radiosim/core/polarization_basis.py`.
+
+**Single-table honesty, reproduced by reading the diff in full.**
+`io/standard_visibility.py` no longer defines `CANONICAL_CORRELATIONS`,
+`CANONICAL_CODES`, or `FILE_CODES`; it imports `CORRELATION_LABELS`,
+`AIPS_CODES_CANONICAL`, `AIPS_CODES_FILE_ORDER`, `POLARIZATION_BASES`,
+`PYUVDATA_FEEDS`, `PYUVDATA_POLARIZATIONS`, and `parallel_hand_indices` from
+`core/polarization_basis.py`. `measurement_set.py`'s `casa_to_aips` local
+dict is now the module-level `_CASA_TO_AIPS`, derived programmatically from
+`AIPS_CODES_CANONICAL` and a `{"circular_rl": 5, "linear_xy": 9}` first-code
+map rather than hand-written; independently recomputing it by hand from
+Section 14.2/14.3 gives `{5:-1,6:-3,7:-4,8:-2,9:-5,10:-7,11:-8,12:-6}`,
+matching both the derived constant and
+`test_measurement_set_reader_maps_both_casacore_stokes_ranges`.
+`normalize_autocorrelations` derives its parallel-hand indices from
+`result.correlations` via `parallel_hand_indices` rather than the `(0, 3)`
+literal; `bokeh_plots.py` derives its Stokes-I label the same way and holds
+no correlation table of its own (confirmed: no `("XX",...)`/`("RR",...)`
+literal appears in the module's source, verified by
+`test_plot_layer_holds_no_correlation_table_of_its_own` and by direct
+inspection). `tests/characterization/test_tier5_current_behavior.py`'s
+`test_all_four_correlation_constant_sites_now_share_the_table` was read in
+full and independently re-derived: it now asserts none of the three retired
+`standard_visibility.py` constants exist, that all four production modules
+(`result.py`, `hdf5.py`, `standard_visibility.py`, and by extension
+`measurement_set.py`) import `core.polarization_basis`, and that no
+production module other than `polarization_basis.py` itself spells out
+`"XX"`, `"YY"`, `"RR"`, or `"LL"` as a literal -- a repository-wide grep for
+these four tokens across `src/radiosim` confirms this independently of the
+test.
+
+**Round trips, reproduced empirically, not read off the diff.** Built a
+non-trivial three-antenna canonical result via `Simulator.from_mapping` for
+both `receptors: {}` (default linear) and `receptors: {"default": {"basis":
+"circular"}}`, then wrote and read back both Measurement Set and UVFITS for
+each:
+
+| Check | Linear | Circular |
+|---|---|---|
+| `result.correlations` | `('XX','XY','YX','YY')` | `('RR','RL','LR','LL')` |
+| MS `POLARIZATION.CORR_TYPE` (in-memory order) | `[9,10,11,12]` | `[5,6,7,8]` |
+| MS `FEED.POLARIZATION_TYPE` (first antenna) | `['X','Y']` | `['R','L']` |
+| MS `FEED.RECEPTOR_ANGLE` (first antenna, rad) | `[pi/2, 0.0]` | `[0.0, 0.0]` |
+| Raw `UVData.read_ms()` `polarization_array` | `[-5,-6,-7,-8]` | `[-1,-2,-3,-4]` |
+| Raw `UVData.read_ms()` `telescope.feed_array` | `['x','y']` | `['r','l']` |
+| Raw `UVData.read_uvfits()` `polarization_array` | `[-5,-6,-7,-8]` | `[-1,-2,-3,-4]` |
+| Raw `UVData.read_uvfits()` `telescope.feed_array` | `['x','y']` | `['r','l']` |
+| `read_measurement_set(...).correlations` | matches | matches |
+| `read_uvfits(...).correlations` | matches | matches |
+| MS/UVFITS `RADIOSIM_PROJECTION_JSON=` `polarization_basis` | `linear_xy` | `circular_rl` |
+| MS/UVFITS `receptor_sha256` | equals `result.receptors.provenance.receptor_sha256` | equals `result.receptors.provenance.receptor_sha256` |
+
+Every row matches Section 14.2/14.3/22 exactly, including the Tier 5A Q3
+correction that a Measurement Set's `CORR_TYPE` preserves in-memory order
+(`[9,10,11,12]`/`[5,6,7,8]`, casacore Stokes numbering) while both formats'
+read-back `polarization_array` uses the descending Section 14.2 file order.
+The circular feed angle row `[0.0, 0.0]` and linear `[pi/2, 0.0]` reproduce
+`_NOMINAL_FEED_ANGLES_RAD` exactly (verified against the actual per-antenna
+`FEED.RECEPTOR_ANGLE` row for a selected antenna, not the padding row at
+index 0 -- pyuvdata pads the MS `FEED`/`ANTENNA` subtables out to the highest
+antenna number, so index 0 is not necessarily a selected antenna).
+
+**Adversarial read-side probes, all on genuinely hand-forged real files, not
+monkeypatched parsing.** Three independent hostile-file probes were built in
+the scratchpad by mutating real written output with `astropy.io.fits`
+directly (never through the implementer's own fixtures or monkeypatches):
+
+1. **Record-vs-axis relabeling.** Took a real linear UVFITS file, decoded its
+   `RADIOSIM_PROJECTION_JSON=` HISTORY record, changed
+   `"polarization_basis"` from `"linear_xy"` to `"circular_rl"`, and rewrote
+   the FITS HISTORY cards with the forged JSON (arbitrary chunking, not
+   matching the original card boundaries, to confirm the parser does not
+   depend on card alignment). Result: rejected with `UnsafeResultInputError:
+   "standard input projection HISTORY declares polarization_basis='circular_rl'
+   but its polarization axis carries 'linear_xy'"` -- the exact check named in
+   the task brief, fired on a real file with no monkeypatching involved. This
+   directly resolves the risk-register question about whether
+   `test_uvfits_rejects_a_record_basis_that_contradicts_the_code_axis`'s
+   monkeypatch exercises a reachable production check or a dead one: it is
+   reachable, and was reproduced independently without the monkeypatch.
+2. **Feed/code coupling mismatch.** Took the same linear UVFITS file and
+   overwrote the `AIPS AN` extension's `POLTYA`/`POLTYB` columns from `X`/`Y`
+   to `R`/`L`, leaving `CRVAL3`/`CDELT3` (the polarization axis) untouched at
+   linear codes. Result: rejected with `FormatRepresentationError: "standard
+   input receptor feeds ['l', 'r'] disagree with its XX,XY,YX,YY polarization
+   axis"` -- `require_feed_polarization_coupling` fired on a real hostile
+   file.
+3. **Unsupported/mixed code axis.** Took the same file and rewrote
+   `CRVAL3`/`CDELT3` to a Stokes I/Q/U/V axis (`1.0`/`1.0`), a code set in
+   neither accepted row. Result: rejected with `FormatRepresentationError:
+   "standard input has an unsupported polarization layout"`.
+
+All three rejections are typed (`UnsafeResultInputError` or
+`FormatRepresentationError`, both `ResultIOError` subclasses), bounded (no
+unbounded work performed before raising), and fire before science
+allocation: `read_uvfits`/`read_measurement_set` call
+`validate_standard_metadata` (which now performs the code-basis and
+feed-coupling checks) on a metadata-only load (`read_data=False`) before the
+full-data read, and the record-vs-axis check runs inside
+`standard_visibility_from_uvdata` before its own canonicalized-array
+allocation -- reproducing the pre-existing Tier 4 staged-read ordering, not a
+new allocation-ordering risk introduced by this slice.
+
+**Risk 1 adjudication -- additive read-side coupling gate.**
+`require_feed_polarization_coupling` is additive relative to §22.2's literal
+text, but it is not scope creep: Tier 5A's Q3 correction (already accepted)
+states explicitly that "pyuvdata performs no `feed_array`/`polarization_array`
+cross-validation... RadioSim must enforce that coupling itself." The gate is
+applied symmetrically at write time (inside `project_simulation_result`,
+after pyuvdata constructs the `UVData`) and at read time (inside
+`validate_standard_metadata`), and probe 2 above confirms it is reachable and
+effective on a real file. Ratified, not a defect.
+
+**Risk 2 adjudication -- monkeypatched test reachability.** Resolved by the
+three hand-forged-file probes above: all three checks (record-vs-axis,
+feed-vs-code coupling, unsupported/mixed codes) fire on genuinely malformed
+files built with `astropy.io.fits` directly, with no monkeypatching of
+`projection_record_from_history` or any other parsing function. The one test
+that does monkeypatch (`test_uvfits_rejects_a_record_basis_that_contradicts_
+the_code_axis`) is a convenience for isolating the check from the mechanics
+of forging a raw FITS HISTORY card; it is not covering for a dead check.
+
+**Risk 3 adjudication -- `validate_standard_metadata` return-type change.**
+`grep -n validate_standard_metadata src/radiosim/io/*.py` shows five call
+sites: four (`measurement_set.py:1024,1211`, `uvfits.py:447,564`) discard the
+new `PolarizationBasis` return value, calling the function only for its
+metadata-only preflight validation before the full-data read; the fifth
+(`standard_visibility.py:1582`, inside `standard_visibility_from_uvdata`)
+captures it as `basis` and uses it to select the canonical code order and
+correlation labels for the fully loaded data. Discarding a return value is
+harmless in Python and no call site's behavior changed. Not a defect.
+
+**Risk 4 adjudication -- unbounded `distinct_feed_rotations_deg`.** The
+summary's new receptor block lists the sorted, deduplicated, degree-rounded
+feed rotations actually present in the resolved receptor set, with no
+independent cap. This is not a new violation of Tier 4F's bounded-metadata
+discipline: `io/summary_json.py:324` already embeds `result.resolved_config`
+verbatim, including the full `receptors.overrides` list with one entry per
+overridden antenna, uncapped, since before this slice; the enclosing
+`_MAX_SUMMARY_NODES` (100,000) and `_MAX_SUMMARY_BYTES` (16 MiB) limits that
+already bound every other unbounded-in-principle field (selection snapshots,
+resolved config, configuration provenance) apply equally to this one, via
+the same `_json_tree`/`_encode_summary` enforcement path. Adjudicated as
+acceptable, following the established precedent, not a material defect;
+worth revisiting only if a future slice adds a dedicated per-field cap
+policy.
+
+**Risk 5 adjudication -- plot-text change for linear runs.** This is one of
+the three declared identity deltas (Section 20.3), not an undisclosed
+change; reproduced below.
+
+**Risk 6 adjudication -- plots only ever name parallel hands.** Pre-existing
+scope boundary (Tier 3/4), unchanged by this slice; `bokeh_plots.py`'s diff
+only changes label text derivation, not what data is plotted. Not a defect.
+
+**Default-linear identity, reproduced in detached, PYTHONPATH-isolated
+worktrees.** `71b3087` and `daa97b8` (`HEAD`) were checked out into separate
+`git worktree add --detach` trees. A same-commit nondeterminism check was
+run first (two independent runs of `HEAD` into different output
+directories): `scientific_sha256` differed between the two runs, traced to
+`provenance/instrument_json` (and `configuration_source_json`,
+`resolved_config_json`) embedding the run's absolute layout-file path, a
+pre-existing path-dependency already recorded and adjudicated in the Tier 5E
+acceptance note above -- not something this slice introduced or must fix.
+Controlling for it (both runs writing into the *same* absolute output
+directory, sequentially, one worktree at a time) reproduced true identity:
+`scientific_sha256` and `provenance_sha256` were byte-identical between
+`71b3087` and `HEAD` for a default (no `receptors:`) run. A full HDF5
+dataset-level diff (`h5py.visititems` over every dataset in both files)
+found zero differing datasets and zero added/removed objects; the only
+differing root-adjacent value was `provenance/performance_json` (wall-clock
+timing, not hashed into either fingerprint). The Measurement Set's
+`FEED`/`SPECTRAL_WINDOW` raw table files differed at the byte level but
+every column's values, re-read via `casacore.tables.table.getcol`, were
+identical -- the byte difference is casacore storage-manager bookkeeping, not
+a content change. UVFITS differed at exactly one contiguous byte range
+inside the `HISTORY` cards (`cmp` reported a single differing offset); a
+structured diff of the decoded HISTORY JSON showed the only content change
+was the addition of `"polarization_basis":"linear_xy"` and
+`"receptor_sha256":"<64 hex>"` to the projection record, and
+`np.array_equal` on the primary HDU's data array was `True`. The summary
+JSON gained exactly the declared `"receptors"` block and the
+`"per_antenna_receptor_definitions"` exclusion-list entry, plus the expected
+`performance` timing fields; nothing else differed. The plot HTML gained
+exactly `"Modulus of Visibility (Stokes I = XX + YY)"` in place of
+`"Modulus of Visibility (Stokes I)"`. These are exactly, and only, the three
+deltas Section 34.6/20.3/22.3/23 declare for a default linear run.
+
+**End-to-end honesty, reproduced via one real CLI workflow run.** Ran
+`radiosim --config <circular-receptors.yaml>` (via `pixi run radiosim`,
+`result_format: ms`, `plot_results: true`) against a fresh three-antenna
+array with `receptors: {default: {basis: circular}}`. The written MS's
+`POLARIZATION.CORR_TYPE` was `[5,6,7,8]` and `FEED.POLARIZATION_TYPE` was
+`['R','L']`; all three rendered plot HTML files (`visibility-phase-lsts.html`,
+`heatmaps-freq-time.html`, `modulus-phase-freq.html`) contained `"Stokes I =
+RR + LL"` and none contained `"XX + YY"`. A circular run is honest end to
+end across HDF5 (already true since 5E), MS, UVFITS, and plots, produced
+through the ordinary CLI entry point, not only through direct API calls.
+
+**Plan correction `17b763b` ratified.** Re-derived each item independently
+rather than taking the implementer's word: (1) `tests/unit/test_io/
+test_summary_json.py` does not exist anywhere in the repository history at
+this range (`git log --all --oneline -- tests/unit/test_io/
+test_summary_json.py` empty) and `test_result_summary.py` is confirmed the
+module that defines `test_summary_json_is_exact_bounded_metadata_contract`;
+the substitution is correct. (2) The two `test_tier5_current_behavior.py`
+pin renames were confirmed present and correctly generalized (see the
+single-table-honesty paragraph above). (3) `test_polarization_basis.py`'s
+narrowed clause was confirmed to assert the pinned literal tuples directly
+now that the three `standard_visibility.py` constants it used to import are
+gone. (4) The `x_orientation` correction was verified directly against the
+installed pyuvdata 3.2.1 source
+(`.pixi/envs/default/lib/python3.11/site-packages/pyuvdata/telescopes.py`,
+`Telescope.new`, lines ~1281-1291): `if feed_angle is not None and
+feed_array is not None: ... elif x_orientation is not None: ...` is a
+genuine `if`/`elif`, and the parameter's own docstring reads "Ignored if
+feed_array and feed_angle are provided" verbatim -- both quoted claims in the
+correction text are accurate, not paraphrased optimistically. (5) The
+nominal-feed-angle placement in `io/standard_visibility.py` as
+`_NOMINAL_FEED_ANGLES_RAD` was confirmed tied to `ResolvedReceptor.
+feed_angle_rad` by `test_nominal_feed_angles_match_the_resolved_receptor_
+convention`, which builds a real resolved receptor set at zero rotation for
+both bases and asserts equality against the module constant -- the two
+conventions cannot silently drift.
+
+**Gates.** Full non-slow suite, py311: **3,832 passed, 6 skipped, 26
+warnings**, reproducing the claimed arithmetic (3,785 5E baseline + 47 new or
+changed tests across the seven touched test files, net of the one
+parametrize case removed from `test_standard_visibility_owns_bytes_backed_
+arrays_and_nested_state` when the inline `("correlations", ("XX","YY","XY","
+YX"), "correlation")` row was replaced by a comment pointing at the new
+typed-rejection test). The exact §35 Tier 5F test-file set (all seven files)
+re-ran clean on py312 (`.pixi/envs/py312`, Python 3.12.13): **218 passed**,
+this reviewer's own independently collected figure for that file set
+(`pytest --collect-only` on py311 for the same seven files also collects
+218, confirming no environment-dependent skip). Including the two known
+importers of `build_standard_result`/the shared fixtures that are not
+themselves on the §35 grant (`tests/unit/test_io/test_output_atomicity.py`
+and `tests/unit/test_visualization/test_observability_bokeh_renderer.py`,
+following the same "confirm dependents are undisturbed" pattern the Tier 5E
+acceptance used) raises the py312 count to **271 passed**. Neither figure
+reproduces a claimed 276; this reviewer's own counts (218 for the exact
+grant, 271 including known dependents) are recorded as the independently
+verified numbers, and the discrepancy is noted rather than forced to match.
+`pixi run lint` reported all checks passed; `pixi run format -- --check`
+reported 322 files already formatted (unchanged from the 5E record). All
+three shipped YAMLs validated via `radiosim validate`, unchanged from the
+5B-5E record (`configs/config.yaml` -- 101 channels;
+`configs/realistic_foreground_example.yaml` -- 11;
+`antenna_layout_examples/example_telescope_config.yaml` -- 1). `git status`
+was clean before and after review; neither commit in the review range, nor
+this review's own commits, carries a co-authored-by line
+(`git log --format=%B` grepped for "co-authored" across both commits: no
+matches).
+
+**Unobserved items, carried forward.** `pixi run typecheck`/Pyright and a
+Sphinx build were not run (not required until whole-tier acceptance per
+§33). The exact py312 touched-module count could not be reconciled to a
+claimed 276; the independently reproduced figures (218 exact-grant, 271
+including known dependents) are recorded instead, and whichever slice next
+revisits the test-count bookkeeping should reconcile this. No PR, tag,
+release, or deployment was created.
+
+This acceptance changes planning records only. No Tier 5 production code,
+test, fixture, configuration, or dependency file was changed by this review.
+`POL-001` remains **OPEN** and `POL-002` remains **ROADMAP**: 5F makes
+Measurement Set, UVFITS, the summary JSON, and every renderer honest in both
+bases, but Section 39's full whole-tier criteria (illumination/receptor
+terminology split, documentation, obsolete-path removal) are still 5G
+through 5I's, so neither issue closes at this slice. Tier 5F is
+independently accepted; Tier 5G is authorized and remains limited to the
+writable-file list in `Tier5ReceptorFeedPlan.md` §35 Tier 5G. Tier 5H and 5I
+remain unauthorized until each predecessor slice is implemented and
+independently accepted. No PR, tag, release, or deployment was created.
