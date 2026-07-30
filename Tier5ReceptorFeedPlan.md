@@ -2251,6 +2251,59 @@ tests/unit/test_io/test_uvfits.py
 tests/unit/test_visualization/
 ```
 
+**Correction (Tier 5F implementation).** Two substitutions and three additions,
+all forced by the slice's own declared deliverables:
+
+- `tests/unit/test_io/test_summary_json.py` **does not exist and never did**:
+  the summary writer's tests live in `tests/unit/test_io/test_result_summary.py`
+  (Tier 4F's naming). §23 tells 5F to add a required `receptors` key to the
+  summary and one entry to the exclusion list, and that file's
+  `test_summary_json_is_exact_bounded_metadata_contract` asserts the exact
+  top-level key set and the exact exclusion list. Substituted:
+  `tests/unit/test_io/test_result_summary.py`. Creating a second module for one
+  writer was rejected as worse than editing the module that already tests it.
+- `tests/characterization/test_tier5_current_behavior.py`: already granted to
+  5A/5C/5B/5D/5E as the file the tier repeatedly modifies (§30.4). 5F must flip
+  the two residual pins 5E left asserted — the `io/standard_visibility.py`
+  constants and the absence of the shared table there
+  (`test_two_of_four_correlation_constant_sites_now_share_the_table`, renamed to
+  `..._all_four_...`) and the pyuvdata construction form
+  (`test_pyuvdata_construction_is_hard_coded_to_the_linear_basis`, renamed to
+  `test_pyuvdata_construction_is_basis_driven`). The `measurement_set.py` clause
+  of the circular-label scan is inverted rather than deleted: neither module
+  spells any correlation label out, because both now read the shared table.
+- `tests/unit/test_core/test_polarization_basis.py` (5C's file): its
+  `test_the_linear_row_preserves_the_existing_production_constants` imports
+  `radiosim.io.standard_visibility.CANONICAL_CORRELATIONS`, `.CANONICAL_CODES`,
+  and `.FILE_CODES` — the three constants §20.1 and §22.1 tell 5F to delete. The
+  three surviving clauses now assert the pinned literal values directly, exactly
+  as 5E handled the same situation for `io/hdf5.py`.
+
+Two design-text corrections, neither changing a decision, scientific claim, or
+slice boundary:
+
+- **§22.1, `x_orientation` row.** The row says `x_orientation="east"` is
+  "retained for `linear_xy`". It cannot be: pyuvdata 3.2.1
+  (`telescopes.py`, `Telescope.new`) consumes `x_orientation` only in the
+  `elif` branch that `feed_angle is not None and feed_array is not None`
+  short-circuits, and its own docstring states `x_orientation` is "Ignored if
+  feed_array and feed_angle are provided". Since the Tier 5A Q3 correction
+  requires the explicit `feed_array`/`feed_angle` form for *both* bases, keeping
+  `x_orientation` would be unreachable argument-passing. It is omitted for both
+  bases. Verified: the explicit linear form produces a `Telescope` that compares
+  equal to the `x_orientation="east"` one, with identical `feed_array` (`x`,`y`),
+  `feed_angle` (`pi/2`, `0`), `Nfeeds`, and dtypes, and byte-identical MS `FEED`
+  and UVFITS antenna metadata.
+- **§14.4 / §22.1, nominal feed angles.** §14.4 requires "the nominal
+  `feed_angle` for that basis" but §20.1's exported table carries no feed-angle
+  row, and `core/polarization_basis.py` is not on 5F's list. The two nominal
+  pairs therefore live in `io/standard_visibility.py` as
+  `_NOMINAL_FEED_ANGLES_RAD` — `linear_xy: (pi/2, 0)`, `circular_rl: (0, 0)` —
+  which is format-mapping detail, not a correlation-coordinate table. A test
+  (`test_nominal_feed_angles_match_the_resolved_receptor_convention`) ties both
+  entries to `ResolvedReceptor.feed_angle_rad` at zero rotation, so the two
+  conventions cannot drift.
+
 ### Tier 5G
 
 ```text
