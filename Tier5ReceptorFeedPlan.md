@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted; 5A independently accepted (`568855f`, Tier 5A acceptance); 5B implemented (`40d17fb`, `3925a33`) and independently accepted after two bounded plan corrections (§30.2, §30.5, §35 Tier 5B); 5C implemented (`deedf8d`, `2bae364`, `0524e56`) and independently accepted after two bounded plan corrections (§34.3 tests-first S3 wording, §34.3 pin-ownership text for the 5A D4 pin); 5D implemented (`fe75356`) after a pre-emptive §35 Tier 5D grant correction (`ca121aa`) and independently accepted; 5E authorized. |
+| Status | Design accepted; 5A independently accepted (`568855f`, Tier 5A acceptance); 5B implemented (`40d17fb`, `3925a33`) and independently accepted after two bounded plan corrections (§30.2, §30.5, §35 Tier 5B); 5C implemented (`deedf8d`, `2bae364`, `0524e56`) and independently accepted after two bounded plan corrections (§34.3 tests-first S3 wording, §34.3 pin-ownership text for the 5A D4 pin); 5D implemented (`fe75356`) after a pre-emptive §35 Tier 5D grant correction (`ca121aa`) and independently accepted; 5E implemented (`aa667b9`) after a pre-emptive §35 Tier 5E grant correction (`c7fa228`) and independently accepted after two bounded plan corrections routing stale-truth-surface cleanup to 5G and 5H (§35 Tier 5G, §35 Tier 5H); 5F authorized. |
 | Date | 2026-07-30 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
@@ -2262,6 +2262,7 @@ CLAUDE.md
 README.md
 configs/config.yaml
 configs/receptor_circular_example.yaml
+docs/api/io.rst
 docs/index.rst
 docs/migration_guide.md
 docs/user_guide/beam_models.rst
@@ -2271,17 +2272,42 @@ docs/user_guide/jones_matrices.rst
 tests/unit/test_tier1h_documentation.py
 ```
 
+**Correction (Tier 5E independent acceptance).** Added `docs/api/io.rst`.
+Tier 5E (`aa667b9`) bumped `SCHEMA_VERSION` to `2.0.0` and made
+`polarization_basis`/`correlations` data-driven, which makes this file's
+existing text -- "schema version `1.0.0` is the complete..." and "preserves
+... `XX, XY, YX, YY`" -- false for any circular result, and it was not on any
+slice's §35 grant. §34.7's Tier 5G production changes already sweep every
+other stale-terminology documentation surface; this is the same class of
+defect (a truth surface Tier 5E's own honest-labelling change falsifies) and
+belongs in the same sweep. No other file, decision, or slice boundary
+changes.
+
 ### Tier 5H
 
 ```text
 src/radiosim/core/jones/receptor.py
 src/radiosim/core/polarization.py
+src/radiosim/core/receptor.py
 src/radiosim/core/result.py
 src/radiosim/io/hdf5.py
 src/radiosim/io/standard_visibility.py
 tests/unit/test_core/test_polarization.py
+tests/unit/test_core/test_receptor_resolution.py
 tests/unit/test_tier5_receptor_acceptance.py
 ```
+
+**Correction (Tier 5E independent acceptance).** Added
+`src/radiosim/core/receptor.py` and `tests/unit/test_core/test_
+receptor_resolution.py`. `core/receptor.py` defines
+`PolarizationBasisName = Literal["linear_xy", "circular_rl"]`, an
+independent copy of `core/polarization_basis.py`'s `PolarizationBasis`
+introduced before Tier 5E and untouched by it (5E's own §35 grant does not
+include this file, and it correctly left it alone). §34.8's Tier 5H
+production changes already read "remove the duplicated correlation
+constants if any survive," which is exactly this literal; its prior §35
+grant omitted the one file where the survivor actually lives. No other file,
+decision, or slice boundary changes.
 
 ### Tier 5I
 
