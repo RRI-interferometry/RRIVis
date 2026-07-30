@@ -207,7 +207,7 @@ and every acceptance record in the tier.
 | The only test task is `test = "python -m pytest tests/"`; there is no benchmark task | `pixi.toml:9-24`, specifically `:23` |
 | `numba` is a top-level conda dependency (`>=0.64,<0.67`), justified by PySM's needs, and is installed in every environment | `pixi.toml:29-32` |
 | **`jax` is not declared anywhere in `pixi.toml`** and is not installed in either environment | `pixi.toml:26-61`, `:69-77` |
-| Exactly six tests skip for JAX unavailability, all via `pytest.importorskip("jax")` | `tests/unit/test_backends/test_jax_backend.py:15`; `tests/unit/test_jones/test_backend_jones.py:20`, `:116`, `:132`; `tests/unit/test_core/test_sky_backend.py:123`; `tests/unit/test_core/test_visibility_backend.py:88`, `:301`; `tests/unit/test_core/test_sky_spectral.py:556` |
+| Exactly six tests skip for JAX unavailability, all via `pytest.importorskip("jax")`. **Correction (2026-07-30, Tier 6A acceptance):** `pytest -rs` attributes each skip to the line where `importorskip` actually executes, not to the calling test body. `test_backend_jones.py` and `test_visibility_backend.py` route through a shared `_get_optional_backend()` helper, so both of `test_backend_jones.py`'s skips report at line 20 (not `:116`/`:132`, which are merely the helper's two call sites) and `test_visibility_backend.py`'s one skip reports at line 88 (not `:301`, its one call site). `test_sky_backend.py:123` is a literal `pytest.importorskip("jax")` inside the test body itself (distinct from that file's own unused helper-level import at line 24), so its citation was already exact. | `tests/unit/test_backends/test_jax_backend.py:15`; `tests/unit/test_jones/test_backend_jones.py:20` (2 skips; helper called from `:116`, `:132`); `tests/unit/test_core/test_sky_backend.py:123`; `tests/unit/test_core/test_visibility_backend.py:88` (1 skip; helper called from `:301`); `tests/unit/test_core/test_sky_spectral.py:556` |
 | CI runs `pixi run test -- -m "not slow"` across six OS/Python jobs plus one quality job; no GPU runner and no performance job exist | `.github/workflows/ci.yml:22-47`, `:63-67`, `:69-99` |
 | The characterization convention is `test_tier<N>_current_behavior.py` with per-test "Pins"/"Characterizes"/"Records" docstrings and `OWNED BY: Tier Nx` markers for pins a later slice may flip | `tests/characterization/test_tier5_current_behavior.py:1-7` |
 | `README.md` is already honest about incomplete backend coverage and refuses to imply GPU execution | `README.md:59-65`, `:338-344` |
@@ -1094,7 +1094,7 @@ output paths, which they already are: no writer runs during `setup()`.
 | S5 | Disjoint and explicitly-assumed-disjoint hybrid models do not double count: total flux equals the sum of component fluxes and nothing is counted twice | §27 H5 |
 | S6 | Solver `workers = 1, 2, 3, 4` yield identical `scientific_sha256` | §27 W3 |
 | S7 | Loader `max_workers` and `executor` do not affect `scientific_sha256` | §27 W1 |
-| S8 | The accumulation restructure is bit-identical to the baseline for every shipped configuration | §27 R1 |
+| S8 | The accumulation restructure is bit-identical to the baseline for every shipped configuration, compared **within one Python environment** (`py311` against the `py311` pin, `py312` against the `py312` pin) | §27 R1 |
 | S9 | NumPy and JAX-CPU agree within §13.5 tolerance on all seven §13.4 workloads | §27 B1 |
 | S10 | Dask-with-NumPy-arrays is bit-identical to NumPy | §27 B2 |
 | S11 | The compiled kernel agrees with its uncompiled reference within §13.5 tolerance and produces the identical dtype | §27 B3 |
@@ -1384,7 +1384,7 @@ be satisfied by a skipped test.
 | W5 | offline under workers | offline run with a network-requiring loader raises `ConnectionError` under both executors, and `_check_socket` is never called (S12) |
 | W6 | partition function | the time partition covers `[0, n_times)` exactly once for every `(n_times, workers)` pair in a swept range; `workers > n_times` clamps and records |
 | W7 | no hard-coded 8 | `load_models_parallel` has no `max_workers` default and `api/simulator.py` contains no literal worker count |
-| R1 | restructure bit-identity | for each shipped configuration, post-restructure `scientific_sha256` equals the pinned pre-restructure value from the 6A characterization (S8) |
+| R1 | restructure bit-identity | for each shipped configuration, post-restructure `scientific_sha256` equals the pinned pre-restructure value from the 6A characterization, compared within the same Python environment as the pin was recorded in (S8). **Correction (2026-07-30, Tier 6A acceptance):** 6A's fingerprints differ between `py311` and `py312` because those environments resolve different astropy releases (7.1.0 vs 8.0.1) whose `ICRS`->`AltAz` transforms disagree in the last bits (~1.4e-11 rad altitude, ~2.0e-8 rad azimuth for a fixed source/instant), which the geometric phase amplifies into every visibility; this is an environment artifact, not solver nondeterminism. R1 is therefore per-environment by construction — Section 31 already runs the gate in both environments, so 6D must compare each environment's post-restructure digest only against that same environment's 6A pin, never across environments, and a third measured environment must add its own pinned row rather than relax this assertion. |
 | R2 | assembly count | the number of whole-cube assembly operations per solver call is 1, asserted through a counting backend wrapper |
 | B1 | NumPy/JAX-CPU parity | all seven §13.4 workloads within §13.5 tolerance (S9) |
 | B2 | Dask bit-identity | all seven §13.4 workloads bit-identical to NumPy (S10) |
@@ -1960,6 +1960,7 @@ un-opened item; §41 Q4 records how it should be filed.
 | A benchmark number is quoted without its record | criterion 22 makes an uncited capability statement an acceptance failure |
 | The `numba`→`dask` rename is read as a capability gain | the class docstring, the backend documentation, and the migration entry all state that no compilation ever occurred and none is added |
 | Scope creep into Tier 7 Jones work or an m-mode solver | §40 exclusions; slice file lists exclude every Jones term file and every simulator strategy file except `rime.py` |
+| `JAXBackend.name` reads `"jax-cpu-cpu"` on a CPU device (confirmed today in `backends/jax_backend.py:10`'s own doctest and its `f"jax-{platform}-{backend_name}"` construction at `:146`, where both `device.platform` and `jax.default_backend()` return `"cpu"`) | pre-existing, not introduced by Tier 6; 6H's B4/B5 registry-truthfulness tests must assert this exact (if inelegant) string rather than a cleaner name invented for the occasion — the name is truthful, only repetitive, and no slice may silently change the format without recording it as its own decision |
 
 ## 40. Explicit exclusions and Tier 7+ boundary
 
@@ -2009,13 +2010,19 @@ solver threads? (blocks 6E; must be answered in 6A or early 6E.)** The per-anten
 Jones cache is rebuilt per `(time, frequency)` (`core/visibility.py:571-585`) and
 the HEALPix path caches by handler id inside the frequency loop
 (`core/visibility_healpix.py:149-186`), so the *solver* holds no cross-time
-state. Whether `BeamFITSHandler` / pyuvdata `UVBeam` interpolation is
-thread-safe is not established at this gate. Evidence required: a concurrent
-evaluation of one shared FITS handler from four threads, compared against serial
-evaluation for bit-identity. If it is not thread-safe, 6E must give each worker
-its own handler instance (a construction change, not a numerical one), and the
-slice's file list gains the beam manager module — a bounded correction, not a
-design change.
+state. **Correction (2026-07-30, Tier 6A acceptance):** the class named below,
+`BeamFITSHandler`, no longer exists anywhere in `src/radiosim`; the current shape
+is `core/beam/fits.py`'s `_LoadedFITSHandler` (wrapping pyuvdata `UVBeam.interp`),
+reached through `core/beam/runtime.py`'s `BeamSystem.evaluate_jones`. `BeamManager`
+was likewise already removed (Tier 3); the pre-Tier-6 flat/`BeamManager` inputs
+are rejected outright (`io/config.py:2192`). Whether `_LoadedFITSHandler` /
+pyuvdata `UVBeam` interpolation is thread-safe is not established at this gate.
+Evidence required: a concurrent evaluation of one shared FITS handler from four
+threads, compared against serial evaluation for bit-identity. If it is not
+thread-safe, 6E must give each worker its own handler instance (a construction
+change, not a numerical one), and the slice's file list gains `core/beam/fits.py`
+and/or `core/beam/runtime.py` (the modules that construct and evaluate FITS beam
+handlers today) — a bounded correction, not a design change.
 
 **Q3 — Does the per-time restructure change peak memory materially? (blocks
 6D's acceptance framing, not its implementation.)** Holding `T` blocks of
