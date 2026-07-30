@@ -6,6 +6,7 @@ import json
 import math
 import os
 import stat
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
@@ -73,6 +74,29 @@ def _receptor_summary(result: SimulationResult) -> dict[str, object]:
         "receptor_sha256": receptors.provenance.receptor_sha256,
         "native_basis_counts": receptors.native_basis_counts,
         "distinct_feed_rotations_deg": rotations,
+    }
+
+
+def _execution_summary(result: SimulationResult) -> dict[str, object]:
+    """Return the bounded execution block for one canonical result.
+
+    Plan Section 19: the *requested* worker policy comes from the resolved
+    configuration, while the *executed* loader policy comes from the encoded
+    history line the simulator wrote.  Both are needed, because ``executor:
+    auto`` resolves to a concrete pool class only at dispatch time and may
+    degrade with a recorded reason.
+    """
+    from radiosim.core.sky.operations.parallel import LoaderExecutionRecord
+
+    execution = result.resolved_config.get("execution", {})
+    if not isinstance(execution, Mapping):
+        raise SummaryContractError("resolved execution configuration is not a mapping")
+    record = LoaderExecutionRecord.from_history(result.history)
+    return {
+        "offline": execution.get("offline"),
+        "sky_loading": dict(execution.get("sky_loading", {})),
+        "solver": dict(execution.get("solver", {})),
+        "loader": None if record is None else record.to_snapshot(),
     }
 
 
@@ -321,6 +345,7 @@ def _summary_payload(result: SimulationResult) -> dict[str, object]:
             "beam": result.beam_state.to_snapshot(),
             "backend": result.backend.to_snapshot(),
             "solver": result.solver.to_snapshot(),
+            "execution": _execution_summary(result),
             "resolved_config": result.resolved_config,
             "configuration_provenance": result.configuration_provenance,
             "performance": result.performance.to_snapshot(),

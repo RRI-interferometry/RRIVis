@@ -21,6 +21,8 @@ if TYPE_CHECKING:
         check_all_services,
         check_service,
         is_online,
+        offline_policy,
+        set_offline_policy,
     )
 
 
@@ -46,6 +48,8 @@ _LAZY_EXPORTS = {
     "check_all_services": ("radiosim.utils.network", "check_all_services"),
     "check_service": ("radiosim.utils.network", "check_service"),
     "is_online": ("radiosim.utils.network", "is_online"),
+    "offline_policy": ("radiosim.utils.network", "offline_policy"),
+    "set_offline_policy": ("radiosim.utils.network", "set_offline_policy"),
 }
 
 __all__ = [
@@ -55,6 +59,8 @@ __all__ = [
     "is_online",
     "check_service",
     "check_all_services",
+    "offline_policy",
+    "set_offline_policy",
     "DeviceResources",
     "get_device_resources",
     "F_21CM_HZ",

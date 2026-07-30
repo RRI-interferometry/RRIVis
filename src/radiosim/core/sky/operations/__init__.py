@@ -31,8 +31,11 @@ from .operations import (
     with_monopole_subtracted,
 )
 from .parallel import (
+    LOADER_EXECUTION_HISTORY_PREFIX,
+    LoaderExecutionRecord,
     SkyLoadAggregateError,
     SkyLoadError,
+    WorkerPolicyError,
     load_models_parallel,
     recommend_executor_for_loaders,
 )
@@ -66,6 +69,9 @@ __all__ = [
     # parallel loading
     "SkyLoadError",
     "SkyLoadAggregateError",
+    "WorkerPolicyError",
+    "LoaderExecutionRecord",
+    "LOADER_EXECUTION_HISTORY_PREFIX",
     "load_models_parallel",
     "recommend_executor_for_loaders",
 ]

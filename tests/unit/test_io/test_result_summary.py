@@ -141,6 +141,7 @@ def test_summary_json_is_exact_bounded_metadata_contract(tmp_path):
         "beam",
         "backend",
         "solver",
+        "execution",
         "resolved_config",
         "configuration_provenance",
         "performance",

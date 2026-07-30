@@ -718,17 +718,22 @@ def test_memory_estimate_counts_only_point_sources(tmp_path) -> None:
 # =========================================================================
 
 
-def test_sky_loading_hard_codes_eight_workers() -> None:
-    """Pins D6: the only loader call site passes a literal ``max_workers=8``.
+def test_sky_loading_consumes_the_resolved_worker_count() -> None:
+    """Records the closure of D6's behavior half.
 
-    OWNED BY: Tier 6C, which removes the literal, and Tier 6B, which introduces
-    the typed policy that replaces it.
+    Flipped by Tier 6C from the 6A pin ``test_sky_loading_hard_codes_eight_workers``,
+    which asserted the literal ``max_workers=8,`` in ``api/simulator.py`` and the
+    ``max_workers: int = 8`` default on ``load_models_parallel``.  Tier 6B supplied
+    the typed policy; Tier 6C removed both numbers (plan Section 11.2), so the
+    driver has no default a caller can silently inherit and the only call site
+    passes the resolved value.
     """
     simulator_source = _source("src/radiosim/api/simulator.py")
-    assert "max_workers=8," in simulator_source
+    assert "max_workers=8," not in simulator_source
+    assert "max_workers=sky_loading.max_workers," in simulator_source
 
     signature = inspect.signature(load_models_parallel)
-    assert signature.parameters["max_workers"].default == 8
+    assert signature.parameters["max_workers"].default is inspect.Parameter.empty
 
 
 def test_execution_config_expresses_worker_policy_in_two_typed_blocks() -> None:
@@ -792,7 +797,7 @@ def test_run_still_advertises_and_then_rejects_n_workers(tmp_path) -> None:
 def test_no_worker_value_is_recorded_in_provenance(tmp_path) -> None:
     """Pins D6: no resolved worker count reaches the bounded result snapshot.
 
-    OWNED BY: Tier 6C and Tier 6E.
+    OWNED BY: Tier 6E.
 
     Scope note added by Tier 6B: the resolved worker policy now *does* reach
     ``SimulationResult.resolved_config`` and therefore ``provenance_sha256``,
@@ -802,6 +807,14 @@ def test_no_worker_value_is_recorded_in_provenance(tmp_path) -> None:
     bounded metadata view that embeds no resolved configuration, so no
     *executed* worker count -- no loader execution record, no per-run solver
     thread count -- is reported there yet.
+
+    Disposition of the 6C half (Tier 6C implementation): 6C surfaced the executed
+    loader policy in ``SimulationResult.history`` and in the summary-JSON
+    document's ``execution`` block (plan Section 19), neither of which is
+    ``to_summary_snapshot()``.  ``core/result.py`` is not in 6C's Section 33
+    grant, and the bounded snapshot is deliberately left free of runtime worker
+    values, so the assertions below are unchanged and the pin now carries only
+    the 6E half.
     """
     result = Simulator.from_mapping(
         valid_config_mapping(tmp_path), base_dir=tmp_path
@@ -1020,13 +1033,17 @@ def test_there_is_no_benchmark_harness_task_or_performance_test() -> None:
 # =========================================================================
 
 
-def test_forced_offline_status_does_not_populate_the_module_cache(
+def test_forced_offline_policy_short_circuits_the_socket_probe(
     monkeypatch,
 ) -> None:
-    """Pins D17: ``execution.offline`` never reaches loader enforcement.
+    """Records the closure of D17's detection half.
 
-    OWNED BY: Tier 6C, which adds ``set_offline_policy`` and installs it in
-    workers.
+    Flipped by Tier 6C from the 6A pin
+    ``test_forced_offline_status_does_not_populate_the_module_cache``, which
+    asserted that a forced-offline ``NetworkStatus`` left the module cache empty
+    and that ``is_online()`` then probed a live socket anyway.  Tier 6C added
+    ``set_offline_policy`` (plan Section 16.1); the installed policy -- not the
+    TTL cache -- is now the authority, so no probe happens at all.
     """
     monkeypatch.setattr(network_module, "_cached_status", None)
     status = network_module.get_network_status(offline=True)
@@ -1041,62 +1058,87 @@ def test_forced_offline_status_does_not_populate_the_module_cache(
         return True
 
     monkeypatch.setattr(network_module, "_check_socket", fake_socket)
-    assert network_module.is_online() is True
-    assert probed  # a live probe happened despite the forced-offline status
+    monkeypatch.setattr(network_module, "_offline_policy", True)
+    assert network_module.is_online() is False
+    assert probed == []
 
 
-def test_require_service_consults_is_online_not_a_resolved_policy(
+def test_require_service_consults_the_installed_offline_policy(
     monkeypatch,
 ) -> None:
-    """Pins D17's enforcement path.
+    """Records the closure of D17's enforcement half.
 
-    OWNED BY: Tier 6C.
+    Flipped by Tier 6C from the 6A pin
+    ``test_require_service_consults_is_online_not_a_resolved_policy``.  The gate
+    still reads ``is_online()`` -- that is deliberate, because Section 16.1 makes
+    ``is_online()`` itself consult the policy first -- but the policy now reaches
+    it, so a forced-offline run fails a network-requiring loader without a probe.
     """
     source = inspect.getsource(network_module.require_service)
     assert "if not is_online():" in source
     assert "offline" not in inspect.signature(network_module.require_service).parameters
 
+    probed: list[tuple[str, int]] = []
     monkeypatch.setattr(network_module, "_cached_status", None)
-    monkeypatch.setattr(network_module, "is_online", lambda *a, **k: False)
+    monkeypatch.setattr(
+        network_module,
+        "_check_socket",
+        lambda host, port, timeout: probed.append((host, port)) or True,
+    )
+    monkeypatch.setattr(network_module, "_offline_policy", True)
     with pytest.raises(ConnectionError, match="No internet connection"):
         network_module.require_service("vizier", "download catalog 'gleam'")
+    assert probed == []
 
 
-def test_process_executor_degrades_to_threads_with_only_a_log_warning(
+def test_an_explicit_process_request_is_rejected_and_auto_degradation_recorded(
     caplog, monkeypatch
 ) -> None:
-    """Pins D18: the degradation succeeds silently and is recorded nowhere.
+    """Records the closure of D18.
 
-    The pickle probe is forced to fail so the ``executor="process"`` request
-    takes the fallback branch.  The load still succeeds, the only trace is a
-    ``logger.warning``, and the returned value carries no record of either the
-    request or the degradation.
-
-    OWNED BY: Tier 6C, which adds ``LoaderExecutionRecord`` and an explicit
-    rejection for an explicit process request.
+    Flipped by Tier 6C from the 6A pin
+    ``test_process_executor_degrades_to_threads_with_only_a_log_warning``, which
+    asserted that a failed pickle probe silently degraded an *explicit*
+    ``executor="process"`` request to threads with only a ``logger.warning`` and
+    no returned record.  Section 11.2 now rejects the explicit request outright
+    and records an ``auto`` degradation in ``LoaderExecutionRecord``.
     """
     parallel_module = importlib.import_module("radiosim.core.sky.operations.parallel")
     monkeypatch.setattr(
-        parallel_module, "_kwargs_picklable", lambda *args, **kwargs: False
+        parallel_module,
+        "_pickle_probe",
+        lambda *args, **kwargs: ("test_sources", "cannot pickle 'function' object"),
     )
 
     loaders = [
         ("test_sources", {"num_sources": 1, "distribution": "uniform", "seed": 1})
     ]
-    with caplog.at_level("WARNING", logger=parallel_module.__name__):
-        models = load_models_parallel(
+    with pytest.raises(parallel_module.WorkerPolicyError, match="requested explicitly"):
+        load_models_parallel(
             loaders,
-            max_workers=2,
+            2,
             precision=PrecisionConfig.standard(),
             strict=True,
             executor="process",
         )
 
+    with caplog.at_level("WARNING", logger=parallel_module.__name__):
+        models, record = load_models_parallel(
+            loaders,
+            2,
+            precision=PrecisionConfig.standard(),
+            strict=True,
+            executor="auto",
+        )
+
     assert len(models) == 1
+    assert record.requested_executor == "auto"
+    assert record.actual_executor == "thread"
+    assert record.degraded_reason is not None
     assert any(
-        "Falling back to thread pool" in record.message for record in caplog.records
+        "Falling back to thread pool" in message.message for message in caplog.records
     )
-    assert "LoaderExecutionRecord" not in _source(
+    assert "LoaderExecutionRecord" in _source(
         "src/radiosim/core/sky/operations/parallel.py"
     )
 

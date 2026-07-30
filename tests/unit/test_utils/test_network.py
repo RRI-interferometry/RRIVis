@@ -15,12 +15,14 @@ from radiosim.utils.network import (
     get_required_services,
     get_sky_model_services,
     is_online,
+    offline_policy,
+    set_offline_policy,
 )
 
 
 @pytest.fixture(autouse=True)
 def _clear_network_cache():
-    """Ensure a clean cache for every test."""
+    """Ensure a clean cache and an online policy for every test."""
     clear_cache()
     yield
     clear_cache()
@@ -291,3 +293,35 @@ class TestClearCache:
         clear_cache()
         is_online()
         assert mock_check.call_count == 2
+
+    @patch("radiosim.utils.network._check_socket", return_value=True)
+    def test_clear_reinstalls_the_online_offline_policy(self, mock_check):
+        set_offline_policy(True)
+        assert offline_policy() is True
+        clear_cache()
+        assert offline_policy() is False
+        assert is_online() is True
+
+
+# ---------------------------------------------------------------------------
+# set_offline_policy (Tier 6C, plan Section 16.1)
+# ---------------------------------------------------------------------------
+
+
+class TestOfflinePolicy:
+    """The installed policy is the authority; see test_offline_policy.py for S12."""
+
+    @patch("radiosim.utils.network._check_socket", return_value=True)
+    def test_policy_wins_over_a_reachable_network(self, mock_check):
+        set_offline_policy(True)
+        assert is_online() is False
+        assert check_service("vizier") is False
+        mock_check.assert_not_called()
+
+    @patch("radiosim.utils.network._check_socket", return_value=True)
+    def test_clearing_the_policy_restores_probing(self, mock_check):
+        set_offline_policy(True)
+        assert is_online() is False
+        set_offline_policy(False)
+        assert is_online() is True
+        assert mock_check.call_count == 1

@@ -5,14 +5,21 @@ module stays focused on single-model construction. This module owns the
 executor-selection policy (:func:`recommend_executor_for_loaders`) and the
 concurrent loader driver (:func:`load_models_parallel`), plus the failure
 container types they raise.
+
+The driver takes its pool size and executor policy from the caller and takes no
+default of its own, so no call site can silently inherit a concurrency decision
+(``Tier6HybridRuntimePlan.md`` Section 11.2). What it actually did is reported
+back in a :class:`LoaderExecutionRecord`.
 """
 
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import logging
 import pickle
 import traceback
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -25,6 +32,15 @@ if TYPE_CHECKING:
     from ..containers.model import SkyModel
 
 logger = logging.getLogger(__name__)
+
+#: Prefix that carries one JSON-encoded :class:`LoaderExecutionRecord` through
+#: ``SimulationResult.history``, mirroring the established
+#: ``RADIOSIM_PROJECTION_JSON=`` convention in :mod:`radiosim.io`.
+LOADER_EXECUTION_HISTORY_PREFIX = "RADIOSIM_SKY_LOADER_JSON="
+
+_RECORD_FIELDS = frozenset(
+    {"requested_executor", "actual_executor", "max_workers", "degraded_reason"}
+)
 
 
 @dataclass(frozen=True)
@@ -50,6 +66,82 @@ class SkyLoadAggregateError(RuntimeError):
         )
 
 
+class WorkerPolicyError(ValueError):
+    """Raised when a requested worker policy cannot be honoured as written."""
+
+
+@dataclass(frozen=True)
+class LoaderExecutionRecord:
+    """What the loader driver was asked for and what it actually ran.
+
+    ``requested_executor`` is the policy as configured (including ``"auto"``);
+    ``actual_executor`` is the concrete pool class used. ``degraded_reason`` is
+    non-``None`` only when an ``"auto"`` request could not use the executor the
+    registry recommended -- an *explicit* request is rejected instead of degraded
+    (Section 11.2), so a degradation is never silent.
+    """
+
+    requested_executor: Literal["auto", "thread", "process"]
+    actual_executor: Literal["thread", "process"]
+    max_workers: int
+    degraded_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.requested_executor not in {"auto", "thread", "process"}:
+            raise ValueError(
+                "requested_executor must be 'auto', 'thread', or 'process'"
+            )
+        if self.actual_executor not in {"thread", "process"}:
+            raise ValueError("actual_executor must be 'thread' or 'process'")
+        if type(self.max_workers) is not int or self.max_workers < 1:
+            raise ValueError("max_workers must be a positive integer")
+        if self.degraded_reason is not None and type(self.degraded_reason) is not str:
+            raise TypeError("degraded_reason must be a string or None")
+
+    def to_snapshot(self) -> dict[str, Any]:
+        """Return a JSON-safe mapping of every recorded field."""
+        return {
+            "requested_executor": self.requested_executor,
+            "actual_executor": self.actual_executor,
+            "max_workers": self.max_workers,
+            "degraded_reason": self.degraded_reason,
+        }
+
+    def to_history_line(self) -> str:
+        """Encode the record as one canonical result-history line."""
+        return LOADER_EXECUTION_HISTORY_PREFIX + json.dumps(
+            self.to_snapshot(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+
+    @classmethod
+    def from_history(cls, history: Iterable[str]) -> LoaderExecutionRecord | None:
+        """Decode the record from a result history, or ``None`` if absent.
+
+        A malformed or incomplete line decodes to ``None`` rather than raising:
+        history is free-form provenance text, so a reader must never fail on it.
+        """
+        for line in history:
+            if not isinstance(line, str):
+                continue
+            if not line.startswith(LOADER_EXECUTION_HISTORY_PREFIX):
+                continue
+            try:
+                payload = json.loads(line[len(LOADER_EXECUTION_HISTORY_PREFIX) :])
+            except (ValueError, TypeError):
+                return None
+            if not isinstance(payload, dict) or set(payload) != _RECORD_FIELDS:
+                return None
+            try:
+                return cls(**payload)
+            except (TypeError, ValueError):
+                return None
+        return None
+
+
 # Loader categories whose work holds the GIL during heavy CPU operations
 # (PCA reconstruction, pygdsm spectral interpolation, Stokes cube
 # allocation, FITS / skyh5 file parsing, synthetic map generation). A
@@ -62,8 +154,16 @@ class SkyLoadAggregateError(RuntimeError):
 _GIL_BOUND_CATEGORIES: frozenset[str] = frozenset({"diffuse", "synthetic", "file"})
 
 
-def _run_one_loader(method_name: str, kw: dict) -> SkyModel:
-    """Worker entry point reused by both thread and process executors."""
+def _run_one_loader(method_name: str, kw: dict, offline: bool) -> SkyModel:
+    """Worker entry point reused by both thread and process executors.
+
+    The resolved offline policy is installed *before* the loader callable is
+    resolved, so a spawned process starts from the run's policy instead of a
+    fresh module default (``Tier6HybridRuntimePlan.md`` Section 16.1).
+    """
+    from radiosim.utils.network import set_offline_policy
+
+    set_offline_policy(offline)
     return loader_registry.resolve_callable(method_name)(**kw)
 
 
@@ -81,9 +181,9 @@ def recommend_executor_for_loaders(
     The category is read from the loader registry, so adding a new loader
     needs no change here — its declared ``category`` drives the decision.
 
-    The simulator wires this into :func:`load_models_parallel` so users do
-    not have to think about executor choice; explicit overrides are still
-    honoured.
+    :func:`load_models_parallel` consults this whenever ``executor="auto"``, so
+    users do not have to think about executor choice; an explicit ``"thread"`` or
+    ``"process"`` policy overrides it.
     """
     for name, _kwargs in loaders:
         try:
@@ -97,89 +197,165 @@ def recommend_executor_for_loaders(
     return "thread"
 
 
-def _kwargs_picklable(
+def _pickle_probe(
     loaders: list[tuple[str, dict[str, Any]]],
     precision: PrecisionConfig | None,
-) -> bool:
-    """Return True if every loader request can survive ProcessPoolExecutor IPC."""
+) -> tuple[str, str] | None:
+    """Return ``(loader_name, reason)`` for the first request that cannot pickle.
+
+    ``None`` means every request can survive ``ProcessPoolExecutor`` IPC.
+    """
     for method_name, kwargs in loaders:
         kw = dict(kwargs)
         if precision is not None and "precision" not in kw:
             kw["precision"] = precision
         try:
             pickle.dumps((method_name, kw))
-        except (pickle.PicklingError, TypeError, AttributeError):
-            return False
-    return True
+        except (pickle.PicklingError, TypeError, AttributeError) as exc:
+            return method_name, str(exc)
+    return None
+
+
+def _explicit_process_rejection(loader_name: str, reason: str) -> str:
+    """Return the verbatim Section 18.3 message for an explicit process request."""
+    return (
+        "execution.sky_loading.executor=process was requested explicitly, but "
+        f"loader arguments for {loader_name} cannot be pickled: {reason}. Use "
+        "execution.sky_loading.executor=auto to allow a thread fallback, or "
+        "thread to force it."
+    )
+
+
+def _resolve_executor_policy(
+    loaders: list[tuple[str, dict[str, Any]]],
+    precision: PrecisionConfig | None,
+    requested: Literal["auto", "thread", "process"],
+    max_workers: int,
+) -> LoaderExecutionRecord:
+    """Decide the concrete executor and record the decision.
+
+    Runs before any pool is created and before any loader is submitted, so an
+    unhonourable policy fails with no network or filesystem side effect.
+    """
+    if requested not in {"auto", "thread", "process"}:
+        raise WorkerPolicyError(
+            "execution.sky_loading.executor must be 'auto', 'thread', or 'process'"
+        )
+    if type(max_workers) is not int or max_workers < 1:
+        raise WorkerPolicyError(
+            "execution.sky_loading.max_workers must be a positive integer"
+        )
+
+    actual: Literal["thread", "process"] = (
+        recommend_executor_for_loaders(loaders) if requested == "auto" else requested
+    )
+    degraded_reason: str | None = None
+
+    if actual == "process":
+        failure = _pickle_probe(loaders, precision)
+        if failure is not None:
+            loader_name, reason = failure
+            if requested == "process":
+                raise WorkerPolicyError(
+                    _explicit_process_rejection(loader_name, reason)
+                )
+            actual = "thread"
+            degraded_reason = (
+                f"loader arguments for {loader_name} cannot be pickled: {reason}"
+            )
+            logger.warning(
+                "load_models_parallel: executor='auto' recommended a process pool "
+                "but loader kwargs failed the pickle check (%s). Falling back to "
+                "thread pool.",
+                degraded_reason,
+            )
+
+    return LoaderExecutionRecord(
+        requested_executor=requested,
+        actual_executor=actual,
+        max_workers=max_workers,
+        degraded_reason=degraded_reason,
+    )
 
 
 def load_models_parallel(
     loaders: list[tuple[str, dict[str, Any]]],
-    max_workers: int = 8,
+    max_workers: int,
     precision: PrecisionConfig | None = None,
     strict: bool = True,
-    executor: Literal["thread", "process"] = "thread",
-) -> list[SkyModel]:
-    """Load multiple sky models in parallel.
+    executor: Literal["auto", "thread", "process"] = "auto",
+) -> tuple[list[SkyModel], LoaderExecutionRecord]:
+    """Load multiple sky models concurrently under an explicit worker policy.
 
     Each loader is a (method_name, kwargs) tuple identifying a registered
-    loader function.
+    loader function. ``max_workers`` has no default: the resolved policy is the
+    only source of a pool size (Section 11.2).
 
-    Performance notes
-    -----------------
-    The default ``executor="thread"`` uses :class:`ThreadPoolExecutor`,
-    which is appropriate for I/O-bound loaders that release the GIL
-    (Vizier / TAP queries, FITS file reads). Several built-in loaders are
-    CPU-bound and hold the GIL — notably ``diffuse_sky`` (pygdsm regrid +
-    log-poly scaling), ``pyradiosky_file`` parsing, and large
-    ``healpy.ud_grade`` calls. Those will run effectively serially under
-    the thread pool.
+    Executor policy
+    ---------------
+    ``executor="thread"`` uses :class:`ThreadPoolExecutor`, which is appropriate
+    for I/O-bound loaders that release the GIL (Vizier / TAP queries, FITS file
+    reads). Several built-in loaders are CPU-bound and hold the GIL — notably
+    ``diffuse_sky`` (pygdsm regrid + log-poly scaling), ``pyradiosky_file``
+    parsing, and large ``healpy.ud_grade`` calls — and run effectively serially
+    under a thread pool. ``executor="process"`` dispatches via
+    :class:`ProcessPoolExecutor` instead; the loader name and kwargs must be
+    picklable.
 
-    Pass ``executor="process"`` to dispatch via
-    :class:`ProcessPoolExecutor` instead. The loader name and kwargs must
-    be picklable; this is true for the current loader registry (kwargs
-    are dicts of primitives, numpy arrays, and ``PrecisionConfig``).  If
-    a kwarg fails the pickle check, the call falls back to threads with a
-    warning rather than raising.
+    ``executor="auto"`` asks :func:`recommend_executor_for_loaders`, which reads
+    the registry category of every request. When ``auto`` lands on a process pool
+    whose kwargs cannot be pickled the call degrades to threads and the reason is
+    recorded in the returned :class:`LoaderExecutionRecord`. When ``"process"``
+    was requested *explicitly* the same failure raises
+    :class:`WorkerPolicyError`: an explicit request must not silently become
+    something else.
+
+    Determinism
+    -----------
+    Results are placed by request index, never by completion order, so the
+    returned list is identical for any pool size or executor.
 
     Parameters
     ----------
     loaders
         ``(loader_name, kwargs)`` tuples.
     max_workers
-        Worker pool size (capped to ``len(loaders)``).
+        Worker pool size (capped to ``len(loaders)``). Required.
     precision
         Default precision injected into any loader missing one.
     strict
         Raise :class:`SkyLoadAggregateError` if any loader failed.
     executor
-        ``"thread"`` (default) or ``"process"``. See above.
+        ``"auto"`` (default), ``"thread"``, or ``"process"``. See above.
+
+    Returns
+    -------
+    tuple
+        ``(models, record)`` — the successfully loaded models in request order,
+        and the executed worker policy.
     """
+    from radiosim.utils.network import offline_policy
+
     precision = require_precision(precision)
-    n = min(len(loaders), max_workers)
+    record = _resolve_executor_policy(loaders, precision, executor, max_workers)
+    pool_size = min(len(loaders), record.max_workers) if loaders else 1
     results: list[SkyModel | None] = [None] * len(loaders)
     failures: list[SkyLoadError] = []
+    offline = offline_policy()
 
-    pool_cls: type[concurrent.futures.Executor]
-    if executor == "process":
-        if not _kwargs_picklable(loaders, precision):
-            logger.warning(
-                "load_models_parallel: requested executor='process' but loader "
-                "kwargs failed the pickle check. Falling back to thread pool."
-            )
-            pool_cls = concurrent.futures.ThreadPoolExecutor
-        else:
-            pool_cls = concurrent.futures.ProcessPoolExecutor
-    else:
-        pool_cls = concurrent.futures.ThreadPoolExecutor
+    pool_cls: type[concurrent.futures.Executor] = (
+        concurrent.futures.ProcessPoolExecutor
+        if record.actual_executor == "process"
+        else concurrent.futures.ThreadPoolExecutor
+    )
 
-    with pool_cls(max_workers=n) as pool:
+    with pool_cls(max_workers=pool_size) as pool:
         future_to_loader: dict[concurrent.futures.Future, tuple[int, str]] = {}
         for index, (method_name, kwargs) in enumerate(loaders):
             kw = dict(kwargs)
             if precision is not None and "precision" not in kw:
                 kw["precision"] = precision
-            f = pool.submit(_run_one_loader, method_name, kw)
+            f = pool.submit(_run_one_loader, method_name, kw, offline)
             future_to_loader[f] = (index, method_name)
 
         for future in concurrent.futures.as_completed(future_to_loader):
@@ -211,9 +387,15 @@ def load_models_parallel(
 
     loaded = [sky for sky in results if sky is not None]
 
-    logger.info(f"load_parallel: {len(loaded)}/{len(loaders)} loaders succeeded")
+    logger.info(
+        "load_parallel: %d/%d loaders succeeded (executor=%s, pool=%d)",
+        len(loaded),
+        len(loaders),
+        record.actual_executor,
+        pool_size,
+    )
 
     if failures and strict:
         raise SkyLoadAggregateError(failures)
 
-    return loaded
+    return loaded, record

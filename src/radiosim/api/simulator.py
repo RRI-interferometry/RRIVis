@@ -57,6 +57,7 @@ if TYPE_CHECKING:
         ResolvedSimulationConfig,
     )
     from radiosim.core.sky.containers.point import SourceArrays
+    from radiosim.core.sky.operations.parallel import LoaderExecutionRecord
     from radiosim.io.beam_config import BeamsConfig
     from radiosim.io.config import (
         ExecutionConfig,
@@ -179,6 +180,7 @@ class Simulator:
         self._network_status = None
         self._device_resources = None
         self._offline = resolved.execution.offline
+        self._loader_execution: LoaderExecutionRecord | None = None
 
     @classmethod
     def _from_bundle(cls, bundle: ResolvedConfiguration) -> Simulator:
@@ -410,6 +412,15 @@ class Simulator:
         """
         return self._device_resources
 
+    @property
+    def loader_execution(self) -> LoaderExecutionRecord | None:
+        """Get the loader worker policy that actually ran during setup.
+
+        Returns None before ``setup()``, and also after a setup that needed no
+        loader (a sky model supplied by another route).
+        """
+        return self._loader_execution
+
     def _ensure_instrument_state(self) -> None:
         """Resolve and atomically retain the canonical instrument-only state."""
         if self._instrument_state is not None:
@@ -496,7 +507,20 @@ class Simulator:
         self._wavelengths = None
         self._network_status = None
         self._device_resources = None
+        self._loader_execution = None
         self._is_setup = False
+
+    def _result_history(self) -> tuple[str, ...]:
+        """Return the canonical result history for one completed run.
+
+        The executed loader worker policy travels as one encoded line, so it
+        survives HDF5, the summary JSON, and the standard visibility formats
+        without a result-schema field (plan Section 19).
+        """
+        history = (f"RadioSim {self.version} canonical visibility simulation",)
+        if self._loader_execution is not None:
+            history += (self._loader_execution.to_history_line(),)
+        return history
 
     def _requested_healpix_nside(self) -> int:
         """Return the exact configured grid target or the materialization default."""
@@ -658,6 +682,7 @@ class Simulator:
         )
 
         # Network connectivity check (before sky model loading)
+        from radiosim.utils import network as network_module
         from radiosim.utils.network import (
             SERVICE_DISPLAY_NAMES,
             get_network_status,
@@ -665,6 +690,9 @@ class Simulator:
         )
 
         self._network_status = get_network_status(offline=self._offline)
+        # Section 20.1 step 6: the resolved offline policy is installed once,
+        # before any loader runs, and is propagated into every loader worker.
+        network_module.set_offline_policy(self._offline)
 
         sky_config = self._resolved.sky_model
         required_services = get_required_services(
@@ -771,20 +799,18 @@ class Simulator:
             loader_requests.append((request.kind, kwargs))
 
         if loader_requests:
-            from radiosim.core.sky.operations.parallel import (
-                load_models_parallel,
-                recommend_executor_for_loaders,
-            )
+            from radiosim.core.sky.operations import parallel as parallel_module
 
-            sky_models.extend(
-                load_models_parallel(
-                    loader_requests,
-                    max_workers=8,
-                    precision=_precision,
-                    strict=True,
-                    executor=recommend_executor_for_loaders(loader_requests),
-                )
+            sky_loading = self._resolved.execution.sky_loading
+            loaded_models, loader_record = parallel_module.load_models_parallel(
+                loader_requests,
+                max_workers=sky_loading.max_workers,
+                precision=_precision,
+                strict=True,
+                executor=sky_loading.executor,
             )
+            sky_models.extend(loaded_models)
+            self._loader_execution = loader_record
 
         # If no models selected, raise an error
         if not sky_models:
@@ -1031,7 +1057,7 @@ class Simulator:
                 None if self._provenance is None else self._provenance.to_json_safe()
             ),
             performance=performance,
-            history=(f"RadioSim {self.version} canonical visibility simulation",),
+            history=self._result_history(),
         )
 
         if progress:

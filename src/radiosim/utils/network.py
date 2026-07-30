@@ -142,6 +142,31 @@ class NetworkStatus:
 
 _cached_status: NetworkStatus | None = None
 
+# The resolved ``execution.offline`` value, installed once per process (and once
+# per loader worker) by :func:`set_offline_policy`.  It is the single authority
+# for every network gate below: an offline policy answers without a socket probe,
+# so a forced-offline run can neither reach the network nor depend on the TTL
+# cache having been populated first.
+_offline_policy: bool = False
+
+
+def set_offline_policy(offline: bool) -> None:
+    """Install the process-wide offline policy for loader network gates.
+
+    Called once by :meth:`radiosim.api.simulator.Simulator.setup` immediately
+    after the network status is computed and before any loader runs, and once
+    inside every loader worker so the policy survives a process boundary.
+    """
+    global _offline_policy
+    if type(offline) is not bool:
+        raise TypeError("offline must be a boolean")
+    _offline_policy = offline
+
+
+def offline_policy() -> bool:
+    """Return the installed process-wide offline policy."""
+    return _offline_policy
+
 
 # ---------------------------------------------------------------------------
 # Low-level check
@@ -172,7 +197,9 @@ def _check_socket(host: str, port: int, timeout: float) -> bool:
 def is_online(timeout: float = _GENERAL_TIMEOUT) -> bool:
     """Quick check for general internet connectivity.
 
-    Uses a cached result if available and not expired (TTL = 300 s).
+    The installed offline policy (:func:`set_offline_policy`) is consulted first
+    and answers ``False`` without any socket probe.  Otherwise a cached result is
+    used if available and not expired (TTL = 300 s).
 
     Parameters
     ----------
@@ -185,6 +212,9 @@ def is_online(timeout: float = _GENERAL_TIMEOUT) -> bool:
         True if the internet appears reachable.
     """
     global _cached_status
+
+    if _offline_policy:
+        return False
 
     now = time.monotonic()
     if (
@@ -224,6 +254,8 @@ def check_service(service: str, timeout: float = _SERVICE_TIMEOUT) -> bool:
             f"Unknown service {service!r}. "
             f"Known services: {', '.join(SERVICE_ENDPOINTS)}"
         )
+    if _offline_policy:
+        return False
     host, port = SERVICE_ENDPOINTS[service]
     return _check_socket(host, port, timeout)
 
@@ -231,8 +263,9 @@ def check_service(service: str, timeout: float = _SERVICE_TIMEOUT) -> bool:
 def check_all_services(timeout: float = _SERVICE_TIMEOUT) -> NetworkStatus:
     """Check general internet connectivity and all known services.
 
-    Always performs fresh checks (ignores cache). Updates the module-level
-    cache with the result.
+    Always performs fresh checks (ignores cache) unless an offline policy is
+    installed, in which case every endpoint is reported unavailable with no
+    socket probe. Updates the module-level cache with the result.
 
     Parameters
     ----------
@@ -247,6 +280,16 @@ def check_all_services(timeout: float = _SERVICE_TIMEOUT) -> NetworkStatus:
     global _cached_status
 
     now = time.monotonic()
+    if _offline_policy:
+        status = NetworkStatus(
+            internet=False,
+            timestamp=now,
+            forced_offline=True,
+            **dict.fromkeys(SERVICE_ENDPOINTS, False),
+        )
+        _cached_status = status
+        return status
+
     internet = _check_socket(
         _GENERAL_HOST, _GENERAL_PORT, min(timeout, _GENERAL_TIMEOUT)
     )
@@ -399,10 +442,12 @@ def require_service(service: str, action: str, *, strict: bool = True) -> None:
 
 
 def clear_cache() -> None:
-    """Reset the module-level cached network status.
+    """Reset the module-level cached network status and the offline policy.
 
-    Intended for use in tests.
+    Intended for use in tests: the installed offline policy is process-wide
+    state, so a test that forces it must not leak it into the next test.
     """
-    global _cached_status, _SKY_MODEL_SERVICES_CACHE
+    global _cached_status, _SKY_MODEL_SERVICES_CACHE, _offline_policy
     _cached_status = None
     _SKY_MODEL_SERVICES_CACHE = None
+    _offline_policy = False
