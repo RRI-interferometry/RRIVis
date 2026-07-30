@@ -147,6 +147,11 @@ from radiosim.core.runtime_config import (
     ResolvedSkyModelConfig,
     ResolvedSkySourceRequest,
 )
+from radiosim.core.solver_partition import (
+    SolverPartitionError,
+    partition_time_axis,
+    validate_time_partition,
+)
 from radiosim.core.time_grid import (
     MAX_TIME_SAMPLES,
     ObservationTimeGrid,
@@ -323,6 +328,10 @@ __all__ = [
     # Visibility
     "calculate_visibility",
     "calculate_visibility_healpix",
+    # Solver worker partition
+    "SolverPartitionError",
+    "partition_time_axis",
+    "validate_time_partition",
     # Precision
     "PrecisionConfig",
     "PrecisionLevel",
