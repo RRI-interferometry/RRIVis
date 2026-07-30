@@ -351,3 +351,47 @@ def test_solver_api_has_only_the_canonical_time_grid_contract():
             "return_correlations",
         ):
             assert removed not in parameters
+
+
+# ---------------------------------------------------------------------------
+# Tier 5E: honest correlation coordinates end to end
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("receptors", "labels", "basis"),
+    [
+        (None, ("XX", "XY", "YX", "YY"), "linear_xy"),
+        ({"default": {"basis": "circular"}}, ("RR", "RL", "LR", "LL"), "circular_rl"),
+    ],
+)
+def test_a_published_run_reports_its_true_polarization_basis(
+    tmp_path,
+    receptors,
+    labels,
+    basis,
+):
+    from radiosim.io.hdf5 import load_result_hdf5
+
+    mapping = _mapping(tmp_path)
+    if receptors is not None:
+        mapping["receptors"] = receptors
+    simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
+
+    result = simulator.run(progress=False)
+
+    assert result.correlations == labels
+    assert result.polarization_basis == basis
+    assert result.receptors is simulator.receptors
+    assert result.receptors.output_basis == basis
+    assert result.to_summary_snapshot()["receptor"]["output_basis"] == basis
+
+    output = tmp_path / f"{basis}.h5"
+    assert simulator.save(output, format=ResultFormat.HDF5) == output
+    loaded = load_result_hdf5(output)
+
+    assert loaded.correlations == labels
+    assert loaded.polarization_basis == basis
+    assert loaded.receptors["output_basis"] == basis
+    assert loaded.scientific_sha256 == result.scientific_sha256
+    np.testing.assert_array_equal(loaded.stokes_i(), result.stokes_i())

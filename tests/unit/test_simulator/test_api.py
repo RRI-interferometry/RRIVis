@@ -737,7 +737,7 @@ def test_run_hands_the_resolved_receptor_set_to_the_healpix_solver(
 def test_a_circular_receptor_configuration_changes_the_published_visibilities(
     tmp_path,
 ):
-    """A configured basis reaches the result; the labels are still Tier 5E's."""
+    """A configured basis reaches the result, and Tier 5E labels it honestly."""
     sources = [
         {
             "kind": "test_sources",
@@ -774,12 +774,19 @@ def test_a_circular_receptor_configuration_changes_the_published_visibilities(
         rtol=1e-10,
         atol=1e-12,
     )
-    # Tier 5D deliberately does not touch the result model: the correlation
-    # labels and basis are still the linear literals until Tier 5E makes them
-    # data driven.
-    for result in results.values():
-        assert result.correlations == ("XX", "XY", "YX", "YY")
-        assert result.polarization_basis == "linear_xy"
+    # FLIPPED BY: Tier 5E.  The correlation coordinates are now derived from
+    # the resolved receptor output basis at every construction site, so a
+    # circular run no longer publishes linear labels.
+    assert results["linear"].correlations == ("XX", "XY", "YX", "YY")
+    assert results["linear"].polarization_basis == "linear_xy"
+    assert results["circular"].correlations == ("RR", "RL", "LR", "LL")
+    assert results["circular"].polarization_basis == "circular_rl"
+    for basis, result in results.items():
+        assert result.receptors.output_basis == result.polarization_basis
+        assert result.receptors.native_basis_counts[basis] == len(
+            result.instrument.antennas
+        )
+    assert results["linear"].scientific_sha256 != results["circular"].scientific_sha256
 
 
 def test_observability_resolves_receptors_before_beam_work(tmp_path):

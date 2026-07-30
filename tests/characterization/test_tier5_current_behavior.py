@@ -587,30 +587,28 @@ def test_beam_jones_response_is_a_scalar_multiple_of_the_identity(
 # ---------------------------------------------------------------------------
 
 
-def test_four_correlation_constant_sites_are_independent_literal_copies() -> None:
-    """Pins the four duplicated correlation contracts of Section 6.3.
+def test_two_of_four_correlation_constant_sites_now_share_the_table() -> None:
+    """Tracks the four duplicated correlation contracts of Section 6.3.
 
     OWNED BY: Tier 5E and Tier 5F, which replace all four with the single
-    ``radiosim.core.polarization_basis`` constant.  The four literal copies
-    below are still independent, so the defect this pins is untouched.
+    ``radiosim.core.polarization_basis`` constant.
 
     NARROWED BY: Tier 5C.  Two clauses of the 5A pin were collateral rather
     than part of the D4 contract, and Tier 5C's own mandated deliverables
     (Sections 34.3 and 35: add ``core/polarization_basis.py``; rewrite the
     ``core/polarization.py`` attribution to cite codex-africanus, whose
-    mapping names ``"RR"`` and ``"LL"``) falsify both:
+    mapping names ``"RR"`` and ``"LL"``) falsified both.
 
-    * ``polarization_basis.py`` now exists -- but nothing imports it yet, which
-      is the property that actually matters to 5E/5F and is asserted below.
-    * circular labels now appear in ``src/`` -- so the scan below asserts they
-      have not reached any of the four duplicated sites, which is the property
-      the original clause was protecting.
-
-    The four-independent-copies assertions are unchanged.
+    RENAMED AND FLIPPED BY: Tier 5E, for the two sites Section 35 grants it --
+    ``core/result.py`` and ``io/hdf5.py``.  Both now import the shared table
+    and their local literals are gone (defect D4 is closed for them).  The
+    ``io/standard_visibility.py`` site is Tier 5F's residue and is still
+    asserted below exactly as Tier 5A wrote it, together with the
+    ``measurement_set.py`` clause of the circular-label scan.
     """
-    assert result_module._CORRELATIONS == ("XX", "XY", "YX", "YY")
-    assert hdf5_module.CORRELATIONS == ("XX", "XY", "YX", "YY")
-    assert hdf5_module.AIPS_CODES == (-5, -7, -8, -6)
+    assert not hasattr(result_module, "_CORRELATIONS")
+    assert not hasattr(hdf5_module, "CORRELATIONS")
+    assert not hasattr(hdf5_module, "AIPS_CODES")
     assert standard_visibility_module.CANONICAL_CORRELATIONS == (
         "XX",
         "XY",
@@ -626,33 +624,31 @@ def test_four_correlation_constant_sites_are_independent_literal_copies() -> Non
         np.array([-5, -6, -7, -8], dtype=np.int64),
     )
 
-    # Each module defines its own literal; there is no shared constant yet.
-    assert '_CORRELATIONS = ("XX", "XY", "YX", "YY")' in inspect.getsource(
-        result_module
-    )
-    assert 'CORRELATIONS: Final = ("XX", "XY", "YX", "YY")' in inspect.getsource(
-        hdf5_module
-    )
+    # Tier 5F's residue: the fourth site still carries its own literal.
     assert (
         'CANONICAL_CORRELATIONS: Final = ("XX", "XY", "YX", "YY")'
         in inspect.getsource(standard_visibility_module)
     )
-    # Tier 5C added the shared table, but no production module consumes it yet:
-    # the four sites above still carry their own literals (defect D4 is open).
-    assert (SOURCE_ROOT / "radiosim" / "core" / "polarization_basis.py").exists()
-    for module in (result_module, hdf5_module, standard_visibility_module):
-        assert "core.polarization_basis" not in inspect.getsource(module)
+    assert "core.polarization_basis" not in inspect.getsource(
+        standard_visibility_module
+    )
 
-    # Circular labels must not have reached any of the four duplicated sites:
-    # those stay linear-only until Tier 5E and Tier 5F rewire them.
+    # Tier 5E's two sites now consume the shared table and nothing else.
+    assert (SOURCE_ROOT / "radiosim" / "core" / "polarization_basis.py").exists()
+    for module in (result_module, hdf5_module):
+        source = inspect.getsource(module)
+        assert "core.polarization_basis" in source
+        assert '("XX", "XY", "YX", "YY")' not in source
+        assert '("RR", "RL", "LR", "LL")' not in source
+
+    # Tier 5F's residue: circular labels must still not have reached the
+    # standard-format writer or the Measurement Set path.
     circular_hits = {
         path.name
         for path in (SOURCE_ROOT / "radiosim").rglob("*.py")
         if any(token in path.read_text() for token in ('"RR"', '"LL"', '"rr"', '"ll"'))
     }
-    assert circular_hits.isdisjoint(
-        {"result.py", "hdf5.py", "standard_visibility.py", "measurement_set.py"}
-    )
+    assert circular_hits.isdisjoint({"standard_visibility.py", "measurement_set.py"})
 
 
 def test_pyuvdata_construction_is_hard_coded_to_the_linear_basis() -> None:
@@ -669,37 +665,57 @@ def test_pyuvdata_construction_is_hard_coded_to_the_linear_basis() -> None:
     assert "feed_angle" not in source
 
 
-def test_stokes_i_uses_fixed_indices_without_consulting_correlations() -> None:
-    """Pins ``stokes_i()`` as index 0 plus index 3, ignoring ``self.correlations``.
+def test_stokes_i_derives_its_indices_from_the_correlation_labels() -> None:
+    """Records that ``stokes_i()`` consults ``self.correlations`` (defect D6).
 
-    OWNED BY: Tier 5E, which must derive the parallel-hand indices from
-    ``self.correlations`` (defect D6).
+    OWNED BY: Tier 5E.  FLIPPED BY: Tier 5E -- the fixed ``0``/``3`` literals
+    are gone and the indices come from
+    ``radiosim.core.polarization_basis.parallel_hand_indices``.
     """
     source = inspect.getsource(SimulationResult.stokes_i)
-    assert "self.visibilities[..., 0] + self.visibilities[..., 3]" in source
-    assert "correlations" not in source
+    assert "self.visibilities[..., 0] + self.visibilities[..., 3]" not in source
+    assert "parallel_hand_indices(self.correlations)" in source
 
-    class _VisibilitiesOnly:
+    class _Linear:
+        correlations = ("XX", "XY", "YX", "YY")
         visibilities = np.arange(8, dtype=np.complex128).reshape(1, 1, 2, 4)
 
-    stokes = SimulationResult.stokes_i(_VisibilitiesOnly())
-    np.testing.assert_array_equal(
-        stokes,
-        _VisibilitiesOnly.visibilities[..., 0] + _VisibilitiesOnly.visibilities[..., 3],
-    )
+    class _Circular:
+        correlations = ("RR", "RL", "LR", "LL")
+        visibilities = np.arange(8, dtype=np.complex128).reshape(1, 1, 2, 4)
+
+    class _Hostile:
+        correlations = ("XX", "YY", "XY", "YX")
+        visibilities = np.arange(8, dtype=np.complex128).reshape(1, 1, 2, 4)
+
+    for holder in (_Linear, _Circular):
+        np.testing.assert_array_equal(
+            SimulationResult.stokes_i(holder()),
+            holder.visibilities[..., 0] + holder.visibilities[..., 3],
+        )
+    with pytest.raises(ValueError, match="accepted correlation coordinate set"):
+        SimulationResult.stokes_i(_Hostile())
 
 
-def test_polarization_basis_is_a_literal_at_every_result_construction_site() -> None:
-    """Pins ``polarization_basis`` and the fingerprint literal of Section 6.3.
+def test_polarization_basis_is_data_driven_at_every_result_construction_site() -> None:
+    """Records the removal of the Section 6.3 literals.
 
-    OWNED BY: Tier 5E.
+    OWNED BY: Tier 5E.  FLIPPED BY: Tier 5E -- every construction site and the
+    scientific fingerprint now read the resolved receptor output basis.
     """
     source = inspect.getsource(result_module)
-    assert source.count('polarization_basis="linear_xy"') == 2
-    assert '_hash_json(digest, "polarization_basis", "linear_xy")' in source
+    assert 'polarization_basis="linear_xy"' not in source
+    assert '_hash_json(digest, "polarization_basis", "linear_xy")' not in source
+    assert '_hash_json(digest, "polarization_basis", polarization_basis)' in source
+    assert '_hash_json(digest, "receptor", receptor_snapshot)' in source
+    # Both construction sites, and both fingerprint calls, are data driven.
+    assert source.count("correlations=CORRELATION_LABELS[polarization_basis]") == 2
+    assert source.count("correlations=correlation_labels") == 2
+    assert source.count("polarization_basis = receptors.output_basis") == 1
+    assert source.count("basis_for_correlations(correlation_labels)") == 1
     assert (
         'raise InvalidResultError("correlations must be exactly XX, XY, YX, YY")'
-        in source
+        not in source
     )
 
 

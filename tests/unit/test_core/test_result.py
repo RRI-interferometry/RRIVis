@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from importlib.metadata import version
 
@@ -13,6 +14,10 @@ from radiosim.api.simulator import Simulator
 from radiosim.backends import get_backend
 from radiosim.backends.numpy_backend import NumPyBackend
 from radiosim.core.phase_center import PhaseCenter
+from radiosim.core.polarization_basis import (
+    CORRELATION_LABELS,
+    parallel_hand_indices,
+)
 from radiosim.core.result import (
     BackendResultProvenance,
     InvalidResultError,
@@ -26,13 +31,16 @@ from radiosim.core.result import (
 )
 
 
-def _mapping(tmp_path):
+def _mapping(tmp_path, *, receptors=None):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     layout = tmp_path / "antennas.txt"
     layout.write_text(
         "Name Number BeamID E N U Diameter\nA0 0 0 0 0 0 14\nA1 1 0 10 0 0 14\n",
         encoding="utf-8",
     )
+    extra = {} if receptors is None else {"receptors": receptors}
     return {
+        **extra,
         "instrument": {
             "source": {
                 "kind": "layout_file",
@@ -71,9 +79,13 @@ def _mapping(tmp_path):
     }
 
 
-def _parts(tmp_path, *, dtype="complex128"):
-    simulator = Simulator.from_mapping(_mapping(tmp_path), base_dir=tmp_path)
+def _parts(tmp_path, *, dtype="complex128", receptors=None):
+    simulator = Simulator.from_mapping(
+        _mapping(tmp_path, receptors=receptors),
+        base_dir=tmp_path,
+    )
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     backend = get_backend("numpy")
     provenance = BackendResultProvenance(
@@ -102,10 +114,11 @@ def _parts(tmp_path, *, dtype="complex128"):
     return simulator, backend, provenance, solver, performance, receptor
 
 
-def _build(tmp_path, *, dtype="complex128"):
+def _build(tmp_path, *, dtype="complex128", receptors=None):
     simulator, backend, provenance, solver, performance, receptor = _parts(
         tmp_path,
         dtype=dtype,
+        receptors=receptors,
     )
     result = build_simulation_result(
         receptor_visibilities=receptor,
@@ -116,6 +129,7 @@ def _build(tmp_path, *, dtype="complex128"):
         instrument=simulator.instrument,
         selection=simulator._instrument_state.selection,
         beam_state=simulator.beam_state,
+        receptors=simulator.receptors,
         phase_center=PhaseCenter(),
         backend_provenance=provenance,
         solver_provenance=solver,
@@ -150,6 +164,7 @@ def test_result_factory_records_its_own_host_transfer_timing(tmp_path):
         instrument=simulator.instrument,
         selection=simulator._instrument_state.selection,
         beam_state=simulator.beam_state,
+        receptors=simulator.receptors,
         phase_center=PhaseCenter(),
         backend_provenance=provenance,
         solver_provenance=solver,
@@ -182,6 +197,7 @@ def test_result_factory_timing_owns_transfer_and_extends_total_through_hashing(
         instrument=simulator.instrument,
         selection=simulator._instrument_state.selection,
         beam_state=simulator.beam_state,
+        receptors=simulator.receptors,
         phase_center=PhaseCenter(),
         backend_provenance=provenance,
         solver_provenance=solver,
@@ -236,6 +252,28 @@ def _oracle_array(digest, tag, value):
     _oracle_tag(digest, f"{tag}.data", canonical.tobytes(order="C"))
 
 
+def _independent_receptor_entry(result):
+    """Re-derive the hashed receptor entry without reading production code."""
+    receptors = result.receptors
+    snapshot = receptors if isinstance(receptors, dict) else receptors.to_snapshot()
+    snapshot = _json_tree(snapshot)
+    return {
+        "schema_version": snapshot["schema_version"],
+        "output_basis": snapshot["output_basis"],
+        "receptor_sha256": snapshot["receptor_sha256"],
+        "receptors": [
+            {
+                "antenna_number": row["antenna_number"],
+                "antenna_name": row["antenna_name"],
+                "basis": row["basis"],
+                "feed_rotation_rad": row["feed_rotation_rad"],
+                "feed_angle_rad": list(row["feed_angle_rad"]),
+            }
+            for row in snapshot["receptors"]
+        ],
+    }
+
+
 def _independent_fingerprints(
     result,
     *,
@@ -244,7 +282,10 @@ def _independent_fingerprints(
     beam_snapshot=None,
     backend_snapshot=None,
     solver_snapshot=None,
+    receptor_entry=None,
 ):
+    if receptor_entry is None:
+        receptor_entry = _independent_receptor_entry(result)
     if instrument_snapshot is None:
         instrument_snapshot = result.instrument.to_snapshot()
     if selection_snapshot is None:
@@ -275,6 +316,7 @@ def _independent_fingerprints(
     for tag, value in (
         ("correlations", result.correlations),
         ("polarization_basis", result.polarization_basis),
+        ("receptor", receptor_entry),
         ("instrument", instrument_snapshot),
         ("selection", selection_snapshot),
         ("beam", beam_snapshot),
@@ -305,6 +347,8 @@ def _loaded_result_arguments(
     beam_snapshot=None,
     backend_snapshot=None,
     solver_snapshot=None,
+    receptors_snapshot=None,
+    correlations=None,
 ):
     if instrument_snapshot is None:
         instrument_snapshot = result.instrument.to_snapshot()
@@ -316,6 +360,10 @@ def _loaded_result_arguments(
         backend_snapshot = result.backend.to_snapshot()
     if solver_snapshot is None:
         solver_snapshot = result.solver.to_snapshot()
+    if receptors_snapshot is None:
+        receptors_snapshot = result.receptors.to_snapshot()
+    if correlations is None:
+        correlations = result.correlations
     scientific, provenance = _independent_fingerprints(
         result,
         instrument_snapshot=instrument_snapshot,
@@ -331,11 +379,12 @@ def _loaded_result_arguments(
         "time_grid": result.time_grid,
         "frequencies_hz": result.frequencies_hz,
         "channel_widths_hz": result.channel_widths_hz,
-        "correlations": result.correlations,
+        "correlations": correlations,
         "phase_center": result.phase_center,
         "instrument_snapshot": instrument_snapshot,
         "selection_snapshot": selection_snapshot,
         "beam_snapshot": beam_snapshot,
+        "receptors_snapshot": receptors_snapshot,
         "backend_snapshot": backend_snapshot,
         "solver_snapshot": solver_snapshot,
         "resolved_config_snapshot": result.resolved_config,
@@ -392,6 +441,7 @@ def test_result_factory_crosses_the_backend_transfer_boundary_exactly_once(tmp_p
         instrument=simulator.instrument,
         selection=simulator._instrument_state.selection,
         beam_state=simulator.beam_state,
+        receptors=simulator.receptors,
         phase_center=PhaseCenter(),
         backend_provenance=provenance,
         solver_provenance=solver,
@@ -417,6 +467,7 @@ def test_result_fingerprints_are_stable_and_loaded_state_verifies_them(tmp_path)
         instrument_snapshot=result.instrument.to_snapshot(),
         selection_snapshot=result.selection.to_snapshot(),
         beam_snapshot=result.beam_state.to_snapshot(),
+        receptors_snapshot=result.receptors.to_snapshot(),
         backend_snapshot=result.backend.to_snapshot(),
         solver_snapshot=result.solver.to_snapshot(),
         resolved_config_snapshot=result.resolved_config,
@@ -455,6 +506,7 @@ def test_result_fingerprints_are_stable_and_loaded_state_verifies_them(tmp_path)
             instrument_snapshot=result.instrument.to_snapshot(),
             selection_snapshot=result.selection.to_snapshot(),
             beam_snapshot=result.beam_state.to_snapshot(),
+            receptors_snapshot=result.receptors.to_snapshot(),
             backend_snapshot=result.backend.to_snapshot(),
             solver_snapshot=result.solver.to_snapshot(),
             resolved_config_snapshot=result.resolved_config,
@@ -477,6 +529,7 @@ def test_result_fingerprints_exclude_performance_workflow_and_output_paths(tmp_p
         "instrument": simulator.instrument,
         "selection": simulator._instrument_state.selection,
         "beam_state": simulator.beam_state,
+        "receptors": simulator.receptors,
         "phase_center": PhaseCenter(),
         "backend_provenance": provenance,
         "solver_provenance": solver,
@@ -559,6 +612,7 @@ def test_loaded_result_rejects_nonboolean_flags_instead_of_coercing(tmp_path):
             instrument_snapshot=result.instrument.to_snapshot(),
             selection_snapshot=result.selection.to_snapshot(),
             beam_snapshot=result.beam_state.to_snapshot(),
+            receptors_snapshot=result.receptors.to_snapshot(),
             backend_snapshot=result.backend.to_snapshot(),
             solver_snapshot=result.solver.to_snapshot(),
             resolved_config_snapshot=result.resolved_config,
@@ -655,6 +709,7 @@ def test_result_factory_rejects_shapes_nonfinite_coordinates_and_model_subclasse
         "instrument": simulator.instrument,
         "selection": simulator._instrument_state.selection,
         "beam_state": simulator.beam_state,
+        "receptors": simulator.receptors,
         "phase_center": PhaseCenter(),
         "backend_provenance": provenance,
         "solver_provenance": solver,
@@ -678,3 +733,275 @@ def test_result_factory_rejects_shapes_nonfinite_coordinates_and_model_subclasse
 
         class MutablePerformance(ResultPerformance):
             pass
+
+
+# ---------------------------------------------------------------------------
+# Tier 5E: data-driven correlation coordinates
+# ---------------------------------------------------------------------------
+
+CIRCULAR = {"default": {"basis": "circular"}}
+
+
+def test_correlation_coordinates_follow_the_resolved_output_basis(tmp_path):
+    linear, _ = _build(tmp_path)
+    circular, _ = _build(tmp_path, receptors=CIRCULAR)
+
+    assert linear.receptors.output_basis == "linear_xy"
+    assert linear.correlations == ("XX", "XY", "YX", "YY")
+    assert linear.polarization_basis == "linear_xy"
+
+    assert circular.receptors.output_basis == "circular_rl"
+    assert circular.correlations == ("RR", "RL", "LR", "LL")
+    assert circular.polarization_basis == "circular_rl"
+
+    assert linear.correlations is CORRELATION_LABELS["linear_xy"]
+    assert circular.correlations is CORRELATION_LABELS["circular_rl"]
+
+
+def test_result_correlation_labels_come_from_the_shared_table_only(tmp_path):
+    """No literal correlation tuple survives in ``core/result.py`` (defect D4)."""
+    import radiosim.core.result as result_module
+
+    source = inspect.getsource(result_module)
+    assert "radiosim.core.polarization_basis" in source
+    assert not hasattr(result_module, "_CORRELATIONS")
+    assert '("XX", "XY", "YX", "YY")' not in source
+    assert '("RR", "RL", "LR", "LL")' not in source
+    assert 'polarization_basis="linear_xy"' not in source
+
+
+def test_stokes_i_derives_its_indices_from_the_correlation_labels(tmp_path):
+    circular, receptor = _build(tmp_path, receptors=CIRCULAR)
+
+    np.testing.assert_array_equal(
+        circular.stokes_i(),
+        circular.visibilities[..., 0] + circular.visibilities[..., 3],
+    )
+    assert parallel_hand_indices(circular.correlations) == (0, 3)
+
+    # The indices are derived, not assumed: a corrupted label axis is rejected
+    # instead of silently summing indices 0 and 3.
+    object.__setattr__(circular, "correlations", ("XX", "YY", "XY", "YX"))
+    with pytest.raises(ValueError, match="accepted correlation coordinate set"):
+        circular.stokes_i()
+
+
+def test_stokes_i_recovers_total_intensity_in_both_bases(tmp_path):
+    """S11: ``stokes_i()`` is the parallel-hand sum in either basis."""
+    linear = Simulator.from_mapping(_mapping(tmp_path / "l"), base_dir=tmp_path / "l")
+    circular_dir = tmp_path / "c"
+    circular = Simulator.from_mapping(
+        _mapping(circular_dir, receptors=CIRCULAR),
+        base_dir=circular_dir,
+    )
+    linear_result = linear.run(progress=False)
+    circular_result = circular.run(progress=False)
+
+    assert linear_result.correlations == ("XX", "XY", "YX", "YY")
+    assert circular_result.correlations == ("RR", "RL", "LR", "LL")
+    np.testing.assert_allclose(
+        circular_result.stokes_i(),
+        linear_result.stokes_i(),
+        rtol=1e-10,
+        atol=1e-12,
+    )
+
+
+def test_scientific_fingerprint_records_the_basis_and_the_receptor_state(tmp_path):
+    """S14 and Section 23: basis and receptors enter the scientific hash only.
+
+    All three results are built in one directory, so the receptor configuration
+    is the *only* difference between them: the instrument snapshot records the
+    layout path, which would otherwise vary.
+    """
+    linear, _ = _build(tmp_path)
+    circular, _ = _build(tmp_path, receptors=CIRCULAR)
+    rotated, _ = _build(
+        tmp_path,
+        receptors={"default": {"basis": "linear", "feed_rotation_deg": 30.0}},
+    )
+
+    assert linear.scientific_sha256 != circular.scientific_sha256
+    assert linear.scientific_sha256 != rotated.scientific_sha256
+    assert circular.scientific_sha256 != rotated.scientific_sha256
+
+    # instrument_sha256 is unchanged: receptors are a sibling of the instrument.
+    fingerprints = {
+        result.instrument.provenance.instrument_sha256
+        for result in (linear, circular, rotated)
+    }
+    assert len(fingerprints) == 1
+
+    for result in (linear, circular, rotated):
+        assert _independent_fingerprints(result) == (
+            result.scientific_sha256,
+            result.provenance_sha256,
+        )
+
+
+def test_scientific_fingerprint_is_stable_for_an_identical_receptor_set(tmp_path):
+    first, _ = _build(tmp_path, receptors=CIRCULAR)
+    second, _ = _build(
+        tmp_path,
+        receptors={"default": {"basis": "circular"}, "output_basis": "circular"},
+    )
+
+    assert first.receptors.provenance.receptor_sha256 == (
+        second.receptors.provenance.receptor_sha256
+    )
+    assert first.scientific_sha256 == second.scientific_sha256
+
+
+def test_summary_snapshot_reports_a_bounded_receptor_block(tmp_path):
+    circular, _ = _build(tmp_path, receptors=CIRCULAR)
+
+    snapshot = circular.to_summary_snapshot()
+
+    assert snapshot["correlations"] == ["RR", "RL", "LR", "LL"]
+    assert snapshot["polarization_basis"] == "circular_rl"
+    assert snapshot["receptor"] == {
+        "output_basis": "circular_rl",
+        "receptor_sha256": circular.receptors.provenance.receptor_sha256,
+        "native_basis_counts": {"linear": 0, "circular": 2},
+        "antenna_count": 2,
+    }
+    json.dumps(snapshot, allow_nan=False)
+
+
+def test_result_factory_rejects_receptors_from_another_instrument(tmp_path):
+    other = tmp_path / "other"
+    mapping = _mapping(other)
+    layout = other / "antennas.txt"
+    layout.write_text(
+        "Name Number BeamID E N U Diameter\nB0 7 0 0 0 0 14\nB1 8 0 10 0 0 14\n",
+        encoding="utf-8",
+    )
+    foreign = Simulator.from_mapping(mapping, base_dir=other)
+    foreign._ensure_instrument_state()
+    foreign._ensure_receptor_set()
+
+    simulator, backend, provenance, solver, performance, receptor = _parts(tmp_path)
+    with pytest.raises(InvalidResultError, match="receptors do not belong"):
+        build_simulation_result(
+            receptor_visibilities=receptor,
+            backend=backend,
+            time_grid=simulator.config.observation.time_grid,
+            frequencies_hz=simulator.config.frequency.channel_frequencies_hz,
+            channel_widths_hz=simulator.config.frequency.channel_widths_hz,
+            instrument=simulator.instrument,
+            selection=simulator._instrument_state.selection,
+            beam_state=simulator.beam_state,
+            receptors=foreign.receptors,
+            phase_center=PhaseCenter(),
+            backend_provenance=provenance,
+            solver_provenance=solver,
+            resolved_config=simulator.config.to_json_safe(),
+            configuration_provenance=None,
+            performance=performance,
+        )
+
+
+def test_loaded_result_round_trips_both_accepted_correlation_tuples(tmp_path):
+    for receptors, labels, basis in (
+        (None, ("XX", "XY", "YX", "YY"), "linear_xy"),
+        (CIRCULAR, ("RR", "RL", "LR", "LL"), "circular_rl"),
+    ):
+        result, _ = _build(tmp_path, receptors=receptors)
+        loaded = build_loaded_simulation_result(**_loaded_result_arguments(result))
+
+        assert type(loaded) is LoadedSimulationResult
+        assert loaded.correlations == labels
+        assert loaded.polarization_basis == basis
+        assert loaded.receptors["output_basis"] == basis
+        assert loaded.receptors["receptor_sha256"] == (
+            result.receptors.provenance.receptor_sha256
+        )
+        assert set(loaded.receptors) == {
+            "schema_version",
+            "output_basis",
+            "receptor_sha256",
+            "receptors",
+        }
+        assert [row["antenna_number"] for row in loaded.receptors["receptors"]] == [
+            antenna.id.number for antenna in result.instrument.antennas
+        ]
+        assert loaded.scientific_sha256 == result.scientific_sha256
+        assert loaded.scientifically_equal(result)
+        np.testing.assert_array_equal(loaded.stokes_i(), result.stokes_i())
+
+
+@pytest.mark.parametrize(
+    "correlations",
+    [
+        ("XX", "YY", "XY", "YX"),
+        ("RR", "LL", "RL", "LR"),
+        ("XX", "XY", "YX", "RR"),
+        ("XX", "XY", "YX"),
+        ("I", "Q", "U", "V"),
+    ],
+)
+def test_loaded_result_rejects_every_unaccepted_correlation_axis(
+    tmp_path,
+    correlations,
+):
+    result, _ = _build(tmp_path)
+
+    with pytest.raises(InvalidResultError) as caught:
+        build_loaded_simulation_result(
+            **_loaded_result_arguments(result, correlations=correlations)
+        )
+
+    message = str(caught.value)
+    assert "('XX', 'XY', 'YX', 'YY')" in message
+    assert "('RR', 'RL', 'LR', 'LL')" in message
+
+
+def test_loaded_result_rejects_a_receptor_snapshot_that_contradicts_the_axis(tmp_path):
+    result, _ = _build(tmp_path)
+    snapshot = _json_tree(result.receptors.to_snapshot())
+    snapshot["output_basis"] = "circular_rl"
+
+    with pytest.raises(InvalidResultError, match="receptor"):
+        build_loaded_simulation_result(
+            **_loaded_result_arguments(result, receptors_snapshot=snapshot)
+        )
+
+
+def test_loaded_result_rejects_receptor_rows_outside_the_instrument(tmp_path):
+    result, _ = _build(tmp_path)
+    snapshot = _json_tree(result.receptors.to_snapshot())
+    snapshot["receptors"][1]["antenna_number"] = 91
+
+    with pytest.raises(InvalidResultError, match="receptor"):
+        build_loaded_simulation_result(
+            **_loaded_result_arguments(result, receptors_snapshot=snapshot)
+        )
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("basis", "elliptical"),
+        ("feed_rotation_rad", float("nan")),
+        ("feed_angle_rad", [0.0]),
+    ],
+)
+def test_loaded_result_rejects_malformed_receptor_rows(tmp_path, key, value):
+    result, _ = _build(tmp_path)
+    snapshot = _json_tree(result.receptors.to_snapshot())
+    snapshot["receptors"][0][key] = value
+
+    with pytest.raises(InvalidResultError, match="receptor"):
+        build_loaded_simulation_result(
+            **_loaded_result_arguments(result, receptors_snapshot=snapshot)
+        )
+
+
+def test_the_receptor_snapshot_schema_version_matches_the_receptor_module():
+    import radiosim.core.receptor as receptor_module
+    import radiosim.core.result as result_module
+
+    assert (
+        result_module._RECEPTOR_SCHEMA_VERSION
+        == receptor_module._RECEPTOR_SCHEMA_VERSION
+    )

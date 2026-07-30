@@ -219,7 +219,7 @@ def test_canonical_result_formats_are_exactly_four() -> None:
 
 def test_canonical_schema_versions_are_pinned() -> None:
     assert hdf5_module.SCHEMA_NAME == "radiosim.visibility"
-    assert hdf5_module.SCHEMA_VERSION == "1.0.0"
+    assert hdf5_module.SCHEMA_VERSION == "2.0.0"
     summary_source = (PACKAGE_ROOT / "io" / "summary_json.py").read_text(
         encoding="utf-8"
     )

@@ -67,6 +67,12 @@ class UnsafeResultInputError(ResultIOError):
 class UnsupportedSchemaVersionError(UnsafeResultInputError):
     """A versioned result uses an unsupported schema version."""
 
+    GUIDANCE = (
+        "Tier 5 replaced radiosim.visibility 1.0.0 with 2.0.0, which records the "
+        "polarization basis and the resolved receptor set. There is no upgrade "
+        "path by design: re-run the simulation to write a 2.0.0 file."
+    )
+
     def __init__(self, version: object) -> None:
         if type(version) is str:
             safe = "".join(
@@ -76,7 +82,9 @@ class UnsupportedSchemaVersionError(UnsafeResultInputError):
         else:
             safe = f"<{type(version).__name__}>"
         self.version = safe
-        super().__init__(f"unsupported radiosim.visibility schema version: {safe}")
+        super().__init__(
+            f"unsupported radiosim.visibility schema version: {safe}. {self.GUIDANCE}"
+        )
 
 
 class LegacyHDF5Error(UnsafeResultInputError):

@@ -43,6 +43,7 @@ DATASETS = {
     "coordinates/baseline/antenna2_number",
     "coordinates/baseline/vector_enu_m",
     "coordinates/correlation/aips_codes",
+    "coordinates/correlation/basis",
     "coordinates/correlation/labels",
     "coordinates/frequency/center_hz",
     "coordinates/frequency/channel_width_hz",
@@ -75,6 +76,13 @@ DATASETS = {
     "provenance/resolved_config_json",
     "provenance/selection_json",
     "provenance/solver_json",
+    "receptors/antenna_name",
+    "receptors/antenna_number",
+    "receptors/basis",
+    "receptors/feed_angle_rad",
+    "receptors/feed_rotation_rad",
+    "receptors/output_basis",
+    "receptors/receptor_sha256",
 }
 GROUPS = {
     "coordinates",
@@ -88,6 +96,7 @@ GROUPS = {
     "instrument/location",
     "phase_center",
     "provenance",
+    "receptors",
 }
 LEGACY_GUIDANCE = (
     "Legacy unversioned RadioSim HDF5 is not accepted because baseline names "
@@ -97,8 +106,8 @@ LEGACY_GUIDANCE = (
 )
 
 
-def _result(tmp_path: Path, dtype: str = "complex128"):
-    result, _ = _build(tmp_path, dtype=dtype)
+def _result(tmp_path: Path, dtype: str = "complex128", receptors=None):
+    result, _ = _build(tmp_path, dtype=dtype, receptors=receptors)
     return result
 
 
@@ -117,6 +126,7 @@ def _independent_result(tmp_path: Path, dtype: str):
         instrument=simulator.instrument,
         selection=simulator._instrument_state.selection,
         beam_state=simulator.beam_state,
+        receptors=simulator.receptors,
         phase_center=PhaseCenter(),
         backend_provenance=provenance,
         solver_provenance=solver,
@@ -145,6 +155,7 @@ def _unicode_antenna_result(tmp_path: Path):
     )
     simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     backend = get_backend("numpy")
     provenance = BackendResultProvenance(
@@ -179,6 +190,7 @@ def _unicode_antenna_result(tmp_path: Path):
         instrument=simulator.instrument,
         selection=simulator._instrument_state.selection,
         beam_state=simulator.beam_state,
+        receptors=simulator.receptors,
         phase_center=PhaseCenter(),
         backend_provenance=provenance,
         solver_provenance=solver,
@@ -202,6 +214,7 @@ def _multi_baseline_result(tmp_path: Path):
     )
     simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     baseline_count = len(simulator._instrument_state.selection.baselines)
     receptor = np.arange(
@@ -219,6 +232,7 @@ def _multi_baseline_result(tmp_path: Path):
         instrument=simulator.instrument,
         selection=simulator._instrument_state.selection,
         beam_state=simulator.beam_state,
+        receptors=simulator.receptors,
         phase_center=PhaseCenter(),
         backend_provenance=provenance,
         solver_provenance=solver,
@@ -578,7 +592,7 @@ def test_independent_h5py_inspection_matches_exact_schema(
             assert type(value) is np.bytes_
             root_values[name] = bytes(value).decode("utf-8", errors="strict")
         assert root_values["schema_name"] == "radiosim.visibility"
-        assert root_values["schema_version"] == "1.0.0"
+        assert root_values["schema_version"] == "2.0.0"
         assert root_values["dimension_order"] == "time,baseline,frequency,correlation"
         assert root_values["visibility_unit"] == "Jy"
         assert root_values["scientific_sha256"] == result.scientific_sha256
@@ -2097,3 +2111,277 @@ def test_frequency_snapshot_mismatch_is_rejected_before_science_read(
     with pytest.raises(UnsafeResultInputError, match="frequency snapshot"):
         load_result_hdf5(output)
     assert not any(name.startswith("/data/") for name in reads)
+
+
+# ---------------------------------------------------------------------------
+# Tier 5E: schema 2.0.0, polarization basis, and the receptor group
+# ---------------------------------------------------------------------------
+
+CIRCULAR = {"default": {"basis": "circular"}}
+
+
+def test_schema_version_is_two_zero_zero() -> None:
+    assert hdf5_module.SCHEMA_VERSION == "2.0.0"
+    assert not hasattr(hdf5_module, "CORRELATIONS")
+    assert not hasattr(hdf5_module, "AIPS_CODES")
+
+
+@pytest.mark.parametrize(
+    ("receptors", "labels", "codes", "basis", "native"),
+    [
+        (None, [b"XX", b"XY", b"YX", b"YY"], [-5, -7, -8, -6], "linear_xy", "linear"),
+        (
+            CIRCULAR,
+            [b"RR", b"RL", b"LR", b"LL"],
+            [-1, -3, -4, -2],
+            "circular_rl",
+            "circular",
+        ),
+    ],
+)
+def test_written_file_records_the_true_basis_and_receptor_group(
+    tmp_path,
+    receptors,
+    labels,
+    codes,
+    basis,
+    native,
+):
+    result = _result(tmp_path, receptors=receptors)
+    output = write_result_hdf5(result, tmp_path / f"{basis}.h5")
+
+    with h5py.File(output, "r") as handle:
+        groups, datasets = _object_paths(handle)
+        assert groups == GROUPS
+        assert datasets == DATASETS
+        np.testing.assert_array_equal(
+            handle["coordinates/correlation/labels"][:],
+            labels,
+        )
+        np.testing.assert_array_equal(
+            handle["coordinates/correlation/aips_codes"][:],
+            codes,
+        )
+        assert bytes(handle["coordinates/correlation/basis"][()]).decode() == basis
+        assert bytes(handle["receptors/output_basis"][()]).decode() == basis
+        assert bytes(handle["receptors/receptor_sha256"][()]).decode() == (
+            result.receptors.provenance.receptor_sha256
+        )
+        np.testing.assert_array_equal(
+            handle["receptors/antenna_number"][:],
+            [antenna.id.number for antenna in result.instrument.antennas],
+        )
+        assert [
+            bytes(value).decode("utf-8")
+            for value in handle["receptors/antenna_name"][:]
+        ] == [antenna.id.name for antenna in result.instrument.antennas]
+        assert [
+            bytes(value).decode("utf-8") for value in handle["receptors/basis"][:]
+        ] == [native, native]
+        np.testing.assert_array_equal(
+            handle["receptors/feed_rotation_rad"][:],
+            [0.0, 0.0],
+        )
+        expected_angles = [
+            list(result.receptors.receptor_by_antenna[antenna.id].feed_angle_rad)
+            for antenna in result.instrument.antennas
+        ]
+        np.testing.assert_array_equal(
+            handle["receptors/feed_angle_rad"][:],
+            expected_angles,
+        )
+        assert handle["receptors/feed_rotation_rad"].attrs["unit"] == "radian"
+
+
+@pytest.mark.parametrize("receptors", [None, CIRCULAR])
+def test_both_bases_round_trip_through_hdf5(tmp_path, receptors):
+    result = _result(tmp_path, receptors=receptors)
+    output = write_result_hdf5(result, tmp_path / "round-trip.h5")
+
+    loaded = load_result_hdf5(output)
+
+    assert loaded.correlations == result.correlations
+    assert loaded.polarization_basis == result.polarization_basis
+    assert loaded.receptors["output_basis"] == result.receptors.output_basis
+    assert loaded.receptors["receptor_sha256"] == (
+        result.receptors.provenance.receptor_sha256
+    )
+    assert loaded.scientific_sha256 == result.scientific_sha256
+    assert loaded.provenance_sha256 == result.provenance_sha256
+    assert loaded.scientifically_equal(result)
+    np.testing.assert_array_equal(loaded.stokes_i(), result.stokes_i())
+
+
+def test_a_rotated_feed_survives_the_round_trip_exactly(tmp_path):
+    result = _result(
+        tmp_path,
+        receptors={"default": {"basis": "circular", "feed_rotation_deg": 30.0}},
+    )
+    output = write_result_hdf5(result, tmp_path / "rotated.h5")
+
+    loaded = load_result_hdf5(output)
+
+    rows = loaded.receptors["receptors"]
+    assert [row["basis"] for row in rows] == ["circular", "circular"]
+    for row, antenna in zip(rows, result.instrument.antennas, strict=True):
+        live = result.receptors.receptor_by_antenna[antenna.id]
+        assert row["feed_rotation_rad"] == live.feed_rotation_rad
+        assert tuple(row["feed_angle_rad"]) == live.feed_angle_rad
+
+
+def test_schema_version_one_is_rejected_and_names_the_tier_five_boundary(tmp_path):
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "legacy-version.h5")
+    with h5py.File(output, "r+") as handle:
+        del handle.attrs["schema_version"]
+        version = b"1.0.0"
+        handle.attrs.create(
+            "schema_version",
+            np.bytes_(version),
+            shape=(),
+            dtype=h5py.string_dtype(encoding="utf-8", length=len(version)),
+        )
+
+    with pytest.raises(UnsupportedSchemaVersionError) as caught:
+        load_result_hdf5(output)
+
+    message = str(caught.value)
+    assert "1.0.0" in message
+    assert "Tier 5" in message
+    assert caught.value.version == "1.0.0"
+
+
+@pytest.mark.parametrize(
+    ("dataset_path", "replacement", "dtype"),
+    [
+        ("coordinates/correlation/basis", b"circular_rl", None),
+        ("coordinates/correlation/basis", b"linear_XY", None),
+        ("coordinates/correlation/basis", b"stokes", None),
+        (
+            "coordinates/correlation/labels",
+            np.array([b"RR", b"RL", b"LR", b"LL"], dtype="S2"),
+            "S2",
+        ),
+        (
+            "coordinates/correlation/aips_codes",
+            np.array([-1, -3, -4, -2], dtype="<i4"),
+            "<i4",
+        ),
+    ],
+)
+def test_a_hand_edited_basis_or_label_mismatch_is_rejected(
+    tmp_path,
+    dataset_path,
+    replacement,
+    dtype,
+):
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "mismatch.h5")
+    if isinstance(replacement, bytes):
+        _replace_fixed_dataset(output, dataset_path, replacement)
+    else:
+        with h5py.File(output, "r+") as handle:
+            original = handle[dataset_path]
+            chunks = original.chunks
+            fletcher32 = original.fletcher32
+        _replace_dataset(
+            output,
+            dataset_path,
+            data=replacement,
+            dtype=dtype,
+            chunks=chunks,
+            fletcher32=fletcher32,
+        )
+
+    with pytest.raises(UnsafeResultInputError, match="correlation"):
+        load_result_hdf5(output)
+
+
+def test_a_circular_file_with_a_reordered_axis_is_rejected(tmp_path):
+    result = _result(tmp_path, receptors=CIRCULAR)
+    output = write_result_hdf5(result, tmp_path / "reordered.h5")
+    with h5py.File(output, "r+") as handle:
+        original = handle["coordinates/correlation/labels"]
+        chunks = original.chunks
+        fletcher32 = original.fletcher32
+    _replace_dataset(
+        output,
+        "coordinates/correlation/labels",
+        data=np.array([b"RR", b"LL", b"RL", b"LR"], dtype="S2"),
+        dtype="S2",
+        chunks=chunks,
+        fletcher32=fletcher32,
+    )
+
+    with pytest.raises(UnsafeResultInputError, match="correlation"):
+        load_result_hdf5(output)
+
+
+def test_a_hostile_receptor_group_is_rejected(tmp_path):
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "hostile-receptors.h5")
+    _replace_fixed_dataset(output, "receptors/output_basis", b"circular_rl")
+
+    with pytest.raises(UnsafeResultInputError, match="receptor"):
+        load_result_hdf5(output)
+
+
+def test_a_receptor_row_outside_the_instrument_is_rejected(tmp_path):
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "receptor-antenna.h5")
+    with h5py.File(output, "r+") as handle:
+        original = handle["receptors/antenna_number"]
+        chunks = original.chunks
+        fletcher32 = original.fletcher32
+        payload = np.array(original[:], copy=True)
+    payload[1] = 91
+    _replace_dataset(
+        output,
+        "receptors/antenna_number",
+        data=payload,
+        dtype="<i8",
+        chunks=chunks,
+        fletcher32=fletcher32,
+    )
+
+    with pytest.raises(UnsafeResultInputError, match="receptor"):
+        load_result_hdf5(output)
+
+
+def test_a_hostile_receptor_basis_value_is_rejected(tmp_path):
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "receptor-basis.h5")
+    _replace_fixed_dataset(output, "receptors/basis", (b"linear", b"ellipt"))
+
+    with pytest.raises(UnsafeResultInputError, match="receptor"):
+        load_result_hdf5(output)
+
+
+def test_a_nonfinite_feed_rotation_is_rejected(tmp_path):
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "receptor-rotation.h5")
+    with h5py.File(output, "r+") as handle:
+        original = handle["receptors/feed_rotation_rad"]
+        chunks = original.chunks
+        fletcher32 = original.fletcher32
+    _replace_dataset(
+        output,
+        "receptors/feed_rotation_rad",
+        data=np.array([np.nan, 0.0], dtype="<f8"),
+        dtype="<f8",
+        chunks=chunks,
+        fletcher32=fletcher32,
+    )
+
+    with pytest.raises(UnsafeResultInputError, match="receptor"):
+        load_result_hdf5(output)
+
+
+def test_the_receptor_group_cannot_be_silently_dropped(tmp_path):
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "no-receptors.h5")
+    with h5py.File(output, "r+") as handle:
+        del handle["receptors/output_basis"]
+
+    with pytest.raises(UnsafeResultInputError, match="allowlist"):
+        load_result_hdf5(output)

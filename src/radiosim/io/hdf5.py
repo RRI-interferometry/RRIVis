@@ -17,6 +17,12 @@ from typing import Any, Final, cast
 import numpy as np
 
 from radiosim.core.phase_center import PhaseCenter
+from radiosim.core.polarization_basis import (
+    AIPS_CODES_CANONICAL,
+    CORRELATION_LABELS,
+    POLARIZATION_BASES,
+    PolarizationBasis,
+)
 from radiosim.core.result import (
     InvalidResultError,
     LoadedSimulationResult,
@@ -53,11 +59,10 @@ from radiosim.io.result_errors import (
 )
 
 SCHEMA_NAME: Final = "radiosim.visibility"
-SCHEMA_VERSION: Final = "1.0.0"
+SCHEMA_VERSION: Final = "2.0.0"
 DIMENSION_ORDER: Final = "time,baseline,frequency,correlation"
 VISIBILITY_UNIT: Final = "Jy"
-CORRELATIONS: Final = ("XX", "XY", "YX", "YY")
-AIPS_CODES: Final = (-5, -7, -8, -6)
+_RECEPTOR_BASES: Final = ("linear", "circular")
 HDF5_SIGNATURE: Final = b"\x89HDF\r\n\x1a\n"
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _ROOT_ATTRIBUTES: Final = {
@@ -90,12 +95,14 @@ _GROUPS: Final = {
     "instrument/location",
     "phase_center",
     "provenance",
+    "receptors",
 }
 _DATASETS: Final = {
     "coordinates/baseline/antenna1_number",
     "coordinates/baseline/antenna2_number",
     "coordinates/baseline/vector_enu_m",
     "coordinates/correlation/aips_codes",
+    "coordinates/correlation/basis",
     "coordinates/correlation/labels",
     "coordinates/frequency/center_hz",
     "coordinates/frequency/channel_width_hz",
@@ -128,6 +135,13 @@ _DATASETS: Final = {
     "provenance/resolved_config_json",
     "provenance/selection_json",
     "provenance/solver_json",
+    "receptors/antenna_name",
+    "receptors/antenna_number",
+    "receptors/basis",
+    "receptors/feed_angle_rad",
+    "receptors/feed_rotation_rad",
+    "receptors/output_basis",
+    "receptors/receptor_sha256",
 }
 _JSON_PATHS: Final = {
     "provenance/instrument_json": "instrument",
@@ -306,6 +320,32 @@ def _prepare_text_payloads(
             result.phase_center.w_reference,
             field_name="phase_center/w_reference",
         ),
+        "coordinates/correlation/basis": _encode_text(
+            result.polarization_basis,
+            field_name="coordinates/correlation/basis",
+        ),
+        "receptors/output_basis": _encode_text(
+            result.receptors.output_basis,
+            field_name="receptors/output_basis",
+        ),
+        "receptors/receptor_sha256": _encode_text(
+            result.receptors.provenance.receptor_sha256,
+            field_name="receptors/receptor_sha256",
+        ),
+        "receptors/antenna_name": tuple(
+            _encode_text(
+                antenna.id.name,
+                field_name=f"receptors/antenna_name[{index}]",
+            )
+            for index, antenna in enumerate(result.instrument.antennas)
+        ),
+        "receptors/basis": tuple(
+            _encode_text(
+                result.receptors.receptor_by_antenna[antenna.id].basis,
+                field_name=f"receptors/basis[{index}]",
+            )
+            for index, antenna in enumerate(result.instrument.antennas)
+        ),
     }
     provenance_values = {
         "instrument_json": instrument,
@@ -336,11 +376,11 @@ def _prepare_result(result: object) -> _PreparedResult:
     dtype = typed.visibilities.dtype
     if dtype.kind == "c" and dtype.itemsize == 32:
         raise FormatRepresentationError(
-            "complex256 is not representable in radiosim.visibility HDF5 v1"
+            "complex256 is not representable in radiosim.visibility HDF5 2.0.0"
         )
     if dtype not in {np.dtype("complex64"), np.dtype("complex128")}:
         raise FormatRepresentationError(
-            "HDF5 v1 requires complex64 or complex128 visibilities"
+            "HDF5 2.0.0 requires complex64 or complex128 visibilities"
         )
     instrument = _mapping_tree(
         typed.instrument.to_snapshot(),
@@ -383,6 +423,7 @@ def _prepare_result(result: object) -> _PreparedResult:
             instrument_snapshot=instrument,
             selection_snapshot=selection,
             beam_snapshot=beam,
+            receptors_snapshot=typed.receptors.to_snapshot(),
             backend_snapshot=backend,
             solver_snapshot=solver,
             resolved_config_snapshot=resolved_config,
@@ -440,6 +481,7 @@ def _create_groups(handle: Any) -> None:
         "instrument/location",
         "phase_center",
         "provenance",
+        "receptors",
     ):
         handle.create_group(path, track_order=True)
 
@@ -666,17 +708,25 @@ def _write_hdf5_content(
             values,
             spec=specs[path],
         )
+    basis = result.polarization_basis
     _numeric_dataset(
         handle,
         "coordinates/correlation/labels",
-        CORRELATIONS,
+        CORRELATION_LABELS[basis],
         spec=specs["coordinates/correlation/labels"],
     )
     _numeric_dataset(
         handle,
         "coordinates/correlation/aips_codes",
-        AIPS_CODES,
+        AIPS_CODES_CANONICAL[basis],
         spec=specs["coordinates/correlation/aips_codes"],
+    )
+    _string_dataset(
+        handle,
+        h5py,
+        "coordinates/correlation/basis",
+        cast(bytes, prepared.text_payloads["coordinates/correlation/basis"]),
+        spec=specs["coordinates/correlation/basis"],
     )
     antenna1 = [baseline.ant1.number for baseline in result.selection.baselines]
     antenna2 = [baseline.ant2.number for baseline in result.selection.baselines]
@@ -768,6 +818,45 @@ def _write_hdf5_content(
             spec=specs[path],
         )
 
+    receptors = result.receptors
+    ordered_receptors = [
+        receptors.receptor_by_antenna[antenna.id] for antenna in antennas
+    ]
+    for path in ("receptors/output_basis", "receptors/receptor_sha256"):
+        _string_dataset(
+            handle,
+            h5py,
+            path,
+            cast(bytes, prepared.text_payloads[path]),
+            spec=specs[path],
+        )
+    _numeric_dataset(
+        handle,
+        "receptors/antenna_number",
+        [antenna.id.number for antenna in antennas],
+        spec=specs["receptors/antenna_number"],
+    )
+    for path in ("receptors/antenna_name", "receptors/basis"):
+        _string_dataset(
+            handle,
+            h5py,
+            path,
+            cast(tuple[bytes, ...], prepared.text_payloads[path]),
+            spec=specs[path],
+        )
+    _numeric_dataset(
+        handle,
+        "receptors/feed_rotation_rad",
+        [receptor.feed_rotation_rad for receptor in ordered_receptors],
+        spec=specs["receptors/feed_rotation_rad"],
+    )
+    _numeric_dataset(
+        handle,
+        "receptors/feed_angle_rad",
+        [list(receptor.feed_angle_rad) for receptor in ordered_receptors],
+        spec=specs["receptors/feed_angle_rad"],
+    )
+
     for name in (
         "instrument_json",
         "selection_json",
@@ -846,7 +935,7 @@ def write_result_hdf5(
     *,
     overwrite: bool = False,
 ) -> Path:
-    """Write a complete ``radiosim.visibility`` v1 result atomically.
+    """Write a complete ``radiosim.visibility`` 2.0.0 result atomically.
 
     Parameters
     ----------
@@ -1158,6 +1247,39 @@ def _metadata_specs(
             "<i4",
             ("correlation",),
             storage="coordinate",
+        ),
+        "coordinates/correlation/basis": _DatasetSpec((), "utf8", ()),
+        "receptors/output_basis": _DatasetSpec((), "utf8", ()),
+        "receptors/receptor_sha256": _DatasetSpec((), "utf8", ()),
+        "receptors/antenna_number": _DatasetSpec(
+            (antenna_count,),
+            "<i8",
+            ("antenna",),
+            storage="coordinate",
+        ),
+        "receptors/antenna_name": _DatasetSpec(
+            (antenna_count,),
+            "utf8",
+            ("antenna",),
+        ),
+        "receptors/basis": _DatasetSpec(
+            (antenna_count,),
+            "utf8",
+            ("antenna",),
+        ),
+        "receptors/feed_rotation_rad": _DatasetSpec(
+            (antenna_count,),
+            "<f8",
+            ("antenna",),
+            (("unit", "radian"),),
+            "coordinate",
+        ),
+        "receptors/feed_angle_rad": _DatasetSpec(
+            (antenna_count, 2),
+            "<f8",
+            ("antenna", "feed"),
+            (("unit", "radian"),),
+            "coordinate",
         ),
         "coordinates/baseline/antenna1_number": _DatasetSpec(
             (baseline_count,),
@@ -1746,6 +1868,101 @@ def _build_time_grid(
     return grid
 
 
+def _read_receptor_group(
+    datasets: Mapping[str, Any],
+    limits: HDF5ReadLimits,
+    *,
+    basis: PolarizationBasis,
+    antenna_numbers: Sequence[int],
+    antenna_names: Sequence[str],
+) -> dict[str, object]:
+    """Read and fully validate the ``receptors/`` group (Section 21).
+
+    The returned mapping is exactly the result-model receptor snapshot: the
+    per-antenna rows are cross-validated against the instrument identity and
+    the recorded output basis must agree with the correlation coordinates, so
+    no unauthenticated receptor state reaches the canonical model.
+    """
+    output_basis, _ = _bounded_dataset_text(
+        datasets["receptors/output_basis"],
+        path="receptors/output_basis",
+        limit=limits.max_single_string_bytes,
+    )
+    if output_basis != basis:
+        raise UnsafeResultInputError(
+            "HDF5 receptor output basis disagrees with the correlation basis"
+        )
+    receptor_sha256, _ = _bounded_dataset_text(
+        datasets["receptors/receptor_sha256"],
+        path="receptors/receptor_sha256",
+        limit=limits.max_single_string_bytes,
+    )
+    if _SHA256.fullmatch(receptor_sha256) is None:
+        raise UnsafeResultInputError("HDF5 receptor_sha256 is not a lower-case SHA-256")
+    numbers = _read_numeric(
+        datasets["receptors/antenna_number"],
+        path="receptors/antenna_number",
+    )
+    if [int(value) for value in numbers] != list(antenna_numbers):
+        raise UnsafeResultInputError(
+            "HDF5 receptor antenna numbers disagree with the instrument"
+        )
+    names = tuple(
+        _bounded_dataset_text(
+            datasets["receptors/antenna_name"],
+            path=f"receptors/antenna_name[{index}]",
+            limit=limits.max_single_string_bytes,
+            index=index,
+        )[0]
+        for index in range(len(antenna_numbers))
+    )
+    if list(names) != list(antenna_names):
+        raise UnsafeResultInputError(
+            "HDF5 receptor antenna names disagree with the instrument"
+        )
+    bases = tuple(
+        _bounded_dataset_text(
+            datasets["receptors/basis"],
+            path=f"receptors/basis[{index}]",
+            limit=limits.max_single_string_bytes,
+            index=index,
+        )[0]
+        for index in range(len(antenna_numbers))
+    )
+    if any(value not in _RECEPTOR_BASES for value in bases):
+        raise UnsafeResultInputError(
+            f"HDF5 receptor basis values must be one of {_RECEPTOR_BASES!r}"
+        )
+    rotations = _read_numeric(
+        datasets["receptors/feed_rotation_rad"],
+        path="receptors/feed_rotation_rad",
+    )
+    angles = _read_numeric(
+        datasets["receptors/feed_angle_rad"],
+        path="receptors/feed_angle_rad",
+    )
+    if (
+        not np.all(np.isfinite(rotations))
+        or not np.all(np.isfinite(angles))
+        or not np.all(np.abs(rotations) <= math.pi)
+    ):
+        raise UnsafeResultInputError("HDF5 receptor feed geometry is invalid")
+    return {
+        "output_basis": output_basis,
+        "receptor_sha256": receptor_sha256,
+        "receptors": [
+            {
+                "antenna_number": int(numbers[index]),
+                "antenna_name": names[index],
+                "basis": bases[index],
+                "feed_rotation_rad": float(rotations[index]),
+                "feed_angle_rad": [float(value) for value in angles[index]],
+            }
+            for index in range(len(antenna_numbers))
+        ],
+    }
+
+
 def _validate_structured_identity(
     datasets: Mapping[str, Any],
     snapshots: Mapping[str, object],
@@ -1756,6 +1973,7 @@ def _validate_structured_identity(
     np.ndarray,
     PhaseCenter,
     tuple[str, ...],
+    dict[str, object],
 ]:
     utc_jd1 = _read_numeric(
         datasets["coordinates/time/utc_jd1"],
@@ -1838,8 +2056,25 @@ def _validate_structured_identity(
         datasets["coordinates/correlation/aips_codes"],
         path="coordinates/correlation/aips_codes",
     )
-    if labels != CORRELATIONS or tuple(int(value) for value in codes) != AIPS_CODES:
-        raise UnsafeResultInputError("HDF5 correlation coordinates are invalid")
+    basis_text, _ = _bounded_dataset_text(
+        datasets["coordinates/correlation/basis"],
+        path="coordinates/correlation/basis",
+        limit=limits.max_single_string_bytes,
+    )
+    if basis_text not in CORRELATION_LABELS:
+        raise UnsafeResultInputError(
+            "HDF5 correlation basis must be one of "
+            f"{POLARIZATION_BASES!r}; got {basis_text!r}"
+        )
+    basis = cast(PolarizationBasis, basis_text)
+    if (
+        labels != CORRELATION_LABELS[basis]
+        or tuple(int(value) for value in codes) != AIPS_CODES_CANONICAL[basis]
+    ):
+        raise UnsafeResultInputError(
+            "HDF5 correlation coordinates are invalid: labels, AIPS codes, and "
+            f"basis must be exactly one accepted row for {basis!r}"
+        )
 
     instrument = cast(dict[str, object], snapshots["instrument"])
     instrument_name, _ = _bounded_dataset_text(
@@ -2007,7 +2242,15 @@ def _validate_structured_identity(
         raise UnsafeResultInputError(
             "HDF5 beam assignments disagree with instrument identity"
         )
-    return time_grid, frequencies, widths, phase_center, labels
+
+    receptor_snapshot = _read_receptor_group(
+        datasets,
+        limits,
+        basis=basis,
+        antenna_numbers=[int(value) for value in numbers],
+        antenna_names=names,
+    )
+    return time_grid, frequencies, widths, phase_center, labels, receptor_snapshot
 
 
 def _load_open_file(
@@ -2037,9 +2280,14 @@ def _load_open_file(
     _enforce_dataset_byte_limits(datasets, limits)
     _enforce_json_byte_limits(datasets, limits)
     snapshots = _read_json_snapshots(datasets, limits)
-    time_grid, frequencies, widths, phase_center, correlations = (
-        _validate_structured_identity(datasets, snapshots, limits)
-    )
+    (
+        time_grid,
+        frequencies,
+        widths,
+        phase_center,
+        correlations,
+        receptors_snapshot,
+    ) = _validate_structured_identity(datasets, snapshots, limits)
     visibilities = _read_numeric(
         datasets["data/visibilities"],
         path="data/visibilities",
@@ -2059,6 +2307,7 @@ def _load_open_file(
             instrument_snapshot=cast(dict[str, object], snapshots["instrument"]),
             selection_snapshot=cast(dict[str, object], snapshots["selection"]),
             beam_snapshot=cast(dict[str, object], snapshots["beam"]),
+            receptors_snapshot=receptors_snapshot,
             backend_snapshot=cast(dict[str, object], snapshots["backend"]),
             solver_snapshot=cast(dict[str, object], snapshots["solver"]),
             resolved_config_snapshot=cast(
@@ -2107,7 +2356,7 @@ def load_result_hdf5(
     *,
     limits: HDF5ReadLimits = HDF5ReadLimits(),
 ) -> LoadedSimulationResult:
-    """Load and fully validate a ``radiosim.visibility`` v1 result.
+    """Load and fully validate a ``radiosim.visibility`` 2.0.0 result.
 
     No partial result is returned. Structural metadata and all allocation
     limits are validated before science payloads are read.

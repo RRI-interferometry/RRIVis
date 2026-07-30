@@ -55,18 +55,24 @@ def test_every_table_reproduces_section_14_2(basis: str) -> None:
 
 
 def test_the_linear_row_preserves_the_existing_production_constants() -> None:
-    """Section 14.2: the linear row must reproduce today's constants exactly."""
+    """Section 14.2: the linear row must reproduce today's constants exactly.
+
+    NARROWED BY: Tier 5E.  ``radiosim.io.hdf5`` no longer defines
+    ``CORRELATIONS`` or ``AIPS_CODES`` -- it imports this table instead
+    (Section 20.1), so the two clauses that compared against those constants
+    have no constant left to compare against and were removed rather than
+    weakened.  The surviving clauses check the three
+    ``io/standard_visibility.py`` constants, which are Tier 5F's residue and
+    remain independent literals.
+    """
     import numpy as np
 
-    from radiosim.io.hdf5 import AIPS_CODES, CORRELATIONS
     from radiosim.io.standard_visibility import (
         CANONICAL_CODES,
         CANONICAL_CORRELATIONS,
         FILE_CODES,
     )
 
-    assert CORRELATION_LABELS["linear_xy"] == CORRELATIONS
-    assert AIPS_CODES_CANONICAL["linear_xy"] == AIPS_CODES
     assert CORRELATION_LABELS["linear_xy"] == CANONICAL_CORRELATIONS
     np.testing.assert_array_equal(
         np.asarray(AIPS_CODES_CANONICAL["linear_xy"], dtype=np.int64),

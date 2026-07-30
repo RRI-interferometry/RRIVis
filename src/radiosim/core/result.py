@@ -16,6 +16,13 @@ import numpy as np
 from numpy.typing import DTypeLike, NDArray
 from typing_extensions import override
 
+from radiosim.core.polarization_basis import (
+    CORRELATION_LABELS,
+    POLARIZATION_BASES,
+    PolarizationBasis,
+    basis_for_correlations,
+    parallel_hand_indices,
+)
 from radiosim.core.runtime_config import FrozenMapping, json_safe_mapping
 
 if TYPE_CHECKING:
@@ -26,10 +33,27 @@ if TYPE_CHECKING:
         ResolvedInstrument,
     )
     from radiosim.core.phase_center import PhaseCenter
+    from radiosim.core.receptor import ResolvedReceptorSet
     from radiosim.core.time_grid import ObservationTimeGrid
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
-_CORRELATIONS = ("XX", "XY", "YX", "YY")
+# Must equal ``radiosim.core.receptor``'s resolved receptor schema version; the
+# equality is asserted by ``tests/unit/test_core/test_result.py`` so the two
+# never drift silently.
+_RECEPTOR_SCHEMA_VERSION = "1.0.0"
+_RECEPTOR_ROW_KEYS = (
+    "antenna_number",
+    "antenna_name",
+    "basis",
+    "feed_rotation_rad",
+    "feed_angle_rad",
+)
+_RECEPTOR_BASES = ("linear", "circular")
+
+
+def _accepted_correlations_text() -> str:
+    """Return the rejection text naming both accepted correlation tuples."""
+    return " or ".join(repr(CORRELATION_LABELS[basis]) for basis in POLARIZATION_BASES)
 
 
 class ResultError(RuntimeError):
@@ -376,6 +400,113 @@ def _package_version() -> str:
         return "unknown"
 
 
+def _receptor_result_snapshot(snapshot: object) -> dict[str, object]:
+    """Return the exact result-bearing projection of a receptor snapshot.
+
+    The projection is the same set of values the HDF5 ``receptors/`` group
+    stores (Section 21), so an in-memory result and a deserialized one produce
+    byte-identical fingerprint input.  Configuration-only fields of
+    :meth:`~radiosim.core.receptor.ResolvedReceptorSet.to_snapshot` -- the
+    requested basis, the resolution rule, the override applications, and the
+    per-antenna ``source`` and derived ``feed_array`` -- are excluded: they
+    explain how the receptor set was chosen, not what it is.
+    """
+    if not isinstance(snapshot, Mapping):
+        raise InvalidResultError("receptor snapshot must be a mapping")
+    typed = cast(Mapping[str, object], snapshot)
+    schema_version = typed.get("schema_version", _RECEPTOR_SCHEMA_VERSION)
+    if schema_version != _RECEPTOR_SCHEMA_VERSION:
+        raise InvalidResultError(
+            f"receptor snapshot schema_version must be {_RECEPTOR_SCHEMA_VERSION!r}"
+        )
+    output_basis = typed.get("output_basis")
+    if output_basis not in CORRELATION_LABELS:
+        raise InvalidResultError(
+            f"receptor snapshot output_basis must be one of {POLARIZATION_BASES!r}"
+        )
+    receptor_sha256 = typed.get("receptor_sha256")
+    if type(receptor_sha256) is not str or _SHA256.fullmatch(receptor_sha256) is None:
+        raise InvalidResultError(
+            "receptor snapshot receptor_sha256 must be a lower-case SHA-256"
+        )
+    rows_value = typed.get("receptors")
+    if isinstance(rows_value, (str, bytes)) or not isinstance(rows_value, Sequence):
+        raise InvalidResultError("receptor snapshot receptors must be a sequence")
+    rows: list[dict[str, object]] = []
+    seen_numbers: set[int] = set()
+    for index, row in enumerate(cast(Sequence[object], rows_value)):
+        if not isinstance(row, Mapping):
+            raise InvalidResultError(f"receptor snapshot receptors[{index}] is invalid")
+        typed_row = cast(Mapping[str, object], row)
+        missing = [key for key in _RECEPTOR_ROW_KEYS if key not in typed_row]
+        if missing:
+            raise InvalidResultError(
+                f"receptor snapshot receptors[{index}] is missing {missing[0]}"
+            )
+        number = typed_row["antenna_number"]
+        name = typed_row["antenna_name"]
+        basis = typed_row["basis"]
+        rotation = typed_row["feed_rotation_rad"]
+        angles = typed_row["feed_angle_rad"]
+        if type(number) is not int or number in seen_numbers:
+            raise InvalidResultError(
+                f"receptor snapshot receptors[{index}] antenna_number is invalid"
+            )
+        seen_numbers.add(number)
+        if type(name) is not str or not name:
+            raise InvalidResultError(
+                f"receptor snapshot receptors[{index}] antenna_name is invalid"
+            )
+        if basis not in _RECEPTOR_BASES:
+            raise InvalidResultError(
+                f"receptor snapshot receptors[{index}] basis must be "
+                f"one of {_RECEPTOR_BASES!r}"
+            )
+        if type(rotation) is not float or not math.isfinite(rotation):
+            raise InvalidResultError(
+                f"receptor snapshot receptors[{index}] feed_rotation_rad is invalid"
+            )
+        if isinstance(angles, (str, bytes)) or not isinstance(angles, Sequence):
+            raise InvalidResultError(
+                f"receptor snapshot receptors[{index}] feed_angle_rad is invalid"
+            )
+        angle_values = [
+            float(value)
+            for value in cast(Sequence[object], angles)
+            if type(value) is float and math.isfinite(value)
+        ]
+        if len(angle_values) != 2 or len(cast(Sequence[object], angles)) != 2:
+            raise InvalidResultError(
+                f"receptor snapshot receptors[{index}] feed_angle_rad is invalid"
+            )
+        rows.append(
+            {
+                "antenna_number": number,
+                "antenna_name": name,
+                "basis": basis,
+                "feed_rotation_rad": rotation,
+                "feed_angle_rad": angle_values,
+            }
+        )
+    if not rows:
+        raise InvalidResultError("receptor snapshot must contain at least one antenna")
+    return {
+        "schema_version": _RECEPTOR_SCHEMA_VERSION,
+        "output_basis": output_basis,
+        "receptor_sha256": receptor_sha256,
+        "receptors": rows,
+    }
+
+
+def _result_receptor_snapshot(
+    result: SimulationResult | LoadedSimulationResult,
+) -> dict[str, object]:
+    receptors = result.receptors
+    if isinstance(receptors, Mapping):
+        return _receptor_result_snapshot(receptors)
+    return _receptor_result_snapshot(receptors.to_snapshot())
+
+
 def _scientific_hash(
     *,
     visibilities: np.ndarray,
@@ -385,6 +516,8 @@ def _scientific_hash(
     frequencies: np.ndarray,
     widths: np.ndarray,
     correlations: tuple[str, ...],
+    polarization_basis: PolarizationBasis,
+    receptor_snapshot: Mapping[str, object],
     phase_snapshot: Mapping[str, object],
     instrument_snapshot: Mapping[str, object],
     selection_snapshot: Mapping[str, object],
@@ -405,7 +538,8 @@ def _scientific_hash(
     ):
         _hash_array(digest, tag, array)
     _hash_json(digest, "correlations", correlations)
-    _hash_json(digest, "polarization_basis", "linear_xy")
+    _hash_json(digest, "polarization_basis", polarization_basis)
+    _hash_json(digest, "receptor", receptor_snapshot)
     _hash_json(digest, "instrument", instrument_snapshot)
     _hash_json(digest, "selection", selection_snapshot)
     _hash_json(digest, "beam", beam_snapshot)
@@ -440,8 +574,9 @@ class _ResultMethods:
     time_grid: ObservationTimeGrid
     frequencies_hz: np.ndarray
     channel_widths_hz: np.ndarray
-    correlations: tuple[str, ...]
-    polarization_basis: str
+    correlations: tuple[str, str, str, str]
+    polarization_basis: PolarizationBasis
+    receptors: ResolvedReceptorSet | FrozenMapping
     phase_center: PhaseCenter
     scientific_sha256: str
     provenance_sha256: str
@@ -510,9 +645,20 @@ class _ResultMethods:
         )
 
     def stokes_i(self) -> np.ndarray:
-        """Return a newly owned XX plus YY array."""
+        """Return a newly owned parallel-hand sum for the published basis.
+
+        The two indices are derived from :attr:`correlations` through
+        :func:`~radiosim.core.polarization_basis.parallel_hand_indices`, so the
+        sum is ``XX + YY`` in ``linear_xy`` and ``RR + LL`` in ``circular_rl``
+        without either literal appearing here.
+        """
+        first, second = parallel_hand_indices(self.correlations)
+        if self.visibilities.shape[-1] != len(self.correlations):
+            raise InvalidResultError(
+                "the correlation axis does not match the correlation labels"
+            )
         return np.array(
-            self.visibilities[..., 0] + self.visibilities[..., 3],
+            self.visibilities[..., first] + self.visibilities[..., second],
             copy=True,
             order="C",
             subok=False,
@@ -520,12 +666,28 @@ class _ResultMethods:
 
     def to_summary_snapshot(self) -> dict[str, object]:
         """Return bounded JSON-safe metadata without embedding science arrays."""
+        receptor_snapshot = _result_receptor_snapshot(
+            cast("SimulationResult | LoadedSimulationResult", self)
+        )
+        receptor_rows = cast(
+            list[Mapping[str, object]],
+            receptor_snapshot["receptors"],
+        )
+        native_counts = dict.fromkeys(_RECEPTOR_BASES, 0)
+        for row in receptor_rows:
+            native_counts[cast(str, row["basis"])] += 1
         return {
             "schema_version": self.schema_version,
             "shape": list(self.visibilities.shape),
             "dtype": self.visibilities.dtype.name,
             "correlations": list(self.correlations),
             "polarization_basis": self.polarization_basis,
+            "receptor": {
+                "output_basis": receptor_snapshot["output_basis"],
+                "receptor_sha256": receptor_snapshot["receptor_sha256"],
+                "native_basis_counts": native_counts,
+                "antenna_count": len(receptor_rows),
+            },
             "time": {
                 "start_time_iso": self.time_grid.start_time_iso,
                 "duration_seconds": self.time_grid.duration_seconds,
@@ -567,11 +729,12 @@ class SimulationResult(_ResultMethods):
     time_grid: ObservationTimeGrid
     frequencies_hz: np.ndarray
     channel_widths_hz: np.ndarray
-    correlations: tuple[str, ...]
-    polarization_basis: str
+    correlations: tuple[str, str, str, str]
+    polarization_basis: PolarizationBasis
     instrument: ResolvedInstrument
     selection: ResolvedBaselineSelection
     beam_state: LoadedBeamState
+    receptors: ResolvedReceptorSet
     phase_center: PhaseCenter
     backend: BackendResultProvenance
     solver: SolverResultProvenance
@@ -600,12 +763,13 @@ class LoadedSimulationResult(_ResultMethods):
     time_grid: ObservationTimeGrid
     frequencies_hz: np.ndarray
     channel_widths_hz: np.ndarray
-    correlations: tuple[str, ...]
-    polarization_basis: str
+    correlations: tuple[str, str, str, str]
+    polarization_basis: PolarizationBasis
     phase_center: PhaseCenter
     instrument_snapshot: FrozenMapping
     selection_snapshot: FrozenMapping
     beam_snapshot: FrozenMapping
+    receptors: FrozenMapping
     backend_snapshot: FrozenMapping
     solver_snapshot: FrozenMapping
     resolved_config_snapshot: FrozenMapping
@@ -627,11 +791,13 @@ class LoadedSimulationResult(_ResultMethods):
 def _identity_snapshots(
     result: SimulationResult | LoadedSimulationResult,
 ) -> tuple[object, ...]:
+    receptor_snapshot = _result_receptor_snapshot(result)
     if isinstance(result, SimulationResult):
         return (
             result.instrument.to_snapshot(),
             result.selection.to_snapshot(),
             result.beam_state.to_snapshot(),
+            receptor_snapshot,
             result.backend.to_snapshot(),
             result.solver.to_snapshot(),
         )
@@ -639,6 +805,7 @@ def _identity_snapshots(
         result.instrument_snapshot,
         result.selection_snapshot,
         result.beam_snapshot,
+        receptor_snapshot,
         result.backend_snapshot,
         result.solver_snapshot,
     )
@@ -692,6 +859,7 @@ def _validate_loaded_identity_snapshots(
     instrument: FrozenMapping,
     selection: FrozenMapping,
     beam: FrozenMapping,
+    receptor: Mapping[str, object],
     backend: FrozenMapping,
     solver: FrozenMapping,
     visibility_dtype: np.dtype[Any],
@@ -713,12 +881,14 @@ def _validate_loaded_identity_snapshots(
     if not antennas:
         raise InvalidResultError("instrument_snapshot.antennas must be nonempty")
     antenna_numbers: set[int] = set()
+    antenna_identity: list[tuple[object, object]] = []
     for index, antenna in enumerate(antennas):
         if not isinstance(antenna, Mapping):
             raise InvalidResultError(
                 f"instrument_snapshot.antennas[{index}] must be a mapping"
             )
-        number = cast(Mapping[str, object], antenna).get("number")
+        typed_antenna = cast(Mapping[str, object], antenna)
+        number = typed_antenna.get("number")
         if type(number) is not int:
             raise InvalidResultError(
                 "instrument_snapshot antenna numbers must be unique integers"
@@ -728,6 +898,16 @@ def _validate_loaded_identity_snapshots(
                 "instrument_snapshot antenna numbers must be unique integers"
             )
         antenna_numbers.add(number)
+        antenna_identity.append((number, typed_antenna.get("name")))
+
+    receptor_rows = cast(Sequence[Mapping[str, object]], receptor["receptors"])
+    if [
+        (row["antenna_number"], row["antenna_name"]) for row in receptor_rows
+    ] != antenna_identity:
+        raise InvalidResultError(
+            "the receptor snapshot does not cover instrument_snapshot in "
+            "canonical antenna order"
+        )
 
     if selection.get("schema_version") != "radiosim.baseline-selection.v1":
         raise InvalidResultError("selection_snapshot has an invalid schema")
@@ -847,6 +1027,7 @@ def build_simulation_result(
     instrument: ResolvedInstrument,
     selection: ResolvedBaselineSelection,
     beam_state: LoadedBeamState,
+    receptors: ResolvedReceptorSet,
     phase_center: PhaseCenter,
     backend_provenance: BackendResultProvenance,
     solver_provenance: SolverResultProvenance,
@@ -859,6 +1040,7 @@ def build_simulation_result(
     from radiosim.core.beam.models import LoadedBeamState
     from radiosim.core.instrument import ResolvedBaselineSelection, ResolvedInstrument
     from radiosim.core.phase_center import PhaseCenter
+    from radiosim.core.receptor import ResolvedReceptorSet
     from radiosim.core.time_grid import ObservationTimeGrid
 
     construction_started = time.perf_counter()
@@ -868,6 +1050,7 @@ def build_simulation_result(
         (instrument, ResolvedInstrument, "instrument"),
         (selection, ResolvedBaselineSelection, "selection"),
         (beam_state, LoadedBeamState, "beam_state"),
+        (receptors, ResolvedReceptorSet, "receptors"),
         (phase_center, PhaseCenter, "phase_center"),
         (backend_provenance, BackendResultProvenance, "backend_provenance"),
         (solver_provenance, SolverResultProvenance, "solver_provenance"),
@@ -885,6 +1068,14 @@ def build_simulation_result(
         for baseline in selection.baselines
     ):
         raise InvalidResultError("selection contains a baseline outside instrument")
+    if set(receptors.receptor_by_antenna) != antenna_ids:
+        raise InvalidResultError("receptors do not belong to instrument")
+    polarization_basis = receptors.output_basis
+    if polarization_basis not in CORRELATION_LABELS:
+        raise InvalidResultError(
+            f"polarization_basis must be one of {POLARIZATION_BASES!r}"
+        )
+    receptor_snapshot = _receptor_result_snapshot(receptors.to_snapshot())
 
     frequencies, widths = _coordinates(frequencies_hz, channel_widths_hz)
     transfer_started = time.perf_counter()
@@ -948,7 +1139,9 @@ def build_simulation_result(
         time_grid=time_grid,
         frequencies=frequencies,
         widths=widths,
-        correlations=_CORRELATIONS,
+        correlations=CORRELATION_LABELS[polarization_basis],
+        polarization_basis=polarization_basis,
+        receptor_snapshot=receptor_snapshot,
         phase_snapshot=phase_center.to_snapshot(),
         instrument_snapshot=instrument_snapshot,
         selection_snapshot=selection_snapshot,
@@ -984,11 +1177,12 @@ def build_simulation_result(
         time_grid=time_grid,
         frequencies_hz=frequencies,
         channel_widths_hz=widths,
-        correlations=_CORRELATIONS,
-        polarization_basis="linear_xy",
+        correlations=CORRELATION_LABELS[polarization_basis],
+        polarization_basis=polarization_basis,
         instrument=instrument,
         selection=selection,
         beam_state=beam_state,
+        receptors=receptors,
         phase_center=phase_center,
         backend=backend_provenance,
         solver=solver_provenance,
@@ -1025,6 +1219,7 @@ def build_loaded_simulation_result(
     instrument_snapshot: Mapping[str, object],
     selection_snapshot: Mapping[str, object],
     beam_snapshot: Mapping[str, object],
+    receptors_snapshot: Mapping[str, object],
     backend_snapshot: Mapping[str, object],
     solver_snapshot: Mapping[str, object],
     resolved_config_snapshot: Mapping[str, object],
@@ -1040,8 +1235,22 @@ def build_loaded_simulation_result(
 
     _require_exact(time_grid, ObservationTimeGrid, "time_grid")
     _require_exact(phase_center, PhaseCenter, "phase_center")
-    if tuple(correlations) != _CORRELATIONS:
-        raise InvalidResultError("correlations must be exactly XX, XY, YX, YY")
+    if isinstance(correlations, (str, bytes)) or not isinstance(correlations, Sequence):
+        raise InvalidResultError("correlations must be a sequence of labels")
+    correlation_labels = tuple(
+        label for label in cast(Sequence[object], correlations) if type(label) is str
+    )
+    try:
+        polarization_basis = basis_for_correlations(correlation_labels)
+    except (TypeError, ValueError) as exc:
+        raise InvalidResultError(
+            f"correlations must be exactly {_accepted_correlations_text()}"
+        ) from exc
+    receptor_snapshot = _receptor_result_snapshot(receptors_snapshot)
+    if receptor_snapshot["output_basis"] != polarization_basis:
+        raise InvalidResultError(
+            "the receptor output basis does not match the correlation labels"
+        )
     frequency_array, width_array = _coordinates(frequencies_hz, channel_widths_hz)
     visibility_array = _immutable_array(visibilities)
     if visibility_array.dtype.kind != "c" or visibility_array.dtype.itemsize not in {
@@ -1090,6 +1299,7 @@ def build_loaded_simulation_result(
         instrument=frozen_instrument,
         selection=frozen_selection,
         beam=frozen_beam,
+        receptor=receptor_snapshot,
         backend=frozen_backend,
         solver=frozen_solver,
         visibility_dtype=visibility_array.dtype,
@@ -1114,7 +1324,9 @@ def build_loaded_simulation_result(
         time_grid=time_grid,
         frequencies=frequency_array,
         widths=width_array,
-        correlations=_CORRELATIONS,
+        correlations=correlation_labels,
+        polarization_basis=polarization_basis,
+        receptor_snapshot=receptor_snapshot,
         phase_snapshot=phase_center.to_snapshot(),
         instrument_snapshot=frozen_instrument,
         selection_snapshot=frozen_selection,
@@ -1142,12 +1354,13 @@ def build_loaded_simulation_result(
         time_grid=time_grid,
         frequencies_hz=frequency_array,
         channel_widths_hz=width_array,
-        correlations=_CORRELATIONS,
-        polarization_basis="linear_xy",
+        correlations=correlation_labels,
+        polarization_basis=polarization_basis,
         phase_center=phase_center,
         instrument_snapshot=frozen_instrument,
         selection_snapshot=frozen_selection,
         beam_snapshot=frozen_beam,
+        receptors=json_safe_mapping(receptor_snapshot),
         backend_snapshot=frozen_backend,
         solver_snapshot=frozen_solver,
         resolved_config_snapshot=frozen_config,

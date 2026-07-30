@@ -108,6 +108,7 @@ def build_standard_result(
         base_dir=tmp_path,
     )
     simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
     backend = get_backend("numpy")
     shape = (
@@ -141,6 +142,7 @@ def build_standard_result(
         instrument=simulator.instrument,
         selection=simulator._instrument_state.selection,
         beam_state=simulator.beam_state,
+        receptors=simulator.receptors,
         phase_center=PhaseCenter(),
         backend_provenance=BackendResultProvenance(
             requested_backend="numpy",
