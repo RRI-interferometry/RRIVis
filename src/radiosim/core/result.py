@@ -168,27 +168,74 @@ class BackendResultProvenance:
         )
 
 
+def _component_names(value: object) -> tuple[str, ...]:
+    """Return a validated tuple of component names from a field or snapshot."""
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise InvalidResultError("components must be a sequence of names")
+    names = tuple(cast(Sequence[object], value))
+    if any(type(name) is not str for name in names):
+        raise InvalidResultError("components must be a sequence of names")
+    return cast(tuple[str, ...], names)
+
+
+def _component_counts(value: object) -> tuple[int, ...]:
+    """Return a validated tuple of nonnegative component element counts."""
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise InvalidResultError(
+            "component_element_counts must be a sequence of integers"
+        )
+    counts: list[int] = []
+    for item in cast(Sequence[object], value):
+        if isinstance(item, (bool, np.bool_)) or type(item) is not int:
+            raise InvalidResultError(
+                "component_element_counts must be a sequence of integers"
+            )
+        if item < 0:
+            raise InvalidResultError("component_element_counts must be nonnegative")
+        counts.append(item)
+    return tuple(counts)
+
+
 @dataclass(frozen=True, slots=True)
 class SolverResultProvenance:
     """Solver identity and scientific execution convention."""
 
     solver: Literal["rime"]
-    sky_representation: Literal["point_sources", "healpix_map"]
+    sky_representation: Literal["point_sources", "healpix_map", "hybrid"]
     convention: Literal["radiosim.rime-zenith-drift.v1"]
     execution_path: Literal["scalar", "polarized"]
+    #: The solved components, in the fixed ``("point", "healpix")`` order of
+    #: ``Tier6HybridRuntimePlan.md`` Section 8.3.  Deterministic, so it enters
+    #: ``scientific_sha256`` and a hybrid result can never collide with a
+    #: single-component result over the same instrument and sky numbers.
+    components: tuple[str, ...]
+    #: Each component's true element count, in the same order.
+    component_element_counts: tuple[int, ...]
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         _reject_subclass("SolverResultProvenance")
 
     def __post_init__(self) -> None:
+        from radiosim.core.hybrid import component_names_for_representation
+
         if self.solver != "rime":
             raise InvalidResultError("solver must be 'rime'")
-        if self.sky_representation not in {"point_sources", "healpix_map"}:
+        if self.sky_representation not in {"point_sources", "healpix_map", "hybrid"}:
             raise InvalidResultError("sky_representation is unsupported")
         if self.convention != "radiosim.rime-zenith-drift.v1":
             raise InvalidResultError("convention is unsupported")
         if self.execution_path not in {"scalar", "polarized"}:
             raise InvalidResultError("execution_path is unsupported")
+        components = _component_names(self.components)
+        if components != component_names_for_representation(self.sky_representation):
+            raise InvalidResultError("components do not match sky_representation")
+        counts = _component_counts(self.component_element_counts)
+        if len(counts) != len(components):
+            raise InvalidResultError(
+                "component_element_counts must cover every component"
+            )
+        object.__setattr__(self, "components", components)
+        object.__setattr__(self, "component_element_counts", counts)
 
     def to_snapshot(self) -> FrozenMapping:
         return json_safe_mapping(
@@ -197,6 +244,8 @@ class SolverResultProvenance:
                 "sky_representation": self.sky_representation,
                 "convention": self.convention,
                 "execution_path": self.execution_path,
+                "components": self.components,
+                "component_element_counts": self.component_element_counts,
             }
         )
 
@@ -207,6 +256,12 @@ class ResultPerformance:
 
     setup_seconds: float
     solver_seconds: float
+    #: Wall time of the ``point`` component; ``0.0`` when it did not run.
+    #: Component timings are nondeterministic and therefore stay out of both
+    #: fingerprints (``Tier6HybridRuntimePlan.md`` Section 9.4).
+    solver_point_seconds: float
+    #: Wall time of the ``healpix`` component; ``0.0`` when it did not run.
+    solver_healpix_seconds: float
     result_construction_seconds: float
     host_transfer_seconds: float
     total_seconds: float
@@ -240,6 +295,16 @@ class ResultPerformance:
         if normalized["total_seconds"] + allowance < minimum_total:
             raise InvalidResultError(
                 "total_seconds is not coherent with component times"
+            )
+        component_total = (
+            normalized["solver_point_seconds"] + normalized["solver_healpix_seconds"]
+        )
+        component_allowance = (
+            32.0 * np.finfo(np.float64).eps * max(1.0, component_total)
+        )
+        if component_total > normalized["solver_seconds"] + component_allowance:
+            raise InvalidResultError(
+                "solver component times are not coherent with solver_seconds"
             )
 
     def to_snapshot(self) -> FrozenMapping:
@@ -1112,6 +1177,8 @@ def _validate_loaded_identity_snapshots(
         "sky_representation",
         "convention",
         "execution_path",
+        "components",
+        "component_element_counts",
     }
     if set(solver) != solver_fields:
         raise InvalidResultError("solver_snapshot has unexpected fields")
@@ -1297,6 +1364,8 @@ def build_simulation_result(
     measured_performance = ResultPerformance(
         setup_seconds=performance.setup_seconds,
         solver_seconds=performance.solver_seconds,
+        solver_point_seconds=performance.solver_point_seconds,
+        solver_healpix_seconds=performance.solver_healpix_seconds,
         result_construction_seconds=result_construction_seconds,
         host_transfer_seconds=host_transfer_seconds,
         total_seconds=performance.total_seconds + construction_elapsed,

@@ -234,7 +234,7 @@ from radiosim.core.visibility_healpix import calculate_visibility_healpix
 from radiosim.io.config import ExecutionConfig, VisibilityConfig
 from radiosim.simulator.rime import RIMESimulator
 from radiosim.utils import network as network_module
-from tests.fixtures.configs import valid_config_mapping
+from tests.fixtures.configs import hybrid_config_mapping, valid_config_mapping
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -471,24 +471,35 @@ def _run_healpix_workload(tmp_path: Path, *, polarized: bool):
 # =========================================================================
 
 
-def test_sky_representation_admits_only_two_literals() -> None:
-    """Pins D1: the high-level API cannot express a hybrid sky.
+def test_sky_representation_admits_the_hybrid_literal() -> None:
+    """Records the closure of D1.
 
-    OWNED BY: Tier 6F, which adds the ``hybrid`` literal and
-    ``allow_lossy_point_rasterization``.
+    Flipped by Tier 6F from the 6A pin
+    ``test_sky_representation_admits_only_two_literals``, which asserted the
+    two-literal set and the absence of ``allow_lossy_point_rasterization``.
+    The high-level API can now express a hybrid sky, and the point-to-HEALPix
+    rasterization it replaces has an explicit opt-in.  No ``OWNED BY`` line
+    remains.
     """
     field = VisibilityConfig.model_fields["sky_representation"]
     assert field.annotation is not None
     literals = set(getattr(field.annotation, "__args__", ()))
-    assert literals == {"point_sources", "healpix_map"}
-    assert "hybrid" not in literals
-    assert "allow_lossy_point_rasterization" not in VisibilityConfig.model_fields
+    assert literals == {"point_sources", "healpix_map", "hybrid"}
+    assert VisibilityConfig().sky_representation == "point_sources"
+    assert "allow_lossy_point_rasterization" in VisibilityConfig.model_fields
+    assert VisibilityConfig().allow_lossy_point_rasterization is False
 
 
-def test_exactly_one_solver_runs_per_run_call(tmp_path, monkeypatch) -> None:
-    """Pins D2: ``run()`` dispatches to one solver, so no summation is possible.
+def test_each_representation_runs_exactly_its_own_components(
+    tmp_path, monkeypatch
+) -> None:
+    """Records the closure of D2.
 
-    OWNED BY: Tier 6F, which introduces ``V_total = V_point + V_healpix``.
+    Flipped by Tier 6F from the 6A pin ``test_exactly_one_solver_runs_per_run_call``,
+    which asserted that ``run()`` dispatches to exactly one solver and that no
+    summation was therefore possible.  A ``hybrid`` run now calls both solvers,
+    in the fixed Section 8.3 order, and sums their cubes.  No ``OWNED BY`` line
+    remains.
     """
     point_module = importlib.import_module("radiosim.core.visibility")
     healpix_module = importlib.import_module("radiosim.core.visibility_healpix")
@@ -518,88 +529,136 @@ def test_exactly_one_solver_runs_per_run_call(tmp_path, monkeypatch) -> None:
             visibility={
                 "calculation_type": "direct_sum",
                 "sky_representation": representation,
+                "allow_lossy_point_rasterization": representation == "healpix_map",
             },
         )
         Simulator.from_mapping(data, base_dir=tmp_path).run(progress=False)
         assert calls == expected
 
+    calls.clear()
+    hybrid_dir = tmp_path / "hybrid"
+    hybrid_dir.mkdir(exist_ok=True)
+    Simulator.from_mapping(hybrid_config_mapping(hybrid_dir), base_dir=hybrid_dir).run(
+        progress=False
+    )
+    assert calls == ["point", "healpix"]
 
-def test_hybrid_model_under_point_representation_is_silently_discarded(
+
+def test_hybrid_model_under_point_representation_is_now_rejected(
     tmp_path,
 ) -> None:
-    """Pins D3: a surviving HEALPix payload contributes nothing, silently.
+    """Records the closure of D3.
 
-    A hybrid model whose HEALPix payload is inflated to an absurd brightness
-    produces visibilities that are *bit-identical* to the point-only run, with no
-    error and no warning.
-
-    OWNED BY: Tier 6F, after which the same model must either sum both payloads
-    or be rejected by the Section 18.3 message.
+    Flipped by Tier 6F from the 6A pin
+    ``test_hybrid_model_under_point_representation_is_silently_discarded``,
+    which built a hybrid model whose HEALPix payload was inflated to an absurd
+    brightness and asserted that the run was *bit-identical* to the point-only
+    run, with no error and no warning.  A surviving HEALPix payload can no
+    longer contribute nothing in silence: the request is rejected with the exact
+    Section 18.3 message, and ``hybrid`` is the mode that sums both payloads.
+    No ``OWNED BY`` line remains.
     """
-    data = valid_config_mapping(tmp_path)
+    from radiosim.core.hybrid import HybridSkyError
+    from radiosim.core.sky.combine import pipeline
 
-    point_only = Simulator.from_mapping(data, base_dir=tmp_path)
-    point_only.setup()
-    assert point_only._sky_model.healpix is None
-    baseline = np.asarray(point_only.run(progress=False).visibilities)
+    data = valid_config_mapping(tmp_path)
+    baseline = np.asarray(
+        Simulator.from_mapping(data, base_dir=tmp_path).run(progress=False).visibilities
+    )
 
     hybrid_run = Simulator.from_mapping(data, base_dir=tmp_path)
-    hybrid_run.setup()
-    frequencies = np.asarray(hybrid_run._frequencies_hz, dtype=np.float64)
-    hybrid_sky = materialize_healpix_model(
-        hybrid_run._sky_model,
-        nside=8,
-        frequencies=frequencies,
-        ref_frequency=float(frequencies[0]),
-        clear_other=False,
+    original_prepare = pipeline.prepare_sky_model
+    frequencies = np.asarray(
+        hybrid_run._resolved.frequency.channel_frequencies_hz, dtype=np.float64
     )
-    inflated = np.full_like(hybrid_sky.healpix.maps, 1.0e6)
-    hybrid_sky = hybrid_sky.replace(healpix=hybrid_sky.healpix.replace(maps=inflated))
-    assert hybrid_sky.formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
 
-    hybrid_run._sky_model = hybrid_sky
-    hybrid_run._source_arrays = hybrid_sky.as_point_source_arrays()
+    def hybridize(*args: Any, **kwargs: Any):
+        resolved = original_prepare(*args, **kwargs)
+        hybrid_sky = materialize_healpix_model(
+            resolved,
+            nside=8,
+            frequencies=frequencies,
+            ref_frequency=float(frequencies[0]),
+            clear_other=False,
+        )
+        inflated = np.full_like(hybrid_sky.healpix.maps, 1.0e6)
+        return hybrid_sky.replace(healpix=hybrid_sky.healpix.replace(maps=inflated))
 
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        hybrid = np.asarray(hybrid_run.run(progress=False).visibilities)
+    monkeypatch_target = pipeline
+    saved = monkeypatch_target.prepare_sky_model
+    monkeypatch_target.prepare_sky_model = hybridize
+    try:
+        with pytest.raises(HybridSkyError) as excinfo:
+            hybrid_run.setup()
+    finally:
+        monkeypatch_target.prepare_sky_model = saved
 
-    assert np.array_equal(hybrid, baseline)
-    assert [
-        str(entry.message)
-        for entry in caught
-        if "discard" in str(entry.message).lower()
-        or "ignored" in str(entry.message).lower()
-    ] == []
+    assert str(excinfo.value) == (
+        "visibility.sky_representation=point_sources would discard the HEALPix "
+        "payload carried by the resolved sky model. Request hybrid to sum both "
+        "components, or set "
+        "visibility.allow_lossy_point_materialization=true to convert the "
+        "HEALPix payload to point sources."
+    )
+    # The point-only run itself is untouched by the new gate.
+    assert baseline.shape == (2, 3, 3, 4)
 
 
-def test_setup_keeps_exactly_one_payload_per_representation(tmp_path) -> None:
-    """Pins D3's setup-side fork at ``api/simulator.py`` steps 6.
+def test_setup_publishes_the_payloads_the_requested_mode_solves(tmp_path) -> None:
+    """Records the closure of D3's setup-side fork.
 
-    OWNED BY: Tier 6F.
+    Flipped by Tier 6F from the 6A pin
+    ``test_setup_keeps_exactly_one_payload_per_representation``.  ``setup`` no
+    longer forks to exactly one payload: a ``hybrid`` request publishes both,
+    and the fork that remains is the one the mode genuinely implies.  No
+    ``OWNED BY`` line remains.
     """
     healpix_data = valid_config_mapping(
         tmp_path,
         visibility={
             "calculation_type": "direct_sum",
             "sky_representation": "healpix_map",
+            "allow_lossy_point_rasterization": True,
         },
     )
     healpix_sim = Simulator.from_mapping(healpix_data, base_dir=tmp_path)
     healpix_sim.setup()
     assert healpix_sim._source_arrays is None
+    assert healpix_sim._sky_model.healpix is not None
 
     point_sim = Simulator.from_mapping(
         valid_config_mapping(tmp_path), base_dir=tmp_path
     )
     point_sim.setup()
     assert point_sim._source_arrays is not None
+    assert point_sim._sky_model.healpix is None
+
+    hybrid_dir = tmp_path / "hybrid_setup"
+    hybrid_dir.mkdir(exist_ok=True)
+    hybrid_sim = Simulator.from_mapping(
+        hybrid_config_mapping(hybrid_dir), base_dir=hybrid_dir
+    )
+    hybrid_sim.setup()
+    assert hybrid_sim._source_arrays is not None
+    assert hybrid_sim._sky_model.healpix is not None
+    assert hybrid_sim._sky_model.formats == {
+        SkyFormat.POINT_SOURCES,
+        SkyFormat.HEALPIX,
+    }
 
 
-def test_point_target_combine_silently_drops_a_hybrid_contributor_maps() -> None:
-    """Pins D4: a hybrid contributor loses its maps with no diagnostic.
+def test_point_target_combine_still_drops_a_hybrid_contributor_maps() -> None:
+    """Records the closure of D4 at the boundary that reaches a user.
 
-    OWNED BY: Tier 6F.
+    Flipped by Tier 6F from the 6A pin
+    ``test_point_target_combine_silently_drops_a_hybrid_contributor_maps``.
+    The low-level combine *primitive* is deliberately unchanged -- Section 10.1
+    reuses the existing gate, and Section 33 grants 6F neither ``engine.py`` nor
+    ``healpix.py`` -- so a direct ``_combine_models`` call still drops the maps.
+    What changed is that no configuration can reach that drop any more: the
+    simulator rejects the request first, with the exact Section 18.3 message
+    (``tests/unit/test_core/test_hybrid_visibility.py``).  This test now pins
+    both halves of that boundary.  No ``OWNED BY`` line remains.
     """
     precision = PrecisionConfig.standard()
     frequencies = np.asarray([100e6, 150e6], dtype=np.float64)
@@ -621,8 +680,6 @@ def test_point_target_combine_silently_drops_a_hybrid_contributor_maps() -> None
     )
     assert hybrid.formats == {SkyFormat.POINT_SOURCES, SkyFormat.HEALPIX}
 
-    import warnings
-
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         combined = _combine_models(
@@ -637,12 +694,28 @@ def test_point_target_combine_silently_drops_a_hybrid_contributor_maps() -> None
     assert combined.n_point_sources == 4
     assert [str(w.message) for w in caught] == []
 
+    # The same shape is now unreachable from a configuration: the Section 20.1
+    # step-9 gate rejects it before any solver runs.
+    from radiosim.core.hybrid import HybridSkyError, check_representation_compatibility
 
-def test_healpix_target_combine_rasterizes_a_point_contributor() -> None:
-    """Pins D5's rasterization half: point flux is folded into the map cube.
+    with pytest.raises(HybridSkyError, match="would discard the HEALPix payload"):
+        check_representation_compatibility(
+            sky_representation="point_sources",
+            contributed_models=[hybrid, point_only],
+            resolved_model=combined,
+            allow_lossy_point_rasterization=False,
+        )
 
-    OWNED BY: Tier 6F, which makes this opt-in via
-    ``allow_lossy_point_rasterization``.
+
+def test_healpix_target_combine_rasterizes_only_behind_the_new_opt_in() -> None:
+    """Records the closure of D5's rasterization half.
+
+    Flipped by Tier 6F from the 6A pin
+    ``test_healpix_target_combine_rasterizes_a_point_contributor``.  The
+    capability is unchanged and still folds point flux into the map cube -- the
+    combine primitive is not in 6F's Section 33 grant -- but a configuration can
+    only reach it by setting ``visibility.allow_lossy_point_rasterization``.
+    No ``OWNED BY`` line remains.
     """
     precision = PrecisionConfig.standard()
     frequencies = np.asarray([100e6, 150e6], dtype=np.float64)
@@ -676,11 +749,29 @@ def test_healpix_target_combine_rasterizes_a_point_contributor() -> None:
     assert combined.point is None
     assert float(np.max(np.abs(combined.healpix.maps))) > 0.0
 
+    from radiosim.core.hybrid import HybridSkyError, check_representation_compatibility
+
+    with pytest.raises(HybridSkyError, match="would rasterize 1 point source"):
+        check_representation_compatibility(
+            sky_representation="healpix_map",
+            contributed_models=[point_only, healpix_only],
+            resolved_model=combined,
+            allow_lossy_point_rasterization=False,
+        )
+    check_representation_compatibility(
+        sky_representation="healpix_map",
+        contributed_models=[point_only, healpix_only],
+        resolved_model=combined,
+        allow_lossy_point_rasterization=True,
+    )
+
 
 def test_point_target_combine_rejects_a_healpix_only_contributor() -> None:
-    """Pins D5's hard-error half.
+    """Records D5's hard-error half, which Tier 6F preserves and extends.
 
-    OWNED BY: Tier 6F.
+    Flipped by Tier 6F only in its message assertion: the existing rejection is
+    unchanged in condition and in effect, but now also names ``hybrid`` as the
+    lossless alternative (Section 8.2 rule 2).  No ``OWNED BY`` line remains.
     """
     precision = PrecisionConfig.standard()
     frequencies = np.asarray([100e6, 150e6], dtype=np.float64)
@@ -701,36 +792,59 @@ def test_point_target_combine_rejects_a_healpix_only_contributor() -> None:
         precision=precision,
     )
 
-    with pytest.raises(ValueError, match="allow_lossy_point_materialization=True"):
+    with pytest.raises(ValueError) as excinfo:
         _combine_models(
             [point_only, healpix_only],
             representation=SkyFormat.POINT_SOURCES,
             precision=precision,
             mixed_model_policy="allow",
         )
+    assert str(excinfo.value) == (
+        "Point-source combination requires converting a HEALPix-only model to "
+        "point sources, which is lossy. Request "
+        "visibility.sky_representation=hybrid to sum a point component and a "
+        "HEALPix component without converting either, or re-run with "
+        "allow_lossy_point_materialization=True to opt in."
+    )
 
 
-def test_memory_estimate_counts_only_point_sources(tmp_path) -> None:
-    """Pins D19: the estimate under-reports for HEALPix and would for hybrid.
+def test_memory_estimate_counts_every_solved_component(tmp_path) -> None:
+    """Records the closure of D19.
 
-    OWNED BY: Tier 6F.
+    Flipped by Tier 6F from the 6A pin
+    ``test_memory_estimate_counts_only_point_sources``, which asserted that
+    ``get_memory_estimate`` read ``self._source_arrays`` alone and therefore
+    reported zero sky elements for a HEALPix run.  The estimate now sums every
+    component the requested mode solves (Section 17).  No ``OWNED BY`` line
+    remains.
     """
     data = valid_config_mapping(
         tmp_path,
         visibility={
             "calculation_type": "direct_sum",
             "sky_representation": "healpix_map",
+            "allow_lossy_point_rasterization": True,
         },
     )
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
     simulator.setup()
     assert simulator._source_arrays is None
     assert simulator._sky_model.healpix is not None
-
-    source = inspect.getsource(Simulator.get_memory_estimate)
-    assert 'len(self._source_arrays["ra_rad"]) if self._source_arrays else 0' in source
+    assert simulator._solved_sky_element_count() == (
+        simulator._sky_model.n_healpix_pixels
+    )
     estimate = simulator.get_memory_estimate()
     assert isinstance(estimate, dict)
+
+    hybrid_dir = tmp_path / "hybrid_memory"
+    hybrid_dir.mkdir(exist_ok=True)
+    hybrid_sim = Simulator.from_mapping(
+        hybrid_config_mapping(hybrid_dir), base_dir=hybrid_dir
+    )
+    hybrid_sim.setup()
+    assert hybrid_sim._solved_sky_element_count() == (
+        hybrid_sim._sky_model.n_point_sources + hybrid_sim._sky_model.n_healpix_pixels
+    )
 
 
 # =========================================================================
@@ -1087,7 +1201,13 @@ def test_there_is_no_benchmark_harness_task_or_performance_test() -> None:
         p.name for p in (REPO_ROOT / "tests" / "integration").glob("*.py")
     )
     assert performance == ["__init__.py"]
-    assert integration == ["__init__.py"]
+    # ``tests/integration/test_hybrid_end_to_end.py`` is Tier 6F's own Section
+    # 33 grant (Section 25.4 lists it as a new test file), so 6F narrowed this
+    # assertion from "the directory is empty" to "the directory holds nothing
+    # that belongs to Tier 6I".  The performance directory, the benchmarks
+    # package, and the ``bench`` task are still pinned absent, and those are
+    # what D15 is about.
+    assert integration == ["__init__.py", "test_hybrid_end_to_end.py"]
     assert not (REPO_ROOT / "src" / "radiosim" / "benchmarks").exists()
     assert "bench" not in _source("pixi.toml")
 
@@ -1229,16 +1349,63 @@ def test_recommend_executor_is_registry_driven() -> None:
 # difference described in this module's docstring still moves the last bits of
 # every visibility.  The pre-fix, checkout-local values were
 # ``302deb27...`` / ``161fc98c...`` and ``b3c1a93e...`` / ``e670c35f...``.
+#
+# Re-pinned again for Tier 6F under the declared breaking change ``C11``
+# (Section 36): ``SolverResultProvenance`` gained ``components`` and
+# ``component_element_counts``, both deterministic, both deliberately inside
+# ``scientific_sha256`` so a hybrid result can never collide with a
+# single-component result over the same instrument and sky numbers
+# (Section 9.4).  Every result therefore gets a new scientific digest, including
+# the single-component ones below.  **The visibilities themselves did not
+# move**: the raw ``sha256`` of the C-contiguous ``complex128`` cube is
+# byte-identical at ``6708b0e`` and at this commit, measured in both
+# environments --
+#
+#   ============================  ==================  ==================
+#   Run                           py311 cube sha256   py312 cube sha256
+#   ============================  ==================  ==================
+#   configs/config.yaml           ``cce1bfe8...``     ``7560d2f2...``
+#   receptor_circular_example     ``95890bc6...``     ``ff26cb85...``
+#   ============================  ==================  ==================
+#
+# -- so this is a provenance-surface change, not a scientific one.  The
+# immediately preceding (post-RUN-005, pre-6F) values were:
+#
+#   config.yaml                py311 ``b702a202...``  py312 ``e570a9bc...``
+#   receptor_circular_example  py311 ``92ce5ce1...``  py312 ``7dd9e7a7...``
+#
+# Per the Section 36 note on ``C11`` and ``RUN-005``, those -- not any earlier
+# acceptance record's values -- are the correct "before" baseline for this diff.
 _SHIPPED_CONFIG_FINGERPRINTS: dict[str, dict[str, str]] = {
     "config.yaml": {
-        "py311": "b702a202924e11740cfb359124881063f73b63c8d17a33c47d610aa2b977c247",
-        "py312": "e570a9bc415731cfb63162e407c65f84c1615de766f21e89576b88f483add2b8",
+        "py311": "4bbb74035b3d700fa7638dca6b854a8c9110bc2abe8d418c7b180f527b947f2b",
+        "py312": "9e4f4e164074ad7acf71a6c2c518b1d481a131054445b97e4b1b111be0838e28",
     },
     "receptor_circular_example.yaml": {
-        "py311": "92ce5ce11f5bef77b4d306d6b944dbea97c9541d0d9e4e06b774a38bd47dc222",
-        "py312": "7dd9e7a7fa6edd3f126b775f3eef5d9d7ecdd5de124ebc2503648e77f1d9effd",
+        "py311": "be1e86fba57821a95f13f527a72b2ffd42edd4494cc68b0fde68d0f24d042203",
+        "py312": "a1ea03d8cf5286149b07543736b3e4cdef90091f8464fc9a04b20f38a736ecab",
     },
 }
+
+#: The raw visibility-cube digests recorded above, asserted directly so the
+#: "``C11`` moved the fingerprint but not the science" claim is a test, not a
+#: comment.  Recipe: ``sha256`` of the C-contiguous ``complex128`` buffer.
+_SHIPPED_CONFIG_CUBE_DIGESTS: dict[str, dict[str, str]] = {
+    "config.yaml": {
+        "py311": "cce1bfe86dc8b3fe81e5c6064a8449afa5bbab95866ec6bc352681dbf1e5ffae",
+        "py312": "7560d2f267f372e19ef735afca0cb9ec05ca9f75e2f2ca62a35c52843660f9df",
+    },
+    "receptor_circular_example.yaml": {
+        "py311": "95890bc680c21057c5c23245dc8b67eb7e8662559b3d965905862148a75dd2f8",
+        "py312": "ff26cb85289e77cda59a7508dae2e38afeb32bbfb4aff1b98315ac33e2c0177b",
+    },
+}
+
+
+def _raw_cube_digest(cube: Any) -> str:
+    """Digest a published cube exactly as the pre-6F baseline was digested."""
+    array = np.ascontiguousarray(np.asarray(cube))
+    return hashlib.sha256(array.tobytes(order="C")).hexdigest()
 
 
 def test_shipped_default_config_scientific_fingerprint(tmp_path) -> None:
@@ -1256,7 +1423,11 @@ def test_shipped_default_config_scientific_fingerprint(tmp_path) -> None:
     assert str(result.visibilities.dtype) == "complex128"
     assert result.solver.sky_representation == "point_sources"
     assert result.solver.execution_path == "polarized"
+    assert result.solver.components == ("point",)
     assert result.scientific_sha256 == expected
+    assert _raw_cube_digest(result.visibilities) == _expected_for_environment(
+        _SHIPPED_CONFIG_CUBE_DIGESTS["config.yaml"], "configs/config.yaml"
+    )
 
 
 def test_shipped_circular_receptor_config_scientific_fingerprint(tmp_path) -> None:
@@ -1269,7 +1440,12 @@ def test_shipped_circular_receptor_config_scientific_fingerprint(tmp_path) -> No
     assert result.visibilities.shape == (6, 15, 3, 4)
     assert str(result.visibilities.dtype) == "complex128"
     assert result.solver.sky_representation == "point_sources"
+    assert result.solver.components == ("point",)
     assert result.scientific_sha256 == expected
+    assert _raw_cube_digest(result.visibilities) == _expected_for_environment(
+        _SHIPPED_CONFIG_CUBE_DIGESTS["receptor_circular_example.yaml"],
+        "configs/receptor_circular_example.yaml",
+    )
 
 
 def test_shipped_realistic_foreground_config_cannot_run_at_this_gate() -> None:
@@ -1384,17 +1560,27 @@ def test_run_records_the_numpy_backend_as_the_actual_backend(tmp_path) -> None:
     assert result.backend.actual_backend == "numpy-cpu"
 
 
-def test_solver_seconds_is_a_single_uncomponentized_measurement(tmp_path) -> None:
-    """Pins the absence of per-component timing.
+def test_solver_seconds_is_componentized_but_stays_out_of_the_fingerprints(
+    tmp_path,
+) -> None:
+    """Records the closure of the missing per-component timing.
 
-    OWNED BY: Tier 6F, which adds ``solver_point_seconds`` and
-    ``solver_healpix_seconds``.
+    Flipped by Tier 6F from the 6A pin
+    ``test_solver_seconds_is_a_single_uncomponentized_measurement``.
+    ``ResultPerformance`` now carries ``solver_point_seconds`` and
+    ``solver_healpix_seconds``; because timings are nondeterministic they stay
+    outside ``scientific_sha256``, ``provenance_sha256``, and the bounded
+    metadata snapshot (Section 9.4).  No ``OWNED BY`` line remains.
     """
     result = Simulator.from_mapping(
         valid_config_mapping(tmp_path), base_dir=tmp_path
     ).run(progress=False)
-    snapshot = result.to_summary_snapshot()
-    flattened = repr(snapshot)
+
+    assert result.performance.solver_point_seconds > 0.0
+    assert result.performance.solver_healpix_seconds == 0.0
+    assert result.performance.solver_point_seconds <= result.performance.solver_seconds
+
+    flattened = repr(result.to_summary_snapshot())
     assert "solver_point_seconds" not in flattened
     assert "solver_healpix_seconds" not in flattened
     assert isinstance(time.perf_counter(), float)

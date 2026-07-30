@@ -1371,10 +1371,16 @@ class VisibilityConfig(StrictFrozenModel):
     """Visibility calculation input."""
 
     calculation_type: Literal["direct_sum", "spherical_harmonic"] = "direct_sum"
-    sky_representation: Literal["point_sources", "healpix_map"] = (
+    sky_representation: Literal["point_sources", "healpix_map", "hybrid"] = (
         DEFAULT_SKY_REPRESENTATION
     )
     allow_lossy_point_materialization: bool = False
+    #: Opt in to folding point sources into the HEALPix grid under
+    #: ``sky_representation: healpix_map``.  Rasterization quantizes source
+    #: positions to pixel centers, so Tier 6F made it explicit rather than
+    #: silent (``Tier6HybridRuntimePlan.md`` Sections 8.2, 18.3).  Prefer
+    #: ``sky_representation: hybrid``, which sums both components losslessly.
+    allow_lossy_point_rasterization: bool = False
 
 
 class CoordinatePrecisionInput(StrictFrozenModel):

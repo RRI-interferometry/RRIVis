@@ -332,6 +332,25 @@ class ArrayBackend(ABC):
         """
         return self.xp.stack(arrays, axis=axis)
 
+    def add(self, a: Any, b: Any) -> Any:
+        """Return the element-wise sum of two arrays in the backend domain.
+
+        This is the hybrid solve mode's one summation primitive
+        (``Tier6HybridRuntimePlan.md`` Section 9.1): component cubes are added
+        while they are still backend arrays, before the single host transfer, so
+        one canonical result is built per run.  Routing through the backend
+        rather than Python ``+`` keeps the operation defined for array types
+        whose ``__add__`` is not NumPy's.
+
+        Args:
+            a: First array.
+            b: Second array, broadcastable against ``a``.
+
+        Returns:
+            The element-wise sum, in the backend's own array type.
+        """
+        return self.xp.add(a, b)
+
     def bincount(
         self,
         x: Any,

@@ -129,6 +129,19 @@ class TestConcatPointSources:
         with pytest.raises(ValueError, match="allow_lossy_point_materialization=True"):
             concat_point_sources([sky], reference_frequency=100e6)
 
+    def test_concat_healpix_rejection_names_the_hybrid_alternative(self, precision):
+        """Tier 6F: the lossless mode is now offered before the lossy opt-in."""
+        sky = make_healpix_model(precision=precision)
+        with pytest.raises(ValueError) as excinfo:
+            concat_point_sources([sky], reference_frequency=100e6)
+        assert str(excinfo.value) == (
+            "Point-source combination requires converting a HEALPix-only model "
+            "to point sources, which is lossy. Request "
+            "visibility.sky_representation=hybrid to sum a point component and "
+            "a HEALPix component without converting either, or re-run with "
+            "allow_lossy_point_materialization=True to opt in."
+        )
+
     def test_concat_healpix_allows_explicit_lossy_conversion(self, precision):
         sky = make_healpix_model(precision=precision)
         data = concat_point_sources(

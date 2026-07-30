@@ -100,10 +100,14 @@ def _parts(tmp_path, *, dtype="complex128", receptors=None):
         sky_representation="point_sources",
         convention="radiosim.rime-zenith-drift.v1",
         execution_path="polarized",
+        components=("point",),
+        component_element_counts=(3,),
     )
     performance = ResultPerformance(
         setup_seconds=1.0,
         solver_seconds=2.0,
+        solver_point_seconds=2.0,
+        solver_healpix_seconds=0.0,
         result_construction_seconds=0.5,
         host_transfer_seconds=0.25,
         total_seconds=3.75,
@@ -654,6 +658,8 @@ def test_result_fingerprints_exclude_performance_workflow_and_output_paths(tmp_p
         performance=ResultPerformance(
             setup_seconds=2.0,
             solver_seconds=3.0,
+            solver_point_seconds=3.0,
+            solver_healpix_seconds=0.0,
             result_construction_seconds=1.0,
             host_transfer_seconds=0.5,
             total_seconds=6.5,
@@ -692,6 +698,186 @@ def test_scientific_fingerprint_is_independent_of_source_checkout_location(tmp_p
     assert first.scientifically_equal(second)
     assert second.scientifically_equal(first)
     assert first.provenance_sha256 != second.provenance_sha256
+
+
+def test_scientific_fingerprint_is_checkout_independent_for_a_fits_beam(tmp_path):
+    """The same guarantee as above, for the FITS beam path.
+
+    Routed here by the ``RUN-005`` standalone acceptance (plan Section 36): the
+    committed analytic-beam test only exercises the antenna-layout path, because
+    all three shipped configurations use analytic beams, so the FITS branch of
+    ``_scientific_beam_projection`` had no committed regression test.
+
+    ``write_scalar_efield_beamfits`` is **not** byte-reproducible across calls --
+    pyuvdata's writer embeds a write-time timestamp in a FITS ``HISTORY`` card --
+    so the fixture is generated once and its identical bytes are copied into both
+    checkouts.  Regenerating it independently would conflate write-time
+    nondeterminism with checkout-path dependence, which is the very thing under
+    test.
+    """
+    from tests.fixtures.beamfits import write_scalar_efield_beamfits
+
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    written = write_scalar_efield_beamfits(origin)
+    beam_bytes = written.path.read_bytes()
+
+    def build_at(root):
+        root.mkdir(parents=True, exist_ok=True)
+        beam_path = root / written.path.name
+        beam_path.write_bytes(beam_bytes)
+        assert beam_path.read_bytes() == beam_bytes
+        mapping = _mapping(root)
+        mapping["beams"] = {
+            "mode": "shared_fits",
+            "beam": {"kind": "fits", "path": str(beam_path)},
+        }
+        simulator = Simulator.from_mapping(mapping, base_dir=root)
+        simulator._ensure_instrument_state()
+        simulator._ensure_receptor_set()
+        simulator._ensure_beam_system()
+        backend = get_backend("numpy")
+        cube = np.arange(2 * 1 * 2 * 4, dtype=np.float64).reshape(2, 1, 2, 2, 2)
+        receptor = cube.astype("complex128")
+        receptor += 1j * receptor
+        return build_simulation_result(
+            receptor_visibilities=receptor,
+            backend=backend,
+            time_grid=simulator.config.observation.time_grid,
+            frequencies_hz=simulator.config.frequency.channel_frequencies_hz,
+            channel_widths_hz=simulator.config.frequency.channel_widths_hz,
+            instrument=simulator.instrument,
+            selection=simulator._instrument_state.selection,
+            beam_state=simulator.beam_state,
+            receptors=simulator.receptors,
+            phase_center=PhaseCenter(),
+            backend_provenance=BackendResultProvenance(
+                requested_backend="numpy",
+                actual_backend=backend.name,
+                requested_precision={"output": "complex128"},
+                actual_precision={"output": "complex128"},
+                result_dtype="complex128",
+            ),
+            solver_provenance=SolverResultProvenance(
+                solver="rime",
+                sky_representation="point_sources",
+                convention="radiosim.rime-zenith-drift.v1",
+                execution_path="polarized",
+                components=("point",),
+                component_element_counts=(1,),
+            ),
+            resolved_config=simulator.config.to_json_safe(),
+            configuration_provenance=None,
+            performance=ResultPerformance(
+                setup_seconds=1.0,
+                solver_seconds=2.0,
+                solver_point_seconds=2.0,
+                solver_healpix_seconds=0.0,
+                result_construction_seconds=0.5,
+                host_transfer_seconds=0.25,
+                total_seconds=3.75,
+            ),
+            history=("simulated",),
+        )
+
+    first = build_at(tmp_path / "checkout_a")
+    second = build_at(tmp_path / "checkout_b" / "nested")
+
+    first_beam = first.beam_state.to_snapshot()
+    second_beam = second.beam_state.to_snapshot()
+    assert json.dumps(first_beam, sort_keys=True) != json.dumps(
+        second_beam, sort_keys=True
+    )
+    assert first.scientific_sha256 == second.scientific_sha256
+    assert first.scientifically_equal(second)
+    assert first.provenance_sha256 != second.provenance_sha256
+    # The shared bytes really did land identically in both checkouts.
+    assert (
+        hashlib.sha256(
+            (tmp_path / "checkout_a" / written.path.name).read_bytes()
+        ).hexdigest()
+        == hashlib.sha256(
+            (tmp_path / "checkout_b" / "nested" / written.path.name).read_bytes()
+        ).hexdigest()
+    )
+
+
+def test_solver_provenance_requires_components_matching_the_representation():
+    """Section 9.4: the component list is derivable, so it must be consistent."""
+    with pytest.raises(InvalidResultError, match="components do not match"):
+        SolverResultProvenance(
+            solver="rime",
+            sky_representation="hybrid",
+            convention="radiosim.rime-zenith-drift.v1",
+            execution_path="polarized",
+            components=("point",),
+            component_element_counts=(3,),
+        )
+    with pytest.raises(InvalidResultError, match="components do not match"):
+        SolverResultProvenance(
+            solver="rime",
+            sky_representation="point_sources",
+            convention="radiosim.rime-zenith-drift.v1",
+            execution_path="polarized",
+            components=("healpix",),
+            component_element_counts=(3,),
+        )
+    with pytest.raises(InvalidResultError, match="must cover every component"):
+        SolverResultProvenance(
+            solver="rime",
+            sky_representation="hybrid",
+            convention="radiosim.rime-zenith-drift.v1",
+            execution_path="polarized",
+            components=("point", "healpix"),
+            component_element_counts=(3,),
+        )
+    with pytest.raises(InvalidResultError, match="must be nonnegative"):
+        SolverResultProvenance(
+            solver="rime",
+            sky_representation="point_sources",
+            convention="radiosim.rime-zenith-drift.v1",
+            execution_path="polarized",
+            components=("point",),
+            component_element_counts=(-1,),
+        )
+
+    hybrid = SolverResultProvenance(
+        solver="rime",
+        sky_representation="hybrid",
+        convention="radiosim.rime-zenith-drift.v1",
+        execution_path="polarized",
+        components=["point", "healpix"],
+        component_element_counts=[3, 48],
+    )
+    # A JSON round trip hands back lists; they are coerced, not rejected.
+    assert hybrid.components == ("point", "healpix")
+    assert hybrid.component_element_counts == (3, 48)
+
+
+def test_result_performance_rejects_component_times_exceeding_solver_seconds():
+    """Section 9.4's coherence rule for the two new timings."""
+    with pytest.raises(InvalidResultError, match="solver component times"):
+        ResultPerformance(
+            setup_seconds=0.0,
+            solver_seconds=1.0,
+            solver_point_seconds=0.8,
+            solver_healpix_seconds=0.3,
+            result_construction_seconds=0.0,
+            host_transfer_seconds=0.0,
+            total_seconds=1.0,
+        )
+    performance = ResultPerformance(
+        setup_seconds=0.0,
+        solver_seconds=1.0,
+        solver_point_seconds=0.6,
+        solver_healpix_seconds=0.4,
+        result_construction_seconds=0.0,
+        host_transfer_seconds=0.0,
+        total_seconds=1.0,
+    )
+    snapshot = performance.to_snapshot()
+    assert snapshot["solver_point_seconds"] == 0.6
+    assert snapshot["solver_healpix_seconds"] == 0.4
 
 
 def test_loaded_result_rejects_nonboolean_flags_instead_of_coercing(tmp_path):

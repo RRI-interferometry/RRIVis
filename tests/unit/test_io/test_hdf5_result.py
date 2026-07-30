@@ -170,10 +170,14 @@ def _unicode_antenna_result(tmp_path: Path):
         sky_representation="point_sources",
         convention="radiosim.rime-zenith-drift.v1",
         execution_path="polarized",
+        components=("point",),
+        component_element_counts=(3,),
     )
     performance = ResultPerformance(
         setup_seconds=1.0,
         solver_seconds=2.0,
+        solver_point_seconds=2.0,
+        solver_healpix_seconds=0.0,
         result_construction_seconds=0.5,
         host_transfer_seconds=0.25,
         total_seconds=3.75,

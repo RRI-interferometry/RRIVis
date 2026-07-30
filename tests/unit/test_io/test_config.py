@@ -167,6 +167,8 @@ def test_visibility_and_top_level_defaults_match_target(tmp_path):
     config = RadioSimConfig.model_validate(data)
 
     assert VisibilityConfig().sky_representation == "point_sources"
+    assert VisibilityConfig().allow_lossy_point_rasterization is False
+    assert VisibilityConfig(sky_representation="hybrid").sky_representation == "hybrid"
     assert config.beams.mode == "analytic"
     assert config.beams.model.kind == "circular_aperture"
     assert config.beams.model.taper.kind == "gaussian"
@@ -991,3 +993,27 @@ def test_explicit_numpy_container_is_owned_by_model():
 
     assert frequency.channel_frequencies_hz == (100e6, 101.5e6, 108e6)
     assert frequency.channel_widths_hz == (1e6, 2e6, 3e6)
+
+
+def test_visibility_admits_the_hybrid_solve_mode_and_its_rasterization_opt_in():
+    """Tier 6F additions to ``visibility`` (plan Sections 8.1, 18.1)."""
+    literals = set(
+        getattr(
+            VisibilityConfig.model_fields["sky_representation"].annotation,
+            "__args__",
+            (),
+        )
+    )
+    assert literals == {"point_sources", "healpix_map", "hybrid"}
+
+    opted_in = VisibilityConfig(
+        sky_representation="healpix_map",
+        allow_lossy_point_rasterization=True,
+    )
+    assert opted_in.allow_lossy_point_rasterization is True
+    assert opted_in.allow_lossy_point_materialization is False
+
+    with pytest.raises(ValidationError):
+        VisibilityConfig(sky_representation="hybrid_map")
+    with pytest.raises(ValidationError):
+        VisibilityConfig(allow_lossy_point_rasterization="not-a-bool")

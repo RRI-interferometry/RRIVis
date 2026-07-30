@@ -241,7 +241,10 @@ def concat_point_sources(
             if not allow_lossy_point_materialization:
                 raise ValueError(
                     "Point-source combination requires converting a HEALPix-only "
-                    "model to point sources, which is lossy. Re-run with "
+                    "model to point sources, which is lossy. Request "
+                    "visibility.sky_representation=hybrid to sum a point "
+                    "component and a HEALPix component without converting "
+                    "either, or re-run with "
                     "allow_lossy_point_materialization=True to opt in."
                 )
             m = materialize_point_sources_model(

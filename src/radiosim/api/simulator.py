@@ -607,6 +607,9 @@ class Simulator:
         allow_lossy_point_materialization = visibility_config.get(
             "allow_lossy_point_materialization", False
         )
+        allow_lossy_point_rasterization = visibility_config.get(
+            "allow_lossy_point_rasterization", False
+        )
         requested_nside = self._requested_healpix_nside()
         pre_sky_sampling = derive_beam_sampling_requirement(
             selected_baselines=self.baselines,
@@ -617,7 +620,7 @@ class Simulator:
             actual_nside=requested_nside,
         )
         pre_sky_warning_emitted = False
-        if sky_representation == "healpix_map":
+        if sky_representation in {"healpix_map", "hybrid"}:
             pre_sky_warning_emitted = self._warn_for_coarse_beam_sampling(
                 pre_sky_sampling
             )
@@ -821,11 +824,19 @@ class Simulator:
                 "in the sky_model section of your config."
             )
 
+        from radiosim.core.hybrid import check_representation_compatibility
         from radiosim.core.sky.combine.pipeline import prepare_sky_model
 
+        # ``hybrid`` is a solve mode, not a payload representation: it resolves
+        # to the existing hybrid-preserving combine path, which reduces the
+        # point pile and the HEALPix pile independently and converts neither
+        # (``Tier6HybridRuntimePlan.md`` Section 8.1).
+        combine_representation = (
+            None if sky_representation == "hybrid" else sky_representation
+        )
         self._sky_model = prepare_sky_model(
             sky_models,
-            representation=sky_representation,
+            representation=combine_representation,
             nside=requested_nside,
             frequency=frequency,
             frequencies=self._frequencies_hz,
@@ -837,9 +848,18 @@ class Simulator:
             backend=self._backend,
         )
 
-        # Get point source arrays for RIME calculator (only in point_sources mode)
-        from radiosim.core.sky.containers.model import SkyFormat
+        # Section 20.1 step 9: reject a representation that would silently lose
+        # or degrade a payload.  This runs after combination because the hybrid
+        # and point-source decisions need the *combined* model's payload set,
+        # and before any solver work or output path exists.
+        check_representation_compatibility(
+            sky_representation=sky_representation,
+            contributed_models=sky_models,
+            resolved_model=self._sky_model,
+            allow_lossy_point_rasterization=allow_lossy_point_rasterization,
+        )
 
+        # Get point source arrays for RIME calculator (not in healpix_map mode)
         if self._sky_model.healpix is not None:
             actual_nside = int(self._sky_model.healpix.nside)
             post_sky_sampling = derive_beam_sampling_requirement(
@@ -856,19 +876,58 @@ class Simulator:
             ):
                 _ = self._warn_for_coarse_beam_sampling(post_sky_sampling)
 
-        sky_mode = SkyFormat(sky_representation)
-        if sky_mode == SkyFormat.HEALPIX:
+        if sky_representation == "healpix_map":
             self._source_arrays = None
         else:
             self._source_arrays = self._sky_model.as_point_source_arrays()
 
         self._is_setup = True
-        n_sky = self._sky_model.n_sky_elements_for(sky_mode)
-        sky_type = "pixels" if sky_mode == SkyFormat.HEALPIX else "sources"
         print_success(
-            f"Setup complete: {len(self.antennas)} antennas, {len(self.baselines)} baselines, {n_sky} {sky_type}"
+            f"Setup complete: {len(self.antennas)} antennas, "
+            f"{len(self.baselines)} baselines, "
+            f"{self._sky_label(sky_representation)}"
         )
         return self
+
+    def _solved_sky_element_count(self) -> int:
+        """Return the total sky elements every solved component consumes.
+
+        Before Tier 6F this counted only the point payload, so a ``healpix_map``
+        run reported zero and a hybrid run would have under-reported (defect
+        ``D19``).  The estimate now sums the components the requested mode
+        actually solves (``Tier6HybridRuntimePlan.md`` Section 17).
+        """
+        from radiosim.core.hybrid import component_names_for_representation
+
+        representation = str(self._resolved.visibility["sky_representation"])
+        total = 0
+        for name in component_names_for_representation(representation):
+            if name == "point":
+                total += (
+                    len(self._source_arrays["ra_rad"]) if self._source_arrays else 0
+                )
+            elif self._sky_model is not None:
+                total += self._sky_model.n_healpix_pixels
+        return total
+
+    def _sky_label(self, sky_representation: str) -> str:
+        """Describe the resolved sky the way the requested mode consumes it.
+
+        A hybrid run prints *both* component counts, because reporting only one
+        of them would understate the sky the solvers actually see
+        (``Tier6HybridRuntimePlan.md`` Section 17).
+        """
+        from radiosim.core.hybrid import component_names_for_representation
+
+        if self._sky_model is None:
+            return "0 sources"
+        labels = []
+        for name in component_names_for_representation(sky_representation):
+            if name == "point":
+                labels.append(f"{self._sky_model.n_point_sources} sources")
+            else:
+                labels.append(f"{self._sky_model.n_healpix_pixels} pixels")
+        return " + ".join(labels)
 
     def run(self, *, progress: bool = True) -> SimulationResult:
         """
@@ -924,26 +983,18 @@ class Simulator:
 
         t_setup = time.perf_counter() - t_start
 
-        if progress:
-            from radiosim.core.sky.containers.model import SkyFormat as _SF
+        sky_representation = str(self._resolved.visibility["sky_representation"])
 
+        if progress:
             # Print configuration table (after setup, needs backend/sky_model info)
-            _sky_mode = _SF(self._resolved.visibility["sky_representation"])
-            n_sky = (
-                self._sky_model.n_sky_elements_for(_sky_mode) if self._sky_model else 0
-            )
-            sky_label = (
-                f"{n_sky} pixels (HEALPix)"
-                if _sky_mode == _SF.HEALPIX
-                else f"{n_sky} sources"
-            )
+            sky_label = self._sky_label(sky_representation)
             config_data = {
                 "Backend": self._backend.name,
                 "Precision": self._backend.precision.default
                 if self._backend.precision
                 else "standard",
                 "Simulator": f"{self._simulator.name} ({self._simulator.complexity})",
-                "Sky Mode": _sky_mode.value,
+                "Sky Mode": sky_representation,
                 "Antennas": len(self.antennas),
                 "Baselines": len(self.baselines),
                 "Sky Model": sky_label,
@@ -954,10 +1005,12 @@ class Simulator:
             print_table("Simulation Configuration", config_data)
             console.print()  # Add spacing
 
-        from radiosim.core.sky.containers.model import SkyFormat
+        from radiosim.core.hybrid import solve_sky
 
-        _sky_mode = SkyFormat(self._resolved.visibility["sky_representation"])
-        print_info(f"Running visibility simulation ({_sky_mode.value} mode)...")
+        print_info(f"Running visibility simulation ({sky_representation} mode)...")
+
+        if self._sky_model is None:
+            raise RuntimeError("Simulation setup did not publish a sky model")
 
         solver_started = time.perf_counter()
 
@@ -966,39 +1019,25 @@ class Simulator:
         # ``resolved_config`` (plan Sections 11.3, 12.1, 18.4).
         solver_execution = self._resolved.execution.solver
 
-        if _sky_mode == SkyFormat.HEALPIX and self._sky_model is not None:
-            from radiosim.core.visibility_healpix import calculate_visibility_healpix
-
-            use_pol = self._sky_model.has_polarized_healpix_maps
-            receptor_visibilities = calculate_visibility_healpix(
-                sky_model=self._sky_model,
-                instrument=instrument_view,
-                beam_system=self.beam_system,
-                location=location,
-                time_grid=self._resolved.observation.time_grid,
-                frequencies=frequencies,
-                output_units="Jy",
-                include_polarization=use_pol,
-                backend=backend,
-                receptors=self.receptors,
-                solver_execution=solver_execution,
-            )
-        else:
-            use_pol = True
-            if self._source_arrays is None:
-                raise RuntimeError("Point-source setup did not publish source arrays")
-            receptor_visibilities = solver.calculate_visibilities(
-                instrument=instrument_view,
-                beam_system=self.beam_system,
-                source_arrays=self._source_arrays,
-                frequencies=frequencies,
-                backend=backend,
-                location=location,
-                time_grid=self._resolved.observation.time_grid,
-                receptors=self.receptors,
-                jones_config=None,
-                solver_execution=solver_execution,
-            )
+        # One call site for every representation.  Each component receives the
+        # identical shared objects, and a hybrid run's two cubes are summed in
+        # the backend array domain before the single host transfer below
+        # (plan Sections 8.4, 9.1).
+        outcome = solve_sky(
+            sky_representation=sky_representation,
+            sky_model=self._sky_model,
+            source_arrays=self._source_arrays,
+            point_solver=solver,
+            backend=backend,
+            instrument=instrument_view,
+            beam_system=self.beam_system,
+            location=location,
+            time_grid=self._resolved.observation.time_grid,
+            frequencies=frequencies,
+            receptors=self.receptors,
+            solver_execution=solver_execution,
+        )
+        receptor_visibilities = outcome.receptor_visibilities
 
         solver_seconds = time.perf_counter() - solver_started
         if self._instrument_state is None:
@@ -1018,6 +1057,8 @@ class Simulator:
         performance = ResultPerformance(
             setup_seconds=t_setup,
             solver_seconds=solver_seconds,
+            solver_point_seconds=outcome.seconds_for("point"),
+            solver_healpix_seconds=outcome.seconds_for("healpix"),
             result_construction_seconds=0.0,
             host_transfer_seconds=0.0,
             total_seconds=elapsed_before_result,
@@ -1044,11 +1085,14 @@ class Simulator:
             ),
             solver_provenance=SolverResultProvenance(
                 solver="rime",
-                sky_representation=(
-                    "healpix_map" if _sky_mode == SkyFormat.HEALPIX else "point_sources"
+                sky_representation=cast(
+                    Literal["point_sources", "healpix_map", "hybrid"],
+                    sky_representation,
                 ),
                 convention="radiosim.rime-zenith-drift.v1",
-                execution_path="polarized" if use_pol else "scalar",
+                execution_path=outcome.execution_path,
+                components=outcome.component_names,
+                component_element_counts=outcome.component_element_counts,
             ),
             resolved_config=self._resolved.to_json_safe(),
             configuration_provenance=(
@@ -1529,7 +1573,7 @@ class Simulator:
         estimate = self._simulator.get_memory_estimate(
             n_antennas=len(self.antennas),
             n_baselines=len(self.baselines),
-            n_sources=len(self._source_arrays["ra_rad"]) if self._source_arrays else 0,
+            n_sources=self._solved_sky_element_count(),
             n_frequencies=len(self._frequencies_hz),
             n_times=len(self._resolved.observation.time_grid),
         )

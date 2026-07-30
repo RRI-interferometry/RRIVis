@@ -71,6 +71,15 @@ from radiosim.core.beam import (
     UnsupportedBeamTypeError,
     resolve_beam_assignments,
 )
+from radiosim.core.hybrid import (
+    HYBRID_COMPONENT_NAMES,
+    HybridSkyError,
+    HybridSolveOutcome,
+    SolvedComponent,
+    check_representation_compatibility,
+    component_names_for_representation,
+    solve_sky,
+)
 from radiosim.core.instrument import (
     AntennaFieldSource,
     AntennaId,
@@ -332,6 +341,14 @@ __all__ = [
     "SolverPartitionError",
     "partition_time_axis",
     "validate_time_partition",
+    # Hybrid solve mode
+    "HYBRID_COMPONENT_NAMES",
+    "HybridSkyError",
+    "HybridSolveOutcome",
+    "SolvedComponent",
+    "check_representation_compatibility",
+    "component_names_for_representation",
+    "solve_sky",
     # Precision
     "PrecisionConfig",
     "PrecisionLevel",

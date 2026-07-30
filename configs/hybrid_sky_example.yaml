@@ -1,0 +1,114 @@
+# Hybrid sky example: V_total = V_point + V_healpix.
+#
+# `visibility.sky_representation: hybrid` is a *solve mode*, not a payload
+# representation. The resolved sky model keeps both payloads, both solvers run
+# on the identical time grid, frequency axis, baseline selection, receptor set,
+# and backend, and their two visibility cubes are summed in the backend array
+# domain before a single canonical result is built. Nothing is rasterized into
+# pixels and nothing is quantized to pixel centers, which is exactly what the
+# two single-payload modes cannot offer for a mixed sky.
+#
+# This configuration runs fully offline: both sources are synthetic.
+
+instrument:
+  source:
+    kind: layout_file
+    path: ../antenna_layout_examples/hera_5.txt
+    format: radiosim
+    telescope_name: HERA
+  location:
+    longitude_deg: 21.4283
+    latitude_deg: -30.72152
+    height_m: 1073.0
+  default_diameter_m: 14.0
+  diameter_overrides: []
+
+beams:
+  mode: analytic
+  model:
+    kind: circular_aperture
+    taper:
+      kind: gaussian
+      edge_taper_db: 10.0
+
+receptors:
+  default:
+    basis: linear
+    feed_rotation_deg: 0.0
+  overrides: []
+  output_basis: auto
+
+baseline_selection:
+  correlations: all
+  length_filter: null
+  azimuth_ranges_deg: []
+
+obs_time:
+  start_time: "2025-01-01T00:00:00"
+  duration_seconds: 300
+  time_step_seconds: 60
+
+obs_frequency:
+  mode: grid
+  starting_frequency: 100
+  frequency_interval: 1.0
+  frequency_bandwidth: 3.0
+  channel_width: 1.0
+  frequency_unit: MHz
+
+sky_model:
+  flux_unit: Jy
+  # Both sources are synthetic and share no emission, so the point-vs-diffuse
+  # double-counting rules have nothing real to test here. `allow` records that
+  # decision in the resolved configuration and therefore in every artifact; the
+  # monopole-consistency gate runs regardless. Replace this with the default
+  # `error` for any sky whose components are drawn from real catalogs and maps.
+  mixed_model_policy: allow
+  sources:
+    # Component 1 -- the point payload.
+    - kind: test_sources
+      num_sources: 20
+      distribution: random
+      seed: 42
+      flux_min: 1.0
+      flux_max: 5.0
+      dec_deg: -30.72
+      dec_range_deg: 10.0
+      spectral_index: 0
+    # Component 2 -- the HEALPix payload, kept as maps rather than folded into
+    # the catalog above.
+    - kind: test_sources
+      representation: healpix_map
+      nside: 16
+      num_sources: 30
+      distribution: random
+      seed: 7
+      flux_min: 0.5
+      flux_max: 2.0
+      dec_deg: -30.72
+      dec_range_deg: 20.0
+      spectral_index: 0
+
+visibility:
+  calculation_type: direct_sum
+  sky_representation: hybrid
+
+execution:
+  backend: numpy
+  precision:
+    preset: standard
+  simulator: rime
+  offline: true
+
+workflow:
+  output_dir: output
+  run_subdir: null
+  result_filename: visibilities
+  result_format: hdf5
+  save_results: true
+  collision_policy: error
+  plot_results: false
+  open_plots_in_browser: false
+  plotting_backend: bokeh
+  save_log: false
+  visibility_phase_unit: radians

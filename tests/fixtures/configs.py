@@ -132,6 +132,85 @@ def valid_config_mapping(
     return merged
 
 
+#: The two synthetic sources whose combination resolves to a hybrid model:
+#: one point payload and one HEALPix payload, disjoint by construction.
+HYBRID_SKY_SOURCES: tuple[dict[str, Any], ...] = (
+    {
+        "kind": "test_sources",
+        "representation": "point_sources",
+        "num_sources": 2,
+        "distribution": "uniform",
+        "seed": 1,
+        # A flat spectrum keeps the point payload independent of the reference
+        # frequency, which the single-model load path and the combine path fill
+        # in differently.  Without it the two control runs would not share the
+        # hybrid run's point payload and the additivity comparison would be
+        # measuring that unrelated asymmetry.
+        "spectral_index": 0.0,
+    },
+    {
+        "kind": "test_sources",
+        "representation": "healpix_map",
+        "nside": 1,
+        "num_sources": 2,
+        "distribution": "uniform",
+        "seed": 5,
+        "spectral_index": 0.0,
+    },
+)
+
+
+def hybrid_config_mapping(
+    tmp_path: Path,
+    *,
+    component: str = "hybrid",
+    **section_overrides: Mapping[str, object],
+) -> dict[str, Any]:
+    """Build a mapping whose resolved sky model carries both payloads.
+
+    Args:
+        tmp_path: Directory receiving the generated antenna file and outputs.
+        component: ``hybrid`` for both payloads, or ``point``/``healpix`` for
+            the single-component control run that keeps every other input
+            byte-identical.  The single-component variants are what Tier 6F's
+            additivity invariant (``V_hybrid == V_point + V_healpix``) compares
+            against.
+        **section_overrides: Applied on top, as in :func:`valid_config_mapping`.
+
+    Returns:
+        A complete configuration mapping.
+    """
+    if component == "hybrid":
+        sources: list[dict[str, Any]] = [dict(s) for s in HYBRID_SKY_SOURCES]
+        representation = "hybrid"
+    elif component == "point":
+        sources = [dict(HYBRID_SKY_SOURCES[0])]
+        representation = "point_sources"
+    elif component == "healpix":
+        sources = [dict(HYBRID_SKY_SOURCES[1])]
+        representation = "healpix_map"
+    else:  # pragma: no cover - test-authoring error
+        raise ValueError(f"unknown hybrid component {component!r}")
+    return valid_config_mapping(
+        tmp_path,
+        obs_time={
+            "start_time": "2025-01-01T00:00:00",
+            "duration_seconds": 2.0,
+            "time_step_seconds": 1.0,
+        },
+        sky_model={
+            "flux_unit": "Jy",
+            "mixed_model_policy": "allow",
+            "sources": sources,
+        },
+        visibility={
+            "calculation_type": "direct_sum",
+            "sky_representation": representation,
+        },
+        **section_overrides,
+    )
+
+
 def valid_input_config(tmp_path: Path, **overrides: object) -> RadioSimConfig:
     """Build the strict target Pydantic model through normal validation."""
     return RadioSimConfig.model_validate(valid_config_mapping(tmp_path, **overrides))
