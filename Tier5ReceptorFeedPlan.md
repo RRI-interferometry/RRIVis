@@ -2445,6 +2445,39 @@ Fix.md
 Tier5ReceptorFeedPlan.md
 ```
 
+**Correction (Tier 5H independent acceptance).** Added `docs/migration_guide.md`
+and `tests/unit/test_tier5_receptor_acceptance.py` to the Tier 5I writable file
+list. §28 requires every removal to be documented in `docs/migration_guide.md`
+with the exact replacement, and B1-B11's removals (the top-level `feeds`
+section, the `ReceptorConfigJones`/`BasisTransformJones` stub keywords, the
+HDF5 schema version bump, the four duplicated correlation constants, and the
+illumination rename) each have an entry there. B12 (5H's removal of
+`visibility_to_correlations`, `mueller_from_jones`, and `core/receptor.py`'s
+`PolarizationBasisName`) does not, because `docs/migration_guide.md` was never
+on 5H's own §35 grant — 5H could not have added the entry without exceeding its
+writable file list. Independently reproduced: `radiosim.core` raises a bare
+`AttributeError` for `visibility_to_correlations` and `radiosim.core.polarization`
+raises a bare `ImportError` for `mueller_from_jones`, neither carrying migration
+text, unlike the stub-keyword removal, which raises a `TypeError` naming
+`receptors:` as the replacement. §39 criterion 17 ("every removed ... symbol ...
+fails with its documented migration boundary") is therefore not yet met for
+B12. Tier 5I, as the whole-tier gate responsible for checking criterion 17
+before closing `POL-001`/`POL-002`, is authorized to add one short table row
+(or equivalent prose) to `docs/migration_guide.md` naming the three removed
+symbols and stating each has no replacement (each had zero production callers,
+per the 5A evidence Section 43 Q4/Q5 record and 5H's independent acceptance
+re-confirmation). Because `tests/unit/test_tier5_receptor_acceptance.py`'s
+repository-wide reference scan (`ALLOWED_REFERENCES`,
+`REFERENCE_RECORDING_FILES`) treats `docs/` as a scanned root and is an
+exact-list assertion rather than an exemption, any such migration-guide
+sentence naming a removed symbol must also add `docs/migration_guide.md` to
+that test's `ALLOWED_REFERENCES` entry and `REFERENCE_RECORDING_FILES` for the
+three names, or the new documentation sentence fails the very residual scan it
+completes. This correction, and the addition it authorizes, is documentation
+only: it changes no production behavior, no scientific claim, and no decision,
+and does not relax 5I's "Production changes: None" constraint on RIME/solver/
+config behavior. No other file, decision, or slice boundary changes.
+
 ## 36. Independent acceptance gate after every slice
 
 Every slice acceptance is performed by a reviewer who did not write the slice
