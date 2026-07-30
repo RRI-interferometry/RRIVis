@@ -180,6 +180,43 @@ The removed top-level sections map to:
 `workflow` never enters `ResolvedSimulationConfig`, and Python construction
 does not execute post-run actions.
 
+### Worker policy: `run(n_workers=...)` removed
+
+`Simulator.run()` no longer accepts `n_workers`, and `progress` is now
+keyword-only. The new signature is:
+
+```python
+def run(self, *, progress: bool = True) -> SimulationResult: ...
+```
+
+Passing the removed keyword raises Python's own `TypeError`:
+
+```text
+run() got an unexpected keyword argument 'n_workers'
+```
+
+Solver concurrency is declared in the configuration instead, so it is resolved
+once, recorded in `result.resolved_config`, and hashed into
+`provenance_sha256` like every other execution policy:
+
+```yaml
+execution:
+  solver:
+    workers: 4        # default 1; clamped to the number of time samples
+    executor: thread  # the only supported value
+  sky_loading:
+    max_workers: 4    # loader-side policy, independent of the solver
+    executor: auto
+```
+
+`execution.n_workers` — the removed configuration field that never reached the
+solver — is likewise rejected, with a message naming both replacements.
+
+Solver workers parallelize the time axis only: each worker computes a
+contiguous block of time samples and the blocks are reassembled in time order,
+so any `workers` value produces a bit-identical result to `workers: 1`. Choose
+it for wall-clock time, never for numerical reasons.
+
 ## Beam input
 
 The flat beam object and BeamManager compatibility keys are rejected rather

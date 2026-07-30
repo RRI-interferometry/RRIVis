@@ -791,28 +791,34 @@ def test_execution_config_backend_literal_still_offers_numba() -> None:
     assert backend_literals == {"auto", "numpy", "jax", "numba"}
 
 
-def test_run_still_advertises_and_then_rejects_n_workers(tmp_path) -> None:
-    """Pins D7: the public parameter exists, is documented, and always raises.
+def test_run_no_longer_advertises_n_workers(tmp_path) -> None:
+    """Flipped by Tier 6E, closing D7.
 
-    OWNED BY: Tier 6E, which deletes the parameter outright.
+    The 6A pin recorded the defect: ``run()`` advertised and documented an
+    ``n_workers`` parameter that could never be used, raising
+    ``NotImplementedError`` for every value.  Tier 6E deleted the parameter
+    outright (plan Sections 12.1-12.3), so the rejection is now Python's own
+    ``TypeError`` naming the removed keyword, ``progress`` is keyword-only, and
+    solver concurrency is expressed once, in ``execution.solver.workers``.
     """
     signature = inspect.signature(Simulator.run)
-    assert list(signature.parameters) == ["self", "progress", "n_workers"]
-    assert signature.parameters["n_workers"].default is None
+    assert list(signature.parameters) == ["self", "progress"]
+    assert signature.parameters["progress"].kind is inspect.Parameter.KEYWORD_ONLY
     docstring = Simulator.run.__doc__ or ""
-    assert "Number of parallel workers (default: auto)" in docstring
+    assert "Number of parallel workers (default: auto)" not in docstring
+    assert "execution.solver.workers" in docstring
 
     simulator = Simulator.from_mapping(
         valid_config_mapping(tmp_path), base_dir=tmp_path
     )
-    with pytest.raises(NotImplementedError, match="Target remediation: Tier 6"):
-        simulator.run(n_workers=1)
+    with pytest.raises(TypeError, match="n_workers"):
+        simulator.run(n_workers=1)  # type: ignore[call-arg]
 
 
 def test_no_worker_value_is_recorded_in_provenance(tmp_path) -> None:
     """Pins D6: no resolved worker count reaches the bounded result snapshot.
 
-    OWNED BY: Tier 6E.
+    Formerly ``OWNED BY: Tier 6E``; closed by 6E, see the disposition below.
 
     Scope note added by Tier 6B: the resolved worker policy now *does* reach
     ``SimulationResult.resolved_config`` and therefore ``provenance_sha256``,
@@ -830,6 +836,21 @@ def test_no_worker_value_is_recorded_in_provenance(tmp_path) -> None:
     grant, and the bounded snapshot is deliberately left free of runtime worker
     values, so the assertions below are unchanged and the pin now carries only
     the 6E half.
+
+    Disposition of the 6E half (Tier 6E implementation): **closed with the
+    assertions unchanged, deliberately.**  6E made ``execution.solver.workers``
+    effective, and the count the solver executes is *exactly* the resolved,
+    already-clamped ``ResolvedSolverExecutionConfig.workers``
+    (``api/simulator.py`` passes ``self._resolved.execution.solver`` straight to
+    both solvers; the partition applies no second clamp of its own).  There is
+    therefore no separate *executed* solver worker value that could diverge from
+    the resolved one, and the resolved one has been in ``resolved_config``,
+    ``provenance_sha256``, the HDF5 ``resolved_config_json`` and the summary
+    JSON since 6B.  ``core/result.py`` is not in 6E's Section 33 grant either,
+    and adding a runtime worker count to the bounded snapshot would be a
+    scope-free change with nothing new to report.  This pin now records a
+    standing invariant rather than a defect: the bounded snapshot stays free of
+    worker values.  No ``OWNED BY`` line remains.
     """
     result = Simulator.from_mapping(
         valid_config_mapping(tmp_path), base_dir=tmp_path
@@ -974,12 +995,20 @@ def test_healpix_solver_rebuilds_the_constant_receptor_transforms_per_time() -> 
     built once above the time loop instead of once per time sample.  The
     frequency loop no longer enumerates: the restructure removed the last use of
     ``freq_idx``, which only existed to index the per-cell output write.
+
+    Anchor updated by Tier 6E: the per-time body became the ``_time_block``
+    closure that solver workers call over contiguous time ranges (plan Section
+    11.3), so the literal ``for time_idx in range(n_times):`` statement no
+    longer exists.  The property being pinned is unchanged -- the constant
+    transform is built once, above everything per-time -- and is now anchored on
+    the closure that replaced the statement.
     """
     source = _source("src/radiosim/core/visibility_healpix.py")
-    time_loop = source.index("for time_idx in range(n_times):")
+    time_loop = source.index("def _time_block(time_idx: int")
     transforms = source.index("receptor_transforms = _receptor_transforms(")
     frequency_loop = source.index("for freq in frequencies:")
     assert transforms < time_loop < frequency_loop
+    assert source.count("def _time_block(") == 1
     assert source.count("receptor_transforms = _receptor_transforms(") == 1
     assert "for freq_idx, freq in enumerate(frequencies):" not in source
 

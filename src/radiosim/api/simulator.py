@@ -870,20 +870,18 @@ class Simulator:
         )
         return self
 
-    def run(
-        self,
-        progress: bool = True,
-        n_workers: int | None = None,
-    ) -> SimulationResult:
+    def run(self, *, progress: bool = True) -> SimulationResult:
         """
         Run the visibility simulation.
+
+        Solver concurrency is **not** a ``run()`` argument: it is declared once,
+        in ``execution.solver.workers``, resolved centrally, and recorded in the
+        result's provenance (``Tier6HybridRuntimePlan.md`` Sections 11.3, 12.1).
 
         Parameters
         ----------
         progress : bool, optional
-            Show progress information (default: True).
-        n_workers : int, optional
-            Number of parallel workers (default: auto).
+            Show progress information (default: True). Keyword-only.
 
         Returns
         -------
@@ -898,13 +896,6 @@ class Simulator:
         >>> result is sim.result
         True
         """
-        if n_workers is not None:
-            raise NotImplementedError(
-                "run(n_workers=...): visibility worker control is not implemented and "
-                "would be ignored. Omit n_workers for current serial orchestration. "
-                "Target remediation: Tier 6."
-            )
-
         t_start = time.perf_counter()
 
         # Set up if not already done
@@ -970,6 +961,11 @@ class Simulator:
 
         solver_started = time.perf_counter()
 
+        # The one source of solver concurrency: the centrally resolved policy,
+        # already clamped to the time-sample count and already recorded in
+        # ``resolved_config`` (plan Sections 11.3, 12.1, 18.4).
+        solver_execution = self._resolved.execution.solver
+
         if _sky_mode == SkyFormat.HEALPIX and self._sky_model is not None:
             from radiosim.core.visibility_healpix import calculate_visibility_healpix
 
@@ -985,6 +981,7 @@ class Simulator:
                 include_polarization=use_pol,
                 backend=backend,
                 receptors=self.receptors,
+                solver_execution=solver_execution,
             )
         else:
             use_pol = True
@@ -1000,6 +997,7 @@ class Simulator:
                 time_grid=self._resolved.observation.time_grid,
                 receptors=self.receptors,
                 jones_config=None,
+                solver_execution=solver_execution,
             )
 
         solver_seconds = time.perf_counter() - solver_started

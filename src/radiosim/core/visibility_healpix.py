@@ -35,12 +35,18 @@ from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
 from radiosim.core.jones.receptor import basis_transform_matrix, receptor_matrix
 from radiosim.core.polarization import stokes_to_coherency
 from radiosim.core.receptor import ResolvedReceptorSet
+from radiosim.core.runtime_config import ResolvedSolverExecutionConfig
 from radiosim.core.sky import (
     SkyModel,
     brightness_temp_to_flux_density,
     rayleigh_jeans_factor,
 )
 from radiosim.core.sky.containers.constants import C_LIGHT
+from radiosim.core.solver_partition import (
+    SERIAL_SOLVER_EXECUTION,
+    execute_time_blocks,
+    require_solver_execution,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +271,7 @@ def calculate_visibility_healpix(
     receptors: ResolvedReceptorSet,
     output_units: str = "Jy",
     include_polarization: bool = False,
+    solver_execution: ResolvedSolverExecutionConfig = SERIAL_SOLVER_EXECUTION,
 ) -> Any:
     """
     Calculate visibility directly from HEALPix brightness temperature map.
@@ -309,6 +316,12 @@ def calculate_visibility_healpix(
         If True and sky model has polarized HEALPix maps, compute full 2×2
         visibility matrices using the RIME with Jones beam matrices. Output
         The returned cube retains the same canonical shape in both paths.
+    solver_execution : ResolvedSolverExecutionConfig, optional
+        Resolved solver worker policy. ``workers=1`` (the default) is the exact
+        serial path; ``workers=N`` distributes contiguous time blocks over a
+        thread pool of ``N`` threads and reassembles them in time order, which
+        is bit-identical to the serial result for every ``N``
+        (``Tier6HybridRuntimePlan.md`` Sections 11.3, 11.5).
 
     Returns
     -------
@@ -333,6 +346,7 @@ def calculate_visibility_healpix(
         field_name="include_polarization",
     )
     receptors = _require_receptors(receptors)
+    solver_execution = require_solver_execution(solver_execution)
     if sky_model.healpix is None:
         raise ValueError(
             "sky_model must contain a HEALPix payload. "
@@ -404,10 +418,13 @@ def calculate_visibility_healpix(
     # Output accumulation follows Section 13.3 of Tier6HybridRuntimePlan.md:
     # one (B, 2, 2) block per (time, frequency), one (B, F, 2, 2) block per
     # time, and exactly one (T, B, F, 2, 2) assembly per call.
+    #
+    # Every time step reads only run-constant inputs and produces its own
+    # independent block, so contiguous time ranges are exactly the unit of
+    # solver worker parallelism (Section 11.3/11.4).
     # ==========================================================================
-    time_blocks: list[Any] = []
-    empty_time_block: Any = None
-    for time_idx in range(n_times):
+    def _time_block(time_idx: int, empty_block: list[Any]) -> Any:
+        """Compute the ``(B, F, 2, 2)`` output block for one time index."""
         current_obstime = sample_times[time_idx]
 
         # ---- host preprocessing (named stage; see _host_preprocess_time_step)
@@ -418,13 +435,14 @@ def calculate_visibility_healpix(
         )
         if not np.any(above_horizon):
             # Contribute an exactly zero block so the time axis keeps its slot.
-            if empty_time_block is None:
-                empty_time_block = backend.zeros_complex(
-                    (n_baselines, n_freqs, 2, 2),
-                    dtype=output_complex_dtype,
+            if not empty_block:
+                empty_block.append(
+                    backend.zeros_complex(
+                        (n_baselines, n_freqs, 2, 2),
+                        dtype=output_complex_dtype,
+                    )
                 )
-            time_blocks.append(empty_time_block)
-            continue
+            return empty_block[0]
 
         n_visible = np.sum(above_horizon)
 
@@ -596,13 +614,25 @@ def calculate_visibility_healpix(
             # One (B, 2, 2) block for all baselines at this (time, frequency).
             freq_blocks.append(backend.stack(baseline_matrices, axis=0))
 
-        # One (B, F, 2, 2) block for this time step.
-        time_blocks.append(backend.stack(freq_blocks, axis=1))
-
         if time_idx % 10 == 0 or time_idx == n_times - 1:
             logger.debug(
                 f"Time step {time_idx + 1}/{n_times}: {n_visible} pixels visible"
             )
+
+        # One (B, F, 2, 2) block for this time step.
+        return backend.stack(freq_blocks, axis=1)
+
+    def _time_range(start: int, stop: int) -> list[Any]:
+        """Compute one contiguous worker share of the time axis, in order."""
+        empty_block: list[Any] = []
+        return [_time_block(time_idx, empty_block) for time_idx in range(start, stop)]
+
+    time_blocks = execute_time_blocks(
+        _time_range,
+        n_times=n_times,
+        solver_execution=solver_execution,
+        thread_name_prefix="radiosim-healpix-solver",
+    )
 
     logger.info(
         f"HEALPix visibility calculation complete. "

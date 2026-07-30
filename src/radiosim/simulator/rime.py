@@ -21,11 +21,13 @@ if TYPE_CHECKING:
     from radiosim.core.beam import BeamSystem
     from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.receptor import ResolvedReceptorSet
+    from radiosim.core.runtime_config import ResolvedSolverExecutionConfig
     from radiosim.core.sky.containers.model import SourceArrays
     from radiosim.core.time_grid import ObservationTimeGrid
 
 import numpy as np
 
+from radiosim.core.solver_partition import SERIAL_SOLVER_EXECUTION
 from radiosim.simulator.base import VisibilitySimulator
 
 
@@ -157,6 +159,7 @@ class RIMESimulator(VisibilitySimulator):
         time_grid: "ObservationTimeGrid",
         receptors: "ResolvedReceptorSet",
         jones_config: dict[str, Any] | None = None,
+        solver_execution: "ResolvedSolverExecutionConfig" = SERIAL_SOLVER_EXECUTION,
     ) -> Any:
         """
         Calculate visibilities using direct RIME summation.
@@ -194,6 +197,12 @@ class RIMESimulator(VisibilitySimulator):
         jones_config : dict, optional
             Non-beam Jones term configuration.
 
+        solver_execution : ResolvedSolverExecutionConfig, optional
+            Resolved solver worker policy (``Tier6HybridRuntimePlan.md``
+            Section 11.3).  ``workers=1`` is the exact serial path; larger
+            counts spread contiguous time blocks over a thread pool and
+            reassemble them in time order, bit-identically.
+
         Returns
         -------
         backend array
@@ -225,6 +234,7 @@ class RIMESimulator(VisibilitySimulator):
             backend=backend,
             receptors=receptors,
             jones_config=jones_config,
+            solver_execution=solver_execution,
         )
 
     def get_memory_estimate(

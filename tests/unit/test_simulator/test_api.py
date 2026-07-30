@@ -956,11 +956,16 @@ def test_save_default_is_hdf5_and_rejects_strings_before_writer_import(
     assert ResultFormat.HDF5.value == "hdf5"
 
 
-def test_run_rejects_ignored_worker_control_before_setup(tmp_path):
+def test_run_rejects_removed_worker_control_before_setup(tmp_path):
+    """Flipped by Tier 6E: the parameter is gone, so Python's own ``TypeError``
+    is the rejection (plan Section 12.3, the accepted Tier 5 precedent for a
+    removed keyword).  Before 6E this raised ``NotImplementedError`` from a
+    stub body; solver concurrency is now ``execution.solver.workers``.
+    """
     simulator = Simulator(resolved_config(tmp_path).runtime)
 
-    with pytest.raises(NotImplementedError, match=r"run\(n_workers"):
-        simulator.run(n_workers=2)
+    with pytest.raises(TypeError, match="n_workers"):
+        simulator.run(n_workers=2)  # type: ignore[call-arg]
 
     assert simulator.device_resources is None
 

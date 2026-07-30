@@ -47,7 +47,13 @@ from radiosim.core.receptor import (
     ResolvedReceptorSet,
     UnsupportedFeedGeometryError,
 )
+from radiosim.core.runtime_config import ResolvedSolverExecutionConfig
 from radiosim.core.sky.containers.constants import C_LIGHT
+from radiosim.core.solver_partition import (
+    SERIAL_SOLVER_EXECUTION,
+    execute_time_blocks,
+    require_solver_execution,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -289,6 +295,7 @@ def calculate_visibility(
     backend: ArrayBackend,
     receptors: ResolvedReceptorSet,
     jones_config: dict[str, Any] | None = None,
+    solver_execution: ResolvedSolverExecutionConfig = SERIAL_SOLVER_EXECUTION,
 ) -> Any:
     """
     Calculate complex visibility using full polarization (RIME).
@@ -328,6 +335,13 @@ def calculate_visibility(
         Configuration for Jones chain terms. Keys are term names ('K', 'E', 'G', etc.),
         values are dicts with 'enabled' (bool) and term-specific parameters.
         Example: {'G': {'enabled': True, 'sigma': 0.02}, 'Z': {'enabled': True, 'tec': 1e16}}
+    solver_execution : ResolvedSolverExecutionConfig, optional
+        Resolved solver worker policy. ``workers=1`` (the default) is the exact
+        serial path; ``workers=N`` distributes contiguous time blocks over a
+        thread pool of ``N`` threads and reassembles them in time order, which
+        is bit-identical to the serial result for every ``N``
+        (``Tier6HybridRuntimePlan.md`` Sections 11.3, 11.5).
+
     Returns
     -------
     backend array
@@ -363,6 +377,7 @@ def calculate_visibility(
     backend = _require_backend(backend)
     frequencies = _require_frequencies(frequencies)
     receptors = _require_receptors(receptors)
+    solver_execution = require_solver_execution(solver_execution)
     _reject_parallactic_rotation(jones_config, receptors)
 
     # Get array namespace from backend
@@ -462,10 +477,15 @@ def calculate_visibility(
     # time, and exactly one (T, B, F, 2, 2) assembly per call. Nothing is
     # written into a pre-allocated cube, so an immutable-array backend performs
     # one assembly instead of T*B*F whole-cube functional copies.
+    #
+    # Because every time step reads only run-constant inputs and produces its
+    # own independent block, contiguous ranges of time indices are exactly the
+    # unit of solver worker parallelism (Section 11.3/11.4). ``_time_block``
+    # below is that unit; ``execute_time_blocks`` runs it inline for
+    # ``workers=1`` and on a thread pool otherwise, with ordered reassembly.
     # ===========================================================================
-    time_blocks: list[Any] = []
-    empty_time_block: Any = None
-    for time_idx in range(n_times):
+    def _time_block(time_idx: int, empty_block: list[Any]) -> Any:
+        """Compute the ``(B, F, 2, 2)`` output block for one time index."""
         current_obstime = sample_times[time_idx]
 
         # ---- host preprocessing (named stage; see _host_preprocess_time_step)
@@ -477,13 +497,14 @@ def calculate_visibility(
         if not np.any(above_horizon):
             # No sources visible at this time - contribute an exactly zero block
             # so the time axis keeps its slot in the single final assembly.
-            if empty_time_block is None:
-                empty_time_block = backend.zeros_complex(
-                    (n_baselines, n_freq, 2, 2),
-                    dtype=output_complex_dtype,
+            if not empty_block:
+                empty_block.append(
+                    backend.zeros_complex(
+                        (n_baselines, n_freq, 2, 2),
+                        dtype=output_complex_dtype,
+                    )
                 )
-            time_blocks.append(empty_time_block)
-            continue
+            return empty_block[0]
 
         # Apply horizon filter for this time step
         source_stokes_I_t = source_stokes_I_orig[above_horizon]
@@ -693,7 +714,19 @@ def calculate_visibility(
             freq_blocks.append(backend.stack(baseline_matrices, axis=0))
 
         # One (B, F, 2, 2) block for this time step.
-        time_blocks.append(backend.stack(freq_blocks, axis=1))
+        return backend.stack(freq_blocks, axis=1)
+
+    def _time_range(start: int, stop: int) -> list[Any]:
+        """Compute one contiguous worker share of the time axis, in order."""
+        empty_block: list[Any] = []
+        return [_time_block(time_idx, empty_block) for time_idx in range(start, stop)]
+
+    time_blocks = execute_time_blocks(
+        _time_range,
+        n_times=n_times,
+        solver_execution=solver_execution,
+        thread_name_prefix="radiosim-point-solver",
+    )
 
     # One (T, B, F, 2, 2) cube, assembled in a single operation.
     return backend.stack(time_blocks, axis=0)

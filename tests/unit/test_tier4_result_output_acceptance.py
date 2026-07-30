@@ -227,9 +227,11 @@ def test_canonical_schema_versions_are_pinned() -> None:
 
 
 def test_public_result_signatures_are_exact() -> None:
+    # Tier 6E removed ``n_workers`` (plan Section 12.1): solver concurrency is
+    # declared once in ``execution.solver.workers``, and ``progress`` became
+    # keyword-only with it.
     assert str(inspect.signature(Simulator.run)) == (
-        "(self, progress: 'bool' = True, n_workers: 'int | None' = None)"
-        " -> 'SimulationResult'"
+        "(self, *, progress: 'bool' = True) -> 'SimulationResult'"
     )
     assert str(inspect.signature(Simulator.save)) == (
         "(self, path: 'str | Path', /, *, format: 'ResultFormat' = "
