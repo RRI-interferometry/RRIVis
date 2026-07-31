@@ -57,6 +57,7 @@ from .loaders import (
     load_3c,
     load_bbs,
     load_diffuse_sky,
+    load_extragalactic_point_sources,
     load_fits_image,
     load_gleam,
     load_lotss,
@@ -150,6 +151,7 @@ __all__ = [
     "load_bbs",
     "load_test_sources",
     "load_poisson_confusion",
+    "load_extragalactic_point_sources",
     "load_skyh5_multifile",
     # Orchestration
     "PrepareSkyOptions",

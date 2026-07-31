@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .bbs import load_bbs
 from .diffuse import load_diffuse_sky, load_pysm3
+from .extragalactic import load_extragalactic_point_sources
 from .fits import load_fits_image
 from .pyradiosky import load_pyradiosky_file
 from .skyh5_multifile import load_skyh5_multifile
@@ -25,6 +26,7 @@ from .vizier import (
 __all__ = [
     "load_test_sources",
     "load_poisson_confusion",
+    "load_extragalactic_point_sources",
     "load_skyh5_multifile",
     "load_diffuse_sky",
     "load_pysm3",

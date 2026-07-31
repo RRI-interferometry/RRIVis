@@ -75,6 +75,13 @@ DEFAULT_BRIGHT_CATALOG_FLUX_MIN_JY = 2.0
 #: faint, synchrotron-dominated low-frequency source population assumption.
 DEFAULT_CONFUSION_SPECTRAL_INDEX_DIST = (-0.8, 0.2)
 
+#: Default ``(mean, sigma)`` for per-source spectral-index draws in the
+#: extragalactic point-source foreground loader. Mittal et al. 2024
+#: (MNRAS 534, 1317) draw temperature spectral indices beta ~ N(2.681, 0.5)
+#: with T ∝ nu^-beta; RadioSim's flux convention is
+#: S(nu) = S0 (nu/nu0)^spectral_index, so spectral_index = 2 - beta.
+DEFAULT_EXTRAGALACTIC_SPECTRAL_INDEX_DIST = (-0.681, 0.5)
+
 
 def brightness_temp_to_flux_density(
     temperature: np.ndarray,

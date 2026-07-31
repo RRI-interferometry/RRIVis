@@ -418,6 +418,7 @@ _REGISTRY = LoaderRegistry()
 _DEFAULT_LOADER_MODULES = (
     "radiosim.core.sky.loaders.bbs",
     "radiosim.core.sky.loaders.diffuse",
+    "radiosim.core.sky.loaders.extragalactic",
     "radiosim.core.sky.loaders.fits",
     "radiosim.core.sky.loaders.pyradiosky",
     "radiosim.core.sky.loaders.skyh5_multifile",
