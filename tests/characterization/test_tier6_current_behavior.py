@@ -1307,11 +1307,20 @@ def test_jax_is_a_cpu_only_dependency_of_every_pixi_environment() -> None:
     assert jax.devices()[0].platform == "cpu"
 
 
-def test_there_is_no_benchmark_harness_task_or_performance_test() -> None:
-    """Pins D15.
+def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
+    """Closes D15.
 
-    OWNED BY: Tier 6I, which adds ``src/radiosim/benchmarks/``,
-    ``tests/performance/test_backend_benchmarks.py`` and the ``bench`` task.
+    FLIPPED BY: Tier 6I -- the defect this pinned was that RadioSim carried
+    performance disclaimers with no way to produce the evidence they asked for:
+    an empty ``tests/performance/``, no benchmark package, and no task to run
+    one. All three now exist (Sections 22, 23, 32.9), so the pin becomes its own
+    inverse rather than being deleted: the assertions still name exactly the
+    three surfaces D15 was about.
+
+    ``tests/integration/test_hybrid_end_to_end.py`` was added by Tier 6F, which
+    narrowed this test's integration-directory assertion at the time; the
+    assertion is kept, unchanged, so a stray new file in either directory is
+    still visible in a diff.
     """
     performance = sorted(
         p.name for p in (REPO_ROOT / "tests" / "performance").glob("*.py")
@@ -1319,16 +1328,26 @@ def test_there_is_no_benchmark_harness_task_or_performance_test() -> None:
     integration = sorted(
         p.name for p in (REPO_ROOT / "tests" / "integration").glob("*.py")
     )
-    assert performance == ["__init__.py"]
-    # ``tests/integration/test_hybrid_end_to_end.py`` is Tier 6F's own Section
-    # 33 grant (Section 25.4 lists it as a new test file), so 6F narrowed this
-    # assertion from "the directory is empty" to "the directory holds nothing
-    # that belongs to Tier 6I".  The performance directory, the benchmarks
-    # package, and the ``bench`` task are still pinned absent, and those are
-    # what D15 is about.
+    assert performance == ["__init__.py", "test_backend_benchmarks.py"]
     assert integration == ["__init__.py", "test_hybrid_end_to_end.py"]
-    assert not (REPO_ROOT / "src" / "radiosim" / "benchmarks").exists()
-    assert "bench" not in _source("pixi.toml")
+
+    benchmarks = REPO_ROOT / "src" / "radiosim" / "benchmarks"
+    assert benchmarks.is_dir()
+    assert sorted(p.name for p in benchmarks.glob("*.py")) == [
+        "__init__.py",
+        "harness.py",
+        "record.py",
+    ]
+
+    pixi_toml = _source("pixi.toml")
+    assert 'bench = "python -m pytest tests/performance/ -m performance"' in pixi_toml
+
+    # The benchmarks must not become a gate. Section 22.3: performance tests
+    # never gate; CI continues to run only ``-m "not slow"``.
+    performance_source = _source("tests/performance/test_backend_benchmarks.py")
+    assert (
+        "pytestmark = [pytest.mark.performance, pytest.mark.slow]" in performance_source
+    )
 
 
 # =========================================================================

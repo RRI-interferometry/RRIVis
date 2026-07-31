@@ -167,7 +167,18 @@ data/
 *.npy
 
 # Output directories
-output/
+#
+# `output/benchmarks/reference/*.json` is the one deliberate exception: it is the
+# committed benchmark record set (Tier6HybridRuntimePlan.md Sections 22.1, 32.9),
+# curated evidence for the documented backend claims. Every ordinary `pixi run
+# bench` run writes `output/benchmarks/<UTC timestamp>-<host tag>.json`, which
+# stays ignored so a local benchmark never dirties the tree.
+output/*
+!output/benchmarks/
+output/benchmarks/*
+!output/benchmarks/reference/
+output/benchmarks/reference/*
+!output/benchmarks/reference/*.json
 results/
 plots/
 

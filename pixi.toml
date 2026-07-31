@@ -21,6 +21,11 @@ typecheck = "python tools/check_pyright_baseline.py"
 typecheck-report = "python -m pyright"
 typecheck-update = "python tools/check_pyright_baseline.py --update"
 test = "python -m pytest tests/"
+# Reproducible backend benchmarks (Tier6HybridRuntimePlan.md Sections 22, 23).
+# Never part of the gate: the performance tests are marked `performance` and
+# `slow`, so `pixi run test -- -m "not slow"` and CI exclude them. Records land
+# in `output/benchmarks/<UTC timestamp>-<host tag>.json`.
+bench = "python -m pytest tests/performance/ -m performance"
 pre-commit-install = "pre-commit install"
 
 [dependencies]
