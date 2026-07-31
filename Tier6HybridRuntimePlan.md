@@ -1313,9 +1313,20 @@ kernel) and is not promoted to the abstract surface.
 src/radiosim/benchmarks/__init__.py
 src/radiosim/benchmarks/record.py
 src/radiosim/benchmarks/harness.py
+src/radiosim/core/contraction.py            # the one compiled kernel (6H)
 src/radiosim/core/hybrid.py                 # component orchestration and summation
 src/radiosim/core/solver_partition.py       # deterministic time partition
 ```
+
+**Correction (2026-07-31, Tier 6H implementation):** `core/contraction.py` is
+added above. §13.6 authorizes exactly one compiled kernel and both solvers use
+it, so it needs one home that both can import; leaving it inside
+`core/visibility.py` would make `core/visibility_healpix.py` import the point
+solver for a function that belongs to neither. Its own module is also what makes
+"exactly one kernel is compiled" mechanically checkable: the compilation-boundary
+test asserts that `backend.compile(` occurs at exactly one path in `src/`, and
+that assertion is only meaningful because that path is a file whose whole
+purpose is the kernel. This is a placement decision, not a scope change.
 
 ### 25.2 Modified production files
 
@@ -2012,6 +2023,107 @@ literal is declared a second time in the CLI (`cli/main.py:38-39`) and asserted
 from the config side in three places in `test_config_mode.py` (`:54`, `:71`,
 `:469`). No other slice was ever granted `cli/main.py`, so without this addition
 the CLI would keep offering a `--backend numba` choice the schema rejects.
+
+**Correction (2026-07-31, Tier 6H implementation).** Eleven further files are
+added to the grant above. Every one of them is a site the slice's *own* declared
+work makes stale, found by grepping the whole tree for the removed identifiers
+rather than by re-deriving the list from §25; none of them is new scope, and no
+other slice is granted any of them.
+
+```text
+src/radiosim/api/simulator.py
+src/radiosim/core/contraction.py
+src/radiosim/core/runtime_config.py
+src/radiosim/simulator/__init__.py
+examples/scripts/simple_simulation.py
+docs/api/backends.rst
+tests/unit/test_core/test_beam_runtime.py
+tests/unit/test_core/test_visibility_accumulation.py
+tests/unit/test_io/test_config.py
+tests/unit/test_tier1h_documentation.py
+tests/unit/test_tier4_result_output_acceptance.py
+```
+
+Why each:
+
+- `api/simulator.py` — §14.3 adds `device_kind` and `compilation_used` to
+  `BackendResultProvenance`, and this is that dataclass's only construction site
+  in `src/`. `core/result.py` alone cannot populate a field.
+- `core/contraction.py` — the §25.1 addition recorded above.
+- `core/runtime_config.py` — `ResolvedExecutionConfig.backend_strategy` declares
+  the backend literal a *third* time (`:316`, `:324`, `:338`), alongside
+  `io/config.py` and `cli/main.py`. §18.4 specifies it as
+  `Literal["auto", "numpy", "jax", "dask"]`; without this file the resolver
+  would reject the very literal the schema now requires. This is the same
+  omission the 6B correction found in the CLI, one layer further in.
+- `simulator/__init__.py` — its `get_simulator` docstring example prints
+  `sim.supports_gpu` as `True`. §14.1 makes that `False`; leaving the example
+  would ship a documented falsehood 6H itself created.
+- `examples/scripts/simple_simulation.py` — offers `--backend numba` as an
+  `argparse` choice, which the schema now rejects with §18.3's message.
+- `docs/api/backends.rst` — `automodule:: radiosim.backends.numba_backend`
+  names a module the rename deletes, so `make -C docs html` (a CI quality step)
+  fails without it. §33 grants this file to 6I, which is a *later* slice: 6I
+  cannot repair a build 6H breaks. 6I's own grant is unchanged and still covers
+  the file for its §26.2 documentation work.
+- `tests/unit/test_core/test_beam_runtime.py` — imports
+  `radiosim.backends.numba_backend` directly (`:1396`).
+- `tests/unit/test_io/test_config.py` — asserts
+  `ExecutionConfig(backend="numba")` (`:836`); it is also the natural home for
+  §27 row E4, next to the E5 `n_workers` test that established the pattern.
+- `tests/unit/test_tier1h_documentation.py` — imports `numba_backend` and
+  asserts against `NumbaBackend.__doc__` (`:18`, `:629-630`). Same
+  later-slice-cannot-repair-an-earlier-break reasoning as `docs/api/backends.rst`.
+- `tests/unit/test_tier4_result_output_acceptance.py` — pins the exact pixi
+  environment feature lists (`:343`), which C18 changes by construction.
+- `tests/unit/test_core/test_visibility_accumulation.py` — see the §13.3
+  correction below.
+
+**Correction (2026-07-31, Tier 6H implementation) — §13.3's per-`(t, f)`
+assembly.** §13.3 has the solver "assemble one `(B, 2, 2)` block for all
+baselines at `(t, f)`", which 6D implemented as a `backend.stack` over `B`
+separately computed `(2, 2)` matrices, because the contraction then ran one
+baseline at a time. §13.6's kernel is *baseline-batched* and returns that whole
+`(B, 2, 2)` block from a single call, so at that level there is nothing left to
+assemble: the `T*F` per-`(t, f)` assemblies disappear and only the `T` per-time
+blocks and the one whole-cube assembly remain. Every binding property of §13.3
+holds unchanged and is still asserted — one `(B, F, 2, 2)` block per time,
+exactly one whole-cube assembly per call (R2), zero `set_at` calls. This is
+strictly fewer assemblies, which is the direction §13.3 exists to push, so it is
+a consequence of §13.6 rather than a relaxation of §13.3; the two 6D counting
+tests that spell out the old count are narrowed accordingly, in place, with the
+reason recorded in the test.
+
+The kernel's *input* batching (two `(B, S, 2, 2)` antenna-Jones batches per
+step) deliberately goes through `backend.xp.stack` and not through
+`ArrayBackend.stack`. §13.3 defines `stack` as the solvers' one *accumulation*
+primitive; routing kernel inputs through the same method would make the
+accumulation counts uncountable without adding any capability. Both reach the
+same backend namespace.
+
+**Correction (2026-07-31, Tier 6H implementation) — §25.5, §28 and C18: a
+jax-cpu *feature*, carried by both existing environments, not a third
+environment.** §25.5 and C18 describe jax-cpu as a separate pixi *environment*
+with "one added job running the jax-cpu environment". That is incompatible with
+§31, which requires that "after 6H the six JAX skips must be **gone**, not
+converted into a different skip" — the counts §31 governs come from
+`pixi run test -- -m "not slow"` and `pixi run --environment py312 test -- -m
+"not slow"`, and a JAX confined to a third environment would leave all six tests
+skipping in both of them. The two statements cannot both hold.
+
+§31's requirement is the load-bearing one: it is what makes the parity evidence
+part of the standard gate rather than an optional side channel. So `jax-cpu` is
+declared as a pixi **feature** and included in both `default` and `py312`,
+giving the six env × platform combinations Q1 measured, and the six
+`importorskip("jax")` guards are deleted outright so a missing JAX fails loudly
+instead of silently reporting a green run that measured nothing. The added CI
+job remains, as a `backend-parity` job that asserts the locked JAX is importable
+and runs the parity and compilation-boundary suites directly — a cheap, explicit
+guard that fails loudly if JAX ever drops out of the lock, which the six matrix
+jobs would not do as legibly. §28's adopted position ("add a CPU-only JAX pixi
+feature and environment, so parity is actually measured, in CI, on Linux and
+macOS, with no accelerator claim attached") is satisfied in full; only the
+placement of the feature changes.
 
 ### Tier 6I
 
