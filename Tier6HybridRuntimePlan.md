@@ -2203,9 +2203,43 @@ backends "scaffolded" — statements 6H made false and that §26's own governing
 rule ("a tier owns exactly the statements its own changes make false") therefore
 assigns to Tier 6. No later slice exists to fix them: 6J changes no production or
 documentation file. The `CLAUDE.md` grant is read as the three sentences §26
-names **plus** every sentence Tier 6H's rename falsified, and nothing else; the
-Jones inventory, the sky-model sections, the RIME equation section, and the
-development-command section are untouched.
+names **plus** every sentence Tier 6H's rename falsified, **plus** the two
+additions 6I's own new package requires: one `### Benchmarks (benchmarks/)`
+subsection, because the Architecture section enumerates every `src/radiosim/`
+subpackage and 6I adds one, and one `pixi run bench` line in the command block,
+because that block is where a reader looks for how to run something. Nothing
+else: the Jones inventory, the sky-model sections, and the RIME equation section
+are untouched.
+
+**Correction (2026-07-31, Tier 6I implementation) — three further documentation
+files name a removed identifier.** Tier 6H expanded its own §33 grant by eleven
+files found "by grepping the whole tree for the removed identifiers rather than
+by re-deriving the list from §25". That grep covered `src/` and `tests/` and
+`docs/api/backends.rst`; it did not cover the rest of `docs/`. Repeating it for
+`numba` finds three surviving sites, each of which now instructs a reader to do
+something the tree rejects:
+
+```text
+docs/installation.rst
+docs/quickstart.rst
+docs/user_guide/configuration_support.rst
+```
+
+- `docs/installation.rst` publishes `pip install radiosim[numba]`. That extra no
+  longer exists — `pyproject.toml` renamed it to `dask` in 6H — so the command
+  fails outright.
+- `docs/quickstart.rst` and `docs/user_guide/configuration_support.rst` present
+  `Numba` as a selectable backend. `execution.backend: numba` is now rejected by
+  the schema with §18.3's message, and `get_backend("numba")` raises.
+
+The grant is for those `numba` occurrences only. Three further files
+(`docs/index.rst`, `docs/user_guide/sky_models.rst`, `docs/changelog.rst`) also
+carry GPU-related prose but are deliberately **excluded**: the first two state
+disclaimers that Tier 6 did not falsify, and `docs/changelog.rst`'s "Universal
+GPU acceleration via JAX and Numba backends" was already false before Tier 6
+began — it is `RUN-004` itself, not a statement Tier 6's changes made false, and
+§26's rule therefore leaves it to the Tier 8 sweep. It is recorded here so that
+it is a known, routed gap rather than an oversight.
 
 ### Tier 6J
 
