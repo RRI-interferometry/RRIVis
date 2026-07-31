@@ -1411,8 +1411,12 @@ Parameterizations (`d_terms.kind`):
 
 **Invariants.** `D` is non-unitary for any non-zero `d`; `D(0) = I2`; to first
 order in `d`, an unpolarized source acquires cross-hand correlations
-`V_01 ~ (I/2)(d_p0 + d_q1*)` — an exact, checkable prediction; `det D = 1 +
-d_p0 d_p1*`, so `D` is invertible for physical leakages.
+`V_01 ~ (I/2)(d_p0 - d_q1)` — an exact, checkable prediction, obtained by
+expanding `D_p D_q^H` to first order for the `D_p = [[1, d_p0], [-d_p1*, 1]]`
+convention adopted above (`D_q^H` contributes `-d_q1` at `[0,1]`, not
+`+d_q1*`; a corrected sign/conjugate independently re-derived and verified
+numerically during this design review — the review's Section 3 finding);
+`det D = 1 + d_p0 d_p1*`, so `D` is invertible for physical leakages.
 
 **Consequence that must be documented.** `docs/user_guide/jones_matrices.rst:137-146`
 states that the receptor basis conversion `H` is exact **only** because `D` and
