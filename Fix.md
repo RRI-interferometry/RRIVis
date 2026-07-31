@@ -10671,3 +10671,110 @@ none exercised, none claimed by this fix.
 pre-Tier-8.
 
 Acceptance commit: `docs(sky): accept SKY-001 loader repair`. Not pushed.
+
+### 2026-08-01 Tier 7 advanced-Jones science design gate
+
+Tier 6 remains independently accepted as a whole and `RUN-001` through
+`RUN-004` remain **DONE**. `SKY-001` remains **DONE**; `SKY-002` and
+`PERF-001` remain exactly as filed and are **not** absorbed by Tier 7. The
+Tier 7 design gate is complete. `Tier7JonesSciencePlan.md` is the governing
+implementation specification for Jones-term physics, the `jones:`
+configuration surface, the baseline-dependent Hadamard path, the advanced
+beam-physics disposition, and the m-mode question.
+
+The design was authored from source on clean `main` at `ac4fe41`
+(`docs(sky): document the extragalactic point-source loader`). Every
+characterization claim in the plan is cited to a file and line true at that
+commit. The six commits that landed after the Tier 6J re-run acceptance
+(`bd38a59..ac4fe41` — the AVX-512 digest harvest, the `actions/checkout` bump,
+and the `extragalactic_point_sources` loader family) were characterized as
+accepted baseline; no defect was found in them and the plan proposes no change
+to any of them.
+
+The plan records twenty-two confirmed defects (D0-D21) behind `SCI-001`,
+`SCI-002`, and `SCI-003`, including several the roadmap's own §7.5/§7.6
+summaries did not name. Two are double-count hazards that would have turned a
+newly implemented term into a silently wrong forward model: the sky model
+already applies per-source rotation-measure Faraday rotation inside the
+frequency loop (`core/visibility.py:618-634`), so a separately configured `F`
+term would rotate `(Q, U)` twice; and the non-coplanar `w` contribution is
+already exact in the inline geometric phase (`core/visibility.py:696`,
+`bl_w * (n_dir - 1.0)`), so an enabled `W` term would double-count it. Two more
+are live silent no-ops of the `CFG-003` class: `visibility.calculation_type` is
+read by no solver, resolver, or runtime model (its `direct_sum` value reaches
+nothing and is set by all four shipped configurations), and it duplicates the
+honored `execution.simulator` selector (`api/simulator.py:163,648`). A fifth is
+structural: the `JonesTerm` evaluation contract is scalar-per-direction
+(`core/jones/base.py:132-161,199-231`), which is why
+`core/visibility_healpix.py` bypasses `JonesChain` entirely and why any
+direction-dependent term implemented against it would apply to point sources
+and silently not apply to diffuse sky. A sixth is a physics error in an
+accepted contract: the canonical chain order places `P` correlator-side of `C`
+(`core/jones/chain.py:25`, `Tier5ReceptorFeedPlan.md` §19.1), which for a
+circular receptor applies a real 2x2 rotation to the `(R, L)` pair rather than
+the correct pair of opposite phases.
+
+The plan's twelve design decisions are: one class per physical effect, with
+every parameterization becoming a configuration field; a per-class disposition
+that **implements eleven terms** (`G`, `B`, `D`, `X`, `Kd`, `Rc`, `P`, `Z`,
+`T`, `M`, `Q`), keeps the two Tier 5 receptor terms, converts
+`GeometricPhaseJones` into a shared function both solvers call, and **deletes
+twenty-six speculative stub classes** whose external blast radius is empty;
+Workstream C answered by decision rather than code (`W` is already exact in
+`K`; element beams and array factors are descoped; differential beams become
+per-antenna pointing offsets); Faraday rotation folded into `Z` with the sky
+retaining intrinsic RM; a corrected canonical chain order
+`H G B Rc Kd X D C E P T Z` that moves `P` sky-side of `C`; a direction-batched
+`compute_jones_batch` contract replacing the scalar one; one shared chain
+evaluator used by **both** solvers; the baseline Hadamard path attaching to the
+compiled kernel's **existing** `envelope` argument and `(B, 2, 2)` output, so
+the kernel signature is unchanged; a strict frozen `jones:` configuration
+section replacing the raw `jones_config` dict; per-term precision and Tier 6
+backend-parity tolerances; Workstream E descoped; and the `SCI-003` beam TODOs
+split into two implemented items and five explicitly scoped successors.
+
+Tier 7 will use only two of `Fix.md` §4.2's four truthfulness states —
+*implemented and tested* and *absent*. No term ships as experimental.
+
+**Workstream E is descoped, and the plan says so plainly.** An m-mode solver is
+a second complete forward model (observing regime, sky and beam harmonic
+representations, beam transfer matrices, per-`m` linear algebra, truncation
+validation) that interacts with the Tier 4/5/6 time-grid, correlation-axis,
+hybrid, worker, and fingerprint contracts. Attempting it alongside eleven Jones
+terms would produce exactly the undifferentiated task `Fix.md` §16 opens by
+warning against. The plan therefore closes `SCI-002` by the **absence** branch
+of its own exit criterion: `visibility.calculation_type` is removed from the
+schema entirely — both values, not only the unimplemented one — leaving
+`execution.simulator` as the single, already-honored solver selector, with a
+standing test that its accepted values equal the simulator registry keys. The
+solver itself is to be filed as a new `SCI-004` roadmap row at whole-tier
+acceptance, and `SCI-005` for the advanced beam physics beyond the accepted
+scalar-`E` subset.
+
+Eleven implementation slices (7A-7K) each carry an exact writable file list and
+independent acceptance. Their ordering is forced: the batched evaluation
+contract (7B) before any physics, and **stub deletion and surface truth (7C)
+before any term is implemented**, so that from 7C onward there is no moment in
+the tier's history at which a public identity stub exists. Six open questions
+are gated on slice evidence; the first two — whether any cross-validation
+reference resolves against the locked `pyuvdata ==3.2.1`, and what the
+host-memory cost of direction-batched evaluation is on the largest shipped
+HEALPix configuration — must both be answered in 7A.
+
+The plan states explicitly that Tier 7 will produce no GPU, TPU, or distributed
+number; no ingestion of IONEX/GPS, geomagnetic, weather, or archived
+calibration data; no stochastic screen; no calibration or solving capability;
+no imaging operator; no non-scalar E-Jones; no second beam runtime; no second
+`backend.compile` call site; and no validation claim against `pyuvsim`,
+`matvis`, RASCIL, or CASA that is not backed by a committed evidence artifact
+or an explicitly recorded non-observation.
+
+This was documentation-only design work. No production code, test, fixture,
+configuration, dependency, lockfile, CI workflow, documentation page, or
+generated artifact was changed, and no §5 register row or prior acceptance
+record was modified. Only read-only probes were run (`git log`, `git status`,
+`git check-ignore`, and text searches); no test suite, lint, formatter, type
+checker, or documentation build was run, and no remote operation of any kind
+was performed. `SCI-001`, `SCI-002`, and `SCI-003` all remain `ROADMAP` as
+recorded in §5. Tier 7A remains unauthorized. The next task is an independent
+review and acceptance of `Tier7JonesSciencePlan.md`, not implementation.
