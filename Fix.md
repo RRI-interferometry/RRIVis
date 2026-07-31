@@ -10778,3 +10778,218 @@ checker, or documentation build was run, and no remote operation of any kind
 was performed. `SCI-001`, `SCI-002`, and `SCI-003` all remain `ROADMAP` as
 recorded in §5. Tier 7A remains unauthorized. The next task is an independent
 review and acceptance of `Tier7JonesSciencePlan.md`, not implementation.
+
+### 2026-08-01 Tier 7 design acceptance
+
+Independent adversarial review of `Tier7JonesSciencePlan.md` at `49620ff`,
+performed against a fresh checkout of `main` (`src/` at `49620ff` is
+byte-identical to `ac4fe41`, since the design commit touched only `Fix.md`
+and `Tier7JonesSciencePlan.md`). **Verdict: ACCEPTED, with one bounded
+factual correction applied before acceptance.**
+
+**Characterization spot-checks — all confirmed true**, each independently
+re-read from source (not from the plan's own prose): `core/jones/__init__.py`
+`__all__` is exactly 43 names (3 base + 40 concrete), against `CLAUDE.md`'s
+stale "46" (D0, confirmed real drift); `core/contraction.py:42-106`'s
+`baseline_contraction` signature, its `envelope (B, S)` argument entering the
+per-source weight at the returned sum, and its `(B, 2, 2)` output — confirmed
+exactly, including that `Q` has exactly `envelope`'s shape/position and `M`
+has exactly the output's shape, so the Hadamard path attaches without
+changing the compiled kernel's signature; `core/hybrid.py:292` passes
+`jones_config=None` as a literal, the only production call site;
+`visibility_healpix.py`'s `calculate_visibility_healpix` has no
+`jones_config` parameter and never imports `JonesChain`; `base.py:132-161`'s
+`compute_jones` takes a per-direction index and `compute_jones_all_sources`
+(`:199-231`) defaults to a Python loop; `visibility.py:618-631` passes
+per-source rotation measure into flux evaluation before coherency
+construction (sky-owned intrinsic Faraday rotation, confirming the D18
+double-count hazard is real) and `visibility.py:696-697` has the exact
+`bl_w * (n_dir - 1.0)` / `exp(-2πi·)` non-coplanar term (confirming D19);
+`chain.py:25`'s docstring order places `P` correlator-side of `C`, and
+`chain.py:172,228` plus `receptor.py:325-340` (inherited by
+`ReceptorConfigJones`, not redefined on it — a citation nuance, not a
+factual error) hard-code `np.complex128`; `pixi.toml` contains no
+`pyuvsim`/`matvis`/`rascil` dependency anywhere, and does lock
+`pyuvdata==3.2.1`, `astropy`, `healpy`, `python-casacore`, and a CPU-only
+`jax`/`jaxlib` feature; a grep of all 26 to-be-deleted class names across
+`tests/`, `docs/`, `examples/`, `configs/` (excluding `src/`) found zero
+hits for 25 of them and exactly the expected hits for `GeometricPhaseJones`
+(a test importing the class that becomes a function); `calculation_type` is
+read by nothing outside its own definition/rejection in `io/config.py`, the
+shipped configs, and tests; `api/simulator.py:163,648` and
+`runtime_config.py:328-329` confirm `execution.simulator` is the honored,
+validated selector; `base.py:163-197`'s capability flags default `False` and
+`faraday.py:51-52`/`wterm.py:56-60` do return vacuous `True` about identity
+matrices, confirming D10.
+
+**Mathematical re-derivations performed independently (not by re-reading the
+plan's own working):**
+
+- **Chain-order fix (D12, Section 12).** Re-derived from the receptor
+  mathematics in `docs/user_guide/jones_matrices.rst` (`S = (1/√2)[[1,i],
+  [1,-i]]`, `C_p = M(basis) R(χ)`) that `S·R(ψ) = diag(e^{-iψ}, e^{+iψ})·S`
+  exactly (verified by direct 2×2 multiplication). Confirmed the accepted
+  Tier 5 chain order (`H G B D P C E T Z`, `chain.py:25`) composes `P` and
+  `C` as `P·C = R(ψ)·S·R(χ)` — a real rotation applied to the already-formed
+  `(R, L)` pair — while the plan's corrected order (`... D C E P T Z ...`,
+  Section 12.2) composes them as `C·P = S·R(χ)·R(ψ) = S·R(χ+ψ)`, the physically
+  correct pair of opposite phases on `(R, L)`. The two are provably different
+  (matrix multiplication does not commute here) and only coincide for a linear
+  receptor (`M = I2`). **The re-derivation independently confirms D12 and the
+  Section 12 fix are scientifically correct**, and that the existing
+  Tier-5-era prose in `jones_matrices.rst:148-158` ("the composition
+  `P_p(t) C_p`...") describes exactly the old, now-superseded order, which
+  the plan's Section 12.4 and breaking-change ledger (B13) correctly flag as
+  a supersession rather than silently rewriting.
+- **D-term leakage invariant (Section 20.3) — found wrong, corrected.**
+  Expanding `D_p D_q^H` to first order from the section's own stated
+  `D_p = [[1, d_p0], [-d_p1*, 1]]` gives `V_01 ~ (I/2)(d_p0 - d_q1)`, not the
+  plan's original `(I/2)(d_p0 + d_q1*)`. Verified symbolically and by a
+  numeric example (`d_p0=0.01`, `d_q1=0.02`, all else zero, gives `-0.01`,
+  matching `d_p0-d_q1` and not `d_p0+d_q1*`). This did **not** affect the `D`
+  matrix definition itself, its citation (Hamaker/Bregman/Sault 1996;
+  Sault/Hamaker/Bregman 1996; Smirnov 2011), its unitarity/invertibility
+  properties, or its chain placement — all independently checked and correct
+  — only one illustrative invariant annotation. **Fixed in
+  `5578cc3` (`docs(jones): correct Tier 7 design`)**, no decision changed.
+  Judged a bounded factual correction rather than a rejection-triggering
+  defect: it is isolated to one test-oracle annotation, does not touch any
+  of the plan's structural or scope decisions, and the plan's own Section 31
+  tests-first process independently re-derives every invariant's reference
+  value from the literature at implementation time (7E) rather than copying
+  this prose, so the error's blast radius into shipped code was already
+  bounded by the plan's own methodology.
+- Also independently re-verified and found correct: the `S R(ψ)` identity
+  above; `det D = 1 + d_p0 d_p1*`; the `T` opacity voltage-vs-power factor
+  `exp(-τ/2)` giving `exp(-τ)` in a two-identical-antenna baseline amplitude;
+  the `X` cross-hand-phase invariant (`(U,V) → (U cosφ_x + V sinφ_x,
+  V cosφ_x - U sinφ_x)`, a genuine rotation by `φ_x`, matching the claim);
+  the `Kd` zero-differential-baseline cancellation; the `G` common-amplitude
+  `(1+a)^2` baseline scaling; the parallactic-angle `atan2` formula; the
+  `RM·λ²` Faraday and `1/ν` TEC dispersive-phase forms (structurally correct;
+  the exact `k_TEC` numeric constant was not independently verified past the
+  citation, and the plan's own Section 29.1 requires it be re-derived from
+  the literature in-test regardless).
+
+**Rulings on the hard decisions:**
+
+(a) **m-mode descope — RATIFIED.** `Fix.md` §16's own exit criterion ("m-mode
+is either implemented and tested or absent from accepted config") explicitly
+permits closure by absence, confirmed by direct re-reading of §16 above. The
+plan's chosen mechanism — removing `visibility.calculation_type` entirely,
+both values, rather than merely leaving `direct_sum` accepted — is the only
+reading consistent with §4.1's redundancy rule, since `execution.simulator`
+already owns and honors the same choice (D14, independently confirmed).
+Attempting a real m-mode solver inside Tier 7 would be exactly the
+"undifferentiated coding task" §16's objective sentence warns against: it is
+a second complete forward model touching the Tier 4/5/6 time-grid,
+correlation-axis, hybrid, worker, and fingerprint contracts, not a Jones
+term. The descope is stated plainly, not dressed up, and `SCI-004` is
+correctly filed as the successor row at whole-tier acceptance (7K) rather
+than now — this gate does not edit the register, matching §2's own claim,
+independently confirmed by inspecting the commit diff (append-only).
+
+(b) **26 deletions — RATIFIED**, spot-checked hard on all six named
+rationales (`WPhaseJones`/w-in-K, `FaradayRotationJones`/sky-RM double-count,
+`ElementBeamJones`/second-beam-runtime, `FringeFitJones`/calibration-not-
+forward-model, and the bandpass/leakage/troposphere variant consolidations)
+plus a general pass over the remaining 20. Every deletion traces to one of:
+a documented Tier-7 scope exclusion (§4: no stochastic screens, no external
+data ingestion, no calibration/solving, no imaging operators, no second beam
+runtime, no non-scalar E), a parameterization variant of a kept term (time
+model on `G`, mapping-function/model `kind` on `B`/`T`, `IXR` as a `D`
+parameterization with a given, checkable dB conversion), or a genuine
+double-count hazard resolved by folding into a kept term (`F`→`Z`, guarded by
+invariant I8). No arbitrary or unjustified deletion found. `RFIFlaggedBandpassJones`
+is correctly treated as a categorically different case (data-quality/flagging,
+not a voltage-domain Jones factor) rather than forced into the "variant of B"
+bucket, which is the kind of honest distinction that increases confidence in
+the rest of the table.
+
+(c) **`GeometricPhaseJones` → module function — RATIFIED.** Confirmed the
+class is never constructed by any solver (both solvers compute the geometric
+phase inline, duplicating it) and that K is structurally per-baseline, not
+per-antenna, making it incompatible with `JonesChain`'s per-antenna
+composition model. The function conversion removes the duplication (D6)
+without losing the physics; sound engineering motivated by a real structural
+mismatch, not merely convenience.
+
+(d) **`CrosshandJones` merge, and `X` placement — RATIFIED.** Cross-hand
+phase and cross-hand delay are literally the same diagonal matrix element
+with a frequency-constant and frequency-linear phase respectively (Section
+20.4); merging them is the same "one class, one effect, parameters vary"
+rule applied correctly, and — notably — the plan does *not* over-apply this
+rule to merge `Kd`/`Rc`, which have materially different functional forms
+(pure phase vs. non-unitary oscillatory reflection), showing the
+distinction is principled rather than mechanical. `X`'s chain position
+(diagonal, unitary, correlator-side of `D`/`C`, commuting with `G`/`B`/`Kd`/
+`Rc`) matches its physical origin in the receiver chain.
+
+(e) **No experimental tier — RATIFIED.** `Fix.md` §4.2 permits but does not
+require the "experimental and gated" state; the plan's choice to use only
+"implemented and tested" and "absent" is a stricter-than-required reading,
+stated as a deliberate choice rather than an obligation (Section 8.2), and
+is scientifically conservative rather than a corner cut.
+
+**§20 science-check:** all conventions and 2×2 forms checked against
+standard references and internal consistency; the parallactic-angle
+`atan2`, ionospheric TEC/Faraday functional forms, Saastamoinen/Niell
+troposphere structure, gain/bandpass diagonal forms, cable-reflection
+standing-wave ripple, and Hadamard `M`/`Q` semantics are all structurally
+and dimensionally correct. One disagreement found and corrected (the `D`
+first-order leakage invariant, above); no other disagreement found.
+
+**Contract-coherence findings:** §25's fingerprint discipline explicitly
+invokes and honors the `RUN-005`/`RUN-006` no-filesystem-path lesson
+(independently confirmed by direct quote match); §21's schema follows the
+Tier 1/5/6 `StrictFrozenModel` + discriminated-union precedent with 16
+verbatim rejection messages; §28's parity matrix is unchanged from
+`Tier6HybridRuntimePlan.md` §13.4-13.5 and the direction-batched contract
+stays host-side by explicit design (Section 14.2), preserving the single
+compiled-kernel-boundary invariant (I16); §26's failure ordering (parse →
+removed-field guidance → structural → physical-range → cross-object →
+identity-last) is principled and consistent with the Tier 1 "reject before
+side effects" precedent.
+
+**§16 coverage:** Workstreams A-D map fully to slices (A→7D/7E, B→7F/7G,
+C→answered by decision in Section 10 with a legitimate reading of the
+per-workstream text against the four literal exit-criterion bullets, D→7H
+with I11 as the literal "enforce the distinction" proof); all seven
+per-implementation rules are mapped to specific plan machinery (Section
+8.3); the cross-validation strategy (§29) is honest about the offline
+`pyuvsim`/`matvis`/RASCIL absence (confirmed empty in `pixi.toml`), gates the
+Tier-2 comparison on Q1 without gating any term slice on it, and forbids
+unearned validation language explicitly (§29.2); `SCI-001`/`SCI-002`/
+`SCI-003` closure evidence is defined precisely in §38.
+
+**Slice-quality assessment:** 7A-7K ordering is sound and its rationale
+(Section 33.1) is coherent — batched contract (7B) and stub deletion/truth
+(7C) both precede any physics, and both are genuinely behavior-neutral by
+construction given the independently-confirmed facts that `jones_config` is
+always `None` in production (D3) and no stub class is ever constructed
+(D1/D4); `P`'s chain-order fix (7F) is correctly gated on Q4's acceptance-
+framing question rather than blocking implementation; the Hadamard terms
+(7H) are the last chain-adjacent physics slice before the orthogonal beam
+work (7I) and genuine validation/documentation (7J); per-slice writable
+file lists (§34) are exact and traceable to each slice's own design
+narrative; exclusions (§40) are explicit; all six open questions (§41) are
+gated on the correct slice.
+
+**Process conformance:** `git show 49620ff --stat` touches exactly
+`Fix.md` and `Tier7JonesSciencePlan.md`; the `Fix.md` diff is strictly
+append-only (new hunk begins after all existing content, no register row or
+prior acceptance record touched); the plan's status header was
+design-only with baseline `ac4fe41`; §4's not-claim list is honest and
+consistent with §40's exclusions and with this note's own findings; the
+design commit carries no co-author line.
+
+**Disposition.** Design **ACCEPTED**. One bounded factual correction was
+applied (`5578cc3`, `docs(jones): correct Tier 7 design` — Section 20.3's
+`D`-term invariant only, no decision changed). The plan's status header is
+updated to record acceptance and to authorize slice **7A**. Per Section
+18.4/19.3/§38, the `SCI-004` (m-mode) and `SCI-005` (advanced beam physics)
+register rows are **not** filed now — they are created at the whole-tier
+acceptance gate (7K), together with the `SCI-001`/`SCI-002`/`SCI-003` flips
+to `DONE`, exactly as the plan prescribes. `SCI-001`, `SCI-002`, and
+`SCI-003` remain `ROADMAP` until then. Acceptance commit:
+`docs(jones): accept Tier 7 design`. Not pushed.

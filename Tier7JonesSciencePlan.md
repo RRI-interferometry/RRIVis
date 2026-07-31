@@ -2,10 +2,12 @@
 
 ## 1. Identity, status, and governing sources
 
-**Status: design only. Authored 2026-08-01. Baseline `main` at
-`ac4fe41` (`docs(sky): document the extragalactic point-source loader`).
-No implementation slice is authorized until this plan is independently
-accepted.**
+**Status: design accepted 2026-08-01 by independent review, with one bounded
+factual correction applied to Section 20.3 (`docs(jones): correct Tier 7
+design`, `5578cc3`) and no decision changed; see `Fix.md`'s 2026-08-01
+"Tier 7 design acceptance" note for the full record. Authored 2026-08-01.
+Baseline `main` at `ac4fe41` (`docs(sky): document the extragalactic
+point-source loader`). Slice **7A is authorized**.**
 
 This document is the governing implementation specification for Tier 7 of the
 RadioSim remediation program, defined by [`Fix.md`](Fix.md) Section 16
