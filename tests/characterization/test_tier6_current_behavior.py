@@ -238,7 +238,12 @@ exposes (an AVX-512-capable part may or may not expose it) rather than on the
 part number.  That has not been proven, only narrowed, which is exactly why
 ``_machine_fingerprint`` now attaches NumPy's dispatched feature set to every pin
 failure: the next divergence must arrive with the evidence needed to name this
-axis instead of narrowing it again.
+axis instead of narrowing it again.  That evidence has since arrived through the
+raw-cube pins (``_SHIPPED_CONFIG_CUBE_DIGESTS``): the same runner class measured
+byte-identical second-observation cubes on an ``AMD EPYC 9V74`` (run
+``30646860127``) and an ``Intel(R) Xeon(R) Platinum 8370C`` (run
+``30651948058``), both dispatching the AVX-512 tiers -- the class crosses CPU
+vendors and models but tracks the dispatched feature set.
 
 The variance is *per digest*, not per environment: run ``30640039816`` moved the
 two shipped-config fingerprints and the ``heterogeneous_receptor_bases``
@@ -1780,13 +1785,22 @@ _SHIPPED_CONFIG_FINGERPRINTS: dict[str, dict[str, tuple[str, ...]]] = {
 #: eight values are distinct, which is the same per-``(platform, python)``
 #: structure every other pin family in this module shows.
 #:
-#: These cells are still single-observation.  The ``linux-64``/py312 runner class
-#: that produced the second shipped-config ``scientific_sha256`` observations
-#: must also produce different raw cubes -- the cube is what that digest is
-#: computed over -- but its value has not been seen yet, because the run that
-#: revealed it failed before this assertion.  ``_assert_pinned_digests`` no
-#: longer short-circuits, so whenever a run on that class next happens, both
-#: values surface together in one failure rather than one per CI round.
+#: The ``linux-64``/py312 cells hold two observations.  The runner class that
+#: produced the second shipped-config ``scientific_sha256`` observations also
+#: produces different raw cubes -- the cube is what that digest is computed
+#: over -- and, because ``_assert_pinned_digests`` no longer short-circuits,
+#: run ``30646860127`` (job ``91210265306``, ``AMD EPYC 9V74``) surfaced both
+#: cube values in a single failure, exactly as the previous revision of this
+#: comment predicted.  Run ``30651948058`` (job ``91227058667``) then measured
+#: the identical two values on an ``Intel(R) Xeon(R) Platinum 8370C``, so the
+#: second observation in each cell is byte-stable across two runs and two CPU
+#: vendors.  Both jobs dispatched the AVX-512 tiers (``AVX512_SKX`` through
+#: ``AVX512_ICL``; the 9V74 additionally ``AVX512BF16``, immaterial for
+#: ``complex128`` work) -- the strongest evidence yet that the axis-3
+#: discriminator is the dispatched vector feature set, not the CPU model.
+#: Adjudicated as a machine class, not a regression: both failing jobs passed
+#: every within-process reproducibility test, and the scientific digests for
+#: the same class were accepted on the same evidence (commit ``e5b20d1``).
 _SHIPPED_CONFIG_CUBE_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     "config.yaml": {
         "linux-64-py311": (
@@ -1794,6 +1808,7 @@ _SHIPPED_CONFIG_CUBE_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "linux-64-py312": (
             "f7df2b44c374b7ffc86d631ae33f0398538ff77ec5dfc4d80ed3f5266fe35f5d",
+            "51c26634c3fec9242885f8ffbbb5a8cecd4aba4562203d4e23f21833c2cee12d",
         ),
         "osx-64-py311": (
             "5d147191625b3317cba05dfd330c04b0cdd0ff24ec6e3792935c7df31f8fcb75",
@@ -1814,6 +1829,7 @@ _SHIPPED_CONFIG_CUBE_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "linux-64-py312": (
             "57c6a9dbe57c97c2a2b5307a3a530da5896b17f6393c77dc08a38fc4b4f48ce4",
+            "9e95838cf6aca5fc219a07bb70f2f91ed4c33088a88de67abdbd618c38603ba3",
         ),
         "osx-64-py311": (
             "2bdc9994e53f3d89417f1d2d5c2ddd5cfc08b44d94e86feef90595e96130b389",
