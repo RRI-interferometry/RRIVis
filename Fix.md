@@ -9472,3 +9472,197 @@ closure but does not itself flip `RUN-004`'s `ROADMAP` status, which §37
 reserves for the whole-tier Tier 6J gate. Tier 6I (benchmark harness,
 records, and documentation truth) is now the only authorized implementation
 slice. Nothing was pushed.
+
+### 2026-07-31 RUN-006 standalone fix acceptance
+
+**Independent adversarial acceptance of the standalone `RUN-006` fix
+(`fix(beam): stop hashing the FITS path in beam identity fingerprints`),
+cherry-picked onto `main` as `46056ef` (original `1755b69`, author-preserved,
+`-x` provenance line, no co-author lines) between Tier 6H's acceptance
+(`509c929`) and Tier 6I. Review range `509c929..46056ef`, one commit.
+
+**Design soundness.** Read `src/radiosim/core/beam/models.py` and
+`src/radiosim/io/config_resolution.py` in full. Both payload construction
+sites (`ResolvedFITSBeamDefinition.__post_init__` and
+`_resolve_fits_definition`) build the identical settings-only dict
+(`normalization`, `angular_interpolation`, `frequency_interpolation`, no
+`path`) before calling `_definition_fingerprint("fits", payload)`; the new
+`test_fits_fingerprint_is_path_independent_and_matches_canonical_digest`
+pin goes through the real resolution path (`resolve_config` via
+`io.config_resolution`, confirmed by reading `tests/unit/test_core/
+test_beam_models.py::_resolve`), not a hand-rolled copy, so the pinned
+digest cross-validates both sites at once. The pre-load dedup key
+(`_definition_identity_key` / `_deduplicated_definitions`) correctly keys
+FITS definitions on `(fingerprint, resolved_path)` and analytic definitions
+on fingerprint alone, so two distinct FITS files with identical settings
+remain two distinct definitions/handlers pre-load. The `LoadedBeamState`
+cross-check (`handler.file.resolved_path == assignment.definition.path`,
+gated behind `handler.kind == "fits"`) is ordered safely: it runs only
+after the preceding `handler.kind != expected_assignment.definition.kind`
+check has already confirmed `kind == "fits"`, and
+`LoadedBeamHandlerState.__post_init__` (called earlier in the same method,
+line 1279) already enforces `file is not None` and exact-typed whenever
+`kind == "fits"`, so the `cast(BeamFileProvenance, handler.file)` at the
+cross-check cannot see `None`.
+
+**Conflation hunt (inverse defect).** Traced `_fits_preload_key`
+(`core/beam/fits.py`), the assignment matching in `_load_beam_system`
+(`core/beam/runtime.py`), and the `LoadedBeamState` cross-check together.
+The actual runtime handler cache key is `_fits_preload_key`, which embeds
+`definition.path.resolve(strict=False)` directly -- unaffected by the
+fingerprint no longer carrying the path -- so two assignments only ever
+share a loaded handler if their resolved paths (not just their settings)
+already match. `LoadedBeamHandlerState.handler_id` and
+`.scientific_fingerprint` are content-derived (`fits_content_sha256` +
+validated metadata via `_scientific_fingerprint` in `core/beam/fits.py`),
+independent of `definition_fingerprint`, giving a second, independent
+binding of content identity. Empirically probed with a bounded script
+(`Simulator.from_mapping`, `mode: per_antenna_fits`, two files with
+different embedded science variants -- `BeamScienceVariant.CANONICAL` vs
+`.DISTINCT` -- same settings): `definition_fingerprint` was identical for
+both assignments as designed
+(`abb4cf57e32fccb742abccaa3149f013ab3a28f0ac4b8089d056c931b75696c2`), yet
+the loaded state produced two separate handlers
+(`beam-0000-bf1b659113b1`, `beam-0001-a68f9d702e7d`) with distinct
+`scientific_fingerprint`/`file.sha256`/`resolved_path` values, correct
+per-antenna assignment (`ANT0` -> handler 0 / canonical,
+`ANT1` -> handler 1 / distinct), and `unique_definitions` length 2 (not
+merged to 1). No path was found by which two different-content files could
+be conflated into one handler or one assignment.
+
+**Controlled experiment (fingerprint semantics).** Built a detached
+worktree at `509c929` and a one-shot script (`Simulator.from_mapping` with
+a `shared_fits` beam) run against the *same* fixed BeamFITS file at the
+*same* absolute path from both checkouts (file written once via
+`tests.fixtures.beamfits.write_scalar_efield_beamfits` and reused --
+confirmed non-byte-reproducible across separate writes, so it was written
+once and never regenerated). Results, `509c929` vs `46056ef`:
+- `scientific_sha256`: unchanged
+  (`34859a95964ecf7cffa391d3299b96f8054e5b3e4b2cc7e1d7e6539e054b3ebe`)
+- raw cube SHA-256: unchanged
+  (`87acf93f95cbed73421e03b6431427f35e54aca5e4c8985a4ab9f0560102ab93`)
+- handler `scientific_fingerprint` and `handler_id`: unchanged
+- `definition_fingerprint`, `assignment_fingerprint`, `state_fingerprint`,
+  `loaded_fingerprint`: all changed (expected -- their payload formula
+  changed), e.g. `definition_fingerprint`
+  `0a674ddb...` (`509c929`) -> `abb4cf57...` (`46056ef`)
+
+Also reproduced claim (a) at `46056ef` only: the same bytes copied to a
+second, different absolute path produced an *identical* result on every
+field above, including all four fingerprints -- full path-independence
+confirmed end to end, not just at the resolution layer.
+
+**Old-file compatibility.** Wrote an HDF5 result at `509c929` (FITS beam,
+old path-derived `definition_fingerprint` embedded in its beam snapshot)
+and loaded it at `46056ef` with `load_result_hdf5`. Loaded without error;
+both `scientific_sha256` and `provenance_sha256` were re-verified against
+the values stored in the file (a mismatch on either raises
+`UnsafeResultInputError`/`InvalidResultError` inside `_load_open_file`, and
+none was raised); the old, path-derived `definition_fingerprint` value
+(`0a674ddb...`) is preserved verbatim as an opaque string in the
+deserialized `beam_snapshot` -- `load_result_hdf5` never reconstructs a
+typed `ResolvedFITSBeamDefinition`/`LoadedBeamState` and therefore never
+re-derives or re-checks that fingerprint against the new formula.
+
+**Bit-identity and pins.** `git diff 509c929..46056ef -- tests/
+characterization/ configs/` is empty (zero-diff, confirmed by line count).
+The R1 shipped-config pins (`tests/characterization/
+test_tier6_current_behavior.py`, `configs/config.yaml` and `configs/
+receptor_circular_example.yaml`, both analytic-beam configs) passed
+unmodified in both gate runs below, which is the evidence for
+analytic-beam bit-identity (no analytic-beam fingerprint or cube value is
+touched by this diff, and `configs/*.yaml` carries no FITS beam).
+
+**Gates.** Non-slow suite: py311 (`default` env) 4219 passed / 0 failed /
+0 skipped / 26 warnings; py312 env 4219 passed / 0 failed / 0 skipped / 26
+warnings -- both match the claimed `4,219 = 4,217 + 2` count. `git show
+46056ef -- tests/` shows exactly two new `def test_` lines
+(`test_fits_fingerprint_is_path_independent_and_matches_canonical_digest`
+in `test_beam_models.py`, `test_loaded_state_rejects_handler_file_path_
+mismatch` in `test_beam_sampling.py`) and zero removed, confirming the
+integrator's correction of the fix author's "+3 new -1" to "2 new + 3
+in-place" (the three in-place bodies are in `test_beam_fits.py::
+test_scientific_fingerprint_identity_and_transport_exclusions` and two
+assertions in `test_beam_resolution.py`). Beam-focused runs: the six
+`test_core/test_beam_*.py` + `test_backend_jones.py` files the diff
+touches or exercises: 294 passed; the full eleven-file `*beam*`-named test
+surface (adding `test_beam_projection.py`, `test_tier3_beam_cleanup.py`,
+`test_beam_pyuvdata_contract.py`, `test_beam_solver_integration.py`,
+`test_jones/test_beam_analysis.py`, `test_io/test_beam_config.py`): 545
+passed. Neither selection reproduces the integrator's stated "439"
+verbatim (file-set choice not recorded exactly enough to replicate the
+exact count), but 0 failures across every superset tried is the material
+fact and it holds. `ruff check .`: all checks passed. `ruff format
+--check .`: 338 files already formatted. All four shipped
+`configs/*.yaml` (`config.yaml`, `hybrid_sky_example.yaml`,
+`realistic_foreground_example.yaml`, `receptor_circular_example.yaml`)
+validate cleanly via `radiosim validate`. `git status --porcelain` was
+empty before and remains empty after this review (only this acceptance
+edit to `Fix.md` and the paired commit follow).
+
+**Register-discipline ruling.** `RUN-006` landed as `DONE` in the same
+cherry-picked commit, without a preceding acceptance record -- a
+deviation from `RUN-005`'s discipline (landed `OPEN`, flipped to `DONE`
+only by its acceptance commit). Ratifying now (option i) rather than
+demanding a revert-then-reflip (option ii): the row's text is accurate and
+independently corroborated by every check above, and reverting to `OPEN`
+only to flip it back to `DONE` in this same acceptance would add a
+git-history round-trip with no verification benefit -- the adversarial
+review this record documents is the actual gate, not the row's interim
+label. The operative precedent for future out-of-band fixes: landing a
+register row as `DONE` without an acceptance record is tolerated only when
+the very next acceptance cycle to touch that row supplies the missing
+evidence trail (as here); a `DONE` row that reaches a second review cycle
+still without a paired acceptance record should be treated as a process
+defect and reverted to `OPEN` pending one.
+
+**Adjudications.**
+- The new `ValueError` in `LoadedBeamState.__post_init__`'s FITS
+  cross-check is confirmed unreachable by production callers: in
+  `_load_fits_handler` (`core/beam/fits.py`), `file_provenance =
+  BeamFileProvenance(resolved_path=definition.path, ...)` is built from
+  the exact same `definition` object supplied by the assignment that
+  triggered (or shares the cache key with) the load, so
+  `handler.file.resolved_path == assignment.definition.path` holds
+  structurally for every assignment the production loader
+  (`_load_beam_system`) produces. It is reachable only through direct,
+  malformed `LoadedBeamState` construction, which is exactly what the new
+  `test_loaded_state_rejects_handler_file_path_mismatch` does via
+  `dataclasses.replace` to forge a mismatched handler.
+- The fixture-writer nondeterminism (`write_scalar_efield_beamfits`
+  produces different bytes on every call, even with identical parameters,
+  because pyuvdata embeds a write-time value) is pre-existing, unrelated
+  to this diff, and consistent with the project's policy of never pinning
+  raw FITS byte digests in tests -- only settings-based fingerprints and
+  content-derived SHA-256 values computed at test time are ever asserted.
+  No action needed; recorded for future reviewers who reach for the same
+  fixture expecting byte-reproducibility.
+- The "pre-6H-evidence-remeasured" note is out of scope for this
+  standalone fix and not contradicted by anything found in this review.
+
+**Honest unobserved items.** Did not attempt to reproduce the exact
+"beam-focused 439" test count claimed by the integrator; substituted two
+broader supersets (294 and 545 tests) that both passed with 0 failures,
+which is the fact that matters for acceptance. Did not run the `linux-64`
+or `osx-64` CI legs directly (macOS `osx-arm64` only, consistent with
+every prior acceptance in this file); no GPU/TPU/distributed hardware
+exercised (none claimed here). Did not diff analytic-beam fingerprints
+directly between checkouts as a third, redundant confirmation of
+bit-identity -- relied on the zero-diff `tests/characterization/` +
+`configs/` result and the unmodified, passing R1 shipped-config pins
+instead, judged sufficient.
+
+No material defect found. `RUN-006` is accepted as delivered and confirmed
+as `DONE` in the register above, with this record supplying the missing
+acceptance evidence trail. `scientific_sha256` and all analytic-beam
+fingerprints are bit-identical to `509c929`; FITS-beam
+`definition_fingerprint`/`assignment_fingerprint`/`state_fingerprint`/
+`loaded_fingerprint` values change as designed and are now checkout- and
+path-independent while remaining content-safe (no conflation path found).
+Tier 6I's documentation sweep should note, alongside `RUN-004`'s evidence
+from the Tier 6H acceptance, that the beam-fingerprint portability story
+(`RUN-005` + `RUN-006`) is now fully closed: every fingerprint that used
+to embed a filesystem path (instrument source reference, FITS beam
+definition) has been made checkout-independent, so any remaining
+`scientific_sha256`/provenance non-reproducibility across checkouts would
+now indicate a *new* defect rather than a known one. Nothing was pushed.
