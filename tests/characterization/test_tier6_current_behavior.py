@@ -161,6 +161,16 @@ digests for the reachable Section 13.4 workloads, including both HEALPix rows.
 The hybrid Section 13.4 row is unreachable by construction at this gate -- that
 is precisely defect D2 -- so 6F owns adding it.
 
+Update (standalone SKY-001 remediation slice, after Tier 6 was accepted):
+blocker 2 above is **fixed**.  The four call sites in
+``core/sky/loaders/vizier/point_catalogs.py`` now pass ``precision`` by keyword,
+all ten registered VizieR point-catalog loaders reach the VizieR fetch boundary
+again, and ``tests/unit/test_core/test_sky_vizier_loader.py`` guards every one
+of them offline.  ``test_shipped_realistic_foreground_config_cannot_run_at_this_gate``
+below was flipped in the same commit.  Blocker 1 is unchanged, so
+``configs/realistic_foreground_example.yaml`` remains outside hermetic R1
+coverage for the network reason alone.
+
 Reproducibility scope -- R1 is per (platform, Python) environment
 =================================================================
 
@@ -279,6 +289,7 @@ import pytest
 import yaml
 from astropy import units as u
 from astropy.coordinates import EarthLocation
+from astropy.table import Table
 from astropy.time import Time
 
 from radiosim.api import Simulator
@@ -1874,19 +1885,53 @@ def test_shipped_circular_receptor_config_scientific_fingerprint(tmp_path) -> No
     )
 
 
-def test_shipped_realistic_foreground_config_cannot_run_at_this_gate() -> None:
+def test_shipped_realistic_foreground_config_cannot_run_at_this_gate(
+    monkeypatch,
+) -> None:
     """Records why R1 cannot cover the third shipped configuration.
 
-    Every VizieR point-catalog loader raises ``TypeError`` because
-    ``_load_from_vizier_catalog`` takes ``precision`` keyword-only while all four
-    wrapper call sites pass it positionally.  This is a production defect outside
-    Tier 6's scope; see this module's docstring.  When it is fixed, this test
-    must be replaced by a real fingerprint (network-marked) rather than deleted.
+    Originally this pinned *two* independent blockers, both named in this
+    module's docstring: (1) the 12 MB Remazeilles/Haslam network download, and
+    (2) the SKY-001 production defect that made every VizieR point-catalog
+    loader raise ``TypeError`` before any network access.
+
+    FLIPPED BY: the standalone SKY-001 remediation slice.  Blocker (2) is gone:
+    the four wrapper call sites in
+    ``core/sky/loaders/vizier/point_catalogs.py`` now pass ``precision`` by
+    keyword, so ``load_gleam`` runs all the way to the VizieR fetch boundary.
+    The assertion below is inverted accordingly -- with the fetch mocked, the
+    wrapper returns a real :class:`SkyModel` instead of raising.
+
+    Blocker (1) stands unchanged, so this test keeps its name and its purpose:
+    the configuration still needs a network download and can therefore never be
+    a hermetic R1 fingerprint.  The 6A docstring's instruction to replace this
+    with a "network-marked" fingerprint is not actionable -- the repository has
+    no ``network`` pytest marker and R1 requires hermeticity -- so the
+    configuration stays outside R1 and this test records why.
     """
+    from radiosim.core.sky.loaders.vizier import core as vizier_core
     from radiosim.core.sky.loaders.vizier.point_catalogs import load_gleam
 
-    with pytest.raises(TypeError, match="positional arguments"):
-        load_gleam(flux_limit=1000.0, precision=PrecisionConfig.standard())
+    catalog = Table(
+        {
+            "RAJ2000": [180.0],
+            "DEJ2000": [-30.0],
+            "Fpwide": [4000.0],
+            "alpha": [-0.8],
+        }
+    )
+    monkeypatch.setattr(
+        vizier_core,
+        "_fetch_vizier_catalog",
+        lambda **kwargs: catalog,
+    )
+
+    sky = load_gleam(
+        flux_limit=1000.0,
+        max_rows=1,
+        precision=PrecisionConfig.standard(),
+    )
+    assert sky.n_point_sources == 1
 
     config = yaml.safe_load(
         (REPO_ROOT / "configs" / "realistic_foreground_example.yaml").read_text(
@@ -1895,6 +1940,8 @@ def test_shipped_realistic_foreground_config_cannot_run_at_this_gate() -> None:
     )
     assert config["sky_model"]["sources"][0]["bright_catalogs"] == "gleam"
     assert config["visibility"]["sky_representation"] == "healpix_map"
+    # Blocker (1): the diffuse layer this recipe composes is a network download.
+    assert config["sky_model"]["sources"][0]["diffuse"] == "haslam"
 
 
 _WORKLOAD_RUNNERS: dict[str, Any] = {
