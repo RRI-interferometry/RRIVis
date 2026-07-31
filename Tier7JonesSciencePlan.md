@@ -229,10 +229,21 @@ at these exact locations:
 
 Every stub file carries the module-level docstring line
 `"Stub implementation: returns identity matrix. TODO: implement properly."` and
-every stub class docstring begins `"Stub: ... TODO: implement properly."`. A
-repository-wide search finds **no `TODO` marker anywhere in `src/radiosim`
-outside these twelve stub modules**; the beam subsystem in particular is
-TODO-free at `ac4fe41`.
+every stub class docstring begins `"Stub: ... TODO: implement properly."`.
+**Correction (7A independent acceptance, 2026-08-01):** the claim that a
+repository-wide search finds no `TODO` marker anywhere in `src/radiosim`
+outside these twelve stub modules is **not true** at `ac4fe41`: `cli/main.py:6`
+(`"TODO: Future enhancements for v0.3.0+"`, present since `be231d2`) and
+`core/sky/registry/catalogs.py:595` (`"TODO(scientific-coverage): ..."`,
+present since `8372dec`) both predate `ac4fe41` and are neither Jones stubs
+nor `SCI-001` material. 7C's I20 residual scan (Section 34) must exclude both
+paths explicitly rather than assert an empty `TODO` set and then relax it when
+it fails. The load-bearing half of the original claim — that the **beam**
+subsystem is TODO-free, which is why Section 19's `SCI-003` disposition rests
+on `beam/TODO.md` rather than on in-code markers — does hold and is
+unaffected. `tests/characterization/test_tier7_current_behavior.py`'s
+`test_todo_markers_outside_the_stub_modules` already recorded this correctly;
+this is a plan-text fix, not a code or decision change.
 
 **Nothing outside `src/` references any stub class.** A search for the stub
 class names across `docs/`, `tests/`, `examples/`, and `configs/` returns no
@@ -462,7 +473,14 @@ signature**.
   identity seeds do.
 - `core/receptor.py:411-418` rejects any antenna whose `mount_type` is not
   `fixed`, with the message "time-dependent feed orientation requires the
-  parallactic-angle term (Tier 7)."
+  parallactic-angle term (Tier 7)." **Correction (7A independent acceptance,
+  2026-08-01):** this quotes only the second of the two concatenated string
+  literals that make up the actual message. The message the code raises is
+  the full `f"mount_type={mount_type!r} is unsupported by Tier 5 receptors; "
+  "time-dependent feed orientation requires the parallactic-angle term (Tier
+  7)."` — a plan-text quoting fix, not a code or decision change.
+  `tests/characterization/test_tier7_current_behavior.py`'s
+  `test_mount_types_other_than_fixed_are_rejected` already pins both halves.
 
 ### 5.7 Documentation and test surfaces
 
@@ -2289,6 +2307,35 @@ their later deletion is a visible, deliberate flip; the fact that
 against `pyuvdata ==3.2.1` on the three locked platforms. Resolve **Q2** by
 recording the direction-batch memory footprint for the largest shipped HEALPix
 configuration. No production change.
+
+**Correction (7A independent acceptance, 2026-08-01):** "the cube digests and
+`scientific_sha256` for all four shipped configs" is only partly achievable
+from this environment, and the implementer's departure from the literal
+instruction is ratified rather than corrected by code. `configs/config.yaml`
+and `configs/receptor_circular_example.yaml` get the absolute, per-environment
+digests this sentence asks for, by delegating to Tier 6's own
+`_SHIPPED_CONFIG_FINGERPRINTS`/`_SHIPPED_CONFIG_CUBE_DIGESTS` tables, which
+already carry verified values for all six `(platform, python)` environments.
+`configs/realistic_foreground_example.yaml` cannot be hermetically pinned at
+all (network-dependent; Tier 6A reached the same conclusion) and is recorded
+only by source facts plus the Q2 measurement. `configs/hybrid_sky_example.yaml`
+has **no** absolute digest in any Tier 6 or Tier 7 table, and this repository
+has no `x86_64` host from which to harvest one: inventing a value measured
+only on `osx-arm64` and asserting it as ground truth for `linux-64`/`osx-64`
+CI is exactly the mistake Tier 6J's whole-tier rejection (`Fix.md`,
+2026-07-31) diagnosed as an architecture-level floating-point-non-associativity
+trap, not a hypothetical risk. 7A's substitute — an environment-independent
+bit-level invariant (the hybrid cube is exactly the backend-domain sum of its
+point-only and HEALPix-only components) — is the correct lesson from that
+rejection, not a shortfall against this sentence: it holds on every runner
+without requiring `x86_64` access, and 7B's "bit-identical to 7A's pins for
+every shipped configuration" claim is satisfied for the hybrid config by this
+invariant continuing to hold, not by an absolute digest. No CI harvest of
+`linux-64`/`osx-64` hybrid digests is required as a 7B (or later) obligation;
+one may still be added for redundancy at any later slice's discretion, but it
+would add no coverage the additivity invariant does not already provide, and
+asserting it without having verified it on those architectures would repeat
+Tier 6J's error. No decision changes.
 
 **7B — the evaluation contract and the shared evaluator.**
 `DirectionBatch`; `compute_jones_batch` replacing the scalar contract;
