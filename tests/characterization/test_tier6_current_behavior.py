@@ -1624,25 +1624,32 @@ _SHIPPED_CONFIG_FINGERPRINTS: dict[str, dict[str, str]] = {
 #: "``C11`` moved the fingerprint but not the science" claim is a test, not a
 #: comment.  Recipe: ``sha256`` of the C-contiguous ``complex128`` buffer.
 #:
-#: **Only the ``osx-arm64`` rows exist.**  Unlike every other pin family, these
-#: two digests were never printed by any CI run: the ``scientific_sha256``
-#: assertion in the same test short-circuited first on all four x86_64 jobs for
-#: the whole of Tier 6, so the cube assertion below was never reached there and
-#: no ``linux-64``/``osx-64`` value can be harvested from the existing logs.
-#: Inventing them is not an option.  The harvest mechanism is therefore
-#: ``_assert_pinned_digest``: with the ``scientific_sha256`` pins above now
-#: correct on every platform, the next CI run reaches this assertion, finds no
-#: entry for its environment, and fails printing the digest it just measured.
-#: **TODO (Tier 6J repair, second round): harvest the four missing
-#: ``linux-64``/``osx-64`` values from that run's logs and record them here.**
-#: Until then CI stays red on these two tests only, on the four x86_64 jobs
-#: only, which is the honest state -- not a relaxed assertion.
+#: These two digests were the last x86_64 pins to be measured, and they took an
+#: extra CI round to obtain: for the whole of Tier 6 the ``scientific_sha256``
+#: assertion in the same test short-circuited ahead of them on all four x86_64
+#: jobs, so the cube assertion below was never reached there and no
+#: ``linux-64``/``osx-64`` value existed in any log to harvest.  Inventing them
+#: was not an option.  ``_assert_pinned_digest`` was the harvest mechanism:
+#: once the ``scientific_sha256`` pins above were correct on every platform, run
+#: ``30631837095`` reached this assertion on each x86_64 job, found no entry for
+#: its environment, and failed printing the digest it had just measured (jobs
+#: ``91159779076``, ``91159778993``, ``91159779102``, ``91159779044``).  All
+#: eight values are distinct, which is the same per-``(platform, python)``
+#: structure every other pin family in this module shows.
 _SHIPPED_CONFIG_CUBE_DIGESTS: dict[str, dict[str, str]] = {
     "config.yaml": {
+        "linux-64-py311": "9d770ec675b52d352aea6cf750cdba5056cc0517aad3d87b84ef5ed47e48997f",
+        "linux-64-py312": "f7df2b44c374b7ffc86d631ae33f0398538ff77ec5dfc4d80ed3f5266fe35f5d",
+        "osx-64-py311": "5d147191625b3317cba05dfd330c04b0cdd0ff24ec6e3792935c7df31f8fcb75",
+        "osx-64-py312": "debe780775f8a101d942a4b1746e822dab44094d2ac393378208dd04ac160fa7",
         "osx-arm64-py311": "cce1bfe86dc8b3fe81e5c6064a8449afa5bbab95866ec6bc352681dbf1e5ffae",
         "osx-arm64-py312": "7560d2f267f372e19ef735afca0cb9ec05ca9f75e2f2ca62a35c52843660f9df",
     },
     "receptor_circular_example.yaml": {
+        "linux-64-py311": "1fb5cedd8635dc66a8e51000772b50fb8a4ec3305980f2c01dcb415f85f43f5b",
+        "linux-64-py312": "57c6a9dbe57c97c2a2b5307a3a530da5896b17f6393c77dc08a38fc4b4f48ce4",
+        "osx-64-py311": "2bdc9994e53f3d89417f1d2d5c2ddd5cfc08b44d94e86feef90595e96130b389",
+        "osx-64-py312": "925c9b92d762e2d8919bb25356b01f85d33faa0ebe6e5608d6a373fc69ec6c15",
         "osx-arm64-py311": "95890bc680c21057c5c23245dc8b67eb7e8662559b3d965905862148a75dd2f8",
         "osx-arm64-py312": "ff26cb85289e77cda59a7508dae2e38afeb32bbfb4aff1b98315ac33e2c0177b",
     },
