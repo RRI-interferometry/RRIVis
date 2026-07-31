@@ -12,9 +12,18 @@ from radiosim.core.sky import (
     SkyRegion,
     SourceSubtractionStatus,
 )
+from radiosim.core.sky.containers.constants import C_LIGHT, K_BOLTZMANN
+from radiosim.core.sky.loaders import extragalactic as extragalactic_mod
 from radiosim.core.sky.loaders.extragalactic import load_extragalactic_point_sources
 from radiosim.core.sky.registry import loader_registry
+from radiosim.core.sky.support.clustering import (
+    clustered_pixel_rates,
+    dither_positions_in_pixels,
+    gaussian_overdensity_map,
+    power_law_acf_to_cl,
+)
 from radiosim.core.sky.support.dnds import DNDS_MODELS
+from radiosim.core.sky.support.healpy import lazy_healpy as hp
 
 
 @pytest.fixture
@@ -35,6 +44,8 @@ def _flux_moments(model_name: str, s_min: float, s_max: float) -> tuple[float, f
 
 class TestExtragalacticLoader:
     def test_count_matches_seeded_poisson_draw(self, precision):
+        # The isotropic mode (clustering_amp=0) draws one top-level Poisson
+        # count; replicate the RNG stream independently.
         model = DNDS_MODELS["gervasi2008_150mhz"]
         cone = SkyRegion.cone(ra_deg=180.0, dec_deg=-30.0, radius_deg=10.0)
         flux_range = (1e-2, 1e-1)
@@ -44,6 +55,7 @@ class TestExtragalacticLoader:
 
         sky = load_extragalactic_point_sources(
             flux_range_jy=flux_range,
+            clustering_amp=0.0,
             region=cone,
             seed=seed,
             precision=precision,
@@ -213,6 +225,191 @@ class TestExtragalacticLoader:
             )
             assert sky.n_point_sources > 0
             assert preset in sky.provenance.notes
+
+
+class TestClusteringSupport:
+    def test_acf_to_cl_roundtrip(self):
+        # Reconstructing the 2PACF from the band-limited spectrum must
+        # recover the input power law at angles the band limit resolves.
+        amp, gamma, lmax = 7.8e-3, 0.821, 191
+        cl = power_law_acf_to_cl(amp, gamma, lmax, zero_monopole=False)
+        coeffs = (2.0 * np.arange(lmax + 1) + 1.0) * cl / (4.0 * np.pi)
+        for chi_deg in (2.0, 5.0, 10.0):
+            x = np.cos(np.radians(chi_deg))
+            reconstructed = np.polynomial.legendre.legval(x, coeffs)
+            expected = amp * chi_deg**-gamma
+            assert reconstructed == pytest.approx(expected, rel=0.1)
+
+    def test_cl_nonnegative_with_zeroed_monopole(self):
+        cl = power_law_acf_to_cl(7.8e-3, 0.821, 191)
+        assert cl[0] == 0.0
+        assert np.all(cl >= 0.0)
+        assert np.all(np.isfinite(cl))
+
+    def test_acf_to_cl_rejects_bad_parameters(self):
+        with pytest.raises(ValueError, match="amplitude"):
+            power_law_acf_to_cl(0.0, 0.821, 63)
+        with pytest.raises(ValueError, match="gamma"):
+            power_law_acf_to_cl(7.8e-3, 2.5, 63)
+
+    def test_overdensity_map_statistics_match_spectrum(self):
+        nside, lmax = 32, 95
+        cl = power_law_acf_to_cl(7.8e-3, 0.821, lmax)
+        rng = np.random.default_rng(42)
+        delta = gaussian_overdensity_map(cl, nside, rng)
+        assert delta.size == hp.nside2npix(nside)
+        expected_var = float(
+            np.sum((2.0 * np.arange(lmax + 1) + 1.0) * cl) / (4.0 * np.pi)
+        )
+        assert abs(float(delta.mean())) < 0.02
+        assert float(delta.var()) == pytest.approx(expected_var, rel=0.25)
+
+    def test_clustered_pixel_rates_clip_and_error(self, caplog):
+        delta = np.array([-1.5, -0.2, 0.0, 0.4, 1.0])
+        with caplog.at_level("WARNING"):
+            rates = clustered_pixel_rates(10.0, delta)
+        assert rates[0] == 0.0
+        assert np.all(rates[1:] > 0.0)
+        assert any("clipped" in record.message for record in caplog.records)
+
+        mostly_negative = np.full(100, -2.0)
+        mostly_negative[:30] = 0.0
+        with pytest.raises(ValueError, match="not valid"):
+            clustered_pixel_rates(10.0, mostly_negative)
+
+    def test_dither_positions_stay_in_parent_pixel(self):
+        nside = 64
+        pixels = np.repeat(np.array([7, 1000, 40000], dtype=np.int64), 50)
+        rng = np.random.default_rng(5)
+        ra_rad, dec_rad = dither_positions_in_pixels(pixels, nside, rng)
+        recovered = hp.ang2pix(nside, np.pi / 2.0 - dec_rad, ra_rad)
+        assert np.array_equal(recovered, pixels)
+        # Positions must not all sit at the pixel centers.
+        center_theta, center_phi = hp.pix2ang(nside, pixels)
+        assert not np.allclose(ra_rad, center_phi)
+
+
+class TestClusteredLoader:
+    def test_clustered_realization_is_seed_reproducible(self, precision):
+        cone = SkyRegion.cone(ra_deg=180.0, dec_deg=-30.0, radius_deg=5.0)
+        kwargs = {"region": cone, "seed": 21, "precision": precision}
+        sky_a = load_extragalactic_point_sources(**kwargs)
+        sky_b = load_extragalactic_point_sources(**kwargs)
+        assert sky_a.n_point_sources == sky_b.n_point_sources
+        assert np.array_equal(sky_a.point.ra_rad, sky_b.point.ra_rad)
+        assert np.array_equal(sky_a.point.flux, sky_b.point.flux)
+
+    def test_clustered_counts_show_excess_variance(self, precision):
+        nside = 32
+        npix = hp.nside2npix(nside)
+        nbar = (
+            DNDS_MODELS["gervasi2008_150mhz"].integrated_counts(1e-2, 1e-1)
+            * 4.0
+            * np.pi
+            / npix
+        )
+
+        def per_pixel_variance(sky):
+            pix = hp.ang2pix(
+                nside,
+                np.pi / 2.0 - np.asarray(sky.point.dec_rad, dtype=np.float64),
+                np.asarray(sky.point.ra_rad, dtype=np.float64),
+            )
+            counts = np.bincount(pix, minlength=npix)
+            return float(np.var(counts))
+
+        clustered = load_extragalactic_point_sources(
+            nside=nside, seed=17, precision=precision
+        )
+        isotropic = load_extragalactic_point_sources(
+            nside=nside, clustering_amp=0.0, seed=17, precision=precision
+        )
+
+        var_clustered = per_pixel_variance(clustered)
+        var_isotropic = per_pixel_variance(isotropic)
+        assert var_isotropic < 1.2 * nbar
+        assert var_clustered > 1.4 * nbar
+        assert var_clustered > 1.3 * var_isotropic
+
+    def test_clustered_notes_and_provenance(self, precision):
+        cone = SkyRegion.cone(ra_deg=180.0, dec_deg=-30.0, radius_deg=5.0)
+        sky = load_extragalactic_point_sources(region=cone, seed=8, precision=precision)
+        assert "clustered 2PACF" in sky.provenance.notes
+        assert "Mittal" in sky.provenance.notes
+        assert sky.provenance.rng_seed == 8
+
+
+class TestStreamedHealpix:
+    def test_streamed_isotropic_map_mean_matches_analytic(self, precision):
+        nside = 32
+        sky = load_extragalactic_point_sources(
+            clustering_amp=0.0,
+            representation="healpix_map",
+            nside=nside,
+            frequencies=np.asarray([150e6]),
+            seed=23,
+            precision=precision,
+        )
+        assert sky.healpix is not None
+        maps = np.asarray(sky.healpix.maps, dtype=np.float64)
+        assert maps.shape == (1, hp.nside2npix(nside))
+
+        model = DNDS_MODELS["gervasi2008_150mhz"]
+        grid = np.logspace(-2, -1, 20001)
+        flux_per_sr = np.trapezoid(grid * model.dn_ds(grid), grid)
+        expected_mean_k = (
+            flux_per_sr * 1e-26 * C_LIGHT**2 / (2.0 * K_BOLTZMANN * 150e6**2)
+        )
+        assert float(maps.mean()) == pytest.approx(expected_mean_k, rel=0.01)
+
+    def test_streamed_chunking_is_consistent(self, precision, monkeypatch):
+        # Force many small chunks; the accumulated mean must stay on the
+        # analytic value, exercising the chunk-boundary logic.
+        monkeypatch.setattr(extragalactic_mod, "_STREAM_CHUNK_SOURCES", 1000)
+        cone = SkyRegion.cone(ra_deg=180.0, dec_deg=-30.0, radius_deg=10.0)
+        sky = load_extragalactic_point_sources(
+            clustering_amp=0.0,
+            representation="healpix_map",
+            nside=32,
+            frequencies=np.asarray([150e6]),
+            region=cone,
+            seed=29,
+            precision=precision,
+        )
+        maps = np.asarray(sky.healpix.maps, dtype=np.float64)
+        assert sky.healpix.hpx_inds is not None
+
+        model = DNDS_MODELS["gervasi2008_150mhz"]
+        grid = np.logspace(-2, -1, 20001)
+        flux_per_sr = np.trapezoid(grid * model.dn_ds(grid), grid)
+        expected_mean_k = (
+            flux_per_sr * 1e-26 * C_LIGHT**2 / (2.0 * K_BOLTZMANN * 150e6**2)
+        )
+        assert float(maps.mean()) == pytest.approx(expected_mean_k, rel=0.06)
+
+    def test_streamed_clustered_frequency_scaling(self, precision):
+        cone = SkyRegion.cone(ra_deg=180.0, dec_deg=-30.0, radius_deg=5.0)
+        sky = load_extragalactic_point_sources(
+            representation="healpix_map",
+            nside=32,
+            frequencies=np.asarray([150e6, 180e6]),
+            region=cone,
+            seed=31,
+            precision=precision,
+        )
+        assert sky.healpix is not None
+        assert sky.healpix.hpx_inds is not None
+        assert sky.n_frequencies == 2
+        maps = np.asarray(sky.healpix.maps, dtype=np.float64)
+        assert np.all(np.isfinite(maps))
+        assert np.all(maps >= 0.0)
+        assert "streamed HEALPix" in sky.provenance.notes
+
+        # Brightness temperature scales as the mean flux power law times
+        # the Rayleigh-Jeans nu^-2: (180/150)^alpha * (150/180)^2.
+        ratio = float(maps[1].mean() / maps[0].mean())
+        expected = (180.0 / 150.0) ** (-0.681) * (150.0 / 180.0) ** 2
+        assert ratio == pytest.approx(expected, rel=0.05)
 
 
 class TestRegistryIntegration:
