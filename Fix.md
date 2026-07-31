@@ -9666,3 +9666,341 @@ to embed a filesystem path (instrument source reference, FITS beam
 definition) has been made checkout-independent, so any remaining
 `scientific_sha256`/provenance non-reproducibility across checkouts would
 now indicate a *new* defect rather than a known one. Nothing was pushed.
+
+### 2026-07-31 Tier 6I independent acceptance
+
+**Tier 6I (benchmark harness, records, and documentation truth) is
+independently accepted.** Reviewed adversarially; nothing taken on the
+implementer's word alone. Review range `ff6920a..eea1914`, five commits:
+`3b053c8` + `357ac12` (plan corrections), `ea48d2c` (`perf: add reproducible
+backend benchmarks`), `c2df5f9` (`test(benchmarks): record the measured Tier
+6 backend records`), `eea1914` (`docs: replace every stale backend claim
+with the measured position`). `git log --format=%B ff6920a..eea1914 | grep -i
+co-authored` empty. `git status` clean before and after every step of this
+review, restored after two scratch-copy experiments (below).
+
+**Scope: exact §33-grant compliance, verified file by file.** `git diff
+--name-status ff6920a..eea1914` touches exactly 20 paths: `.gitignore`,
+`CLAUDE.md`, `README.md`, `Tier6HybridRuntimePlan.md`,
+`docs/api/backends.rst`, `docs/installation.rst`, `docs/migration_guide.md`,
+`docs/quickstart.rst`, `docs/user_guide/backends.rst`,
+`docs/user_guide/configuration.rst`,
+`docs/user_guide/configuration_support.rst`,
+`output/benchmarks/reference/20260731T104303Z-darwin-arm64.json` (new),
+`pixi.toml`, `src/radiosim/benchmarks/{__init__,harness,record}.py` (new),
+`tests/characterization/test_tier6_current_behavior.py`,
+`tests/performance/test_backend_benchmarks.py` (new),
+`tests/unit/test_core/test_benchmark_record.py` (new),
+`tests/unit/test_tier1h_documentation.py`,
+`tests/unit/test_tier6_runtime_acceptance.py` (new) -- an exact match to the
+§33 Tier 6I grant as amended by `3b053c8`/`357ac12`, with no file outside it
+touched. Per-commit boundaries checked individually
+(`git diff --name-only <c>~1 <c>`): `3b053c8` and `357ac12` touch only
+`Tier6HybridRuntimePlan.md`; `ea48d2c` touches the harness/record/`.gitignore`/
+`pixi.toml`/test files; `c2df5f9` touches only the one reference JSON;
+`eea1914` touches only the nine documentation and test files. No slice split
+across two commits, no two slices sharing a commit.
+
+**Harness methodology (§22), read in full (`src/radiosim/benchmarks/
+harness.py`, `record.py`).** `time_backend_call` times setup as the first
+call, then `iterations` (>=5, enforced by a `ValueError` below 5) further
+calls for the steady-state median/min/max, with `backend.synchronize(result)`
+-- the actual produced array, not a throwaway constant -- called before every
+clock stop; this is the caller's-array form the 6H fix made meaningful,
+confirmed by reading the call site: `result = call(); backend.synchronize
+(result)`. `compile_seconds = max(0, setup - median)`, its own field, matching
+Section 22.2 literally. `host_transfer_seconds` is timed strictly around
+`np.asarray(backend.to_numpy(result))`, nothing else. Peak memory is measured
+in a **separate**, untimed `tracemalloc` pass after the timed loop completes
+(`tracemalloc.start()` / one more `call()` / `get_traced_memory()[1]` /
+`tracemalloc.stop()`), exactly as documented, so tracing never perturbs the
+reported timings. Every record's correctness is `compare_to_reference`
+against the NumPy host result, using the Section 13.5 predicate
+(`rtol=1e-12`, `atol=1e-12*max(1,max|V|)`). `record.py`'s honesty rules
+probed directly, not merely read:
+
+```text
+BenchmarkRecord.create(**complete_but_accelerator="gpu", accelerator_driver=None, ...)
+  -> BenchmarkRecordError: "accelerator='gpu' without an accelerator_driver
+     description. Section 23: a record claiming an accelerator without a
+     corresponding hardware description is an acceptance failure."
+BenchmarkRecord.create(**complete_minus_peak_host_bytes)
+  -> BenchmarkRecordError: "BenchmarkRecord is missing mandatory field(s):
+     peak_host_bytes. There is no partial record: ..."
+```
+
+Both match the committed unit tests
+(`test_p2_an_accelerator_claim_requires_a_hardware_description`,
+`test_p1_a_record_missing_any_mandatory_field_is_rejected`), confirming the
+tests are not merely asserting a mock. `records_are_complete` and
+`BenchmarkRecord.__post_init__` additionally enforce `steady_state_iterations
+>= 5` and the two-nullable-field rule (`accelerator_driver`,
+`precision_preset`) structurally, not by convention.
+
+**Records honest.** The committed reference document
+(`output/benchmarks/reference/20260731T104303Z-darwin-arm64.json`) parses as
+`{schema_version, records, retracing, memory_scaling}`; 24 `records` (8
+workloads x 3 backends, verified by direct count, matching Section 27's seven
+workloads plus the one added scaled row); every record's key set matches the
+45 declared `BenchmarkRecord` fields exactly (checked programmatically, no
+extra/missing key on any of the 24); no record claims a non-`"none"`
+accelerator; every Dask record has `max_absolute_deviation == 0.0` (bit
+identity, checked on all 8 Dask rows); every JAX record's deviation is
+non-negative and small (worst `1.7e-11` on the scaled workload, well inside
+the stated `atol`); `compile_seconds` is positive and less than `setup_seconds`
+for every JAX row, consistent with the setup-minus-median formula; the
+retracing records show `max_first_to_repeat_ratio` of `1.45` (NumPy, no
+compilation) versus `493.9` (JAX, compiling) for the identical
+`(16,24,32,24,16,24,32)` source-count sequence -- a ~340x gap between the two
+backends' own ratios, which is "roughly two orders of magnitude" read as the
+*difference the compiling backend pays over the non-compiling one*, not as an
+absolute multiplier claim the plan never makes; the memory-scaling records
+show `bytes_per_pair` converging from `221.3` to `208.2` across
+`(100,100)..(800,800)`, linear and internally consistent with 6H's own
+independently measured ~208 B/pair. The README/backends.rst "JAX-CPU slower
+than NumPy" statement is present verbatim in both files and is true of every
+one of the 8 steady-state comparisons in the committed record (checked
+programmatically: JAX's `steady_state_median_seconds` exceeds NumPy's on
+every row).
+
+**Bench-rerun comparison, reproduced on my own machine, not trusted from the
+committed file alone.** `pixi run bench`: `10 passed in 10.92s`, writing
+`output/benchmarks/20260731T112452Z-darwin-arm64.json` (correctly gitignored:
+`git status --porcelain` empty afterward, `git check-ignore -v` confirms the
+`.gitignore` rule that catches it). Compared my fresh run against the
+committed reference, per-workload steady-state medians: all eight rows agree
+to within ~15% run-to-run noise on every backend (e.g.
+`point_scaled_4096_sources_4times`: mine `numpy=0.0356s / jax=0.1065s`,
+committed `numpy=0.0401s / jax=0.1209s`; ratios both ~3x). Retracing ratios:
+mine `numpy=1.45 / jax=430.7`, committed `numpy=1.45 / jax=493.9` -- same
+shape, same order of magnitude. Memory-scaling `bytes_per_pair`: identical to
+four significant figures between my run and the committed file at every one
+of the four `(B,S)` pairs (deterministic seeded synthetic inputs, no host
+noise in an allocation-size measurement). Hardware: same host as the
+committed record (Apple M1 Max, macOS, arm64) -- a genuinely different-host
+rerun was not available in this environment, recorded as unobserved below.
+
+**The two 6H-routed obligations, reproduced.** (1) Retracing: confirmed
+`measure_retracing` calls the real production
+`radiosim.core.contraction.baseline_contraction_for` (not a stand-in),
+walking `RETRACING_SOURCE_COUNTS = (16, 24, 32, 24, 16, 24, 32)` and
+separating first-seen-shape cost from repeat-shape cost; the qualitative
+~2-3-orders-of-magnitude retrace penalty under JAX versus none under NumPy
+reproduced directly above. (2) Memory scaling: confirmed
+`measure_kernel_memory_scaling` traces only the kernel call, inputs excluded,
+across `(100,100), (200,200), (400,400), (800,800)`; reran at two of the four
+sizes myself (`measure_kernel_memory_scaling(get_backend("numpy"),
+n_baselines=100, n_sources=100)` and `n_baselines=800, n_sources=800` via the
+unit-test path) and confirmed `bytes_per_pair` linear and stable, matching
+the committed values exactly. Both obligations are documented with their
+named mitigation: retracing's mitigation is implicit in the finding itself
+(the harness now measures and reports it, discharging the "must be measured"
+half of the 6H routing; no code mitigation was authorized or claimed);
+memory scaling's mitigation ("chunk the baseline axis inside
+`baseline_contraction_for`") is named verbatim in both the `MemoryScalingRecord.notes`
+field and `docs/user_guide/backends.rst`.
+
+**Doc-truth sweep.** Read every changed doc file against post-6H source, not
+against the implementer's own characterization.
+
+- `README.md` -- the backend-truth paragraph replaced with hardware,
+  correctness (Dask bit-identical, JAX-CPU tolerance with the worst observed
+  deviation and its allowed bound), and speed (3x on the scaled workload,
+  10-20x on the small workloads -- checked against the committed record:
+  actual per-workload ratios range 10.0x-18.3x, "10-20x" is accurate), citing
+  `output/benchmarks/reference/` and the exact commit. No unverified
+  multiplier.
+- `docs/user_guide/backends.rst` -- backend table, `auto` precedence
+  (`jax` only on a non-CPU device probe, else NumPy, never Dask), the
+  compilation boundary (`core/contraction.py`'s `baseline_contraction`,
+  confirmed the sole `backend.compile(` site by 6H and unchanged here), and
+  the five host-side stages (Astropy transforms, horizon masking, Planck
+  conversion, FITS beam interpolation, HEALPix direction cosines) all read
+  and confirmed against source claims already verified at 6H.
+- `docs/user_guide/configuration.rst` -- the `sky_loading`/`solver` blocks
+  and `hybrid` mode with the §18.3 rejections shown; every quoted rejection
+  string checked byte-for-byte against source and matches exactly:
+  `execution.n_workers`/`sky_loading.max_workers`/`solver.workers`/
+  `solver.executor=process` guidance strings (`io/config.py:1475-1492`) and
+  the three `HybridSkyError` messages (`core/hybrid.py:157-180`), all
+  verbatim matches, including the previously-undocumented `point_sources`/
+  `healpix_map` rejection text (C8/C9) that neither 6F's nor 6G's own grant
+  had reached -- filled in now under 6I's own file grant, not scope creep,
+  since §26 item 3 explicitly names "the §18.3 rejections shown" as 6I's own
+  obligation for this file.
+- `CLAUDE.md` -- confirmed the diff touches exactly the sentences named by
+  §26.4 as amended (the jit/vmap sentence, the spherical_harmonic sentence
+  now citing `io/config.py:2091-2097` and matching the rejection text
+  verbatim, the project-overview and architecture-diagram Numba mentions, the
+  rewritten Backends subsection, plus the two authorized additions: the new
+  `### Benchmarks (benchmarks/)` subsection and the `pixi run bench` command
+  line) and nothing else -- the Jones inventory, sky-model sections, and RIME
+  equation section are byte-identical (not present in the diff at all).
+- `docs/migration_guide.md` -- one entry per §36 row, spot-checked four
+  against source: C3 (`load_models_parallel`'s `max_workers` is a required
+  positional argument, no default -- confirmed by reading the signature),
+  C14 (`get_backend("dask", mode="cpu").name == "dask-cpu"`, confirmed live),
+  C15 (`_has_non_cpu_jax_device()` gates the `auto` precedence, confirmed at
+  the cited call site), C8/C9 (rejection text, confirmed above). All four
+  match.
+- `docs/installation.rst`, `docs/quickstart.rst`,
+  `docs/user_guide/configuration_support.rst` -- the three files
+  `357ac12` added for surviving `numba` references; each now reads `dask`/
+  `jax`/`numpy`/`auto` and the `radiosim[dask]` extra, confirmed against
+  `pyproject.toml`'s actual extras (`gpu`, `gpu-cuda`, `gpu-rocm`, `tpu`,
+  `dask`, ...).
+
+**Fail-before/pass-after property of the residual tests, reproduced by
+restoring `docs/user_guide/backends.rst` to its `ff6920a` content in the live
+tree (saved, restored, `git status --porcelain` empty afterward), then
+running `tests/unit/test_tier1h_documentation.py -k tier6i`:** at the
+restored (pre-6I) content, `test_tier6i_active_docs_never_offer_the_removed_
+numba_backend[backends.rst0]` and `test_tier6i_backend_guide_states_the_
+measured_position` fail (`2 failed, 12 passed`); after restoring the actual
+6I content, the same selection is `14 passed`. The failure is exactly the two
+tests that target `backends.rst`, nothing else -- the residual property holds
+precisely, not merely "some tests fail".
+
+**Gate counts, both environments.**
+
+```text
+pixi run test -- -m "not slow"
+  py311 (default): 4259 passed, 0 skipped, 10 deselected, 26 warnings, 388.68s
+  py312:           4259 passed, 0 skipped, 10 deselected, 26 warnings, 410.79s
+```
+
+Arithmetic, recomputed from actual `--collect-only` counts rather than from
+`def` line counts (a parametrized test collects as more than one item):
+`4219` (post-RUN-006 baseline) `+ 16` (`tests/unit/test_core/
+test_benchmark_record.py`, collected) `+ 10`
+(`tests/unit/test_tier6_runtime_acceptance.py`, collected) `+ 14`
+(the Tier 6I-tagged additions to `tests/unit/test_tier1h_documentation.py`,
+collected -- one of the seven new `def`s is parametrized over the eight
+active-surface files, so 7 defs collect as 14 items) `= 4259` fast tests,
+exactly matching both gate runs; the characterization file's own change is a
+straight rename (one pin removed, one added, net zero). Separately,
+`tests/performance/test_backend_benchmarks.py` adds `10` items, all marked
+`performance`+`slow` and deselected under `-m "not slow"` (confirmed by
+`pixi run bench` itself reporting "10 items" and by both gate runs' own
+"10 deselected"). `pixi run lint` -- "All checks passed!".
+`pixi run check-format` -- "344 files already formatted". `git diff
+ff6920a..HEAD -- src/` touches only
+the three new `src/radiosim/benchmarks/*.py` files (confirmed by
+`git diff --name-status`), so no production behavior changed; the
+characterization suite
+(`tests/characterization/test_tier6_current_behavior.py`) run standalone:
+`41 passed`, matching 6H's own count, confirming the shipped-config
+`scientific_sha256`/cube-digest pins are untouched. `radiosim validate` on
+all four shipped configs (`config.yaml`, `hybrid_sky_example.yaml`,
+`realistic_foreground_example.yaml`, `receptor_circular_example.yaml`):
+all pass. `pixi.lock`, `pyproject.toml`, `pyright-baseline.json` all
+byte-identical across the range (`git diff ff6920a..eea1914 -- <file>` empty
+for all three) -- no new dependency, no lock regeneration, no ceiling change.
+
+**Docs build, reproduced twice (current tree and a scratch restore of
+`docs/migration_guide.md` to `ff6920a`), not accepted on the implementer's
+claim.** `sphinx-build -b html . <scratch dir>` from `docs/`: both builds
+succeed, both report **32** warnings, and the warning lists are the same set
+(Pygments lexer failures in `HERA_VSIM_ANALYSIS.md`, docstring formatting
+notices, two `toctree`-exclusion notices, and one pre-existing MyST
+cross-reference miss in `migration_guide.md` pointing at
+`#hybrid-results-and-serialization`, present at both the baseline and current
+content, only at a different line number because 6I's new sections push the
+target down). Zero new warnings, confirmed by direct baseline-vs-current
+reproduction rather than by a line-number-normalization argument (none was
+offered by the implementer's commits in this range, so there was nothing to
+scrutinize on that specific point). Working tree restored and confirmed clean
+(`git status --porcelain` empty) after both scratch experiments.
+
+**No accelerator was exercised** in this review; none is claimed by this
+slice.
+
+**Adjudications (a)-(e).**
+
+(a) **`docs/changelog.rst`'s "Universal GPU acceleration via JAX and Numba
+backends" -- routing to Tier 8 ratified, not fixed now.** Confirmed the line
+is still live (`docs/changelog.rst:15`). §26's own preamble states Tier 6
+"does not perform the Tier 8 documentation sweep" and owns "exactly the
+statements its own changes make false or newly provable"; this changelog
+line predates Tier 6 entirely -- it is the original `RUN-004` defect, and
+§1's issue table explicitly excludes `DOC-001`..`DOC-008` from Tier 6's scope
+except for §26's own named list, which does not include this file. `357ac12`
+already reasons through this and records it as "a known, routed gap rather
+than an oversight" rather than silently dropping it. Weighed against this:
+§37 criterion 22's literal wording ("every documentation statement... either
+cites a committed record file or has been deleted") is unqualified and would,
+read in isolation, block whole-tier acceptance on this one line. Ruling:
+criterion 22 is read as bounded by §26's own named surfaces, consistent with
+§26's explicit "not the Tier 8 sweep" framing and with the discipline this
+entire tier has followed (bounded file grants, no drive-by fixes, deviations
+routed and recorded rather than silently absorbed -- the same discipline 6H
+used when it declined to flip the `VisibilitySimulator` ABC's `supports_gpu`
+default). Ratified as routed, not fixed under 6I's grant. Flagged here in
+plain terms for whoever accepts 6J or scopes Tier 8: this is a one-line,
+high-visibility, already-diagnosed fix, and `RUN-004`'s partial closure
+("backend correctness parity complete; accelerator performance
+undemonstrated") reads awkwardly next to a changelog entry claiming the
+opposite in the same tree. Recommended, not required, that Tier 8 (or an
+out-of-band one-line fix, following the `RUN-006` precedent for small
+standalone corrections) prioritize this specific line.
+
+(b) **`tracemalloc` under-reporting JAX's real working set -- real, minor,
+not a record-honesty defect, newly filed as a §39 risk row (commit
+`2808ff0`, this review).** Detailed above; no field in the schema claims a
+comprehensive cross-backend memory comparison, and `backend_memory_info`
+already carries a qualitative disclaimer for JAX, so this is a documentation-
+methodology gap rather than a false statement. Does not block acceptance.
+
+(c) **Snapshot-vs-drift of quoted numbers -- citation scheme sound.** Every
+number quoted in prose (README, backends.rst, CLAUDE.md) is tied to an exact
+file (`output/benchmarks/reference/20260731T104303Z-darwin-arm64.json`) and
+an exact commit (`ea48d2c`) rather than asserted as a living truth; the
+numbers are evidence citations, not claims that drift with the codebase. A
+future reader can always reproduce at that commit to check them, and my own
+independent rerun (above) confirms they were not fabricated.
+
+(d) **The 4096-source workload addition -- ratified.** Additive, not required
+by §27's seven-row matrix, clearly justified in the test module's own
+docstring (the seven §13.4 rows are dominated by Python dispatch overhead at
+two sources/two baselines; the scaled row is the one place arithmetic
+dominates), and does not weaken or replace any required row.
+
+(e) **Pyright ceiling unlowered -- ratified, consistent with the 6H
+acceptance's own standing ruling.** `pixi run typecheck`: "Strict Pyright
+error ceiling satisfied: 2757 errors <= 4600." (up from 6H's measured 2752,
+the five-error delta attributable to the new `benchmarks` package; both
+numbers are far under the 4600 checked-in ceiling, which `pyright-
+baseline.json` confirms is byte-unchanged across this range). Leaving the
+checked-in ceiling unlowered remains a missed tightening opportunity, not a
+violation, for the same reason 6H's acceptance ruled it acceptable: the
+ceiling file is correctly outside 6I's §33 grant.
+
+**Plan correction (mine), committed separately before this acceptance.**
+Commit `2808ff0` (`docs(runtime): correct Tier 6 design`) adds the one §39
+risk-register row described in adjudication (b), with no decision change,
+following the same "found during independent acceptance" pattern as the
+6H reviewer's own correction (`0198341`), and updates the status header to
+record Tier 6I's acceptance and authorize Tier 6J.
+
+**Honest unobserved items.** No GPU/TPU/distributed hardware was exercised
+(none is claimed by this slice). The bench-rerun comparison used the same
+host as the committed reference (macOS/arm64/Apple M1 Max); a genuinely
+independent second host was not available in this review environment, so
+cross-host drift of the timing numbers (as opposed to the memory-scaling
+numbers, which are host-independent by construction and matched exactly) is
+unverified -- the qualitative claims (JAX slower, Dask bit-identical, ~2-3
+orders of magnitude retrace penalty) are what this review actually needed to
+confirm, and they reproduced cleanly. `linux-64`/`osx-64` were not installed
+or run directly (macOS `osx-arm64` only, consistent with every prior
+acceptance in this file); the `backend-parity` CI job added at 6H is what
+exercises `linux-64` on every push and was not re-verified here since no
+6H-owned file changed in this range. `make -C docs html` was not separately
+invoked; direct `sphinx-build` calls were used for both the current-tree and
+baseline-restored comparisons, judged equivalent, consistent with 6H's own
+choice.
+
+No material defect found. Tier 6I is accepted as delivered, with one bounded
+risk-register correction (`2808ff0`) added before this acceptance and the
+`docs/changelog.rst` routing to Tier 8 ratified with an explicit
+recommendation recorded above. Tier 6J (independent whole-tier acceptance) is
+now authorized. Nothing was pushed.
