@@ -1154,7 +1154,7 @@ output paths, which they already are: no writer runs during `setup()`.
 | S5 | Disjoint and explicitly-assumed-disjoint hybrid models do not double count: total flux equals the sum of component fluxes and nothing is counted twice | §27 H5 |
 | S6 | Solver `workers = 1, 2, 3, 4` yield identical `scientific_sha256` | §27 W3 |
 | S7 | Loader `max_workers` and `executor` do not affect `scientific_sha256` | §27 W1 |
-| S8 | The accumulation restructure is bit-identical to the baseline for every shipped configuration, compared **within one `(platform, Python)` environment** (`linux-64-py311` against the `linux-64-py311` pin, and so on for each of the six locked cells). Across environments the claim is **tolerance-level only** (§13.5), never bit-level. | §27 R1 |
+| S8 | The accumulation restructure reproduces the baseline for every shipped configuration, compared **within one `(platform, Python)` environment** (`linux-64-py311` against the `linux-64-py311` pin, and so on for each of the six locked cells) and **against the recorded set of digests that environment's machines have been observed to produce**. Across environments, and across machine classes within an environment, the claim is **tolerance-level only** (§13.5), never bit-level. | §27 R1 |
 | S9 | NumPy and JAX-CPU agree within §13.5 tolerance on all seven §13.4 workloads | §27 B1 |
 | S10 | Dask-with-NumPy-arrays is bit-identical to NumPy | §27 B2 |
 | S11 | The compiled kernel agrees with its uncompiled reference within §13.5 tolerance and produces the identical dtype | §27 B3 |
@@ -1192,6 +1192,59 @@ The consequences, invariant by invariant:
   whenever two different `(platform, python)` cells are compared, that predicate
   applies, never bit-equality. No Tier 6 fingerprint may be documented, quoted,
   or asserted as an environment-independent constant.
+
+**Third correction (2026-07-31, same repair, second CI round) — the honest scope
+is `(platform, Python, machine class)`, and S8's pins are observation sets.** The
+`(platform, Python)` key above is necessary but still not sufficient. On
+`linux-64`/py312, CI run `30640039816` measured different digests from runs
+`30628921601` and `30631837095` for identical source, and the CPU model string
+does not explain it: the divergent run and one of the two agreeing runs both
+report `AMD EPYC 9V74`, while the other agreeing run reports `AMD EPYC 7763`.
+Two runs on different CPU models agree; two runs on the same CPU model disagree.
+The discriminating property is therefore a machine characteristic the model
+string does not capture — most plausibly the vectorized code path NumPy
+dispatches to, which depends on the CPU feature set the VM exposes rather than
+on the part number. **This is narrowed, not proven**, and must not be written up
+as though it were: `_machine_fingerprint` now attaches NumPy's dispatched feature
+set to every pin failure so the next observation carries the evidence to name
+this axis.
+
+Three properties of the observation constrain any honest response:
+
+- It is **per digest, not per cell**: that run moved two shipped-config
+  fingerprints and the `heterogeneous_receptor_bases` workload while the other
+  five §13.4 workloads were unaffected — what one expects when only some kernels
+  differ between dispatch paths.
+- It is **not nondeterminism within a run**, and the same failing job proves it:
+  solver worker invariance at 1/2/3/4, loader worker invariance across
+  `{1,2,4,8}` × `{thread,process}`, per-solver bit-identity under workers, and
+  hybrid additivity all passed in that job. A race or hash-ordered reduction
+  would have made those flaky. Inside one process the computation is
+  bit-reproducible; the machine varies.
+- It is therefore **not fixable by the first branch of the repair task** (an
+  unpinned thread count, an ordering bug). Forcing a dispatch level via
+  `NPY_DISABLE_CPU_FEATURES` was considered and rejected: it would change
+  production numerical behaviour for the convenience of a test, would not
+  address the platform axis at all, and would trade a truthful gate for a
+  configured one.
+
+**S8's pins are consequently recorded observation sets, asserted by membership.**
+A digest previously observed and recorded in that cell passes; anything else
+fails loudly, prints what it measured together with the machine fingerprint, and
+must be adjudicated — a value is either a real regression or a newly observed
+machine class, and which one it is is decided before it is written down, never
+after, and never to make a failure go away. This is weaker than single-value
+equality in exactly one respect (a previously seen value is accepted) and
+identical in the respect that matters (any unseen value still fails). The
+detection strength against a regression that produces a *new* number is
+unchanged. What it gives up, and this must be stated plainly rather than
+buried: a regression that happened to reproduce a digest already recorded for
+that cell would not be caught by S8 — an accepted residual risk, bounded by the
+requirement that every recorded value be individually justified.
+
+`_assert_pinned_digests` is also now non-short-circuiting, because the previous
+chained form hid every later measurement in a failing test and cost one CI round
+per hidden value.
 
 ## 22. Performance methodology
 
@@ -1488,7 +1541,7 @@ be satisfied by a skipped test.
 | W5 | offline under workers | offline run with a network-requiring loader raises `ConnectionError` under both executors, and `_check_socket` is never called (S12) |
 | W6 | partition function | the time partition covers `[0, n_times)` exactly once for every `(n_times, workers)` pair in a swept range; `workers > n_times` clamps and records |
 | W7 | no hard-coded 8 | `load_models_parallel` has no `max_workers` default and `api/simulator.py` contains no literal worker count |
-| R1 | restructure bit-identity | for each shipped configuration, post-restructure `scientific_sha256` equals the pinned pre-restructure value from the 6A characterization, compared within the same Python environment as the pin was recorded in (S8). **Correction (2026-07-30, Tier 6A acceptance):** 6A's fingerprints differ between `py311` and `py312` because those environments resolve different astropy releases (7.1.0 vs 8.0.1) whose `ICRS`->`AltAz` transforms disagree in the last bits (~1.4e-11 rad altitude, ~2.0e-8 rad azimuth for a fixed source/instant), which the geometric phase amplifies into every visibility; this is an environment artifact, not solver nondeterminism. R1 is therefore per-environment by construction — Section 31 already runs the gate in both environments, so 6D must compare each environment's post-restructure digest only against that same environment's 6A pin, never across environments, and a third measured environment must add its own pinned row rather than relax this assertion. **Correction (2026-07-31, Tier 6J rejection repair):** the Python version is not the only environment axis — the *platform* is a second, independent one, and the original scheme had no axis for it at all. The three locked pixi platforms produce three different raw visibility cubes for identical source, identical locked package versions and identical Python version, and `linux-64` and `osx-64` (both `x86_64`) disagree with each other as well as with `osx-arm64`, so this is the whole platform (architecture plus that platform's libm/BLAS build) and not architecture alone. Evidence that it is inherent rather than introduced: the `linux-64` and `osx-64` §13.4 raw-cube digests CI measured at the 6A characterization commit — which added these pins and no production code — are byte-identical to those CI measured at the end of the tier, and the two `linux-64` measurements were taken on different host CPUs (AMD EPYC 7763 and 9V74) and still agreed to the byte. R1 is therefore per `(platform, Python)` environment: `_ENVIRONMENT_KEY` is now `f"{platform}-{python}"` over the six locked cells, each cell carries its own pinned row, an unmeasured cell fails loudly while printing the digest it just measured, and any comparison that crosses cells is a §13.5 tolerance comparison rather than a bit-identity one. |
+| R1 | restructure bit-identity | for each shipped configuration, post-restructure `scientific_sha256` equals the pinned pre-restructure value from the 6A characterization, compared within the same Python environment as the pin was recorded in (S8). **Correction (2026-07-30, Tier 6A acceptance):** 6A's fingerprints differ between `py311` and `py312` because those environments resolve different astropy releases (7.1.0 vs 8.0.1) whose `ICRS`->`AltAz` transforms disagree in the last bits (~1.4e-11 rad altitude, ~2.0e-8 rad azimuth for a fixed source/instant), which the geometric phase amplifies into every visibility; this is an environment artifact, not solver nondeterminism. R1 is therefore per-environment by construction — Section 31 already runs the gate in both environments, so 6D must compare each environment's post-restructure digest only against that same environment's 6A pin, never across environments, and a third measured environment must add its own pinned row rather than relax this assertion. **Correction (2026-07-31, Tier 6J rejection repair):** the Python version is not the only environment axis — the *platform* is a second, independent one, and the original scheme had no axis for it at all. The three locked pixi platforms produce three different raw visibility cubes for identical source, identical locked package versions and identical Python version, and `linux-64` and `osx-64` (both `x86_64`) disagree with each other as well as with `osx-arm64`, so this is the whole platform (architecture plus that platform's libm/BLAS build) and not architecture alone. Evidence that it is inherent rather than introduced: the `linux-64` and `osx-64` §13.4 raw-cube digests CI measured at the 6A characterization commit — which added these pins and no production code — are byte-identical to those CI measured at the end of the tier, and the two `linux-64` measurements were taken on different host CPUs (AMD EPYC 7763 and 9V74) and still agreed to the byte. R1 is therefore per `(platform, Python)` environment: `_ENVIRONMENT_KEY` is now `f"{platform}-{python}"` over the six locked cells, each cell carries its own pinned row, an unmeasured cell fails loudly while printing the digest it just measured, and any comparison that crosses cells is a §13.5 tolerance comparison rather than a bit-identity one. **Third correction (2026-07-31, second CI round):** `(platform, Python)` is necessary but not sufficient — a third axis exists *within* a cell. On `linux-64`/py312, run `30640039816` measured different digests from runs `30628921601` and `30631837095`, and the CPU model string does not discriminate (the divergent run and one agreeing run are both `AMD EPYC 9V74`; the other agreeing run is `AMD EPYC 7763`). The axis is a machine property the model string does not capture, most plausibly NumPy's dispatched vectorized code path; this is narrowed, not proven, and `_machine_fingerprint` now attaches NumPy's dispatched CPU feature set to every pin failure so the next observation can name it. The variance is per digest, not per cell (three of eight pinned digests moved on that runner), and it is not intra-run nondeterminism — every within-process reproducibility test in §27 (`W1`, `W3`, `H1`, `H3`) passed in the same failing job. R1 is therefore asserted as **membership in a recorded set of observed digests** per cell: a previously recorded value passes, any other value fails loudly with the measured digest and the machine fingerprint, and a set grows only by a reviewed decision that the new observation is a machine class rather than a regression. See the §21 third correction for the residual risk this accepts. |
 | R2 | assembly count | the number of whole-cube assembly operations per solver call is 1, asserted through a counting backend wrapper |
 | B1 | NumPy/JAX-CPU parity | all seven §13.4 workloads within §13.5 tolerance (S9) |
 | B2 | Dask bit-identity | all seven §13.4 workloads bit-identical to NumPy (S10) |
@@ -2410,9 +2463,12 @@ Tier 6J accepts Tier 6 only when all criteria pass as one indivisible gate.
 14. Both solvers assemble their output cube once per call (R2), and the
     restructure is bit-identical to the 6A-pinned baseline for every shipped
     configuration (R1), in each of the six locked `(platform, Python)`
-    environments against that same environment's own pin. Cross-environment
-    agreement is a §13.5 tolerance claim and is not asserted bit-wise
-    anywhere (§21 correction, 2026-07-31).
+    environments against that same environment's own recorded observation set.
+    Cross-environment agreement, and agreement across machine classes within an
+    environment, are §13.5 tolerance claims and are not asserted bit-wise
+    anywhere (§21 corrections, 2026-07-31). Every digest in a recorded set must
+    have stated provenance — run id, job id, and machine fingerprint — and a
+    reviewer must confirm no set was grown merely to turn a failure green.
 15. NumPy and JAX-CPU agree within the §13.5 tolerance on all seven §13.4
     workloads, with JAX actually installed and the six baseline skips gone
     (S9).
@@ -2447,7 +2503,12 @@ Tier 6J accepts Tier 6 only when all criteria pass as one indivisible gate.
     `(platform, Python)` cell to carry its own measured pin. A reviewer must
     verify this by run ID, not by lockfile inspection — the Tier 6 slice records
     that inspected the lockfile instead are exactly how eleven consecutive red
-    CI runs went unnoticed.
+    CI runs went unnoticed. **Known residual risk (2026-07-31):** the x86_64 CI
+    fleet is heterogeneous in a way the pins can only learn by observation, so a
+    green run does not prove the next run is green — a runner class never yet
+    seen in a cell will fail loudly by design. A red job whose only failures are
+    unseen-digest pin failures is that case, not a regression, and is resolved by
+    adjudicating and recording the observation, not by relaxing the gate.
 26. No Tier 7 or Tier 8 implementation enters the range: no new Jones term, no
     m-mode solver, no numba kernel, no repository-wide documentation rewrite.
 
