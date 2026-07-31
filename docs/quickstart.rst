@@ -158,8 +158,11 @@ Configuration file
      simulator: rime
      offline: true
 
-NumPy is the deterministic default. JAX, Numba, and ``auto`` are selectable,
-but selection does not prove full GPU coverage.
+NumPy is the deterministic default. ``jax``, ``dask``, and ``auto`` are the
+other selectable values; ``numba`` is removed. Selecting a backend proves
+nothing about GPU coverage: the JAX declared by every pixi environment is
+CPU-only, and no accelerator has been measured. See
+:doc:`user_guide/backends` for the measured comparison.
 
 Next steps
 ----------

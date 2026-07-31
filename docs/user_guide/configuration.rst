@@ -65,6 +65,7 @@ Local formats also require explicit identity and geodetic location:
    visibility:
      calculation_type: direct_sum
      sky_representation: point_sources
+     allow_lossy_point_rasterization: false
 
    execution:
      backend: numpy
@@ -72,6 +73,12 @@ Local formats also require explicit identity and geodetic location:
        preset: standard
      simulator: rime
      offline: true
+     sky_loading:
+       max_workers: null
+       executor: auto
+     solver:
+       workers: 1
+       executor: thread
 
    workflow:
      output_dir: output
@@ -100,10 +107,119 @@ requested spacing.
 Execution and workflow
 ----------------------
 
-``execution`` selects the backend, complete precision policy, simulator, and
-global offline policy. ``workflow`` is CLI-only post-run orchestration.
-``ResolvedSimulationConfig`` excludes workflow state, and Python constructors
-never save, plot, prompt, skip, log, or open a browser implicitly.
+``execution`` selects the backend, complete precision policy, simulator,
+global offline policy, and the two worker blocks below. ``workflow`` is CLI-only
+post-run orchestration. ``ResolvedSimulationConfig`` excludes workflow state, and
+Python constructors never save, plot, prompt, skip, log, or open a browser
+implicitly.
+
+``execution.backend`` is exactly ``numpy``, ``jax``, ``dask``, or ``auto``. See
+:doc:`backends` for what each one executes, for ``auto``'s precedence, and for
+the measured comparison between them.
+
+Worker policy
+-------------
+
+Loader concurrency and solver concurrency are separate policies with separate
+failure modes, so they are separate blocks. Neither is a single global
+``n_workers``; the removed ``execution.n_workers`` field is rejected with a
+message naming both replacements.
+
+.. code-block:: yaml
+
+   execution:
+     sky_loading:
+       max_workers: null   # null => auto: min(requested loads, cpu_count, 8)
+       executor: auto      # auto | thread | process
+     solver:
+       workers: 1          # clamped to the number of time samples
+       executor: thread    # the only supported value
+
+``sky_loading`` governs how many sky models are loaded concurrently.
+``executor: auto`` uses processes when the loader arguments can be pickled and
+falls back to threads when they cannot; ``thread`` forces threads; ``process``
+demands processes and fails loudly if the arguments cannot cross the boundary.
+Global offline policy is installed in every worker, so an offline run cannot
+reach the network from inside one.
+
+``solver.workers`` parallelizes the **time axis only**: each worker computes a
+contiguous block of time samples and the blocks are reassembled in time order,
+so every ``workers`` value produces a bit-identical result. The pre-clamp
+request is recorded even when the clamp lowers it. ``executor: process`` is
+rejected — the solver closure holds beam handlers and astropy objects that
+cannot cross a process boundary.
+
+Both resolved values reach ``result.resolved_config``, and therefore
+``provenance_sha256``, the HDF5 ``resolved_config_json``, and the summary JSON.
+
+Rejections, verbatim:
+
+.. code-block:: text
+
+   execution.n_workers: not a field; use execution.sky_loading.max_workers for
+   sky-loader concurrency or execution.solver.workers for solver concurrency.
+
+   execution.sky_loading.max_workers must be a positive integer or null (null
+   means auto).
+
+   execution.solver.workers must be a positive integer.
+
+   execution.solver.executor=process: unsupported; the solver closure holds beam
+   handlers and astropy objects that cannot cross a process boundary. Use
+   execution.solver.executor=thread.
+
+Sky representation and the ``hybrid`` mode
+------------------------------------------
+
+``visibility.sky_representation`` is ``point_sources``, ``healpix_map``, or
+``hybrid``. ``hybrid`` solves a point component and a HEALPix component on one
+shared instrument, beam system, receptor set, time grid, and backend, then sums
+them: ``V_total = V_point + V_healpix``. It is not an approximation and not a
+conversion — neither payload is materialized into the other.
+
+.. code-block:: yaml
+
+   visibility:
+     calculation_type: direct_sum
+     sky_representation: hybrid
+
+The ``sky_model`` section must then contribute both kinds of payload — at least
+one source that resolves to point sources and at least one that resolves to a
+HEALPix map. ``configs/hybrid_sky_example.yaml`` is a complete, offline,
+runnable document that does exactly that. The result records which components it
+solved, their element counts, and a separate timing for each, in
+``result.solver`` and ``result.performance``.
+
+``allow_lossy_point_rasterization`` (default ``false``) gates the one remaining
+lossy path: rasterizing point sources into a HEALPix grid, which quantizes
+positions to pixel centers.
+
+Three runtime rejections replace conversions that used to happen silently. Each
+is raised before any beam load, backend allocation, or output path is created:
+
+.. code-block:: text
+
+   visibility.sky_representation=hybrid requires a sky model with both a
+   point-source payload and a HEALPix payload; the resolved model carries only
+   {formats}. Request point_sources or healpix_map, or add a source of the missing
+   kind.
+
+   visibility.sky_representation=point_sources would discard the HEALPix payload
+   carried by the resolved sky model. Request hybrid to sum both components, or set
+   visibility.allow_lossy_point_materialization=true to convert the HEALPix payload
+   to point sources.
+
+   visibility.sky_representation=healpix_map would rasterize {n} point source(s)
+   into the HEALPix grid, which quantizes positions to pixel centers. Request
+   hybrid to sum both components, or set
+   visibility.allow_lossy_point_rasterization=true to opt in.
+
+``calculation_type`` accepts ``direct_sum`` and ``spherical_harmonic``, but only
+``direct_sum`` is implemented; ``spherical_harmonic`` is rejected during
+validation.
+
+Output and result formats
+-------------------------
 
 ``result_format`` accepts exactly ``hdf5``, ``summary_json``, ``ms``, or
 ``uvfits``. HDF5 is complete; summary JSON is metadata-only. The four

@@ -17,17 +17,19 @@ Basic installation
 Optional dependencies
 ---------------------
 
-Backend extras install optional JAX or Numba dependencies:
+Backend extras install optional JAX or Dask dependencies:
 
 .. code-block:: bash
 
    pip install radiosim[gpu-cuda]
    pip install radiosim[gpu]
-   pip install radiosim[numba]
+   pip install radiosim[dask]
 
 These extras make backend implementations available when the platform is
-supported. They do not guarantee that every high-level RIME calculation runs
-on a GPU. See :doc:`user_guide/backends` for the current execution boundary.
+supported. RadioSim has measured no accelerator, so none of them establishes
+that any RIME calculation runs on a GPU. See :doc:`user_guide/backends` for the
+execution boundary, the compilation boundary, and the measured NumPy/JAX-CPU/Dask
+comparison.
 
 Measurement Set support requires its optional dependency:
 

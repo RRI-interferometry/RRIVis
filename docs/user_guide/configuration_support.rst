@@ -169,8 +169,10 @@ validates the accepted scalar subset, and publishes state atomically. This does
 not imply arbitrary full-polarization BeamFITS, GPU interpolation, automatic
 NSIDE mutation, or resampling support.
 
-NumPy is the deterministic backend default. Selecting JAX, Numba, or ``auto``
-does not establish complete accelerator coverage for the high-level workflow.
+NumPy is the deterministic backend default. Selecting ``jax``, ``dask``, or
+``auto`` does not establish accelerator coverage for the high-level workflow;
+no accelerator has been measured, and ``numba`` is no longer a selectable
+value.
 
 Output boundary
 ---------------

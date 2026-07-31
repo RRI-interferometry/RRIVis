@@ -898,3 +898,202 @@ def test_custom_sky_alias_documentation_uses_strict_options_envelope():
     assert config.sources[1].options["model"] == "haslam"
     assert "kind: gsm2016\n         options:" in text
     assert "kind: gsm2016\n         nside:" not in text
+
+
+# =========================================================================
+# Tier 6I -- Section 26 documentation truth
+#
+# Every assertion below is the residual of a statement Tier 6 made false, or
+# newly provable. They are written as "the false thing is gone AND the true
+# thing is present", because only the second half stops the sweep from being
+# undone by a later deletion.
+# =========================================================================
+
+TIER6I_ACTIVE_BACKEND_SURFACES = (
+    REPOSITORY_ROOT / "README.md",
+    REPOSITORY_ROOT / "CLAUDE.md",
+    REPOSITORY_ROOT / "docs" / "installation.rst",
+    REPOSITORY_ROOT / "docs" / "quickstart.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "backends.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
+    REPOSITORY_ROOT / "docs" / "api" / "backends.rst",
+)
+
+
+@pytest.mark.parametrize(
+    "path", TIER6I_ACTIVE_BACKEND_SURFACES, ids=lambda path: path.name
+)
+def test_tier6i_active_docs_never_offer_the_removed_numba_backend(path):
+    """Tier 6H removed the name; no active document may still offer it.
+
+    ``docs/migration_guide.md`` is deliberately absent from the list: its whole
+    job is to name the removed identifier. Every other surface here instructs a
+    reader to *do* something, and instructing them to select ``numba`` or to
+    install ``radiosim[numba]`` is instructing them to hit an error.
+    """
+    text = path.read_text(encoding="utf-8")
+
+    assert "radiosim[numba]" not in text, path
+    for stale in (
+        "JAX/Numba",
+        "JAX or Numba",
+        "JAX, Numba",
+        "NumPy, JAX, Numba",
+        "numpy | jax | numba",
+        "numba | auto",
+        "Numba backend",
+    ):
+        assert stale not in text, f"{path}: {stale}"
+
+    # The name may still appear, but only while being removed. A document that
+    # mentions it without saying so is offering it.
+    if "numba" in text.lower():
+        assert "removed" in text.lower(), path
+
+
+def test_tier6i_backend_guide_states_the_measured_position():
+    """Section 26.2: the guide reports measurement, not disclaimer."""
+    text = (REPOSITORY_ROOT / "docs" / "user_guide" / "backends.rst").read_text(
+        encoding="utf-8"
+    )
+
+    # The stale prose Section 26.1/26.2 names, gone.
+    assert "incomplete backend coverage" not in text
+    assert "Numba" not in text
+
+    # The backend table, the auto precedence, and the rename.
+    assert "``dask``" in text
+    assert "non-CPU" in text
+    assert "Renamed from ``numba`` before v1.0." in text
+
+    # The compilation boundary.
+    assert "baseline_contraction" in text
+    assert "Exactly **one** kernel is compiled" in text
+
+    # Every host-side stage, named in one place with a reason.
+    for stage in (
+        "Astropy coordinate transforms",
+        "Horizon masking",
+        "Planck brightness conversion",
+        "FITS beam interpolation",
+        "HEALPix direction cosines",
+    ):
+        assert stage in text, stage
+
+    # The measured position, with its record citation.
+    assert "output/benchmarks/reference/" in text
+    assert "bit-identical" in text
+    assert 'accelerator: "none"' in text
+    assert "pixi run bench" in text
+
+
+def test_tier6i_backend_guide_makes_no_uncited_speed_or_gpu_claim():
+    """Section 26: a speed or GPU sentence without a record does not ship."""
+    text = (REPOSITORY_ROOT / "docs" / "user_guide" / "backends.rst").read_text(
+        encoding="utf-8"
+    )
+
+    # No speedup multiplier in either direction may appear without the record
+    # set being cited in the same document.
+    speedup_claims = re.findall(r"\b\d+(?:\.\d+)?x\b", text)
+    if speedup_claims:
+        assert "output/benchmarks/reference/" in text
+
+    # And nothing may claim the accelerator that was never run.
+    for forbidden in (
+        "GPU acceleration",
+        "runs on a GPU",
+        "GPU-accelerated",
+        "universal hardware acceleration",
+    ):
+        assert forbidden not in text, forbidden
+
+
+def test_tier6i_readme_reports_measured_backend_reality():
+    """Section 26.1."""
+    text = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "incomplete backend coverage" not in text
+    assert "Do not infer complete GPU execution" not in text
+    assert "NumPy, JAX, Dask, or `auto`" in text
+    assert "output/benchmarks/reference/" in text
+    assert "bit-identical to NumPy" in text
+    assert '`accelerator: "none"`' in text
+    assert "pixi run bench" in text
+
+
+def test_tier6i_configuration_guide_documents_the_new_blocks_and_hybrid():
+    """Section 26.3: the three new blocks and the hybrid mode, with rejections."""
+    text = (REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst").read_text(
+        encoding="utf-8"
+    )
+
+    assert "sky_loading:" in text
+    assert "solver:" in text
+    assert "allow_lossy_point_rasterization" in text
+    assert "sky_representation: hybrid" in text
+    assert "V_total = V_point + V_healpix" in text
+
+    # The Section 18.3 rejections, verbatim.
+    for rejection in (
+        "execution.n_workers: not a field; use execution.sky_loading.max_workers for",
+        "execution.solver.workers must be a positive integer.",
+        "execution.solver.executor=process: unsupported; the solver closure holds beam",
+        "visibility.sky_representation=hybrid requires a sky model with both a",
+        "visibility.sky_representation=point_sources would discard the HEALPix payload",
+        "visibility.sky_representation=healpix_map would rasterize {n} point source(s)",
+    ):
+        assert rejection in text, rejection
+
+
+def test_tier6i_claude_status_matches_post_tier6_reality():
+    """Section 26.4, as amended: the stale sentences are gone."""
+    text = (REPOSITORY_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+    # The three sentences Section 26 names.
+    assert "`jit`/`vmap`/`jit_compile` are defined but never applied" not in text
+    assert (
+        "passes config validation but raises `NotImplementedError` at runtime"
+        not in text
+    )
+    assert "rejected during config validation" in text
+
+    # The sentences Tier 6H's rename falsified.
+    assert "`numba_backend.py` — Numba/Dask" not in text
+    assert "`ArrayBackend` (NumPy/JAX/Numba)" not in text
+    assert "GPU backends (JAX/Numba) are scaffolded" not in text
+    assert '`get_backend("auto" | "numpy" | "jax" | "numba")`' not in text
+    assert '`get_backend("auto" | "numpy" | "jax" | "dask")`' in text
+    assert "dask_backend.py" in text
+    assert "(NumPy, JAX, Dask)" in text
+
+    # And the newly provable ones.
+    assert "core/contraction.py" in text
+    assert "output/benchmarks/reference/" in text
+    assert "pixi run bench" in text
+
+
+def test_tier6i_migration_guide_maps_every_tier6_breaking_change():
+    """Section 26.5: one entry per Section 36 row."""
+    text = (REPOSITORY_ROOT / "docs" / "migration_guide.md").read_text(encoding="utf-8")
+
+    for entry in (
+        "execution.backend: numba",  # C2
+        "load_models_parallel()",  # C3
+        "`execution.offline: true` is now authoritative",  # C4
+        "Solver accumulation restructure",  # C5
+        "run() got an unexpected keyword argument 'n_workers'",  # C6
+        "sky_representation` accepts a third value, `hybrid`",  # C7
+        "allow_lossy_point_rasterization",  # C8, C9
+        "component_element_counts",  # C10
+        "`scientific_sha256` changes for every result",  # C11
+        "`provenance_sha256` changes with them",  # C12
+        "HDF5 schema `3.0.0`",  # C13
+        "`NumbaBackend` is now `DaskBackend`",  # C14
+        "no longer returns the NumPy-delegating backend",  # C15
+        "`RIMESimulator.supports_gpu` is now `False`",  # C16
+        "def supports_compilation(self) -> bool",  # C17
+        "CPU-only JAX is a declared dependency",  # C18
+    ):
+        assert entry in text, entry

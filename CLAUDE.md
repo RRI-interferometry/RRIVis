@@ -6,15 +6,15 @@ NOTE: Never think about backward compatibility in the code when doing edits, or 
 
 ## Project Overview
 
-**RadioSim** is a Python package for simulating radio interferometer visibilities using the RIME (Radio Interferometer Measurement Equation) with full polarization support and multiple sky models. Version 0.2.0 (Beta), Python 3.11+. GPU backends (JAX/Numba) are scaffolded but the RIME compute path currently runs on NumPy — see Implementation Status below.
+**RadioSim** is a Python package for simulating radio interferometer visibilities using the RIME (Radio Interferometer Measurement Equation) with full polarization support and multiple sky models. Version 0.2.0 (Beta), Python 3.11+. Both solvers route their array work through a selectable NumPy/JAX/Dask backend and one kernel is compiled under JAX, but no accelerator has ever been measured — see Implementation Status below.
 
 ## Implementation Status (read this first)
 
 RadioSim is mid-build; several advertised capabilities are scaffolded but not yet wired into the compute path. When working here, assume:
 
 - **Jones terms**: **K** (`GeometricPhaseJones`, geometric phase), **E** (the beam classes), **C** (`ReceptorConfigJones`, receptor basis and static feed rotation), and **H** (`BasisTransformJones`, output-basis change) implement real physics. Every other term — Z, T, P, D, G, B, F, W, Ee/a/dE, Kd/Rc/ff, X/Kx/DF, and baseline M/Q — is a stub whose `compute_jones()` returns the 2×2 identity (`TODO: implement properly`). They can be added to a chain but multiply by identity, so the forward model currently reflects only K (fringe) + E (beam) + C/H (receptor and reporting basis). C and H are always added to the chain and are exactly the identity for the default homogeneous-linear, zero-rotation, `linear_xy` case.
-- **Backends**: `ArrayBackend` (NumPy/JAX/Numba), `get_backend()`, and `list_backends()` are complete, and the point-source RIME hot path in `core/visibility.py` *does* route its array ops through the backend (`backend.matmul`/`asarray`/`set_at`/`exp`/`conjugate_transpose`/`sum`); `JonesChain` composes terms with functional `backend.matmul` + `batch_eye` (no invalid in-place writes — `set_at` uses JAX's `.at[].set()`). **But GPU acceleration is still unrealized**: the per-time × per-frequency × per-baseline orchestration is host-side Python loops, coordinate transforms run on astropy/NumPy, and `jit`/`vmap`/`jit_compile` are defined but never applied — so a JAX backend bounces device↔host each iteration rather than accelerating (and `core/visibility_healpix.py` still uses bare `np.*` in places). Treat GPU acceleration as a roadmap item: the backend abstraction is wired into the matmul but is not yet performance-bearing.
-- **`visibility.calculation_type`**: only `direct_sum` works; `spherical_harmonic` passes config validation but raises `NotImplementedError` at runtime.
+- **Backends**: `ArrayBackend` (NumPy/JAX/Dask), `get_backend()`, and `list_backends()` are complete, and **both** solvers — `core/visibility.py` and `core/visibility_healpix.py` — route their Jones chain, geometric phase, coherency construction, contraction, and accumulation through the backend. Accumulation is per-time block assembly (`backend.stack`), not per-cell `set_at`. Exactly one kernel is compiled: `core/contraction.py`'s baseline-batched per-`(time, frequency)` contraction, via `ArrayBackend.compile` (`jax.jit` on the JAX backend), and that module is the only `backend.compile` call site in `src/`. **GPU acceleration is still unrealized and unmeasured**: the time and frequency axes are host-side Python loops, astropy coordinate transforms / horizon masking / Planck conversion / pyuvdata beam interpolation are host-side by design, the locked JAX is CPU-only, and measured JAX-CPU is *slower* than NumPy on every benchmarked workload (records: `output/benchmarks/reference/`, methodology: `docs/user_guide/backends.rst`). Backend *correctness* parity is complete (Dask bit-identical to NumPy, JAX-CPU within `rtol=1e-12`); backend *performance* is a roadmap item. Never write a speed or GPU claim without citing a record file.
+- **`visibility.calculation_type`**: only `direct_sum` works; `spherical_harmonic` is rejected during config validation (`io/config.py:2092-2097`, "spherical-harmonic calculation is not implemented until Tier 7"), so it never reaches the runtime.
 
 ## Development Commands
 
@@ -32,6 +32,8 @@ pixi run test -- -m "not slow"                       # Skip slow tests
 pixi run test -- -m gpu                              # GPU-only tests
 pixi run test -- -m integration                      # Integration tests
 pixi run test -- --cov=radiosim --cov-report=html      # With coverage (target: 70%)
+
+pixi run bench                                       # Reproducible backend benchmarks (marked performance+slow; never gates)
 
 pixi run format                                      # Format (ruff format)
 pixi run fix                                         # Lint + autofix (ruff check)
@@ -57,7 +59,7 @@ Shorthand pixi tasks: `pixi run test`, `pixi run lint`, `pixi run fix`, `pixi ru
 ├──────────────────────────────────────────────────────┤
 │  PHYSICS LAYER: core/* (RIME, Jones, sky models)     │
 ├──────────────────────────────────────────────────────┤
-│  HARDWARE LAYER: backends/* (NumPy, JAX, Numba)      │
+│  HARDWARE LAYER: backends/* (NumPy, JAX, Dask)       │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -148,11 +150,18 @@ To add a new Jones term: extend `JonesTerm` (or `JonesBaselineTerm`), implement 
 
 ### Backends (`backends/`)
 
-- `base.py` — Abstract `ArrayBackend` interface
-- `numpy_backend.py` — CPU (always available)
-- `jax_backend.py` — JAX (GPU/TPU) `ArrayBackend` — implemented but not currently exercised by the RIME loops (see Implementation Status)
-- `numba_backend.py` — Numba/Dask `ArrayBackend` — implemented but not currently exercised by the RIME loops
-- Selection: `get_backend("auto" | "numpy" | "jax" | "numba")`, discovery: `list_backends()`
+- `base.py` — Abstract `ArrayBackend` interface, including `stack`, `add`, `supports_compilation`, `compile`, and `synchronize(arr)`
+- `numpy_backend.py` — CPU (always available); the reference every other backend is compared against
+- `jax_backend.py` — JAX/XLA `ArrayBackend`; the build declared by every pixi environment is CPU-only by design. The only backend with `supports_compilation is True`
+- `dask_backend.py` — NumPy, optionally through Dask arrays. Renamed from `numba_backend.py` in Tier 6H because that class never compiled anything; `jit_compile` and `mode="gpu"` are gone
+- Selection: `get_backend("auto" | "numpy" | "jax" | "dask")`, discovery: `list_backends()`. `auto` returns JAX only when JAX reports a non-CPU device, and NumPy otherwise — it never selects Dask
+- `RIMESimulator.supports_gpu` is `False`, and `get_backend("numba")` raises
+
+### Benchmarks (`benchmarks/`)
+
+- `record.py` — `BenchmarkRecord` (complete or `BenchmarkRecordError`; no partial record), plus `RetracingRecord` and `MemoryScalingRecord`
+- `harness.py` — the timing discipline: setup vs steady state, compile time, `synchronize` before every clock stop, host transfer timed around `to_numpy` alone, `tracemalloc` peak in a separate untimed pass, correctness delta vs NumPy
+- Run with `pixi run bench` (marked `performance` + `slow`, never gates). Output: `output/benchmarks/<UTC timestamp>-<host tag>.json`, gitignored; the committed reference set is `output/benchmarks/reference/`
 
 ### I/O (`io/`)
 

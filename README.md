@@ -24,8 +24,10 @@ The current `Simulator` path supports:
   one canonical per-antenna beam system;
 - linear or circular two-feed receptors with a static feed rotation and one
   resolved array-wide output polarization basis;
-- point-source or HEALPix direct-sum simulation;
-- requested NumPy, JAX, Numba, or `auto` backend selection through one
+- point-source, HEALPix, or `hybrid` (summed point + HEALPix) direct-sum
+  simulation;
+- separately configurable sky-loader and solver worker policies;
+- requested NumPy, JAX, Dask, or `auto` backend selection through one
   resolver; and
 - `Simulator.plot_observability()` as a visualization helper.
 
@@ -56,13 +58,13 @@ pixi install
 pixi run test
 ```
 
-Optional extras install backend or I/O dependencies, but installing them does
-not prove end-to-end GPU acceleration for every high-level calculation:
+Optional extras install backend or I/O dependencies. RadioSim has measured no
+accelerator, so installing one of these changes nothing on this page:
 
 ```bash
 pip install radiosim[gpu-cuda]  # optional JAX stack for CUDA
 pip install radiosim[gpu]       # optional JAX stack for supported platforms
-pip install radiosim[numba]     # optional Numba stack
+pip install radiosim[dask]      # optional NumPy/Dask backend stack
 pip install radiosim[ms]        # optional Measurement Set support
 ```
 
@@ -335,15 +337,38 @@ there is no promised silent fallback.
 ## Backends and performance
 
 NumPy is the deterministic default. `auto` is a real selection strategy, not
-a synonym for “keep the document value.” The resolver and backend factory
-honor requested backend and precision choices, but the high-level scientific
-path still contains host-side orchestration and incomplete backend coverage.
-Do not infer complete GPU execution from successful JAX/Numba selection.
+a synonym for “keep the document value”: it returns JAX only when JAX reports a
+non-CPU device, and NumPy otherwise. The selectable names are `numpy`, `jax`,
+`dask`, and `auto`; `numba` is removed, because the backend behind that name
+never compiled a kernel.
 
-This repository does not publish unverified speedup multipliers. Performance
-claims require a reproducible workload, hardware description, backend,
-precision, setup/compile timing, steady-state timing, memory, and correctness
-comparison against NumPy.
+Both solvers route their Jones chain, geometric phase, coherency construction,
+contraction, and accumulation through the selected backend. Exactly one kernel
+is compiled — the baseline-batched per-`(time, frequency)` contraction, under
+`backend: jax` only. Astropy coordinate transforms, horizon masking, Planck
+brightness conversion, FITS beam interpolation, and the per-time HEALPix
+direction cosines run on the host by design; they are listed, with reasons, in
+the [backend guide](docs/user_guide/backends.rst).
+
+Measured on an Apple M1 Max (macOS 26.5.2, arm64), `numpy 2.3.2`,
+`jax 0.10.2` (CPU-only), `dask 2025.7.0`, commit `ea48d2c`, records committed
+at [`output/benchmarks/reference/`](output/benchmarks/reference/):
+
+- Dask is bit-identical to NumPy on all eight benchmarked workloads.
+- JAX-CPU agrees with NumPy within `|dV| <= atol + 1e-12*|V|`; worst observed
+  absolute deviation `1.7e-11` against an allowed `5.2e-9`.
+- JAX-CPU is **slower** than NumPy on every workload measured here — about 3x on
+  a 4096-source run and 10-20x on the small parity workloads — plus 0.02-0.80 s
+  of first-call compilation. The host-side time and frequency loops give XLA
+  nothing to amortize against yet.
+- No accelerator was exercised. Every record states `accelerator: "none"` and
+  lists `gpu`, `tpu`, and `distributed` as unmeasured.
+
+This repository publishes no unverified speedup multiplier and no GPU
+performance number. Reproduce the records with `pixi run bench`; each carries
+hardware, accelerator, backend and version, the full precision tree, problem
+dimensions, setup versus steady-state timing, compilation time, host-transfer
+time, peak memory, and the correctness tolerance against NumPy.
 
 ## Output and observability
 

@@ -217,6 +217,99 @@ contiguous block of time samples and the blocks are reassembled in time order,
 so any `workers` value produces a bit-identical result to `workers: 1`. Choose
 it for wall-clock time, never for numerical reasons.
 
+### Sky-loader concurrency and offline policy
+
+`load_models_parallel()` no longer defaults `max_workers` to a hard-coded `8`;
+the argument is required, and the value comes from
+`execution.sky_loading.max_workers` (`null` means
+`min(requests, cpu_count, 8)`). The resolved value and the executor that
+actually ran are recorded in the summary JSON, so the knob is observable rather
+than assumed.
+
+`execution.offline: true` is now authoritative for loaders under both
+executors. A configuration that previously reached the network from inside a
+worker despite being offline now fails fast with `ConnectionError` instead. This
+is a behavior change for any offline run that was quietly online.
+
+### Solver accumulation restructure
+
+Both solvers assemble one `(B, F, 2, 2)` block per time step and one whole cube
+per call, instead of writing each `(time, baseline, frequency)` cell with
+`set_at`. Nothing about the result changes — the restructure is asserted
+bit-identical against pre-restructure fingerprints for every shipped
+configuration — but a functional-array backend no longer pays a whole-cube copy
+per cell.
+
+## Backend registry
+
+### `numba` removed; `NumbaBackend` is now `DaskBackend`
+
+The backend named `numba` never compiled a kernel: it called the same NumPy
+operations the NumPy backend calls. The name is removed rather than kept as an
+alias, because an alias would preserve the false claim.
+
+```yaml
+execution:
+  backend: dask   # was: numba
+```
+
+`execution.backend: numba` is rejected by the schema:
+
+```text
+execution.backend=numba: removed before v1.0; the backend never compiled any
+kernel. Use execution.backend=dask for the NumPy/Dask backend or
+execution.backend=numpy.
+```
+
+`get_backend("numba")` raises with the same guidance, and the CLI's
+`--backend` choice list is `auto|numpy|jax|dask`. The class is now
+`DaskBackend`, reporting `dask-cpu` or `dask-distributed`; `mode="gpu"` and the
+CUDA validation path are gone (they validated a device and then ran NumPy), and
+`jit_compile()` is gone (it had no caller). The rename adds no compilation and
+no acceleration. The `numba` install extra is now `dask`:
+
+```bash
+pip install radiosim[dask]   # was: radiosim[numba]
+```
+
+### `auto` precedence and `supports_gpu`
+
+`get_backend("auto")` no longer returns the NumPy-delegating backend. It
+returns the JAX backend only when JAX reports a **non-CPU** device, and the
+NumPy backend otherwise; it never selects Dask, because reporting `dask` for a
+run that executes plain NumPy is the misreporting this change exists to remove.
+Recorded `actual_backend` provenance values change accordingly, and
+`provenance_sha256` changes with them.
+
+`RIMESimulator.supports_gpu` is now `False`. It reported `True` while executing
+host-side NumPy.
+
+### `ArrayBackend` additions
+
+Third-party backend implementations (there are none in tree) gain four members
+and one widened signature:
+
+```python
+def stack(self, arrays, axis=0): ...          # the solvers' accumulation primitive
+def add(self, a, b): ...                      # hybrid component summation
+@property
+def supports_compilation(self) -> bool: ...   # base default False
+def compile(self, func): ...                  # base default: identity
+def synchronize(self, arr=None): ...          # now takes the array to block on
+```
+
+`synchronize()` without an argument keeps its previous best-effort behavior,
+which orders none of the caller's work; pass the array, or a JAX timing
+measures dispatch rather than computation.
+
+### CPU-only JAX is a declared dependency
+
+Every pixi environment now carries a CPU-only `jax`/`jaxlib`, so the NumPy/JAX
+parity evidence is measured in the standard gate rather than skipped. A missing
+JAX is now a broken environment and fails loudly. No accelerator build is
+declared, and none has been measured; see
+[the backend guide](user_guide/backends.rst) for the records.
+
 ## Hybrid results and serialization
 
 `visibility.sky_representation` accepts a third value, `hybrid`, which solves a
@@ -239,6 +332,37 @@ single-component ones, and a hybrid result can never collide with a
 single-component one over the same instrument and sky numbers. The two timings
 are nondeterministic and stay out of both fingerprints. Do not compare
 fingerprints across this boundary.
+
+### Two silent conversions became explicit
+
+Before this change, a sky model carrying both kinds of payload was quietly
+reduced to whichever one the requested representation named. Both reductions are
+now rejected, because both silently changed the science.
+
+`sky_representation: point_sources` against a model that still carries a HEALPix
+payload:
+
+```text
+visibility.sky_representation=point_sources would discard the HEALPix payload
+carried by the resolved sky model. Request hybrid to sum both components, or set
+visibility.allow_lossy_point_materialization=true to convert the HEALPix payload
+to point sources.
+```
+
+`sky_representation: healpix_map` against a model that contributes point
+sources:
+
+```text
+visibility.sky_representation=healpix_map would rasterize {n} point source(s)
+into the HEALPix grid, which quantizes positions to pixel centers. Request
+hybrid to sum both components, or set
+visibility.allow_lossy_point_rasterization=true to opt in.
+```
+
+`visibility.allow_lossy_point_rasterization` is a new boolean, defaulting to
+`false`. A configuration that relied on the old silent rasterization must either
+move to `hybrid` (which sums both components with no loss) or set the flag and
+accept the quantization. None of the shipped configurations relied on it.
 
 ### HDF5 schema `3.0.0`
 

@@ -3,7 +3,9 @@ Backends Module
 
 The ``radiosim.backends`` package provides a common array/backend abstraction.
 Availability and selection do not by themselves prove end-to-end GPU execution
-of a high-level simulation.
+of a high-level simulation, and no accelerator run has been measured; see
+:doc:`../user_guide/backends` for the execution boundary, the one compiled
+kernel, and the measured NumPy/JAX-CPU/Dask comparison.
 
 Backend Selection
 -----------------
@@ -41,6 +43,19 @@ Dask Backend
 ------------
 
 .. automodule:: radiosim.backends.dask_backend
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Benchmarks
+----------
+
+.. automodule:: radiosim.benchmarks.record
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: radiosim.benchmarks.harness
    :members:
    :undoc-members:
    :show-inheritance:
