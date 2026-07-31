@@ -2145,6 +2145,68 @@ tests/unit/test_tier1h_documentation.py
 tests/unit/test_tier6_runtime_acceptance.py
 ```
 
+**Correction (2026-07-31, Tier 6I implementation).** Two paths are added to the
+grant above. Neither is new scope; each is a file this slice's own declared work
+cannot be delivered without, found the same way every earlier slice's additions
+were — by running the slice and seeing what it breaks.
+
+```text
+tests/characterization/test_tier6_current_behavior.py
+output/benchmarks/reference/*.json
+```
+
+1. `tests/characterization/test_tier6_current_behavior.py` — 6A's pin
+   `test_there_is_no_benchmark_harness_task_or_performance_test` carries
+   `OWNED BY: Tier 6I` in its own docstring and asserts, verbatim, that
+   `tests/performance/` holds only `__init__.py`, that
+   `src/radiosim/benchmarks/` does not exist, and that `pixi.toml` contains no
+   `bench` task. Those are exactly the three things §32.9 requires 6I to create,
+   so the suite cannot pass unless 6I flips this pin. Every other slice's grant
+   lists this file; 6I's omission is the same oversight §32.2, §32.3, §32.6, and
+   §32.8 each corrected in turn, and the grant is for that one test only.
+2. `output/benchmarks/reference/*.json` — §32.9 requires "one committed set of
+   records under `output/benchmarks/`", and §33 grants no path under `output/`
+   at all. §22.1 additionally says benchmark output "is gitignored", which is
+   directly incompatible with committing it. Both statements are kept, with the
+   two roles separated: every `pixi run bench` run writes the
+   `<UTC timestamp>-<host tag>.json` §22.1 describes and that file stays ignored,
+   so running a benchmark never dirties the tree; the curated reference set §32.9
+   requires is copied into `output/benchmarks/reference/`, which `.gitignore`
+   (already in 6I's grant) un-ignores for `*.json` only. Nothing else under
+   `output/` becomes committable.
+
+**Correction (2026-07-31, Tier 6I implementation) — §23 gains one field and two
+sibling record types.** All three are additive; no §23 field is removed,
+widened, or made optional.
+
+- `BenchmarkRecord` gains `workload: str`. §23's field list states every
+  *dimension* of a workload but never its identity, so two rows of the §13.4
+  matrix with equal counts produce indistinguishable records — which defeats
+  "reproducible", the property §32.9 exists to establish. The field names the
+  §13.4 row (or the added scaled row) the record measured.
+- `RetracingRecord` and `MemoryScalingRecord` are added alongside
+  `BenchmarkRecord` in the same output document, because the two obligations the
+  Tier 6H independent acceptance routed to 6I (§39's added rows) are not
+  workload timings and cannot be expressed in §23's schema: one measures cost
+  *per distinct kernel input shape* across a step sequence, the other measures
+  peak working set against `(baselines, sources)` with no solver call at all.
+  Forcing either into `BenchmarkRecord` would require inventing values for
+  fields it does not measure, which is precisely what §23's no-partial-record
+  rule forbids. Both are validated by the same missing-field and `None` rules.
+
+**Correction (2026-07-31, Tier 6I implementation) — §26 item 4's "exactly three
+corrections" to `CLAUDE.md` is an undercount created by Tier 6H.** §26 was
+written before 6H renamed `NumbaBackend` to `DaskBackend` and deleted
+`backends/numba_backend.py`. `CLAUDE.md` names that module by path, offers
+`get_backend("auto" | "numpy" | "jax" | "numba")`, and calls the JAX/Numba
+backends "scaffolded" — statements 6H made false and that §26's own governing
+rule ("a tier owns exactly the statements its own changes make false") therefore
+assigns to Tier 6. No later slice exists to fix them: 6J changes no production or
+documentation file. The `CLAUDE.md` grant is read as the three sentences §26
+names **plus** every sentence Tier 6H's rename falsified, and nothing else; the
+Jones inventory, the sky-model sections, the RIME equation section, and the
+development-command section are untouched.
+
 ### Tier 6J
 
 ```text
