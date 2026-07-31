@@ -213,18 +213,52 @@ pinning it rather than relaxing it: the two ``linux-64`` runs above ran on
 different host CPUs (AMD EPYC 7763 and AMD EPYC 9V74) and still agreed to the
 byte, and the pins are bit-stable across repeated runs within a platform.
 
+Axis 3 -- the individual x86_64 runner.  Found immediately after the axis-2
+repair went in, and the reason every pin below is a *set* of observed digests
+rather than one value.  On ``linux-64``/py312, CI run ``30640039816`` measured
+digests that differ from the ones runs ``30628921601`` and ``30631837095``
+measured for the identical source -- and the CPU *model* string does not explain
+it: the divergent run and one of the two agreeing runs both report
+``AMD EPYC 9V74``, while the other agreeing run reports ``AMD EPYC 7763``.  Two
+of the three runs agree across different CPU models; two runs on the same CPU
+model disagree.  The discriminating machine property is therefore something the
+model string does not capture -- most plausibly the vectorized code path NumPy
+actually dispatches to, which depends on the CPU feature set the virtual machine
+exposes (an AVX-512-capable part may or may not expose it) rather than on the
+part number.  That has not been proven, only narrowed, which is exactly why
+``_machine_fingerprint`` now attaches NumPy's dispatched feature set to every pin
+failure: the next divergence must arrive with the evidence needed to name this
+axis instead of narrowing it again.
+
+The variance is *per digest*, not per environment: run ``30640039816`` moved the
+two shipped-config fingerprints and the ``heterogeneous_receptor_bases``
+workload, while the other five Section 13.4 workloads were unaffected, as one
+would expect when only some kernels differ between dispatch paths.
+
+Axis 3 is emphatically **not** nondeterminism within a run, and the same failing
+job proves it: every within-process reproducibility test passed there -- solver
+worker invariance at 1/2/3/4 workers, loader worker invariance across
+``{1,2,4,8}`` x ``{thread,process}``, per-solver bit-identity under workers, and
+hybrid additivity.  A race or a hash-seed-ordered reduction would have made those
+flaky. Inside one process the computation is bit-reproducible; it is the machine
+that varies.
+
 Consequence for later slices and for reviewers: R1 ("post-restructure
 ``scientific_sha256`` equals the pinned pre-restructure value") is only
 meaningful when the comparison runs in the *same* ``(platform, python)``
-environment as the pin.  Cross-environment agreement is a **tolerance-level**
-claim (Section 13.5), never a bit-level one, and no Tier 6 fingerprint may be
-treated as an environment-independent constant in documentation.  An unmeasured
-environment is a hard, loud failure that prints the value it just measured, so
-the missing pin can be harvested from the failing run's log and recorded
-explicitly -- never inferred from another environment and never relaxed.  Within
-one environment the pins are machine-independent: since the RUN-005 fix
-(``fix(result): exclude filesystem transport facts from scientific_sha256``)
-those digests no longer depend on where the tree is checked out.
+environment as the pin, and even then only up to the recorded set of digests
+that environment's fleet has been observed to produce.  Cross-environment
+agreement is a **tolerance-level** claim (Section 13.5), never a bit-level one,
+and no Tier 6 fingerprint may be treated as an environment-independent constant
+in documentation.  An unrecorded digest -- in an uncharacterized environment, or
+a value never seen in a characterized one -- is a hard, loud failure that prints
+what it measured together with the machine fingerprint, so the observation can be
+adjudicated and recorded deliberately.  A set never grows to make a failure go
+away: a new value is either a real regression or a newly observed machine class,
+and which one it is must be decided before it is written down.  Within one
+environment the pins remain independent of *where* the tree is checked out: since
+the RUN-005 fix (``fix(result): exclude filesystem transport facts from
+scientific_sha256``) those digests no longer depend on the checkout path.
 """
 
 from __future__ import annotations
@@ -359,29 +393,86 @@ _MEASURED_ENVIRONMENTS = {
 }
 
 
-def _assert_pinned_digest(table: dict[str, str], what: str, measured: str) -> None:
-    """Compare a measured digest against this environment's pin, or fail loudly.
+def _machine_fingerprint() -> str:
+    """Describe the machine facts a raw-cube digest is actually a function of.
 
-    An environment with no recorded pin is a hard failure that *prints the value
-    it just measured*, so a missing platform's pin can be harvested straight from
-    the failing run's log and recorded explicitly.  The assertion is never
-    relaxed, and a pin is never inferred from a different environment: the
-    platform and Python axes both change the last bits of every visibility (see
-    this module's docstring).
+    Attached to every pin failure.  The whole reason the third correction to
+    Section 27 R1 exists is that a divergence was observed without any evidence
+    of *what* differed between the two runners, so the next divergence must
+    arrive with that evidence already attached.  NumPy's dispatched CPU feature
+    set is the primary suspect and the primary datum; the CPU model string is
+    recorded too, having already been proven insufficient on its own.
+    """
+    try:
+        from numpy._core._multiarray_umath import (  # type: ignore[import-not-found]
+            __cpu_features__ as cpu_features,
+        )
+
+        features = ",".join(sorted(name for name, on in cpu_features.items() if on))
+    except Exception:  # pragma: no cover - a NumPy internal, not public API
+        features = "unavailable"
+    try:
+        from radiosim.utils.device import get_device_resources
+
+        model = get_device_resources().cpu.model or platform.processor()
+    except Exception:  # pragma: no cover - diagnostics must never mask a failure
+        model = platform.processor()
+    return f"cpu model: {model!r}\nnumpy dispatched features: {features}"
+
+
+def _pin_problem(table: dict[str, tuple[str, ...]], what: str, measured: str) -> str:
+    """Describe how a measured digest fails its pin, or return ``""`` if it does not.
+
+    Each pin is a *recorded observation set*, not a single value: within one
+    ``(platform, python)`` environment the x86_64 CI fleet has been observed to
+    produce more than one digest for the same source, and pretending otherwise
+    would mean either a permanently red gate or a silently relaxed one.  A digest
+    that has been observed and recorded before passes; anything else -- an
+    uncharacterized environment, or a value never seen in this one -- fails
+    loudly and prints what it measured.  The set only ever grows deliberately,
+    one reviewed CI observation at a time; see the "Reproducibility scope" note
+    in this module's docstring.
     """
     if _ENVIRONMENT_KEY not in table:
-        pytest.fail(
-            f"No Tier 6 reference fingerprint recorded for {what} in "
-            f"environment {_ENVIRONMENT_KEY} "
+        return (
+            f"{what}: no digest has ever been recorded for environment "
+            f"{_ENVIRONMENT_KEY} "
             f"({_MEASURED_ENVIRONMENTS.get(_ENVIRONMENT_KEY, 'never characterized')})"
-            f".  This run measured {measured}.  Recorded environments for this "
-            f"pin are {sorted(table)}; record the measured value for this "
-            "environment explicitly rather than relaxing the assertion or "
-            "reusing another environment's pin."
+            f".\n  measured:  {measured}\n  recorded environments: "
+            f"{sorted(table)}"
         )
-    assert measured == table[_ENVIRONMENT_KEY], (
-        f"{what}: digest changed in environment {_ENVIRONMENT_KEY}"
-    )
+    recorded = table[_ENVIRONMENT_KEY]
+    if measured not in recorded:
+        return (
+            f"{what}: digest not among those recorded for environment "
+            f"{_ENVIRONMENT_KEY}.\n  measured:  {measured}\n  recorded:  "
+            + "\n             ".join(recorded)
+        )
+    return ""
+
+
+def _assert_pinned_digests(
+    *checks: tuple[dict[str, tuple[str, ...]], str, str],
+) -> None:
+    """Check every ``(table, what, measured)`` triple and report all failures at once.
+
+    Deliberately non-short-circuiting.  When these checks were plain chained
+    ``assert`` statements, the first one to fail hid every later measurement in
+    the same test, and each hidden value cost a whole CI round to harvest.  One
+    run must now surface everything a reviewer needs.
+    """
+    problems = [problem for check in checks if (problem := _pin_problem(*check))]
+    if problems:
+        pytest.fail(
+            "\n".join(problems)
+            + "\n\nEvery pin here is a recorded set of observed digests.  A value "
+            "that is not in the set is either a real regression -- a change that "
+            "moved the numbers -- or a runner whose vectorized floating-point "
+            "behaviour has never been observed in this environment.  Decide "
+            "which before recording it, and never record a value you cannot "
+            "explain.  Never relax the assertion and never reuse another "
+            "environment's digest.\n" + _machine_fingerprint()
+        )
 
 
 class _SetAtCountingBackend(NumPyBackend):
@@ -1600,23 +1691,64 @@ def test_recommend_executor_is_registry_driven() -> None:
 # from the CI logs of run ``30628921601`` (jobs ``91150529919``, ``91150529912``,
 # ``91150529972``, ``91150529971``), which print the full measured digest in the
 # pytest string diff.  They were *not* re-derived locally -- this repository has
-# no x86_64 host -- so CI is their verification.
-_SHIPPED_CONFIG_FINGERPRINTS: dict[str, dict[str, str]] = {
+# no x86_64 host -- so CI is their verification, and run ``30631837095``
+# confirmed every one of them.
+#
+# Each value is now a recorded *observation*, and each cell holds the set of
+# observations made in it (axis 3 in this module's docstring).  Provenance of the
+# second observations, both on ``linux-64``/py312, both from run ``30640039816``
+# job ``91187338402`` on an ``AMD EPYC 9V74``:
+#
+#   config.yaml                 ``b576167d...`` (first  ``94ed2fd1...``)
+#   receptor_circular_example   ``de4ced01...`` (first  ``e5075437...``)
+#
+# The first observation in each cell was measured on runs ``30628921601`` (9V74)
+# and ``30631837095`` (7763 for py312, 9V74 for py311), so the model string is
+# known not to be the discriminator.  Adding a third observation to any cell
+# requires deciding, on the evidence in the failure message, that it is a machine
+# class and not a regression.
+_SHIPPED_CONFIG_FINGERPRINTS: dict[str, dict[str, tuple[str, ...]]] = {
     "config.yaml": {
-        "linux-64-py311": "65a1b2b4248d8f479656a32682f2399162d58518b95e163c400b4eba55408a12",
-        "linux-64-py312": "94ed2fd18d5c23d31a1bf9bcabaefb4ebb4b213258cf000ada4297052783a4ca",
-        "osx-64-py311": "a984750776d29ee149f04a6c5815d0c99582a9cd1700240472f3b6d3ea2108db",
-        "osx-64-py312": "fccde411c77b7cd4e347689ce10fad0dd12c3e28e3b89ecb774aad779a0711da",
-        "osx-arm64-py311": "4bbb74035b3d700fa7638dca6b854a8c9110bc2abe8d418c7b180f527b947f2b",
-        "osx-arm64-py312": "9e4f4e164074ad7acf71a6c2c518b1d481a131054445b97e4b1b111be0838e28",
+        "linux-64-py311": (
+            "65a1b2b4248d8f479656a32682f2399162d58518b95e163c400b4eba55408a12",
+        ),
+        "linux-64-py312": (
+            "94ed2fd18d5c23d31a1bf9bcabaefb4ebb4b213258cf000ada4297052783a4ca",
+            "b576167d143bee69217e91f17f5371b4e7a1005bd1cec639e70cf8f32601ebef",
+        ),
+        "osx-64-py311": (
+            "a984750776d29ee149f04a6c5815d0c99582a9cd1700240472f3b6d3ea2108db",
+        ),
+        "osx-64-py312": (
+            "fccde411c77b7cd4e347689ce10fad0dd12c3e28e3b89ecb774aad779a0711da",
+        ),
+        "osx-arm64-py311": (
+            "4bbb74035b3d700fa7638dca6b854a8c9110bc2abe8d418c7b180f527b947f2b",
+        ),
+        "osx-arm64-py312": (
+            "9e4f4e164074ad7acf71a6c2c518b1d481a131054445b97e4b1b111be0838e28",
+        ),
     },
     "receptor_circular_example.yaml": {
-        "linux-64-py311": "c257c96e4bee3eaea28e367590398c6fa20d9f71d1bf5534854569dd62e85ca0",
-        "linux-64-py312": "e50754376c095ecec9615016b78137067b286efc95b5cf6eb646e6d6e76bcede",
-        "osx-64-py311": "abac0e11c50bd9098c3b136dc86c6c5866d9aff6f2e1821c9210d769019b2d32",
-        "osx-64-py312": "768f1b2f7eac091451bca6f69e8b3a623955b28e76ad5134494b1cb65791f4a0",
-        "osx-arm64-py311": "be1e86fba57821a95f13f527a72b2ffd42edd4494cc68b0fde68d0f24d042203",
-        "osx-arm64-py312": "a1ea03d8cf5286149b07543736b3e4cdef90091f8464fc9a04b20f38a736ecab",
+        "linux-64-py311": (
+            "c257c96e4bee3eaea28e367590398c6fa20d9f71d1bf5534854569dd62e85ca0",
+        ),
+        "linux-64-py312": (
+            "e50754376c095ecec9615016b78137067b286efc95b5cf6eb646e6d6e76bcede",
+            "de4ced0186c9d3ec51c8df3883b857e82fd049da68b41a96f4938bfc366e7c92",
+        ),
+        "osx-64-py311": (
+            "abac0e11c50bd9098c3b136dc86c6c5866d9aff6f2e1821c9210d769019b2d32",
+        ),
+        "osx-64-py312": (
+            "768f1b2f7eac091451bca6f69e8b3a623955b28e76ad5134494b1cb65791f4a0",
+        ),
+        "osx-arm64-py311": (
+            "be1e86fba57821a95f13f527a72b2ffd42edd4494cc68b0fde68d0f24d042203",
+        ),
+        "osx-arm64-py312": (
+            "a1ea03d8cf5286149b07543736b3e4cdef90091f8464fc9a04b20f38a736ecab",
+        ),
     },
 }
 
@@ -1636,22 +1768,54 @@ _SHIPPED_CONFIG_FINGERPRINTS: dict[str, dict[str, str]] = {
 #: ``91159779076``, ``91159778993``, ``91159779102``, ``91159779044``).  All
 #: eight values are distinct, which is the same per-``(platform, python)``
 #: structure every other pin family in this module shows.
-_SHIPPED_CONFIG_CUBE_DIGESTS: dict[str, dict[str, str]] = {
+#:
+#: These cells are still single-observation.  The ``linux-64``/py312 runner class
+#: that produced the second shipped-config ``scientific_sha256`` observations
+#: must also produce different raw cubes -- the cube is what that digest is
+#: computed over -- but its value has not been seen yet, because the run that
+#: revealed it failed before this assertion.  ``_assert_pinned_digests`` no
+#: longer short-circuits, so whenever a run on that class next happens, both
+#: values surface together in one failure rather than one per CI round.
+_SHIPPED_CONFIG_CUBE_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     "config.yaml": {
-        "linux-64-py311": "9d770ec675b52d352aea6cf750cdba5056cc0517aad3d87b84ef5ed47e48997f",
-        "linux-64-py312": "f7df2b44c374b7ffc86d631ae33f0398538ff77ec5dfc4d80ed3f5266fe35f5d",
-        "osx-64-py311": "5d147191625b3317cba05dfd330c04b0cdd0ff24ec6e3792935c7df31f8fcb75",
-        "osx-64-py312": "debe780775f8a101d942a4b1746e822dab44094d2ac393378208dd04ac160fa7",
-        "osx-arm64-py311": "cce1bfe86dc8b3fe81e5c6064a8449afa5bbab95866ec6bc352681dbf1e5ffae",
-        "osx-arm64-py312": "7560d2f267f372e19ef735afca0cb9ec05ca9f75e2f2ca62a35c52843660f9df",
+        "linux-64-py311": (
+            "9d770ec675b52d352aea6cf750cdba5056cc0517aad3d87b84ef5ed47e48997f",
+        ),
+        "linux-64-py312": (
+            "f7df2b44c374b7ffc86d631ae33f0398538ff77ec5dfc4d80ed3f5266fe35f5d",
+        ),
+        "osx-64-py311": (
+            "5d147191625b3317cba05dfd330c04b0cdd0ff24ec6e3792935c7df31f8fcb75",
+        ),
+        "osx-64-py312": (
+            "debe780775f8a101d942a4b1746e822dab44094d2ac393378208dd04ac160fa7",
+        ),
+        "osx-arm64-py311": (
+            "cce1bfe86dc8b3fe81e5c6064a8449afa5bbab95866ec6bc352681dbf1e5ffae",
+        ),
+        "osx-arm64-py312": (
+            "7560d2f267f372e19ef735afca0cb9ec05ca9f75e2f2ca62a35c52843660f9df",
+        ),
     },
     "receptor_circular_example.yaml": {
-        "linux-64-py311": "1fb5cedd8635dc66a8e51000772b50fb8a4ec3305980f2c01dcb415f85f43f5b",
-        "linux-64-py312": "57c6a9dbe57c97c2a2b5307a3a530da5896b17f6393c77dc08a38fc4b4f48ce4",
-        "osx-64-py311": "2bdc9994e53f3d89417f1d2d5c2ddd5cfc08b44d94e86feef90595e96130b389",
-        "osx-64-py312": "925c9b92d762e2d8919bb25356b01f85d33faa0ebe6e5608d6a373fc69ec6c15",
-        "osx-arm64-py311": "95890bc680c21057c5c23245dc8b67eb7e8662559b3d965905862148a75dd2f8",
-        "osx-arm64-py312": "ff26cb85289e77cda59a7508dae2e38afeb32bbfb4aff1b98315ac33e2c0177b",
+        "linux-64-py311": (
+            "1fb5cedd8635dc66a8e51000772b50fb8a4ec3305980f2c01dcb415f85f43f5b",
+        ),
+        "linux-64-py312": (
+            "57c6a9dbe57c97c2a2b5307a3a530da5896b17f6393c77dc08a38fc4b4f48ce4",
+        ),
+        "osx-64-py311": (
+            "2bdc9994e53f3d89417f1d2d5c2ddd5cfc08b44d94e86feef90595e96130b389",
+        ),
+        "osx-64-py312": (
+            "925c9b92d762e2d8919bb25356b01f85d33faa0ebe6e5608d6a373fc69ec6c15",
+        ),
+        "osx-arm64-py311": (
+            "95890bc680c21057c5c23245dc8b67eb7e8662559b3d965905862148a75dd2f8",
+        ),
+        "osx-arm64-py312": (
+            "ff26cb85289e77cda59a7508dae2e38afeb32bbfb4aff1b98315ac33e2c0177b",
+        ),
     },
 }
 
@@ -1675,15 +1839,17 @@ def test_shipped_default_config_scientific_fingerprint(tmp_path) -> None:
     assert result.solver.sky_representation == "point_sources"
     assert result.solver.execution_path == "polarized"
     assert result.solver.components == ("point",)
-    _assert_pinned_digest(
-        _SHIPPED_CONFIG_FINGERPRINTS["config.yaml"],
-        "configs/config.yaml scientific_sha256",
-        result.scientific_sha256,
-    )
-    _assert_pinned_digest(
-        _SHIPPED_CONFIG_CUBE_DIGESTS["config.yaml"],
-        "configs/config.yaml raw cube sha256",
-        _raw_cube_digest(result.visibilities),
+    _assert_pinned_digests(
+        (
+            _SHIPPED_CONFIG_FINGERPRINTS["config.yaml"],
+            "configs/config.yaml scientific_sha256",
+            result.scientific_sha256,
+        ),
+        (
+            _SHIPPED_CONFIG_CUBE_DIGESTS["config.yaml"],
+            "configs/config.yaml raw cube sha256",
+            _raw_cube_digest(result.visibilities),
+        ),
     )
 
 
@@ -1694,15 +1860,17 @@ def test_shipped_circular_receptor_config_scientific_fingerprint(tmp_path) -> No
     assert str(result.visibilities.dtype) == "complex128"
     assert result.solver.sky_representation == "point_sources"
     assert result.solver.components == ("point",)
-    _assert_pinned_digest(
-        _SHIPPED_CONFIG_FINGERPRINTS["receptor_circular_example.yaml"],
-        "configs/receptor_circular_example.yaml scientific_sha256",
-        result.scientific_sha256,
-    )
-    _assert_pinned_digest(
-        _SHIPPED_CONFIG_CUBE_DIGESTS["receptor_circular_example.yaml"],
-        "configs/receptor_circular_example.yaml raw cube sha256",
-        _raw_cube_digest(result.visibilities),
+    _assert_pinned_digests(
+        (
+            _SHIPPED_CONFIG_FINGERPRINTS["receptor_circular_example.yaml"],
+            "configs/receptor_circular_example.yaml scientific_sha256",
+            result.scientific_sha256,
+        ),
+        (
+            _SHIPPED_CONFIG_CUBE_DIGESTS["receptor_circular_example.yaml"],
+            "configs/receptor_circular_example.yaml raw cube sha256",
+            _raw_cube_digest(result.visibilities),
+        ),
     )
 
 
@@ -1765,54 +1933,132 @@ _WORKLOAD_SHAPES: dict[str, tuple[int, ...]] = {
 # which added no production code), which is the direct evidence that the platform
 # spread predates the tier rather than being introduced by 6D/6F/6H -- see the
 # "Reproducibility scope" note in this module's docstring.
-_WORKLOAD_DIGESTS: dict[str, dict[str, str]] = {
+#
+# ``heterogeneous_receptor_bases`` on ``linux-64``/py312 carries a second
+# observation, ``11d4c0a5...``, from run ``30640039816`` job ``91187338402``
+# (``AMD EPYC 9V74``).  It is the only workload of the six that moved on that
+# runner, which is why these pins are sets per digest rather than per cell.
+_WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     "healpix_polarized": {
-        "linux-64-py311": "c839098b725fc8cebd4ef2c93cc9b67aa59be8b7aea5446a1ee44b3c9fafbc94",
-        "linux-64-py312": "e7ba84d489507cec6ea43cf8425e52a0a4faf31575c419a46d312a829ddccad6",
-        "osx-64-py311": "8c5e5fd7a8b30881e7e6de833f15bfcf0583500610bdc077620093fa6b898cad",
-        "osx-64-py312": "f0e26ad0f436758c0c3b153578ce0242fbe8f98feab51fffd0497d7ffb53e6ef",
-        "osx-arm64-py311": "201feac2a5d1c8173528a24629d53a4fa51d19ef2eee9bdff667c3eda3c836a5",
-        "osx-arm64-py312": "72c006b63a70230c7827ef5a618859c1541070bbdabdaada5e4b7edd0c40b1b3",
+        "linux-64-py311": (
+            "c839098b725fc8cebd4ef2c93cc9b67aa59be8b7aea5446a1ee44b3c9fafbc94",
+        ),
+        "linux-64-py312": (
+            "e7ba84d489507cec6ea43cf8425e52a0a4faf31575c419a46d312a829ddccad6",
+        ),
+        "osx-64-py311": (
+            "8c5e5fd7a8b30881e7e6de833f15bfcf0583500610bdc077620093fa6b898cad",
+        ),
+        "osx-64-py312": (
+            "f0e26ad0f436758c0c3b153578ce0242fbe8f98feab51fffd0497d7ffb53e6ef",
+        ),
+        "osx-arm64-py311": (
+            "201feac2a5d1c8173528a24629d53a4fa51d19ef2eee9bdff667c3eda3c836a5",
+        ),
+        "osx-arm64-py312": (
+            "72c006b63a70230c7827ef5a618859c1541070bbdabdaada5e4b7edd0c40b1b3",
+        ),
     },
     "healpix_scalar": {
-        "linux-64-py311": "98dd5ca861a2970992a7adc047ac878cab51c6b674afcea7d4edd397409895bc",
-        "linux-64-py312": "5efc9724d30f28acfa6e6f193f2da8a733137d9e6d2c4c23ec5a069aea3f5fa3",
-        "osx-64-py311": "faa5b00af524da277d3ba66147c48aaf725677242a61177edec2e491849d28f0",
-        "osx-64-py312": "f915b97067b180a5d006c1c03d8ebe8c4bdc3dd561e3f3d684317f2252d03d04",
-        "osx-arm64-py311": "ed6356f91b7277ad3ad494f6b37b2d78110a7af58eef770fbf7d6729b3af3f7b",
-        "osx-arm64-py312": "4a701c82b6f7608569dba79d797a531dde5bda54e26ceddc61b7a22ad6d62344",
+        "linux-64-py311": (
+            "98dd5ca861a2970992a7adc047ac878cab51c6b674afcea7d4edd397409895bc",
+        ),
+        "linux-64-py312": (
+            "5efc9724d30f28acfa6e6f193f2da8a733137d9e6d2c4c23ec5a069aea3f5fa3",
+        ),
+        "osx-64-py311": (
+            "faa5b00af524da277d3ba66147c48aaf725677242a61177edec2e491849d28f0",
+        ),
+        "osx-64-py312": (
+            "f915b97067b180a5d006c1c03d8ebe8c4bdc3dd561e3f3d684317f2252d03d04",
+        ),
+        "osx-arm64-py311": (
+            "ed6356f91b7277ad3ad494f6b37b2d78110a7af58eef770fbf7d6729b3af3f7b",
+        ),
+        "osx-arm64-py312": (
+            "4a701c82b6f7608569dba79d797a531dde5bda54e26ceddc61b7a22ad6d62344",
+        ),
     },
     "heterogeneous_receptor_bases": {
-        "linux-64-py311": "1b7674f0c8c0b6561ea06929a55ecab797d609a150b31e8ad72bf6a88c7f3b7b",
-        "linux-64-py312": "73f340f1726163987eef8a387c7634a1e990264c8b23211918eea883749d54b7",
-        "osx-64-py311": "afc26b47933ea3964416dae8ac6cb5d242e133f6068d91617c5ae493ffd97702",
-        "osx-64-py312": "7a730aa3e8e0e035c32847efe1cc7354439c9e2a8a267251c4c36f44629c7d74",
-        "osx-arm64-py311": "81055aff940d17817c66fb95ac760962af867ef4a9a3062b1e5bd80991803252",
-        "osx-arm64-py312": "d39cbe2fde4a3a54c518423ee4c7ee0db2b2664c5caabdf88dbd3d7c7979537d",
+        "linux-64-py311": (
+            "1b7674f0c8c0b6561ea06929a55ecab797d609a150b31e8ad72bf6a88c7f3b7b",
+        ),
+        "linux-64-py312": (
+            "73f340f1726163987eef8a387c7634a1e990264c8b23211918eea883749d54b7",
+            "11d4c0a5afd60d1682d62e5d85dcd3cde7c45d8e6b29411e22ccc35425847c46",
+        ),
+        "osx-64-py311": (
+            "afc26b47933ea3964416dae8ac6cb5d242e133f6068d91617c5ae493ffd97702",
+        ),
+        "osx-64-py312": (
+            "7a730aa3e8e0e035c32847efe1cc7354439c9e2a8a267251c4c36f44629c7d74",
+        ),
+        "osx-arm64-py311": (
+            "81055aff940d17817c66fb95ac760962af867ef4a9a3062b1e5bd80991803252",
+        ),
+        "osx-arm64-py312": (
+            "d39cbe2fde4a3a54c518423ee4c7ee0db2b2664c5caabdf88dbd3d7c7979537d",
+        ),
     },
     "point_gaussian_morphology": {
-        "linux-64-py311": "638a6efa57aedf732d76e251726e59055c4a8c92c6b74340f598b546239ac097",
-        "linux-64-py312": "0a52ca6ab8542a87928b31e029ee366d8e49baa7c18d0693ba10b9c3b2f512ea",
-        "osx-64-py311": "f88aefc2a3323d462f2b324533b64b6934f3ad2667fa0fcec5f0f2a432e5df9e",
-        "osx-64-py312": "019ec56ed275b4d27af64338192d4b2890dd2bab860fa4f44392f3cdd5f6f723",
-        "osx-arm64-py311": "9cd139554a45920f6338c4552544e2c490c8597bcd46f915a3f3855d867ae384",
-        "osx-arm64-py312": "370f7f353ec8ced7f09a8322b0867b6f8e7c2fc3ecf51f160ca8fc9d21939941",
+        "linux-64-py311": (
+            "638a6efa57aedf732d76e251726e59055c4a8c92c6b74340f598b546239ac097",
+        ),
+        "linux-64-py312": (
+            "0a52ca6ab8542a87928b31e029ee366d8e49baa7c18d0693ba10b9c3b2f512ea",
+        ),
+        "osx-64-py311": (
+            "f88aefc2a3323d462f2b324533b64b6934f3ad2667fa0fcec5f0f2a432e5df9e",
+        ),
+        "osx-64-py312": (
+            "019ec56ed275b4d27af64338192d4b2890dd2bab860fa4f44392f3cdd5f6f723",
+        ),
+        "osx-arm64-py311": (
+            "9cd139554a45920f6338c4552544e2c490c8597bcd46f915a3f3855d867ae384",
+        ),
+        "osx-arm64-py312": (
+            "370f7f353ec8ced7f09a8322b0867b6f8e7c2fc3ecf51f160ca8fc9d21939941",
+        ),
     },
     "point_polarized_2times": {
-        "linux-64-py311": "4de5b348e06b3fd3e3fb457487fa8a21e7f10671d2c06ea56866f89b7f717f65",
-        "linux-64-py312": "46d011077d62cc26fdf44cb4c1d7a99e724b028181f527d699d8e7fb917c1230",
-        "osx-64-py311": "76705c96687157dc96048fd7ee607d1e978fe018018f6931123579340c446a69",
-        "osx-64-py312": "a86e1bea97af310480d62b94da733b0a5793cddbb37187e74fd2df31f0a2461d",
-        "osx-arm64-py311": "1140e5917a671af77233b3b244cc0bd7fb15c814a8f5fb70d22cd9c16cd5b9cd",
-        "osx-arm64-py312": "dabe4c4bc678276a98d03a266ae2e1a9ec39f949bd263ee4da15247bb83f7431",
+        "linux-64-py311": (
+            "4de5b348e06b3fd3e3fb457487fa8a21e7f10671d2c06ea56866f89b7f717f65",
+        ),
+        "linux-64-py312": (
+            "46d011077d62cc26fdf44cb4c1d7a99e724b028181f527d699d8e7fb917c1230",
+        ),
+        "osx-64-py311": (
+            "76705c96687157dc96048fd7ee607d1e978fe018018f6931123579340c446a69",
+        ),
+        "osx-64-py312": (
+            "a86e1bea97af310480d62b94da733b0a5793cddbb37187e74fd2df31f0a2461d",
+        ),
+        "osx-arm64-py311": (
+            "1140e5917a671af77233b3b244cc0bd7fb15c814a8f5fb70d22cd9c16cd5b9cd",
+        ),
+        "osx-arm64-py312": (
+            "dabe4c4bc678276a98d03a266ae2e1a9ec39f949bd263ee4da15247bb83f7431",
+        ),
     },
     "point_unpolarized_1time_2freq": {
-        "linux-64-py311": "3b4b340e461c1886e495e4592bb7bc299bd432b2e784a44378c263d9b5629311",
-        "linux-64-py312": "2af6aa20bfb49580b2e2f2a25d1fe8a3ad0e614b44d4a0b7df116faf53d46a55",
-        "osx-64-py311": "91b57e6405fff2c0b4206f0b976a2a91f5e67335e2c21118160c05692ee8c4f6",
-        "osx-64-py312": "90ab8f2d7b59229df1aebf5c2606b43e386156b5b7f44231682f7d964394bb38",
-        "osx-arm64-py311": "b4cc91e5852ef3ad5992c76a770950a68580da7ba73142b920cbcdc28d4f2510",
-        "osx-arm64-py312": "93cd8c728e387e0e0d24eee5101403b02f8fa44d8556f1644e4904e5feff2f14",
+        "linux-64-py311": (
+            "3b4b340e461c1886e495e4592bb7bc299bd432b2e784a44378c263d9b5629311",
+        ),
+        "linux-64-py312": (
+            "2af6aa20bfb49580b2e2f2a25d1fe8a3ad0e614b44d4a0b7df116faf53d46a55",
+        ),
+        "osx-64-py311": (
+            "91b57e6405fff2c0b4206f0b976a2a91f5e67335e2c21118160c05692ee8c4f6",
+        ),
+        "osx-64-py312": (
+            "90ab8f2d7b59229df1aebf5c2606b43e386156b5b7f44231682f7d964394bb38",
+        ),
+        "osx-arm64-py311": (
+            "b4cc91e5852ef3ad5992c76a770950a68580da7ba73142b920cbcdc28d4f2510",
+        ),
+        "osx-arm64-py312": (
+            "93cd8c728e387e0e0d24eee5101403b02f8fa44d8556f1644e4904e5feff2f14",
+        ),
     },
 }
 
@@ -1833,10 +2079,12 @@ def test_section_13_4_workload_fingerprints(tmp_path, workload: str) -> None:
     assert str(array.dtype) == "complex128"
     # A digest of an all-zero cube would pin nothing.
     assert float(np.max(np.abs(array))) > 0.0
-    _assert_pinned_digest(
-        _WORKLOAD_DIGESTS[workload],
-        f"Section 13.4 workload {workload!r}",
-        _cube_digest(array),
+    _assert_pinned_digests(
+        (
+            _WORKLOAD_DIGESTS[workload],
+            f"Section 13.4 workload {workload!r}",
+            _cube_digest(array),
+        ),
     )
 
 
