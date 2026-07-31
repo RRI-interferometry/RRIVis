@@ -9044,3 +9044,430 @@ required. `RUN-001` through `RUN-004` remain open pending the rest of Tier 6;
 this acceptance does not close any of them. Tier 6H (backend registry
 truthfulness, parity, and compilation boundary) is now the only authorized
 implementation slice. Nothing was pushed.
+
+### 2026-07-31 Tier 6H independent acceptance
+
+**Tier 6H (backend registry truthfulness, parity, and compilation boundary)
+is independently accepted.** This is the largest backend slice; reviewed
+adversarially, nothing taken on the implementer's word alone. Reviewed range
+`00cd2b3..6209287`, five commits: `98a931e` (`docs(runtime): correct Tier 6
+design`, plan correction), `d23fdab` (`build(deps): add a CPU-only JAX to
+every pixi environment`), `8f11be0` (`refactor(backends)!: rename the Numba
+backend to Dask and retire its unfulfilled claims`), `c64255a`
+(`feat(runtime): route the HEALPix sky-data path through the backend`),
+`6209287` (`feat(runtime): compile one baseline-batched contraction kernel`).
+`git log --format=%B 00cd2b3..6209287 | grep -i co-authored` empty. `git
+status` clean throughout, before and after.
+
+**Scope: exact §33-grant compliance, verified file by file.** `git diff
+--name-only 00cd2b3..6209287` touches exactly 41 paths (40 plus the plan
+file): `.github/workflows/ci.yml`, `docs/api/backends.rst`,
+`examples/scripts/simple_simulation.py`, `pixi.lock`, `pixi.toml`,
+`pyproject.toml`, `src/radiosim/api/simulator.py`,
+`src/radiosim/backends/__init__.py`, `src/radiosim/backends/base.py`,
+`src/radiosim/backends/dask_backend.py` (renamed from `numba_backend.py`),
+`src/radiosim/backends/jax_backend.py`, `src/radiosim/cli/main.py`,
+`src/radiosim/core/contraction.py` (new), `src/radiosim/core/precision.py`,
+`src/radiosim/core/result.py`, `src/radiosim/core/runtime_config.py`,
+`src/radiosim/core/visibility.py`, `src/radiosim/core/visibility_healpix.py`,
+`src/radiosim/io/config.py`, `src/radiosim/io/config_resolution.py`,
+`src/radiosim/simulator/__init__.py`, `src/radiosim/simulator/rime.py`, and
+seventeen test files. Every one is inside the §33 Tier 6H grant as amended by
+`98a931e`'s eleven-file correction; nothing outside it was touched, and
+`src/radiosim/backends/numba_backend.py` is deleted, exactly as the grant's
+own note authorizes. `Tier6HybridRuntimePlan.md` itself was touched only by
+`98a931e` (the implementer's own plan correction, pre-dating my review) and
+by my own correction below.
+
+**Rename truthfulness, probed live, not just read.** `grep -rn
+"NumbaBackend|numba-cpu|numba-cuda|jit_compile|mode=.gpu."` across
+`src/`, `tests/`, and `*.rst`/`*.md` under the tree: every hit is either
+rejection/migration text (`DaskBackend.__getattr__`'s actionable
+`AttributeError` for `jit_compile`/`jit`/`prange`, the `mode="gpu"`
+`ValueError`, `get_backend('numba')`'s `ValueError`, the `execution.backend=
+numba` schema rejection) or historical prose explaining the Tier 6H rename
+(`dask_backend.py`'s own module docstring, `Tier6HybridRuntimePlan.md`,
+`Fix.md`). Zero live references to the retired names as executable surface.
+Probed directly:
+
+```text
+get_backend("auto").name, type(...).__name__, xp.__name__
+  -> "numpy-cpu" "NumPyBackend" "numpy"          (D9 closed, this host is CPU-only)
+RIMESimulator().supports_gpu -> False             (D10 closed)
+get_backend("jax", device="cpu").name -> "jax-cpu-cpu"   (§39's pre-existing-string row, asserted verbatim)
+RadioSimConfig.model_validate({"execution": {"backend": "numba"}})
+  -> "execution.backend=numba: removed before v1.0; the backend never
+      compiled any kernel. Use execution.backend=dask for the NumPy/Dask
+      backend or execution.backend=numpy."             (E4, verbatim match to §18.3)
+radiosim --help: "--backend [auto|numpy|jax|dask]"      (no numba choice)
+```
+
+`ArrayBackend.synchronize(arr=None)` read in full (`backends/base.py:616`):
+its docstring and both overrides (`JAXBackend`, `DaskBackend`) require an
+explicit array argument to block on; `JAXBackend.synchronize(arr)` calls
+`jax.block_until_ready(arr)` and returns it, replacing the pre-6H
+throwaway-constant blocker. `supports_gpu` confirmed `False` only on
+`RIMESimulator` (`simulator/rime.py:150-161`); the `VisibilitySimulator` ABC
+default (`simulator/base.py:111-121`) is unchanged `True` -- exactly what
+§14.1 specifies (it names `RIMESimulator` only) and not a defect; recorded
+under risk (d) below as a 6J-decision point for if/when a second simulator
+strategy is ever added.
+
+**Kernel review: `core/contraction.py` read in full.** One module, one public
+kernel (`baseline_contraction`) and one selector
+(`baseline_contraction_for`). Confirmed algebraically equivalent to the
+pre-6H per-baseline loop: unpolarized weight is `stokes_i * phase * envelope
+/ 2.0` (matches the old `(I_scaled * phase * envelope / 2.0)[:, None,
+None]`); polarized weight is `phase * envelope` applied to `J_p @ C @
+J_q^H` (matches the old per-baseline form exactly), now batched over a
+leading `(B, ...)` axis rather than looped. `coherency`/`stokes_i` are
+`None`-switched (pytree structure, resolved at JAX trace time, not a traced
+boolean) -- read and confirmed in both call sites
+(`core/visibility.py:700-712`, `core/visibility_healpix.py:640-647`; the
+HEALPix path always supplies an explicit coherency, even in the I-only
+branch via `C = (I/2) I_2`, so it never takes the unpolarized
+specialization). `supports_compilation`/`compile` defaults confirmed
+identity/`False` on `ArrayBackend` (`backends/base.py:97-115`), overridden
+`True`/`jax.jit` only on `JAXBackend` (`jax_backend.py:181-194`); `NumPyBackend`
+and `DaskBackend` inherit the base identity, confirmed directly (`backend.compile(reference) is
+reference`). `grep -n "backend\.compile("` across `src/radiosim/` returns
+exactly one hit, `core/contraction.py:143`, and `test_exactly_one_kernel_is_
+compiled_in_the_package` mechanically re-asserts this on every run.
+`grep -rn "\.vmap("` across `src/radiosim/` returns exactly one hit
+(`jax_backend.py:426`, the private `JAXBackend.vmap()` passthrough
+definition itself, never called from the kernel or either solver) --
+`vmap` is not used anywhere in the compiled path, consistent with §13.6.
+Both solvers batch the baseline axis through the kernel via `xp.stack`
+(kernel input batching, deliberately not `ArrayBackend.stack`) and call
+`backend.stack` exactly twice each: once per time step (`freq_blocks`,
+`axis=1`) and once for the whole-cube assembly (`time_blocks`, `axis=0`) --
+confirmed by `grep -n "set_at\|\.stack("` on both solver files, zero
+`set_at` hits. `test_visibility_accumulation.py`'s narrowed counting
+assertions (`assemblies_of_rank(3) == []`, `len(stack_shapes) == n_times +
+1`) read and confirmed consistent with this.
+
+**Parity, reproduced myself, not trusted from the test's pass/fail alone.**
+Read `test_backend_parity.py` end to end: it builds real
+`SolverInstrumentView`/`BeamSystem`/`ResolvedReceptorSet` objects from a
+real config mapping and calls the actual `calculate_visibility`/
+`calculate_visibility_healpix` production functions -- not a synthetic
+stand-in -- for all seven §13.4 workloads (point unpolarized, point
+polarized, point+Gaussian, HEALPix scalar, HEALPix polarized, hybrid
+point+HEALPix, heterogeneous linear+circular receptors). Ran it directly:
+
+```text
+tests/unit/test_backends/test_backend_parity.py: 16 passed in 4.67s
+  test_b1_numpy_and_jax_cpu_agree_within_the_stated_tolerance[7 workloads]  all PASSED
+  test_b2_dask_is_bit_identical_to_numpy[7 workloads]                       all PASSED
+  test_hybrid_parity_row_also_satisfies_the_additivity_invariant            PASSED
+  test_parity_is_measured_rather_than_skipped                               PASSED
+```
+
+B1 (JAX-CPU) asserts the §13.5 tolerance (`rtol=1e-12`,
+`atol=1e-12*max(1,max|V|)`), not bit-identity, with an explicit non-zero-cube
+guard so a degenerate all-zero comparison cannot pass vacuously. B2 (Dask)
+asserts `np.array_equal` (true bit-identity), correctly stricter, because the
+Dask backend delegates to the same NumPy operations. All seven workloads
+covered, exceeding the four the review charter asked for, including both the
+hybrid-additivity and heterogeneous-receptor rows explicitly called out.
+
+**NumPy bit-identity, reproduced across the whole range, not merely
+claimed.** Two full non-slow runs at HEAD (`6209287`) plus one at the
+pre-6H baseline (`00cd2b3`, via an isolated `git worktree`, `pixi install`
+in place, never touching the primary checkout):
+
+```text
+00cd2b3 (baseline, worktree):  4168 passed, 6 skipped, 26 warnings, 604.57s
+6209287 py311 (default):       4217 passed, 0 skipped, 26 warnings, 414.23s  (after removing a stray, gitignored docs/_build/ left by an earlier docs build -- see below)
+6209287 py312:                 4217 passed, 0 skipped, 26 warnings, 439.10s
+```
+
+Arithmetic verified: `4168 + 6 (formerly-skipped JAX tests, now running) =
+4174`; `4174 + 43 (new 6H tests) = 4217`, matching the claimed `4,217 =
+4,174 + 43 / 0 / 26` exactly. `tests/characterization/test_tier6_current_
+behavior.py` (the R1 fingerprint suite) run in isolation: 41 passed, and the
+`_SHIPPED_CONFIG_FINGERPRINTS`/`_SHIPPED_CONFIG_CUBE_DIGESTS` constants are
+byte-identical across `00cd2b3..6209287` (`git diff` on the two dicts:
+empty) -- the pinned "before" values are unchanged and both shipped configs
+still reproduce them bit-for-bit after the accumulation restructure and the
+kernel compile, which is the strongest available evidence that "no number
+moves" holds for both `8f11be0`+`c64255a`+`6209287`'s claims, not just
+`6209287`'s own.
+
+**A transient false-failure, diagnosed to its root cause, not a 6H defect.**
+The first full py311 run reported 3 failures in
+`test_tier5_receptor_acceptance.py::test_removed_names_are_referenced_
+nowhere_in_the_repository`, caused by a stray `docs/_build/` directory
+(gitignored, left on disk from an earlier `sphinx-build` invocation, not
+part of any commit) leaking a removed-name reference into that test's
+repo-wide grep. Removed `docs/_build/` and reran: 4217 passed, 0 failed, in
+both the isolated file and the full suite. Root cause confirmed
+environmental (a working-tree artifact outside git, `git status` was clean
+throughout), not a regression introduced by any of the four implementation
+commits.
+
+**HEALPix routing (`c64255a`), read in full.** `_host_visible_stokes`
+(`visibility_healpix.py:168-186`) and `_host_planck_flux_density`
+(`:189-212`) are the only two named host-preprocessing functions in the
+frequency loop; confirmed by reading the whole `calculate_visibility_
+healpix` body (lines 420-650) that no other bare `np.*` call touches sky
+data downstream of the horizon mask -- direction cosines
+(`_host_direction_cosines`) and the horizon mask itself
+(`_host_preprocess_time_step`) are the pre-existing, explicitly-named,
+astropy-boundary host stages §13.2's table already authorized, unchanged by
+this commit. An absent Q/U/V map produces `backend.zeros((len(I_vis),),
+dtype=...)` (`:558-578`), not a host array -- confirmed directly in source.
+Both the polarized and I-only branches route the RJ scaling, coherency
+assembly, and contraction through the backend after exactly one host cast
+per map.
+
+**Skips and pins.** `grep -rn 'importorskip("jax")' tests/` -- zero matches,
+confirmed gone from all five formerly-skipping modules plus every other
+test file. `grep -rn "OWNED BY: Tier 6H" tests/` -- zero matches (the marker
+existed only in the plan's prose describing 6B's split pin, never
+materialized in test code, and is gone now that 6H owns and flips it). Nine
+6H-owned "Flipped by Tier 6H" docstrings in `test_tier6_current_behavior.py`
+(`test_execution_config_backend_literal_now_offers_dask`,
+`test_get_backend_auto_returns_the_numpy_backend_on_a_cpu_only_host`,
+`test_no_numba_kernel_decorator_exists_in_the_package`,
+`test_dask_backend_docstring_makes_no_compilation_claim`,
+`test_rime_simulator_no_longer_claims_gpu_support`,
+`test_rime_simulator_docstring_states_the_canonical_chain_order`,
+`test_backend_surface_exposes_the_compilation_boundary`,
+`test_exactly_one_solver_call_site_requests_compilation`,
+`test_jax_synchronize_blocks_on_the_callers_array`), all read and confirmed
+substantive (source-level assertions, not tautologies), plus a tenth,
+separate D16 flip (`test_jax_is_a_cpu_only_dependency_of_every_pixi_
+environment`) that belongs to `d23fdab`, not the rename commit -- the "nine"
+count in the review charter matches exactly once the dependency flip is
+counted separately. The two 6D counting-test narrowings in
+`test_visibility_accumulation.py` read and confirmed legitimate: the
+per-`(t,f)` `stack` genuinely disappeared because the compiled kernel now
+returns the whole `(B, 2, 2)` block from one call, and every binding
+property of §13.3 (one `(B,F,2,2)` block per time, one whole-cube assembly,
+zero `set_at`) is still asserted, just at a narrower, correctly-updated
+count.
+
+**Plan correction `98a931e`, ratified, all four items verified against
+source, not merely read as claims.** (1) `core/contraction.py` in §25.1 --
+confirmed as the sole home of the kernel and the sole `backend.compile(`
+call site, making the "exactly one" property mechanically checkable exactly
+as claimed. (2) The eleven §33 additions -- each independently verified:
+`api/simulator.py:1085-1086` populates `device_kind`/`compilation_used`;
+`core/runtime_config.py:316,324,338` is confirmed the resolver's own third
+declaration of the backend literal; `simulator/__init__.py:124-125`'s
+docstring example now prints `False`; `examples/scripts/simple_simulation.py`
+'s `--backend` choices are `("auto", "numpy", "jax", "dask")`;
+`docs/api/backends.rst` no longer names `numba_backend` (confirmed by a full
+`sphinx-build`, below); `test_beam_runtime.py` imports `dask_backend`/
+`numpy_backend` directly, no `numba_backend` reference remains;
+`test_io/test_config.py` carries the new E4 test
+(`test_tier6h_removed_execution_numba_backend_names_its_replacement`);
+`test_tier1h_documentation.py` asserts `"DaskBackend: CPU/GPU"` in place of
+the old `"NumbaBackend: CPU/GPU"` pin; `test_tier4_result_output_
+acceptance.py`'s environment-feature-list pin includes `"jax-cpu"` in both
+`default` and `py312`; `test_visibility_accumulation.py`'s narrowing is
+ratified above. The necessity argument for routing the two 6I-owned files
+(`docs/api/backends.rst`, `test_tier1h_documentation.py`) into 6H's own
+grant is sound: both would otherwise break a build or a pin 6H itself
+introduces, and 6I's later grant of the same files for its own §26 work is
+unaffected. (3) The §13.3 correction -- ratified above under kernel review
+and the pins section: strictly fewer assemblies, every binding property
+preserved. (4) The §25.5/§28/C18 jax-cpu-as-feature resolution -- confirmed
+directly in `pixi.toml`'s diff (`[feature.jax-cpu.dependencies]` carried by
+both `default` and `py312` environments, not a third `jax-cpu` environment
+key), and the stated reason (§31's six-JAX-skips-must-vanish-from-the-two-
+gate-environments'-own-counts requirement) is the load-bearing one and is
+satisfied: confirmed 0 skips in both gate environments' own `-m "not slow"`
+runs above.
+
+**Dependency and lock, verified programmatically, not by reading `pixi.toml`
+alone.** `pixi lock --check` -- "Lock-file was already up-to-date."
+`pixi install --locked -e default` and `-e py312` -- both succeed cleanly.
+`grep -n "conda: .*jaxlib" pixi.lock`: exactly six entries, one per
+env x platform combination (`linux-64`/`osx-64`/`osx-arm64` x
+py311/py312), every one `jaxlib-0.10.2-cpu_py3*` -- the `cpu_` build
+constraint holds on every platform, confirmed programmatically, not
+sampled. `jax-0.10.2` (noarch) is the sole `jax` package across all
+six. `git diff 00cd2b3..6209287 -- pixi.lock | grep -E
+"^[-+].*(astropy|numpy-|scipy-|pyuvdata|healpy|numba-|/python-)"` -- empty:
+zero science-relevant package moves, confirmed by diff, not by reading the
+implementer's claim. 74-ish transitive rebuilds are almost entirely AWS/
+Azure/Arrow/image-codec C-library churn several layers removed from
+RadioSim's own imports.
+
+**Lock-churn adjudication: the py311/linux-64 `imagecodecs`/`tifffile`
+downgrade -- ruled acceptable, not a risk.** Confirmed in the diff:
+`imagecodecs-2025.8.2` -> `imagecodecs-lite-2019.12.3` and
+`tifffile-2025.12.12` -> `tifffile-2020.6.3`, on `py311`/`linux-64` only.
+Traced the dependency chain in `pixi.lock`: both are pulled in transitively
+by `dask-image` (`depends: tifffile >=2018.10.18`) via `pims`
+(`depends: tifffile`), not by anything RadioSim imports directly. `grep -rn
+"dask_image|import pims|import tifffile|imagecodecs" src/radiosim/ tests/`
+-- zero matches. Ruling: a real conda-forge SAT-solver resolution change
+confined to an unused transitive chain (narrowed, almost certainly, by the
+`jaxlib` build-string constraint shrinking the solver's search space on that
+one platform combination); it touches no code path RadioSim executes and no
+science-relevant package. Acceptable.
+
+**The jax-cpu-as-feature deviation from C18's literal "environment"
+wording -- ratified.** §31's requirement that the six skips vanish from the
+gate environments' own counts is the load-bearing constraint; a third
+environment would have left the two gate environments (`default`, `py312`)
+still skipping all six. `pixi.toml`'s `[environments]` table confirms
+`default = ["py311", "jax-cpu"]`, `py312 = ["py312", "jax-cpu"]` -- the
+feature is carried by both existing environments, giving the full six
+env x platform combinations Q1 measured, exactly as the correction
+describes.
+
+**The `backend-parity` CI job -- read, sound.** Runs on `ubuntu-24.04`,
+installs the locked `default` environment, confirms `jax`/`jaxlib` import
+and reports `jax.devices()`, then runs `tests/unit/test_backends/`,
+`test_core/test_visibility_backend.py`, and `test_jones/test_backend_
+jones.py` directly via `python -m pytest` (bypassing the `test` task's
+argument-appending quirk, which is itself a sound choice for a job that
+wants an exact, minimal test selection). Additive to the existing six-job
+compatibility matrix; the matrix's own six jobs are unchanged (verified by
+diff).
+
+**Gates, both environments.**
+
+```text
+pixi run test -- -m "not slow"
+  py311 (default): 4217 passed, 0 skipped, 26 warnings, 414.23s (after docs/_build removal)
+  py312:           4217 passed, 0 skipped, 26 warnings, 439.10s
+pixi run lint            -- "All checks passed!"
+pixi run check-format    -- "338 files already formatted"
+pixi run typecheck       -- "Strict Pyright error ceiling satisfied: 2752 errors <= 4600."
+```
+
+`pixi run typecheck` was run this time, in variance from several recent
+acceptance records' "intentionally not run, per CLAUDE.md" note: §31's
+common verification gate lists it for every slice, and risk (f) below
+specifically asks whether leaving the checked-in ceiling unlowered is
+acceptable, which requires running it to answer. `pyright-baseline.json`
+(`maximum_errors: 4600`) is unchanged across the range (`git diff
+00cd2b3..6209287 -- pyright-baseline.json` empty) and is correctly outside
+6H's §33 grant; the live count (2752) is well under the ceiling, so leaving
+the checked-in number unlowered is a missed tightening opportunity, not a
+violation -- ruled acceptable (risk (f)).
+
+**Four shipped YAMLs.** `config.yaml`, `receptor_circular_example.yaml`,
+`realistic_foreground_example.yaml`, `hybrid_sky_example.yaml` all pass
+`radiosim validate` directly.
+
+**Docs build.** `sphinx-build -b html . _build/html` from `docs/`: exit 0,
+46 warnings, all pre-existing (Pygments lexer/MyST cross-reference notices
+in unrelated files), none naming `numba` or `numba_backend`. Confirmed the
+built `api/backends.html` contains only the historical-prose mentions of
+`numba` (the rename explanation), no `automodule`-generated reference to a
+deleted module. `make -C docs html` was not separately invoked; the
+equivalent direct `sphinx-build` call is what CI's quality job runs.
+
+**Laziness, probed fresh-process.** `python -c "import radiosim;
+import radiosim.backends"` then `get_backend('numpy')`: `'jax' not in
+sys.modules` at every step. `get_backend('jax', device='cpu')`: `'jax' in
+sys.modules` becomes `True` only then. Matches the design intent for the
+`jax` backend's own construction path.
+
+**`git status` clean; no co-author lines** (checked above).
+
+**Risk adjudications (a)-(g).**
+
+(a) **The kernel's `(B, S, 2, 2)` working set -- real, unmeasured at
+shipped scale, filed as a register row and a 6I obligation, not a
+blocker.** Measured directly with `tracemalloc` around
+`baseline_contraction`: NumPy peak traced memory scales linearly at
+`B=100,S=100 -> 2.21 MB` (221 B/pair), `B=1000,S=1000 -> 208.13 MB`
+(208 B/pair), `B=5000,S=5000 -> 5200.32 MB` (208 B/pair) -- converges to
+~208 bytes per `(baseline, source)` pair, i.e. genuinely `O(B x S)`, versus
+the pre-6H per-baseline loop's `O(S)` peak. Every §13.4 workload and both
+shipped configs use ≤15 baselines, so R1/B1/B2 prove correctness, never
+this scaling. Extrapolated: a realistic HERA-350-scale array (61,075
+baselines) against a modest 50,000-source catalog would need roughly 600 GB
+for one `(time, frequency)` step -- an asymptotic hazard that is real, not
+hypothetical. Ruled: not a 6H blocker (no §13.6 binding text bounds memory,
+and the shipped-scale correctness contract is fully met), but recorded as a
+new §39 risk-register row and an explicit 6I obligation to add a
+memory-vs-`(B,S)` benchmark record, naming the known one-line mitigation
+(chunk the baseline axis in `baseline_contraction_for`) so it is a tracked
+task rather than a silent gap. Plan corrected accordingly (below).
+
+(b) **`get_backend("auto")` importing JAX -- real, ~450-950ms measured,
+recorded, not a blocker.** Timed directly: `import radiosim.backends` ~445
+ms (first-import cost of the package itself), then `get_backend("auto")` a
+further ~500ms on top, with `'jax' in sys.modules` becoming `True` --
+`_has_non_cpu_jax_device()` performs a real `import jax` to probe
+`jax.devices(...)`, undoing the lazy-import discipline `jax_backend.py`'s
+own docstring states the design exists to satisfy, for the `auto` path
+specifically. Reaches `execution.backend: auto`, the `radiosim simulate`
+CLI subcommand's default (`cli/main.py:208`); the primary, recommended
+config-file path defaults to `numpy` (`io/config.py:1543`) and is
+unaffected. Not a truthfulness violation (the resolved backend and its
+provenance are correct) and not a violation of any binding 6H text. Filed
+as a new §39 risk-register row.
+
+(c) **jit retracing per visible-source count -- real, confirmed by reading
+both solvers, correctly 6I's to measure, not fully routed as specified.**
+Both `calculate_visibility` and `calculate_visibility_healpix` mask
+sources/pixels by `above_horizon` per time step, so the kernel's source axis
+can change shape step-to-step within a single run, contradicting §13.6's
+"shape-stable within a run" claim in the general case (every §13.4 workload
+happens to avoid exercising it, via short duration or a fixed small horizon
+set). Not a correctness defect: B1-B3 prove agreement at every shape they
+exercise. Checked 6I's current benchmark methodology (§22.2): its timing
+loop times repeated *identical* calls to measure compile-vs-steady-state,
+which does not surface a workload whose shape changes across the time axis
+-- so as specified, this hazard is not yet routed to a measurement, only to
+an assumption. Filed as an explicit new 6I obligation (not merely "6I's to
+measure" in the abstract) in the plan correction below.
+
+(d) **The ABC `supports_gpu` default remaining `True` -- correctly scoped,
+no defect; recorded as a future 6J decision point.** §14.1 names
+`RIMESimulator` only, and `RIMESimulator` is the sole simulator strategy in
+tree (`simulator/rime.py` is the only non-`base.py` file under
+`simulator/`), so the ABC default is inert in practice today. Not corrected
+by this slice, and not required to be: if a second simulator strategy is
+ever added, whether the ABC default should also flip to `False` (or stay
+`True` as an explicit per-simulator opt-in requirement) is a 6J-or-later
+judgment call, recorded here rather than silently left for someone to
+rediscover.
+
+(e) **Lock churn -- adjudicated above; acceptable.**
+
+(f) **Pyright ceiling not lowered -- adjudicated above; acceptable, out of
+grant.**
+
+(g) **§26 docs correctly deferred to 6I -- confirmed.** `CLAUDE.md` and
+`README.md` are untouched by this range (`git diff --name-only` above lists
+neither), consistent with §25.5 naming them as later, bounded 6I work and
+6H's own grant not including either file.
+
+**Plan correction (mine), committed separately before this acceptance.**
+Commit `0198341` (`docs(runtime): correct Tier 6 design`) adds the three
+§39 risk-register rows described in (a)-(c) above, with no decision change,
+following the same "found during independent acceptance" pattern as prior
+reviewer corrections (e.g. `6011616`), and updates the status header to
+record Tier 6H's acceptance and authorize Tier 6I.
+
+**Honest unobserved items.** No GPU/TPU/distributed hardware was exercised
+(none is claimed by this slice; `device_kind` and `supports_gpu` correctly
+report `cpu`/`False` throughout). This review ran on macOS
+(`osx-arm64`/`darwin`); the `linux-64` and `osx-64` lock combinations were
+verified by lockfile inspection (jaxlib versions, build strings, science-
+package diff) but not by an actual install or test run on those platforms
+-- the added `backend-parity` CI job is what exercises `linux-64` for real,
+on every push. `make -C docs html` was not separately invoked; a direct
+`sphinx-build` call with the same inputs was used instead, judged
+equivalent for this purpose.
+
+No material defect found. Tier 6H is accepted as delivered, with the plan
+correction `98a931e` ratified and three new risk-register rows added by my
+own bounded correction `0198341`, both before this acceptance. `RUN-001`
+through `RUN-004` remain open pending Tier 6I's documentation-truth work;
+this acceptance records "backend correctness parity complete; accelerator
+performance undemonstrated" as the *evidence* for `RUN-004`'s eventual
+closure but does not itself flip `RUN-004`'s `ROADMAP` status, which §37
+reserves for the whole-tier Tier 6J gate. Tier 6I (benchmark harness,
+records, and documentation truth) is now the only authorized implementation
+slice. Nothing was pushed.
