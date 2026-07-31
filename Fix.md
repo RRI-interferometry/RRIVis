@@ -10004,3 +10004,257 @@ risk-register correction (`2808ff0`) added before this acceptance and the
 `docs/changelog.rst` routing to Tier 8 ratified with an explicit
 recommendation recorded above. Tier 6J (independent whole-tier acceptance) is
 now authorized. Nothing was pushed.
+
+### 2026-07-31 Tier 6J independent whole-tier acceptance — REJECTED
+
+**VERDICT: REJECTED.** `RUN-001`, `RUN-002`, `RUN-003` remain **OPEN** and
+`RUN-004` remains **ROADMAP**. Tier 6 is not accepted as a whole. This entry
+records the review honestly per §34/§37's own instruction on failure ("record
+honestly per the plan (no closure), return a bounded repair task. Fix nothing
+yourself.") No `src/` or `tests/` file was touched by this review. `git
+status` was clean before this edit; only this `Fix.md` entry and one
+`Tier6HybridRuntimePlan.md` risk-register correction are committed with it.
+
+**Scope reviewed.** The full indivisible Tier 6 range `6928f59..99f3a20`
+(HEAD), covering 6A-6I plus the RUN-005 and RUN-006 standalone fixes, all of
+which carry individual acceptance records above. Branch `main`, no push, no
+production/test change made by this review.
+
+**Why every other check passed.** Independently reproduced, not taken from
+the slice records:
+
+- Full non-slow suite, both local Python environments, exact match to the
+  plan's own expected count: `pixi run test -- -m "not slow"` gave
+  **4,259 passed, 0 skipped, 10 deselected, 26 warnings** in both `default`
+  (py311, 410.17s) and `py312` (440.15s).
+- `pixi run bench` — 10/10 passed (record completeness, accelerator-honesty,
+  JAX-CPU tolerance, Dask bit-identity, retracing, and memory-scaling tests
+  all green).
+- `pixi run lint` — all checks passed. `pixi run check-format` — 344 files
+  already formatted. `pixi lock --check` — up to date. `pixi install --locked`
+  succeeded for both `default` and `py312`.
+- Independent end-to-end reproduction (reviewer-authored script, not the
+  shipped suite) of `configs/config.yaml`, `configs/receptor_circular_example.yaml`,
+  and `configs/hybrid_sky_example.yaml`, each at `execution.solver.workers`
+  in `{1, 4}`: worker-count bit-identity held for every config
+  (`scientific_sha256` and raw-cube SHA-256 both identical across worker
+  counts); the hybrid config's cube was bit-identical to the independently
+  constructed sum of its `point_sources`-only and `healpix_map`-only
+  components (`np.array_equal` true); hybrid coordinates
+  (`time_grid`, `frequencies_hz`) were element-wise identical across all
+  three runs; all three HDF5 files round-tripped at `schema_version=3.0.0`
+  with `scientifically_equal` holding. The measured `scientific_sha256`
+  values for the `point` and `circular` configs
+  (`4bbb74035b3d700fa7638dca6b854a8c9110bc2abe8d418c7b180f527b947f2b` and
+  `be1e86fba57821a95f13f527a72b2ffd42edd4494cc68b0fde68d0f24d042203`) match
+  the values independently recorded in the Tier 6F acceptance record exactly.
+- Source spot-checks: no hard-coded `max_workers=8` anywhere in `src/`;
+  `load_models_parallel`'s `max_workers` has no default; `get_backend("numba")`
+  raises the exact §18.3 message; `get_backend("auto")` returns
+  `NumPyBackend`/`numpy-cpu` on this host; `DaskBackend(mode="cpu").name ==
+  "dask-cpu"`; `spherical_harmonic` is still rejected at
+  `io/config.py:2092-2097`; zero Tier 6 diff touches any file under
+  `core/jones/` or any `simulator/` file other than `rime.py` (criterion 26).
+- Fresh-process laziness: `import radiosim` puts neither `healpy` nor `jax`
+  into `sys.modules`.
+- All four shipped YAMLs (`config.yaml`, `receptor_circular_example.yaml`,
+  `realistic_foreground_example.yaml`, `hybrid_sky_example.yaml`) pass
+  `radiosim validate`.
+- A clean-copy Sphinx build (`git archive HEAD` into a scratch directory, no
+  live-tree state) succeeds (exit 0). Warning count differs from the 6I
+  record's claimed 32 (this review measured 43 from the true clean copy,
+  down from 45 in the live tree once the two untracked, gitignored
+  `docs/superpowers/` planning files are excluded by the clean checkout).
+  Every warning-producing file was independently confirmed absent from the
+  Tier 6 diff (`git diff 6928f59..99f3a20 --stat -- <file>` empty for
+  `core/polarization.py`, every listed `core/jones/*.py` file,
+  `backends/numpy_backend.py`, `docs/HERA_VSIM_ANALYSIS.md`; the one touched
+  file, `backends/__init__.py`, has a 2-line-changed docstring block whose
+  warning is a pre-existing docutils blank-line nit, not new content), so no
+  warning is attributable to Tier 6, and the count discrepancy is recorded
+  here as an honest, non-blocking documentation-accuracy note for whoever
+  next revises the doc-build methodology, not as a defect.
+
+**Why the verdict is REJECTED: §37 criterion 25 fails on the exact acceptance
+SHA, and no slice's acceptance record ever checked it.** §37 criterion 25
+reads: "CI succeeds for the quality job, all six locked OS/Python jobs, and
+the added jax-cpu job, on the exact acceptance SHA." Checked via `gh run
+list`/`gh run view` (a check no single Tier 6 slice acceptance record
+performed — every one of them, by its own "Unobserved items" section,
+verified `linux-64`/`osx-64` only "by lockfile inspection," never by an
+actual run):
+
+```text
+gh run list --limit 15
+  99f3a20 (HEAD, this Fix.md's own 6I-acceptance commit): in_progress at time
+    of review; completed jobs so far: linux-64/py3.11 FAILURE,
+    linux-64/py3.12 FAILURE, osx-64/py3.11 FAILURE, osx-arm64/py3.11 SUCCESS,
+    osx-arm64/py3.12 SUCCESS, quality SUCCESS, backend-parity SUCCESS;
+    osx-64/py3.12 still running when last checked (pattern below makes its
+    failure a near-certainty).
+  ff6920a (RUN-006 accept) .. 8d759f3 (Tier 6A accept): eleven consecutive
+    CI runs, one per Tier 6 slice/standalone-fix acceptance commit, EVERY ONE
+    "failure" -- linux-64 (both Python versions) and osx-64 (both Python
+    versions) fail on every single run; osx-arm64 (both versions), the
+    quality job, and the backend-parity job pass on every run from Tier 6B
+    onward (Tier 6A's very first CI run failed on all six, a separate,
+    already-superseded state).
+  de9d207 (Tier 6 design accept) and 6928f59 (Tier 5 accept, the Tier 6
+    baseline): ALL SIX OS/Python jobs SUCCEEDED, plus quality. This is the
+    pre-Tier-6 precedent Tier 3I's own whole-tier acceptance already
+    established as binding (Fix.md, 2026-07-25, "the earlier Tier 3I attempt
+    was validly rejected because exact-SHA CI had not passed"; that gate was
+    only satisfied once "quality and all six OS/Python jobs" were
+    independently confirmed green by run ID).
+```
+
+**Root cause, confirmed by reading the actual CI failure logs, not inferred
+from the job-conclusion label alone.** Pulled full logs for `linux-64/py3.11`
+at the RUN-006-acceptance SHA (`ff6920a`, run `30623031506`, job
+`91131759920`) and for `osx-64/py3.12` at the same SHA (job `91131759830`):
+both fail the identical eight tests, every time --
+`test_shipped_default_config_scientific_fingerprint`,
+`test_shipped_circular_receptor_config_scientific_fingerprint`, and all six
+`test_section_13_4_workload_fingerprints[...]` parametrizations -- with
+`AssertionError: assert '<measured-sha256>' == '<pinned-sha256>'` on the
+**raw visibility-cube digest** (`_cube_digest`), not merely
+`scientific_sha256` or a provenance/transport field. This means the actual
+floating-point *visibility numbers* computed on `linux-64`/`osx-64`
+(`x86_64`) differ from those computed on `osx-arm64` (`arm64`, the only
+architecture any Tier 6 reviewer or implementer ever ran locally) for the
+identical Python version, identical locked dependency versions, and
+identical source code. `linux-64/py3.11`'s own summary line confirms this is
+not a collection/environment/install failure: `8 failed, 4211 passed, 150
+warnings in 312.26s` -- every other test in the 4,219-test suite (at that
+SHA) passes on Linux; only the eight bit-identity fingerprint pins fail, and
+only there.
+
+This is architecture-level floating-point non-associativity (near-certainly
+in vectorized trig/matmul code paths reached by the astropy coordinate
+transforms and/or the Tier 6H `core/contraction.py` batched kernel), not a
+correctness defect in the sense of a wrong physical answer -- no §37
+criterion claims sub-ULP agreement is physically meaningful, and 6H's own
+`baseline_contraction` review already proved the batched kernel is
+algebraically equivalent to the pre-6H per-baseline loop. But it directly
+falsifies the unqualified form of R1 ("the restructure is bit-identical to
+the baseline for every shipped configuration") and S6/S7/S8/S9/S10 as
+currently scoped: every one of those invariants was asserted, tested, and
+accepted as though "bit-identical" meant architecture-independent, and the
+`_ENVIRONMENT_KEY` scheme that R1/S8 use (`_expected_for_environment()`,
+keyed by `f"py{sys.version_info[0]}{sys.version_info[1]}"` alone) has no
+axis for OS or CPU architecture at all. Tier 6A's own adjudication #2
+already narrowed the bit-identity claim once, for a *different*,
+already-diagnosed reason (an astropy-version-driven ICRS->AltAz divergence
+between py311 and py312, on the *same* architecture); this is a second,
+undiagnosed-until-now divergence axis the plan never named, keyed by
+architecture rather than Python version, and every single Tier 6 slice
+acceptance missed it because none of them ran on `linux-64` or `osx-64`, and
+none of them checked the CI results that were failing in exactly that way
+the entire time.
+
+**Whether this predates Tier 6 could not be established at this gate and is
+part of the repair task.** Tier 5's CI (`6928f59`) was fully green across
+all six OS/Python jobs, but Tier 5 introduced no bit-identity cube-digest
+assertion at all -- `_SHIPPED_CONFIG_FINGERPRINTS`/`_SHIPPED_CONFIG_CUBE_DIGESTS`
+and the §13.4 workload digests are new in Tier 6A. It is therefore equally
+consistent with the evidence gathered here that (a) the codebase's
+floating-point output has *always* differed by a few ULPs across `arm64`
+and `x86_64` (a well-known property of vectorized trig/BLAS libraries) and
+Tier 6A was simply the first slice to assert exact bit-identity against it,
+or (b) some Tier 6 change (most plausibly 6D's accumulation restructure or
+6H's batched-kernel compilation, both of which changed the order or grouping
+of floating-point operations) introduced a *new* architecture-sensitive
+code path that did not exist, or was not architecture-sensitive, before.
+Distinguishing these requires running the pre-Tier-6 baseline (`6928f59`) on
+`linux-64`/`osx-64` against an equivalent hand-written cube-digest probe,
+which this review's charter (Fix.md and Tier6HybridRuntimePlan.md only, no
+test changes, no non-macOS execution available in this environment) does not
+permit.
+
+**Bounded repair task (not performed by this review).**
+
+1. On an `x86_64` host (Linux preferred, matching the failing `linux-64` CI
+   job; a GitHub Actions debug run or a local/cloud x86_64 machine both
+   work), reproduce `tests/characterization/test_tier6_current_behavior.py::
+   test_shipped_default_config_scientific_fingerprint`,
+   `test_shipped_circular_receptor_config_scientific_fingerprint`, and all
+   six `test_section_13_4_workload_fingerprints[...]` parametrizations, and
+   confirm the failing digest values match this review's CI-log evidence
+   (root-cause confirmation, not a fresh discovery).
+2. Determine whether the divergence predates Tier 6 (checkout `6928f59`,
+   compute the same visibility cubes with a standalone probe -- no
+   bit-identity test existed there to run directly -- and diff against an
+   `osx-arm64` run of the identical commit) or was introduced within Tier 6
+   (bisect across `6928f59..8d759f3` is not useful since 6A added no
+   production code; bisect production commits `713f2a6`, `d3b4867`,
+   `87d7c79`, `f184a6a`/`5f4fcf1`, `fe5aa91`, `ac9e56b`,
+   `d23fdab`/`8f11be0`/`c64255a`/`6209287`, `46056ef` instead, each on both
+   architectures).
+3. Resolve one of two ways, decided by what step 2 finds:
+   - If a genuinely fixable determinism bug (e.g., an unpinned-thread-count
+     reduction, an uninitialized-order dict/set iteration, or a BLAS thread
+     race), fix it in the narrowest touched module and get bit-identical
+     digests on all three architectures.
+   - If it is inherent architecture-level floating-point non-associativity
+     (the more likely outcome given vectorized trig libraries' well-known
+     behavior), amend `Tier6HybridRuntimePlan.md` §21 (S1, S6-S10), §27 (R1,
+     W1, W3, B1-B3), and the `_ENVIRONMENT_KEY` scheme in
+     `tests/characterization/test_tier6_current_behavior.py` to key every
+     bit-identity pin by OS+architecture as well as Python version (three
+     axes, matching the three CI architectures actually locked), following
+     the same "record it, do not loosen the assertion silently" discipline
+     Tier 6A's own adjudication #2 already established for the py311/py312
+     astropy-version case. Re-measure and commit the additional
+     `linux-64`/`osx-64` pins so every locked architecture has its own
+     verified value, then confirm CI is green on the quality job, all six
+     OS/Python jobs, and the jax-cpu-parity job at the new HEAD.
+4. Re-run this Tier 6J whole-tier review from a fresh instance once CI is
+   green on the repair SHA. Every other §37/§38 finding in this record
+   stands and does not need to be re-derived from scratch, only re-confirmed
+   against the repaired HEAD; only criterion 25 (and, if step 3's second
+   branch is taken, the S1/S6-S10/R1 wording it touches) needs fresh
+   evidence.
+
+**§37/§38 compact checklist (criteria not already covered by "why every
+other check passed" or the CI finding above).** Criteria 1-13, 16-22, 24, 26
+were independently spot-checked against source and/or the slice-by-slice
+acceptance trail (each of which independently re-derived its own claims from
+source, per §34) and found sound; no contradiction was found among the
+6A-6I + RUN-005/006 records, and two spot-checked plan corrections (`9a3b095`
+ratified in 6B's grant-boundary reasoning, `98a931e` ratified in 6H's file
+list) both match their landed diffs. Criteria 14, 15, 23, and 25 are the ones
+this CI finding bears on directly: 14 (R1 bit-identity, "for every shipped
+configuration") and 15 (S9 NumPy/JAX-CPU parity, which reads correctly
+because the parity CI job itself passed, but shares the same unproven
+cross-architecture-NumPy-baseline premise as R1) are downgraded from "proven"
+to "proven on `osx-arm64` only, contradicted by CI evidence on the other two
+locked architectures"; 23 (dual-Python suites pass) holds only for the
+`osx-arm64` architecture this review's local machine has; 25 fails outright,
+as detailed above. `RUN-004`'s §38 disposition (DONE-narrowed vs. a new
+`PERF-001` roadmap row) was not adjudicated in this record because §37's gate
+is indivisible ("Tier 6J accepts Tier 6 only when all criteria pass as one
+indivisible gate") and criterion 25's failure already blocks closing any of
+`RUN-001`..`RUN-004` regardless of how Q4 would otherwise resolve; that
+adjudication is deferred to the re-review once CI is green.
+
+**Register.** `RUN-001`, `RUN-002`, `RUN-003` remain **OPEN**. `RUN-004`
+remains **ROADMAP**. `SKY-001` remains **OPEN**, unaffected by this review.
+No register row is flipped by this entry.
+
+**Unobserved items.** GPU/TPU/distributed hardware: none exercised, none
+claimed by this review. Non-macOS execution: this review had no access to a
+Linux or Intel-macOS machine or container in its own environment and relied
+entirely on the hosted CI logs (a legitimate, arguably stronger source than
+a one-off local repro) for the cross-architecture evidence above. Whether
+the divergence predates Tier 6: not established, explicitly deferred to the
+bounded repair task's step 2. The `osx-64/py3.12` job for the exact HEAD
+run (`99f3a20`) was still in progress when this record was written; given
+100% failure on that job across every one of the eleven preceding Tier 6
+commits, this review treats its near-certain failure as sufficient
+corroboration rather than delaying this record to wait for it, and notes
+the run ID (`30628921601`) so a future reviewer can confirm its final
+conclusion directly.
+
+No commit accepting Tier 6 was made. Tier 6J is not closed. The next
+authorized action is the bounded repair task above, not Tier 7 design work
+and not a further Tier 6 slice.
