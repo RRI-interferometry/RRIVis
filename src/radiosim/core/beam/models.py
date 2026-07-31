@@ -471,8 +471,13 @@ class ResolvedFITSBeamDefinition(_ResolvedValue):
         ):
             raise ValueError("path_provenance_key must be nonempty")
         _require_fingerprint(self.definition_fingerprint, "definition_fingerprint")
+        # The fingerprint binds only the load settings, never the path: the
+        # path is filesystem transport, and hashing it would make every
+        # downstream fingerprint differ between checkouts of the same science.
+        # File content is bound at load time by the handler's
+        # scientific_fingerprint; pre-load identity keys that must distinguish
+        # distinct files compare the stored path field directly.
         payload = {
-            "path": self.path,
             "normalization": self.normalization,
             "angular_interpolation": self.angular_interpolation,
             "frequency_interpolation": self.frequency_interpolation,
@@ -1001,15 +1006,33 @@ def _create_resolved_beam_assignment(  # pyright: ignore[reportUnusedFunction]
     )
 
 
+def _definition_identity_key(
+    definition: ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
+) -> tuple[str, ...]:
+    """Return the exact pre-load identity key for one resolved definition.
+
+    FITS definition fingerprints bind only the load settings, so the resolved
+    path must join the key to keep two distinct files with identical settings
+    distinct until load time binds their content.
+    """
+    if type(definition) is ResolvedFITSBeamDefinition:
+        return (
+            "fits",
+            definition.definition_fingerprint,
+            definition.path.as_posix(),
+        )
+    return ("analytic", definition.definition_fingerprint)
+
+
 def _deduplicated_definitions(
     assignments: tuple[ResolvedBeamAssignment, ...],
 ) -> tuple[ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition, ...]:
-    seen: set[str] = set()
+    seen: set[tuple[str, ...]] = set()
     unique: list[ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition] = []
     for assignment in assignments:
-        fingerprint = assignment.definition.definition_fingerprint
-        if fingerprint not in seen:
-            seen.add(fingerprint)
+        key = _definition_identity_key(assignment.definition)
+        if key not in seen:
+            seen.add(key)
             unique.append(assignment.definition)
     return tuple(unique)
 
@@ -1112,7 +1135,7 @@ class ResolvedBeamState(_ResolvedValue):
         ):
             raise ValueError(
                 "unique_definitions must retain the first canonical assignment "
-                "definition for each definition fingerprint"
+                "definition for each distinct definition identity"
             )
 
         if self.mode == "analytic" and (
@@ -1319,6 +1342,16 @@ class LoadedBeamState(_ResolvedValue):
                 raise ValueError(
                     "loaded handler kind does not match resolved assignment"
                 )
+            if handler.kind == "fits":
+                handler_file = cast(BeamFileProvenance, handler.file)
+                fits_definition = cast(
+                    ResolvedFITSBeamDefinition,
+                    expected_assignment.definition,
+                )
+                if handler_file.resolved_path != fits_definition.path:
+                    raise ValueError(
+                        "loaded handler file path does not match resolved assignment"
+                    )
             if handler_id not in first_used_handler_ids:
                 first_used_handler_ids.append(handler_id)
             copied_assignments.append((copied_antenna, handler_id))

@@ -142,7 +142,6 @@ def _fits_definition(
     models = _models()
     normalized = path.resolve(strict=False)
     payload = {
-        "path": normalized,
         "normalization": "peak",
         "angular_interpolation": "bilinear",
         "frequency_interpolation": frequency_interpolation,
@@ -528,6 +527,7 @@ def test_unique_definition_order_is_first_canonical_assignment_not_authored_orde
 
     state = _resolution().resolve_beam_assignments(config, _instrument())
 
+    assert first.definition_fingerprint == second.definition_fingerprint
     assert state.unique_definitions == (first, second)
 
 
@@ -618,7 +618,10 @@ def test_one_ulp_active_dimension_and_fits_preload_options_change_identity(
         )
         for item in (cubic, linear, other_path)
     ]
-    assert len({state.assignments[0].assignment_fingerprint for state in states}) == 3
+    fingerprints = [state.assignments[0].assignment_fingerprint for state in states]
+    assert fingerprints[0] != fingerprints[1]
+    assert fingerprints[0] == fingerprints[2]
+    assert states[0].assignments[0].definition != states[2].assignments[0].definition
 
 
 def test_native_beam_id_is_inert_for_lookup_coverage_and_assignment():

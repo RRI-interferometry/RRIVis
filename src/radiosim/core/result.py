@@ -668,14 +668,16 @@ def _scientific_instrument_projection(
     }
 
 
-# Beam snapshot keys that carry filesystem transport rather than science: the
-# FITS source paths themselves, the config locator that authored them, and the
-# fingerprints whose payloads include those paths (a FITS
-# ``definition_fingerprint`` hashes the authored path, and the assignment,
-# state, and loaded fingerprints are built on top of it).  Every fact those
-# fingerprints bind scientifically survives the projection directly: analytic
-# model parameters, FITS handler content hashes and validated metadata, and
-# the antenna-to-definition mapping.
+# Beam snapshot keys excluded from the scientific hash.  The FITS source
+# paths and the config locator that authored them are filesystem transport,
+# not science.  The four beam fingerprints no longer hash any path (a FITS
+# ``definition_fingerprint`` binds only the load settings; content binds at
+# load time through the handler ``scientific_fingerprint``), but they remain
+# excluded as redundant digests: every fact they bind survives the projection
+# directly as sibling keys (analytic model parameters, FITS handler content
+# hashes and validated metadata, and the antenna-to-definition mapping), so
+# hashing them would only couple ``scientific_sha256`` to fingerprint-payload
+# evolution.
 _BEAM_TRANSPORT_KEYS = frozenset(
     {
         "path",

@@ -47,7 +47,6 @@ from tests.fixtures.beamfits import (
 def _definition(path: Path, *, frequency_interpolation: str = "linear"):
     normalized = path.resolve(strict=False)
     payload = {
-        "path": normalized,
         "normalization": "peak",
         "angular_interpolation": "bilinear",
         "frequency_interpolation": frequency_interpolation,
@@ -980,11 +979,16 @@ def test_scientific_fingerprint_identity_and_transport_exclusions(
         handler_ordinal=9,
     )
 
-    assert first_loaded.state.definition_fingerprint != (
+    assert first_loaded.state.definition_fingerprint == (
         second_loaded.state.definition_fingerprint
     )
     assert first_loaded.state.scientific_fingerprint == (
         second_loaded.state.scientific_fingerprint
+    )
+    assert first_loaded.state.file is not None
+    assert second_loaded.state.file is not None
+    assert first_loaded.state.file.resolved_path != (
+        second_loaded.state.file.resolved_path
     )
     assert first_loaded.state.handler_id != second_loaded.state.handler_id
     assert str(first.path) not in first_loaded.state.scientific_fingerprint

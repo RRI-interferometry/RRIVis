@@ -292,7 +292,6 @@ def test_resolved_fits_definition_rejects_noncanonical_paths_and_strings():
 
     def definition(path, *, frequency_interpolation="cubic"):
         payload = {
-            "path": path,
             "normalization": "peak",
             "angular_interpolation": "bilinear",
             "frequency_interpolation": frequency_interpolation,
@@ -334,7 +333,6 @@ def test_resolved_fits_definition_rejects_blank_provenance_keys(provenance_key):
     models = _models()
     path = Path("/tmp/beam.fits").resolve(strict=False)
     payload = {
-        "path": path,
         "normalization": "peak",
         "angular_interpolation": "bilinear",
         "frequency_interpolation": "cubic",
@@ -396,6 +394,37 @@ def test_fits_definitions_use_normalized_path_options_and_logical_keys(tmp_path)
         "beams.assignments[0].beam.path",
         "beams.assignments[1].beam.path",
     }
+
+
+def test_fits_fingerprint_is_path_independent_and_matches_canonical_digest(tmp_path):
+    first_path = tmp_path / "one" / "beam.beamfits"
+    second_path = tmp_path / "two" / "beam.beamfits"
+    for path in (first_path, second_path):
+        path.parent.mkdir()
+        path.touch()
+    resolved = _resolve(
+        tmp_path,
+        {
+            "mode": "per_antenna_fits",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": 1},
+                    "beam": {"kind": "fits", "path": "one/beam.beamfits"},
+                },
+                {
+                    "antenna": {"kind": "name", "name": "ANT0"},
+                    "beam": {"kind": "fits", "path": "two/beam.beamfits"},
+                },
+            ],
+        },
+    ).runtime.beams
+
+    first, second = (item.beam for item in resolved.assignments)
+    assert first.path != second.path
+    assert first.definition_fingerprint == second.definition_fingerprint
+    assert first.definition_fingerprint == (
+        "e6a3cdc9c545cba8c0e8bda69405483ab70232071103b5286dd4fa5bee5c5926"
+    )
 
 
 def test_shared_and_mixed_source_resolution_do_not_create_fake_choices(tmp_path):

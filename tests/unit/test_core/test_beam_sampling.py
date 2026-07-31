@@ -39,7 +39,6 @@ def _analytic_definition():
 def _fits_definition(key: str):
     path = Path(f"/tmp/radiosim-tier3h1-{key}.beamfits").resolve(strict=False)
     payload = {
-        "path": path,
         "normalization": "peak",
         "angular_interpolation": "bilinear",
         "frequency_interpolation": "linear",
@@ -138,14 +137,7 @@ def _beam_state(
                 provenance=provenance,
             )
         )
-    unique_definitions = []
-    for assignment in assignments:
-        if not any(
-            definition.definition_fingerprint
-            == assignment.definition.definition_fingerprint
-            for definition in unique_definitions
-        ):
-            unique_definitions.append(assignment.definition)
+    unique_definitions = beam_models._deduplicated_definitions(tuple(assignments))
     resolved = beam_models._create_resolved_beam_state(
         mode=mode,
         instrument_fingerprint="a" * 64,
@@ -235,6 +227,28 @@ def _derive(
         observation_frequencies_hz=frequencies,
         actual_nside=actual_nside,
     )
+
+
+def test_loaded_state_rejects_handler_file_path_mismatch() -> None:
+    state = _beam_state(
+        ((2.0, 1.0), (2.0, 1.0)),
+        kinds=("fits", "fits"),
+        handler_keys=("a", "b"),
+    )
+    assert state.handlers[0].file is not None
+    forged_file = replace(
+        state.handlers[0].file,
+        resolved_path=Path("/tmp/radiosim-tier3h1-elsewhere.beamfits").resolve(
+            strict=False
+        ),
+    )
+    forged_handlers = (
+        replace(state.handlers[0], file=forged_file),
+        state.handlers[1],
+    )
+
+    with pytest.raises(ValueError, match="file path does not match"):
+        replace(state, handlers=forged_handlers)
 
 
 def test_homogeneous_cross_uses_baseline_product_harmonic_scale() -> None:

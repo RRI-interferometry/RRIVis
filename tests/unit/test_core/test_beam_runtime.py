@@ -36,7 +36,6 @@ from tests.fixtures.configs import valid_config_mapping
 def _definition(path: Path, *, interpolation: str = "linear"):
     normalized = path.resolve(strict=False)
     payload = {
-        "path": normalized,
         "normalization": "peak",
         "angular_interpolation": "bilinear",
         "frequency_interpolation": interpolation,

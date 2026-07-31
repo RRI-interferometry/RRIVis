@@ -1129,7 +1129,6 @@ def _resolve_fits_definition(
     if not path.is_absolute():
         path = (resolver.source.invocation_dir / path).resolve(strict=False)
     fingerprint_payload = {
-        "path": path,
         "normalization": source.normalization,
         "angular_interpolation": source.angular_interpolation,
         "frequency_interpolation": source.frequency_interpolation,
