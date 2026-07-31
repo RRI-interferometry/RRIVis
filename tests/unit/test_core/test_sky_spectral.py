@@ -553,7 +553,7 @@ class TestXpDispatch:
     def test_jax_dispatch_keeps_arrays_on_device(self):
         """JAX backend should keep spectral arithmetic on-device (no
         forced numpy round-trip per frequency in the visibility hot loop)."""
-        jax = pytest.importorskip("jax")
+        import jax
         import jax.numpy as jnp
 
         from radiosim.core.sky.containers.spectral import (

@@ -21,10 +21,9 @@ FREQS = np.array([100e6, 120e6], dtype=np.float64)
 
 def _get_optional_backend(name: str):
     if name == "jax":
-        pytest.importorskip("jax")
         kwargs = {"device": "cpu"}
-    elif name == "numba":
-        pytest.importorskip("numba")
+    elif name == "dask":
+        pytest.importorskip("dask")
         kwargs = {"mode": "cpu"}
     else:
         kwargs = {}
@@ -91,7 +90,7 @@ def _point_model():
 
 
 def test_bin_scaled_flux_numba_matches_numpy():
-    backend = _get_optional_backend("numba")
+    backend = _get_optional_backend("dask")
     ipix = np.array([0, 1, 0], dtype=np.int64)
     flux = np.array([1.0, 2.0, 3.0], dtype=np.float64)
     alpha = np.array([-0.7, -0.8, -0.9], dtype=np.float64)
@@ -120,7 +119,8 @@ def test_bin_scaled_flux_numba_matches_numpy():
 
 
 def test_bin_scaled_flux_jax_returns_backend_array():
-    jax = pytest.importorskip("jax")
+    import jax
+
     backend = _get_optional_backend("jax")
 
     result = bin_scaled_flux(
@@ -138,7 +138,7 @@ def test_bin_scaled_flux_jax_returns_backend_array():
 
 
 def test_point_sources_to_healpix_maps_numba_matches_numpy():
-    backend = _get_optional_backend("numba")
+    backend = _get_optional_backend("dask")
     kwargs = _source_kwargs()
 
     sources, config = _grouped_point_kwargs(kwargs)
@@ -154,7 +154,7 @@ def test_point_sources_to_healpix_maps_numba_matches_numpy():
 
 
 def test_materialize_healpix_model_numba_matches_numpy():
-    backend = _get_optional_backend("numba")
+    backend = _get_optional_backend("dask")
     sky = _point_model()
 
     expected = materialize_healpix_model(sky, nside=8, frequencies=FREQS)
@@ -171,7 +171,7 @@ def test_materialize_healpix_model_numba_matches_numpy():
 
 
 def test_prepare_sky_model_accepts_backend_override():
-    backend = _get_optional_backend("numba")
+    backend = _get_optional_backend("dask")
     sky = _point_model()
 
     prepared = prepare_sky_model(

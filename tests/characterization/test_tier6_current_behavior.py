@@ -216,7 +216,7 @@ from astropy.time import Time
 from radiosim.api import Simulator
 from radiosim.backends import get_backend
 from radiosim.backends.base import ArrayBackend
-from radiosim.backends.numba_backend import NumbaBackend
+from radiosim.backends.dask_backend import DaskBackend
 from radiosim.backends.numpy_backend import NumPyBackend
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import (
@@ -896,18 +896,23 @@ def test_execution_config_expresses_worker_policy_in_two_typed_blocks() -> None:
     assert execution.solver.executor == "thread"
 
 
-def test_execution_config_backend_literal_still_offers_numba() -> None:
-    """Pins the un-renamed backend literal, split out of the 6A worker pin.
+def test_execution_config_backend_literal_now_offers_dask() -> None:
+    """Flipped by Tier 6H, closing the config half of D8/D9.
 
-    OWNED BY: Tier 6H, which renames the backend and changes this literal to
-    ``dask`` with its Section 18.3 rejection message.  The 6A pin asserted this
-    together with the worker-field set; the two halves were separated when the
-    literal change moved from 6B to 6H (plan Sections 32.2, 32.8, 33).
+    The 6A pin recorded the defect: ``execution.backend`` offered a ``numba``
+    literal naming a backend that never compiled a kernel.  Tier 6H replaced it
+    with ``dask``, the name of what the class actually is, and gave the removed
+    literal the verbatim Section 18.3 rejection asserted here and in
+    ``tests/unit/test_io/test_config.py`` (Section 27 row E4).  The literal
+    changes in the same commit as the rename so no state ever exposes a config
+    name the registry cannot construct (plan Sections 32.2, 32.8, 33).
     """
     backend_literals = set(
         getattr(ExecutionConfig.model_fields["backend"].annotation, "__args__", ())
     )
-    assert backend_literals == {"auto", "numpy", "jax", "numba"}
+    assert backend_literals == {"auto", "numpy", "jax", "dask"}
+    with pytest.raises(Exception, match="removed before v1.0"):
+        ExecutionConfig(backend="numba")
 
 
 def test_run_no_longer_advertises_n_workers(tmp_path) -> None:
@@ -986,23 +991,40 @@ def test_no_worker_value_is_recorded_in_provenance(tmp_path) -> None:
 # =========================================================================
 
 
-def test_get_backend_auto_returns_a_numba_backend_whose_xp_is_numpy() -> None:
-    """Pins D9: ``auto`` misreports the executing implementation.
+def test_get_backend_auto_returns_the_numpy_backend_on_a_cpu_only_host() -> None:
+    """Flipped by Tier 6H, closing D9 (Section 27 row B4).
 
-    OWNED BY: Tier 6H, which corrects the precedence so ``auto`` returns the
-    NumPy backend when no non-CPU JAX device exists.
+    The 6A pin recorded the defect: ``auto`` returned a ``NumbaBackend`` whose
+    ``xp`` was plain ``numpy``, so every ``actual_backend`` provenance value it
+    produced said ``numba-cpu`` for a run that executed NumPy.  The corrected
+    precedence is JAX **only** when the installed runtime exposes a non-CPU
+    device, otherwise NumPy; the Dask backend is never auto-selected, because
+    it too would misreport a NumPy run (plan Section 14.1).
+
+    The declared JAX is CPU-only by design, so on every environment this
+    repository locks the answer is the NumPy backend.
     """
+    from radiosim.backends import _has_non_cpu_jax_device
+
+    assert _has_non_cpu_jax_device() is False
     backend = get_backend("auto")
-    assert isinstance(backend, NumbaBackend)
-    assert backend.name == "numba-cpu"
+    assert isinstance(backend, NumPyBackend)
+    assert backend.name == "numpy-cpu"
     assert backend.xp is np
 
 
 def test_no_numba_kernel_decorator_exists_in_the_package() -> None:
-    """Pins D8: the ``numba`` backend compiles nothing of its own.
+    """Flipped by Tier 6H, closing D8's code half.
 
-    OWNED BY: Tier 6H, which adds exactly one compiled kernel behind
-    ``supports_compilation``.
+    The 6A pin recorded the defect: the backend named ``numba`` imported
+    ``jit`` and ``prange``, never called either, and carried a ``jit_compile``
+    helper with no caller.  Tier 6H deleted the import, the helper, and the
+    name (plan Section 14.1); Section 14.2 records why no real Numba kernel was
+    written instead.
+
+    The decorator sweep is unchanged and still asserts zero matches: Tier 6's
+    one compiled kernel is compiled by **JAX**, through ``ArrayBackend.compile``
+    at a call site, not by a Numba decorator (plan Section 13.6).
     """
     pattern = re.compile(r"@(njit|jit|vectorize|guvectorize|cuda\.jit)\b")
     offenders = [
@@ -1012,39 +1034,59 @@ def test_no_numba_kernel_decorator_exists_in_the_package() -> None:
     ]
     assert offenders == []
 
-    numba_source = _source("src/radiosim/backends/numba_backend.py")
-    assert "from numba import jit, prange" in numba_source
-    assert "prange(" not in numba_source  # imported, advertised, never called
+    assert not (
+        REPO_ROOT / "src" / "radiosim" / "backends" / "numba_backend.py"
+    ).exists()
+    dask_source = _source("src/radiosim/backends/dask_backend.py")
+    assert "import numba" not in dask_source
+    assert "prange(" not in dask_source
+    assert "def jit_compile" not in dask_source
 
 
-def test_numba_backend_docstring_claims_jit_and_parallel_loops() -> None:
-    """Pins D8's documentation half.
+def test_dask_backend_docstring_makes_no_compilation_claim() -> None:
+    """Flipped by Tier 6H, closing D8's documentation half.
 
-    OWNED BY: Tier 6H, which renames the class to ``DaskBackend`` and deletes
-    the claim.
+    The 6A pin recorded the defect: the class docstring advertised
+    ``"'cpu': Local CPU with JIT and parallel loops"`` for a class that compiled
+    nothing.  The renamed class states what it is and, per the Section 39 risk
+    row, states explicitly that no compilation ever occurred and none is added.
     """
-    docstring = NumbaBackend.__doc__ or ""
-    assert "'cpu': Local CPU with JIT and parallel loops" in docstring
+    docstring = DaskBackend.__doc__ or ""
+    assert "JIT" not in docstring
+    assert "parallel loops" not in docstring
+    assert "It compiles nothing." in docstring
+    module_doc = sys.modules[DaskBackend.__module__].__doc__ or ""
+    assert "it never" in module_doc and "compiled a single kernel" in module_doc
+    assert DaskBackend(mode="cpu").name == "dask-cpu"
+    assert DaskBackend(mode="cpu").xp is np
 
 
-def test_rime_simulator_reports_unconditional_gpu_support() -> None:
-    """Pins D10.
+def test_rime_simulator_no_longer_claims_gpu_support() -> None:
+    """Flipped by Tier 6H, closing D10 (Section 27 row B5).
 
-    OWNED BY: Tier 6H, which makes ``supports_gpu`` ``False``.
+    The 6A pin recorded the defect: ``supports_gpu`` returned ``True``
+    unconditionally, on the strength of a JAX backend existing rather than of
+    any measured accelerator run.  Tier 6 produces no such run and therefore
+    makes no such claim (plan Sections 4, 14.1).
     """
     simulator = RIMESimulator()
-    assert simulator.supports_gpu is True
+    assert simulator.supports_gpu is False
     source = inspect.getsource(type(simulator).supports_gpu.fget)
-    assert "return True" in source
+    assert "return False" in source
 
 
-def test_rime_simulator_docstring_advertises_the_pre_tier5_chain_order() -> None:
-    """Pins D20.
+def test_rime_simulator_docstring_states_the_canonical_chain_order() -> None:
+    """Flipped by Tier 6H, closing D20.
 
-    OWNED BY: Tier 6H (documentation truth).
+    The 6A pin recorded the defect: the class docstring still advertised the
+    pre-Tier-5 order ``J = B @ G @ D @ P @ E @ T @ Z @ K``, which omits ``C``
+    and ``H`` entirely and reverses the composition sense.  The canonical order
+    is ``Tier5ReceptorFeedPlan.md`` Section 19.1's, and it is what
+    ``_build_jones_chain`` actually builds.
     """
     docstring = RIMESimulator.__doc__ or ""
-    assert "J = B @ G @ D @ P @ E @ T @ Z @ K" in docstring
+    assert "J = B @ G @ D @ P @ E @ T @ Z @ K" not in docstring
+    assert "J = H @ G @ B @ D @ P @ C @ E @ T @ Z" in docstring
 
 
 def test_point_solver_accumulates_one_set_at_per_time_baseline_frequency(
@@ -1132,23 +1174,45 @@ def test_healpix_solver_rebuilds_the_constant_receptor_transforms_per_time() -> 
     assert "for freq_idx, freq in enumerate(frequencies):" not in source
 
 
-def test_backend_abstract_surface_omits_jit_vmap_and_jit_compile() -> None:
-    """Pins D14: compilation is backend-private and uncallable generically.
+def test_backend_surface_exposes_the_compilation_boundary() -> None:
+    """Flipped by Tier 6H, closing D14 (Section 27 row B3).
 
-    OWNED BY: Tier 6H, which adds ``supports_compilation`` and ``compile``.
+    The 6A pin recorded the defect: ``jit``/``vmap``/``jit_compile`` were
+    backend-private, so no backend-agnostic caller could opt into compilation,
+    and nothing in the package called any of them.  ``ArrayBackend`` now carries
+    ``supports_compilation`` (default ``False``) and ``compile`` (default
+    identity), the two members plan Section 13.6 specifies, so the solvers can
+    request compilation without importing JAX.
     """
-    for attribute in ("jit", "vmap", "jit_compile", "compile", "supports_compilation"):
-        assert not hasattr(ArrayBackend, attribute), attribute
-    assert hasattr(NumbaBackend, "jit_compile")
-    jax_source = _source("src/radiosim/backends/jax_backend.py")
-    assert "    def jit(self, func):" in jax_source
-    assert "    def vmap(" in jax_source
+    for attribute in ("compile", "supports_compilation"):
+        assert hasattr(ArrayBackend, attribute), attribute
+    assert ArrayBackend.supports_compilation.fget(None) is False  # type: ignore[arg-type]
+
+    marker = object()
+
+    def _reference() -> object:
+        return marker
+
+    numpy_backend = NumPyBackend()
+    dask_backend = DaskBackend(mode="cpu")
+    for backend in (numpy_backend, dask_backend):
+        assert backend.supports_compilation is False
+        assert backend.compile(_reference) is _reference
+
+    # The removed Numba helper answers with its replacement rather than a bare
+    # attribute miss.
+    with pytest.raises(AttributeError, match="removed before v1.0"):
+        dask_backend.jit_compile  # noqa: B018
+
+    jax_backend = get_backend("jax", device="cpu")
+    assert jax_backend.supports_compilation is True
 
 
 def test_nothing_in_the_package_calls_jit_vmap_or_jit_compile() -> None:
     """Pins D14's second half: the compilation helpers have no callers.
 
-    OWNED BY: Tier 6H.
+    OWNED BY: Tier 6H, which wires ``ArrayBackend.compile`` to exactly one
+    kernel; the call site arrives with that kernel, not with the rename.
     """
     callers: list[str] = []
     pattern = re.compile(r"\.(jit|vmap|jit_compile)\s*\(")
@@ -1156,21 +1220,34 @@ def test_nothing_in_the_package_calls_jit_vmap_or_jit_compile() -> None:
         text = path.read_text(encoding="utf-8")
         for match in pattern.finditer(text):
             line = text[: match.start()].count("\n") + 1
-            if path.name in {"jax_backend.py", "numba_backend.py"}:
+            if path.name in {"jax_backend.py", "dask_backend.py"}:
                 continue
             callers.append(f"{path.relative_to(REPO_ROOT)}:{line}")
     assert callers == []
 
 
-def test_jax_synchronize_blocks_on_a_throwaway_constant() -> None:
-    """Pins D13 by source text, since JAX is not installed at this gate.
+def test_jax_synchronize_blocks_on_the_callers_array() -> None:
+    """Flipped by Tier 6H, closing D13 (Section 27 row B7).
 
-    OWNED BY: Tier 6H, which changes the signature to ``synchronize(arr=None)``
-    and blocks on the caller's array.
+    The 6A pin recorded the defect by source text, because JAX was not
+    installable then: ``synchronize()`` blocked on
+    ``jax.block_until_ready(jnp.array(0))``, a freshly constructed throwaway
+    constant that completes immediately and orders none of the caller's work,
+    which made every JAX timing number meaningless.  JAX is now a declared
+    dependency, so this is asserted by execution rather than by grep.
     """
-    source = _source("src/radiosim/backends/jax_backend.py")
-    assert "    def synchronize(self) -> None:" in source
-    assert "jax.block_until_ready(jnp.array(0))" in source
+    import inspect as _inspect
+
+    backend = get_backend("jax", device="cpu")
+    signature = _inspect.signature(type(backend).synchronize)
+    assert list(signature.parameters) == ["self", "arr"]
+    assert signature.parameters["arr"].default is None
+
+    pending = backend.exp(backend.asarray([1.0, 2.0, 3.0]))
+    ready = backend.synchronize(pending)
+    assert ready is not None
+    assert np.allclose(backend.to_numpy(ready), np.exp([1.0, 2.0, 3.0]))
+    assert backend.synchronize() is None
 
 
 def test_jax_is_a_cpu_only_dependency_of_every_pixi_environment() -> None:

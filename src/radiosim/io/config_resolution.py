@@ -71,7 +71,7 @@ from radiosim.io.instrument_config import (
 )
 
 SourceKind = Literal["yaml", "mapping", "model", "parameters"]
-BackendStrategy = Literal["auto", "numpy", "jax", "numba"]
+BackendStrategy = Literal["auto", "numpy", "jax", "dask"]
 PrecisionPreset = Literal["standard", "fast", "precise", "ultra"]
 
 _STAGE_ORDER = {

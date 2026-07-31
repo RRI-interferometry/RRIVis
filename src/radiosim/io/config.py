@@ -1487,6 +1487,11 @@ _REMOVED_EXECUTION_N_WORKERS_GUIDANCE = (
     "for sky-loader concurrency or execution.solver.workers for solver "
     "concurrency."
 )
+_REMOVED_EXECUTION_NUMBA_BACKEND_GUIDANCE = (
+    "execution.backend=numba: removed before v1.0; the backend never compiled "
+    "any kernel. Use execution.backend=dask for the NumPy/Dask backend or "
+    "execution.backend=numpy."
+)
 
 
 def _positive_worker_count(value: Any, *, guidance: str) -> int:
@@ -1535,7 +1540,7 @@ class SolverExecutionConfig(StrictFrozenModel):
 class ExecutionConfig(StrictFrozenModel):
     """Declared execution strategy; no backend construction occurs here."""
 
-    backend: Literal["auto", "numpy", "jax", "numba"] = "numpy"
+    backend: Literal["auto", "numpy", "jax", "dask"] = "numpy"
     precision: PrecisionInput = Field(
         default_factory=lambda: PrecisionInput(preset="standard")
     )
@@ -1551,6 +1556,21 @@ class ExecutionConfig(StrictFrozenModel):
             return value
         if "n_workers" in cast(Mapping[str, object], value):
             raise ValueError(_REMOVED_EXECUTION_N_WORKERS_GUIDANCE)
+        return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_removed_numba_backend(cls, value: Any) -> Any:
+        """Name the removed backend explicitly instead of listing literals.
+
+        Without this the strict literal set would reject ``numba`` with a
+        generic Pydantic enumeration error that never mentions ``dask``
+        (``Tier6HybridRuntimePlan.md`` Section 18.3).
+        """
+        if not isinstance(value, Mapping):
+            return value
+        if cast(Mapping[str, object], value).get("backend") == "numba":
+            raise ValueError(_REMOVED_EXECUTION_NUMBA_BACKEND_GUIDANCE)
         return value
 
     @field_serializer("precision")
@@ -1968,7 +1988,7 @@ def collect_semantic_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
                 "preset and explicit precision leaves are mutually exclusive",
             )
         )
-    if config.execution.backend in {"jax", "numba"}:
+    if config.execution.backend in {"jax", "dask"}:
         for field in precision.float128_paths():
             issues.append(
                 ConfigIssue(

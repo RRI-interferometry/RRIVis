@@ -1,27 +1,29 @@
-"""Lower-level NumPy, Numba-helper, and optional Dask backend.
+"""NumPy array backend with optional Dask arrays and an optional Dask client.
 
-Features:
-- Explicit Numba JIT compilation helper for caller-supplied functions
-- Parallel loops via numba.prange
-- Optional Dask arrays and client management
-- CUDA device availability and metadata reporting
+This backend executes **NumPy** operations. When ``use_dask_arrays=True`` it
+wraps them in Dask arrays, which delegate back to the same NumPy kernels, so a
+Dask run is bit-identical to a NumPy run of the same workload.
 
-The ``mode="gpu"`` path validates and reports a CUDA device, but the common
-array and mathematical operations in this class remain NumPy or Dask
-operations. It therefore does not establish GPU execution for a high-level
-simulation.
+It was called ``NumbaBackend`` before Tier 6H. That name was wrong in a way
+worth recording: the class imported ``numba.jit``/``numba.prange``, advertised
+"JIT and parallel loops", and exposed a ``jit_compile()`` helper, but it never
+compiled a single kernel of its own, ``prange`` was never called, and its
+``mode="gpu"`` path validated a CUDA device and then ran NumPy anyway. The
+rename removes the claim; **it adds no capability, and none was lost.** Numba
+itself remains a declared dependency because PySM needs it, not because
+RadioSim computes with it (``Tier6HybridRuntimePlan.md`` Sections 14.1, 14.2).
 
 Usage:
     >>> from radiosim.backends import get_backend
-    >>> backend = get_backend("numba")
+    >>> backend = get_backend("dask")
     >>> backend.name
-    'numba-cpu'
+    'dask-cpu'
 
 With precision control:
     >>> from radiosim.core.precision import PrecisionConfig
-    >>> backend = get_backend("numba", precision="fast")
+    >>> backend = get_backend("dask", precision="fast")
 
-The strict high-level resolver rejects incompatible Numba/float128 requests
+The strict high-level resolver rejects incompatible Dask/float128 requests
 before constructing this lower-level backend.
 """
 
@@ -34,33 +36,13 @@ from radiosim.backends.base import ArrayBackend, BackendNotAvailableError
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
-# Try to import Numba and Dask
-try:
-    import numba
-    from numba import jit, prange
-
-    NUMBA_AVAILABLE = True
-except ImportError:
-    numba = None
-    jit = None
-    prange = None
-    NUMBA_AVAILABLE = False
-
-try:
-    from numba import cuda
-
-    CUDA_AVAILABLE = cuda.is_available() if NUMBA_AVAILABLE else False
-except (ImportError, Exception):
-    cuda = None
-    CUDA_AVAILABLE = False
-
 try:
     import dask
     import dask.array as da
     from dask.distributed import Client, LocalCluster
 
     DASK_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover - exercised only without Dask installed
     dask = None
     da = None
     Client = None
@@ -68,32 +50,41 @@ except ImportError:
     DASK_AVAILABLE = False
 
 
-class NumbaBackend(ArrayBackend):
-    """NumPy/Dask array backend with an explicit Numba JIT helper.
+#: The modes this backend accepts. ``"gpu"`` was removed in Tier 6H: it
+#: validated a CUDA device and then executed NumPy, which made every
+#: ``actual_backend`` provenance value it produced misleading.
+DASK_MODES = ("cpu", "distributed")
+
+
+class DaskBackend(ArrayBackend):
+    """NumPy array backend with optional Dask arrays and client management.
 
     This backend provides:
-    - Numba compilation for functions passed to :meth:`jit_compile`
-    - Optional Dask arrays and client management
-    - CUDA device detection and metadata reporting
-    - Precision control (float32/float64 only; float128 falls back to float64)
+
+    - NumPy array operations (always)
+    - optional Dask arrays and Dask client/cluster management
+    - precision control (float32/float64 only)
+
+    It compiles nothing. Its arrays are NumPy arrays, or Dask arrays whose
+    chunks are NumPy arrays, so results are bit-identical to the NumPy backend.
 
     Modes:
-    - 'cpu': Local CPU with JIT and parallel loops
-    - 'gpu': CUDA device validation/metadata; array operations remain NumPy/Dask
-    - 'distributed': Dask client; set ``use_dask_arrays=True`` for Dask arrays
+
+    - ``'cpu'``: local NumPy operations, with an optional local Dask cluster
+      when ``n_workers`` is given
+    - ``'distributed'``: Dask client; set ``use_dask_arrays=True`` for Dask
+      arrays
 
     Example:
         >>> # CPU mode (default)
-        >>> backend = NumbaBackend(mode="cpu")
+        >>> backend = DaskBackend(mode="cpu")
 
         >>> # Distributed mode
-        >>> backend = NumbaBackend(
-        ...     mode="distributed", n_workers=8, use_dask_arrays=True
-        ... )
+        >>> backend = DaskBackend(mode="distributed", n_workers=8, use_dask_arrays=True)
 
         >>> # With precision control
         >>> from radiosim.core.precision import PrecisionConfig
-        >>> backend = NumbaBackend(precision="fast")
+        >>> backend = DaskBackend(precision="fast")
     """
 
     def __init__(
@@ -105,52 +96,51 @@ class NumbaBackend(ArrayBackend):
         use_dask_arrays: bool = False,
         precision: Union["PrecisionConfig", str] | None = None,
     ):
-        """Initialize Numba + Dask backend.
+        """Initialize the NumPy/Dask backend.
 
         Parameters
         ----------
         mode : str
-            Execution mode ('cpu', 'gpu', 'distributed')
+            Execution mode, ``'cpu'`` or ``'distributed'``.
         n_workers : int, optional
-            Number of Dask workers (default: auto-detect)
+            Number of Dask workers (default: auto-detect).
         threads_per_worker : int
-            Threads per Dask worker
+            Threads per Dask worker.
         scheduler_address : str, optional
-            Dask scheduler address for remote cluster
+            Dask scheduler address for a remote cluster.
         use_dask_arrays : bool
-            Use Dask arrays for lazy evaluation
+            Use Dask arrays for lazy evaluation.
         precision : PrecisionConfig, str, or None
             Precision configuration. Can be:
             - None: Use standard float64 precision
             - str: Preset name ("standard", "fast", "precise", "ultra")
             - PrecisionConfig: Full configuration object
-            Note: float128 is not supported by Numba and falls back to float64.
+            Note: float128 is not supported and falls back to float64.
 
         Raises
         ------
         BackendNotAvailableError
-            If Numba not installed or GPU unavailable
+            If a Dask-requiring mode is selected without Dask installed.
+        ValueError
+            If ``mode`` is not one of :data:`DASK_MODES`.
         """
-        if not NUMBA_AVAILABLE:
-            raise BackendNotAvailableError(
-                "Numba not available. Install with:\n  pip install numba dask[complete]"
+        if mode == "gpu":
+            raise ValueError(
+                'DaskBackend mode="gpu": removed before v1.0; the mode validated '
+                "a CUDA device and then executed NumPy. Use mode='cpu' or "
+                "mode='distributed'."
+            )
+        if mode not in DASK_MODES:
+            raise ValueError(
+                f"DaskBackend mode must be one of {list(DASK_MODES)}, got {mode!r}"
             )
 
         self.mode = mode
         self.use_dask_arrays = use_dask_arrays and DASK_AVAILABLE
         self._xp = np  # NumPy-compatible interface
         self.dask_client = None
-        self.gpu_device = None
 
-        if mode == "gpu":
-            if not CUDA_AVAILABLE:
-                raise BackendNotAvailableError(
-                    "CUDA not available. Numba requires CUDA for GPU mode.\n"
-                    "Ensure NVIDIA drivers and CUDA toolkit are installed."
-                )
-            self.gpu_device = cuda.get_current_device()
-
-        elif mode == "distributed":
+        if mode == "distributed":
             if not DASK_AVAILABLE:
                 raise BackendNotAvailableError(
                     "Dask not available. Install with:\n  pip install dask[complete]"
@@ -187,21 +177,29 @@ class NumbaBackend(ArrayBackend):
     @property
     def name(self) -> str:
         """Backend name."""
-        if self.mode == "gpu":
-            return "numba-cuda"
-        elif self.mode == "distributed":
-            return "numba-dask-distributed"
-        else:
-            return "numba-cpu"
+        if self.mode == "distributed":
+            return "dask-distributed"
+        return "dask-cpu"
 
     @property
     def xp(self) -> Any:
         """NumPy-compatible array namespace."""
         return self._xp
 
+    @property
+    def device_kind(self) -> str:
+        """Execution device kind. Always ``'cpu'``: this backend runs NumPy."""
+        return "cpu"
+
     def is_available(self) -> bool:
-        """Check if Numba is available."""
-        return NUMBA_AVAILABLE
+        """Check whether this backend can be used.
+
+        NumPy is always available, so the CPU mode always is; the distributed
+        mode additionally needs Dask.
+        """
+        if self.mode == "distributed":
+            return DASK_AVAILABLE
+        return True
 
     # =========================================================================
     # Array Creation and Conversion
@@ -332,7 +330,7 @@ class NumbaBackend(ArrayBackend):
             Dictionary with memory stats
         """
         info = {
-            "backend": "numba",
+            "backend": "dask",
             "mode": self.mode,
         }
 
@@ -351,14 +349,6 @@ class NumbaBackend(ArrayBackend):
         except ImportError:
             info["note"] = "Install psutil for detailed memory info"
 
-        if self.mode == "gpu" and CUDA_AVAILABLE:
-            try:
-                meminfo = cuda.current_context().get_memory_info()
-                info["gpu_free_bytes"] = meminfo[0]
-                info["gpu_total_bytes"] = meminfo[1]
-            except Exception:
-                pass
-
         return info
 
     def get_device_info(self) -> dict[str, Any]:
@@ -369,38 +359,21 @@ class NumbaBackend(ArrayBackend):
         """
         import platform
 
-        info = {
-            "backend": "numba",
+        info: dict[str, Any] = {
+            "backend": "dask",
             "mode": self.mode,
-            "numba_version": numba.__version__,
+            "dask_version": dask.__version__ if DASK_AVAILABLE else None,
             "architecture": platform.machine(),
+            "device": "CPU",
         }
 
-        if self.mode == "gpu" and self.gpu_device:
-            info.update(
-                {
-                    "device": "GPU",
-                    "gpu_name": self.gpu_device.name.decode()
-                    if hasattr(self.gpu_device.name, "decode")
-                    else str(self.gpu_device.name),
-                    "compute_capability": self.gpu_device.compute_capability,
-                }
-            )
-            try:
-                info["gpu_memory_total_gb"] = round(
-                    self.gpu_device.total_memory / (1024**3), 2
-                )
-            except Exception:
-                pass
-        else:
-            info["device"] = "CPU"
-            try:
-                import psutil
+        try:
+            import psutil
 
-                info["cores_physical"] = psutil.cpu_count(logical=False)
-                info["cores_logical"] = psutil.cpu_count(logical=True)
-            except ImportError:
-                pass
+            info["cores_physical"] = psutil.cpu_count(logical=False)
+            info["cores_logical"] = psutil.cpu_count(logical=True)
+        except ImportError:
+            pass
 
         if self.dask_client:
             try:
@@ -415,32 +388,50 @@ class NumbaBackend(ArrayBackend):
 
         return info
 
-    # =========================================================================
-    # Numba-specific methods
-    # =========================================================================
+    def synchronize(self, arr: Any = None) -> Any:
+        """Wait for pending work and return the materialized array.
 
-    def jit_compile(self, func, nopython=True, parallel=False, fastmath=True):
-        """JIT-compile a function with Numba.
-
-        Args:
-            func: Function to compile
-            nopython: Use nopython mode (faster)
-            parallel: Enable parallel execution
-            fastmath: Enable fast math optimizations
-
-        Returns:
-            JIT-compiled function
+        NumPy arrays are already materialized. A Dask array is only a task
+        graph, so an explicit array argument is computed here; without one there
+        is nothing meaningful to wait for.
         """
-        if not NUMBA_AVAILABLE:
-            return func
+        if arr is None:
+            return None
+        if DASK_AVAILABLE and isinstance(arr, da.Array):
+            return arr.compute()
+        return arr
 
-        return jit(nopython=nopython, parallel=parallel, fastmath=fastmath)(func)
+    # =========================================================================
+    # Removed surface
+    # =========================================================================
+
+    def __getattr__(self, item: str) -> Any:
+        """Give the Tier 6H removals an actionable error instead of a bare miss."""
+        if item in {"jit_compile", "jit", "prange"}:
+            raise AttributeError(
+                f"DaskBackend.{item}: removed before v1.0; the backend formerly "
+                "named 'numba' never compiled any kernel and had no caller for "
+                "this helper. Use execution.backend=jax, whose ArrayBackend."
+                "supports_compilation is True and whose ArrayBackend.compile "
+                "is jax.jit."
+            )
+        raise AttributeError(
+            f"{type(self).__name__!r} object has no attribute {item!r}"
+        )
+
+    # =========================================================================
+    # Lifecycle
+    # =========================================================================
 
     def shutdown(self):
         """Shutdown Dask client if active."""
-        if self.dask_client:
+        # ``getattr`` with a default, not ``self.dask_client``: ``__del__`` runs
+        # even for an instance whose ``__init__`` rejected its arguments before
+        # the attribute existed.
+        client = getattr(self, "dask_client", None)
+        if client:
             try:
-                self.dask_client.close()
+                client.close()
             except Exception:
                 pass
             self.dask_client = None
@@ -448,24 +439,6 @@ class NumbaBackend(ArrayBackend):
     def __del__(self):
         """Cleanup on deletion."""
         self.shutdown()
-
-
-def is_numba_available() -> bool:
-    """Check if Numba is available.
-
-    Returns:
-        True if Numba is installed
-    """
-    return NUMBA_AVAILABLE
-
-
-def is_cuda_available() -> bool:
-    """Check if CUDA is available for GPU computing.
-
-    Returns:
-        True if CUDA is available
-    """
-    return CUDA_AVAILABLE
 
 
 def is_dask_available() -> bool:

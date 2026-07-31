@@ -22,7 +22,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--backend",
-        choices=("auto", "numpy", "jax", "numba"),
+        choices=("auto", "numpy", "jax", "dask"),
         default=None,
         help=(
             "Override the YAML backend. With the built-in example, omission uses "

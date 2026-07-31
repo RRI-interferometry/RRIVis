@@ -5,18 +5,20 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-import pytest
 
 from radiosim.backends import get_backend
-from radiosim.backends.base import BackendNotAvailableError
 
 
 def _get_jax_backend():
-    pytest.importorskip("jax")
-    try:
-        return get_backend("jax", device="cpu")
-    except BackendNotAvailableError as exc:
-        pytest.skip(str(exc))
+    """Return the CPU JAX backend.
+
+    No ``importorskip`` guard: Tier 6H made a CPU-only ``jax``/``jaxlib`` a
+    declared dependency of every pixi environment precisely so the mandated
+    NumPy/JAX parity evidence is measured rather than skipped
+    (``Tier6HybridRuntimePlan.md`` Sections 28, 31, 32.8). A missing JAX is now
+    a broken environment, and this must fail loudly rather than skip quietly.
+    """
+    return get_backend("jax", device="cpu")
 
 
 def test_jax_backend_enables_x64_for_standard_precision():

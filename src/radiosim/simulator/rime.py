@@ -44,15 +44,19 @@ class RIMESimulator(VisibilitySimulator):
     For each baseline (p, q) and frequency ν:
         V_pq(ν) = Σ_s J_p(s, ν) @ C_s(ν) @ J_q(s, ν)^H
 
-    Where the Jones chain J = B @ G @ D @ P @ E @ T @ Z @ K includes:
-        - K: Geometric phase delay (fringe rotation)
-        - E: Primary beam response (direction-dependent)
+    Where the canonical Jones chain is J = H @ G @ B @ D @ P @ C @ E @ T @ Z,
+    leftmost nearest the correlator, with K applied separately as a scalar
+    phase:
+        - H: Reporting-basis transform (always present)
         - G: Electronic gains (time-variable)
         - B: Bandpass (frequency-dependent)
         - D: Polarization leakage
         - P: Parallactic angle rotation
-        - Z: Ionospheric effects (Faraday rotation, TEC)
+        - C: Receptor configuration and static feed rotation (always present)
+        - E: Primary beam response (direction-dependent, always present)
         - T: Tropospheric effects
+        - Z: Ionospheric effects (Faraday rotation, TEC)
+        - K: Geometric phase delay (fringe rotation), applied separately
 
     Complexity
     ----------
@@ -66,7 +70,7 @@ class RIMESimulator(VisibilitySimulator):
     - Optimal for small to medium source counts (< 10,000)
     - Handles arbitrary source positions (no gridding required)
     - Full polarization support (2×2 Jones matrices)
-    - Explicit NumPy, JAX, or Numba backend selection for supported kernels
+    - Explicit NumPy, JAX, or Dask backend selection for supported kernels
 
     Use Cases
     ---------
@@ -93,7 +97,7 @@ class RIMESimulator(VisibilitySimulator):
     rime O(N_src × N_bl × N_freq)
     >>>
     >>> # Calculate visibilities with an explicit optional backend
-    >>> backend = get_backend("jax")  # or "numpy", "numba"
+    >>> backend = get_backend("jax")  # or "numpy", "dask"
     >>> visibilities = sim.calculate_visibilities(
     ...     instrument=instrument_view,
     ...     beam_system=beam_system,
@@ -144,8 +148,17 @@ class RIMESimulator(VisibilitySimulator):
 
     @property
     def supports_gpu(self) -> bool:
-        """GPU acceleration supported via JAX backend."""
-        return True
+        """Whether an end-to-end accelerator run has been measured. It has not.
+
+        Before Tier 6H this returned ``True`` unconditionally, on the strength
+        of a JAX backend existing. No GPU or TPU run of this simulator has ever
+        been executed or measured: the per-time and per-frequency orchestration
+        is host-side Python, coordinate transforms run in astropy, and beam
+        interpolation runs in pyuvdata. This will return ``True`` when a
+        measured accelerator run exists, which Tier 6 does not produce
+        (``Tier6HybridRuntimePlan.md`` Section 14.1, defect D10).
+        """
+        return False
 
     def calculate_visibilities(
         self,
@@ -183,7 +196,7 @@ class RIMESimulator(VisibilitySimulator):
             Frequency array in Hz.
 
         backend : ArrayBackend
-            Computation backend (numpy, jax, or numba).
+            Computation backend (numpy, jax, or dask).
 
         location : EarthLocation
             Observer coordinates.

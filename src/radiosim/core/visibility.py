@@ -325,7 +325,7 @@ def calculate_visibility(
         Canonical frequency centers in Hz.
     backend : ArrayBackend
         Explicit array backend used by supported kernels.
-        Options: get_backend("numpy"), get_backend("jax"), get_backend("numba")
+        Options: get_backend("numpy"), get_backend("jax"), get_backend("dask")
     receptors : ResolvedReceptorSet
         Canonical resolved receptor inventory from ``resolve_receptors()``.
         Supplies the per-antenna receptor term ``C`` and basis transform ``H``.

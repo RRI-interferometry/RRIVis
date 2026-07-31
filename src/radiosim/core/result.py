@@ -121,6 +121,13 @@ class BackendResultProvenance:
     requested_precision: FrozenMapping | Mapping[str, object]
     actual_precision: FrozenMapping | Mapping[str, object]
     result_dtype: str
+    #: Device the run actually executed on: ``"cpu"``, ``"gpu"``, or ``"tpu"``.
+    #: An execution fact, not a capability claim
+    #: (``Tier6HybridRuntimePlan.md`` Section 14.3).
+    device_kind: str = "cpu"
+    #: Whether the one compiled solver kernel was compiled for this run
+    #: (``Tier6HybridRuntimePlan.md`` Sections 13.6, 14.3).
+    compilation_used: bool = False
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         _reject_subclass("BackendResultProvenance")
@@ -155,6 +162,10 @@ class BackendResultProvenance:
                 "result_dtype must be complex64, complex128, or complex256"
             )
         object.__setattr__(self, "result_dtype", dtype.name)
+        if self.device_kind not in {"cpu", "gpu", "tpu"}:
+            raise InvalidResultError("device_kind must be 'cpu', 'gpu', or 'tpu'")
+        if type(self.compilation_used) is not bool:
+            raise InvalidResultError("compilation_used must be a bool")
 
     def to_snapshot(self) -> FrozenMapping:
         return json_safe_mapping(
@@ -164,6 +175,8 @@ class BackendResultProvenance:
                 "requested_precision": self.requested_precision,
                 "actual_precision": self.actual_precision,
                 "result_dtype": self.result_dtype,
+                "device_kind": self.device_kind,
+                "compilation_used": self.compilation_used,
             }
         )
 
@@ -1160,6 +1173,9 @@ def _validate_loaded_identity_snapshots(
         "requested_precision",
         "actual_precision",
         "result_dtype",
+        # Tier 6H (plan Section 14.3): execution facts, not scientific ones.
+        "device_kind",
+        "compilation_used",
     }
     if set(backend) != backend_fields:
         raise InvalidResultError("backend_snapshot has unexpected fields")

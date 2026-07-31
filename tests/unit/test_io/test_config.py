@@ -833,9 +833,34 @@ def test_precision_default_and_declared_backend_values_are_input_only():
     assert ExecutionConfig().backend == "numpy"
     assert ExecutionConfig(backend="auto").backend == "auto"
     assert ExecutionConfig(backend="jax").backend == "jax"
-    assert ExecutionConfig(backend="numba").backend == "numba"
+    assert ExecutionConfig(backend="dask").backend == "dask"
     with pytest.raises(ValidationError):
         ExecutionConfig(backend=None)
+
+
+def test_tier6h_removed_execution_numba_backend_names_its_replacement(tmp_path):
+    """Section 27 row E4: the removed backend literal, verbatim Section 18.3."""
+    expected = (
+        "execution.backend=numba: removed before v1.0; the backend never "
+        "compiled any kernel. Use execution.backend=dask for the NumPy/Dask "
+        "backend or execution.backend=numpy."
+    )
+    assert set(
+        getattr(ExecutionConfig.model_fields["backend"].annotation, "__args__", ())
+    ) == {"auto", "numpy", "jax", "dask"}
+
+    with pytest.raises(ValidationError) as direct:
+        ExecutionConfig.model_validate({"backend": "numba"})
+    assert expected in str(direct.value)
+
+    data = valid_config_mapping(tmp_path)
+    data["execution"]["backend"] = "numba"
+    issues = collect_schema_issues(data)
+
+    assert any(expected in issue.message for issue in issues)
+    with pytest.raises(ValidationError) as document:
+        RadioSimConfig.model_validate(data)
+    assert expected in str(document.value)
 
 
 def test_tier6b_execution_declares_two_typed_worker_blocks_with_documented_defaults():

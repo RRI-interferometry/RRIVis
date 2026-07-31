@@ -122,7 +122,7 @@ def get_simulator(name: str = "rime") -> VisibilitySimulator:
     >>> print(sim.complexity)
     O(N_src × N_bl × N_freq)
     >>> print(sim.supports_gpu)
-    True
+    False
 
     See Also
     --------

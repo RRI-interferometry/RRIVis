@@ -37,10 +37,10 @@ JAX Backend
    :undoc-members:
    :show-inheritance:
 
-Numba Backend
--------------
+Dask Backend
+------------
 
-.. automodule:: radiosim.backends.numba_backend
+.. automodule:: radiosim.backends.dask_backend
    :members:
    :undoc-members:
    :show-inheritance:

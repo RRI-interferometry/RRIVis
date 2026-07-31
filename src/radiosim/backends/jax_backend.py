@@ -18,6 +18,7 @@ Note: JAX does not support float128/complex256. Precision configurations
 requesting float128 will automatically fall back to float64 with a warning.
 """
 
+import importlib.util
 from typing import TYPE_CHECKING, Any, Union
 
 import numpy as np
@@ -27,16 +28,31 @@ from radiosim.backends.base import ArrayBackend, BackendNotAvailableError
 if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
-# Try to import JAX
-try:
-    import jax
-    import jax.numpy as jnp
+# JAX is imported lazily. Tier 6H made a CPU-only JAX a declared dependency of
+# every pixi environment so backend parity is measured rather than skipped
+# (``Tier6HybridRuntimePlan.md`` Sections 28, 32.8); importing it eagerly here
+# would then put roughly a second of XLA start-up into the import graph of every
+# caller that merely touches ``radiosim.backends``, including point-source runs
+# that never select it. ``jax`` is treated like the other heavy optional
+# dependencies (``healpy``, ``pyuvdata``): detected by spec, imported on first
+# construction of this backend.
+jax: Any = None
+jnp: Any = None
 
-    JAX_AVAILABLE = True
-except ImportError:
-    jax = None
-    jnp = None
-    JAX_AVAILABLE = False
+
+def _load_jax() -> bool:
+    """Import JAX on first use, caching the modules in this module's globals."""
+    global jax, jnp
+    if jax is not None:
+        return True
+    try:
+        import jax as _jax
+        import jax.numpy as _jnp
+    except ImportError:
+        return False
+    jax = _jax
+    jnp = _jnp
+    return True
 
 
 class JAXBackend(ArrayBackend):
@@ -89,10 +105,11 @@ class JAXBackend(ArrayBackend):
         BackendNotAvailableError
             If JAX is not installed or device unavailable
         """
-        if not JAX_AVAILABLE:
+        if not _load_jax():
             raise BackendNotAvailableError(
-                "JAX not installed. Install with:\n"
-                "  pip install radiosim[gpu]        # Generic GPU\n"
+                "JAX not installed. Every pixi environment declares a CPU-only\n"
+                "jax/jaxlib, so `pixi install` is the supported fix. Outside pixi:\n"
+                "  pip install radiosim[gpu]        # Generic\n"
                 "  pip install radiosim[gpu-cuda]   # NVIDIA CUDA\n"
                 "  pip install radiosim[gpu-rocm]   # AMD ROCm\n"
                 "  pip install radiosim[tpu]        # Google TPU"
@@ -150,9 +167,35 @@ class JAXBackend(ArrayBackend):
         """JAX numpy module."""
         return self._xp
 
+    @property
+    def device_kind(self) -> str:
+        """Device kind actually in use: ``'cpu'``, ``'gpu'``, or ``'tpu'``.
+
+        Read from the live JAX device rather than from the requested name, so
+        the recorded provenance says ``'cpu'`` when a ``gpu`` request fell back
+        (``Tier6HybridRuntimePlan.md`` Section 14.3).
+        """
+        platform = str(self.device.platform)
+        return platform if platform in {"cpu", "gpu", "tpu"} else "cpu"
+
+    @property
+    def supports_compilation(self) -> bool:
+        """JAX compiles. See :meth:`compile`."""
+        return True
+
+    def compile(self, func: Any) -> Any:
+        """Return an XLA-compiled form of ``func`` via :func:`jax.jit`.
+
+        This is the *only* compilation entry point in RadioSim, and the solvers
+        apply it to exactly one function: the per-(time, frequency)
+        baseline-batched contraction (``Tier6HybridRuntimePlan.md``
+        Section 13.6). The uncompiled function remains the reference.
+        """
+        return jax.jit(func)
+
     def is_available(self) -> bool:
         """Check if JAX is available with devices."""
-        return JAX_AVAILABLE and len(self.devices) > 0
+        return jax is not None and len(self.devices) > 0
 
     # =========================================================================
     # Array Creation and Conversion
@@ -321,20 +364,34 @@ class JAXBackend(ArrayBackend):
 
         return info
 
-    def synchronize(self) -> None:
-        """Wait for all device operations to complete.
+    def synchronize(self, arr: Any = None) -> Any:
+        """Block until ``arr`` is materialized on the device, and return it.
 
-        Important for timing and ensuring results are ready.
+        JAX dispatch is asynchronous, so a timing measurement that does not
+        block on the array it produced measures dispatch, not computation.
+        Before Tier 6H this method blocked on a freshly constructed throwaway
+        constant (``jax.block_until_ready(jnp.array(0))``), which completes
+        immediately and orders nothing, making every JAX timing number
+        meaningless (``Tier6HybridRuntimePlan.md`` Section 13.6, defect D13).
+
+        Args:
+            arr: Array to block on. Omitting it keeps the previous best-effort
+                behavior, which does **not** order the caller's own work.
+
+        Returns:
+            ``arr`` once ready, or ``None`` when no array was given.
         """
-        # Block until all operations complete
-        jax.block_until_ready(jnp.array(0))
+        if arr is None:
+            jax.block_until_ready(jnp.array(0))
+            return None
+        return jax.block_until_ready(arr)
 
     # =========================================================================
     # JAX-specific methods
     # =========================================================================
 
     def jit(self, func):
-        """JIT-compile a function for performance.
+        """Deprecated alias of :meth:`compile`, kept for JAX-specific callers.
 
         Args:
             func: Function to compile
@@ -342,7 +399,7 @@ class JAXBackend(ArrayBackend):
         Returns:
             JIT-compiled function
         """
-        return jax.jit(func)
+        return self.compile(func)
 
     def grad(self, func):
         """Get gradient function (for auto-diff).
@@ -370,9 +427,14 @@ class JAXBackend(ArrayBackend):
 
 
 def is_jax_available() -> bool:
-    """Check if JAX is available.
+    """Check if JAX is available, without importing it.
 
     Returns:
-        True if JAX is installed and functional
+        True if JAX is installed
     """
-    return JAX_AVAILABLE
+    if jax is not None:
+        return True
+    try:
+        return importlib.util.find_spec("jax") is not None
+    except (ImportError, ValueError):  # pragma: no cover - broken install
+        return False

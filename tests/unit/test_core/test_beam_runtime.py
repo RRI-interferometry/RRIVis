@@ -1390,10 +1390,10 @@ def test_analytic_beam_precision_is_preserved_without_fallback(
             )
 
 
-def test_backend_conversion_uses_resolved_numpy_and_numba_backends(
+def test_backend_conversion_uses_resolved_numpy_and_dask_backends(
     tmp_path: Path,
 ) -> None:
-    from radiosim.backends.numba_backend import NumbaBackend
+    from radiosim.backends.dask_backend import DaskBackend
     from radiosim.backends.numpy_backend import NumPyBackend
     from radiosim.core.instrument import AntennaId
 
@@ -1416,7 +1416,7 @@ def test_backend_conversion_uses_resolved_numpy_and_numba_backends(
 
     for backend in (
         NumPyBackend(precision=precision),
-        NumbaBackend(mode="cpu", precision=precision),
+        DaskBackend(mode="cpu", precision=precision),
     ):
         result = system.evaluate_jones(
             AntennaId(0, "ANT0"),

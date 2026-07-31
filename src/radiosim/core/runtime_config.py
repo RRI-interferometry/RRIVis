@@ -313,7 +313,7 @@ class ResolvedSolverExecutionConfig:
 class ResolvedExecutionConfig:
     """Requested backend strategy, frozen precision, and worker policy."""
 
-    backend_strategy: Literal["auto", "numpy", "jax", "numba"]
+    backend_strategy: Literal["auto", "numpy", "jax", "dask"]
     precision: PrecisionConfig
     simulator: Literal["rime"]
     offline: bool
@@ -321,7 +321,7 @@ class ResolvedExecutionConfig:
     solver: ResolvedSolverExecutionConfig
 
     def __post_init__(self) -> None:
-        if self.backend_strategy not in {"auto", "numpy", "jax", "numba"}:
+        if self.backend_strategy not in {"auto", "numpy", "jax", "dask"}:
             raise ValueError("backend_strategy is not supported")
         if type(self.precision) is not PrecisionConfig:
             raise TypeError("precision must be a PrecisionConfig")
@@ -335,7 +335,7 @@ class ResolvedExecutionConfig:
             raise TypeError("solver must be a ResolvedSolverExecutionConfig")
 
     @property
-    def backend(self) -> Literal["auto", "numpy", "jax", "numba"]:
+    def backend(self) -> Literal["auto", "numpy", "jax", "dask"]:
         return self.backend_strategy
 
 

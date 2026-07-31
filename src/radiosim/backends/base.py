@@ -6,7 +6,7 @@ high-level Simulator kernel executes on the selected device.
 
 Available implementations:
 - NumPyBackend: CPU baseline, always available
-- NumbaBackend: NumPy/Dask operations plus a Numba JIT helper
+- DaskBackend: NumPy operations with optional Dask arrays and client
 - JAXBackend: JAX arrays on devices exposed by the installed JAX runtime
 """
 
@@ -30,12 +30,11 @@ class ArrayBackend(ABC):
     """Abstract base class for array computation backends.
 
     All backends must implement this interface to ensure consistent behavior
-    across NumPy, Numba+Dask, and JAX implementations.
+    across the NumPy, NumPy/Dask, and JAX implementations.
 
     The abstraction provides a shared array surface across NumPy, optional
-    Dask arrays and Numba compilation helpers, and JAX arrays. Callers must
-    verify which scientific kernels use that surface before making device or
-    performance claims.
+    Dask arrays, and JAX arrays. Callers must verify which scientific kernels
+    use that surface before making device or performance claims.
 
     Attributes
     ----------
@@ -75,9 +74,45 @@ class ArrayBackend(ABC):
 
     @property
     def backend_type(self) -> str:
-        """Get the backend type name (numpy, jax, numba)."""
+        """Get the backend type name (numpy, jax, dask)."""
         # Extract base type from full name like "numpy-cpu", "jax-gpu-cuda"
         return self.name.split("-")[0]
+
+    @property
+    def device_kind(self) -> str:
+        """Kind of device this backend actually executes on.
+
+        One of ``"cpu"``, ``"gpu"``, or ``"tpu"``. This is an execution fact
+        recorded in :class:`~radiosim.core.result.BackendResultProvenance`, not
+        a capability claim: the base default is ``"cpu"`` and only a backend
+        that can prove otherwise from its runtime overrides it
+        (``Tier6HybridRuntimePlan.md`` Section 14.3).
+        """
+        return "cpu"
+
+    # =========================================================================
+    # Compilation boundary (Tier6HybridRuntimePlan.md Section 13.6)
+    # =========================================================================
+
+    @property
+    def supports_compilation(self) -> bool:
+        """Whether :meth:`compile` returns a genuinely compiled callable.
+
+        The base default is ``False``, so backend-agnostic code can opt into
+        compilation without importing any accelerator library. A backend that
+        reports ``True`` and then does not compile would be exactly the kind of
+        unfulfilled capability claim Tier 6 exists to remove.
+        """
+        return False
+
+    def compile(self, func: Any) -> Any:
+        """Return a compiled form of ``func``, or ``func`` itself.
+
+        The base default is the identity, which is why every caller can use it
+        unconditionally: the uncompiled function stays the reference
+        implementation and is what NumPy and Dask always execute.
+        """
+        return func
 
     def get_real_dtype(
         self,
@@ -147,7 +182,7 @@ class ArrayBackend(ABC):
         """Backend identifier string.
 
         Returns:
-            Human-readable name like 'numpy-cpu', 'numba-cuda', 'jax-gpu-cuda'
+            Human-readable name like 'numpy-cpu', 'dask-cpu', 'jax-gpu-cuda'
         """
         pass
 
@@ -301,7 +336,7 @@ class ArrayBackend(ABC):
     def set_at(self, arr: Any, index: Any, value: Any) -> Any:
         """Return ``arr`` with ``value`` set at ``index``.
 
-        NumPy/Numba arrays are updated in place. Immutable backends such as
+        NumPy and Dask arrays are updated in place. Immutable backends such as
         JAX use their functional ``.at[index].set(...)`` update API.
 
         This is a general-purpose helper and is deliberately *not* used to
@@ -578,13 +613,25 @@ class ArrayBackend(ABC):
     # Synchronization
     # =========================================================================
 
-    def synchronize(self) -> None:
-        """Wait for all pending operations to complete.
+    def synchronize(self, arr: Any = None) -> Any:
+        """Block until pending work on ``arr`` has completed, and return it.
 
-        Important for GPU/TPU backends where operations are asynchronous.
-        CPU backends can implement as no-op (default).
+        Important for backends whose operations are asynchronous or lazy: a
+        timing measurement taken without this is a measurement of dispatch, not
+        of computation.
+
+        Passing the array whose completion is being awaited is the meaningful
+        call. Without an argument a backend can only make a best-effort barrier,
+        which for a lazy backend may be no barrier at all
+        (``Tier6HybridRuntimePlan.md`` Section 13.6).
+
+        Args:
+            arr: Optional array to block on.
+
+        Returns:
+            ``arr``, materialized, or ``None`` when no array was given.
         """
-        return
+        return arr
 
     # =========================================================================
     # Backend Info

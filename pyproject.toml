@@ -78,9 +78,9 @@ tpu = [
     "jax[tpu]>=0.4.20",
 ]
 
-# Numba backend (production)
-numba = [
-    "numba>=0.58",
+# NumPy/Dask backend (renamed from `numba` in Tier 6H: that backend never
+# compiled a kernel, so the extra no longer pulls Numba in its name)
+dask = [
     "dask[complete]>=2024.1.0",
 ]
 
@@ -110,7 +110,7 @@ docs = [
 
 # All extras (development)
 all = [
-    "radiosim[gpu,numba,ms,dev,docs]",
+    "radiosim[gpu,dask,ms,dev,docs]",
 ]
 
 [project.urls]

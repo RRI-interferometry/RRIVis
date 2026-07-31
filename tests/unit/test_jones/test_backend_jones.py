@@ -17,10 +17,9 @@ from tests.fixtures.configs import valid_config_mapping
 
 def _get_optional_backend(name: str):
     if name == "jax":
-        pytest.importorskip("jax")
         kwargs = {"device": "cpu"}
-    elif name == "numba":
-        pytest.importorskip("numba")
+    elif name == "dask":
+        pytest.importorskip("dask")
         kwargs = {"mode": "cpu"}
     else:
         kwargs = {}
@@ -53,7 +52,7 @@ class _DirectionDependentJones(JonesTerm):
         return backend.eye_complex(2, dtype=np.complex128) * scale
 
 
-@pytest.mark.parametrize("backend_name", ["numpy", "numba"])
+@pytest.mark.parametrize("backend_name", ["numpy", "dask"])
 def test_default_all_source_jones_stacks_backend_matrices(backend_name: str):
     backend = _get_optional_backend(backend_name)
     term = _DirectionDependentJones()
@@ -74,7 +73,7 @@ def test_default_all_source_jones_stacks_backend_matrices(backend_name: str):
     np.testing.assert_allclose(result_np[:, 1, 0], 0)
 
 
-@pytest.mark.parametrize("backend_name", ["numpy", "numba"])
+@pytest.mark.parametrize("backend_name", ["numpy", "dask"])
 def test_chain_all_source_identity_and_geometric_phase(backend_name: str):
     backend = _get_optional_backend(backend_name)
     chain = JonesChain(backend)
@@ -129,7 +128,7 @@ def test_jax_chain_all_source_construction_is_functional():
     np.testing.assert_allclose(result[:, 0, 0], [1, 2])
 
 
-@pytest.mark.parametrize("backend_name", ["numpy", "numba", "jax"])
+@pytest.mark.parametrize("backend_name", ["numpy", "dask", "jax"])
 def test_resolved_beam_jones_chain_matches_canonical_system(
     tmp_path,
     backend_name: str,

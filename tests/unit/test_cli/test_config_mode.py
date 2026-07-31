@@ -51,7 +51,7 @@ def test_config_mode_constructs_simulator_from_resolved_runtime_only(
     assert not (tmp_path / "output").exists()
 
 
-@pytest.mark.parametrize("document_backend", ["numpy", "numba"])
+@pytest.mark.parametrize("document_backend", ["numpy", "dask"])
 def test_cli_backend_default_is_none_and_preserves_document(
     tmp_path, recording_simulator, document_backend
 ):
@@ -68,7 +68,7 @@ def test_cli_backend_default_is_none_and_preserves_document(
     )
 
 
-@pytest.mark.parametrize("override", ["auto", "numpy", "jax", "numba"])
+@pytest.mark.parametrize("override", ["auto", "numpy", "jax", "dask"])
 def test_explicit_cli_backend_is_a_frozen_override(
     tmp_path, recording_simulator, override
 ):
@@ -466,7 +466,7 @@ def test_root_help_exposes_tri_state_options_without_implicit_backend_default():
     result = CliRunner().invoke(cli, ["--help"])
 
     assert result.exit_code == 0
-    assert "--backend [auto|numpy|jax|numba]" in result.output
+    assert "--backend [auto|numpy|jax|dask]" in result.output
     assert "--offline / --online" in result.output
     backend_line = next(
         line for line in result.output.splitlines() if "--backend" in line

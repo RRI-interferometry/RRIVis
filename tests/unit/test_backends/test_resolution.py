@@ -21,7 +21,7 @@ from radiosim.io.config_resolution import (
 from tests.fixtures.configs import valid_config_mapping
 
 
-@pytest.mark.parametrize("backend", ["numpy", "jax", "numba", "auto"])
+@pytest.mark.parametrize("backend", ["numpy", "jax", "dask", "auto"])
 def test_requested_backend_strategy_is_preserved_without_construction(
     tmp_path, backend
 ):
@@ -93,7 +93,7 @@ def test_complete_precision_override_replaces_document_tree(tmp_path):
     assert bundle.provenance.override_origins["execution.precision"] == "override"
 
 
-@pytest.mark.parametrize("backend", ["jax", "numba"])
+@pytest.mark.parametrize("backend", ["jax", "dask"])
 def test_incompatible_precision_override_fails_before_optional_import(
     tmp_path, monkeypatch, backend
 ):
@@ -134,8 +134,7 @@ def test_incompatible_precision_override_fails_before_optional_import(
     ],
 )
 def test_auto_backend_never_silently_downgrades_float128(monkeypatch, precision):
-    monkeypatch.setattr(backend_module, "NUMBA_AVAILABLE", True)
-    monkeypatch.setattr(backend_module, "is_cuda_available", lambda: False)
+    monkeypatch.setattr(backend_module, "DASK_AVAILABLE", True)
 
     with warnings.catch_warnings(record=True) as caught:
         try:
@@ -154,7 +153,7 @@ def test_auto_backend_never_silently_downgrades_float128(monkeypatch, precision)
         assert backend.precision == precision
 
 
-@pytest.mark.parametrize("backend_name", ["jax", "numba"])
+@pytest.mark.parametrize("backend_name", ["jax", "dask"])
 def test_explicit_backend_factory_rejects_float128_without_warning(backend_name):
     with warnings.catch_warnings(record=True) as caught:
         with pytest.raises(BackendNotAvailableError, match="requested precision"):

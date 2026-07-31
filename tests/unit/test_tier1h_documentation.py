@@ -15,7 +15,7 @@ from click.testing import CliRunner
 import radiosim
 from radiosim.api import simulator as simulator_api
 from radiosim.backends import base as backend_base
-from radiosim.backends import get_backend, jax_backend, numba_backend
+from radiosim.backends import dask_backend, get_backend, jax_backend
 from radiosim.cli.main import cli
 from radiosim.core import visibility, visibility_healpix
 from radiosim.core.precision import PrecisionConfig
@@ -626,8 +626,8 @@ def test_active_backend_autodoc_avoids_unverified_acceleration_claims():
             jax_backend.__doc__,
             jax_backend.JAXBackend.__doc__,
             jax_backend.JAXBackend.matmul.__doc__,
-            numba_backend.__doc__,
-            numba_backend.NumbaBackend.__doc__,
+            dask_backend.__doc__,
+            dask_backend.DaskBackend.__doc__,
         )
         if text
     )
@@ -638,6 +638,7 @@ def test_active_backend_autodoc_avoids_unverified_acceleration_claims():
         "universal hardware acceleration",
         "Universal hardware support",
         "NumbaBackend: CPU/GPU",
+        "DaskBackend: CPU/GPU",
         "GPU support via CUDA",
         "Matrix multiplication (GPU-accelerated)",
     ):

@@ -35,8 +35,8 @@ from typing_extensions import override
 
 from radiosim.__about__ import __description__, __version__
 
-_BACKEND_CHOICES = click.Choice(["auto", "numpy", "jax", "numba"])
-BackendStrategy = Literal["auto", "numpy", "jax", "numba"]
+_BACKEND_CHOICES = click.Choice(["auto", "numpy", "jax", "dask"])
+BackendStrategy = Literal["auto", "numpy", "jax", "dask"]
 _LEGACY_JSON_GUIDANCE = (
     "format 'json' was removed before v1.0 because it did not contain visibility "
     "data; use 'summary_json' for metadata or 'hdf5' for a lossless RadioSim result"

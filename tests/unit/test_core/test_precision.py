@@ -119,7 +119,7 @@ def test_preset_and_custom_leaves_are_semantic_contradiction(tmp_path):
         config.execution.precision.to_precision_config()
 
 
-@pytest.mark.parametrize("backend", ["jax", "numba"])
+@pytest.mark.parametrize("backend", ["jax", "dask"])
 def test_explicit_jax_or_numba_float128_is_semantic_issue(tmp_path, backend):
     data = valid_config_mapping(
         tmp_path,
@@ -146,7 +146,7 @@ def test_precision_validation_does_not_import_optional_backends(tmp_path, monkey
         if (
             name == "jax"
             or name.startswith("jax.")
-            or name == "numba"
+            or name == "dask"
             or name.startswith("numba.")
         ):
             pytest.fail(f"precision validation imported optional backend {name}")

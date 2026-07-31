@@ -1082,6 +1082,8 @@ class Simulator:
                 ),
                 actual_precision=actual_precision.model_dump(mode="json"),
                 result_dtype=result_dtype,
+                device_kind=backend.device_kind,
+                compilation_used=backend.supports_compilation,
             ),
             solver_provenance=SolverResultProvenance(
                 solver="rime",

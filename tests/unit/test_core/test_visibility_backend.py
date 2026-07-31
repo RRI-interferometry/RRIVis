@@ -85,10 +85,9 @@ def _heterogeneous_solver_components(
 
 def _get_optional_backend(name: str):
     if name == "jax":
-        pytest.importorskip("jax")
         kwargs = {"device": "cpu"}
-    elif name == "numba":
-        pytest.importorskip("numba")
+    elif name == "dask":
+        pytest.importorskip("dask")
         kwargs = {"mode": "cpu"}
     else:
         kwargs = {}
@@ -258,7 +257,7 @@ def test_low_level_solvers_require_explicit_backend_and_canonical_frequencies(
 
 def test_point_source_visibility_numba_matches_numpy(tmp_path):
     numpy_backend = _get_optional_backend("numpy")
-    numba_backend = _get_optional_backend("numba")
+    dask_backend = _get_optional_backend("dask")
     instrument, beam_system, receptors = _solver_components(tmp_path)
 
     expected = calculate_visibility(
@@ -278,7 +277,7 @@ def test_point_source_visibility_numba_matches_numpy(tmp_path):
         location=LOCATION,
         time_grid=TIME_GRID,
         frequencies=FREQS,
-        backend=numba_backend,
+        backend=dask_backend,
         receptors=receptors,
     )
 
@@ -421,7 +420,7 @@ def test_polarized_healpix_fast_precision_casts_explicitly_at_output_boundary(
 def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
     sky_model = _healpix_model(polarized=polarized)
     numpy_backend = _get_optional_backend("numpy")
-    numba_backend = _get_optional_backend("numba")
+    dask_backend = _get_optional_backend("dask")
     instrument, beam_system, receptors = _solver_components(tmp_path)
 
     expected = calculate_visibility_healpix(
@@ -443,7 +442,7 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
         time_grid=TIME_GRID,
         frequencies=FREQS,
         include_polarization=polarized,
-        backend=numba_backend,
+        backend=dask_backend,
         receptors=receptors,
     )
 

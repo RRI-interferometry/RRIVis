@@ -128,7 +128,7 @@ def get_real_dtype(precision: PrecisionLevel, backend: str = "numpy") -> Any:
     elif precision == "float64":
         return np.float64
     elif precision == "float128":
-        if backend in ("jax", "numba"):
+        if backend in ("jax", "dask"):
             warnings.warn(
                 f"float128 not supported on {backend} backend. "
                 "Falling back to float64.",
@@ -168,7 +168,7 @@ def get_complex_dtype(precision: PrecisionLevel, backend: str = "numpy") -> Any:
     elif precision == "float64":
         return np.complex128
     elif precision == "float128":
-        if backend in ("jax", "numba"):
+        if backend in ("jax", "dask"):
             warnings.warn(
                 f"complex256 not supported on {backend} backend. "
                 "Falling back to complex128.",
@@ -760,7 +760,7 @@ class PrecisionConfig(_StrictFrozenPrecisionModel):
         Parameters
         ----------
         backend_name : str
-            Backend name ("numpy", "jax", "numba")
+            Backend name ("numpy", "jax", "dask")
 
         Returns
         -------
@@ -786,7 +786,7 @@ class PrecisionConfig(_StrictFrozenPrecisionModel):
             if getattr(self.sky_model, field) == "float128":
                 float128_fields.append(f"sky_model.{field}")
 
-        if backend_name in ("jax", "numba"):
+        if backend_name in ("jax", "dask"):
             if float128_fields:
                 warnings_list.append(
                     f"float128 not supported on {backend_name} backend. "
