@@ -146,6 +146,70 @@ Configuration:
        - kind: test_sources
          num_sources: 100
 
+Extragalactic Point Sources (Mittal et al. 2024)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A statistical extragalactic foreground population following Mittal,
+Kulkarni, Anstey & de Lera Acedo 2024 (MNRAS 534, 1317; the model behind
+the ``epspy`` package — cite that paper when you use this loader): source
+counts drawn from a validated ``dN/dS`` preset (Gervasi et al. 2008 by
+default; Mandal et al. 2021 and Intema et al. 2017 also ship), unclipped
+Gaussian spectral indices (default ``(-0.681, 0.5)``, the paper's
+``beta ~ N(2.681, 0.5)`` in RadioSim's ``S ∝ nu^alpha`` convention via
+``alpha = 2 - beta``), and by default angular clustering from the paper's
+power-law 2PACF (Rana & Bagla 2019: ``A=7.8e-3``, ``gamma=0.821``; pass
+``clustering_amp=0`` for an isotropic sky):
+
+.. code-block:: python
+
+   import numpy as np
+   from radiosim.core.sky import load_extragalactic_point_sources
+   from radiosim.core.precision import PrecisionConfig
+
+   precision = PrecisionConfig.standard()
+
+   # Discrete sources for the point-source RIME (exact positions).
+   sky = load_extragalactic_point_sources(
+       flux_range_jy=(1e-2, 1e-1),
+       seed=42,
+       precision=precision,
+   )
+
+   # Deep populations stream directly into HEALPix brightness maps in
+   # bounded memory (no per-source arrays, no max_sources ceiling).
+   maps = load_extragalactic_point_sources(
+       flux_range_jy=(1e-6, 1e-1),
+       representation="healpix_map",
+       nside=128,
+       frequencies=1e6 * np.arange(50, 201),
+       seed=42,
+       precision=precision,
+   )
+
+Configuration (aliases ``eps`` and ``mittal2024`` also work):
+
+.. code-block:: yaml
+
+   sky_model:
+     flux_unit: "Jy"
+     sources:
+       - kind: extragalactic_point_sources
+         options:
+           flux_range_jy: [0.01, 0.1]
+           clustering_amp: 0.0078
+           seed: 42
+
+The realization is reproducible from the seed recorded in the model's
+provenance. Note one deliberate difference from the ``epspy`` reference
+implementation: fluxes are sampled from the stated ``dN/dS`` with the
+correct integration measure, whereas ``epspy``'s log-grid draw omits the
+``dS`` cell widths and therefore realizes a fainter ``dN/dS · S⁻¹``
+distribution (its documented ~1.3 K mean sky temperature at 150 MHz for
+the deep fiducial range corresponds to ~17 K under the stated counts).
+Expect this loader to produce the brighter, count-consistent sky; see
+``radiosim/core/sky/loaders/extragalactic.py`` for the full deviation
+list.
+
 Custom Point Sources
 --------------------
 
