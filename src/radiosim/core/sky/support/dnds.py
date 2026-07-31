@@ -155,8 +155,136 @@ FRANZEN2019_GLEAM_154MHZ = _make_numeric_model(
 )
 
 
+def _gervasi2008_150mhz_dn_ds(s: np.ndarray) -> np.ndarray:
+    """150 MHz counts from Gervasi et al. 2008, ApJ 682, 223, Eq. (2).
+
+    The paper fits the Euclidean-normalized counts with a sum of two
+    inverse double power laws,
+
+        S^2.5 dN/dS = 1/(A1 S^a1 + B1 S^b1) + 1/(A2 S^a2 + B2 S^b2)
+
+    where S is in Jy and dN/dS has units sr^-1 Jy^-1. The parameters used
+    here are the weighted-average slope values with the 151 MHz
+    normalizations, as adopted at 150 MHz by Mittal et al. 2024
+    (MNRAS 534, 1317), Table 1:
+
+        A1 = 1.65e-4, B1 = 1.14e-4, a1 = -0.854, b1 = 0.37,
+        A2/A1 = 0.24, B2/B1 = 1.8e7, a2 = -0.856, b2 = 1.47
+    """
+    s_arr = np.asarray(s, dtype=np.float64)
+    if np.any(s_arr <= 0.0):
+        raise ValueError("dN/dS is only defined for strictly positive flux density.")
+    slope_a1, slope_b1 = -0.854, 0.37
+    slope_a2, slope_b2 = -0.856, 1.47
+    norm_a1, norm_b1 = 1.65e-4, 1.14e-4
+    norm_a2, norm_b2 = 0.24 * norm_a1, 1.8e7 * norm_b1
+    euclid = 1.0 / (norm_a1 * s_arr**slope_a1 + norm_b1 * s_arr**slope_b1) + 1.0 / (
+        norm_a2 * s_arr**slope_a2 + norm_b2 * s_arr**slope_b2
+    )
+    return euclid / np.power(s_arr, 2.5)
+
+
+GERVASI2008_150MHZ = _make_numeric_model(
+    name="gervasi2008_150mhz",
+    reference_frequency_hz=150e6,
+    flux_valid_range_jy=(1e-6, 1e2),
+    dn_ds=_gervasi2008_150mhz_dn_ds,
+    notes=(
+        "Gervasi et al. 2008, ApJ 682, 223, Eq. (2): sum of two inverse double "
+        "power laws fitted to 151 MHz differential counts; weighted-average "
+        "slopes with 151 MHz normalizations as adopted at 150 MHz by Mittal "
+        "et al. 2024 (MNRAS 534, 1317), Table 1. Data-supported range "
+        "1 uJy-100 Jy."
+    ),
+)
+
+
+def _mandal2021_150mhz_dn_ds(s: np.ndarray) -> np.ndarray:
+    """150 MHz counts from Mandal et al. 2021, A&A 648, A5, Eq. (13).
+
+    The paper fits the Euclidean-normalized counts with
+
+        log10(S^2.5 dN/dS) = sum_i a_i [log10(S / 1 mJy)]^i
+
+    over the published validity range 0.2 mJy-10 Jy (Table 4), with
+    coefficients
+
+        a0=1.655, a1=-0.1150, a2=0.2272, a3=0.51788, a4=-0.449661,
+        a5=0.160265, a6=-0.028541, a7=0.002041
+
+    The polynomial argument is the flux density in mJy while the
+    Euclidean-normalized counts stay in Jy^1.5 sr^-1, so dN/dS is
+    returned in sr^-1 Jy^-1 for S in Jy.
+    """
+    s_arr = np.asarray(s, dtype=np.float64)
+    if np.any(s_arr <= 0.0):
+        raise ValueError("dN/dS is only defined for strictly positive flux density.")
+    log_s_mjy = np.log10(s_arr * 1e3)
+    coeffs = np.array(
+        [1.655, -0.1150, 0.2272, 0.51788, -0.449661, 0.160265, -0.028541, 0.002041]
+    )
+    poly = np.polynomial.polynomial.polyval(log_s_mjy, coeffs)
+    euclid = np.power(10.0, poly)
+    return euclid / np.power(s_arr, 2.5)
+
+
+MANDAL2021_LOTSS_150MHZ = _make_numeric_model(
+    name="mandal2021_lotss_150mhz",
+    reference_frequency_hz=150e6,
+    flux_valid_range_jy=(2e-4, 10.0),
+    dn_ds=_mandal2021_150mhz_dn_ds,
+    notes=(
+        "Mandal et al. 2021, A&A 648, A5, Eq. (13) and Table 4: 150 MHz "
+        "7th-order polynomial fit to Euclidean-normalized differential counts "
+        "from the LoTSS Deep Fields combined with TGSS-ADR1, valid for "
+        "0.2 mJy-10 Jy."
+    ),
+)
+
+
+def _intema2017_150mhz_dn_ds(s: np.ndarray) -> np.ndarray:
+    """150 MHz counts from Intema et al. 2017, A&A 598, A78, Eq. (4).
+
+    The paper fits the Euclidean-normalized counts with
+
+        log10(S^2.5 dN/dS) = C0 + sum_{i=1..5} C_i [log10(S)]^i
+
+    over 5 mJy-100 Jy (best constrained between 100 mJy and 10 Jy), with
+    coefficients (Table 6)
+
+        C0=3.5142, C1=0.3738, C2=-0.3138, C3=-0.0717, C4=0.0213, C5=0.0097
+
+    where S is in Jy and dN/dS has units sr^-1 Jy^-1.
+    """
+    s_arr = np.asarray(s, dtype=np.float64)
+    if np.any(s_arr <= 0.0):
+        raise ValueError("dN/dS is only defined for strictly positive flux density.")
+    log_s = np.log10(s_arr)
+    coeffs = np.array([3.5142, 0.3738, -0.3138, -0.0717, 0.0213, 0.0097])
+    poly = np.polynomial.polynomial.polyval(log_s, coeffs)
+    euclid = np.power(10.0, poly)
+    return euclid / np.power(s_arr, 2.5)
+
+
+INTEMA2017_TGSS_150MHZ = _make_numeric_model(
+    name="intema2017_tgss_150mhz",
+    reference_frequency_hz=150e6,
+    flux_valid_range_jy=(5e-3, 100.0),
+    dn_ds=_intema2017_150mhz_dn_ds,
+    notes=(
+        "Intema et al. 2017, A&A 598, A78, Eq. (4) and Table 6: 150 MHz "
+        "5th-order polynomial fit to TGSS ADR1 Euclidean-normalized "
+        "differential counts, fitted over 5 mJy-100 Jy and best constrained "
+        "between 100 mJy and 10 Jy."
+    ),
+)
+
+
 DNDS_MODELS: dict[str, DNDSModel] = {
     FRANZEN2019_GLEAM_154MHZ.name: FRANZEN2019_GLEAM_154MHZ,
+    GERVASI2008_150MHZ.name: GERVASI2008_150MHZ,
+    MANDAL2021_LOTSS_150MHZ.name: MANDAL2021_LOTSS_150MHZ,
+    INTEMA2017_TGSS_150MHZ.name: INTEMA2017_TGSS_150MHZ,
 }
 
 
@@ -185,5 +313,8 @@ __all__ = [
     "DNDSModel",
     "DNDS_MODELS",
     "FRANZEN2019_GLEAM_154MHZ",
+    "GERVASI2008_150MHZ",
+    "INTEMA2017_TGSS_150MHZ",
+    "MANDAL2021_LOTSS_150MHZ",
     "resolve_dn_ds",
 ]

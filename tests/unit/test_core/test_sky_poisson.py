@@ -41,6 +41,63 @@ class TestDNDSModels:
         assert flux.min() >= 0.1 - 1e-12
         assert flux.max() <= 1.0 + 1e-12
 
+    def test_gervasi_normalization_matches_published_form_at_1jy(self):
+        model = DNDS_MODELS["gervasi2008_150mhz"]
+        norm_a1, norm_b1 = 1.65e-4, 1.14e-4
+        norm_a2, norm_b2 = 0.24 * norm_a1, 1.8e7 * norm_b1
+        expected = 1.0 / (norm_a1 + norm_b1) + 1.0 / (norm_a2 + norm_b2)
+        dn_ds = model.dn_ds(np.asarray([1.0], dtype=np.float64))[0]
+        assert dn_ds == pytest.approx(expected, rel=1e-12)
+
+    def test_mandal_normalization_matches_published_polynomial_at_1mjy(self):
+        model = DNDS_MODELS["mandal2021_lotss_150mhz"]
+        dn_ds = model.dn_ds(np.asarray([1e-3], dtype=np.float64))[0]
+        assert dn_ds == pytest.approx(10.0**1.655 * (1e-3) ** -2.5, rel=1e-12)
+
+    def test_intema_normalization_matches_published_polynomial_at_1jy(self):
+        model = DNDS_MODELS["intema2017_tgss_150mhz"]
+        dn_ds = model.dn_ds(np.asarray([1.0], dtype=np.float64))[0]
+        assert dn_ds == pytest.approx(10.0**3.5142, rel=1e-12)
+
+    def test_gervasi_population_sizes_match_mittal2024(self):
+        # Full-sky totals cross-checked against the population sizes the
+        # epspy reference implementation of Mittal et al. 2024 documents:
+        # ~1.77e6 sources for 10-100 mJy and ~4.4e9 for 1 uJy-100 mJy.
+        model = DNDS_MODELS["gervasi2008_150mhz"]
+        n_default = 4.0 * np.pi * model.integrated_counts(1e-2, 1e-1)
+        n_deep = 4.0 * np.pi * model.integrated_counts(1e-6, 1e-1)
+        assert n_default == pytest.approx(1.772e6, rel=1e-2)
+        assert n_deep == pytest.approx(4.412e9, rel=1e-2)
+
+    def test_150mhz_class_models_agree_at_bright_end(self):
+        s = np.asarray([1.0], dtype=np.float64)
+        reference = DNDS_MODELS["franzen2019_gleam_154mhz"].dn_ds(s)[0]
+        for name in (
+            "gervasi2008_150mhz",
+            "mandal2021_lotss_150mhz",
+            "intema2017_tgss_150mhz",
+        ):
+            ratio = DNDS_MODELS[name].dn_ds(s)[0] / reference
+            assert 0.5 < ratio < 2.0
+
+    def test_new_models_reject_flux_outside_validated_band(self):
+        with pytest.raises(ValueError, match="outside the validated range"):
+            DNDS_MODELS["mandal2021_lotss_150mhz"].integrated_counts(1e-4, 1.0)
+        with pytest.raises(ValueError, match="outside the validated range"):
+            DNDS_MODELS["intema2017_tgss_150mhz"].integrated_counts(1e-3, 1.0)
+        with pytest.raises(ValueError, match="outside the validated range"):
+            DNDS_MODELS["gervasi2008_150mhz"].integrated_counts(1e-7, 1e-1)
+
+    def test_new_models_are_calibrated_at_150mhz(self):
+        for name in (
+            "gervasi2008_150mhz",
+            "mandal2021_lotss_150mhz",
+            "intema2017_tgss_150mhz",
+        ):
+            model = DNDS_MODELS[name]
+            assert model.reference_frequency_hz == pytest.approx(150e6)
+            assert model.validated
+
     def test_resolve_dn_ds_rejects_unknown_preset(self):
         with pytest.raises(KeyError, match="Unknown dN/dS preset"):
             resolve_dn_ds("nonexistent")
