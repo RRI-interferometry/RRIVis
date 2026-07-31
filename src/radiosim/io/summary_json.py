@@ -290,9 +290,19 @@ def _summary_payload(result: SimulationResult) -> dict[str, object]:
         center_iso = np.atleast_1d(np.asarray(centers.isot, dtype=str))
         selection_snapshot = result.selection.to_snapshot()
         payload: dict[str, object] = {
+            # Tier 6 grew this document: an ``execution`` block (6C) and, in
+            # the ``solver`` and ``performance`` blocks below, the solved
+            # components, their element counts, and the two per-component
+            # timings (6F, serialized here by 6G).  The bump is deliberately
+            # *minor* where the HDF5 schema takes a major one in the same
+            # slice.  The HDF5 reader rejects any version but its own and any
+            # solver field set but its own, so old and new files are mutually
+            # unreadable; this document has no reader, nothing was removed or
+            # retyped, and every ``1.0.0`` key survives at the same path with
+            # the same meaning.  See ``Tier6HybridRuntimePlan.md`` Section 19.
             "schema": {
                 "name": "radiosim.result-summary",
-                "version": "1.0.0",
+                "version": "1.1.0",
             },
             "result": {
                 "schema": result.schema_version,

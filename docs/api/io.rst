@@ -73,7 +73,7 @@ Instrument sources
 Versioned HDF5 results
 ----------------------
 
-``radiosim.visibility`` schema version ``2.0.0`` is the complete,
+``radiosim.visibility`` schema version ``3.0.0`` is the complete,
 reconstructable result format.  Its canonical extension is ``.h5``.
 The direct APIs are:
 
@@ -100,7 +100,7 @@ parallel hands in both bases.  The written ``polarization_basis`` and
 ``correlations`` are validated against each other on read, and only those two
 label tuples in that order are accepted.
 
-Schema ``2.0.0`` also stores a ``receptors`` group: the resolved
+Schema ``3.0.0`` also stores a ``receptors`` group: the resolved
 ``output_basis``, the ``receptor_sha256`` fingerprint, and per-antenna
 ``antenna_number``, ``antenna_name``, ``basis``, ``feed_rotation_rad``, and
 ``feed_angle_rad`` in canonical instrument antenna order.  A loaded result
@@ -136,9 +136,22 @@ parsing and incomplete scientific fields; there is no legacy reader.  Files
 written by the rejected VLEN implementation are also unsafe inputs and
 are rejected; there is no VLEN compatibility reader, migration shim, or
 fallback.  Schema ``1.0.0`` files predate the receptor group and the
-basis-driven correlation labels; they are rejected with
-``UnsupportedSchemaVersionError`` and are not upgraded in place.  Re-run the
-simulation to obtain a ``2.0.0`` file.
+basis-driven correlation labels, and schema ``2.0.0`` files predate the solved
+sky components, their element counts, and the per-component solver timings, so
+a summed hybrid result cannot be told from a single-component one.  Both are
+rejected with ``UnsupportedSchemaVersionError`` and neither is upgraded in
+place.  Re-run the simulation to obtain a ``3.0.0`` file.
+
+Schema ``3.0.0`` records the components in ``provenance/solver_json``
+(``components`` and ``component_element_counts``, in the canonical
+``point``, ``healpix`` order) and their wall times in
+``provenance/performance_json`` (``solver_point_seconds`` and
+``solver_healpix_seconds``).  The reader validates both records against the
+canonical dataclass field sets, bounds the component list, and cross-checks the
+declared ``sky_representation`` against the embedded resolved configuration,
+all before any science payload is allocated.  Component names and counts are
+deterministic and enter the scientific fingerprint; the timings are not and do
+not.
 
 The legacy unsafe HDF5 function pair was removed immediately with no
 compatibility aliases.  High-level ``Simulator.save`` dispatches this writer

@@ -41,6 +41,7 @@ from radiosim.io.standard_visibility import (
     StandardReadLimits,
     StandardVisibilityData,
     project_simulation_result,
+    projection_record_from_history,
 )
 from tests.unit.test_io.test_standard_visibility import build_standard_result
 
@@ -913,3 +914,27 @@ def test_measurement_set_unsupported_platform_precedes_dependency_import(
     with pytest.raises(AtomicWriteUnsupportedError):
         _write_checked(result, tmp_path / "unsupported.ms")
     assert not imported
+
+
+def test_measurement_set_history_names_every_solved_component(
+    tmp_path: Path,
+) -> None:
+    """Tier 6G, plan Section 19 / row H10: MS HISTORY records the components."""
+    result = build_standard_result(
+        tmp_path,
+        sky_representation="hybrid",
+        components=("point", "healpix"),
+        component_element_counts=(3, 3072),
+    )
+    target = _write_checked(result, tmp_path / "hybrid-components.ms")
+
+    loaded = read_measurement_set(target)
+
+    assert any("sky_representation=hybrid" in item for item in loaded.history)
+    assert any("solver_components=point,healpix" in item for item in loaded.history)
+    assert any(
+        "solver_component_element_counts=3,3072" in item for item in loaded.history
+    )
+    record = projection_record_from_history("\n".join(loaded.history))[0]
+    assert record["solver"]["components"] == ["point", "healpix"]
+    assert record["solver"]["component_element_counts"] == [3, 3072]

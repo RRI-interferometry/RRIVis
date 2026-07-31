@@ -72,9 +72,13 @@ class UnsupportedSchemaVersionError(UnsafeResultInputError):
     """A versioned result uses an unsupported schema version."""
 
     GUIDANCE = (
-        "Tier 5 replaced radiosim.visibility 1.0.0 with 2.0.0, which records the "
-        "polarization basis and the resolved receptor set. There is no upgrade "
-        "path by design: re-run the simulation to write a 2.0.0 file."
+        "Tier 6 replaced radiosim.visibility 2.0.0 with 3.0.0, which records the "
+        "solved sky components, their element counts, and the per-component "
+        "solver timings, so a summed hybrid result is no longer indistinguishable "
+        "from a single-component one. Schema 1.0.0 (no polarization basis, no "
+        "receptor set) and schema 2.0.0 (no component provenance) are both "
+        "rejected, and neither is upgraded in place: there is no upgrade path by "
+        "design, so re-run the simulation to write a 3.0.0 file."
     )
 
     def __init__(self, version: object) -> None:

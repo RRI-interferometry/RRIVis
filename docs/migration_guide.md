@@ -217,6 +217,67 @@ contiguous block of time samples and the blocks are reassembled in time order,
 so any `workers` value produces a bit-identical result to `workers: 1`. Choose
 it for wall-clock time, never for numerical reasons.
 
+## Hybrid results and serialization
+
+`visibility.sky_representation` accepts a third value, `hybrid`, which solves a
+point component and a HEALPix component on one shared instrument, beam system,
+receptor set, time grid, and backend, and sums them into one canonical
+`SimulationResult`. Every result — hybrid or not — now records which components
+it solved:
+
+```python
+result.solver.sky_representation      # "point_sources" | "healpix_map" | "hybrid"
+result.solver.components              # ("point",) | ("healpix",) | ("point", "healpix")
+result.solver.component_element_counts
+result.performance.solver_point_seconds
+result.performance.solver_healpix_seconds
+```
+
+Component names and counts are deterministic and are part of the scientific
+identity, so `scientific_sha256` changes for every result, including
+single-component ones, and a hybrid result can never collide with a
+single-component one over the same instrument and sky numbers. The two timings
+are nondeterministic and stay out of both fingerprints. Do not compare
+fingerprints across this boundary.
+
+### HDF5 schema `3.0.0`
+
+HDF5 results moved to schema `3.0.0`. `provenance/solver_json` gains
+`components` and `component_element_counts`; `provenance/performance_json`
+gains `solver_point_seconds` and `solver_healpix_seconds`. No visibility array
+shape, dtype, correlation order, weight, or flag semantics changed.
+
+Schema `1.0.0` and `2.0.0` files are both rejected with
+`UnsupportedSchemaVersionError`, and neither is upgraded in place — there is no
+upgrade path by design. Re-run the simulation to write a `3.0.0` file.
+
+The reader validates the two new records against the canonical dataclass field
+sets, bounds the component list, and cross-checks the declared
+`sky_representation` against the embedded resolved configuration, all before
+any science payload is allocated. A file whose solver record was edited to
+relabel a point-only result as hybrid is rejected as an unsafe input.
+
+### Summary JSON `1.1.0` and standard formats
+
+The summary JSON reports the components and both timings in its existing
+`solver` and `performance` blocks, and its `schema.version` moves `1.0.0` →
+`1.1.0`. The bump is deliberately minor where the HDF5 schema takes a major
+one: nothing was removed or retyped, every `1.0.0` key survives at the same
+path with the same meaning, and the document has no reader to break.
+
+Measurement Set and UVFITS have no schema change. Their `HISTORY` gains three
+lines, because a summed hybrid visibility is not reconstructible from either
+file otherwise:
+
+```text
+sky_representation=hybrid
+solver_components=point,healpix
+solver_component_element_counts=20,3072
+```
+
+The same facts also travel inside the `RADIOSIM_PROJECTION_JSON=` record's
+`solver` object.
+
 ## Beam input
 
 The flat beam object and BeamManager compatibility keys are rejected rather
@@ -388,7 +449,10 @@ Two scientific consequences have no opt-out:
 HDF5 results moved to schema `2.0.0`, which adds the `receptors` group and makes
 the stored correlation labels basis-driven. Schema `1.0.0` files are rejected
 with `UnsupportedSchemaVersionError` and are not upgraded in place; re-run the
-simulation. Measurement Set, UVFITS, the summary JSON, and every renderer read
+simulation. (Schema `2.0.0` has since been superseded by `3.0.0` — see
+[Hybrid results and serialization](#hybrid-results-and-serialization) — and is
+rejected on the same terms.) Measurement Set, UVFITS, the summary JSON, and
+every renderer read
 the resolved basis rather than assuming the linear labels. See
 [`docs/api/io.rst`](api/io.rst) for the complete polarization mapping and
 [`docs/user_guide/jones_matrices.rst`](user_guide/jones_matrices.rst) for the

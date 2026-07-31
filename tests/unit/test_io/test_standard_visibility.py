@@ -109,17 +109,24 @@ def build_standard_result(
     frequencies_hz: tuple[float, ...] = (100e6, 101.5e6),
     channel_widths_hz: tuple[float, ...] = (1.5e6, 1.5e6),
     receptors: dict[str, object] | None = None,
+    sky_representation: str = "point_sources",
+    components: tuple[str, ...] = ("point",),
+    component_element_counts: tuple[int, ...] = (3,),
 ):
-    """Build a nontrivial canonical result with autos and crosses."""
-    simulator = Simulator.from_mapping(
-        _result_mapping(
-            tmp_path,
-            frequencies_hz=frequencies_hz,
-            channel_widths_hz=channel_widths_hz,
-            receptors=receptors,
-        ),
-        base_dir=tmp_path,
+    """Build a nontrivial canonical result with autos and crosses.
+
+    ``sky_representation`` flows to both the resolved configuration and the
+    solver provenance, so a hybrid fixture is a coherent result rather than a
+    point-only result wearing a hybrid label (Tier 6G, plan Section 19).
+    """
+    mapping = _result_mapping(
+        tmp_path,
+        frequencies_hz=frequencies_hz,
+        channel_widths_hz=channel_widths_hz,
+        receptors=receptors,
     )
+    mapping["visibility"] = {"sky_representation": sky_representation}
+    simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
     simulator._ensure_instrument_state()
     simulator._ensure_receptor_set()
     simulator._ensure_beam_system()
@@ -166,11 +173,11 @@ def build_standard_result(
         ),
         solver_provenance=SolverResultProvenance(
             solver="rime",
-            sky_representation="point_sources",
+            sky_representation=sky_representation,
             convention="radiosim.rime-zenith-drift.v1",
             execution_path="polarized",
-            components=("point",),
-            component_element_counts=(3,),
+            components=components,
+            component_element_counts=component_element_counts,
         ),
         resolved_config=simulator.config.to_json_safe(),
         configuration_provenance=None,
@@ -889,3 +896,55 @@ def test_projection_history_enforces_exact_depth_boundary() -> None:
     over_limit["instrument"] = nested
     with pytest.raises(UnsafeResultInputError, match="nesting"):
         projection_record_from_history(_projection_history(over_limit))
+
+
+# ---------------------------------------------------------------------------
+# Tier 6G: MS/UVFITS HISTORY names every solved component (Section 19; H10)
+# ---------------------------------------------------------------------------
+
+
+_HISTORY_COMPONENT_CASES = [
+    ("point_sources", ("point",), (3,), "point", "3"),
+    ("healpix_map", ("healpix",), (3072,), "healpix", "3072"),
+    ("hybrid", ("point", "healpix"), (3, 3072), "point,healpix", "3,3072"),
+]
+
+
+@pytest.mark.parametrize("format_name", ["ms", "uvfits"])
+@pytest.mark.parametrize(
+    ("representation", "components", "counts", "component_text", "count_text"),
+    _HISTORY_COMPONENT_CASES,
+    ids=[case[0] for case in _HISTORY_COMPONENT_CASES],
+)
+def test_projection_history_names_every_solved_component(
+    tmp_path: Path,
+    format_name: str,
+    representation: str,
+    components: tuple[str, ...],
+    counts: tuple[int, ...],
+    component_text: str,
+    count_text: str,
+) -> None:
+    """Section 19: a summed hybrid is not reconstructible without this line."""
+    result = build_standard_result(
+        tmp_path,
+        sky_representation=representation,
+        components=components,
+        component_element_counts=counts,
+    )
+    projected = project_simulation_result(result, format=format_name)
+
+    lines = projected.data.history
+    assert f"sky_representation={representation}" in lines
+    assert f"solver_components={component_text}" in lines
+    assert f"solver_component_element_counts={count_text}" in lines
+
+    record, _lines = projection_record_from_history(projected.uvdata.history)
+    solver = record["solver"]
+    assert solver["sky_representation"] == representation
+    assert list(solver["components"]) == list(components)
+    assert list(solver["component_element_counts"]) == list(counts)
+    assert (
+        len(projected.uvdata.history.encode("utf-8"))
+        <= standard_visibility_module._PROJECTION_HISTORY_LIMIT
+    )

@@ -678,3 +678,25 @@ def test_standard_writers_never_prompt(
         item.startswith("RADIOSIM_PROJECTION_JSON=")
         for item in read_uvfits(target).history
     )
+
+
+def test_uvfits_history_names_every_solved_component(tmp_path: Path) -> None:
+    """Tier 6G, plan Section 19 / row H10: UVFITS HISTORY records them too."""
+    result = build_standard_result(
+        tmp_path,
+        sky_representation="hybrid",
+        components=("point", "healpix"),
+        component_element_counts=(3, 3072),
+    )
+    target = tmp_path / "hybrid-components.uvfits"
+    write_uvfits(result, target)
+
+    loaded = read_uvfits(target)
+    joined = "\n".join(loaded.history)
+
+    assert "sky_representation=hybrid" in joined
+    assert "solver_components=point,healpix" in joined
+    assert "solver_component_element_counts=3,3072" in joined
+    record, _lines = projection_record_from_history(joined)
+    assert record["solver"]["components"] == ["point", "healpix"]
+    assert record["solver"]["component_element_counts"] == [3, 3072]

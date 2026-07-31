@@ -321,7 +321,7 @@ def test_tier4d_hdf5_documentation_is_complete_and_bounded():
 
     for required in (
         "radiosim.visibility",
-        "2.0.0",
+        "3.0.0",
         ".h5",
         "write_result_hdf5",
         "load_result_hdf5",
@@ -782,7 +782,7 @@ def test_tier5g_io_reference_is_truthful_about_schema_and_basis():
     text = (REPOSITORY_ROOT / "docs" / "api" / "io.rst").read_text(encoding="utf-8")
     collapsed = " ".join(text.split())
 
-    assert "schema version ``2.0.0``" in collapsed
+    assert "schema version ``3.0.0``" in collapsed
     assert "schema version ``1.0.0`` is the complete" not in collapsed
     assert "explicitly maps ``XX, XY, YX, YY`` into each file" not in collapsed
     for required in (

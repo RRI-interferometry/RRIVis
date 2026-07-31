@@ -148,9 +148,12 @@ def test_summary_json_is_exact_bounded_metadata_contract(tmp_path):
         "history",
         "excluded_payloads",
     }
+    # Tier 6G, plan Section 19: additive growth over ``1.0.0`` (the Tier 6C
+    # ``execution`` block and the Tier 6F component fields), so the summary
+    # takes a minor bump where the HDF5 schema takes a major one.
     assert payload["schema"] == {
         "name": "radiosim.result-summary",
-        "version": "1.0.0",
+        "version": "1.1.0",
     }
     assert payload["excluded_payloads"] == [
         "visibility_samples",
@@ -679,3 +682,63 @@ def test_summary_rejects_hostile_container_subclasses_without_calling_hooks(
         with pytest.raises(SummaryContractError, match="unsupported"):
             module.write_result_summary_json(result, output_parent / "summary")
         assert not output_parent.exists()
+
+
+# ---------------------------------------------------------------------------
+# Tier 6G: the summary reports every solved component (plan Section 19; H10)
+# ---------------------------------------------------------------------------
+
+
+def test_summary_solver_block_reports_the_solved_components(tmp_path):
+    """H10 half one: the components and counts reach the summary document."""
+    result, _ = _build(tmp_path)
+    writer = importlib.import_module(
+        "radiosim.io.summary_json"
+    ).write_result_summary_json
+
+    target = writer(result, tmp_path / "components", overwrite=False)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+
+    solver = payload["solver"]
+    assert set(solver) == {
+        "solver",
+        "sky_representation",
+        "convention",
+        "execution_path",
+        "components",
+        "component_element_counts",
+    }
+    assert solver["sky_representation"] == result.solver.sky_representation
+    assert solver["components"] == list(result.solver.components)
+    assert solver["component_element_counts"] == list(
+        result.solver.component_element_counts
+    )
+    assert (
+        solver["sky_representation"]
+        == (payload["resolved_config"]["visibility"]["sky_representation"])
+    )
+
+
+def test_summary_performance_block_reports_both_component_timings(tmp_path):
+    """The two per-component timings travel with the run that produced them."""
+    result, _ = _build(tmp_path)
+    writer = importlib.import_module(
+        "radiosim.io.summary_json"
+    ).write_result_summary_json
+
+    target = writer(result, tmp_path / "timings", overwrite=False)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+
+    performance = payload["performance"]
+    assert performance["solver_point_seconds"] == (
+        result.performance.solver_point_seconds
+    )
+    assert performance["solver_healpix_seconds"] == (
+        result.performance.solver_healpix_seconds
+    )
+    assert (
+        performance["solver_point_seconds"] + performance["solver_healpix_seconds"]
+        <= performance["solver_seconds"]
+    )
+    # Nondeterministic timings stay out of both fingerprints (Section 9.4).
+    assert "solver_point_seconds" not in json.dumps(payload["result"])

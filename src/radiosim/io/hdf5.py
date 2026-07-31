@@ -26,7 +26,9 @@ from radiosim.core.polarization_basis import (
 from radiosim.core.result import (
     InvalidResultError,
     LoadedSimulationResult,
+    ResultPerformance,
     SimulationResult,
+    SolverResultProvenance,
     build_loaded_simulation_result,
 )
 from radiosim.core.time_grid import (
@@ -59,7 +61,7 @@ from radiosim.io.result_errors import (
 )
 
 SCHEMA_NAME: Final = "radiosim.visibility"
-SCHEMA_VERSION: Final = "2.0.0"
+SCHEMA_VERSION: Final = "3.0.0"
 DIMENSION_ORDER: Final = "time,baseline,frequency,correlation"
 VISIBILITY_UNIT: Final = "Jy"
 _RECEPTOR_BASES: Final = ("linear", "circular")
@@ -155,6 +157,11 @@ _JSON_PATHS: Final = {
     "provenance/history_json": "history",
 }
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+#: A schema-``3.0.0`` result solves at most the two components of
+#: ``Tier6HybridRuntimePlan.md`` Section 8.3, so a longer component list is
+#: forged.  The bound is checked before the sequence is walked, so a hostile
+#: file cannot make the reader iterate an attacker-sized list.
+_MAX_SOLVED_COMPONENTS: Final = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,11 +383,11 @@ def _prepare_result(result: object) -> _PreparedResult:
     dtype = typed.visibilities.dtype
     if dtype.kind == "c" and dtype.itemsize == 32:
         raise FormatRepresentationError(
-            "complex256 is not representable in radiosim.visibility HDF5 2.0.0"
+            "complex256 is not representable in radiosim.visibility HDF5 3.0.0"
         )
     if dtype not in {np.dtype("complex64"), np.dtype("complex128")}:
         raise FormatRepresentationError(
-            "HDF5 2.0.0 requires complex64 or complex128 visibilities"
+            "HDF5 3.0.0 requires complex64 or complex128 visibilities"
         )
     instrument = _mapping_tree(
         typed.instrument.to_snapshot(),
@@ -935,7 +942,7 @@ def write_result_hdf5(
     *,
     overwrite: bool = False,
 ) -> Path:
-    """Write a complete ``radiosim.visibility`` 2.0.0 result atomically.
+    """Write a complete ``radiosim.visibility`` 3.0.0 result atomically.
 
     Parameters
     ----------
@@ -1963,6 +1970,74 @@ def _read_receptor_group(
     }
 
 
+def _bounded_component_sequence(
+    snapshot: Mapping[str, object],
+    key: str,
+) -> list[object]:
+    """Return a solver component sequence after its length is bounded.
+
+    The length is checked from ``len`` alone, before any element is read or
+    coerced, so a forged list cannot cost more than the JSON parse that already
+    bounded it.
+    """
+    value = snapshot.get(key)
+    if type(value) is not list:
+        raise UnsafeResultInputError(f"HDF5 solver_json.{key} must be an array")
+    items = cast(list[object], value)
+    if len(items) > _MAX_SOLVED_COMPONENTS:
+        raise UnsafeResultInputError(
+            f"HDF5 solver_json.{key} exceeds the {_MAX_SOLVED_COMPONENTS} solved "
+            "components a radiosim.visibility result can have"
+        )
+    return items
+
+
+def _validate_component_provenance(snapshots: Mapping[str, object]) -> None:
+    """Reject a forged component or timing record before any payload is read.
+
+    Plan ``Tier6HybridRuntimePlan.md`` Section 19 makes the solved components,
+    their element counts, and the two per-component timings part of schema
+    ``3.0.0``.  The canonical model validates them again when the result is
+    built, but that happens after the visibility cube has been allocated, so
+    the checks are also made here, from the parsed and already byte-bounded
+    JSON, while the reader has allocated nothing but metadata.
+
+    The field sets are derived from the canonical dataclasses rather than
+    restated, so a later field addition cannot leave this reader silently
+    accepting the older shape.
+    """
+    solver = cast(dict[str, object], snapshots["solver"])
+    performance = cast(dict[str, object], snapshots["performance"])
+    resolved_config = cast(dict[str, object], snapshots["resolved_config"])
+
+    if set(solver) != {field.name for field in fields(SolverResultProvenance)}:
+        raise UnsafeResultInputError("HDF5 solver_json has unexpected fields")
+    _ = _bounded_component_sequence(solver, "components")
+    _ = _bounded_component_sequence(solver, "component_element_counts")
+    try:
+        identity = SolverResultProvenance(**cast(dict[str, Any], solver))
+    except (TypeError, ValueError, InvalidResultError) as exc:
+        raise UnsafeResultInputError("HDF5 solver_json is invalid") from exc
+
+    visibility = _snapshot_mapping(
+        resolved_config,
+        "visibility",
+        context="resolved_config",
+    )
+    if visibility.get("sky_representation") != identity.sky_representation:
+        raise UnsafeResultInputError(
+            "HDF5 solver_json sky representation disagrees with the resolved "
+            "configuration"
+        )
+
+    if set(performance) != {field.name for field in fields(ResultPerformance)}:
+        raise UnsafeResultInputError("HDF5 performance_json has unexpected fields")
+    try:
+        _ = ResultPerformance(**cast(dict[str, Any], performance))
+    except (TypeError, ValueError, InvalidResultError) as exc:
+        raise UnsafeResultInputError("HDF5 performance_json is invalid") from exc
+
+
 def _validate_structured_identity(
     datasets: Mapping[str, Any],
     snapshots: Mapping[str, object],
@@ -1975,6 +2050,7 @@ def _validate_structured_identity(
     tuple[str, ...],
     dict[str, object],
 ]:
+    _validate_component_provenance(snapshots)
     utc_jd1 = _read_numeric(
         datasets["coordinates/time/utc_jd1"],
         path="coordinates/time/utc_jd1",
@@ -2356,7 +2432,7 @@ def load_result_hdf5(
     *,
     limits: HDF5ReadLimits = HDF5ReadLimits(),
 ) -> LoadedSimulationResult:
-    """Load and fully validate a ``radiosim.visibility`` 2.0.0 result.
+    """Load and fully validate a ``radiosim.visibility`` 3.0.0 result.
 
     No partial result is returned. Structural metadata and all allocation
     limits are validated before science payloads are read.

@@ -899,9 +899,20 @@ def _projection_history(
 ) -> tuple[tuple[str, ...], str]:
     input_dtype = result.visibilities.dtype.name
     lossy = format_name == "ms" and input_dtype == "complex128"
+    # Plan Section 19: neither format has a place for component provenance, and
+    # a summed hybrid visibility is not reconstructible from the file, so the
+    # component list is stated in plain HISTORY text as well as inside the
+    # projection record.  Both sequences are bounded by Section 8.3's two
+    # components and by the validated ``SolverResultProvenance``.
+    solver = result.solver
+    components = ",".join(solver.components)
+    element_counts = ",".join(str(count) for count in solver.component_element_counts)
     history = tuple(result.history) + (
         f"radiosim_version={_package_version()}",
         f"standard_format={format_name}",
+        f"sky_representation={solver.sky_representation}",
+        f"solver_components={components}",
+        f"solver_component_element_counts={element_counts}",
         f"input_visibility_dtype={input_dtype}",
         f"stored_visibility_dtype={stored_visibility_dtype}",
         f"lossy_visibility_conversion={'true' if lossy else 'false'}",

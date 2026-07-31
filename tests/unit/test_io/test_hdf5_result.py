@@ -16,8 +16,15 @@ import pytest
 
 import radiosim.io.hdf5 as hdf5_module
 from radiosim.api.simulator import Simulator
+from radiosim.backends import get_backend
 from radiosim.core.phase_center import PhaseCenter
-from radiosim.core.result import LoadedSimulationResult, build_simulation_result
+from radiosim.core.result import (
+    BackendResultProvenance,
+    LoadedSimulationResult,
+    ResultPerformance,
+    SolverResultProvenance,
+    build_simulation_result,
+)
 from radiosim.io.hdf5 import HDF5ReadLimits, load_result_hdf5, write_result_hdf5
 from radiosim.io.result_errors import (
     FormatRepresentationError,
@@ -596,7 +603,7 @@ def test_independent_h5py_inspection_matches_exact_schema(
             assert type(value) is np.bytes_
             root_values[name] = bytes(value).decode("utf-8", errors="strict")
         assert root_values["schema_name"] == "radiosim.visibility"
-        assert root_values["schema_version"] == "2.0.0"
+        assert root_values["schema_version"] == "3.0.0"
         assert root_values["dimension_order"] == "time,baseline,frequency,correlation"
         assert root_values["visibility_unit"] == "Jy"
         assert root_values["scientific_sha256"] == result.scientific_sha256
@@ -2124,8 +2131,9 @@ def test_frequency_snapshot_mismatch_is_rejected_before_science_read(
 CIRCULAR = {"default": {"basis": "circular"}}
 
 
-def test_schema_version_is_two_zero_zero() -> None:
-    assert hdf5_module.SCHEMA_VERSION == "2.0.0"
+def test_schema_version_is_three_zero_zero() -> None:
+    """Tier 6G, plan Section 19: the component-provenance bump."""
+    assert hdf5_module.SCHEMA_VERSION == "3.0.0"
     assert not hasattr(hdf5_module, "CORRELATIONS")
     assert not hasattr(hdf5_module, "AIPS_CODES")
 
@@ -2233,12 +2241,9 @@ def test_a_rotated_feed_survives_the_round_trip_exactly(tmp_path):
         assert tuple(row["feed_angle_rad"]) == live.feed_angle_rad
 
 
-def test_schema_version_one_is_rejected_and_names_the_tier_five_boundary(tmp_path):
-    result = _result(tmp_path)
-    output = write_result_hdf5(result, tmp_path / "legacy-version.h5")
+def _restamp_schema_version(output: Path, version: bytes) -> None:
     with h5py.File(output, "r+") as handle:
         del handle.attrs["schema_version"]
-        version = b"1.0.0"
         handle.attrs.create(
             "schema_version",
             np.bytes_(version),
@@ -2246,13 +2251,27 @@ def test_schema_version_one_is_rejected_and_names_the_tier_five_boundary(tmp_pat
             dtype=h5py.string_dtype(encoding="utf-8", length=len(version)),
         )
 
+
+@pytest.mark.parametrize("version", [b"1.0.0", b"2.0.0"])
+def test_every_superseded_schema_version_is_rejected_naming_tier_six(
+    tmp_path,
+    version,
+):
+    """Tier 6G, plan Section 32.7: no upgrade path, and the message says so."""
+    result = _result(tmp_path)
+    output = write_result_hdf5(result, tmp_path / "superseded-version.h5")
+    _restamp_schema_version(output, version)
+
     with pytest.raises(UnsupportedSchemaVersionError) as caught:
         load_result_hdf5(output)
 
     message = str(caught.value)
-    assert "1.0.0" in message
-    assert "Tier 5" in message
-    assert caught.value.version == "1.0.0"
+    decoded = version.decode("ascii")
+    assert decoded in message
+    assert "Tier 6" in message
+    assert "3.0.0" in message
+    assert "re-run the simulation" in message
+    assert caught.value.version == decoded
 
 
 @pytest.mark.parametrize(
@@ -2389,3 +2408,366 @@ def test_the_receptor_group_cannot_be_silently_dropped(tmp_path):
 
     with pytest.raises(UnsafeResultInputError, match="allowlist"):
         load_result_hdf5(output)
+
+
+# ---------------------------------------------------------------------------
+# Tier 6G: schema 3.0.0 component provenance (plan Sections 19, 32.7; row H9)
+# ---------------------------------------------------------------------------
+
+
+def _component_result(
+    tmp_path: Path,
+    *,
+    representation: str,
+    components: tuple[str, ...],
+    counts: tuple[int, ...],
+    point_seconds: float = 0.0,
+    healpix_seconds: float = 0.0,
+):
+    """Build a result whose solver provenance and resolved config agree.
+
+    The reader cross-checks the two (plan Section 19 reader validation), so a
+    fixture that declares ``hybrid`` in one place and ``point_sources`` in the
+    other is not a legitimate result and must not be used as one.
+    """
+    directory = tmp_path / representation
+    data = _mapping(directory)
+    data["visibility"] = {"sky_representation": representation}
+    simulator = Simulator.from_mapping(data, base_dir=directory)
+    simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
+    simulator._ensure_beam_system()
+    backend = get_backend("numpy")
+    cube = np.arange(2 * 1 * 2 * 4, dtype=np.float64).reshape(2, 1, 2, 2, 2)
+    receptor = cube.astype("complex128")
+    receptor += 1j * receptor
+    return build_simulation_result(
+        receptor_visibilities=receptor,
+        backend=backend,
+        time_grid=simulator.config.observation.time_grid,
+        frequencies_hz=simulator.config.frequency.channel_frequencies_hz,
+        channel_widths_hz=simulator.config.frequency.channel_widths_hz,
+        instrument=simulator.instrument,
+        selection=simulator._instrument_state.selection,
+        beam_state=simulator.beam_state,
+        receptors=simulator.receptors,
+        phase_center=PhaseCenter(),
+        backend_provenance=BackendResultProvenance(
+            requested_backend="numpy",
+            actual_backend=backend.name,
+            requested_precision={"output": "complex128"},
+            actual_precision={"output": "complex128"},
+            result_dtype="complex128",
+        ),
+        solver_provenance=SolverResultProvenance(
+            solver="rime",
+            sky_representation=representation,
+            convention="radiosim.rime-zenith-drift.v1",
+            execution_path="polarized",
+            components=components,
+            component_element_counts=counts,
+        ),
+        resolved_config=simulator.config.to_json_safe(),
+        configuration_provenance=None,
+        performance=ResultPerformance(
+            setup_seconds=1.0,
+            solver_seconds=2.0,
+            solver_point_seconds=point_seconds,
+            solver_healpix_seconds=healpix_seconds,
+            result_construction_seconds=0.5,
+            host_transfer_seconds=0.25,
+            total_seconds=3.75,
+        ),
+        history=("simulated",),
+    )
+
+
+_COMPONENT_CASES = [
+    ("point_sources", ("point",), (7,), 2.0, 0.0),
+    ("healpix_map", ("healpix",), (3072,), 0.0, 2.0),
+    ("hybrid", ("point", "healpix"), (7, 3072), 1.25, 0.5),
+]
+
+
+@pytest.mark.parametrize(
+    ("representation", "components", "counts", "point_seconds", "healpix_seconds"),
+    _COMPONENT_CASES,
+    ids=[case[0] for case in _COMPONENT_CASES],
+)
+def test_every_representation_round_trips_component_provenance_and_timings(
+    tmp_path,
+    representation,
+    components,
+    counts,
+    point_seconds,
+    healpix_seconds,
+):
+    """H9: point-only, healpix-only, and hybrid all survive 3.0.0 exactly."""
+    result = _component_result(
+        tmp_path,
+        representation=representation,
+        components=components,
+        counts=counts,
+        point_seconds=point_seconds,
+        healpix_seconds=healpix_seconds,
+    )
+    output = write_result_hdf5(result, tmp_path / f"{representation}.h5")
+
+    with h5py.File(output, "r") as handle:
+        groups, datasets = _object_paths(handle)
+        assert groups == GROUPS
+        assert datasets == DATASETS
+        assert bytes(handle.attrs["schema_version"]).decode() == "3.0.0"
+        solver_json = json.loads(
+            bytes(handle["provenance/solver_json"][()]).rstrip(b"\x00").decode("utf-8")
+        )
+        performance_json = json.loads(
+            bytes(handle["provenance/performance_json"][()])
+            .rstrip(b"\x00")
+            .decode("utf-8")
+        )
+    assert solver_json["sky_representation"] == representation
+    assert tuple(solver_json["components"]) == components
+    assert tuple(solver_json["component_element_counts"]) == counts
+    assert performance_json["solver_point_seconds"] == point_seconds
+    assert performance_json["solver_healpix_seconds"] == healpix_seconds
+
+    loaded = load_result_hdf5(output)
+
+    assert loaded.solver_snapshot["sky_representation"] == representation
+    assert tuple(loaded.solver_snapshot["components"]) == components
+    assert tuple(loaded.solver_snapshot["component_element_counts"]) == counts
+    assert loaded.performance.solver_point_seconds == point_seconds
+    assert loaded.performance.solver_healpix_seconds == healpix_seconds
+    assert loaded.scientific_sha256 == result.scientific_sha256
+    assert loaded.provenance_sha256 == result.provenance_sha256
+    assert loaded.scientifically_equal(result)
+
+
+def test_a_hybrid_file_is_not_scientifically_equal_to_a_point_only_file(tmp_path):
+    """H8 at the serialization boundary: components are part of the identity."""
+    hybrid = _component_result(
+        tmp_path,
+        representation="hybrid",
+        components=("point", "healpix"),
+        counts=(7, 3072),
+        point_seconds=1.25,
+        healpix_seconds=0.5,
+    )
+    point = _component_result(
+        tmp_path,
+        representation="point_sources",
+        components=("point",),
+        counts=(7,),
+        point_seconds=2.0,
+    )
+    hybrid_loaded = load_result_hdf5(
+        write_result_hdf5(hybrid, tmp_path / "hybrid-identity.h5")
+    )
+    point_loaded = load_result_hdf5(
+        write_result_hdf5(point, tmp_path / "point-identity.h5")
+    )
+
+    assert np.array_equal(hybrid_loaded.visibilities, point_loaded.visibilities)
+    assert not hybrid_loaded.scientifically_equal(point_loaded)
+    assert hybrid_loaded.scientific_sha256 != point_loaded.scientific_sha256
+
+
+def _rewrite_solver_json(output: Path, mutate) -> None:
+    with h5py.File(output, "r") as handle:
+        text = bytes(handle["provenance/solver_json"][()]).rstrip(b"\x00")
+    record = json.loads(text.decode("utf-8"))
+    mutate(record)
+    _replace_fixed_dataset(
+        output,
+        "provenance/solver_json",
+        json.dumps(
+            record,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ),
+    )
+
+
+def _rewrite_performance_json(output: Path, mutate) -> None:
+    with h5py.File(output, "r") as handle:
+        text = bytes(handle["provenance/performance_json"][()]).rstrip(b"\x00")
+    record = json.loads(text.decode("utf-8"))
+    mutate(record)
+    _replace_fixed_dataset(
+        output,
+        "provenance/performance_json",
+        json.dumps(
+            record,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ),
+    )
+
+
+def _relabel_representation(record: dict) -> None:
+    record["sky_representation"] = "hybrid"
+    record["components"] = ["point", "healpix"]
+    record["component_element_counts"] = [7, 3072]
+
+
+def _forge_components_only(record: dict) -> None:
+    record["components"] = ["point", "healpix"]
+
+
+def _forge_extra_field(record: dict) -> None:
+    record["component_flux_jy"] = [1.0, 2.0]
+
+
+def _forge_missing_field(record: dict) -> None:
+    del record["component_element_counts"]
+
+
+def _forge_negative_count(record: dict) -> None:
+    record["component_element_counts"] = [-1]
+
+
+def _forge_unbounded_component_list(record: dict) -> None:
+    record["components"] = ["point"] * 4096
+    record["component_element_counts"] = [1] * 4096
+
+
+def _forge_component_name(record: dict) -> None:
+    record["components"] = ["healpix"]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (_relabel_representation, "solver"),
+        (_forge_components_only, "solver"),
+        (_forge_extra_field, "solver"),
+        (_forge_missing_field, "solver"),
+        (_forge_negative_count, "solver"),
+        (_forge_unbounded_component_list, "solver"),
+        (_forge_component_name, "solver"),
+    ],
+    ids=[
+        "relabelled_representation",
+        "components_without_representation",
+        "unexpected_field",
+        "missing_field",
+        "negative_count",
+        "unbounded_component_list",
+        "wrong_component_name",
+    ],
+)
+def test_a_forged_solver_group_is_rejected_before_any_science_is_read(
+    tmp_path,
+    monkeypatch,
+    mutate,
+    match,
+):
+    """Tier 4/5 hostile discipline: reject component forgery pre-allocation."""
+    result = _component_result(
+        tmp_path,
+        representation="point_sources",
+        components=("point",),
+        counts=(7,),
+        point_seconds=2.0,
+    )
+    output = write_result_hdf5(result, tmp_path / "forged-solver.h5")
+    _rewrite_solver_json(output, mutate)
+
+    reads: list[str] = []
+    original_getitem = h5py.Dataset.__getitem__
+
+    def recording_getitem(dataset, key, **kwargs):
+        reads.append(dataset.name)
+        return original_getitem(dataset, key, **kwargs)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", recording_getitem)
+    with pytest.raises(UnsafeResultInputError, match=match):
+        load_result_hdf5(output)
+    assert not any(name.startswith("/data/") for name in reads)
+
+
+def _forge_incoherent_component_times(record: dict) -> None:
+    record["solver_point_seconds"] = 5.0
+    record["solver_healpix_seconds"] = 5.0
+
+
+def _forge_extra_performance_field(record: dict) -> None:
+    record["solver_gpu_seconds"] = 1.0
+
+
+def _forge_missing_performance_field(record: dict) -> None:
+    del record["solver_healpix_seconds"]
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        _forge_incoherent_component_times,
+        _forge_extra_performance_field,
+        _forge_missing_performance_field,
+    ],
+    ids=["incoherent_component_times", "unexpected_field", "missing_field"],
+)
+def test_a_forged_performance_group_is_rejected_before_any_science_is_read(
+    tmp_path,
+    monkeypatch,
+    mutate,
+):
+    result = _component_result(
+        tmp_path,
+        representation="hybrid",
+        components=("point", "healpix"),
+        counts=(7, 3072),
+        point_seconds=1.25,
+        healpix_seconds=0.5,
+    )
+    output = write_result_hdf5(result, tmp_path / "forged-performance.h5")
+    _rewrite_performance_json(output, mutate)
+
+    reads: list[str] = []
+    original_getitem = h5py.Dataset.__getitem__
+
+    def recording_getitem(dataset, key, **kwargs):
+        reads.append(dataset.name)
+        return original_getitem(dataset, key, **kwargs)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", recording_getitem)
+    with pytest.raises(UnsafeResultInputError, match="performance"):
+        load_result_hdf5(output)
+    assert not any(name.startswith("/data/") for name in reads)
+
+
+def test_an_oversized_solver_group_is_rejected_from_metadata_alone(
+    tmp_path,
+    monkeypatch,
+):
+    """A component list large enough to matter never reaches a value read."""
+    result = _component_result(
+        tmp_path,
+        representation="point_sources",
+        components=("point",),
+        counts=(7,),
+        point_seconds=2.0,
+    )
+    output = write_result_hdf5(result, tmp_path / "oversized-solver.h5")
+    _replace_fixed_dataset(
+        output,
+        "provenance/solver_json",
+        json.dumps({"components": ["point"] * 200_000}),
+        width=2 * 1024 * 1024,
+    )
+
+    reads: list[str] = []
+    original_getitem = h5py.Dataset.__getitem__
+
+    def recording_getitem(dataset, key, **kwargs):
+        reads.append(dataset.name)
+        return original_getitem(dataset, key, **kwargs)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", recording_getitem)
+    with pytest.raises(UnsafeResultInputError, match="max_single_string_bytes"):
+        load_result_hdf5(output)
+    assert not any(name.startswith("/data/") for name in reads)

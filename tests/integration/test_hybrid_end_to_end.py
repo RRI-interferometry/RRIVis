@@ -189,3 +189,81 @@ def test_shipped_hybrid_example_runs_and_reports_both_components(tmp_path) -> No
     assert result.solver.components == ("point", "healpix")
     assert result.solver.component_element_counts[0] == 20
     assert result.solver.component_element_counts[1] == 12 * 16 * 16
+
+
+# ---------------------------------------------------------------------------
+# Tier 6G: every artifact tells the truth about a hybrid result (Section 19)
+# ---------------------------------------------------------------------------
+
+
+def test_hybrid_result_round_trips_through_hdf5_three_zero_zero(tmp_path) -> None:
+    """H9 end to end: a real hybrid run survives write and load exactly."""
+    import h5py
+
+    from radiosim.io.hdf5 import SCHEMA_VERSION, load_result_hdf5, write_result_hdf5
+
+    result = _run(tmp_path, "hybrid")
+    output = write_result_hdf5(result, tmp_path / "hybrid.h5")
+
+    with h5py.File(output, "r") as handle:
+        assert bytes(handle.attrs["schema_version"]).decode() == "3.0.0"
+    assert SCHEMA_VERSION == "3.0.0"
+
+    loaded = load_result_hdf5(output)
+
+    assert loaded.solver_snapshot["sky_representation"] == "hybrid"
+    assert tuple(loaded.solver_snapshot["components"]) == ("point", "healpix")
+    assert tuple(loaded.solver_snapshot["component_element_counts"]) == (
+        result.solver.component_element_counts
+    )
+    assert loaded.performance.solver_point_seconds == (
+        result.performance.solver_point_seconds
+    )
+    assert loaded.performance.solver_healpix_seconds == (
+        result.performance.solver_healpix_seconds
+    )
+    assert loaded.scientific_sha256 == result.scientific_sha256
+    assert loaded.provenance_sha256 == result.provenance_sha256
+    assert loaded.visibilities.tobytes() == result.visibilities.tobytes()
+    assert loaded.scientifically_equal(result)
+
+
+def test_hybrid_summary_json_reports_both_components(tmp_path) -> None:
+    """H10 half one, from a real run rather than a hand-built fixture."""
+    import json
+
+    from radiosim.io.summary_json import write_result_summary_json
+
+    result = _run(tmp_path, "hybrid")
+    target = write_result_summary_json(result, tmp_path / "hybrid")
+    payload = json.loads(target.read_text(encoding="utf-8"))
+
+    assert payload["schema"]["version"] == "1.1.0"
+    assert payload["solver"]["sky_representation"] == "hybrid"
+    assert payload["solver"]["components"] == ["point", "healpix"]
+    assert payload["solver"]["component_element_counts"] == list(
+        result.solver.component_element_counts
+    )
+    assert payload["performance"]["solver_point_seconds"] > 0.0
+    assert payload["performance"]["solver_healpix_seconds"] > 0.0
+
+
+def test_hybrid_uvfits_history_reports_both_components(tmp_path) -> None:
+    """H10 half two: the standard format says what it is a sum of."""
+    from radiosim.io.standard_visibility import projection_record_from_history
+    from radiosim.io.uvfits import read_uvfits, write_uvfits
+
+    result = _run(tmp_path, "hybrid")
+    target = tmp_path / "hybrid.uvfits"
+    write_uvfits(result, target)
+
+    loaded = read_uvfits(target)
+    joined = "\n".join(loaded.history)
+
+    assert "sky_representation=hybrid" in joined
+    assert "solver_components=point,healpix" in joined
+    record, _lines = projection_record_from_history(joined)
+    assert record["solver"]["components"] == ["point", "healpix"]
+    assert record["solver"]["component_element_counts"] == list(
+        result.solver.component_element_counts
+    )
