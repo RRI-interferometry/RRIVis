@@ -204,8 +204,9 @@ Status values used below:
 | RUN-002 | DONE | Sky loading hard-codes `max_workers=8` — closed 2026-07-31 (Tier 6J re-run): no hard-coded worker count survives in `src/`, `load_models_parallel` has no `max_workers` default, loader concurrency is typed/configurable/recorded, and offline behavior under both executors is tested | 6 |
 | RUN-003 | DONE | High-level API forces point or HEALPix and cannot preserve hybrid sky — closed 2026-07-31 (Tier 6J re-run): `sky_representation: hybrid` is a first-class mode with exact additivity, coordinate identity, one canonical result, an unchanged disjointness gate, and full HDF5/summary/MS/UVFITS serialization | 6 |
 | RUN-004 | DONE | Backend abstraction is not yet performance-bearing end to end — closed 2026-07-31 (Tier 6J re-run) **narrowed to §13.1 scope**: "backend correctness parity complete; accelerator performance undemonstrated" — Dask is bit-identical to NumPy, JAX-CPU agrees within `rtol=1e-12`, the registry is truthful (`numba` unselectable, `DaskBackend` reports `dask-*`, `supports_gpu` is `False`), exactly one kernel is compiled and verified against its uncompiled reference, and every capability statement cites a benchmark record. The unmeasured remainder (device-resident orchestration, device coordinate transforms, a measured accelerator run) is **not** silently absorbed into Tier 7; it is filed as `PERF-001` below per §41 Q4 | 6 |
-| SKY-001 | OPEN | Every VizieR point-catalog loader (`gleam`, `mals`, `lotss`, `vlssr`, `tgss`, `wenss`, `sumss`, `nvss`, `3c`, `vlass`) raises `TypeError` because commit `7b02bb2` made `_load_from_vizier_catalog`'s `precision` keyword-only while all four wrapper call sites in `core/sky/loaders/vizier/point_catalogs.py` still pass it positionally | standalone, bounded fix (pre-Tier 7) |
+| SKY-001 | DONE | Every VizieR point-catalog loader (`gleam`, `mals`, `lotss`, `vlssr`, `tgss`, `wenss`, `sumss`, `nvss`, `3c`, `vlass`) raised `TypeError` because commit `7b02bb2` made `_load_from_vizier_catalog`'s `precision` keyword-only while all four wrapper call sites in `core/sky/loaders/vizier/point_catalogs.py` still passed it positionally — fixed 2026-07-31 (`a5edd30`): the four call sites now pass `precision=precision`, +16 offline regression tests, one 6A characterization pin flipped in place | standalone, bounded fix (pre-Tier 7) |
 | PERF-001 | ROADMAP | Accelerator (GPU/TPU) performance remains undemonstrated: the time and frequency axes are host-side Python loops, astropy coordinate transforms / horizon masking / Planck conversion / pyuvdata beam interpolation are host-side by design, the locked JAX build is CPU-only, and measured JAX-CPU is slower than NumPy on every benchmarked workload (`output/benchmarks/reference/`). Filed 2026-07-31 at Tier 6J re-run acceptance per §41 Q4, as the successor to the accelerator-performance remainder of `RUN-004`; requires GPU/TPU hardware this environment does not have | post-Tier-7, hardware-gated |
+| SKY-002 | OPEN | The `realistic_foreground` recipe loader is registered (`core/sky/recipes/realistic_foreground.py:277-297`) with no `network_service`, so `utils/network.py::get_required_services()` returns `{}` for any config using `kind: realistic_foreground` — including the shipped `configs/realistic_foreground_example.yaml` (`diffuse: haslam`, `bright_catalogs: gleam`) — and `Simulator`'s pre-flight network check (`api/simulator.py:726`) prints "Network: offline (no network-dependent models)" even though the recipe internally calls `_load_diffuse` (pygdsm) and `_load_bright_catalog` (VizieR), both real network dependencies. Direct loaders (`diffuse_sky`, `gleam`, etc.) report correctly; only the composite recipe under-reports. Found during the SKY-001 acceptance review, 2026-07-31 | pre-Tier-8 (network pre-flight metadata), bounded |
 | RUN-005 | DONE | `scientific_sha256` embeds the antenna layout source file's absolute filesystem path (`io/instrument_sources.py`'s `source_reference=str(path)`, carried into `instrument_snapshot["reference"]` and hashed by `core/result.py::_scientific_hash`), so two runs of the identical config with bit-identical raw visibility cubes produce different `scientific_sha256` values solely because the repository checkout lives at a different absolute path; confirmed pre-existing and unaffected by Tier 6D (`core/instrument.py`, `io/instrument_sources.py`, `core/result.py` are untouched in `c5d79aa..87d7c79`) by reproducing the same divergence with cube-identical, fingerprint-different runs at `c5d79aa` from two detached worktrees | standalone, bounded fix (pre-Tier 7) |
 | RUN-006 | DONE | The FITS beam `definition_fingerprint` (`core/beam/models.py::ResolvedFITSBeamDefinition.__post_init__`) hashed the absolute FITS path, so `definition_fingerprint`, `assignment_fingerprint`, `state_fingerprint`, and `loaded_fingerprint` all differed between checkouts of the same commit even though `RUN-005`'s projection already kept them out of `scientific_sha256`; fixed by hashing only the load settings (`normalization`, `angular_interpolation`, `frequency_interpolation`) — file content stays bound at load time by the content-based handler `scientific_fingerprint` — with pre-load dedup (`_deduplicated_definitions`) re-keyed on fingerprint + resolved path so two distinct files with identical settings remain distinct definitions/handlers, and `LoadedBeamState` gaining an explicit `handler.file.resolved_path == assignment.definition.path` cross-check to preserve the assignment-matching strength the path hash used to provide; changes every stored FITS-beam fingerprint value (snapshots, summary JSON, HDF5 provenance) but no schema, no `scientific_sha256` (projection unchanged, settings survive as sibling keys), and no analytic-beam value, so the shipped-config pins are untouched | standalone, bounded fix (pre-Tier 7) |
 | SCI-001 | ROADMAP | Most Jones classes are public identity-returning stubs | 7 |
@@ -10527,3 +10528,146 @@ Tier 6 is accepted as a whole. Per the user's explicit instruction, Tier 7
 design work is not undertaken by this review or authorized to start
 automatically; the next authorized work per the roadmap is Tier 7 design,
 pending the user's go-ahead.
+
+### 2026-07-31 SKY-001 standalone fix acceptance
+
+Independent acceptance review of the standalone SKY-001 fix, commit
+`a5edd30` (`fix(sky): pass precision by keyword from the VizieR wrappers`,
+range `2b81e7a..a5edd30`, 3 files, +242/-12). Verdict: **ACCEPTED**.
+
+**Fix correctness.** Read the diff directly. Exactly the four call sites in
+`core/sky/loaders/vizier/point_catalogs.py` change, each `precision,` →
+`precision=precision,`; no other line in the production module changes; the
+already-accepted `7b02bb2` contract (`precision` keyword-only on
+`_load_from_vizier_catalog`) is untouched. Independently re-derived the sweep
+claim rather than trusting it: AST-parsed every `core/sky/` function for a
+keyword-only `precision` parameter (23 functions across `vizier/core.py`,
+`vizier/racs.py`, `pyradiosky.py`, `diffuse.py`, `fits.py`, `bbs.py`,
+`skyh5_multifile.py`, `synthetic.py`, `_healpix_builder.py`,
+`realistic_foreground.py`, `operations/factories.py`), then grepped and
+manually read every call site into each one. Every call site in `src/` passes
+`precision` (and every other argument) by keyword; no other positional-into-
+keyword-only defect exists anywhere in the sweep.
+
+**Tests-first reproduction.** At `2b81e7a` (detached worktree), copied only
+the new test file content in (no production change) and ran the suite: all
+16 new tests failed, each with the exact `TypeError` family the defect
+produces — either the real `_load_from_vizier_catalog() takes from 1 to 3
+positional arguments...` or the spy's equivalent `inspect.Signature.bind`
+`TypeError: too many positional arguments` — 4269 passed / 16 failed. At
+`a5edd30` the identical 16 tests pass. The spy-based signature-conformance
+test was further probed for robustness: in a second scratch worktree, the
+real helper's signature was perturbed (made `brightness_conversion`
+keyword-only too, leaving the accepted wrapper call sites completely
+untouched) and the suite was re-run — all 16 SKY-001 regression tests, plus
+the flipped characterization pin, immediately failed again with a fresh
+`TypeError`. This confirms the spy binds against the *live* signature at test
+time (`inspect.signature(vizier_core._load_from_vizier_catalog)` inside the
+test module) rather than a hardcoded restatement, so it will re-break on any
+future keyword-only regression of this shape, not only a literal
+reintroduction of the original bug. All ten registered VizieR point-catalog
+names (`gleam`, `mals`, `lotss`, `vlssr`, `tgss`, `wenss`, `sumss`, `nvss`,
+`3c`, `vlass`) are covered, plus the `gleam`/`mals`/`lotss` family-variant
+kwargs (`gleam_x_dr1`, `mals_dr1`, `lotss_dr1`); confirmed against
+`loader_registry.names()` directly. The pass-through-arguments test is
+meaningful (asserts `flux_limit`, `brightness_conversion`, `precision`,
+`allow_full_catalog`, `region` all reach the helper unchanged). The two
+end-to-end-to-mock tests (`nvss`, `gleam`) assert on a real returned
+`SkyModel`: RA/Dec, flux-unit conversion (mJy→Jy: 3000→3.0, 2500→2.5),
+spectral index (`alpha` -0.9), and reference frequency (1.4 GHz / 200 MHz) —
+not just "did not raise." No test in the new file touches the network; the
+mock boundary is `_fetch_vizier_catalog`, matching the pre-existing pattern
+in this same file.
+
+**Pin-flip ruling.** 6A's characterization docstring said the fixed test
+"must be replaced by a real fingerprint (network-marked) rather than
+deleted." The implementer instead flipped the assertion in place (mocked
+`_fetch_vizier_catalog`, asserts `load_gleam` now returns a real `SkyModel`
+instead of raising) and kept the same test name and purpose, adding an
+explicit `FLIPPED BY` docstring paragraph. Adjudicated as the correct
+engineering call for a *standalone, bounded* fix: the repository has no
+`network` pytest marker (confirmed — `pyproject.toml`'s `markers` list is
+exactly `slow`/`gpu`/`integration`/`performance`), so "a real fingerprint
+(network-marked)" is not actionable without inventing a new marker and CI
+lane, which is out of a bounded fix's scope by the task's own framing. The
+in-place flip keeps the test's protective purpose intact: it still proves
+blocker 2 (the `TypeError`) is gone, and it still proves blocker 1 (the 12 MB
+Haslam network download, via `assert config["sky_model"]["sources"][0]
+["diffuse"] == "haslam"`) stands, so `configs/realistic_foreground_example
+.yaml` correctly stays outside hermetic R1 coverage. The docstring records
+6A's original "network-marked" idea as the not-yet-done future path rather
+than silently dropping it. No further action required now; noted as a
+Tier-8-adjacent future item (add a `network` marker + a real live-VizieR
+fingerprint test) rather than filed as its own register row, since it is a
+test-infrastructure enhancement, not a defect.
+
+**Behavior probe.** Reproduced directly (no live download): under
+`set_offline_policy(True)`, `load_gleam(flux_limit=1000.0, max_rows=10,
+precision=PrecisionConfig.standard())` raises `ConnectionError: No internet
+connection. Cannot download catalog 'gleam_egc' from VizieR.` — the network
+boundary, not the old `TypeError`. (Without `max_rows`/`region`/
+`allow_full_catalog`, the call is intercepted earlier by an unrelated
+full-catalog guard with `ValueError`; supplying `max_rows` clears that guard
+to reach the intended network check.)
+
+**Gates.** `pixi run test -- -m "not slow"`: **default (py311) env: 4275
+passed, 10 deselected**; **py312 env: 4275 passed, 10 deselected** — matches
+the claimed 4275 = 4259+16. `pixi run lint`: all checks passed. `pixi run
+ruff format --check .`: 344 files already formatted, no diff. All four
+shipped YAMLs (`configs/config.yaml`, `configs/hybrid_sky_example.yaml`,
+`configs/realistic_foreground_example.yaml`,
+`configs/receptor_circular_example.yaml`) validate via `radiosim validate`.
+`git status` clean at HEAD; `git log 2b81e7a..a5edd30 --format=%B` contains
+no co-authorship line.
+
+**Risk adjudications.**
+
+1. Dead VizieR loaders — see fix correctness and tests-first above; resolved.
+2. Mocking at `_fetch_vizier_catalog`, not `astroquery` — matches the
+   pre-existing pattern in this file (the original
+   `test_vizier_loader_extracts_sources_from_fetched_catalog` test uses the
+   same boundary). The resulting gap — no test exercises a live VizieR
+   response shape, which is exactly why this class of defect hid for a month
+   — is real but pre-existing and not introduced or worsened by this fix.
+   Routed as a known limitation under the existing `DOC-008` register row
+   ("No tracked CI and no real integration/performance suites," Tier 8); no
+   new register row filed for it, since `DOC-008` already scopes "real
+   integration ... suites" broadly enough to cover it.
+3. `racs` outside the guard — confirmed: `load_racs`
+   (`vizier/racs.py:141-148`) does not call `_load_from_vizier_catalog` (it
+   uses CASDA TAP directly, not the VizieR-astroquery path), so it was never
+   broken by `7b02bb2` and is unaffected by this fix. No action needed.
+4. Warm-cache confound — this review performed no live network run of any
+   kind (all reproduction used mocks or the offline-policy `ConnectionError`
+   probe), so no warm-cache-dependent observation was relied upon here. Noted
+   as a standing caveat for any future claim that a shipped VizieR-backed
+   config "runs end to end" from a live network call: such an observation is
+   machine-local and cache-dependent and should not be treated as portable
+   evidence without stating the cache state.
+5. Incidental finding — confirmed as a genuine, new-to-this-review defect and
+   filed as **`SKY-002`** (§5, `OPEN`, above): `realistic_foreground` is
+   registered with no `network_service`
+   (`core/sky/recipes/realistic_foreground.py:277-297`), so
+   `get_required_services()` returns `{}` for it — reproduced directly,
+   including with the exact shipped `configs/realistic_foreground_example
+   .yaml` source dict — while `get_required_services` correctly reports
+   `{'pygdsm_data': ['diffuse_sky']}` for a direct `diffuse_sky` source and
+   `{'vizier': ['gleam']}` for a direct `gleam` source. `Simulator`'s
+   pre-flight (`api/simulator.py:726`) therefore prints "Network: offline (no
+   network-dependent models)" for a config that in fact downloads from both
+   pygdsm and VizieR. Routed pre-Tier-8, bounded (add `network_service`
+   metadata to the composite recipe registration, or have
+   `get_required_services` walk composite recipes' constituent
+   `diffuse`/`bright_catalogs` fields) — not fixed here, out of this
+   standalone fix's scope.
+
+**Unobserved items.** No live VizieR or CASDA network call was made (adjudication
+2 and 4 above cover why). `pixi run typecheck` was not run (project convention:
+not part of the standard gate unless explicitly requested). GPU/TPU hardware:
+none exercised, none claimed by this fix.
+
+**Register.** `SKY-001` flips to **DONE** (§5, above). `SKY-002` is newly
+**OPEN** (§5, above), filed from this review's own reproduction, routed
+pre-Tier-8.
+
+Acceptance commit: `docs(sky): accept SKY-001 loader repair`. Not pushed.
