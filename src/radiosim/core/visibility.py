@@ -23,6 +23,7 @@ from typing_extensions import override
 # Import backend abstraction
 from radiosim.backends import ArrayBackend
 from radiosim.core.beam import BeamSystem
+from radiosim.core.contraction import baseline_contraction_for
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
 
@@ -394,6 +395,15 @@ def calculate_visibility(
     n_freq = len(frequencies)
     sample_times = time_grid.as_astropy()
 
+    # The one compiled kernel, built once per call rather than per step: a fresh
+    # closure on every step would defeat the compilation cache entirely
+    # (``Tier6HybridRuntimePlan.md`` Section 13.6).
+    contraction = baseline_contraction_for(backend)
+    baseline_vectors = backend.asarray(
+        instrument.baseline_vectors_enu_m,
+        dtype=backend.default_real_dtype,
+    )
+
     def _zero_cube() -> Any:
         return backend.zeros_complex(
             (n_times, n_baselines, n_freq, 2, 2),
@@ -661,57 +671,54 @@ def calculate_visibility(
                     antenna_number=ant_num,
                 )
 
-            # Compute visibilities per baseline, collecting one (2, 2) matrix
-            # per baseline for a single (B, 2, 2) assembly at this (t, f).
-            baseline_matrices: list[Any] = []
-            for (ant1, ant2), baseline_vector in zip(
-                instrument.selected_pairs,
-                instrument.baseline_vectors_enu_m,
-                strict=True,
-            ):
-                J_p = jones_antenna_cache[ant1]  # (n_sources, 2, 2)
-                J_q = jones_antenna_cache[ant2]
+            # Per-baseline antenna Jones batches: (B, n_sources, 2, 2). These
+            # go through the backend's array namespace rather than through
+            # ``ArrayBackend.stack``, deliberately: ``stack`` is documented as
+            # the solvers' one *accumulation* primitive (Section 13.3), and this
+            # is input batching for the kernel, not output accumulation. Keeping
+            # the two apart is what lets the accumulation invariants stay
+            # countable.
+            J_p = xp.stack(
+                [jones_antenna_cache[ant1] for ant1, _ in instrument.selected_pairs],
+                axis=0,
+            )
+            J_q = xp.stack(
+                [jones_antenna_cache[ant2] for _, ant2 in instrument.selected_pairs],
+                axis=0,
+            )
 
-                # Geometric phase (K) applied separately
-                bl_u, bl_v, bl_w = backend.asarray(
-                    baseline_vector,
-                    dtype=backend.default_real_dtype,
-                ) / (float(C_LIGHT) / float(freq))
-                b_dot_s = bl_u * l_dir + bl_v * m_dir + bl_w * (n_dir - 1.0)
-                phase = backend.exp(-2j * np.pi * b_dot_s)
+            # Geometric phase (K), applied separately from the chain and
+            # batched over baselines: (B, n_sources).
+            uvw_wavelengths = baseline_vectors / (float(C_LIGHT) / float(freq))
+            bl_u = uvw_wavelengths[:, 0:1]
+            bl_v = uvw_wavelengths[:, 1:2]
+            bl_w = uvw_wavelengths[:, 2:3]
+            b_dot_s = bl_u * l_dir + bl_v * m_dir + bl_w * (n_dir - 1.0)
+            phase = backend.exp(-2j * np.pi * b_dot_s)
 
-                # Gaussian envelope: scalar attenuation per source
-                if has_gaussians:
-                    envelope = backend.exp(
-                        -(
-                            gauss_a_t * bl_u**2
-                            + 2 * gauss_b_t * bl_u * bl_v
-                            + gauss_c_t * bl_v**2
-                        )
+            # Gaussian envelope: scalar attenuation per (baseline, source)
+            if has_gaussians:
+                envelope = backend.exp(
+                    -(
+                        gauss_a_t * bl_u**2
+                        + 2 * gauss_b_t * bl_u * bl_v
+                        + gauss_c_t * bl_v**2
                     )
-                else:
-                    envelope = 1.0
-
-                # Vectorized RIME: V = sum_s phase_s * J_p[s] @ C[s] @ J_q_H[s]
-                J_q_H = backend.conjugate_transpose(J_q)
-
-                if is_unpolarized:
-                    V_all = backend.matmul(J_p, J_q_H)
-                    V_all = V_all * (I_scaled * phase * envelope / 2.0)[:, None, None]
-                else:
-                    V_all = backend.matmul(
-                        backend.matmul(J_p, coherency_matrices), J_q_H
-                    )
-                    V_all = V_all * (phase * envelope)[:, None, None]
-
-                visibility_matrix = backend.asarray(
-                    backend.sum(V_all, axis=0),
-                    dtype=output_complex_dtype,
                 )
-                baseline_matrices.append(visibility_matrix)
+            else:
+                envelope = 1.0
 
-            # One (B, 2, 2) block for all baselines at this (time, frequency).
-            freq_blocks.append(backend.stack(baseline_matrices, axis=0))
+            # The one compiled kernel (Section 13.6): one (B, 2, 2) block for
+            # all baselines at this (time, frequency).
+            block = contraction(
+                J_p,
+                J_q,
+                None if is_unpolarized else coherency_matrices,
+                phase,
+                envelope,
+                I_scaled if is_unpolarized else None,
+            )
+            freq_blocks.append(backend.asarray(block, dtype=output_complex_dtype))
 
         # One (B, F, 2, 2) block for this time step.
         return backend.stack(freq_blocks, axis=1)

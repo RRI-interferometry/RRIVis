@@ -186,7 +186,25 @@ def _healpix_model(*, polarized: bool) -> SkyModel:
 
 
 def _assert_block_assembly_shape(backend: _AssemblyCountingBackend, cube: Any) -> None:
-    """Assert the exact Section 13.3 assembly shape for one solver call."""
+    """Assert the exact Section 13.3 assembly shape for one solver call.
+
+    Narrowed by Tier 6H, deliberately and in exactly one respect. Tier 6D
+    assembled the per-(time, frequency) ``(B, 2, 2)`` block with
+    ``backend.stack`` over ``B`` separately computed ``(2, 2)`` matrices,
+    because the contraction ran one baseline at a time. Section 13.6's compiled
+    kernel is *baseline-batched*: it returns that whole ``(B, 2, 2)`` block from
+    one call, so there is no longer anything to assemble at that level. That is
+    strictly fewer assemblies, not more, and every binding property of
+    Section 13.3 is unchanged and still asserted below -- one ``(B, F, 2, 2)``
+    block per time, exactly one whole-cube assembly per call, and zero
+    ``set_at`` calls.
+
+    The kernel's own input batching (the two ``(B, S, 2, 2)`` antenna-Jones
+    batches per step) deliberately does **not** go through ``ArrayBackend.stack``
+    and therefore does not appear in these counts: ``stack`` is documented as the
+    solvers' one *accumulation* primitive, and conflating input batching with
+    output accumulation is what would make these counts unreadable.
+    """
     array = np.asarray(cube)
     n_times, n_baselines, n_freqs = array.shape[:3]
 
@@ -196,10 +214,11 @@ def _assert_block_assembly_shape(backend: _AssemblyCountingBackend, cube: Any) -
     # No per-cell functional copies survive anywhere in the hot path (D11).
     assert backend.set_at_calls == 0
 
-    # One (B, 2, 2) block per (time, frequency); one (B, F, 2, 2) block per time.
-    assert backend.assemblies_of_rank(3) == [(n_baselines, 2, 2)] * (n_times * n_freqs)
+    # The per-(time, frequency) block now comes straight out of the kernel.
+    assert backend.assemblies_of_rank(3) == []
+    # One (B, F, 2, 2) block per time.
     assert backend.assemblies_of_rank(4) == [(n_baselines, n_freqs, 2, 2)] * n_times
-    assert len(backend.stack_shapes) == n_times * n_freqs + n_times + 1
+    assert len(backend.stack_shapes) == n_times + 1
 
 
 def test_point_solver_assembles_one_cube_from_per_time_blocks(tmp_path) -> None:

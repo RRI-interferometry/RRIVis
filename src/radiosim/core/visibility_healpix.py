@@ -30,6 +30,7 @@ from astropy.coordinates import AltAz
 
 from radiosim.backends import ArrayBackend
 from radiosim.core.beam import BeamSystem
+from radiosim.core.contraction import baseline_contraction_for
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
 from radiosim.core.jones.receptor import basis_transform_matrix, receptor_matrix
@@ -459,6 +460,11 @@ def calculate_visibility_healpix(
         antenna_numbers=ant_nums,
     )
 
+    # The one compiled kernel, built once per call rather than per step: a fresh
+    # closure on every step would defeat the compilation cache entirely
+    # (``Tier6HybridRuntimePlan.md`` Section 13.6).
+    contraction = baseline_contraction_for(backend)
+
     # ==========================================================================
     # TIME LOOP
     #
@@ -574,30 +580,6 @@ def calculate_visibility_healpix(
                 # Build per-pixel coherency matrices: (n_visible, 2, 2)
                 coherency = stokes_to_coherency(I_jy, Q_jy, U_jy, V_jy, xp=xp)
 
-                # Compute visibility for each baseline
-                # V_pq = Σ_pix phase_pix * J_p @ C_pix @ J_q^H
-                baseline_matrices: list[Any] = []
-                for (ant1, ant2), bl_vec in zip(
-                    selected_pairs, baseline_vectors, strict=True
-                ):
-                    bl_u, bl_v, bl_w = bl_vec / wavelength_m
-                    delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)
-                    phase = backend.exp(-2j * np.pi * delay)
-
-                    J_p = jones_cache[ant1]  # (n_vis, 2, 2)
-                    J_q_H = backend.conjugate_transpose(jones_cache[ant2])
-
-                    # V_all: (n_vis, 2, 2) = J_p @ C @ J_q^H * phase
-                    V_all = backend.matmul(backend.matmul(J_p, coherency), J_q_H)
-                    V_all = V_all * phase[:, None, None]
-
-                    baseline_matrices.append(
-                        backend.asarray(
-                            backend.sum(V_all, axis=0),
-                            dtype=output_complex_dtype,
-                        )
-                    )
-
             else:
                 # ----- I-ONLY PATH -----
                 full_temp_map = sky_model.healpix.get_map_at_frequency(freq)
@@ -632,28 +614,31 @@ def calculate_visibility_healpix(
                     dtype=backend.default_complex_dtype,
                 )
                 coherency = coherency * (signal / 2.0)[:, None, None]
-                baseline_matrices = []
-                for (ant1, ant2), bl_vec in zip(
-                    selected_pairs, baseline_vectors, strict=True
-                ):
-                    bl_u, bl_v, bl_w = bl_vec / wavelength_m
-                    delay = bl_u * dir_l_xp + bl_v * dir_m_xp + bl_w * (dir_n_xp - 1.0)
-                    phase = backend.exp(-2j * np.pi * delay)
-                    J_p = jones_cache[ant1]
-                    J_q_H = backend.conjugate_transpose(jones_cache[ant2])
-                    V_all = backend.matmul(
-                        backend.matmul(J_p, coherency),
-                        J_q_H,
-                    )
-                    V_all = V_all * phase[:, None, None]
-                    matrix = backend.asarray(
-                        backend.sum(V_all, axis=0),
-                        dtype=output_complex_dtype,
-                    )
-                    baseline_matrices.append(matrix)
 
-            # One (B, 2, 2) block for all baselines at this (time, frequency).
-            freq_blocks.append(backend.stack(baseline_matrices, axis=0))
+            # Geometric phase, batched over baselines: (B, n_visible).
+            uvw_wavelengths = baseline_vectors / wavelength_m
+            delay = (
+                uvw_wavelengths[:, 0:1] * dir_l_xp
+                + uvw_wavelengths[:, 1:2] * dir_m_xp
+                + uvw_wavelengths[:, 2:3] * (dir_n_xp - 1.0)
+            )
+            phase = backend.exp(-2j * np.pi * delay)
+
+            # Per-baseline antenna Jones batches: (B, n_visible, 2, 2). Routed
+            # through the backend's array namespace rather than through
+            # ``ArrayBackend.stack``: that method is the solvers' one
+            # *accumulation* primitive (Section 13.3), and this is kernel input
+            # batching, not output accumulation.
+            J_p = xp.stack([jones_cache[ant1] for ant1, _ in selected_pairs], axis=0)
+            J_q = xp.stack([jones_cache[ant2] for _, ant2 in selected_pairs], axis=0)
+
+            # The one compiled kernel (Section 13.6): one (B, 2, 2) block for
+            # all baselines at this (time, frequency). The HEALPix path always
+            # carries an explicit coherency -- the I-only branch builds
+            # ``C = (I/2) I_2`` above -- so it never takes the unpolarized
+            # specialization.
+            block = contraction(J_p, J_q, coherency, phase, 1.0, None)
+            freq_blocks.append(backend.asarray(block, dtype=output_complex_dtype))
 
         if time_idx % 10 == 0 or time_idx == n_times - 1:
             logger.debug(

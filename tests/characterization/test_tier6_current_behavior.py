@@ -1098,10 +1098,17 @@ def test_point_solver_accumulates_one_set_at_per_time_baseline_frequency(
     accumulation is gone.  The solver now assembles one ``(B, 2, 2)`` block per
     ``(time, frequency)``, one ``(B, F, 2, 2)`` block per time, and exactly one
     ``(T, B, F, 2, 2)`` cube per call (Section 13.3, test R2), so the call count
-    drops from ``T*B*F`` functional whole-cube copies to ``T*F + T + 1``
+    drops from ``T*B*F`` functional whole-cube copies to a handful of
     assemblies and zero ``set_at`` calls.  The shape itself is asserted in
     ``tests/unit/test_core/test_visibility_accumulation.py``; this pin only
     records that the old shape is truly gone.
+
+    Count narrowed by Tier 6H: Section 13.6's compiled kernel is
+    baseline-batched and returns the whole ``(B, 2, 2)`` block from one call, so
+    the ``T*F`` per-``(time, frequency)`` assemblies of Tier 6D disappear and
+    only ``T + 1`` remain.  Strictly fewer assemblies; the D11 property being
+    pinned -- zero ``set_at`` calls and exactly one whole-cube assembly -- is
+    unchanged.
     """
     instrument, beam_system, receptors = _solver_components(tmp_path)
     backend = _SetAtCountingBackend()
@@ -1117,7 +1124,7 @@ def test_point_solver_accumulates_one_set_at_per_time_baseline_frequency(
     )
     n_times, n_baselines, n_freqs = cube.shape[:3]
     assert backend.set_at_calls == 0
-    assert backend.stack_calls == n_times * n_freqs + n_times + 1
+    assert backend.stack_calls == n_times + 1
     assert backend.cube_assemblies == [tuple(np.asarray(cube).shape)]
 
 
@@ -1144,7 +1151,7 @@ def test_healpix_solver_accumulates_one_set_at_per_time_baseline_frequency(
     )
     n_times, n_baselines, n_freqs = cube.shape[:3]
     assert backend.set_at_calls == 0
-    assert backend.stack_calls == n_times * n_freqs + n_times + 1
+    assert backend.stack_calls == n_times + 1
     assert backend.cube_assemblies == [tuple(np.asarray(cube).shape)]
 
 
@@ -1208,22 +1215,37 @@ def test_backend_surface_exposes_the_compilation_boundary() -> None:
     assert jax_backend.supports_compilation is True
 
 
-def test_nothing_in_the_package_calls_jit_vmap_or_jit_compile() -> None:
-    """Pins D14's second half: the compilation helpers have no callers.
+def test_exactly_one_solver_call_site_requests_compilation() -> None:
+    """Flipped by Tier 6H, closing D14's second half.
 
-    OWNED BY: Tier 6H, which wires ``ArrayBackend.compile`` to exactly one
-    kernel; the call site arrives with that kernel, not with the rename.
+    The 6A pin recorded the defect: the compilation helpers had no caller
+    anywhere, so ``jit``/``vmap`` were decoration rather than capability.  Plan
+    Section 13.6 authorizes exactly **one** compiled kernel -- the
+    per-(time, frequency) baseline-batched contraction -- so this pin now
+    asserts the boundary in the other direction: ``backend.compile`` is called
+    from the solver contraction module and nowhere else, and no direct
+    ``.jit(``/``.vmap(`` call escapes the JAX backend.
     """
-    callers: list[str] = []
-    pattern = re.compile(r"\.(jit|vmap|jit_compile)\s*\(")
+    compile_callers: list[str] = []
+    private_callers: list[str] = []
+    compile_pattern = re.compile(r"\bbackend\.compile\s*\(")
+    private_pattern = re.compile(r"\.(jit|vmap|jit_compile)\s*\(")
     for path in sorted((REPO_ROOT / "src" / "radiosim").rglob("*.py")):
         text = path.read_text(encoding="utf-8")
-        for match in pattern.finditer(text):
+        relative = str(path.relative_to(REPO_ROOT))
+        for match in compile_pattern.finditer(text):
             line = text[: match.start()].count("\n") + 1
-            if path.name in {"jax_backend.py", "dask_backend.py"}:
-                continue
-            callers.append(f"{path.relative_to(REPO_ROOT)}:{line}")
-    assert callers == []
+            compile_callers.append(f"{relative}:{line}")
+        if path.name == "jax_backend.py":
+            continue
+        for match in private_pattern.finditer(text):
+            line = text[: match.start()].count("\n") + 1
+            private_callers.append(f"{relative}:{line}")
+
+    assert private_callers == []
+    assert [caller.split(":")[0] for caller in compile_callers] == [
+        "src/radiosim/core/contraction.py"
+    ], compile_callers
 
 
 def test_jax_synchronize_blocks_on_the_callers_array() -> None:
