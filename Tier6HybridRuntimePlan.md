@@ -1154,11 +1154,44 @@ output paths, which they already are: no writer runs during `setup()`.
 | S5 | Disjoint and explicitly-assumed-disjoint hybrid models do not double count: total flux equals the sum of component fluxes and nothing is counted twice | §27 H5 |
 | S6 | Solver `workers = 1, 2, 3, 4` yield identical `scientific_sha256` | §27 W3 |
 | S7 | Loader `max_workers` and `executor` do not affect `scientific_sha256` | §27 W1 |
-| S8 | The accumulation restructure is bit-identical to the baseline for every shipped configuration, compared **within one Python environment** (`py311` against the `py311` pin, `py312` against the `py312` pin) | §27 R1 |
+| S8 | The accumulation restructure is bit-identical to the baseline for every shipped configuration, compared **within one `(platform, Python)` environment** (`linux-64-py311` against the `linux-64-py311` pin, and so on for each of the six locked cells). Across environments the claim is **tolerance-level only** (§13.5), never bit-level. | §27 R1 |
 | S9 | NumPy and JAX-CPU agree within §13.5 tolerance on all seven §13.4 workloads | §27 B1 |
 | S10 | Dask-with-NumPy-arrays is bit-identical to NumPy | §27 B2 |
 | S11 | The compiled kernel agrees with its uncompiled reference within §13.5 tolerance and produces the identical dtype | §27 B3 |
 | S12 | An offline run performs no socket probe and fails network-requiring loaders under both executors | §27 W5 |
+
+**Correction (2026-07-31, Tier 6J rejection repair) — the reproducibility scope
+of every bit-identity invariant above.** "Bit-identical" in this table has always
+meant *within one environment*, where an environment is now the pair
+`(pixi platform, locked Python environment)` — six cells: `linux-64-py311`,
+`linux-64-py312`, `osx-64-py311`, `osx-64-py312`, `osx-arm64-py311`,
+`osx-arm64-py312`. The three locked platforms compute genuinely different raw
+visibility cubes from identical source, identical locked package versions and
+identical Python version, and the two `x86_64` platforms (`linux-64`, `osx-64`)
+disagree with each other as well as with `osx-arm64` — so the axis is the whole
+platform (CPU architecture plus that platform's libm/BLAS build), not
+architecture alone. This is inherent vectorized-floating-point
+non-associativity, not nondeterminism: the `linux-64` and `osx-64` §13.4 raw-cube
+digests measured by CI at the 6A characterization commit (which added no
+production code) are byte-identical to those measured at the end of the tier, so
+no Tier 6 restructure (6D, 6E, 6F, 6H) moved any number on any platform.
+
+The consequences, invariant by invariant:
+
+- **S1, S3, S6, S7, S10** compare two runs *inside one process and one
+  environment*. They are unaffected: their bit-identity claims hold as written,
+  and CI confirms they pass on all three platforms.
+- **S8 alone is a pinned constant**, and is the only invariant that had to be
+  re-keyed. Its pin table in
+  `tests/characterization/test_tier6_current_behavior.py` is now keyed by
+  `(platform, python)` (`_ENVIRONMENT_KEY`), with one recorded value per cell and
+  a loud, non-relaxable failure — one that prints the digest it just measured —
+  for any environment that has never been characterized.
+- **S9 and S11** were already tolerance-framed, and §13.5's predicate is now
+  also the *only* legitimate vehicle for any cross-environment comparison:
+  whenever two different `(platform, python)` cells are compared, that predicate
+  applies, never bit-equality. No Tier 6 fingerprint may be documented, quoted,
+  or asserted as an environment-independent constant.
 
 ## 22. Performance methodology
 
@@ -1455,7 +1488,7 @@ be satisfied by a skipped test.
 | W5 | offline under workers | offline run with a network-requiring loader raises `ConnectionError` under both executors, and `_check_socket` is never called (S12) |
 | W6 | partition function | the time partition covers `[0, n_times)` exactly once for every `(n_times, workers)` pair in a swept range; `workers > n_times` clamps and records |
 | W7 | no hard-coded 8 | `load_models_parallel` has no `max_workers` default and `api/simulator.py` contains no literal worker count |
-| R1 | restructure bit-identity | for each shipped configuration, post-restructure `scientific_sha256` equals the pinned pre-restructure value from the 6A characterization, compared within the same Python environment as the pin was recorded in (S8). **Correction (2026-07-30, Tier 6A acceptance):** 6A's fingerprints differ between `py311` and `py312` because those environments resolve different astropy releases (7.1.0 vs 8.0.1) whose `ICRS`->`AltAz` transforms disagree in the last bits (~1.4e-11 rad altitude, ~2.0e-8 rad azimuth for a fixed source/instant), which the geometric phase amplifies into every visibility; this is an environment artifact, not solver nondeterminism. R1 is therefore per-environment by construction — Section 31 already runs the gate in both environments, so 6D must compare each environment's post-restructure digest only against that same environment's 6A pin, never across environments, and a third measured environment must add its own pinned row rather than relax this assertion. |
+| R1 | restructure bit-identity | for each shipped configuration, post-restructure `scientific_sha256` equals the pinned pre-restructure value from the 6A characterization, compared within the same Python environment as the pin was recorded in (S8). **Correction (2026-07-30, Tier 6A acceptance):** 6A's fingerprints differ between `py311` and `py312` because those environments resolve different astropy releases (7.1.0 vs 8.0.1) whose `ICRS`->`AltAz` transforms disagree in the last bits (~1.4e-11 rad altitude, ~2.0e-8 rad azimuth for a fixed source/instant), which the geometric phase amplifies into every visibility; this is an environment artifact, not solver nondeterminism. R1 is therefore per-environment by construction — Section 31 already runs the gate in both environments, so 6D must compare each environment's post-restructure digest only against that same environment's 6A pin, never across environments, and a third measured environment must add its own pinned row rather than relax this assertion. **Correction (2026-07-31, Tier 6J rejection repair):** the Python version is not the only environment axis — the *platform* is a second, independent one, and the original scheme had no axis for it at all. The three locked pixi platforms produce three different raw visibility cubes for identical source, identical locked package versions and identical Python version, and `linux-64` and `osx-64` (both `x86_64`) disagree with each other as well as with `osx-arm64`, so this is the whole platform (architecture plus that platform's libm/BLAS build) and not architecture alone. Evidence that it is inherent rather than introduced: the `linux-64` and `osx-64` §13.4 raw-cube digests CI measured at the 6A characterization commit — which added these pins and no production code — are byte-identical to those CI measured at the end of the tier, and the two `linux-64` measurements were taken on different host CPUs (AMD EPYC 7763 and 9V74) and still agreed to the byte. R1 is therefore per `(platform, Python)` environment: `_ENVIRONMENT_KEY` is now `f"{platform}-{python}"` over the six locked cells, each cell carries its own pinned row, an unmeasured cell fails loudly while printing the digest it just measured, and any comparison that crosses cells is a §13.5 tolerance comparison rather than a bit-identity one. |
 | R2 | assembly count | the number of whole-cube assembly operations per solver call is 1, asserted through a counting backend wrapper |
 | B1 | NumPy/JAX-CPU parity | all seven §13.4 workloads within §13.5 tolerance (S9) |
 | B2 | Dask bit-identity | all seven §13.4 workloads bit-identical to NumPy (S10) |
@@ -2376,7 +2409,10 @@ Tier 6J accepts Tier 6 only when all criteria pass as one indivisible gate.
     under both executors (S12).
 14. Both solvers assemble their output cube once per call (R2), and the
     restructure is bit-identical to the 6A-pinned baseline for every shipped
-    configuration (R1).
+    configuration (R1), in each of the six locked `(platform, Python)`
+    environments against that same environment's own pin. Cross-environment
+    agreement is a §13.5 tolerance claim and is not asserted bit-wise
+    anywhere (§21 correction, 2026-07-31).
 15. NumPy and JAX-CPU agree within the §13.5 tolerance on all seven §13.4
     workloads, with JAX actually installed and the six baseline skips gone
     (S9).
@@ -2404,7 +2440,14 @@ Tier 6J accepts Tier 6 only when all criteria pass as one indivisible gate.
     validation, offline example, clean-copy Sphinx, whitespace, fresh imports,
     and generated-artifact checks pass.
 25. CI succeeds for the quality job, all six locked OS/Python jobs, and the added
-    jax-cpu job, on the exact acceptance SHA.
+    jax-cpu job, on the exact acceptance SHA. **Deliberately not loosened by the
+    2026-07-31 correction**: the §21/§27 amendment narrows what "bit-identical"
+    *claims*, it does not lower this gate. Every one of the six jobs must be
+    green on the acceptance SHA, which now requires each locked
+    `(platform, Python)` cell to carry its own measured pin. A reviewer must
+    verify this by run ID, not by lockfile inspection — the Tier 6 slice records
+    that inspected the lockfile instead are exactly how eleven consecutive red
+    CI runs went unnoticed.
 26. No Tier 7 or Tier 8 implementation enters the range: no new Jones term, no
     m-mode solver, no numba kernel, no repository-wide documentation rewrite.
 
