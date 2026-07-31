@@ -10993,3 +10993,243 @@ acceptance gate (7K), together with the `SCI-001`/`SCI-002`/`SCI-003` flips
 to `DONE`, exactly as the plan prescribes. `SCI-001`, `SCI-002`, and
 `SCI-003` remain `ROADMAP` until then. Acceptance commit:
 `docs(jones): accept Tier 7 design`. Not pushed.
+
+### 2026-08-01 Tier 7A independent acceptance
+
+Independent adversarial review of `997aba5..c30efbe` — one commit,
+`test(jones): characterize the Tier 7 Jones baseline`, adding
+`tests/characterization/test_tier7_current_behavior.py` (1,516 lines, 36
+functions, 85 test ids via the two 37-case and 12-case parametrizations).
+Reviewed against `Tier7JonesSciencePlan.md`'s §33 7A contract, §34 7A
+writable list, §41 Q1/Q2, and §5-§7's inventory and defect matrix. Branch
+`main`, HEAD `c30efbe` at review start. No branch, no push.
+
+**Scope — confirmed exact.** `git diff --name-only 997aba5..c30efbe` touches
+exactly one file, matching §34's 7A grant precisely (`Fix.md` itself is the
+only other file §34 grants 7A, and this review's own edits land in a
+separate commit). No production, config, or plan file is touched by the
+characterization commit. No co-author line.
+
+**Characterization truth — read in full, source-verified, and adversarially
+probed.** Read all 1,516 lines. Independently confirmed by re-reading the
+cited source (not by trusting the test's own assertions): the 43-name
+`__all__` and the true `CLAUDE.md` "46" drift (D0); all 37 individually
+parametrized stub identity pins, each asserted against the corresponding
+class's actual `compute_jones`; the six stub constructors that discard
+physically meaningful arguments (D2); the vacuous `is_unitary`/`is_scalar`
+flags on `FaradayRotationJones`/`WPhaseJones`/`ArrayFactorJones` (D10); the
+scalar-per-direction `compute_jones` signature and its `for s in
+range(n_sources)` default loop (D5); `add_term` accepting a
+`JonesBaselineTerm` and later raising `AttributeError` rather than a typed
+rejection (D7); the two `dtype=np.complex128` seeds in `chain.py` and the
+hard-coded dtype in `receptor.py:340` (D8, D9); both documented chain orders,
+verbatim (D11, D12); the `H,G,B,D,P,C,E,T,Z` add order via `_build_jones_chain`
+(D12's observability record); `jones_config` always `None` in production and
+the bit-identical cube with every optional term "enabled" (D1, D3); the
+HEALPix path's absent `jones_config` parameter and absent `JonesChain` (D4);
+the geometric phase's three implementations (D6); both double-count hazards,
+D18 (RM already applied pre-coherency) and D19 (`w(n-1)` already exact in the
+inline phase), with behavioral proof that the underlying physics is live
+(moving sources changes the cube; adding rotation measure changes the cube);
+`calculation_type` reaching no consumer, by exhaustive repo-wide grep (D13);
+the eight-term `JonesPrecision` model excluding `C`/`H`/every extended term
+(D15); the exact (corrected, see adjudication 2 below) mount rejection
+(D16); the dead `_reject_parallactic_rotation` guard, reached directly and
+shown to raise (D17); the `beam/TODO.md` seven-item, no-disposition wish list
+(D20); and the stub documentation surface (D21).
+
+**Pin spot-check via deliberate perturbation (git worktree, source reverted
+after each probe, main tree confirmed clean before and after).** Six probes,
+each editing `src/` in an isolated worktree with `PYTHONPATH` pointed at the
+worktree (confirmed the import resolved to the worktree copy, not the
+editable-install target) and re-running the affected test(s):
+
+1. `GainJones.compute_jones` changed to return `2*I` instead of `I` — failed
+   three stub-identity parametrizations (`GainJones`, `TimeVariableGainJones`,
+   `ElevationGainJones`, the last two by inheritance) **and**
+   `test_enabling_every_optional_jones_term_changes_no_visibility` (the
+   all-six-terms bit-identical cube proof, the single most consequential pin
+   in the file) — confirmed this pin is load-bearing, not tautological.
+2. `__all__` given a 44th, fake entry — failed
+   `test_jones_package_exports_exactly_forty_three_names`.
+3. One `chain.py` identity seed changed from `complex128` to `complex64` —
+   failed `test_jones_chain_hard_codes_complex128_for_both_identity_seeds`.
+4. `_build_jones_chain`'s `P` add-order moved after `C` — failed
+   `test_build_jones_chain_adds_terms_in_the_uncorrected_canonical_order`.
+5. `core/receptor.py`'s mount-rejection message text changed one word
+   (`receptors`→`receivers`) — failed
+   `test_mount_types_other_than_fixed_are_rejected`.
+6. A `calculation_type`-shaped comment added to `api/simulator.py` (giving it
+   a second textual "carrier") — failed
+   `test_calculation_type_reaches_no_consumer`.
+
+All six probes were caught by exactly the test their docstring claims owns
+them, with no cross-contamination. Combined with the unperturbed file passing
+all 85 ids in the same harness, this rules out both a false pin (asserting
+something not actually true of `main`) and a vacuous oracle (asserting
+something no plausible code change could violate).
+
+**`OWNED BY` marker spot-check (6 of the file's ~30 markers, against §33.2's
+per-slice contracts).** All six matched exactly: the stub tests' "7C
+(deletion) ... 7D through 7G (real implementations)" against §33.2's slice
+list; the capability-flag test's "7B ... and 7C, which deletes F, W and a"
+against 7B's flag-verification harness and 7C's writable-file deletions of
+`faraday.py`/`wterm.py`/`element_beam.py`; the geometric-phase test's "7B,
+which extracts `geometric_phase()` and deletes the class" against 7B's
+literal slice text; the `W`-double-count test's "7C, which deletes
+`wterm.py`" against §34's 7C file list; the `F`-double-count test's "7G,
+whose `Z` term owns ionospheric rotation only, and 7C, which deletes
+`faraday.py`" against 7G's ionospheric-Faraday scope and 7C's deletion list;
+the mount-rejection test's "7F, which replaces the blanket rejection with
+R15" against 7F's writable-file list and slice narrative. No mismatch found.
+
+**Q1 verification — independently re-fetched, not taken from the test's own
+prose.** `https://pypi.org/pypi/pyuvsim/json`: latest is `1.4.2`, requiring
+`pyuvdata>=3.2.3` (excluded by the repository's `==3.2.1` pin) — matches the
+module's claim exactly. `https://pypi.org/pypi/pyuvsim/1.4.0/json`: confirms
+`pyuvdata>=3.1.0`, `pyradiosky>=1.0.1`, `astropy>=6.0`, `numpy>=1.23`,
+`scipy>=1.8`, `psutil`, `python_requires>=3.10`, and exactly two release
+files — `pyuvsim-1.4.0-py3-none-any.whl` (universal pure-Python) and the
+sdist, no platform-specific wheel. `https://api.anaconda.org/package/conda-
+forge/pyuvsim`: HTTP 404, confirming pyuvsim is not a conda-forge package.
+All claims check out. The six-cell `pixi lock` resolution table itself was
+not independently re-run (would require realizing six throwaway
+environments); this review treats the metadata-level confirmation (a
+resolvable `1.4.0` against a locked `pyuvdata==3.2.1`, from a pure-Python
+wheel, on every platform) as sufficient corroboration given the wheel has no
+platform restriction.
+
+**Q2 verification — independently reproduced twice on this machine
+(`osx-arm64`, warm caches, network available).** First reproduction (plain
+`tracemalloc` around `Simulator.setup()`+`run()` for
+`configs/realistic_foreground_example.yaml`, `save_results`/`plot_results`
+disabled): measured peak **690,207,460 bytes** against the module's recorded
+**690,207,014 bytes** — a 446-byte (0.0000646%) difference, consistent with
+ordinary run-to-run `tracemalloc` noise across separate processes, not a
+fabricated or unreproducible figure. Cube shape `(10, 15, 11, 4)` complex128
+matched exactly. Second reproduction (same config, `_host_preprocess_time_step`
+monkey-patched to record the per-time-step above-horizon pixel count):
+measured `[98308, 98306, 98310, 98309, 98308, 98307, 98309, 98310, 98306,
+98306]` against 196,608 total pixels — an **exact** match, digit for digit,
+to the module's recorded sequence, confirming both the horizon-mask-halving
+claim and the specific numbers the arithmetic in the docstring is built on.
+The "(B, n_dir, 2, 2) stack dominates, not the per-antenna DDE term" framing
+is straightforward arithmetic from these two independently confirmed
+quantities (5 antennas, 15 baselines, 98,310-pixel max direction batch, 64
+bytes/direction) and was re-derived by hand, not merely re-read.
+
+**Adjudications.**
+
+1. **§5.1 TODO-marker claim — plan false, test true; corrected.** Confirmed
+   by grep that `cli/main.py:6` and `core/sky/registry/catalogs.py:595` carry
+   pre-existing, non-Jones `TODO` markers outside the twelve stub modules,
+   falsifying the plan's unqualified claim. The characterization module
+   itself (`test_todo_markers_outside_the_stub_modules`) already recorded
+   this accurately, including the correct instruction that 7C's I20 residual
+   scan must exclude both paths explicitly. Bounded correction applied to
+   §5.1 (`79d392d`); the beam-subsystem TODO-free claim, which is what §19's
+   `SCI-003` disposition actually depends on, is unaffected and still holds.
+2. **§5.6 mount-message misquote — corrected.** The plan quotes only the
+   second of the message's two concatenated string literals. The actual
+   message is `f"mount_type={mount_type!r} is unsupported by Tier 5
+   receptors; " "time-dependent feed orientation requires the
+   parallactic-angle term (Tier 7)."`, confirmed by direct read of
+   `core/receptor.py:416-418` and reproduced by the perturbation probe above.
+   The characterization module already pins both halves correctly; only the
+   plan's prose under-quoted. Bounded correction applied to §5.6 (`79d392d`).
+3. **§33.2's four-shipped-config digest requirement — ratified as
+   correctly departed from, plan corrected to say so.** §33.2 literally asks
+   7A to record absolute cube digests and `scientific_sha256` "for all four
+   shipped configs." This is achievable for `config.yaml` and
+   `receptor_circular_example.yaml` (delegated to Tier 6's own six-environment
+   tables) and impossible to make hermetic for `realistic_foreground_example.yaml`
+   (network-dependent, as Tier 6A already found). For `hybrid_sky_example.yaml`
+   — no absolute digest exists in any Tier 6 or Tier 7 table, and this
+   environment has no `x86_64` host. Inventing an `osx-arm64`-only value and
+   asserting it as the ground truth for `linux-64`/`osx-64` CI would be
+   exactly the mistake that produced Tier 6J's whole-tier rejection
+   (`Fix.md`, 2026-07-31: an unqualified cross-architecture bit-identity
+   claim, never verified on `x86_64`, that CI then proved false — architecture-
+   level floating-point non-associativity, not a correctness bug). 7A's
+   substitute — an environment-independent invariant, that the hybrid cube is
+   exactly the backend-domain sum of its point-only and HEALPix-only
+   components, verified bit-for-bit in this review's own read of the test —
+   is the right lesson from that rejection, not a shortfall: it holds on
+   every runner with no hardware dependency, and 7B's "bit-identical to 7A's
+   pins for every shipped configuration" claim is fully satisfied for the
+   hybrid config by this invariant continuing to hold. **Ruling: no CI
+   harvest of absolute `linux-64`/`osx-64` hybrid digests is required as a
+   7B (or any later slice's) obligation.** Such a harvest would add no
+   protective coverage beyond what the additivity invariant already gives —
+   any regression that broke the hybrid cube's correctness while preserving
+   `hybrid == point + healpix` bit-for-bit would have to break the point and
+   HEALPix solvers in exactly compensating ways, which the existing
+   `config.yaml`/`receptor_circular_example.yaml` absolute pins (point path)
+   already guard against independently — and re-asserts the identical
+   unverified-cross-architecture pattern Tier 6J rejected. Bounded correction
+   applied to §33.2 (`79d392d`); no decision changed.
+4. **`calculation_type` count and frequency/time channel-count claims —
+   independently verified accurate; no correction needed.** Re-derived from
+   source rather than trusting either document: `io/config.py` contains the
+   exact substring `calculation_type` 3 times (field declaration at `:1373`,
+   the rejection's comparison at `:2092`, the rejection's payload string at
+   `:2094`), matching both the plan's §5.6 citation and the test's
+   `text.count("calculation_type") == 3` assertion. The four shipped
+   configs' `calculation_type` line numbers (`config.yaml:65`,
+   `receptor_circular_example.yaml:75`, `hybrid_sky_example.yaml:93`,
+   `realistic_foreground_example.yaml:65`) and `docs/user_guide/
+   configuration.rst:66,183,217` all matched exactly on direct grep. The
+   module's Q2 docstring claim of 11 frequency channels and 10 time samples
+   for `realistic_foreground_example.yaml` was independently confirmed
+   against the actual resolution code: `io/config.py`'s own `n_channels`
+   property and `io/config_resolution.py:852-868`'s `_resolve_frequency`
+   compute `round(bandwidth/interval) + 1 = round(10/1) + 1 = 11`, and
+   `core/time_grid.py:150-172`'s `build_observation_time_grid` computes
+   `ceil(duration/step) = ceil(600/60) = 10`. Both figures are exactly right;
+   this review found no discrepancy to correct here, contrary to this
+   entry's initial working assumption that one existed. No plan text was
+   changed for this item.
+5. **§5.1 blast-radius staleness — no correction needed, confirmed.** §5.1's
+   "deleting a stub class has an empty external blast radius" claim, true at
+   `ac4fe41`, becomes stale the moment 7A's own characterization module
+   starts referencing all 37 stub class names by name. §34 already grants
+   7C write access to `tests/characterization/test_tier7_current_behavior.py`
+   (confirmed by direct read of the 7C file list), so 7C's stub deletions are
+   already licensed to update the file that would otherwise falsify §5.1's
+   claim. No plan correction required.
+
+**Gates — independently reproduced, both environments.**
+`pixi run test -- -m "not slow"`: **4,395 passed, 0 skipped, 10 deselected,
+26 warnings** in both `default` (py311, 516.91s) and `py312` (552.50s) —
+exactly `4,310 + 85` against the stated pre-7A baseline, confirmed by this
+review's own arithmetic rather than assumed. `pixi run lint`: clean.
+`pixi run check-format`: clean. `git status` clean before and after this
+review's own edits (verified before starting, and again after the
+correction commit).
+
+**Disposition.** Tier 7A **ACCEPTED**. Three bounded factual corrections
+applied to `Tier7JonesSciencePlan.md` Sections 5.1, 5.6, and 33.2
+(`79d392d`, `docs(jones): correct Tier 7 design`), none of which change any
+design decision, register disposition, or slice grant. The plan's status
+header is updated to record 7A's acceptance and to authorize slice **7B**.
+No register row changes: `SCI-001`, `SCI-002`, `SCI-003` remain `ROADMAP`
+until whole-tier acceptance (7K), unaffected by a characterization-only
+slice. Acceptance commit: `docs(jones): accept Tier 7A characterization`.
+Not pushed.
+
+**Unobserved items.** The six-cell `pixi lock` resolution for the optional
+`crossval`/`crossval312` features was verified by PyPI/anaconda.org metadata
+and by this review's own re-fetch of the same URLs, not by actually
+realizing all six throwaway pixi environments and importing `pyuvsim` in
+each — a full re-run was judged unnecessary given the wheel is universal and
+platform-unrestricted, but is not literally reproduced end to end by this
+review. `linux-64`/`osx-64` execution: not available in this environment;
+the CI-green claim for those architectures rests on the existing six-job CI
+configuration and this review's own `default`/`py312` local runs on
+`osx-arm64` only, consistent with every prior tier's acceptance record in
+this file. GPU/TPU/distributed hardware: none exercised, none claimed.
+Whether an absolute `hybrid_sky_example.yaml` digest table would in fact
+diverge across `x86_64`/`arm64` (as `config.yaml`'s and
+`receptor_circular_example.yaml`'s already-measured per-architecture values
+imply it plausibly would) was not tested, since adjudication 3 above rules
+that no such table is required.
