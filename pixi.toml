@@ -72,6 +72,16 @@ python = "3.11.*"
 [feature.py312.dependencies]
 python = "3.12.*"
 
+# CPU-only JAX, so the mandated NumPy/JAX backend-parity evidence is actually
+# measured rather than skipped (Tier6HybridRuntimePlan.md Sections 28, 32.8).
+# The `cpu*` build constraint is load-bearing: conda-forge also ships CUDA
+# `jaxlib` variants on the Linux subdirs, and RadioSim makes no accelerator
+# claim. This feature is carried by every declared environment so that the
+# parity tests run in the standard gate on all six env x platform combinations.
+[feature.jax-cpu.dependencies]
+jax = ">=0.10.2,<0.11"
+jaxlib = { version = ">=0.10.2,<0.11", build = "cpu*" }
+
 [environments]
-default = ["py311"]
-py312 = ["py312"]
+default = ["py311", "jax-cpu"]
+py312 = ["py312", "jax-cpu"]

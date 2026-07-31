@@ -66,6 +66,34 @@ jobs:
           pixi run --environment ${{ matrix.environment }}
           test -- -m "not slow"
 
+  backend-parity:
+    name: NumPy/JAX-CPU backend parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install locked default Pixi environment
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          pixi-version: v0.72.2
+          environments: default
+          locked: true
+          cache: true
+          cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+
+      - name: Confirm the locked CPU-only JAX is importable
+        run: >-
+          pixi run -- python -c
+          "import jax, jaxlib; print(jax.__version__, jaxlib.__version__, jax.devices())"
+
+      - name: Run the backend parity and compilation-boundary suites
+        run: >-
+          pixi run -- python -m pytest tests/unit/test_backends/
+          tests/unit/test_core/test_visibility_backend.py
+          tests/unit/test_jones/test_backend_jones.py
+
   quality:
     name: Lint, metadata, types, and docs
     runs-on: ubuntu-24.04

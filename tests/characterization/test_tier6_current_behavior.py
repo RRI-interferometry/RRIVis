@@ -1173,19 +1173,39 @@ def test_jax_synchronize_blocks_on_a_throwaway_constant() -> None:
     assert "jax.block_until_ready(jnp.array(0))" in source
 
 
-def test_jax_is_not_a_dependency_of_any_pixi_environment() -> None:
-    """Pins D16: the mandated NumPy/JAX parity evidence needs a dependency change.
+def test_jax_is_a_cpu_only_dependency_of_every_pixi_environment() -> None:
+    """Flipped by Tier 6H, closing D16.
 
-    See the Q1 evidence record in this module's docstring for the exact versions
-    that resolve on all three locked platforms.
+    The 6A pin recorded the defect: ``jax`` appeared nowhere in ``pixi.toml``,
+    so the NumPy/JAX parity evidence ``Fix.md`` §15 mandates could not be
+    produced and six tests skipped instead.  Tier 6H added the ``jax-cpu``
+    feature with the exact versions the Q1 record above resolved
+    (``jax``/``jaxlib`` 0.10.2, ``cpu_*`` builds) and carried it into **both**
+    declared environments rather than into a separate one, because plan
+    Section 31 requires the six skips to disappear from the two gate
+    environments' own counts -- a third environment would have left them
+    skipping there.  See the Section 33 correction recorded in
+    ``Tier6HybridRuntimePlan.md``.
 
-    OWNED BY: Tier 6H, which adds the jax-cpu feature and environment.
+    The ``cpu*`` build constraint is asserted because conda-forge also ships
+    CUDA ``jaxlib`` variants on the Linux subdirs, and Tier 6 makes no
+    accelerator claim (plan Sections 4, 14.1).
     """
     pixi_toml = _source("pixi.toml")
-    assert "jax" not in pixi_toml
+    assert "[feature.jax-cpu.dependencies]" in pixi_toml
+    assert 'jax = ">=0.10.2,<0.11"' in pixi_toml
+    assert 'build = "cpu*"' in pixi_toml
+    assert 'default = ["py311", "jax-cpu"]' in pixi_toml
+    assert 'py312 = ["py312", "jax-cpu"]' in pixi_toml
     assert 'numpy = ">=1.24,<2.5"' in pixi_toml
     assert "[feature.py311.dependencies]" in pixi_toml
     assert "[feature.py312.dependencies]" in pixi_toml
+
+    # The dependency is real, not just declared: the six formerly-skipping
+    # tests can only run because this import succeeds in the gate environment.
+    import jax
+
+    assert jax.devices()[0].platform == "cpu"
 
 
 def test_there_is_no_benchmark_harness_task_or_performance_test() -> None:

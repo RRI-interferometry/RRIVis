@@ -340,7 +340,14 @@ def test_dask_ms_is_absent_from_the_pixi_manifest_and_lock() -> None:
 def test_locked_environment_and_platform_matrix_is_unchanged() -> None:
     manifest = tomllib.loads(PIXI_MANIFEST_PATH.read_text(encoding="utf-8"))
     assert manifest["workspace"]["platforms"] == ["linux-64", "osx-64", "osx-arm64"]
-    assert manifest["environments"] == {"default": ["py311"], "py312": ["py312"]}
+    # Tier 6H added the CPU-only ``jax-cpu`` feature to both declared
+    # environments so the mandated NumPy/JAX backend-parity evidence is measured
+    # instead of skipped (``Tier6HybridRuntimePlan.md`` Sections 28, 32.8, C18).
+    # The environment *set* and the platform matrix are still what Tier 4 pinned.
+    assert manifest["environments"] == {
+        "default": ["py311", "jax-cpu"],
+        "py312": ["py312", "jax-cpu"],
+    }
     assert manifest["dependencies"]["pyuvdata"] == "==3.2.1"
 
     lock_text = PIXI_LOCK_PATH.read_text(encoding="utf-8")
