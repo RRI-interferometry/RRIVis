@@ -164,6 +164,53 @@ def _host_direction_cosines(
     )
 
 
+def _host_visible_stokes(
+    stokes_map: Any,
+    above_horizon: np.ndarray,
+) -> np.ndarray | None:
+    """One host cast of one Stokes map down to the visible pixels.
+
+    This is the single host cast ``Tier6HybridRuntimePlan.md`` Section 13.2
+    allows on the HEALPix sky-data path: boolean-mask a HEALPix map (which is
+    always a host NumPy array, because it came from healpy or a FITS reader) and
+    promote it to ``float64``. Everything downstream of it -- the
+    Rayleigh-Jeans scaling, the coherency assembly, the contraction -- is
+    backend-routed.
+
+    Returns ``None`` when the map is absent, so the caller can supply a backend
+    zero array rather than a host one.
+    """
+    if stokes_map is None:
+        return None
+    return np.asarray(stokes_map)[above_horizon].astype(np.float64)
+
+
+def _host_planck_flux_density(
+    temperature_k: np.ndarray,
+    frequency_hz: float,
+    omega_pixel: float,
+) -> np.ndarray:
+    """Named host-preprocessing stage for the Planck brightness conversion.
+
+    ``Tier6HybridRuntimePlan.md`` Section 13.2 keeps this stage on the host
+    deliberately: it is a masked scalar transform of sky data (only strictly
+    positive brightness temperatures are converted; the rest stay zero), not a
+    hot array operation, and it runs once per (time, frequency) rather than per
+    baseline. Naming it makes the host boundary explicit instead of leaving
+    bare ``np.*`` calls scattered through the frequency loop.
+    """
+    flux_density = np.zeros(len(temperature_k), dtype=np.float64)
+    positive = temperature_k > 0
+    if np.any(positive):
+        flux_density[positive] = brightness_temp_to_flux_density(
+            temperature_k[positive].astype(np.float64),
+            frequency_hz,
+            omega_pixel,
+            method="planck",
+        )
+    return flux_density
+
+
 def _canonical_antenna_id(
     instrument: "SolverInstrumentView",
     antenna_number: int,
@@ -476,22 +523,13 @@ def calculate_visibility_healpix(
                     sky_model.healpix.get_stokes_maps_at_frequency(freq)
                 )
 
-                I_vis = I_map[above_horizon].astype(np.float64)
-                Q_vis = (
-                    Q_map[above_horizon].astype(np.float64)
-                    if Q_map is not None
-                    else np.zeros_like(I_vis)
-                )
-                U_vis = (
-                    U_map[above_horizon].astype(np.float64)
-                    if U_map is not None
-                    else np.zeros_like(I_vis)
-                )
-                V_vis = (
-                    V_map[above_horizon].astype(np.float64)
-                    if V_map is not None
-                    else np.zeros_like(I_vis)
-                )
+                # One host cast per map (Section 13.2); everything after this is
+                # backend-routed.
+                I_vis = _host_visible_stokes(I_map, above_horizon)
+                assert I_vis is not None  # I is mandatory on a HEALPix payload
+                Q_vis = _host_visible_stokes(Q_map, above_horizon)
+                U_vis = _host_visible_stokes(U_map, above_horizon)
+                V_vis = _host_visible_stokes(V_map, above_horizon)
 
                 # Stokes I: respect brightness_conversion (Planck or RJ)
                 conversion = getattr(sky_model, "brightness_conversion", "planck")
@@ -502,27 +540,35 @@ def calculate_visibility_healpix(
                         * rj_factor_I
                     )
                 else:
-                    I_jy = np.zeros(len(I_vis))
-                    pos = I_vis > 0
-                    if np.any(pos):
-                        I_jy[pos] = brightness_temp_to_flux_density(
-                            I_vis[pos].astype(np.float64),
-                            freq,
-                            omega_pixel,
-                            method="planck",
-                        )
-                    I_jy = backend.asarray(I_jy, dtype=backend.default_real_dtype)
+                    # Named host-preprocessing stage, host-side by design.
+                    I_jy = backend.asarray(
+                        _host_planck_flux_density(I_vis, freq, omega_pixel),
+                        dtype=backend.default_real_dtype,
+                    )
 
-                # Stokes Q/U/V: always RJ (can be negative, RJ is linear)
+                # Stokes Q/U/V: always RJ (can be negative, RJ is linear).
+                # An absent map contributes a backend zero array, not a host one.
                 rj_factor_pol = rayleigh_jeans_factor(freq, omega_pixel)
-                Q_jy = backend.asarray(Q_vis, dtype=backend.default_real_dtype) * (
-                    rj_factor_pol
+                zero_stokes = backend.zeros(
+                    (len(I_vis),), dtype=backend.default_real_dtype
                 )
-                U_jy = backend.asarray(U_vis, dtype=backend.default_real_dtype) * (
-                    rj_factor_pol
+                Q_jy = (
+                    backend.asarray(Q_vis, dtype=backend.default_real_dtype)
+                    * rj_factor_pol
+                    if Q_vis is not None
+                    else zero_stokes
                 )
-                V_jy = backend.asarray(V_vis, dtype=backend.default_real_dtype) * (
-                    rj_factor_pol
+                U_jy = (
+                    backend.asarray(U_vis, dtype=backend.default_real_dtype)
+                    * rj_factor_pol
+                    if U_vis is not None
+                    else zero_stokes
+                )
+                V_jy = (
+                    backend.asarray(V_vis, dtype=backend.default_real_dtype)
+                    * rj_factor_pol
+                    if V_vis is not None
+                    else zero_stokes
                 )
 
                 # Build per-pixel coherency matrices: (n_visible, 2, 2)
@@ -555,7 +601,9 @@ def calculate_visibility_healpix(
             else:
                 # ----- I-ONLY PATH -----
                 full_temp_map = sky_model.healpix.get_map_at_frequency(freq)
-                temp_vis = full_temp_map[above_horizon]
+                # One host cast (Section 13.2), then backend-routed scaling.
+                temp_vis = _host_visible_stokes(full_temp_map, above_horizon)
+                assert temp_vis is not None
 
                 if output_units == "Jy":
                     conversion = getattr(sky_model, "brightness_conversion", "planck")
@@ -566,17 +614,10 @@ def calculate_visibility_healpix(
                             * rj_factor
                         )
                     else:
-                        pos = temp_vis > 0
-                        signal_np = np.zeros(len(temp_vis))
-                        if np.any(pos):
-                            signal_np[pos] = brightness_temp_to_flux_density(
-                                temp_vis[pos].astype(np.float64),
-                                freq,
-                                omega_pixel,
-                                method="planck",
-                            )
+                        # Named host-preprocessing stage, host-side by design.
                         signal = backend.asarray(
-                            signal_np, dtype=backend.default_real_dtype
+                            _host_planck_flux_density(temp_vis, freq, omega_pixel),
+                            dtype=backend.default_real_dtype,
                         )
                 else:
                     signal = (
