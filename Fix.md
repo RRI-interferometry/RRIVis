@@ -8771,3 +8771,276 @@ through `RUN-004` remain open pending the rest of Tier 6; this acceptance
 does not close any of them. Tier 6G (hybrid serialization, HDF5 3.0.0,
 summary, and standard formats) is now the only authorized implementation
 slice. Nothing was pushed.
+
+### 2026-07-31 Tier 6G independent acceptance
+
+**Tier 6G (hybrid serialization, HDF5 3.0.0, summary, and standard formats)
+is independently accepted.** Reviewed range `ce76063..ac9e56b`: `c241dfb`
+(`docs(runtime): correct Tier 6 design`, the plan correction) + `ac9e56b`
+(`feat(io): serialize hybrid component provenance in HDF5 3.0.0`, the
+implementation). `git log --format=%B ce76063..ac9e56b | grep -i
+co-authored` empty; `git status` clean throughout. `git diff --stat
+ce76063..ac9e56b` touches exactly `Tier6HybridRuntimePlan.md`,
+`docs/api/io.rst`, `docs/migration_guide.md`, `src/radiosim/io/hdf5.py`,
+`src/radiosim/io/result_errors.py`, `src/radiosim/io/standard_visibility.py`,
+`src/radiosim/io/summary_json.py`,
+`tests/integration/test_hybrid_end_to_end.py`,
+`tests/unit/test_io/test_hdf5_result.py`,
+`tests/unit/test_io/test_measurement_set.py`,
+`tests/unit/test_io/test_result_summary.py`,
+`tests/unit/test_io/test_standard_visibility.py`,
+`tests/unit/test_io/test_uvfits.py`, `tests/unit/test_tier1h_documentation.py`,
+`tests/unit/test_tier4_result_output_acceptance.py` -- an exact match to 6G's
+Section 33 grant as amended by `c241dfb` (the four added files: `io/
+result_errors.py` for the truthful rejection message, `docs/api/io.rst` for
+the three schema-version prose statements, and the two pin files that must
+move with the constant). `core/result.py` and `io/readers.py` were listed in
+the base grant but not touched, correctly: the reader field-set validation
+(`_validate_loaded_identity_snapshots`) and the `components`/
+`component_element_counts` fields were already added to
+`SolverResultProvenance` by Tier 6F; 6G's job was the version bump, the
+pre-allocation cross-check, and the consequential summary/standard-format
+surfacing, none of which touch `core/result.py`.
+
+**HDF5 3.0.0 gate, read in full and probed, not trusted.** Read `io/hdf5.py`
+end to end for this diff. `SCHEMA_VERSION` is `"3.0.0"`
+(`io/hdf5.py:64`). `_validate_component_provenance`
+(`io/hdf5.py:1995-2039`) is called as the first statement of
+`_validate_structured_identity` (`io/hdf5.py:2053`), which itself runs before
+`_read_numeric(datasets["data/visibilities"], ...)` in `_load_open_file`
+(`io/hdf5.py:2359-2371`) -- confirmed by reading the call graph, not the
+implementer's claim. `_read_root_attributes` rejects an unsupported
+`schema_version` (`io/hdf5.py:1112-1113`) before `_inspect_tree` is even
+called (`io/hdf5.py:2337-2338`), i.e. before any dataset object is touched at
+all. Both field sets are derived from `{field.name for field in
+fields(SolverResultProvenance)}` / `fields(ResultPerformance)`
+(`io/hdf5.py:2016, 2036`), not restated by hand. The component list is
+bounded by `_MAX_SOLVED_COMPONENTS = 2` checked from `len()` alone before any
+element is read (`io/hdf5.py:1970-1975, 1980-1987`). Reconstruction goes
+through the real dataclasses (`SolverResultProvenance(**...)`,
+`ResultPerformance(**...)`), and the solver-vs-resolved-config cross-check
+compares `visibility.sky_representation` against `identity.sky_representation`
+(`io/hdf5.py:2028-2032`).
+
+Crafted `1.0.0` and `2.0.0` files independently (own script, not the shipped
+test): both rejected with `UnsupportedSchemaVersionError` naming "Tier 6",
+"3.0.0", and "re-run the simulation", with **zero dataset reads of any kind**
+before rejection (an `h5py.Dataset.__getitem__` spy recorded nothing), i.e.
+rejection precedes even metadata dataset access, not merely the visibility
+array.
+
+**Hostile probes: the implementer's 11, plus 5 of my own, all reproduced
+independently.** Ran the 11 shipped forgery tests in
+`test_a_forged_solver_group_is_rejected_before_any_science_is_read` (7 cases:
+relabelled representation, components-without-representation, unexpected
+field, missing field, negative count, unbounded component list, wrong
+component name) and `test_a_forged_performance_group_is_rejected_before_any_
+science_is_read` (3 cases: incoherent component times, unexpected field,
+missing field) plus `test_an_oversized_solver_group_is_rejected_from_
+metadata_alone` (1) -- all reject with a typed `UnsafeResultInputError` and
+an `h5py.Dataset.__getitem__` spy confirms no `/data/` read in any case (part
+of the full-suite run below). Independently wrote and ran 5 additional
+probes, not copied from the suite: (1) duplicated component names
+(`["point", "point"]`) -- rejected, "HDF5 solver_json is invalid" (caught by
+`SolverResultProvenance.__post_init__`'s exact-tuple-match against
+`component_names_for_representation`); (2) `sky_representation` as a JSON
+integer (valid JSON, wrong type) -- rejected, same path; (3) `components` as
+a JSON string instead of an array (valid JSON, wrong type) -- rejected,
+"HDF5 solver_json.components must be an array" (the `type(value) is not
+list` guard); (4) representation mismatch crafted by forging `solver_json`
+to claim `hybrid` over an untouched `point_sources` `resolved_config` --
+rejected, "sky representation disagrees"; (5) the **reverse** direction --
+`solver_json` left alone (valid `point_sources`) and `resolved_config_json`'s
+`visibility.sky_representation` forged to `hybrid` instead -- also rejected
+with the identical message, confirming the cross-check is symmetric, not
+one-directional. All 5 ran with zero `/data/` reads.
+
+**Round trips, reproduced.** Ran `test_every_representation_round_trips_
+component_provenance_and_timings` (point-only, healpix-only, hybrid,
+parametrized) and `test_a_hybrid_file_is_not_scientifically_equal_to_a_
+point_only_file` directly: hybrid vs. point-only files with numerically
+identical cubes (`np.array_equal` true) are **not** `scientifically_equal`
+and have different `scientific_sha256` -- reproduced, not merely read. Ran
+the integration reproductions (`test_hybrid_result_round_trips_through_
+hdf5_three_zero_zero`, `test_hybrid_summary_json_reports_both_components`,
+`test_hybrid_uvfits_history_reports_both_components`) from a real
+end-to-end hybrid run, not a hand-built fixture: all pass.
+
+**Summary 1.1.0 judgment call (risk #2) -- ACCEPTED.** Read §19's resolution
+text and the code it cites. Verified `write_result_summary_json` has no
+in-tree reader (`grep -rn "result-summary\|summary_json" src/radiosim/` shows
+only the writer, `io/__init__.py`'s lazy export, and CLI/format-enum
+mentions -- no parser). Verified every `1.0.0` key survives at the same path
+with the same meaning: `test_summary_json_is_exact_bounded_metadata_contract`
+still asserts the same top-level key set, now paired with `"version":
+"1.1.0"`, and the diff to `summary_json.py` adds no removed or retyped key,
+only two new fields inside the existing `solver` block (`components`,
+`component_element_counts`) and two inside `performance`
+(`solver_point_seconds`, `solver_healpix_seconds`), both already present in
+the dataclasses since 6F. Compared against the Tier 4F summary-schema
+discipline precedent this plan invokes: a version field is a contract only if
+it moves when the shape does and stays put when it doesn't -- `1.1.0` does
+exactly that, and the HDF5 side's incompatible, no-upgrade-path `3.0.0` bump
+correctly stays major because two dataclass-field-set-exact readers now
+mutually reject each other's files, which is a materially different kind of
+break than a write-only, purely-additive document growing two new keys per
+block. Ruling: the minor/major distinction is honest and well-reasoned; no
+version correction required.
+
+**Risk #1 (the additive cross-check omission) -- ruled a sound boundary, not
+a hole.** `build_simulation_result` (`core/result.py:1221`) does not
+cross-check `solver_provenance.sky_representation` against
+`resolved_config["visibility"]["sky_representation"]` -- confirmed by
+reading the full function body; no such comparison exists there.
+`grep -rn "build_simulation_result(" src/radiosim/` shows exactly **one**
+in-tree call site: `api/simulator.py:1066`. At that call site, both values
+trace to the identical local variable `sky_representation = str(self.
+_resolved.visibility["sky_representation"])` (`api/simulator.py:986`): it
+flows directly into `SolverResultProvenance(sky_representation=...)`
+(`api/simulator.py:1088-1090`) and, via `self._resolved.to_json_safe()`
+(`api/simulator.py:1094`), into the same `resolved_config` mapping. A
+mismatch is therefore not merely unlikely but structurally unconstructible
+through the one production path that reaches a user's file. The omission
+exists so the test fixture at `tests/unit/test_io/test_hdf5_result.py`'s
+`_component_result` (and its siblings) can independently parametrize solver
+provenance without also hand-assembling a matching resolved-config tree --
+documented in that helper's own docstring ("a fixture that declares hybrid
+in one place and point_sources in the other is not a legitimate result and
+must not be used as one"), which is a correct statement of the boundary, not
+a concealment of it. Ruling: sound boundary; no in-tree path can produce the
+now-unwritable mismatched result in a user-visible file.
+
+**Bit-identity and full-tree diff, reproduced (RUN-005-hygiene, sequential
+checkout).** One detached worktree, checked out at `ce76063` then
+`ac9e56b` in sequence (never both at once), `PYTHONPATH=<worktree>/src`
+against the main checkout's interpreter, `configs/config.yaml`:
+
+```text
+ac9e56b: scientific_sha256=4bbb74035b3d700fa7638dca6b854a8c9110bc2abe8d418c7b180f527b947f2b
+ac9e56b: provenance_sha256=f653dc0618946c911254dbfb0bca4652e78d07cbd5fcc3fb79aee0fb8ccd54a8
+ac9e56b: cube_sha256=cce1bfe86dc8b3fe81e5c6064a8449afa5bbab95866ec6bc352681dbf1e5ffae
+ce76063: scientific_sha256=4bbb74035b3d700fa7638dca6b854a8c9110bc2abe8d418c7b180f527b947f2b
+ce76063: provenance_sha256=f653dc0618946c911254dbfb0bca4652e78d07cbd5fcc3fb79aee0fb8ccd54a8
+ce76063: cube_sha256=cce1bfe86dc8b3fe81e5c6064a8449afa5bbab95866ec6bc352681dbf1e5ffae
+```
+
+All three identical, path held constant (same worktree path for both
+checkouts) -- consistent with C11/C12 correctly *not* listing 6G, since this
+slice changes no dataclass content, only serialization surfaces.
+
+Diffed the full HDF5 trees (every dataset under `/coordinates`, `/data`,
+`/provenance`, `/receptors`, plus root attributes) byte-for-byte between the
+two checkouts' written files: the **only** difference is the root
+`schema_version` attribute (`3.0.0` vs `2.0.0`) and `provenance/
+performance_json`, whose only content difference is the nondeterministic
+wall-clock timing fields (already excluded from both fingerprints). No
+`solver_json` difference, because 6F had already added the `components`/
+`component_element_counts` fields under schema `2.0.0`; 6G's job was the
+version bump and reader validation, not new content.
+
+Diffed the summary JSON documents (`json.tool`-normalized): the only
+differences are `schema.version` (`1.1.0` vs `1.0.0`) and the same
+nondeterministic timing fields.
+
+Diffed UVFITS `HISTORY` (written and read back in the same sequential
+worktree): the only difference is exactly the three declared new lines
+(`sky_representation=point_sources`, `solver_components=point`,
+`solver_component_element_counts=200`) present at `ac9e56b` and absent at
+`ce76063`; every other history line (`radiosim_version`, `standard_format`,
+dtype fields, `source_scientific_sha256`, `source_provenance_sha256`, the
+`RADIOSIM_PROJECTION_JSON=` record) is identical.
+
+Collection-count arithmetic independently re-derived: `--collect-only -q` at
+`ce76063` in the isolated worktree gave **4145** (matching the `fe5aa91`
+count recorded in the 6F acceptance, since `ce76063` added no tests); the
+same at `ac9e56b` gave **4174** -- a **+29** delta, matching the claimed
+`4139 -> 4168` non-slow-count arithmetic exactly.
+
+**MS/UVFITS HISTORY additions.** Read `_projection_history`
+(`io/standard_visibility.py:892-926`): three new unconditional lines
+(`sky_representation=`, `solver_components=`, `solver_component_element_
+counts=`), and the `record["solver"]` entry in the `RADIOSIM_PROJECTION_JSON=`
+record (`io/standard_visibility.py:940, 961`) was already sourced from
+`result.solver.to_snapshot()` before this diff and needed no change to stay
+consistent with the new plain-text lines -- confirmed by the shipped
+`test_measurement_set_history_names_every_solved_component` and
+`test_uvfits_history_names_every_solved_component`, both run directly and
+passing, asserting the plain-text lines and the JSON record agree. Probed
+the truncation/rejection fallback with a giant history (300 filler lines,
+~26 KB) appended to a hybrid result's pre-existing `history` field via
+`object.__setattr__`: `project_simulation_result` still raises
+`FormatRepresentationError("standard projection HISTORY exceeds 16000
+UTF-8 bytes")` with the three new lines included in the check -- the
+byte-limit safety mechanism is unmodified and still enforced. The
+record-only omission fallback (instrument/beam detail dropped when the
+projection record alone exceeds the limit, `io/standard_visibility.py:
+949-961`) is untouched by this diff (confirmed by reading the diff: only
+lines before it were added) and `record["solver"]` is populated identically
+in both the full and omitted branches, so component provenance is never
+dropped by that fallback.
+
+**Plan correction `c241dfb`, ratified.** All four §33 grant additions
+verified against source, not merely read as claims: (1)
+`io/result_errors.py`'s `GUIDANCE` constant is the only site composing the
+rejection text and could not be made truthful without editing it, confirmed
+by reading `UnsupportedSchemaVersionError.__init__` (takes only the version
+string); (2) `docs/api/io.rst` states the schema version in exactly the
+three places the correction names, confirmed by diff; (3)
+`test_tier1h_documentation.py` changes exactly the two pinned literals the
+correction names (`"2.0.0"` -> `"3.0.0"` at two sites), nothing else in the
+file; (4) `test_tier4_result_output_acceptance.py` changes exactly the one
+`SCHEMA_VERSION` pin, carries no `OWNED BY` line (confirmed: it is a Tier 4
+acceptance pin, not a Tier 6 characterization pin). The §19 summary-version
+resolution text is ratified above (risk #2).
+
+**Pins.** `grep -rn "OWNED BY: Tier 6G"` across `tests/` returns nothing --
+zero matches, consistent with §32.1 (Tier 6A's characterization subjects do
+not include the HDF5 schema version) and the plan's own statement that 6G
+flips no characterization pin.
+
+**Gates, both environments.**
+
+```text
+pixi run test -- -m "not slow"   (both envs)
+  py311 (default): 4168 passed, 6 skipped, 26 warnings in 451.63s
+  py312:           4168 passed, 6 skipped, 26 warnings in 481.40s
+```
+
+`4168 = 4139 (6F baseline) + 29` -- the +29 delta independently reproduced
+via `--collect-only` above (4145 -> 4174), matching exactly. `pixi run
+lint` -- "All checks passed!". `pixi run format` -- "333 files left
+unchanged" (unchanged from the 6F baseline count, since 6G touches no
+production file `ruff format` would reformat), `git status` clean after.
+`pixi run typecheck` intentionally not run, per `CLAUDE.md`.
+
+**Four shipped YAMLs.** All four (`config.yaml`,
+`receptor_circular_example.yaml`, `realistic_foreground_example.yaml`,
+`hybrid_sky_example.yaml`) pass `radiosim validate`.
+
+**Fresh-process laziness.** `python -c "import radiosim"` does not import
+`healpy` or `jax` into `sys.modules`; the four
+`tests/unit/test_core/test_sky_core_dep_guard.py` laziness tests pass
+directly. Neither `io/hdf5.py` nor `io/result_errors.py` gained a new
+eager heavy import in this diff (confirmed by reading the diffs: no new
+top-level `import` statements beyond the existing `radiosim.core.result`
+names).
+
+**Honest unobserved items.** `pixi run typecheck` was not run, per
+`CLAUDE.md`'s standing instruction. The record-only HISTORY-omission
+fallback branch (dropping full instrument/beam detail when the projection
+record alone exceeds 16 KB) was read and confirmed untouched by this diff,
+but was not separately forced with a many-antenna fixture large enough to
+trigger it on its own (no such fixture exists in the shipped antenna-layout
+examples); the giant-history probe above exercises the same code path's
+overall byte-limit enforcement instead. No GPU/TPU/distributed hardware was
+exercised (none is claimed by this slice). MS-format HISTORY was checked via
+the shipped test rather than an independent worktree write (python-casacore
+MS round trips are slower; the UVFITS worktree reproduction and the shipped
+MS test together were judged sufficient).
+
+No material defect found. Tier 6G is accepted as delivered, with the plan
+correction `c241dfb` ratified and no further plan or code correction
+required. `RUN-001` through `RUN-004` remain open pending the rest of Tier 6;
+this acceptance does not close any of them. Tier 6H (backend registry
+truthfulness, parity, and compilation boundary) is now the only authorized
+implementation slice. Nothing was pushed.

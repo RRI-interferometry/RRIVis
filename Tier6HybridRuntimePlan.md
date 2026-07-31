@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted. Tier 6A (characterization, dependency contract, baseline fingerprints) independently accepted. Tier 6B (worker configuration schema and resolved runtime) independently accepted, 2026-07-30. Tier 6C (loader worker behavior and offline policy) independently accepted, 2026-07-30. Tier 6D (solver accumulation restructure) independently accepted, 2026-07-30. Tier 6E (solver worker policy and `run()` signature) independently accepted, 2026-07-30. Tier 6F (hybrid sky representation and canonical summation) independently accepted, 2026-07-31. Tier 6G (hybrid serialization, HDF5 3.0.0, summary, and standard formats) is now the only authorized implementation slice. |
+| Status | Design accepted. Tier 6A (characterization, dependency contract, baseline fingerprints) independently accepted. Tier 6B (worker configuration schema and resolved runtime) independently accepted, 2026-07-30. Tier 6C (loader worker behavior and offline policy) independently accepted, 2026-07-30. Tier 6D (solver accumulation restructure) independently accepted, 2026-07-30. Tier 6E (solver worker policy and `run()` signature) independently accepted, 2026-07-30. Tier 6F (hybrid sky representation and canonical summation) independently accepted, 2026-07-31. Tier 6G (hybrid serialization, HDF5 3.0.0, summary, and standard formats) independently accepted, 2026-07-31. Tier 6H (backend registry truthfulness, parity, and compilation boundary) is now the only authorized implementation slice. |
 | Date | 2026-07-31 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
