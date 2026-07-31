@@ -4,7 +4,7 @@
 
 | Fact | Value |
 |---|---|
-| Status | Design accepted. Tier 6A (characterization, dependency contract, baseline fingerprints) independently accepted. Tier 6B (worker configuration schema and resolved runtime) independently accepted, 2026-07-30. Tier 6C (loader worker behavior and offline policy) independently accepted, 2026-07-30. Tier 6D (solver accumulation restructure) independently accepted, 2026-07-30. Tier 6E (solver worker policy and `run()` signature) independently accepted, 2026-07-30. Tier 6F (hybrid sky representation and canonical summation) independently accepted, 2026-07-31. Tier 6G (hybrid serialization, HDF5 3.0.0, summary, and standard formats) independently accepted, 2026-07-31. Tier 6H (backend registry truthfulness, parity, and compilation boundary) independently accepted, 2026-07-31. Tier 6I (benchmark harness, records, and documentation truth) independently accepted, 2026-07-31. **Tier 6J (independent whole-tier acceptance) was reviewed 2026-07-31 and REJECTED** — §37 criterion 25 fails: CI is not green on `linux-64`/`osx-64` for the exact acceptance SHA (`99f3a20`) or any of the eleven preceding Tier 6 commits since Tier 6A; root cause is an architecture-level (`arm64` vs `x86_64`) floating-point divergence in the raw visibility-cube digest that the R1/S6-S10 bit-identity invariants never accounted for (see `Fix.md`'s dated 6J rejection record for full evidence and the bounded repair task). Tier 6 is **not** accepted as a whole; `RUN-001`-`RUN-004` remain open/roadmap. The bounded repair task in `Fix.md`'s 6J rejection record is the only authorized next action; Tier 6J must be re-run from a fresh reviewer once CI is green on the repair SHA. |
+| Status | **Tier 6 accepted as a whole, 2026-07-31 (Tier 6J re-run).** Tier 6A-6I were each independently accepted (dates below unchanged from the original record). Tier 6J's first run (2026-07-31) was **REJECTED** on §37 criterion 25 alone (CI red on `linux-64`/`osx-64` for the exact acceptance SHA; architecture-level floating-point divergence in the raw visibility-cube digest that the original R1/S6-S10 bit-identity invariants never accounted for) and returned a bounded repair task; see `Fix.md`'s dated 6J rejection record for the full original evidence. The repair (`e3f1987`, `d742b48`, `1c90d81`, `e5b20d1`, `7da2808`) re-keyed the bit-identity pins by `(platform, Python)` and then, after a third CI round revealed a machine-class axis within `linux-64`/py312, converted them to per-cell recorded observation sets asserted by membership — touching only `Tier6HybridRuntimePlan.md` and `tests/characterization/test_tier6_current_behavior.py`, no `src/` file. A fresh Tier 6J re-run (2026-07-31) independently reproduced the repair's CI evidence against raw logs, ratified its three judgment calls, re-proved all 26 §37 criteria (including the full non-slow suite in both environments: 4,259 passed / 0 skipped / 10 deselected / 26 warnings each), and confirmed CI green on all 8 jobs at the exact acceptance SHA `7da2808` (run `30643600406`). Tier 6 is accepted as a whole; `RUN-001`-`RUN-003` are **DONE**, `RUN-004` is **DONE** narrowed to §13.1 scope with the accelerator-performance remainder filed as new roadmap row `PERF-001`. See `Fix.md`'s dated "Tier 6 whole-tier acceptance (Tier 6J re-run)" record for full evidence. Per the user's explicit instruction, the next authorized work per the roadmap is Tier 7 design, pending the user's go-ahead — this review does not itself begin it. |
 | Date | 2026-07-31 |
 | Repository | `/Users/kartikmandar/MacProjects/RadioSim` |
 | Branch | `main` |
@@ -2661,3 +2661,36 @@ shipped configurations are `point_sources`, `point_sources`, and a diffuse-only
 in `tests/fixtures/configs.py`, and every documentation snippet before
 introducing the rejection. If any does, 6F sets the new flag explicitly in that
 artifact rather than weakening the rule.
+
+## 42. Tier 6J re-run acceptance appendix (2026-07-31)
+
+**Disposition.** Tier 6 is accepted as a whole. Full evidence, the §37
+checklist, the §38 closures, and the CI verification live in `Fix.md`'s
+dated "Tier 6 whole-tier acceptance (Tier 6J re-run)" entry; this appendix
+records only the plan-level consequences.
+
+**Q4 resolved.** The remaining accelerator work is filed as a **new roadmap
+row, `PERF-001`** (`Fix.md` §5), not a reopened or narrowed `RUN-004`.
+`RUN-004` itself closes `DONE` for exactly the §13.1 scope §38 already
+defines ("backend correctness parity complete; accelerator performance
+undemonstrated"); `PERF-001` covers device-resident orchestration, device
+coordinate transforms, and a measured accelerator run, gated on GPU/TPU
+hardware this environment does not have, and is explicitly not part of
+Tier 7's Jones workstreams.
+
+**Repair provenance, for future readers of this plan.** The bit-identity
+scope recorded in §21/§27 (the "environment" now means
+`(pixi platform, locked Python)`, six cells, with S8 asserted as membership
+in a per-cell recorded observation set rather than scalar equality) is the
+final, accepted form — not a placeholder pending further correction. Three
+CI rounds produced it: `e3f1987`/`d742b48` added the platform axis;
+`1c90d81` completed the x86_64 cube-digest harvest; `e5b20d1`/`7da2808`
+converted the pins to observation sets after a machine-class axis appeared
+within `linux-64`/py312. Any future digest divergence in a previously-quiet
+cell is expected behavior under this scheme (a loud, adjudicated failure),
+not evidence the scheme itself needs another correction.
+
+**Next authorized work.** Per the roadmap, Tier 7 (Jones-term implementation
+and the spherical-harmonic/m-mode solver, `SCI-001`/`SCI-002`) is next.
+**The user has explicitly ordered a stop before Tier 7 design begins**; this
+acceptance does not itself start Tier 7 scoping or design work.

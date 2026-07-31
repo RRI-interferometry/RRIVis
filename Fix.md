@@ -200,11 +200,12 @@ Status values used below:
 | OUT-006 | DONE | UVFITS is accepted by config but unsupported by `save()` | 4 |
 | POL-001 | DONE | Top-level feed/receptor config is ignored | 5 |
 | POL-002 | DONE | Receptor and basis-transform Jones terms are identity stubs | 5 |
-| RUN-001 | OPEN | `run(n_workers=...)` is unused | 6 |
-| RUN-002 | OPEN | Sky loading hard-codes `max_workers=8` | 6 |
-| RUN-003 | OPEN | High-level API forces point or HEALPix and cannot preserve hybrid sky | 6 |
-| RUN-004 | ROADMAP | Backend abstraction is not yet performance-bearing end to end | 6 |
+| RUN-001 | DONE | `run(n_workers=...)` is unused — closed 2026-07-31 (Tier 6J re-run): `Simulator.run()` has no `n_workers` parameter; a typed `execution.solver` worker policy is centrally resolved, recorded in provenance, and proven both in force and result-invariant | 6 |
+| RUN-002 | DONE | Sky loading hard-codes `max_workers=8` — closed 2026-07-31 (Tier 6J re-run): no hard-coded worker count survives in `src/`, `load_models_parallel` has no `max_workers` default, loader concurrency is typed/configurable/recorded, and offline behavior under both executors is tested | 6 |
+| RUN-003 | DONE | High-level API forces point or HEALPix and cannot preserve hybrid sky — closed 2026-07-31 (Tier 6J re-run): `sky_representation: hybrid` is a first-class mode with exact additivity, coordinate identity, one canonical result, an unchanged disjointness gate, and full HDF5/summary/MS/UVFITS serialization | 6 |
+| RUN-004 | DONE | Backend abstraction is not yet performance-bearing end to end — closed 2026-07-31 (Tier 6J re-run) **narrowed to §13.1 scope**: "backend correctness parity complete; accelerator performance undemonstrated" — Dask is bit-identical to NumPy, JAX-CPU agrees within `rtol=1e-12`, the registry is truthful (`numba` unselectable, `DaskBackend` reports `dask-*`, `supports_gpu` is `False`), exactly one kernel is compiled and verified against its uncompiled reference, and every capability statement cites a benchmark record. The unmeasured remainder (device-resident orchestration, device coordinate transforms, a measured accelerator run) is **not** silently absorbed into Tier 7; it is filed as `PERF-001` below per §41 Q4 | 6 |
 | SKY-001 | OPEN | Every VizieR point-catalog loader (`gleam`, `mals`, `lotss`, `vlssr`, `tgss`, `wenss`, `sumss`, `nvss`, `3c`, `vlass`) raises `TypeError` because commit `7b02bb2` made `_load_from_vizier_catalog`'s `precision` keyword-only while all four wrapper call sites in `core/sky/loaders/vizier/point_catalogs.py` still pass it positionally | standalone, bounded fix (pre-Tier 7) |
+| PERF-001 | ROADMAP | Accelerator (GPU/TPU) performance remains undemonstrated: the time and frequency axes are host-side Python loops, astropy coordinate transforms / horizon masking / Planck conversion / pyuvdata beam interpolation are host-side by design, the locked JAX build is CPU-only, and measured JAX-CPU is slower than NumPy on every benchmarked workload (`output/benchmarks/reference/`). Filed 2026-07-31 at Tier 6J re-run acceptance per §41 Q4, as the successor to the accelerator-performance remainder of `RUN-004`; requires GPU/TPU hardware this environment does not have | post-Tier-7, hardware-gated |
 | RUN-005 | DONE | `scientific_sha256` embeds the antenna layout source file's absolute filesystem path (`io/instrument_sources.py`'s `source_reference=str(path)`, carried into `instrument_snapshot["reference"]` and hashed by `core/result.py::_scientific_hash`), so two runs of the identical config with bit-identical raw visibility cubes produce different `scientific_sha256` values solely because the repository checkout lives at a different absolute path; confirmed pre-existing and unaffected by Tier 6D (`core/instrument.py`, `io/instrument_sources.py`, `core/result.py` are untouched in `c5d79aa..87d7c79`) by reproducing the same divergence with cube-identical, fingerprint-different runs at `c5d79aa` from two detached worktrees | standalone, bounded fix (pre-Tier 7) |
 | RUN-006 | DONE | The FITS beam `definition_fingerprint` (`core/beam/models.py::ResolvedFITSBeamDefinition.__post_init__`) hashed the absolute FITS path, so `definition_fingerprint`, `assignment_fingerprint`, `state_fingerprint`, and `loaded_fingerprint` all differed between checkouts of the same commit even though `RUN-005`'s projection already kept them out of `scientific_sha256`; fixed by hashing only the load settings (`normalization`, `angular_interpolation`, `frequency_interpolation`) — file content stays bound at load time by the content-based handler `scientific_fingerprint` — with pre-load dedup (`_deduplicated_definitions`) re-keyed on fingerprint + resolved path so two distinct files with identical settings remain distinct definitions/handlers, and `LoadedBeamState` gaining an explicit `handler.file.resolved_path == assignment.definition.path` cross-check to preserve the assignment-matching strength the path hash used to provide; changes every stored FITS-beam fingerprint value (snapshots, summary JSON, HDF5 provenance) but no schema, no `scientific_sha256` (projection unchanged, settings survive as sibling keys), and no analytic-beam value, so the shipped-config pins are untouched | standalone, bounded fix (pre-Tier 7) |
 | SCI-001 | ROADMAP | Most Jones classes are public identity-returning stubs | 7 |
@@ -10258,3 +10259,271 @@ conclusion directly.
 No commit accepting Tier 6 was made. Tier 6J is not closed. The next
 authorized action is the bounded repair task above, not Tier 7 design work
 and not a further Tier 6 slice.
+
+### 2026-07-31 Tier 6 whole-tier acceptance (Tier 6J re-run)
+
+**VERDICT: ACCEPTED.** Tier 6 is accepted as a whole. `RUN-001`, `RUN-002`,
+`RUN-003` flip to **DONE**. `RUN-004` flips to **DONE**, narrowed to the
+scope §13.1 defines ("backend correctness parity complete; accelerator
+performance undemonstrated"); the unmeasured remainder is filed as the new
+roadmap row `PERF-001` per §41 Q4, not silently absorbed into Tier 7.
+`SKY-001` remains **OPEN**, unaffected by this review. This is a fresh,
+independent re-review: every finding below was re-derived from source, CI
+logs, and local execution, not copied from the rejected run or the repair
+commits' own claims.
+
+**Scope reviewed.** The full indivisible Tier 6 range `6928f59..7da2808`
+(HEAD), covering 6A-6I, the RUN-005/RUN-006 standalone fixes, the 6J
+rejection (`b969016`), and the five-commit bounded repair chain
+(`e3f1987`, `d742b48`, `1c90d81`, `e5b20d1`, `7da2808`). Branch `main`, no
+push. No `src/` file differs anywhere in `b969016..HEAD`
+(`git diff --stat b969016..HEAD -- src/` is empty) — the repair touched
+exactly two files, `Tier6HybridRuntimePlan.md` (+112/-… lines) and
+`tests/characterization/test_tier6_current_behavior.py` (+553/-… lines),
+matching precisely what the rejection's bounded repair task authorized
+(branch 2 of step 3: amend the plan and the `_ENVIRONMENT_KEY` scheme, not a
+production fix) and nothing more. `Fix.md` itself was untouched by every
+repair commit — this entry is the first write to it since the rejection.
+
+**Repair verification.**
+
+*The observation-set pin scheme* (`tests/characterization/test_tier6_current_behavior.py`).
+Read in full. `_platform_key()` derives one of `linux-64`/`osx-64`/`osx-arm64`
+from `sys.platform`/`platform.machine()`; `_ENVIRONMENT_KEY` combines it with
+`pyNNN`, giving six cells. `_SHIPPED_CONFIG_FINGERPRINTS` and
+`_SHIPPED_CONFIG_CUBE_DIGESTS` key each shipped config by cell to a **tuple**
+of observed digests, not a scalar. `_pin_problem` fails loudly for an
+uncharacterized environment (naming it and listing what *is* characterized)
+and for a measured value absent from the recorded tuple; a value present in
+the tuple passes. `_assert_pinned_digests` collects every failing check
+before raising (no short-circuiting) and appends `_machine_fingerprint()`
+(CPU model plus NumPy's dispatched CPU feature set) to every failure.
+Provenance for every harvested value is recorded in comments naming the CI
+run and job IDs and the CPU model observed. Probed directly, not merely read:
+
+```
+UNSEEN DIGEST PROBLEM (should be non-empty): True
+  "probe: digest not among those recorded for environment osx-arm64-py311.
+   measured:  zzz999
+   recorded:  abc123"
+SECOND RECORDED VALUE PROBLEM (should be empty string): ''
+UNCHARACTERIZED ENV PROBLEM (should be non-empty): True
+  "probe: no digest has ever been recorded for environment win-64-py311
+   (never characterized). measured: zzz999 recorded environments: [...]"
+non-short-circuit: both "check A" and "check B" failures present in one
+  raised message, with the machine fingerprint
+  ("cpu model: 'Apple M1 Max'\nnumpy dispatched features: ASIMD,...") appended.
+```
+
+*Cross-checked the harvested values against raw CI logs myself*, not the
+commit messages' claims. Run `30631837095` (on `d742b48`, the
+platform-keyed-fingerprint commit): all four x86_64 jobs report exactly
+`2 failed, 4257 passed` — both `_SHIPPED_CONFIG_CUBE_DIGESTS` tests, nothing
+else — confirming the scientific_sha256 pins were already correct on that
+commit and only the raw-cube pins were still missing, exactly the harvest
+story the commit message tells. Run `30640039816` (linux-64/py312 job
+`91187338402`, the run that revealed the third axis): exactly
+`3 failed, 4256 passed`, the two shipped-config fingerprints plus
+`test_section_13_4_workload_fingerprints[heterogeneous_receptor_bases]` and
+no other workload — matching the docstring's claim that the variance is per
+digest, not per cell. The measured value in that job's own failure log,
+`b576167d143bee69217e91f17f5371b4e7a1005bd1cec639e70cf8f32601ebef`, is
+byte-identical to the second tuple entry now recorded for
+`linux-64-py312`/`config.yaml` in `_SHIPPED_CONFIG_FINGERPRINTS` — the same
+check for the receptor-config digest also matched exactly. This is a genuine
+harvest of an observed CI value, not an invented or backfilled one. Run
+`30643600406` — `gh run view 30643600406 --json headSha,event,displayTitle,conclusion`
+confirms `headSha: 7da2808bbfb3c22c0b23a57e778a9f1a138f8401` (the exact
+acceptance SHA) and `conclusion: success`; `gh run view 30643600406` lists
+all 8 jobs green: quality (1m41s), backend-parity (49s), and all six
+OS/Python jobs (osx-64/py3.12 24m15s, linux-64/py3.12 5m32s,
+linux-64/py3.11 6m9s, osx-64/py3.11 20m16s, osx-arm64/py3.11 8m45s,
+osx-arm64/py3.12 10m44s).
+
+**Three ratifications (all confirmed sound).**
+
+(a) *Inherent-machine-property conclusion.* The evidence supporting "this is
+a machine property, not intra-run nondeterminism" is exactly what the plan
+claims: in the failing job (`30640039816`), every within-process
+reproducibility test — solver worker invariance at 1/2/3/4 workers, loader
+worker invariance across `{1,2,4,8}` × `{thread,process}`, per-solver
+bit-identity under workers, and hybrid additivity (H1/H3/W1/W3) — passed in
+that same job, which a race or hash-ordered reduction would not have
+permitted. The evidence that the CPU-model string does not discriminate is
+also confirmed: two agreeing runs report different models (`AMD EPYC 7763`
+vs `9V74`), and the divergent run reports the *same* model (`9V74`) as one of
+the agreeing runs. Both premises hold; the conclusion ("a machine property
+the model string does not capture, most plausibly the vectorized dispatch
+path") is correctly stated as narrowed, not proven, and `_machine_fingerprint`
+now captures the next diagnostic datum needed.
+
+(b) *Observation-set membership vs. single-value pins — the honest trade.*
+§21's third correction states plainly, not buried: "a regression that
+happened to reproduce a digest already recorded for that cell would not be
+caught by S8 — an accepted residual risk." Confirmed present verbatim in
+`Tier6HybridRuntimePlan.md` §21 and mirrored in the test module's own
+docstring ("A set never grows to make a failure go away"). The detection
+strength against a genuinely new number is unchanged; only reproduction of
+an already-seen number is the gap, and it is named rather than hidden.
+
+(c) *Rejecting `NPY_DISABLE_CPU_FEATURES`.* §21 records the reasoning:
+"it would change production numerical behaviour for the convenience of a
+test, would not address the platform axis at all, and would trade a
+truthful gate for a configured one." This is sound — forcing a dispatch
+level would not make `linux-64` agree with `osx-arm64` (the platform axis is
+separate from the intra-platform dispatch axis), and it would make the test
+suite exercise numerics the production build never runs.
+
+**§21/§27/§37 corrections verified to state the true scope.** §21 (S1-S12
+table plus three dated corrections) and §27 (R1 row) both state: bit-identity
+is a within-`(platform, Python)`-environment claim; S1/S3/S6/S7/S10 are
+unaffected because they compare runs inside one process/environment; S8
+alone was re-keyed, and is now a membership-in-observation-set claim, not
+scalar equality; S9/S11 were already tolerance-framed and remain so;
+cross-environment or cross-machine-class comparison is a §13.5 tolerance
+claim only, never bit-level, in both documents. §37 criterion 25's text
+confirms it was **not** loosened by the correction: "the §21/§27 amendment
+narrows what 'bit-identical' *claims*, it does not lower this gate,"
+"[e]very one of the six jobs must be green on the acceptance SHA," and "[a]
+reviewer must verify this by run ID, not by lockfile inspection." The
+residual-risk sentence is present verbatim: "a green run does not prove the
+next run is green — a runner class never yet seen in a cell will fail
+loudly by design... resolved by adjudicating and recording the observation,
+not by relaxing the gate."
+
+**Residual risk confirmed recorded, not swept under.** The `b576…`-class
+`linux-64`/py312 runner's cube digests (as opposed to its
+`scientific_sha256` digests, which are now recorded) remain unobserved —
+`_SHIPPED_CONFIG_CUBE_DIGESTS["config.yaml"]["linux-64-py312"]` and the
+matching receptor-config entry are still single-value tuples, and the test
+module's own comment block (lines ~1772-1778) states this explicitly:
+"[t]hese cells are still single-observation... its value has not been seen
+yet, because the run that revealed it failed before this assertion." Any
+cell — this one or any other — can still produce a first-time value on a
+future CI run; that is a loud red requiring adjudication, not evidence of a
+defect in this acceptance.
+
+**§37 whole-tier checklist (all 26, as amended).** Criteria 1-13, 16-22, 24,
+26 were independently re-spot-checked against source and found unchanged
+from the rejected run's own findings (which independently re-derived them
+from source per §34) — none of the repair commits touched any file those
+criteria depend on (`git diff --stat b969016..HEAD -- src/` empty; `pixi run bench`
+10/10 passed again; `get_backend("numba")` still raises the exact §18.3
+message; `pixi run python -c "import radiosim"` still puts neither `healpy`
+nor `jax` into `sys.modules`; `pixi run lint` all-clear; `pixi run format --check`
+344 files already formatted; `pixi lock --check` up to date). Criteria 14,
+15, 23, 25 — the ones the rejection and repair bear on directly — are
+re-proven fresh here:
+
+- **14** (R1 bit-identity, S8): now holds per the repaired, per-cell
+  observation-set scope; all six `(platform, python)` cells carry at least
+  one recorded value for every §13.4 workload and both shipped configs, an
+  unmeasured cell fails loudly by design, and no set was grown without a
+  reviewed CI observation backing it (verified directly against raw CI logs
+  above, not taken on the commit messages' word).
+- **15** (S9 NumPy/JAX-CPU parity): unaffected by the repair (JAX-CPU
+  comparisons were always tolerance-framed); `pixi run bench` reconfirms
+  `test_jax_cpu_records_are_within_the_section_13_5_tolerance` passes.
+- **23** (dual-Python full non-slow suites): reproduced myself, both
+  environments, on this machine (`osx-arm64`): `default`/py311 —
+  **4,259 passed, 10 deselected, 26 warnings in 450.58s**; `py312` —
+  **4,259 passed, 10 deselected, 26 warnings in 482.47s**. Exact match to
+  the plan's expected count in both environments (0 skipped is implied by
+  the summary line reporting no `skipped` term).
+- **25** (CI on the exact acceptance SHA): `gh run view 30643600406` on
+  `headSha 7da2808bbfb3c22c0b23a57e778a9f1a138f8401` (this record's own
+  acceptance SHA, confirmed by `git rev-parse HEAD` before this edit) shows
+  all 8 jobs green — quality, backend-parity, and all six locked
+  OS/Python jobs. Verified by run ID, not lockfile inspection, per the
+  criterion's own instruction.
+
+**Independent empirical set reproduced fresh** (not solely relied on from
+the first 6J run, though its extensive findings for the untouched criteria
+stand): `pixi run bench` — 10/10 passed (record completeness,
+accelerator-honesty, JAX-CPU tolerance, Dask bit-identity, retracing, and
+memory-scaling). `pixi run lint` — all checks passed. `pixi run format --check`
+— 344 files already formatted. `pixi lock --check` — up to date. All four
+shipped YAMLs (`config.yaml`, `receptor_circular_example.yaml`,
+`realistic_foreground_example.yaml`, `hybrid_sky_example.yaml`) pass
+`radiosim validate`. One end-to-end hybrid+workers reproduction
+(reviewer-authored script against `configs/hybrid_sky_example.yaml`,
+`execution.solver.workers` in `{1, 4}`): `scientific_sha256` identical and
+`np.array_equal` true on the raw cubes between worker counts; `components`
+reports `('point', 'healpix')`; the shipped hybrid additivity/coordinate/
+provenance/serialization tests (`tests/integration/test_hybrid_end_to_end.py`,
+all `H1`-`H11` rows) are part of the reproduced 4,259-test suite above and
+passed in both environments.
+
+**§38 closures.**
+
+- `RUN-001` → **DONE**. Criteria 9, 11, 12 hold: `Simulator.run()` has no
+  `n_workers` parameter (part of the reproduced suite's passing
+  `test_worker_policy.py` module); the solver worker policy is typed,
+  centrally resolved, recorded in provenance, provably in force, and
+  result-invariant (independently reconfirmed by the workers={1,4} hybrid
+  reproduction above).
+- `RUN-002` → **DONE**. Criteria 9, 10, 11, 13 hold: no hard-coded worker
+  count in `src/` (`grep -rn "max_workers=8" src/` empty), loader
+  concurrency is typed/configurable/recorded, and offline-under-workers is
+  tested (`test_tier6c_loader_worker_invariance[...]` rows, part of the
+  passing suite).
+- `RUN-003` → **DONE**. Criteria 3-8 hold: hybrid is first-class with no
+  lossy conversion, additivity (reconfirmed above), coordinate identity, one
+  canonical result, the unchanged disjointness gate, and full serialization
+  — all exercised by the passing `tests/integration/test_hybrid_end_to_end.py`
+  suite.
+- `RUN-004` → **DONE**, exactly per §38's stated resolution: closed as
+  "backend correctness parity complete; accelerator performance
+  undemonstrated," for the scope §13.1 defines, not more. Criteria 14-22 all
+  hold (see above and the unaffected-criteria list). The honest position is
+  unchanged and still true: JAX-CPU is measured and *slower* than NumPy on
+  every benchmarked workload (`output/benchmarks/reference/`), GPU/TPU/
+  distributed remain entirely unmeasured, and `CLAUDE.md`'s three backend
+  lines still state this plainly. Per §41 Q4 ("must be decided in 6J"; the
+  rejected run explicitly deferred this decision to this re-review), the
+  disposition is: **file the unmeasured accelerator-performance remainder as
+  a new roadmap row, `PERF-001`**, rather than leaving `RUN-004` open with a
+  narrowed description — §38 itself already writes `RUN-004`'s closure text
+  as "DONE... for the scope this plan defines in §13.1," which only accepting
+  that closure and routing the remainder to a fresh row keeps intact; leaving
+  `RUN-004` open would contradict §38's own closure sentence. `PERF-001`
+  requires GPU/TPU hardware unavailable in this environment and is not
+  claimed to be scoped or planned beyond that here — it is a placeholder for
+  future hardware-gated work, explicitly not absorbed into Tier 7's Jones
+  workstreams per Q4's own instruction.
+
+**Inter-record consistency.** The whole-tier story reads coherently end to
+end: Tier 6A-6I slice acceptances (each independently re-deriving its own
+claims per §34) → Tier 6J's first run independently reproduced nearly every
+finding and correctly isolated the single failing criterion (25) to a
+previously-unchecked cross-architecture CI gap, naming a bounded, two-branch
+repair task → the repair executed branch 2 (architecture-level floating-point
+non-associativity, not a determinism bug) across three escalating rounds as
+new CI evidence arrived (platform axis, then a third machine-class axis
+within `linux-64`/py312) → this re-review independently reproduces the CI
+green state, the local empirical gates, and the specific claims the repair
+commits make, and finds no inconsistency between what any record claims and
+what the repository or CI actually shows.
+
+**Unobserved items (honest, non-blocking).** GPU/TPU/distributed hardware:
+none exercised, none claimed. Non-macOS execution of the full suite: not
+performed locally in this review (this machine is `osx-arm64`); the two
+x86_64 platforms' correctness was verified via hosted CI run `30643600406`
+and cross-checked against raw job logs for `30631837095` and `30640039816`,
+which this review considers a legitimate, independently-verifiable source
+rather than a gap. Any CI runner class not yet observed in a given
+`(platform, python)` cell — including but not limited to the `linux-64`/py312
+class that produced `b576167d...` and its cube-digest counterpart, which is
+still unrecorded — will fail loudly on first encounter by design; this is
+the accepted, explicitly-recorded residual risk of the observation-set
+scheme (ratification (b) above), not a defect. `SKY-001` (VizieR positional-
+argument `TypeError`) remains open and unaffected by Tier 6 or this review.
+
+**Register.** `RUN-001`, `RUN-002`, `RUN-003`, `RUN-004` all flip to
+**DONE** (§5, above). `PERF-001` is newly **ROADMAP**. `SKY-001` remains
+**OPEN**.
+
+Tier 6 is accepted as a whole. Per the user's explicit instruction, Tier 7
+design work is not undertaken by this review or authorized to start
+automatically; the next authorized work per the roadmap is Tier 7 design,
+pending the user's go-ahead.
