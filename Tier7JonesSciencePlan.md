@@ -1159,6 +1159,53 @@ its return already has exactly `M`'s shape. This is the single most important
 structural property of the Tier 7 design and it is why Workstream D is a small
 slice rather than a kernel redesign.
 
+**Correction (7H implementation, 2026-08-01) — the final
+`compute_baseline_factor` signature, and how a solver knows where a factor
+attaches.** Two changes, both forced, neither widening what the terms do.
+
+1. **The signature is the batched one above, reconciled with 7B's accepted
+   keyword set.** 7B introduced the method as concrete-and-raising with a
+   *per-baseline* keyword set — `baseline_idx`, `antenna_p`, `antenna_q`,
+   `freq_idx`, `time_idx`, and no baseline geometry at all — which neither term
+   can be written against: `Q`'s two envelopes are functions of the baseline
+   vector, and no parameter carried one. The keywords therefore become
+
+   ```python
+   compute_baseline_factor(
+       *,
+       baseline_pairs: tuple[tuple[int, int], ...],   # ordered antenna numbers, selection order
+       baseline_uvw_wavelengths: Any,                 # (B, 3), backend array
+       directions: DirectionBatch,
+       frequency_hz: float,
+       freq_idx: int,
+       time_mjd: float,
+       time_idx: int,
+       backend: ArrayBackend,
+       dtype: DTypeLike,
+   ) -> Any                                           # (B, n_dir) real | (B, 2, 2) complex
+   ```
+
+   which is this section's original batched contract plus the two grid indices
+   7B added for the same reason it added them to `compute_jones_batch`.
+   `channel_width_hz` and `integration_time_s` are **not** parameters; see the
+   Section 20.11 correction for where they come from instead.
+2. **`hadamard_target` is a new declared property on the ABC**, with exactly two
+   values — `"envelope"` and `"correlation"` — naming which of the two
+   attachment points in the table above a term's factor belongs to. A solver
+   must dispatch on something, and the two candidates already present are both
+   wrong: `is_direction_dependent` is a statement about the *physics* that would
+   silently become the wiring (a future direction-dependent correlation-side
+   factor would attach in the wrong place), and an `isinstance` check against
+   the two concrete classes would put the term inventory inside the solver. The
+   property is abstract, so a new baseline term cannot omit it.
+3. **Both solvers call one shared evaluator**,
+   `evaluate_baseline_factors()` in `core/jones/baseline_errors.py`, for the
+   same reason Section 14 gives for `evaluate_antenna_jones`: a baseline term
+   that reached the point path and silently not the diffuse one would be defect
+   D4 again, one axis over. It returns the two products — the envelope factor
+   and the correlation factor, each `None` when no term declares that target —
+   and shape- and finiteness-checks each one (Section 26).
+
 ### 15.2 Ordering rule
 
 `Q` multiplies the Gaussian morphology envelope; when both are present the
@@ -1870,6 +1917,22 @@ it is baseline-dependent, and proves the Hadamard path is distinct from the
 matrix chain — which is exactly what `Fix.md` Section 16's Workstream D asks
 for ("enforce the distinction").
 
+**Correction (7H implementation, 2026-08-01) — `M`'s two configuration sources
+and its duplicate rejection.** This section already says `M` is configured
+"per baseline ... or as one array-wide value", while Section 21.2's YAML shows
+only `per_baseline`. Both are implemented, with the same precedence rule every
+other term uses: an array-wide `matrix` is the default for every selected
+baseline, a `per_baseline` entry overrides it for the pair it names, and a
+baseline named by neither is exactly `I2`. A block that configures neither, or
+whose every resolved matrix is `I2`, is the R7 identity rejection rather than a
+new one — an `M` that cannot break closure is an `M` that is not there.
+A duplicate `per_baseline` entry is rejected with R5's sentence reduced to the
+key that exists, exactly as R5 already provides for a term whose overrides carry
+no feed index: `"jones.M.per_baseline contains a duplicate entry for baseline
+(<p>, <q>); each baseline may appear once."` `M` is the only term in this tier
+whose overrides are keyed by a baseline, so this is the second and last bounded
+instance of that named exception, not a general licence.
+
 ### 20.11 Q — time and bandwidth smearing
 
 **Reference.** Bridle & Schwab (1999), in *Synthesis Imaging in Radio
@@ -1907,6 +1970,79 @@ selects only which of the two factors are active.
 changes phase (it is real); the amplitude reduction on the longest baseline
 toward the field edge exceeds that on the shortest, monotonically — a structural
 test that catches a sign or a `u`/`v` transposition.
+
+**Correction (7H implementation, 2026-08-01) — four points, each forced by
+RadioSim's own conventions rather than by convenience.**
+
+1. **`tau_g` is the delay *relative to the phase centre*, not `b . s`.** Written
+   as `b . s / c` the bandwidth factor would be `1` nowhere, least of all at the
+   phase centre: at zenith `b . s` is the baseline's own vertical component.
+   RadioSim's kernel phase is `exp(-2 pi i (u l + v m + w (n - 1)))`
+   (`core/jones/geometric.py`), so the residual delay the correlator has *not*
+   removed is
+
+   ```
+   tau_res(b, s) = ( u l + v m + w (n - 1) ) / nu
+                 = ( b_E l + b_N m + b_U (n - 1) ) / c
+   ```
+
+   which vanishes at `l = m = 0, n = 1` and makes the bandwidth factor exactly
+   `1` at the phase centre. The `-1` is the same fringe-stopping term Section
+   20.0 says `K` carries exactly, and `Q` must be written against the phase the
+   kernel actually applies.
+
+2. **The fringe rate, written out.** This section's expression is elided
+   (`u * cos(dec_s) ...`) and its fragment is written for a tracking equatorial
+   `(u, v, w)` frame, which RadioSim does not have: its baselines are constant
+   ENU vectors and its phase centre is the **fixed zenith**, so the entire time
+   dependence is the sky rotating through both. Differentiating the kernel phase
+   at fixed catalogue coordinates, with `dH/dt = omega_E` and
+   `p = (0, cos(lat), sin(lat))` the celestial pole in ENU, gives
+   `ds/dt = -omega_E (p x s)`, hence
+
+   ```
+   dl/dt = -omega_E ( n cos(lat) - m sin(lat) )      ( = -omega_E cos(dec) cos(H) )
+   dm/dt = -omega_E l sin(lat)
+   dn/dt = +omega_E l cos(lat)
+   ```
+
+   and therefore a fringe rate, **in cycles per second**, of
+
+   ```
+   nu_f(b, s) = omega_E [ u ( n cos(lat) - m sin(lat) ) + l ( v sin(lat) - w cos(lat) ) ]
+   ```
+
+   with `(u, v, w)` in wavelengths. The time factor is `sinc(pi dt nu_f)`, which
+   is the standard `sinc(dt dphi/dt / 2)` with `dphi/dt = 2 pi nu_f`; both
+   factors are evaluated as `numpy.sinc(x) = sin(pi x)/(pi x)`, so the value at
+   zero argument is exactly `1` and no zero-division guard is needed.
+
+3. **`dnu` and `dt` come from the resolved grids, and Q6's candidate rule is
+   rejected.** `dnu` is `ResolvedFrequencyConfig.channel_widths_hz[freq_idx]`
+   and `dt` is `ObservationTimeGrid.integration_time_seconds[time_idx]`. Q6
+   proposed deriving a width from the spacing to the neighbouring channel on a
+   nonuniform grid, with a single-channel observation rejected; that is not
+   needed and would be **wrong**, because Tier 1G made a nonuniform explicit
+   frequency array first-class *together with* a required per-channel
+   `channel_widths_hz`, and that same width is what the result cube and the
+   summary already report. A `Q` that smeared over a spacing-derived width would
+   decorrelate by a bandwidth the run does not claim to have. A single-channel
+   observation is accepted for the same reason: it has a declared width like
+   every other. See the Section 41 Q6 resolution.
+
+4. **The two invariant clauses that RadioSim's phase convention changes.**
+   `Q <= 1` always. `Q > 0` while the smearing argument is below the first sinc
+   zero; beyond it the exact top-hat average genuinely changes sign, and
+   clamping it to keep the "`0 < Q`" half of the clause literally true would be
+   a fabrication — so the implementation computes the exact sinc and the
+   documentation states where the first zero is. `Q = 1` exactly at the phase
+   centre holds for the **bandwidth** factor exactly; it holds for the **time**
+   factor only on a baseline with no East-West component, because RadioSim's
+   phase centre is the fixed zenith rather than a tracked source, so a source at
+   the zenith still moves through it during an integration and still
+   decorrelates by `sinc(pi dt omega_E u cos(lat))`. That is real physics of a
+   drift-scan correlator, not an error: asserting unity there would assert that
+   the array tracks. Invariant I12 is corrected to match.
 
 ### 20.12 The chain-order summary table
 
@@ -2066,6 +2202,22 @@ jones:
   `0` is the explicit way to accept every direction the horizon mask passes.
 - `Q` likewise takes only two booleans, because `dnu` and `dt` come from the
   resolved observation configuration (Section 20.11).
+  **Correction (7H implementation, 2026-08-01):** both booleans are
+  **required** and neither has a default, for the same reason `P.enabled` is
+  required — which of the two mechanisms a run models is a scientific decision,
+  and a default would silently make it RadioSim's. `M`'s block gains the
+  array-wide `matrix` this plan's Section 20.10 already describes, alongside the
+  `per_baseline` overrides Section 21.2 shows:
+
+  ```yaml
+    M:
+      matrix: [[[1.01, 0.0], [0.0, 0.0]],      # optional array-wide default
+               [[0.0, 0.0], [0.99, 0.0]]]
+      per_baseline:                            # optional overrides
+        - antennas: [0, 1]
+          matrix: [[[1.02, 0.0], [0.0, 0.0]],
+                   [[0.0, 0.0], [0.98, 0.0]]]
+  ```
 
 ## 22. Exact resolved runtime model
 
@@ -2376,7 +2528,7 @@ its owning slice in Section 30.
 | **I9** | **`P` is wide-field.** Over a direction batch spanning 20 degrees, `psi` varies by a measurable, predicted amount, and it converges on the single-direction value in the narrow-field limit. **Correction (7F implementation, 2026-08-01):** this row previously read "over a 0.01-degree batch it is constant to `1e-12`". That is unachievable and is not the physics — `dpsi/dtheta` is of order unity away from the poles, so a 0.01-degree batch spans of order `1e-4` rad of direction and therefore of order `1e-5` rad of `psi`. Asserting `1e-12` there would assert that `P` is *not* wide-field, contradicting the row's own first half. The slice asserts something strictly stronger instead: the spread is first order in the field width (halving the width halves it, to one part in a thousand), and it does reach `1e-12` once the batch is small enough for that scaling to take it there. | 7F |
 | **I10** | **Opacity power/voltage factor.** With `T` opacity `tau_0` at zenith on a baseline of two identical antennas, the visibility amplitude is scaled by exactly `exp(-tau_0)`, confirming the `exp(-tau/2)` voltage convention. | 7G |
 | **I11** | **`M` breaks closure; `G` does not.** On a three-antenna triangle, an enabled `G` with arbitrary per-antenna phases leaves the closure phase invariant to `1e-12`; an enabled `M` changes it by the predicted amount. | 7H |
-| **I12** | **`Q` bounds and phase-centre unity.** `0 < Q <= 1` everywhere; `Q = 1` exactly at the phase centre; `Q` changes amplitude only, leaving every visibility phase unchanged to `1e-12`. | 7H |
+| **I12** | **`Q` bounds and phase-centre unity.** `0 < Q <= 1` everywhere; `Q = 1` exactly at the phase centre; `Q` changes amplitude only, leaving every visibility phase unchanged to `1e-12`. **Correction (7H implementation, 2026-08-01):** `Q <= 1` always, and `0 < Q` while the smearing argument is below the first sinc zero — beyond it the exact top-hat average changes sign, and clamping would fabricate. `Q = 1` exactly at the phase centre is asserted of the **bandwidth** factor; the **time** factor is unity there only on a baseline with no East-West component, because RadioSim's phase centre is the fixed zenith and the sky moves through it (Section 20.11's correction). The amplitude-only clause is asserted where `Q > 0`. | 7H |
 | **I13** | **Fingerprint sensitivity.** Changing any single Jones parameter changes `scientific_sha256`; changing no Jones parameter leaves it unchanged; `instrument_sha256` is unchanged by every Jones configuration. | 7D |
 | **I14** | **Point/HEALPix agreement.** For a sky expressible both ways, the point and HEALPix paths agree within the Tier 6 tolerance with **every** implemented term enabled — the proof that the shared evaluator (Section 14) really is shared. | 7D, extended each term slice, re-asserted 7K |
 | **I15** | **Strategy registry equals config surface.** The accepted values of `execution.simulator` equal the keys of the simulator registry, as a set. | 7C |
@@ -3277,6 +3429,65 @@ does not make them stale in a new way.
 - `docs/user_guide/jones_terms.rst`
 - `Fix.md`
 
+**Correction (7H implementation, 2026-08-01) — eight forced additions.** Each
+is a file that *states* something this slice makes false, a pin that names Tier
+7H as its owner in its own body, or a call site of a signature this slice must
+extend. None widens what the slice does. The same shape, and the same reasoning,
+as 7E's, 7F's and 7G's corrections.
+
+- `tests/characterization/test_tier7_current_behavior.py` — four pins say
+  "OWNED BY: Tier 7H" in their own docstrings (the planned-term count, the
+  planned-term evaluation refusal, the discarded-physics table, and the
+  capability-flag table), and a fifth constructs `BaselineMultiplicativeJones()`
+  with no arguments to prove `add_term` rejects it. A pin that names its owner
+  cannot be flipped from outside the file that names it; 7D, 7E, 7F and 7G each
+  flipped their own pins here.
+- `tests/unit/test_io/test_jones_config.py` — the `_KNOWN_FIELDS_BY_PARENT`
+  coverage assertion, the unit-suffix coverage assertion, and the
+  "an unimplemented term letter is rejected" probe, whose witness is `M` and has
+  nowhere left to move: this slice is the one after which no planned term
+  exists, so the probe is replaced by the assertion that every accepted letter
+  is implemented. All three are assertions *about the schema*, so a slice that
+  extends the schema and cannot touch them could not be green.
+- `tests/unit/test_jones/test_term_contract.py` and
+  `tests/unit/test_jones/test_chain_order.py` — both construct
+  `BaselineMultiplicativeJones()` and `SmearingFactorJones()` with no arguments
+  (for the D7 `add_term` rejection), and `test_term_contract.py` additionally
+  asserts that the *base* `compute_baseline_factor` raises. This slice gives
+  both terms constructors that take resolved values and makes the method
+  `@abstractmethod`, so both statements must move to the assertions the flip
+  replaces them with — exactly the change 7G's correction made to the same file
+  for `JonesTerm`.
+- `tests/unit/test_jones/test_bandpass.py` — two `resolve_jones_terms(...)` call
+  sites. The function gains two required keyword parameters (below), and a call
+  site that cannot be updated would fail to collect.
+- `src/radiosim/api/simulator.py` — `_ensure_jones_terms` only. It is the one
+  production caller of `resolve_jones_terms`, and R14 ("a `per_baseline` pair
+  absent from the resolved baseline selection") is a stage-3 rejection, so the
+  resolver must be given the selection the run actually has; `Q` likewise needs
+  the resolved channel widths. Both are already retained on the simulator at
+  exactly that point (`self._instrument_state.selection`,
+  `self._resolved.frequency`), so this is three added arguments and nothing
+  else. A resolver that could not see the selection could not raise R14 at all,
+  and Section 26.1 puts it before the first side effect.
+- `src/radiosim/io/config.py` — the `_KNOWN_FIELDS_BY_PARENT` table's `jones.M`
+  and `jones.Q` rows only. A new term with no row would report an unknown key
+  inside `jones.M` without saying what `jones.M` accepts. 7D's list included
+  this file for exactly this reason and 7E, 7F and 7G each re-added it.
+- `docs/user_guide/jones_matrices.rst` — its "Planned terms" section names `M`
+  and `Q` as "exported, documented, and **not implemented**". After this slice
+  there is no planned term at all, so the section is replaced rather than
+  edited, and leaving it would be the documentation untruth this tier exists to
+  remove.
+- `docs/user_guide/configuration.rst` — the `jones` section's sentence
+  "RadioSim implements nine configurable terms today" and its statement that a
+  key for `M` or `Q` "is rejected at parse time". Both are false after this
+  slice. Also 7F's and 7G's precedent.
+
+`CLAUDE.md` is **not** added: its Implementation Status and chain-order line are
+Tier 7J's explicit deliverable (D0, D21), they have been stale since 7D, and 7H
+does not make them stale in a new way.
+
 ### 7I
 - `src/radiosim/core/beam/models.py`, `resolution.py`, `runtime.py`,
   `analytic.py`, `errors.py`
@@ -3590,6 +3801,21 @@ that the Tier 6 accumulation invariants still hold. If the cast position must
 move, that is a Tier 6 contract touch and requires a bounded plan correction
 before 7H proceeds.
 
+**Answered (7H implementation, 2026-08-01): no, and the cast position does not
+move.** `M` is applied exactly where this paragraph says — to the kernel's
+`(B, 2, 2)` return, one expression before the existing
+`backend.asarray(block, dtype=output_complex_dtype)` — so the block that reaches
+`freq_blocks.append(...)` has the same shape and the same dtype it had at
+`d4d1019`. Nothing downstream of that append changes: the per-frequency list, the
+per-time `backend.stack(freq_blocks, axis=1)`, the worker partition, and the
+final `backend.stack(time_blocks, axis=0)` are untouched in both solvers, and
+the two `backend.stack` accumulation call sites per solver are still exactly
+two. Tier 6's own characterization and worker-policy pins are untouched by this
+slice and pass unchanged, which is the evidence: they assert the assembly shape,
+the one-assembly-per-call property, and worker-count-independence, and all three
+are properties of code `M` does not enter. The elementwise multiply happens at
+accumulation precision, which is what Section 15.2 asks for.
+
 **Q6 — Should `Q`'s smearing use the per-channel width or the total bandwidth
 when the frequency grid is nonuniform? (blocks 7H.)** Tier 1G made nonuniform
 explicit frequency arrays first-class, so a "channel width" is not uniquely
@@ -3598,3 +3824,24 @@ candidate rule is the local spacing to the nearest neighbouring channel, with a
 single-channel observation rejected rather than assigned an invented width. The
 decision must be recorded in `docs/user_guide/jones_terms.rst` and tested on a
 deliberately nonuniform grid.
+
+**Answered (7H implementation, 2026-08-01): neither — the per-channel width is
+already resolved, and the candidate rule is rejected.** The question's premise
+is wrong: a nonuniform frequency array is not "centres only". Tier 1G's
+`ExplicitFrequencyConfig` requires `channel_widths_hz` **alongside**
+`channel_frequencies_hz`, of the same length, every value finite and positive
+(`io/config.py`), and `_resolve_frequency` carries them into
+`ResolvedFrequencyConfig.channel_widths_hz` for both the `grid` and the
+`explicit` mode (`io/config_resolution.py`). That same per-channel width is what
+`SimulationResult.channel_widths_hz` reports and what the summary's
+`minimum_width_hz`/`maximum_width_hz` are computed from. `Q` therefore reads
+`channel_widths_hz[freq_idx]` and invents nothing. Deriving a width from the
+spacing to the neighbouring channel would make `Q` decorrelate by a bandwidth
+that contradicts the one the same run publishes in its own outputs, which is a
+worse failure than the one the candidate rule was guarding against; and a
+single-channel observation needs no rejection, because it carries a declared
+width like every other. Tested on a deliberately nonuniform grid — three
+channels with three different declared widths, where the per-channel smearing
+tracks each channel's own width and not the spacing — and recorded in
+`docs/user_guide/jones_terms.rst`. `dt` is the same story one axis over:
+`ObservationTimeGrid.integration_time_seconds` is a resolved per-sample array.
