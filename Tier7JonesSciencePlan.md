@@ -39,7 +39,16 @@ omitted despite that file's own docstring committing 7G to edit it), plus
 independent re-derivation of the Section 20.3 IXR correction from first
 principles (confirmed correct); no decision changed; see `Fix.md`'s 2026-08-01
 "Tier 7E independent acceptance" note for the full record). Slice **7F is
-authorized**.**
+accepted** (2026-08-01, independent review; two bounded corrections applied
+directly by the reviewer -- Section 41 Q4 answered from the reviewer's own
+numeric probe (bit-identical `E`/`P` swap on both the analytic and FITS beam
+paths, since the 7F commits carried no checked-in test for it), and Section 39
+gains risk row 11 recording that `jones.P`'s mount types are unreachable from a
+layout-file or known-telescope `instrument:` source (only pyuvdata carries
+`mount_type`), routed informationally to a future instrument-config tier; no
+physics, chain-order, or refinement decision changed; see `Fix.md`'s
+2026-08-01 "Tier 7F independent acceptance" note for the full record). Slice
+**7G is authorized**.**
 
 This document is the governing implementation specification for Tier 7 of the
 RadioSim remediation program, defined by [`Fix.md`](Fix.md) Section 16
@@ -3329,6 +3338,7 @@ owner. The in-package `TODO.md` no longer exists.
 | 8 | `scientific_sha256` changes for existing users' runs | certain, and intended | B12; the pins prove that only runs *configuring* a Jones term change, and 7A's digests are the proof for those that do not |
 | 9 | The tier is large enough that a slice quietly expands its writable list | medium | Section 34 is exact; Section 35 requires a bounded plan correction rather than an expansion, with the Tier 5/6 precedent |
 | 10 | Documentation drifts behind the eleven implementations, ending in one impossible 7J | medium | each term slice owns its own `jones_terms.rst` entry (Section 34), so 7J reconciles rather than writes |
+| 11 | **(Added, 7F independent acceptance, 2026-08-01.)** `jones.P`'s five mount types are unreachable from the two config-driven `instrument:` sources: `io/instrument_sources.py` hard-codes `mount_type=None` for both a layout file (line 352) and the known-telescope registry (line 444), so only a pyuvdata dataset (which carries its own `mount_type` array) can produce a non-`fixed` mount today. `P` is real and correctly wired, but a user with an alt-az array described by a plain layout file has no YAML field to declare it, and R12/R15's protection is therefore moot for that source. | medium | informational; no instrument-config field is added by Tier 7 (out of `jones_terms.py`'s writable list). Routed to a future instrument-config tier as an explicit `instrument.source.layout_file.mount_type` (or per-antenna override) field; until then, a heterogeneous non-pyuvdata array cannot exercise `jones.P` at all. |
 
 ## 40. Explicit exclusions and the successor boundary
 
@@ -3409,6 +3419,19 @@ FITS beam path as well as the analytic one, because the FITS path's 2×2
 assembly is where a non-scalar element could hide. If it is *not* bit-identical,
 the E-Jones is not scalar in that path, which is a Tier 3 contract violation and
 must be raised as a new register row rather than absorbed.
+
+**Answered (7F independent acceptance, 2026-08-01).** The 7F implementation
+commits did not carry a checked-in test for this specific question, so the
+independent reviewer ran the confirming build directly: `Simulator.from_mapping`
+with an `alt-az`-restamped two-antenna array, `jones.P` enabled, and a circular
+receptor, once through the canonical `CANONICAL_CHAIN_ORDER` and once with `E`
+and `P` swapped (monkeypatched on `radiosim.core.visibility.CANONICAL_CHAIN_ORDER`),
+for both `beams.mode: analytic` and `beams.mode: shared_fits` (a real
+`write_scalar_efield_beamfits` fixture beam). The two visibility cubes were
+`np.array_equal` (bit-identical) on both beam paths. Q4 is answered **yes**: the
+order is genuinely unobservable at the accepted scalar-`E` subset, and no
+register row is needed. See `Fix.md`'s 2026-08-01 "Tier 7F independent
+acceptance" note for the exact probe.
 
 **Q5 — Does `M` interact with the Tier 6 per-time block accumulation in a way
 that changes the accumulation order? (blocks 7H.)** `M` applies to the kernel's

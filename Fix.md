@@ -12362,3 +12362,236 @@ quantization rather than an exact match; consistent with a discretization
 artifact, not re-derived analytically to rule out a subtler defect.
 Cross-implementation validation (Section 29) and the whole-tier documentation
 pass (Section 37): out of scope for 7E, owned by 7J/7K; not assessed here.
+
+### 2026-08-01 Tier 7F independent acceptance
+
+Reviewed range `12bc3e4..9f937d8` (eight commits: two design corrections
+`4a89b03`/`72d34b2`, red tests `2451e5d`, the chain-order fix `c6e0d4e`, the
+`P` implementation `5850976`, parity/e2e tests `0192c1e`, docs `cfc4602`, and
+the guide-promise discharge `9f937d8`) against `Tier7JonesSciencePlan.md`
+Section 33 (7F contract), Section 12.2/20.12 (chain order), Section 20.7 (`P`
+mathematics), Section 21.2/21.3 (schema), Section 24/26 (rejections), Section
+27 (I6/I9), Section 28/29 (parity and cross-validation), and Section 41 Q4.
+
+**Own oracles for psi (Section 27, "re-derive from your own path").** Wrote an
+independent probe (`radiosim.core.jones.parallactic.parallactic_angle` is the
+only import from the codebase) comparing the implementation against: (1) the
+Meeus (*Astronomical Algorithms* eq. 14.1) closed form
+`atan2(sin H, tan(lat) cos(dec) - sin(dec) cos H)`, transcribed independently
+from the TMS-style form the code uses, over 200 random `(H, dec, lat)` triples
+spanning both hemispheres -- max abs angle disagreement `4.44e-16` rad; (2)
+`P P^T = I2` exactly (atol `1e-14`) for 50 random angles; (3) the mount table
+`{alt-az: (1,0), equatorial: (0,0), fixed: (0,0), alt-az+nasmyth-r: (1,1),
+alt-az+nasmyth-l: (1,-1)}` read directly from `MOUNT_FACTORS`, matching Section
+20.7's table exactly; (4) the circular-basis identity
+`S R(psi) S^H = diag(e^{-i*psi}, e^{+i*psi})` (`S` = the codebase's own
+`LINEAR_TO_CIRCULAR`) to atol `1e-12` for 30 angles; (5) an end-to-end Q/U
+rotation-by-`2*psi` probe through the real `stokes_to_coherency` coherency
+construction and a real rotation matrix, confirming `I` and `V` are invariant
+and `(Q, U)` rotate by `2*psi` (atol `1e-10..1e-12`) for 20 angles -- the first
+attempt had a sign bug in *this reviewer's own* `V`-extraction formula
+(`Im(B10-B01)` instead of `Im(B01-B10)`), caught by the assertion failing and
+corrected before concluding; (6) unpolarized-coherency invariance under `P`
+alone (atol `1e-12`, 10 angles); (7) achromaticity, confirmed by calling
+`ParallacticAngleJones.compute_jones_batch` at `1e8` Hz and `9e9` Hz on the
+same direction batch and getting bit-identical `(1,2,2)` output. All seven
+checks passed. Separately reproduced the shipped oracle 3 test
+(`test_psi_matches_astropys_full_frame_machinery_within_the_site_model`,
+seed 7, 96 directions) directly: same-`(H,dec,lat)` agreement between the
+closed form and astropy's own `position_angle` is `1.78e-15` rad (exact, not
+merely "small"); the same-*directions* residual (astropy's full CIRS/AltAz
+chain, with polar motion and diurnal aberration, versus `DirectionBatch`'s
+idealized spherical inversion) has max `7.71e-6` rad -- this is the "attributed
+8e-6 rad" figure, reproduced to two sig figs, and it sits inside the shipped
+test's asserted band `1e-8 < residual < 1e-4`. **Ruling:** the attribution is
+honest and precisely scoped -- the mathematics itself matches astropy to
+machine precision given the same input angles; the `~1e-5` rad residual is
+`DirectionBatch`'s (Tier 7B) idealization, not a property of `P` or the 7F
+chain-order fix, and Section 29.2's permitted-claim boundary is respected (no
+"validated against astropy" overclaim; the test's own docstring says which
+residual is whose).
+
+**I9 correction, verified numerically.** The plan's own Section 27/20.7 already
+carry the implementer's correction (the literal "0.01 deg batch constant to
+1e-12" invariant is unachievable, since `dpsi/dtheta` is order-unity away from
+the poles). Independently recomputed `psi` spreads at half-widths
+`0.02/0.01/0.005/0.0025` deg using the shipped `equatorial_from_horizontal` +
+`parallactic_angle` at the site latitude: spreads
+`1.19e-4, 5.94e-5, 2.97e-5, 1.49e-5` rad -- halving the width halves the spread
+to 6 significant figures (ratio `2.000000029`), and the `0.01`-deg spread
+(`5.94e-5` rad) is the same order of magnitude the corrected invariant claims
+(`~1e-5`). The correction is numerically sound.
+
+**Chain-order correction and inertness, reproduced independently.** Confirmed
+`src/radiosim/core/jones_terms.py`'s `CANONICAL_CHAIN_ORDER` reads
+`(H, G, B, Rc, Kd, X, D, C, E, P, T, Z)`, matching Section 12.2 exactly, and
+that `docs/user_guide/jones_matrices.rst`, `simulator/base.py`, `simulator/rime.py`,
+and `core/jones/base.py`'s docstring all state the same order (grepped the old
+`H G B D P C E T Z` string across the repo: the only remaining occurrences are
+Fix.md's and `Tier5ReceptorFeedPlan.md`'s historical records, the plan's own
+"defect being corrected" prose, `CLAUDE.md` -- deliberately deferred to 7J per
+Section 34's own text -- and the characterization tests that assert the string
+is *absent*). Reproduced the inertness claim with two detached `git worktree`
+checkouts (`12bc3e4`, before the order fix; `c6e0d4e`, after it, before `P`
+exists) and ran the three hermetic configs
+(`configs/config.yaml`, `configs/receptor_circular_example.yaml`,
+`configs/hybrid_sky_example.yaml`) at both: both the raw visibility-cube
+SHA-256 and `scientific_sha256` are byte-identical at both commits for all
+three configs, and match the values already on record in this file's 7C entry
+(`config.yaml` cube `cce1bfe8...`; `receptor_circular_example` cube
+`95890bc6...`; `hybrid_sky_example` cube `bdd866b1...`).
+
+**Refinement rulings.**
+- **R7-for-P mount-aware:** the implementer's reasoning (literal R7 would ship
+  a config surface that is silently inert on a fixed array) is sound and the
+  five-mount table plus R12/R15 is the correct, narrower replacement. Ruled
+  correct.
+- **R12 firing regardless of `jones.P`:** confirmed in
+  `_reject_unsupported_mounts` -- an out-of-model `mount_type` (e.g. `phased`)
+  is rejected whether or not `P` is configured, so a run cannot silently treat
+  an unmodelled mount as `fixed` by leaving `P` off. Ruled correct.
+- **R15 only for rotating mounts:** confirmed `ROTATING_MOUNT_TYPES` deliberately
+  excludes `equatorial` (whose `P` is exactly `I2`), avoiding a collision with
+  R7. Ruled correct.
+- **Deleted `minimum_elevation_deg` on `P`:** confirmed removed from
+  `ParallacticTermConfig` (it survives on `T`/`Z`, where the mapping function
+  genuinely diverges); the field was documented as having no effect before
+  removal, so deleting it is the correct application of the plan's own rule.
+  Ruled correct.
+- **I9 correction:** verified numerically above. Ruled correct.
+
+**Risk rulings.**
+- **`UnsupportedFeedGeometryError` kept, raiserless, honest docstring:**
+  confirmed in `core/receptor.py` -- the docstring states plainly that Tier 7F
+  answered the deferral and the class currently has no raiser, kept only
+  because it is a public exported name Tier 5 documented and the next declined
+  geometry will need it. Ruled correct; deletion is not warranted and would
+  itself need a register row, which this is not.
+- **Observability-path capability gain:** confirmed concretely.
+  `Simulator.plan_observability()` calls `_ensure_instrument_state()` and
+  `_ensure_receptor_set()` but never `_ensure_jones_terms()`. Built a
+  two-antenna array restamped to `alt-az` with no `jones:` block at all: at
+  `12bc3e4` this raises `UnsupportedFeedGeometryError` from
+  `resolve_receptors` unconditionally; at `9f937d8` `plan_observability()`
+  succeeds. Ruled a genuine, correct capability gain rather than a
+  silent-error risk: invariant I18 already requires observability output to be
+  Jones-term-invariant (observability evaluates beams, not the chain), so an
+  alt-az array's observability output has no dependency on `P`/mount physics
+  in the first place, and the old Tier 5 guard was simply broader than its own
+  rationale required.
+- **`instrument: mount_type` override gap:** confirmed real. Both
+  `io/instrument_sources.py`'s layout-file loader (line 352) and its
+  known-telescope registry (line 444) hard-code `mount_type=None`; only a
+  pyuvdata dataset carries a `mount_type` array. A user describing an alt-az
+  array with a plain layout file cannot express it in YAML at all today, so
+  `jones.P` is unreachable for that source. The restamping test helper
+  (`restamp_mount_types` in `tests/unit/test_core/test_jones_resolution.py`)
+  was independently confirmed **not** a mock: it goes through
+  `generate_resolved_baselines`, `select_resolved_baselines`, and
+  `_compute_instrument_sha256` (the real production functions) on a
+  `dataclasses.replace`d `ResolvedInstrument`, exactly as its docstring claims.
+  Routed as risk register row 11 (new) in `Tier7JonesSciencePlan.md`, purely
+  informational; not blocking, since 7F's own writable list has no instrument-config
+  file in it.
+- **CLAUDE.md staleness:** confirmed routed to 7J per Section 34's explicit
+  text ("`CLAUDE.md` is not added... its Implementation Status and chain-order
+  line are Tier 7J's explicit deliverable"); `CLAUDE.md` is untouched in the
+  29-file diff, as required.
+
+**Q4, closed by the reviewer's own evidence.** The 7F commits carried no
+checked-in test for Section 41 Q4 ("is the `E`/`P` order genuinely
+unobservable, confirmed numerically across the FITS beam path"). Built the
+probe directly: `Simulator.from_mapping` with a two-antenna `alt-az`-restamped
+array, `jones.P` enabled, a circular receptor, run once through
+`CANONICAL_CHAIN_ORDER` and once with `E` and `P` swapped (monkeypatched on
+`radiosim.core.visibility.CANONICAL_CHAIN_ORDER`), for both an analytic
+(`circular_aperture`/Gaussian-taper) beam and a real
+`shared_fits` beam (`write_scalar_efield_beamfits` fixture). Both beam paths
+gave `np.array_equal` (bit-identical) visibility cubes under the swap. Q4 is
+answered yes; `Tier7JonesSciencePlan.md` Section 41 amended in place with this
+evidence rather than left open.
+
+**Tests-first, reproduced.** Detached worktree at `2451e5d` (zero `src/`
+changes in that commit, confirmed by `git show --stat`). `pixi run test --
+-m "not slow" --continue-on-collection-errors`: **23 failed, 4904 passed,
+10 deselected, 4 collection errors** (the two new imports,
+`ParallacticTermConfig` and `MOUNT_FACTORS`, that do not exist yet). This
+matches the commit message's "23 failed... 4 collection errors" exactly; the
+message's "4914 passed" is off by exactly 10 (the deselected count) from the
+reproduced 4904 -- a harmless commit-message miscount, not a substantive
+discrepancy, and not evidence against the tests-first claim.
+
+**Bit-identity + pins.** `tests/unit/test_core/test_jones_provenance.py` and
+`tests/unit/test_simulator/test_worker_policy.py` (environment-keyed and
+hybrid-additivity pins) are untouched in the 29-file diff. `test_tier6_current_behavior.py`'s
+chain-order pin is scoped to exactly the docstring assertion, flipped from the
+old string to the new one plus an "ANCHOR UPDATED BY: Tier 7F" note. The
+`c6e0d4e` inertness reproduction above is the bit-identity evidence.
+
+**Gates.**
+- `osx-arm64`/py311 (`default` env), full non-slow: **5022 passed, 10
+  deselected, 27 warnings**, matching the claimed `4944+78`.
+- `osx-arm64`/py312, full non-slow: **5022 passed, 10 deselected, 36
+  warnings**, matching the claim. The py312 35->36 delta is bounded and
+  explained: `tests/integration/test_jones_end_to_end.py`'s
+  `test_the_standard_visibility_formats_carry_the_corrupted_cube[ms-*]` gains
+  a `P` case (it did not exist at `12bc3e4`), and that one new case triggers
+  the same pre-existing py312-only `'where' used without 'out'` numpy warning
+  the other eight MS cases already trigger -- confirmed by diffing the full
+  warnings summary at both commits and finding the `ms-P` line is the only
+  addition to that warning group.
+- Full collection: **5032 tests** (`pytest --collect-only -q`), matching
+  `4944+78+10` exactly.
+- `pixi run lint`: clean. `pixi run format -- --check`: clean, 366 files
+  already formatted.
+- All four shipped YAMLs (`configs/*.yaml`) validate via `radiosim validate`.
+- Sphinx, forced full rebuild (`-b html -E`): **this review's number
+  disagrees with the task's premise, and the disagreement is resolved rather
+  than asserted away.** A build run directly in the main working tree gives
+  **18** warnings, appearing to match the "down from 18" framing exactly
+  backwards (main-tree HEAD shows 18, not 16). Investigated: two detached,
+  content-clean `git worktree` checkouts -- one at `12bc3e4`, one at
+  `9f937d8` -- both give **16** warnings on the same forced rebuild. The
+  difference is `docs/superpowers/plans/2026-06-21-core-sky-cleanup.md` and
+  `docs/superpowers/specs/2026-06-21-core-sky-cleanup-design.md`: two
+  files dated 2026-06-21 (long before this tier), `.gitignore`d (`.gitignore:203`),
+  present as stray local scratch content in the main working tree and absent
+  from both worktrees, each raising one "document isn't included in any
+  toctree" warning. **Conclusion:** the true, commit-attributable Sphinx
+  warning count is **16 at both `12bc3e4` and `9f937d8` -- unchanged by Tier
+  7F**, not a decrease from 18. The "18" recorded in this file's own 7E
+  acceptance entry was almost certainly the same two-file contamination (those
+  scratch files predate 7E too), not a property of any Tier 7 commit; that
+  entry is left as originally written rather than retroactively edited, and
+  this note is the correction for the record.
+- Laziness: confirmed `radiosim.api` does not import `healpy` (7F touches
+  zero `core/sky/*` files).
+- `git status`: clean. All eight commit messages read in full: zero
+  "Co-Authored-By" or similar lines.
+
+**Disposition.** Tier 7F **ACCEPTED**. Two bounded corrections applied
+directly by this review (the implementer's commits made none beyond the two
+already-recorded design corrections `4a89b03`/`72d34b2`): `Tier7JonesSciencePlan.md`
+Section 41 Q4 answered from the reviewer's own bit-identity probe (analytic and
+FITS beam paths), and Section 39 risk register gains row 11 (the
+`instrument: mount_type` YAML gap), routed informationally to a future
+instrument-config tier. No physics, chain-order, or refinement decision
+changed. `SCI-001`/`SCI-002`/`SCI-003` remain `ROADMAP` until whole-tier
+acceptance (7K). The plan's status header is updated to record 7F's
+acceptance and to authorize slice **7G**. Acceptance commit:
+`docs(jones): accept Tier 7F parallactic rotation`. Not pushed.
+
+**Unobserved items.** `linux-64` execution: not available in this environment;
+reproduction is `osx-arm64`/py311 and py312 only, matching every prior tier's
+acceptance record in this file. GPU/TPU/distributed hardware: none exercised,
+none claimed. `pixi run typecheck`: not run -- Section 32 restricts it to
+slices changing a type-bearing public signature, and 7F adds a term class
+behind the existing `JonesTerm`/config surface. The Tier-2 cross-validation
+artifact (Section 29, `pyuvsim`/`matvis`/RASCIL): out of scope, owned by 7J
+per Q1. The FITS-beam Q4 probe used one synthetic scalar E-field beamfits
+fixture and a two-antenna array; it was not repeated across every shipped beam
+variant or a larger array. The py312 warning reconciliation (35->36) is a
+plausibility argument from the diff and the exact matching warning group, not
+a call-stack-level trace into numpy/casacore internals. Whole-tier
+cross-implementation validation and the Section 37 documentation pass: out of
+scope for 7F, owned by 7J/7K; not assessed here.
