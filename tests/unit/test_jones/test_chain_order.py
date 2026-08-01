@@ -29,7 +29,7 @@ from radiosim.core.beam import BeamSystem
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.jones import DirectionBatch, JonesChain, JonesTerm
-from radiosim.core.receptor import ResolvedReceptorSet, UnsupportedFeedGeometryError
+from radiosim.core.receptor import ResolvedReceptorSet
 from radiosim.core.visibility import _build_jones_chain
 from tests.fixtures.configs import valid_config_mapping
 
@@ -148,7 +148,6 @@ def _solver_components(
 
 def _chain(
     tmp_path: Path,
-    jones_config: dict[str, object],
     receptors: dict[str, object] | None = None,
     *,
     n_sources: int = 2,
@@ -156,7 +155,6 @@ def _chain(
     instrument, beam_system, receptor_set = _solver_components(tmp_path, receptors)
     return _build_jones_chain(
         get_backend("numpy"),
-        jones_config,
         instrument,
         np.full(n_sources, 1.0, dtype=np.float64),
         np.full(n_sources, 0.5, dtype=np.float64),
@@ -287,38 +285,40 @@ def test_chain_docstring_states_the_canonical_section_19_1_order() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_point_solver_adds_every_term_in_the_canonical_order(tmp_path: Path) -> None:
-    """Every optional term enabled reproduces the Section 19.1 order exactly."""
-    chain = _chain(
-        tmp_path,
-        {
-            "Z": {"enabled": True},
-            "T": {"enabled": True},
-            "P": {"enabled": True},
-            "D": {"enabled": True},
-            "G": {"enabled": True},
-            "B": {"enabled": True},
-        },
-    )
-    assert tuple(term.name for term in chain.terms) == CANONICAL_ORDER
+def test_point_solver_carries_exactly_the_three_terms_that_exist(
+    tmp_path: Path,
+) -> None:
+    """``H``, ``C`` and ``E``, and nothing else.
 
-
-def test_point_solver_always_carries_the_receptor_terms(tmp_path: Path) -> None:
-    """``C`` and ``H`` are always present, exactly as ``E`` always is."""
-    chain = _chain(tmp_path, {})
+    FLIPPED BY: Tier 7C.  The gate version enabled six optional terms through a
+    ``jones_config`` dictionary and asserted the full ``CANONICAL_ORDER``.  All
+    six of those terms multiplied by the identity, the dictionary was hard-coded
+    to ``None`` at the only production call site, and 7C removed both.  The
+    order they will occupy is still the plan's, and it is still asserted -- from
+    the solver's own source, below, and by the synthetic non-commuting terms
+    above -- but the chain now contains only terms that exist.
+    """
+    chain = _chain(tmp_path)
     assert tuple(term.name for term in chain.terms) == ("H", "C", "E")
+    assert {term.name for term in chain.terms} <= set(CANONICAL_ORDER)
 
 
-def test_receptor_terms_keep_their_canonical_neighbours(tmp_path: Path) -> None:
-    """``C`` sits between the electronics-side DIEs and the sky-side DDEs."""
-    chain = _chain(
-        tmp_path,
-        {"P": {"enabled": True}, "G": {"enabled": True}, "T": {"enabled": True}},
-    )
+def test_the_chain_builder_reserves_the_canonical_slots_in_order(
+    tmp_path: Path,
+) -> None:
+    """The three surviving terms sit in their canonical relative positions.
+
+    ``C`` between the electronics-side DIEs and the sky-side DDEs, ``H``
+    leftmost, ``E`` sky-side of ``C``: the neighbours a later slice's ``G``,
+    ``P``, ``T`` and ``Z`` must respect.  Asserted against ``CANONICAL_ORDER``
+    itself so that adding a term out of order fails here.
+    """
+    chain = _chain(tmp_path)
     names = [term.name for term in chain.terms]
+    positions = [CANONICAL_ORDER.index(name) for name in names]
+    assert positions == sorted(positions)
     assert names.index("H") == 0
-    assert names.index("G") < names.index("P") < names.index("C")
-    assert names.index("C") < names.index("E") < names.index("T")
+    assert names.index("C") < names.index("E")
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +350,6 @@ def test_composed_chain_equals_h_times_c_times_e(
     azimuth = np.full(n_sources, 0.5, dtype=np.float64)
     chain = _build_jones_chain(
         backend,
-        {},
         instrument,
         altitude,
         azimuth,
@@ -406,29 +405,25 @@ def test_composed_chain_equals_h_times_c_times_e(
 
 
 # ---------------------------------------------------------------------------
-# Rejections that only become reachable once the chain carries receptors
+# The chain builder's remaining contract
 # ---------------------------------------------------------------------------
 
 
-def test_parallactic_term_with_a_rotated_receptor_is_rejected(tmp_path: Path) -> None:
-    """Section 12.3: ``P`` plus a non-zero rotation is a Tier 7 configuration."""
-    with pytest.raises(UnsupportedFeedGeometryError) as excinfo:
-        _chain(
-            tmp_path,
-            {"P": {"enabled": True}},
-            {"default": {"feed_rotation_deg": 15.0}},
-        )
+def test_a_rotated_receptor_is_carried_by_the_chain_without_a_rejection(
+    tmp_path: Path,
+) -> None:
+    """Section 12.3's rejection had exactly one trigger, and 7C removed it.
 
-    assert str(excinfo.value) == (
-        "a non-zero feed_rotation_deg cannot be combined with an enabled "
-        "parallactic-angle term until Tier 7 implements it."
-    )
-
-
-def test_parallactic_term_is_accepted_without_a_rotation(tmp_path: Path) -> None:
-    """The rejection is about the rotation, not about ``P`` itself."""
-    chain = _chain(tmp_path, {"P": {"enabled": True}})
-    assert "P" in [term.name for term in chain.terms]
+    FLIPPED BY: Tier 7C.  ``_reject_parallactic_rotation`` fires only when a
+    ``jones_config`` enables ``P``; with the dictionary gone the combination it
+    guards cannot be expressed through any entry point, so a rotated receptor is
+    simply carried, as it always was without ``P``.  The guard itself, and the
+    Tier 5 blanket mount-type rejection beside it, are Tier 7F's to replace with
+    rejection R15 once ``P`` is real.  Its message is still pinned by
+    ``tests/characterization/test_tier7_current_behavior.py``.
+    """
+    chain = _chain(tmp_path, {"default": {"feed_rotation_deg": 15.0}})
+    assert tuple(term.name for term in chain.terms) == ("H", "C", "E")
 
 
 def test_resolved_receptors_are_required_by_the_chain_builder() -> None:

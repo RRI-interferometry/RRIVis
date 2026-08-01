@@ -132,7 +132,6 @@ class VisibilitySimulator(ABC):
         location: Any,
         time_grid: "ObservationTimeGrid",
         receptors: "ResolvedReceptorSet",
-        jones_config: dict[str, Any] | None = None,
     ) -> Any:
         """
         Calculate visibilities for all baselines.
@@ -169,9 +168,6 @@ class VisibilitySimulator(ABC):
         receptors : ResolvedReceptorSet
             Canonical resolved receptor inventory supplying the per-antenna
             receptor term C and reporting-basis transform H.
-
-        jones_config : dict, optional
-            Non-beam Jones term configuration.
 
         Returns
         -------

@@ -945,17 +945,31 @@ def test_observability_modes_use_canonical_beam_without_renderer_work(
     assert simulator._backend is None
 
 
-def test_beam_dictionary_in_jones_config_is_rejected(
+def test_the_solver_has_no_second_beam_keyword_to_reject(
     tmp_path,
     monkeypatch,
 ):
+    """FLIPPED BY: Tier 7C, which removed the ``jones_config`` parameter.
+
+    The gate version asserted that ``jones_config={"beam": {}}`` was rejected
+    with a bespoke ``TypeError``: an ad-hoc guard standing in for a schema, one
+    of the three that ``Tier7JonesSciencePlan.md`` Section 33.2 removes with the
+    dictionary itself.  The property it protected -- that ``beam_system`` is the
+    solver's only beam surface -- is now structural rather than guarded, and
+    that is what this asserts.  ``jones_config`` is an ordinary unexpected
+    keyword now, exactly like the removed beam keywords below.
+    """
     simulator, view, beam_system = _solver_components(
         tmp_path,
         {"mode": "analytic"},
     )
     monkeypatch.setattr(point_visibility, "SkyCoord", _FixedAltAzSkyCoord)
 
-    with pytest.raises(TypeError, match="jones_config.*beam"):
+    parameters = inspect.signature(calculate_visibility).parameters
+    assert "jones_config" not in parameters
+    assert [name for name in parameters if "beam" in name] == ["beam_system"]
+
+    with pytest.raises(TypeError, match="jones_config"):
         calculate_visibility(
             instrument=view,
             beam_system=beam_system,

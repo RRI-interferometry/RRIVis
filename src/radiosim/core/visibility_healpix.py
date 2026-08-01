@@ -466,13 +466,11 @@ def calculate_visibility_healpix(
             # The same chain the point solver builds, evaluated through the same
             # shared evaluator: this is what closes defect D4, so a Jones term
             # can no longer apply to point sources and silently not apply to
-            # diffuse sky.  With no ``jones_config`` reaching this path yet the
-            # chain is exactly ``H``, ``C``, ``E`` -- the terms it already
-            # carried -- but it is now reachable by construction rather than by
-            # a second, private implementation.
+            # diffuse sky.  The chain is exactly ``H``, ``C``, ``E`` -- the only
+            # three terms that exist -- but it is now reachable by construction
+            # rather than by a second, private implementation.
             chain = _build_jones_chain(
                 backend,
-                {},
                 instrument,
                 alt_vis,
                 az_vis,

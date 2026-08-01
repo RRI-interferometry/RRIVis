@@ -264,7 +264,6 @@ def _point(
     receptors: ResolvedReceptorSet,
     stokes: tuple[float, float, float, float],
     monkeypatch: pytest.MonkeyPatch,
-    jones_config: dict[str, object] | None = None,
 ) -> np.ndarray:
     monkeypatch.setattr(point_visibility, "SkyCoord", _FixedAltAzSkyCoord)
     return np.asarray(
@@ -277,7 +276,6 @@ def _point(
             frequencies=FREQUENCIES,
             backend=get_backend("numpy"),
             receptors=receptors,
-            jones_config=jones_config,
         )
     )[0, 0, 0]
 
@@ -729,23 +727,33 @@ def test_the_scalar_healpix_path_reports_zero_cross_hands_by_construction(
 # ---------------------------------------------------------------------------
 
 
-def test_parallactic_term_with_a_rotated_receptor_is_rejected_before_any_work(
+def test_the_parallactic_rotation_guard_is_no_longer_reachable_from_a_solver(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Section 12.3 and Section 27: the exact message, before any solver work."""
+    """Section 12.3's rejection lost its only trigger at Tier 7C.
+
+    FLIPPED BY: Tier 7C, which removed the ``jones_config`` parameter
+    (``Tier7JonesSciencePlan.md`` Section 33.2).  The guard fired only when that
+    dictionary enabled ``P``, and no supported entry point could arrange it, so
+    what this test can still assert is the *contract*: a rotated receptor now
+    reaches the solver and is carried, and the guard's exact message is pinned
+    directly by ``tests/characterization/test_tier7_current_behavior.py`` until
+    Tier 7F replaces it with rejection R15.
+
+    Tier 5's real protection is untouched: ``resolve_receptors`` still rejects
+    every non-``fixed`` mount type, which is what actually keeps a
+    time-dependent feed orientation out of the solver.
+    """
     view, beam_system, receptors = _solver_components(
         tmp_path,
         {"default": {"feed_rotation_deg": 15.0}},
     )
     monkeypatch.setattr(point_visibility, "SkyCoord", _FixedAltAzSkyCoord)
 
-    def forbidden(*_args, **_kwargs):  # pragma: no cover - must never run
-        raise AssertionError("solver work started before the receptor rejection")
+    assert "jones_config" not in inspect.signature(calculate_visibility).parameters
 
-    monkeypatch.setattr(point_visibility, "stokes_to_coherency", forbidden)
-
-    with pytest.raises(UnsupportedFeedGeometryError) as excinfo:
+    cube = np.asarray(
         calculate_visibility(
             instrument=view,
             beam_system=beam_system,
@@ -755,13 +763,16 @@ def test_parallactic_term_with_a_rotated_receptor_is_rejected_before_any_work(
             frequencies=FREQUENCIES,
             backend=get_backend("numpy"),
             receptors=receptors,
-            jones_config={"P": {"enabled": True}},
         )
-
-    assert str(excinfo.value) == (
-        "a non-zero feed_rotation_deg cannot be combined with an enabled "
-        "parallactic-angle term until Tier 7 implements it."
     )
+    assert cube.shape[-2:] == (2, 2)
+    assert float(np.max(np.abs(cube))) > 0.0
+
+    # The guard itself is unchanged, and still raises when called directly.
+    with pytest.raises(UnsupportedFeedGeometryError):
+        point_visibility._reject_parallactic_rotation(
+            {"P": {"enabled": True}}, receptors
+        )
 
 
 def test_every_solver_entry_point_requires_the_resolved_receptors() -> None:

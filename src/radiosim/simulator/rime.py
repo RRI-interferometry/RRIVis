@@ -171,7 +171,6 @@ class RIMESimulator(VisibilitySimulator):
         location: Any,
         time_grid: "ObservationTimeGrid",
         receptors: "ResolvedReceptorSet",
-        jones_config: dict[str, Any] | None = None,
         solver_execution: "ResolvedSolverExecutionConfig" = SERIAL_SOLVER_EXECUTION,
     ) -> Any:
         """
@@ -206,9 +205,6 @@ class RIMESimulator(VisibilitySimulator):
 
         receptors : ResolvedReceptorSet
             Canonical resolved receptor inventory supplying the C and H terms.
-
-        jones_config : dict, optional
-            Non-beam Jones term configuration.
 
         solver_execution : ResolvedSolverExecutionConfig, optional
             Resolved solver worker policy (``Tier6HybridRuntimePlan.md``
@@ -246,7 +242,6 @@ class RIMESimulator(VisibilitySimulator):
             frequencies=frequencies,
             backend=backend,
             receptors=receptors,
-            jones_config=jones_config,
             solver_execution=solver_execution,
         )
 

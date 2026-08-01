@@ -289,7 +289,6 @@ def solve_sky(
                 location=location,
                 time_grid=time_grid,
                 receptors=receptors,
-                jones_config=None,
                 solver_execution=solver_execution,
             )
             element_count = len(source_arrays["ra_rad"])

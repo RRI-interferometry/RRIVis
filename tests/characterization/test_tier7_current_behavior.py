@@ -943,7 +943,11 @@ def test_jones_chain_docstring_records_the_designed_chain_order() -> None:
 # =========================================================================
 
 
-ALL_OPTIONAL_JONES_TERMS: dict[str, dict[str, Any]] = {
+#: The six optional term blocks the gate ``jones_config`` accepted, kept as a
+#: record of what the removed dictionary could express.  Nothing constructs one
+#: any more: Tier 7C removed the parameter, and Tier 7D replaces it with the
+#: typed ``jones:`` schema whose rejections Section 24 fixes verbatim.
+GATE_OPTIONAL_JONES_TERMS: dict[str, dict[str, Any]] = {
     "G": {"enabled": True, "sigma": 0.4},
     "B": {"enabled": True, "bandpass_gains": [0.5, 2.0]},
     "D": {"enabled": True, "d_terms": [0.1, 0.2]},
@@ -953,31 +957,48 @@ ALL_OPTIONAL_JONES_TERMS: dict[str, dict[str, Any]] = {
 }
 
 
-def test_enabling_an_optional_jones_term_now_fails_loudly(tmp_path) -> None:
-    """Defects D1 and D3, behaviorally -- and Tier 7B's one behaviour change.
+def test_no_solver_or_simulator_accepts_a_jones_config(tmp_path) -> None:
+    """Defects D1 and D3, closed by removal rather than by validation.
 
     At the gate, enabling G, B, D, P, T and Z with physically meaningful
     parameters produced a **bit-identical** cube: the most direct statement of
     ``SCI-001``, since a user who configured instrumental gains, a bandpass,
     leakage, parallactic rotation, a troposphere and an ionosphere got exactly
-    the unmodelled sky back, silently.
+    the unmodelled sky back, silently.  Tier 7B made that a loud
+    ``NotImplementedError``.
 
-    OWNED BY: Tier 7D through Tier 7G.  PARTLY FLIPPED BY: Tier 7B, and this is
-    the **only** behaviour 7B changes.  The stub classes are Tier 7C's to delete
-    and 7D-7G's to implement, and none of them is in 7B's writable file list, so
-    none implements the new ``compute_jones_batch`` contract.  Adding one to a
-    chain therefore raises ``NotImplementedError`` instead of multiplying by the
-    identity.
+    FLIPPED BY: Tier 7C, which removes the parameter outright (Section 33.2).
+    An untyped dictionary that could only ever reach an identity stub is not a
+    configuration surface, and keeping it while deleting the stubs would leave a
+    keyword whose every accepted value fails.  Tier 7D introduces the typed
+    ``jones:`` section that replaces it, wired through ``ResolvedJonesTerms``.
 
-    That is strictly better than what it replaces, and it costs nothing that was
-    reachable: ``jones_config`` is hard-coded to ``None`` at the single
-    production call site (defect D3), so no shipped configuration, CLI
-    invocation or ``Simulator`` run can reach this path at all.  Silence became
-    a typed failure on a surface only tests can touch, which is exactly the
-    direction ``Fix.md`` Section 16 asks for.  The empty and absent
-    configurations remain bit-identical, which is the part that governs every
-    real run.
+    OWNED BY: Tier 7D, which restores a term-enabling surface that works.
     """
+    from radiosim.simulator.base import VisibilitySimulator
+    from radiosim.simulator.rime import RIMESimulator
+
+    for function in (
+        calculate_visibility,
+        calculate_visibility_healpix,
+        VisibilitySimulator.calculate_visibilities,
+        RIMESimulator.calculate_visibilities,
+    ):
+        assert "jones_config" not in inspect.signature(function).parameters
+
+    assert "jones_config" not in _source("src/radiosim/core/hybrid.py")
+    assert "jones_config" not in _source("src/radiosim/api/simulator.py")
+    assert "jones_config" not in _source("src/radiosim/simulator/rime.py")
+    assert "jones_config" not in _source("src/radiosim/simulator/base.py")
+
+    # The one surviving mention in the point solver is the docstring of the
+    # unreachable D17 guard, which Tier 7F deletes.
+    point = _source("src/radiosim/core/visibility.py")
+    assert "_reject_parallactic_rotation" in point
+    assert "jones_config.get(" in point
+    assert point.count("jones_config") == 4
+
+    # And the cube is unchanged, because nothing removed was ever reachable.
     instrument, beam_system, receptors = _solver_components(tmp_path)
     kwargs: dict[str, Any] = {
         "instrument": instrument,
@@ -989,29 +1010,34 @@ def test_enabling_an_optional_jones_term_now_fails_loudly(tmp_path) -> None:
         "backend": get_backend("numpy"),
         "receptors": receptors,
     }
+    cube = np.asarray(calculate_visibility(**kwargs))
+    assert float(np.max(np.abs(cube))) > 0.0
 
-    baseline = np.asarray(calculate_visibility(**kwargs, jones_config=None))
-    empty = np.asarray(calculate_visibility(**kwargs, jones_config={}))
-
-    assert float(np.max(np.abs(baseline))) > 0.0
-    assert _raw_cube_digest(baseline) == _raw_cube_digest(empty)
-
-    # Every one of the six now fails loudly rather than silently doing nothing.
-    for term_name, term_config in ALL_OPTIONAL_JONES_TERMS.items():
-        with pytest.raises(NotImplementedError, match="compute_jones_batch"):
-            calculate_visibility(**kwargs, jones_config={term_name: term_config})
+    for term_name, term_config in GATE_OPTIONAL_JONES_TERMS.items():
+        with pytest.raises(TypeError, match="jones_config"):
+            calculate_visibility(  # type: ignore[call-arg]
+                **kwargs,
+                jones_config={term_name: term_config},
+            )
 
 
-def test_build_jones_chain_adds_terms_in_the_uncorrected_canonical_order(
+def test_build_jones_chain_carries_only_the_terms_that_exist(
     tmp_path,
 ) -> None:
     """Pins the add order, and with it defect D12's observability status.
 
-    With every optional term enabled the chain is H, G, B, D, P, C, E, T, Z --
-    ``P`` correlator-side of ``C``, which Section 12 calls wrong for a circular
-    receptor.  The error is unobservable today only because ``P`` is the
-    identity; this pin records the *order*, so 7F's correction is a visible
-    flip rather than an invisible one.
+    At the gate, with every optional term enabled the chain was
+    H, G, B, D, P, C, E, T, Z -- ``P`` correlator-side of ``C``, which Section 12
+    calls wrong for a circular receptor.  The error was unobservable only
+    because ``P`` was the identity.
+
+    FLIPPED BY: Tier 7C.  Six of those nine slots held identity stubs and are
+    now empty, so the chain is exactly H, C, E and the builder takes no
+    configuration.  The *order* the pin existed to record has not moved: the
+    solver source still documents the Section 19.1 factorization, ``C`` still
+    sits sky-side of the electronics DIEs, and Tier 7F's correction -- moving
+    ``P`` sky-side of ``C`` -- is still a visible flip, of the documented order
+    here and of ``tests/unit/test_jones/test_chain_order.py``.
 
     OWNED BY: Tier 7F.
     """
@@ -1020,7 +1046,6 @@ def test_build_jones_chain_adds_terms_in_the_uncorrected_canonical_order(
     instrument, beam_system, receptors = _solver_components(tmp_path)
     chain = _build_jones_chain(
         get_backend("numpy"),
-        dict(ALL_OPTIONAL_JONES_TERMS),
         instrument,
         np.array([0.9, 1.0]),
         np.array([1.4, 1.5]),
@@ -1032,77 +1057,66 @@ def test_build_jones_chain_adds_terms_in_the_uncorrected_canonical_order(
         beam_system=beam_system,
         receptors=receptors,
     )
-    assert [term.name for term in chain.terms] == [
-        "H",
-        "G",
-        "B",
-        "D",
-        "P",
-        "C",
-        "E",
-        "T",
-        "Z",
-    ]
+    assert [term.name for term in chain.terms] == ["H", "C", "E"]
+    assert "jones_config" not in inspect.signature(_build_jones_chain).parameters
 
-    default_chain = _build_jones_chain(
-        get_backend("numpy"),
-        {},
-        instrument,
-        np.array([0.9, 1.0]),
-        np.array([1.4, 1.5]),
-        100e6,
-        0,
-        2,
-        WORKLOAD_LOCATION,
-        time_mjd=60000.0,
-        beam_system=beam_system,
-        receptors=receptors,
-    )
-    assert [term.name for term in default_chain.terms] == ["H", "C", "E"]
+    # The uncorrected order is still the documented one, so 7F's move is visible.
+    documented = " ".join(_build_jones_chain.__doc__.split())
+    assert "J = H @ G @ B @ D @ P @ C @ E @ T @ Z" in documented
 
 
-def test_production_never_supplies_a_non_empty_jones_config() -> None:
-    """Pins defect D3: the single production call site passes a literal ``None``.
+def test_production_supplies_no_jones_parameter_at_all(tmp_path) -> None:
+    """Pins defect D3 at its resolution rather than at its symptom.
 
-    ``RIMESimulator.simulate`` and ``VisibilitySimulator.simulate`` declare the
-    parameter, ``core/hybrid.py`` hard-codes ``None``, and ``api/simulator.py``
-    never mentions it, so no supported entry point can enable a term.
+    At the gate ``core/hybrid.py`` hard-coded ``jones_config=None`` at the one
+    production call site, ``RIMESimulator.simulate`` and
+    ``VisibilitySimulator.simulate`` declared the parameter, and
+    ``api/simulator.py`` never mentioned it -- so no supported entry point could
+    enable a term.  Tier 7C removed the parameter, so there is no hard-coded
+    ``None`` left to find.
 
-    OWNED BY: Tier 7D, which replaces the hard-coded ``None`` with the resolved
-    ``jones`` model, and Tier 7C, which removes the parameter entirely.
+    OWNED BY: Tier 7D, which replaces it with the resolved ``jones`` model at
+    exactly this call site.
     """
-    hybrid = _source("src/radiosim/core/hybrid.py")
-    assert hybrid.count("jones_config=None") == 1
-    assert "jones_config" not in _source("src/radiosim/api/simulator.py")
-
-    from radiosim.simulator.base import VisibilitySimulator
     from radiosim.simulator.rime import RIMESimulator
 
-    for method in (
-        RIMESimulator.calculate_visibilities,
-        VisibilitySimulator.calculate_visibilities,
-    ):
-        parameter = inspect.signature(method).parameters["jones_config"]
-        assert parameter.default is None
+    hybrid = _source("src/radiosim/core/hybrid.py")
+    assert "jones_config=None" not in hybrid
+    assert "jones" not in hybrid
 
-    solver_parameter = inspect.signature(calculate_visibility).parameters[
-        "jones_config"
-    ]
-    assert solver_parameter.default is None
-    assert str(solver_parameter.annotation) == "dict[str, typing.Any] | None"
+    # The hybrid path still reaches the point solver, and still gets a cube.
+    instrument, beam_system, receptors = _solver_components(tmp_path)
+    cube = np.asarray(
+        RIMESimulator().calculate_visibilities(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=_workload_point_sources(polarized=False, gaussian=False),
+            frequencies=_WORKLOAD_FREQS,
+            backend=get_backend("numpy"),
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            receptors=receptors,
+        )
+    )
+    assert float(np.max(np.abs(cube))) > 0.0
 
 
-def test_jones_config_is_an_untyped_dict_with_ad_hoc_rejections(tmp_path) -> None:
-    """Pins the whole validation surface a typed ``jones`` section will replace.
+def test_the_ad_hoc_jones_validation_surface_is_gone(tmp_path) -> None:
+    """Pins the removal of the three checks that stood in for a schema.
 
-    Three ad-hoc checks stand in for a schema: a type check, a "no beam key"
-    check, and the parallactic guard.  There is no field validation of any
-    kind below the top level -- ``{"G": {"enabled": "yes please"}}`` is
-    accepted and ignored.
+    At the gate ``calculate_visibility`` carried a type check, a "no beam key"
+    check and the parallactic guard, and no field validation of any kind below
+    the top level -- ``{"G": {"enabled": "yes please"}}`` was accepted and
+    ignored.  Tier 7B made a truthy value fail loudly; Tier 7C removed the
+    parameter and, with it, all three checks.
 
-    OWNED BY: Tier 7D, which introduces the typed schema, and Tier 7C, which
-    removes the parameter.
+    OWNED BY: Tier 7D, which introduces the typed ``jones:`` schema whose
+    rejections R2-R16 replace them with verbatim, tested messages.
     """
+    point = _source("src/radiosim/core/visibility.py")
+    assert "jones_config must be a dict or None" not in point
+    assert "must not contain a beam entry" not in point
+
     instrument, beam_system, receptors = _solver_components(tmp_path)
     kwargs: dict[str, Any] = {
         "instrument": instrument,
@@ -1115,27 +1129,12 @@ def test_jones_config_is_an_untyped_dict_with_ad_hoc_rejections(tmp_path) -> Non
         "receptors": receptors,
     }
 
-    with pytest.raises(TypeError, match="jones_config must be a dict or None"):
-        calculate_visibility(**kwargs, jones_config=[("G", True)])  # type: ignore[arg-type]
+    # Every former spelling is now one ordinary unexpected-keyword TypeError.
+    for value in ([("G", True)], {"beam": {}}, {"G": {"enabled": "yes please"}}, None):
+        with pytest.raises(TypeError, match="jones_config"):
+            calculate_visibility(**kwargs, jones_config=value)  # type: ignore[call-arg]
 
-    with pytest.raises(TypeError, match="must not contain a beam entry"):
-        calculate_visibility(**kwargs, jones_config={"beam": {}})
-
-    # Nonsense inside a term block is still accepted without comment -- there is
-    # still no field validation of any kind below the top level, which is what
-    # Tier 7D's typed schema replaces.  What changed at Tier 7B is only what
-    # happens next: the truthy string enables a term whose class does not
-    # implement the batched contract, so the run fails loudly instead of
-    # silently returning the unmodelled sky.
-    with pytest.raises(NotImplementedError, match="compute_jones_batch"):
-        calculate_visibility(**kwargs, jones_config={"G": {"enabled": "yes please"}})
-
-    # A falsy value is still ignored without comment, and is bit-identical.
-    ignored = np.asarray(
-        calculate_visibility(**kwargs, jones_config={"G": {"enabled": ""}})
-    )
-    plain = np.asarray(calculate_visibility(**kwargs, jones_config=None))
-    assert _raw_cube_digest(ignored) == _raw_cube_digest(plain)
+    assert float(np.max(np.abs(np.asarray(calculate_visibility(**kwargs))))) > 0.0
 
 
 def test_reject_parallactic_rotation_guards_an_unreachable_combination(
@@ -1196,9 +1195,11 @@ def test_healpix_solver_shares_the_one_chain_and_the_one_evaluator() -> None:
     assert "_receptor_transforms" not in text
     assert "_evaluate_beam_batch_by_antenna" not in text
 
-    # Exactly one chain-composition site in the whole package.
+    # Exactly one chain-composition site in the whole package.  The gate count
+    # was nine ``add_term`` calls; Tier 7C deleted the six that added an
+    # identity stub, leaving the three terms that exist.
     point = _source("src/radiosim/core/visibility.py")
-    assert point.count("chain.add_term(") == 9
+    assert point.count("chain.add_term(") == 3
     assert "chain.add_term(" not in text
 
 

@@ -522,20 +522,19 @@ def test_point_solver_adds_chain_terms_in_the_canonical_order(
     separately.
 
     FLIPPED BY: Tier 5D, in the same commit as the reordering.
+
+    ANCHOR UPDATED BY: Tier 7C.  Six of those nine slots held identity stubs
+    that Tier 7C deleted, and the ``jones_config`` dictionary that enabled them
+    went with them (``Tier7JonesSciencePlan.md`` Section 33.2).  The Tier 5
+    property this pins -- that the solver adds terms in the Section 19.1 order,
+    correlator-side first -- is unchanged and is re-asserted here against the
+    solver's own documented factorization plus the three terms that exist.
     """
     instrument, beam_system = _solver_components(tmp_path)
     receptors = resolve_receptors(ReceptorsConfig(), _resolve_instrument(tmp_path))
     n_sources = 2
     chain = _build_jones_chain(
         get_backend("numpy"),
-        {
-            "Z": {"enabled": True},
-            "T": {"enabled": True},
-            "P": {"enabled": True},
-            "D": {"enabled": True},
-            "G": {"enabled": True},
-            "B": {"enabled": True},
-        },
         instrument,
         np.full(n_sources, 1.0, dtype=np.float64),
         np.full(n_sources, 0.5, dtype=np.float64),
@@ -548,17 +547,14 @@ def test_point_solver_adds_chain_terms_in_the_canonical_order(
         receptors,
     )
 
-    assert [term.name for term in chain.terms] == [
-        "H",
-        "G",
-        "B",
-        "D",
-        "P",
-        "C",
-        "E",
-        "T",
-        "Z",
-    ]
+    canonical = ["H", "G", "B", "D", "P", "C", "E", "T", "Z"]
+    names = [term.name for term in chain.terms]
+    assert names == ["H", "C", "E"]
+    positions = [canonical.index(name) for name in names]
+    assert positions == sorted(positions)
+    assert "J = H @ G @ B @ D @ P @ C @ E @ T @ Z" in " ".join(
+        (_build_jones_chain.__doc__ or "").split()
+    )
 
 
 def test_point_solver_chain_always_carries_the_receptor_terms(
@@ -570,12 +566,14 @@ def test_point_solver_chain_always_carries_the_receptor_terms(
     could reach the visibilities.
 
     FLIPPED BY: Tier 5D, in the same commit as the solver integration.
+
+    ANCHOR UPDATED BY: Tier 7C, which removed the ``jones_config`` argument.
+    H, C and E are now not merely always enabled but the only terms there are.
     """
     instrument, beam_system = _solver_components(tmp_path)
     receptors = resolve_receptors(ReceptorsConfig(), _resolve_instrument(tmp_path))
     chain = _build_jones_chain(
         get_backend("numpy"),
-        {},
         instrument,
         np.array([1.0], dtype=np.float64),
         np.array([0.5], dtype=np.float64),
