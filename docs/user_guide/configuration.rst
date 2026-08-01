@@ -300,10 +300,13 @@ and omitting it produces exactly the visibilities — and exactly the
 ``scientific_sha256`` — that a document without the section produced before it
 existed.
 
-RadioSim implements two configurable terms today, ``G`` (complex electronic
-gain) and ``B`` (bandpass). Both are diagonal and neither is unitary. A key for
-any other term letter is rejected at parse time: a configuration surface for a
-term RadioSim cannot honour would accept a value and discard it.
+RadioSim implements six configurable terms today: ``G`` (complex electronic
+gain), ``B`` (bandpass), ``Rc`` (cable reflection), ``Kd`` (instrumental delay),
+``X`` (cross-hand phase and delay) and ``D`` (polarization leakage). The first
+five are diagonal; ``D`` is not. Only ``Kd`` and ``X`` are unitary. A key for
+any other term letter — ``P``, ``Z``, ``T``, ``M``, ``Q`` — is rejected at parse
+time: a configuration surface for a term RadioSim cannot honour would accept a
+value and discard it.
 
 .. code-block:: yaml
 
@@ -322,6 +325,23 @@ term RadioSim cannot honour would accept a value and discard it.
        model:
          kind: polynomial
          coefficients: [1.0, 0.0, -0.05]
+     Rc:
+       amplitude: 0.01           # 0 < |A| < 1, rejected outside
+       cable_delay_s: 1.5e-7
+     Kd:
+       delay_s: 1.0e-9
+     X:
+       phase_rad: 0.1
+       delay_s: 0.0
+     D:
+       d_terms:
+         kind: explicit          # explicit | ixr | frequency_polynomial
+         d0: [0.02, 0.0]
+         d1: [0.0, 0.02]
+
+Terms are applied in the canonical chain order regardless of the order the keys
+appear in the document, so two files that enable the same terms produce the same
+visibilities and the same fingerprint.
 
 There is no ``enabled: false``. To disable a term, delete its block — and a
 block whose resolved parameters make the term exactly the identity is
@@ -332,8 +352,10 @@ under it is rejected for the same reason.
 ``per_antenna`` entries are keyed by antenna **number** and validated against
 the resolved instrument, so an unknown number, a repeated ``(antenna, feed)``
 pair, or a feed index outside ``{0, 1}`` each fail with a message naming the
-term. Every ``jones`` rejection is raised before any beam is loaded, any sky
-model is fetched, or any network access happens.
+term. ``X`` is the one exception to the ``feed`` key: its parameter is the
+relative phase *between* an antenna's two feeds, so its entries are keyed by
+antenna alone. Every ``jones`` rejection is raised before any beam is loaded,
+any sky model is fetched, or any network access happens.
 
 Write floats in scientific notation with a signed exponent — ``1.0e+8``, not
 ``1.0e8`` — because YAML 1.1 parses the unsigned form as a string.

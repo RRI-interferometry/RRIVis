@@ -3,10 +3,16 @@ Jones Matrix Framework
 
 RadioSim exposes a Jones-term framework in which public class availability is
 not the same as implemented high-level science, and every term says which it
-is. The current high-level ``Simulator`` uses geometric phase (K), the
+is. The current high-level ``Simulator`` always applies geometric phase (K), the
 canonical scalar E-Jones primary beam, the receptor configuration (C), and the
-output basis transform (H) as substantive forward-model effects; those four are
-``term_status: implemented``. The remaining exported terms are
+output basis transform (H). Six further terms — gain (G), bandpass (B), cable
+reflection (Rc), instrumental delay (Kd), cross-hand phase and delay (X), and
+polarization leakage (D) — carry real physics and are applied when the
+``jones:`` section configures them; see :doc:`jones_terms` for each one's
+mathematics, units, citation, and configuration. All ten are
+``term_status: implemented``.
+
+The remaining exported terms — ``P``, ``Z``, ``T``, ``M`` and ``Q`` — are
 ``term_status: planned``: each has a documented physical effect and a position
 in the chain below, and each **raises** when evaluated. None of them multiplies
 by the identity, so a term cannot silently do nothing.
@@ -142,12 +148,34 @@ Modelling assumption
 
 Converting a circular-native antenna into a linear output basis, or the reverse,
 is exact **only** when both feeds are ideal, orthogonal, and share a common
-complex gain. That holds today because the polarization-leakage term ``D`` and
-the gain term ``G`` are planned rather than implemented, so no run can carry
-either. When Tier 7 implements ``D``, the conversion becomes approximate and
-this statement must be re-examined.
-Elliptical and non-orthogonal feed pairs are rejected rather than approximated
-for the same reason.
+complex gain. Two configurations now break that condition, and both are
+reachable:
+
+* ``jones.D`` — any non-zero leakage. ``D`` is not diagonal, so it does not
+  commute with the basis change ``H``, and the reported correlations carry
+  ``H D H^{H}`` rather than ``D``. The discrepancy between the reported
+  quantity and an ideal-feed one is first order in :math:`|d|`.
+* ``jones.G``, ``jones.B``, ``jones.Kd`` or ``jones.Rc`` configured **per feed**
+  — a gain, bandpass, delay or reflection that differs between an antenna's two
+  feeds. Each is diagonal, so it commutes with ``H`` only when its two diagonal
+  entries agree; a feed-asymmetric one does not, and the error is first order in
+  the feed ratio :math:`(g_0 - g_1)/(g_0 + g_1)`. A feed-symmetric value is
+  scalar and remains exact. ``jones.X`` is per construction a *relative* phase
+  between the two feeds, so it is never feed-symmetric and never commutes with
+  ``H``.
+
+None of this is an approximation RadioSim makes silently: the forward model
+applies each term in the antenna's own basis at its own place in the chain
+(Section 12.2 of ``Tier7JonesSciencePlan.md``), and the reported cube is the
+exact result of that chain. What becomes approximate is the *interpretation* of
+a circular-native run reported in a linear basis — or the reverse — as though it
+were a linear-native one. If you need the exact receptor-frame quantities, set
+``receptors.output_basis`` to the antennas' own basis, which makes ``H`` the
+identity and removes the question.
+
+Elliptical and non-orthogonal feed pairs are still rejected rather than
+approximated: those would break the *receptor* model itself, not merely the
+reporting basis.
 
 Parallactic-angle boundary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -168,22 +196,39 @@ The canonical factorization, leftmost factor nearest the correlator, is
 
 .. math::
 
-   J_p = H_p\, G_p\, B_p\, D_p\, P_p\, C_p\, E_p\, T_p\, Z_p,
+   J_p = H_p\, G_p\, B_p\, Rc_p\, Kd_p\, X_p\, D_p\, P_p\, C_p\, E_p\, T_p\, Z_p,
 
 with the geometric phase K applied separately by the solver. ``H`` is leftmost
 because it is a reporting-basis change performed at the correlator, and ``C``
 sits between the sky-side direction-dependent terms (``E``, ``T``, ``Z``) and
-the electronics-side direction-independent terms (``D``, ``G``, ``B``), because
-leakage and gains are defined in the receptor's own basis. ``JonesChain``
-composes ``terms[0] @ terms[1] @ ... @ terms[-1]``, so terms are added in that
-same left-to-right order and the leftmost factor is applied last.
+the electronics-side direction-independent terms (``D``, ``X``, ``Kd``, ``Rc``,
+``B``, ``G``), because leakage, delays and gains are defined in the receptor's
+own basis. ``JonesChain`` composes ``terms[0] @ terms[1] @ ... @ terms[-1]``, so
+terms are added in that same left-to-right order and the leftmost factor is
+applied last.
+
+What in that order is physical, and what is convention
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* **Physical, and tested.** ``D`` sits correlator-side of ``C``: leakage is a
+  property of the receiving hardware and is defined in the receptor's own basis,
+  which is why its coefficients are indexed by feed 0/1 rather than by
+  ``x``/``y``. The same applies to ``X``, ``Kd``, ``Rc``, ``B`` and ``G``.
+* **Convention, because the factors commute.** The relative order of ``G``,
+  ``B``, ``Rc``, ``Kd`` and ``X`` among themselves. All five are diagonal 2×2
+  matrices in the same basis, and diagonal matrices commute. Their mutual order
+  is fixed here so the chain has one shape, one provenance string and one test;
+  it is **not** a physical claim. ``D`` is *not* in that set — it is
+  off-diagonal, and it does not commute with a feed-asymmetric ``G``, ``B``,
+  ``Kd`` or ``Rc``, nor with ``X``.
+* **Not yet observable.** The placement of ``P`` shown above is Tier 5's, and it
+  is unobservable while ``P`` is planned. Implementing ``P`` moves it sky-side of
+  ``C``; see the parallactic-angle boundary above.
 
 Planned terms
 -------------
 
-Ionosphere (``Z``), troposphere (``T``), parallactic rotation (``P``), gain
-(``G``), bandpass (``B``), polarization leakage (``D``), instrumental delay
-(``Kd``), cable reflection (``Rc``), cross-hand phase and delay (``X``), and the
+Ionosphere (``Z``), troposphere (``T``), parallactic rotation (``P``), and the
 two baseline-Hadamard terms (``M``, ``Q``) are exported, documented, and
 **not implemented**. Each declares ``term_status: planned`` and raises when
 evaluated, so none of them can enter a result. Until each gains its conventions,

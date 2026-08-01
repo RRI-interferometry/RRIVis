@@ -769,12 +769,27 @@ def test_tier5g_jones_guide_states_the_receptor_science_boundaries():
         "is exact **only** when both feeds are ideal, orthogonal, and share a "
         "common complex gain" in collapsed
     )
-    assert "When Tier 7 implements ``D``" in collapsed
+    # FLIPPED BY: Tier 7E.  Until this slice the guide said the conversion was
+    # exact "because ``D`` and ``G`` are planned rather than implemented", and
+    # promised to re-examine the claim when Tier 7 implemented ``D``.  Tier 7E
+    # implemented it, so the promise is discharged: the guide now names the two
+    # configurations that break exactness and says what to do instead.  The
+    # assertion moves with it rather than being deleted, because the property
+    # being pinned -- that the guide states the boundary rather than implying
+    # there is none -- is the same one.
+    assert "any non-zero leakage" in collapsed
+    assert "set ``receptors.output_basis`` to the antennas' own basis" in collapsed
+    assert "When Tier 7 implements ``D``" not in collapsed
     assert (
         "``feed_rotation_deg`` is a **static** rotation in the topocentric frame"
         in collapsed
     )
-    assert "J_p = H_p\\, G_p\\, B_p\\, D_p\\, P_p\\, C_p\\, E_p\\, T_p\\, Z_p" in text
+    # The canonical order gained ``Rc``, ``Kd`` and ``X`` when Tier 7E made them
+    # real; ``P``'s placement is still Tier 5's and moves at Tier 7F.
+    assert (
+        "J_p = H_p\\, G_p\\, B_p\\, Rc_p\\, Kd_p\\, X_p\\, D_p\\, P_p\\, C_p\\, "
+        "E_p\\, T_p\\, Z_p" in text
+    )
     assert "V_{RR} &= (I + V)/2" in text
     assert "U + iV" in text
 

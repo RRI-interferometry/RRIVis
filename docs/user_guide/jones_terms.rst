@@ -49,12 +49,28 @@ What is implemented today
      - Frequency-dependent bandpass
      - ``jones.B``
      - implemented
+   * - ``Rc``
+     - RF cable reflection ripple
+     - ``jones.Rc``
+     - implemented
+   * - ``Kd``
+     - Instrumental delay offset
+     - ``jones.Kd``
+     - implemented
+   * - ``X``
+     - Cross-hand phase and delay
+     - ``jones.X``
+     - implemented
+   * - ``D``
+     - Polarization leakage
+     - ``jones.D``
+     - implemented
 
-Nine further terms — ``D``, ``P``, ``Z``, ``T``, ``X``, ``Kd``, ``Rc``, ``M``
-and ``Q`` — exist as named classes with documented physics and **no
-implementation**: constructing one is allowed, evaluating one raises. They have
-no configuration block, deliberately. A schema field for a term that cannot be
-honoured would accept a value and discard it, which is worse than refusing.
+Five further terms — ``P``, ``Z``, ``T``, ``M`` and ``Q`` — exist as named
+classes with documented physics and **no implementation**: constructing one is
+allowed, evaluating one raises. They have no configuration block, deliberately.
+A schema field for a term that cannot be honoured would accept a value and
+discard it, which is worse than refusing.
 
 
 The ``jones:`` section
@@ -276,6 +292,282 @@ What ``B`` does and does not do
 * A real, frequency-flat bandpass is exactly a ``G`` amplitude error. The two
   stay separate terms because one is *defined* to carry frequency structure and
   the other is not.
+
+
+Rc — cable reflection
+---------------------
+
+``Rc`` is the standing-wave ripple a reflection in an antenna's RF cable puts
+across the band. It is direction-independent, frequency-dependent, diagonal, and
+**not** unitary:
+
+.. math::
+
+   Rc_p(\nu) = \mathrm{diag}\bigl(r_{p0}(\nu),\, r_{p1}(\nu)\bigr),
+   \qquad
+   r_{pf}(\nu) = 1 + A_{pf}\,
+        e^{-2\pi i \nu \tau_{\mathrm{cable},pf} + i\phi_{pf}}
+
+:math:`A` is a dimensionless reflection amplitude, :math:`\tau_\mathrm{cable}`
+the **round-trip** cable delay in seconds, and :math:`\phi` a phase offset. This
+is the first-order, single-bounce reflection; multiple bounces would add terms in
+:math:`A^2 e^{-4\pi i\nu\tau_c}` and are out of scope.
+
+*Reference:* Kern et al. (2020), ApJ **888**, 70; Beardsley et al. (2016),
+ApJ **833**, 102; Ewall-Wice et al. (2016), MNRAS **460**, 4320.
+
+Configuration
+~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   jones:
+     Rc:
+       amplitude: 0.01          # dimensionless; 0 < |A| < 1
+       cable_delay_s: 1.5e-7    # round-trip, seconds
+       phase_rad: 0.0
+       per_antenna:             # same (antenna, feed) keying as G
+         - antenna: 3
+           feed: 1
+           amplitude: 0.04
+
+An amplitude outside :math:`0 < |A| < 1` is **rejected** — a reflection cannot
+return more power than it receives, and a zero one is not a reflection. The
+rejection names the physics rather than reporting a bounds error, and it applies
+to a per-antenna override as well as to the array-wide default.
+
+What ``Rc`` does and does not do
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* :math:`|r|` oscillates between :math:`1 - A` and :math:`1 + A` with frequency
+  period :math:`1/\tau_\mathrm{cable}`.
+* The delay-domain (frequency-Fourier) transform of a corrupted spectrum carries
+  a secondary peak at **exactly** :math:`\tau_\mathrm{cable}` with relative
+  amplitude :math:`A`. That peak is why ``Rc`` is a term of its own rather than a
+  bandpass shape: a smooth bandpass is compact around zero delay, and a
+  reflection is not.
+* With one cable on both feeds of both antennas, every correlation is scaled by
+  the real factor :math:`|r(\nu)|^2` and no phase moves — the exact opposite of
+  ``Kd``'s common-mode behaviour.
+* A reflection with ``cable_delay_s: 0.0`` is legal and is a constant complex
+  offset rather than a ripple. It is reported as frequency-**independent**,
+  because it is.
+
+
+Kd — instrumental delay
+-----------------------
+
+``Kd`` is a per-antenna, per-feed delay offset in the signal chain. It is
+direction-independent, frequency-dependent, diagonal, and unitary:
+
+.. math::
+
+   Kd_p(\nu) = \mathrm{diag}\bigl(e^{-2\pi i \nu \tau_{p0}},\,
+                                  e^{-2\pi i \nu \tau_{p1}}\bigr)
+
+The **negative** exponent is RadioSim's one delay-sign convention, the same one
+the geometric phase :math:`e^{-2\pi i\, \vec b \cdot \vec s}` uses: a positive
+delay produces :math:`e^{-i\,\text{positive}}` everywhere.
+
+*Reference:* Thompson, Moran & Swenson (2017), 3rd ed., Chapter 7; CASA ``K``
+Jones.
+
+Configuration
+~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   jones:
+     Kd:
+       delay_s: 1.0e-9          # array-wide default, per feed
+       per_antenna:             # same (antenna, feed) keying as G
+         - antenna: 7
+           feed: 0
+           delay_s: 4.5e-9
+
+``delay_s`` defaults to zero, so a block written with ``per_antenna`` alone means
+"these feeds only". A block that resolves to zero everywhere is rejected as the
+identity.
+
+What ``Kd`` does and does not do
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* A delay **common to both feeds of every antenna** cancels exactly on every
+  cross-correlation: the term enters as :math:`e^{-2\pi i\nu\tau_p}` on antenna
+  :math:`p` and as its conjugate on antenna :math:`q`, leaving
+  :math:`e^{-2\pi i\nu(\tau_p - \tau_q)} = 1`. If you want a whole-array delay to
+  do something, it has to be *differential*.
+* A differential delay is a pure baseline phase slope: every correlation
+  amplitude is unchanged and the phase is exactly linear in frequency.
+* ``Kd`` is antenna-based, so it leaves the **closure phase** invariant. A fringe
+  slope looks like a baseline property and is not one.
+* A delay shared by an antenna's two feeds is a *scalar* phase on that antenna,
+  and RadioSim reports it as such.
+
+
+X — cross-hand phase and delay
+------------------------------
+
+``X`` is the relative phase between an antenna's two feed paths, constant in
+frequency or linear in it. It is direction-independent, diagonal, and unitary:
+
+.. math::
+
+   X_p(\nu) = \mathrm{diag}\bigl(1,\;
+              e^{\,i(\phi_x + 2\pi\nu\tau_x)}\bigr)
+
+Cross-hand phase and cross-hand delay are the same matrix — one
+frequency-constant term and one frequency-linear one — so they are one term with
+two parameters rather than two terms.
+
+The first entry is exactly :math:`1`, not a second free parameter. Only the
+*relative* phase between the two feeds is physical: any pair of feed phases
+factorizes into a common phase, which ``G`` owns and which cancels on every
+baseline, times a relative phase, which is this term. A second parameter here
+would be exactly degenerate with ``G``.
+
+*Reference:* CASA ``crosshand phase`` (``Xf``) and ``KCROSS`` conventions;
+Sault, Hamaker & Bregman (1996), A&AS **117**, 149; Smirnov (2011), §6.
+
+Configuration
+~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   jones:
+     X:
+       phase_rad: 0.1
+       delay_s: 0.0
+       per_antenna:             # keyed by antenna number ALONE
+         - antenna: 3
+           phase_rad: -0.4
+
+``X`` is the one term whose ``per_antenna`` entries carry **no** ``feed`` key.
+The parameter is the phase *between* the two feeds, so there is one number per
+antenna and a feed index would have to name the feed the phase is not on. A
+repeated antenna is rejected, as is an antenna the instrument does not have.
+
+What ``X`` does and does not do
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* With linear receptors, a cross-hand phase :math:`\phi_x` leaves both parallel
+  hands untouched and multiplies :math:`V_{xy}` by :math:`e^{-i\phi_x}` and
+  :math:`V_{yx}` by :math:`e^{+i\phi_x}` — that is, it rotates Stokes :math:`U`
+  into Stokes :math:`V` by exactly :math:`\phi_x`, the classic X-Y phase
+  signature.
+* Unlike a ``G`` phase, a cross-hand phase common to the whole array does **not**
+  cancel: it is a phase on one feed only, so it survives on the cross hands.
+* ``X`` is defined per feed *index* in the antenna's own basis. On a circular
+  receptor the phased feed is ``L``, and the affected correlations are the
+  :math:`(RL, LR)` pair rather than :math:`(xy, yx)`.
+* ``X`` commutes with ``G``, ``B``, ``Kd`` and ``Rc``, all of which are diagonal
+  in the same basis. It does **not** commute with ``D``.
+
+
+D — polarization leakage
+------------------------
+
+``D`` is the first-order cross-coupling between an antenna's two feed chains. It
+is direction-independent, optionally frequency-dependent, **non-diagonal** and
+**non-unitary**:
+
+.. math::
+
+   D_p(\nu) = \begin{bmatrix}
+       1 & d_{p0}(\nu) \\
+       -d_{p1}(\nu)^{*} & 1
+   \end{bmatrix}
+
+:math:`d_{p0}` is the leakage of feed 1's signal into feed 0's chain and
+:math:`d_{p1}` the converse. Both are dimensionless and complex;
+:math:`|d| \sim 0.01`–:math:`0.05` is typical of a well built receiver. The
+conjugate-and-negate on the lower left is the Hamaker, Bregman & Sault
+convention, and it is what makes ``D`` reduce to a scaled rotation for real,
+equal leakages.
+
+*Reference:* Hamaker, Bregman & Sault (1996), A&AS **117**, 137, §4; Sault,
+Hamaker & Bregman (1996), A&AS **117**, 149; Smirnov (2011), §6.4; Carozzi &
+Woan (2011), IEEE TAP **59**, 2058 (IXR).
+
+Configuration
+~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   jones:
+     D:
+       d_terms:                 # the array-wide model, naming BOTH feeds
+         kind: explicit         # explicit | ixr | frequency_polynomial
+         d0: [0.02, 0.0]        # [re, im]
+         d1: [0.0, 0.02]
+       per_antenna:
+         - antenna: 3
+           feed: 1
+           d_term:              # a per-antenna override names ONE feed
+             kind: ixr
+             ixr_db: 30.0
+             phase_rad: 0.0
+
+The array-wide field is ``d_terms`` and the override field is ``d_term``. The
+names differ by one letter because the shapes do: the array-wide block names both
+feeds, while an override is keyed by a feed index and therefore names one. An
+override that had to restate both feeds would make the index it is keyed by
+meaningless.
+
+The three kinds
+~~~~~~~~~~~~~~~
+
+``explicit``
+    Complex ``d0`` and ``d1``, each written ``[re, im]`` or as a bare real
+    number. Both default to zero, so a block may name one feed only.
+
+``ixr``
+    An intrinsic cross-polarization ratio in decibels, converted by
+
+    .. math::
+
+       |d| = \frac{1}{\sqrt{\mathrm{IXR}_\mathrm{lin}}},
+       \qquad
+       \mathrm{IXR}_\mathrm{lin} = 10^{\mathrm{IXR}_\mathrm{dB}/10}
+
+    equivalently :math:`\mathrm{IXR}_\mathrm{dB} = -20\log_{10}|d|`. A *larger*
+    IXR is a *smaller* leakage: 30 dB is about 3 per cent, 20 dB about 10 per
+    cent. ``ixr_db`` must be positive — :math:`0` dB is a completely
+    depolarizing receptor (:math:`|d| = 1`), and a negative value would mean a
+    leakage larger than the direct path, which the first-order form does not
+    describe. Use ``per_antenna`` to give the two feeds different phases.
+
+``frequency_polynomial``
+    :math:`d(\nu) = \sum_k c_k x^k` with
+    :math:`x = (\nu - \nu_\mathrm{ref})/\nu_\mathrm{scale}`, written as
+    ``coefficients0`` and ``coefficients1``. ``reference_frequency_hz`` and
+    ``scale_frequency_hz`` default to the band centre and half-bandwidth, exactly
+    as for ``B``.
+
+What ``D`` does and does not do
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* :math:`D(0) = I_2` exactly, which is why a zero-leakage block is rejected.
+* :math:`\det D = 1 + d_{p0} d_{p1}^{*}`, so ``D`` is invertible for every
+  physical leakage — it is a calibratable corruption, not a loss of information.
+* ``D`` is **not** unitary for any non-zero leakage. A receptor that moves power
+  between its two chains while preserving :math:`J J^{H} = I` would be a
+  rotation, not a leakage.
+* For an **unpolarized** source the corrupted cross hand is exactly
+
+  .. math::
+
+     V_{01} = \tfrac{I}{2}\,\bigl(d_{p0} - d_{q1}\bigr)
+
+  — note the second antenna contributes :math:`-d_{q1}`, not
+  :math:`+d_{q1}^{*}`. This is the sharpest available check that a leakage model
+  is right, and RadioSim's test suite asserts it at machine precision.
+* ``D`` does **not** commute with a feed-asymmetric ``G``, ``B``, ``Kd`` or
+  ``Rc``, nor with ``X``. The canonical chain puts all of those nearer the
+  correlator than ``D``, and that order is observable.
+* ``D`` is direction-independent by construction. A leakage that varied across
+  the beam is *beam squint*, which belongs to the beam subsystem; modelling it
+  here would create a second beam pathway.
 
 
 Where the record goes
