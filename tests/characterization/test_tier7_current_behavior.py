@@ -1724,10 +1724,16 @@ def test_documentation_no_longer_records_a_stub_surface() -> None:
     assert "When Tier 7 implements" not in guide
     assert "identity scaffolds or later-tier work" not in guide
     assert "A class returning an identity matrix is a scaffold" not in guide
-    # What replaces the promise: the four terms that really are still planned,
-    # named, and the statement that each of them raises.
-    assert "``Z``, ``T``, ``M`` and ``Q`` — are ``term_status: planned``" in guide
+    # What replaces the promise: the terms that really are still planned, named,
+    # and the statement that each of them raises.
+    #
+    # FLIPPED BY: Tier 7G, which implemented ``Z`` and ``T``.  The guide names
+    # the two that remain -- both ``JonesBaselineTerm`` -- and says so, and it
+    # also records that no ``JonesTerm`` is planned any more, which is the
+    # statement the ``@abstractmethod`` flip rests on.
+    assert "``M`` and ``Q`` — are ``term_status: planned``" in guide
     assert "each **raises** when evaluated" in guide
+    assert "No ``JonesTerm`` is planned any more" in guide
 
 
 def test_beam_todo_markdown_is_the_sci_003_artifact() -> None:
