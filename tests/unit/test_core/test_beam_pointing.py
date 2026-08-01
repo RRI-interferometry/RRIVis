@@ -302,8 +302,11 @@ def test_offset_moves_the_analytic_beam_peak_by_exactly_delta(
         np.array([peak_azimuth]),
         100e6,
     )
-    # The uniform circular voltage pattern is exactly 1 on boresight.
-    assert response[0, 0, 0].real == pytest.approx(1.0, abs=5e-13)
+    # The uniform circular voltage pattern is exactly 1 on boresight.  The
+    # tolerance is float64 rounding, not a small-angle allowance: the beam
+    # frame's pole is computed with arctan2 rather than arcsin precisely so
+    # that the peak is reproduced to rounding.
+    assert response[0, 0, 0].real == pytest.approx(1.0, abs=1e-15)
     assert response[0, 1, 1] == response[0, 0, 0]
 
     # The great-circle displacement of the peak from the nominal zenith

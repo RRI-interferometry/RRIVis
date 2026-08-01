@@ -147,7 +147,13 @@ def _rotate_into_beam_frame(
     beam_north = north * cos_tilt - up * sin_tilt
     beam_up = north * sin_tilt + up * cos_tilt
 
-    beam_altitude = np.arcsin(np.clip(beam_up, -1.0, 1.0))
+    # ``arctan2(up, hypot(east, north))`` rather than ``arcsin(up)``: the beam's
+    # own boresight lands at the pole of this frame, where ``arcsin`` is
+    # ill-conditioned (an input error of eps becomes an angle error of order
+    # sqrt(eps), about 1e-8 rad in float64).  The two-argument form is accurate
+    # to rounding there, which is what makes "the peak moves by exactly delta"
+    # exact rather than exact-to-1e-8.
+    beam_altitude = np.arctan2(beam_up, np.hypot(east, beam_north))
     beam_azimuth = np.arctan2(east, beam_north)
     return beam_altitude, beam_azimuth
 
