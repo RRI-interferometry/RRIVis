@@ -17,7 +17,9 @@ and bandwidth smearing) — are **not** ``JonesTerm`` at all: both are
 ``JonesBaselineTerm``, applied by Hadamard product to finished visibilities
 rather than by matrix multiplication. They are implemented too. All fifteen
 declare ``term_status: implemented``; none multiplies by the identity, and none
-can be configured into doing nothing.
+can be configured into doing nothing. Tier 7 of the remediation programme is
+what turned each of them from a name into physics, one slice at a time, and
+``M`` and ``Q`` were the last two.
 
 RIME context
 ------------
