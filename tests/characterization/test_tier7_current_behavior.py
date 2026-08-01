@@ -1420,8 +1420,17 @@ def test_rotation_measure_is_already_applied_by_the_point_solver(tmp_path) -> No
     already modelled.  A separately configured F term would rotate it twice,
     with no guard anywhere.
 
-    OWNED BY: Tier 7G, whose ``Z`` term owns ionospheric rotation only, and
-    Tier 7C, which deletes ``faraday.py``.
+    FLIPPED BY: Tier 7C, which deleted ``faraday.py`` -- so there is no second
+    object a rotation measure can enter the chain from.
+
+    FLIPPED BY: Tier 7G, which gave ``Z`` the *ionospheric* rotation and left
+    the intrinsic one exactly where it is.  The defect is resolved rather than
+    avoided: the two rotations exist, in different objects and different frames,
+    and they compose.  ``tests/unit/test_jones/test_ionosphere.py`` asserts the
+    composition itself (invariant I8, to ``1e-12``); what is pinned here is the
+    half that makes the composition safe -- that the sky's rotation measure is
+    still applied by the solver, and that the *only* place a Jones-side rotation
+    measure can be configured is ``jones.Z.faraday``.
     """
     instrument, beam_system, receptors = _solver_components(tmp_path)
     kwargs: dict[str, Any] = {
@@ -1442,6 +1451,47 @@ def test_rotation_measure_is_already_applied_by_the_point_solver(tmp_path) -> No
     assert _raw_cube_digest(unrotated_cube) != _raw_cube_digest(rotated_cube)
 
     assert "source_rm_t" in _source("src/radiosim/core/visibility.py")
+
+    # And exactly one Jones-side rotation measure exists, on ``Z``: no ``F``
+    # block, no ``F`` term, and no second field anywhere in the schema.
+    from radiosim.io.jones_config import IonosphereTermConfig, JonesConfig
+
+    assert "F" not in JonesConfig.model_fields
+    assert not (JONES_ROOT / "faraday.py").exists()
+    assert "faraday" in IonosphereTermConfig.model_fields
+    rotation_measure_fields = [
+        f"jones.{letter}.{name}"
+        for letter, model in JonesConfig.model_fields.items()
+        for name in _nested_field_names(model.annotation)
+        if "rotation_measure" in name
+    ]
+    # Twice under ``Z`` -- the array-wide value and the per-antenna override --
+    # and nowhere else at all.
+    assert set(rotation_measure_fields) == {"jones.Z.rotation_measure_rad_m2"}
+    assert len(rotation_measure_fields) == 2
+
+
+def _nested_field_names(annotation: Any) -> list[str]:
+    """Return every field name reachable from one ``jones:`` term annotation."""
+    from pydantic import BaseModel
+
+    names: list[str] = []
+    seen: set[Any] = set()
+
+    def walk(candidate: Any) -> None:
+        if candidate in seen:
+            return
+        seen.add(candidate)
+        if isinstance(candidate, type) and issubclass(candidate, BaseModel):
+            for name, field in candidate.model_fields.items():
+                names.append(name)
+                walk(field.annotation)
+            return
+        for argument in getattr(candidate, "__args__", ()) or ():
+            walk(argument)
+
+    walk(annotation)
+    return names
 
 
 # =========================================================================
