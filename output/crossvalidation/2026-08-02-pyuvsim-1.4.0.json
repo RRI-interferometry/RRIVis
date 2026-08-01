@@ -1,0 +1,91 @@
+{
+  "schema": "radiosim-crossvalidation-1.0.0",
+  "recorded_utc": "2026-08-02",
+  "slice": "Tier 7J",
+  "plan_section": "Tier7JonesSciencePlan.md Section 29 (Tier-2 evidence), Section 41 Q1",
+  "gating": false,
+  "reference": {
+    "package": "pyuvsim",
+    "version": "1.4.0",
+    "entry_point": "pyuvsim.UVEngine over pyuvsim.uvsim.UVTask",
+    "driver_not_used": "pyuvsim.run_uvdata_uvsim requires mpi4py, which is not in the crossval feature; the engine it distributes tasks to is called directly instead"
+  },
+  "environment": {
+    "pixi_environment": "crossval",
+    "solve_group": "py311",
+    "difference_from_default_environment": "one added package: pyuvsim-1.4.0-py3-none-any.whl",
+    "radiosim": "0.2.0",
+    "pyuvdata": "3.2.1",
+    "pyradiosky": "1.1.0",
+    "astropy": "7.1.0",
+    "numpy": "2.3.2",
+    "python": "3.11.13"
+  },
+  "host": {
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "note": "linux-64 and osx-64 were not exercised; the pixi lock resolves pyuvsim 1.4.0 on all three platforms but only osx-arm64 was run"
+  },
+  "setup": {
+    "antennas_enu_m": [[0.0, 0.0, 0.0], [50.0, 0.0, 0.0], [0.0, 70.0, 0.0]],
+    "latitude_deg": -30.72152,
+    "longitude_deg": 21.4283,
+    "height_m": 1073.0,
+    "frequencies_hz": [120000000.0, 130000000.0, 140000000.0],
+    "start_time_utc": "2025-01-01T00:00:00",
+    "time_samples": 3,
+    "cadence_seconds": 120.0,
+    "cube_shape": [3, 3, 3, 4],
+    "beam": "one BeamFITS file, read by both codes, whose E-field response is exactly 1 over the whole visible hemisphere",
+    "sky": "one skyh5 file, read by both codes"
+  },
+  "convention_mappings": [
+    "1. Fringe sign: RadioSim exp(-2i*pi*(u*l+v*m+w*(n-1))), pyuvsim exp(+2i*pi*(u*l+v*m+w*n)); both use antenna2-antenna1 in ENU. With a coplanar array (w == 0) and identical per-antenna Jones matrices the two cubes are per-baseline Hermitian conjugates.",
+    "2. Coherency Stokes-V sign: RadioSim uses (1/2)[[I+Q, U+iV],[U-iV, I-Q]]; pyradiosky 1.1.0 uses 0.5*[[I+Q, U-iV],[U+iV, I-Q]].",
+    "3. Local polarization basis axis order: the two local receptor frames are each other's axis swap, which flips Stokes Q and Stokes V. Mappings 2 and 3 both flip V, so V agrees and Q does not."
+  ],
+  "cases": [
+    {
+      "test": "test_unpolarized_point_sources_match_pyuvsim",
+      "compares": "the full (time, baseline, frequency, correlation) visibility cube for four unpolarized point sources, no jones: section, fixed mount, unit beam",
+      "exercises": "K (geometric phase), ENU baseline vectors, ICRS->AltAz, sidereal time, direction cosines, Jy-to-coherency normalisation",
+      "mapping_applied": "1",
+      "tolerance_asserted_relative": 1e-11,
+      "measured_relative": 2.8065456627916864e-14,
+      "measured_absolute_jy": 9.515252560102877e-14,
+      "cube_scale_jy": 3.390378673061746,
+      "control_relative_without_mapping_1": 1.9544719611337873,
+      "verdict": "agrees at double-precision round-off"
+    },
+    {
+      "test": "test_polarized_sources_with_jones_p_match_pyuvsim_up_to_the_basis_swap",
+      "compares": "the local Stokes decomposition of the same cube for three full-Stokes point sources on an alt-az array with jones.P enabled",
+      "exercises": "everything above plus P (parallactic rotation) against pyradiosky's exact ICRS->AltAz coherency rotation",
+      "mapping_applied": "1, 2, 3",
+      "measured_intensity_relative": 2.3139573996814273e-10,
+      "measured_circular_relative": 4.0701816228520426e-11,
+      "measured_linear_relative_after_swap": 0.0020553900727602967,
+      "control_linear_relative_without_swap": 0.615978502127489,
+      "fitted_residual_frame_rotation_deg": -0.057568764952046436,
+      "fitted_linear_ratio_modulus": 0.999978040261551,
+      "verdict": "total intensity and circular polarization agree to 2e-10 and 4e-11 relative; the polarized intensity is preserved (the fitted ratio modulus is 1 to 2e-5) and the linear polarization agrees to 2.1e-3 relative after the documented axis swap"
+    }
+  ],
+  "unresolved": [
+    {
+      "item": "the sign of local Stokes Q",
+      "detail": "RadioSim's local Q has the opposite sign to pyuvsim's for the same sky, beam file and mount. Mapping 3 describes it as an axis-order convention, and the preserved polarized intensity is consistent with that, but this comparison does not establish which convention is the intended one for an east-oriented x feed.",
+      "routed_to": "Tier 7K whole-tier acceptance"
+    },
+    {
+      "item": "a 0.058 degree residual polarization-frame rotation",
+      "detail": "After the axis swap the two local polarization frames still differ by a fitted -0.0576 degrees. An independent astropy probe at the same epoch and sources measures 0.200 degrees between the position angle of ICRS north and the apparent-equatorial parallactic angle, so a reference-frame difference of this species is present at the right order of magnitude, but the two numbers were not reconciled.",
+      "routed_to": "Tier 7K whole-tier acceptance"
+    }
+  ],
+  "claims_not_licensed_by_this_record": [
+    "\"validated against pyuvsim\" without naming the quantity and tolerance",
+    "any statement about matvis, CASA or RASCIL",
+    "any statement about linux-64 or osx-64, which were not run"
+  ]
+}

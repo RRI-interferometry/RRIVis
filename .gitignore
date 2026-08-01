@@ -179,6 +179,14 @@ output/benchmarks/*
 !output/benchmarks/reference/
 output/benchmarks/reference/*
 !output/benchmarks/reference/*.json
+# `output/crossvalidation/` is the second deliberate exception: it is the
+# committed Tier-2 cross-implementation evidence (Tier7JonesSciencePlan.md
+# Section 29), which Section 34 places here by name. Only the record and its
+# method note are tracked.
+!output/crossvalidation/
+output/crossvalidation/*
+!output/crossvalidation/*.json
+!output/crossvalidation/*.md
 results/
 plots/
 

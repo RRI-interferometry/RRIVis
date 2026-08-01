@@ -91,6 +91,25 @@ python = "3.12.*"
 jax = ">=0.10.2,<0.11"
 jaxlib = { version = ">=0.10.2,<0.11", build = "cpu*" }
 
+# Optional cross-implementation validation reference (Tier7JonesSciencePlan.md
+# Sections 29 and 41's question Q1). `pyuvsim` is a PyPI-only package -- it has
+# no conda-forge build (`api.anaconda.org/package/conda-forge/pyuvsim` is a 404),
+# so it is declared here rather than under `[dependencies]`. The version is
+# pinned to `1.4.0` because it is the newest release whose metadata is
+# satisfiable against this repository's `pyuvdata ==3.2.1`; `1.4.2` requires
+# `pyuvdata >=3.2.3`. The wheel is `pyuvsim-1.4.0-py3-none-any.whl`, pure
+# Python, so every platform resolves. This feature is carried by exactly one
+# environment, which no CI job builds and no gate runs: the comparison it
+# supports is Section 29's Tier-2 evidence, recorded and never gating.
+[feature.crossval.pypi-dependencies]
+pyuvsim = "==1.4.0"
+
 [environments]
-default = ["py311", "jax-cpu"]
+default = { features = ["py311", "jax-cpu"], solve-group = "py311" }
 py312 = ["py312", "jax-cpu"]
+# Same solve group as `default`, so the two environments share one solve and
+# `crossval` is `default` plus `pyuvsim` and nothing else. Without the shared
+# group pixi solves a new environment from scratch and drifts several hundred
+# packages away from the gating stack, which would make any comparison run in
+# it evidence about a different build of RadioSim.
+crossval = { features = ["py311", "jax-cpu", "crossval"], solve-group = "py311" }
