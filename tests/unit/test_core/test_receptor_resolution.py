@@ -359,27 +359,44 @@ def test_cross_kind_duplicate_override_is_rejected_with_the_exact_message(tmp_pa
     )
 
 
-@pytest.mark.parametrize("mount_type", ["alt-az", "equatorial", "phased"])
-def test_non_fixed_mount_type_is_rejected(tmp_path, mount_type):
-    instrument = _with_mount_type(_instrument(tmp_path), mount_type)
+@pytest.mark.parametrize(
+    "mount_type", ["alt-az", "equatorial", "phased", "alt-az+nasmyth-l", "fixed", None]
+)
+def test_receptor_resolution_does_not_look_at_the_mount_type(tmp_path, mount_type):
+    """FLIPPED BY: Tier 7F, which moved the mount rule to the term that owns it.
 
-    with pytest.raises(UnsupportedFeedGeometryError) as error:
-        resolve_receptors(ReceptorsConfig(), instrument)
+    Tier 5 rejected every non-``fixed`` mount here, with a message that named a
+    tier rather than a fix, because a time-dependent feed orientation had no
+    term to carry it.  Tier 7F implements ``P``, so a rotating mount is a
+    configuration question rather than a deferral, and it is answered by
+    rejections R12 and R15 in ``resolve_jones_terms``
+    (``Tier7JonesSciencePlan.md`` Section 24; breaking-change ledger row B14).
 
-    assert str(error.value) == (
-        f"mount_type={mount_type!r} is unsupported by Tier 5 receptors; "
-        "time-dependent feed orientation requires the parallactic-angle term "
-        "(Tier 7)."
-    )
-
-
-@pytest.mark.parametrize("mount_type", ["fixed", None])
-def test_fixed_and_unspecified_mount_types_are_accepted(tmp_path, mount_type):
+    What this file still owns is the property Tier 5 actually cared about: a
+    resolved receptor is the *static* part of the orientation, and receptor
+    resolution stays pure and instrument-independent apart from the antenna
+    inventory.  ``phased`` is in the sweep deliberately: even a mount ``P`` does
+    not model is not this function's business, and R12 is what rejects it.
+    """
     instrument = _with_mount_type(_instrument(tmp_path), mount_type)
 
     resolved = resolve_receptors(ReceptorsConfig(), instrument)
 
     assert resolved.output_basis == "linear_xy"
+    assert len(resolved.receptor_by_antenna) == len(instrument.antennas)
+    for receptor in resolved.receptor_by_antenna.values():
+        assert receptor.feed_rotation_rad == 0.0
+
+
+def test_the_mount_rejection_message_is_gone_from_the_receptor_module():
+    """The Tier 5 message named a tier; its replacement names the fix."""
+    import inspect
+
+    from radiosim.core import receptor as receptor_module
+
+    source = inspect.getsource(receptor_module)
+    assert "is unsupported by Tier 5 receptors" not in source
+    assert "_SUPPORTED_MOUNT_TYPE" not in source
 
 
 def test_unsupported_basis_from_a_non_schema_caller_is_rejected(tmp_path):

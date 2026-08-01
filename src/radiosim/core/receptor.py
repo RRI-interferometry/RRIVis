@@ -14,9 +14,21 @@ Modelling assumption
 --------------------
 Expressing a circular-native antenna in a linear output basis (or the reverse)
 is exact **only** when both feeds are ideal, orthogonal, and share a common
-complex gain.  That holds in Tier 5 because the leakage (``D``) and gain
-(``G``) terms are disabled identity stubs.  When Tier 7 implements ``D``, the
-conversion becomes approximate and this assumption must be re-examined.
+complex gain.  Tier 7E implemented ``D`` and ``G``, so the conversion is exact
+only while both are absent or feed-symmetric; ``docs/user_guide/jones_matrices``
+names the configurations that break it and what to do instead.
+
+Mount types
+-----------
+Receptor resolution does **not** look at ``mount_type``.  Tier 5 rejected every
+non-``fixed`` mount here, because a time-dependent feed orientation had no term
+to carry it; Tier 7F implements ``P``, and the rule that replaces the blanket
+rejection lives with the term that discharges it
+(:func:`~radiosim.core.jones_terms.resolve_jones_terms`, rejections R12 and
+R15).  A resolved receptor's ``feed_rotation_rad`` is therefore the **static**
+part of the orientation, and ``C_p P_p = M(basis) R(chi + psi)`` is the whole of
+it -- which is what ``Tier5ReceptorFeedPlan.md`` Section 12.3 said would happen
+when Tier 7 implemented ``P``.
 """
 
 from __future__ import annotations
@@ -58,7 +70,6 @@ _OUTPUT_BASIS_BY_NATIVE: dict[str, PolarizationBasis] = {
     "linear": "linear_xy",
     "circular": "circular_rl",
 }
-_SUPPORTED_MOUNT_TYPE = "fixed"
 
 
 class ReceptorError(RuntimeError):
@@ -74,7 +85,20 @@ class UnsupportedReceptorBasisError(InvalidReceptorConfigError):
 
 
 class UnsupportedFeedGeometryError(InvalidReceptorConfigError):
-    """A feed geometry Tier 5 explicitly defers to a later tier."""
+    """A feed geometry Tier 5 explicitly defers to a later tier.
+
+    Tier 5 raised this for a non-``fixed`` ``mount_type``.  Tier 7F implements
+    ``P``, so a rotating mount is no longer a deferral but a configuration
+    question, and it is answered by
+    :class:`~radiosim.core.jones_errors.UnsupportedMountTypeError` (rejections
+    R12 and R15) at Jones resolution.  The remaining deferred geometries --
+    single-feed and multi-feed antennas, elliptical and non-orthogonal feed
+    pairs, independent per-feed angles -- have no field in the strict
+    ``receptors:`` schema at all and are rejected by Pydantic before resolution,
+    so this class currently has no raiser.  It is kept because it is a public
+    exported name that Tier 5's accepted record documents, and because the next
+    receptor geometry RadioSim declines will need exactly it.
+    """
 
 
 class AmbiguousOutputBasisError(InvalidReceptorConfigError):
@@ -388,8 +412,6 @@ def resolve_receptors(
     ------
     UnsupportedReceptorBasisError
         A basis outside ``linear``/``circular`` reached resolution.
-    UnsupportedFeedGeometryError
-        An antenna mount type Tier 5 defers to Tier 7.
     AmbiguousOutputBasisError
         A mixed array was requested under ``output_basis: auto``.
     ReceptorAssignmentError
@@ -408,15 +430,6 @@ def resolve_receptors(
             f"receptors.output_basis={requested_output!r} is not a supported "
             "request; use 'auto', 'linear', or 'circular'."
         )
-
-    for antenna in instrument.antennas:
-        mount_type = antenna.mount_type
-        if mount_type is not None and mount_type != _SUPPORTED_MOUNT_TYPE:
-            raise UnsupportedFeedGeometryError(
-                f"mount_type={mount_type!r} is unsupported by Tier 5 receptors; "
-                "time-dependent feed orientation requires the parallactic-angle "
-                "term (Tier 7)."
-            )
 
     default_basis = _require_basis(
         config.default.basis,

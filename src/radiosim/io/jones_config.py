@@ -25,11 +25,11 @@ Three properties the section must have, and how each is obtained here
 
 Which terms are here
 --------------------
-``G``, ``B``, ``Rc``, ``Kd``, ``X`` and ``D`` -- the six that carry real
-physics.  A schema field for a term whose ``compute_jones_batch`` raises would
-be a configuration surface that cannot be honoured -- the defect ``D2`` shape
-that Tier 7C stripped from the planned terms' constructors -- so ``P``, ``Z``,
-``T``, ``M`` and ``Q`` are still absent, and Tier 7F-7H each add their own
+``G``, ``B``, ``Rc``, ``Kd``, ``X``, ``D`` and ``P`` -- the seven that carry
+real physics.  A schema field for a term whose ``compute_jones_batch`` raises
+would be a configuration surface that cannot be honoured -- the defect ``D2``
+shape that Tier 7C stripped from the planned terms' constructors -- so ``Z``,
+``T``, ``M`` and ``Q`` are still absent, and Tier 7G-7H each add their own
 term's block to this module together with its physics.
 
 Units and complex numbers (Section 21.3)
@@ -81,6 +81,7 @@ __all__ = [
     "LeakageOverrideConfig",
     "LeakageTermConfig",
     "LinearDriftTimeModel",
+    "ParallacticTermConfig",
     "SinusoidalTimeModel",
     "StaticTimeModel",
     "as_complex",
@@ -95,8 +96,8 @@ ComplexInput: TypeAlias = (
 )
 
 #: The term letters this schema accepts, in canonical chain order (Section
-#: 12.2).  Tier 7F-7H extend it as each remaining term becomes real.
-JONES_TERM_LETTERS: tuple[str, ...] = ("G", "B", "Rc", "Kd", "X", "D")
+#: 12.2).  Tier 7G-7H extend it as each remaining term becomes real.
+JONES_TERM_LETTERS: tuple[str, ...] = ("G", "B", "Rc", "Kd", "X", "D", "P")
 
 
 def as_complex(value: ComplexInput) -> complex:
@@ -664,6 +665,42 @@ class LeakageTermConfig(StrictFrozenModel):
     per_antenna: tuple[LeakageOverrideConfig, ...] = ()
 
 
+# --------------------------------------------------------------------------- P
+
+
+class ParallacticTermConfig(StrictFrozenModel):
+    """The ``P`` term: parallactic angle and field rotation (Section 20.7).
+
+    ``P_p(s, t) = R(eta_p psi_p(s, t) + nasmyth_p el)``.
+
+    Parameters
+    ----------
+    enabled
+        The whole configuration.  ``P`` is the only block that is a bare flag,
+        because the parallactic angle has no free parameter: it is fully
+        determined by the resolved instrument's latitude and mount types, the
+        time grid, and the directions (Section 21.3).  The field is required
+        rather than defaulted, because ``jones.P: {}`` would be a block that
+        says nothing while looking like a decision.
+
+        ``enabled: false`` parses and is then rejected at resolution as an
+        identity (R7), with a message telling the reader to remove the block.
+        Refusing it here instead would replace that sentence with a type error,
+        and Section 21's "there is no ``enabled: false``" is a rule about runs
+        rather than about parsing.
+
+    Notes
+    -----
+    Section 21.2's accepted YAML also carried ``minimum_elevation_deg``, whose
+    own comment said the directions it named were "already masked".  The 7F
+    correction removed it: a field documented as having no effect is exactly the
+    surface this tier exists to remove.  ``minimum_elevation_deg`` survives on
+    ``T`` and ``Z``, where the mapping function genuinely diverges.
+    """
+
+    enabled: bool
+
+
 # ------------------------------------------------------------------- the section
 
 
@@ -687,6 +724,7 @@ class JonesConfig(StrictFrozenModel):
     Kd: DelayTermConfig | None = None
     X: CrosshandTermConfig | None = None
     D: LeakageTermConfig | None = None
+    P: ParallacticTermConfig | None = None
 
     @property
     def configured_terms(self) -> tuple[str, ...]:

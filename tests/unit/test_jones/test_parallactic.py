@@ -544,19 +544,30 @@ def test_a_non_rotating_array_declares_the_identity_it_is() -> None:
 
 
 def test_psi_varies_across_a_wide_field_and_is_constant_across_a_narrow_one() -> None:
-    """I9, both halves.
+    """I9, both halves, with the narrow-field limit stated as a limit.
 
-    Over a 20-degree batch ``psi`` varies by a measurable amount; over a
-    0.01-degree batch it is constant to ``1e-12`` and equals the single-direction
-    value.  This is the property that makes ``P`` direction-dependent rather
-    than a per-antenna scalar rotation, and it is why the deleted
-    ``FieldRotationJones`` and ``WidefieldPolarimetricJones`` are subsumed
-    exactly rather than approximately.
+    Over a 20-degree batch ``psi`` varies by a measurable amount; as the batch
+    shrinks it converges on the single-direction value.  This is the property
+    that makes ``P`` direction-dependent rather than a per-antenna scalar
+    rotation, and it is why the two deleted wide-field rotation classes are
+    subsumed exactly rather than approximately.
+
+    DEVIATION FROM SECTION 27's LITERAL I9.  The invariant reads "over a
+    0.01-degree batch it is constant to ``1e-12``".  That is not achievable and
+    is not the physics: ``dpsi/dtheta`` is of order unity away from the poles,
+    so a 0.01-degree batch spans of order ``1e-4`` radians of direction and
+    therefore of order ``1e-5`` radians of ``psi``.  A test asserting ``1e-12``
+    there would be asserting that ``P`` is *not* wide-field, which contradicts
+    the same invariant's first half.  What is asserted instead is strictly
+    stronger than a single tolerance: the spread is first order in the field
+    width (halving the width halves it, to one part in a thousand), and it does
+    reach ``1e-12`` once the batch is small enough for that scaling to take it
+    there.
     """
     centre_alt = math.radians(50.0)
     centre_az = math.radians(70.0)
 
-    def psi_over(half_width_deg: float, n_dir: int) -> np.ndarray:
+    def psi_over(half_width_deg: float, n_dir: int = 41) -> np.ndarray:
         offsets = np.radians(np.linspace(-half_width_deg, half_width_deg, n_dir))
         directions = _directions(
             alt_rad=centre_alt + offsets,
@@ -568,25 +579,21 @@ def test_psi_varies_across_a_wide_field_and_is_constant_across_a_narrow_one() ->
             latitude_rad=_SITE_LATITUDE_RAD,
         )
 
-    wide = psi_over(10.0, 41)
-    narrow = psi_over(0.005, 41)
-    centre = parallactic_angle(
-        hour_angle_rad=np.array(
-            _directions(
-                alt_rad=np.array([centre_alt]), az_rad=np.array([centre_az])
-            ).hour_angle_rad
-        ),
-        dec_rad=np.array(
-            _directions(
-                alt_rad=np.array([centre_alt]), az_rad=np.array([centre_az])
-            ).dec_rad
-        ),
-        latitude_rad=_SITE_LATITUDE_RAD,
-    )[0]
+    centre = psi_over(0.0, 1)[0]
 
-    assert float(np.ptp(wide)) > math.radians(1.0)
-    assert float(np.ptp(narrow)) < 1e-12
-    np.testing.assert_allclose(narrow, centre, rtol=0.0, atol=1e-12)
+    # Wide: 20 degrees across, and psi moves by more than a degree.
+    assert float(np.ptp(psi_over(10.0))) > math.radians(1.0)
+
+    # First order in the field width: halving the batch halves the spread.
+    spreads = [float(np.ptp(psi_over(width))) for width in (0.02, 0.01, 0.005)]
+    assert spreads[0] / spreads[1] == pytest.approx(2.0, rel=1e-3)
+    assert spreads[1] / spreads[2] == pytest.approx(2.0, rel=1e-3)
+
+    # And the limit itself: a batch small enough that the linear term is below
+    # 1e-12 has psi constant to 1e-12 and equal to the single-direction value.
+    tiny = psi_over(1.0e-11)
+    assert float(np.ptp(tiny)) < 1e-12
+    np.testing.assert_allclose(tiny, centre, rtol=0.0, atol=1e-12)
 
 
 def test_the_matrix_itself_varies_across_a_wide_batch() -> None:
@@ -762,7 +769,12 @@ def test_an_unpolarized_sky_on_a_homogeneous_array_is_untouched(tmp_path) -> Non
     clean = _cube(tmp_path, None, mount_types="fixed", polarized=False)
     rotated = _cube(tmp_path, {"P": {"enabled": True}}, polarized=False)
 
-    np.testing.assert_allclose(rotated, clean, rtol=1e-12, atol=1e-18)
+    # The cross hands of an unpolarized sky are exactly zero, so the comparison
+    # is absolute against the cube's own scale rather than relative: R R^T is
+    # the identity to rounding, not bit for bit, and 1e-14 of the peak is three
+    # orders of magnitude below anything a field rotation would produce.
+    scale = float(np.max(np.abs(clean)))
+    np.testing.assert_allclose(rotated, clean, rtol=1e-12, atol=1e-14 * scale)
 
 
 def test_a_heterogeneous_array_breaks_that_invariance(tmp_path) -> None:

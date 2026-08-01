@@ -66,6 +66,11 @@ from radiosim.core.jones.baseline_errors import JonesBaselineTerm
 from radiosim.core.jones.crosshand import CrosshandJones
 from radiosim.core.jones.delay import CableReflectionJones, DelayJones
 from radiosim.core.jones.gain import GainJones, ResolvedGainTimeModel
+from radiosim.core.jones.parallactic import (
+    ROTATING_MOUNT_TYPES,
+    SUPPORTED_MOUNT_TYPES,
+    ParallacticAngleJones,
+)
 from radiosim.core.jones.polarization_leakage import (
     LeakageCoefficient,
     PolarizationLeakageJones,
@@ -75,6 +80,7 @@ from radiosim.core.jones_errors import (
     IdentityJonesTermError,
     InvalidJonesConfigError,
     JonesAssignmentError,
+    UnsupportedMountTypeError,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -506,6 +512,54 @@ def _validate_antenna_overrides(
     return resolved
 
 
+def _reject_unsupported_mounts(
+    mount_types: Mapping[int, str | None],
+    *,
+    parallactic_enabled: bool,
+) -> None:
+    """Raise R12 and R15 in that order (Section 24, 7F correction).
+
+    Two rules, one pass, in canonical antenna order so the first mistake a
+    reader sees is the first one in the instrument:
+
+    * **R12** -- an antenna's ``mount_type`` is outside the five ``P`` models.
+      Rejected whether or not ``jones.P`` is configured, because gating it on
+      the term would mean a ``phased`` mount, which Tier 5 rejected outright,
+      became a silent ``fixed`` in every run that did not enable ``P``.  An
+      unspecified mount (``None``) is the ``fixed`` case and is never rejected;
+      that is what invariant I1 rests on.
+    * **R15** -- an antenna's feeds rotate relative to the sky
+      (:data:`~radiosim.core.jones.parallactic.ROTATING_MOUNT_TYPES`) and
+      ``jones.P`` is not enabled.  ``equatorial`` is deliberately outside that
+      set: its feeds track the sky, ``P`` is exactly ``I2`` for it, and
+      demanding the term would collide with R7's identity rejection and leave
+      such an array with no accepted configuration at all.
+
+    This is the replacement for ``core/receptor.py``'s Tier 5 blanket rejection,
+    and it is a strictly better contract: it names the fix rather than the tier.
+    """
+    for number in sorted(mount_types):
+        mount = mount_types[number]
+        if mount is None:
+            continue
+        if mount not in SUPPORTED_MOUNT_TYPES:
+            raise UnsupportedMountTypeError(
+                f"antenna {number} has mount_type={mount}, which the "
+                "parallactic-angle term does not model; supported mounts are "
+                f"{', '.join(SUPPORTED_MOUNT_TYPES)}."
+            )
+    if parallactic_enabled:
+        return
+    for number in sorted(mount_types):
+        mount = mount_types[number]
+        if mount in ROTATING_MOUNT_TYPES:
+            raise UnsupportedMountTypeError(
+                f"antenna {number} has mount_type={mount}, whose feeds rotate "
+                "with the sky; enable 'jones.P' or the simulation would "
+                "silently treat it as a fixed mount."
+            )
+
+
 def _reject_identity(letter: str) -> None:
     """Raise R7 for a term whose resolved parameters make it exactly ``I2``."""
     raise IdentityJonesTermError(
@@ -920,12 +974,26 @@ def resolve_jones_terms(
     from radiosim.core.time_grid import ObservationTimeGrid as _ObservationTimeGrid
     from radiosim.io.jones_config import JonesConfig as _JonesConfig
 
-    if config is None:
-        return EMPTY_JONES_TERMS
-    if type(config) is not _JonesConfig:
+    if config is not None and type(config) is not _JonesConfig:
         raise TypeError("config must be a JonesConfig or None")
     if type(instrument) is not _ResolvedInstrument:
         raise TypeError("instrument must be a ResolvedInstrument")
+
+    mount_types = {
+        antenna.id.number: antenna.mount_type for antenna in instrument.antennas
+    }
+    parallactic_enabled = (
+        config is not None and config.P is not None and config.P.enabled
+    )
+
+    if config is None:
+        # R12 and R15 run even here.  Tier 5's blanket mount rejection ran on
+        # *every* document, and moving the rule into this function must not turn
+        # it into one that applies only to documents which happen to configure
+        # something.  With a section present the same check runs at stage 5,
+        # where Section 26.1 puts it.
+        _reject_unsupported_mounts(mount_types, parallactic_enabled=False)
+        return EMPTY_JONES_TERMS
     if type(time_grid) is not _ObservationTimeGrid:
         raise TypeError("time_grid must be an ObservationTimeGrid")
 
@@ -944,9 +1012,6 @@ def resolve_jones_terms(
         )
 
     antenna_numbers = tuple(antenna.id.number for antenna in instrument.antennas)
-    mount_types = {
-        antenna.id.number: antenna.mount_type for antenna in instrument.antennas
-    }
 
     # Stage 3 -- structural validation, every term before any physical check.
     # ``X`` is the one term whose overrides are keyed by antenna alone, because
@@ -955,6 +1020,11 @@ def resolve_jones_terms(
     crosshand_overrides: dict[int, Any] = {}
     for letter in configured:
         block = getattr(config, letter)
+        if letter == "P":
+            # ``P`` has no per-antenna block at all: its only per-antenna
+            # quantity is the mount type, which comes from the instrument and is
+            # checked at stage 5 rather than configured here.
+            continue
         if letter == "X":
             crosshand_overrides = _validate_antenna_overrides(
                 letter, block.per_antenna, antenna_numbers
@@ -983,6 +1053,7 @@ def resolve_jones_terms(
         _reject_uncovered_bandpass(bandpass_config.model, frequencies)
         for entry in bandpass_config.per_antenna:
             _reject_uncovered_bandpass(entry.model, frequencies)
+    _reject_unsupported_mounts(mount_types, parallactic_enabled=parallactic_enabled)
 
     if pointing_elevation_deg is None:
         from radiosim.core.phase_center import PhaseCenter
@@ -1043,8 +1114,22 @@ def resolve_jones_terms(
             overrides=overrides_by_term["D"],
             frequencies_hz=frequencies,
         )
+    if "P" in configured:
+        # ``P``'s parameters are the instrument's, not the document's: the site
+        # latitude the direction batch was built with, and one mount type per
+        # antenna row in canonical instrument order.
+        built["P"] = ParallacticAngleJones(
+            latitude_rad=math.radians(instrument.location.latitude_deg),
+            mount_types=tuple(mount_types[number] for number in antenna_numbers),
+        )
 
     # Stage 6 -- the identity check, last, because it needs resolved values.
+    if "P" in configured and not parallactic_enabled:
+        # ``enabled: false`` is a disabled term, and Section 21 has no such
+        # thing: the fix is to remove the block, which is exactly what R7 says.
+        # Raised here rather than at the schema so the reader gets that sentence
+        # instead of a type error.
+        _reject_identity("P")
     for letter in configured:
         term = built[letter]
         is_identity = getattr(term, "is_identity", None)

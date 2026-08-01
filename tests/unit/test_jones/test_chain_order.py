@@ -480,17 +480,21 @@ def _chain_with_parallactic(
     """Return the solver's chain with a resolved ``P`` spliced into it."""
     from tests.unit.test_core.test_jones_resolution import solver_components_with_jones
 
+    overrides: dict[str, Any] = {
+        "frequency": {
+            "mode": "explicit",
+            "channel_frequencies_hz": FREQUENCIES_HZ.tolist(),
+            "channel_widths_hz": [1e6],
+        }
+    }
+    if receptors is not None:
+        overrides["receptors"] = receptors
     instrument, beam_system, receptor_set, jones_terms, _frequencies = (
         solver_components_with_jones(
             tmp_path,
             {"P": {"enabled": True}},
             mount_types=mount_types,
-            receptors=receptors,
-            frequency={
-                "mode": "explicit",
-                "channel_frequencies_hz": FREQUENCIES_HZ.tolist(),
-                "channel_widths_hz": [1e6],
-            },
+            **overrides,
         )
     )
     chain = _build_jones_chain(

@@ -35,7 +35,6 @@ from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.receptor import (
     ResolvedReceptorSet,
-    UnsupportedFeedGeometryError,
 )
 from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.core.visibility import calculate_visibility
@@ -727,23 +726,22 @@ def test_the_scalar_healpix_path_reports_zero_cross_hands_by_construction(
 # ---------------------------------------------------------------------------
 
 
-def test_the_parallactic_rotation_guard_is_no_longer_reachable_from_a_solver(
+def test_the_parallactic_rotation_guard_is_gone_from_the_solver(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Section 12.3's rejection lost its only trigger at Tier 7C.
+    """Section 12.3's rejection lost its only trigger, and then its reason.
 
     FLIPPED BY: Tier 7C, which removed the ``jones_config`` parameter
     (``Tier7JonesSciencePlan.md`` Section 33.2).  The guard fired only when that
-    dictionary enabled ``P``, and no supported entry point could arrange it, so
-    what this test can still assert is the *contract*: a rotated receptor now
-    reaches the solver and is carried, and the guard's exact message is pinned
-    directly by ``tests/characterization/test_tier7_current_behavior.py`` until
-    Tier 7F replaces it with rejection R15.
+    dictionary enabled ``P``, and no supported entry point could arrange it.
 
-    Tier 5's real protection is untouched: ``resolve_receptors`` still rejects
-    every non-``fixed`` mount type, which is what actually keeps a
-    time-dependent feed orientation out of the solver.
+    FLIPPED BY: Tier 7F, which deleted the guard.  With ``P`` real and sky-side
+    of ``C``, ``C_p P_p = M(basis) R(chi + psi)`` is the full time-dependent
+    receptor orientation, so the combination the guard refused is now the
+    physics.  A rotated receptor reaches the solver and is carried, exactly as
+    ``Tier5ReceptorFeedPlan.md`` Section 12.3 said it would "when Tier 7
+    implements ``P``".
     """
     view, beam_system, receptors = _solver_components(
         tmp_path,
@@ -768,11 +766,9 @@ def test_the_parallactic_rotation_guard_is_no_longer_reachable_from_a_solver(
     assert cube.shape[-2:] == (2, 2)
     assert float(np.max(np.abs(cube))) > 0.0
 
-    # The guard itself is unchanged, and still raises when called directly.
-    with pytest.raises(UnsupportedFeedGeometryError):
-        point_visibility._reject_parallactic_rotation(
-            {"P": {"enabled": True}}, receptors
-        )
+    # The guard itself is gone, along with the last mention of the dictionary
+    # that triggered it.
+    assert not hasattr(point_visibility, "_reject_parallactic_rotation")
 
 
 def test_every_solver_entry_point_requires_the_resolved_receptors() -> None:

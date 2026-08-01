@@ -46,10 +46,7 @@ from radiosim.core.jones_terms import (
 from radiosim.core.polarization import (
     stokes_to_coherency,
 )
-from radiosim.core.receptor import (
-    ResolvedReceptorSet,
-    UnsupportedFeedGeometryError,
-)
+from radiosim.core.receptor import ResolvedReceptorSet
 from radiosim.core.runtime_config import ResolvedSolverExecutionConfig
 from radiosim.core.sky.containers.constants import C_LIGHT
 from radiosim.core.solver_partition import (
@@ -89,35 +86,6 @@ def _require_jones_terms(jones_terms: object) -> ResolvedJonesTerms:
             "jones_terms must be an exact ResolvedJonesTerms from resolve_jones_terms()"
         )
     return jones_terms
-
-
-def _reject_parallactic_rotation(
-    jones_config: Any,
-    receptors: ResolvedReceptorSet,
-) -> None:
-    """Reject an enabled ``P`` term combined with a rotated receptor.
-
-    ``ParallacticAngleJones`` is a planned term and Tier 5 accepts only a static
-    topocentric feed rotation, so composing the two would silently omit the
-    time-dependent part of the receptor orientation
-    (``Tier5ReceptorFeedPlan.md`` Sections 12.3 and 27).
-
-    No caller remains.  Tier 7C removed the ``jones_config`` parameter that was
-    this guard's only trigger (``Tier7JonesSciencePlan.md`` Section 33.2), so
-    the combination it rejects is no longer expressible through any entry point;
-    the guard itself is Tier 7F's to delete, together with the blanket
-    mount-type rejection it stands beside, once ``P`` is real (defect D17).
-    """
-    if not jones_config.get("P", {}).get("enabled", False):
-        return
-    if any(
-        receptor.feed_rotation_rad != 0.0
-        for receptor in receptors.receptor_by_antenna.values()
-    ):
-        raise UnsupportedFeedGeometryError(
-            "a non-zero feed_rotation_deg cannot be combined with an enabled "
-            "parallactic-angle term until Tier 7 implements it."
-        )
 
 
 def _require_frequencies(frequencies: object) -> np.ndarray:

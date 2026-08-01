@@ -389,6 +389,8 @@ def test_every_unit_bearing_field_carries_its_unit_in_its_name() -> None:
         "Kd",
         "X",
         "D",
+        "P",
+        "enabled",
     }
     suffixes = ("_rad", "_deg", "_hz", "_s", "_m", "_km")
     for model in (
@@ -407,6 +409,7 @@ def test_every_unit_bearing_field_carries_its_unit_in_its_name() -> None:
         ExplicitLeakageModel,
         IXRLeakageModel,
         FrequencyPolynomialLeakageModel,
+        ParallacticTermConfig,
     ):
         for name in model.model_fields:
             assert name in dimensionless or name.endswith(suffixes), (

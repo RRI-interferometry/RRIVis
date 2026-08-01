@@ -299,8 +299,9 @@ NON_TERM_EXPORTS: tuple[str, ...] = (
 #: each.  FLIPPED BY: Tier 7D, which moved ``G`` and ``B`` out of
 #: ``PLANNED_TERMS`` -- the first two rows of the 11-row planned table to become
 #: numbers.  FLIPPED BY: Tier 7E, which moved the four calibration terms ``D``,
-#: ``X``, ``Kd`` and ``Rc``, completing workstream A.  Tier 7F-7H move the
-#: remaining five.
+#: ``X``, ``Kd`` and ``Rc``, completing workstream A.  FLIPPED BY: Tier 7F,
+#: which moved ``P`` and opened workstream B.  Tier 7G-7H move the remaining
+#: four.
 IMPLEMENTED_TERMS: dict[str, str] = {
     "GainJones": "7D",
     "BandpassJones": "7D",
@@ -308,14 +309,14 @@ IMPLEMENTED_TERMS: dict[str, str] = {
     "CrosshandJones": "7E",
     "DelayJones": "7E",
     "CableReflectionJones": "7E",
+    "ParallacticAngleJones": "7F",
 }
 
 #: The exported terms still at ``term_status == "planned"``, with the slice that
 #: implements each.  Every one of them raises when evaluated; none is an
 #: identity.  Section 5.1's 37-stub table became an 11-row one plus the 26
-#: deletions below; Tier 7D left nine rows and Tier 7E leaves five.
+#: deletions below; Tier 7D left nine rows, Tier 7E five, and Tier 7F four.
 PLANNED_TERMS: dict[str, str] = {
-    "ParallacticAngleJones": "7F",
     "IonosphereJones": "7G",
     "TroposphereJones": "7G",
     "BaselineMultiplicativeJones": "7H",
@@ -448,12 +449,15 @@ def test_every_exported_term_is_real_physics_or_a_declared_plan() -> None:
     FLIPPED BY: Tier 7E, which implemented ``D``, ``X``, ``Kd`` and ``Rc``: the
     planned table is five rows, and four more names moved.
 
-    OWNED BY: Tier 7F through Tier 7H, each of which turns its own planned rows
+    FLIPPED BY: Tier 7F, which implemented ``P`` -- the first direction- and
+    time-dependent propagation term, and the one that opens workstream B.
+
+    OWNED BY: Tier 7G and Tier 7H, each of which turns its own planned rows
     into real physics.
     """
     assert len(REMOVED_JONES_CLASSES) == 28  # 26 deletions + K + the renamed X
-    assert len(IMPLEMENTED_TERMS) == 6
-    assert len(PLANNED_TERMS) == 5
+    assert len(IMPLEMENTED_TERMS) == 7
+    assert len(PLANNED_TERMS) == 4
     assert set(PLANNED_TERMS).isdisjoint(IMPLEMENTED_TERMS)
     assert set(PLANNED_TERMS).isdisjoint(REAL_PHYSICS_EXPORTS)
     assert set(IMPLEMENTED_TERMS).isdisjoint(REAL_PHYSICS_EXPORTS)
@@ -636,14 +640,16 @@ def test_no_planned_term_accepts_physics_it_would_discard() -> None:
     and get no error, no warning and no effect, and the row is gone because the
     constructor now takes resolved leakage coefficients and validates them.
 
-    OWNED BY: Tier 7F through Tier 7H.
+    FLIPPED BY: Tier 7F for ``P``, whose constructor now requires the site
+    latitude and one mount type per antenna row and rejects an unmodelled mount.
+
+    OWNED BY: Tier 7G and Tier 7H.
     """
     import radiosim.core.jones as jones_package
 
     discarded = {
         "IonosphereJones": {"tec": np.array([1.0e17, 2.0e17])},
         "TroposphereJones": {"elevations": np.array([0.5, 0.9])},
-        "ParallacticAngleJones": {"feed_angle_offset": np.array([0.7])},
     }
     for class_name, kwargs in discarded.items():
         term_class = getattr(jones_package, class_name)
@@ -677,7 +683,11 @@ def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None
     computes all three flags from its own resolved parameters and is swept by
     I2 in its own test module.
 
-    OWNED BY: Tier 7F through Tier 7H.
+    FLIPPED BY: Tier 7F for ``P``, which declares ``is_unitary`` unconditionally
+    -- a real rotation is orthogonal -- and computes the other two from its
+    resolved mount types.
+
+    OWNED BY: Tier 7G and Tier 7H.
     """
     import radiosim.core.jones as jones_package
 
@@ -1018,12 +1028,15 @@ def test_no_solver_or_simulator_accepts_a_jones_config(tmp_path) -> None:
     assert "jones_config" not in _source("src/radiosim/simulator/rime.py")
     assert "jones_config" not in _source("src/radiosim/simulator/base.py")
 
-    # The one surviving mention in the point solver is the docstring of the
-    # unreachable D17 guard, which Tier 7F deletes.
+    # FLIPPED BY: Tier 7F, which deleted the unreachable D17 guard.  Three of
+    # the point solver's four mentions of ``jones_config`` were that guard's
+    # signature, docstring and body; the one that survives is the sentence in
+    # ``_build_jones_chain`` explaining what the removed parameter was replaced
+    # by, which is a historical note rather than a live surface.
     point = _source("src/radiosim/core/visibility.py")
-    assert "_reject_parallactic_rotation" in point
-    assert "jones_config.get(" in point
-    assert point.count("jones_config") == 4
+    assert "_reject_parallactic_rotation" not in point
+    assert "jones_config.get(" not in point
+    assert point.count("jones_config") == 1
 
     # The discharge: a typed, defaulted ``jones_terms`` on all four signatures.
     for function in (
@@ -1202,40 +1215,31 @@ def test_the_ad_hoc_jones_validation_surface_is_gone(tmp_path) -> None:
     assert float(np.max(np.abs(np.asarray(calculate_visibility(**kwargs))))) > 0.0
 
 
-def test_reject_parallactic_rotation_guards_an_unreachable_combination(
+def test_the_parallactic_rotation_guard_is_gone_and_the_combination_is_legal(
     tmp_path,
 ) -> None:
-    """Pins defect D17: dead defensive code behind an empty ``jones_config``.
+    """Pins defect D17 at its resolution.
 
-    The guard fires only when ``jones_config["P"]["enabled"]`` is true, which no
-    supported entry point can arrange, so its message can never be seen by a
-    user of the public API.  Reached directly it does raise, and the exact
-    string is pinned here so 7F's removal is deliberate.
+    The guard fired only when ``jones_config["P"]["enabled"]`` was true, which
+    no supported entry point could arrange, so its message could never be seen
+    by a user of the public API.
 
-    OWNED BY: Tier 7F, which deletes the guard once ``P`` is real.
+    FLIPPED BY: Tier 7F.  The guard is deleted, and what it forbade is now the
+    physics: with ``P`` real and sky-side of ``C``,
+    ``C_p P_p = M(basis) R(chi + psi)`` is the full time-dependent receptor
+    orientation, which is exactly what ``Tier5ReceptorFeedPlan.md`` Section 12.3
+    said would happen "when Tier 7 implements ``P``".  A rotated receptor on a
+    rotating mount is therefore accepted and carried, not rejected.
     """
-    from radiosim.core.receptor import UnsupportedFeedGeometryError
-    from radiosim.core.visibility import _reject_parallactic_rotation
+    from radiosim.core.jones_terms import resolve_jones_terms
 
-    _, _, receptors = _solver_components(
-        tmp_path,
-        receptors={
-            "default": {"basis": "linear", "feed_rotation_deg": 30.0},
-            "overrides": [],
-            "output_basis": "linear",
-        },
+    assert "_reject_parallactic_rotation" not in _source(
+        "src/radiosim/core/visibility.py"
     )
-
-    # Silent for every configuration the public API can produce.
-    _reject_parallactic_rotation({}, receptors)
-    _reject_parallactic_rotation({"P": {"enabled": False}}, receptors)
-
-    with pytest.raises(UnsupportedFeedGeometryError) as excinfo:
-        _reject_parallactic_rotation({"P": {"enabled": True}}, receptors)
-    assert str(excinfo.value) == (
-        "a non-zero feed_rotation_deg cannot be combined with an enabled "
-        "parallactic-angle term until Tier 7 implements it."
+    assert "a non-zero feed_rotation_deg cannot be combined" not in _source(
+        "src/radiosim/core/visibility.py"
     )
+    assert callable(resolve_jones_terms)
 
 
 def test_healpix_solver_shares_the_one_chain_and_the_one_evaluator() -> None:
@@ -1575,33 +1579,49 @@ def test_jones_precision_declares_every_term() -> None:
         precision.jones.get_dtype("receptor")
 
 
-def test_mount_types_other_than_fixed_are_rejected() -> None:
-    """Pins defect D16: no alt-az array can carry a rotated receptor yet.
+def test_mount_types_other_than_fixed_are_no_longer_rejected_by_receptors() -> None:
+    """Pins defect D16 at its resolution.
 
-    The rejection is a blanket one -- it fires for *every* non-``fixed`` mount,
-    with or without a receptor rotation -- so a scientifically ordinary alt-az
-    array cannot be simulated at all under a non-default mount type.  The
-    capability gap is held open only by ``P`` being a stub.
+    The Tier 5 rejection was a blanket one -- it fired for *every* non-``fixed``
+    mount, with or without a receptor rotation -- so a scientifically ordinary
+    alt-az array could not be simulated at all.  The capability gap was held
+    open only by ``P`` being a stub.
 
-    OWNED BY: Tier 7F, which replaces the blanket rejection with R15 once
-    ``P`` exists.
+    FLIPPED BY: Tier 7F.  ``resolve_receptors`` no longer looks at
+    ``mount_type``; the rule that replaces the blanket rejection lives with the
+    term that discharges it, as rejections R12 and R15 in ``resolve_jones_terms``
+    (breaking-change ledger row B14).  R15 is a strictly better contract than
+    what it replaces: it names the fix rather than the tier.
     """
-    from radiosim.core.receptor import _SUPPORTED_MOUNT_TYPE, resolve_receptors
+    from radiosim.core.jones.parallactic import SUPPORTED_MOUNT_TYPES
+    from radiosim.core.receptor import resolve_receptors
 
-    assert _SUPPORTED_MOUNT_TYPE == "fixed"
-
-    # The message is written across two adjacent string literals in the source,
-    # so it is pinned in halves rather than as one line-wrapped substring.  The
-    # end-to-end rejection itself is owned by
-    # ``tests/unit/test_core/test_receptor_resolution.py``
-    # ``test_non_fixed_mount_type_is_rejected``; what 7A records here is that
-    # the gate exists and that its message names this tier.
-    text = " ".join(_source("src/radiosim/core/receptor.py").split())
-    assert "is unsupported by Tier 5 receptors;" in text
-    assert "time-dependent feed orientation requires the parallactic-angle" in text
-    assert "term (Tier 7)." in text
-    assert "An antenna mount type Tier 5 defers to Tier 7." in text
+    receptor_source = " ".join(_source("src/radiosim/core/receptor.py").split())
+    assert "is unsupported by Tier 5 receptors;" not in receptor_source
+    assert "time-dependent feed orientation requires the parallactic-angle" not in (
+        receptor_source
+    )
+    assert "_SUPPORTED_MOUNT_TYPE" not in receptor_source
+    assert "An antenna mount type Tier 5 defers to Tier 7." not in receptor_source
     assert callable(resolve_receptors)
+
+    # And the five mounts the successor rule names are the five P models.
+    assert set(SUPPORTED_MOUNT_TYPES) == {
+        "alt-az",
+        "equatorial",
+        "fixed",
+        "alt-az+nasmyth-l",
+        "alt-az+nasmyth-r",
+    }
+    # Both messages are written across adjacent string literals in the source,
+    # so they are pinned in halves rather than as one line-wrapped substring.
+    jones_source = " ".join(_source("src/radiosim/core/jones_terms.py").split())
+    assert "whose feeds rotate " in jones_source
+    assert "with the sky; enable 'jones.P' or the simulation would " in jones_source
+    assert "which the " in jones_source
+    assert "parallactic-angle term does not model; supported mounts are " in (
+        jones_source
+    )
 
 
 def test_documentation_no_longer_records_a_stub_surface() -> None:

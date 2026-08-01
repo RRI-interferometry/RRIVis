@@ -1702,6 +1702,7 @@ from radiosim.io.jones_config import (  # noqa: E402
     GainTermConfig,
     JonesConfig,
     LeakageTermConfig,
+    ParallacticTermConfig,
 )
 from radiosim.io.receptor_config import (  # noqa: E402
     ReceptorDefinitionConfig,
@@ -2273,6 +2274,7 @@ _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
     "jones.Kd": tuple(DelayTermConfig.model_fields),
     "jones.X": tuple(CrosshandTermConfig.model_fields),
     "jones.D": tuple(LeakageTermConfig.model_fields),
+    "jones.P": tuple(ParallacticTermConfig.model_fields),
     "sky_model": tuple(SkyModelConfig.model_fields),
     "obs_time": tuple(ObsTimeConfig.model_fields),
     "workflow": tuple(CliWorkflowConfig.model_fields),
