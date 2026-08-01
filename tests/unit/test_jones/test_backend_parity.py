@@ -216,3 +216,118 @@ def test_healpix_path_parity_with_a_circular_receptor(
         )
 
     assert_backend_parity(build, backend_name=backend_name)
+
+
+# ---------------------------------------------------------------------------
+# The 7D cases: one per implemented term, at a large parameter value
+# ---------------------------------------------------------------------------
+#
+# Section 28 requires each term slice to add a parity case with **that term
+# alone** enabled at a large value.  Large, deliberately: a 1% gain error would
+# leave the term's own contribution near the floating-point noise floor, and a
+# parity test that passes because nothing happened is a parity test of nothing.
+
+
+_PARITY_GAIN = {
+    "G": {
+        "amplitude_error": 0.35,
+        "phase_error_rad": 0.8,
+        "per_antenna": [{"antenna": 1, "feed": 0, "amplitude_error": -0.4}],
+        "time_model": {"kind": "sinusoidal", "depth": 0.3, "period_hours": 0.5},
+    }
+}
+
+_PARITY_BANDPASS = {
+    "B": {
+        "model": {
+            "kind": "polynomial",
+            "coefficients": [[1.0, 0.0], [0.4, 0.2], [-0.3, 0.0]],
+        },
+        "per_antenna": [
+            {
+                "antenna": 0,
+                "feed": 1,
+                "model": {"kind": "polynomial", "coefficients": [0.5, -0.25]},
+            }
+        ],
+    }
+}
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+@pytest.mark.parametrize(
+    ("label", "jones"),
+    [
+        ("G", _PARITY_GAIN),
+        ("B", _PARITY_BANDPASS),
+        ("G+B", {**_PARITY_GAIN, **_PARITY_BANDPASS}),
+    ],
+)
+def test_point_path_parity_with_a_configured_term(
+    tmp_path,
+    backend_name: str,
+    label: str,
+    jones: dict[str, Any],
+) -> None:
+    """Each Tier 7D term alone, and both together, on the point path."""
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones)
+    )
+    sources = _workload_point_sources(polarized=True, gaussian=False)
+
+    def build(backend):
+        return calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=sources,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=jones_terms,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+@pytest.mark.parametrize(
+    ("label", "jones"),
+    [("G", _PARITY_GAIN), ("B", _PARITY_BANDPASS)],
+)
+def test_healpix_path_parity_with_a_configured_term(
+    tmp_path,
+    backend_name: str,
+    label: str,
+    jones: dict[str, Any],
+) -> None:
+    """The same terms on the diffuse path, through the one shared evaluator."""
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones)
+    )
+    sky = _workload_healpix_model(polarized=True)
+
+    def build(backend):
+        return calculate_visibility_healpix(
+            sky,
+            instrument=instrument,
+            beam_system=beam_system,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=jones_terms,
+            include_polarization=True,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)

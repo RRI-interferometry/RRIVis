@@ -297,7 +297,7 @@ class BandpassJones(JonesTerm):
         configuration, so two differently written models that happen to produce
         the same numbers are correctly reported as scalar.
         """
-        return bool(np.array_equal(self._table, self._table[0:1, 0:1, :]))
+        return bool(np.all(self._table == self._table[0:1, 0:1, :]))
 
     def is_unitary(self) -> bool:
         """``True`` only when every resolved response has unit modulus.

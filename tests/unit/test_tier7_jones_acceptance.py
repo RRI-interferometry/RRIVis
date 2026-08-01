@@ -513,3 +513,174 @@ def test_spherical_harmonic_is_no_longer_a_value_or_a_rejection() -> None:
     fields = RadioSimConfig.model_fields["visibility"].annotation.model_fields
     for field in fields.values():
         assert "spherical_harmonic" not in str(field.annotation)
+
+
+# ---------------------------------------------------------------------------
+# I14 -- point/HEALPix agreement with every implemented term enabled
+# ---------------------------------------------------------------------------
+
+
+def test_the_two_sky_paths_agree_with_every_implemented_term_enabled(
+    tmp_path,
+) -> None:
+    """I14: the proof that the shared evaluator really is shared.
+
+    A single point source and the HEALPix rasterization of the same source must
+    give the same visibilities to the Tier 6 tolerance -- and must keep doing so
+    with ``G`` and ``B`` enabled.  If a term reached one solver and not the
+    other, this is where it would show, and it is exactly the defect (D4) the
+    shared ``_build_jones_chain`` closes.
+
+    The agreement is asserted as a *ratio*: the two representations differ in
+    flux normalization by construction (a pixel is not a delta function), so the
+    scientific claim is that both paths apply the same Jones factor, not that
+    they produce the same number.
+    """
+    import numpy as np
+
+    from radiosim.core.visibility import calculate_visibility
+    from radiosim.core.visibility_healpix import calculate_visibility_healpix
+    from tests.characterization.test_tier6_current_behavior import (
+        WORKLOAD_LOCATION,
+        WORKLOAD_TIME_GRID,
+        _workload_healpix_model,
+        _workload_point_sources,
+    )
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    jones = {
+        "G": {"amplitude_error": 0.3, "phase_error_rad": 0.4},
+        "B": {"model": {"kind": "polynomial", "coefficients": [1.0, 0.25]}},
+    }
+    from radiosim.backends import get_backend
+
+    backend = get_backend("numpy")
+
+    def cubes(configuration):
+        instrument, beams, receptors, terms, frequencies = solver_components_with_jones(
+            tmp_path, configuration
+        )
+        point = np.asarray(
+            calculate_visibility(
+                instrument=instrument,
+                beam_system=beams,
+                source_arrays=_workload_point_sources(polarized=True, gaussian=False),
+                location=WORKLOAD_LOCATION,
+                time_grid=WORKLOAD_TIME_GRID,
+                frequencies=frequencies,
+                backend=backend,
+                receptors=receptors,
+                jones_terms=terms,
+            )
+        )
+        diffuse = np.asarray(
+            calculate_visibility_healpix(
+                _workload_healpix_model(polarized=True),
+                instrument=instrument,
+                beam_system=beams,
+                location=WORKLOAD_LOCATION,
+                time_grid=WORKLOAD_TIME_GRID,
+                frequencies=frequencies,
+                backend=backend,
+                receptors=receptors,
+                jones_terms=terms,
+                include_polarization=True,
+            )
+        )
+        return point, diffuse
+
+    plain_point, plain_diffuse = cubes(None)
+    jones_point, jones_diffuse = cubes(jones)
+
+    point_factor = (
+        jones_point[np.abs(plain_point) > 0.0] / plain_point[np.abs(plain_point) > 0.0]
+    )
+    diffuse_factor = (
+        jones_diffuse[np.abs(plain_diffuse) > 0.0]
+        / plain_diffuse[np.abs(plain_diffuse) > 0.0]
+    )
+
+    assert point_factor.size > 0
+    assert diffuse_factor.size > 0
+    # The Jones factor is direction-independent for both terms, so every entry
+    # of each ratio is the same number, and the two paths' numbers agree.
+    np.testing.assert_allclose(
+        np.unique(np.round(point_factor, 12)),
+        np.unique(np.round(diffuse_factor, 12)),
+        rtol=1e-10,
+        atol=0.0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# I18 -- observability is inert
+# ---------------------------------------------------------------------------
+
+
+def test_enabling_a_jones_term_leaves_observability_bit_identical(
+    tmp_path,
+) -> None:
+    """I18.
+
+    The observability product evaluates beams, not chains.  An observability
+    plot that silently changed when a bandpass was configured would be a new
+    instance of the same class of defect this tier exists to remove, so the
+    inertness is asserted rather than assumed.
+    """
+    from dataclasses import fields as dataclass_fields
+    from dataclasses import is_dataclass
+
+    import numpy as np
+
+    from radiosim.api.simulator import Simulator
+    from tests.fixtures.configs import valid_config_mapping
+
+    def plan_snapshot(jones):
+        work = tmp_path / ("with" if jones else "without")
+        work.mkdir(parents=True, exist_ok=True)
+        data = valid_config_mapping(work)
+        if jones is not None:
+            data["jones"] = jones
+        simulator = Simulator.from_mapping(data, base_dir=work)
+        return simulator.plan_observability(channel_index=0)
+
+    without = plan_snapshot(None)
+    with_terms = plan_snapshot(
+        {
+            "G": {"amplitude_error": 0.4, "phase_error_rad": 1.1},
+            "B": {"model": {"kind": "polynomial", "coefficients": [1.0, 0.5]}},
+        }
+    )
+
+    # Every declared field, compared bit for bit -- arrays with
+    # ``assert_array_equal`` and everything else with ``==``.  Field-by-field
+    # rather than through one serialization, so a field that grows later is
+    # covered automatically instead of being silently dropped by a snapshot
+    # helper that does not know about it.
+    def identical(left, right, path: str) -> None:
+        if isinstance(left, np.ndarray) or isinstance(right, np.ndarray):
+            np.testing.assert_array_equal(left, right, err_msg=path)
+            return
+        if isinstance(left, (tuple, list)):
+            assert type(left) is type(right), path
+            assert len(left) == len(right), path
+            for index, (one, other) in enumerate(zip(left, right, strict=True)):
+                identical(one, other, f"{path}[{index}]")
+            return
+        if is_dataclass(left) and not isinstance(left, type):
+            assert type(left) is type(right), path
+            for nested in dataclass_fields(left):
+                identical(
+                    getattr(left, nested.name),
+                    getattr(right, nested.name),
+                    f"{path}.{nested.name}",
+                )
+            return
+        assert left == right, path
+
+    names = [field.name for field in dataclass_fields(without)]
+    assert names
+    for name in names:
+        identical(getattr(without, name), getattr(with_terms, name), name)

@@ -1517,8 +1517,9 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
 
     ``tests/integration/test_hybrid_end_to_end.py`` was added by Tier 6F, which
     narrowed this test's integration-directory assertion at the time; the
-    assertion is kept, unchanged, so a stray new file in either directory is
-    still visible in a diff.
+    assertion is kept so a stray new file in either directory is still visible
+    in a diff.  Tier 7D added ``test_jones_end_to_end.py``, the one integration
+    file ``Tier7JonesSciencePlan.md`` Section 30 names.
     """
     performance = sorted(
         p.name for p in (REPO_ROOT / "tests" / "performance").glob("*.py")
@@ -1527,7 +1528,11 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
         p.name for p in (REPO_ROOT / "tests" / "integration").glob("*.py")
     )
     assert performance == ["__init__.py", "test_backend_benchmarks.py"]
-    assert integration == ["__init__.py", "test_hybrid_end_to_end.py"]
+    assert integration == [
+        "__init__.py",
+        "test_hybrid_end_to_end.py",
+        "test_jones_end_to_end.py",
+    ]
 
     benchmarks = REPO_ROOT / "src" / "radiosim" / "benchmarks"
     assert benchmarks.is_dir()
