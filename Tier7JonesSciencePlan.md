@@ -2909,6 +2909,39 @@ property the file was written to protect is preserved or strengthened:
 - `docs/user_guide/jones_matrices.rst`, `docs/user_guide/jones_terms.rst`
 - `Fix.md`
 
+**Correction (7E implementation, 2026-08-01) — four forced additions.** The
+list above omits four files that adding a term to the schema *necessarily*
+touches, and the omission is a defect in the list rather than a boundary the
+slice should respect. Each addition is bounded and named:
+
+- `src/radiosim/io/config.py` — the `_KNOWN_FIELDS_BY_PARENT` table and its
+  `io/jones_config` import only. The table carries one row per configurable
+  section so the unknown-field renderer can list what a section accepts; a new
+  term with no row would report an unknown key inside `jones.D` without saying
+  what `jones.D` does accept. 7D's list included this file for exactly the same
+  reason and 7E's dropped it.
+- `tests/unit/test_io/test_jones_config.py` — that table's test, the
+  unit-suffix sweep over declared field names, and the
+  "an unimplemented term letter is rejected" probe, which used `D` as its
+  witness and moves to `P`. All three are assertions *about the schema*, so a
+  slice that extends the schema and cannot touch them could not be green.
+- `tests/characterization/test_tier7_current_behavior.py` — the 7A pins this
+  slice is required to flip (`IMPLEMENTED_TERMS`, `PLANNED_TERMS`, the
+  discarded-physics table, the capability-flag sweep). Section 33.2 requires
+  each stub's implementation to be "a visible, deliberate flip of a named
+  test", which cannot happen from outside the file that names them. 7D's list
+  omitted it too and 7D flipped its own pins there.
+- `tests/unit/test_tier7_jones_acceptance.py` — `IMPLEMENTED_TERM_NAMES` and
+  the two counts it drives, plus invariant **I14**, whose own name is "with
+  **every** implemented term enabled". I14's Tier 7D formulation compared the
+  set of per-element ratios between the two sky paths, which is well defined
+  only while every enabled term is diagonal; `D` mixes the feeds, so 7E
+  replaces it with the matrix form `V' = M V M^H` against an independently
+  written `M`. This file is in 7D's, 7H's and 7K's lists and should be in every
+  term slice's.
+
+No other file outside the list was touched.
+
 ### 7F
 - `src/radiosim/core/jones/parallactic.py`, `chain.py`,
   `src/radiosim/core/jones/__init__.py`
