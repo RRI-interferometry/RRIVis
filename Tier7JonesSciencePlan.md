@@ -2472,6 +2472,77 @@ changelog. **Still bit-identical**: nothing removed here was ever reachable.
 After 7C, `Fix.md` §16's "no public term silently multiplies by identity" is
 already true.
 
+**Correction (7C implementation, 2026-08-01)** — six bounded departures from the
+sentence above and from the sections it refers to, each forced by a fact the
+design gate did not have. None changes a decision; each makes a decision
+executable.
+
+1. **Three now-empty modules, not five.** The 26 deletions empty exactly
+   `faraday.py`, `wterm.py` and `element_beam.py`. The other nine former stub
+   modules each keep one or two terms that Tier 7D-7H implement, so they are
+   rewritten rather than deleted. §34's 7C writable list is right — it marks
+   exactly those three "(delete)" — and this sentence's "five" is an arithmetic
+   slip. Relatedly, §23's list under the heading "removed (26 names)" contains
+   **27** names, because it includes `GeometricPhaseJones`, which §9.1 disposes
+   of as "→ function" rather than as a deletion. The load-bearing count is
+   §9.1's: 26 classes deleted, 1 converted to a function (at 7B), 11 kept as
+   planned, 2 already implemented — 40 concrete classes accounted for, and 19
+   surviving `__all__` entries.
+
+2. **`term_status` is tri-state in effect: `"planned"` is the base default, not
+   `"implemented"`.** §23 records the property as `-> "implemented"` and I20 as
+   "every exported Jones class has `term_status == "implemented"`". Both are
+   true at **7K** — §37 criterion 2 says so explicitly, and §31 step 5 has each
+   term slice "update ... its `term_status`", which only makes sense if it
+   starts as something else. Asserting `"implemented"` at 7C would require
+   claiming it for eleven terms whose `compute_jones_batch` raises: the exact
+   vacuous-claim failure mode invariant I2 exists to prevent, one level up. The
+   base class therefore returns `"planned"`, `ReceptorConfigJones`,
+   `BasisTransformJones` and the private `_ResolvedBeamJones` override it, and
+   I20's 7C assertion is the **correspondence**, checked both ways: an
+   `"implemented"` term is not an identity for all inputs, and a `"planned"`
+   term is not evaluable at all. The rest of I20 — the residual scan for
+   `TODO: implement properly`, `Stub:` and the unconditional
+   `xp.eye(2, dtype=np.complex128)` — is asserted at 7C in full.
+
+3. **The ABC abstract-flip is not 7C's.** The 7B correction to §33.2 says
+   `compute_jones_batch` "becomes `@abstractmethod` in the slice that removes
+   the last non-implementing subclass". 7C does not: nine planned `JonesTerm`
+   subclasses survive it, and an abstract declaration would make every one of
+   them impossible to construct. The flip belongs to **7G**, the slice that
+   implements the last of them (`Z` and `T`), and
+   `JonesBaselineTerm.compute_baseline_factor`'s flip stays with **7H**, as the
+   7B correction already said. 7C removed the classes RadioSim will never
+   implement; it did not remove the ones it has not implemented yet.
+
+4. **A planned term declares no capability flag and no constructor.** This goes
+   beyond the literal removal ledger and is the direct application of §9.2's own
+   argument. A `is_diagonal() -> True` on a term whose matrix cannot be computed
+   is a claim about numbers with no numbers, which I2's sweep cannot verify and
+   which defect D10 names; and a constructor that accepts `tec=`, `d_terms=` or
+   `gain_sigma=` and stores them unread is defect D2, the harm `SCI-001` calls
+   "materially worse than returns identity". Both are therefore stripped from
+   all eleven planned terms, and each term slice reintroduces its own flags and
+   its own constructor together with the physics and the I2 case that verify
+   them (§31 steps 3-5). D2 and the vacuous half of D10 are closed at 7C rather
+   than at 7D-7H.
+
+5. **`_reject_parallactic_rotation` is kept, callerless.** 7C removes the
+   `jones_config` parameter that was the guard's only trigger, so the
+   combination it rejects becomes inexpressible through any entry point. Its
+   *deletion* is assigned to 7F, together with the R15 replacement, so 7C leaves
+   the function and its exact message in place and stops calling it. Tier 5's
+   real protection — `resolve_receptors` rejecting every non-`fixed` mount type
+   — is untouched. Two tests that reached the guard through `jones_config` are
+   re-aimed at the guard directly and at the contract that survives.
+
+6. **`CLAUDE.md` is deliberately left stale.** It still says "46 exported
+   classes" and still lists `ElevationGainJones` and `TroposphericOpacityJones`
+   in its term table. §34 gives `CLAUDE.md` to **7J** (D0, D21), and 7C does not
+   touch it. The 7A pin `test_claude_md_claims_forty_six_exported_jones_classes`
+   is updated to record the gap explicitly rather than quietly close it, so the
+   staleness is visible to a reviewer rather than latent.
+
 **7D — the `jones:` schema, resolution, provenance, and the first two terms
 (`G`, `B`).**
 `io/jones_config.py`; `core/jones_terms.py` with `resolve_jones_terms` and the
@@ -2622,6 +2693,39 @@ forced by a pin that names the exact mechanism 7B replaces, and in each case the
   `tests/unit/test_tier1h_documentation.py`
 - `tests/unit/test_tier7_jones_acceptance.py` (new)
 - `Fix.md`
+
+**Correction (7C implementation, 2026-08-01):** four entries are added by this
+correction, because 7C could not be executed without them and Section 34
+requires a bounded plan correction rather than a silent overreach. Each is
+forced by a file that names the exact mechanism 7C removes, and in each case the
+property the file was written to protect is preserved or strengthened:
+
+- `src/radiosim/core/jones/receptor.py` — the `term_status` property must be
+  declared `"implemented"` on `C` and `H`, and there is nowhere else to declare
+  it. Invariant I20 is unassertable otherwise: with the base default
+  `"planned"` (correction 2 above), a reviewer reading the two implemented terms
+  would be told they are not. Nothing else in the file changes except two
+  reStructuredText title underlines lengthened by one character each, which
+  removes four Sphinx warnings that appear the moment 7C adds the module to
+  `docs/api/jones.rst`.
+- `tests/characterization/test_tier5_current_behavior.py` — two Tier 5 pins call
+  `_build_jones_chain` with the `jones_config` dictionary 7C removes, one of
+  them enabling all six optional terms to assert the full nine-term order. The
+  Tier 5 property — that the solver adds terms correlator-side first in the
+  Section 19.1 order — is re-asserted against the solver's own documented
+  factorization plus the ordered positions of the three terms that exist, so
+  Tier 7F's reordering of `P` is still a visible flip here.
+- `tests/unit/test_core/test_receptor_solver.py` — its Tier 5 parallactic
+  rejection test reaches `_reject_parallactic_rotation` through
+  `jones_config={"P": {"enabled": True}}`, the trigger 7C removes. It is
+  re-aimed at the guard directly (the exact message is still asserted, and is
+  also pinned in the 7A characterization) plus the contract that survives: a
+  rotated receptor now reaches the solver and is carried.
+- `tests/unit/test_core/test_beam_solver_integration.py` — its
+  `test_beam_dictionary_in_jones_config_is_rejected` asserts one of the three
+  ad-hoc checks that stood in for a schema. The property it protected — that
+  `beam_system` is the solver's only beam surface — becomes structural rather
+  than guarded, and that is what it now asserts.
 
 ### 7D
 - `src/radiosim/io/jones_config.py` (new)
