@@ -907,7 +907,7 @@ Two vertical-TEC models are offered:
   with a closure-visible effect.
 
 Faraday rotation, and the boundary with the sky
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 :math:`\mathrm{RM_{ion}}` is configured directly, per array or per antenna. It
 is **not** derived from the electron column and a geomagnetic field model:
