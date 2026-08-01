@@ -1933,6 +1933,37 @@ no feed index: `"jones.M.per_baseline contains a duplicate entry for baseline
 whose overrides are keyed by a baseline, so this is the second and last bounded
 instance of that named exception, not a general licence.
 
+**Correction (7H implementation, 2026-08-01) — the neutral element of `M` is the
+all-ones matrix, not the identity, and Section 21.2's example is wrong.** The
+plan's YAML writes `M` as `[[1.02, 0], [0, 0.98]]`, which reads as a diagonal
+Jones matrix and is not one: under `(*)` the off-diagonal zeros multiply `V_XY`
+and `V_YX` by zero and **null both cross-hands**. The neutral element of a
+Hadamard product is `[[1, 1], [1, 1]]`, so that — and not `I2` — is what an
+unnamed baseline carries, and what R7 rejects as "exactly the identity". Written
+the other way round, a user copying the plan's own example would silently lose
+their cross-hand correlations while a rejection told them their configuration
+did nothing. The example is corrected in the Section 21.3 block above, the four
+entries are described as what they are (a multiplicative factor per correlation,
+with `1` meaning "unchanged" and `0` meaning "nulled"), and an `M` of identity
+matrices is *accepted*, because nulling both cross-hands is a real configured
+effect.
+
+**Correction (7H implementation, 2026-08-01) — new rejection R17.** A complex
+parallel-hand factor on an **autocorrelation** is rejected:
+
+> `"jones.M assigns a parallel-hand factor with a non-zero imaginary part to
+> autocorrelation baseline (<p>, <p>); an autocorrelation's parallel hands are
+> real by construction."`
+
+`<E_x E_x^*>` is real and non-negative and has no phase for a multiplicative
+error to corrupt, and the rejection is forced rather than fastidious: this
+slice's own end-to-end runs found that an array-wide complex `M` produces a cube
+RadioSim's Measurement Set and UVFITS writers refuse as unrepresentable, so
+without R17 the failure lands *after* the whole simulation has run instead of
+before the first side effect (Section 26.1). The cross-hand entries of an
+autocorrelation are unconstrained, because `<E_x E_y^*>` of one antenna is
+genuinely complex. R17 belongs to stage 4, the physical-range stage.
+
 ### 20.11 Q — time and bandwidth smearing
 
 **Reference.** Bridle & Schwab (1999), in *Synthesis Imaging in Radio
@@ -2211,13 +2242,18 @@ jones:
 
   ```yaml
     M:
-      matrix: [[[1.01, 0.0], [0.0, 0.0]],      # optional array-wide default
-               [[0.0, 0.0], [0.99, 0.0]]]
+      matrix: [[[1.01, 0.0], [0.99, 0.0]],     # optional array-wide default
+               [[0.99, 0.0], [1.01, 0.0]]]     # every entry is a factor; 1 = unchanged
       per_baseline:                            # optional overrides
         - antennas: [0, 1]
-          matrix: [[[1.02, 0.0], [0.0, 0.0]],
-                   [[0.0, 0.0], [0.98, 0.0]]]
+          matrix: [[[1.02, 0.03], [0.98, -0.01]],
+                   [[0.97, 0.01], [1.04, 0.02]]]
   ```
+
+  Section 21.2's own `M` example is **replaced** by this one rather than kept
+  alongside it: the original's off-diagonal zeros null both cross-hands under a
+  Hadamard product, which is not what a "diagonal-looking" example means to a
+  reader. See the Section 20.10 correction.
 
 ## 22. Exact resolved runtime model
 
@@ -2361,6 +2397,7 @@ string. `<...>` denotes an interpolated value.
 | R14 | `M.per_baseline` names a pair absent from the resolved baseline selection | `JonesAssignmentError` | `"jones.M.per_baseline references baseline (<p>, <q>), which is not in the resolved baseline selection."` |
 | R15 | a non-`fixed` `mount_type` is present and `P` is **not** enabled | `UnsupportedMountTypeError` | `"antenna <n> has mount_type=<m>, whose feeds rotate with the sky; enable 'jones.P' or the simulation would silently treat it as a fixed mount."` |
 | R16 | `Q` enabled with `bandwidth_smearing: false` and `time_smearing: false` | `InvalidJonesConfigError` | `"jones.Q is enabled with both smearing kinds disabled; remove the section instead."` |
+| R17 | `M` assigns a parallel-hand factor with a non-zero imaginary part to an autocorrelation baseline (**added by the 7H implementation, 2026-08-01**; see the Section 20.10 correction for why it is forced) | `InvalidJonesConfigError` | `"jones.M assigns a parallel-hand factor with a non-zero imaginary part to autocorrelation baseline (<p>, <p>); an autocorrelation's parallel hands are real by construction."` |
 
 R15 is the replacement for `core/receptor.py:411-418`'s current blanket
 rejection, and it is a **strictly better** contract: it names the fix rather
@@ -2494,7 +2531,7 @@ fixing a configuration must not be sent around a loop:
 2. `collect_config_issues` removed-field guidance (R1);
 3. `resolve_jones_terms()` structural validation: `per_antenna` antenna
    existence and duplication (R4, R5, R6), baseline existence (R14);
-4. physical-range validation (R8, R9, R10, R16);
+4. physical-range validation (R8, R9, R10, R16, R17);
 5. cross-object consistency: mount types (R12, R15), bandpass coverage (R11);
 6. the identity check (R7), **last**, because it needs fully resolved values.
 
@@ -2528,7 +2565,7 @@ its owning slice in Section 30.
 | **I9** | **`P` is wide-field.** Over a direction batch spanning 20 degrees, `psi` varies by a measurable, predicted amount, and it converges on the single-direction value in the narrow-field limit. **Correction (7F implementation, 2026-08-01):** this row previously read "over a 0.01-degree batch it is constant to `1e-12`". That is unachievable and is not the physics — `dpsi/dtheta` is of order unity away from the poles, so a 0.01-degree batch spans of order `1e-4` rad of direction and therefore of order `1e-5` rad of `psi`. Asserting `1e-12` there would assert that `P` is *not* wide-field, contradicting the row's own first half. The slice asserts something strictly stronger instead: the spread is first order in the field width (halving the width halves it, to one part in a thousand), and it does reach `1e-12` once the batch is small enough for that scaling to take it there. | 7F |
 | **I10** | **Opacity power/voltage factor.** With `T` opacity `tau_0` at zenith on a baseline of two identical antennas, the visibility amplitude is scaled by exactly `exp(-tau_0)`, confirming the `exp(-tau/2)` voltage convention. | 7G |
 | **I11** | **`M` breaks closure; `G` does not.** On a three-antenna triangle, an enabled `G` with arbitrary per-antenna phases leaves the closure phase invariant to `1e-12`; an enabled `M` changes it by the predicted amount. | 7H |
-| **I12** | **`Q` bounds and phase-centre unity.** `0 < Q <= 1` everywhere; `Q = 1` exactly at the phase centre; `Q` changes amplitude only, leaving every visibility phase unchanged to `1e-12`. **Correction (7H implementation, 2026-08-01):** `Q <= 1` always, and `0 < Q` while the smearing argument is below the first sinc zero — beyond it the exact top-hat average changes sign, and clamping would fabricate. `Q = 1` exactly at the phase centre is asserted of the **bandwidth** factor; the **time** factor is unity there only on a baseline with no East-West component, because RadioSim's phase centre is the fixed zenith and the sky moves through it (Section 20.11's correction). The amplitude-only clause is asserted where `Q > 0`. | 7H |
+| **I12** | **`Q` bounds and phase-centre unity.** `0 < Q <= 1` everywhere; `Q = 1` exactly at the phase centre; `Q` changes amplitude only, leaving every visibility phase unchanged to `1e-12`. **Correction (7H implementation, 2026-08-01):** `Q <= 1` always, and `0 < Q` while the smearing argument is below the first sinc zero — beyond it the exact top-hat average changes sign, and clamping would fabricate. `Q = 1` exactly at the phase centre is asserted of the **bandwidth** factor; the **time** factor is unity there only on a baseline with no East-West component, because RadioSim's phase centre is the fixed zenith and the sky moves through it (Section 20.11's correction). The amplitude-only clause is asserted where `Q > 0` and **per direction**: a visibility summed over several sources that decorrelate by different amounts does move in phase (by about `3e-7` rad on the shipped workload), which is the arithmetic of an average rather than a property of `Q`, so the clause is tested on a single-source cube. | 7H |
 | **I13** | **Fingerprint sensitivity.** Changing any single Jones parameter changes `scientific_sha256`; changing no Jones parameter leaves it unchanged; `instrument_sha256` is unchanged by every Jones configuration. | 7D |
 | **I14** | **Point/HEALPix agreement.** For a sky expressible both ways, the point and HEALPix paths agree within the Tier 6 tolerance with **every** implemented term enabled — the proof that the shared evaluator (Section 14) really is shared. | 7D, extended each term slice, re-asserted 7K |
 | **I15** | **Strategy registry equals config surface.** The accepted values of `execution.simulator` equal the keys of the simulator registry, as a set. | 7C |
