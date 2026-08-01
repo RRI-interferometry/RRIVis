@@ -653,7 +653,14 @@ def test_an_unknown_antenna_number_is_rejected_for_every_7e_term(
     )
 
     with pytest.raises(JonesAssignmentError) as caught:
-        resolve_for(tmp_path, {letter: _override(letter, antenna=9999, feed=0)})
+        resolve_for(
+            tmp_path,
+            {
+                letter: _override(
+                    letter, antenna=9999, feed=0, **_override_payload(letter)
+                )
+            },
+        )
 
     assert str(caught.value) == (
         f"jones.{letter}.per_antenna references antenna number 9999, which is not "

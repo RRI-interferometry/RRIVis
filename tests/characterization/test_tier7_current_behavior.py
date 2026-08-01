@@ -298,21 +298,23 @@ NON_TERM_EXPORTS: tuple[str, ...] = (
 #: The exported terms that carry real physics, with the slice that implemented
 #: each.  FLIPPED BY: Tier 7D, which moved ``G`` and ``B`` out of
 #: ``PLANNED_TERMS`` -- the first two rows of the 11-row planned table to become
-#: numbers.  Tier 7E-7H move the remaining nine.
+#: numbers.  FLIPPED BY: Tier 7E, which moved the four calibration terms ``D``,
+#: ``X``, ``Kd`` and ``Rc``, completing workstream A.  Tier 7F-7H move the
+#: remaining five.
 IMPLEMENTED_TERMS: dict[str, str] = {
     "GainJones": "7D",
     "BandpassJones": "7D",
+    "PolarizationLeakageJones": "7E",
+    "CrosshandJones": "7E",
+    "DelayJones": "7E",
+    "CableReflectionJones": "7E",
 }
 
 #: The exported terms still at ``term_status == "planned"``, with the slice that
 #: implements each.  Every one of them raises when evaluated; none is an
 #: identity.  Section 5.1's 37-stub table became an 11-row one plus the 26
-#: deletions below, and Tier 7D leaves nine rows.
+#: deletions below; Tier 7D left nine rows and Tier 7E leaves five.
 PLANNED_TERMS: dict[str, str] = {
-    "PolarizationLeakageJones": "7E",
-    "CrosshandJones": "7E",
-    "DelayJones": "7E",
-    "CableReflectionJones": "7E",
     "ParallacticAngleJones": "7F",
     "IonosphereJones": "7G",
     "TroposphereJones": "7G",
@@ -443,12 +445,15 @@ def test_every_exported_term_is_real_physics_or_a_declared_plan() -> None:
     FLIPPED BY: Tier 7D, which implemented ``G`` and ``B``: the planned table
     is nine rows, and two names moved into ``IMPLEMENTED_TERMS``.
 
-    OWNED BY: Tier 7E through Tier 7H, each of which turns its own planned rows
+    FLIPPED BY: Tier 7E, which implemented ``D``, ``X``, ``Kd`` and ``Rc``: the
+    planned table is five rows, and four more names moved.
+
+    OWNED BY: Tier 7F through Tier 7H, each of which turns its own planned rows
     into real physics.
     """
     assert len(REMOVED_JONES_CLASSES) == 28  # 26 deletions + K + the renamed X
-    assert len(IMPLEMENTED_TERMS) == 2
-    assert len(PLANNED_TERMS) == 9
+    assert len(IMPLEMENTED_TERMS) == 6
+    assert len(PLANNED_TERMS) == 5
     assert set(PLANNED_TERMS).isdisjoint(IMPLEMENTED_TERMS)
     assert set(PLANNED_TERMS).isdisjoint(REAL_PHYSICS_EXPORTS)
     assert set(IMPLEMENTED_TERMS).isdisjoint(REAL_PHYSICS_EXPORTS)
@@ -626,14 +631,18 @@ def test_no_planned_term_accepts_physics_it_would_discard() -> None:
     that accept resolved values and reject everything else -- so their former
     silently-discarded keywords are gone from this table, not from the contract.
 
-    OWNED BY: Tier 7E through Tier 7H.
+    FLIPPED BY: Tier 7E for ``D``, ``X``, ``Kd`` and ``Rc``.  ``D``'s row is the
+    one that leaves visibly: a caller could once hand a stub an array of D-terms
+    and get no error, no warning and no effect, and the row is gone because the
+    constructor now takes resolved leakage coefficients and validates them.
+
+    OWNED BY: Tier 7F through Tier 7H.
     """
     import radiosim.core.jones as jones_package
 
     discarded = {
         "IonosphereJones": {"tec": np.array([1.0e17, 2.0e17])},
         "TroposphereJones": {"elevations": np.array([0.5, 0.9])},
-        "PolarizationLeakageJones": {"d_terms": np.array([0.1 + 0.2j, 0.3])},
         "ParallacticAngleJones": {"feed_angle_offset": np.array([0.7])},
     }
     for class_name, kwargs in discarded.items():
@@ -664,7 +673,11 @@ def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None
     ``is_scalar`` and ``is_unitary`` computed from their own resolved numbers,
     and are swept by invariant I2 in ``test_gain.py`` and ``test_bandpass.py``.
 
-    OWNED BY: Tier 7E through Tier 7H.
+    FLIPPED BY: Tier 7E for ``D``, ``X``, ``Kd`` and ``Rc``, each of which
+    computes all three flags from its own resolved parameters and is swept by
+    I2 in its own test module.
+
+    OWNED BY: Tier 7F through Tier 7H.
     """
     import radiosim.core.jones as jones_package
 
@@ -684,9 +697,10 @@ def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None
 
     # ``get_config`` now reports the status alongside the flags, so a consumer
     # reading a term's configuration cannot miss that it does not run.  Read
-    # from a still-planned term: Tier 7D gave ``G`` a real constructor, so the
-    # probe moved to one of the nine that still take none.
-    assert set(jones_package.DelayJones().get_config()) == {
+    # from a still-planned term: Tier 7D gave ``G`` a real constructor and
+    # Tier 7E gave ``Kd`` one, so the probe moved to one of the five that still
+    # take none.
+    assert set(jones_package.IonosphereJones().get_config()) == {
         "name",
         "term_status",
         "is_direction_dependent",

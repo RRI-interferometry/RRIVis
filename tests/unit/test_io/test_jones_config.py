@@ -21,8 +21,15 @@ from radiosim.io.jones_config import (
     BandpassPolynomialModel,
     BandpassTabulatedModel,
     BandpassTermConfig,
+    CableReflectionTermConfig,
+    CrosshandTermConfig,
+    DelayTermConfig,
+    ExplicitLeakageModel,
+    FrequencyPolynomialLeakageModel,
     GainTermConfig,
+    IXRLeakageModel,
     JonesConfig,
+    LeakageTermConfig,
     LinearDriftTimeModel,
     SinusoidalTimeModel,
     StaticTimeModel,
@@ -157,15 +164,20 @@ def test_jones_models_are_strict_and_frozen() -> None:
         config.amplitude_error = 0.5  # type: ignore[misc]
 
 
-def test_an_unknown_term_letter_is_rejected(tmp_path) -> None:
-    """R3: a term this slice has not implemented is not silently accepted.
+def test_an_unimplemented_term_letter_is_rejected(tmp_path) -> None:
+    """R3: a term no slice has implemented yet is not silently accepted.
 
-    ``D`` is a real Jones term with a real Section 20.3 definition, and it is
+    ``P`` is a real Jones term with a real Section 20.7 definition, and it is
     still rejected here, because RadioSim cannot yet honour it.  A schema field
     for a term whose evaluation raises would be a configuration surface that
     accepts a value and discards it -- defect D2, one level up.
+
+    FLIPPED BY: Tier 7E.  ``D`` was the probe until this slice implemented it;
+    the probe moved to ``P`` rather than being deleted, because the property
+    being pinned is "the schema surface never runs ahead of the physics", and
+    that property needs a witness for as long as any term is still planned.
     """
-    data = _document(tmp_path, "jones:\n  D:\n    d_terms: {kind: explicit}\n")
+    data = _document(tmp_path, "jones:\n  P:\n    enabled: true\n")
 
     with pytest.raises(ValidationError) as caught:
         RadioSimConfig.model_validate(data)
@@ -185,11 +197,18 @@ def test_the_known_field_table_covers_the_new_section(tmp_path) -> None:
     """The unknown-field reporter must know the section it is reporting on."""
     from radiosim.io.config import _KNOWN_FIELDS_BY_PARENT
 
-    assert set(_KNOWN_FIELDS_BY_PARENT["jones"]) == {"G", "B"}
-    assert set(_KNOWN_FIELDS_BY_PARENT["jones.G"]) == set(GainTermConfig.model_fields)
-    assert set(_KNOWN_FIELDS_BY_PARENT["jones.B"]) == set(
-        BandpassTermConfig.model_fields
-    )
+    assert set(_KNOWN_FIELDS_BY_PARENT["jones"]) == {"G", "B", "Rc", "Kd", "X", "D"}
+    for letter, model in (
+        ("G", GainTermConfig),
+        ("B", BandpassTermConfig),
+        ("Rc", CableReflectionTermConfig),
+        ("Kd", DelayTermConfig),
+        ("X", CrosshandTermConfig),
+        ("D", LeakageTermConfig),
+    ):
+        assert set(_KNOWN_FIELDS_BY_PARENT[f"jones.{letter}"]) == set(
+            model.model_fields
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +346,8 @@ def test_every_unit_bearing_field_carries_its_unit_in_its_name() -> None:
         "depth",
         "elevation_curve",
         "coefficients",
+        "coefficients0",
+        "coefficients1",
         "gains",
         "kind",
         "antenna",
@@ -336,8 +357,24 @@ def test_every_unit_bearing_field_carries_its_unit_in_its_name() -> None:
         "time_model",
         "rate_per_hour",
         "period_hours",
+        # Tier 7E.  ``amplitude`` is a dimensionless reflection coefficient;
+        # ``d``, ``d0``, ``d1`` and ``d_terms`` are dimensionless leakages;
+        # ``ixr_db`` carries its unit in the ``_db`` the field name ends in, and
+        # decibels are the one unit the suffix table does not list because no
+        # other field uses them.  The term letters are section keys, not values.
+        "amplitude",
+        "d",
+        "d0",
+        "d1",
+        "d_term",
+        "d_terms",
+        "ixr_db",
         "G",
         "B",
+        "Rc",
+        "Kd",
+        "X",
+        "D",
     }
     suffixes = ("_rad", "_deg", "_hz", "_s", "_m", "_km")
     for model in (
@@ -349,6 +386,13 @@ def test_every_unit_bearing_field_carries_its_unit_in_its_name() -> None:
         StaticTimeModel,
         LinearDriftTimeModel,
         SinusoidalTimeModel,
+        CableReflectionTermConfig,
+        DelayTermConfig,
+        CrosshandTermConfig,
+        LeakageTermConfig,
+        ExplicitLeakageModel,
+        IXRLeakageModel,
+        FrequencyPolynomialLeakageModel,
     ):
         for name in model.model_fields:
             assert name in dimensionless or name.endswith(suffixes), (

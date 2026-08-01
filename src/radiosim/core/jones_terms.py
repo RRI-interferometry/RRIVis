@@ -23,8 +23,8 @@ each stage before moving to the next:
 
 3. structural validation -- ``per_antenna`` antenna existence (R4), duplicate
    ``(antenna, feed)`` pairs (R5), and feed index range (R6);
-4. physical-range validation (R8-R10, R16 -- none of which belongs to ``G`` or
-   ``B``);
+4. physical-range validation (R8 for ``Rc``; R9, R10 and R16 belong to terms
+   later slices add);
 5. cross-object consistency -- bandpass frequency coverage (R11);
 6. the identity check (R7), **last**, because it needs fully resolved values.
 
@@ -63,7 +63,14 @@ from radiosim.core.jones.bandpass import (
 )
 from radiosim.core.jones.base import JonesTerm
 from radiosim.core.jones.baseline_errors import JonesBaselineTerm
+from radiosim.core.jones.crosshand import CrosshandJones
+from radiosim.core.jones.delay import CableReflectionJones, DelayJones
 from radiosim.core.jones.gain import GainJones, ResolvedGainTimeModel
+from radiosim.core.jones.polarization_leakage import (
+    LeakageCoefficient,
+    PolarizationLeakageJones,
+    leakage_from_ixr_db,
+)
 from radiosim.core.jones_errors import (
     IdentityJonesTermError,
     InvalidJonesConfigError,
@@ -76,8 +83,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from radiosim.core.time_grid import ObservationTimeGrid
     from radiosim.io.jones_config import (
         BandpassTermConfig,
+        CableReflectionTermConfig,
+        CrosshandTermConfig,
+        DelayTermConfig,
         GainTermConfig,
         JonesConfig,
+        LeakageTermConfig,
     )
 
 __all__ = [
@@ -455,6 +466,39 @@ def _validate_overrides(
     return resolved
 
 
+def _validate_antenna_overrides(
+    letter: str,
+    entries: Sequence[Any],
+    known_numbers: Sequence[int],
+) -> dict[int, Any]:
+    """Return the per-antenna override map for a term with no feed index.
+
+    ``X`` is the only such term: its parameter is the *relative* phase between
+    an antenna's two feeds, so there is one entry per antenna and no feed to
+    key on (Section 20.4).  R4 is raised verbatim; the duplicate message is R5's
+    sentence with the pair reduced to the key that exists, because naming a feed
+    the configuration never wrote would be worse than adapting the wording.
+    """
+    known = set(known_numbers)
+    shown = ", ".join(str(number) for number in sorted(known))
+    resolved: dict[int, Any] = {}
+    for entry in entries:
+        number = int(entry.antenna)
+        if number not in known:
+            raise JonesAssignmentError(
+                f"jones.{letter}.per_antenna references antenna number {number}, "
+                f"which is not in the resolved instrument; known numbers are "
+                f"{shown}."
+            )
+        if number in resolved:
+            raise InvalidJonesConfigError(
+                f"jones.{letter}.per_antenna contains a duplicate entry for "
+                f"antenna {number}; each antenna may appear once."
+            )
+        resolved[number] = entry
+    return resolved
+
+
 def _reject_identity(letter: str) -> None:
     """Raise R7 for a term whose resolved parameters make it exactly ``I2``."""
     raise IdentityJonesTermError(
@@ -606,6 +650,195 @@ def _resolve_bandpass_term(
     return BandpassJones(responses=tuple(responses), frequencies_hz=frequencies_hz)
 
 
+# --------------------------------------------------------------- Rc, Kd, X, D
+
+
+def _reject_reflection_amplitude(amplitude: float) -> None:
+    """Raise R8 for a reflection amplitude outside ``0 < |A| < 1``.
+
+    Zero is rejected here rather than left to the identity check, because
+    Section 24 states the physical range as ``0 < |A| < 1``: a reflection of zero
+    amplitude is not a reflection, and a message that says so is more useful
+    than the generic identity one.
+    """
+    if 0.0 < abs(amplitude) < 1.0:
+        return
+    raise InvalidJonesConfigError(
+        f"jones.Rc.amplitude={amplitude} must satisfy 0 < |A| < 1; a reflection "
+        "cannot return more power than it receives."
+    )
+
+
+def _resolve_cable_reflection_term(
+    config: CableReflectionTermConfig,
+    *,
+    antenna_numbers: Sequence[int],
+    overrides: Mapping[tuple[int, int], Any],
+) -> CableReflectionJones:
+    """Build the ``Rc`` term from a validated ``jones.Rc`` block (Section 20.6)."""
+    rows = len(antenna_numbers)
+    amplitudes = np.empty((rows, 2), dtype=np.float64)
+    delays = np.empty((rows, 2), dtype=np.float64)
+    phases = np.empty((rows, 2), dtype=np.float64)
+    for row, number in enumerate(antenna_numbers):
+        for feed in (0, 1):
+            override = overrides.get((number, feed))
+            amplitude = config.amplitude
+            delay = config.cable_delay_s
+            phase = config.phase_rad
+            if override is not None:
+                if override.amplitude is not None:
+                    amplitude = override.amplitude
+                if override.cable_delay_s is not None:
+                    delay = override.cable_delay_s
+                if override.phase_rad is not None:
+                    phase = override.phase_rad
+            amplitudes[row, feed] = float(amplitude)
+            delays[row, feed] = float(delay)
+            phases[row, feed] = float(phase)
+    return CableReflectionJones(
+        amplitudes=amplitudes, cable_delays_s=delays, phases_rad=phases
+    )
+
+
+def _resolve_delay_term(
+    config: DelayTermConfig,
+    *,
+    antenna_numbers: Sequence[int],
+    overrides: Mapping[tuple[int, int], Any],
+) -> DelayJones:
+    """Build the ``Kd`` term from a validated ``jones.Kd`` block (Section 20.5)."""
+    delays = np.empty((len(antenna_numbers), 2), dtype=np.float64)
+    for row, number in enumerate(antenna_numbers):
+        for feed in (0, 1):
+            override = overrides.get((number, feed))
+            delay = config.delay_s if override is None else override.delay_s
+            delays[row, feed] = float(delay)
+    return DelayJones(delays_s=delays)
+
+
+def _resolve_crosshand_term(
+    config: CrosshandTermConfig,
+    *,
+    antenna_numbers: Sequence[int],
+    overrides: Mapping[int, Any],
+) -> CrosshandJones:
+    """Build the ``X`` term from a validated ``jones.X`` block (Section 20.4)."""
+    rows = len(antenna_numbers)
+    phases = np.empty(rows, dtype=np.float64)
+    delays = np.empty(rows, dtype=np.float64)
+    for row, number in enumerate(antenna_numbers):
+        override = overrides.get(number)
+        phase = config.phase_rad
+        delay = config.delay_s
+        if override is not None:
+            if override.phase_rad is not None:
+                phase = override.phase_rad
+            if override.delay_s is not None:
+                delay = override.delay_s
+        phases[row] = float(phase)
+        delays[row] = float(delay)
+    return CrosshandJones(phases_rad=phases, delays_s=delays)
+
+
+def _leakage_normalization(
+    model: Any,
+    *,
+    frequencies_hz: np.ndarray,
+) -> tuple[float, float]:
+    """Return the resolved ``(nu_ref, nu_scale)`` for a polynomial leakage.
+
+    The same band-centre and half-bandwidth defaults ``B`` uses, and the same
+    refusal to invent a scale a single-channel observation does not have: a
+    normalization silently substituted would make one document mean different
+    things at different bandwidths.
+    """
+    low = float(frequencies_hz[0])
+    high = float(frequencies_hz[-1])
+    reference = model.reference_frequency_hz
+    if reference is None:
+        reference = 0.5 * (low + high)
+    scale = model.scale_frequency_hz
+    if scale is None:
+        scale = 0.5 * (high - low)
+        if scale <= 0.0:
+            raise InvalidJonesConfigError(
+                "jones.D frequency_polynomial scale_frequency_hz defaults to the "
+                "half-bandwidth, which is zero for a single-channel observation; "
+                "set jones.D.d_terms.scale_frequency_hz explicitly."
+            )
+    return float(reference), float(scale)
+
+
+def _resolve_leakage_coefficient(
+    model: Any,
+    *,
+    feed: int,
+    frequencies_hz: np.ndarray,
+) -> LeakageCoefficient:
+    """Return one feed's resolved ``d(nu)`` from either leakage model shape.
+
+    ``model`` is either the array-wide two-feed block -- which names ``d0``/``d1``
+    or ``coefficients0``/``coefficients1`` -- or a per-feed override block, which
+    names ``d`` or ``coefficients``.  The two shapes differ only in whether the
+    feed is chosen here or was chosen by the override's key, so one function
+    resolves both and there is exactly one place a leakage number is made.
+    """
+    from radiosim.io.jones_config import as_complex
+
+    if model.kind == "explicit":
+        if hasattr(model, "d"):
+            value = as_complex(model.d)
+        else:
+            value = as_complex(model.d0 if feed == 0 else model.d1)
+        return LeakageCoefficient(coefficients=(value,))
+    if model.kind == "ixr":
+        return LeakageCoefficient(
+            coefficients=(leakage_from_ixr_db(model.ixr_db, model.phase_rad),)
+        )
+    if hasattr(model, "coefficients"):
+        written = model.coefficients
+    else:
+        written = model.coefficients0 if feed == 0 else model.coefficients1
+    reference, scale = _leakage_normalization(model, frequencies_hz=frequencies_hz)
+    return LeakageCoefficient(
+        coefficients=tuple(as_complex(value) for value in written),
+        reference_frequency_hz=reference,
+        scale_frequency_hz=scale,
+    )
+
+
+def _resolve_leakage_term(
+    config: LeakageTermConfig,
+    *,
+    antenna_numbers: Sequence[int],
+    overrides: Mapping[tuple[int, int], Any],
+    frequencies_hz: np.ndarray,
+) -> PolarizationLeakageJones:
+    """Build the ``D`` term from a validated ``jones.D`` block (Section 20.3)."""
+    defaults = tuple(
+        _resolve_leakage_coefficient(
+            config.d_terms, feed=feed, frequencies_hz=frequencies_hz
+        )
+        for feed in (0, 1)
+    )
+    resolved: list[tuple[LeakageCoefficient, LeakageCoefficient]] = []
+    for number in antenna_numbers:
+        pair: list[LeakageCoefficient] = []
+        for feed in (0, 1):
+            override = overrides.get((number, feed))
+            if override is None:
+                pair.append(defaults[feed])
+            else:
+                pair.append(
+                    _resolve_leakage_coefficient(
+                        override.d_term, feed=feed, frequencies_hz=frequencies_hz
+                    )
+                )
+        resolved.append((pair[0], pair[1]))
+    return PolarizationLeakageJones(d_terms=tuple(resolved))
+
+
 # ------------------------------------------------------------------ resolution
 
 
@@ -709,16 +942,32 @@ def resolve_jones_terms(
     }
 
     # Stage 3 -- structural validation, every term before any physical check.
+    # ``X`` is the one term whose overrides are keyed by antenna alone, because
+    # its parameter is the relative phase *between* an antenna's two feeds.
     overrides_by_term: dict[str, dict[tuple[int, int], Any]] = {}
+    crosshand_overrides: dict[int, Any] = {}
     for letter in configured:
         block = getattr(config, letter)
+        if letter == "X":
+            crosshand_overrides = _validate_antenna_overrides(
+                letter, block.per_antenna, antenna_numbers
+            )
+            continue
         overrides_by_term[letter] = _validate_overrides(
             letter, block.per_antenna, antenna_numbers
         )
 
-    # Stage 4 -- physical-range validation.  No range rejection belongs to G or
-    # B: their parameters are unbounded by physics (a gain may be any complex
-    # number), which is why R8-R10 name Rc, Z and T instead.
+    # Stage 4 -- physical-range validation.  No range rejection belongs to G,
+    # B, Kd, X or D: their parameters are unbounded by physics (a gain may be
+    # any complex number and a delay any real one), which is why R8-R10 name
+    # Rc, Z and T instead.
+    if "Rc" in configured:
+        reflection_config = config.Rc
+        assert reflection_config is not None
+        _reject_reflection_amplitude(float(reflection_config.amplitude))
+        for entry in reflection_config.per_antenna:
+            if entry.amplitude is not None:
+                _reject_reflection_amplitude(float(entry.amplitude))
 
     # Stage 5 -- cross-object consistency.
     if "B" in configured:
@@ -752,6 +1001,39 @@ def resolve_jones_terms(
             bandpass_config,
             antenna_numbers=antenna_numbers,
             overrides=overrides_by_term["B"],
+            frequencies_hz=frequencies,
+        )
+    if "Rc" in configured:
+        reflection_config = config.Rc
+        assert reflection_config is not None
+        built["Rc"] = _resolve_cable_reflection_term(
+            reflection_config,
+            antenna_numbers=antenna_numbers,
+            overrides=overrides_by_term["Rc"],
+        )
+    if "Kd" in configured:
+        delay_config = config.Kd
+        assert delay_config is not None
+        built["Kd"] = _resolve_delay_term(
+            delay_config,
+            antenna_numbers=antenna_numbers,
+            overrides=overrides_by_term["Kd"],
+        )
+    if "X" in configured:
+        crosshand_config = config.X
+        assert crosshand_config is not None
+        built["X"] = _resolve_crosshand_term(
+            crosshand_config,
+            antenna_numbers=antenna_numbers,
+            overrides=crosshand_overrides,
+        )
+    if "D" in configured:
+        leakage_config = config.D
+        assert leakage_config is not None
+        built["D"] = _resolve_leakage_term(
+            leakage_config,
+            antenna_numbers=antenna_numbers,
+            overrides=overrides_by_term["D"],
             frequencies_hz=frequencies,
         )
 

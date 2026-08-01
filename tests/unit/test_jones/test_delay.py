@@ -284,6 +284,21 @@ def _cube(
     )
 
 
+def _selected_pairs(tmp_path, **section_overrides: Any) -> list[tuple[int, int]]:
+    """Return the solver's ``(row_p, row_q)`` pairs, in cube-baseline order.
+
+    The shipped fixture selects autocorrelations as well as the cross baseline,
+    and a differential-delay prediction is a statement about *which two*
+    antennas a cube slot belongs to, so the pairs are read from the solver view
+    rather than assumed.
+    """
+    from radiosim.core.instrument_adapters import SolverInstrumentView
+
+    instrument = solver_components_with_jones(tmp_path, None, **section_overrides)[0]
+    assert isinstance(instrument, SolverInstrumentView)
+    return list(instrument.selected_pairs)
+
+
 def test_a_configured_delay_changes_the_visibilities(tmp_path) -> None:
     """I7, made mechanical: ``Fix.md`` Section 16 rule 5.
 
@@ -323,11 +338,14 @@ def test_a_delay_common_to_every_antenna_cancels_on_every_baseline(
     the visibility by many radians, so the cancellation is not the cancellation
     of a small number.
     """
-    delay = 3.0e-8
+    delay = 1.3e-8
     baseline = _cube(tmp_path, None)
     delayed = _cube(tmp_path, {"Kd": {"delay_s": delay}})
 
-    # A one-sided application would look like this, and it does not.
+    # A one-sided application would look like this, and it does not.  The delay
+    # is deliberately not a whole number of turns at the band centre: a delay of
+    # 3.0e-8 s at 100 MHz is exactly three cycles, and a one-sided application
+    # of it would be indistinguishable from none.
     rotated = baseline * cmath.exp(-2j * math.pi * 1.0e8 * delay)
     scale = float(np.max(np.abs(baseline)))
     assert float(np.max(np.abs(rotated - baseline))) / scale > 1.0
@@ -338,11 +356,12 @@ def test_a_delay_common_to_every_antenna_cancels_on_every_baseline(
 def test_a_differential_delay_is_a_pure_baseline_phase_slope(tmp_path) -> None:
     """The complement: the residual is exactly the differential-delay fringe.
 
-    With ``tau_p`` on antenna 0's two feeds and nothing on antenna 1, every
-    correlation of the baseline is multiplied by ``exp(-2 pi i nu tau_p)`` --
-    amplitudes untouched, phase linear in frequency.  Both halves are asserted,
-    because a term that got the amplitude wrong and the phase right would still
-    pass a phase-only check.
+    With ``tau_p`` on antenna 0's two feeds and nothing on antenna 1, each
+    correlation is multiplied by ``exp(-2 pi i nu (tau_p - tau_q))`` -- so the
+    cross baseline picks up the fringe, and the two autocorrelations the shipped
+    fixture also selects pick up nothing at all.  Amplitudes are untouched
+    throughout.  Both halves are asserted, because a term that got the amplitude
+    wrong and the phase right would still pass a phase-only check.
     """
     delay = 5.0e-9
     frequencies = np.asarray(
@@ -366,14 +385,23 @@ def test_a_differential_delay_is_a_pure_baseline_phase_slope(tmp_path) -> None:
     np.testing.assert_allclose(
         np.abs(delayed), np.abs(baseline), rtol=1e-12, atol=1e-18
     )
-    for index, frequency in enumerate(frequencies):
-        expected = cmath.exp(-2j * math.pi * float(frequency) * delay)
-        np.testing.assert_allclose(
-            delayed[:, :, index, :, :],
-            baseline[:, :, index, :, :] * expected,
-            rtol=1e-11,
-            atol=1e-18,
-        )
+    differential = {0: delay, 1: 0.0}
+    moved = 0
+    for slot, (row_p, row_q) in enumerate(_selected_pairs(tmp_path)):
+        residual = differential[row_p] - differential[row_q]
+        for index, frequency in enumerate(frequencies):
+            expected = cmath.exp(-2j * math.pi * float(frequency) * residual)
+            np.testing.assert_allclose(
+                delayed[:, slot, index, :, :],
+                baseline[:, slot, index, :, :] * expected,
+                rtol=1e-11,
+                atol=1e-18,
+            )
+        moved += int(residual != 0.0)
+
+    # At least one baseline really did acquire the fringe, so the loop above is
+    # not asserting that nothing happened three times over.
+    assert moved >= 1
 
 
 def test_a_delay_leaves_the_closure_phase_invariant(tmp_path) -> None:

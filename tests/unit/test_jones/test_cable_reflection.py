@@ -194,6 +194,15 @@ def test_the_delay_domain_transform_peaks_at_the_cable_delay() -> None:
     expected relative amplitude exactly ``A`` rather than ``A`` reduced by
     spectral leakage -- an approximate assertion would pass for a term whose
     ripple was at the wrong delay by less than one bin.
+
+    The transform is ``np.fft.ifft``, i.e. the ``exp(+2 pi i nu tau)`` kernel.
+    That is the delay-spectrum convention of the 21 cm literature this term is
+    cited from, and it is the one under which a *positive* cable delay appears
+    at a *positive* delay: the term's own ``exp(-2 pi i nu tau_c)`` (Section
+    20.0's tier-wide sign) would land at ``-tau_c`` under ``np.fft.fft``.  The
+    convention is stated here rather than absorbed into the expected value,
+    because a test that silently took the mirror bin would be asserting the
+    sign it was supposed to check.
     """
     channels = 64
     spacing_hz = 1.0e5
@@ -208,12 +217,15 @@ def test_the_delay_domain_transform_peaks_at_the_cable_delay() -> None:
         [_evaluate(term, frequency_hz=float(nu))[0, 0, 0] for nu in frequencies]
     )
 
-    transform = np.abs(np.fft.fft(spectrum))
+    transform = np.abs(np.fft.ifft(spectrum))
     delays = np.fft.fftfreq(channels, d=spacing_hz)
 
     assert delays[bin_index] == pytest.approx(delay, rel=1e-12)
     assert int(np.argmax(transform[1:])) + 1 == bin_index
     assert transform[bin_index] / transform[0] == pytest.approx(amplitude, rel=1e-10)
+    # The mirror bin is empty, which is the statement that the ripple sits at
+    # +tau_cable and not at -tau_cable.
+    assert transform[channels - bin_index] < 1e-9 * transform[0]
 
     # Nothing anywhere else: a single bounce is a single peak.
     others = np.delete(transform, [0, bin_index])

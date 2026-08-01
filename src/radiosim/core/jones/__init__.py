@@ -16,7 +16,7 @@ where:
 The full Jones matrix for an antenna is the product of individual
 Jones terms representing different propagation effects:
 
-    J = H @ G @ B @ D @ P @ C @ E @ T @ Z      (K applied separately)
+    J = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z   (K applied separately)
 
 where (from sky to correlator):
 - K: Geometric phase (direction-dependent fringe).  Not a chain term: it is
@@ -27,6 +27,9 @@ where (from sky to correlator):
 - C: Receptor configuration (basis and static feed rotation)
 - P: Parallactic angle rotation
 - D: Polarization leakage (instrumental polarization)
+- X: Cross-hand phase and delay
+- Kd: Instrumental delay offset
+- Rc: RF cable reflection ripple
 - B: Bandpass (frequency-dependent gains)
 - G: Electronic gains (complex gains)
 - H: Reporting-basis transform
@@ -34,10 +37,12 @@ where (from sky to correlator):
 Term status
 -----------
 Every exported term declares ``term_status``, which is exactly
-``"implemented"`` or ``"planned"``.  ``C`` and ``H`` are implemented; the rest
-are planned, which means they have a name, a chain position and a documented
-physical effect, and that ``compute_jones_batch`` **raises** rather than
-returning an identity.  No exported term multiplies by the identity in silence
+``"implemented"`` or ``"planned"``.  ``C`` and ``H`` (Tier 5), ``G`` and ``B``
+(Tier 7D), and ``D``, ``X``, ``Kd`` and ``Rc`` (Tier 7E) are implemented; the
+remaining five -- ``P``, ``Z``, ``T``, ``M`` and ``Q`` -- are planned, which
+means they have a name, a chain position and a documented physical effect, and
+that ``compute_jones_batch`` **raises** rather than returning an identity.  No
+exported term multiplies by the identity in silence
 (``Tier7JonesSciencePlan.md`` invariant I20, ``Fix.md`` Section 16).
 
 Twenty-six classes that were identity scaffolds for effects RadioSim does not

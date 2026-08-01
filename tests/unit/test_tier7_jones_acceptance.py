@@ -30,7 +30,9 @@ exclusion cannot quietly widen.
 from __future__ import annotations
 
 import ast
+import cmath
 import inspect
+import math
 from pathlib import Path
 
 import pytest
@@ -108,17 +110,22 @@ REMOVED_JONES_MODULES = ("faraday.py", "wterm.py", "element_beam.py")
 #: acceptance correction to Section 5.1.
 NON_JONES_TODO_CARRIERS = frozenset({"cli/main.py", "core/sky/registry/catalogs.py"})
 
-#: Terms whose physics exists today: Tier 5's receptor pair, plus the two
-#: Tier 7D implemented.  Everything else exported is ``"planned"`` until its own
-#: slice implements it, and this set grows by exactly the terms a slice made
-#: real -- which is what makes I20's eventual "every term is implemented" a
-#: sequence of visible steps rather than one flip at the end.
+#: Terms whose physics exists today: Tier 5's receptor pair, the two Tier 7D
+#: implemented, and the four Tier 7E implemented.  Everything else exported is
+#: ``"planned"`` until its own slice implements it, and this set grows by
+#: exactly the terms a slice made real -- which is what makes I20's eventual
+#: "every term is implemented" a sequence of visible steps rather than one flip
+#: at the end.
 IMPLEMENTED_TERM_NAMES = frozenset(
     {
         "ReceptorConfigJones",
         "BasisTransformJones",
         "GainJones",
         "BandpassJones",
+        "PolarizationLeakageJones",
+        "CrosshandJones",
+        "DelayJones",
+        "CableReflectionJones",
     }
 )
 
@@ -181,8 +188,8 @@ def test_the_jones_package_exports_exactly_the_surviving_names() -> None:
     assert len(SURVIVING_JONES_NAMES) == 19
     term_names = {name for name, _ in _exported_term_classes()}
     assert len(term_names) == 13
-    assert len(IMPLEMENTED_TERM_NAMES) == 4
-    assert len(_planned_term_classes()) == 9
+    assert len(IMPLEMENTED_TERM_NAMES) == 8
+    assert len(_planned_term_classes()) == 5
     assert IMPLEMENTED_TERM_NAMES < term_names
     assert term_names | {
         "JonesTerm",
@@ -525,16 +532,25 @@ def test_the_two_sky_paths_agree_with_every_implemented_term_enabled(
 ) -> None:
     """I14: the proof that the shared evaluator really is shared.
 
-    A single point source and the HEALPix rasterization of the same source must
-    give the same visibilities to the Tier 6 tolerance -- and must keep doing so
-    with ``G`` and ``B`` enabled.  If a term reached one solver and not the
-    other, this is where it would show, and it is exactly the defect (D4) the
-    shared ``_build_jones_chain`` closes.
+    The point sky and the HEALPix sky differ in flux normalization by
+    construction -- a pixel is not a delta function -- so the scientific claim
+    is not that the two paths produce the same number.  It is that both apply
+    **the same Jones factor**: with every implemented term enabled and no
+    per-antenna override, each path's corrupted cube must satisfy
+    ``V' = M(nu) V M(nu)^H`` for the *same* ``M``.  If a term reached one solver
+    and not the other, this is where it would show, and it is exactly the defect
+    (D4) the shared ``_build_jones_chain`` closes.
 
-    The agreement is asserted as a *ratio*: the two representations differ in
-    flux normalization by construction (a pixel is not a delta function), so the
-    scientific claim is that both paths apply the same Jones factor, not that
-    they produce the same number.
+    ``M`` is written out here from Sections 20.1-20.6's closed forms rather than
+    read back from the resolved terms (Section 29.1), so the test is an oracle
+    and not a tautology.
+
+    FLIPPED BY: Tier 7E.  Until this slice the assertion compared the *set of
+    per-element ratios* between the two paths, which is only well defined while
+    every enabled term is diagonal.  ``D`` mixes the two feeds, so a
+    per-element ratio stopped being a single number and stopped being
+    comparable between two different skies.  The matrix form is what the ratio
+    form was approximating, and it is strictly stronger.
     """
     import numpy as np
 
@@ -550,9 +566,16 @@ def test_the_two_sky_paths_agree_with_every_implemented_term_enabled(
         solver_components_with_jones,
     )
 
+    # Every term that carries physics today, enabled at once.  Extended by each
+    # term slice, which is what keeps "every implemented term" honest rather
+    # than frozen at whatever was implemented when the test was written.
     jones = {
         "G": {"amplitude_error": 0.3, "phase_error_rad": 0.4},
         "B": {"model": {"kind": "polynomial", "coefficients": [1.0, 0.25]}},
+        "Rc": {"amplitude": 0.2, "cable_delay_s": 1.5e-7, "phase_rad": 0.3},
+        "Kd": {"delay_s": 4.0e-9},
+        "X": {"phase_rad": 0.5, "delay_s": 2.0e-9},
+        "D": {"d_terms": {"kind": "explicit", "d0": [0.05, 0.02], "d1": [-0.03, 0.04]}},
     }
     from radiosim.backends import get_backend
 
@@ -589,29 +612,52 @@ def test_the_two_sky_paths_agree_with_every_implemented_term_enabled(
                 include_polarization=True,
             )
         )
-        return point, diffuse
+        return point, diffuse, np.asarray(frequencies, dtype=np.float64)
 
-    plain_point, plain_diffuse = cubes(None)
-    jones_point, jones_diffuse = cubes(jones)
+    plain_point, plain_diffuse, frequencies = cubes(None)
+    jones_point, jones_diffuse, _ = cubes(jones)
 
-    point_factor = (
-        jones_point[np.abs(plain_point) > 0.0] / plain_point[np.abs(plain_point) > 0.0]
-    )
-    diffuse_factor = (
-        jones_diffuse[np.abs(plain_diffuse) > 0.0]
-        / plain_diffuse[np.abs(plain_diffuse) > 0.0]
-    )
+    def expected_jones(frequency: float) -> np.ndarray:
+        """``M(nu) = G B(nu) Rc(nu) Kd(nu) X(nu) D`` from the published forms."""
+        centre = 0.5 * (float(frequencies[0]) + float(frequencies[-1]))
+        half_bandwidth = 0.5 * (float(frequencies[-1]) - float(frequencies[0]))
+        gain = (1.0 + 0.3) * cmath.exp(1j * 0.4)
+        bandpass = 1.0 + 0.25 * (frequency - centre) / half_bandwidth
+        reflection = 1.0 + 0.2 * cmath.exp(
+            -2j * math.pi * frequency * 1.5e-7 + 1j * 0.3
+        )
+        delay = cmath.exp(-2j * math.pi * frequency * 4.0e-9)
+        crosshand = np.diag(
+            np.array(
+                [1.0, cmath.exp(1j * (0.5 + 2.0 * math.pi * frequency * 2.0e-9))],
+                dtype=np.complex128,
+            )
+        )
+        leakage = np.array(
+            [[1.0, 0.05 + 0.02j], [-(-0.03 + 0.04j).conjugate(), 1.0]],
+            dtype=np.complex128,
+        )
+        return (gain * bandpass * reflection * delay) * (crosshand @ leakage)
 
-    assert point_factor.size > 0
-    assert diffuse_factor.size > 0
-    # The Jones factor is direction-independent for both terms, so every entry
-    # of each ratio is the same number, and the two paths' numbers agree.
-    np.testing.assert_allclose(
-        np.unique(np.round(point_factor, 12)),
-        np.unique(np.round(diffuse_factor, 12)),
-        rtol=1e-10,
-        atol=0.0,
-    )
+    for label, plain, corrupted in (
+        ("point", plain_point, jones_point),
+        ("healpix", plain_diffuse, jones_diffuse),
+    ):
+        assert float(np.max(np.abs(plain))) > 0.0, label
+        for index in range(frequencies.size):
+            matrix = expected_jones(float(frequencies[index]))
+            np.testing.assert_allclose(
+                corrupted[:, :, index, :, :],
+                np.einsum(
+                    "ij,tbjk,lk->tbil",
+                    matrix,
+                    plain[:, :, index, :, :],
+                    matrix.conjugate(),
+                ),
+                rtol=1e-11,
+                atol=1e-18,
+                err_msg=label,
+            )
 
 
 # ---------------------------------------------------------------------------

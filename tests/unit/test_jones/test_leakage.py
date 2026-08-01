@@ -183,8 +183,12 @@ def test_the_determinant_is_one_plus_d0_times_conj_d1(
     matrix = _evaluate(_term(d0, d1))[0]
 
     expected = 1.0 + complex(d0) * complex(d1).conjugate()
+    # Written out as ``ad - bc`` rather than handed to ``np.linalg.det``: the
+    # 2x2 determinant is one line, and routing it through LAPACK would make the
+    # assertion depend on a factorization rather than on the four numbers.
+    determinant = matrix[0, 0] * matrix[1, 1] - matrix[0, 1] * matrix[1, 0]
 
-    assert np.linalg.det(matrix) == pytest.approx(expected, rel=0.0, abs=1e-14)
+    assert determinant == pytest.approx(expected, rel=0.0, abs=1e-14)
     assert abs(expected) > 0.0
 
 
@@ -441,6 +445,22 @@ def test_a_configured_leakage_changes_the_visibilities(tmp_path) -> None:
     assert float(np.max(np.abs(perturbed - baseline))) / scale > 1e-10
 
 
+def _selected_pairs(tmp_path, **section_overrides: Any) -> list[tuple[int, int]]:
+    """Return the solver's ``(row_p, row_q)`` pairs, in cube-baseline order.
+
+    The shipped fixture selects **auto**correlations as well as the cross
+    baseline, so a per-baseline prediction must know which two antennas each
+    cube slot belongs to.  Reading the pairs from the solver view rather than
+    assuming them is what keeps these tests honest if the fixture's baseline
+    selection ever changes.
+    """
+    from radiosim.core.instrument_adapters import SolverInstrumentView
+
+    instrument = solver_components_with_jones(tmp_path, None, **section_overrides)[0]
+    assert isinstance(instrument, SolverInstrumentView)
+    return list(instrument.selected_pairs)
+
+
 def test_an_unpolarized_source_acquires_exactly_the_predicted_cross_hands(
     tmp_path,
 ) -> None:
@@ -458,22 +478,22 @@ def test_an_unpolarized_source_acquires_exactly_the_predicted_cross_hands(
     whenever the two antennas leak differently, which is why the two antennas
     here are given deliberately different leakages.
     """
-    d_p0 = 0.031 + 0.017j
-    d_q1 = -0.024 + 0.008j
+    leakages = {
+        (0, 0): 0.031 + 0.017j,
+        (0, 1): 0.012 - 0.009j,
+        (1, 0): -0.005 + 0.021j,
+        (1, 1): -0.024 + 0.008j,
+    }
     jones = {
         "D": {
             "d_terms": {"kind": "explicit", "d0": [0.0, 0.0], "d1": [0.0, 0.0]},
             "per_antenna": [
                 {
-                    "antenna": 0,
-                    "feed": 0,
-                    "d_term": {"kind": "explicit", "d": [d_p0.real, d_p0.imag]},
-                },
-                {
-                    "antenna": 1,
-                    "feed": 1,
-                    "d_term": {"kind": "explicit", "d": [d_q1.real, d_q1.imag]},
-                },
+                    "antenna": antenna,
+                    "feed": feed,
+                    "d_term": {"kind": "explicit", "d": [value.real, value.imag]},
+                }
+                for (antenna, feed), value in leakages.items()
             ],
         }
     }
@@ -486,12 +506,14 @@ def test_an_unpolarized_source_acquires_exactly_the_predicted_cross_hands(
     np.testing.assert_allclose(clean[..., 0, 1], 0.0, rtol=0.0, atol=1e-15)
     np.testing.assert_allclose(clean[..., 0, 0], clean[..., 1, 1], rtol=1e-13)
 
-    np.testing.assert_allclose(
-        leaked[..., 0, 1],
-        clean[..., 0, 0] * (d_p0 - d_q1),
-        rtol=1e-12,
-        atol=0.0,
-    )
+    for baseline, (row_p, row_q) in enumerate(_selected_pairs(tmp_path)):
+        predicted = leakages[(row_p, 0)] - leakages[(row_q, 1)]
+        np.testing.assert_allclose(
+            leaked[:, baseline, :, 0, 1],
+            clean[:, baseline, :, 0, 0] * predicted,
+            rtol=1e-12,
+            atol=0.0,
+        )
 
 
 def test_the_leakage_multiplies_the_visibility_on_both_sides(tmp_path) -> None:
@@ -529,11 +551,15 @@ def test_the_leakage_multiplies_the_visibility_on_both_sides(tmp_path) -> None:
             [[1.0, pair[0]], [-pair[1].conjugate(), 1.0]], dtype=np.complex128
         )
 
-    expected = np.einsum(
-        "ij,tbfjk,lk->tbfil", matrix(d_p), clean, matrix(d_q).conjugate()
-    )
-
-    np.testing.assert_allclose(leaked, expected, rtol=1e-12, atol=0.0)
+    matrices = {0: matrix(d_p), 1: matrix(d_q)}
+    for baseline, (row_p, row_q) in enumerate(_selected_pairs(tmp_path)):
+        expected = np.einsum(
+            "ij,tfjk,lk->tfil",
+            matrices[row_p],
+            clean[:, baseline],
+            matrices[row_q].conjugate(),
+        )
+        np.testing.assert_allclose(leaked[:, baseline], expected, rtol=1e-12, atol=0.0)
 
 
 def test_leakage_does_not_commute_with_a_feed_asymmetric_gain(tmp_path) -> None:
@@ -547,7 +573,8 @@ def test_leakage_does_not_commute_with_a_feed_asymmetric_gain(tmp_path) -> None:
     which is asserted too so that the non-commutation is attributed to the
     asymmetry and not to the mere presence of ``G``.
     """
-    leakage = np.array([[1.0, 0.05 + 0.02j], [-0.03 + 0.01j, 1.0]], dtype=np.complex128)
+    d0, d1 = 0.05 + 0.02j, -0.03 - 0.01j
+    leakage = np.array([[1.0, d0], [-d1.conjugate(), 1.0]], dtype=np.complex128)
     asymmetric = np.diag(np.array([1.4 + 0.0j, 0.6 + 0.0j]))
     symmetric = np.diag(np.array([1.4 + 0.0j, 1.4 + 0.0j]))
 
@@ -558,8 +585,8 @@ def test_leakage_does_not_commute_with_a_feed_asymmetric_gain(tmp_path) -> None:
         "D": {
             "d_terms": {
                 "kind": "explicit",
-                "d0": [0.05, 0.02],
-                "d1": [-0.03, -0.01],
+                "d0": [d0.real, d0.imag],
+                "d1": [d1.real, d1.imag],
             }
         },
         "G": {

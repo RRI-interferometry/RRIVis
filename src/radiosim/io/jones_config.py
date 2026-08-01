@@ -25,11 +25,12 @@ Three properties the section must have, and how each is obtained here
 
 Which terms are here
 --------------------
-``G`` and ``B`` only.  Tier 7D implements exactly those two, and a schema field
-for a term whose ``compute_jones_batch`` raises would be a configuration surface
-that cannot be honoured -- the defect ``D2`` shape that Tier 7C stripped from the
-planned terms' constructors.  Tier 7E-7H each add their own term's block to this
-module together with its physics.
+``G``, ``B``, ``Rc``, ``Kd``, ``X`` and ``D`` -- the six that carry real
+physics.  A schema field for a term whose ``compute_jones_batch`` raises would
+be a configuration surface that cannot be honoured -- the defect ``D2`` shape
+that Tier 7C stripped from the planned terms' constructors -- so ``P``, ``Z``,
+``T``, ``M`` and ``Q`` are still absent, and Tier 7F-7H each add their own
+term's block to this module together with its physics.
 
 Units and complex numbers (Section 21.3)
 ----------------------------------------
@@ -59,12 +60,26 @@ __all__ = [
     "BandpassPolynomialModel",
     "BandpassTabulatedModel",
     "BandpassTermConfig",
+    "CableReflectionOverrideConfig",
+    "CableReflectionTermConfig",
     "ComplexInput",
+    "CrosshandOverrideConfig",
+    "CrosshandTermConfig",
+    "DelayOverrideConfig",
+    "DelayTermConfig",
+    "ExplicitFeedLeakage",
+    "ExplicitLeakageModel",
+    "FrequencyPolynomialFeedLeakage",
+    "FrequencyPolynomialLeakageModel",
     "GainOverrideConfig",
     "GainTermConfig",
     "GainTimeModelConfig",
+    "IXRFeedLeakage",
+    "IXRLeakageModel",
     "JONES_TERM_LETTERS",
     "JonesConfig",
+    "LeakageOverrideConfig",
+    "LeakageTermConfig",
     "LinearDriftTimeModel",
     "SinusoidalTimeModel",
     "StaticTimeModel",
@@ -79,9 +94,9 @@ ComplexInput: TypeAlias = (
     tuple[_StrictFiniteFloat, _StrictFiniteFloat] | _StrictFiniteFloat
 )
 
-#: The term letters this schema accepts, in canonical chain order.  Tier 7E-7H
-#: extend it as each term becomes real.
-JONES_TERM_LETTERS: tuple[str, ...] = ("G", "B")
+#: The term letters this schema accepts, in canonical chain order (Section
+#: 12.2).  Tier 7F-7H extend it as each remaining term becomes real.
+JONES_TERM_LETTERS: tuple[str, ...] = ("G", "B", "Rc", "Kd", "X", "D")
 
 
 def as_complex(value: ComplexInput) -> complex:
@@ -331,6 +346,324 @@ class BandpassTermConfig(StrictFrozenModel):
     per_antenna: tuple[BandpassOverrideConfig, ...] = ()
 
 
+# -------------------------------------------------------------------------- Rc
+
+
+class CableReflectionOverrideConfig(StrictFrozenModel):
+    """One per-``(antenna, feed)`` cable-reflection override.
+
+    Parameters
+    ----------
+    antenna, feed
+        The same antenna-number and feed-index keying as
+        :class:`GainOverrideConfig`, validated at resolution (R4, R5, R6).
+    amplitude, cable_delay_s, phase_rad
+        Optional replacements for the array-wide defaults.  ``None`` keeps the
+        default, so an override may re-cable one feed without restating the
+        other two numbers.
+    """
+
+    antenna: int
+    feed: int
+    amplitude: _StrictFiniteFloat | None = None
+    cable_delay_s: _StrictFiniteFloat | None = None
+    phase_rad: _StrictFiniteFloat | None = None
+
+    @model_validator(mode="after")
+    def require_override_content(self) -> Self:
+        if (
+            self.amplitude is None
+            and self.cable_delay_s is None
+            and self.phase_rad is None
+        ):
+            raise ValueError(
+                "must set at least one of 'amplitude', 'cable_delay_s' or 'phase_rad'"
+            )
+        return self
+
+
+class CableReflectionTermConfig(StrictFrozenModel):
+    """The ``Rc`` term: single-bounce cable reflection (Section 20.6).
+
+    ``r_pf(nu) = 1 + A_pf exp(-2 pi i nu tau_cable,pf + i phi_pf)``.
+
+    Parameters
+    ----------
+    amplitude
+        The dimensionless reflection amplitude ``A``.  The physical range
+        ``0 < |A| < 1`` is enforced at resolution (R8) rather than here, so that
+        the message names the physics -- a reflection cannot return more power
+        than it receives -- instead of rendering a bounds error.
+    cable_delay_s
+        The round-trip cable delay, in seconds.  This is the delay at which the
+        term's ripple appears in the delay domain, which is the observable that
+        distinguishes ``Rc`` from a bandpass shape.
+    phase_rad
+        A phase offset, in radians.
+    per_antenna
+        Ordered per-``(antenna, feed)`` overrides.
+    """
+
+    amplitude: _StrictFiniteFloat
+    cable_delay_s: _StrictFiniteFloat
+    phase_rad: _StrictFiniteFloat = 0.0
+    per_antenna: tuple[CableReflectionOverrideConfig, ...] = ()
+
+
+# -------------------------------------------------------------------------- Kd
+
+
+class DelayOverrideConfig(StrictFrozenModel):
+    """One per-``(antenna, feed)`` instrumental-delay override.
+
+    Parameters
+    ----------
+    antenna, feed
+        The same antenna-number and feed-index keying as
+        :class:`GainOverrideConfig`, validated at resolution (R4, R5, R6).
+    delay_s
+        The replacement delay for that feed, in seconds.  Required: a delay has
+        exactly one overridable quantity, so an override with no delay would be
+        an empty entry.
+    """
+
+    antenna: int
+    feed: int
+    delay_s: _StrictFiniteFloat
+
+
+class DelayTermConfig(StrictFrozenModel):
+    """The ``Kd`` term: instrumental delay offset (Section 20.5).
+
+    ``Kd_p(nu) = diag(exp(-2 pi i nu tau_p0), exp(-2 pi i nu tau_p1))``.
+
+    Parameters
+    ----------
+    delay_s
+        The array-wide delay ``tau``, in seconds, applied to every feed without
+        an override.  Defaults to zero so that a block written with overrides
+        alone means "these antennas only"; a block that resolves to zero
+        everywhere is rejected as the identity (R7).
+    per_antenna
+        Ordered per-``(antenna, feed)`` overrides.
+    """
+
+    delay_s: _StrictFiniteFloat = 0.0
+    per_antenna: tuple[DelayOverrideConfig, ...] = ()
+
+
+# --------------------------------------------------------------------------- X
+
+
+class CrosshandOverrideConfig(StrictFrozenModel):
+    """One per-antenna cross-hand override.
+
+    Parameters
+    ----------
+    antenna
+        The antenna **number** in the resolved instrument.  There is
+        deliberately **no** ``feed`` field: ``X`` carries the *relative* phase
+        between an antenna's two feeds, which is one number per antenna, and a
+        feed index here would have to name the feed the phase is not on.  A
+        second per-feed parameter would be exactly degenerate with ``G``
+        (Section 20.4).
+    phase_rad, delay_s
+        Optional replacements for the array-wide defaults.  ``None`` keeps the
+        default, so an override may change only one of the two.
+    """
+
+    antenna: int
+    phase_rad: _StrictFiniteFloat | None = None
+    delay_s: _StrictFiniteFloat | None = None
+
+    @model_validator(mode="after")
+    def require_override_content(self) -> Self:
+        if self.phase_rad is None and self.delay_s is None:
+            raise ValueError("must set at least one of 'phase_rad' or 'delay_s'")
+        return self
+
+
+class CrosshandTermConfig(StrictFrozenModel):
+    """The ``X`` term: cross-hand phase and delay (Section 20.4).
+
+    ``X_p(nu) = diag(1, exp(i (phi_x + 2 pi nu tau_x)))``.
+
+    Parameters
+    ----------
+    phase_rad
+        The frequency-constant relative phase between the two feeds.
+    delay_s
+        The cross-hand delay, in seconds: the frequency slope of that same
+        relative phase.  Cross-hand phase and cross-hand delay are one term,
+        because they are one matrix.
+    per_antenna
+        Ordered per-antenna overrides, keyed by antenna number alone.
+    """
+
+    phase_rad: _StrictFiniteFloat = 0.0
+    delay_s: _StrictFiniteFloat = 0.0
+    per_antenna: tuple[CrosshandOverrideConfig, ...] = ()
+
+
+# --------------------------------------------------------------------------- D
+
+
+class ExplicitLeakageModel(StrictFrozenModel):
+    """Both feeds' leakage written out as complex numbers.
+
+    Parameters
+    ----------
+    d0, d1
+        The leakage of feed 1 into feed 0's chain and the converse.  Both
+        default to zero so that a block naming only one feed is legal; a block
+        that resolves to zero everywhere is rejected as the identity (R7).
+    """
+
+    kind: Literal["explicit"]
+    d0: ComplexInput = 0.0
+    d1: ComplexInput = 0.0
+
+
+class IXRLeakageModel(StrictFrozenModel):
+    """Both feeds' leakage from an intrinsic cross-polarization ratio.
+
+    ``|d| = 1 / sqrt(IXR_lin)`` with ``IXR_lin = 10^(IXR_dB/10)``, equivalently
+    ``IXR_dB = -20 log10 |d|`` -- so a *larger* IXR is a *smaller* leakage, and
+    30 dB is about 3 per cent.  See
+    :mod:`radiosim.core.jones.polarization_leakage` for the derivation from
+    Carozzi & Woan (2011).
+
+    Parameters
+    ----------
+    ixr_db
+        The ratio in decibels.  Must be positive: ``IXR_dB = 0`` is a completely
+        depolarizing receptor (``|d| = 1``) and a negative value would be a
+        leakage larger than the direct path, which the first-order form does not
+        describe.
+    phase_rad
+        The common phase of both feeds' leakage.  A per-``(antenna, feed)``
+        override is the way to give the two feeds different phases.
+    """
+
+    kind: Literal["ixr"]
+    ixr_db: Annotated[float, Field(strict=True, allow_inf_nan=False, gt=0.0)]
+    phase_rad: _StrictFiniteFloat = 0.0
+
+
+class FrequencyPolynomialLeakageModel(StrictFrozenModel):
+    """Both feeds' leakage as complex polynomials in normalized frequency.
+
+    ``d(nu) = sum_k c_k x^k`` with ``x = (nu - nu_ref) / nu_scale``.  This is
+    what the deleted frequency-dependent leakage class was; see
+    ``docs/migration_guide.md``.
+
+    Parameters
+    ----------
+    coefficients0, coefficients1
+        Complex coefficients for each feed, lowest order first.
+    reference_frequency_hz, scale_frequency_hz
+        ``nu_ref`` and ``nu_scale``.  ``None`` resolves to the band centre and
+        the half-bandwidth respectively, exactly as for ``B``, so that ``x``
+        spans ``[-1, 1]`` across the observed band.
+    """
+
+    kind: Literal["frequency_polynomial"]
+    coefficients0: tuple[ComplexInput, ...]
+    coefficients1: tuple[ComplexInput, ...]
+    reference_frequency_hz: _StrictPositiveFloat | None = None
+    scale_frequency_hz: _StrictPositiveFloat | None = None
+
+    @model_validator(mode="after")
+    def require_coefficients(self) -> Self:
+        if not self.coefficients0 or not self.coefficients1:
+            raise ValueError(
+                "coefficients0 and coefficients1 must each have at least one "
+                "coefficient"
+            )
+        return self
+
+
+LeakageModelConfig = Annotated[
+    ExplicitLeakageModel | IXRLeakageModel | FrequencyPolynomialLeakageModel,
+    Field(discriminator="kind"),
+]
+
+
+class ExplicitFeedLeakage(StrictFrozenModel):
+    """One feed's leakage written out as a complex number."""
+
+    kind: Literal["explicit"]
+    d: ComplexInput
+
+
+class IXRFeedLeakage(StrictFrozenModel):
+    """One feed's leakage from an intrinsic cross-polarization ratio."""
+
+    kind: Literal["ixr"]
+    ixr_db: Annotated[float, Field(strict=True, allow_inf_nan=False, gt=0.0)]
+    phase_rad: _StrictFiniteFloat = 0.0
+
+
+class FrequencyPolynomialFeedLeakage(StrictFrozenModel):
+    """One feed's leakage as a complex polynomial in normalized frequency."""
+
+    kind: Literal["frequency_polynomial"]
+    coefficients: tuple[ComplexInput, ...]
+    reference_frequency_hz: _StrictPositiveFloat | None = None
+    scale_frequency_hz: _StrictPositiveFloat | None = None
+
+    @model_validator(mode="after")
+    def require_coefficients(self) -> Self:
+        if not self.coefficients:
+            raise ValueError("must have at least one coefficient")
+        return self
+
+
+FeedLeakageConfig = Annotated[
+    ExplicitFeedLeakage | IXRFeedLeakage | FrequencyPolynomialFeedLeakage,
+    Field(discriminator="kind"),
+]
+
+
+class LeakageOverrideConfig(StrictFrozenModel):
+    """One per-``(antenna, feed)`` leakage override.
+
+    Parameters
+    ----------
+    antenna, feed
+        The same antenna-number and feed-index keying as
+        :class:`GainOverrideConfig`, validated at resolution (R4, R5, R6).
+    d_term
+        The replacement leakage for **that one feed**, in the same three kinds
+        the array-wide block offers.  The field is ``d_term`` and not
+        ``d_terms`` because the shapes differ by exactly that: the array-wide
+        block names both feeds (``d0``, ``d1``), while an override is keyed by a
+        feed index and therefore names one.  An override that had to restate
+        both feeds would make the index it is keyed by meaningless.
+    """
+
+    antenna: int
+    feed: int
+    d_term: FeedLeakageConfig
+
+
+class LeakageTermConfig(StrictFrozenModel):
+    """The ``D`` term: polarization leakage (Section 20.3).
+
+    ``D_p(nu) = [[1, d_p0(nu)], [-d_p1(nu)^*, 1]]``.
+
+    Parameters
+    ----------
+    d_terms
+        The array-wide leakage model, naming both feeds.
+    per_antenna
+        Ordered per-``(antenna, feed)`` overrides, each naming one feed.
+    """
+
+    d_terms: LeakageModelConfig
+    per_antenna: tuple[LeakageOverrideConfig, ...] = ()
+
+
 # ------------------------------------------------------------------- the section
 
 
@@ -350,6 +683,10 @@ class JonesConfig(StrictFrozenModel):
 
     G: GainTermConfig | None = None
     B: BandpassTermConfig | None = None
+    Rc: CableReflectionTermConfig | None = None
+    Kd: DelayTermConfig | None = None
+    X: CrosshandTermConfig | None = None
+    D: LeakageTermConfig | None = None
 
     @property
     def configured_terms(self) -> tuple[str, ...]:
