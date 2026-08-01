@@ -1804,31 +1804,43 @@ def test_documentation_no_longer_records_a_stub_surface() -> None:
 
 
 def test_beam_todo_markdown_is_the_sci_003_artifact() -> None:
-    """Pins defect D20: an in-source wish list with no dispositions.
+    """Pinned defect D20: an in-source wish list with no dispositions.
 
-    OWNED BY: Tier 7I, which replaces it with
-    ``docs/development/beam_physics_scope.md``.
+    FLIPPED BY: Tier 7I. The in-source ``TODO.md`` is gone and what replaces it
+    is a tracked scope document with a disposition, a citation and a named owner
+    for every one of the seven items -- two implemented, five routed to
+    ``SCI-005``. What the pin asserts is therefore inverted: the wish list must
+    not come back, and the document that replaced it must carry the properties
+    the wish list lacked.
     """
-    todo = (JONES_ROOT / "beam" / "TODO.md").read_text(encoding="utf-8")
-    lines = todo.splitlines()
-    assert lines[0] == "# Beam System — Future Work (v5.0+)"
+    assert not (JONES_ROOT / "beam" / "TODO.md").exists()
+    scope_path = REPO_ROOT / "docs" / "development" / "beam_physics_scope.md"
+    assert scope_path.exists()
+    scope = scope_path.read_text(encoding="utf-8")
 
-    # Seven numbered second-level items, whose numbering is itself a leftover:
-    # it runs 2, 3, 4, 5, 6, 9, 13, so items were deleted without renumbering.
-    top_level = [line for line in lines if line.startswith("## ")]
-    assert top_level == [
-        "## 2. Cross-Polarization Models",
-        "## 3. Near/Far Field Regime",
-        "## 4. Aperture Blockage",
-        "## 5. Random Surface Errors (Ruze Effect)",
-        "## 6. Systematic Aberrations",
-        "## 9. Beam Squint",
-        "## 13. Pointing Errors",
-    ]
-    assert len(top_level) == 7
-    # No item carries a disposition, a register row, or an owner.
-    assert not re.search(r"SCI-00\d", todo)
-    assert not (REPO_ROOT / "docs" / "development" / "beam_physics_scope.md").exists()
+    # Every item that was on the list is still named, so nothing was dropped by
+    # deleting the file rather than dispositioning it.
+    for item in (
+        "Cross-polarization models",
+        "Near-field and Fresnel regime",
+        "Aperture blockage",
+        "Ruze error-beam decomposition",
+        "Systematic aberrations",
+        "Beam squint",
+        "pointing offsets",
+    ):
+        assert item.lower() in scope.lower(), item
+    # A register row owns the remainder, which is what the wish list lacked.
+    assert re.search(r"SCI-005", scope)
+    assert "SCI-003" in scope
+    # The two implemented items say so, in their own section.
+    implemented = scope.split("## Implemented")[1].split("## Out of scope")[0]
+    assert "beams.pointing" in implemented
+    assert "beams.surface_error" in implemented
+    # The inverted IXR formula the old file carried does not survive the move.
+    assert "(sqrt(IXR_lin) - 1)" in scope
+    assert "inverted" in scope
+    assert "|d| = 1 / sqrt(IXR_lin)" in scope
 
 
 # =========================================================================

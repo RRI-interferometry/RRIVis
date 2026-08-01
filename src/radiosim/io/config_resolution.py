@@ -10,6 +10,7 @@ output creation, plotting, or browser interaction.
 from __future__ import annotations
 
 import glob
+import math
 import os
 import re
 import stat
@@ -1144,13 +1145,82 @@ def _resolve_fits_definition(
     )
 
 
+def _resolve_pointing_offset(
+    offset: beam_input.PointingOffsetConfig | beam_input.AntennaPointingOffsetConfig,
+) -> resolved_beams.ResolvedPointingOffset | None:
+    """Convert one authored offset to radians, or to ``None`` if it is inert.
+
+    An exactly-zero offset resolves to absence rather than to a stored zero, so
+    that a configuration authoring one is bit-identical -- cube, assignment
+    fingerprint and ``scientific_sha256`` alike -- to one authoring nothing.
+    """
+    if offset.azimuth_offset_deg == 0.0 and offset.elevation_offset_deg == 0.0:
+        return None
+    return resolved_beams.ResolvedPointingOffset(
+        math.radians(offset.azimuth_offset_deg),
+        math.radians(offset.elevation_offset_deg),
+    )
+
+
+def _resolve_surface_error(
+    surface: beam_input.SurfaceErrorConfig | beam_input.AntennaSurfaceErrorConfig,
+) -> resolved_beams.ResolvedSurfaceError | None:
+    """Convert one authored surface RMS, or ``None`` if it is exactly zero."""
+    if surface.rms_surface_error_m == 0.0:
+        return None
+    return resolved_beams.ResolvedSurfaceError(surface.rms_surface_error_m)
+
+
+def _resolve_beam_pointing(
+    pointing: beam_input.BeamPointingConfig | None,
+) -> resolved_beams.ResolvedBeamPointing | None:
+    if pointing is None:
+        return None
+    return resolved_beams.ResolvedBeamPointing(
+        None
+        if pointing.default is None
+        else _resolve_pointing_offset(pointing.default),
+        tuple(
+            resolved_beams.ResolvedAntennaPointingOffset(
+                entry.antenna,
+                _resolve_pointing_offset(entry),
+            )
+            for entry in pointing.per_antenna
+        ),
+    )
+
+
+def _resolve_beam_surface_error(
+    surface_error: beam_input.BeamSurfaceErrorConfig | None,
+) -> resolved_beams.ResolvedBeamSurfaceError | None:
+    if surface_error is None:
+        return None
+    return resolved_beams.ResolvedBeamSurfaceError(
+        None
+        if surface_error.default is None
+        else _resolve_surface_error(surface_error.default),
+        tuple(
+            resolved_beams.ResolvedAntennaSurfaceError(
+                entry.antenna,
+                _resolve_surface_error(entry),
+            )
+            for entry in surface_error.per_antenna
+        ),
+    )
+
+
 def _resolve_beam_input(
     beams: beam_input.BeamsConfig,
     resolver: _PathResolver,
 ) -> resolved_beams.ResolvedBeamsInput:
+    pointing = _resolve_beam_pointing(beams.pointing)
+    surface_error = _resolve_beam_surface_error(beams.surface_error)
     if isinstance(beams, beam_input.AnalyticBeamsConfig):
         return resolved_beams.ResolvedAnalyticBeamsInput(
-            "analytic", _resolve_analytic_definition(beams.model)
+            "analytic",
+            _resolve_analytic_definition(beams.model),
+            pointing,
+            surface_error,
         )
     if isinstance(beams, beam_input.SharedFITSBeamsConfig):
         return resolved_beams.ResolvedSharedFITSBeamsInput(
@@ -1160,6 +1230,8 @@ def _resolve_beam_input(
                 logical_path="beams.beam.path",
                 resolver=resolver,
             ),
+            pointing,
+            surface_error,
         )
     if isinstance(beams, beam_input.PerAntennaFITSBeamsConfig):
         assignments = tuple(
@@ -1174,7 +1246,7 @@ def _resolve_beam_input(
             for index, assignment in enumerate(beams.assignments)
         )
         return resolved_beams.ResolvedPerAntennaFITSBeamsInput(
-            "per_antenna_fits", assignments
+            "per_antenna_fits", assignments, pointing, surface_error
         )
     if isinstance(beams, beam_input.MixedBeamsConfig):
         mixed_assignments = tuple(
@@ -1194,6 +1266,8 @@ def _resolve_beam_input(
             "mixed",
             _resolve_analytic_definition(beams.analytic_model),
             mixed_assignments,
+            pointing,
+            surface_error,
         )
     raise TypeError(f"unsupported beams mode {type(beams).__name__}")
 

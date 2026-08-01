@@ -290,14 +290,20 @@ class _ResolvedBeamJones(JonesTerm):
             )
         canonical = self._antenna_id(antenna_idx)
         try:
-            handler_id = self._handler_by_antenna[canonical]
+            _handler_id = self._handler_by_antenna[canonical]
         except KeyError as exc:
             raise InstrumentAdapterInvariantError(
                 "BeamSystem assignment state does not cover solver antenna "
                 f"number={canonical.number}, name={canonical.name!r}"
             ) from exc
-        if handler_id not in self._handler_cache:
-            self._handler_cache[handler_id] = self._beam_system.evaluate_jones(
+        # Keyed on the response key, not the handler id: two antennas of the
+        # same diameter and model share one handler, and a per-antenna pointing
+        # offset or surface error (Tier 7I) makes their responses differ.  With
+        # neither configured the response key *is* the handler id, so the cache
+        # behaves exactly as it did before.
+        response_key = self._beam_system.response_key(canonical)
+        if response_key not in self._handler_cache:
+            self._handler_cache[response_key] = self._beam_system.evaluate_jones(
                 canonical,
                 altitude_rad=np.array(
                     self._altitude_rad,
@@ -315,7 +321,7 @@ class _ResolvedBeamJones(JonesTerm):
                 time_mjd=self._time_mjd,
                 backend=backend,
             )
-        return backend.asarray(self._handler_cache[handler_id], dtype=dtype)
+        return backend.asarray(self._handler_cache[response_key], dtype=dtype)
 
 
 def _resolved_receptor_terms(

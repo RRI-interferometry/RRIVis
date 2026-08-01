@@ -23,6 +23,25 @@ _SCHEMA_VERSION = "tier3-beam-v1"
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 
 
+def _optional_block_fields(dataclass_value: Any) -> tuple[str, ...]:
+    """Return the field names an *absent* optional block occupies.
+
+    A resolved field that both defaults to ``None`` and *is* ``None`` describes
+    science the configuration never authored, so it is omitted from snapshots
+    and canonical payloads rather than serialized as a null. That is what keeps
+    a run with no ``beams.pointing`` and no ``beams.surface_error`` block
+    bit-identical -- ``scientific_sha256`` included -- to the same run before
+    those blocks existed. A required optional field, such as
+    ``BeamAssignmentProvenance.input_index``, has no ``None`` default and is
+    always serialized.
+    """
+    return tuple(
+        field.name
+        for field in fields(dataclass_value)
+        if field.default is None and getattr(dataclass_value, field.name) is None
+    )
+
+
 def _snapshot_value(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
@@ -30,9 +49,11 @@ def _snapshot_value(value: Any) -> Any:
         return _snapshot_value(value.value)
     if is_dataclass(value) and not isinstance(value, type):
         dataclass_value = cast(Any, value)
+        omitted = _optional_block_fields(dataclass_value)
         return {
             field.name: _snapshot_value(getattr(dataclass_value, field.name))
             for field in fields(dataclass_value)
+            if field.name not in omitted
         }
     if isinstance(value, tuple):
         return [_snapshot_value(item) for item in cast(tuple[Any, ...], value)]
@@ -61,9 +82,11 @@ def _canonical_value(value: Any) -> Any:
         return _canonical_value(value.value)
     if is_dataclass(value) and not isinstance(value, type):
         dataclass_value = cast(Any, value)
+        omitted = _optional_block_fields(dataclass_value)
         return {
             field.name: _canonical_value(getattr(dataclass_value, field.name))
             for field in fields(dataclass_value)
+            if field.name not in omitted
         }
     if isinstance(value, (tuple, list)):
         sequence = cast(tuple[Any, ...] | list[Any], value)
@@ -488,6 +511,165 @@ class ResolvedFITSBeamDefinition(_ResolvedValue):
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedPointingOffset(_ResolvedValue):
+    """One antenna's deterministic mount mispointing (Tier 7I, Section 19.2).
+
+    The offset is a fixed rotation of the antenna's beam frame relative to the
+    topocentric horizontal frame, composed as the two encoder errors of an
+    alt-az mount: a rotation about the local vertical that increases azimuth by
+    ``azimuth_offset_rad`` (North through East), then a tilt of
+    ``elevation_offset_rad`` carrying the boresight away from the zenith. For
+    RadioSim's zenith-pointed beams the composed boresight lands at topocentric
+    azimuth ``azimuth_offset_rad`` and zenith angle ``elevation_offset_rad``.
+
+    An offset of exactly zero is not representable: it resolves to ``None``, so
+    that a configuration authoring one is bit-identical to one authoring nothing
+    all the way down to ``assignment_fingerprint``.
+    """
+
+    azimuth_offset_rad: float
+    elevation_offset_rad: float
+
+    def __post_init__(self) -> None:
+        _require_float(self.azimuth_offset_rad, "azimuth_offset_rad")
+        _require_float(self.elevation_offset_rad, "elevation_offset_rad")
+        if abs(self.elevation_offset_rad) > math.pi / 2.0:
+            raise ValueError("elevation_offset_rad must lie in [-pi/2, pi/2]")
+        if self.azimuth_offset_rad == 0.0 and self.elevation_offset_rad == 0.0:
+            raise ValueError(
+                "an inert pointing offset resolves to None, never to a stored zero"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSurfaceError(_ResolvedValue):
+    """One antenna's Ruze random-surface RMS, in metres.
+
+    The power efficiency is ``eta_s = exp(-(4 pi sigma / lambda)^2)`` (Ruze
+    1966); the factor applied to the *voltage* beam is its square root, so that
+    a baseline of two antennas sharing this ``sigma`` loses exactly ``eta_s`` of
+    power. A zero RMS resolves to ``None`` for the same reason a zero pointing
+    offset does.
+    """
+
+    rms_surface_error_m: float
+
+    def __post_init__(self) -> None:
+        _require_float(
+            self.rms_surface_error_m,
+            "rms_surface_error_m",
+            positive=True,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedAntennaPointingOffset(_ResolvedValue):
+    """One authored per-antenna pointing override.
+
+    ``offset=None`` is the authored *exact zero*: it suppresses the array-wide
+    default for this antenna rather than being absent from the list.
+    """
+
+    antenna: AntennaReference
+    offset: ResolvedPointingOffset | None
+
+    def __post_init__(self) -> None:
+        _require_antenna_reference(self.antenna, "antenna")
+        if self.offset is not None:
+            _require_exact(self.offset, (ResolvedPointingOffset,), "offset")
+            self.offset.__post_init__()
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedAntennaSurfaceError(_ResolvedValue):
+    """One authored per-antenna surface-error override."""
+
+    antenna: AntennaReference
+    surface_error: ResolvedSurfaceError | None
+
+    def __post_init__(self) -> None:
+        _require_antenna_reference(self.antenna, "antenna")
+        if self.surface_error is not None:
+            _require_exact(
+                self.surface_error,
+                (ResolvedSurfaceError,),
+                "surface_error",
+            )
+            self.surface_error.__post_init__()
+
+
+def _copy_override_tuple(
+    value: Any,
+    allowed: tuple[type[Any], ...],
+    field_name: str,
+) -> tuple[Any, ...]:
+    """Copy a possibly empty exact override tuple."""
+    if type(value) is not tuple:
+        raise TypeError(f"{field_name} must be an exact tuple")
+    copied: tuple[Any, ...] = tuple(item for item in cast(tuple[Any, ...], value))
+    for item in copied:
+        _require_exact(item, allowed, f"{field_name} item")
+        item.__post_init__()
+    return copied
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedBeamPointing(_ResolvedValue):
+    """The authored ``beams.pointing`` block, resolved but not yet assigned."""
+
+    default: ResolvedPointingOffset | None
+    per_antenna: tuple[ResolvedAntennaPointingOffset, ...]
+
+    def __post_init__(self) -> None:
+        if self.default is not None:
+            _require_exact(self.default, (ResolvedPointingOffset,), "default")
+            self.default.__post_init__()
+        per_antenna = cast(
+            tuple[ResolvedAntennaPointingOffset, ...],
+            _copy_override_tuple(
+                self.per_antenna,
+                (ResolvedAntennaPointingOffset,),
+                "per_antenna",
+            ),
+        )
+        if self.default is None and not any(
+            item.offset is not None for item in per_antenna
+        ):
+            raise ValueError(
+                "a resolved pointing block must carry at least one non-zero offset"
+            )
+        object.__setattr__(self, "per_antenna", per_antenna)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedBeamSurfaceError(_ResolvedValue):
+    """The authored ``beams.surface_error`` block, resolved but not assigned."""
+
+    default: ResolvedSurfaceError | None
+    per_antenna: tuple[ResolvedAntennaSurfaceError, ...]
+
+    def __post_init__(self) -> None:
+        if self.default is not None:
+            _require_exact(self.default, (ResolvedSurfaceError,), "default")
+            self.default.__post_init__()
+        per_antenna = cast(
+            tuple[ResolvedAntennaSurfaceError, ...],
+            _copy_override_tuple(
+                self.per_antenna,
+                (ResolvedAntennaSurfaceError,),
+                "per_antenna",
+            ),
+        )
+        if self.default is None and not any(
+            item.surface_error is not None for item in per_antenna
+        ):
+            raise ValueError(
+                "a resolved surface-error block must carry at least one non-zero RMS"
+            )
+        object.__setattr__(self, "per_antenna", per_antenna)
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedAnalyticBeamChoice(_ResolvedValue):
     kind: Literal["analytic"]
 
@@ -519,30 +701,54 @@ class ResolvedMixedBeamAssignmentInput(_ResolvedValue):
         )
 
 
+def _require_mount_blocks(value: Any) -> None:
+    """Validate the two mode-independent mount blocks every input carries.
+
+    Pointing offsets and surface errors describe the mount and the dish, not the
+    beam model, so they are available in all four modes rather than only where
+    the configuration happens to be per-antenna already.
+    """
+    pointing, surface_error = value
+    if pointing is not None:
+        _require_exact(pointing, (ResolvedBeamPointing,), "pointing")
+        pointing.__post_init__()
+    if surface_error is not None:
+        _require_exact(surface_error, (ResolvedBeamSurfaceError,), "surface_error")
+        surface_error.__post_init__()
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedAnalyticBeamsInput(_ResolvedValue):
     mode: Literal["analytic"]
     model: ResolvedAnalyticBeamDefinition
+    pointing: ResolvedBeamPointing | None = None
+    surface_error: ResolvedBeamSurfaceError | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "analytic", "mode")
         _require_exact(self.model, (ResolvedAnalyticBeamDefinition,), "model")
+        _require_mount_blocks((self.pointing, self.surface_error))
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedSharedFITSBeamsInput(_ResolvedValue):
     mode: Literal["shared_fits"]
     beam: ResolvedFITSBeamDefinition
+    pointing: ResolvedBeamPointing | None = None
+    surface_error: ResolvedBeamSurfaceError | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "shared_fits", "mode")
         _require_exact(self.beam, (ResolvedFITSBeamDefinition,), "beam")
+        _require_mount_blocks((self.pointing, self.surface_error))
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedPerAntennaFITSBeamsInput(_ResolvedValue):
     mode: Literal["per_antenna_fits"]
     assignments: tuple[ResolvedFITSBeamAssignmentInput, ...]
+    pointing: ResolvedBeamPointing | None = None
+    surface_error: ResolvedBeamSurfaceError | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "per_antenna_fits", "mode")
@@ -551,6 +757,7 @@ class ResolvedPerAntennaFITSBeamsInput(_ResolvedValue):
             (ResolvedFITSBeamAssignmentInput,),
             "assignments",
         )
+        _require_mount_blocks((self.pointing, self.surface_error))
         object.__setattr__(self, "assignments", copied)
 
 
@@ -559,6 +766,8 @@ class ResolvedMixedBeamsInput(_ResolvedValue):
     mode: Literal["mixed"]
     analytic_model: ResolvedAnalyticBeamDefinition
     assignments: tuple[ResolvedMixedBeamAssignmentInput, ...]
+    pointing: ResolvedBeamPointing | None = None
+    surface_error: ResolvedBeamSurfaceError | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "mixed", "mode")
@@ -572,6 +781,7 @@ class ResolvedMixedBeamsInput(_ResolvedValue):
             (ResolvedMixedBeamAssignmentInput,),
             "assignments",
         )
+        _require_mount_blocks((self.pointing, self.surface_error))
         object.__setattr__(self, "assignments", copied)
 
 
@@ -931,6 +1141,8 @@ def _assignment_fingerprint(
     antenna_id: AntennaId,
     antenna_diameter_m: float,
     definition: ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
+    pointing: ResolvedPointingOffset | None = None,
+    surface_error: ResolvedSurfaceError | None = None,
 ) -> str:
     payload: dict[str, Any] = {
         "schema_version": _SCHEMA_VERSION,
@@ -944,6 +1156,18 @@ def _assignment_fingerprint(
     dimensions = _effective_assignment_dimensions(definition, antenna_diameter_m)
     if dimensions is not None:
         payload["effective_dimensions"] = dimensions
+    # The two Tier 7I keys are added only when the science is present, so an
+    # assignment with neither reproduces its pre-7I digest exactly.  An inert
+    # value cannot reach here: it resolves to ``None`` (Section 19.2).
+    if pointing is not None:
+        payload["pointing"] = {
+            "azimuth_offset_rad": pointing.azimuth_offset_rad,
+            "elevation_offset_rad": pointing.elevation_offset_rad,
+        }
+    if surface_error is not None:
+        payload["surface_error"] = {
+            "rms_surface_error_m": surface_error.rms_surface_error_m,
+        }
     return _canonical_digest(payload)
 
 
@@ -954,6 +1178,8 @@ class ResolvedBeamAssignment(_ResolvedValue):
     definition: ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition
     provenance: BeamAssignmentProvenance
     assignment_fingerprint: str
+    pointing: ResolvedPointingOffset | None = None
+    surface_error: ResolvedSurfaceError | None = None
 
     def __post_init__(self) -> None:
         antenna_id = _copy_antenna_id(self.antenna_id, "antenna_id")
@@ -970,6 +1196,16 @@ class ResolvedBeamAssignment(_ResolvedValue):
         )
         self.definition.__post_init__()
         self.provenance.__post_init__()
+        if self.pointing is not None:
+            _require_exact(self.pointing, (ResolvedPointingOffset,), "pointing")
+            self.pointing.__post_init__()
+        if self.surface_error is not None:
+            _require_exact(
+                self.surface_error,
+                (ResolvedSurfaceError,),
+                "surface_error",
+            )
+            self.surface_error.__post_init__()
         if self.provenance.canonical_antenna != antenna_id:
             raise ValueError("provenance.canonical_antenna must equal antenna_id")
         _require_fingerprint(self.assignment_fingerprint, "assignment_fingerprint")
@@ -977,6 +1213,8 @@ class ResolvedBeamAssignment(_ResolvedValue):
             antenna_id,
             self.antenna_diameter_m,
             self.definition,
+            self.pointing,
+            self.surface_error,
         )
         if self.assignment_fingerprint != expected:
             raise ValueError(
@@ -991,11 +1229,15 @@ def _create_resolved_beam_assignment(  # pyright: ignore[reportUnusedFunction]
     antenna_diameter_m: float,
     definition: ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
     provenance: BeamAssignmentProvenance,
+    pointing: ResolvedPointingOffset | None = None,
+    surface_error: ResolvedSurfaceError | None = None,
 ) -> ResolvedBeamAssignment:
     fingerprint = _assignment_fingerprint(
         antenna_id,
         antenna_diameter_m,
         definition,
+        pointing,
+        surface_error,
     )
     return ResolvedBeamAssignment(
         antenna_id=antenna_id,
@@ -1003,6 +1245,8 @@ def _create_resolved_beam_assignment(  # pyright: ignore[reportUnusedFunction]
         definition=definition,
         provenance=provenance,
         assignment_fingerprint=fingerprint,
+        pointing=pointing,
+        surface_error=surface_error,
     )
 
 
@@ -1404,6 +1648,12 @@ def _create_loaded_beam_state(  # pyright: ignore[reportUnusedFunction]
 
 __all__ = [
     "BeamAssignmentProvenance",
+    "ResolvedAntennaPointingOffset",
+    "ResolvedAntennaSurfaceError",
+    "ResolvedBeamPointing",
+    "ResolvedBeamSurfaceError",
+    "ResolvedPointingOffset",
+    "ResolvedSurfaceError",
     "ResolvedAnalyticBeamChoice",
     "ResolvedAnalyticBeamDefinition",
     "ResolvedAnalyticBeamModel",

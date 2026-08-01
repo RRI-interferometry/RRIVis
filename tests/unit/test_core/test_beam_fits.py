@@ -1247,7 +1247,16 @@ def test_fits_modules_do_not_publish_private_runtime_symbols() -> None:
     from radiosim.core.beam import fits, runtime
 
     assert fits.__all__ == []
-    assert runtime.__all__ == ["BeamSystem", "load_beam_system"]
+    # Tier 7I adds the two Ruze closed forms.  They are public because they are
+    # the citable physics (Ruze 1966) and the documentation names them, and they
+    # are the only additions: the runtime still publishes exactly one class and
+    # one factory alongside them.
+    assert runtime.__all__ == [
+        "BeamSystem",
+        "load_beam_system",
+        "ruze_power_efficiency",
+        "ruze_voltage_factor",
+    ]
     assert "_load_fits_handler" not in sys.modules["radiosim.core.beam"].__dict__
     assert beam_package.BeamFileProvenance is BeamFileProvenance
     assert beam_package.LoadedBeamHandlerState is LoadedBeamHandlerState

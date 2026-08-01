@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from radiosim.core.beam.errors import (
     DuplicateBeamAssignmentError,
@@ -23,7 +23,9 @@ from radiosim.core.beam.models import (
     ResolvedMixedBeamAssignmentInput,
     ResolvedMixedBeamsInput,
     ResolvedPerAntennaFITSBeamsInput,
+    ResolvedPointingOffset,
     ResolvedSharedFITSBeamsInput,
+    ResolvedSurfaceError,
     _create_resolved_beam_assignment,  # pyright: ignore[reportPrivateUsage]
     _create_resolved_beam_state,  # pyright: ignore[reportPrivateUsage]
     _deduplicated_definitions,  # pyright: ignore[reportPrivateUsage]
@@ -57,6 +59,105 @@ def _shown_reference(reference: AntennaReference) -> str:
     return str(value) if kind == "number" else repr(value)
 
 
+def _mount_override_map(
+    entries: tuple[Any, ...],
+    value_field: str,
+    *,
+    logical_path: str,
+    instrument: ResolvedInstrument,
+) -> dict[AntennaId, Any]:
+    """Resolve one ordered per-antenna mount override list against the array.
+
+    The two Tier 7I blocks reuse the Tier 3C assignment discipline verbatim: an
+    unknown reference collects into one ``UnknownBeamAntennaError`` naming every
+    bad entry, and a repeated canonical antenna is a
+    ``DuplicateBeamAssignmentError`` naming the index that already claimed it.
+    Completeness is *not* required -- unlike a beam assignment, an absent entry
+    means "take the array-wide default", which is a real and common intent.
+    """
+    by_number = {antenna.id.number: antenna for antenna in instrument.antennas}
+    by_name = {antenna.id.name: antenna for antenna in instrument.antennas}
+    unknown_messages: list[str] = []
+    resolved: list[tuple[int, ResolvedAntenna, Any]] = []
+
+    for index, entry in enumerate(entries):
+        reference = entry.antenna
+        _kind, _value = _reference_value(reference)
+        if type(reference) is AntennaNumberReference:
+            antenna = by_number.get(reference.number)
+        else:
+            antenna = by_name.get(cast(AntennaNameReference, reference).name)
+        if antenna is None:
+            unknown_messages.append(
+                f"{logical_path}[{index}].antenna="
+                f"{_shown_reference(reference)}: no canonical antenna matches; "
+                "use an exact Tier 2 number or case-sensitive canonical name."
+            )
+        else:
+            resolved.append((index, antenna, getattr(entry, value_field)))
+
+    if unknown_messages:
+        raise UnknownBeamAntennaError("\n".join(unknown_messages))
+
+    first_index: dict[AntennaId, int] = {}
+    values: dict[AntennaId, Any] = {}
+    for index, antenna, value in resolved:
+        canonical_id = antenna.id
+        prior = first_index.get(canonical_id)
+        if prior is not None:
+            raise DuplicateBeamAssignmentError(
+                f"{logical_path}[{index}].antenna="
+                f"{_shown_reference(entries[index].antenna)}: canonical antenna "
+                f"number={canonical_id.number}, name={canonical_id.name!r} was "
+                f"already assigned at index {prior}."
+            )
+        first_index[canonical_id] = index
+        values[canonical_id] = value
+    return values
+
+
+def _mount_science(
+    config: ResolvedBeamsInput,
+    instrument: ResolvedInstrument,
+) -> tuple[
+    dict[AntennaId, ResolvedPointingOffset | None],
+    dict[AntennaId, ResolvedSurfaceError | None],
+]:
+    """Return the per-antenna pointing and surface-error values, defaults applied."""
+    pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset | None] = {}
+    surface_by_antenna: dict[AntennaId, ResolvedSurfaceError | None] = {}
+
+    pointing = config.pointing
+    if pointing is not None:
+        overrides = _mount_override_map(
+            pointing.per_antenna,
+            "offset",
+            logical_path="beams.pointing.per_antenna",
+            instrument=instrument,
+        )
+        for antenna in instrument.antennas:
+            pointing_by_antenna[antenna.id] = overrides.get(
+                antenna.id,
+                pointing.default,
+            )
+
+    surface_error = config.surface_error
+    if surface_error is not None:
+        overrides = _mount_override_map(
+            surface_error.per_antenna,
+            "surface_error",
+            logical_path="beams.surface_error.per_antenna",
+            instrument=instrument,
+        )
+        for antenna in instrument.antennas:
+            surface_by_antenna[antenna.id] = overrides.get(
+                antenna.id,
+                surface_error.default,
+            )
+
+    return pointing_by_antenna, surface_by_antenna
+
+
 def _definition_for_explicit_input(
     config: ResolvedPerAntennaFITSBeamsInput | ResolvedMixedBeamsInput,
     item: _ExplicitInput,
@@ -72,6 +173,8 @@ def _definition_for_explicit_input(
 def _explicit_assignments(
     config: ResolvedPerAntennaFITSBeamsInput | ResolvedMixedBeamsInput,
     instrument: ResolvedInstrument,
+    pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset | None],
+    surface_by_antenna: dict[AntennaId, ResolvedSurfaceError | None],
 ) -> tuple[ResolvedBeamAssignment, ...]:
     by_number = {antenna.id.number: antenna for antenna in instrument.antennas}
     by_name = {antenna.id.name: antenna for antenna in instrument.antennas}
@@ -144,6 +247,8 @@ def _explicit_assignments(
                 antenna_diameter_m=antenna.diameter_m,
                 definition=_definition_for_explicit_input(config, item),
                 provenance=provenance,
+                pointing=pointing_by_antenna.get(antenna.id),
+                surface_error=surface_by_antenna.get(antenna.id),
             )
         )
     return tuple(assignments)
@@ -154,6 +259,8 @@ def _uniform_assignments(
     definition: ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
     *,
     source: Literal["analytic_mode", "shared_mode"],
+    pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset | None],
+    surface_by_antenna: dict[AntennaId, ResolvedSurfaceError | None],
 ) -> tuple[ResolvedBeamAssignment, ...]:
     assignments: list[ResolvedBeamAssignment] = []
     for antenna in instrument.antennas:
@@ -171,6 +278,8 @@ def _uniform_assignments(
                 antenna_diameter_m=antenna.diameter_m,
                 definition=definition,
                 provenance=provenance,
+                pointing=pointing_by_antenna.get(antenna.id),
+                surface_error=surface_by_antenna.get(antenna.id),
             )
         )
     return tuple(assignments)
@@ -191,17 +300,23 @@ def resolve_beam_assignments(
     if type(instrument) is not ResolvedInstrument:
         raise TypeError("instrument must be an exact ResolvedInstrument")
 
+    pointing_by_antenna, surface_by_antenna = _mount_science(config, instrument)
+
     if type(config) is ResolvedAnalyticBeamsInput:
         assignments = _uniform_assignments(
             instrument,
             config.model,
             source="analytic_mode",
+            pointing_by_antenna=pointing_by_antenna,
+            surface_by_antenna=surface_by_antenna,
         )
     elif type(config) is ResolvedSharedFITSBeamsInput:
         assignments = _uniform_assignments(
             instrument,
             config.beam,
             source="shared_mode",
+            pointing_by_antenna=pointing_by_antenna,
+            surface_by_antenna=surface_by_antenna,
         )
     else:
         assignments = _explicit_assignments(
@@ -210,6 +325,8 @@ def resolve_beam_assignments(
                 config,
             ),
             instrument,
+            pointing_by_antenna,
+            surface_by_antenna,
         )
 
     unique_definitions = _deduplicated_definitions(assignments)

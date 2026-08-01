@@ -32,6 +32,9 @@ from radiosim.core.beam.models import (
     ResolvedAnalyticBeamDefinition,
     ResolvedBeamState,
     ResolvedFITSBeamDefinition,
+    ResolvedPointingOffset,
+    ResolvedSurfaceError,
+    _canonical_digest,  # pyright: ignore[reportPrivateUsage]
     _create_loaded_beam_state,  # pyright: ignore[reportPrivateUsage]
 )
 from radiosim.core.instrument import AntennaId
@@ -43,7 +46,110 @@ if TYPE_CHECKING:
 ArrayLike = Any
 
 _FREQUENCY_MATCH_TOLERANCE_HZ = 1e-6
+_C_M_PER_S = 299_792_458.0
 _LOGGER = logging.getLogger(__name__)
+
+
+def ruze_power_efficiency(
+    *,
+    rms_surface_error_m: float,
+    wavelength_m: float,
+) -> float:
+    """Return Ruze's random-surface **power** efficiency.
+
+    ``eta_s = exp(-(4 pi sigma / lambda)^2)`` (Ruze 1966, *Antenna tolerance
+    theory -- a review*, Proc. IEEE 54, 633). This is a gain ratio, so the
+    factor RadioSim applies to its *voltage* beam is ``sqrt(eta_s)``: the
+    visibility amplitude on a baseline of two antennas sharing this ``sigma``
+    is then scaled by exactly ``eta_s``. That is the same voltage/power
+    discipline the tropospheric opacity uses for ``exp(-tau/2)``.
+
+    The rule of thumb quoted alongside the equation, ``lambda_min ~= 10 sigma``,
+    is the wavelength at which ``eta_s`` has already fallen to
+    ``exp(-(0.4 pi)^2) ~= 0.206`` -- the point past which a dish stops being
+    usable rather than a point at which anything diverges, so it bounds nothing
+    here and is not enforced as a rejection.
+
+    Parameters
+    ----------
+    rms_surface_error_m
+        Reflector surface RMS error ``sigma``, in metres. Must be finite and
+        nonnegative.
+    wavelength_m
+        Observing wavelength, in metres. Must be finite and positive.
+    """
+    if type(rms_surface_error_m) is not float or not math.isfinite(rms_surface_error_m):
+        raise NonFiniteBeamResponseError(
+            "rms_surface_error_m must be an exact finite Python float."
+        )
+    if rms_surface_error_m < 0.0:
+        raise ValueError("rms_surface_error_m must be >= 0")
+    if type(wavelength_m) is not float or not math.isfinite(wavelength_m):
+        raise NonFiniteBeamResponseError(
+            "wavelength_m must be an exact finite Python float."
+        )
+    if wavelength_m <= 0.0:
+        raise BeamFrequencyDomainError("wavelength_m must be positive.")
+    return math.exp(-((4.0 * math.pi * rms_surface_error_m / wavelength_m) ** 2))
+
+
+def ruze_voltage_factor(
+    *,
+    rms_surface_error_m: float,
+    wavelength_m: float,
+) -> float:
+    """Return the real scalar Ruze applies to the **voltage** beam.
+
+    This is ``sqrt(eta_s)`` of :func:`ruze_power_efficiency`, written directly
+    as ``exp(-(1/2)(4 pi sigma / lambda)^2)`` rather than as a square root, so
+    that a surface rough enough to underflow ``eta_s`` still carries a
+    representable voltage factor. The two agree to double rounding, which is
+    asserted by test rather than assumed.
+    """
+    efficiency = ruze_power_efficiency(
+        rms_surface_error_m=rms_surface_error_m,
+        wavelength_m=wavelength_m,
+    )
+    if efficiency == 1.0:
+        return 1.0
+    argument = 4.0 * math.pi * rms_surface_error_m / wavelength_m
+    return math.exp(-0.5 * argument * argument)
+
+
+def _rotate_into_beam_frame(
+    altitude_rad: np.ndarray,
+    azimuth_rad: np.ndarray,
+    offset: ResolvedPointingOffset,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Express topocentric directions in one mispointed antenna's beam frame.
+
+    The offset is the rigid rotation ``R`` of the beam frame described by
+    :class:`~radiosim.core.beam.models.ResolvedPointingOffset`; this returns the
+    directions as ``R^T n``, in the ``(alt, az)`` parameterization every
+    evaluator consumes. Composed, the antenna's boresight sits at topocentric
+    azimuth ``azimuth_offset_rad`` and zenith angle ``elevation_offset_rad``,
+    so the beam's peak has moved by exactly ``elevation_offset_rad`` of
+    great-circle angle and a pure azimuth offset moves it not at all -- the
+    alt-az keyhole degeneracy, which is real at a zenith-pointed mount.
+
+    The horizon gate is *not* applied here. A rotation of the beam frame does
+    not move the ground, so the caller keeps the below-horizon directions at
+    their true altitude and lets the evaluator zero them.
+    """
+    shifted_azimuth = azimuth_rad - offset.azimuth_offset_rad
+    cos_altitude = np.cos(altitude_rad)
+    east = cos_altitude * np.sin(shifted_azimuth)
+    north = cos_altitude * np.cos(shifted_azimuth)
+    up = np.sin(altitude_rad)
+
+    cos_tilt = math.cos(offset.elevation_offset_rad)
+    sin_tilt = math.sin(offset.elevation_offset_rad)
+    beam_north = north * cos_tilt - up * sin_tilt
+    beam_up = north * sin_tilt + up * cos_tilt
+
+    beam_altitude = np.arcsin(np.clip(beam_up, -1.0, 1.0))
+    beam_azimuth = np.arctan2(east, beam_north)
+    return beam_altitude, beam_azimuth
 
 
 class _UVBeamLike(Protocol):
@@ -101,18 +207,64 @@ class _BeamEvaluator(Protocol):
     def voltage_feature_scale_rad(self, frequency_hz: float) -> float: ...
 
 
+def _response_key(
+    handler_id: str,
+    pointing: ResolvedPointingOffset | None,
+    surface_error: ResolvedSurfaceError | None,
+) -> str:
+    """Return the key two antennas share iff their responses are identical.
+
+    It is the ``handler_id`` itself whenever the antenna carries no mount
+    physics, which is what keeps the pre-7I solver cache behaviour, and its
+    keys, unchanged by construction.
+    """
+    if pointing is None and surface_error is None:
+        return handler_id
+    digest = _canonical_digest(
+        {
+            "kind": "beam_response_key",
+            "handler_id": handler_id,
+            "pointing": (
+                None
+                if pointing is None
+                else {
+                    "azimuth_offset_rad": pointing.azimuth_offset_rad,
+                    "elevation_offset_rad": pointing.elevation_offset_rad,
+                }
+            ),
+            "surface_error": (
+                None
+                if surface_error is None
+                else {"rms_surface_error_m": surface_error.rms_surface_error_m}
+            ),
+        }
+    )
+    return f"{handler_id}+{digest[:16]}"
+
+
 class _BeamSystemRuntime:
     """Unpublished evaluator lookup owned by exactly one BeamSystem."""
 
-    __slots__ = ("evaluator_by_handler_id", "handler_id_by_antenna")
+    __slots__ = (
+        "evaluator_by_handler_id",
+        "handler_id_by_antenna",
+        "pointing_by_antenna",
+        "response_key_by_antenna",
+        "surface_error_by_antenna",
+    )
     evaluator_by_handler_id: Mapping[str, _BeamEvaluator]
     handler_id_by_antenna: Mapping[AntennaId, str]
+    pointing_by_antenna: Mapping[AntennaId, ResolvedPointingOffset]
+    surface_error_by_antenna: Mapping[AntennaId, ResolvedSurfaceError]
+    response_key_by_antenna: Mapping[AntennaId, str]
 
     def __init__(
         self,
         *,
         evaluator_by_handler_id: dict[str, _BeamEvaluator],
         handler_id_by_antenna: dict[AntennaId, str],
+        pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset],
+        surface_error_by_antenna: dict[AntennaId, ResolvedSurfaceError],
     ) -> None:
         object.__setattr__(
             self,
@@ -123,6 +275,30 @@ class _BeamSystemRuntime:
             self,
             "handler_id_by_antenna",
             MappingProxyType(dict(handler_id_by_antenna)),
+        )
+        object.__setattr__(
+            self,
+            "pointing_by_antenna",
+            MappingProxyType(dict(pointing_by_antenna)),
+        )
+        object.__setattr__(
+            self,
+            "surface_error_by_antenna",
+            MappingProxyType(dict(surface_error_by_antenna)),
+        )
+        object.__setattr__(
+            self,
+            "response_key_by_antenna",
+            MappingProxyType(
+                {
+                    antenna_id: _response_key(
+                        handler_id,
+                        pointing_by_antenna.get(antenna_id),
+                        surface_error_by_antenna.get(antenna_id),
+                    )
+                    for antenna_id, handler_id in handler_id_by_antenna.items()
+                }
+            ),
         )
 
     @override
@@ -468,6 +644,26 @@ class BeamSystem:
         """Return the immutable detached loaded-state snapshot."""
         return self.__state
 
+    def response_key(self, antenna_id: AntennaId) -> str:
+        """Return the key two antennas share iff their responses are identical.
+
+        A per-``(time, frequency)`` caller that evaluates one direction batch
+        per beam handler must key its cache on this and not on ``handler_id``:
+        two antennas of the same diameter and model share a handler, and Tier
+        7I's per-antenna pointing offsets and surface errors are the first thing
+        that makes their responses differ. With neither configured the key *is*
+        the ``handler_id``, so nothing about the absent case changes.
+        """
+        canonical = _require_lookup_antenna_id(antenna_id)
+        key = self.__runtime.response_key_by_antenna.get(canonical)
+        if key is None:
+            raise InconsistentBeamAssignmentError(
+                "BeamSystem has no handler assignment for canonical antenna "
+                f"number={canonical.number}, name={canonical.name!r}; loaded "
+                "beam state is inconsistent."
+            )
+        return key
+
     def evaluate_jones(
         self,
         antenna_id: AntennaId,
@@ -504,12 +700,60 @@ class BeamSystem:
                 f"BeamSystem has no evaluator for handler_id={handler_id!r}; "
                 "loaded beam runtime is inconsistent."
             )
+        evaluated_altitude = altitude_rad
+        evaluated_azimuth = azimuth_rad
+        offset = self.__runtime.pointing_by_antenna.get(canonical)
+        if offset is not None and type(altitude_rad) is np.ndarray:
+            # The horizon gate belongs to the ground, not to the beam frame, so
+            # only the visible directions are rotated; the rest keep their true
+            # below-horizon altitude and the evaluator zeroes them exactly as it
+            # would have without an offset.  A visible direction whose rotated
+            # altitude falls below zero -- a band |elevation_offset_rad| wide at
+            # the horizon -- is zeroed by the evaluator's own forward-hemisphere
+            # domain, which is what a reflector actually does.
+            visible = np.asarray(altitude_rad, dtype=np.float64) >= 0.0
+            if bool(np.any(visible)):
+                beam_altitude, beam_azimuth = _rotate_into_beam_frame(
+                    np.asarray(altitude_rad, dtype=np.float64)[visible],
+                    np.asarray(azimuth_rad, dtype=np.float64)[visible],
+                    offset,
+                )
+                evaluated_altitude = np.array(
+                    altitude_rad,
+                    dtype=np.float64,
+                    copy=True,
+                    order="C",
+                )
+                evaluated_azimuth = np.array(
+                    azimuth_rad,
+                    dtype=np.float64,
+                    copy=True,
+                    order="C",
+                )
+                evaluated_altitude[visible] = beam_altitude
+                evaluated_azimuth[visible] = beam_azimuth
+
         host_result = evaluator.evaluate_numpy(
-            altitude_rad,
-            azimuth_rad,
+            evaluated_altitude,
+            evaluated_azimuth,
             frequency_hz,
             time_mjd,
         )
+
+        surface_error = self.__runtime.surface_error_by_antenna.get(canonical)
+        if surface_error is not None:
+            voltage_factor = ruze_voltage_factor(
+                rms_surface_error_m=surface_error.rms_surface_error_m,
+                wavelength_m=_C_M_PER_S / float(frequency_hz),
+            )
+            real_dtype = np.empty(0, dtype=host_result.dtype).real.dtype
+            scaled = np.asarray(
+                host_result * real_dtype.type(voltage_factor),
+                dtype=host_result.dtype,
+            )
+            host_result = np.array(scaled, copy=True, order="C")
+            host_result.setflags(write=False)
+
         if backend is None:
             return host_result
         return _convert_backend_result(backend, host_result)
@@ -573,6 +817,8 @@ def _load_beam_system(
     assignment_handler_ids: list[tuple[AntennaId, str]] = []
     evaluator_by_handler_id: dict[str, _BeamEvaluator] = {}
     handler_id_by_antenna: dict[AntennaId, str] = {}
+    pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset] = {}
+    surface_error_by_antenna: dict[AntennaId, ResolvedSurfaceError] = {}
 
     for assignment in resolved_state.assignments:
         definition = assignment.definition
@@ -620,6 +866,13 @@ def _load_beam_system(
         )
         assignment_handler_ids.append((antenna_id, handler_state.handler_id))
         handler_id_by_antenna[antenna_id] = handler_state.handler_id
+        # Pointing and surface errors are per-antenna and are applied around the
+        # evaluator, never inside it, so they take no part in the preload
+        # deduplication above: two mispointed antennas still share one handler.
+        if assignment.pointing is not None:
+            pointing_by_antenna[antenna_id] = assignment.pointing
+        if assignment.surface_error is not None:
+            surface_error_by_antenna[antenna_id] = assignment.surface_error
 
     loaded_state = _create_loaded_beam_state(
         resolved=resolved_state,
@@ -629,6 +882,8 @@ def _load_beam_system(
     runtime = _BeamSystemRuntime(
         evaluator_by_handler_id=evaluator_by_handler_id,
         handler_id_by_antenna=handler_id_by_antenna,
+        pointing_by_antenna=pointing_by_antenna,
+        surface_error_by_antenna=surface_error_by_antenna,
     )
     system = object.__new__(BeamSystem)
     object.__setattr__(system, "_BeamSystem__state", loaded_state)
@@ -680,4 +935,9 @@ def load_beam_system(
     )
 
 
-__all__ = ["BeamSystem", "load_beam_system"]
+__all__ = [
+    "BeamSystem",
+    "load_beam_system",
+    "ruze_power_efficiency",
+    "ruze_voltage_factor",
+]

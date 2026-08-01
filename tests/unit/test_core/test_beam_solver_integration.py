@@ -20,6 +20,7 @@ from radiosim.backends import get_backend
 from radiosim.core.beam import BeamSystem
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import SolverInstrumentView
+from radiosim.core.jones.directions import DirectionBatch
 from radiosim.core.polarization import stokes_to_coherency
 from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.core.visibility import calculate_visibility
@@ -1029,3 +1030,150 @@ def test_removed_solver_beam_keywords_raise_ordinary_type_errors(
             time_grid=TIME_GRID,
             beam_manager=object(),
         )
+
+
+# =========================================================================
+# Tier 7I: the per-step beam cache must be keyed on the response, not the
+# handler, once per-antenna mount physics exists (Section 34's 7I correction).
+# =========================================================================
+
+
+_TIER7I_POINTING = {
+    "mode": "analytic",
+    "model": {"kind": "circular_aperture", "taper": {"kind": "uniform"}},
+    "pointing": {
+        "per_antenna": [
+            {
+                "antenna": {"kind": "number", "number": 1},
+                "azimuth_offset_deg": 0.0,
+                "elevation_offset_deg": 25.0,
+            }
+        ]
+    },
+}
+
+
+def _tier7i_mapping(tmp_path: Path, beams: dict[str, object]) -> dict[str, object]:
+    """A mapping whose default two-source sky produces a non-zero cube."""
+    return valid_config_mapping(tmp_path, beams=beams)
+
+
+def test_a_pointing_offset_is_not_served_from_the_other_antennas_cache(tmp_path):
+    """Two 14 m antennas share one handler and must still evaluate separately.
+
+    Keyed on ``handler_id`` the adapter would evaluate antenna 0 once and hand
+    the same block to antenna 1, silently discarding antenna 1's offset. The
+    per-antenna cache size is the proof, and the unequal responses are the
+    consequence it exists to protect.
+    """
+    simulator = Simulator.from_mapping(
+        _tier7i_mapping(tmp_path, _TIER7I_POINTING),
+        base_dir=tmp_path,
+    )
+    simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
+    simulator._ensure_beam_system()
+    view = SolverInstrumentView.from_state(simulator._instrument_state)
+    beam_system = simulator.beam_system
+
+    altitude = np.array([ALTITUDE_RAD])
+    azimuth = np.array([AZIMUTH_RAD])
+    time_mjd = float(TIME_GRID.to_mjd()[0])
+    adapter = point_visibility._ResolvedBeamJones(
+        beam_system=beam_system,
+        instrument=view,
+        altitude_rad=altitude,
+        azimuth_rad=azimuth,
+        frequency_hz=FREQUENCY_HZ,
+        time_mjd=time_mjd,
+    )
+    directions = DirectionBatch.from_horizontal(
+        alt_rad=altitude,
+        az_rad=azimuth,
+        dir_l=np.array([0.0]),
+        dir_m=np.array([0.0]),
+        dir_n=np.array([1.0]),
+        latitude_rad=0.0,
+        local_sidereal_time_rad=0.0,
+    )
+    common = {
+        "directions": directions,
+        "frequency_hz": FREQUENCY_HZ,
+        "freq_idx": 0,
+        "time_mjd": time_mjd,
+        "time_idx": 0,
+        "backend": get_backend("numpy"),
+        "dtype": np.complex128,
+    }
+    first = np.asarray(adapter.compute_jones_batch(antenna_idx=0, **common))
+    second = np.asarray(adapter.compute_jones_batch(antenna_idx=1, **common))
+
+    assert len(beam_system.state.handlers) == 1
+    assert not np.allclose(first, second)
+    # The cache holds one entry per distinct response, not one per call.
+    assert len(adapter._handler_cache) == 2
+    repeated = np.asarray(adapter.compute_jones_batch(antenna_idx=1, **common))
+    assert np.array_equal(second, repeated)
+    assert len(adapter._handler_cache) == 2
+
+
+def test_a_pointing_offset_changes_the_visibility_cube(tmp_path):
+    """I7's shape for Tier 7I: configured mount physics reaches the output."""
+    plain = {
+        "mode": "analytic",
+        "model": {"kind": "circular_aperture", "taper": {"kind": "uniform"}},
+    }
+    rough = {
+        **plain,
+        "surface_error": {"default": {"rms_surface_error_m": 0.35}},
+    }
+    bare_result = Simulator.from_mapping(
+        _tier7i_mapping(tmp_path, plain), base_dir=tmp_path
+    ).run(progress=False)
+    offset_result = Simulator.from_mapping(
+        _tier7i_mapping(tmp_path, _TIER7I_POINTING), base_dir=tmp_path
+    ).run(progress=False)
+    rough_result = Simulator.from_mapping(
+        _tier7i_mapping(tmp_path, rough), base_dir=tmp_path
+    ).run(progress=False)
+
+    bare_cube = np.asarray(bare_result.visibilities)
+    offset_cube = np.asarray(offset_result.visibilities)
+    rough_cube = np.asarray(rough_result.visibilities)
+    scale = float(np.max(np.abs(bare_cube)))
+    assert scale > 0.0
+    assert np.max(np.abs(offset_cube - bare_cube)) / scale > 1e-10
+    assert np.max(np.abs(rough_cube - bare_cube)) / scale > 1e-10
+    # Each also moves the scientific fingerprint, and differently.
+    assert offset_result.scientific_sha256 != bare_result.scientific_sha256
+    assert rough_result.scientific_sha256 != bare_result.scientific_sha256
+    assert rough_result.scientific_sha256 != offset_result.scientific_sha256
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+def test_pointing_and_ruze_are_backend_parity_clean(tmp_path, backend_name):
+    """Section 28: Dask bit-identical to NumPy, JAX-CPU within rtol=1e-12."""
+    pytest.importorskip(
+        "jax" if backend_name == "jax" else "dask",
+        reason=f"{backend_name} backend is not installed",
+    )
+    beams = {
+        **_TIER7I_POINTING,
+        "surface_error": {"default": {"rms_surface_error_m": 0.2}},
+    }
+
+    def _cube(backend: str) -> np.ndarray:
+        mapping = _tier7i_mapping(tmp_path, beams)
+        execution = dict(mapping["execution"])
+        execution["backend"] = backend
+        mapping["execution"] = execution
+        simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
+        return np.asarray(simulator.run(progress=False).visibilities)
+
+    reference_cube = _cube("numpy")
+    compared_cube = _cube(backend_name)
+    assert float(np.max(np.abs(reference_cube))) > 0.0
+    if backend_name == "dask":
+        assert np.array_equal(reference_cube, compared_cube)
+    else:
+        np.testing.assert_allclose(compared_cube, reference_cube, rtol=1e-12, atol=0.0)

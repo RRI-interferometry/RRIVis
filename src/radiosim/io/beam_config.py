@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from radiosim.io.instrument_config import (
     AntennaNameReference,
@@ -290,6 +290,119 @@ class MixedBeamAssignmentConfig(_BeamInputModel):
         return value
 
 
+_StrictFiniteAzimuthDeg = Annotated[
+    float,
+    Field(strict=True, ge=-180.0, le=180.0, allow_inf_nan=False),
+]
+_StrictFiniteElevationDeg = Annotated[
+    float,
+    Field(strict=True, ge=-90.0, le=90.0, allow_inf_nan=False),
+]
+
+
+class PointingOffsetConfig(_BeamInputModel):
+    """The array-wide default deterministic pointing offset.
+
+    ``azimuth_offset_deg`` rotates the beam frame about the local vertical,
+    North through East; ``elevation_offset_deg`` then tilts the boresight away
+    from the zenith. For RadioSim's zenith-pointed beams the boresight lands at
+    topocentric azimuth ``azimuth_offset_deg`` and zenith angle
+    ``elevation_offset_deg``, so the peak moves by exactly that great-circle
+    angle and a pure azimuth offset moves it not at all.
+    """
+
+    azimuth_offset_deg: _StrictFiniteAzimuthDeg = 0.0
+    elevation_offset_deg: _StrictFiniteElevationDeg = 0.0
+
+
+class AntennaPointingOffsetConfig(_BeamInputModel):
+    """One authored per-antenna pointing override.
+
+    An entry whose two angles are both zero is the explicit way to say that this
+    antenna is perfectly pointed while the array-wide default is not.
+    """
+
+    antenna: AntennaReference
+    azimuth_offset_deg: _StrictFiniteAzimuthDeg = 0.0
+    elevation_offset_deg: _StrictFiniteElevationDeg = 0.0
+
+    @field_validator("antenna")
+    @classmethod
+    def require_exact_antenna_reference(
+        cls, value: AntennaReference
+    ) -> AntennaReference:
+        if type(value) not in (AntennaNumberReference, AntennaNameReference):
+            raise ValueError("antenna must be an exact AntennaReference model")
+        return value
+
+
+class BeamPointingConfig(_BeamInputModel):
+    """The optional ``beams.pointing`` block."""
+
+    default: PointingOffsetConfig | None = None
+    per_antenna: tuple[AntennaPointingOffsetConfig, ...] = ()
+
+    @model_validator(mode="after")
+    def require_a_non_zero_offset(self) -> BeamPointingConfig:
+        authored: list[float] = []
+        if self.default is not None:
+            authored.extend(
+                (self.default.azimuth_offset_deg, self.default.elevation_offset_deg)
+            )
+        for entry in self.per_antenna:
+            authored.extend((entry.azimuth_offset_deg, entry.elevation_offset_deg))
+        if not any(value != 0.0 for value in authored):
+            raise ValueError(
+                "beams.pointing: every authored offset is zero, so the block has "
+                "no effect; remove it, or give at least one antenna a non-zero "
+                "azimuth_offset_deg or elevation_offset_deg."
+            )
+        return self
+
+
+class SurfaceErrorConfig(_BeamInputModel):
+    """The array-wide default Ruze random-surface RMS error."""
+
+    rms_surface_error_m: _StrictNonNegativeFiniteFloat = 0.0
+
+
+class AntennaSurfaceErrorConfig(_BeamInputModel):
+    """One authored per-antenna surface-error override."""
+
+    antenna: AntennaReference
+    rms_surface_error_m: _StrictNonNegativeFiniteFloat = 0.0
+
+    @field_validator("antenna")
+    @classmethod
+    def require_exact_antenna_reference(
+        cls, value: AntennaReference
+    ) -> AntennaReference:
+        if type(value) not in (AntennaNumberReference, AntennaNameReference):
+            raise ValueError("antenna must be an exact AntennaReference model")
+        return value
+
+
+class BeamSurfaceErrorConfig(_BeamInputModel):
+    """The optional ``beams.surface_error`` block."""
+
+    default: SurfaceErrorConfig | None = None
+    per_antenna: tuple[AntennaSurfaceErrorConfig, ...] = ()
+
+    @model_validator(mode="after")
+    def require_a_non_zero_surface_error(self) -> BeamSurfaceErrorConfig:
+        authored: list[float] = []
+        if self.default is not None:
+            authored.append(self.default.rms_surface_error_m)
+        authored.extend(entry.rms_surface_error_m for entry in self.per_antenna)
+        if not any(value != 0.0 for value in authored):
+            raise ValueError(
+                "beams.surface_error: every authored surface error is zero, so "
+                "the block has no effect; remove it, or give at least one "
+                "antenna a positive rms_surface_error_m."
+            )
+        return self
+
+
 class AnalyticBeamsConfig(_BeamInputModel):
     """One shared analytic model."""
 
@@ -297,6 +410,8 @@ class AnalyticBeamsConfig(_BeamInputModel):
     model: AnalyticBeamModelConfig = Field(
         default_factory=CircularApertureBeamModelConfig
     )
+    pointing: BeamPointingConfig | None = None
+    surface_error: BeamSurfaceErrorConfig | None = None
 
 
 class SharedFITSBeamsConfig(_BeamInputModel):
@@ -304,6 +419,8 @@ class SharedFITSBeamsConfig(_BeamInputModel):
 
     mode: Literal["shared_fits"] = "shared_fits"
     beam: FITSBeamSourceConfig
+    pointing: BeamPointingConfig | None = None
+    surface_error: BeamSurfaceErrorConfig | None = None
 
 
 class PerAntennaFITSBeamsConfig(_BeamInputModel):
@@ -311,6 +428,8 @@ class PerAntennaFITSBeamsConfig(_BeamInputModel):
 
     mode: Literal["per_antenna_fits"] = "per_antenna_fits"
     assignments: tuple[FITSBeamAssignmentConfig, ...] = Field(min_length=1)
+    pointing: BeamPointingConfig | None = None
+    surface_error: BeamSurfaceErrorConfig | None = None
 
 
 class MixedBeamsConfig(_BeamInputModel):
@@ -321,6 +440,8 @@ class MixedBeamsConfig(_BeamInputModel):
         default_factory=CircularApertureBeamModelConfig
     )
     assignments: tuple[MixedBeamAssignmentConfig, ...] = Field(min_length=1)
+    pointing: BeamPointingConfig | None = None
+    surface_error: BeamSurfaceErrorConfig | None = None
 
 
 BeamsConfig = Annotated[
@@ -334,6 +455,12 @@ BeamsConfig = Annotated[
 
 __all__ = [
     "AnalyticBeamChoiceConfig",
+    "AntennaPointingOffsetConfig",
+    "AntennaSurfaceErrorConfig",
+    "BeamPointingConfig",
+    "BeamSurfaceErrorConfig",
+    "PointingOffsetConfig",
+    "SurfaceErrorConfig",
     "AnalyticBeamModelConfig",
     "AnalyticBeamsConfig",
     "AnalyticalIlluminationBeamModelConfig",

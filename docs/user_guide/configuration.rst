@@ -291,6 +291,51 @@ evaluation.
 An ``allow_network`` known-telescope source conflicts with global offline mode.
 Validation and offline tests never enumerate the live registry.
 
+Two optional blocks describe the *mount and the dish* rather than the beam
+model, so they are accepted in all four modes:
+
+.. code-block:: yaml
+
+   beams:
+     mode: analytic
+     model:
+       kind: circular_aperture
+
+     pointing:                              # optional; absent = no offset
+       default:                             # optional array-wide default
+         azimuth_offset_deg: 0.0
+         elevation_offset_deg: 0.0
+       per_antenna:                         # optional; overrides the default
+         - antenna: {kind: number, number: 1}
+           azimuth_offset_deg: 90.0
+           elevation_offset_deg: 0.25
+
+     surface_error:                         # optional; absent = no Ruze factor
+       default:
+         rms_surface_error_m: 0.001
+       per_antenna:
+         - antenna: {kind: name, name: ANT0}
+           rms_surface_error_m: 0.004
+
+``pointing`` is a deterministic mount mispointing and ``surface_error`` is the
+Ruze random-surface RMS; :doc:`beam_models` gives the exact geometry and the
+exact factor. Both blocks follow the same rules as the rest of the strict
+schema: ``per_antenna`` entries are keyed by the tagged Tier 2 antenna
+reference and reject an unknown or repeated antenna, and every angle carries
+``_deg`` while every length carries ``_m``.
+
+Two rules are worth stating because they are what keeps an absent block honest:
+
+- A block **every one of whose authored numbers is zero** is rejected. A
+  present block with no effect is the configuration surface that accepts a
+  value and discards it, which is exactly what ``jones``'s identity rejection
+  exists to prevent. A zero *entry* alongside a non-zero sibling is accepted,
+  and is the honest way to say that one antenna is perfectly pointed.
+- An offset of exactly ``(0, 0)`` and an RMS of exactly ``0.0`` resolve to
+  *absence*, not to a stored zero. A document authoring them is therefore
+  bit-identical to a document authoring nothing — same cube, same beam
+  fingerprints, same ``scientific_sha256``.
+
 Jones-term declarations
 -----------------------
 

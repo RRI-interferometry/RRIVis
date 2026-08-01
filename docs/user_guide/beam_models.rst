@@ -184,6 +184,61 @@ immutable loaded state only after every handler succeeds. Point visibility,
 HEALPix visibility, sampling advice, observability, and result provenance all
 consume this same ``BeamSystem`` and its detached state.
 
+Pointing offsets and surface errors
+-----------------------------------
+
+Two optional ``beams`` blocks describe the mount and the dish rather than the
+beam model, so both are accepted in all four modes and both are per-antenna.
+Absent, they change nothing: the cube, every beam fingerprint, and
+``scientific_sha256`` are what they were without them.
+
+``beams.pointing`` is a **deterministic mount mispointing**. The two angles are
+a fixed rotation of that antenna's beam frame relative to the topocentric
+horizontal frame, composed as the two encoder errors of an alt-az mount:
+``azimuth_offset_deg`` rotates about the local vertical (North through East),
+then ``elevation_offset_deg`` tilts the boresight away from the zenith. Because
+RadioSim's boresight *is* the zenith, the mispointed boresight lands at
+topocentric azimuth ``azimuth_offset_deg`` and zenith angle
+``elevation_offset_deg``, and the beam is evaluated at the direction expressed
+in that rotated frame.
+
+Two consequences are exact rather than small-angle:
+
+- the beam's peak moves by a great-circle angle of exactly
+  ``elevation_offset_deg``;
+- a pure azimuth offset rotates the pattern about the boresight without moving
+  it. That is the alt-az keyhole degeneracy, and it is real physics at a
+  zenith-pointed mount, not an approximation: a pure azimuth offset is
+  therefore inert for a circular aperture and is *not* inert for the
+  rectangular and elliptical ones.
+
+The horizon gate is unchanged and stays on the true topocentric altitude — a
+rotation of the beam frame does not move the ground.
+
+``beams.surface_error`` is the **Ruze random-surface RMS**, in metres. Ruze
+(1966) gives the reflector's *power* efficiency,
+
+.. math::
+
+   \eta_s(\lambda) = \exp\!\left[-\left(\frac{4 \pi \sigma}{\lambda}\right)^{2}\right],
+
+and RadioSim's ``E`` is a voltage beam, so the factor applied to the beam is
+:math:`\sqrt{\eta_s}`. The visibility amplitude on a baseline of two antennas
+sharing the same :math:`\sigma` is then scaled by exactly :math:`\eta_s`, which
+is what the published equation states. Both closed forms are public as
+``radiosim.core.beam.runtime.ruze_power_efficiency`` and ``ruze_voltage_factor``.
+
+Neither effect changes beam loading or deduplication: two mispointed antennas of
+the same diameter and model still share one loaded handler, because both effects
+are applied around the evaluator rather than inside it. They do enter the
+per-antenna ``assignment_fingerprint`` and therefore the beam state fingerprint
+and ``scientific_sha256``.
+
+What RadioSim does **not** model, and who owns it, is written out item by item
+in ``docs/development/beam_physics_scope.md``: polarized and cross-polar beams,
+beam squint, aperture blockage, Zernike aberrations, and the Ruze error-beam
+decomposition.
+
 HEALPix sampling advice
 -----------------------
 

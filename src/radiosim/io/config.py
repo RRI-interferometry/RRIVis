@@ -1682,10 +1682,14 @@ class CliWorkflowConfig(StrictFrozenModel):
 
 from radiosim.io.beam_config import (  # noqa: E402, I001
     AnalyticBeamsConfig,
+    BeamPointingConfig,
     BeamsConfig as _BeamsConfig,
+    BeamSurfaceErrorConfig,
     MixedBeamsConfig,
     PerAntennaFITSBeamsConfig,
+    PointingOffsetConfig,
     SharedFITSBeamsConfig,
+    SurfaceErrorConfig,
 )
 from radiosim.io.instrument_config import (  # noqa: E402
     BaselineSelectionConfig,
@@ -2267,7 +2271,19 @@ _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
         )
     ),
     "instrument.location": tuple(InstrumentLocationConfig.model_fields),
-    "beams": ("mode", "model", "beam", "assignments", "analytic_model"),
+    "beams": (
+        "mode",
+        "model",
+        "beam",
+        "assignments",
+        "analytic_model",
+        "pointing",
+        "surface_error",
+    ),
+    "beams.pointing": tuple(BeamPointingConfig.model_fields),
+    "beams.pointing.default": tuple(PointingOffsetConfig.model_fields),
+    "beams.surface_error": tuple(BeamSurfaceErrorConfig.model_fields),
+    "beams.surface_error.default": tuple(SurfaceErrorConfig.model_fields),
     "baseline_selection": tuple(BaselineSelectionConfig.model_fields),
     "receptors": tuple(ReceptorsConfig.model_fields),
     "receptors.default": tuple(ReceptorDefinitionConfig.model_fields),

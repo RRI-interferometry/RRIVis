@@ -222,44 +222,49 @@ def test_zero_surface_error_resolves_to_absent_and_is_bit_identical(
     )
 
 
-def test_absent_blocks_leave_the_beam_state_fingerprint_unchanged(
+def test_the_beam_state_fingerprint_moves_only_when_science_is_present(
     tmp_path: Path,
 ) -> None:
-    """The absent case must reproduce the pre-7I digests exactly."""
-    _first, first_state = _beam_system(tmp_path, _uniform_beams())
-    _second, second_state = _beam_system(
+    """Absent blocks reproduce the pre-7I digest; present ones must not.
+
+    A block that resolves to absence *for every antenna* is unreachable from
+    configuration -- an all-zero block is rejected outright -- so what is
+    checkable is the pair of statements either side of that: no block leaves the
+    state digest where it was, and any accepted block moves it.
+    """
+    _bare, bare_state = _beam_system(tmp_path, _uniform_beams())
+    _again, again_state = _beam_system(tmp_path, _uniform_beams())
+    assert again_state.state_fingerprint == bare_state.state_fingerprint
+
+    _offset, offset_state = _beam_system(
         tmp_path,
         _uniform_beams(
             pointing={
-                "default": {"azimuth_offset_deg": 0.0, "elevation_offset_deg": 0.0},
                 "per_antenna": [
-                    {
-                        "antenna": {"kind": "number", "number": 0},
-                        "azimuth_offset_deg": 0.0,
-                        "elevation_offset_deg": 0.0,
-                    },
                     {
                         "antenna": {"kind": "number", "number": 1},
                         "azimuth_offset_deg": 0.0,
-                        "elevation_offset_deg": 0.0,
-                    },
-                ],
-            },
-            surface_error={
-                "default": {"rms_surface_error_m": 0.0},
-                "per_antenna": [
-                    {
-                        "antenna": {"kind": "number", "number": 0},
-                        "rms_surface_error_m": 0.0,
+                        "elevation_offset_deg": 0.5,
                     }
-                ],
-            },
+                ]
+            }
         ),
     )
-    # Both blocks resolve entirely to absence, so the state digest -- and with
-    # it ``scientific_sha256`` -- is the one a configuration with no blocks at
-    # all produces.
-    assert second_state.state_fingerprint == first_state.state_fingerprint
+    assert offset_state.state_fingerprint != bare_state.state_fingerprint
+    # ... and antenna 0, which the block never reaches, is untouched.
+    bare_by_antenna = {a.antenna_id: a for a in bare_state.assignments}
+    offset_by_antenna = {a.antenna_id: a for a in offset_state.assignments}
+    assert (
+        offset_by_antenna[_ANT0].assignment_fingerprint
+        == bare_by_antenna[_ANT0].assignment_fingerprint
+    )
+
+    _rough, rough_state = _beam_system(
+        tmp_path,
+        _uniform_beams(surface_error={"default": {"rms_surface_error_m": 0.003}}),
+    )
+    assert rough_state.state_fingerprint != bare_state.state_fingerprint
+    assert rough_state.state_fingerprint != offset_state.state_fingerprint
 
 
 # =========================================================================
@@ -498,9 +503,9 @@ def test_ruze_rule_of_thumb_holds_at_the_shortest_usable_wavelength() -> None:
         rms_surface_error_m=sigma_m,
         wavelength_m=10.0 * sigma_m,
     )
-    # exp(-(4 pi / 10)^2) = exp(-1.5791367...) = 0.20605...
+    # exp(-(4 pi / 10)^2) = exp(-1.5791367...) = 0.2061529924...
     assert efficiency == pytest.approx(math.exp(-((0.4 * math.pi) ** 2)), rel=1e-15)
-    assert efficiency == pytest.approx(0.20605869, abs=1e-8)
+    assert efficiency == pytest.approx(0.20615299, abs=1e-8)
     # And the far-field limit is unity, so the factor is monotone in wavelength.
     assert (
         ruze_power_efficiency(
@@ -654,7 +659,7 @@ def _reject(tmp_path: Path, beams: dict[str, Any]):
 
 def test_an_all_zero_pointing_block_is_rejected(tmp_path: Path) -> None:
     """R7's shape: a block that is present and has no effect is a defect."""
-    from radiosim.io.config import ConfigSchemaError
+    from radiosim.io.config_resolution import ConfigSchemaError
 
     with pytest.raises(ConfigSchemaError) as excinfo:
         _reject(
@@ -673,7 +678,7 @@ def test_an_all_zero_pointing_block_is_rejected(tmp_path: Path) -> None:
 
 
 def test_an_empty_pointing_block_is_rejected(tmp_path: Path) -> None:
-    from radiosim.io.config import ConfigSchemaError
+    from radiosim.io.config_resolution import ConfigSchemaError
 
     with pytest.raises(ConfigSchemaError) as excinfo:
         _reject(tmp_path, _uniform_beams(pointing={}))
@@ -681,7 +686,7 @@ def test_an_empty_pointing_block_is_rejected(tmp_path: Path) -> None:
 
 
 def test_an_all_zero_surface_error_block_is_rejected(tmp_path: Path) -> None:
-    from radiosim.io.config import ConfigSchemaError
+    from radiosim.io.config_resolution import ConfigSchemaError
 
     with pytest.raises(ConfigSchemaError) as excinfo:
         _reject(
@@ -693,7 +698,7 @@ def test_an_all_zero_surface_error_block_is_rejected(tmp_path: Path) -> None:
 
 
 def test_a_negative_surface_error_is_rejected(tmp_path: Path) -> None:
-    from radiosim.io.config import ConfigSchemaError
+    from radiosim.io.config_resolution import ConfigSchemaError
 
     with pytest.raises(ConfigSchemaError):
         _reject(
@@ -703,7 +708,7 @@ def test_a_negative_surface_error_is_rejected(tmp_path: Path) -> None:
 
 
 def test_an_out_of_range_elevation_offset_is_rejected(tmp_path: Path) -> None:
-    from radiosim.io.config import ConfigSchemaError
+    from radiosim.io.config_resolution import ConfigSchemaError
 
     with pytest.raises(ConfigSchemaError):
         _reject(
@@ -789,7 +794,7 @@ def test_an_unknown_surface_error_antenna_is_rejected(tmp_path: Path) -> None:
 def test_an_unknown_key_inside_the_pointing_block_is_rejected(
     tmp_path: Path,
 ) -> None:
-    from radiosim.io.config import ConfigSchemaError
+    from radiosim.io.config_resolution import ConfigSchemaError
 
     with pytest.raises(ConfigSchemaError):
         _reject(

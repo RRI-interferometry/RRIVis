@@ -129,7 +129,22 @@ def test_resolved_leaf_field_order_is_exact():
             "path_provenance_key",
             "definition_fingerprint",
         ),
-        "ResolvedMixedBeamsInput": ("mode", "analytic_model", "assignments"),
+        "ResolvedMixedBeamsInput": (
+            "mode",
+            "analytic_model",
+            "assignments",
+            "pointing",
+            "surface_error",
+        ),
+        "ResolvedPointingOffset": (
+            "azimuth_offset_rad",
+            "elevation_offset_rad",
+        ),
+        "ResolvedSurfaceError": ("rms_surface_error_m",),
+        "ResolvedAntennaPointingOffset": ("antenna", "offset"),
+        "ResolvedAntennaSurfaceError": ("antenna", "surface_error"),
+        "ResolvedBeamPointing": ("default", "per_antenna"),
+        "ResolvedBeamSurfaceError": ("default", "per_antenna"),
         "BeamAssignmentProvenance": (
             "source",
             "input_index",
@@ -143,6 +158,8 @@ def test_resolved_leaf_field_order_is_exact():
             "definition",
             "provenance",
             "assignment_fingerprint",
+            "pointing",
+            "surface_error",
         ),
         "ResolvedBeamState": (
             "mode",
