@@ -11560,3 +11560,276 @@ expectation reflects a stale figure from elsewhere in this program's
 history or a simple miscommunication was not traced further, since the
 actual before/after comparison (43->34, explained line by line) is the
 fact that matters for this slice's acceptance.
+
+### 2026-08-01 Tier 7C independent acceptance
+
+Independent adversarial review of `13665f5..68458da` -- four commits:
+`8190d8a` (jones_config removal), `75d4608` (calculation_type removal),
+`6a83499` (26-class deletion), `68458da` (docs-only plan correction).
+Reviewed against `Tier7JonesSciencePlan.md`'s Section 33.2 7C contract (as
+corrected), Section 34 7C grant (as amended), Sections 9.1/9.2, 23, 24,
+27 (I15, I16, I20), and `Fix.md`'s 7A/7B records. Branch `main`, HEAD
+`68458da` at review start. No branch, no push. Two delegated background
+reviewers reproduced the heaviest evidence independently and their findings
+were cross-checked directly by this review, not merely relayed.
+
+**Scope.** `git diff --name-only 13665f5..68458da` touches exactly
+`Tier7JonesSciencePlan.md` plus the files Section 34's 7C list (as amended by
+`68458da`) grants: nine rewritten Jones term modules, three deleted modules
+(`faraday.py`, `wterm.py`, `element_beam.py`), `geometric.py`, `__init__.py`,
+both solvers, `hybrid.py`, both simulator base classes, `io/config.py`, all
+four shipped configs, five documentation files, and the test files the
+correction lists (including the new `tests/unit/test_tier7_jones_acceptance.py`).
+No file outside the grant is touched. No co-author line in any of the four
+commit messages (grepped directly).
+
+**Deletion completeness -- exhaustive.** Grepped all 27 names appearing in
+Section 23's removal list (26 deleted classes plus `GeometricPhaseJones`,
+which Section 9.1 disposes of as a function, confirmed by direct count of
+Section 23's list: 27, not 26, matching the `68458da` correction exactly)
+across `src/`, `tests/`, `docs/`, `configs/`, `examples/`, `CLAUDE.md`,
+`Fix.md`, `Tier7JonesSciencePlan.md`, `AGENTS.md`. Every hit is sanctioned
+residue: `docs/migration_guide.md`'s replacement table, `docs/changelog.rst`,
+test files asserting absence (`test_tier7_jones_acceptance.py`,
+`test_tier7_current_behavior.py`, `test_geometric_phase.py`,
+`test_tier1h_documentation.py`), this file's own acceptance records, the
+plan itself, and `CLAUDE.md`'s deliberately-stale term table (correction 6,
+confirmed unchanged in this range's diff). One additional hit outside the
+sanctioned set was found and dispositioned: `src/rrivis.egg-info/PKG-INFO`,
+a stale, `.gitignore`d, untracked build artifact from a pre-rename package
+name -- confirmed via `git check-ignore -v` and `git ls-files`, not part of
+the repository in the git-tracked sense this review's charter scopes to, and
+not a defect.
+
+Fresh-process probes (13, exceeding the 8 asked for): 10 removed class names
+(`GeometricPhaseJones`, `TimeVariableGainJones`, `IXRLeakageJones`,
+`FieldRotationJones`, `GPSIonosphereJones`, `WPhaseJones`,
+`WidefieldPolarimetricJones`, `FringeFitJones`, `CrosshandDelayJones`,
+`CrosshandPhaseJones`) each raise `AttributeError` on `getattr(jones_package,
+name)`; 3 deleted modules (`faraday`, `wterm`, `element_beam`) each raise
+`ModuleNotFoundError` on import. `CrosshandJones` (the rename target)
+resolves correctly to `radiosim.core.jones.crosshand.CrosshandJones`.
+`radiosim.core.jones.__all__` has length 19 and equals, in exact order,
+`(JonesTerm, JonesChain, JonesBaselineTerm, DirectionBatch,
+evaluate_antenna_jones, geometric_phase, GainJones, BandpassJones,
+PolarizationLeakageJones, ParallacticAngleJones, IonosphereJones,
+TroposphereJones, ReceptorConfigJones, BasisTransformJones, DelayJones,
+CableReflectionJones, CrosshandJones, BaselineMultiplicativeJones,
+SmearingFactorJones)` -- reproduced directly, not taken from the test suite's
+own assertion.
+
+**Survivor-state findings.** Read in full: `core/jones/base.py`,
+`core/jones/baseline_errors.py` (both ABCs, and `M`/`Q`), `core/jones/gain.py`
+(`G`), `core/jones/ionosphere.py` (`Z`) -- 4 of the 11 planned terms plus both
+base classes. Grep-verified the remaining 7 (`bandpass.py`,
+`polarization_leakage.py`, `parallactic.py`, `troposphere.py`, `delay.py`
+(`Kd`, `Rc`), `crosshand.py`) carry no `__init__`, no `is_diagonal`/
+`is_scalar`/`is_unitary`/`is_frequency_dependent` override, and no
+`compute_jones`-family override -- every one inherits the raising base
+contract. Every planned term's docstring cites a real reference (Hamaker,
+Bregman & Sault 1996; Smirnov 2011; Thompson, Moran & Swenson 2017; Intema
+et al. 2009) and states units, signs, and its owning slice. Probed directly:
+`GainJones()` instantiates (`term_status == "planned"`); calling
+`compute_jones_batch` with a full, correctly-typed argument set raises
+`NotImplementedError: GainJones does not implement compute_jones_batch; ...`
+-- instantiation possible, evaluation impossible, exactly the I20
+correspondence. `ReceptorConfigJones`/`BasisTransformJones` gain
+`term_status -> "implemented"` via a new `_ReceptorTermBase.term_status`
+override in `core/jones/receptor.py`; the diff for that file is otherwise
+exactly two reStructuredText title-underline length fixes -- confirmed by
+direct diff read, nothing else changed, their Tier 5 behavior is untouched.
+The private, unexported `_ResolvedBeamJones` (E) in `core/visibility.py`
+also overrides `term_status -> "implemented"`, correctly excluded from
+`__all__` and therefore from I20's exported-class scan.
+
+**calculation_type removal.** `VisibilityConfig.model_fields` no longer
+contains it; a repo-wide grep finds the string only in `io/config.py`
+(the removed-field docstring and the R1 message), `docs/migration_guide.md`,
+`docs/changelog.rst`, `docs/user_guide/configuration.rst`, and test files
+asserting its absence. Reproduced R1 directly: loading a config document with
+`visibility.calculation_type: spherical_harmonic` through
+`collect_schema_issues` raises exactly one issue, code `removed_field`,
+message character-for-character equal to Section 24's R1 text. All four
+shipped configs pass `radiosim validate` directly. I15 (`execution.simulator`
+accepted values equal the simulator registry keys, equal `{"rime"}`) holds.
+
+**jones_config removal.** Confirmed absent from
+`core.visibility.calculate_visibility`, `core.visibility_healpix.
+calculate_visibility_healpix`, `RIMESimulator.calculate_visibilities`, and
+`VisibilitySimulator.calculate_visibilities` by direct signature inspection.
+(Note: Section 23/5.4 name these methods `RIMESimulator.simulate`/
+`VisibilitySimulator.simulate`; the actual method has always been named
+`calculate_visibilities`, confirmed unchanged since before `13665f5` -- a
+pre-existing plan-text imprecision inherited from the original design gate,
+not introduced or worsened by 7C, and not a defect this slice owns.)
+`core/hybrid.py` carries no `jones_config` reference at all now.
+`_reject_parallactic_rotation` has exactly one occurrence of its own name in
+`visibility.py` (the definition) -- zero callers, confirmed by grep -- its
+message and body otherwise unchanged, and `test_receptor_solver.py`'s
+re-aimed test confirms a rotated receptor now reaches and is carried by the
+solver (`chain.terms` names are `("H", "C", "E")`, cube nonzero) while the
+guard still raises `UnsupportedFeedGeometryError` when called directly.
+
+**Bit-identity and provenance-attribution reproduction (delegated to a
+background reviewer working in a detached, `PYTHONPATH`-isolated
+`git worktree` at `13665f5`; independently cross-checked by this review).**
+`configs/config.yaml`: raw cube sha256 `cce1bfe8...` and `scientific_sha256`
+`4bbb7403...` identical at `13665f5` and `68458da`, matching the pinned
+`_SHIPPED_CONFIG_CUBE_DIGESTS`/`_SHIPPED_CONFIG_FINGERPRINTS` tables.
+`configs/receptor_circular_example.yaml`: raw cube `95890bc6...` and
+scientific `be1e86fb...`, same result. `configs/hybrid_sky_example.yaml`:
+the additivity invariant (hybrid cube == point-only + healpix-only cube)
+holds bit-for-bit at both commits, per the Tier 7A ruling that this is the
+correct substitute for an absolute cross-architecture digest. Diffing the
+flattened `resolved_config` document underlying `provenance_sha256` for both
+hermetic configs shows **exactly one** delta in each: `visibility.
+calculation_type: "direct_sum"` present -> absent, nothing else -- and
+`provenance_sha256` moves for both, as it must. `tests/characterization/
+test_tier6_current_behavior.py`'s diff across the range is exclusively
+`calculation_type` fixture-key removals; the file's 65 sha256 hex literals
+are an identical multiset before and after, confirming no environment-keyed
+pin moved silently.
+
+**Tests-first (delegated and independently re-confirmed).** The new
+`tests/unit/test_tier7_jones_acceptance.py`, copied verbatim into the
+detached `13665f5` worktree and run against that old source: **169 failed,
+48 passed** (217 collected -- more IDs than at HEAD because the 26
+still-existing classes parametrize `test_a_removed_jones_name_is_gone_from_
+every_access_path`-style checks in the wrong direction, and the file's
+"removed name" tests were written to run at HEAD where those classes are
+absent). Six spot-checked: `test_the_jones_package_exports_exactly_the_
+surviving_names` (FAIL, stale `__all__`), `test_every_exported_term_
+declares_a_truthful_status` (FAIL, 39/39 parametrizations -- `term_status`
+does not exist yet), `test_calculation_type_is_absent_from_the_schema_and_
+the_package` (FAIL, field still present), `test_the_accepted_simulator_
+values_equal_the_registry_keys` (PASS -- correctly anticipated as
+non-`calculation_type`-specific, I15 already held), `test_no_stub_marker_
+survives_anywhere_in_the_package` (FAIL, `TODO: implement properly` still
+present), `test_a_planned_term_refuses_to_be_evaluated` (MIXED, 16/37
+fail -- the deleted classes' constructors raise `TypeError` on missing
+required arguments rather than the expected `NotImplementedError`, still red
+for the right reason). At HEAD, this review ran the file directly
+(`pixi run python -m pytest tests/unit/test_tier7_jones_acceptance.py -v`):
+**113 passed, 0 failed** -- independently reproduced, not taken from the
+background reviewer's report alone.
+
+**The term_status ruling -- the main call.** `Tier7JonesSciencePlan.md`
+Section 23 states the property as `-> "implemented"`; the `68458da`
+correction departs from that, making the base-class default `"planned"` and
+having only `ReceptorConfigJones`, `BasisTransformJones`, and the private `E`
+adapter override it. **Ruling: correct, ratified.** The base class is `ABC`
+but `term_status` is a concrete, non-abstract property -- so a base default
+of `"implemented"` would not merely be unenforced, it would be actively
+inherited and asserted true by all eleven exported classes whose
+`compute_jones_batch` raises `NotImplementedError` for every input. That is
+precisely the vacuous-claim shape invariant I2 was written to forbid for
+`is_diagonal`/`is_scalar`/`is_unitary` -- a boolean asserted true about a
+matrix that cannot be swept -- applied one level up to a status string
+asserted true about a term that cannot be evaluated at all. Section 23's
+literal text is better read as describing the tier's *destination* property,
+correct at 7K, than as a literal instruction for 7C's default: the plan's
+own internal structure already presupposes a transitional state,
+independently of this correction -- Section 31 step 5 directs each term
+slice to "update ... its `term_status`" (there is nothing to update from an
+already-`"implemented"` default), and Section 37 criterion 2 is explicitly
+the assertion that no `"planned"` term survives at 7K, which is only a
+meaningful gate if a `"planned"` state exists before it. Both of those
+sentences predate `68458da` and were never in dispute, which is what makes
+the `"implemented"`-default reading the less coherent one, not merely the
+less cautious one. Verified directly in code: `JonesTerm.term_status`
+(`base.py:98-119`) and `JonesBaselineTerm.term_status`
+(`baseline_errors.py:61-70`) both default `"planned"`;
+`_ReceptorTermBase.term_status` (`receptor.py`) and `_ResolvedBeamJones.
+term_status` (`visibility.py`) both override to `"implemented"`; exactly 2
+of 13 exported term classes (plus the 1 private E adapter) are
+`"implemented"`, 11 are `"planned"` -- reproduced by direct instantiation
+and property read, and by
+`test_every_exported_term_declares_a_truthful_status`'s bidirectional
+correspondence check (13 parametrizations, all passed).
+
+**Adjudications.**
+
+1. **Three modules, not five; 27 names, not 26 -- confirmed by direct count.**
+   `git diff --name-only` shows exactly `faraday.py`, `wterm.py`,
+   `element_beam.py` deleted; the other nine former stub-holder modules
+   survive, rewritten. Section 23's removal list contains 27
+   `[A-Za-z]+Jones`-shaped names by direct count (confirmed with a one-line
+   grep), not 26, because it includes `GeometricPhaseJones`. Correct.
+2. **The `term_status` default -- see above. Correct, ratified.**
+3. **Abstract-flip deferral to 7G/7H -- correct.** `base.py` and
+   `baseline_errors.py` both state directly, in their `compute_jones_batch`/
+   `compute_baseline_factor` docstrings, that the method stays concrete-
+   and-raising because nine `JonesTerm` subclasses and two
+   `JonesBaselineTerm` subclasses are still `"planned"`; an abstract
+   declaration now would make every one of them uninstantiable.
+4. **Flags and constructors stripped beyond the literal ledger -- sound
+   application of Section 9.2, not scope creep.** Confirmed directly: none
+   of the nine grep-checked modules define `__init__` or override any
+   capability flag. This closes D2 and the vacuous half of D10 for exactly
+   the 13 terms already in 7C's scope -- no class outside the ledger is
+   touched -- and is explicitly anticipated by Section 31 steps 3-5 (each
+   term slice reintroduces its own constructor and flags together with its
+   physics), so 7D-7H's "write from scratch" is the plan's designed shape,
+   not new cost imposed by this correction.
+5. **`_reject_parallactic_rotation` kept callerless for 7F -- confirmed
+   correct**, per the jones_config-removal findings above.
+6. **`CLAUDE.md` deliberately stale for 7J -- confirmed.** Untouched in the
+   four-commit diff (not in `git diff --name-only`).
+   `test_claude_md_claims_forty_six_exported_jones_classes` now asserts the
+   stale "46 exported classes" text **is** still present, while separately
+   asserting the true count is 19 -- recording the gap rather than quietly
+   closing it, exactly as claimed. Section 34 gives `CLAUDE.md` only to 7J's
+   writable list, confirmed by direct read.
+
+**Gates -- both environments, cross-checked by two independent paths (a
+delegated background reviewer, and this review running the same commands
+directly).** `pixi run test -- -m "not slow"`: **4,658 passed, 0 failed, 10
+deselected, 26 warnings** in both `default`/py311 (431.33s) and `py312`
+(463.69s) -- arithmetic confirmed directly: `4,545` (Tier 7A/7B baseline)
+`+ 113` (this review's own direct run of only
+`tests/unit/test_tier7_jones_acceptance.py`, isolated from the rest of the
+suite: **113 passed, 0 failed**) `= 4,658` exactly; no other net test-count
+change elsewhere in the range. Full suite including slow, default
+environment: **4,668 passed, 0 failed, 26 warnings** (441.25s) -- reproduced
+directly by this review (`4,658 + 10` deselected-when-filtered `= 4,668`).
+`pixi run lint`: clean, reproduced directly. `pixi run check-format`: clean,
+352 files already formatted, `git status` unchanged before and after,
+reproduced directly. `pixi run typecheck`: **2,491 <= 4,600** ceiling
+satisfied (decreased from the prior recorded 2,702), reproduced directly --
+required for this slice per Section 32 (7C changes type-bearing public
+signatures). Sphinx, built outside the repository into a scratch directory
+to sidestep the documented `docs/_build/` repo-grep hazard entirely:
+**18 warnings**, reproduced directly by this review, confirming 18 against
+the claim under review and refuting 36; not compared to a "30->30" baseline
+because none is recorded in this file, consistent with Tier 7B's own finding
+of the same non-blocking measurement-methodology noise. `git diff --check`
+(whitespace): clean. `git status`: clean before and after this review's own
+edits. All four commit messages read in full: zero "Co-Authored-By"
+occurrences.
+
+**Disposition.** Tier 7C **ACCEPTED**. One further bounded factual
+correction applied to `Tier7JonesSciencePlan.md` Section 37 criterion 1
+(its "16 names" figure counted only Section 9.1's classes, predating 7B's
+three non-class exports, and undercounted `__all__`'s true 19-entry total by
+three -- the same species of drift `68458da` already fixed for Section 23's
+"26/27" discrepancy). The six bounded corrections `68458da` had already
+applied to Sections 33.2 and 34 are ratified without further correction,
+including the `term_status` default ruling above. No decision changed. No
+register row changes: `SCI-001`, `SCI-002`, `SCI-003` remain `ROADMAP` until
+whole-tier acceptance (7K). The plan's status header is updated to record
+7C's acceptance and to authorize slice **7D**. Acceptance commit:
+`docs(jones): accept Tier 7C stub removal`. Not pushed.
+
+**Unobserved items.** `linux-64`/`osx-64` execution: not available in this
+environment; this review's reproduction is `osx-arm64`/py311 and py312 only,
+matching every prior tier's acceptance record in this file. GPU/TPU/
+distributed hardware: none exercised, none claimed. The six-cell
+`_ENVIRONMENT_KEY` digest table's other five cells were not independently
+re-harvested; this review relied on the unchanged 65-hash-literal multiset
+in `test_tier6_current_behavior.py` as proof no pinned value moved. The
+pre-existing `RIMESimulator.simulate`/`calculate_visibilities` naming
+imprecision in Sections 5.4 and 23 was noted but not corrected here, since it
+predates this range, is not a 7C defect, and does not affect any test or
+invariant's truth value -- left for whichever slice next touches those
+sections to fold in as a drive-by fix. Cross-implementation validation
+(Section 29): out of scope for 7C, owned by 7J; not assessed here.

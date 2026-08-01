@@ -18,7 +18,14 @@ already applied by the implementer, `docs(jones): correct Tier 7 design`,
 decision changed -- including the two disclosed HEALPix-only numerical
 deltas from closing D4/D9, ruled authorized-and-correct; see `Fix.md`'s
 2026-08-01 "Tier 7B independent acceptance" note for the full record).
-Slice **7C is authorized**.**
+Slice **7C is accepted** (2026-08-01, independent review; one bounded
+factual correction applied to Section 37 criterion 1, plus ratification of
+the six bounded corrections the implementer had already applied to Sections
+33.2 and 34 (`docs(jones): correct Tier 7 design`, `68458da`), including the
+`term_status` base default of `"planned"` rather than Section 23's literal
+`"implemented"`, ruled correct on independent analysis; no decision changed;
+see `Fix.md`'s 2026-08-01 "Tier 7C independent acceptance" note for the full
+record). Slice **7D is authorized**.**
 
 This document is the governing implementation specification for Tier 7 of the
 RadioSim remediation program, defined by [`Fix.md`](Fix.md) Section 16
@@ -2895,9 +2902,24 @@ Every entry needs a `docs/migration_guide.md` line and a changelog line.
 
 All twenty must hold at 7K, each with named evidence.
 
-1. `radiosim.core.jones.__all__` contains exactly the 16 names of Section 9.1,
-   and every one of the 26 removed names raises on import with a migration-guide
-   sentence available.
+1. `radiosim.core.jones.__all__` contains exactly 19 names -- Section 9.1's 16
+   class names (3 base classes, 13 concrete terms) plus the three non-class
+   exports Tier 7B added (`DirectionBatch`, `evaluate_antenna_jones`,
+   `geometric_phase`) -- and every one of the 26 removed classes plus the
+   renamed `CrosshandPhaseJones` raises on import with a migration-guide
+   sentence available. **Correction (7C independent acceptance, 2026-08-01):**
+   the "16 names" figure above was Section 9.1's count of *classes* at
+   design-gate time, before 7B introduced the three non-class exports; taken
+   literally against `__all__`'s actual contents it undercounts by three. This
+   is the same species of drift the `68458da` correction already fixed for
+   Section 23's "26 removed names" (actually 27, because it includes
+   `GeometricPhaseJones`) -- left unreconciled here because Section 34 does not
+   give 7C write access to Section 37, and 7C's own writable list is exact
+   about the true 19-name total (`tests/unit/test_tier7_jones_acceptance.py::
+   test_the_jones_package_exports_exactly_the_surviving_names`, independently
+   reproduced by this review: `len(SURVIVING_JONES_NAMES) == 19`, 13 term
+   classes, 11 of them planned). No decision changes; 7K's criterion is now
+   stated correctly rather than left to a future reviewer to rediscover.
 2. Every exported Jones class implements real physics: `term_status ==
    "implemented"` for all of them, and no `compute_jones_batch` in `src/`
    returns an identity for all inputs.
