@@ -1485,9 +1485,25 @@ Parameterizations (`d_terms.kind`):
 
 - `explicit`: complex `d_p0`, `d_p1` per antenna;
 - `ixr`: an intrinsic cross-polarization ratio in dB per antenna, converted by
-  `|d| = (sqrt(IXR_lin) - 1) / (sqrt(IXR_lin) + 1)` with
-  `IXR_lin = 10^(IXR_dB/10)` — the conversion already recorded at
-  `beam/TODO.md:16` — with a configured phase;
+  `|d| = 1 / sqrt(IXR_lin)` with `IXR_lin = 10^(IXR_dB/10)` — equivalently
+  `IXR_dB = -20 log10 |d|` — with a configured phase;
+
+  **Correction (Tier 7E implementation, 2026-08-01).** This sentence previously
+  read `|d| = (sqrt(IXR_lin) - 1) / (sqrt(IXR_lin) + 1)`, copied from
+  `beam/TODO.md:16`, and that formula is **inverted**: it maps a *larger* IXR to
+  a *larger* leakage, so a 30 dB antenna — an excellent one — would resolve to
+  `|d| = 0.94`, and a 0 dB antenna — a completely depolarizing one — to
+  `|d| = 0`. The derivation, from the reference the plan already cites: Carozzi
+  & Woan (2011) define `IXR_J = ((kappa + 1)/(kappa - 1))^2` for the condition
+  number `kappa` of the Jones matrix; for `D = [[1, d], [-d^*, 1]]` the singular
+  values are `1 +- |d|`, so `kappa = (1 + |d|)/(1 - |d|)`. Writing
+  `s = sqrt(IXR_lin) = (kappa + 1)/(kappa - 1)` gives `kappa = (s + 1)/(s - 1)`
+  and therefore `|d| = (kappa - 1)/(kappa + 1) = 1/s`. The published formula is
+  what `(kappa - 1)/(kappa + 1)` becomes if `kappa` and `s` are interchanged.
+  The corrected relation has the two limits the physics requires: `|d| -> 0` as
+  `IXR_dB -> infinity`, and `|d| = 1` at `IXR_dB = 0`. `beam/TODO.md:16` still
+  carries the inverted form; correcting it belongs to Tier 7I, which owns that
+  file and rewrites it as `docs/development/beam_physics_scope.md`;
 - `frequency_polynomial`: `d(nu)` as a complex polynomial in normalized
   frequency, which is the deleted `FrequencyDependentLeakageJones`.
 
