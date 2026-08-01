@@ -1100,10 +1100,15 @@ def resolve_jones_terms(
     Raises
     ------
     InvalidJonesConfigError
-        R2, R5, R6, R11, or a derived default that cannot be computed.
+        R2, R5, R6, R8, R9, R10, R11, or a derived default that cannot be
+        computed.  **Not** R13: its condition is about directions, so ``T`` and
+        ``Z`` raise it themselves at evaluation (Section 24's 7G correction).
     JonesAssignmentError
         R4: a ``per_antenna`` entry names an antenna the instrument does not
         have.
+    UnsupportedMountTypeError
+        R12 or R15: an antenna's mount type and the ``P`` configuration
+        disagree.
     IdentityJonesTermError
         R7: a configured term resolves to exactly the identity.
     """
