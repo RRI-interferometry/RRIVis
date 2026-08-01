@@ -2909,10 +2909,11 @@ property the file was written to protect is preserved or strengthened:
 - `docs/user_guide/jones_matrices.rst`, `docs/user_guide/jones_terms.rst`
 - `Fix.md`
 
-**Correction (7E implementation, 2026-08-01) — four forced additions.** The
-list above omits four files that adding a term to the schema *necessarily*
-touches, and the omission is a defect in the list rather than a boundary the
-slice should respect. Each addition is bounded and named:
+**Correction (7E implementation, 2026-08-01) — six forced additions.** The
+list above omits six files that adding a term to the schema, or carrying out
+this slice's own mandated documentation rewrite, *necessarily* touches. The
+omission is a defect in the list rather than a boundary the slice should
+respect. Each addition is bounded and named:
 
 - `src/radiosim/io/config.py` — the `_KNOWN_FIELDS_BY_PARENT` table and its
   `io/jones_config` import only. The table carries one row per configurable
@@ -2947,6 +2948,15 @@ slice should respect. Each addition is bounded and named:
   saying they are rejected would be shipping exactly the documentation untruth
   this tier exists to remove; Tier 7J's full documentation pass is too late for
   a statement that is wrong the moment this slice lands.
+
+- `tests/unit/test_tier1h_documentation.py` — the two assertions in
+  `test_tier5g_jones_guide_states_the_receptor_science_boundaries` that pin the
+  exact wording 7E is *required* to change. One asserted the guide contains
+  "When Tier 7 implements `D`"; 7E implements it, so the promise is discharged
+  and the assertion moves to the sentences that replace it. The other pinned the
+  nine-factor chain-order formula, which gains `Rc`, `Kd` and `X`. Both are
+  re-aimed rather than deleted: the property being pinned — that the guide
+  states the boundary rather than implying there is none — is unchanged.
 
 No other file outside the list was touched.
 
