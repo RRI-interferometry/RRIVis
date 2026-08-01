@@ -58,7 +58,7 @@ def test_resolved_dataclasses_and_nested_mappings_are_immutable(tmp_path):
     with pytest.raises(FrozenInstanceError):
         bundle.runtime.execution.offline = False
     with pytest.raises(TypeError, match="immutable"):
-        bundle.runtime.visibility["calculation_type"] = "other"
+        bundle.runtime.visibility["sky_representation"] = "other"
     with pytest.raises(TypeError, match="immutable"):
         bundle.provenance.override_origins["execution.backend"] = "override"
 

@@ -1340,15 +1340,19 @@ def test_no_jones_section_exists_in_the_configuration_schema() -> None:
     assert not (SOURCE_ROOT / "core" / "jones_errors.py").exists()
 
 
-def test_calculation_type_reaches_no_consumer() -> None:
-    """Pins defect D13: a validated field that nothing reads.
+def test_calculation_type_reaches_no_consumer_because_it_no_longer_exists() -> None:
+    """Pins defect D13 at its resolution: a validated field that nothing read.
 
-    ``io/config.py`` is the only module in ``src/radiosim`` that mentions it,
-    and there it appears three times: the field declaration and the two halves
-    of the spherical-harmonic rejection.  No solver, simulator, resolver or
-    runtime model reads it, so ``direct_sum`` is a silent no-op.
+    At the gate ``io/config.py`` was the only module in ``src/radiosim`` that
+    mentioned ``calculation_type``, and there it appeared three times -- the
+    field declaration and the two halves of the spherical-harmonic rejection.
+    No solver, simulator, resolver or runtime model read it, so ``direct_sum``
+    was a silent no-op.
 
-    OWNED BY: Tier 7C, which removes the field.
+    FLIPPED BY: Tier 7C, which removed the field (Section 33.2).  The two
+    surviving mentions are the removed-field guidance that tells a user with an
+    old document what to do, and the class docstring that says why it is gone --
+    neither is a field and neither is read by the runtime.
     """
     carriers = {
         path.relative_to(SOURCE_ROOT).as_posix()
@@ -1358,51 +1362,57 @@ def test_calculation_type_reaches_no_consumer() -> None:
     assert carriers == {"io/config.py"}
 
     text = _source("src/radiosim/io/config.py")
-    # Three occurrences: the field declaration, the rejection's comparison, and
-    # the dotted field name in the rejection payload.
-    assert text.count("calculation_type") == 3
+    assert "calculation_type: Literal" not in text
+    assert "config.visibility.calculation_type" not in text
+    assert '"visibility.calculation_type": (' in text
+    assert "calculation_type" not in VisibilityConfig.model_fields
 
-    field = VisibilityConfig.model_fields["calculation_type"]
-    assert field.default == "direct_sum"
-
-    # The honored strategy selector is a different field in a different section.
+    # The honored strategy selector is a different field in a different section,
+    # and it is now the only one (invariant I15).
     assert "get_simulator(self._simulator_name)" in _source(
         "src/radiosim/api/simulator.py"
     )
 
 
-def test_spherical_harmonic_is_rejected_with_the_tier7_promise(tmp_path) -> None:
-    """Pins the exact rejection message that names this tier.
+def test_spherical_harmonic_is_no_longer_a_value_or_a_promise(tmp_path) -> None:
+    """Pins the removal of the rejection that named this tier.
 
-    OWNED BY: Tier 7C, which removes both the value and the message.
+    FLIPPED BY: Tier 7C, which removed both the value and the message.  Setting
+    the key is now a schema-stage removed-field rejection carrying R1's exact
+    guidance, not an ``unsupported``-stage promise that Tier 7 will implement a
+    spherical-harmonic transform.  Tier 7 does not: Section 18 descopes m-mode
+    to register row ``SCI-004``, and Section 24 fixes the replacement text.
     """
     from tests.fixtures.configs import valid_config_mapping
 
-    mapping = valid_config_mapping(
-        tmp_path,
-        visibility={"calculation_type": "spherical_harmonic"},
-    )
+    mapping = valid_config_mapping(tmp_path)
+    mapping["visibility"] = {
+        **mapping["visibility"],
+        "calculation_type": "spherical_harmonic",
+    }
     path = tmp_path / "spherical.yaml"
     path.write_text(yaml.safe_dump(mapping), encoding="utf-8")
 
-    config = RadioSimConfig.model_validate(mapping)
-    issues = collect_unsupported_issues(config)
-    matching = [
-        issue for issue in issues if issue.code == "spherical_harmonic_unsupported"
-    ]
-    assert len(matching) == 1
-    assert matching[0].path == "visibility.calculation_type"
-    assert matching[0].stage == "unsupported"
-    assert matching[0].category == "unsupported"
-    assert matching[0].message == (
-        "spherical-harmonic calculation is not implemented until Tier 7"
+    with pytest.raises(Exception) as excinfo:
+        RadioSimConfig.model_validate(mapping)
+    assert "extra" in str(excinfo.value).lower()
+
+    assert "spherical-harmonic calculation is not implemented until Tier 7" not in (
+        _source("src/radiosim/io/config.py")
+    )
+    assert (
+        collect_unsupported_issues(
+            RadioSimConfig.model_validate(valid_config_mapping(tmp_path))
+        )
+        == ()
     )
 
     with pytest.raises(Exception) as excinfo:
         load_config(path)
-    assert "spherical-harmonic calculation is not implemented until Tier 7" in str(
-        excinfo.value
-    )
+    assert (
+        "visibility.calculation_type was removed before v1.0; the solver "
+        "strategy is selected by 'execution.simulator' (currently only 'rime')."
+    ) in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
@@ -1414,20 +1424,24 @@ def test_spherical_harmonic_is_rejected_with_the_tier7_promise(tmp_path) -> None
         "realistic_foreground_example.yaml",
     ),
 )
-def test_every_shipped_config_sets_calculation_type_direct_sum(
+def test_no_shipped_config_sets_calculation_type(
     config_name: str,
 ) -> None:
-    """Pins the Q3 input: four shipped configs, all ``direct_sum``.
+    """Pins the Q3 answer: four shipped configs, none of them sets the key.
 
-    Section 41's Q3 blocks 7C on confirming that no consumer uses the value.
-    7A records the starting state so 7C's mechanical edit is auditable.
+    Section 41's Q3 blocked 7C on confirming that no consumer used the value.
+    It did not, so 7C deleted the field and the key, and every shipped document
+    still validates and still resolves.
 
-    OWNED BY: Tier 7C, which deletes the key from all four files.
+    FLIPPED BY: Tier 7C.
     """
-    data = yaml.safe_load(
-        (REPO_ROOT / "configs" / config_name).read_text(encoding="utf-8")
-    )
-    assert data["visibility"]["calculation_type"] == "direct_sum"
+    text = (REPO_ROOT / "configs" / config_name).read_text(encoding="utf-8")
+    assert "calculation_type" not in text
+
+    data = yaml.safe_load(text)
+    assert "calculation_type" not in data["visibility"]
+    assert set(data["visibility"]) <= set(VisibilityConfig.model_fields)
+    assert RadioSimConfig.model_validate(data).execution.simulator == "rime"
 
 
 def test_jones_precision_declares_exactly_eight_terms() -> None:

@@ -805,14 +805,25 @@ def test_semantic_collector_aggregates_stably_without_mutating_config(tmp_path):
     assert config.model_dump(mode="json") == before
 
 
-def test_unsupported_collector_accepts_final_beam_modes_for_runtime(tmp_path):
+def test_unsupported_collector_declares_no_capability_gap(tmp_path):
+    """Every accepted setting is implemented, so the collector returns nothing.
+
+    Its one entry used to reject
+    ``visibility.calculation_type: spherical_harmonic``.  Tier 7C removed the
+    field rather than implementing it (``Tier7JonesSciencePlan.md``
+    Section 33.2): a value no module read is not a capability gap, and a
+    spherical-harmonic solver is a future simulator registration.  The
+    collector, the ``unsupported`` stage and ``UnsupportedConfigError`` remain
+    part of the Tier 1 validator contract for the next real gap; what this
+    asserts is that there is no such gap today, and in particular that no final
+    beam mode and no workflow value declares one.
+    """
     config = valid_input_config(
         tmp_path,
         beams={
             "mode": "shared_fits",
             "beam": {"kind": "fits", "path": "missing.fits"},
         },
-        visibility={"calculation_type": "spherical_harmonic"},
         workflow={
             "result_format": "uvfits",
             "collision_policy": "suffix",
@@ -820,13 +831,8 @@ def test_unsupported_collector_accepts_final_beam_modes_for_runtime(tmp_path):
         },
     )
 
-    issues = collect_unsupported_issues(config)
-    paths = {issue.path for issue in issues}
-
-    assert {"visibility.calculation_type"} <= paths
-    assert not any(path.startswith("beams.") for path in paths)
-    assert not any(path.startswith("workflow.") for path in paths)
-    assert all(issue.stage == "unsupported" for issue in issues)
+    assert collect_unsupported_issues(config) == ()
+    assert collect_unsupported_issues(valid_input_config(tmp_path)) == ()
 
 
 def test_precision_default_and_declared_backend_values_are_input_only():

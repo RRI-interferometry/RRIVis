@@ -595,3 +595,22 @@ model methods should be replaced by those functions or standard `model_dump`.
 Paths are source-aware: YAML paths use the document parent, mapping/model
 relative paths require `base_dir`, and override paths use the captured call
 directory. `~` is expanded; environment-variable syntax is rejected.
+
+## Jones terms and the visibility strategy selector
+
+`visibility.calculation_type` was removed before v1.0. It validated
+`direct_sum` and `spherical_harmonic`, and no module in `src/radiosim` ever
+read either value: `direct_sum` was a no-op and `spherical_harmonic` was
+rejected by a validator that named a tier. A document that still sets it is
+rejected with:
+
+```text
+visibility.calculation_type was removed before v1.0; the solver strategy is
+selected by 'execution.simulator' (currently only 'rime').
+```
+
+Delete the key. `execution.simulator` is the one strategy selector, its accepted
+values are exactly the keys of the simulator registry (`rime`), and that
+equality is asserted by a standing test so a second, unread selector cannot
+reappear. A spherical-harmonic or m-mode solver is a future simulator
+registration, not a value on a removed field.

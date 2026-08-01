@@ -99,7 +99,6 @@ def valid_config_mapping(
             ],
         },
         "visibility": {
-            "calculation_type": "direct_sum",
             "sky_representation": "point_sources",
         },
         "execution": {
@@ -204,7 +203,6 @@ def hybrid_config_mapping(
             "sources": sources,
         },
         visibility={
-            "calculation_type": "direct_sum",
             "sky_representation": representation,
         },
         **section_overrides,
@@ -267,7 +265,6 @@ def legacy_runtime_config_mapping(
         },
         "sky_model": {"sources": [{"kind": "test_sources", "num_sources": 2}]},
         "visibility": {
-            "calculation_type": "direct_sum",
             "sky_representation": "point_sources",
         },
         "compute": {"backend": "numpy", "offline": True},

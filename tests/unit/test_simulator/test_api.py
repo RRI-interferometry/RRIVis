@@ -714,7 +714,6 @@ def test_run_hands_the_resolved_receptor_set_to_the_healpix_solver(
     data = _explicit_data(
         tmp_path,
         visibility={
-            "calculation_type": "direct_sum",
             "sky_representation": "healpix_map",
             # Tier 6F: the sky sources here are point sources, so folding them
             # into the HEALPix grid is now an explicit opt-in rather than a
@@ -1069,7 +1068,6 @@ def test_healpix_results_include_fresh_beam_resolution(tmp_path):
     data = _explicit_data(
         tmp_path,
         visibility={
-            "calculation_type": "direct_sum",
             "sky_representation": "healpix_map",
             # Tier 6F: the sky sources here are point sources, so folding them
             # into the HEALPix grid is now an explicit opt-in rather than a
@@ -1257,7 +1255,6 @@ def test_coarse_pre_sky_warning_is_exact_ordered_and_never_mutates_nside(
             },
         },
         visibility={
-            "calculation_type": "direct_sum",
             "sky_representation": "healpix_map",
             # Tier 6F: the sky sources here are point sources, so folding them
             # into the HEALPix grid is now an explicit opt-in rather than a
@@ -1325,7 +1322,6 @@ def test_post_sky_warning_uses_actual_loaded_nside_without_mutation(
     data = _explicit_data(
         tmp_path,
         visibility={
-            "calculation_type": "direct_sum",
             "sky_representation": "healpix_map",
             # Tier 6F: the sky sources here are point sources, so folding them
             # into the HEALPix grid is now an explicit opt-in rather than a

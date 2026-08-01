@@ -1368,9 +1368,16 @@ ObsFrequencyConfig = Annotated[
 
 
 class VisibilityConfig(StrictFrozenModel):
-    """Visibility calculation input."""
+    """Visibility calculation input.
 
-    calculation_type: Literal["direct_sum", "spherical_harmonic"] = "direct_sum"
+    There is no ``calculation_type`` field.  It was removed before v1.0
+    (``Tier7JonesSciencePlan.md`` Section 33.2, defect D13): it validated two
+    values, no module in ``src/radiosim`` ever read it, and the strategy it
+    appeared to select is chosen by ``execution.simulator``, whose accepted
+    values equal the simulator registry keys by an asserted invariant (I15).
+    A document that still sets it is rejected with removed-field guidance (R1).
+    """
+
     sky_representation: Literal["point_sources", "healpix_map", "hybrid"] = (
         DEFAULT_SKY_REPRESENTATION
     )
@@ -2074,27 +2081,18 @@ def collect_semantic_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
 
 
 def collect_unsupported_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
-    """Collect every declared setting not implemented by the current runtime."""
+    """Collect every declared setting not implemented by the current runtime.
+
+    Empty since Tier 7C.  Its one entry rejected
+    ``visibility.calculation_type: spherical_harmonic``, and that field was
+    removed rather than implemented (``Tier7JonesSciencePlan.md`` Section 33.2):
+    a value nothing read is not a capability gap, and m-mode / spherical-harmonic
+    transform solvers are register row ``SCI-004``, not a config value away.  The
+    function and its ``unsupported`` issue stage stay because they are part of
+    the Tier 1 validator contract that ``collect_config_issues`` composes, and a
+    later capability gap declares itself here.
+    """
     issues: list[ConfigIssue] = []
-
-    def add(path: str, code: str, message: str, hint: str | None = None) -> None:
-        issues.append(
-            ConfigIssue(
-                path,
-                code,
-                message,
-                hint,
-                stage="unsupported",
-                category="unsupported",
-            )
-        )
-
-    if config.visibility.calculation_type == "spherical_harmonic":
-        add(
-            "visibility.calculation_type",
-            "spherical_harmonic_unsupported",
-            "spherical-harmonic calculation is not implemented until Tier 7",
-        )
     return _ordered_issues(issues)
 
 
@@ -2165,6 +2163,12 @@ _REMOVED_FIELD_GUIDANCE: dict[str, tuple[str, str]] = {
     "output": (
         "top-level 'output' was removed",
         "Move CLI-only output policy to 'workflow'.",
+    ),
+    "visibility.calculation_type": (
+        "visibility.calculation_type was removed before v1.0; the solver "
+        "strategy is selected by 'execution.simulator' (currently only 'rime').",
+        "Delete the key; 'execution.simulator: rime' already selects the "
+        "direct-sum RIME solver, and it is the only accepted value.",
     ),
     "workflow.overwrite": (
         "workflow.overwrite: removed before v1.0; use workflow.collision_policy",

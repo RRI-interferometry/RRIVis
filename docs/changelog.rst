@@ -3,6 +3,19 @@ Changelog
 
 All notable changes to RadioSim are documented here.
 
+[Unreleased]
+------------
+
+Removed
+^^^^^^^
+
+- **visibility.calculation_type**: removed before v1.0. It validated
+  ``direct_sum`` and ``spherical_harmonic``, and nothing in the package read
+  either value. The solver strategy is selected by ``execution.simulator``,
+  whose accepted values are exactly the keys of the simulator registry. A
+  document that still sets the key is rejected with removed-field guidance
+  naming the replacement. See :doc:`migration_guide`.
+
 [0.2.0] - 2025-12-15
 --------------------
 

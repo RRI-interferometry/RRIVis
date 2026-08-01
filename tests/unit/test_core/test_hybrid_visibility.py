@@ -387,7 +387,7 @@ def test_healpix_request_over_a_diffuse_only_model_needs_no_opt_in() -> None:
 def test_setup_rejects_a_hybrid_request_over_a_point_only_config(tmp_path) -> None:
     data = valid_config_mapping(
         tmp_path,
-        visibility={"calculation_type": "direct_sum", "sky_representation": "hybrid"},
+        visibility={"sky_representation": "hybrid"},
     )
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
     with pytest.raises(HybridSkyError) as excinfo:
@@ -427,7 +427,6 @@ def test_setup_rejects_a_point_request_over_two_mixed_contributors(tmp_path) -> 
     """Section 20.1: combination refuses first, and its message names hybrid."""
     data = hybrid_config_mapping(tmp_path)
     data["visibility"] = {
-        "calculation_type": "direct_sum",
         "sky_representation": "point_sources",
     }
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
@@ -439,7 +438,6 @@ def test_setup_rejects_a_healpix_request_that_would_rasterize(tmp_path) -> None:
     data = valid_config_mapping(
         tmp_path,
         visibility={
-            "calculation_type": "direct_sum",
             "sky_representation": "healpix_map",
         },
     )
@@ -454,7 +452,6 @@ def test_setup_accepts_the_rasterization_opt_in(tmp_path) -> None:
     data = valid_config_mapping(
         tmp_path,
         visibility={
-            "calculation_type": "direct_sum",
             "sky_representation": "healpix_map",
             "allow_lossy_point_rasterization": True,
         },

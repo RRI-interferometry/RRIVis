@@ -72,7 +72,6 @@ sky_model:
       spectral_index: 0
 
 visibility:
-  calculation_type: direct_sum
   sky_representation: point_sources
 
 execution:

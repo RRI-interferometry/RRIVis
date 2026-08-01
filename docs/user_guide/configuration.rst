@@ -63,7 +63,6 @@ Local formats also require explicit identity and geodetic location:
          seed: 7
 
    visibility:
-     calculation_type: direct_sum
      sky_representation: point_sources
      allow_lossy_point_rasterization: false
 
@@ -180,7 +179,6 @@ conversion — neither payload is materialized into the other.
 .. code-block:: yaml
 
    visibility:
-     calculation_type: direct_sum
      sky_representation: hybrid
 
 The ``sky_model`` section must then contribute both kinds of payload — at least
@@ -214,9 +212,12 @@ is raised before any beam load, backend allocation, or output path is created:
    hybrid to sum both components, or set
    visibility.allow_lossy_point_rasterization=true to opt in.
 
-``calculation_type`` accepts ``direct_sum`` and ``spherical_harmonic``, but only
-``direct_sum`` is implemented; ``spherical_harmonic`` is rejected during
-validation.
+``visibility`` has no ``calculation_type`` field. It was removed before v1.0:
+it validated two values and no module read either of them. The solver strategy
+is selected by ``execution.simulator``, whose accepted values are exactly the
+keys of the simulator registry — currently the single value ``rime``. A document
+that still sets ``visibility.calculation_type`` is rejected with removed-field
+guidance; see :doc:`../migration_guide`.
 
 Output and result formats
 -------------------------

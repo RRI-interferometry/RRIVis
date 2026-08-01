@@ -26,12 +26,14 @@ from radiosim.io.config import (
     RadioSimConfig,
     TestSourcesConfig,
     collect_semantic_issues,
+    collect_unsupported_issues,
     load_config,
 )
 from radiosim.io.config_resolution import (
     ConfigOverrideError,
     ConfigParseError,
     ConfigPathError,
+    ConfigResolutionError,
     ConfigSchemaError,
     ConfigSemanticError,
     ConfigSourceError,
@@ -657,15 +659,21 @@ def test_schema_semantic_unsupported_and_path_errors_are_distinct(tmp_path):
     with pytest.raises(ConfigSemanticError):
         resolve_config(semantic_data, source=source)
 
-    unsupported_data = valid_config_mapping(
-        tmp_path,
-        visibility={"calculation_type": "spherical_harmonic"},
+    # The unsupported stage has no live trigger: Tier 7C removed
+    # ``visibility.calculation_type``, its only entry, rather than implementing
+    # it (``Tier7JonesSciencePlan.md`` Section 33.2).  The stage, its error type
+    # and its ordering position all remain, so what stays checkable is that the
+    # stage is empty for every configuration and that ``UnsupportedConfigError``
+    # is still a distinct member of the failure taxonomy.
+    assert (
+        collect_unsupported_issues(
+            RadioSimConfig.model_validate(valid_config_mapping(tmp_path))
+        )
+        == ()
     )
-    with pytest.raises(UnsupportedConfigError) as exc_info:
-        resolve_config(unsupported_data, source=source)
-    assert "spherical_harmonic_unsupported" in {
-        issue.code for issue in exc_info.value.issues
-    }
+    assert issubclass(UnsupportedConfigError, ConfigResolutionError)
+    assert not issubclass(UnsupportedConfigError, ConfigSchemaError)
+    assert not issubclass(UnsupportedConfigError, ConfigSemanticError)
 
     path_data = valid_config_mapping(tmp_path)
     path_data["instrument"]["source"]["path"] = "missing.txt"

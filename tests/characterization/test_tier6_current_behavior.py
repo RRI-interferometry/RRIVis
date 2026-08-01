@@ -714,7 +714,6 @@ def test_each_representation_runs_exactly_its_own_components(
         data = valid_config_mapping(
             tmp_path,
             visibility={
-                "calculation_type": "direct_sum",
                 "sky_representation": representation,
                 "allow_lossy_point_rasterization": representation == "healpix_map",
             },
@@ -803,7 +802,6 @@ def test_setup_publishes_the_payloads_the_requested_mode_solves(tmp_path) -> Non
     healpix_data = valid_config_mapping(
         tmp_path,
         visibility={
-            "calculation_type": "direct_sum",
             "sky_representation": "healpix_map",
             "allow_lossy_point_rasterization": True,
         },
@@ -1008,7 +1006,6 @@ def test_memory_estimate_counts_every_solved_component(tmp_path) -> None:
     data = valid_config_mapping(
         tmp_path,
         visibility={
-            "calculation_type": "direct_sum",
             "sky_representation": "healpix_map",
             "allow_lossy_point_rasterization": True,
         },

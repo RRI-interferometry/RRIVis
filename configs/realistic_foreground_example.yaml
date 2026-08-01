@@ -62,7 +62,6 @@ sky_model:
       seed: 42
 
 visibility:
-  calculation_type: direct_sum
   sky_representation: healpix_map
 
 execution:
