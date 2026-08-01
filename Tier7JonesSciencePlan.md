@@ -48,7 +48,20 @@ layout-file or known-telescope `instrument:` source (only pyuvdata carries
 `mount_type`), routed informationally to a future instrument-config tier; no
 physics, chain-order, or refinement decision changed; see `Fix.md`'s
 2026-08-01 "Tier 7F independent acceptance" note for the full record). Slice
-**7G is authorized**.**
+**7G is accepted** (2026-08-01, independent review; no factual correction
+needed to this document beyond ratifying the two bounded corrections the
+implementer had already applied to Sections 20.8 (the `R -> R^T` Faraday
+factor and the wide-field-cancellation correction) and Sections 21.2/21.3/24/26.1/34
+(`minimum_elevation_deg` on `Z`, R13's evaluation-not-resolution stage, and
+the seven forced writable-file additions); the Faraday sign and the
+antenna-common cancellation were both independently re-derived from first
+principles and confirmed correct; one bounded documentation-only correction
+applied directly by the reviewer outside this plan (two stale "2.28 m"
+Saastamoinen docstring values corrected to the tested 2.3070 m,
+`docs(jones): correct the Saastamoinen ZHD docstring value`, `36823ae`); no
+science, chain-order, or refinement decision changed; see `Fix.md`'s
+2026-08-01 "Tier 7G independent acceptance" note for the full record). Slice
+**7H is authorized**.**
 
 This document is the governing implementation specification for Tier 7 of the
 RadioSim remediation program, defined by [`Fix.md`](Fix.md) Section 16

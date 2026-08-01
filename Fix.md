@@ -12595,3 +12595,273 @@ plausibility argument from the diff and the exact matching warning group, not
 a call-stack-level trace into numpy/casacore internals. Whole-tier
 cross-implementation validation and the Section 37 documentation pass: out of
 scope for 7F, owned by 7J/7K; not assessed here.
+
+### 2026-08-01 Tier 7G independent acceptance
+
+Reviewed range `329ad2f..993b0b4` (twelve commits: two design corrections
+`b88d986`/`ab925d9`, red tests `1f77a37`, the implementation `6c118bb`, parity
+and end-to-end and I14 cases `4211658`, docs `1d563fb`, the Section 29.1
+cross-validation cases `86df769`, a docs underline fix `baf2854`, the
+documentation-surface pin flip `1599e59`, an export-list alphabetization
+`187f9b7`, the rejection-list completion `f0952c5`, and the D18 pin discharge
+`993b0b4`). This slice implements `Z` (ionosphere: dispersive phase and
+Faraday rotation) and `T` (troposphere: delay and opacity) -- the last two
+`JonesTerm` subclasses of Tier 7, closing workstream B and making
+`JonesTerm.compute_jones_batch` an `@abstractmethod`.
+
+**The Faraday sign correction (Section 20.8, `R -> R^T`), independently
+re-derived.** With the Tier 5C coherency `B = (1/2)[[I+Q, U+iV],[U-iV, I-Q]]`
+and the real orthogonal frame-rotation `R(a) = [[cos a, sin a],[-sin a, cos
+a]]` that `C` and `P` use, direct expansion of `R(a) B R(a)^H` in the Pauli-like
+basis (`B = (I/2)I + (Q/2)sigma_z + (U/2)sigma_x + (V/2)W`) gives `Q' = Q
+cos2a + U sin2a`, `U' = -Q sin2a + U cos2a` -- a polarization-angle shift of
+`chi' = chi - a`. `R(a)` therefore *lowers* the observed angle by `a`, exactly
+as the corrected Section 20.8 text says. Ionospheric Faraday rotation must
+*raise* the angle by `psi_F = RM_ion lambda^2` to compose with the sky
+model's own `+RM_src(lambda^2 - lambda_ref^2)` (`core/sky/containers/
+spectral.py`, an accepted Tier 5C convention, confirmed unchanged and
+re-derived: `chi_out = chi + RM(lambda^2 - lambda_ref^2)` follows directly from
+its `q_out = q cos2*dchi - u sin2*dchi`, `u_out = q sin2*dchi + u cos2*dchi`).
+Since `R(a)^T = R(-a)` for this rotation family, applying `F(a) = R(a)^T` as
+the similarity transform is equivalent to substituting `a -> -a` into the
+`R(a)` result above, giving `chi' = chi + a` -- the required raise. This
+independent derivation matches `IonosphereJones.compute_jones_batch`
+(`core/jones/ionosphere.py:539-575`) exactly: `F(a) = [[cos a, -sin a],[sin
+a, cos a]]`, `block[0,0]=cos*phasor`, `[0,1]=-sin*phasor`, `[1,0]=sin*phasor`,
+`[1,1]=cos*phasor`. The shipped **I8** test
+(`test_the_sky_and_the_ionosphere_rotate_the_angle_additively`,
+`tests/unit/test_jones/test_ionosphere.py:559`) does not merely assert a
+formula: it runs the *production* `apply_faraday_rotation` (sky-side) and the
+*production* `IonosphereJones` matrix (propagation-side) together end to end,
+builds the coherency, extracts `chi = 0.5 atan2(U, Q)` from `J C J^H`, and
+asserts `chi_both - chi_base == sky_shift + ionospheric_shift` to `1e-12` --
+reproduced directly (`pixi run python -m pytest
+tests/unit/test_jones/test_ionosphere.py -q`, part of the full suite below).
+**Ruling: the `R -> R^T` correction is correct**; had `Z` used `R(psi_F)`
+directly, the composed angle would have been `RM_src - RM_ion` (subtraction,
+not addition), and I8 would have failed on its own arithmetic. No defect.
+
+**Cancellation physics, verified by independent reasoning and direct
+reproduction.** For an antenna-common scalar phase `J_p = J_q = e^{i phi(s)}
+I2` (a `constant` TEC screen, or a tropospheric delay on a flat homogeneous
+array), the RIME contracts each source as `J_p C_s J_q^H = e^{i phi} C_s
+e^{-i phi} = C_s` exactly, source by source and therefore baseline by
+baseline, independent of field width -- confirmed by hand and matching the
+`ab925d9` correction to Section 20.8, which fixes the plan's own prior wrong
+claim that a wide field would show a change. The shipped tests assert this
+correctly and honestly:
+`test_a_uniform_dispersive_screen_cancels_on_every_baseline` and
+`test_a_common_delay_cancels_on_a_flat_homogeneous_array` both assert `<
+1e-14` (not a loose bound) through the actual solver
+(`core/visibility.calculate_visibility`), and the four physically-meaningful
+nonzero paths are each asserted separately and reproduced:
+`test_a_gradient_separates_the_two_antennas` /
+`test_the_gradient_screen_is_a_different_run_from_the_uniform_one` (`Z`
+gradient, closure-visible at per-antenna pierce points),
+`test_a_uniform_faraday_rotation_does_not_cancel` (`Z` Faraday -- and its
+companion assertion that an *unpolarized* sky under the same uniform rotation
+is untouched to `1e-14`, which is the scalar-vs-rotation distinction made
+concrete), `test_the_opacity_scales_the_visibility_by_exp_minus_tau` (`T`
+opacity), and `test_a_configured_troposphere_changes_the_visibilities` run
+against the sloped-array fixture (`T` delay on an array whose antennas differ
+in height). **Ruling: I7 is honestly satisfied** -- reproduced directly
+(`tests/unit/test_jones/test_ionosphere.py` and `test_troposphere.py`, part of
+the full suite below).
+
+**Constants and models, checked against source and re-derivation.**
+`TEC_PHASE_CONSTANT_HZ_PER_TECU = 40.308e16 / c` evaluates to `1.3445e9` Hz
+TECU^-1 to five significant figures, matching Section 20.8's quoted value and
+pinned by `test_the_tec_phase_constant_is_the_published_one`; the thin-shell
+slant factor `1/sqrt(1 - (R_E cos el / (R_E+h))^2)` was independently
+recomputed at the horizon for `h=350 km`: `3.1398`, matching the docstring's
+"about 3.13"/"3.14" (both are legitimate roundings of the same value, no
+defect) and `test_the_slant_factor_matches_an_independent_ray_sphere_intersection`.
+The Saastamoinen ZHD formula, `0.0022768 P_0 / (1 - 0.00266 cos(2 lat) -
+0.00028 h_km)`, was independently recomputed at `P_0=1013.25 hPa`, `lat=45
+deg` (where `cos(2 lat)=0` and the correction vanishes exactly): `0.0022768 *
+1013.25 = 2.30697 m`, matching
+`test_the_saastamoinen_delay_reproduces_its_published_sea_level_value`'s
+`pytest.approx(2.3070, abs=5e-4)` exactly and `docs/user_guide/jones_terms.rst`'s
+"About 2.31 m". **One defect found and corrected by this review**: two source
+docstrings (`core/jones/troposphere.py`'s
+`saastamoinen_zenith_hydrostatic_delay_m` and `io/jones_config.py`'s
+`ExplicitZenithDelay.zenith_hydrostatic_delay_m`) quoted the stale, wrong
+"About 2.28 m" -- contradicted by the module's own test and by the correct
+value already present in the `.rst` docs. This is a documentation-only
+inconsistency (the formula, the constant, and every test were always
+correct), corrected directly by this review
+(`docs(jones): correct the Saastamoinen ZHD docstring value`, `36823ae`), not
+rising to a rejection-triggering "constant error" since no code or test
+assertion was ever wrong. Four Niell (1996) Table 3/4 entries spot-checked
+against the well-known published coefficients (hydrostatic average `a, b, c`
+at 15 deg and at 75 deg, the height correction `(2.53e-5, 5.49e-3, 1.14e-3)`,
+and the wet coefficients at 45 deg) match to all transcribed digits; the
+independent Figure-2 oracle
+(`test_the_niell_functions_reproduce_their_published_five_degree_values`,
+asserting the hydrostatic function at 5 deg stays in `[10.05, 10.20]` across a
+full year and the wet one is `10.75 +/- 0.05`, against Niell's own published
+figure rather than a re-transcription) reproduced directly. The day-of-year
+shortcut was reproduced against astropy
+(`test_the_day_of_year_matches_astropy_over_nineteen_years`, spanning leap
+years and century boundaries) and passed.
+
+**Flags, both directions.** `IonosphereJones.is_unitary()` returns `True`
+unconditionally (a scalar phase times a real rotation is always unitary) and
+`test_z_is_unitary_for_every_swept_parameter` sweeps both TEC and rotation
+measure; `TroposphereJones.is_unitary()` returns `True` iff no opacity is
+configured, verified both ways by
+`test_t_is_unitary_exactly_when_the_opacity_is_disabled`. `is_diagonal`/
+`is_scalar` on `Z` are `True` exactly without Faraday (probed both sides by
+`test_the_scalar_and_diagonal_flags_are_true_exactly_without_faraday`) and
+`True` unconditionally on `T` (a scalar times `I2` by construction). All
+reproduced directly.
+
+**Adjudications.**
+
+1. **ABC flip.** `JonesTerm.compute_jones_batch` (`core/jones/base.py:165`)
+   is `@abstractmethod`, confirmed by reading the decorator directly.
+   `PLANNED_TERMS` (`tests/characterization/test_tier7_current_behavior.py:326`)
+   equals exactly `{"BaselineMultiplicativeJones": "7H", "SmearingFactorJones":
+   "7H"}` -- `M` and `Q`, both `JonesBaselineTerm` and therefore outside the
+   flip's scope -- confirmed by direct read. `base.py`'s docstrings (`name`,
+   `term_status`, `compute_jones_batch`) were re-read in full and state the
+   truth after this slice: no `JonesTerm` is planned any more.
+2. **`minimum_elevation_deg` required, no default, on both `T` and `Z`.**
+   Confirmed by direct read of `io/jones_config.py`'s
+   `TroposphereTermConfig.minimum_elevation_deg` and
+   `IonosphereTermConfig.minimum_elevation_deg`: both `Annotated[float,
+   Field(strict=True, allow_inf_nan=False, ge=0.0, lt=90.0)]` with no `=`
+   default. Sections 21.2/21.3 reconcile correctly: `P`'s copy of the field
+   was removed (7F correction, since parallactic angle has no elevation
+   dependence to guard) while `T` and `Z` keep it, because their mapping
+   functions genuinely diverge (`T`) or become untrustworthy (`Z`, bounded but
+   still approximate) at low elevation.
+3. **R13 at evaluation, not resolution.** Confirmed correct on the stage
+   argument: R13's condition ("a direction survives the horizon mask below
+   `minimum_elevation_deg`") is a statement about *directions*, and no
+   direction exists until the solver resolves one for a `(time, frequency)`
+   step; resolution (Section 26.1 stage 5) can only validate what is
+   decidable without a sky. `reject_low_elevation` is called from
+   `compute_jones_batch` on both terms, confirmed by direct read, and
+   `test_r13_is_raised_at_evaluation_because_it_is_about_directions` was
+   reproduced directly.
+4. **The diffuse-path 0.0 requirement.** Any positive `minimum_elevation_deg`
+   on `T` or `Z` rejects a HEALPix run outright, because the diffuse
+   direction batch is "every visible pixel," which always includes points a
+   fraction of a degree above the horizon (confirmed by reading
+   `test_backend_parity.py`'s own comment on this, and by the fact that its
+   `T`/`Z` HEALPix parity cases all set `minimum_elevation_deg: 0.0`
+   deliberately). **Ruling: this is R13 working exactly as Section 24 and the
+   `b88d986` correction mandate, not a defect** -- the rejection message is
+   the plan's own verbatim R13 text (Section 24's table row), and the
+   documented, actionable fix for a diffuse user is to write `0.0` (per both
+   terms' own field docstrings: "`0` accepts every direction the horizon mask
+   passes"). Acceptable as specified; no friendlier path is owed by this
+   slice.
+5. **The `SPEED_OF_LIGHT_M_PER_S` duplication.** Both `ionosphere.py` and
+   `troposphere.py` hard-code `299_792_458.0` rather than importing
+   `radiosim.core.sky.containers.constants.C_LIGHT`, each with a docstring
+   arguing that importing anything from `core.sky` would pull loaders and a
+   network client library into every `core.jones` import. Verified directly:
+   a fresh subprocess importing only `radiosim.core.jones.ionosphere` and
+   `radiosim.core.jones.troposphere` shows zero `radiosim.core.sky*` modules
+   and no `requests`/`httpx`/`pyvo` in `sys.modules`. Both constants are
+   pinned equal to `C_LIGHT` by `test_the_jones_packages_speed_of_light_is_the_canonical_one`,
+   reproduced directly. The duplication is safe (`c` is SI-defined, not
+   measured) and the laziness argument holds.
+6. **`docs/api/jones.rst` staleness.** Confirmed untouched in this range
+   (`git diff --stat 329ad2f..HEAD -- docs/api/jones.rst` is empty) and its
+   staleness (if any) is correctly deferred to Tier 7J, which owns the
+   documentation pass (Section 34's 7J entry). Noted in passing: `CLAUDE.md`'s
+   top-level chain-order line is *also* stale relative to the current,
+   7F-corrected `CANONICAL_CHAIN_ORDER` (`H, G, B, Rc, Kd, X, D, C, E, P, T,
+   Z`) -- this is the same, already-acknowledged staleness the plan itself
+   names as "stale since 7D" and explicitly routes to 7J (Section 34's 7G
+   entry); not a new defect and not 7G's to fix.
+
+**Tests-first, reproduced.** `1f77a37` checked out into a detached worktree
+and run at its own tree: `pixi run python -m pytest
+tests/unit/test_jones/test_ionosphere.py tests/unit/test_jones/test_troposphere.py
+tests/unit/test_core/test_jones_resolution.py tests/unit/test_io/test_jones_config.py
+--continue-on-collection-errors` gives **6 collection errors, 18 failed, 75
+passed** exactly, and `git show --stat 1f77a37` confirms zero `src/` changes
+(only the four test files). Matches the claim exactly.
+
+**Bit-identity, reproduced.** `tests/unit/test_jones/test_backend_parity.py`
+run directly: **76 passed**, including the 7G `T`/`Z` propagation-term cases
+(`test_point_path_parity_with_a_propagation_term`,
+`test_healpix_path_parity_with_a_propagation_term`) at large parameter values
+(60 TECU, RM 2.5, 0.4 zenith opacity) on both sky paths, both mapping
+functions, both TEC models, and the every-term case. Dask is bit-identical
+(`rtol=0, atol=0`) and JAX-CPU is within `rtol=1e-12, atol=0` in every case,
+per `PARITY_TOLERANCE` and `assert_backend_parity`'s enforcement, read
+directly. Environment-keyed (`test_jones_provenance.py`) and
+hybrid-additivity (`test_tier6_current_behavior.py`) pins are untouched by
+this range (absent from `git diff --stat 329ad2f..HEAD`) and pass as part of
+the full suites below.
+
+**Gates -- both environments, reproduced directly by this review.**
+`pixi run test -- -m "not slow"`: **5,167 passed, 0 failed, 10 deselected**
+in both `default`/py311 (27 warnings, 534s) and py312 (38 warnings, 576s);
+`5,022 (baseline) + 145 = 5,167` confirmed exactly. Full suite (`pixi run
+test`), both environments: **5,177 passed, 0 failed** -- default 27 warnings
+(536s), py312 38 warnings (586s) -- matching `5,167 + 10` deselected-when-filtered
+exactly in both environments. **The py312 warning delta (27 -> 38) traced**:
+the full `-m "not slow"` warnings summary shows all 11 extra py312 warnings
+attributed to exactly one source, `tests/integration/test_jones_end_to_end.py:
+11 warnings` ("'where' used without 'out', expect uninitialized memory in
+output"), a numpy-internal `RuntimeWarning`; the same warnings summary for
+`default`/py311 shows zero occurrences of that file or that warning text.
+This is consistent with the same environment/numpy-version-specific artifact
+pattern this file's 7E and 7F entries already established for casacore
+warnings on new MS-exporting parametrized cases -- `test_jones_end_to_end.py`
+gained two new labels (`T`, `Z`) parametrized across `ResultFormat.MS` and
+`ResultFormat.UVFITS` in this slice -- not traced to an exact numpy call site
+beyond that. `pixi run lint`: clean. `pixi run check-format`: clean, 368
+files already formatted. `git diff --check`: clean. All four shipped YAMLs
+(`configs/*.yaml`) validate directly via `radiosim validate`, reproduced.
+Sphinx, forced full rebuild (`-b html -E`) in a **fresh, detached git
+worktree** (avoiding the stray-`.gitignore`d-file contamination this file's
+7F entry already found and documents): **16 warnings**, matching the stated
+baseline exactly. Laziness: confirmed directly (see item 5 above) rather than
+merely argued. Exactly one compiled kernel: `grep`-confirmed the only
+`backend.compile(` call site in `src/` is `core/contraction.py:143`;
+`backends/jax_backend.py`'s `jit()` is a deprecated alias *of* `compile`, not
+a second call site. `git status`: clean before this review's edits. All
+twelve commit messages read in full: zero "Co-Authored-By" or similar
+occurrences. `pixi run typecheck`: correctly not run -- Section 32 restricts
+it to 7B, 7C, 7D and 7K, and 7G adds concrete term classes behind the
+existing `JonesTerm`/config surface rather than changing a public signature.
+
+**Section 34 file list.** `git diff --stat 329ad2f..HEAD` lists 21 files;
+every one matches the corrected 7G list (the base slice plus the seven forced
+additions already recorded in Section 34, plus `Tier7JonesSciencePlan.md`
+itself for the two design corrections). `Fix.md` was not touched by the
+implementer in this range, which is correct: per this file's own established
+pattern (7B-7F), the slice's `Fix.md` record is written by the independent
+acceptance review, not the implementer.
+
+**Disposition.** Tier 7G **ACCEPTED**. One bounded documentation-only
+correction applied directly by this review outside the plan (the stale
+"2.28 m" Saastamoinen docstring value in two files, corrected to the tested
+2.3070 m, `36823ae`) -- no science, chain-order, or refinement decision
+changed, and both bounded design corrections the implementer had already
+applied (`b88d986`, `ab925d9`) are ratified after independent re-derivation of
+both the Faraday sign and the cancellation physics from first principles.
+`SCI-001`, `SCI-002`, `SCI-003` remain `ROADMAP` until whole-tier acceptance
+(7K). The plan's status header is updated to record 7G's acceptance and to
+authorize slice **7H**. Acceptance commit: `docs(jones): accept Tier 7G
+propagation terms`. Not pushed.
+
+**Unobserved items.** `linux-64` execution: not available in this
+environment; reproduction is `osx-arm64`/py311 and py312 only, matching every
+prior tier's acceptance record in this file. GPU/TPU/distributed hardware:
+none exercised, none claimed. The py312 warning reconciliation (27->38) is a
+plausibility argument from the exact warning-count attribution to one test
+file, not a call-stack-level trace into numpy internals. The Niell
+coefficient spot-check relied on recognition of well-known published values
+plus the independent Figure-2 bound oracle already in the test suite, not a
+fresh transcription from the original 1996 paper. Tier-2 cross-implementation
+validation (Section 29, `pyuvsim`/`matvis`/RASCIL) and the whole-tier
+Section 37 documentation pass: out of scope for 7G, owned by 7J/7K; not
+assessed here.
