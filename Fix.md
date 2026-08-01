@@ -1604,6 +1604,28 @@ post-remediation implementation.
 13. Update changelog and migration guide for breaking config/API changes.
 14. Perform a final repository-wide search for old RRIVis naming, nonexistent
     symbols, unsupported claims, and stale version/config counts.
+15. Extract the git-ls-files-scoped file listing that
+    `tests/unit/test_tier5_receptor_acceptance.py::_iter_reference_scan_files`
+    uses (commit `98b5358`) into a shared test helper, and apply it to every
+    other raw-`rglob` repository/package scan so none of them can be polluted
+    by gitignored build artifacts or editor/notebook checkpoint directories
+    (e.g. `.ipynb_checkpoints/`). Confirmed vulnerable during the out-of-band
+    test-infrastructure acceptance (2026-08-02): a gitignored
+    `src/radiosim/.ipynb_checkpoints/wterm-checkpoint.py` naming a removed
+    Jones class plus a stub marker fails two `tests/unit/
+    test_tier7_jones_acceptance.py` tests (`_python_sources()`'s raw
+    `SOURCE_ROOT.rglob("*.py")`) even though it ships nothing — a scan
+    false-positive, not a `src/` correctness gap. At least ten more raw-rglob
+    sites share the pattern: `tests/unit/test_tier4_result_output_acceptance.py`,
+    `tests/unit/test_tier7_jones_acceptance.py` (both its stub-marker and beam
+    scans), `tests/unit/test_io/test_output_atomicity.py`,
+    `tests/unit/test_core/test_tier3_beam_cleanup.py`,
+    `tests/unit/test_core/test_cleanup_registry.py`,
+    `tests/unit/test_core/test_sky_no_dataclasses_replace.py`,
+    `tests/unit/test_core/test_tier2_instrument_cleanup.py`,
+    `tests/unit/test_backends/test_compilation_boundary.py`,
+    `tests/unit/test_visualization/test_result_plots.py`, and the
+    `tests/characterization/test_tier{5,6,7}_current_behavior.py` scans.
 
 ### Verification gate
 
@@ -13151,3 +13173,121 @@ evidence pass: out of scope for 7H, owned by 7J/7K; not assessed here.
 7D and 7K, and 7H adds concrete term classes and two resolver keyword
 parameters behind the existing `JonesBaselineTerm`/config surface rather than
 changing a public solver signature.
+
+### 2026-08-02 Test-infrastructure integration acceptance
+
+Independent adversarial acceptance of the out-of-band test-infrastructure
+integration: three owner-authored cherry-picks landed between Tier 7H and
+7I, range `c8ca7b9..HEAD` (`98b5358`, `4fc8856`, `3dd5cf8`). No `src/` change
+is in scope or present: `git diff c8ca7b9..HEAD -- src/` is empty.
+
+**Cherry-pick fidelity.** All three commits carry `-x` provenance, preserve
+authorship (Kartik Mandar), and contain no co-author lines. Each diff is
+byte-identical to its source-worktree commit: `98b5358` == `distracted-benz-
+21a675`@`50da3d5`; `4fc8856` == `worktree-test-suite-speedup`@`cba4f6e`;
+`3dd5cf8` == `worktree-test-suite-speedup`@`ecd73b7`. The `pixi.lock` delta is
+exactly 12 added `conda:` lines -- `pytest-xdist-3.8.0` and `execnet-2.1.2`,
+one pair per environment x platform cell (`default`/`py312` x `linux-64`/
+`osx-64`/`osx-arm64` = 6 combos) -- with no package version, sha256, or size
+change anywhere else. One cosmetic wrinkle, present identically in the source
+commit (so it is not a cherry-pick artifact): ten unrelated packages'
+`purls` entries flip their provenance annotation from `source=compressed-
+mapping` to `source=hash-mapping` (numba, propcache, aiohappyeyeballs,
+cached-property, decorator, jedi, narwhals, platformdirs, wcwidth,
+matplotlib) -- almost certainly incidental churn from the pixi version that
+regenerated the lock; no version/hash/size differs and `pixi lock --check`
+confirms the lock is current against pixi 0.75.0. Not a defect.
+
+**Repo-grep hardening (`98b5358`).** Reproduced the pollution control: planted
+a gitignored `docs/_build/html/_sources/stale.rst.txt` naming all three
+removed symbols (`visibility_to_correlations`, `mueller_from_jones`,
+`PolarizationBasisName`) -- `tests/unit/test_tier5_receptor_acceptance.py`
+(38 tests) passed clean. Reverted the fix in a scratch worktree with the same
+pollution planted -- exactly 3 failures, each naming
+`docs/_build/html/_sources/stale.rst.txt`. Restored the fix and planted an
+untracked-but-not-git-ignored probe file
+(`tests/unit/test_core/zz_scratch_untracked_probe.py`) naming a removed
+symbol -- caught (1 failure naming the probe). Both probes removed; working
+tree confirmed clean before and after.
+
+**The integrator's vulnerability finding.** Reproduced: a gitignored
+`src/radiosim/.ipynb_checkpoints/wterm-checkpoint.py` containing `WPhaseJones`
+plus `"TODO: implement properly"` fails exactly two
+`tests/unit/test_tier7_jones_acceptance.py` tests
+(`test_a_removed_jones_name_appears_nowhere_in_the_package_source
+[WPhaseJones]` and `test_no_stub_marker_survives_anywhere_in_the_package`),
+because `_python_sources()` there still walks `SOURCE_ROOT.rglob("*.py")`
+unfiltered by git. The `98b5358` fix landed on tier5's scan only. This is a
+scan false-positive risk (nothing gitignored ships in `src/`), not a
+production-code gap, and at least ten more raw-`rglob` scan sites share the
+same unhardened pattern. **Routing ruling:** filed as Tier 8 work item 15 in
+`Fix.md` §17 (this file, above) rather than a Tier 7K checklist note or a
+standalone register row -- it is real, bounded engineering work (extract and
+apply the `98b5358` git-ls-files helper broadly), it touches files spanning
+every tier's test suite rather than anything Tier-7-scoped, and Tier 8 §17
+already carries the adjacent test-infrastructure hygiene items (9, 10). Not
+urgent enough to block Tier 7's own gates, since no currently-tracked file
+triggers it.
+
+**Speedup, scoping, and the count-contract every future gate must know.**
+`pixi run test -- tests/unit/test_jones/test_gain.py --collect-only` collects
+30 tests (full suite: 5,269) -- the `4fc8856` fix to drop the hardcoded
+`tests/` path (already supplied by `pyproject.toml`'s `testpaths`) makes
+path-scoped invocations scope correctly instead of collecting the whole
+suite. `-n 0` forces serial and works. A bare `pixi run test` (default env,
+`-n auto`): `5269 passed, 27 warnings in 133.97s` (0:02:13) -- inside the
+claimed 2-3 minute band; a second full run under `-n 4` reproduced
+`5269 passed, 27 warnings in 156.37s` -- pass and warning counts identical.
+**Count-contract (binding on every future gate reader):** `pytest-xdist`
+under `-n auto`/`-n N>0` omits the `N deselected` field from the terminal
+summary line even when deselection occurred; the pass count and the warning
+count are otherwise byte-for-byte identical serial vs. parallel. Verified
+directly in the default env: `-m "not slow"` under bare `-n auto` reports
+`5259 passed, 27 warnings in 126.40s` (no deselected field, though 10 tests
+were in fact deselected); `-n 0` on the same selection reports
+`5259 passed, 10 deselected, 27 warnings in 400.70s`. Anyone diffing gate
+output serial-vs-parallel must compare pass/warning counts only, and must use
+`-n 0` or `--collect-only` to see the deselected count.
+
+**xdist safety.** `tests/unit/test_simulator/test_worker_policy.py` (includes
+the Tier 6E nested-parallelism bit-identity parametrizations,
+`test_tier6e_point_solver_is_bit_identical_under_workers` and
+`test_tier6e_healpix_solver_is_bit_identical_under_workers`, `workers in
+{2,4,8} x polarized in {True,False}`), `tests/unit/test_utils/
+test_offline_policy.py`, and `tests/unit/test_utils/test_network.py`
+(90 tests total) passed clean across two `-n auto` runs, one `-n 4` run, and
+one `-n 0` run -- no flakes. The full-suite `-n 4` rerun above reproduced
+identical pass/warning counts against the bare `-n auto` run.
+
+**Poisson-confusion shrink (`3dd5cf8`).** Diff only raises `flux_range_jy`'s
+floor from 0.01 to 0.2 Jy in the two `TestRngSeedProvenance` tests; the
+assertions themselves (`sky.provenance.rng_seed == 12345` for the explicit
+seed, `isinstance(sky.provenance.rng_seed, int)` for `seed=None`) are
+untouched. Timed at 0.04s and 0.05s respectively -- matches the commit
+message's claim exactly.
+
+**Gates.** `pixi run lint`: all checks passed. `pixi run check-format`: 370
+files already formatted. `pixi lock --check`: up-to-date. `pixi install
+--locked` for both `default` and `py312`: both succeed. All four
+`configs/*.yaml` (`config.yaml`, `hybrid_sky_example.yaml`,
+`realistic_foreground_example.yaml`, `receptor_circular_example.yaml`)
+validate. `git status`: clean throughout, before and after every probe.
+`tests/characterization/test_tier6_current_behavior.py` (environment-keyed
+fingerprint pins and the hybrid-additivity pin, 41 tests): pass in both
+`default`/py311 (30.34s) and `py312` (33.24s) -- bit-identity is expected
+since this range touches no production code, and `git diff c8ca7b9..HEAD --
+src/` confirms exactly that (empty).
+
+**Disposition.** **VERDICT: ACCEPTED.** No material defect found. The
+vulnerability finding is real but bounded and routed to Tier 8 (item 15,
+above) rather than blocking this integration. Acceptance commit:
+`docs(tests): accept the parallel suite and scan hardening`. Not pushed.
+
+**Unobserved items.** `linux-64` execution: not available in this
+environment; reproduction is `osx-arm64`/py311 and py312 only, matching every
+prior tier's acceptance record in this file. GPU/TPU/distributed hardware:
+none exercised, none claimed. `pixi run typecheck`: not run, per this
+project's standing instruction that it is slow and not part of the standard
+workflow unless explicitly requested; nothing in this integration touches
+typed public signatures. Sphinx build: not exercised, out of scope for a
+test-infrastructure-only change.
