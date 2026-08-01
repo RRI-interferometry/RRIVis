@@ -2940,6 +2940,14 @@ slice should respect. Each addition is bounded and named:
   written `M`. This file is in 7D's, 7H's and 7K's lists and should be in every
   term slice's.
 
+- `docs/user_guide/configuration.rst` — the `jones` section only. It states
+  "RadioSim implements two configurable terms today, `G` and `B` ... a key for
+  any other term letter is rejected at parse time", which 7E makes false. A
+  slice that adds four configurable terms and leaves the configuration guide
+  saying they are rejected would be shipping exactly the documentation untruth
+  this tier exists to remove; Tier 7J's full documentation pass is too late for
+  a statement that is wrong the moment this slice lands.
+
 No other file outside the list was touched.
 
 ### 7F
