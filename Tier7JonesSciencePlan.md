@@ -1930,7 +1930,6 @@ jones:
   P:                                  # parallactic angle / field rotation
     enabled: true                     # P has no other required parameter;
                                       # `enabled` is the whole configuration
-    minimum_elevation_deg: 0.0        # directions below are already masked
 
   Z:                                  # ionosphere
     tec:
@@ -1977,6 +1976,14 @@ jones:
   parallactic angle has no free parameter: it is fully determined by the
   instrument, the time grid, and the directions. Making it look like the other
   terms by inventing a parameter would be dishonest.
+  **Correction (7F implementation, 2026-08-01):** Section 21.2's `P` block
+  previously also carried `minimum_elevation_deg`, whose own comment said the
+  directions it names "are already masked". It is removed, because this rule
+  says the block is a *bare* `enabled` flag and because a field that is
+  documented as having no effect is the defect-D2 shape one level up — a
+  configuration surface that accepts a value and discards it. The
+  `minimum_elevation_deg` field survives on `T` and `Z` (R13), where the mapping
+  function genuinely diverges.
 - `Q` likewise takes only two booleans, because `dnu` and `dt` come from the
   resolved observation configuration (Section 20.11).
 
@@ -2126,6 +2133,38 @@ string. `<...>` denotes an interpolated value.
 R15 is the replacement for `core/receptor.py:411-418`'s current blanket
 rejection, and it is a **strictly better** contract: it names the fix rather
 than the tier.
+
+**Correction (7F implementation, 2026-08-01) — R7, R12 and R15 for `P`.** Read
+literally, the three triggers above are mutually unsatisfiable for two real
+instruments, and one of them regresses a Tier 5 protection. The messages are
+unchanged; only the triggers are made precise, and each change is forced:
+
+1. **R12 does not depend on `P` being enabled.** Its trigger becomes "some
+   antenna has a `mount_type` outside the five `P` models", with or without
+   `jones.P`. Gating it on `P` would mean that an antenna whose mount is
+   `phased` — rejected outright by Tier 5 today — is silently treated as
+   `fixed` in any run that does not configure `P`. That is a *regression*
+   against the rejection this slice is replacing, and the message reads
+   correctly either way because it names the term rather than the user's
+   configuration.
+2. **R15 fires only for a mount whose feeds actually rotate** relative to the
+   sky: `alt-az`, `alt-az+nasmyth-l`, `alt-az+nasmyth-r`. `equatorial` is
+   excluded. Section 20.7's own table gives `equatorial` the mount factor
+   `eta = 0`, so `P` is *exactly* the identity for an all-equatorial array;
+   demanding `jones.P` for it (R15) and then rejecting the configured `P` as an
+   identity (R7) would leave such an array with no accepted configuration at
+   all. An unspecified `mount_type` (`null` — every layout-file source produces
+   it) is the `fixed` case, which is what preserves invariant I1.
+3. **R7 for `P` is mount-aware.** `jones.P` resolves to exactly `I2` for every
+   antenna, direction and time when no antenna's mount rotates, and that is the
+   R7 condition verbatim ("makes it exactly the identity"). `enabled: false`
+   reaches the same rejection by the same route, which is what keeps Section
+   21's "there is no `enabled: false`" rule true for the one term that has an
+   `enabled` key at all.
+
+Together these make the contract a partition rather than a loop: a rotating
+mount requires `P`, a non-rotating array must not configure it, and an
+unmodelled mount is rejected in either case.
 
 ## 25. Provenance, fingerprint, and serialization
 
@@ -2983,6 +3022,65 @@ No other file outside the list was touched.
 - `docs/user_guide/jones_matrices.rst`, `docs/user_guide/jones_terms.rst`,
   `docs/migration_guide.md`
 - `Fix.md`
+
+**Correction (7F implementation, 2026-08-01) — eleven forced additions.** The
+list above omits every file that states the canonical chain order, and every
+file that pins that statement. 7F's *first* mandate is to move `P` sky-side of
+`C` (D12), and the order is written out in six source docstrings and asserted in
+four test modules; a slice that changed the constant and left the ten
+statements saying something else would be shipping exactly the documentation
+untruth this tier exists to remove. The omission is a defect in the list rather
+than a boundary the slice should respect. Each addition is bounded and named:
+
+- `src/radiosim/core/jones/base.py` — the `JonesTerm` class docstring's
+  "canonical chain, sky → correlator" bullet list, which orders `C` before `P`.
+  That list *is* the ABC's statement of the order this slice corrects; two
+  bullets swap. Nothing else in the file changes, and the `compute_jones_batch`
+  / `term_status` enumerations that Section 34's own 7G correction assigns to
+  7G are deliberately left alone.
+- `src/radiosim/simulator/base.py`, `src/radiosim/simulator/rime.py` — one
+  docstring line each, both reading "The canonical Jones chain is
+  `J = H @ G @ B @ D @ P @ C @ E @ T @ Z`". Tier 6H put the line there and
+  Tier 6's characterization pins it; 7F is the slice that makes it false.
+- `tests/characterization/test_tier5_current_behavior.py`,
+  `tests/characterization/test_tier6_current_behavior.py`,
+  `tests/characterization/test_tier7_current_behavior.py` — the pins on those
+  docstrings and on the two mechanisms this slice deletes. Every one of them
+  *names Tier 7F as its owner in its own body* ("OWNED BY: Tier 7F", "which 7F
+  deletes", "so 7F's move is visible"), so the flip cannot happen from outside
+  the files that name it. 7D's and 7E's lists omitted the Tier 7 file for the
+  same reason and both flipped their own pins there.
+- `tests/unit/test_tier7_jones_acceptance.py` — `IMPLEMENTED_TERM_NAMES` and
+  the two counts it drives, plus invariant **I14**, whose own name is "with
+  **every** implemented term enabled". This file is in 7D's, 7H's and 7K's lists
+  and should be in every term slice's; 7E's correction said so already.
+- `tests/unit/test_io/test_jones_config.py` — the `_KNOWN_FIELDS_BY_PARENT`
+  coverage assertion and the "an unimplemented term letter is rejected" probe,
+  whose witness is `P` and moves to `Z`. Both are assertions *about the schema*,
+  so a slice that extends the schema and cannot touch them could not be green.
+- `src/radiosim/io/config.py` — the `_KNOWN_FIELDS_BY_PARENT` table's `jones.P`
+  row only. A new term with no row would report an unknown key inside `jones.P`
+  without saying what `jones.P` does accept. 7D's list included this file for
+  exactly the same reason; 7E's correction re-added it.
+- `src/radiosim/core/jones_errors.py` — `UnsupportedMountTypeError`, which
+  Section 26's own error taxonomy places in this module and nowhere else. R12
+  and R15 are 7F's rejections and have no type without it.
+- `tests/unit/test_tier1h_documentation.py` — the assertions in
+  `test_tier5g_jones_guide_states_the_receptor_science_boundaries` that pin the
+  exact wording 7F is *required* to change: the Tier 5 chain-order formula, and
+  "``feed_rotation_deg`` is a **static** rotation in the topocentric frame",
+  which stops being true the moment `P` is real. Re-aimed rather than deleted,
+  because the property being pinned — that the guide states the boundary rather
+  than implying there is none — is unchanged.
+- `docs/user_guide/configuration.rst` — the `jones` term list and the one
+  sentence in the `receptors` section reading "A mount type other than
+  ``fixed`` is rejected, and a non-zero ``feed_rotation_deg`` combined with an
+  enabled parallactic-angle term is rejected, because the parallactic term is
+  not implemented yet." Both statements are false after this slice.
+
+`CLAUDE.md` is **not** added. Its Implementation Status and chain-order line are
+Tier 7J's explicit deliverable (D0, D21), they were already stale after 7D and
+7E, and 7F does not make them stale in a new way.
 
 ### 7G
 - `src/radiosim/core/jones/ionosphere.py`, `troposphere.py`,
