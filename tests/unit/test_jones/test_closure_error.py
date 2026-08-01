@@ -43,6 +43,17 @@ from tests.unit.test_core.test_jones_resolution import (
 
 _BACKEND = get_backend("numpy")
 
+#: Two matrices that are not the Hadamard neutral element.  Written out rather
+#: than built from ``np.eye`` on purpose: under ``(*)`` the identity is not the
+#: neutral element at all, and a test that used it as "some error" would be
+#: quietly asserting something about nulled cross-hands.
+_NON_NEUTRAL = np.array(
+    [
+        [[1.5 + 0.0j, 0.9 - 0.1j], [1.1 + 0.2j, 0.8 + 0.0j]],
+        [[0.5 + 0.5j, 1.0 + 0.0j], [1.0 + 0.0j, 1.2 + 0.0j]],
+    ]
+)
+
 #: The triangle's three cross baselines, and the three autocorrelations the
 #: shipped ``correlations: all`` selection also carries.
 _TRIANGLE_PAIRS: tuple[tuple[int, int], ...] = (
@@ -160,7 +171,7 @@ def test_the_factor_is_the_configured_matrix_per_baseline() -> None:
 
 def test_the_term_declares_what_it_is() -> None:
     """Its status, its attachment point, and its direction independence."""
-    term = _term(np.stack([np.eye(2) * 1.5, np.eye(2) * 0.5]))
+    term = _term(_NON_NEUTRAL)
 
     assert term.name == "M"
     assert term.term_status == "implemented"
@@ -170,7 +181,7 @@ def test_the_term_declares_what_it_is() -> None:
 
 def test_the_factor_is_returned_in_the_dtype_it_was_given() -> None:
     """The solver resolves the precision; the term never chooses one (I17)."""
-    term = _term(np.stack([np.eye(2) * 1.5, np.eye(2) * 0.5]))
+    term = _term(_NON_NEUTRAL)
 
     assert _factor(term, dtype=np.complex128).dtype == np.complex128
     assert _factor(term, dtype=np.complex64).dtype == np.complex64
@@ -178,7 +189,7 @@ def test_the_factor_is_returned_in_the_dtype_it_was_given() -> None:
 
 def test_a_factor_for_baselines_the_term_was_not_resolved_against_is_refused() -> None:
     """A silent mis-indexing would apply antenna 3's error to antenna 5's pair."""
-    term = _term(np.stack([np.eye(2) * 1.5, np.eye(2) * 0.5]))
+    term = _term(_NON_NEUTRAL)
 
     with pytest.raises(JonesEvaluationError) as caught:
         term.compute_baseline_factor(
@@ -259,9 +270,14 @@ def test_a_per_baseline_entry_overrides_the_array_wide_default(tmp_path) -> None
     np.testing.assert_allclose(term.matrices, expected, rtol=0.0, atol=0.0)
 
 
-def test_a_baseline_named_by_nothing_is_exactly_the_identity(tmp_path) -> None:
-    """With no array-wide value, an unnamed baseline is untouched."""
-    override = np.array([[1.5 + 0.0j, 0.0j], [0.0j, 1.0 + 0.0j]])
+def test_a_baseline_named_by_nothing_is_left_exactly_alone(tmp_path) -> None:
+    """With no array-wide value, an unnamed baseline carries **ones**.
+
+    Ones and not ``I2``: the neutral element of a Hadamard product is the
+    all-ones matrix, and defaulting to the identity would null the cross-hand
+    correlations of every baseline the block did not mention.
+    """
+    override = np.array([[1.5 + 0.0j, 1.0 + 0.0j], [1.0 + 0.0j, 0.8 + 0.0j]])
     resolved = resolve_for(
         tmp_path,
         {
@@ -274,7 +290,8 @@ def test_a_baseline_named_by_nothing_is_exactly_the_identity(tmp_path) -> None:
     )
 
     (term,) = resolved.baseline_terms
-    expected = np.stack([np.eye(2), override, np.eye(2)]).astype(np.complex128)
+    ones = np.ones((2, 2))
+    expected = np.stack([ones, override, ones]).astype(np.complex128)
     np.testing.assert_allclose(term.matrices, expected, rtol=0.0, atol=0.0)
 
 
@@ -290,7 +307,7 @@ def test_a_pair_outside_the_selection_is_rejected_with_the_r14_message(
                     "per_baseline": [
                         {
                             "antennas": [1, 7],
-                            "matrix": _complex_matrix(np.eye(2) * 1.5),
+                            "matrix": _complex_matrix(_NON_NEUTRAL[0]),
                         }
                     ]
                 }
@@ -320,7 +337,7 @@ def test_the_reversed_pair_of_a_selected_baseline_is_still_not_in_it(
                     "per_baseline": [
                         {
                             "antennas": [1, 0],
-                            "matrix": _complex_matrix(np.eye(2) * 1.5),
+                            "matrix": _complex_matrix(_NON_NEUTRAL[0]),
                         }
                     ]
                 }
@@ -332,7 +349,7 @@ def test_the_reversed_pair_of_a_selected_baseline_is_still_not_in_it(
 
 def test_a_duplicate_baseline_entry_is_rejected_with_the_r5_message(tmp_path) -> None:
     """R5, in the bounded form Section 20.10's correction gives for ``M``."""
-    entry = {"antennas": [0, 1], "matrix": _complex_matrix(np.eye(2) * 1.5)}
+    entry = {"antennas": [0, 1], "matrix": _complex_matrix(_NON_NEUTRAL[0])}
     with pytest.raises(InvalidJonesConfigError) as caught:
         resolve_for(tmp_path, {"M": {"per_baseline": [entry, dict(entry)]}})
 
@@ -342,17 +359,25 @@ def test_a_duplicate_baseline_entry_is_rejected_with_the_r5_message(tmp_path) ->
     )
 
 
-def test_an_all_identity_configuration_is_rejected_with_the_r7_message(
+def test_an_all_ones_configuration_is_rejected_with_the_r7_message(
     tmp_path,
 ) -> None:
-    """R7, verbatim: an ``M`` that cannot break closure is an ``M`` that is not there."""
+    """R7, verbatim: an ``M`` that cannot break closure is an ``M`` that is not there.
+
+    The rejected matrix is all **ones**, the Hadamard neutral element.  A block
+    of identity matrices is *not* rejected, and must not be: it nulls both
+    cross-hands, which is a real -- if drastic -- configured effect.
+    """
     with pytest.raises(IdentityJonesTermError) as caught:
         resolve_for(
             tmp_path,
             {
                 "M": {
                     "per_baseline": [
-                        {"antennas": [0, 1], "matrix": _complex_matrix(np.eye(2))}
+                        {
+                            "antennas": [0, 1],
+                            "matrix": _complex_matrix(np.ones((2, 2))),
+                        }
                     ]
                 }
             },
@@ -375,7 +400,7 @@ def test_a_block_that_configures_no_matrix_at_all_is_the_same_rejection(
 def test_m_is_a_baseline_term_and_never_enters_the_chain(tmp_path) -> None:
     """The structural half of Workstream D's "enforce the distinction"."""
     resolved = resolve_for(
-        tmp_path, {"M": {"matrix": _complex_matrix(np.eye(2) * 1.25)}}
+        tmp_path, {"M": {"matrix": _complex_matrix(_NON_NEUTRAL[0])}}
     )
 
     assert resolved.chain_terms == ()
@@ -440,7 +465,7 @@ def test_a_closure_error_changes_the_closure_phase_by_the_predicted_amount(
             "per_baseline": [
                 {
                     "antennas": list(pair),
-                    "matrix": _complex_matrix(np.eye(2) * np.exp(1j * phase)),
+                    "matrix": _complex_matrix(np.full((2, 2), np.exp(1j * phase))),
                 }
                 for pair, phase in phases.items()
             ]
@@ -484,7 +509,7 @@ def test_a_closure_error_is_not_expressible_as_any_pair_of_antenna_gains(
             "per_baseline": [
                 {
                     "antennas": [0, 1],
-                    "matrix": _complex_matrix(np.eye(2) * np.exp(1j * 0.6)),
+                    "matrix": _complex_matrix(np.full((2, 2), np.exp(1j * 0.6))),
                 }
             ]
         }

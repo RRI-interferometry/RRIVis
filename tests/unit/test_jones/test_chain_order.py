@@ -282,12 +282,24 @@ def test_chain_composes_the_full_twelve_term_canonical_order() -> None:
 
 
 def test_chain_rejects_a_baseline_dependent_term() -> None:
-    """Defect D7: ``add_term`` enforces what its docstring always claimed."""
+    """Defect D7: ``add_term`` enforces what its docstring always claimed.
+
+    ANCHOR UPDATED BY: Tier 7H.  ``BaselineMultiplicativeJones`` no longer takes
+    zero arguments -- it takes the baselines it was resolved against and one
+    matrix each -- so the probe is a real term rather than an empty one.  What
+    is asserted is unchanged.
+    """
+    import numpy as np
+
     import radiosim.core.jones as jones_package
 
     chain = JonesChain(get_backend("numpy"))
+    closure_error = jones_package.BaselineMultiplicativeJones(
+        baseline_pairs=((0, 1),),
+        matrices=np.full((1, 2, 2), 1.5, dtype=np.complex128),
+    )
     with pytest.raises(TypeError) as excinfo:
-        chain.add_term(jones_package.BaselineMultiplicativeJones())
+        chain.add_term(closure_error)
     assert "JonesBaselineTerm" in str(excinfo.value)
     assert chain.terms == []
 

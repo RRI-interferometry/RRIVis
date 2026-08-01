@@ -164,14 +164,27 @@ def resolve_for(
     jones: dict[str, Any] | None,
     *,
     mount_types: str | None | Sequence[str | None] = None,
+    **section_overrides: Any,
 ) -> ResolvedJonesTerms:
-    """Resolve one ``jones:`` block against the standard fixture instrument."""
-    simulator = simulator_for(tmp_path, jones, mount_types=mount_types)
+    """Resolve one ``jones:`` block against the standard fixture instrument.
+
+    Every argument the resolver needs comes from the *same* simulator: the
+    channel centres and their declared widths, the time grid, and the resolved
+    baseline selection.  Assembling them from anywhere else would let a test
+    resolve ``M`` against baselines the run does not have or ``Q`` against a
+    bandwidth the run does not declare, which is exactly what the resolver's
+    required parameters exist to make impossible.
+    """
+    simulator = simulator_for(
+        tmp_path, jones, mount_types=mount_types, **section_overrides
+    )
     return resolve_jones_terms(
         simulator._resolved.jones,
         simulator._instrument_state.instrument,
         frequencies_hz=simulator._resolved.frequency.channel_frequencies_hz,
+        channel_widths_hz=simulator._resolved.frequency.channel_widths_hz,
         time_grid=simulator._resolved.observation.time_grid,
+        baseline_selection=simulator._instrument_state.selection,
         precision=simulator._precision,
     )
 
@@ -1422,7 +1435,9 @@ def test_the_saastamoinen_delay_is_resolved_per_antenna_from_the_instrument(
         simulator._resolved.jones,
         instrument,
         frequencies_hz=simulator._resolved.frequency.channel_frequencies_hz,
+        channel_widths_hz=simulator._resolved.frequency.channel_widths_hz,
         time_grid=simulator._resolved.observation.time_grid,
+        baseline_selection=simulator._instrument_state.selection,
         precision=simulator._precision,
     )
 
@@ -1968,12 +1983,17 @@ def test_a_smearing_block_with_nothing_enabled_is_rejected_with_r16(tmp_path) ->
     )
 
 
-def test_an_identity_closure_error_is_rejected_with_r7(tmp_path) -> None:
-    """R7 reaches the baseline path too: an ``M`` of identities is no term."""
+def test_an_all_ones_closure_error_is_rejected_with_r7(tmp_path) -> None:
+    """R7 reaches the baseline path too, at the value that really is neutral.
+
+    The neutral element of a Hadamard product is the all-**ones** matrix.  An
+    ``M`` of identity matrices is a different configuration entirely -- it nulls
+    both cross-hands -- and is accepted, because it changes the visibilities.
+    """
     with pytest.raises(IdentityJonesTermError) as caught:
         resolve_for(
             tmp_path,
-            {"M": {"matrix": [[[1.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [1.0, 0.0]]]}},
+            {"M": {"matrix": [[[1.0, 0.0], [1.0, 0.0]], [[1.0, 0.0], [1.0, 0.0]]]}},
         )
 
     assert str(caught.value) == (
@@ -1996,8 +2016,8 @@ def test_the_baseline_rejections_keep_the_mandatory_failure_order(tmp_path) -> N
             {
                 "M": {
                     "matrix": [
-                        [[1.0, 0.0], [0.0, 0.0]],
-                        [[0.0, 0.0], [1.0, 0.0]],
+                        [[1.0, 0.0], [1.0, 0.0]],
+                        [[1.0, 0.0], [1.0, 0.0]],
                     ],
                     "per_baseline": [
                         {

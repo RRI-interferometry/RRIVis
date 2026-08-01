@@ -25,13 +25,12 @@ Three properties the section must have, and how each is obtained here
 
 Which terms are here
 --------------------
-``G``, ``B``, ``Rc``, ``Kd``, ``X``, ``D``, ``P``, ``T`` and ``Z`` -- every
-per-antenna term in the chain, all of which now carry real physics.  A schema
-field for a term whose ``compute_jones_batch`` raises would be a configuration
-surface that cannot be honoured -- the defect ``D2`` shape that Tier 7C stripped
-from the planned terms' constructors -- so ``M`` and ``Q``, the two
-baseline-dependent Hadamard terms, are still absent, and Tier 7H adds their
-blocks together with their physics.
+All eleven: ``G``, ``B``, ``Rc``, ``Kd``, ``X``, ``D``, ``P``, ``T`` and ``Z``,
+the per-antenna chain, plus ``M`` and ``Q``, the two baseline-dependent Hadamard
+terms Tier 7H added together with their physics.  Every letter this schema
+accepts names a term that runs: a field for a term whose evaluation raised would
+be a configuration surface that cannot be honoured, which is the defect ``D2``
+shape one level up.
 
 Units and complex numbers (Section 21.3)
 ----------------------------------------
@@ -61,9 +60,12 @@ __all__ = [
     "BandpassPolynomialModel",
     "BandpassTabulatedModel",
     "BandpassTermConfig",
+    "BaselineErrorOverrideConfig",
+    "BaselineErrorTermConfig",
     "CableReflectionOverrideConfig",
     "CableReflectionTermConfig",
     "ComplexInput",
+    "ComplexMatrix2x2",
     "ConstantTecModel",
     "CrosshandOverrideConfig",
     "CrosshandTermConfig",
@@ -91,6 +93,7 @@ __all__ = [
     "ParallacticTermConfig",
     "SaastamoinenZenithDelay",
     "SinusoidalTimeModel",
+    "SmearingTermConfig",
     "StaticTimeModel",
     "TroposphereTermConfig",
     "TroposphericOpacityConfig",
@@ -105,10 +108,31 @@ ComplexInput: TypeAlias = (
     tuple[_StrictFiniteFloat, _StrictFiniteFloat] | _StrictFiniteFloat
 )
 
-#: The term letters this schema accepts, in canonical chain order (Section
-#: 12.2).  Tier 7H extends it with ``M`` and ``Q``, the two baseline-dependent
-#: terms, which are the only ones left.
-JONES_TERM_LETTERS: tuple[str, ...] = ("G", "B", "Rc", "Kd", "X", "D", "P", "T", "Z")
+#: A ``2x2`` complex configuration value, row by row: the shape ``M``'s
+#: per-baseline error takes.  Written as nested fixed-length tuples rather than
+#: as a free sequence so that a mis-shaped matrix is a parse error naming the
+#: position, not a runtime surprise.
+ComplexMatrix2x2: TypeAlias = tuple[
+    tuple[ComplexInput, ComplexInput],
+    tuple[ComplexInput, ComplexInput],
+]
+
+#: The term letters this schema accepts: the nine chain letters in canonical
+#: chain order (Section 12.2), then the two baseline-dependent ones Tier 7H
+#: added.  Every letter here names a term whose physics exists.
+JONES_TERM_LETTERS: tuple[str, ...] = (
+    "G",
+    "B",
+    "Rc",
+    "Kd",
+    "X",
+    "D",
+    "P",
+    "T",
+    "Z",
+    "M",
+    "Q",
+)
 
 
 def as_complex(value: ComplexInput) -> complex:
@@ -960,6 +984,94 @@ class IonosphereTermConfig(StrictFrozenModel):
     faraday: IonosphericFaradayConfig | None = None
 
 
+# ------------------------------------------------------------------------- M
+
+
+class BaselineErrorOverrideConfig(StrictFrozenModel):
+    """One baseline's closure error, keyed by its ordered antenna-number pair.
+
+    Parameters
+    ----------
+    antennas
+        The ordered pair, exactly as the resolved baseline selection carries it
+        (``ant1 <= ant2``).  The reversed pair is a *different* key and is
+        rejected by R14 rather than silently read as the conjugate baseline: a
+        configuration that names ``[1, 0]`` has not said whether it means the
+        conjugate error, and inventing an answer is what this tier removes.
+    matrix
+        The ``2x2`` complex error, as ``[[m00, m01], [m10, m11]]`` with each
+        entry an ``[re, im]`` pair or a bare real number.  Each entry multiplies
+        the correlation of the same name, so the value that changes nothing is
+        ``1`` in **every** entry -- not the identity matrix, whose off-diagonal
+        zeros would null both cross-hands.
+    """
+
+    antennas: tuple[
+        Annotated[int, Field(strict=True, ge=0)],
+        Annotated[int, Field(strict=True, ge=0)],
+    ]
+    matrix: ComplexMatrix2x2
+
+
+class BaselineErrorTermConfig(StrictFrozenModel):
+    """The ``M`` term: per-baseline multiplicative closure error (Section 20.10).
+
+    ``V_pq -> M_pq (*) V_pq``, a Hadamard product on the finished ``2x2``
+    correlation matrix rather than a factor in the antenna chain -- which is why
+    ``M`` breaks closure and every per-antenna term does not (invariant I11).
+
+    Parameters
+    ----------
+    matrix
+        The optional array-wide default, applied to every selected baseline.
+    per_baseline
+        Optional per-baseline overrides, each beating the default for the pair
+        it names.  A baseline named by neither carries ``[[1, 1], [1, 1]]`` and
+        is untouched.
+
+    Notes
+    -----
+    There is no "enabled" flag and no way to write an ``M`` that does nothing: a
+    block whose every resolved entry is ``1`` -- including a block that
+    configures neither field -- is rejected at resolution as an identity (R7).
+    """
+
+    matrix: ComplexMatrix2x2 | None = None
+    per_baseline: tuple[BaselineErrorOverrideConfig, ...] = ()
+
+
+# ------------------------------------------------------------------------- Q
+
+
+class SmearingTermConfig(StrictFrozenModel):
+    """The ``Q`` term: time and bandwidth smearing (Section 20.11).
+
+    ``Q_pqs = sinc(pi dnu tau_res) sinc(pi dt nu_f)``.
+
+    Parameters
+    ----------
+    bandwidth_smearing, time_smearing
+        Which envelopes are active.  Both are **required** and neither has a
+        default, for the same reason ``P.enabled`` is required: which mechanism
+        a run models is a scientific decision, and a default would silently make
+        it RadioSim's.  Both ``false`` parses and is then rejected at resolution
+        (R16).
+
+    Notes
+    -----
+    There is deliberately no ``channel_width_hz`` and no ``integration_time_s``
+    here.  ``dnu`` is the run's own resolved per-channel width and ``dt`` its
+    resolved per-sample integration time; a field for either would be a second,
+    contradictable statement of something the observation configuration already
+    fixes, and a simulation that smeared over a bandwidth different from the one
+    it reports in its own result would be exactly the fabrication this tier
+    exists to remove (Section 20.11, and Section 41's Q6 resolution).
+    """
+
+    bandwidth_smearing: bool
+    time_smearing: bool
+
+
 # ------------------------------------------------------------------- the section
 
 
@@ -986,10 +1098,16 @@ class JonesConfig(StrictFrozenModel):
     P: ParallacticTermConfig | None = None
     T: TroposphereTermConfig | None = None
     Z: IonosphereTermConfig | None = None
+    M: BaselineErrorTermConfig | None = None
+    Q: SmearingTermConfig | None = None
 
     @property
     def configured_terms(self) -> tuple[str, ...]:
-        """Return the configured term letters, in canonical chain order."""
+        """Return the configured term letters, in canonical chain order.
+
+        The nine chain letters first, in the order they compose, then the two
+        baseline-dependent ones, which are not in the chain at all.
+        """
         return tuple(
             letter
             for letter in JONES_TERM_LETTERS

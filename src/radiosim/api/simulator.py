@@ -487,6 +487,13 @@ class Simulator:
         (``Tier7JonesSciencePlan.md`` Section 26.1): every ``jones:`` rejection
         is therefore raised before the first side effect, which is the Tier 1
         "reject before side effects" property extended to the new section.
+
+        The resolved baseline selection and the resolved channel widths are
+        handed down with the instrument because two terms are functions of the
+        *run* rather than of the document: ``M`` is keyed by baseline, so R14
+        needs the selection, and ``Q`` smears over the declared width of each
+        channel and the declared integration time of each sample rather than
+        over anything ``jones.Q`` could have said (Section 20.11).
         """
         if self._jones_terms is not None:
             return
@@ -499,7 +506,9 @@ class Simulator:
             self._resolved.jones,
             self._instrument_state.instrument,
             frequencies_hz=self._resolved.frequency.channel_frequencies_hz,
+            channel_widths_hz=self._resolved.frequency.channel_widths_hz,
             time_grid=self._resolved.observation.time_grid,
+            baseline_selection=self._instrument_state.selection,
             precision=self._precision,
         )
 

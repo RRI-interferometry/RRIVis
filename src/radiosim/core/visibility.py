@@ -32,6 +32,10 @@ from radiosim.core.jones import (
     JonesChain,
     JonesTerm,
 )
+from radiosim.core.jones.baseline_errors import (
+    BaselineFactors,
+    evaluate_baseline_factors,
+)
 from radiosim.core.jones.directions import DirectionBatch
 from radiosim.core.jones.evaluate import evaluate_antenna_jones
 from radiosim.core.jones.geometric import geometric_phase, uvw_in_wavelengths
@@ -56,6 +60,11 @@ from radiosim.core.solver_partition import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: The factors of a run that configured no baseline-dependent term: both
+#: ``None``, so every ``is not None`` guard below is false and the arithmetic is
+#: exactly the pre-Tier-7H one.
+EMPTY_BASELINE_FACTORS = BaselineFactors()
 
 
 def _require_backend(backend: object) -> ArrayBackend:
@@ -467,6 +476,10 @@ def calculate_visibility(
         (instrument.row_for_number(ant1), instrument.row_for_number(ant2))
         for ant1, ant2 in instrument.selected_pairs
     )
+    # Antenna *numbers*, not rows: the baseline-dependent terms are configured
+    # by number, and handing them rows would make a silent mis-keying possible.
+    selected_number_pairs = tuple(instrument.selected_pairs)
+    baseline_terms = jones_terms.baseline_terms
     _selected_rows = {row for pair in selected_row_pairs for row in pair}
     selected_rows = tuple(
         row for row in range(len(instrument.antenna_numbers)) if row in _selected_rows
@@ -797,6 +810,35 @@ def calculate_visibility(
             else:
                 envelope = 1.0
 
+            # The baseline-dependent Hadamard terms (Section 15), through the
+            # one evaluator both solvers share.  The whole block is skipped when
+            # the run configured none, so a run without them is bit-identical to
+            # one from before they existed (invariant I1).
+            baseline_factors = EMPTY_BASELINE_FACTORS
+            if baseline_terms:
+                baseline_factors = evaluate_baseline_factors(
+                    baseline_terms,
+                    baseline_pairs=selected_number_pairs,
+                    baseline_uvw_wavelengths=uvw_wavelengths,
+                    directions=directions,
+                    frequency_hz=float(freq),
+                    freq_idx=freq_idx,
+                    time_mjd=float(current_obstime.mjd),
+                    time_idx=time_idx,
+                    backend=backend,
+                    real_dtype=backend.default_real_dtype,
+                    complex_dtype=jones_complex_dtype,
+                )
+                if baseline_factors.envelope is not None:
+                    # Section 15.2 fixes the order: the morphology envelope
+                    # first, then ``Q``, so the floating-point result is
+                    # reproducible even though the product commutes.
+                    envelope = (
+                        envelope * baseline_factors.envelope
+                        if has_gaussians
+                        else baseline_factors.envelope
+                    )
+
             # The one compiled kernel (Section 13.6): one (B, 2, 2) block for
             # all baselines at this (time, frequency).
             block = contraction(
@@ -807,6 +849,14 @@ def calculate_visibility(
                 envelope,
                 I_scaled if is_unpolarized else None,
             )
+            if baseline_factors.correlation is not None:
+                # ``M``, elementwise on the kernel's own output shape and
+                # *before* the output cast, so closure errors participate at
+                # accumulation precision (Section 15.2, Section 41 Q5).  Nothing
+                # downstream of this line changes: the per-frequency list, the
+                # per-time assembly, and the final cube assembly are the Tier 6
+                # ones untouched.
+                block = block * baseline_factors.correlation
             freq_blocks.append(backend.asarray(block, dtype=output_complex_dtype))
 
         # One (B, F, 2, 2) block for this time step.

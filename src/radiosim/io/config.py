@@ -1696,6 +1696,7 @@ from radiosim.io.instrument_config import (  # noqa: E402
 )
 from radiosim.io.jones_config import (  # noqa: E402
     BandpassTermConfig,
+    BaselineErrorTermConfig,
     CableReflectionTermConfig,
     CrosshandTermConfig,
     DelayTermConfig,
@@ -1704,6 +1705,7 @@ from radiosim.io.jones_config import (  # noqa: E402
     JonesConfig,
     LeakageTermConfig,
     ParallacticTermConfig,
+    SmearingTermConfig,
     TroposphereTermConfig,
 )
 from radiosim.io.receptor_config import (  # noqa: E402
@@ -2279,6 +2281,8 @@ _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
     "jones.P": tuple(ParallacticTermConfig.model_fields),
     "jones.T": tuple(TroposphereTermConfig.model_fields),
     "jones.Z": tuple(IonosphereTermConfig.model_fields),
+    "jones.M": tuple(BaselineErrorTermConfig.model_fields),
+    "jones.Q": tuple(SmearingTermConfig.model_fields),
     "sky_model": tuple(SkyModelConfig.model_fields),
     "obs_time": tuple(ObsTimeConfig.model_fields),
     "workflow": tuple(CliWorkflowConfig.model_fields),

@@ -22,9 +22,11 @@ implements stages 3-6 of that order, in this sequence and across *all* terms at
 each stage before moving to the next:
 
 3. structural validation -- ``per_antenna`` antenna existence (R4), duplicate
-   ``(antenna, feed)`` pairs (R5), and feed index range (R6);
-4. physical-range validation -- R8 for ``Rc``, R9 for ``Z``, R10 for ``T``
-   (R16 belongs to ``Q``, which Tier 7H adds);
+   ``(antenna, feed)`` pairs (R5), feed index range (R6), and ``M``'s
+   ``per_baseline`` existence (R14) and duplication (R5, in its baseline-keyed
+   form);
+4. physical-range validation -- R8 for ``Rc``, R9 for ``Z``, R10 for ``T``,
+   R16 for ``Q``;
 5. cross-object consistency -- bandpass frequency coverage (R11) and mount types
    (R12, R15);
 6. the identity check (R7), **last**, because it needs fully resolved values.
@@ -41,8 +43,10 @@ have already happened by the time this function is called.
 
 What is here and what is not
 ----------------------------
-``chain_terms`` carries the terms this run's ``jones:`` section configured, in
-canonical chain order.  It does **not** carry ``H``, ``C`` and ``E``: those
+``chain_terms`` carries the per-antenna terms this run's ``jones:`` section
+configured, in canonical chain order, and ``baseline_terms`` carries the two
+Hadamard terms (``M``, ``Q``), which have no chain position at all.
+``chain_terms`` does **not** carry ``H``, ``C`` and ``E``: those
 three are always present and are built by the solver, ``E`` necessarily so,
 because the beam adapter closes over the direction, frequency and time of the
 step it is evaluated at and cannot exist before the time loop.  The full
@@ -70,7 +74,11 @@ from radiosim.core.jones.bandpass import (
     TabulatedBandpassResponse,
 )
 from radiosim.core.jones.base import JonesTerm
-from radiosim.core.jones.baseline_errors import JonesBaselineTerm
+from radiosim.core.jones.baseline_errors import (
+    BaselineMultiplicativeJones,
+    JonesBaselineTerm,
+    SmearingFactorJones,
+)
 from radiosim.core.jones.crosshand import CrosshandJones
 from radiosim.core.jones.delay import CableReflectionJones, DelayJones
 from radiosim.core.jones.gain import GainJones, ResolvedGainTimeModel
@@ -97,11 +105,12 @@ from radiosim.core.jones_errors import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from radiosim.core.instrument import ResolvedInstrument
+    from radiosim.core.instrument import ResolvedBaselineSelection, ResolvedInstrument
     from radiosim.core.precision import PrecisionConfig
     from radiosim.core.time_grid import ObservationTimeGrid
     from radiosim.io.jones_config import (
         BandpassTermConfig,
+        BaselineErrorTermConfig,
         CableReflectionTermConfig,
         CrosshandTermConfig,
         DelayTermConfig,
@@ -109,10 +118,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         IonosphereTermConfig,
         JonesConfig,
         LeakageTermConfig,
+        SmearingTermConfig,
         TroposphereTermConfig,
     )
 
 __all__ = [
+    "BASELINE_TERM_ORDER",
     "CANONICAL_CHAIN_ORDER",
     "EMPTY_JONES_TERMS",
     "JONES_SCHEMA_VERSION",
@@ -158,6 +169,13 @@ CANONICAL_CHAIN_ORDER: tuple[str, ...] = (
 #: constructs: the reporting-basis transform, the receptor configuration, and
 #: the beam adapter.
 SOLVER_OWNED_TERMS: tuple[str, ...] = ("H", "C", "E")
+
+#: The two baseline-dependent Hadamard terms, in the order they are applied and
+#: recorded.  They are deliberately **not** in :data:`CANONICAL_CHAIN_ORDER`:
+#: neither is a factor of any antenna's Jones matrix, and putting them in a
+#: chain order would be the category error ``JonesBaselineTerm`` exists to
+#: prevent (Section 15).
+BASELINE_TERM_ORDER: tuple[str, ...] = ("M", "Q")
 
 #: Term letter -> the ``JonesPrecision`` field that declares its precision.
 #: Extended by Tier 7D so that every term in ``CANONICAL_CHAIN_ORDER`` and both
@@ -229,15 +247,18 @@ class JonesProvenance:
     Parameters
     ----------
     enabled_terms
-        Every term in the composed chain, in canonical order, including the
-        three the solver always adds (``H``, ``C``, ``E``).  This is the answer
-        to "what was actually applied", so leaving the always-on terms out would
-        make the record read as though a run with no ``jones:`` section applied
-        nothing at all.
+        Everything that was actually applied: the composed chain in canonical
+        order, including the three the solver always adds (``H``, ``C``, ``E``),
+        followed by the baseline-dependent Hadamard terms.  Leaving the
+        always-on terms out would make the record read as though a run with no
+        ``jones:`` section applied nothing at all, and leaving ``M`` and ``Q``
+        out would make it read as though a smeared run were not.
     chain_order
-        The same tuple; kept as a separate field because Section 22 names both,
-        and because a later tier that lets a term appear twice would make them
-        differ.
+        The composed **chain** only.  The two tuples were identical until
+        Tier 7H, and they differ exactly by the baseline terms: neither ``M``
+        nor ``Q`` is a factor of any antenna's Jones matrix, so neither has a
+        chain position, and recording one would be the category error the
+        separate ABC exists to prevent.
     term_snapshots
         Term letter to its frozen, JSON-safe configuration snapshot.  Pure
         configuration: nothing filesystem-path-derived enters it, which is the
@@ -291,8 +312,12 @@ class ResolvedJonesTerms:
         solver-owned terms (``H``, ``C``, ``E``) are deliberately not here; see
         the module docstring.
     baseline_terms
-        The configured baseline-dependent Hadamard terms (``M``, ``Q``).  Empty
-        until Tier 7H.
+        The configured baseline-dependent Hadamard terms (``M``, ``Q``), in
+        :data:`BASELINE_TERM_ORDER`.  They never enter ``chain_terms``: the
+        solver evaluates them through
+        :func:`~radiosim.core.jones.baseline_errors.evaluate_baseline_factors`
+        and multiplies the results into the kernel's ``envelope`` argument and
+        its ``(B, 2, 2)`` output.
     dtypes
         The resolved precisions.
     provenance
@@ -328,12 +353,26 @@ class ResolvedJonesTerms:
                 f"chain_terms must be in canonical order {tuple(expected)}, got "
                 f"{tuple(names)}"
             )
+        baseline = tuple(self.baseline_terms)
+        if any(not isinstance(term, JonesBaselineTerm) for term in baseline):
+            raise TypeError("baseline_terms must contain only JonesBaselineTerm values")
+        baseline_names = [term.name for term in baseline]
+        if len(set(baseline_names)) != len(baseline_names):
+            raise ValueError("baseline_terms must not repeat a term letter")
+        expected_baseline = [
+            letter for letter in BASELINE_TERM_ORDER if letter in set(baseline_names)
+        ]
+        if baseline_names != expected_baseline:
+            raise ValueError(
+                f"baseline_terms must be in canonical order "
+                f"{tuple(expected_baseline)}, got {tuple(baseline_names)}"
+            )
         if type(self.dtypes) is not ResolvedJonesDtypes:
             raise TypeError("dtypes must be a ResolvedJonesDtypes")
         if type(self.provenance) is not JonesProvenance:
             raise TypeError("provenance must be a JonesProvenance")
         object.__setattr__(self, "chain_terms", chain)
-        object.__setattr__(self, "baseline_terms", tuple(self.baseline_terms))
+        object.__setattr__(self, "baseline_terms", baseline)
 
     @property
     def is_empty(self) -> bool:
@@ -342,8 +381,17 @@ class ResolvedJonesTerms:
 
     @property
     def configured_letters(self) -> tuple[str, ...]:
-        """Return the configured term letters, in canonical chain order."""
+        """Return the configured **chain** term letters, in canonical order.
+
+        The baseline-dependent letters are not here, because they are not chain
+        terms; they are :attr:`baseline_letters`.
+        """
         return tuple(term.name for term in self.chain_terms)
+
+    @property
+    def baseline_letters(self) -> tuple[str, ...]:
+        """Return the configured baseline-dependent letters, ``M`` before ``Q``."""
+        return tuple(term.name for term in self.baseline_terms)
 
     def term(self, letter: str) -> JonesTerm | None:
         """Return the configured term with this letter, or ``None``."""
@@ -1037,6 +1085,111 @@ def _resolve_ionosphere_term(
     )
 
 
+# --------------------------------------------------- the two baseline terms
+
+
+def _validate_baseline_overrides(
+    entries: Sequence[Any],
+    selected_pairs: Sequence[tuple[int, int]],
+) -> dict[tuple[int, int], Any]:
+    """Return the per-baseline override map after stage-3 validation.
+
+    Implements R14 and the baseline-keyed form of R5, in reading order, so a
+    document with two mistakes is told about the first one.
+
+    The comparison is against the run's *resolved baseline selection* and not
+    against its antenna list: a pair of antennas that both exist but whose
+    baseline the selection filtered out is still a pair this run will never
+    compute, and silently keeping an error for it would leave the user with a
+    configured effect and no effect.
+    """
+    selected = set(selected_pairs)
+    resolved: dict[tuple[int, int], Any] = {}
+    for entry in entries:
+        pair = (int(entry.antennas[0]), int(entry.antennas[1]))
+        if pair not in selected:
+            raise JonesAssignmentError(
+                f"jones.M.per_baseline references baseline {pair}, which is not "
+                "in the resolved baseline selection."
+            )
+        if pair in resolved:
+            raise InvalidJonesConfigError(
+                f"jones.M.per_baseline contains a duplicate entry for baseline "
+                f"{pair}; each baseline may appear once."
+            )
+        resolved[pair] = entry
+    return resolved
+
+
+def _resolve_closure_error_term(
+    config: BaselineErrorTermConfig,
+    *,
+    selected_pairs: Sequence[tuple[int, int]],
+    overrides: Mapping[tuple[int, int], Any],
+) -> BaselineMultiplicativeJones:
+    """Resolve ``M`` into one ``(B, 2, 2)`` array in selected-baseline order."""
+    from radiosim.io.jones_config import as_complex
+
+    def _matrix(value: Any) -> np.ndarray:
+        return np.array(
+            [[as_complex(entry) for entry in row] for row in value],
+            dtype=np.complex128,
+        )
+
+    # Ones, not ``I2``: the neutral element of a Hadamard product is the
+    # all-ones matrix, and a baseline this block does not mention must come
+    # through untouched rather than have its cross-hands nulled.
+    default = (
+        np.ones((2, 2), dtype=np.complex128)
+        if config.matrix is None
+        else _matrix(config.matrix)
+    )
+    pairs = tuple((int(first), int(second)) for first, second in selected_pairs)
+    matrices = np.empty((len(pairs), 2, 2), dtype=np.complex128)
+    for row, pair in enumerate(pairs):
+        override = overrides.get(pair)
+        matrices[row] = default if override is None else _matrix(override.matrix)
+    return BaselineMultiplicativeJones(baseline_pairs=pairs, matrices=matrices)
+
+
+def _reject_inert_smearing(config: SmearingTermConfig) -> None:
+    """Raise R16 when neither smearing kind is enabled."""
+    if config.bandwidth_smearing or config.time_smearing:
+        return
+    raise InvalidJonesConfigError(
+        "jones.Q is enabled with both smearing kinds disabled; remove the "
+        "section instead."
+    )
+
+
+def _resolve_smearing_term(
+    config: SmearingTermConfig,
+    *,
+    instrument: ResolvedInstrument,
+    frequencies_hz: np.ndarray,
+    channel_widths_hz: np.ndarray,
+    time_grid: ObservationTimeGrid,
+) -> SmearingFactorJones:
+    """Resolve ``Q`` against the run's own frequency and time grids.
+
+    Neither grid comes from the ``jones.Q`` block, which carries two booleans and
+    nothing else: a smearing bandwidth or integration time that could disagree
+    with the ones the run publishes in its own result would be a fabrication
+    (Section 20.11, Section 41 Q6).
+    """
+    return SmearingFactorJones(
+        bandwidth_smearing=bool(config.bandwidth_smearing),
+        time_smearing=bool(config.time_smearing),
+        channel_frequencies_hz=frequencies_hz,
+        channel_widths_hz=channel_widths_hz,
+        integration_time_s=np.asarray(
+            time_grid.integration_time_seconds, dtype=np.float64
+        ),
+        sample_times_mjd=np.asarray(time_grid.to_mjd(), dtype=np.float64),
+        latitude_rad=math.radians(instrument.location.latitude_deg),
+    )
+
+
 # ------------------------------------------------------------------ resolution
 
 
@@ -1061,7 +1214,9 @@ def resolve_jones_terms(
     instrument: ResolvedInstrument,
     *,
     frequencies_hz: Any,
+    channel_widths_hz: Any,
     time_grid: ObservationTimeGrid,
+    baseline_selection: ResolvedBaselineSelection,
     precision: PrecisionConfig | None = None,
     pointing_elevation_deg: float | None = None,
 ) -> ResolvedJonesTerms:
@@ -1081,9 +1236,22 @@ def resolve_jones_terms(
     frequencies_hz
         The observation channel centres, strictly increasing.  Used for the
         bandpass's derived reference and scale frequencies and for R11.
+    channel_widths_hz
+        The declared width of each of those channels, one per centre.  Required
+        rather than derived: an explicit nonuniform frequency array carries its
+        own widths (Tier 1G), the result cube reports them, and ``Q`` must smear
+        by the same numbers rather than by a spacing it invented
+        (``Tier7JonesSciencePlan.md`` Section 41, Q6).
     time_grid
         The resolved observation time grid.  Its first sample is ``t0`` for
-        every gain time model.
+        every gain time model, and its per-sample integration time is ``dt`` for
+        ``Q``.
+    baseline_selection
+        The run's resolved baseline selection.  Required for the same structural
+        reason ``instrument`` is: ``M`` is keyed by baseline, so a resolver that
+        could not see the selection could not raise R14 at all, and a
+        per-baseline error configured for a pair this run never computes would
+        be a configured effect with no effect.
     precision
         The run's precision configuration; ``None`` resolves the standard
         preset.
@@ -1100,18 +1268,22 @@ def resolve_jones_terms(
     Raises
     ------
     InvalidJonesConfigError
-        R2, R5, R6, R8, R9, R10, R11, or a derived default that cannot be
+        R2, R5, R6, R8, R9, R10, R11, R16, or a derived default that cannot be
         computed.  **Not** R13: its condition is about directions, so ``T`` and
         ``Z`` raise it themselves at evaluation (Section 24's 7G correction).
     JonesAssignmentError
         R4: a ``per_antenna`` entry names an antenna the instrument does not
-        have.
+        have; R14: a ``per_baseline`` entry names a baseline the selection does
+        not contain.
     UnsupportedMountTypeError
         R12 or R15: an antenna's mount type and the ``P`` configuration
         disagree.
     IdentityJonesTermError
         R7: a configured term resolves to exactly the identity.
     """
+    from radiosim.core.instrument import (
+        ResolvedBaselineSelection as _ResolvedBaselineSelection,
+    )
     from radiosim.core.instrument import ResolvedInstrument as _ResolvedInstrument
     from radiosim.core.time_grid import ObservationTimeGrid as _ObservationTimeGrid
     from radiosim.io.jones_config import JonesConfig as _JonesConfig
@@ -1120,6 +1292,8 @@ def resolve_jones_terms(
         raise TypeError("config must be a JonesConfig or None")
     if type(instrument) is not _ResolvedInstrument:
         raise TypeError("instrument must be a ResolvedInstrument")
+    if type(baseline_selection) is not _ResolvedBaselineSelection:
+        raise TypeError("baseline_selection must be a ResolvedBaselineSelection")
 
     mount_types = {
         antenna.id.number: antenna.mount_type for antenna in instrument.antennas
@@ -1142,6 +1316,9 @@ def resolve_jones_terms(
     frequencies = np.asarray(frequencies_hz, dtype=np.float64)
     if frequencies.ndim != 1 or frequencies.size == 0:
         raise ValueError("frequencies_hz must be a nonempty one-dimensional array")
+    widths = np.asarray(channel_widths_hz, dtype=np.float64)
+    if widths.shape != frequencies.shape:
+        raise ValueError("channel_widths_hz must have one entry per channel frequency")
 
     configured = config.configured_terms
     if not configured:
@@ -1154,14 +1331,30 @@ def resolve_jones_terms(
         )
 
     antenna_numbers = tuple(antenna.id.number for antenna in instrument.antennas)
+    selected_pairs = tuple(
+        (baseline.ant1.number, baseline.ant2.number)
+        for baseline in baseline_selection.baselines
+    )
+    chain_letters = tuple(
+        letter for letter in configured if letter not in BASELINE_TERM_ORDER
+    )
 
     # Stage 3 -- structural validation, every term before any physical check.
     # ``X`` is the one term whose overrides are keyed by antenna alone, because
-    # its parameter is the relative phase *between* an antenna's two feeds.
+    # its parameter is the relative phase *between* an antenna's two feeds, and
+    # ``M`` is the one term whose overrides are keyed by a *baseline*, because
+    # its error belongs to the correlator pair rather than to either antenna.
     overrides_by_term: dict[str, dict[tuple[int, int], Any]] = {}
     crosshand_overrides: dict[int, Any] = {}
     ionosphere_overrides: dict[int, Any] = {}
-    for letter in configured:
+    baseline_overrides: dict[tuple[int, int], Any] = {}
+    if "M" in configured:
+        closure_config = config.M
+        assert closure_config is not None
+        baseline_overrides = _validate_baseline_overrides(
+            closure_config.per_baseline, selected_pairs
+        )
+    for letter in chain_letters:
         block = getattr(config, letter)
         if letter in ("P", "T"):
             # Neither has a per-antenna block.  ``P``'s only per-antenna
@@ -1207,6 +1400,10 @@ def resolve_jones_terms(
         ionosphere_config = config.Z
         assert ionosphere_config is not None
         _reject_negative_tec(float(ionosphere_config.tec.vertical_tec_tecu))
+    if "Q" in configured:
+        smearing_config = config.Q
+        assert smearing_config is not None
+        _reject_inert_smearing(smearing_config)
 
     # Stage 5 -- cross-object consistency.
     if "B" in configured:
@@ -1300,6 +1497,26 @@ def resolve_jones_terms(
             overrides=ionosphere_overrides,
         )
 
+    built_baseline: dict[str, JonesBaselineTerm] = {}
+    if "M" in configured:
+        closure_config = config.M
+        assert closure_config is not None
+        built_baseline["M"] = _resolve_closure_error_term(
+            closure_config,
+            selected_pairs=selected_pairs,
+            overrides=baseline_overrides,
+        )
+    if "Q" in configured:
+        smearing_config = config.Q
+        assert smearing_config is not None
+        built_baseline["Q"] = _resolve_smearing_term(
+            smearing_config,
+            instrument=instrument,
+            frequencies_hz=frequencies,
+            channel_widths_hz=widths,
+            time_grid=time_grid,
+        )
+
     # Stage 6 -- the identity check, last, because it needs resolved values.
     if "P" in configured and not parallactic_enabled:
         # ``enabled: false`` is a disabled term, and Section 21 has no such
@@ -1308,7 +1525,12 @@ def resolve_jones_terms(
         # instead of a type error.
         _reject_identity("P")
     for letter in configured:
-        term = built[letter]
+        # ``Q`` has no ``is_identity``: an enabled envelope is never exactly one
+        # everywhere, and R16 -- raised at stage 4 -- is what covers the block
+        # that would be.
+        term: JonesTerm | JonesBaselineTerm = (
+            built_baseline[letter] if letter in built_baseline else built[letter]
+        )
         is_identity = getattr(term, "is_identity", None)
         if is_identity is not None and is_identity():
             _reject_identity(letter)
@@ -1316,22 +1538,33 @@ def resolve_jones_terms(
     chain_terms = tuple(
         built[letter] for letter in CANONICAL_CHAIN_ORDER if letter in built
     )
+    baseline_terms = tuple(
+        built_baseline[letter]
+        for letter in BASELINE_TERM_ORDER
+        if letter in built_baseline
+    )
     chain_order = tuple(
         letter
         for letter in CANONICAL_CHAIN_ORDER
         if letter in built or letter in SOLVER_OWNED_TERMS
+    )
+    # What was applied is the chain plus the Hadamard terms; what has a chain
+    # position is the chain alone.  The two tuples were identical until Tier 7H
+    # and now differ exactly by ``M`` and ``Q`` (Section 22).
+    enabled_terms = chain_order + tuple(
+        letter for letter in BASELINE_TERM_ORDER if letter in built_baseline
     )
     term_snapshots = {
         letter: getattr(config, letter).model_dump(mode="json") for letter in configured
     }
     provenance = JonesProvenance(
         schema_version=JONES_SCHEMA_VERSION,
-        enabled_terms=chain_order,
+        enabled_terms=enabled_terms,
         chain_order=chain_order,
         term_snapshots=term_snapshots,
         mount_types=mount_types,
         jones_sha256=_compute_jones_sha256(
-            enabled_terms=chain_order,
+            enabled_terms=enabled_terms,
             chain_order=chain_order,
             term_snapshots=term_snapshots,
             mount_types=mount_types,
@@ -1339,7 +1572,7 @@ def resolve_jones_terms(
     )
     return ResolvedJonesTerms(
         chain_terms=chain_terms,
-        baseline_terms=(),
+        baseline_terms=baseline_terms,
         dtypes=_resolved_dtypes(precision),
         provenance=provenance,
     )

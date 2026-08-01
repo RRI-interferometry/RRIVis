@@ -302,8 +302,9 @@ NON_TERM_EXPORTS: tuple[str, ...] = (
 #: ``X``, ``Kd`` and ``Rc``, completing workstream A.  FLIPPED BY: Tier 7F,
 #: which moved ``P`` and opened workstream B.  FLIPPED BY: Tier 7G, which moved
 #: ``Z`` and ``T`` and closed workstream B -- after it every exported
-#: ``JonesTerm`` is here.  Tier 7H moves the remaining two, which are
-#: ``JonesBaselineTerm`` and not chain terms at all.
+#: ``JonesTerm`` is here.  FLIPPED BY: Tier 7H, which moved the last two, both
+#: ``JonesBaselineTerm`` and neither a chain term: after it the table below is
+#: empty and every exported term of either kind is here.
 IMPLEMENTED_TERMS: dict[str, str] = {
     "GainJones": "7D",
     "BandpassJones": "7D",
@@ -314,19 +315,19 @@ IMPLEMENTED_TERMS: dict[str, str] = {
     "ParallacticAngleJones": "7F",
     "IonosphereJones": "7G",
     "TroposphereJones": "7G",
+    "BaselineMultiplicativeJones": "7H",
+    "SmearingFactorJones": "7H",
 }
 
 #: The exported terms still at ``term_status == "planned"``, with the slice that
 #: implements each.  Every one of them raises when evaluated; none is an
 #: identity.  Section 5.1's 37-stub table became an 11-row one plus the 26
 #: deletions below; Tier 7D left nine rows, Tier 7E five, Tier 7F four, and
-#: Tier 7G two -- both of them ``JonesBaselineTerm``, so no ``JonesTerm``
-#: subclass is planned any more and ``compute_jones_batch`` could become
-#: ``@abstractmethod``.
-PLANNED_TERMS: dict[str, str] = {
-    "BaselineMultiplicativeJones": "7H",
-    "SmearingFactorJones": "7H",
-}
+#: Tier 7G two -- both of them ``JonesBaselineTerm`` -- and Tier 7H **none**.
+#: The table is empty, which is the terminal state Section 37 criterion 2 names:
+#: no exported term is planned, both evaluation contracts are
+#: ``@abstractmethod``, and there is no class left whose physics is a promise.
+PLANNED_TERMS: dict[str, str] = {}
 
 #: Section 23's removal ledger, executed by Tier 7C (25 of these) and Tier 7B
 #: (``GeometricPhaseJones``).  Twenty-six classes in all, plus the rename.
@@ -463,17 +464,21 @@ def test_every_exported_term_is_real_physics_or_a_declared_plan() -> None:
     physics, which is what let ``compute_jones_batch`` become
     ``@abstractmethod`` in the same slice.
 
-    OWNED BY: Tier 7H, which turns the last two rows into real physics.
+    FLIPPED BY: Tier 7H, which implemented ``M`` and ``Q``.  The planned table
+    is **empty**: Section 5.1's three-real / 37-stub split has become
+    thirteen-real / zero-planned plus twenty-six deletions, and the whole reason
+    this pin existed -- that an exported name might be a promise -- no longer has
+    a subject.
     """
     assert len(REMOVED_JONES_CLASSES) == 28  # 26 deletions + K + the renamed X
-    assert len(IMPLEMENTED_TERMS) == 9
-    assert len(PLANNED_TERMS) == 2
+    assert len(IMPLEMENTED_TERMS) == 11
+    assert len(PLANNED_TERMS) == 0
     assert all(
         issubclass(
             getattr(__import__("radiosim.core.jones", fromlist=[name]), name),
             JonesBaselineTerm,
         )
-        for name in PLANNED_TERMS
+        for name in ("BaselineMultiplicativeJones", "SmearingFactorJones")
     )
     assert set(PLANNED_TERMS).isdisjoint(IMPLEMENTED_TERMS)
     assert set(PLANNED_TERMS).isdisjoint(REAL_PHYSICS_EXPORTS)
@@ -483,52 +488,42 @@ def test_every_exported_term_is_real_physics_or_a_declared_plan() -> None:
     ) == set(EXPORTED_JONES_NAMES) - set(NON_TERM_EXPORTS)
 
 
-@pytest.mark.parametrize("class_name", sorted(PLANNED_TERMS))
-def test_a_planned_term_raises_instead_of_returning_the_identity(
-    class_name: str,
-) -> None:
-    """Pins the resolution of defect D1, one class at a time.
+def test_no_exported_term_is_a_promise_any_more() -> None:
+    """Pins the resolution of defect D1, at the slice where it runs out of rows.
 
-    At the gate each of these returned ``xp.eye(2, dtype=np.complex128)`` from
-    ``compute_jones(...)``, for every antenna, direction, frequency and time.
-    Asserted one class at a time, deliberately: Section 33.2 requires each
-    stub's later implementation to be a visible, deliberate flip of a named test
-    rather than one aggregate assertion quietly losing rows.
+    At the gate each of the 37 stubs returned ``xp.eye(2, dtype=np.complex128)``
+    from ``compute_jones(...)`` for every antenna, direction, frequency and time.
+    Section 33.2 required each stub's implementation to be a visible, deliberate
+    flip of a named test rather than one aggregate assertion quietly losing rows,
+    so this pin was parametrized over the planned table and shrank by exactly the
+    terms each slice made real.
 
-    FLIPPED BY: Tier 7C.  There is no ``compute_jones`` and no identity return;
-    there is a name, a documented effect, and a refusal.
-
-    OWNED BY: Tier 7D through Tier 7H.
+    FLIPPED BY: Tier 7C (no ``compute_jones``, no identity return), then 7D, 7E,
+    7F and 7G.  FLIPPED BY: Tier 7H, whose ``M`` and ``Q`` were the last two
+    rows.  A parametrization over an empty table collects nothing, so what is
+    asserted instead is the state that emptied it -- and it is asserted over the
+    *exported* names rather than over a table, so it cannot be satisfied by
+    deleting a row.
     """
     import radiosim.core.jones as jones_package
 
-    term_class = getattr(jones_package, class_name)
-    term = term_class()
-    is_baseline = isinstance(term, JonesBaselineTerm)
-    assert isinstance(term, JonesTerm) is not is_baseline
+    for name in EXPORTED_JONES_NAMES:
+        value = getattr(jones_package, name)
+        if not isinstance(value, type):
+            continue
+        if not issubclass(value, (JonesTerm, JonesBaselineTerm)):
+            continue
+        if value in (JonesTerm, JonesBaselineTerm):
+            continue
+        assert not hasattr(value, "compute_jones"), name
+        assert not hasattr(value, "compute_baseline_term"), name
+        status = inspect.getattr_static(value, "term_status")
+        assert status.fget(None) == "implemented", name
 
-    assert not hasattr(term, "compute_jones")
-    assert not hasattr(term, "compute_baseline_term")
-    assert term.term_status == "planned"
-
-    method = term.compute_baseline_factor if is_baseline else term.compute_jones_batch
-    kwargs: dict[str, Any] = {
-        "directions": _planned_term_directions(),
-        "frequency_hz": 1.5e8,
-        "freq_idx": 0,
-        "time_mjd": 60_000.0,
-        "time_idx": 0,
-        "backend": get_backend("numpy"),
-        "dtype": np.complex128,
-    }
-    if is_baseline:
-        kwargs |= {"baseline_idx": 0, "antenna_p": 0, "antenna_q": 1}
-    else:
-        kwargs["antenna_idx"] = 0
-
-    with pytest.raises(NotImplementedError) as excinfo:
-        method(**kwargs)
-    assert class_name in str(excinfo.value)
+    # And neither contract can be inherited unimplemented any more: both are
+    # abstract, so a term that does not implement it cannot be constructed.
+    assert "compute_jones_batch" in JonesTerm.__abstractmethods__
+    assert "compute_baseline_factor" in JonesBaselineTerm.__abstractmethods__
 
 
 def _planned_term_directions() -> Any:
@@ -669,30 +664,40 @@ def test_no_planned_term_accepts_physics_it_would_discard() -> None:
     the two baseline terms, probed with the physics keyword each would have
     swallowed.
 
-    OWNED BY: Tier 7H.
+    FLIPPED BY: Tier 7H for ``M`` and ``Q``, the last two rows.  The table is
+    empty, so what is asserted is the terminal property directly: **no**
+    exported term has a parameterless constructor any more except the two whose
+    parameters genuinely all come from elsewhere, and every term rejects a
+    keyword it does not implement.  ``M`` takes the baselines it was resolved
+    against and one matrix each; ``Q`` takes the resolved frequency and time
+    grids -- and notably *not* a ``channel_width_hz``, which is the keyword its
+    stub would have swallowed and which the schema deliberately does not offer,
+    because the width belongs to the observation and not to the term.
     """
     import radiosim.core.jones as jones_package
 
     discarded = {
-        "BaselineMultiplicativeJones": {"matrices": np.zeros((1, 2, 2))},
-        "SmearingFactorJones": {"channel_width_hz": 1.0e6},
+        "BaselineMultiplicativeJones": (
+            {"matrices": np.zeros((1, 2, 2))},  # without its baselines
+            {"tec": np.array([1.0e17])},
+        ),
+        "SmearingFactorJones": (
+            {"channel_width_hz": 1.0e6},
+            {"integration_time_s": 10.0},  # without the rest of the grids
+        ),
+        "IonosphereJones": ({"tec": np.array([1.0e17, 2.0e17])},),
+        "TroposphereJones": ({"elevations": np.array([0.5, 0.9])},),
+        "GainJones": ({"gain_sigma": 0.1},),
     }
-    for class_name, kwargs in discarded.items():
+    for class_name, probes in discarded.items():
         term_class = getattr(jones_package, class_name)
+        for kwargs in probes:
+            with pytest.raises(TypeError):
+                term_class(**kwargs)
+        # Nothing can be constructed empty either: every term now requires the
+        # resolved values it is a function of.
         with pytest.raises(TypeError):
-            term_class(**kwargs)
-        term = term_class()
-        assert vars(term) == {}
-        assert "__init__" not in vars(term_class)
-
-    # And the two terms this slice implemented now refuse the keywords their
-    # stubs used to swallow, because their constructors take resolved values.
-    for class_name, kwargs in (
-        ("IonosphereJones", {"tec": np.array([1.0e17, 2.0e17])}),
-        ("TroposphereJones", {"elevations": np.array([0.5, 0.9])}),
-    ):
-        with pytest.raises(TypeError):
-            getattr(jones_package, class_name)(**kwargs)
+            term_class()
 
 
 def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None:
@@ -727,23 +732,25 @@ def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None
     was configured; ``T`` declares ``is_scalar`` and ``is_diagonal``
     unconditionally and computes ``is_unitary`` from whether an opacity was.
 
-    OWNED BY: Tier 7H, whose two baseline terms are all that is left.
+    FLIPPED BY: Tier 7H for ``M`` and ``Q``, and the flip is the *opposite*
+    shape to every one above, which is why it is spelled out rather than added
+    to the list.  Neither baseline term declares ``is_diagonal``, ``is_scalar``
+    or ``is_unitary`` -- not because the physics is missing, but because those
+    three columns are undefined for a Hadamard factor.  ``Q`` is a real scalar
+    per ``(baseline, direction)`` and ``M`` a per-baseline elementwise factor;
+    neither is a matrix that multiplies a field, so "is this matrix unitary" is
+    not a question about it.  Section 20.12's own table writes ``--`` in all
+    three columns for both.  What they *do* declare instead is
+    ``hadamard_target``, which is checkable and is checked.
     """
     import radiosim.core.jones as jones_package
 
-    for class_name in PLANNED_TERMS:
+    for class_name in ("BaselineMultiplicativeJones", "SmearingFactorJones"):
         term_class = getattr(jones_package, class_name)
-        base = (
-            JonesBaselineTerm
-            if issubclass(term_class, JonesBaselineTerm)
-            else JonesTerm
-        )
         for flag in ("is_diagonal", "is_scalar", "is_unitary"):
-            assert getattr(term_class, flag, None) is getattr(base, flag, None), (
-                class_name,
-                flag,
-            )
+            assert getattr(term_class, flag, None) is None, (class_name, flag)
             assert flag not in vars(term_class)
+        assert "hadamard_target" in vars(term_class), class_name
 
     # ``get_config`` reports the status alongside the flags, so a consumer
     # reading a term's configuration cannot miss whether it runs.  The probe was
@@ -910,7 +917,12 @@ def test_jones_chain_add_term_rejects_a_baseline_term() -> None:
     )
 
     chain = JonesChain(get_backend("numpy"))
-    baseline_term = jones_package.BaselineMultiplicativeJones()
+    # ANCHOR UPDATED BY: Tier 7H -- the probe is a resolved term rather than an
+    # empty one, because ``M`` now takes the baselines it was resolved against.
+    baseline_term = jones_package.BaselineMultiplicativeJones(
+        baseline_pairs=((0, 1),),
+        matrices=np.full((1, 2, 2), 1.5, dtype=np.complex128),
+    )
     with pytest.raises(TypeError, match="JonesBaselineTerm"):
         chain.add_term(baseline_term)
     assert chain.terms == []

@@ -33,6 +33,10 @@ from radiosim.core.beam import BeamSystem
 from radiosim.core.contraction import baseline_contraction_for
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
+from radiosim.core.jones.baseline_errors import (
+    BaselineFactors,
+    evaluate_baseline_factors,
+)
 from radiosim.core.jones.directions import DirectionBatch
 from radiosim.core.jones.evaluate import evaluate_antenna_jones
 from radiosim.core.jones.geometric import geometric_phase, uvw_in_wavelengths
@@ -65,6 +69,10 @@ from radiosim.core.visibility import (  # noqa: E402
 )
 
 logger = logging.getLogger(__name__)
+
+#: The factors of a run that configured no baseline-dependent term; see
+#: ``core/visibility.py`` for why the empty case is a named constant.
+EMPTY_BASELINE_FACTORS = BaselineFactors()
 
 
 def _require_backend(backend: object) -> ArrayBackend:
@@ -411,6 +419,7 @@ def calculate_visibility_healpix(
     # closure on every step would defeat the compilation cache entirely
     # (``Tier6HybridRuntimePlan.md`` Section 13.6).
     contraction = baseline_contraction_for(backend)
+    baseline_terms = jones_terms.baseline_terms
 
     # ==========================================================================
     # TIME LOOP
@@ -601,11 +610,12 @@ def calculate_visibility_healpix(
 
             # Geometric phase (K), from the one shared implementation, batched
             # over baselines: (B, n_visible).
+            uvw_wavelengths = uvw_in_wavelengths(
+                baseline_vectors_m=baseline_vectors,
+                wavelength_m=wavelength_m,
+            )
             phase = geometric_phase(
-                uvw_wavelengths=uvw_in_wavelengths(
-                    baseline_vectors_m=baseline_vectors,
-                    wavelength_m=wavelength_m,
-                ),
+                uvw_wavelengths=uvw_wavelengths,
                 dir_l=dir_l_xp,
                 dir_m=dir_m_xp,
                 dir_n=dir_n_xp,
@@ -626,12 +636,42 @@ def calculate_visibility_healpix(
                 axis=0,
             )
 
+            # The baseline-dependent Hadamard terms (Section 15), through the
+            # same evaluator the point path uses -- which is what stops a
+            # configured ``M`` or ``Q`` from corrupting point sources and
+            # silently leaving the diffuse sky clean (defect D4, one axis over).
+            # Skipped entirely when the run configured none, so the diffuse path
+            # stays bit-identical (invariant I1).
+            baseline_factors = EMPTY_BASELINE_FACTORS
+            envelope: Any = 1.0
+            if baseline_terms:
+                baseline_factors = evaluate_baseline_factors(
+                    baseline_terms,
+                    baseline_pairs=selected_pairs,
+                    baseline_uvw_wavelengths=uvw_wavelengths,
+                    directions=directions,
+                    frequency_hz=float(freq),
+                    freq_idx=freq_idx,
+                    time_mjd=float(current_obstime.mjd),
+                    time_idx=time_idx,
+                    backend=backend,
+                    real_dtype=backend.default_real_dtype,
+                    complex_dtype=jones_complex_dtype,
+                )
+                if baseline_factors.envelope is not None:
+                    # The diffuse path has no Gaussian morphology envelope, so
+                    # ``Q`` *is* the envelope here rather than a factor of it.
+                    envelope = baseline_factors.envelope
+
             # The one compiled kernel (Section 13.6): one (B, 2, 2) block for
             # all baselines at this (time, frequency). The HEALPix path always
             # carries an explicit coherency -- the I-only branch builds
             # ``C = (I/2) I_2`` above -- so it never takes the unpolarized
             # specialization.
-            block = contraction(J_p, J_q, coherency, phase, 1.0, None)
+            block = contraction(J_p, J_q, coherency, phase, envelope, None)
+            if baseline_factors.correlation is not None:
+                # ``M``, before the output cast, exactly as on the point path.
+                block = block * baseline_factors.correlation
             freq_blocks.append(backend.asarray(block, dtype=output_complex_dtype))
 
         if time_idx % 10 == 0 or time_idx == n_times - 1:

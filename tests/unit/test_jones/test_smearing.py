@@ -267,8 +267,12 @@ def test_the_time_envelope_matches_a_numerically_rotated_sky() -> None:
         )
         averaged.append(abs(mean))
         # And the average keeps the central phase: smearing is an amplitude
-        # effect, not a phase one.
-        assert abs(np.angle(mean / centre)) < 1e-6
+        # effect, not a phase one.  The residual here is the *curvature* of the
+        # fringe rate across a ten-second integration on a 400-wavelength
+        # baseline -- an effect of the exact average that no first-order
+        # envelope models, and four orders of magnitude below the 10% amplitude
+        # loss the same geometry produces.
+        assert abs(np.angle(mean / centre)) < 1e-4
 
     np.testing.assert_allclose(
         np.abs(factor[0]), np.array(averaged), rtol=1e-6, atol=1e-12
@@ -372,9 +376,18 @@ def test_an_autocorrelation_is_never_smeared() -> None:
 
 
 def test_the_envelope_approaches_one_as_the_width_and_the_integration_shrink() -> None:
-    """``Q -> 1`` as ``dnu -> 0`` and ``dt -> 0``, quadratically."""
-    uvw = np.array([[800.0, -300.0, 40.0]], dtype=np.float64)
-    directions = _directions_from_equatorial(np.array([0.5]), np.array([0.2]))
+    """``Q -> 1`` as ``dnu -> 0`` and ``dt -> 0``, quadratically.
+
+    The geometry is deliberately in the small-argument regime -- both sinc
+    arguments about ``0.05`` -- because that is where the limit is a statement
+    about a leading quadratic term.  Beyond the first zero a sinc is not
+    monotone at all, which is why the bounds test above asserts ``Q <= 1`` and
+    not ``Q > 0``.
+    """
+    uvw = np.array([[80.0, -30.0, 4.0]], dtype=np.float64)
+    directions = _directions_from_equatorial(
+        np.array([0.05]), np.array([_LATITUDE_RAD + 0.05])
+    )
 
     losses = []
     for scale in (1.0, 0.5, 0.25):
@@ -393,8 +406,12 @@ def test_the_envelope_approaches_one_as_the_width_and_the_integration_shrink() -
 
     assert losses[0] > losses[1] > losses[2] > 0.0
     # Halving both halves the argument of each sinc, so the loss falls by four.
-    np.testing.assert_allclose(losses[0] / losses[1], 4.0, rtol=1e-3)
-    np.testing.assert_allclose(losses[1] / losses[2], 4.0, rtol=1e-3)
+    # ``5e-3`` and not machine precision: the next term in each sinc expansion is
+    # of order ``x^2/20``, which at these arguments is a few parts in a thousand
+    # of the leading one, and asserting exactly four would be asserting that the
+    # envelope is a parabola rather than a sinc.
+    np.testing.assert_allclose(losses[0] / losses[1], 4.0, rtol=5e-3)
+    np.testing.assert_allclose(losses[1] / losses[2], 4.0, rtol=5e-3)
 
 
 def test_a_longer_baseline_decorrelates_more_toward_the_field_edge() -> None:
@@ -624,7 +641,7 @@ def test_a_nonuniform_frequency_grid_keeps_its_declared_widths(tmp_path) -> None
     resolved = resolve_for(
         tmp_path,
         {"Q": {"bandwidth_smearing": True, "time_smearing": False}},
-        obs_frequency={
+        frequency={
             "mode": "explicit",
             "channel_frequencies_hz": [1.0e8, 1.05e8, 1.3e8],
             "channel_widths_hz": [2.0e6, 5.0e5, 8.0e6],

@@ -367,15 +367,31 @@ def test_the_identity_case_is_not_the_only_case_swept() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_add_term_rejects_a_baseline_dependent_term() -> None:
+def _baseline_terms() -> list[JonesBaselineTerm]:
+    """One of each baseline term, resolved with the smallest legal values."""
     import radiosim.core.jones as jones_package
 
+    return [
+        jones_package.BaselineMultiplicativeJones(
+            baseline_pairs=((0, 1),),
+            matrices=np.full((1, 2, 2), 1.5, dtype=np.complex128),
+        ),
+        jones_package.SmearingFactorJones(
+            bandwidth_smearing=True,
+            time_smearing=True,
+            channel_frequencies_hz=np.array([1.0e8]),
+            channel_widths_hz=np.array([1.0e6]),
+            integration_time_s=np.array([1.0]),
+            sample_times_mjd=np.array([60_000.0]),
+            latitude_rad=-0.5362,
+        ),
+    ]
+
+
+def test_add_term_rejects_a_baseline_dependent_term() -> None:
+    """ANCHOR UPDATED BY: Tier 7H -- both terms now take resolved values."""
     chain = JonesChain(BACKEND)
-    for factory in (
-        jones_package.BaselineMultiplicativeJones,
-        jones_package.SmearingFactorJones,
-    ):
-        term = factory()
+    for term in _baseline_terms():
         assert isinstance(term, JonesBaselineTerm)
         assert not isinstance(term, JonesTerm)
         with pytest.raises(TypeError) as excinfo:
@@ -428,21 +444,34 @@ def test_the_base_contract_cannot_be_left_unimplemented() -> None:
     assert "compute_jones_batch" in str(raised.value)
 
 
-def test_the_baseline_contract_raises_rather_than_returning_an_identity() -> None:
-    import radiosim.core.jones as jones_package
+def test_the_baseline_contract_cannot_be_left_unimplemented() -> None:
+    """The baseline half of the same enforcement, one slice later.
 
-    term = jones_package.BaselineMultiplicativeJones()
-    with pytest.raises(NotImplementedError) as excinfo:
-        term.compute_baseline_factor(
-            baseline_idx=0,
-            antenna_p=0,
-            antenna_q=1,
-            directions=_directions(),
-            frequency_hz=1.5e8,
-            freq_idx=0,
-            time_mjd=60_000.0,
-            time_idx=0,
-            backend=BACKEND,
-            dtype=np.complex128,
-        )
+    FLIPPED BY: Tier 7H.  ``compute_baseline_factor`` was concrete-and-raising
+    while ``M`` and ``Q`` were ``term_status: planned``; both now implement it,
+    so it is ``@abstractmethod`` and a baseline term that does not implement the
+    evaluation contract -- or does not declare where its factor attaches --
+    cannot be constructed at all.  That is strictly earlier than a refusal at
+    first evaluation, and it is the last of the two ABC flips Tier 7C deferred.
+    """
+
+    class _Unimplemented(JonesBaselineTerm):
+        @property
+        def name(self) -> str:
+            return "unimplemented"
+
+        @property
+        def is_direction_dependent(self) -> bool:
+            return False
+
+    assert "compute_baseline_factor" in JonesBaselineTerm.__abstractmethods__
+    assert "hadamard_target" in JonesBaselineTerm.__abstractmethods__
+    with pytest.raises(TypeError) as excinfo:
+        _Unimplemented()  # type: ignore[abstract]
     assert "compute_baseline_factor" in str(excinfo.value)
+    assert "hadamard_target" in str(excinfo.value)
+
+    # And the two real terms declare both, which is why they can be built.
+    for term in _baseline_terms():
+        assert term.hadamard_target in ("envelope", "correlation")
+        assert term.term_status == "implemented"

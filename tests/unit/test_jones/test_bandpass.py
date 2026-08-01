@@ -177,7 +177,9 @@ def test_a_single_channel_observation_needs_an_explicit_scale(tmp_path) -> None:
             simulator._resolved.jones,
             simulator._instrument_state.instrument,
             frequencies_hz=np.array([1.0e8], dtype=np.float64),
+            channel_widths_hz=np.array([1.0e6], dtype=np.float64),
             time_grid=simulator._resolved.observation.time_grid,
+            baseline_selection=simulator._instrument_state.selection,
             precision=simulator._precision,
         )
 
@@ -207,7 +209,9 @@ def test_an_explicit_scale_makes_a_single_channel_band_resolvable(tmp_path) -> N
         simulator._resolved.jones,
         simulator._instrument_state.instrument,
         frequencies_hz=np.array([1.01e8], dtype=np.float64),
+        channel_widths_hz=np.array([1.0e6], dtype=np.float64),
         time_grid=simulator._resolved.observation.time_grid,
+        baseline_selection=simulator._instrument_state.selection,
         precision=simulator._precision,
     )
 

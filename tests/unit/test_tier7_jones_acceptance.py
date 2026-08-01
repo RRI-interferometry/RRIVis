@@ -117,9 +117,11 @@ NON_JONES_TODO_CARRIERS = frozenset({"cli/main.py", "core/sky/registry/catalogs.
 #: real -- which is what makes I20's eventual "every term is implemented" a
 #: sequence of visible steps rather than one flip at the end.
 #:
-#: After Tier 7G it contains every exported ``JonesTerm``: the two names it does
-#: not contain are ``BaselineMultiplicativeJones`` and ``SmearingFactorJones``,
-#: which are ``JonesBaselineTerm`` and belong to Tier 7H.
+#: After Tier 7H it contains **every** exported term of either kind: the two
+#: names it gained are ``BaselineMultiplicativeJones`` and
+#: ``SmearingFactorJones``, which are ``JonesBaselineTerm`` and apply by
+#: Hadamard product rather than in the chain.  Nothing is planned any more, and
+#: Section 37 criterion 2 is met.
 IMPLEMENTED_TERM_NAMES = frozenset(
     {
         "ReceptorConfigJones",
@@ -133,6 +135,8 @@ IMPLEMENTED_TERM_NAMES = frozenset(
         "ParallacticAngleJones",
         "IonosphereJones",
         "TroposphereJones",
+        "BaselineMultiplicativeJones",
+        "SmearingFactorJones",
     }
 )
 
@@ -195,9 +199,9 @@ def test_the_jones_package_exports_exactly_the_surviving_names() -> None:
     assert len(SURVIVING_JONES_NAMES) == 19
     term_names = {name for name, _ in _exported_term_classes()}
     assert len(term_names) == 13
-    assert len(IMPLEMENTED_TERM_NAMES) == 11
-    assert len(_planned_term_classes()) == 2
-    assert IMPLEMENTED_TERM_NAMES < term_names
+    assert len(IMPLEMENTED_TERM_NAMES) == 13
+    assert len(_planned_term_classes()) == 0
+    assert IMPLEMENTED_TERM_NAMES == term_names
     assert term_names | {
         "JonesTerm",
         "JonesChain",
@@ -283,111 +287,61 @@ def test_every_exported_term_declares_a_truthful_status(
     assert (status == "implemented") is (name in IMPLEMENTED_TERM_NAMES), name
 
 
-@pytest.mark.parametrize(
-    "name,term_class", _planned_term_classes(), ids=lambda value: str(value)[:40]
-)
-def test_a_planned_term_refuses_to_be_evaluated(name: str, term_class: type) -> None:
-    """No exported class returns an identity for all inputs.
+def test_no_term_is_planned_any_more() -> None:
+    """Section 37 criterion 2, reached: the planned table is empty.
 
-    A ``"planned"`` term inherits the base contract, which raises.  It cannot
-    silently multiply by the identity, which is exactly what ``Fix.md``
-    Section 16 asks for and what Section 33.2 claims is already true after 7C.
+    FLIPPED BY: Tier 7H.  This file carried three parametrized tests over the
+    planned terms -- that each refuses to be evaluated, that each declares no
+    unverifiable capability flag, and that each accepts no physics keyword it
+    would discard.  ``M`` and ``Q`` were the last two rows, so those three tests
+    have no subject left and are replaced by this one, which asserts the state
+    that made them subjectless rather than quietly collecting nothing.
+
+    What replaces each of them is stronger, not weaker, and lives elsewhere:
+    the evaluation contract is now enforced at *construction* by two
+    ``@abstractmethod`` declarations (``test_term_contract.py``); the capability
+    flags of every implemented term are swept numerically by invariant I2 in
+    that term's own module; and every constructor now takes resolved values and
+    rejects everything else, asserted per term in ``test_closure_error.py`` and
+    ``test_smearing.py``.
     """
-    method_name = (
-        "compute_baseline_factor"
-        if issubclass(term_class, JonesBaselineTerm)
-        else "compute_jones_batch"
-    )
-    base = JonesBaselineTerm if issubclass(term_class, JonesBaselineTerm) else JonesTerm
-    # The planned term does not override the raising base contract ...
-    assert getattr(term_class, method_name) is getattr(base, method_name)
-    # ... and constructing one is possible, but evaluating one is not.
-    with pytest.raises(NotImplementedError) as excinfo:
-        getattr(term_class(), method_name)(
-            **_contract_kwargs(method_name),
-        )
-    assert method_name in str(excinfo.value)
-    assert term_class.__name__ in str(excinfo.value)
+    assert _planned_term_classes() == []
+    assert {name for name, _ in _exported_term_classes()} == IMPLEMENTED_TERM_NAMES
+
+    # The contract is enforced where a subclass is written, not where it is
+    # first evaluated: neither base class can be instantiated without it.
+    assert "compute_jones_batch" in JonesTerm.__abstractmethods__
+    assert "compute_baseline_factor" in JonesBaselineTerm.__abstractmethods__
+    assert "hadamard_target" in JonesBaselineTerm.__abstractmethods__
 
 
-def _contract_kwargs(method_name: str) -> dict[str, object]:
-    import numpy as np
+def test_every_baseline_term_declares_where_its_factor_attaches() -> None:
+    """The two Hadamard terms, and the property that keeps them apart.
 
-    from radiosim.backends import get_backend
-    from radiosim.core.jones import DirectionBatch
+    ``M`` multiplies the contracted ``(B, 2, 2)`` block and ``Q`` the kernel's
+    ``(B, n_dir)`` envelope.  Declaring which is which is what lets the solvers
+    dispatch without an ``isinstance`` ladder, and asserting it here is what
+    stops a third baseline term from inheriting the wrong attachment point by
+    accident.
+    """
+    import radiosim.core.jones as jones_package
+    from radiosim.core.jones.baseline_errors import BASELINE_FACTOR_TARGETS
 
-    values = np.linspace(0.2, 1.2, 3)
-    directions = DirectionBatch(
-        alt_rad=values,
-        az_rad=values / 2.0,
-        dir_l=np.cos(values) * np.sin(values / 2.0),
-        dir_m=np.cos(values) * np.cos(values / 2.0),
-        dir_n=np.sin(values),
-        ra_rad=values,
-        dec_rad=-values,
-        hour_angle_rad=values / 3.0,
-        n_dir=3,
-    )
-    common: dict[str, object] = {
-        "directions": directions,
-        "frequency_hz": 1.5e8,
-        "freq_idx": 0,
-        "time_mjd": 60_000.0,
-        "time_idx": 0,
-        "backend": get_backend("numpy"),
-        "dtype": np.complex128,
+    targets = {
+        "BaselineMultiplicativeJones": "correlation",
+        "SmearingFactorJones": "envelope",
     }
-    if method_name == "compute_baseline_factor":
-        return {"baseline_idx": 0, "antenna_p": 0, "antenna_q": 1, **common}
-    return {"antenna_idx": 0, **common}
-
-
-@pytest.mark.parametrize(
-    "name,term_class", _planned_term_classes(), ids=lambda value: str(value)[:40]
-)
-def test_a_planned_term_declares_no_unverifiable_capability_flag(
-    name: str, term_class: type
-) -> None:
-    """A flag that cannot be swept is a claim about numbers with no numbers.
-
-    Defect D10 was terms declaring unitarity and scalarity about a matrix that
-    was the 2x2 identity.  A ``"planned"`` term cannot be evaluated, so
-    invariant I2's sweep cannot verify any flag it declares; it therefore
-    declares none, and each term slice adds its flags together with its physics
-    and its own I2 case (Section 31 steps 3-5).
-    """
-    base = JonesBaselineTerm if issubclass(term_class, JonesBaselineTerm) else JonesTerm
-    for flag in ("is_diagonal", "is_scalar", "is_unitary", "is_frequency_dependent"):
-        declared = getattr(term_class, flag, None)
-        inherited = getattr(base, flag, None)
-        assert declared is inherited, f"{name}.{flag} is declared but unverifiable"
-
-
-@pytest.mark.parametrize(
-    "name,term_class", _planned_term_classes(), ids=lambda value: str(value)[:40]
-)
-def test_a_planned_term_accepts_no_physics_it_would_discard(
-    name: str, term_class: type
-) -> None:
-    """Defect D2, closed for every surviving term.
-
-    The stub constructors took a TEC map, D-terms, a gain sigma, a bandpass
-    table and a feed-angle offset, stored some of them, read none of them, and
-    reported nothing.  A planned term takes no parameters at all, so there is
-    no argument left for it to swallow.  Each term slice introduces its real
-    constructor together with the resolution that validates it.
-    """
-    # No constructor of its own at all: nothing to store, nothing to drop.
-    assert "__init__" not in vars(term_class), name
-    assert term_class.__init__ is object.__init__, name
-
-    term = term_class()
-    assert vars(term) == {}, name
-
-    # And every physics keyword the old stubs swallowed is now a TypeError.
-    for keyword in ("tec", "d_terms", "gain_sigma", "delays", "elevations"):
-        with pytest.raises(TypeError):
-            term_class(**{keyword: 1.0})
+    baseline_names = {
+        name
+        for name, term_class in _exported_term_classes()
+        if issubclass(term_class, JonesBaselineTerm)
+    }
+    assert baseline_names == set(targets)
+    for name, expected in targets.items():
+        term_class = getattr(jones_package, name)
+        descriptor = inspect.getattr_static(term_class, "hadamard_target")
+        assert descriptor.fget(None) == expected
+        assert expected in BASELINE_FACTOR_TARGETS
 
 
 def test_no_jones_module_returns_an_unconditional_identity() -> None:
