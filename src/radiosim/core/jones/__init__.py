@@ -21,8 +21,8 @@ Jones terms representing different propagation effects:
 where (from sky to correlator):
 - K: Geometric phase (direction-dependent fringe).  Not a chain term: it is
      per-baseline, so the solvers apply ``geometric_phase()`` separately.
-- Z: Ionospheric effects (Faraday rotation, TEC)
-- T: Tropospheric effects (delay, attenuation)
+- Z: Ionospheric effects (TEC phase, ionospheric Faraday rotation)
+- T: Tropospheric effects (delay, opacity)
 - E: Primary beam (direction-dependent gain)
 - C: Receptor configuration (basis and static feed rotation)
 - P: Parallactic angle rotation
@@ -30,6 +30,21 @@ where (from sky to correlator):
 - B: Bandpass (frequency-dependent gains)
 - G: Electronic gains (complex gains)
 - H: Reporting-basis transform
+
+Term status
+-----------
+Every exported term declares ``term_status``, which is exactly
+``"implemented"`` or ``"planned"``.  ``C`` and ``H`` are implemented; the rest
+are planned, which means they have a name, a chain position and a documented
+physical effect, and that ``compute_jones_batch`` **raises** rather than
+returning an identity.  No exported term multiplies by the identity in silence
+(``Tier7JonesSciencePlan.md`` invariant I20, ``Fix.md`` Section 16).
+
+Twenty-six classes that were identity scaffolds for effects RadioSim does not
+plan to model were deleted before v1.0 -- turbulent and GPS ionospheres,
+w-projection, element beams and array factors, fringe fitting, Mueller and IXR
+leakage variants, and the rest.  ``docs/migration_guide.md`` names the
+replacement for each.
 
 Classes
 -------
@@ -83,53 +98,24 @@ __all__ = [
     "geometric_phase",
     # G term
     "GainJones",
-    "TimeVariableGainJones",
-    "ElevationGainJones",
     # B term
     "BandpassJones",
-    "PolynomialBandpassJones",
-    "SplineBandpassJones",
-    "RFIFlaggedBandpassJones",
     # D term
     "PolarizationLeakageJones",
-    "IXRLeakageJones",
-    "MuellerLeakageJones",
-    "BeamSquintLeakageJones",
     # P term
     "ParallacticAngleJones",
-    "FieldRotationJones",
-    "VLBIFeedRotationJones",
     # Z term
     "IonosphereJones",
-    "TurbulentIonosphereJones",
-    "GPSIonosphereJones",
     # T term
     "TroposphereJones",
-    "SaastamoinenTroposphereJones",
-    "TurbulentTroposphereJones",
-    "TroposphericOpacityJones",
-    # F term
-    "FaradayRotationJones",
-    "DifferentialFaradayJones",
-    # W term
-    "WPhaseJones",
-    "WProjectionJones",
-    "WidefieldPolarimetricJones",
     # C + H terms
     "ReceptorConfigJones",
     "BasisTransformJones",
-    # Ee / a / dE terms
-    "ElementBeamJones",
-    "ArrayFactorJones",
-    "DifferentialBeamJones",
-    # Kd / Rc / ff terms
+    # Kd / Rc terms
     "DelayJones",
     "CableReflectionJones",
-    "FringeFitJones",
-    # X / Kx / DF terms
-    "CrosshandPhaseJones",
-    "CrosshandDelayJones",
-    "FrequencyDependentLeakageJones",
+    # X term
+    "CrosshandJones",
     # M / Q terms (baseline-dependent)
     "BaselineMultiplicativeJones",
     "SmearingFactorJones",
@@ -143,60 +129,19 @@ _LAZY_EXPORTS = {
     "evaluate_antenna_jones": (".evaluate", "evaluate_antenna_jones"),
     "geometric_phase": (".geometric", "geometric_phase"),
     "GainJones": (".gain", "GainJones"),
-    "TimeVariableGainJones": (".gain", "TimeVariableGainJones"),
-    "ElevationGainJones": (".gain", "ElevationGainJones"),
     "BandpassJones": (".bandpass", "BandpassJones"),
-    "PolynomialBandpassJones": (".bandpass", "PolynomialBandpassJones"),
-    "SplineBandpassJones": (".bandpass", "SplineBandpassJones"),
-    "RFIFlaggedBandpassJones": (".bandpass", "RFIFlaggedBandpassJones"),
     "PolarizationLeakageJones": (
         ".polarization_leakage",
         "PolarizationLeakageJones",
     ),
-    "IXRLeakageJones": (".polarization_leakage", "IXRLeakageJones"),
-    "MuellerLeakageJones": (".polarization_leakage", "MuellerLeakageJones"),
-    "BeamSquintLeakageJones": (
-        ".polarization_leakage",
-        "BeamSquintLeakageJones",
-    ),
     "ParallacticAngleJones": (".parallactic", "ParallacticAngleJones"),
-    "FieldRotationJones": (".parallactic", "FieldRotationJones"),
-    "VLBIFeedRotationJones": (".parallactic", "VLBIFeedRotationJones"),
     "IonosphereJones": (".ionosphere", "IonosphereJones"),
-    "TurbulentIonosphereJones": (".ionosphere", "TurbulentIonosphereJones"),
-    "GPSIonosphereJones": (".ionosphere", "GPSIonosphereJones"),
     "TroposphereJones": (".troposphere", "TroposphereJones"),
-    "SaastamoinenTroposphereJones": (
-        ".troposphere",
-        "SaastamoinenTroposphereJones",
-    ),
-    "TurbulentTroposphereJones": (
-        ".troposphere",
-        "TurbulentTroposphereJones",
-    ),
-    "TroposphericOpacityJones": (
-        ".troposphere",
-        "TroposphericOpacityJones",
-    ),
-    "FaradayRotationJones": (".faraday", "FaradayRotationJones"),
-    "DifferentialFaradayJones": (".faraday", "DifferentialFaradayJones"),
-    "WPhaseJones": (".wterm", "WPhaseJones"),
-    "WProjectionJones": (".wterm", "WProjectionJones"),
-    "WidefieldPolarimetricJones": (".wterm", "WidefieldPolarimetricJones"),
     "ReceptorConfigJones": (".receptor", "ReceptorConfigJones"),
     "BasisTransformJones": (".receptor", "BasisTransformJones"),
-    "ElementBeamJones": (".element_beam", "ElementBeamJones"),
-    "ArrayFactorJones": (".element_beam", "ArrayFactorJones"),
-    "DifferentialBeamJones": (".element_beam", "DifferentialBeamJones"),
     "DelayJones": (".delay", "DelayJones"),
     "CableReflectionJones": (".delay", "CableReflectionJones"),
-    "FringeFitJones": (".delay", "FringeFitJones"),
-    "CrosshandPhaseJones": (".crosshand", "CrosshandPhaseJones"),
-    "CrosshandDelayJones": (".crosshand", "CrosshandDelayJones"),
-    "FrequencyDependentLeakageJones": (
-        ".crosshand",
-        "FrequencyDependentLeakageJones",
-    ),
+    "CrosshandJones": (".crosshand", "CrosshandJones"),
     "BaselineMultiplicativeJones": (
         ".baseline_errors",
         "BaselineMultiplicativeJones",

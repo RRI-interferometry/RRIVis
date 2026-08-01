@@ -19,7 +19,7 @@ Linear-to-circular basis matrix, rows ordered right/left, columns ``(x, y)``::
 ``S`` is unitary: ``S S^H = S^H S = I2``.
 
 ``ReceptorConfigJones`` -- what the receptor physically is (Section 18.2)
-------------------------------------------------------------------------
+-------------------------------------------------------------------------
 ::
 
     C_p = M(basis_p) @ R(chi_p)
@@ -28,7 +28,7 @@ Linear-to-circular basis matrix, rows ordered right/left, columns ``(x, y)``::
     M(circular) = S
 
 ``BasisTransformJones`` -- what basis the result is reported in (Section 18.3)
------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 ::
 
     H_p = T(basis_p -> output_basis)
@@ -290,6 +290,17 @@ class _ReceptorTermBase(JonesTerm):
         receptor: ResolvedReceptor,
     ) -> npt.NDArray[np.complex128]:  # pragma: no cover - abstract hook
         raise NotImplementedError
+
+    @property
+    def term_status(self) -> str:
+        """``"implemented"``: ``C`` and ``H`` are Tier 5 physics, not scaffolds.
+
+        Both carry the exact Section 18 matrices, both change the visibilities
+        for a receptor they are not trivial for, and both are swept numerically
+        by invariant I2.  They are the two terms that were already real when
+        Tier 7 began.
+        """
+        return "implemented"
 
     @property
     def is_direction_dependent(self) -> bool:

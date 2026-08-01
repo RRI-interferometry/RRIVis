@@ -21,40 +21,38 @@ class JonesTerm(ABC):
 
     The order matters because matrix multiplication is non-commutative.
 
-    Core Jones terms (Smirnov 2011), sky → correlator:
+    Every ``JonesTerm`` subclass in this package is one of the terms below, and
+    each carries a ``term_status`` saying whether its physics exists yet.  There
+    are no others: ``Tier7JonesSciencePlan.md`` Section 9.1 deleted the
+    twenty-six classes that were identity scaffolds for effects RadioSim has no
+    plan to model, so a name that is here is a term that either works or refuses
+    to run.
+
+    The canonical chain, sky → correlator:
+
     - K  (``geometric_phase()``)    : Geometric phase delay (DDE, scalar, unitary).
          Not a ``JonesTerm``: the phase is per *baseline*, so the solvers apply
          it separately from the per-antenna chain
          (``Tier7JonesSciencePlan.md`` Section 13.3, defect D6).
-    - Z  (IonosphereJones, ...)     : Ionospheric Faraday rotation + TEC phase (DDE)
-    - T  (TroposphereJones, ...)    : Tropospheric delay / opacity (DDE)
-    - E  (canonical beam adapter)   : Primary beam voltage pattern (DDE)
-    - P  (ParallacticAngleJones, ...): Parallactic angle / feed rotation (DIE)
-    - D  (PolarizationLeakageJones, ...): Polarization leakage D-terms (DIE)
-    - G  (GainJones, ...)           : Complex electronic gains (DIE, diagonal)
-    - B  (BandpassJones, ...)       : Frequency-dependent bandpass (DIE, diagonal)
+    - Z  (IonosphereJones)          : Ionospheric TEC phase + Faraday rotation (DDE)
+    - T  (TroposphereJones)         : Tropospheric delay and opacity (DDE)
+    - E  (canonical beam adapter)   : Primary beam voltage pattern (DDE) -- the
+         private solver-owned adapter over ``BeamSystem``, not an exported class
+    - C  (ReceptorConfigJones)      : Receptor basis and static feed rotation (DIE, unitary)
+    - P  (ParallacticAngleJones)    : Parallactic angle / field rotation (DDE)
+    - D  (PolarizationLeakageJones) : Polarization leakage D-terms (DIE)
+    - B  (BandpassJones)            : Frequency-dependent bandpass (DIE, diagonal)
+    - G  (GainJones)                : Complex electronic gains (DIE, diagonal)
+    - H  (BasisTransformJones)      : Reporting-basis transform (DIE, unitary)
 
-    Extended terms beyond the core 8:
-    - F  (FaradayRotationJones, DifferentialFaradayJones)
-         : Faraday rotation from magnetised ISM; φ = RM·λ² (DDE, unitary)
-    - W  (WPhaseJones, WProjectionJones)
-         : Non-coplanar baseline w-phase correction (DDE, scalar, unitary)
-    - Txy (WidefieldPolarimetricJones)
-         : Wide-field polarimetric projection for non-coplanar arrays (DDE)
-    - C  (ReceptorConfigJones)      : Feed receptor configuration (linear/circular) (DIE, unitary)
-    - H  (BasisTransformJones)      : Polarization basis transformation (DIE, unitary)
-    - Ee (ElementBeamJones)         : Single-element beam pattern (DDE)
-    - a  (ArrayFactorJones)         : Phased-array factor / mutual coupling (DDE, scalar)
-    - dE (DifferentialBeamJones)    : Per-antenna differential beam residuals (DDE)
+    Instrumental terms outside the canonical eight:
+
     - Kd (DelayJones)               : Instrumental delay offset; exp(-2πi·ν·τ) (DIE, diagonal)
-    - Rc (CableReflectionJones)     : RF cable reflection errors (DIE, diagonal)
-    - ff (FringeFitJones)           : VLBI fringe-fitting delay/rate correction (DIE, diagonal)
-    - X  (CrosshandPhaseJones)      : Static cross-hand phase offset (DIE, diagonal)
-    - Kx (CrosshandDelayJones)      : Time-varying cross-hand delay (DIE, diagonal)
-    - DF (FrequencyDependentLeakageJones): Frequency-dependent D-terms (DIE)
-    - GAINCURVE (ElevationGainJones): Elevation-dependent gain curve polynomial (DIE, diagonal)
+    - Rc (CableReflectionJones)     : RF cable reflection ripple (DIE, diagonal)
+    - X  (CrosshandJones)           : Cross-hand phase and delay (DIE, diagonal)
 
     Baseline-dependent terms (NOT subclasses of JonesTerm, use JonesBaselineTerm):
+
     - M  (BaselineMultiplicativeJones): Per-baseline closure errors (Hadamard product)
     - Q  (SmearingFactorJones)       : Time/bandwidth smearing decorrelation (Hadamard product, DDE)
 
@@ -79,8 +77,7 @@ class JonesTerm(ABC):
         """Short name identifier for this term.
 
         Core names follow Smirnov (2011): 'K', 'Z', 'T', 'E', 'P', 'D', 'G', 'B'.
-        Extended names: 'F', 'W', 'Txy', 'C', 'H', 'Ee', 'a', 'dE',
-                        'Kd', 'Rc', 'ff', 'X', 'Kx', 'DF', 'GAINCURVE'.
+        Instrumental names beyond the core eight: 'C', 'H', 'Kd', 'Rc', 'X'.
         Baseline names (JonesBaselineTerm): 'M', 'Q'.
         """
         pass
@@ -91,11 +88,35 @@ class JonesTerm(ABC):
         """True if effect varies across the sky (DDE), False for DIE.
 
         Direction-dependent (DDE, True):
-            K, Z, T, E, F, W, Txy, Ee, a, dE, Q
+            K, Z, T, E, P, Q
         Direction-independent (DIE, False):
-            G, B, D, P, C, H, Kd, Rc, ff, X, Kx, DF, GAINCURVE, M
+            G, B, D, C, H, Kd, Rc, X, M
         """
         pass
+
+    @property
+    def term_status(self) -> str:
+        """``"implemented"`` if this term's physics exists, else ``"planned"``.
+
+        Exactly two values, and the default is the honest one.
+        ``Tier7JonesSciencePlan.md`` Section 23 gives ``"implemented"`` as the
+        value every exported term reaches by 7K, and Section 37 criterion 2 is
+        the assertion that no ``"planned"`` survives the tier.  Defaulting to it
+        *here*, while eleven exported terms still raise from
+        ``compute_jones_batch``, would be a lie on every one of them -- the same
+        vacuous-``True`` failure mode invariant I2 exists to prevent, one level
+        up.  So the base class declares ``"planned"``, each term overrides it in
+        the slice that implements it (Section 31 step 5), and invariant I20
+        checks the correspondence both ways: an ``"implemented"`` term must not
+        be an identity for all inputs, and a ``"planned"`` term must not be
+        evaluable at all.
+
+        A ``"planned"`` term exists as a name, a chain position and a documented
+        physical effect.  It is not a silent identity: it inherits the raising
+        ``compute_jones_batch`` below, declares no capability flag it cannot
+        support, and accepts no parameter it would discard.
+        """
+        return "planned"
 
     @property
     def is_baseline_dependent(self) -> bool:
@@ -112,8 +133,8 @@ class JonesTerm(ABC):
     def is_time_dependent(self) -> bool:
         """True if effect varies with time.
 
-        Time-dependent (True): G, P, Z, T, F, Kx, ff (fringe rate)
-        Typically static (False): B, D, K, C, H, X, Kd, Rc, DF
+        Time-dependent (True): G, P, Z, T
+        Typically static (False): B, D, K, C, H, X, Kd, Rc
 
         Default: False (override if time-variable)
         """
@@ -124,9 +145,9 @@ class JonesTerm(ABC):
         """True if effect varies with frequency.
 
         Frequency-dependent (True):
-            B, K, E, Z, T, F, W, Ee, a, dE, Kd, Rc, ff, Kx, DF
+            B, K, E, Z, T, Kd, Rc, X (cross-hand delay)
         Frequency-independent (False):
-            G (constant gains), P, D, C, H, X, GAINCURVE
+            G (constant gains), P, D, C, H
 
         Default: True (most effects are chromatic)
         """
@@ -189,14 +210,18 @@ class JonesTerm(ABC):
         Notes
         -----
         This method is concrete and raises rather than being declared
-        ``@abstractmethod``, for one bounded reason: at 7B the package still
-        exports identity-stub subclasses that Tier 7C deletes and Tier 7D-7H
-        implement, none of which are in 7B's writable file list.  An abstract
-        declaration here would make every one of them impossible to instantiate,
-        which would silently break the 7A characterization pins those slices own
-        and would leave the public surface *worse* than the stub state 7C is
-        about to remove.  The declaration becomes ``@abstractmethod`` in the
-        slice that removes the last non-implementing subclass.
+        ``@abstractmethod``, for one bounded reason: nine exported terms are
+        still ``term_status == "planned"`` (``G``, ``B``, ``D``, ``P``, ``Z``,
+        ``T``, ``Kd``, ``Rc``, ``X``), and an abstract declaration would make
+        every one of them impossible to instantiate.  It becomes
+        ``@abstractmethod`` in the slice that implements the last of them --
+        Tier 7G, once ``Z`` and ``T`` land.  Tier 7C, which deleted the identity
+        stubs, is *not* that slice: it removed the classes RadioSim will never
+        implement, not the ones it has not implemented yet.
+
+        Raising rather than returning an identity is the whole point.  A term
+        that returns ``I2`` for every input is indistinguishable from no term at
+        all, which is the ``SCI-001`` defect this contract closes.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not implement compute_jones_batch; every "
@@ -217,8 +242,12 @@ class JonesTerm(ABC):
         unitarity and scalarity about a matrix that was the 2x2 identity, which
         is trivially both).
 
-        Diagonal: G, B, T (simple delay), Kd, Rc, ff, X, Kx, GAINCURVE
-        Non-diagonal: E, Z, P, D, F, W, Txy, C, H, Ee, a, dE, DF
+        A ``"planned"`` term declares no flag at all: invariant I2's sweep
+        cannot verify a claim about a matrix that cannot be computed, so each
+        term slice adds its flags together with its physics.
+
+        Diagonal: G, B, T (simple delay), Kd, Rc, X
+        Non-diagonal: E, Z, P, D, C, H
 
         Default: False
         """
@@ -229,8 +258,10 @@ class JonesTerm(ABC):
 
         Scalar matrices commute with everything and simplify the chain.
 
-        Scalar: K, W (w-phase), a (array factor)
-        Non-scalar: all others
+        Scalar: K (the geometric phase, which is why it is a function and not a
+        term at all), and C or H whenever their parameters make them exactly
+        ``I2``.
+        Non-scalar: all others.
 
         Default: False
         """
@@ -241,8 +272,9 @@ class JonesTerm(ABC):
 
         Unitary matrices preserve power (pure rotation/phase).
 
-        Unitary: K, W, F, P, Z (Faraday rotation), C, H
-        Non-unitary: G (amplitude errors), E (beam attenuation), D, B, T
+        Unitary: K, P, C, H, and Z's Faraday rotation
+        Non-unitary: G (amplitude errors), E (beam attenuation), D, B,
+        T (opacity), Z's dispersive phase alone is unitary but the term is not
 
         Default: False
         """
@@ -258,6 +290,7 @@ class JonesTerm(ABC):
         """
         return {
             "name": self.name,
+            "term_status": self.term_status,
             "is_direction_dependent": self.is_direction_dependent,
             "is_time_dependent": self.is_time_dependent,
             "is_frequency_dependent": self.is_frequency_dependent,

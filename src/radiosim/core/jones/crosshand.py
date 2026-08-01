@@ -1,34 +1,39 @@
-"""Cross-hand and frequency-dependent leakage Jones terms.
+"""The cross-hand term (X).
 
-Cross-hand effects arise from coupling between orthogonal polarization channels.
-The cross-hand phase (X) represents static phase offset between X and Y,
-while cross-hand delay (KCROSS) represents time-varying cross-hand effects.
-Frequency-dependent leakage (DF) models leakage that varies with frequency.
+``X`` is the relative phase between an antenna's two feed paths, constant in
+frequency or linear in it::
 
-Stub implementation: returns identity matrix. TODO: implement properly.
+    X = diag(exp(+i (phi_x + 2 pi nu tau_x) / 2),
+             exp(-i (phi_x + 2 pi nu tau_x) / 2))
+
+Cross-hand phase and cross-hand delay are the same diagonal matrix -- one
+constant term and one linear-in-frequency term -- so they are one term with two
+parameters rather than two classes (``Tier7JonesSciencePlan.md`` Section 9.1).
+
+Planned, not implemented.  Tier 7E implements it.  There is no separate
+frequency-dependent leakage class: ``D`` is frequency-capable by construction,
+and a second class for the same matrix with a frequency axis is duplication.
+
+References
+----------
+Sault, Hamaker & Bregman (1996), A&AS 117, 149.
+Thompson, Moran & Swenson (2017), 3rd ed., Chapter 7.
 """
-
-from typing import Any
-
-import numpy as np
 
 from radiosim.core.jones.base import JonesTerm
 
 
-class CrosshandPhaseJones(JonesTerm):
-    """Stub: Cross-hand phase offset Jones matrix. TODO: implement properly.
+class CrosshandJones(JonesTerm):
+    """Cross-hand phase and delay ``X`` (planned; Tier 7E implements it).
 
-    Parameters
-    ----------
-    phase_offset : float, optional
-        Cross-hand phase offset in radians (ignored in stub)
-    **kwargs : dict
-        Additional parameters (ignored)
+    Tier 7C renamed this term and folded the former separate cross-hand delay
+    class into it, because the two are the same diagonal matrix; see
+    ``docs/migration_guide.md`` for both old names.
+
+    ``term_status`` is ``"planned"``: constructing it is allowed, evaluating it
+    raises.  See :class:`~radiosim.core.jones.gain.GainJones` for why it takes
+    no parameters yet.
     """
-
-    def __init__(self, phase_offset: float = 0.0, **kwargs):
-        """Initialize cross-hand phase Jones term (stub)."""
-        self.phase_offset = phase_offset
 
     @property
     def name(self) -> str:
@@ -37,125 +42,3 @@ class CrosshandPhaseJones(JonesTerm):
     @property
     def is_direction_dependent(self) -> bool:
         return False
-
-    def is_diagonal(self) -> bool:
-        return True
-
-    def compute_jones(
-        self,
-        antenna_idx: int,
-        source_idx: int | None,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute cross-hand phase Jones matrix (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)
-
-
-class CrosshandDelayJones(JonesTerm):
-    """Stub: Cross-hand delay Jones matrix. TODO: implement properly.
-
-    Parameters
-    ----------
-    delay : float, optional
-        Cross-hand delay in seconds (ignored in stub)
-    frequencies : np.ndarray, optional
-        Observation frequencies in Hz (ignored in stub)
-    **kwargs : dict
-        Additional parameters (ignored)
-    """
-
-    def __init__(
-        self, delay: float = 0.0, frequencies: np.ndarray | None = None, **kwargs
-    ):
-        """Initialize cross-hand delay Jones term (stub)."""
-        self.delay = delay
-        self.frequencies = (
-            np.asarray(frequencies) if frequencies is not None else np.array([])
-        )
-
-    @property
-    def name(self) -> str:
-        return "Kx"
-
-    @property
-    def is_direction_dependent(self) -> bool:
-        return False
-
-    @property
-    def is_frequency_dependent(self) -> bool:
-        return True
-
-    def is_diagonal(self) -> bool:
-        return True
-
-    def compute_jones(
-        self,
-        antenna_idx: int,
-        source_idx: int | None,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute cross-hand delay Jones matrix (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)
-
-
-class FrequencyDependentLeakageJones(JonesTerm):
-    """Stub: Frequency-dependent polarization leakage Jones matrix. TODO: implement properly.
-
-    Parameters
-    ----------
-    n_antennas : int, optional
-        Number of antennas (ignored in stub)
-    frequencies : np.ndarray, optional
-        Observation frequencies in Hz (ignored in stub)
-    d_terms : np.ndarray, optional
-        Leakage coefficients (ignored in stub)
-    **kwargs : dict
-        Additional parameters (ignored)
-    """
-
-    def __init__(
-        self,
-        n_antennas: int = 1,
-        frequencies: np.ndarray | None = None,
-        d_terms: np.ndarray | None = None,
-        **kwargs,
-    ):
-        """Initialize frequency-dependent leakage Jones term (stub)."""
-        self.n_antennas = n_antennas
-        self.frequencies = (
-            np.asarray(frequencies) if frequencies is not None else np.array([])
-        )
-        self.d_terms = np.asarray(d_terms) if d_terms is not None else np.array([])
-
-    @property
-    def name(self) -> str:
-        return "DF"
-
-    @property
-    def is_direction_dependent(self) -> bool:
-        return False
-
-    @property
-    def is_frequency_dependent(self) -> bool:
-        return True
-
-    def compute_jones(
-        self,
-        antenna_idx: int,
-        source_idx: int | None,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute frequency-dependent leakage Jones matrix (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)

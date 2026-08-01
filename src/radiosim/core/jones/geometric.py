@@ -14,10 +14,10 @@ Why a function and not a class
 ``K`` is the one term in the standard eight that is **not** per-antenna: it
 depends on the baseline vector, so it cannot be composed into a per-antenna
 Jones chain.  Until Tier 7B the repository had three implementations of it -- an
-exported ``GeometricPhaseJones`` class that no solver ever constructed, and one
-inline copy in each solver -- which is defect D6.  The class could only ever
-return the identity unless a caller smuggled ``baseline_uvw`` in through
-``**kwargs``, which nothing did.
+exported K-term class that no solver ever constructed, and one inline copy in
+each solver -- which is defect D6.  That class could only ever return the
+identity unless a caller smuggled ``baseline_uvw`` in through ``**kwargs``,
+which nothing did; ``docs/migration_guide.md`` names it and this replacement.
 
 The physics lives here once, as two small functions both solvers call, and the
 scalar phase is applied by the solver alongside the compiled contraction rather

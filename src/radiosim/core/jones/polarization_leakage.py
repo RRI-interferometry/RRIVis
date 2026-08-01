@@ -1,31 +1,37 @@
+"""The polarization leakage term (D).
+
+``D_p`` carries the first-order cross-coupling between an antenna's two feeds::
+
+    D_p = [[1, d_p0], [-d_p1, 1]]
+
+with complex, generally frequency-dependent leakage coefficients.  It is
+direction-independent.
+
+Planned, not implemented.  Tier 7D-7E implements it with a ``d_terms`` field
+whose kinds subsume the former IXR parameterization; there is no separate
+Mueller class, because a Mueller matrix is a derived 4x4 view of this same 2x2
+Jones, and no separate frequency-dependent class, because ``D`` is
+frequency-capable by construction.  Beam squint is a *beam* property and is
+routed to the beam subsystem rather than modelled as a direction-dependent
+D-term, which would create the second beam pathway
+``Tier7JonesSciencePlan.md`` Section 4 forbids.
+
+References
+----------
+Hamaker, Bregman & Sault (1996), A&AS 117, 137, Section 4.
+Sault, Hamaker & Bregman (1996), A&AS 117, 149.
 """
-Polarization Leakage Jones term (D) for instrumental polarization.
-
-Stub implementation: returns identity matrix. TODO: implement properly.
-"""
-
-from typing import Any
-
-import numpy as np
 
 from .base import JonesTerm
 
 
 class PolarizationLeakageJones(JonesTerm):
-    """Stub: Polarization leakage (D-term) calibration. TODO: implement properly.
+    """Polarization leakage D-terms ``D`` (planned; Tier 7E implements it).
 
-    Parameters
-    ----------
-    n_antennas : int
-        Number of antennas in the array.
-    d_terms : np.ndarray, optional
-        Complex leakage terms (not used in stub).
-    **kwargs : dict
-        Additional parameters (ignored).
+    ``term_status`` is ``"planned"``: constructing it is allowed, evaluating it
+    raises.  See :class:`~radiosim.core.jones.gain.GainJones` for why it takes
+    no parameters yet.
     """
-
-    def __init__(self, n_antennas: int, d_terms: np.ndarray | None = None, **kwargs):
-        self.n_antennas = n_antennas
 
     @property
     def name(self) -> str:
@@ -34,46 +40,3 @@ class PolarizationLeakageJones(JonesTerm):
     @property
     def is_direction_dependent(self) -> bool:
         return False
-
-    def compute_jones(
-        self,
-        antenna_idx: int,
-        source_idx: int,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute polarization leakage Jones matrix (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)
-
-
-class IXRLeakageJones(PolarizationLeakageJones):
-    """Stub: Polarization leakage with IXR model. TODO: implement properly."""
-
-    def __init__(self, n_antennas: int, target_ixr: float = 1000.0, **kwargs):
-        super().__init__(n_antennas)
-        self.target_ixr = target_ixr
-
-    def get_ixr(self, antenna_idx: int | None = None) -> float:
-        """Stub: return target IXR."""
-        return (
-            self.target_ixr
-            if antenna_idx is None
-            else np.full(self.n_antennas, self.target_ixr)
-        )
-
-
-class MuellerLeakageJones(PolarizationLeakageJones):
-    """Stub: D-terms derived from Mueller matrix formalism. TODO: implement properly."""
-
-    def __init__(self, n_antennas: int, **kwargs):
-        super().__init__(n_antennas)
-
-
-class BeamSquintLeakageJones(PolarizationLeakageJones):
-    """Stub: Direction-dependent D-terms from beam squint. TODO: implement properly."""
-
-    def __init__(self, n_antennas: int, **kwargs):
-        super().__init__(n_antennas)

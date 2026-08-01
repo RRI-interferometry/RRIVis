@@ -1,43 +1,39 @@
+"""The tropospheric term (T).
+
+``T_p(s, nu, t)`` carries the neutral atmosphere's two effects in one
+antenna-side factor: excess path delay, as a zenith delay times an elevation
+mapping function, and opacity attenuation::
+
+    T = exp(-2 pi i nu * ZD * m(el)) * exp(-tau(el) / 2) * I2
+
+The ``1/2`` in the opacity exponent is the voltage convention: the visibility
+*power* is attenuated by ``exp(-tau)`` on a baseline of two identical antennas.
+Both effects are direction-dependent through the elevation.
+
+Planned, not implemented.  Tier 7G implements delay and opacity as one term
+with ``zenith_delay`` and ``opacity`` sub-blocks, which is why there is no
+separate opacity class and no separate Saastamoinen class -- the model is a
+field, not a subclass (``Tier7JonesSciencePlan.md`` Section 9.1).  Stochastic
+turbulent screens are out of scope (Section 4).
+
+References
+----------
+Saastamoinen (1972), in *The Use of Artificial Satellites for Geodesy*,
+Geophys. Monogr. Ser. 15, 247.
+Niell (1996), J. Geophys. Res. 101, 3227 -- the mapping functions.
+Thompson, Moran & Swenson (2017), 3rd ed., Chapter 13.
 """
-Troposphere Jones term (T) for atmospheric propagation effects.
-
-Stub implementation: returns identity matrix. TODO: implement properly.
-"""
-
-from typing import Any
-
-import numpy as np
 
 from .base import JonesTerm
 
 
 class TroposphereJones(JonesTerm):
-    """Stub: Tropospheric propagation effects Jones term. TODO: implement properly.
+    """Tropospheric delay and opacity ``T`` (planned; Tier 7G implements it).
 
-    Parameters
-    ----------
-    n_antennas : int, optional
-        Number of antennas.
-    frequencies : np.ndarray, optional
-        Observation frequencies in Hz.
-    elevations : np.ndarray, optional
-        Source elevations in radians (not used in stub).
-    **kwargs : dict
-        Additional parameters (ignored).
+    ``term_status`` is ``"planned"``: constructing it is allowed, evaluating it
+    raises.  See :class:`~radiosim.core.jones.gain.GainJones` for why it takes
+    no parameters yet.
     """
-
-    def __init__(
-        self,
-        n_antennas: int = 1,
-        frequencies: np.ndarray | None = None,
-        elevations: np.ndarray | None = None,
-        **kwargs,
-    ):
-        self.n_antennas = n_antennas
-        self.frequencies = (
-            np.asarray(frequencies) if frequencies is not None else np.array([])
-        )
-        self.elevations = elevations
 
     @property
     def name(self) -> str:
@@ -46,61 +42,3 @@ class TroposphereJones(JonesTerm):
     @property
     def is_direction_dependent(self) -> bool:
         return True
-
-    def compute_jones(
-        self,
-        antenna_idx: int,
-        source_idx: int,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute troposphere Jones matrix (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)
-
-
-class SaastamoinenTroposphereJones(TroposphereJones):
-    """Stub: Saastamoinen troposphere model. TODO: implement properly."""
-
-    def __init__(
-        self,
-        n_antennas: int,
-        n_sources: int,
-        frequencies: np.ndarray,
-        antenna_heights: np.ndarray | None = None,
-        **kwargs,
-    ):
-        super().__init__(n_antennas=n_antennas, frequencies=frequencies)
-        self.n_sources = n_sources
-
-
-class TurbulentTroposphereJones(TroposphereJones):
-    """Stub: Turbulent troposphere model. TODO: implement properly."""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-
-class TroposphericOpacityJones(TroposphereJones):
-    """Stub: Tropospheric opacity correction (TOPAC). TODO: implement properly.
-
-    The opacity term corrects for atmospheric absorption:
-        J_opacity = exp(-τ / sin(el)) * I
-
-    where τ is the zenith opacity and el is the source elevation.
-    """
-
-    def __init__(
-        self,
-        n_antennas: int = 1,
-        frequencies: np.ndarray | None = None,
-        zenith_opacity: np.ndarray | None = None,
-        **kwargs,
-    ):
-        """Initialize tropospheric opacity Jones term (stub)."""
-        super().__init__(n_antennas=n_antennas, frequencies=frequencies)
-        self.zenith_opacity = (
-            np.asarray(zenith_opacity) if zenith_opacity is not None else np.array([])
-        )

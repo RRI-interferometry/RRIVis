@@ -614,3 +614,54 @@ values are exactly the keys of the simulator registry (`rime`), and that
 equality is asserted by a standing test so a second, unread selector cannot
 reappear. A spherical-harmonic or m-mode solver is a future simulator
 registration, not a value on a removed field.
+
+### Removed Jones classes
+
+Twenty-six exported Jones classes were removed before v1.0. Every one of them
+returned the 2x2 identity for every input, so importing one and adding it to a
+chain changed nothing and reported nothing. The table gives the replacement for
+each; where the replacement is a field, it lands with the slice that implements
+the owning term.
+
+| Removed | Replacement |
+| --- | --- |
+| `GeometricPhaseJones` | `geometric_phase()`, a module-level function — K is per-baseline and was never a chain term |
+| `TimeVariableGainJones` | a `time_model` field on `GainJones` |
+| `ElevationGainJones` | an `elevation_curve` field on `GainJones` |
+| `PolynomialBandpassJones` | `BandpassJones` with `model.kind: polynomial` |
+| `SplineBandpassJones` | `BandpassJones` with `model.kind: spline` |
+| `RFIFlaggedBandpassJones` | no replacement; flagging is a data-quality product, not a voltage-domain Jones factor |
+| `IXRLeakageJones` | `PolarizationLeakageJones` with `d_terms.kind: ixr` |
+| `MuellerLeakageJones` | `PolarizationLeakageJones`; a Mueller matrix is a derived 4x4 view of the same 2x2 Jones |
+| `BeamSquintLeakageJones` | the beam subsystem; squint is a beam property, not a D-term |
+| `FieldRotationJones` | `ParallacticAngleJones`, which is direction-dependent and subsumes it exactly |
+| `VLBIFeedRotationJones` | the per-antenna `mount_type` already carried by the resolved instrument |
+| `TurbulentIonosphereJones` | no replacement; stochastic screens are out of scope |
+| `GPSIonosphereJones` | no replacement; RadioSim has no IONEX reader |
+| `SaastamoinenTroposphereJones` | `TroposphereJones` with `zenith_delay.kind: saastamoinen` |
+| `TurbulentTroposphereJones` | no replacement; stochastic screens are out of scope |
+| `TroposphericOpacityJones` | the `opacity` sub-block of `TroposphereJones` |
+| `FaradayRotationJones` | `IonosphereJones`, which owns ionospheric Faraday rotation; intrinsic source RM is already applied by the sky model |
+| `DifferentialFaradayJones` | a per-antenna RM offset field on `IonosphereJones` |
+| `WPhaseJones` | no replacement; the direct-sum RIME already carries `w(n-1)` exactly, so a W term would double-count |
+| `WProjectionJones` | no replacement; w-projection is an imaging gridding kernel, not a forward-model factor |
+| `WidefieldPolarimetricJones` | `ParallacticAngleJones` to leading order; the exact wide-field projection additionally needs a non-scalar beam |
+| `ElementBeamJones` | no replacement; a station element beam belongs inside the beam system |
+| `ArrayFactorJones` | no replacement; same |
+| `DifferentialBeamJones` | per-antenna beam pointing offsets in the beam system, plus the existing per-antenna diameters and FITS beams |
+| `FringeFitJones` | no replacement; fringe fitting is a calibration solution, and its forward-model content is `G` x `Kd` x a phase rate |
+| `CrosshandPhaseJones` | renamed `CrosshandJones` |
+| `CrosshandDelayJones` | `CrosshandJones`, which carries both the constant phase and the linear delay |
+| `FrequencyDependentLeakageJones` | `PolarizationLeakageJones`, which is frequency-capable by construction |
+
+The nineteen names that remain are exported by `radiosim.core.jones`. Each term
+declares `term_status`, which is `"implemented"` or `"planned"`; a planned term
+raises from `compute_jones_batch` rather than returning an identity, takes no
+parameters, and declares no capability flag. `radiosim.core.jones.faraday`,
+`radiosim.core.jones.wterm` and `radiosim.core.jones.element_beam` no longer
+exist as modules.
+
+The solver and simulator `jones_config=` parameter was removed with them. It was
+an untyped dictionary, hard-coded to `None` at the only production call site, and
+every term it could enable was one of the identity stubs above. A typed `jones:`
+configuration section replaces it.

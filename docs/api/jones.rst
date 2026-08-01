@@ -1,13 +1,28 @@
 Jones Matrix API
 ================
 
-The modules below expose the Jones framework. Exported classes do not all
-represent implemented high-level effects. Geometric phase, the canonical
-``BeamSystem`` scalar E-Jones adapter, and the receptor terms ``C`` and ``H``
-in ``radiosim.core.jones.receptor`` are the substantive effects in the current
-``Simulator`` path; many other terms remain identity scaffolds or later-tier
-work. See :doc:`../user_guide/jones_matrices` for the receptor mathematics and
-the chain order.
+The modules below expose the Jones framework. Every exported term declares
+``term_status``, which is exactly ``"implemented"`` or ``"planned"``:
+
+- **implemented** — the term's physics exists, is exercised by the solver, and
+  is covered by analytic invariant tests. Today: the receptor terms ``C`` and
+  ``H`` in ``radiosim.core.jones.receptor``, the geometric phase
+  ``geometric_phase()`` (the ``K`` term, a function rather than a class because
+  it is per-baseline), and the ``E`` term, which is the canonical
+  ``BeamSystem`` reached through a private solver-owned adapter.
+- **planned** — the term has a name, a documented physical effect and a
+  position in the canonical chain, and ``compute_jones_batch`` **raises**. It
+  never multiplies by the identity, it declares no capability flag that cannot
+  be verified, and it accepts no parameter it would discard.
+
+There are no other exported terms. Twenty-six classes that returned the 2x2
+identity for every input, for effects RadioSim does not plan to model — turbulent
+and GPS ionospheres, w-projection, element beams and array factors, fringe
+fitting, Mueller and IXR leakage variants, and the rest — were removed before
+v1.0;
+:doc:`../migration_guide` names the replacement for each. See
+:doc:`../user_guide/jones_matrices` for the receptor mathematics and the chain
+order.
 
 Base and chain
 --------------
@@ -20,31 +35,31 @@ Base and chain
    :members:
    :show-inheritance:
 
-Implemented geometric term and numeric beam primitives
-------------------------------------------------------
+.. automodule:: radiosim.core.jones.directions
+   :members:
+   :show-inheritance:
+
+.. automodule:: radiosim.core.jones.evaluate
+   :members:
+   :show-inheritance:
+
+Implemented terms
+-----------------
 
 .. automodule:: radiosim.core.jones.geometric
    :members:
    :show-inheritance:
 
-.. automodule:: radiosim.core.jones.beam.analytic
+.. automodule:: radiosim.core.jones.receptor
    :members:
    :show-inheritance:
 
-The analytic module exposes formula functions only. It is not a configuration,
-assignment, composition, plotting, or runtime ownership surface. Canonical
-beam models and evaluation are documented in :doc:`core` and
-:doc:`../user_guide/beam_models`.
+Planned terms
+-------------
 
-Scaffolded and low-level modules
---------------------------------
-
-The remaining Jones modules are documented for development and inspection.
-Check each implementation and its scientific tests before use. A returned
-identity matrix is not a modeled physical effect. Polarization leakage,
-parallactic rotation, gains, bandpass, elliptical or non-orthogonal feed pairs,
-and a frequency- or time-dependent receptor basis remain a later scientific
-boundary.
+Each module below documents one term's mathematics, its units and signs, its
+citation, and the slice that implements it. Constructing one of these classes
+is allowed; evaluating one raises ``NotImplementedError``.
 
 .. automodule:: radiosim.core.jones.ionosphere
    :members:
@@ -69,3 +84,27 @@ boundary.
 .. automodule:: radiosim.core.jones.polarization_leakage
    :members:
    :show-inheritance:
+
+.. automodule:: radiosim.core.jones.delay
+   :members:
+   :show-inheritance:
+
+.. automodule:: radiosim.core.jones.crosshand
+   :members:
+   :show-inheritance:
+
+.. automodule:: radiosim.core.jones.baseline_errors
+   :members:
+   :show-inheritance:
+
+Beam primitives
+---------------
+
+.. automodule:: radiosim.core.jones.beam.analytic
+   :members:
+   :show-inheritance:
+
+The analytic module exposes formula functions only. It is not a configuration,
+assignment, composition, plotting, or runtime ownership surface. Canonical
+beam models and evaluation are documented in :doc:`core` and
+:doc:`../user_guide/beam_models`.

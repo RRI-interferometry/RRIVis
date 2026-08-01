@@ -232,6 +232,17 @@ class _ResolvedBeamJones(JonesTerm):
     def is_direction_dependent(self) -> bool:
         return True
 
+    @property
+    @override
+    def term_status(self) -> str:
+        """``"implemented"``: E is the canonical ``BeamSystem``, evaluated.
+
+        The adapter is private rather than exported (Section 9.1): the beam is
+        owned by ``BeamSystem``, and a second exported beam class would be the
+        second beam pathway Section 4 forbids.
+        """
+        return "implemented"
+
     def _antenna_id(self, antenna_idx: int) -> AntennaId:
         if type(antenna_idx) is not int:
             raise InstrumentAdapterInvariantError("antenna_idx must be an integer")

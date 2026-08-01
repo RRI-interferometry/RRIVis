@@ -1,50 +1,41 @@
-"""Delay-based Jones terms (electronic delays, cable reflections, fringe-fitting).
+"""Delay-like instrumental terms: the electronic delay (Kd) and cable
+reflection (Rc).
 
-The delay term (K_delay) represents instrumental delay offsets:
+``Kd`` is a per-antenna, per-feed instrumental delay offset::
 
-    K_delay = exp(-2πi·ν·τ) * I
+    Kd = diag(exp(-2 pi i nu tau_0), exp(-2 pi i nu tau_1))
 
-Cable reflections model reflections in the RF path, while fringe-fitting
-corrections adjust delays and rates for VLBI applications.
+whose negative-exponent sign matches the geometric phase's own, so that a
+positive delay produces ``exp(-i * positive)`` on both paths (invariant I4).
 
-Stub implementation: returns identity matrix. TODO: implement properly.
+``Rc`` is the standing-wave ripple from a reflection in the RF cable::
+
+    Rc = diag(1 + A exp(-2 pi i nu tau_c), ...),      0 < |A| < 1
+
+which is a distinct, non-pure-phase frequency structure from the bandpass, and
+is why it is a term of its own rather than a bandpass model.
+
+Planned, not implemented.  Tier 7E implements both.  There is no
+fringe-fitting term: fringe fitting is a *calibration solution*, and its
+forward-model content is exactly ``G`` times ``Kd`` times a phase rate
+(``Tier7JonesSciencePlan.md`` Section 9.1, Section 4).
+
+References
+----------
+Thompson, Moran & Swenson (2017), 3rd ed., Chapter 7.
+Ewall-Wice et al. (2016), MNRAS 460, 4320 -- cable reflections in HERA/PAPER.
 """
-
-from typing import Any
-
-import numpy as np
 
 from radiosim.core.jones.base import JonesTerm
 
 
 class DelayJones(JonesTerm):
-    """Stub: Electronic delay Jones matrix. TODO: implement properly.
+    """Instrumental delay ``Kd`` (planned; Tier 7E implements it).
 
-    Parameters
-    ----------
-    n_antennas : int, optional
-        Number of antennas (ignored in stub)
-    delays : np.ndarray, optional
-        Per-antenna delays in seconds (ignored in stub)
-    frequencies : np.ndarray, optional
-        Observation frequencies in Hz (ignored in stub)
-    **kwargs : dict
-        Additional parameters (ignored)
+    ``term_status`` is ``"planned"``: constructing it is allowed, evaluating it
+    raises.  See :class:`~radiosim.core.jones.gain.GainJones` for why it takes
+    no parameters yet.
     """
-
-    def __init__(
-        self,
-        n_antennas: int = 1,
-        delays: np.ndarray | None = None,
-        frequencies: np.ndarray | None = None,
-        **kwargs,
-    ):
-        """Initialize delay Jones term (stub)."""
-        self.n_antennas = n_antennas
-        self.delays = np.asarray(delays) if delays is not None else np.array([])
-        self.frequencies = (
-            np.asarray(frequencies) if frequencies is not None else np.array([])
-        )
 
     @property
     def name(self) -> str:
@@ -54,59 +45,14 @@ class DelayJones(JonesTerm):
     def is_direction_dependent(self) -> bool:
         return False
 
-    @property
-    def is_frequency_dependent(self) -> bool:
-        return True
-
-    def is_diagonal(self) -> bool:
-        return True
-
-    def compute_jones(
-        self,
-        antenna_idx: int,
-        source_idx: int | None,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute delay Jones matrix (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)
-
 
 class CableReflectionJones(JonesTerm):
-    """Stub: Cable reflection Jones matrix. TODO: implement properly.
+    """Cable-reflection ripple ``Rc`` (planned; Tier 7E implements it).
 
-    Parameters
-    ----------
-    n_antennas : int, optional
-        Number of antennas (ignored in stub)
-    reflection_coeff : float, optional
-        Reflection coefficient (ignored in stub)
-    cable_delay : float, optional
-        Cable reflection delay in seconds (ignored in stub)
-    frequencies : np.ndarray, optional
-        Observation frequencies in Hz (ignored in stub)
-    **kwargs : dict
-        Additional parameters (ignored)
+    ``term_status`` is ``"planned"``: constructing it is allowed, evaluating it
+    raises.  See :class:`~radiosim.core.jones.gain.GainJones` for why it takes
+    no parameters yet.
     """
-
-    def __init__(
-        self,
-        n_antennas: int = 1,
-        reflection_coeff: float | None = None,
-        cable_delay: float | None = None,
-        frequencies: np.ndarray | None = None,
-        **kwargs,
-    ):
-        """Initialize cable reflection Jones term (stub)."""
-        self.n_antennas = n_antennas
-        self.reflection_coeff = reflection_coeff
-        self.cable_delay = cable_delay
-        self.frequencies = (
-            np.asarray(frequencies) if frequencies is not None else np.array([])
-        )
 
     @property
     def name(self) -> str:
@@ -115,97 +61,3 @@ class CableReflectionJones(JonesTerm):
     @property
     def is_direction_dependent(self) -> bool:
         return False
-
-    @property
-    def is_frequency_dependent(self) -> bool:
-        return True
-
-    def is_diagonal(self) -> bool:
-        return True
-
-    def compute_jones(
-        self,
-        antenna_idx: int,
-        source_idx: int | None,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute cable reflection Jones matrix (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)
-
-
-class FringeFitJones(JonesTerm):
-    """Stub: VLBI fringe-fitting (delay/rate correction) Jones matrix. TODO: implement properly.
-
-    Parameters
-    ----------
-    n_antennas : int, optional
-        Number of antennas (ignored in stub)
-    delays : np.ndarray, optional
-        Per-antenna delays in seconds (ignored in stub)
-    rates : np.ndarray, optional
-        Per-antenna fringe rates (ignored in stub)
-    phases : np.ndarray, optional
-        Per-antenna phases (ignored in stub)
-    frequencies : np.ndarray, optional
-        Observation frequencies in Hz (ignored in stub)
-    times : np.ndarray, optional
-        Observation times (ignored in stub)
-    **kwargs : dict
-        Additional parameters (ignored)
-    """
-
-    def __init__(
-        self,
-        n_antennas: int = 1,
-        delays: np.ndarray | None = None,
-        rates: np.ndarray | None = None,
-        phases: np.ndarray | None = None,
-        frequencies: np.ndarray | None = None,
-        times: np.ndarray | None = None,
-        **kwargs,
-    ):
-        """Initialize fringe-fitting Jones term (stub)."""
-        self.n_antennas = n_antennas
-        self.delays = np.asarray(delays) if delays is not None else np.array([])
-        self.rates = np.asarray(rates) if rates is not None else np.array([])
-        self.phases = np.asarray(phases) if phases is not None else np.array([])
-        self.frequencies = (
-            np.asarray(frequencies) if frequencies is not None else np.array([])
-        )
-        self.times = np.asarray(times) if times is not None else np.array([])
-
-    @property
-    def name(self) -> str:
-        return "ff"
-
-    @property
-    def is_direction_dependent(self) -> bool:
-        return False
-
-    @property
-    def is_frequency_dependent(self) -> bool:
-        return True
-
-    @property
-    def is_time_dependent(self) -> bool:
-        return True
-
-    def is_diagonal(self) -> bool:
-        return True
-
-    def compute_jones(
-        self,
-        antenna_idx: int,
-        source_idx: int | None,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute fringe-fitting Jones matrix (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)

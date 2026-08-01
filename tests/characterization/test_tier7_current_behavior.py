@@ -244,12 +244,14 @@ def _source(relative_path: str) -> str:
 #: At the gate this was 43 names: three base names plus 40 concrete term
 #: classes, with the ``CLAUDE.md`` "46" claim recorded as defect D0.
 #:
-#: PARTLY FLIPPED BY: Tier 7B.  ``GeometricPhaseJones`` -- one of the 26 names
-#: Section 23 removes -- is the K term, and K is per-*baseline*, so it cannot be
-#: a chain term at all; Section 33.2 therefore assigns its deletion to 7B rather
-#: than to 7C, together with the ``geometric_phase()`` function that replaces it
-#: and the two new names the batched contract introduces.  The remaining 25
-#: removals and the ``CrosshandPhaseJones`` rename stay with Tier 7C.
+#: PARTLY FLIPPED BY: Tier 7B, which removed ``GeometricPhaseJones`` -- K is
+#: per-*baseline* and cannot be a chain term -- and added ``geometric_phase()``
+#: plus the two names the batched contract introduces, taking the count to 45.
+#:
+#: FLIPPED BY: Tier 7C, which executed Section 23's removal ledger: 26 classes
+#: deleted and ``CrosshandPhaseJones`` renamed ``CrosshandJones``.  What remains
+#: is Section 9.1's public surface exactly -- 13 concrete terms, the three base
+#: names, and the three non-class exports of 7B.
 EXPORTED_JONES_NAMES: tuple[str, ...] = (
     "JonesTerm",
     "JonesChain",
@@ -258,54 +260,25 @@ EXPORTED_JONES_NAMES: tuple[str, ...] = (
     "evaluate_antenna_jones",
     "geometric_phase",
     "GainJones",
-    "TimeVariableGainJones",
-    "ElevationGainJones",
     "BandpassJones",
-    "PolynomialBandpassJones",
-    "SplineBandpassJones",
-    "RFIFlaggedBandpassJones",
     "PolarizationLeakageJones",
-    "IXRLeakageJones",
-    "MuellerLeakageJones",
-    "BeamSquintLeakageJones",
     "ParallacticAngleJones",
-    "FieldRotationJones",
-    "VLBIFeedRotationJones",
     "IonosphereJones",
-    "TurbulentIonosphereJones",
-    "GPSIonosphereJones",
     "TroposphereJones",
-    "SaastamoinenTroposphereJones",
-    "TurbulentTroposphereJones",
-    "TroposphericOpacityJones",
-    "FaradayRotationJones",
-    "DifferentialFaradayJones",
-    "WPhaseJones",
-    "WProjectionJones",
-    "WidefieldPolarimetricJones",
     "ReceptorConfigJones",
     "BasisTransformJones",
-    "ElementBeamJones",
-    "ArrayFactorJones",
-    "DifferentialBeamJones",
     "DelayJones",
     "CableReflectionJones",
-    "FringeFitJones",
-    "CrosshandPhaseJones",
-    "CrosshandDelayJones",
-    "FrequencyDependentLeakageJones",
+    "CrosshandJones",
     "BaselineMultiplicativeJones",
     "SmearingFactorJones",
 )
 
-#: The exported names that carry real physics (Section 5.1 table).
-#: ``E`` is deliberately absent: the solver's beam term is the private
-#: ``_ResolvedBeamJones`` adapter, not an exported class.
+#: The exported names that carry real physics.  ``E`` is deliberately absent:
+#: the solver's beam term is the private ``_ResolvedBeamJones`` adapter, not an
+#: exported class.
 #:
-#: FLIPPED BY: Tier 7B, which turned the K class into ``geometric_phase()`` and
-#: added the two names the batched contract needs.  The count is unchanged in
-#: spirit -- the same physics, one fewer class -- and Tier 7C still owns the
-#: 35-stub deletion.
+#: FLIPPED BY: Tier 7B, which turned the K class into ``geometric_phase()``.
 REAL_PHYSICS_EXPORTS: tuple[str, ...] = (
     "geometric_phase",
     "ReceptorConfigJones",
@@ -322,102 +295,76 @@ NON_TERM_EXPORTS: tuple[str, ...] = (
     "evaluate_antenna_jones",
 )
 
-
-def _stub_freqs() -> np.ndarray:
-    return np.array([100e6, 150e6], dtype=np.float64)
-
-
-#: Every one of the 35 exported ``JonesTerm`` identity stubs, with a constructor
-#: call that satisfies its required arguments.  Section 5.1's table lists 37
-#: stubs; the two baseline-dependent ones (``M``, ``Q``) are not ``JonesTerm``
-#: subclasses and are pinned separately below.
-JONES_TERM_STUBS: dict[str, Any] = {
-    "GainJones": lambda m: m.GainJones(n_antennas=2),
-    "TimeVariableGainJones": lambda m: m.TimeVariableGainJones(2, 3),
-    "ElevationGainJones": lambda m: m.ElevationGainJones(n_antennas=2),
-    "BandpassJones": lambda m: m.BandpassJones(2, _stub_freqs()),
-    "PolynomialBandpassJones": lambda m: m.PolynomialBandpassJones(2, _stub_freqs()),
-    "SplineBandpassJones": lambda m: m.SplineBandpassJones(2, _stub_freqs()),
-    "RFIFlaggedBandpassJones": lambda m: m.RFIFlaggedBandpassJones(2, _stub_freqs()),
-    "PolarizationLeakageJones": lambda m: m.PolarizationLeakageJones(2),
-    "IXRLeakageJones": lambda m: m.IXRLeakageJones(2),
-    "MuellerLeakageJones": lambda m: m.MuellerLeakageJones(2),
-    "BeamSquintLeakageJones": lambda m: m.BeamSquintLeakageJones(2),
-    "ParallacticAngleJones": lambda m: m.ParallacticAngleJones(
-        antenna_latitudes=np.array([-0.536, -0.536]),
-        source_positions=np.array([[1.0, -0.5], [1.1, -0.4]]),
-        times=np.array([0.0]),
-    ),
-    "FieldRotationJones": lambda m: m.FieldRotationJones(np.array([-0.536, -0.536])),
-    "VLBIFeedRotationJones": lambda m: m.VLBIFeedRotationJones(
-        [{"latitude": -0.536}, {"latitude": 0.1}],
-        np.array([[1.0, -0.5]]),
-        np.array([0.0]),
-    ),
-    "IonosphereJones": lambda m: m.IonosphereJones(frequencies=_stub_freqs()),
-    "TurbulentIonosphereJones": lambda m: m.TurbulentIonosphereJones(
-        2, 2, _stub_freqs()
-    ),
-    "GPSIonosphereJones": lambda m: m.GPSIonosphereJones(frequencies=_stub_freqs()),
-    "TroposphereJones": lambda m: m.TroposphereJones(
-        n_antennas=2, frequencies=_stub_freqs()
-    ),
-    "SaastamoinenTroposphereJones": lambda m: m.SaastamoinenTroposphereJones(
-        2, 2, _stub_freqs()
-    ),
-    "TurbulentTroposphereJones": lambda m: m.TurbulentTroposphereJones(
-        n_antennas=2, frequencies=_stub_freqs()
-    ),
-    "TroposphericOpacityJones": lambda m: m.TroposphericOpacityJones(
-        n_antennas=2, frequencies=_stub_freqs()
-    ),
-    "FaradayRotationJones": lambda m: m.FaradayRotationJones(
-        rotation_measure=12.0, frequencies=_stub_freqs()
-    ),
-    "DifferentialFaradayJones": lambda m: m.DifferentialFaradayJones(
-        2, 2, frequencies=_stub_freqs()
-    ),
-    "WPhaseJones": lambda m: m.WPhaseJones(
-        source_lmn=np.zeros((2, 3)), wavelengths=np.array([2.0, 3.0])
-    ),
-    "WProjectionJones": lambda m: m.WProjectionJones(2),
-    "WidefieldPolarimetricJones": lambda m: m.WidefieldPolarimetricJones(
-        source_lmn=np.zeros((2, 3))
-    ),
-    "ElementBeamJones": lambda m: m.ElementBeamJones(n_antennas=2),
-    "ArrayFactorJones": lambda m: m.ArrayFactorJones(n_antennas=2, n_elements=4),
-    "DifferentialBeamJones": lambda m: m.DifferentialBeamJones(n_antennas=2),
-    "DelayJones": lambda m: m.DelayJones(
-        n_antennas=2, delays=np.array([1e-9, 2e-9]), frequencies=_stub_freqs()
-    ),
-    "CableReflectionJones": lambda m: m.CableReflectionJones(
-        n_antennas=2, reflection_coeff=0.1, cable_delay=1e-7
-    ),
-    "FringeFitJones": lambda m: m.FringeFitJones(n_antennas=2),
-    "CrosshandPhaseJones": lambda m: m.CrosshandPhaseJones(phase_offset=0.4),
-    "CrosshandDelayJones": lambda m: m.CrosshandDelayJones(delay=1e-9),
-    "FrequencyDependentLeakageJones": lambda m: m.FrequencyDependentLeakageJones(
-        n_antennas=2, frequencies=_stub_freqs()
-    ),
+#: The exported terms Tier 7C leaves as ``term_status == "planned"``, with the
+#: slice that implements each.  Every one of them raises when evaluated; none is
+#: an identity.  Section 5.1's 37-stub table became this 11-row one plus the 26
+#: deletions below.
+PLANNED_TERMS: dict[str, str] = {
+    "GainJones": "7D",
+    "BandpassJones": "7D",
+    "PolarizationLeakageJones": "7E",
+    "CrosshandJones": "7E",
+    "DelayJones": "7E",
+    "CableReflectionJones": "7E",
+    "ParallacticAngleJones": "7F",
+    "IonosphereJones": "7G",
+    "TroposphereJones": "7G",
+    "BaselineMultiplicativeJones": "7H",
+    "SmearingFactorJones": "7H",
 }
 
-#: The two exported ``JonesBaselineTerm`` identity stubs (Section 5.1, M and Q).
-BASELINE_TERM_STUBS: dict[str, Any] = {
-    "BaselineMultiplicativeJones": lambda m: m.BaselineMultiplicativeJones(),
-    "SmearingFactorJones": lambda m: m.SmearingFactorJones(),
-}
+#: Section 23's removal ledger, executed by Tier 7C (25 of these) and Tier 7B
+#: (``GeometricPhaseJones``).  Twenty-six classes in all, plus the rename.
+REMOVED_JONES_CLASSES: tuple[str, ...] = (
+    "GeometricPhaseJones",
+    "TimeVariableGainJones",
+    "ElevationGainJones",
+    "PolynomialBandpassJones",
+    "SplineBandpassJones",
+    "RFIFlaggedBandpassJones",
+    "IXRLeakageJones",
+    "MuellerLeakageJones",
+    "BeamSquintLeakageJones",
+    "FieldRotationJones",
+    "VLBIFeedRotationJones",
+    "TurbulentIonosphereJones",
+    "GPSIonosphereJones",
+    "SaastamoinenTroposphereJones",
+    "TurbulentTroposphereJones",
+    "TroposphericOpacityJones",
+    "FaradayRotationJones",
+    "DifferentialFaradayJones",
+    "WPhaseJones",
+    "WProjectionJones",
+    "WidefieldPolarimetricJones",
+    "ElementBeamJones",
+    "ArrayFactorJones",
+    "DifferentialBeamJones",
+    "FringeFitJones",
+    "CrosshandPhaseJones",
+    "CrosshandDelayJones",
+    "FrequencyDependentLeakageJones",
+)
 
-#: The twelve modules whose every class is an identity stub (Section 5.1).
-STUB_MODULES: tuple[str, ...] = (
+#: The modules that held only deleted classes and were deleted with them.
+#:
+#: Section 33.2 says "five now-empty modules"; the arithmetic gives three, and
+#: Section 34's writable list marks exactly these three "(delete)".  The other
+#: nine former stub modules keep one or two planned terms each.
+REMOVED_STUB_MODULES: tuple[str, ...] = (
+    "faraday.py",
+    "wterm.py",
+    "element_beam.py",
+)
+
+#: The modules that were stub modules at the gate and now hold planned terms.
+SURVIVING_TERM_MODULES: tuple[str, ...] = (
     "gain.py",
     "bandpass.py",
     "polarization_leakage.py",
     "parallactic.py",
     "ionosphere.py",
     "troposphere.py",
-    "faraday.py",
-    "wterm.py",
-    "element_beam.py",
     "delay.py",
     "crosshand.py",
     "baseline_errors.py",
@@ -427,19 +374,18 @@ STUB_MODULES: tuple[str, ...] = (
 def test_jones_package_exports_exactly_the_recorded_names() -> None:
     """Pins ``__all__``, in order (Section 5.1).
 
-    OWNED BY: Tier 7C, which deletes the 25 remaining stub classes and renames
-    ``CrosshandPhaseJones`` to ``CrosshandJones``, and Tier 7J, which rebuilds
-    the documentation around the surviving names.
+    OWNED BY: Tier 7J, which rebuilds the documentation around these names.
 
-    PARTLY FLIPPED BY: Tier 7B -- see the note on ``EXPORTED_JONES_NAMES``.  The
-    gate count was 43; 7B removes ``GeometricPhaseJones`` and adds
-    ``geometric_phase``, ``DirectionBatch`` and ``evaluate_antenna_jones``.
+    FLIPPED BY: Tier 7B (43 -> 45) and Tier 7C (45 -> 19).
     """
     import radiosim.core.jones as jones_package
 
     assert tuple(jones_package.__all__) == EXPORTED_JONES_NAMES
-    assert len(EXPORTED_JONES_NAMES) == 45
-    assert len(set(EXPORTED_JONES_NAMES)) == 45
+    assert len(EXPORTED_JONES_NAMES) == 19
+    assert len(set(EXPORTED_JONES_NAMES)) == 19
+    assert (
+        len(EXPORTED_JONES_NAMES) == len(NON_TERM_EXPORTS) + 1 + len(PLANNED_TERMS) + 2
+    )
 
 
 def test_every_exported_jones_name_resolves_through_lazy_getattr() -> None:
@@ -469,88 +415,144 @@ def test_claude_md_claims_forty_six_exported_jones_classes() -> None:
     """Pins defect D0: the documented count disagrees with ``__all__``.
 
     OWNED BY: Tier 7J, which rewrites the ``CLAUDE.md`` Implementation Status
-    and Jones sections around the true surviving name count.
+    and Jones sections around the true surviving name count.  Tier 7C's writable
+    list does not include ``CLAUDE.md``, so the claim is left stale here
+    deliberately and the gap is recorded rather than quietly closed.
     """
     assert "46 exported classes" in _source("CLAUDE.md")
-    assert len(EXPORTED_JONES_NAMES) == 45
+    assert len(EXPORTED_JONES_NAMES) == 19
 
 
-def test_only_three_exported_names_implement_real_physics() -> None:
-    """Pins Section 5.1's three-real / 37-stub split.
+def test_every_exported_term_is_real_physics_or_a_declared_plan() -> None:
+    """Pins Section 5.1's three-real / 37-stub split at its resolution.
 
-    OWNED BY: Tier 7C through Tier 7H, each of which converts stubs it owns
-    into real terms or deletes them.
+    FLIPPED BY: Tier 7C.  The 37 identity stubs became 26 deletions and 11
+    planned terms.  A planned term is not a stub: it returns nothing at all.
+
+    OWNED BY: Tier 7D through Tier 7H, each of which turns its own planned rows
+    into real physics.
     """
-    stub_names = set(JONES_TERM_STUBS) | set(BASELINE_TERM_STUBS)
-    assert len(stub_names) == 37
-    assert stub_names.isdisjoint(REAL_PHYSICS_EXPORTS)
-    assert stub_names | set(REAL_PHYSICS_EXPORTS) == set(EXPORTED_JONES_NAMES) - set(
-        NON_TERM_EXPORTS
-    )
+    assert len(REMOVED_JONES_CLASSES) == 28  # 26 deletions + K + the renamed X
+    assert len(PLANNED_TERMS) == 11
+    assert set(PLANNED_TERMS).isdisjoint(REAL_PHYSICS_EXPORTS)
+    assert set(PLANNED_TERMS) | set(REAL_PHYSICS_EXPORTS) == set(
+        EXPORTED_JONES_NAMES
+    ) - set(NON_TERM_EXPORTS)
 
 
-@pytest.mark.parametrize("class_name", sorted(JONES_TERM_STUBS))
-def test_jones_term_stub_returns_the_two_by_two_identity(class_name: str) -> None:
-    """Pins the identity return of one stub, individually (defect D1).
+@pytest.mark.parametrize("class_name", sorted(PLANNED_TERMS))
+def test_a_planned_term_raises_instead_of_returning_the_identity(
+    class_name: str,
+) -> None:
+    """Pins the resolution of defect D1, one class at a time.
 
+    At the gate each of these returned ``xp.eye(2, dtype=np.complex128)`` from
+    ``compute_jones(...)``, for every antenna, direction, frequency and time.
     Asserted one class at a time, deliberately: Section 33.2 requires each
-    stub's later deletion or implementation to be a visible, deliberate flip of
-    a named test rather than one aggregate assertion quietly losing rows.
+    stub's later implementation to be a visible, deliberate flip of a named test
+    rather than one aggregate assertion quietly losing rows.
 
-    OWNED BY: Tier 7C (deletion of the 26 out-of-scope classes) and Tier 7D
-    through Tier 7G (real implementations of G, B, D, X, Kd, Rc, P, Z, T).
+    FLIPPED BY: Tier 7C.  There is no ``compute_jones`` and no identity return;
+    there is a name, a documented effect, and a refusal.
+
+    OWNED BY: Tier 7D through Tier 7H.
     """
     import radiosim.core.jones as jones_package
 
-    term = JONES_TERM_STUBS[class_name](jones_package)
-    assert isinstance(term, JonesTerm)
+    term_class = getattr(jones_package, class_name)
+    term = term_class()
+    is_baseline = isinstance(term, JonesBaselineTerm)
+    assert isinstance(term, JonesTerm) is not is_baseline
 
-    backend = get_backend("numpy")
-    matrix = term.compute_jones(0, 0, 0, 0, backend)
-    assert np.asarray(matrix).shape == (2, 2)
-    assert str(np.asarray(matrix).dtype) == "complex128"
-    np.testing.assert_array_equal(np.asarray(matrix), IDENTITY)
+    assert not hasattr(term, "compute_jones")
+    assert not hasattr(term, "compute_baseline_term")
+    assert term.term_status == "planned"
 
-    # The direction-independent call path returns the same identity.
-    np.testing.assert_array_equal(
-        np.asarray(term.compute_jones(1, None, 1, 1, backend)), IDENTITY
+    method = term.compute_baseline_factor if is_baseline else term.compute_jones_batch
+    kwargs: dict[str, Any] = {
+        "directions": _planned_term_directions(),
+        "frequency_hz": 1.5e8,
+        "freq_idx": 0,
+        "time_mjd": 60_000.0,
+        "time_idx": 0,
+        "backend": get_backend("numpy"),
+        "dtype": np.complex128,
+    }
+    if is_baseline:
+        kwargs |= {"baseline_idx": 0, "antenna_p": 0, "antenna_q": 1}
+    else:
+        kwargs["antenna_idx"] = 0
+
+    with pytest.raises(NotImplementedError) as excinfo:
+        method(**kwargs)
+    assert class_name in str(excinfo.value)
+
+
+def _planned_term_directions() -> Any:
+    from radiosim.core.jones import DirectionBatch
+
+    values = np.linspace(0.2, 1.2, 3)
+    return DirectionBatch(
+        alt_rad=values,
+        az_rad=values / 2.0,
+        dir_l=np.cos(values) * np.sin(values / 2.0),
+        dir_m=np.cos(values) * np.cos(values / 2.0),
+        dir_n=np.sin(values),
+        ra_rad=values,
+        dec_rad=-values,
+        hour_angle_rad=values / 3.0,
+        n_dir=3,
     )
 
 
-@pytest.mark.parametrize("class_name", sorted(BASELINE_TERM_STUBS))
-def test_baseline_term_stub_returns_the_two_by_two_identity(class_name: str) -> None:
-    """Pins the identity return of M and Q (defect D1, baseline half).
+@pytest.mark.parametrize("module_name", SURVIVING_TERM_MODULES)
+def test_a_surviving_term_module_carries_no_stub_marker(module_name: str) -> None:
+    """Pins the removal of the ``TODO: implement properly`` marker.
 
-    OWNED BY: Tier 7H, which implements both on the Hadamard path.
-    """
-    import radiosim.core.jones as jones_package
+    At the gate every one of these twelve modules carried the module-level line
+    ``"Stub implementation: returns identity matrix. TODO: implement properly."``
+    and a class docstring beginning ``"Stub: ..."``.
 
-    term = BASELINE_TERM_STUBS[class_name](jones_package)
-    assert isinstance(term, JonesBaselineTerm)
-    assert not isinstance(term, JonesTerm)
-
-    matrix = term.compute_baseline_term(0, 1, 0, 0, 0, get_backend("numpy"))
-    np.testing.assert_array_equal(np.asarray(matrix), IDENTITY)
-
-
-@pytest.mark.parametrize("module_name", STUB_MODULES)
-def test_stub_module_carries_the_todo_marker(module_name: str) -> None:
-    """Pins the ``TODO: implement properly`` marker in each stub module.
-
-    Section 5.1 records that no ``TODO`` marker exists anywhere in
-    ``src/radiosim`` outside these twelve modules; the complementary half of
-    that claim is pinned by
-    ``test_no_todo_marker_exists_outside_the_stub_modules``.
-
-    OWNED BY: Tier 7C (which deletes five of these modules outright) and the
-    term slices, whose Section 31 step 5 removes each term's own stub warning.
+    FLIPPED BY: Tier 7C.  Each surviving module now states the term's
+    mathematics, its units and signs, its citation, and the slice that
+    implements it -- which is what makes the class worth keeping while its
+    physics does not exist yet.
     """
     text = (JONES_ROOT / module_name).read_text(encoding="utf-8")
-    assert (
-        "Stub implementation: returns identity matrix. TODO: implement properly."
-        in (text)
-    )
-    assert "TODO: implement properly" in text
+    assert "TODO" not in text
+    assert "Stub" not in text
+    assert "xp.eye(2, dtype=np.complex128)" not in text
+    assert "References" in text or "planned" in text
+
+
+@pytest.mark.parametrize("module_name", REMOVED_STUB_MODULES)
+def test_a_module_of_only_deleted_classes_is_deleted(module_name: str) -> None:
+    """``faraday.py``, ``wterm.py`` and ``element_beam.py`` held nothing else.
+
+    FLIPPED BY: Tier 7C.
+    """
+    assert not (JONES_ROOT / module_name).exists()
+
+
+@pytest.mark.parametrize("class_name", REMOVED_JONES_CLASSES)
+def test_a_removed_class_is_absent_from_every_access_path(class_name: str) -> None:
+    """Pins the removal ledger, one name at a time.
+
+    FLIPPED BY: Tier 7B (``GeometricPhaseJones``) and Tier 7C (the rest).
+    ``docs/migration_guide.md`` names the replacement for every one of them,
+    which is the Tier 5H review's requirement made mechanical.
+    """
+    import radiosim.core.jones as jones_package
+
+    assert class_name not in jones_package.__all__
+    assert class_name not in jones_package.__dir__()
+    with pytest.raises(AttributeError):
+        getattr(jones_package, class_name)
+
+    for path in sorted(SOURCE_ROOT.rglob("*.py")):
+        assert class_name not in path.read_text(encoding="utf-8"), path
+
+    assert class_name in _source("docs/migration_guide.md")
 
 
 def test_todo_markers_outside_the_stub_modules() -> None:
@@ -558,7 +560,7 @@ def test_todo_markers_outside_the_stub_modules() -> None:
 
     Section 5.1 states that "a repository-wide search finds **no** ``TODO``
     marker anywhere in ``src/radiosim`` outside these twelve stub modules".
-    That is **not** true at the gate commit: ``cli/main.py:6``
+    That was **not** true at the gate commit: ``cli/main.py:6``
     ("TODO: Future enhancements for v0.3.0+", present since ``be231d2``) and
     ``core/sky/registry/catalogs.py:595``
     ("TODO(scientific-coverage): ...", present since ``8372dec``) both predate
@@ -566,25 +568,21 @@ def test_todo_markers_outside_the_stub_modules() -> None:
     7C's residual scan (I20) must exclude them explicitly rather than assert an
     empty set and then be relaxed when it fails.
 
+    FLIPPED BY: Tier 7C, after which those two are the *only* ``TODO`` carriers
+    in the package: the twelve stub modules' markers are gone.
+
     The load-bearing half of the claim -- that the **beam** subsystem is
     TODO-free, which is why Section 19's ``SCI-003`` disposition rests on
     ``beam/TODO.md`` rather than on in-code markers -- does hold, and is
     asserted here.
-
-    OWNED BY: Tier 7C.
     """
     carriers = {
         path.relative_to(SOURCE_ROOT).as_posix()
         for path in sorted(SOURCE_ROOT.rglob("*.py"))
         if "TODO" in path.read_text(encoding="utf-8")
     }
-    stub_carriers = {f"core/jones/{name}" for name in STUB_MODULES}
-    assert carriers == stub_carriers | {
-        "cli/main.py",
-        "core/sky/registry/catalogs.py",
-    }
+    assert carriers == {"cli/main.py", "core/sky/registry/catalogs.py"}
 
-    # Every stub carrier uses the marker phrase; neither outsider does.
     for name in ("cli/main.py", "core/sky/registry/catalogs.py"):
         assert "TODO: implement properly" not in (SOURCE_ROOT / name).read_text(
             encoding="utf-8"
@@ -595,99 +593,77 @@ def test_todo_markers_outside_the_stub_modules() -> None:
     )
 
 
-def test_stub_constructors_discard_physically_meaningful_parameters() -> None:
-    """Pins defect D2: real physics can be handed in and silently dropped.
+def test_no_planned_term_accepts_physics_it_would_discard() -> None:
+    """Pins the resolution of defect D2: real physics silently dropped.
 
-    A caller supplying a TEC map, D-terms, a gain sigma, a bandpass table, a
-    feed-angle offset or an elevation array gets no error, no warning, and no
-    effect.  This is the concrete harm ``SCI-001`` names, and it is materially
-    worse than "returns identity".
+    At the gate a caller could hand a stub a TEC map, D-terms, a gain sigma, a
+    bandpass table, a feed-angle offset or an elevation array and get no error,
+    no warning and no effect.  That is the concrete harm ``SCI-001`` names, and
+    it was materially worse than "returns identity".
 
-    OWNED BY: Tier 7C (the classes whose constructors vanish) and Tier 7D
-    through Tier 7G (the classes that start honoring their arguments).
+    FLIPPED BY: Tier 7C.  A planned term declares no constructor at all, so
+    every one of those calls is now a ``TypeError``.  Each term slice introduces
+    its real constructor together with the resolution that validates it.
+
+    OWNED BY: Tier 7D through Tier 7H.
     """
     import radiosim.core.jones as jones_package
 
-    tec = np.array([1.0e17, 2.0e17])
-    ionosphere = jones_package.IonosphereJones(tec=tec, frequencies=_stub_freqs())
-    assert not any(
-        np.array_equal(np.asarray(value), tec)
-        for value in vars(ionosphere).values()
-        if isinstance(value, np.ndarray)
-    )
-    assert not hasattr(ionosphere, "tec")
-
-    elevations = np.array([0.5, 0.9])
-    troposphere = jones_package.TroposphereJones(n_antennas=2, elevations=elevations)
-    assert troposphere.elevations is elevations  # stored ...
-    np.testing.assert_array_equal(
-        np.asarray(troposphere.compute_jones(0, 0, 0, 0, get_backend("numpy"))),
-        IDENTITY,  # ... and never read
-    )
-
-    gains = jones_package.GainJones(n_antennas=2, gain_sigma=0.35, seed=7)
-    assert gains.gain_sigma == 0.35
-    np.testing.assert_array_equal(
-        np.asarray(gains.compute_jones(0, None, 0, 0, get_backend("numpy"))), IDENTITY
-    )
-
-    bandpass = jones_package.BandpassJones(
-        2, _stub_freqs(), bandpass_gains=np.array([0.5, 2.0])
-    )
-    assert not hasattr(bandpass, "bandpass_gains")
-
-    leakage = jones_package.PolarizationLeakageJones(
-        2, d_terms=np.array([0.1 + 0.2j, 0.3])
-    )
-    assert not hasattr(leakage, "d_terms")
-
-    parallactic = jones_package.ParallacticAngleJones(
-        antenna_latitudes=np.array([-0.536]),
-        source_positions=np.array([[1.0, -0.5]]),
-        times=np.array([0.0]),
-        feed_angle_offset=np.array([0.7]),
-    )
-    assert not hasattr(parallactic, "feed_angle_offset")
+    discarded = {
+        "IonosphereJones": {"tec": np.array([1.0e17, 2.0e17])},
+        "TroposphereJones": {"elevations": np.array([0.5, 0.9])},
+        "GainJones": {"n_antennas": 2, "gain_sigma": 0.35, "seed": 7},
+        "BandpassJones": {"bandpass_gains": np.array([0.5, 2.0])},
+        "PolarizationLeakageJones": {"d_terms": np.array([0.1 + 0.2j, 0.3])},
+        "ParallacticAngleJones": {"feed_angle_offset": np.array([0.7])},
+    }
+    for class_name, kwargs in discarded.items():
+        term_class = getattr(jones_package, class_name)
+        with pytest.raises(TypeError):
+            term_class(**kwargs)
+        term = term_class()
+        assert vars(term) == {}
+        assert "__init__" not in vars(term_class)
 
 
-def test_capability_flags_are_self_reported_and_vacuously_true() -> None:
-    """Pins defect D10: unverified capability hints about identity matrices.
+def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None:
+    """Pins the resolution of defect D10: unverified hints about identities.
 
-    ``FaradayRotationJones`` and ``WPhaseJones`` claim unitarity, and
-    ``WPhaseJones`` and ``ArrayFactorJones`` claim scalarity, about a matrix
-    that is the 2x2 identity.  Each claim is true only because the identity is
-    trivially unitary and trivially scalar, which is exactly the vacuity the
-    Tier 5H review adjudicated as ``SCI-001`` material.
+    At the gate ``FaradayRotationJones`` and ``WPhaseJones`` claimed unitarity,
+    and ``WPhaseJones`` and ``ArrayFactorJones`` claimed scalarity, about a
+    matrix that was the 2x2 identity -- true only because the identity is
+    trivially both, which is exactly the vacuity the Tier 5H review adjudicated
+    as ``SCI-001`` material.
 
-    OWNED BY: Tier 7B, which adds the flag-verification harness (D10, I2), and
-    Tier 7C, which deletes ``F``, ``W`` and ``a`` outright.
+    FLIPPED BY: Tier 7B, which added the flag-verification harness (D10, I2),
+    and Tier 7C, which deleted all four of those classes and stripped every flag
+    from the terms that survive: invariant I2's sweep cannot verify a claim
+    about a matrix that cannot be computed, so a planned term declares none.
+    Each term slice adds its flags with its physics and its own I2 case.
+
+    OWNED BY: Tier 7D through Tier 7H.
     """
     import radiosim.core.jones as jones_package
 
-    backend = get_backend("numpy")
+    for class_name in PLANNED_TERMS:
+        term_class = getattr(jones_package, class_name)
+        base = (
+            JonesBaselineTerm
+            if issubclass(term_class, JonesBaselineTerm)
+            else JonesTerm
+        )
+        for flag in ("is_diagonal", "is_scalar", "is_unitary"):
+            assert getattr(term_class, flag, None) is getattr(base, flag, None), (
+                class_name,
+                flag,
+            )
+        assert flag not in vars(term_class)
 
-    faraday = jones_package.FaradayRotationJones(rotation_measure=50.0)
-    assert faraday.is_unitary() is True
-    np.testing.assert_array_equal(
-        np.asarray(faraday.compute_jones(0, 0, 0, 0, backend)), IDENTITY
-    )
-
-    wphase = jones_package.WPhaseJones()
-    assert wphase.is_unitary() is True
-    assert wphase.is_scalar() is True
-    np.testing.assert_array_equal(
-        np.asarray(wphase.compute_jones(0, 0, 0, 0, backend)), IDENTITY
-    )
-
-    array_factor = jones_package.ArrayFactorJones()
-    assert array_factor.is_scalar() is True
-
-    # The base-class defaults are equally unverified: they are plain returns.
-    assert JonesTerm.is_diagonal(faraday) is False
-    assert JonesTerm.is_scalar(faraday) is False
-    assert JonesTerm.is_unitary(wphase) is False
-    assert set(faraday.get_config()) == {
+    # ``get_config`` now reports the status alongside the flags, so a consumer
+    # reading a term's configuration cannot miss that it does not run.
+    assert set(jones_package.GainJones().get_config()) == {
         "name",
+        "term_status",
         "is_direction_dependent",
         "is_time_dependent",
         "is_frequency_dependent",
@@ -1247,7 +1223,10 @@ def test_the_non_coplanar_w_contribution_is_already_exact(tmp_path) -> None:
     well off the phase centre changes the cube -- so the term is not a
     no-op that a later slice could reintroduce harmlessly.
 
-    OWNED BY: Tier 7C, which deletes ``wterm.py`` rather than implementing it.
+    FLIPPED BY: Tier 7C, which deleted ``wterm.py`` rather than implementing it,
+    so the double-count hazard is closed by construction: there is no W term to
+    enable.  ``Fix.md`` Section 16 Workstream C's "W/non-coplanar effects" item
+    is answered by this pin plus the documentation, not by a term.
 
     ANCHOR UPDATED BY: Tier 7B, which extracted the two inline copies into the
     one ``geometric_phase()`` function (defect D6).  The ``w (n - 1)`` term the
@@ -1276,8 +1255,12 @@ def test_the_non_coplanar_w_contribution_is_already_exact(tmp_path) -> None:
     far_cube = np.asarray(calculate_visibility(source_arrays=far, **kwargs))
     assert _raw_cube_digest(near_cube) != _raw_cube_digest(far_cube)
 
-    text = _source("src/radiosim/core/jones/wterm.py")
-    assert "K_W = exp(-2πi·w·(n-1)) * I" in text
+    # And there is no W term left to double-count with.
+    assert not (JONES_ROOT / "wterm.py").exists()
+    for name in ("WPhaseJones", "WProjectionJones"):
+        assert name not in _source("src/radiosim/core/jones/__init__.py")
+    guide = " ".join(_source("docs/user_guide/jones_matrices.rst").split())
+    assert "w-phase and w-projection" in guide
 
 
 def test_rotation_measure_is_already_applied_by_the_point_solver(tmp_path) -> None:
@@ -1501,15 +1484,30 @@ def test_mount_types_other_than_fixed_are_rejected() -> None:
     assert callable(resolve_receptors)
 
 
-def test_documentation_records_the_stub_surface_as_inspectable() -> None:
-    """Pins defect D21: docs that become false the moment the stubs go.
+def test_documentation_no_longer_records_a_stub_surface() -> None:
+    """Pins the resolution of defect D21: docs that describe what is there.
 
-    OWNED BY: Tier 7C and Tier 7J.
+    At the gate ``docs/api/jones.rst`` told the reader that many exported terms
+    were "identity scaffolds", that "A returned identity matrix is not a modeled
+    physical effect", and that the rest of the package was "documented for
+    development and inspection" -- statements that became false the moment the
+    stubs went.
+
+    FLIPPED BY: Tier 7C.  The reference now says which terms are implemented,
+    which are planned, and that a planned one raises.  The full documentation
+    rebuild around the surviving names is Tier 7J's.
+
+    OWNED BY: Tier 7J.
     """
     api_docs = " ".join(_source("docs/api/jones.rst").split())
-    assert "identity scaffolds" in api_docs
-    assert "A returned identity matrix is not a modeled physical effect." in api_docs
-    assert "documented for development and inspection" in api_docs
+    for stale in (
+        "identity scaffolds",
+        "A returned identity matrix is not a modeled physical effect.",
+        "documented for development and inspection",
+    ):
+        assert stale not in api_docs, stale
+    assert "term_status" in api_docs
+    assert "``compute_jones_batch`` **raises**" in api_docs
     for module_name in (
         "ionosphere",
         "troposphere",
@@ -1519,9 +1517,13 @@ def test_documentation_records_the_stub_surface_as_inspectable() -> None:
         "polarization_leakage",
     ):
         assert f"radiosim.core.jones.{module_name}" in api_docs
+    for removed in ("faraday", "wterm", "element_beam"):
+        assert f"radiosim.core.jones.{removed}" not in api_docs
 
     guide = " ".join(_source("docs/user_guide/jones_matrices.rst").split())
     assert "When Tier 7 implements" in guide
+    assert "identity scaffolds or later-tier work" not in guide
+    assert "A class returning an identity matrix is a scaffold" not in guide
 
 
 def test_beam_todo_markdown_is_the_sci_003_artifact() -> None:

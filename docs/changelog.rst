@@ -9,6 +9,20 @@ All notable changes to RadioSim are documented here.
 Removed
 ^^^^^^^
 
+- **Twenty-six Jones classes**: every exported Jones term that returned the 2x2
+  identity for every input, and could therefore be configured without changing
+  anything, was removed rather than left as a scaffold. ``GeometricPhaseJones``
+  became the ``geometric_phase()`` function (K is per-baseline),
+  ``CrosshandPhaseJones`` was renamed ``CrosshandJones``, and the modules
+  ``faraday``, ``wterm`` and ``element_beam`` are gone.
+  :doc:`migration_guide` names the replacement for each. The nineteen remaining
+  exports each declare ``term_status``: ``"implemented"`` for the receptor terms
+  ``C`` and ``H``, ``"planned"`` for the rest, and a planned term **raises**
+  when evaluated instead of multiplying by the identity.
+- **jones_config solver parameter**: removed from every solver and simulator
+  signature. It was an untyped dictionary hard-coded to ``None`` at the only
+  production call site, and every term it could enable was one of the removed
+  identity stubs. A typed ``jones:`` configuration section replaces it.
 - **visibility.calculation_type**: removed before v1.0. It validated
   ``direct_sum`` and ``spherical_harmonic``, and nothing in the package read
   either value. The solver strategy is selected by ``execution.simulator``,

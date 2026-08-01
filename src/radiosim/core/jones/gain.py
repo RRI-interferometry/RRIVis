@@ -1,36 +1,39 @@
-"""Complex gain Jones term (G matrix).
+"""The complex electronic gain term (G).
 
-Stub implementation: returns identity matrix. TODO: implement properly.
+``G_p`` is the per-antenna, per-feed complex voltage gain of the receiving
+chain downstream of the feed::
+
+    G_p = diag(g_p0, g_p1)
+
+one complex number per feed.  It is direction-independent and, absent a time or
+elevation model, constant over the observation.
+
+Planned, not implemented.  Tier 7D implements it, absorbing what used to be
+three separate classes: a time model becomes a ``time_model`` field and an
+elevation gain curve becomes an ``elevation_curve`` field, because both multiply
+the same diagonal matrix (``Tier7JonesSciencePlan.md`` Section 9.1).
+
+References
+----------
+Hamaker, Bregman & Sault (1996), A&AS 117, 137 -- the ``G`` factorization of the
+measurement equation.
+Smirnov (2011), A&A 527, A106 (Paper I), Section 6.
 """
-
-from typing import Any
-
-import numpy as np
 
 from radiosim.core.jones.base import JonesTerm
 
 
 class GainJones(JonesTerm):
-    """Stub: Complex electronic gains Jones matrix. TODO: implement properly.
+    """Complex electronic gains ``G`` (planned; Tier 7D implements it).
 
-    Args:
-        n_antennas: Number of antennas (used if gains is None)
-        gain_sigma: Standard deviation for random gain perturbations
-        gains: Pre-computed gain values (complex). If None, uses ideal gains.
-        seed: Random seed for reproducibility
+    ``term_status`` is ``"planned"``: the term has a name, a chain position and
+    a documented physical effect, and
+    :meth:`~radiosim.core.jones.base.JonesTerm.compute_jones_batch` raises.  It
+    takes no parameters, because a parameter it cannot honour is a parameter it
+    would silently discard (defect D2); Tier 7D introduces the real constructor
+    together with the ``jones.G`` configuration that validates it, and declares
+    the capability flags that its invariant sweep can then verify.
     """
-
-    def __init__(
-        self,
-        n_antennas: int = 1,
-        gain_sigma: float = 0.0,
-        gains: np.ndarray | None = None,
-        seed: int | None = None,
-    ):
-        """Initialize gain Jones term (stub)."""
-        self.n_antennas = n_antennas
-        self.gain_sigma = gain_sigma
-        self._seed = seed
 
     @property
     def name(self) -> str:
@@ -39,52 +42,3 @@ class GainJones(JonesTerm):
     @property
     def is_direction_dependent(self) -> bool:
         return False
-
-    @property
-    def is_frequency_dependent(self) -> bool:
-        return False
-
-    def is_diagonal(self) -> bool:
-        return True
-
-    def compute_jones(
-        self,
-        antenna_idx: int,
-        source_idx: int | None,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute gain Jones matrix (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)
-
-
-class TimeVariableGainJones(GainJones):
-    """Stub: Gains that vary smoothly with time. TODO: implement properly."""
-
-    def __init__(self, n_antennas: int, n_times: int, **kwargs):
-        """Initialize time-variable gains (stub)."""
-        super().__init__(n_antennas=n_antennas)
-
-
-class ElevationGainJones(GainJones):
-    """Stub: Elevation-dependent antenna gain (GAINCURVE). TODO: implement properly.
-
-    Antenna gain is often a polynomial function of elevation angle:
-        g(el) = c₀ + c₁·el + c₂·el² + ...
-
-    This term applies antenna-specific gain curves.
-    """
-
-    def __init__(
-        self, n_antennas: int = 1, gain_curve_coeffs: np.ndarray | None = None, **kwargs
-    ):
-        """Initialize elevation gain Jones term (stub)."""
-        super().__init__(n_antennas=n_antennas)
-        self.gain_curve_coeffs = (
-            np.asarray(gain_curve_coeffs)
-            if gain_curve_coeffs is not None
-            else np.array([])
-        )

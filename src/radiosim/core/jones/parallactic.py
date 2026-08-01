@@ -1,50 +1,44 @@
+"""The parallactic-angle term (P).
+
+``P_p(s, t)`` is the rotation of an antenna's feeds relative to the sky frame::
+
+    P_p = [[cos psi, sin psi], [-sin psi, cos psi]]
+
+with ``psi`` the parallactic angle, which for an alt-azimuth mount varies with
+hour angle, declination and site latitude -- and therefore *across the field*,
+which is why ``P`` is direction-dependent rather than a per-antenna scalar
+rotation.
+
+Planned, not implemented.  Tier 7F implements it, direction-batched, with the
+five mount types (alt-az, equatorial, fixed, alt-az+nasmyth-l,
+alt-az+nasmyth-r), and unlocks ``instrument`` mount types beyond ``fixed``
+(``Tier7JonesSciencePlan.md`` Section 9.1, defect D16).  A per-direction ``P``
+subsumes what used to be a separate field-rotation class exactly, and
+heterogeneous VLBI mounts are a per-antenna ``mount_type`` that
+``ResolvedInstrument`` already carries, not a separate class.
+
+Tier 7F also moves ``P`` sky-side of ``C`` in the canonical chain (design
+decision D12): for a circular receptor the Tier 5 order ``C P`` and the correct
+order ``P C`` differ, and the error is unobservable today only because ``P``
+does not exist.
+
+References
+----------
+Thompson, Moran & Swenson (2017), *Interferometry and Synthesis in Radio
+Astronomy*, 3rd ed., Section 4.6.
+Smirnov (2011), A&A 527, A106 (Paper I), Section 6.4.
 """
-Parallactic Angle Jones term (P) for feed rotation.
-
-Stub implementation: returns identity matrix. TODO: implement properly.
-"""
-
-from typing import Any
-
-import numpy as np
 
 from .base import JonesTerm
 
 
 class ParallacticAngleJones(JonesTerm):
-    """Stub: Parallactic angle rotation Jones term. TODO: implement properly.
+    """Parallactic-angle rotation ``P`` (planned; Tier 7F implements it).
 
-    Parameters
-    ----------
-    antenna_latitudes : np.ndarray
-        Geodetic latitudes of antennas in radians.
-    source_positions : np.ndarray
-        Source positions with shape (n_sources, 2) as (RA, Dec) in radians.
-    times : np.ndarray
-        Observation times.
-    mount_type : str
-        Antenna mount type: 'altaz', 'equatorial', or 'xy'.
-    feed_angle_offset : np.ndarray, optional
-        Fixed feed angle offset in radians.
+    ``term_status`` is ``"planned"``: constructing it is allowed, evaluating it
+    raises.  See :class:`~radiosim.core.jones.gain.GainJones` for why it takes
+    no parameters yet.
     """
-
-    def __init__(
-        self,
-        antenna_latitudes: np.ndarray,
-        source_positions: np.ndarray,
-        times: np.ndarray,
-        mount_type: str = "altaz",
-        feed_angle_offset: np.ndarray | None = None,
-    ):
-        self.antenna_latitudes = np.asarray(antenna_latitudes)
-        self.n_antennas = len(self.antenna_latitudes)
-
-        self.source_positions = np.asarray(source_positions)
-        if self.source_positions.ndim == 1:
-            self.source_positions = self.source_positions.reshape(1, -1)
-
-        self.times = np.asarray(times)
-        self.mount_type = mount_type.lower()
 
     @property
     def name(self) -> str:
@@ -53,36 +47,3 @@ class ParallacticAngleJones(JonesTerm):
     @property
     def is_direction_dependent(self) -> bool:
         return True
-
-    def compute_jones(
-        self,
-        antenna_idx: int,
-        source_idx: int,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute parallactic angle rotation matrix (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)
-
-
-class FieldRotationJones(ParallacticAngleJones):
-    """Stub: Extended parallactic angle including field rotation effects. TODO: implement properly."""
-
-    def __init__(self, antenna_latitudes: np.ndarray, **kwargs):
-        super().__init__(antenna_latitudes, np.array([[0.0, 0.0]]), np.array([0.0]))
-
-
-class VLBIFeedRotationJones(ParallacticAngleJones):
-    """Stub: Feed rotation for VLBI with heterogeneous antenna networks. TODO: implement properly."""
-
-    def __init__(
-        self,
-        antenna_info,
-        source_positions: np.ndarray,
-        times: np.ndarray,
-    ):
-        latitudes = np.array([a.get("latitude", 0.0) for a in antenna_info])
-        super().__init__(latitudes, source_positions, times)

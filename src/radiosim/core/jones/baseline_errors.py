@@ -10,13 +10,21 @@ These terms apply to visibilities via Hadamard (element-wise) multiplication
 rather than the standard matrix chain. They require a separate base class
 JonesBaselineTerm that is NOT a subclass of JonesTerm.
 
-Stub implementation: returns identity matrix. TODO: implement properly.
+Both are planned, not implemented: Tier 7H implements them on the Hadamard path,
+``Q`` folded into the compiled kernel's existing ``envelope`` argument and ``M``
+applied to the kernel's ``(B, 2, 2)`` output, with the kernel signature
+unchanged (``Tier7JonesSciencePlan.md`` Section 15, invariant I16).
+
+References
+----------
+Bridle & Schwab (1999), in *Synthesis Imaging in Radio Astronomy II*, ASP Conf.
+Ser. 180, 371 -- the time and bandwidth smearing expressions ``Q`` implements.
+Thompson, Moran & Swenson (2017), 3rd ed., Section 10.4 -- closure relations,
+which ``M`` breaks and every per-antenna term preserves (invariant I11).
 """
 
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
-
-import numpy as np
 
 if TYPE_CHECKING:
     from radiosim.core.jones.directions import DirectionBatch
@@ -48,6 +56,18 @@ class JonesBaselineTerm(ABC):
     def is_direction_dependent(self) -> bool:
         """True if effect varies across the sky (DDE)."""
         pass
+
+    @property
+    def term_status(self) -> str:
+        """``"implemented"`` if this term's physics exists, else ``"planned"``.
+
+        The baseline-path counterpart of
+        :attr:`~radiosim.core.jones.base.JonesTerm.term_status`, with the same
+        contract and the same honest default; see that docstring for why the
+        default is ``"planned"``.  Both ``M`` and ``Q`` are ``"planned"`` until
+        Tier 7H.
+        """
+        return "planned"
 
     def compute_baseline_factor(
         self,
@@ -97,10 +117,13 @@ class JonesBaselineTerm(ABC):
         Notes
         -----
         Concrete-and-raising rather than ``@abstractmethod`` for the same bounded
-        reason as ``JonesTerm.compute_jones_batch``: the ``M`` and ``Q`` identity
-        stubs below are Tier 7H's to replace, and an abstract declaration here
-        would make them impossible to instantiate and silently break the 7A
-        characterization pins that 7H owns.
+        reason as ``JonesTerm.compute_jones_batch``: ``M`` and ``Q`` below are
+        both ``term_status == "planned"`` until Tier 7H, and an abstract
+        declaration here would make them impossible to instantiate.  It becomes
+        ``@abstractmethod`` in that slice.
+
+        Raising rather than returning an identity is the point: a Hadamard
+        factor that is ``1`` everywhere is indistinguishable from no term at all.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not implement compute_baseline_factor; "
@@ -110,20 +133,19 @@ class JonesBaselineTerm(ABC):
 
 
 class BaselineMultiplicativeJones(JonesBaselineTerm):
-    """Stub: Per-baseline multiplicative closure error M_pq. TODO: implement properly.
+    """Per-baseline multiplicative closure error ``M_pq`` (planned; Tier 7H).
 
-    Closure errors from baseline-specific instrumental effects (e.g., correlator
-    non-linearity, baseline-dependent gain variation).
+    The canonical baseline-Hadamard error: a per-baseline complex factor that
+    cannot be written as a product of two per-antenna gains, and therefore is
+    the one term in the package that genuinely breaks closure.  Invariant I11 is
+    the proof of the distinction -- an enabled ``G`` with arbitrary per-antenna
+    phases leaves the closure phase invariant, an enabled ``M`` changes it by
+    the predicted amount.
 
-    Parameters
-    ----------
-    **kwargs : dict
-        Additional parameters (ignored)
+    ``term_status`` is ``"planned"``: constructing it is allowed, evaluating it
+    raises.  It takes no parameters, for the same reason
+    :class:`~radiosim.core.jones.gain.GainJones` takes none.
     """
-
-    def __init__(self, **kwargs):
-        """Initialize baseline multiplicative error Jones term (stub)."""
-        pass
 
     @property
     def name(self) -> str:
@@ -133,44 +155,20 @@ class BaselineMultiplicativeJones(JonesBaselineTerm):
     def is_direction_dependent(self) -> bool:
         return False
 
-    def compute_baseline_term(
-        self,
-        antenna_p: int,
-        antenna_q: int,
-        source_idx: int | None,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute baseline multiplicative error (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)
-
 
 class SmearingFactorJones(JonesBaselineTerm):
-    """Stub: Time/bandwidth smearing decorrelation Q_spq. TODO: implement properly.
+    """Time and bandwidth smearing decorrelation ``Q_spq`` (planned; Tier 7H).
 
-    Time smearing from source motion during integration time, and bandwidth
-    smearing from frequency spread across a channel. Both reduce visibility
-    amplitude (decorrelation).
+    Time smearing from source motion during an integration and bandwidth
+    smearing from the frequency spread across a channel both reduce the
+    visibility amplitude and neither changes its phase, so ``Q`` is bounded by
+    ``0 < Q <= 1``, is exactly ``1`` at the phase centre, and is
+    direction-dependent (invariant I12).
 
-    Parameters
-    ----------
-    time_smearing : bool, optional
-        Include time smearing correction (ignored in stub)
-    bandwidth_smearing : bool, optional
-        Include bandwidth smearing correction (ignored in stub)
-    **kwargs : dict
-        Additional parameters (ignored)
+    ``term_status`` is ``"planned"``: constructing it is allowed, evaluating it
+    raises.  It takes no parameters, for the same reason
+    :class:`~radiosim.core.jones.gain.GainJones` takes none.
     """
-
-    def __init__(
-        self, time_smearing: bool = True, bandwidth_smearing: bool = True, **kwargs
-    ):
-        """Initialize smearing factor Jones term (stub)."""
-        self.time_smearing = time_smearing
-        self.bandwidth_smearing = bandwidth_smearing
 
     @property
     def name(self) -> str:
@@ -179,17 +177,3 @@ class SmearingFactorJones(JonesBaselineTerm):
     @property
     def is_direction_dependent(self) -> bool:
         return True
-
-    def compute_baseline_term(
-        self,
-        antenna_p: int,
-        antenna_q: int,
-        source_idx: int | None,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute smearing decorrelation (stub returns identity)."""
-        xp = backend.xp
-        return xp.eye(2, dtype=np.complex128)

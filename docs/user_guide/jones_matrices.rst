@@ -1,12 +1,15 @@
 Jones Matrix Framework
 ======================
 
-RadioSim exposes a broad Jones-term framework, but public class availability is
-not the same as implemented high-level science. The current high-level
-``Simulator`` uses geometric phase (K), the canonical scalar E-Jones primary
-beam, the receptor configuration (C), and the output basis transform (H) as
-substantive forward-model effects. Many other exported terms remain identity
-scaffolds or later-tier work.
+RadioSim exposes a Jones-term framework in which public class availability is
+not the same as implemented high-level science, and every term says which it
+is. The current high-level ``Simulator`` uses geometric phase (K), the
+canonical scalar E-Jones primary beam, the receptor configuration (C), and the
+output basis transform (H) as substantive forward-model effects; those four are
+``term_status: implemented``. The remaining exported terms are
+``term_status: planned``: each has a documented physical effect and a position
+in the chain below, and each **raises** when evaluated. None of them multiplies
+by the identity, so a term cannot silently do nothing.
 
 RIME context
 ------------
@@ -140,22 +143,23 @@ Modelling assumption
 Converting a circular-native antenna into a linear output basis, or the reverse,
 is exact **only** when both feeds are ideal, orthogonal, and share a common
 complex gain. That holds today because the polarization-leakage term ``D`` and
-the gain term ``G`` are disabled identity stubs. When Tier 7 implements ``D``,
-the conversion becomes approximate and this statement must be re-examined.
+the gain term ``G`` are planned rather than implemented, so no run can carry
+either. When Tier 7 implements ``D``, the conversion becomes approximate and
+this statement must be re-examined.
 Elliptical and non-orthogonal feed pairs are rejected rather than approximated
 for the same reason.
 
 Parallactic-angle boundary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``ParallacticAngleJones`` (``P``) is an identity stub, and only
+``ParallacticAngleJones`` (``P``) is planned rather than implemented, and only
 ``mount_type: fixed`` is accepted, so ``feed_rotation_deg`` is a **static**
 rotation in the topocentric frame for the whole observation. ``C`` is therefore
-time-independent. Enabling ``P`` while a non-zero ``feed_rotation_deg`` is
-present is rejected with an explicit error, because the composed result would
-silently omit the time-dependent part of the rotation. When Tier 7 implements
+time-independent, and no run can carry a time-dependent feed orientation: the
+mount-type rejection is what enforces that. When Tier 7 implements
 ``P``, the composition :math:`P_p(t)\,C_p` becomes the full time-dependent
-receptor orientation and that rejection is removed.
+receptor orientation, ``P`` moves sky-side of ``C`` in the factorization below,
+and the blanket mount-type rejection is replaced by one that names the fix.
 
 Chain order
 -----------
@@ -174,21 +178,29 @@ leakage and gains are defined in the receptor's own basis. ``JonesChain``
 composes ``terms[0] @ terms[1] @ ... @ terms[-1]``, so terms are added in that
 same left-to-right order and the leftmost factor is applied last.
 
-Scaffolded terms
-----------------
+Planned terms
+-------------
 
-Ionosphere, troposphere, parallactic rotation, gain, bandpass, polarization
-leakage, and other exported terms are not advertised as complete high-level
-effects. Until Tier 7 and the later scientific tiers add conventions, analytic
-invariants, reference comparisons, backend parity, and a test proving a
-configured effect changes visibility, users should not include them in
-scientific claims.
+Ionosphere (``Z``), troposphere (``T``), parallactic rotation (``P``), gain
+(``G``), bandpass (``B``), polarization leakage (``D``), instrumental delay
+(``Kd``), cable reflection (``Rc``), cross-hand phase and delay (``X``), and the
+two baseline-Hadamard terms (``M``, ``Q``) are exported, documented, and
+**not implemented**. Each declares ``term_status: planned`` and raises when
+evaluated, so none of them can enter a result. Until each gains its conventions,
+analytic invariants, reference comparisons, backend parity, and a test proving a
+configured effect changes the visibilities, it supports no scientific claim.
+
+Every other Jones class that this package once exported has been removed rather
+than kept as a placeholder: turbulent and GPS ionospheres, w-phase and
+w-projection, element beams and array factors, fringe fitting, and the leakage,
+bandpass, gain and parallactic variants that were parameterizations of a term
+rather than terms of their own. See :doc:`../migration_guide` for the
+replacement for each name.
 
 Low-level framework use
 -----------------------
 
 The API reference exposes low-level classes for development and inspection.
-Read their individual docstrings and tests before use. A class returning an
-identity matrix is a scaffold, not a physical model. Beam ownership remains
+Read their individual docstrings and tests before use. Beam ownership remains
 with the high-level canonical system; numeric analytic primitives do not form
 a second configuration or runtime API.
