@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import cmath
 import math
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -25,6 +26,7 @@ from radiosim.core.jones_errors import (
     IdentityJonesTermError,
     InvalidJonesConfigError,
     JonesAssignmentError,
+    UnsupportedMountTypeError,
 )
 from radiosim.core.jones_terms import (
     CANONICAL_CHAIN_ORDER,
@@ -63,9 +65,77 @@ FEED_KEYED_7E_TERMS: dict[str, dict[str, Any]] = {
 }
 
 
+def restamp_mount_types(
+    simulator: Simulator,
+    mount_types: str | None | Sequence[str | None],
+) -> None:
+    """Give the simulator's already-resolved instrument these mount types.
+
+    No instrument *source* RadioSim reads carries a mount type except a
+    pyuvdata dataset: a layout file has no column for one and the known-telescope
+    registry does not supply one, so every shipped fixture resolves to
+    ``mount_type: None``.  Tier 7F's whole subject -- a field rotation, and the
+    R12/R15 rejections that guard it -- is invisible on such an array, so the
+    tests restamp the resolved instrument in place rather than inventing a
+    dataset fixture and a fake pyuvdata loader for every case.
+
+    The restamp goes through the production baseline functions and recomputes
+    ``instrument_sha256`` from the canonical content, so what the rest of the
+    run sees is a genuine ``ResolvedInstrumentState`` and not a mock: a mount
+    type that failed any canonical invariant would fail here.
+    """
+    from dataclasses import replace
+
+    from radiosim.core.baseline_resolution import (
+        generate_resolved_baselines,
+        select_resolved_baselines,
+    )
+    from radiosim.core.instrument import _compute_instrument_sha256
+    from radiosim.core.instrument_adapters import ResolvedInstrumentState
+
+    state = simulator._instrument_state
+    assert state is not None, "restamp_mount_types runs after instrument resolution"
+    instrument = state.instrument
+    if isinstance(mount_types, str) or mount_types is None:
+        wanted: tuple[str | None, ...] = (mount_types,) * len(instrument.antennas)
+    else:
+        wanted = tuple(mount_types)
+
+    antennas = tuple(
+        replace(antenna, mount_type=mount)
+        for antenna, mount in zip(instrument.antennas, wanted, strict=True)
+    )
+    restamped = replace(
+        instrument,
+        antennas=antennas,
+        provenance=replace(
+            instrument.provenance,
+            instrument_sha256=_compute_instrument_sha256(
+                instrument.name,
+                instrument.location,
+                antennas,
+                telescope_name_source=instrument.provenance.telescope_name_source,
+                location_source=instrument.provenance.location_source,
+            ),
+        ),
+    )
+    all_baselines = generate_resolved_baselines(restamped)
+    simulator._instrument_state = ResolvedInstrumentState(
+        instrument=restamped,
+        all_baselines=all_baselines,
+        selection=select_resolved_baselines(
+            all_baselines,
+            instrument=restamped,
+            config=simulator._resolved.baseline_selection,
+        ),
+    )
+
+
 def simulator_for(
     tmp_path,
     jones: dict[str, Any] | None = None,
+    *,
+    mount_types: str | None | Sequence[str | None] = None,
     **section_overrides: Any,
 ) -> Simulator:
     """Return a Simulator resolved as far as its instrument and receptors.
@@ -73,19 +143,30 @@ def simulator_for(
     Stops short of the beam load deliberately: Section 26.1 requires every
     ``jones:`` rejection to be raised before the first side effect, and a helper
     that loaded a beam first would make that property untestable.
+
+    ``mount_types`` restamps the resolved instrument between instrument and
+    receptor resolution -- the only point at which a mount type can enter a run
+    built from a layout file (see :func:`restamp_mount_types`).
     """
     data = valid_config_mapping(tmp_path, **section_overrides)
     if jones is not None:
         data["jones"] = jones
     simulator = Simulator.from_mapping(data, base_dir=tmp_path)
     simulator._ensure_instrument_state()
+    if mount_types is not None:
+        restamp_mount_types(simulator, mount_types)
     simulator._ensure_receptor_set()
     return simulator
 
 
-def resolve_for(tmp_path, jones: dict[str, Any] | None) -> ResolvedJonesTerms:
+def resolve_for(
+    tmp_path,
+    jones: dict[str, Any] | None,
+    *,
+    mount_types: str | None | Sequence[str | None] = None,
+) -> ResolvedJonesTerms:
     """Resolve one ``jones:`` block against the standard fixture instrument."""
-    simulator = simulator_for(tmp_path, jones)
+    simulator = simulator_for(tmp_path, jones, mount_types=mount_types)
     return resolve_jones_terms(
         simulator._resolved.jones,
         simulator._instrument_state.instrument,
@@ -115,6 +196,8 @@ def three_antenna_layout(tmp_path) -> dict[str, Any]:
 def solver_components_with_jones(
     tmp_path,
     jones: dict[str, Any] | None,
+    *,
+    mount_types: str | None | Sequence[str | None] = None,
     **section_overrides: Any,
 ):
     """Return the pieces of one solver call: view, beams, receptors, terms, band.
@@ -133,7 +216,9 @@ def solver_components_with_jones(
     """
     from radiosim.core.instrument_adapters import SolverInstrumentView
 
-    simulator = simulator_for(tmp_path, jones, **section_overrides)
+    simulator = simulator_for(
+        tmp_path, jones, mount_types=mount_types, **section_overrides
+    )
     simulator._ensure_jones_terms()
     simulator._ensure_beam_system()
     return (
@@ -1004,3 +1089,224 @@ def test_every_term_letter_resolves_a_precision(tmp_path) -> None:
         assert complex_dtype is np.complex128
         assert real_dtype is np.float64
     assert resolved.dtypes.accumulation_complex is np.complex128
+
+
+# ---------------------------------------------------------------------------
+# Tier 7F: P, and the mount-type rejections R12 and R15
+# ---------------------------------------------------------------------------
+#
+# ``P``'s whole configuration is ``enabled``, so its resolution contract is not
+# about parameter precedence -- there is no parameter -- but about the pairing
+# between the term and the resolved instrument's mount types.  Section 24's
+# 7F correction states that pairing as a partition: a rotating mount requires
+# ``P``, a non-rotating array must not configure it, and an unmodelled mount is
+# rejected either way.
+
+NONTRIVIAL_PARALLACTIC: dict[str, Any] = {"enabled": True}
+
+
+def test_p_resolves_into_the_chain_sky_side_of_c(tmp_path) -> None:
+    """The corrected Section 12.2 order, read off a resolved inventory.
+
+    ``P`` is the one letter this tier *moved*: Tier 5 put it correlator-side of
+    ``C`` and Section 12.1 shows that is wrong for a circular receptor.  The
+    recorded ``chain_order`` is where a reader of a result finds out which
+    order was applied, so it is asserted here rather than only in the chain.
+    """
+    resolved = resolve_for(
+        tmp_path, {"P": NONTRIVIAL_PARALLACTIC}, mount_types="alt-az"
+    )
+
+    assert resolved.configured_letters == ("P",)
+    assert resolved.provenance.chain_order == ("H", "C", "E", "P")
+    assert CANONICAL_CHAIN_ORDER.index("P") > CANONICAL_CHAIN_ORDER.index("C")
+    assert CANONICAL_CHAIN_ORDER.index("P") > CANONICAL_CHAIN_ORDER.index("E")
+    assert CANONICAL_CHAIN_ORDER.index("P") < CANONICAL_CHAIN_ORDER.index("T")
+
+
+def test_the_resolved_mount_types_reach_the_provenance(tmp_path) -> None:
+    """Section 22: a record that explains a field rotation says what rotated."""
+    resolved = resolve_for(
+        tmp_path,
+        {"P": NONTRIVIAL_PARALLACTIC},
+        mount_types=("alt-az", "alt-az+nasmyth-l"),
+    )
+
+    assert dict(resolved.provenance.mount_types) == {0: "alt-az", 1: "alt-az+nasmyth-l"}
+    assert resolved.provenance.term_snapshots["P"] == {"enabled": True}
+
+
+@pytest.mark.parametrize(
+    "mount_types",
+    ["alt-az", "alt-az+nasmyth-l", "alt-az+nasmyth-r", ("alt-az", "fixed")],
+)
+def test_a_rotating_mount_without_p_is_rejected_with_the_r15_message(
+    tmp_path,
+    mount_types,
+) -> None:
+    """R15, verbatim, and it fires with no ``jones:`` section at all.
+
+    That is the load-bearing half: Tier 5's blanket rejection lived in
+    ``resolve_receptors`` and therefore ran on every document.  Moving the rule
+    to ``resolve_jones_terms`` must not turn it into a rule that only applies to
+    documents which happen to configure something.
+    """
+    with pytest.raises(UnsupportedMountTypeError) as caught:
+        resolve_for(tmp_path, None, mount_types=mount_types)
+
+    mount = mount_types if isinstance(mount_types, str) else mount_types[0]
+    assert str(caught.value) == (
+        f"antenna 0 has mount_type={mount}, whose feeds rotate with the sky; "
+        "enable 'jones.P' or the simulation would silently treat it as a fixed "
+        "mount."
+    )
+
+
+def test_r15_also_fires_for_a_document_that_configures_other_terms(
+    tmp_path,
+) -> None:
+    """The same rejection, reached through a populated ``jones:`` section."""
+    with pytest.raises(UnsupportedMountTypeError):
+        resolve_for(tmp_path, {"G": NONTRIVIAL_GAIN}, mount_types="alt-az")
+
+
+def test_p_disabled_is_not_p_enabled_for_the_mount_rule(tmp_path) -> None:
+    """``enabled: false`` does not satisfy R15; it is still an absent rotation."""
+    with pytest.raises(UnsupportedMountTypeError) as caught:
+        resolve_for(tmp_path, {"P": {"enabled": False}}, mount_types="alt-az")
+
+    assert "enable 'jones.P'" in str(caught.value)
+
+
+@pytest.mark.parametrize("mount_type", ["phased", "space", "bizarre"])
+def test_an_unmodelled_mount_is_rejected_with_the_r12_message(
+    tmp_path,
+    mount_type: str,
+) -> None:
+    """R12, verbatim.
+
+    Section 24's 7F correction detaches this trigger from ``jones.P``: gating it
+    on the term would mean a ``phased`` mount -- rejected outright by Tier 5 --
+    became a silent ``fixed`` in every run that did not configure ``P``.
+    """
+    for jones in (None, {"P": NONTRIVIAL_PARALLACTIC}):
+        with pytest.raises(UnsupportedMountTypeError) as caught:
+            resolve_for(tmp_path, jones, mount_types=mount_type)
+
+        assert str(caught.value) == (
+            f"antenna 0 has mount_type={mount_type}, which the parallactic-angle "
+            "term does not model; supported mounts are alt-az, equatorial, "
+            "fixed, alt-az+nasmyth-l, alt-az+nasmyth-r."
+        )
+
+
+@pytest.mark.parametrize("mount_types", [None, "fixed", "equatorial"])
+def test_a_non_rotating_array_needs_no_p_and_may_not_configure_one(
+    tmp_path,
+    mount_types,
+) -> None:
+    """The other half of the partition: R15 silent, R7 loud.
+
+    ``equatorial`` is the case that makes the correction necessary.  Under the
+    literal R15 an equatorial array would be told to enable ``jones.P``, and
+    Section 20.7 gives ``equatorial`` the mount factor ``eta = 0``, so the term
+    it was told to enable is exactly ``I2`` and R7 would reject it -- leaving
+    the array with no accepted configuration at all.
+    """
+    assert resolve_for(tmp_path, None, mount_types=mount_types).is_empty
+
+    with pytest.raises(IdentityJonesTermError) as caught:
+        resolve_for(tmp_path, {"P": NONTRIVIAL_PARALLACTIC}, mount_types=mount_types)
+
+    assert str(caught.value) == (
+        "jones.P is configured with parameters that make it exactly the "
+        "identity; a term that cannot change the visibilities must be removed "
+        "rather than configured."
+    )
+
+
+def test_p_enabled_false_is_rejected_as_an_identity(tmp_path) -> None:
+    """Section 21's "there is no ``enabled: false``", for the one term with a flag.
+
+    ``P`` is the only block that carries an ``enabled`` key, because the
+    parallactic angle has no other parameter.  Writing ``false`` there is a
+    disabled term, and a disabled term must be removed rather than configured --
+    which is exactly what R7 says, so R7 is what says it.
+    """
+    with pytest.raises(IdentityJonesTermError) as caught:
+        resolve_for(tmp_path, {"P": {"enabled": False}}, mount_types="fixed")
+
+    assert "jones.P is configured with parameters" in str(caught.value)
+
+
+def test_a_mixed_array_needs_p_when_any_antenna_rotates(tmp_path) -> None:
+    """One rotating antenna is enough to make the term non-identity."""
+    resolved = resolve_for(
+        tmp_path,
+        {"P": NONTRIVIAL_PARALLACTIC},
+        mount_types=("alt-az", "fixed"),
+    )
+
+    term = resolved.term("P")
+    assert term is not None
+    assert term.is_identity() is False
+    assert term.mount_types == ("alt-az", "fixed")
+
+
+def test_the_mount_rejections_precede_every_other_jones_failure(tmp_path) -> None:
+    """Section 26.1: stage 5 runs before stage 6, and before any side effect.
+
+    The document below is wrong twice -- an unmodelled mount and a ``G`` naming
+    an antenna that does not exist -- and R4 is a *stage 3* rejection, so the
+    ordering rule says the structural failure is reported first.
+    """
+    with pytest.raises(JonesAssignmentError):
+        resolve_for(
+            tmp_path,
+            {
+                "G": {
+                    "amplitude_error": 0.02,
+                    "per_antenna": [
+                        {"antenna": 4242, "feed": 0, "amplitude_error": 0.1}
+                    ],
+                }
+            },
+            mount_types="phased",
+        )
+
+    # ... and with the structural mistake fixed, the mount rejection is what
+    # remains, still ahead of the identity check at stage 6.
+    with pytest.raises(UnsupportedMountTypeError):
+        resolve_for(
+            tmp_path,
+            {"G": NONTRIVIAL_GAIN, "P": {"enabled": False}},
+            mount_types="phased",
+        )
+
+
+def test_a_mount_rejection_stops_setup_before_the_first_side_effect(
+    tmp_path,
+) -> None:
+    """R15 through the public entry point, with nothing loaded behind it."""
+    data = valid_config_mapping(tmp_path)
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+    simulator._ensure_instrument_state()
+    restamp_mount_types(simulator, "alt-az")
+
+    with pytest.raises(UnsupportedMountTypeError):
+        simulator.setup()
+
+    assert simulator._beam_system is None
+    assert simulator._sky_model is None
+
+
+def test_p_is_the_only_term_whose_snapshot_is_a_bare_flag(tmp_path) -> None:
+    """Section 21.3, on the resolved snapshot rather than on the schema."""
+    resolved = resolve_for(
+        tmp_path,
+        {"P": NONTRIVIAL_PARALLACTIC, "G": NONTRIVIAL_GAIN},
+        mount_types="alt-az",
+    )
+
+    assert set(resolved.provenance.term_snapshots["P"]) == {"enabled"}
+    assert resolved.configured_letters == ("G", "P")

@@ -31,6 +31,7 @@ from radiosim.io.jones_config import (
     JonesConfig,
     LeakageTermConfig,
     LinearDriftTimeModel,
+    ParallacticTermConfig,
     SinusoidalTimeModel,
     StaticTimeModel,
     as_complex,
@@ -167,17 +168,21 @@ def test_jones_models_are_strict_and_frozen() -> None:
 def test_an_unimplemented_term_letter_is_rejected(tmp_path) -> None:
     """R3: a term no slice has implemented yet is not silently accepted.
 
-    ``P`` is a real Jones term with a real Section 20.7 definition, and it is
+    ``Z`` is a real Jones term with a real Section 20.8 definition, and it is
     still rejected here, because RadioSim cannot yet honour it.  A schema field
     for a term whose evaluation raises would be a configuration surface that
     accepts a value and discards it -- defect D2, one level up.
 
-    FLIPPED BY: Tier 7E.  ``D`` was the probe until this slice implemented it;
-    the probe moved to ``P`` rather than being deleted, because the property
-    being pinned is "the schema surface never runs ahead of the physics", and
-    that property needs a witness for as long as any term is still planned.
+    FLIPPED BY: Tier 7E.  ``D`` was the probe until this slice implemented it.
+
+    FLIPPED BY: Tier 7F, which implemented ``P``; the probe moved to ``Z``
+    rather than being deleted, because the property being pinned is "the schema
+    surface never runs ahead of the physics", and that property needs a witness
+    for as long as any term is still planned.
     """
-    data = _document(tmp_path, "jones:\n  P:\n    enabled: true\n")
+    data = _document(
+        tmp_path, "jones:\n  Z:\n    tec:\n      vertical_tec_tecu: 10.0\n"
+    )
 
     with pytest.raises(ValidationError) as caught:
         RadioSimConfig.model_validate(data)
@@ -197,7 +202,16 @@ def test_the_known_field_table_covers_the_new_section(tmp_path) -> None:
     """The unknown-field reporter must know the section it is reporting on."""
     from radiosim.io.config import _KNOWN_FIELDS_BY_PARENT
 
-    assert set(_KNOWN_FIELDS_BY_PARENT["jones"]) == {"G", "B", "Rc", "Kd", "X", "D"}
+    assert set(_KNOWN_FIELDS_BY_PARENT["jones"]) == {
+        "G",
+        "B",
+        "Rc",
+        "Kd",
+        "X",
+        "D",
+        "P",
+    }
+    assert set(_KNOWN_FIELDS_BY_PARENT["jones.P"]) == {"enabled"}
     for letter, model in (
         ("G", GainTermConfig),
         ("B", BandpassTermConfig),
@@ -492,3 +506,81 @@ def test_per_antenna_is_an_immutable_tuple() -> None:
     assert type(config.per_antenna) is tuple
     with pytest.raises(ValidationError):
         config.per_antenna = ()  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Tier 7F: the P block
+# ---------------------------------------------------------------------------
+
+_PARALLACTIC = """
+jones:
+  P:
+    enabled: true
+"""
+
+
+def test_the_parallactic_block_is_a_bare_enabled_flag(tmp_path) -> None:
+    """Section 21.3: ``P`` has no free parameter, so it declares none.
+
+    The parallactic angle is fully determined by the instrument, the time grid
+    and the directions.  Inventing a parameter to make ``P`` look like the other
+    terms would be dishonest, and the plan says so; the schema is where that
+    shows.
+    """
+    config = RadioSimConfig.model_validate(_document(tmp_path, _PARALLACTIC))
+
+    assert config.jones is not None
+    assert config.jones.P == ParallacticTermConfig(enabled=True)
+    assert config.jones.configured_terms == ("P",)
+    assert set(ParallacticTermConfig.model_fields) == {"enabled"}
+
+
+def test_the_parallactic_block_requires_the_flag_and_forbids_anything_else(
+    tmp_path,
+) -> None:
+    """Strictness, both ways: no default, and no extra key.
+
+    ``enabled`` has no default because ``jones.P: {}`` would be a block that
+    says nothing while looking like a decision.  ``minimum_elevation_deg`` is
+    rejected because the accepted YAML's own comment said the directions it
+    named were already masked -- a field documented as having no effect is the
+    surface this tier exists to remove (Section 21.3, 7F correction).
+    """
+    with pytest.raises(ValidationError):
+        RadioSimConfig.model_validate(_document(tmp_path, "jones:\n  P: {}\n"))
+
+    with pytest.raises(ValidationError):
+        RadioSimConfig.model_validate(
+            _document(
+                tmp_path,
+                "jones:\n  P:\n    enabled: true\n    minimum_elevation_deg: 5.0\n",
+            )
+        )
+
+
+def test_the_parallactic_block_is_frozen_and_strict() -> None:
+    """The same ``StrictFrozenModel`` contract every other term block has."""
+    assert ParallacticTermConfig.model_config["extra"] == "forbid"
+    assert ParallacticTermConfig.model_config["frozen"] is True
+
+    config = ParallacticTermConfig(enabled=True)
+    with pytest.raises(ValidationError):
+        config.enabled = False  # type: ignore[misc]
+
+
+def test_enabled_false_parses_and_is_rejected_at_resolution(tmp_path) -> None:
+    """The schema accepts the word; the resolver rejects the meaning.
+
+    Section 21's "there is no ``enabled: false``" is a rule about runs, not
+    about parsing, and R7 is the rejection that states it -- with a message that
+    tells the user to remove the block.  Putting the refusal here instead would
+    replace that sentence with a type error.
+    """
+    config = RadioSimConfig.model_validate(
+        _document(tmp_path, "jones:\n  P:\n    enabled: false\n")
+    )
+
+    assert config.jones is not None
+    assert config.jones.P is not None
+    assert config.jones.P.enabled is False
+    assert config.jones.configured_terms == ("P",)

@@ -1,9 +1,9 @@
-"""Tier 5D: the canonical Jones chain composition order.
+"""Tier 5D and Tier 7F: the canonical Jones chain composition order.
 
-``Tier5ReceptorFeedPlan.md`` Section 19.1 fixes the factorization, leftmost
+``Tier7JonesSciencePlan.md`` Section 12.2 fixes the factorization, leftmost
 nearest the correlator::
 
-    J_p = H_p G_p B_p D_p P_p C_p E_p T_p Z_p        (K applied separately)
+    J_p = H_p G_p B_p Rc_p Kd_p X_p D_p C_p E_p P_p T_p Z_p   (K separate)
 
 :class:`~radiosim.core.jones.chain.JonesChain` composes
 ``terms[0] @ terms[1] @ ... @ terms[-1]``, so that factorization is exactly the
@@ -11,6 +11,17 @@ order in which the solver must *add* the terms.  ``C`` and ``H`` are the first
 non-commuting factors RadioSim composes, which is why the order is proven here
 with deliberately non-commuting synthetic terms (invariant S13) rather than
 inferred from a run whose factors all commute.
+
+CORRECTED BY: Tier 7F.  ``Tier5ReceptorFeedPlan.md`` Section 19.1 placed ``P``
+*correlator-side* of ``C``, and said -- correctly for its own scope -- that the
+placement was unobservable while every optional term was an identity.  Section
+12.1 shows it is wrong for a circular receptor: the physical composite is
+``M(circular) R(chi + psi) = C R(psi)``, so ``R(psi)`` must sit sky-side of
+``C``.  Under the Tier 5 order the composite applies a real 2x2 rotation to the
+``(R, L)`` pair, when the correct effect is a pair of opposite phases.  The two
+agree only for a linear receptor, where ``M = I2`` and rotations commute --
+which is exactly the case Tier 5 tested.  Invariant **I6** below is the test
+that separates them.
 """
 
 from __future__ import annotations
@@ -52,7 +63,20 @@ PLAN_S = (1.0 / np.sqrt(2.0)) * np.array(
 FIRST = np.array([[1.0, 2.0], [0.0, 1.0]], dtype=np.complex128)
 SECOND = np.array([[1.0, 0.0], [3.0j, 1.0]], dtype=np.complex128)
 
-CANONICAL_ORDER = ("H", "G", "B", "D", "P", "C", "E", "T", "Z")
+CANONICAL_ORDER = (
+    "H",
+    "G",
+    "B",
+    "Rc",
+    "Kd",
+    "X",
+    "D",
+    "C",
+    "E",
+    "P",
+    "T",
+    "Z",
+)
 
 
 class _ConstantJones(JonesTerm):
@@ -215,7 +239,7 @@ def test_chain_composes_the_full_twelve_term_canonical_order() -> None:
     changes the product -- the test is about the order and not about the term
     inventory.
     """
-    designed_order = ("H", "G", "B", "Rc", "Kd", "X", "D", "P", "C", "E", "T", "Z")
+    designed_order = ("H", "G", "B", "Rc", "Kd", "X", "D", "C", "E", "P", "T", "Z")
     matrices = [
         np.array(
             [
@@ -274,10 +298,12 @@ def test_chain_rejects_a_baseline_dependent_term() -> None:
 def test_chain_docstring_states_the_canonical_section_19_1_order() -> None:
     """The documented order is the order the solver composes."""
     docstring = JonesChain.__doc__ or ""
-    assert "J_total = H @ G @ B @ D @ P @ C @ E @ T @ Z" in docstring
+    assert "J_total = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z" in docstring
     assert "terms[0] @ terms[1] @ ... @ terms[-1]" in docstring
-    # The stale baseline factorization must not survive anywhere.
+    # Neither the pre-Tier-5 factorization nor the superseded Tier 5 one may
+    # survive as a statement of what the chain *is*.
     assert "B @ G @ D @ P @ E @ T @ Z @ K" not in docstring
+    assert "J_total = H @ G @ B @ D @ P @ C @ E @ T @ Z" not in docstring
 
 
 # ---------------------------------------------------------------------------
@@ -414,13 +440,17 @@ def test_a_rotated_receptor_is_carried_by_the_chain_without_a_rejection(
 ) -> None:
     """Section 12.3's rejection had exactly one trigger, and 7C removed it.
 
-    FLIPPED BY: Tier 7C.  ``_reject_parallactic_rotation`` fires only when a
-    ``jones_config`` enables ``P``; with the dictionary gone the combination it
-    guards cannot be expressed through any entry point, so a rotated receptor is
-    simply carried, as it always was without ``P``.  The guard itself, and the
-    Tier 5 blanket mount-type rejection beside it, are Tier 7F's to replace with
-    rejection R15 once ``P`` is real.  Its message is still pinned by
-    ``tests/characterization/test_tier7_current_behavior.py``.
+    FLIPPED BY: Tier 7C.  ``_reject_parallactic_rotation`` fired only when a
+    ``jones_config`` enabled ``P``; with the dictionary gone the combination it
+    guarded could not be expressed through any entry point.
+
+    FLIPPED BY: Tier 7F, which deleted the guard outright.  ``P`` is real and
+    sits sky-side of ``C``, so ``C_p P_p = M(basis) R(chi + psi)`` is the full,
+    correct, time-dependent receptor orientation rather than a static rotation
+    silently composed with a stub -- which is exactly what
+    ``Tier5ReceptorFeedPlan.md`` Section 12.3 said would happen "when Tier 7
+    implements ``P``".  The blanket mount-type rejection beside it is now
+    rejection R15, which names the fix rather than the tier.
     """
     chain = _chain(tmp_path, {"default": {"feed_rotation_deg": 15.0}})
     assert tuple(term.name for term in chain.terms) == ("H", "C", "E")
@@ -433,3 +463,226 @@ def test_resolved_receptors_are_required_by_the_chain_builder() -> None:
     parameters = inspect.signature(_build_jones_chain).parameters
     assert "receptors" in parameters
     assert parameters["receptors"].default is inspect.Parameter.empty
+
+
+# ---------------------------------------------------------------------------
+# I6: the corrected placement of P, at the solver's own chain builder
+# ---------------------------------------------------------------------------
+
+
+def _chain_with_parallactic(
+    tmp_path: Path,
+    receptors: dict[str, object] | None,
+    *,
+    n_sources: int = 2,
+    mount_types: Any = "alt-az",
+):
+    """Return the solver's chain with a resolved ``P`` spliced into it."""
+    from tests.unit.test_core.test_jones_resolution import solver_components_with_jones
+
+    instrument, beam_system, receptor_set, jones_terms, _frequencies = (
+        solver_components_with_jones(
+            tmp_path,
+            {"P": {"enabled": True}},
+            mount_types=mount_types,
+            receptors=receptors,
+            frequency={
+                "mode": "explicit",
+                "channel_frequencies_hz": FREQUENCIES_HZ.tolist(),
+                "channel_widths_hz": [1e6],
+            },
+        )
+    )
+    chain = _build_jones_chain(
+        get_backend("numpy"),
+        instrument,
+        np.full(n_sources, 1.0, dtype=np.float64),
+        np.full(n_sources, 0.5, dtype=np.float64),
+        FREQUENCIES_HZ[0],
+        0,
+        n_sources,
+        LOCATION,
+        TIME_MJD,
+        beam_system,
+        receptor_set,
+        jones_terms=jones_terms,
+    )
+    return chain, instrument, beam_system, receptor_set
+
+
+def test_the_solver_places_p_sky_side_of_c_and_e(tmp_path: Path) -> None:
+    """The chain the solver actually builds carries the corrected order."""
+    chain, _instrument, _beams, _receptors = _chain_with_parallactic(tmp_path, None)
+
+    names = [term.name for term in chain.terms]
+    assert names == ["H", "C", "E", "P"]
+    positions = [CANONICAL_ORDER.index(name) for name in names]
+    assert positions == sorted(positions)
+
+
+def test_the_composed_chain_is_the_receptor_at_the_combined_angle(
+    tmp_path: Path,
+) -> None:
+    """Invariant I6, through the solver, for a circular receptor.
+
+    ``H C E P`` with a static ``chi`` and a field rotation ``psi`` must equal
+    ``T(circular -> linear) M(circular) R(chi + psi) E``.  Under the Tier 5
+    order the ``P`` factor would sit correlator-side of ``C`` and the product
+    would be ``T M(circular) R(psi) R(chi)``... which is the *same* matrix only
+    because ``M`` is a left factor there; the distinguishing statement is the
+    one below, where the reversed placement is built explicitly and differs.
+    """
+    from radiosim.core.jones.parallactic import parallactic_angle
+
+    chi_deg = 24.0
+    receptors = {
+        "default": {"basis": "circular", "feed_rotation_deg": chi_deg},
+        "output_basis": "linear",
+    }
+    n_sources = 2
+    altitude = np.full(n_sources, 1.0, dtype=np.float64)
+    azimuth = np.full(n_sources, 0.5, dtype=np.float64)
+
+    chain, instrument, beam_system, _receptor_set = _chain_with_parallactic(
+        tmp_path, receptors, n_sources=n_sources
+    )
+
+    directions = DirectionBatch.from_horizontal(
+        alt_rad=altitude,
+        az_rad=azimuth,
+        dir_l=np.cos(altitude) * np.sin(azimuth),
+        dir_m=np.cos(altitude) * np.cos(azimuth),
+        dir_n=np.sin(altitude),
+        latitude_rad=float(LOCATION.lat.rad),
+        local_sidereal_time_rad=0.0,
+    )
+    composed = np.asarray(
+        chain.compute_antenna_jones_batch(
+            antenna_idx=0,
+            directions=directions,
+            frequency_hz=float(FREQUENCIES_HZ[0]),
+            freq_idx=0,
+            time_mjd=TIME_MJD,
+            time_idx=0,
+            dtype=np.complex128,
+        )
+    )
+
+    psi = parallactic_angle(
+        hour_angle_rad=directions.hour_angle_rad,
+        dec_rad=directions.dec_rad,
+        latitude_rad=float(LOCATION.lat.rad),
+    )
+    beam = np.asarray(
+        beam_system.evaluate_jones(
+            _antenna_id(instrument, 0),
+            altitude_rad=altitude,
+            azimuth_rad=azimuth,
+            frequency_hz=float(FREQUENCIES_HZ[0]),
+            time_mjd=TIME_MJD,
+        )
+    )
+    transform = PLAN_S.conj().T
+    chi = np.deg2rad(chi_deg)
+
+    combined = np.stack(
+        [
+            transform @ PLAN_S @ plan_rotation(chi + float(angle)) @ beam[index]
+            for index, angle in enumerate(psi)
+        ]
+    )
+    np.testing.assert_allclose(composed, combined, rtol=0.0, atol=1e-14)
+
+    # And the superseded order really is a different matrix: ``P`` between
+    # ``D`` and ``C`` would multiply the (R, L) pair by a real rotation.
+    reversed_placement = np.stack(
+        [
+            transform
+            @ plan_rotation(float(angle))
+            @ PLAN_S
+            @ plan_rotation(chi)
+            @ beam[index]
+            for index, angle in enumerate(psi)
+        ]
+    )
+    assert not np.allclose(combined, reversed_placement, atol=1e-6)
+
+
+def test_a_field_rotation_is_two_phases_on_a_circular_receptor(
+    tmp_path: Path,
+) -> None:
+    """The physical statement the correction exists for.
+
+    Reported in the receptor's own ``circular_rl`` basis, the composite
+    ``H C P (C)^-1`` is ``diag(e^{-i psi}, e^{+i psi})``: a field rotation
+    phases ``R`` and ``L`` oppositely and does not mix them.  A real 2x2
+    rotation of the ``(R, L)`` pair -- which is what the Tier 5 order produces
+    -- would have a non-zero off-diagonal, and the assertion below is exactly
+    that it does not.
+    """
+    from radiosim.core.jones.parallactic import parallactic_angle
+
+    receptors = {
+        "default": {"basis": "circular", "feed_rotation_deg": 0.0},
+        "output_basis": "circular",
+    }
+    n_sources = 2
+    altitude = np.full(n_sources, 1.0, dtype=np.float64)
+    azimuth = np.full(n_sources, 0.5, dtype=np.float64)
+
+    chain, _instrument, _beams, _receptor_set = _chain_with_parallactic(
+        tmp_path, receptors, n_sources=n_sources
+    )
+    directions = DirectionBatch.from_horizontal(
+        alt_rad=altitude,
+        az_rad=azimuth,
+        dir_l=np.cos(altitude) * np.sin(azimuth),
+        dir_m=np.cos(altitude) * np.cos(azimuth),
+        dir_n=np.sin(altitude),
+        latitude_rad=float(LOCATION.lat.rad),
+        local_sidereal_time_rad=0.0,
+    )
+    psi = parallactic_angle(
+        hour_angle_rad=directions.hour_angle_rad,
+        dec_rad=directions.dec_rad,
+        latitude_rad=float(LOCATION.lat.rad),
+    )
+
+    receptor_term = chain.get_term("C")
+    parallactic_term = chain.get_term("P")
+    assert receptor_term is not None and parallactic_term is not None
+
+    receptor_matrix = np.asarray(
+        receptor_term.compute_jones_batch(
+            antenna_idx=0,
+            directions=directions,
+            frequency_hz=float(FREQUENCIES_HZ[0]),
+            freq_idx=0,
+            time_mjd=TIME_MJD,
+            time_idx=0,
+            backend=get_backend("numpy"),
+            dtype=np.complex128,
+        )
+    )[0]
+    rotation = np.asarray(
+        parallactic_term.compute_jones_batch(
+            antenna_idx=0,
+            directions=directions,
+            frequency_hz=float(FREQUENCIES_HZ[0]),
+            freq_idx=0,
+            time_mjd=TIME_MJD,
+            time_idx=0,
+            backend=get_backend("numpy"),
+            dtype=np.complex128,
+        )
+    )
+
+    for index, angle in enumerate(psi):
+        composite = receptor_matrix @ rotation[index] @ np.linalg.inv(receptor_matrix)
+        expected = np.diag(
+            np.array(
+                [np.exp(-1j * float(angle)), np.exp(1j * float(angle))],
+                dtype=np.complex128,
+            )
+        )
+        np.testing.assert_allclose(composite, expected, rtol=0.0, atol=1e-14)
