@@ -1310,3 +1310,533 @@ def test_p_is_the_only_term_whose_snapshot_is_a_bare_flag(tmp_path) -> None:
 
     assert set(resolved.provenance.term_snapshots["P"]) == {"enabled"}
     assert resolved.configured_letters == ("G", "P")
+
+
+# ---------------------------------------------------------------------------
+# Tier 7G: T and Z, the range rejections R9 and R10, and the R13 elevation guard
+# ---------------------------------------------------------------------------
+#
+# The two propagation terms whose parameters come from *both* the document and
+# the instrument: ``T`` reads each antenna's height for the Saastamoinen delay
+# and the Niell height correction, and ``Z`` reads each antenna's ENU position
+# for the pierce point of its gradient screen.  Neither has a ``per_antenna``
+# block for those quantities, deliberately -- they belong to the instrument.
+
+NONTRIVIAL_TROPOSPHERE: dict[str, Any] = {
+    "zenith_delay": {
+        "kind": "saastamoinen",
+        "surface_pressure_hpa": 1013.25,
+        "zenith_wet_delay_m": 0.1,
+    },
+    "mapping_function": "niell",
+    "minimum_elevation_deg": 1.0,
+}
+
+NONTRIVIAL_IONOSPHERE: dict[str, Any] = {
+    "tec": {"kind": "constant", "vertical_tec_tecu": 12.0},
+    "minimum_elevation_deg": 1.0,
+}
+
+
+def test_the_two_propagation_terms_resolve_sky_side_of_everything(tmp_path) -> None:
+    """Section 12.2: ``Z`` is the outermost medium, then ``T``, then the array.
+
+    The signal crosses the ionosphere first and the troposphere second, so ``Z``
+    is the rightmost factor and ``T`` the next one in -- which is exactly the
+    order the canonical constant already carried, and this reads it back off a
+    resolved inventory rather than off the constant.
+    """
+    resolved = resolve_for(
+        tmp_path, {"T": NONTRIVIAL_TROPOSPHERE, "Z": NONTRIVIAL_IONOSPHERE}
+    )
+
+    assert resolved.configured_letters == ("T", "Z")
+    assert resolved.provenance.chain_order == ("H", "C", "E", "T", "Z")
+    assert CANONICAL_CHAIN_ORDER.index("Z") == len(CANONICAL_CHAIN_ORDER) - 1
+    assert CANONICAL_CHAIN_ORDER.index("T") == CANONICAL_CHAIN_ORDER.index("Z") - 1
+
+
+def test_all_nine_configurable_terms_resolve_in_canonical_order(tmp_path) -> None:
+    """Every per-antenna term in the chain, together, in one document.
+
+    Tier 7G is the slice at which "every configurable term" stops being a
+    growing subset: after it, only the two baseline-dependent terms are left,
+    and they are not chain terms at all.
+    """
+    resolved = resolve_for(
+        tmp_path,
+        {
+            "Z": NONTRIVIAL_IONOSPHERE,
+            "D": NONTRIVIAL_LEAKAGE,
+            "G": NONTRIVIAL_GAIN,
+            "T": NONTRIVIAL_TROPOSPHERE,
+            "Rc": NONTRIVIAL_REFLECTION,
+            "P": NONTRIVIAL_PARALLACTIC,
+            "B": NONTRIVIAL_BANDPASS,
+            "X": NONTRIVIAL_CROSSHAND,
+            "Kd": NONTRIVIAL_DELAY,
+        },
+        mount_types="alt-az",
+    )
+
+    assert resolved.configured_letters == (
+        "G",
+        "B",
+        "Rc",
+        "Kd",
+        "X",
+        "D",
+        "P",
+        "T",
+        "Z",
+    )
+    assert resolved.provenance.chain_order == (
+        "H",
+        "G",
+        "B",
+        "Rc",
+        "Kd",
+        "X",
+        "D",
+        "C",
+        "E",
+        "P",
+        "T",
+        "Z",
+    )
+    assert resolved.provenance.chain_order == CANONICAL_CHAIN_ORDER
+
+
+def test_the_saastamoinen_delay_is_resolved_per_antenna_from_the_instrument(
+    tmp_path,
+) -> None:
+    """Section 20.9: the pressure is configured; the latitude and heights are not.
+
+    The resolved zenith delay is checked against the closed form evaluated at the
+    fixture site, written out here, so a term that quietly used sea level or the
+    wrong latitude would be caught by a number rather than by a shape.
+    """
+    simulator = simulator_for(tmp_path, {"T": NONTRIVIAL_TROPOSPHERE})
+    instrument = simulator._instrument_state.instrument
+    resolved = resolve_jones_terms(
+        simulator._resolved.jones,
+        instrument,
+        frequencies_hz=simulator._resolved.frequency.channel_frequencies_hz,
+        time_grid=simulator._resolved.observation.time_grid,
+        precision=simulator._precision,
+    )
+
+    term = resolved.term("T")
+    assert term is not None
+    latitude_deg = instrument.location.latitude_deg
+    for row, antenna in enumerate(instrument.antennas):
+        height_m = instrument.location.height_m + antenna.position_enu_m[2]
+        expected = (
+            0.0022768
+            * 1013.25
+            / (
+                1.0
+                - 0.00266 * math.cos(2.0 * math.radians(latitude_deg))
+                - 0.00028 * (height_m / 1000.0)
+            )
+        )
+        assert float(term.zenith_hydrostatic_delay_m[row]) == pytest.approx(
+            expected, rel=1e-12
+        )
+        assert float(term.zenith_wet_delay_m[row]) == pytest.approx(0.1, rel=0.0)
+
+
+def test_an_explicit_zenith_delay_is_used_as_written(tmp_path) -> None:
+    """The other variant: no formula, the two numbers the document gave."""
+    resolved = resolve_for(
+        tmp_path,
+        {
+            "T": {
+                "zenith_delay": {
+                    "kind": "explicit",
+                    "zenith_hydrostatic_delay_m": 2.15,
+                    "zenith_wet_delay_m": 0.35,
+                },
+                "minimum_elevation_deg": 2.0,
+            }
+        },
+    )
+
+    term = resolved.term("T")
+    assert term is not None
+    assert list(term.zenith_hydrostatic_delay_m) == [2.15, 2.15]
+    assert list(term.zenith_wet_delay_m) == [0.35, 0.35]
+    assert term.mapping_function == "niell"
+    assert term.zenith_opacity is None
+
+
+def test_a_per_antenna_rotation_measure_beats_the_array_wide_default(
+    tmp_path,
+) -> None:
+    """Section 22 rule 5, for the one per-antenna value ``Z`` accepts."""
+    resolved = resolve_for(
+        tmp_path,
+        {
+            "Z": {
+                "tec": {"kind": "constant", "vertical_tec_tecu": 8.0},
+                "minimum_elevation_deg": 1.0,
+                "faraday": {
+                    "rotation_measure_rad_m2": 0.4,
+                    "per_antenna": [{"antenna": 1, "rotation_measure_rad_m2": -1.1}],
+                },
+            }
+        },
+    )
+
+    term = resolved.term("Z")
+    assert term is not None
+    assert list(term.rotation_measures_rad_m2) == [0.4, -1.1]
+    assert term.shell_height_m == pytest.approx(350_000.0, rel=0.0)
+
+
+def test_the_gradient_screen_reads_the_instruments_own_positions(tmp_path) -> None:
+    """A gradient is only a differential if it is evaluated at each antenna."""
+    resolved = resolve_for(
+        tmp_path,
+        {
+            "Z": {
+                "tec": {
+                    "kind": "gradient",
+                    "vertical_tec_tecu": 10.0,
+                    "gradient_east_tecu_per_km": 0.2,
+                },
+                "minimum_elevation_deg": 1.0,
+            }
+        },
+    )
+
+    term = resolved.term("Z")
+    assert term is not None
+    assert term.tec_model.is_uniform is False
+    assert term.tec_model.gradient_east_tecu_per_km == 0.2
+    assert term.tec_model.gradient_north_tecu_per_km == 0.0
+
+
+def test_an_unknown_antenna_number_is_rejected_for_the_ionosphere(tmp_path) -> None:
+    """R4, verbatim, through ``Z``'s antenna-keyed Faraday overrides."""
+    with pytest.raises(JonesAssignmentError) as caught:
+        resolve_for(
+            tmp_path,
+            {
+                "Z": {
+                    "tec": {"kind": "constant", "vertical_tec_tecu": 8.0},
+                    "minimum_elevation_deg": 1.0,
+                    "faraday": {
+                        "per_antenna": [{"antenna": 91, "rotation_measure_rad_m2": 0.5}]
+                    },
+                }
+            },
+        )
+
+    assert str(caught.value) == (
+        "jones.Z.per_antenna references antenna number 91, which is not in the "
+        "resolved instrument; known numbers are 0, 1."
+    )
+
+
+def test_a_duplicate_antenna_is_rejected_for_the_ionosphere(tmp_path) -> None:
+    """R5 in its antenna-only form: a rotation measure carries no feed index."""
+    with pytest.raises(InvalidJonesConfigError) as caught:
+        resolve_for(
+            tmp_path,
+            {
+                "Z": {
+                    "tec": {"kind": "constant", "vertical_tec_tecu": 8.0},
+                    "minimum_elevation_deg": 1.0,
+                    "faraday": {
+                        "per_antenna": [
+                            {"antenna": 0, "rotation_measure_rad_m2": 0.5},
+                            {"antenna": 0, "rotation_measure_rad_m2": 0.9},
+                        ]
+                    },
+                }
+            },
+        )
+
+    assert str(caught.value) == (
+        "jones.Z.per_antenna contains a duplicate entry for antenna 0; each "
+        "antenna may appear once."
+    )
+
+
+def test_a_negative_vertical_tec_gets_the_r9_message(tmp_path) -> None:
+    """R9, verbatim: there is no such thing as a negative electron column."""
+    with pytest.raises(InvalidJonesConfigError) as caught:
+        resolve_for(
+            tmp_path,
+            {
+                "Z": {
+                    "tec": {"kind": "constant", "vertical_tec_tecu": -3.0},
+                    "minimum_elevation_deg": 1.0,
+                }
+            },
+        )
+
+    assert str(caught.value) == (
+        "jones.Z.tec.vertical_tec_tecu=-3.0 must be non-negative."
+    )
+
+
+def test_a_negative_zenith_opacity_gets_the_r10_message(tmp_path) -> None:
+    """R10, verbatim: a negative opacity would amplify."""
+    with pytest.raises(InvalidJonesConfigError) as caught:
+        resolve_for(
+            tmp_path,
+            {
+                "T": {
+                    **NONTRIVIAL_TROPOSPHERE,
+                    "opacity": {"zenith_opacity": -0.02},
+                }
+            },
+        )
+
+    assert str(caught.value) == (
+        "jones.T.opacity.zenith_opacity=-0.02 must be non-negative; a negative "
+        "opacity would amplify."
+    )
+
+
+def test_a_zero_opacity_is_accepted_and_a_zero_screen_is_not(tmp_path) -> None:
+    """The boundary between R10 and R7: zero is legal, but it is not a term.
+
+    A zero opacity with a real delay is a transparent atmosphere -- accepted, and
+    the case in which ``T`` is unitary.  A zero opacity with *no* delay cannot
+    change a visibility, so it is R7 rather than R10.
+    """
+    resolved = resolve_for(
+        tmp_path,
+        {"T": {**NONTRIVIAL_TROPOSPHERE, "opacity": {"zenith_opacity": 0.0}}},
+    )
+    term = resolved.term("T")
+    assert term is not None
+    assert term.is_unitary() is True
+
+    with pytest.raises(IdentityJonesTermError) as caught:
+        resolve_for(
+            tmp_path,
+            {
+                "T": {
+                    "zenith_delay": {"kind": "explicit"},
+                    "minimum_elevation_deg": 1.0,
+                    "opacity": {"zenith_opacity": 0.0},
+                }
+            },
+        )
+    assert str(caught.value) == (
+        "jones.T is configured with parameters that make it exactly the "
+        "identity; a term that cannot change the visibilities must be removed "
+        "rather than configured."
+    )
+
+
+def test_an_empty_ionosphere_gets_the_r7_message(tmp_path) -> None:
+    """R7 for ``Z``: no electrons and no rotation is no term."""
+    with pytest.raises(IdentityJonesTermError) as caught:
+        resolve_for(
+            tmp_path,
+            {
+                "Z": {
+                    "tec": {"kind": "constant", "vertical_tec_tecu": 0.0},
+                    "minimum_elevation_deg": 1.0,
+                }
+            },
+        )
+
+    assert str(caught.value) == (
+        "jones.Z is configured with parameters that make it exactly the "
+        "identity; a term that cannot change the visibilities must be removed "
+        "rather than configured."
+    )
+
+
+def test_a_faraday_only_ionosphere_is_not_the_identity(tmp_path) -> None:
+    """The two halves are independent: either one alone is a real ``Z``."""
+    resolved = resolve_for(
+        tmp_path,
+        {
+            "Z": {
+                "tec": {"kind": "constant", "vertical_tec_tecu": 0.0},
+                "minimum_elevation_deg": 1.0,
+                "faraday": {"rotation_measure_rad_m2": 0.75},
+            }
+        },
+    )
+
+    term = resolved.term("Z")
+    assert term is not None
+    assert term.is_identity() is False
+    assert term.is_scalar() is False
+
+
+def test_the_range_rejections_precede_the_identity_check(tmp_path) -> None:
+    """Section 26.1: stage 4 before stage 6, for both new terms at once.
+
+    Each document below is wrong in two ways -- an out-of-range value *and* an
+    otherwise-identity term -- and the stage-4 message is the one raised.
+    """
+    with pytest.raises(InvalidJonesConfigError) as caught:
+        resolve_for(
+            tmp_path,
+            {
+                "Z": {
+                    "tec": {"kind": "constant", "vertical_tec_tecu": -1.0},
+                    "minimum_elevation_deg": 1.0,
+                }
+            },
+        )
+    assert "must be non-negative." in str(caught.value)
+    assert not isinstance(caught.value, IdentityJonesTermError)
+
+    with pytest.raises(InvalidJonesConfigError) as caught:
+        resolve_for(
+            tmp_path,
+            {
+                "T": {
+                    "zenith_delay": {"kind": "explicit"},
+                    "minimum_elevation_deg": 1.0,
+                    "opacity": {"zenith_opacity": -1.0},
+                }
+            },
+        )
+    assert "would amplify." in str(caught.value)
+    assert not isinstance(caught.value, IdentityJonesTermError)
+
+
+def test_the_structural_check_precedes_the_ionospheric_range_check(tmp_path) -> None:
+    """Stage 3 before stage 4, on one document that is wrong in both ways."""
+    with pytest.raises(JonesAssignmentError):
+        resolve_for(
+            tmp_path,
+            {
+                "Z": {
+                    "tec": {"kind": "constant", "vertical_tec_tecu": -5.0},
+                    "minimum_elevation_deg": 1.0,
+                    "faraday": {
+                        "per_antenna": [
+                            {"antenna": 404, "rotation_measure_rad_m2": 0.5}
+                        ]
+                    },
+                }
+            },
+        )
+
+
+def test_every_7g_rejection_precedes_the_first_side_effect(tmp_path) -> None:
+    """Section 26.1's closing rule, for the two terms this slice adds."""
+    for jones in (
+        {
+            "Z": {
+                "tec": {"kind": "constant", "vertical_tec_tecu": -1.0},
+                "minimum_elevation_deg": 1.0,
+            }
+        },
+        {
+            "T": {
+                "zenith_delay": {"kind": "explicit", "zenith_hydrostatic_delay_m": 2.3},
+                "minimum_elevation_deg": 1.0,
+                "opacity": {"zenith_opacity": -0.5},
+            }
+        },
+    ):
+        data = valid_config_mapping(tmp_path)
+        data["jones"] = jones
+        simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+
+        with pytest.raises(InvalidJonesConfigError):
+            simulator.setup()
+
+        assert simulator._beam_system is None
+        assert simulator._sky_model is None
+
+
+def test_r13_is_raised_at_evaluation_because_it_is_about_directions(
+    tmp_path,
+) -> None:
+    """Section 26.1's one stage that cannot run at resolution, and why.
+
+    R13's condition is "a direction survives the horizon mask below
+    ``minimum_elevation_deg``", and no direction exists until a solver resolves
+    one for a ``(time, frequency)`` step.  So resolution *accepts* a high
+    minimum elevation, and the term itself refuses the first batch that violates
+    it -- with R13's own message, naming the term.
+    """
+    from radiosim.backends import get_backend
+    from radiosim.core.jones.directions import DirectionBatch
+
+    resolved = resolve_for(
+        tmp_path,
+        {"T": {**NONTRIVIAL_TROPOSPHERE, "minimum_elevation_deg": 30.0}},
+    )
+    term = resolved.term("T")
+    assert term is not None
+    assert term.minimum_elevation_deg == 30.0
+
+    alt = np.radians(np.array([80.0, 10.0]))
+    az = np.array([0.0, 1.0])
+    directions = DirectionBatch.from_horizontal(
+        alt_rad=alt,
+        az_rad=az,
+        dir_l=np.cos(alt) * np.sin(az),
+        dir_m=np.cos(alt) * np.cos(az),
+        dir_n=np.sin(alt),
+        latitude_rad=-0.5362,
+        local_sidereal_time_rad=0.0,
+    )
+
+    with pytest.raises(InvalidJonesConfigError) as caught:
+        term.compute_jones_batch(
+            antenna_idx=0,
+            directions=directions,
+            frequency_hz=1.5e8,
+            freq_idx=0,
+            time_mjd=60_676.0,
+            time_idx=0,
+            backend=get_backend("numpy"),
+            dtype=np.complex128,
+        )
+
+    assert str(caught.value) == (
+        "jones.T.minimum_elevation_deg=30.0 excludes no direction, but the "
+        "mapping function diverges below 30.0 deg; raise the minimum elevation "
+        "or the horizon mask."
+    )
+
+
+def test_the_two_new_terms_are_snapshotted_into_the_fingerprint(tmp_path) -> None:
+    """Section 25.1: a Jones parameter that changes must change the digest."""
+    base = resolve_for(
+        tmp_path, {"T": NONTRIVIAL_TROPOSPHERE, "Z": NONTRIVIAL_IONOSPHERE}
+    )
+    changed_tec = resolve_for(
+        tmp_path,
+        {
+            "T": NONTRIVIAL_TROPOSPHERE,
+            "Z": {**NONTRIVIAL_IONOSPHERE, "shell_height_km": 300.0},
+        },
+    )
+    changed_mapping = resolve_for(
+        tmp_path,
+        {
+            "T": {**NONTRIVIAL_TROPOSPHERE, "mapping_function": "simple"},
+            "Z": NONTRIVIAL_IONOSPHERE,
+        },
+    )
+
+    assert set(base.provenance.term_snapshots) == {"T", "Z"}
+    assert base.provenance.term_snapshots["Z"]["shell_height_km"] == 350.0
+    assert base.provenance.term_snapshots["T"]["mapping_function"] == "niell"
+    assert (
+        len(
+            {
+                base.provenance.jones_sha256,
+                changed_tec.provenance.jones_sha256,
+                changed_mapping.provenance.jones_sha256,
+            }
+        )
+        == 3
+    )

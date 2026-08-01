@@ -22,18 +22,24 @@ from radiosim.io.jones_config import (
     BandpassTabulatedModel,
     BandpassTermConfig,
     CableReflectionTermConfig,
+    ConstantTecModel,
     CrosshandTermConfig,
     DelayTermConfig,
     ExplicitLeakageModel,
+    ExplicitZenithDelay,
     FrequencyPolynomialLeakageModel,
     GainTermConfig,
+    GradientTecModel,
+    IonosphereTermConfig,
     IXRLeakageModel,
     JonesConfig,
     LeakageTermConfig,
     LinearDriftTimeModel,
     ParallacticTermConfig,
+    SaastamoinenZenithDelay,
     SinusoidalTimeModel,
     StaticTimeModel,
+    TroposphereTermConfig,
     as_complex,
 )
 from tests.fixtures.configs import valid_config_mapping
@@ -168,7 +174,7 @@ def test_jones_models_are_strict_and_frozen() -> None:
 def test_an_unimplemented_term_letter_is_rejected(tmp_path) -> None:
     """R3: a term no slice has implemented yet is not silently accepted.
 
-    ``Z`` is a real Jones term with a real Section 20.8 definition, and it is
+    ``M`` is a real Jones term with a real Section 20.10 definition, and it is
     still rejected here, because RadioSim cannot yet honour it.  A schema field
     for a term whose evaluation raises would be a configuration surface that
     accepts a value and discards it -- defect D2, one level up.
@@ -179,10 +185,13 @@ def test_an_unimplemented_term_letter_is_rejected(tmp_path) -> None:
     rather than being deleted, because the property being pinned is "the schema
     surface never runs ahead of the physics", and that property needs a witness
     for as long as any term is still planned.
+
+    FLIPPED BY: Tier 7G, which implemented ``Z`` and ``T`` -- the last two
+    ``JonesTerm`` subclasses.  The witness moves to ``M``, one of the two
+    baseline-dependent terms Tier 7H owns, and after that slice there is no
+    witness left to move it to, because there will be no planned term at all.
     """
-    data = _document(
-        tmp_path, "jones:\n  Z:\n    tec:\n      vertical_tec_tecu: 10.0\n"
-    )
+    data = _document(tmp_path, "jones:\n  M:\n    per_baseline: []\n")
 
     with pytest.raises(ValidationError) as caught:
         RadioSimConfig.model_validate(data)
@@ -210,6 +219,8 @@ def test_the_known_field_table_covers_the_new_section(tmp_path) -> None:
         "X",
         "D",
         "P",
+        "T",
+        "Z",
     }
     assert set(_KNOWN_FIELDS_BY_PARENT["jones.P"]) == {"enabled"}
     for letter, model in (
@@ -219,6 +230,8 @@ def test_the_known_field_table_covers_the_new_section(tmp_path) -> None:
         ("Kd", DelayTermConfig),
         ("X", CrosshandTermConfig),
         ("D", LeakageTermConfig),
+        ("T", TroposphereTermConfig),
+        ("Z", IonosphereTermConfig),
     ):
         assert set(_KNOWN_FIELDS_BY_PARENT[f"jones.{letter}"]) == set(
             model.model_fields
@@ -391,8 +404,24 @@ def test_every_unit_bearing_field_carries_its_unit_in_its_name() -> None:
         "D",
         "P",
         "enabled",
+        # Tier 7G.  ``mapping_function`` names a model rather than carrying a
+        # value; ``tec``, ``faraday``, ``opacity`` and ``zenith_delay`` are
+        # sub-blocks; ``zenith_opacity`` is dimensionless by definition (it is
+        # an optical depth in nepers).
+        "mapping_function",
+        "tec",
+        "faraday",
+        "opacity",
+        "zenith_delay",
+        "zenith_opacity",
+        "T",
+        "Z",
     }
-    suffixes = ("_rad", "_deg", "_hz", "_s", "_m", "_km")
+    # ``_tecu`` (electron column), ``_m2`` (rotation measure, rad m^-2) and
+    # ``_hpa`` (surface pressure) join the table with Tier 7G's two terms.  The
+    # rule Section 21.3 states is that the unit is in the name, not that the
+    # list of units is closed.
+    suffixes = ("_rad", "_deg", "_hz", "_s", "_m", "_km", "_tecu", "_m2", "_hpa")
     for model in (
         JonesConfig,
         GainTermConfig,
@@ -410,6 +439,12 @@ def test_every_unit_bearing_field_carries_its_unit_in_its_name() -> None:
         IXRLeakageModel,
         FrequencyPolynomialLeakageModel,
         ParallacticTermConfig,
+        TroposphereTermConfig,
+        ExplicitZenithDelay,
+        SaastamoinenZenithDelay,
+        IonosphereTermConfig,
+        ConstantTecModel,
+        GradientTecModel,
     ):
         for name in model.model_fields:
             assert name in dimensionless or name.endswith(suffixes), (
@@ -587,3 +622,260 @@ def test_enabled_false_parses_and_is_rejected_at_resolution(tmp_path) -> None:
     assert config.jones.P is not None
     assert config.jones.P.enabled is False
     assert config.jones.configured_terms == ("P",)
+
+
+# ---------------------------------------------------------------------------
+# Tier 7G: the T and Z blocks
+# ---------------------------------------------------------------------------
+
+_TROPOSPHERE = """
+jones:
+  T:
+    zenith_delay:
+      kind: saastamoinen
+      surface_pressure_hpa: 1013.25
+      zenith_wet_delay_m: 0.05
+    mapping_function: niell
+    opacity:
+      zenith_opacity: 0.02
+    minimum_elevation_deg: 5.0
+"""
+
+_IONOSPHERE = """
+jones:
+  Z:
+    tec:
+      kind: constant
+      vertical_tec_tecu: 10.0
+    shell_height_km: 350.0
+    minimum_elevation_deg: 5.0
+    faraday:
+      rotation_measure_rad_m2: 0.5
+      per_antenna:
+        - antenna: 1
+          rotation_measure_rad_m2: 0.9
+"""
+
+
+def test_the_accepted_troposphere_block_parses(tmp_path) -> None:
+    """Section 21.2's ``T`` block, as written, with every field resolved."""
+    config = RadioSimConfig.model_validate(_document(tmp_path, _TROPOSPHERE))
+
+    assert config.jones is not None
+    block = config.jones.T
+    assert block is not None
+    assert block.zenith_delay.kind == "saastamoinen"
+    assert block.zenith_delay.surface_pressure_hpa == 1013.25
+    assert block.zenith_delay.zenith_wet_delay_m == 0.05
+    assert block.mapping_function == "niell"
+    assert block.opacity is not None
+    assert block.opacity.zenith_opacity == 0.02
+    assert block.minimum_elevation_deg == 5.0
+    assert config.jones.configured_terms == ("T",)
+
+
+def test_the_accepted_ionosphere_block_parses(tmp_path) -> None:
+    """Section 21.2's ``Z`` block, including the optional Faraday sub-block."""
+    config = RadioSimConfig.model_validate(_document(tmp_path, _IONOSPHERE))
+
+    assert config.jones is not None
+    block = config.jones.Z
+    assert block is not None
+    assert block.tec.kind == "constant"
+    assert block.tec.vertical_tec_tecu == 10.0
+    assert block.shell_height_km == 350.0
+    assert block.minimum_elevation_deg == 5.0
+    assert block.faraday is not None
+    assert block.faraday.rotation_measure_rad_m2 == 0.5
+    assert block.faraday.per_antenna[0].antenna == 1
+    assert block.faraday.per_antenna[0].rotation_measure_rad_m2 == 0.9
+    assert config.jones.configured_terms == ("Z",)
+
+
+def test_the_configured_letters_are_reported_in_canonical_chain_order(
+    tmp_path,
+) -> None:
+    """``T`` and ``Z`` are the last two letters, sky-side of everything else."""
+    document = (
+        "jones:\n"
+        + _IONOSPHERE.split("jones:\n", 1)[1]
+        + _TROPOSPHERE.split("jones:\n", 1)[1]
+    )
+    config = RadioSimConfig.model_validate(_document(tmp_path, document))
+
+    assert config.jones is not None
+    assert config.jones.configured_terms == ("T", "Z")
+
+
+@pytest.mark.parametrize(
+    ("block", "expected"),
+    [
+        (
+            {"kind": "explicit", "zenith_hydrostatic_delay_m": 2.3},
+            ExplicitZenithDelay,
+        ),
+        (
+            {"kind": "saastamoinen", "surface_pressure_hpa": 900.0},
+            SaastamoinenZenithDelay,
+        ),
+    ],
+)
+def test_each_zenith_delay_kind_selects_its_own_model(
+    block: dict[str, Any], expected: type
+) -> None:
+    """The union is discriminated by Pydantic, not by a hand-written branch."""
+    config = TroposphereTermConfig.model_validate(
+        {"zenith_delay": block, "minimum_elevation_deg": 5.0}
+    )
+    assert type(config.zenith_delay) is expected
+
+
+@pytest.mark.parametrize(
+    ("block", "expected"),
+    [
+        ({"kind": "constant", "vertical_tec_tecu": 5.0}, ConstantTecModel),
+        (
+            {
+                "kind": "gradient",
+                "vertical_tec_tecu": 5.0,
+                "gradient_north_tecu_per_km": 0.1,
+            },
+            GradientTecModel,
+        ),
+    ],
+)
+def test_each_tec_kind_selects_its_own_model(
+    block: dict[str, Any], expected: type
+) -> None:
+    config = IonosphereTermConfig.model_validate(
+        {"tec": block, "minimum_elevation_deg": 5.0}
+    )
+    assert type(config.tec) is expected
+
+
+def test_a_gradient_model_with_no_gradient_is_rejected() -> None:
+    """A ``gradient`` that is uniform is the constant model written the long way."""
+    with pytest.raises(ValidationError) as caught:
+        IonosphereTermConfig.model_validate(
+            {
+                "tec": {"kind": "gradient", "vertical_tec_tecu": 5.0},
+                "minimum_elevation_deg": 5.0,
+            }
+        )
+
+    assert "kind: constant" in str(caught.value)
+
+
+def test_an_unknown_tec_or_delay_kind_is_rejected_by_the_discriminator() -> None:
+    with pytest.raises(ValidationError):
+        IonosphereTermConfig.model_validate(
+            {
+                "tec": {"kind": "ionex", "vertical_tec_tecu": 5.0},
+                "minimum_elevation_deg": 5.0,
+            }
+        )
+    with pytest.raises(ValidationError):
+        TroposphereTermConfig.model_validate(
+            {
+                "zenith_delay": {"kind": "vmf3", "zenith_wet_delay_m": 0.1},
+                "minimum_elevation_deg": 5.0,
+            }
+        )
+
+
+def test_an_unknown_mapping_function_is_rejected() -> None:
+    """Two mapping functions exist, so a third name is a mistake, not a plugin."""
+    with pytest.raises(ValidationError):
+        TroposphereTermConfig.model_validate(
+            {
+                "zenith_delay": {"kind": "explicit", "zenith_hydrostatic_delay_m": 2.3},
+                "mapping_function": "vienna",
+                "minimum_elevation_deg": 5.0,
+            }
+        )
+
+
+@pytest.mark.parametrize("model", [TroposphereTermConfig, IonosphereTermConfig])
+def test_the_minimum_elevation_is_required_and_bounded(model: type) -> None:
+    """Where a model stops being trusted is the user's decision, so it has no default.
+
+    A default would make RadioSim's elevation floor silently everybody's, and
+    the floor is exactly the parameter that decides whether a low-elevation
+    pixel is refused (R13) or evaluated.  The bounds are the ones the mapping
+    functions are defined on: ``[0, 90)``.
+    """
+    base: dict[str, Any] = (
+        {"zenith_delay": {"kind": "explicit", "zenith_hydrostatic_delay_m": 2.3}}
+        if model is TroposphereTermConfig
+        else {"tec": {"kind": "constant", "vertical_tec_tecu": 5.0}}
+    )
+
+    with pytest.raises(ValidationError):
+        model.model_validate(base)
+    with pytest.raises(ValidationError):
+        model.model_validate({**base, "minimum_elevation_deg": -1.0})
+    with pytest.raises(ValidationError):
+        model.model_validate({**base, "minimum_elevation_deg": 90.0})
+
+    accepted = model.model_validate({**base, "minimum_elevation_deg": 0.0})
+    assert accepted.minimum_elevation_deg == 0.0
+
+
+def test_a_negative_range_value_parses_and_is_rejected_at_resolution(
+    tmp_path,
+) -> None:
+    """R9 and R10 are physics, not types, so they belong to the resolver.
+
+    The schema accepts the number and the resolver refuses the meaning with a
+    message that names the physics -- the same division of labour ``Rc``'s
+    amplitude already has (R8).
+    """
+    config = RadioSimConfig.model_validate(
+        _document(
+            tmp_path,
+            "jones:\n  Z:\n    tec:\n      kind: constant\n"
+            "      vertical_tec_tecu: -1.0\n    minimum_elevation_deg: 5.0\n",
+        )
+    )
+    assert config.jones is not None
+    assert config.jones.Z is not None
+    assert config.jones.Z.tec.vertical_tec_tecu == -1.0
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        TroposphereTermConfig,
+        IonosphereTermConfig,
+        ExplicitZenithDelay,
+        SaastamoinenZenithDelay,
+        ConstantTecModel,
+        GradientTecModel,
+    ],
+)
+def test_the_new_blocks_are_frozen_and_strict(model: type) -> None:
+    """The same ``StrictFrozenModel`` contract every other term block has."""
+    assert model.model_config["extra"] == "forbid"
+    assert model.model_config["frozen"] is True
+
+
+def test_an_unknown_key_inside_the_new_blocks_is_rejected(tmp_path) -> None:
+    """Strictness one and two levels down, on both new sections."""
+    with pytest.raises(ValidationError):
+        RadioSimConfig.model_validate(
+            _document(
+                tmp_path,
+                "jones:\n  T:\n    zenith_delay:\n      kind: explicit\n"
+                "      zenith_hydrostatic_delay_m: 2.3\n"
+                "    minimum_elevation_deg: 5.0\n    wet_model: askap\n",
+            )
+        )
+    with pytest.raises(ValidationError):
+        RadioSimConfig.model_validate(
+            _document(
+                tmp_path,
+                "jones:\n  Z:\n    tec:\n      kind: constant\n"
+                "      vertical_tec_tecu: 5.0\n      ionex_path: /tmp/x.ionex\n"
+                "    minimum_elevation_deg: 5.0\n",
+            )
+        )
