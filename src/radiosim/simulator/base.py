@@ -207,15 +207,20 @@ class VisibilitySimulator(ABC):
             - C_s: 2×2 coherency matrix for source s (from Stokes params)
             - ^H: Hermitian conjugate
 
-        The canonical Jones chain is J = H @ G @ B @ D @ P @ C @ E @ T @ Z,
-        with K applied separately as a scalar phase:
+        The canonical Jones chain is
+        J = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z
+        (``Tier7JonesSciencePlan.md`` Section 12.2), leftmost nearest the
+        correlator, with K applied separately as a scalar phase:
             - H: Reporting-basis transform
             - G: Electronic gains
             - B: Bandpass
+            - Rc: Cable reflection ripple
+            - Kd: Instrumental delay
+            - X: Cross-hand phase and delay
             - D: Polarization leakage
-            - P: Parallactic angle
-            - C: Receptor configuration (basis and feed rotation)
+            - C: Receptor configuration (basis and static feed rotation)
             - E: Primary beam response
+            - P: Parallactic angle / field rotation
             - T: Troposphere
             - Z: Ionosphere (Faraday rotation)
             - K: Geometric phase (fringe rotation)

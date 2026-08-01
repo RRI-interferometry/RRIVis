@@ -1265,12 +1265,21 @@ def test_rime_simulator_docstring_states_the_canonical_chain_order() -> None:
     The 6A pin recorded the defect: the class docstring still advertised the
     pre-Tier-5 order ``J = B @ G @ D @ P @ E @ T @ Z @ K``, which omits ``C``
     and ``H`` entirely and reverses the composition sense.  The canonical order
-    is ``Tier5ReceptorFeedPlan.md`` Section 19.1's, and it is what
-    ``_build_jones_chain`` actually builds.
+    is what ``_build_jones_chain`` actually builds.
+
+    ANCHOR UPDATED BY: Tier 7F, which moved ``P`` sky-side of ``C``
+    (``Tier7JonesSciencePlan.md`` Section 12.2, defect D12) and added the three
+    Tier 7E diagonal terms to the written-out order.  The Tier 6H property --
+    that the class docstring states the order the solver builds rather than a
+    superseded one -- is what is re-asserted, against the current canonical
+    order and against both stale ones.
     """
     docstring = RIMESimulator.__doc__ or ""
     assert "J = B @ G @ D @ P @ E @ T @ Z @ K" not in docstring
-    assert "J = H @ G @ B @ D @ P @ C @ E @ T @ Z" in docstring
+    assert "J = H @ G @ B @ D @ P @ C @ E @ T @ Z" not in docstring
+    assert "J = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z" in " ".join(
+        docstring.split()
+    )
 
 
 def test_point_solver_accumulates_one_set_at_per_time_baseline_frequency(

@@ -382,8 +382,10 @@ def calculate_visibility(
 
     Implements: V_pq = Σ_sources J_p @ C_source @ J_q^H
 
-    Where J is the canonical Jones chain J = H @ G @ B @ D @ P @ C @ E @ T @ Z,
-    with K applied separately as a scalar phase.
+    Where J is the canonical Jones chain
+    J = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z
+    (``Tier7JonesSciencePlan.md`` Section 12.2), with K applied separately as a
+    scalar phase.
 
     Parameters
     ----------
@@ -873,19 +875,19 @@ def _build_jones_chain(
     receptor_terms: tuple[BasisTransformJones, ReceptorConfigJones] | None = None,
     jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS,
 ) -> JonesChain:
-    """Build a JonesChain in the canonical Section 19.1 order (K excluded).
+    """Build a JonesChain in the canonical Section 12.2 order (K excluded).
 
     Terms are added correlator-side first, because ``JonesChain`` composes
-    ``terms[0] @ ... @ terms[-1]``.  The Tier 5 factorization::
+    ``terms[0] @ ... @ terms[-1]``.  The canonical factorization
+    (``Tier7JonesSciencePlan.md`` Section 12.2)::
 
-        J = H @ G @ B @ D @ P @ C @ E @ T @ Z
+        J = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z
 
-    and the full designed order once every Tier 7 term is present
-    (``Tier7JonesSciencePlan.md`` Section 20.12), which is the same
-    factorization with the three additional diagonal calibration terms at their
-    designed positions::
-
-        J = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z
+    ``P`` sits sky-side of ``C`` and ``E``, which is Tier 7F's correction to the
+    Tier 5 Section 19.1 order (defect D12): a field rotation acts on the
+    incoming field in the linear topocentric frame, so ``C_p P_p`` is the
+    receptor at ``chi + psi`` rather than a rotation of the receptor's own
+    output pair.
 
     ``H``, ``C`` and ``E`` are the three terms the solver always owns: ``H`` and
     ``C`` because they come from the resolved receptor set rather than from
@@ -965,8 +967,9 @@ def _build_jones_chain(
     # H is leftmost because the reporting-basis change happens at the
     # correlator; C sits between the electronics-side direction-independent
     # terms and the sky-side direction-dependent ones, because leakage and gains
-    # are defined in the receptor's own basis; E is sky-side of C.  Configured
-    # terms take their canonical slots around those three.
+    # are defined in the receptor's own basis; E is sky-side of C, and P is
+    # sky-side of E.  Configured terms take their canonical slots around those
+    # three.
     solver_owned: dict[str, JonesTerm] = {
         "H": basis_transform_term,
         "C": receptor_config_term,

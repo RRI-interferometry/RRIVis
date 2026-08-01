@@ -514,21 +514,25 @@ def test_jones_chain_composes_the_first_added_term_leftmost() -> None:
 def test_point_solver_adds_chain_terms_in_the_canonical_order(
     tmp_path: Path,
 ) -> None:
-    """Pins the Section 19.1 solver term order H G B D P C E T Z.
+    """Pins the solver term order, correlator-side first.
 
     At the baseline the additions ran in the inverted order Z T E P D G B, so
     the bandpass reached the sky field first.  Combined with the composition
-    rule above, the corrected order yields J = H G B D P C E T Z with K applied
-    separately.
+    rule above, the corrected order yields a chain whose leftmost factor is the
+    one nearest the correlator, with K applied separately.
 
     FLIPPED BY: Tier 5D, in the same commit as the reordering.
 
     ANCHOR UPDATED BY: Tier 7C.  Six of those nine slots held identity stubs
     that Tier 7C deleted, and the ``jones_config`` dictionary that enabled them
-    went with them (``Tier7JonesSciencePlan.md`` Section 33.2).  The Tier 5
-    property this pins -- that the solver adds terms in the Section 19.1 order,
-    correlator-side first -- is unchanged and is re-asserted here against the
-    solver's own documented factorization plus the three terms that exist.
+    went with them (``Tier7JonesSciencePlan.md`` Section 33.2).
+
+    ANCHOR UPDATED BY: Tier 7F, which moved ``P`` sky-side of ``C`` (defect
+    D12) and rewrote the solver's documented factorization accordingly.  The
+    Tier 5 property this pins -- that the solver adds terms correlator-side
+    first, in one canonical order that does not depend on the document -- is
+    unchanged, and the three terms that exist keep their relative positions:
+    ``P`` never sat between them.
     """
     instrument, beam_system = _solver_components(tmp_path)
     receptors = resolve_receptors(ReceptorsConfig(), _resolve_instrument(tmp_path))
@@ -547,14 +551,14 @@ def test_point_solver_adds_chain_terms_in_the_canonical_order(
         receptors,
     )
 
-    canonical = ["H", "G", "B", "D", "P", "C", "E", "T", "Z"]
+    canonical = ["H", "G", "B", "Rc", "Kd", "X", "D", "C", "E", "P", "T", "Z"]
     names = [term.name for term in chain.terms]
     assert names == ["H", "C", "E"]
     positions = [canonical.index(name) for name in names]
     assert positions == sorted(positions)
-    assert "J = H @ G @ B @ D @ P @ C @ E @ T @ Z" in " ".join(
-        (_build_jones_chain.__doc__ or "").split()
-    )
+    documented = " ".join((_build_jones_chain.__doc__ or "").split())
+    assert "J = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z" in documented
+    assert "J = H @ G @ B @ D @ P @ C @ E @ T @ Z" not in documented
 
 
 def test_point_solver_chain_always_carries_the_receptor_terms(

@@ -930,22 +930,28 @@ def test_jones_chain_docstring_records_the_designed_chain_order() -> None:
 
     OWNED BY: Tier 7B (which replaces the extended line) and Tier 7F (which
     corrects the ``P``/``C`` order).  FLIPPED BY: Tier 7B for the extended line
-    only -- the canonical Tier 5 line, with ``P`` correlator-side of ``C``, is
+    only -- the canonical Tier 5 line, with ``P`` correlator-side of ``C``, was
     deliberately left alone, because moving ``P`` is a change to an accepted
     Tier 5 decision and belongs to the slice that makes ``P`` real.
+
+    FLIPPED BY: Tier 7F, which is that slice.  ``P`` now sits sky-side of ``C``,
+    the superseded Tier 5 line is gone from the docstring entirely, and the
+    class says *why* the placement is physical rather than only what it is.
+    D12 is closed here.
     """
     docstring = JonesChain.__doc__ or ""
-    # Unchanged: the Tier 5 canonical order, D12 included.
-    assert "J_total = H @ G @ B @ D @ P @ C @ E @ T @ Z" in docstring
-    canonical = docstring.split("J_total = H @ G @ B @ D @ P @ C @ E @ T @ Z")[1]
-    assert "K applied separately" in canonical.split("\n")[0]
+    # Corrected: the Tier 5 line no longer states what the chain is.
+    assert "J_total = H @ G @ B @ D @ P @ C @ E @ T @ Z" not in docstring
 
-    # Replaced: the undesigned extended line is gone, and the Section 20.12
-    # designed order is in its place.
+    # Replaced: the undesigned extended line is gone, and the Section 12.2
+    # canonical order is in its place, with P sky-side of C.
     assert "@ F @ T @ Z @ W" not in docstring
     assert "(K, Kd, Rc applied separately)" not in docstring
-    assert "J_total = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z" in docstring
+    assert "J_total = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z" in docstring
+    assert "J_total = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z" not in docstring
     assert "commute" in docstring
+    collapsed = " ".join(docstring.split())
+    assert "M(basis) R(chi + psi) = C R(psi)" in collapsed
 
     # The composition really is terms[0] @ ... @ terms[-1], reversed at
     # evaluation time, which is what makes the add order the chain order.
@@ -1072,13 +1078,14 @@ def test_build_jones_chain_carries_only_the_terms_that_exist(
 
     FLIPPED BY: Tier 7C.  Six of those nine slots held identity stubs and are
     now empty, so the chain is exactly H, C, E and the builder takes no
-    configuration.  The *order* the pin existed to record has not moved: the
-    solver source still documents the Section 19.1 factorization, ``C`` still
-    sits sky-side of the electronics DIEs, and Tier 7F's correction -- moving
-    ``P`` sky-side of ``C`` -- is still a visible flip, of the documented order
-    here and of ``tests/unit/test_jones/test_chain_order.py``.
+    configuration.
 
-    OWNED BY: Tier 7F.
+    FLIPPED BY: Tier 7F, which moved ``P`` sky-side of ``C`` in the solver's own
+    documented factorization and made the term real.  What the pin recorded --
+    that the documented order was the uncorrected one -- is discharged, and what
+    replaces it is the corrected order plus the assertion that the superseded
+    one is gone.  The chain with no ``jones:`` section is still exactly H, C, E:
+    the correction moves a slot no default run occupies.
     """
     from radiosim.core.visibility import _build_jones_chain
 
@@ -1099,9 +1106,10 @@ def test_build_jones_chain_carries_only_the_terms_that_exist(
     assert [term.name for term in chain.terms] == ["H", "C", "E"]
     assert "jones_config" not in inspect.signature(_build_jones_chain).parameters
 
-    # The uncorrected order is still the documented one, so 7F's move is visible.
+    # The corrected order is the documented one, and the superseded one is gone.
     documented = " ".join(_build_jones_chain.__doc__.split())
-    assert "J = H @ G @ B @ D @ P @ C @ E @ T @ Z" in documented
+    assert "J = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z" in documented
+    assert "J = H @ G @ B @ D @ P @ C @ E @ T @ Z" not in documented
 
 
 def test_production_supplies_no_jones_parameter_at_all(tmp_path) -> None:

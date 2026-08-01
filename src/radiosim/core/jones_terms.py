@@ -106,11 +106,18 @@ JONES_SCHEMA_VERSION = "1.0.0"
 
 #: The canonical chain order, correlator-side first (Section 12.2, 20.12)::
 #:
-#:     J = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z
+#:     J = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z
 #:
-#: The full designed order is written out here even though Tier 7D implements
-#: only two of the letters, so that the ordering lives in exactly one place and
-#: each later slice adds physics rather than re-deciding where its term goes.
+#: The full designed order is written out here even though not every letter is
+#: implemented yet, so that the ordering lives in exactly one place and each
+#: later slice adds physics rather than re-deciding where its term goes.
+#:
+#: ``P`` sits **sky-side** of ``C`` (Tier 7F, defect D12).  Tier 5 Section 19.1
+#: placed it correlator-side, which is wrong for a circular receptor: the
+#: physical composite is ``M(circular) R(chi + psi) = C R(psi)``, so the field
+#: rotation must be the right-hand factor.  The two orders agree only for a
+#: linear receptor, where ``M = I2`` and rotations commute -- which is why the
+#: error was unobservable while ``P`` did not exist.
 CANONICAL_CHAIN_ORDER: tuple[str, ...] = (
     "H",
     "G",
@@ -119,9 +126,9 @@ CANONICAL_CHAIN_ORDER: tuple[str, ...] = (
     "Kd",
     "X",
     "D",
-    "P",
     "C",
     "E",
+    "P",
     "T",
     "Z",
 )

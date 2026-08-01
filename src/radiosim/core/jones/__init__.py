@@ -16,16 +16,16 @@ where:
 The full Jones matrix for an antenna is the product of individual
 Jones terms representing different propagation effects:
 
-    J = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z   (K applied separately)
+    J = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z   (K applied separately)
 
 where (from sky to correlator):
 - K: Geometric phase (direction-dependent fringe).  Not a chain term: it is
      per-baseline, so the solvers apply ``geometric_phase()`` separately.
 - Z: Ionospheric effects (TEC phase, ionospheric Faraday rotation)
 - T: Tropospheric effects (delay, opacity)
+- P: Parallactic angle / field rotation (direction-dependent)
 - E: Primary beam (direction-dependent gain)
 - C: Receptor configuration (basis and static feed rotation)
-- P: Parallactic angle rotation
 - D: Polarization leakage (instrumental polarization)
 - X: Cross-hand phase and delay
 - Kd: Instrumental delay offset

@@ -25,32 +25,38 @@ class JonesChain:
     term added is the correlator-side factor applied last.
 
     The canonical factorization, leftmost nearest the correlator
-    (``Tier5ReceptorFeedPlan.md`` Section 19.1):
+    (``Tier7JonesSciencePlan.md`` Section 12.2):
 
-        J_total = H @ G @ B @ D @ P @ C @ E @ T @ Z   (K applied separately)
+        J_total = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z
 
-    so the canonical add order is H, G, B, D, P, C, E, T, Z.  ``H`` is leftmost
-    because the reporting-basis change happens at the correlator; ``C`` sits
-    between the sky-side direction-dependent terms (``E``, ``T``, ``Z``) and the
-    electronics-side direction-independent ones (``D``, ``G``, ``B``), because
-    leakage and gains are defined in the receptor's own basis.  ``K`` is applied
-    separately as a scalar phase because it needs baseline coordinates.
-
-    The full designed chain, once every term Tier 7 implements is present
-    (``Tier7JonesSciencePlan.md`` Section 20.12), is the same factorization with
-    the three additional diagonal calibration terms at their designed positions:
-
-        J_total = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z
+    with ``K`` applied separately, so the canonical add order is that same
+    left-to-right list.  ``H`` is leftmost because the reporting-basis change
+    happens at the correlator; ``C`` sits between the sky-side
+    direction-dependent terms (``E``, ``P``, ``T``, ``Z``) and the
+    electronics-side direction-independent ones (``D``, ``X``, ``Kd``, ``Rc``,
+    ``B``, ``G``), because leakage, delays and gains are defined in the
+    receptor's own basis.  ``K`` is applied separately as a scalar phase because
+    it needs baseline coordinates.
 
     ``Rc``, ``Kd`` and ``X`` sit among ``G`` and ``B`` because all five are
     diagonal in the same basis and therefore commute: their *mutual* order is
     fixed by the plan so that the chain has one shape, one provenance string and
     one test, and is explicitly a convention rather than a physical claim.  The
-    placements that *are* physical -- ``D`` correlator-side of ``C``, ``E``
-    between ``C`` and the atmosphere, ``T`` and ``Z`` sky-side of everything --
-    are unchanged.  ``K`` is applied separately by the solver because it is
-    per-baseline; ``M`` and ``Q`` are not chain terms at all (they multiply
-    finished visibilities elementwise).
+    placements that *are* physical: ``D`` correlator-side of ``C``, ``E``
+    between ``C`` and the atmosphere, ``P`` sky-side of both, and ``T`` and
+    ``Z`` sky-side of everything.  ``M`` and ``Q`` are not chain terms at all
+    (they multiply finished visibilities elementwise).
+
+    ``P``'s placement is the one Tier 7F corrected (defect D12).  Tier 5 Section
+    19.1 fixed ``J = H G B D P C E T Z``, with the field rotation
+    correlator-side of the receptor.  A field rotation acts on the incoming
+    field in the *linear* topocentric frame, and the receptor is
+    ``C = M(basis) R(chi)``, so the physical composite is
+    ``M(basis) R(chi + psi) = C R(psi)``: ``R(psi)`` belongs sky-side of ``C``.
+    Under the superseded order a circular receptor would see a real 2x2 rotation
+    of the ``(R, L)`` pair, when the correct effect -- ``S R(psi) S^H`` -- is a
+    pair of opposite phases.  The two agree exactly for a linear receptor, where
+    ``M = I2``, which is why the error was unobservable while ``P`` was a stub.
 
     Order matters: ``C`` and ``H`` are the first factors RadioSim composes that
     do not commute with their neighbours.

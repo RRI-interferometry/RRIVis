@@ -36,10 +36,13 @@ class JonesTerm(ABC):
          (``Tier7JonesSciencePlan.md`` Section 13.3, defect D6).
     - Z  (IonosphereJones)          : Ionospheric TEC phase + Faraday rotation (DDE)
     - T  (TroposphereJones)         : Tropospheric delay and opacity (DDE)
+    - P  (ParallacticAngleJones)    : Parallactic angle / field rotation (DDE).
+         Sky-side of ``C`` and ``E`` since Tier 7F: a field rotation acts on the
+         incoming field before the receptor sees it, so ``C P`` is the receptor
+         at ``chi + psi`` (``Tier7JonesSciencePlan.md`` Section 12.1)
     - E  (canonical beam adapter)   : Primary beam voltage pattern (DDE) -- the
          private solver-owned adapter over ``BeamSystem``, not an exported class
     - C  (ReceptorConfigJones)      : Receptor basis and static feed rotation (DIE, unitary)
-    - P  (ParallacticAngleJones)    : Parallactic angle / field rotation (DDE)
     - D  (PolarizationLeakageJones) : Polarization leakage D-terms (DIE)
     - B  (BandpassJones)            : Frequency-dependent bandpass (DIE, diagonal)
     - G  (GainJones)                : Complex electronic gains (DIE, diagonal)
