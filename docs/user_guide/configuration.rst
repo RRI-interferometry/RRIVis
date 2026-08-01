@@ -300,12 +300,14 @@ and omitting it produces exactly the visibilities — and exactly the
 ``scientific_sha256`` — that a document without the section produced before it
 existed.
 
-RadioSim implements seven configurable terms today: ``G`` (complex electronic
+RadioSim implements nine configurable terms today: ``G`` (complex electronic
 gain), ``B`` (bandpass), ``Rc`` (cable reflection), ``Kd`` (instrumental delay),
-``X`` (cross-hand phase and delay), ``D`` (polarization leakage) and ``P``
-(parallactic angle). The first five are diagonal; ``D`` and ``P`` are not. Only
-``Kd``, ``X`` and ``P`` are unitary, and ``P`` is the only one that is
-direction-dependent. A key for any other term letter — ``Z``, ``T``, ``M``,
+``X`` (cross-hand phase and delay), ``D`` (polarization leakage), ``P``
+(parallactic angle), ``T`` (troposphere) and ``Z`` (ionosphere) — every
+per-antenna term in the chain. The first five are diagonal, and so is ``T``;
+``D``, ``P`` and a ``Z`` with Faraday rotation are not. ``Kd``, ``X``, ``P``,
+``Z`` and a ``T`` with no opacity are unitary. ``P``, ``T`` and ``Z`` are
+direction-dependent. A key for either baseline-dependent term letter — ``M`` or
 ``Q`` — is rejected at parse time: a configuration surface for a term RadioSim
 cannot honour would accept a value and discard it.
 

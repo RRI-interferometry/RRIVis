@@ -5,18 +5,22 @@ RadioSim exposes a Jones-term framework in which public class availability is
 not the same as implemented high-level science, and every term says which it
 is. The current high-level ``Simulator`` always applies geometric phase (K), the
 canonical scalar E-Jones primary beam, the receptor configuration (C), and the
-output basis transform (H). Seven further terms — gain (G), bandpass (B), cable
+output basis transform (H). Nine further terms — gain (G), bandpass (B), cable
 reflection (Rc), instrumental delay (Kd), cross-hand phase and delay (X),
-polarization leakage (D), and parallactic angle (P) — carry real physics and are
-applied when the ``jones:`` section configures them; see :doc:`jones_terms` for
-each one's mathematics, units, citation, and configuration. All eleven are
-``term_status: implemented``.
+polarization leakage (D), parallactic angle (P), troposphere (T), and
+ionosphere (Z) — carry real physics and are applied when the ``jones:`` section
+configures them; see :doc:`jones_terms` for each one's mathematics, units,
+citation, and configuration. All thirteen are ``term_status: implemented``, and
+they are every per-antenna term in the chain.
 
-The remaining exported terms — ``Z``, ``T``, ``M`` and ``Q`` — are
+The two remaining exported terms — ``M`` and ``Q`` — are
 ``term_status: planned``: each has a documented physical effect and a position
-in the chain below, and each **raises** when evaluated. None of them multiplies
-by the identity, so a term cannot silently do nothing. Tier 7 of the remediation
-programme is what turns each of them into physics, one slice at a time.
+in the chain below, and each **raises** when evaluated. Neither is a
+``JonesTerm`` at all: both are ``JonesBaselineTerm``, applied by Hadamard
+product to finished visibilities rather than by matrix multiplication. None of
+them multiplies by the identity, so a term cannot silently do nothing. Tier 7 of
+the remediation programme is what turns each of them into physics, one slice at
+a time.
 
 RIME context
 ------------
@@ -262,12 +266,16 @@ What in that order is physical, and what is convention
 Planned terms
 -------------
 
-Ionosphere (``Z``), troposphere (``T``), and the two baseline-Hadamard terms
-(``M``, ``Q``) are exported, documented, and **not implemented**. Each declares
-``term_status: planned`` and raises when evaluated, so none of them can enter a
-result. Until each gains its conventions,
+The two baseline-Hadamard terms (``M``, ``Q``) are exported, documented, and
+**not implemented**. Each declares ``term_status: planned`` and raises when
+evaluated, so neither can enter a result. Until each gains its conventions,
 analytic invariants, reference comparisons, backend parity, and a test proving a
 configured effect changes the visibilities, it supports no scientific claim.
+
+No ``JonesTerm`` is planned any more: ionosphere (``Z``) and troposphere (``T``)
+were the last two, and ``JonesTerm.compute_jones_batch`` is now an
+``@abstractmethod`` rather than a concrete method that raises — a term that does
+not implement the evaluation contract can no longer be constructed at all.
 
 Every other Jones class that this package once exported has been removed rather
 than kept as a placeholder: turbulent and GPS ionospheres, w-phase and

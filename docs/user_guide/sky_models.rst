@@ -251,6 +251,12 @@ Include polarization (Stokes I, Q, U, V):
        precision=precision,
    )
 
+A source's ``rotation_measure`` is its **intrinsic**, source-frame Faraday
+rotation and is applied here, to the source's own ``(Q, U)``; the *ionospheric*
+rotation measure along the line of sight belongs to the ``jones.Z`` term
+(:doc:`jones_terms`), is configured separately, and composes with this one
+rather than duplicating it.
+
 HEALPix Sky Maps
 ----------------
 

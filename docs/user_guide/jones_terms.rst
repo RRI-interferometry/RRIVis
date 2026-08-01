@@ -69,12 +69,21 @@ What is implemented today
      - Parallactic angle / field rotation
      - ``jones.P``
      - implemented
+   * - ``T``
+     - Tropospheric delay and opacity
+     - ``jones.T``
+     - implemented
+   * - ``Z``
+     - Ionospheric phase and Faraday rotation
+     - ``jones.Z``
+     - implemented
 
-Four further terms — ``Z``, ``T``, ``M`` and ``Q`` — exist as named classes with
-documented physics and **no implementation**: constructing one is allowed,
-evaluating one raises. They have no configuration block, deliberately. A schema
-field for a term that cannot be honoured would accept a value and discard it,
-which is worse than refusing.
+Two further terms — ``M`` and ``Q`` — exist as named classes with documented
+physics and **no implementation**: constructing one is allowed, evaluating one
+raises. Neither is a matrix-chain term at all; both are baseline-dependent and
+apply by Hadamard product to finished visibilities. They have no configuration
+block, deliberately. A schema field for a term that cannot be honoured would
+accept a value and discard it, which is worse than refusing.
 
 
 The ``jones:`` section
@@ -700,6 +709,273 @@ What ``P`` does and does not change
 * ``psi`` is evaluated at the array's own geodetic latitude, the same one the
   direction batch inverted the horizontal transform with, so the two halves of
   the geometry cannot disagree.
+
+
+T — troposphere: delay and opacity
+----------------------------------
+
+The neutral atmosphere adds excess path — a *delay* — and, at higher
+frequencies, absorbs. Both are scalars times the identity, so ``T`` commutes
+with every other term:
+
+.. math::
+
+   T_p(s, \nu) = a_\mathrm{op}(s)\,
+       \exp\bigl(-2\pi i\, \nu\, \tau_\mathrm{trop}(s)\bigr)\, I_2,
+   \qquad
+   \tau_\mathrm{trop}(s) =
+       \frac{\mathrm{ZHD}\, m_h(\mathrm{el}) + \mathrm{ZWD}\, m_w(\mathrm{el})}{c},
+
+.. math::
+
+   a_\mathrm{op}(s) = \exp\!\left(-\frac{\tau_0}{2 \sin \mathrm{el}}\right).
+
+The delay is **non-dispersive**: :math:`\tau_\mathrm{trop}` does not depend on
+frequency, so the phase is exactly linear in :math:`\nu`. That is what
+distinguishes ``T`` from ``Z``, whose phase goes as :math:`1/\nu`; what
+distinguishes it from ``Kd``, whose phase is also linear, is that
+:math:`\tau_\mathrm{trop}` depends on the *direction* through the elevation
+while an instrumental delay is one number per feed.
+
+The factor of two in the opacity exponent is deliberate. ``T`` is a **voltage**
+Jones matrix while :math:`\tau_0` is defined on **power**, so each antenna
+contributes :math:`e^{-\tau_0/2}` and a baseline of two identical antennas is
+scaled by exactly :math:`e^{-\tau_0}` in visibility amplitude.
+
+References: Saastamoinen (1972), AGU Geophys. Monogr. **15**, 247; Niell (1996),
+JGR **101**, 3227; Thompson, Moran & Swenson (2017) §13.1–13.2.
+
+Zenith delays
+~~~~~~~~~~~~~
+
+``ZHD``, the zenith hydrostatic (dry) delay, is either written out or computed
+by the Saastamoinen formula
+
+.. math::
+
+   \mathrm{ZHD} = \frac{0.0022768\, P_0}
+       {1 - 0.00266 \cos 2\phi - 0.00028\, h_\mathrm{km}},
+
+with the surface pressure :math:`P_0` in hPa. The latitude :math:`\phi` and each
+antenna's height come from the **resolved instrument**, not from the document,
+so an array on a slope really does get different dry delays. About 2.31 m at
+standard sea-level pressure.
+
+``ZWD``, the zenith wet delay, is written out and has no model. Every credible
+wet model needs humidity and temperature profiles RadioSim does not have, and a
+model field with nothing behind it is exactly the surface this section exists to
+remove.
+
+Mapping functions
+~~~~~~~~~~~~~~~~~
+
+``simple`` is the flat-atmosphere :math:`1/\sin(\mathrm{el})`. ``niell`` is the
+Niell (1996) three-term continued fraction
+
+.. math::
+
+   m(\mathrm{el}) = \frac{1 + \dfrac{a}{1 + \dfrac{b}{1 + c}}}
+       {\sin \mathrm{el} + \dfrac{a}{\sin \mathrm{el} +
+        \dfrac{b}{\sin \mathrm{el} + c}}}
+
+with his published coefficients: latitude- and season-dependent for the
+hydrostatic component (plus his height correction), latitude-dependent only for
+the wet one, because water vapour is not in hydrostatic equilibrium. Both are
+exactly ``1`` at zenith, which is what makes a *zenith* delay meaningful. At 5°
+elevation the hydrostatic function is about 10.1 against the flat-atmosphere
+11.47.
+
+Configuration
+~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   jones:
+     T:
+       zenith_delay:
+         kind: saastamoinen         # explicit | saastamoinen
+         surface_pressure_hpa: 1013.25
+         zenith_wet_delay_m: 0.05
+       mapping_function: niell      # simple | niell
+       minimum_elevation_deg: 5.0
+       opacity:                     # optional; absent means transparent
+         zenith_opacity: 0.02
+
+With ``kind: explicit`` the pressure is replaced by
+``zenith_hydrostatic_delay_m``. ``minimum_elevation_deg`` is **required**: where
+a model stops being trusted is a scientific decision, and a default would make
+it RadioSim's. Write ``0.0`` to accept every direction the horizon mask passes.
+
+What an interferometer actually sees
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``T``'s delay is a **scalar**, so on an array whose antennas resolve to the same
+zenith delay it enters the RIME as :math:`e^{i\phi} C_s e^{-i\phi} = C_s` and
+cancels *exactly*, source by source and baseline by baseline. That is
+interferometry rather than a limitation of this implementation: an
+interferometer measures the **differential** delay between two antennas.
+
+What breaks the symmetry in RadioSim's model is the antennas' own heights, which
+enter through both the Saastamoinen formula and the Niell height correction — so
+an array on a slope has a real tropospheric phase and a perfectly flat one does
+not. The opacity is different: it attenuates each antenna's voltage, so it
+changes the visibilities of any array at all. RadioSim does not model a
+per-antenna atmosphere (different pressures, or a turbulent screen); that is
+out of scope.
+
+One consequence worth stating plainly: ``surface_pressure_hpa`` is the pressure
+at the antennas, and RadioSim does **not** extrapolate it with height. The
+height enters the Saastamoinen formula only through its gravity correction, as
+published. An array with a kilometre of relief and one configured pressure is
+therefore modelling one pressure, not two.
+
+Rejections
+~~~~~~~~~~
+
+* A negative ``zenith_opacity`` is rejected — *"a negative opacity would
+  amplify."*
+* A ``T`` with no delay and no opacity is rejected as an identity, like every
+  other term that cannot change the visibilities.
+* A direction below ``minimum_elevation_deg`` that survived the horizon mask is
+  rejected **when the solver evaluates it**, not at parse time: the condition is
+  about directions, and no direction exists before the solver resolves one. The
+  message names both things you can change — the minimum elevation and the
+  horizon mask.
+
+
+Z — ionosphere: dispersive phase and Faraday rotation
+------------------------------------------------------
+
+One factor with two physically distinct halves, sharing one electron column:
+
+.. math::
+
+   Z_p(s, \nu) = \exp\bigl(i \phi_\mathrm{TEC}\bigr)\, F(\psi_F),
+   \qquad
+   \phi_\mathrm{TEC} = -\frac{2 \pi k_\mathrm{TEC}\, \mathrm{sTEC}(s)}{\nu},
+   \qquad
+   \psi_F = \mathrm{RM_{ion}} \lambda^2,
+
+.. math::
+
+   F(a) = \begin{bmatrix} \cos a & -\sin a \\ \sin a & \cos a \end{bmatrix}
+        = R(a)^{T}.
+
+The dispersive half is a **scalar** phase — it commutes and does not touch
+polarization — and scales exactly as :math:`1/\nu`. The Faraday half is a real
+rotation and scales exactly as :math:`1/\nu^2` through :math:`\lambda^2`. The
+two are separable by that difference alone: halve the frequency and the phase
+doubles while the rotation angle quadruples.
+
+:math:`k_\mathrm{TEC} = 40.308 \times 10^{16} / c \approx 1.3445 \times 10^{9}`
+Hz TECU⁻¹, which is the standard :math:`40.308\, \mathrm{TEC}/\nu^2` excess path
+written as a phase, with one TECU being :math:`10^{16}` electrons m⁻².
+
+``F`` is the **transpose** of the rotation ``C`` and ``P`` use, and the
+difference is observable. ``R`` rotates the *frame* and therefore lowers the
+observed polarization angle; Faraday rotation rotates the *field* and raises it.
+
+References: Thompson, Moran & Swenson (2017) §13.3 and eq. 13.128; Intema et al.
+(2009), A&A **501**, 1185; Mevius et al. (2016), RaSc **51**, 927;
+Sotomayor-Beltran et al. (2013), A&A **552**, A58.
+
+The slant mapping
+~~~~~~~~~~~~~~~~~
+
+The slant column comes from the configured vertical one by the thin-shell
+mapping at shell height :math:`h`:
+
+.. math::
+
+   \mathrm{sTEC}(s) = \frac{\mathrm{VTEC}}
+       {\cos\left(\arcsin \dfrac{R_E \cos \mathrm{el}}{R_E + h}\right)},
+   \qquad R_E = 6371\ \mathrm{km}.
+
+Unlike ``T``'s mapping function this is **bounded** — about 3.14 at the horizon
+for a 350 km shell — so ``Z`` cannot produce an unbounded phase. What fails at
+low elevation is the thin-shell approximation itself, which is why ``Z`` carries
+a minimum elevation too.
+
+Two vertical-TEC models are offered:
+
+* ``constant`` — one column for the whole array. Every antenna sees the same
+  phase for a given direction, so a single source at zenith changes no
+  visibility at all, while a wide field does, through the slant factor.
+* ``gradient`` — a linear gradient in topocentric East and North, evaluated at
+  **each antenna's own ionospheric pierce point**. This is the minimal model
+  that makes the phase differ between antennas, and therefore the minimal model
+  with a closure-visible effect.
+
+Faraday rotation, and the boundary with the sky
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:math:`\mathrm{RM_{ion}}` is configured directly, per array or per antenna. It
+is **not** derived from the electron column and a geomagnetic field model:
+RadioSim has no magnetic-field model and does not ingest one. ``RMextract`` is
+the tool that produces the number to write here.
+
+``jones.Z`` owns *ionospheric* rotation only. A source's own
+``rotation_measure`` is intrinsic, belongs to the sky model, and is applied
+there (:doc:`sky_models`). The two live in different objects and different
+frames: they **compose**, rotating the observed polarization angle by
+:math:`(\mathrm{RM_{src}} + \mathrm{RM_{ion}}) \lambda^2`, and they cannot be
+configured twice by accident.
+
+Configuration
+~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   jones:
+     Z:
+       tec:
+         kind: constant             # constant | gradient
+         vertical_tec_tecu: 10.0
+       shell_height_km: 350.0
+       minimum_elevation_deg: 5.0
+       faraday:                     # optional; absent means phase only
+         rotation_measure_rad_m2: 0.5
+         per_antenna:
+           - antenna: 1
+             rotation_measure_rad_m2: 0.9
+
+A ``gradient`` screen adds ``gradient_east_tecu_per_km`` and
+``gradient_north_tecu_per_km``, at least one of which must be non-zero — a
+gradient model with no gradient is the constant model written the long way.
+The per-antenna override carries no ``feed``: a rotation measure is a property
+of the line of sight, not of a receptor.
+
+What an interferometer actually sees
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The dispersive phase is a **scalar**, so a ``constant`` screen — which every
+antenna shares — cancels exactly in :math:`J_p C_s J_p^H`, on every baseline and
+for any field width. That is why the ``gradient`` model exists: it is the
+smallest model whose pierce points differ between antennas, and therefore the
+smallest one with a closure-visible dispersive effect.
+
+The Faraday half is not scalar, so it survives even when both antennas share it:
+:math:`F C F^H` rotates :math:`(Q, U)` and leaves an unpolarized sky untouched.
+A ``Z`` configured with a rotation measure changes a polarized run on any array.
+
+Rejections
+~~~~~~~~~~
+
+* A negative ``vertical_tec_tecu`` is rejected: there is no such thing as a
+  negative electron column.
+* A ``Z`` with no electrons and no rotation measure is rejected as an identity.
+* A direction below ``minimum_elevation_deg`` is rejected when the solver
+  evaluates it, exactly as for ``T``; the message names the thin-shell
+  approximation rather than a divergence, because the slant factor does not
+  diverge.
+
+.. note::
+
+   The gradient is a *local linear expansion*. Far enough from the reference
+   position a steep gradient extrapolates the vertical column through zero,
+   which is a column no ionosphere has. RadioSim reports what was configured
+   rather than silently flooring it: a floor would make one document mean
+   different things at different field widths.
 
 
 Where the record goes
