@@ -1755,6 +1755,31 @@ dependence — so a single-source-at-zenith observation shows no visibility chan
 while a wide field does, a discriminating test; `psi_F = 0` and `phi_TEC = 0`
 recover `I2` exactly and are rejected as a configuration (R7).
 
+**Correction (7G implementation, 2026-08-01) — the wide-field half of that
+sentence is wrong.** An antenna-common scalar phase cancels *exactly*, and the
+field width is irrelevant to it: the RIME contracts each source as
+`J_p C_s J_q^H`, and with `J_p = J_q = exp(i phi(s)) I2` that is
+`exp(i phi) C_s exp(-i phi) = C_s`, source by source and therefore baseline by
+baseline. A wide field changes nothing about this, because the cancellation
+happens *inside* the sum rather than between its terms. The corrected statement,
+which is what 7G tests:
+
+- a `constant` screen changes **no** visibility at all, at any field width, and
+  the test asserts that to `1e-14` rather than asserting a small change — an
+  implementation that had accidentally made the screen antenna-dependent would
+  fail loudly instead of passing a loose bound;
+- a `gradient` screen does change them, because its pierce points differ between
+  antennas. This is the same reason Section 20.8 already gives for offering the
+  gradient model at all, so the correction makes the invariant agree with the
+  parameterization rather than changing either;
+- the Faraday half is **not** scalar and therefore survives on any array, for a
+  polarized sky, even when both antennas share one rotation measure.
+
+The identical statement holds for `T`'s delay (Section 20.9), whose only
+antenna-differential parameter is the antenna height, and *not* for `T`'s
+opacity, which is a real attenuation of each antenna's voltage and changes the
+visibilities of any array. Both are tested.
+
 **The D18 guard.** `Z`'s Faraday rotation and the sky model's per-source
 `rotation_measure` are in different objects and different frames (Section 11.2).
 The 7G slice adds the composition test **I8** and adds one sentence to the sky
