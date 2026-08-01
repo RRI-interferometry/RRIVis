@@ -61,7 +61,7 @@ from radiosim.io.result_errors import (
 )
 
 SCHEMA_NAME: Final = "radiosim.visibility"
-SCHEMA_VERSION: Final = "3.0.0"
+SCHEMA_VERSION: Final = "4.0.0"
 DIMENSION_ORDER: Final = "time,baseline,frequency,correlation"
 VISIBILITY_UNIT: Final = "Jy"
 _RECEPTOR_BASES: Final = ("linear", "circular")
@@ -99,6 +99,13 @@ _GROUPS: Final = {
     "provenance",
     "receptors",
 }
+#: Groups a conforming file may omit.  ``jones/`` is the only one: a run that
+#: configured no Jones term has nothing to record there, and
+#: ``Tier7JonesSciencePlan.md`` Section 25.2 requires a reader to accept such a
+#: file by treating it as "no terms enabled" rather than as corrupt.  Every
+#: other group is mandatory, and the allowlist is still exact -- a file may omit
+#: this group entirely or carry all of it, never part of it.
+_OPTIONAL_GROUPS: Final = {"jones"}
 _DATASETS: Final = {
     "coordinates/baseline/antenna1_number",
     "coordinates/baseline/antenna2_number",
@@ -145,6 +152,13 @@ _DATASETS: Final = {
     "receptors/output_basis",
     "receptors/receptor_sha256",
 }
+_JONES_DATASETS: Final = {
+    "jones/chain_order",
+    "jones/enabled_terms",
+    "jones/jones_sha256",
+    "jones/mount_types_json",
+    "jones/term_snapshots_json",
+}
 _JSON_PATHS: Final = {
     "provenance/instrument_json": "instrument",
     "provenance/selection_json": "selection",
@@ -157,7 +171,7 @@ _JSON_PATHS: Final = {
     "provenance/history_json": "history",
 }
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
-#: A schema-``3.0.0`` result solves at most the two components of
+#: A schema-``4.0.0`` result solves at most the two components of
 #: ``Tier6HybridRuntimePlan.md`` Section 8.3, so a longer component list is
 #: forged.  The bound is checked before the sequence is walked, so a hostile
 #: file cannot make the reader iterate an attacker-sized list.
@@ -291,6 +305,39 @@ def _encode_json(value: object, *, field_name: str) -> bytes:
     return payload
 
 
+def _jones_text_payloads(snapshot: Mapping[str, object]) -> dict[str, bytes]:
+    """Encode one non-empty Jones snapshot into the ``jones/`` group's datasets.
+
+    ``enabled_terms`` and ``chain_order`` are stored as JSON arrays rather than
+    as variable-length string datasets, so the whole group is five *scalar*
+    datasets whose shapes do not depend on how many terms a run enabled.  A
+    shape that varies with the science is a shape a reader has to be told about
+    before it can allocate, and there is nothing here worth that.
+    """
+    return {
+        "jones/enabled_terms": _encode_json(
+            list(cast(Sequence[str], snapshot["enabled_terms"])),
+            field_name="jones/enabled_terms",
+        ),
+        "jones/chain_order": _encode_json(
+            list(cast(Sequence[str], snapshot["chain_order"])),
+            field_name="jones/chain_order",
+        ),
+        "jones/term_snapshots_json": _encode_json(
+            snapshot["term_snapshots"],
+            field_name="jones/term_snapshots_json",
+        ),
+        "jones/mount_types_json": _encode_json(
+            snapshot["mount_types"],
+            field_name="jones/mount_types_json",
+        ),
+        "jones/jones_sha256": _encode_text(
+            cast(str, snapshot["jones_sha256"]),
+            field_name="jones/jones_sha256",
+        ),
+    }
+
+
 def _prepare_text_payloads(
     result: SimulationResult,
     instrument: dict[str, object],
@@ -354,6 +401,9 @@ def _prepare_text_payloads(
             for index, antenna in enumerate(result.instrument.antennas)
         ),
     }
+    jones_snapshot = dict(result.jones)
+    if jones_snapshot:
+        payloads.update(_jones_text_payloads(jones_snapshot))
     provenance_values = {
         "instrument_json": instrument,
         "selection_json": selection,
@@ -383,11 +433,11 @@ def _prepare_result(result: object) -> _PreparedResult:
     dtype = typed.visibilities.dtype
     if dtype.kind == "c" and dtype.itemsize == 32:
         raise FormatRepresentationError(
-            "complex256 is not representable in radiosim.visibility HDF5 3.0.0"
+            "complex256 is not representable in radiosim.visibility HDF5 4.0.0"
         )
     if dtype not in {np.dtype("complex64"), np.dtype("complex128")}:
         raise FormatRepresentationError(
-            "HDF5 3.0.0 requires complex64 or complex128 visibilities"
+            "HDF5 4.0.0 requires complex64 or complex128 visibilities"
         )
     instrument = _mapping_tree(
         typed.instrument.to_snapshot(),
@@ -431,6 +481,7 @@ def _prepare_result(result: object) -> _PreparedResult:
             selection_snapshot=selection,
             beam_snapshot=beam,
             receptors_snapshot=typed.receptors.to_snapshot(),
+            jones_snapshot=dict(typed.jones) or None,
             backend_snapshot=backend,
             solver_snapshot=solver,
             resolved_config_snapshot=resolved_config,
@@ -864,6 +915,22 @@ def _write_hdf5_content(
         spec=specs["receptors/feed_angle_rad"],
     )
 
+    # The ``jones/`` group exists only when a term was configured.  A run with
+    # no ``jones:`` section writes a file with no such group, and the reader
+    # treats its absence as "no terms enabled" (Section 25.2) -- so the file a
+    # historical configuration produces has the shape it always had, apart from
+    # the schema version.
+    if "jones/jones_sha256" in prepared.text_payloads:
+        handle.create_group("jones", track_order=True)
+        for path in sorted(_JONES_DATASETS):
+            _string_dataset(
+                handle,
+                h5py,
+                path,
+                cast(bytes, prepared.text_payloads[path]),
+                spec=specs[path],
+            )
+
     for name in (
         "instrument_json",
         "selection_json",
@@ -942,7 +1009,7 @@ def write_result_hdf5(
     *,
     overwrite: bool = False,
 ) -> Path:
-    """Write a complete ``radiosim.visibility`` 3.0.0 result atomically.
+    """Write a complete ``radiosim.visibility`` 4.0.0 result atomically.
 
     Parameters
     ----------
@@ -1175,7 +1242,11 @@ def _inspect_tree(handle: Any, h5py: Any) -> dict[str, Any]:
                 raise UnsafeResultInputError(f"unknown HDF5 object at /{path}")
 
     walk(handle, "")
-    if groups != _GROUPS or set(datasets) != _DATASETS:
+    optional_present = groups & _OPTIONAL_GROUPS
+    expected_datasets = set(_DATASETS)
+    if "jones" in optional_present:
+        expected_datasets |= _JONES_DATASETS
+    if groups != _GROUPS | optional_present or set(datasets) != expected_datasets:
         raise UnsafeResultInputError("HDF5 object allowlist mismatch")
     return datasets
 
@@ -1258,6 +1329,11 @@ def _metadata_specs(
         "coordinates/correlation/basis": _DatasetSpec((), "utf8", ()),
         "receptors/output_basis": _DatasetSpec((), "utf8", ()),
         "receptors/receptor_sha256": _DatasetSpec((), "utf8", ()),
+        "jones/enabled_terms": _DatasetSpec((), "utf8", ()),
+        "jones/chain_order": _DatasetSpec((), "utf8", ()),
+        "jones/term_snapshots_json": _DatasetSpec((), "utf8", ()),
+        "jones/mount_types_json": _DatasetSpec((), "utf8", ()),
+        "jones/jones_sha256": _DatasetSpec((), "utf8", ()),
         "receptors/antenna_number": _DatasetSpec(
             (antenna_count,),
             "<i8",
@@ -1875,6 +1951,54 @@ def _build_time_grid(
     return grid
 
 
+def _read_jones_group(
+    datasets: Mapping[str, Any],
+    limits: HDF5ReadLimits,
+) -> dict[str, object] | None:
+    """Read the optional ``jones/`` group, or return ``None`` when it is absent.
+
+    Absence is a legitimate, common state and not an error: it is what a run
+    with no ``jones:`` section writes (``Tier7JonesSciencePlan.md``
+    Section 25.2).  When the group *is* present it is fully validated -- the
+    digest shape, and that the recorded term list is not empty, since an empty
+    list is what absence already means and a file asserting both is
+    inconsistent.
+    """
+    if "jones/jones_sha256" not in datasets:
+        return None
+    digest, _ = _bounded_dataset_text(
+        datasets["jones/jones_sha256"],
+        path="jones/jones_sha256",
+        limit=limits.max_single_string_bytes,
+    )
+    if _SHA256.fullmatch(digest) is None:
+        raise UnsafeResultInputError("HDF5 jones_sha256 is not a lower-case SHA-256")
+    parsed: dict[str, object] = {}
+    for path, key in (
+        ("jones/enabled_terms", "enabled_terms"),
+        ("jones/chain_order", "chain_order"),
+        ("jones/term_snapshots_json", "term_snapshots"),
+        ("jones/mount_types_json", "mount_types"),
+    ):
+        text, _ = _bounded_dataset_text(
+            datasets[path],
+            path=path,
+            limit=limits.max_single_string_bytes,
+        )
+        parsed[key] = _parse_json(text, path=path)
+    enabled = parsed["enabled_terms"]
+    if not isinstance(enabled, list) or not enabled:
+        raise UnsafeResultInputError(
+            "HDF5 jones/enabled_terms must be a nonempty list; a run with no "
+            "enabled term omits the group entirely"
+        )
+    from radiosim.core.jones_terms import JONES_SCHEMA_VERSION
+
+    parsed["schema_version"] = JONES_SCHEMA_VERSION
+    parsed["jones_sha256"] = digest
+    return parsed
+
+
 def _read_receptor_group(
     datasets: Mapping[str, Any],
     limits: HDF5ReadLimits,
@@ -1997,7 +2121,7 @@ def _validate_component_provenance(snapshots: Mapping[str, object]) -> None:
 
     Plan ``Tier6HybridRuntimePlan.md`` Section 19 makes the solved components,
     their element counts, and the two per-component timings part of schema
-    ``3.0.0``.  The canonical model validates them again when the result is
+    ``4.0.0``.  The canonical model validates them again when the result is
     built, but that happens after the visibility cube has been allocated, so
     the checks are also made here, from the parsed and already byte-bounded
     JSON, while the reader has allocated nothing but metadata.
@@ -2345,6 +2469,10 @@ def _load_open_file(
         visibility_dtype=counts[4],
     )
     for path, spec in specs.items():
+        if path in _JONES_DATASETS and path not in datasets:
+            # The one optional group.  ``_inspect_tree`` has already enforced
+            # all-or-nothing, so a partially present group cannot arrive here.
+            continue
         _validate_dataset_metadata(
             datasets[path],
             spec,
@@ -2384,6 +2512,7 @@ def _load_open_file(
             selection_snapshot=cast(dict[str, object], snapshots["selection"]),
             beam_snapshot=cast(dict[str, object], snapshots["beam"]),
             receptors_snapshot=receptors_snapshot,
+            jones_snapshot=_read_jones_group(datasets, limits),
             backend_snapshot=cast(dict[str, object], snapshots["backend"]),
             solver_snapshot=cast(dict[str, object], snapshots["solver"]),
             resolved_config_snapshot=cast(
@@ -2432,7 +2561,7 @@ def load_result_hdf5(
     *,
     limits: HDF5ReadLimits = HDF5ReadLimits(),
 ) -> LoadedSimulationResult:
-    """Load and fully validate a ``radiosim.visibility`` 3.0.0 result.
+    """Load and fully validate a ``radiosim.visibility`` 4.0.0 result.
 
     No partial result is returned. Structural metadata and all allocation
     limits are validated before science payloads are read.

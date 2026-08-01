@@ -136,6 +136,7 @@ def test_summary_json_is_exact_bounded_metadata_contract(tmp_path):
         "frequency",
         "correlation",
         "receptors",
+        "jones",
         "instrument",
         "phase_center",
         "beam",
@@ -153,7 +154,7 @@ def test_summary_json_is_exact_bounded_metadata_contract(tmp_path):
     # takes a minor bump where the HDF5 schema takes a major one.
     assert payload["schema"] == {
         "name": "radiosim.result-summary",
-        "version": "1.1.0",
+        "version": "1.2.0",
     }
     assert payload["excluded_payloads"] == [
         "visibility_samples",

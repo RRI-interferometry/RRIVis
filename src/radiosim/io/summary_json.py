@@ -77,6 +77,34 @@ def _receptor_summary(result: SimulationResult) -> dict[str, object]:
     }
 
 
+def _jones_summary(result: SimulationResult) -> dict[str, object]:
+    """Return the bounded Jones block for one canonical result.
+
+    Bounded for the same reason the receptor block is: a tabulated bandpass
+    carries every node it was measured at, and the summary is metadata.  The
+    enabled terms, the composed chain order, the digest, and each term's
+    resolved parameters are here; a run that enabled nothing reports empty
+    lists and a ``null`` digest rather than omitting the block, because a reader
+    should be able to tell "no terms" from "an older summary".
+
+    ``Tier7JonesSciencePlan.md`` Section 25.2.
+    """
+    snapshot = dict(result.jones)
+    if not snapshot:
+        return {
+            "enabled_terms": [],
+            "chain_order": [],
+            "jones_sha256": None,
+            "terms": {},
+        }
+    return {
+        "enabled_terms": list(snapshot["enabled_terms"]),
+        "chain_order": list(snapshot["chain_order"]),
+        "jones_sha256": snapshot["jones_sha256"],
+        "terms": dict(snapshot["term_snapshots"]),
+    }
+
+
 def _execution_summary(result: SimulationResult) -> dict[str, object]:
     """Return the bounded execution block for one canonical result.
 
@@ -302,7 +330,7 @@ def _summary_payload(result: SimulationResult) -> dict[str, object]:
             # the same meaning.  See ``Tier6HybridRuntimePlan.md`` Section 19.
             "schema": {
                 "name": "radiosim.result-summary",
-                "version": "1.1.0",
+                "version": "1.2.0",
             },
             "result": {
                 "schema": result.schema_version,
@@ -344,6 +372,7 @@ def _summary_payload(result: SimulationResult) -> dict[str, object]:
                 "basis": result.polarization_basis,
             },
             "receptors": _receptor_summary(result),
+            "jones": _jones_summary(result),
             "instrument": {
                 "name": result.instrument.name,
                 "instrument_sha256": result.instrument.provenance.instrument_sha256,

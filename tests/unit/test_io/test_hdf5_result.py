@@ -603,7 +603,7 @@ def test_independent_h5py_inspection_matches_exact_schema(
             assert type(value) is np.bytes_
             root_values[name] = bytes(value).decode("utf-8", errors="strict")
         assert root_values["schema_name"] == "radiosim.visibility"
-        assert root_values["schema_version"] == "3.0.0"
+        assert root_values["schema_version"] == "4.0.0"
         assert root_values["dimension_order"] == "time,baseline,frequency,correlation"
         assert root_values["visibility_unit"] == "Jy"
         assert root_values["scientific_sha256"] == result.scientific_sha256
@@ -2131,9 +2131,9 @@ def test_frequency_snapshot_mismatch_is_rejected_before_science_read(
 CIRCULAR = {"default": {"basis": "circular"}}
 
 
-def test_schema_version_is_three_zero_zero() -> None:
+def test_schema_version_is_four_zero_zero() -> None:
     """Tier 6G, plan Section 19: the component-provenance bump."""
-    assert hdf5_module.SCHEMA_VERSION == "3.0.0"
+    assert hdf5_module.SCHEMA_VERSION == "4.0.0"
     assert not hasattr(hdf5_module, "CORRELATIONS")
     assert not hasattr(hdf5_module, "AIPS_CODES")
 
@@ -2252,12 +2252,17 @@ def _restamp_schema_version(output: Path, version: bytes) -> None:
         )
 
 
-@pytest.mark.parametrize("version", [b"1.0.0", b"2.0.0"])
-def test_every_superseded_schema_version_is_rejected_naming_tier_six(
+@pytest.mark.parametrize("version", [b"1.0.0", b"2.0.0", b"3.0.0"])
+def test_every_superseded_schema_version_is_rejected_naming_the_tier(
     tmp_path,
     version,
 ):
-    """Tier 6G, plan Section 32.7: no upgrade path, and the message says so."""
+    """Tier 6G, plan Section 32.7: no upgrade path, and the message says so.
+
+    Tier 7D added ``3.0.0`` to the rejected set and moved the tier the guidance
+    names, because the guidance's job is to tell a user *what changed most
+    recently*, not to accumulate a changelog.
+    """
     result = _result(tmp_path)
     output = write_result_hdf5(result, tmp_path / "superseded-version.h5")
     _restamp_schema_version(output, version)
@@ -2268,8 +2273,8 @@ def test_every_superseded_schema_version_is_rejected_naming_tier_six(
     message = str(caught.value)
     decoded = version.decode("ascii")
     assert decoded in message
-    assert "Tier 6" in message
-    assert "3.0.0" in message
+    assert "Tier 7" in message
+    assert "4.0.0" in message
     assert "re-run the simulation" in message
     assert caught.value.version == decoded
 
@@ -2502,7 +2507,7 @@ def test_every_representation_round_trips_component_provenance_and_timings(
     point_seconds,
     healpix_seconds,
 ):
-    """H9: point-only, healpix-only, and hybrid all survive 3.0.0 exactly."""
+    """H9: point-only, healpix-only, and hybrid all survive 4.0.0 exactly."""
     result = _component_result(
         tmp_path,
         representation=representation,
@@ -2517,7 +2522,7 @@ def test_every_representation_round_trips_component_provenance_and_timings(
         groups, datasets = _object_paths(handle)
         assert groups == GROUPS
         assert datasets == DATASETS
-        assert bytes(handle.attrs["schema_version"]).decode() == "3.0.0"
+        assert bytes(handle.attrs["schema_version"]).decode() == "4.0.0"
         solver_json = json.loads(
             bytes(handle["provenance/solver_json"][()]).rstrip(b"\x00").decode("utf-8")
         )

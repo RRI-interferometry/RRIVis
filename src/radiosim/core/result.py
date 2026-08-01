@@ -10,6 +10,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from importlib.metadata import PackageNotFoundError, version
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
@@ -32,9 +33,12 @@ if TYPE_CHECKING:
         ResolvedBaselineSelection,
         ResolvedInstrument,
     )
+    from radiosim.core.jones_terms import ResolvedJonesTerms
     from radiosim.core.phase_center import PhaseCenter
     from radiosim.core.receptor import ResolvedReceptorSet
     from radiosim.core.time_grid import ObservationTimeGrid
+
+from radiosim.core.jones_terms import EMPTY_JONES_TERMS  # noqa: E402
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 # Must equal ``radiosim.core.receptor``'s resolved receptor schema version; the
@@ -708,6 +712,80 @@ def _scientific_beam_projection(value: object) -> object:
     return value
 
 
+#: The exact keys a Jones snapshot carries.  Checked rather than assumed, for
+#: the same reason the receptor snapshot is: a loaded file is untrusted input,
+#: and a snapshot that silently gained or lost a key would change the
+#: fingerprint without changing the science.
+_JONES_SNAPSHOT_KEYS = (
+    "schema_version",
+    "enabled_terms",
+    "chain_order",
+    "term_snapshots",
+    "mount_types",
+    "jones_sha256",
+)
+
+
+def _jones_result_snapshot(jones_terms: object) -> Mapping[str, object]:
+    """Return the JSON-safe Jones snapshot for a live resolved inventory.
+
+    Returns an empty mapping when no term was configured, which is what keeps
+    the scientific fingerprint of a ``jones:``-free run unchanged (I1).
+    """
+    from radiosim.core.jones_terms import ResolvedJonesTerms
+
+    if type(jones_terms) is not ResolvedJonesTerms:
+        raise TypeError("jones_terms must be an exact ResolvedJonesTerms")
+    return jones_terms.to_snapshot()
+
+
+def _loaded_jones_snapshot(
+    snapshot: Mapping[str, object] | None,
+) -> Mapping[str, object]:
+    """Validate a Jones snapshot read back from a file.
+
+    ``None`` and an empty mapping both mean "no term was enabled", which is how
+    a file written without a ``jones/`` group is read (Section 25.2).  Anything
+    else must carry exactly the six recorded keys and a well-formed digest.
+    """
+    if snapshot is None:
+        return MappingProxyType({})
+    if not isinstance(snapshot, Mapping):
+        raise InvalidResultError("jones snapshot must be a mapping")
+    mapping = cast(Mapping[str, object], snapshot)
+    if not mapping:
+        return MappingProxyType({})
+    if set(mapping) != set(_JONES_SNAPSHOT_KEYS):
+        raise InvalidResultError("jones snapshot has unexpected fields")
+    digest = mapping["jones_sha256"]
+    if type(digest) is not str or _SHA256.fullmatch(digest) is None:
+        raise InvalidResultError("jones_sha256 must be a lower-case SHA-256")
+    enabled = mapping["enabled_terms"]
+    if isinstance(enabled, (str, bytes)) or not isinstance(enabled, Sequence):
+        raise InvalidResultError("jones enabled_terms must be a sequence")
+    if not enabled:
+        raise InvalidResultError(
+            "a jones snapshot with no enabled term must be absent, not empty"
+        )
+    return json_safe_mapping(mapping)
+
+
+def _jones_summary_block(snapshot: Mapping[str, object]) -> dict[str, object]:
+    """Return the bounded summary view of one Jones snapshot.
+
+    Bounded on purpose: the per-term parameters can be arbitrarily large (a
+    tabulated bandpass carries every node), and the summary is a metadata
+    document.  The full record lives in the HDF5 ``jones/`` group.
+    """
+    if not snapshot:
+        return {"enabled_terms": [], "chain_order": [], "jones_sha256": None}
+    return {
+        "enabled_terms": list(cast(Sequence[str], snapshot["enabled_terms"])),
+        "chain_order": list(cast(Sequence[str], snapshot["chain_order"])),
+        "jones_sha256": snapshot["jones_sha256"],
+    }
+
+
 def _scientific_hash(
     *,
     visibilities: np.ndarray,
@@ -724,6 +802,7 @@ def _scientific_hash(
     selection_snapshot: Mapping[str, object],
     beam_snapshot: Mapping[str, object],
     solver_snapshot: Mapping[str, object],
+    jones_snapshot: Mapping[str, object] = MappingProxyType({}),
 ) -> str:
     digest = hashlib.sha256()
     _hash_json(digest, "schema", "radiosim.result.v1")
@@ -750,6 +829,15 @@ def _scientific_hash(
     _hash_json(digest, "beam", _scientific_beam_projection(beam_snapshot))
     _hash_json(digest, "phase_center", phase_snapshot)
     _hash_json(digest, "solver", solver_snapshot)
+    # The Jones record is hashed only when a term was actually configured.  An
+    # empty snapshot contributes *nothing* -- not an empty object, not a null --
+    # so a run with no ``jones:`` section produces the same digest it produced
+    # before the section existed (``Tier7JonesSciencePlan.md`` Section 25.1,
+    # invariant I1).  Hashing an empty placeholder would have been simpler and
+    # would have invalidated every pinned fingerprint in the repository for no
+    # scientific reason.
+    if jones_snapshot:
+        _hash_json(digest, "jones", jones_snapshot)
     return digest.hexdigest()
 
 
@@ -918,6 +1006,7 @@ class _ResultMethods:
                     "dtype": self.weights.dtype.name,
                 },
             },
+            "jones": _jones_summary_block(self.jones),
             "scientific_sha256": self.scientific_sha256,
             "provenance_sha256": self.provenance_sha256,
         }
@@ -940,6 +1029,7 @@ class SimulationResult(_ResultMethods):
     selection: ResolvedBaselineSelection
     beam_state: LoadedBeamState
     receptors: ResolvedReceptorSet
+    jones: FrozenMapping
     phase_center: PhaseCenter
     backend: BackendResultProvenance
     solver: SolverResultProvenance
@@ -975,6 +1065,7 @@ class LoadedSimulationResult(_ResultMethods):
     selection_snapshot: FrozenMapping
     beam_snapshot: FrozenMapping
     receptors: FrozenMapping
+    jones: FrozenMapping
     backend_snapshot: FrozenMapping
     solver_snapshot: FrozenMapping
     resolved_config_snapshot: FrozenMapping
@@ -1022,6 +1113,7 @@ def _identity_snapshots(
         receptor_snapshot,
         backend_snapshot,
         solver_snapshot,
+        dict(result.jones),
     )
 
 
@@ -1247,6 +1339,7 @@ def build_simulation_result(
     selection: ResolvedBaselineSelection,
     beam_state: LoadedBeamState,
     receptors: ResolvedReceptorSet,
+    jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS,
     phase_center: PhaseCenter,
     backend_provenance: BackendResultProvenance,
     solver_provenance: SolverResultProvenance,
@@ -1295,6 +1388,7 @@ def build_simulation_result(
             f"polarization_basis must be one of {POLARIZATION_BASES!r}"
         )
     receptor_snapshot = _receptor_result_snapshot(receptors.to_snapshot())
+    jones_snapshot = _jones_result_snapshot(jones_terms)
 
     frequencies, widths = _coordinates(frequencies_hz, channel_widths_hz)
     transfer_started = time.perf_counter()
@@ -1366,6 +1460,7 @@ def build_simulation_result(
         selection_snapshot=selection_snapshot,
         beam_snapshot=beam_snapshot,
         solver_snapshot=solver_snapshot,
+        jones_snapshot=jones_snapshot,
     )
     provenance_hash = _provenance_hash(
         scientific_sha256=scientific,
@@ -1404,6 +1499,7 @@ def build_simulation_result(
         selection=selection,
         beam_state=beam_state,
         receptors=receptors,
+        jones=json_safe_mapping(jones_snapshot),
         phase_center=phase_center,
         backend=backend_provenance,
         solver=solver_provenance,
@@ -1447,6 +1543,7 @@ def build_loaded_simulation_result(
     configuration_provenance_snapshot: Mapping[str, object] | None,
     performance_snapshot: Mapping[str, object],
     history: Sequence[str],
+    jones_snapshot: Mapping[str, object] | None = None,
     expected_scientific_sha256: str,
     expected_provenance_sha256: str,
 ) -> LoadedSimulationResult:
@@ -1467,6 +1564,7 @@ def build_loaded_simulation_result(
         raise InvalidResultError(
             f"correlations must be exactly {_accepted_correlations_text()}"
         ) from exc
+    loaded_jones = _loaded_jones_snapshot(jones_snapshot)
     receptor_snapshot = _receptor_result_snapshot(receptors_snapshot)
     if receptor_snapshot["output_basis"] != polarization_basis:
         raise InvalidResultError(
@@ -1553,6 +1651,7 @@ def build_loaded_simulation_result(
         selection_snapshot=frozen_selection,
         beam_snapshot=frozen_beam,
         solver_snapshot=frozen_solver,
+        jones_snapshot=loaded_jones,
     )
     provenance_hash = _provenance_hash(
         scientific_sha256=scientific,
@@ -1582,6 +1681,7 @@ def build_loaded_simulation_result(
         selection_snapshot=frozen_selection,
         beam_snapshot=frozen_beam,
         receptors=json_safe_mapping(receptor_snapshot),
+        jones=json_safe_mapping(loaded_jones),
         backend_snapshot=frozen_backend,
         solver_snapshot=frozen_solver,
         resolved_config_snapshot=frozen_config,

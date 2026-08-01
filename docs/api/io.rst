@@ -73,7 +73,7 @@ Instrument sources
 Versioned HDF5 results
 ----------------------
 
-``radiosim.visibility`` schema version ``3.0.0`` is the complete,
+``radiosim.visibility`` schema version ``4.0.0`` is the complete,
 reconstructable result format.  Its canonical extension is ``.h5``.
 The direct APIs are:
 
@@ -100,7 +100,7 @@ parallel hands in both bases.  The written ``polarization_basis`` and
 ``correlations`` are validated against each other on read, and only those two
 label tuples in that order are accepted.
 
-Schema ``3.0.0`` also stores a ``receptors`` group: the resolved
+Schema ``4.0.0`` also stores a ``receptors`` group: the resolved
 ``output_basis``, the ``receptor_sha256`` fingerprint, and per-antenna
 ``antenna_number``, ``antenna_name``, ``basis``, ``feed_rotation_rad``, and
 ``feed_angle_rad`` in canonical instrument antenna order.  A loaded result
@@ -138,11 +138,23 @@ are rejected; there is no VLEN compatibility reader, migration shim, or
 fallback.  Schema ``1.0.0`` files predate the receptor group and the
 basis-driven correlation labels, and schema ``2.0.0`` files predate the solved
 sky components, their element counts, and the per-component solver timings, so
-a summed hybrid result cannot be told from a single-component one.  Both are
-rejected with ``UnsupportedSchemaVersionError`` and neither is upgraded in
-place.  Re-run the simulation to obtain a ``3.0.0`` file.
+a summed hybrid result cannot be told from a single-component one.  Schema
+``3.0.0`` files predate the Jones record, so a run that corrupted its
+visibilities with a configured gain or bandpass could not be told from a clean
+one.  All three are rejected with ``UnsupportedSchemaVersionError`` and none is
+upgraded in place.  Re-run the simulation to obtain a ``4.0.0`` file.
 
-Schema ``3.0.0`` records the components in ``provenance/solver_json``
+Schema ``4.0.0`` stores an **optional** ``jones`` group: ``enabled_terms``,
+``chain_order``, the per-term resolved configuration as ``term_snapshots_json``,
+the resolved antenna mount types as ``mount_types_json``, and the
+``jones_sha256`` that enters the scientific fingerprint.  The group is written
+only when a run enabled a Jones term, and a file without it is read as "no terms
+enabled" rather than rejected — which is why a run with no ``jones:`` section
+produces the file it always produced, apart from the version.  It is the one
+optional group in the schema; every other group is mandatory, and a partially
+present ``jones`` group is rejected like any other allowlist mismatch.
+
+Schema ``4.0.0`` records the components in ``provenance/solver_json``
 (``components`` and ``component_element_counts``, in the canonical
 ``point``, ``healpix`` order) and their wall times in
 ``provenance/performance_json`` (``solver_point_seconds`` and

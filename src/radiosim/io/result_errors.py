@@ -72,13 +72,14 @@ class UnsupportedSchemaVersionError(UnsafeResultInputError):
     """A versioned result uses an unsupported schema version."""
 
     GUIDANCE = (
-        "Tier 6 replaced radiosim.visibility 2.0.0 with 3.0.0, which records the "
-        "solved sky components, their element counts, and the per-component "
-        "solver timings, so a summed hybrid result is no longer indistinguishable "
-        "from a single-component one. Schema 1.0.0 (no polarization basis, no "
-        "receptor set) and schema 2.0.0 (no component provenance) are both "
-        "rejected, and neither is upgraded in place: there is no upgrade path by "
-        "design, so re-run the simulation to write a 3.0.0 file."
+        "Tier 7 replaced radiosim.visibility 3.0.0 with 4.0.0, which adds the "
+        "optional jones group recording which Jones terms a run enabled, their "
+        "resolved parameters, and the jones_sha256 that enters the scientific "
+        "fingerprint. Schema 1.0.0 (no polarization basis, no receptor set), "
+        "schema 2.0.0 (no component provenance) and schema 3.0.0 (no Jones "
+        "record, so a corrupted visibility could not be told from a clean one) "
+        "are all rejected, and none is upgraded in place: there is no upgrade "
+        "path by design, so re-run the simulation to write a 4.0.0 file."
     )
 
     def __init__(self, version: object) -> None:

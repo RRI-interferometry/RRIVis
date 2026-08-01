@@ -364,6 +364,17 @@ visibility.allow_lossy_point_rasterization=true to opt in.
 move to `hybrid` (which sums both components with no loss) or set the flag and
 accept the quantization. None of the shipped configurations relied on it.
 
+### HDF5 schema `4.0.0`
+
+HDF5 results moved to schema `4.0.0`, which adds the optional `jones/` group:
+`enabled_terms`, `chain_order`, `term_snapshots_json`, `mount_types_json`, and
+`jones_sha256`. The group is written only when a run enables a Jones term, and
+a file without it reads as "no terms enabled", so a configuration with no
+`jones:` section is unaffected apart from the version string.
+
+Schema `3.0.0` files are rejected with `UnsupportedSchemaVersionError` and are
+not upgraded in place. Re-run the simulation to write a `4.0.0` file.
+
 ### HDF5 schema `3.0.0`
 
 HDF5 results moved to schema `3.0.0`. `provenance/solver_json` gains

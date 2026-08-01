@@ -196,7 +196,7 @@ def test_shipped_hybrid_example_runs_and_reports_both_components(tmp_path) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_hybrid_result_round_trips_through_hdf5_three_zero_zero(tmp_path) -> None:
+def test_hybrid_result_round_trips_through_hdf5_four_zero_zero(tmp_path) -> None:
     """H9 end to end: a real hybrid run survives write and load exactly."""
     import h5py
 
@@ -206,8 +206,8 @@ def test_hybrid_result_round_trips_through_hdf5_three_zero_zero(tmp_path) -> Non
     output = write_result_hdf5(result, tmp_path / "hybrid.h5")
 
     with h5py.File(output, "r") as handle:
-        assert bytes(handle.attrs["schema_version"]).decode() == "3.0.0"
-    assert SCHEMA_VERSION == "3.0.0"
+        assert bytes(handle.attrs["schema_version"]).decode() == "4.0.0"
+    assert SCHEMA_VERSION == "4.0.0"
 
     loaded = load_result_hdf5(output)
 
@@ -238,7 +238,7 @@ def test_hybrid_summary_json_reports_both_components(tmp_path) -> None:
     target = write_result_summary_json(result, tmp_path / "hybrid")
     payload = json.loads(target.read_text(encoding="utf-8"))
 
-    assert payload["schema"]["version"] == "1.1.0"
+    assert payload["schema"]["version"] == "1.2.0"
     assert payload["solver"]["sky_representation"] == "hybrid"
     assert payload["solver"]["components"] == ["point", "healpix"]
     assert payload["solver"]["component_element_counts"] == list(

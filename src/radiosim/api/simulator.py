@@ -1112,6 +1112,7 @@ class Simulator:
             selection=self._instrument_state.selection,
             beam_state=self.beam_state,
             receptors=self.receptors,
+            jones_terms=self.jones_terms,
             phase_center=PhaseCenter(),
             backend_provenance=BackendResultProvenance(
                 requested_backend=self._resolved.execution.backend_strategy,

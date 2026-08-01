@@ -321,7 +321,7 @@ def test_tier4d_hdf5_documentation_is_complete_and_bounded():
 
     for required in (
         "radiosim.visibility",
-        "3.0.0",
+        "4.0.0",
         ".h5",
         "write_result_hdf5",
         "load_result_hdf5",
@@ -783,7 +783,7 @@ def test_tier5g_io_reference_is_truthful_about_schema_and_basis():
     text = (REPOSITORY_ROOT / "docs" / "api" / "io.rst").read_text(encoding="utf-8")
     collapsed = " ".join(text.split())
 
-    assert "schema version ``3.0.0``" in collapsed
+    assert "schema version ``4.0.0``" in collapsed
     assert "schema version ``1.0.0`` is the complete" not in collapsed
     assert "explicitly maps ``XX, XY, YX, YY`` into each file" not in collapsed
     for required in (
@@ -1090,6 +1090,7 @@ def test_tier6i_migration_guide_maps_every_tier6_breaking_change():
         "`scientific_sha256` changes for every result",  # C11
         "`provenance_sha256` changes with them",  # C12
         "HDF5 schema `3.0.0`",  # C13
+        "HDF5 schema `4.0.0`",  # Tier 7D
         "`NumbaBackend` is now `DaskBackend`",  # C14
         "no longer returns the NumPy-delegating backend",  # C15
         "`RIMESimulator.supports_gpu` is now `False`",  # C16
