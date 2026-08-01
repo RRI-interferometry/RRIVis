@@ -63,6 +63,39 @@ _TERM_CONFIGURATIONS: dict[str, dict[str, Any]] = {
     },
     "Rc": {"Rc": {"amplitude": 0.06, "cable_delay_s": 1.5e-7, "phase_rad": 0.2}},
     "P": {"P": {"enabled": True}},
+    # Tier 7G.  ``T`` carries both of its halves and ``Z`` both of its own, so a
+    # run that silently dropped one would not survive the digest comparison
+    # below.  ``minimum_elevation_deg`` is 1 degree rather than the plan's
+    # example 5: the shipped workload is a point sky near zenith, so nothing is
+    # excluded either way, and a value a user would plausibly write is more
+    # useful in a shipped example than a value chosen to be safe.
+    "T": {
+        "T": {
+            "zenith_delay": {
+                "kind": "saastamoinen",
+                "surface_pressure_hpa": 1013.25,
+                "zenith_wet_delay_m": 0.15,
+            },
+            "mapping_function": "niell",
+            "minimum_elevation_deg": 1.0,
+            "opacity": {"zenith_opacity": 0.05},
+        }
+    },
+    "Z": {
+        "Z": {
+            "tec": {
+                "kind": "gradient",
+                "vertical_tec_tecu": 25.0,
+                "gradient_east_tecu_per_km": 0.3,
+            },
+            "shell_height_km": 300.0,
+            "minimum_elevation_deg": 1.0,
+            "faraday": {
+                "rotation_measure_rad_m2": 1.2,
+                "per_antenna": [{"antenna": 1, "rotation_measure_rad_m2": -0.6}],
+            },
+        }
+    },
     "all": {
         "G": {"amplitude_error": 0.05},
         "B": {"model": {"kind": "polynomial", "coefficients": [1.0, 0.1]}},
@@ -71,6 +104,16 @@ _TERM_CONFIGURATIONS: dict[str, dict[str, Any]] = {
         "X": {"phase_rad": 0.3},
         "D": {"d_terms": {"kind": "ixr", "ixr_db": 30.0}},
         "P": {"enabled": True},
+        "T": {
+            "zenith_delay": {"kind": "explicit", "zenith_hydrostatic_delay_m": 2.3},
+            "minimum_elevation_deg": 1.0,
+            "opacity": {"zenith_opacity": 0.02},
+        },
+        "Z": {
+            "tec": {"kind": "constant", "vertical_tec_tecu": 15.0},
+            "minimum_elevation_deg": 1.0,
+            "faraday": {"rotation_measure_rad_m2": 0.8},
+        },
     },
 }
 
@@ -86,7 +129,19 @@ _MOUNT_TYPES: dict[str, str | None] = {"P": "alt-az", "all": "alt-az"}
 #: resolved inventory must report regardless of how the document was written.
 #: ``P`` sits after ``D`` because Tier 7F moved it sky-side of ``C``
 #: (``Tier7JonesSciencePlan.md`` Section 12.2, defect D12).
-_CANONICAL_LETTERS: tuple[str, ...] = ("G", "B", "Rc", "Kd", "X", "D", "P")
+#: After Tier 7G this is *every* configurable term: the only two letters left
+#: out are ``M`` and ``Q``, which are baseline-dependent and not chain terms.
+_CANONICAL_LETTERS: tuple[str, ...] = (
+    "G",
+    "B",
+    "Rc",
+    "Kd",
+    "X",
+    "D",
+    "P",
+    "T",
+    "Z",
+)
 
 
 def _simulator(

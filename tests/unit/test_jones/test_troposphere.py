@@ -685,3 +685,177 @@ def test_the_resolved_atmosphere_is_in_the_terms_own_record() -> None:
     assert config["mapping_function"] == "niell"
     assert config["zenith_opacity"] == 0.03
     assert config["zenith_hydrostatic_delay_m"] == [2.25, 2.25]
+
+
+# ---------------------------------------------------------------------------
+# I7 and I10 -- through the solver
+# ---------------------------------------------------------------------------
+
+
+def _cube(
+    tmp_path, jones, *, polarized: bool = True, **section_overrides
+) -> np.ndarray:
+    from radiosim.core.visibility import calculate_visibility
+    from tests.characterization.test_tier6_current_behavior import (
+        WORKLOAD_LOCATION,
+        WORKLOAD_TIME_GRID,
+        _workload_point_sources,
+    )
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones, **section_overrides)
+    )
+    return np.asarray(
+        calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=_workload_point_sources(polarized=polarized, gaussian=False),
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=_BACKEND,
+            receptors=receptors,
+            jones_terms=jones_terms,
+        )
+    )
+
+
+_SOLVER_DELAY_ONLY: dict[str, dict] = {
+    "T": {
+        "zenith_delay": {
+            "kind": "saastamoinen",
+            "surface_pressure_hpa": 1013.25,
+            "zenith_wet_delay_m": 0.2,
+        },
+        "mapping_function": "niell",
+        "minimum_elevation_deg": 0.0,
+    }
+}
+
+
+def _sloped_layout(tmp_path) -> dict:
+    """Return an ``instrument`` override whose two antennas differ in height.
+
+    The shipped fixture's antennas share one ``U``, so their Saastamoinen zenith
+    delays are identical and the tropospheric phase cancels exactly (see
+    :func:`test_a_common_delay_cancels_on_a_flat_homogeneous_array`).  A real
+    array on a slope does not have that symmetry, and this is the smallest
+    instrument that breaks it.
+    """
+    layout = tmp_path / "sloped.txt"
+    layout.write_text(
+        "Name Number BeamID E N U Diameter\n"
+        "ANT0 0 0 0.0 0.0 0.0 14.0\n"
+        "ANT1 1 0 60.0 0.0 900.0 14.0\n"
+    )
+    return {"instrument": {"source": {"path": str(layout)}}}
+
+
+def test_a_configured_troposphere_changes_the_visibilities(tmp_path) -> None:
+    """I7, for ``T``: a real atmosphere is not the same run as none.
+
+    Both of ``T``'s halves are exercised, because they reach a visibility by
+    different routes: the opacity attenuates each antenna's voltage and survives
+    on any array, while the delay is a scalar phase and survives only where the
+    two antennas' delays differ -- here, because they sit 900 m apart in height.
+    """
+    absorbing_clean = _cube(tmp_path, None)
+    absorbing = _cube(
+        tmp_path,
+        {
+            "T": {
+                "zenith_delay": {"kind": "explicit"},
+                "minimum_elevation_deg": 0.0,
+                "opacity": {"zenith_opacity": 0.3},
+            }
+        },
+    )
+    assert (
+        float(np.max(np.abs(absorbing - absorbing_clean)))
+        / float(np.max(np.abs(absorbing_clean)))
+        > 1e-10
+    )
+
+    sloped = _sloped_layout(tmp_path)
+    delay_clean = _cube(tmp_path, None, **sloped)
+    delayed = _cube(tmp_path, _SOLVER_DELAY_ONLY, **sloped)
+    assert (
+        float(np.max(np.abs(delayed - delay_clean)))
+        / float(np.max(np.abs(delay_clean)))
+        > 1e-10
+    )
+
+
+def test_a_common_delay_cancels_on_a_flat_homogeneous_array(tmp_path) -> None:
+    """A delay both antennas share changes no visibility at all -- exactly.
+
+    ``T``'s delay is a scalar, so on an array whose antennas resolve to the same
+    zenith delay it enters the RIME as ``e^{i phi} C_s e^{-i phi} = C_s``, per
+    source and therefore per baseline.  An interferometer measures the
+    *differential* delay; that is a statement about interferometry rather than
+    about this implementation, and it is asserted exactly (``< 1e-14``) so that
+    an implementation which accidentally made the delay antenna-dependent would
+    fail here loudly rather than pass a loose bound.
+
+    What breaks the symmetry in RadioSim's model is the antennas' own heights,
+    through both the Saastamoinen formula and the Niell height correction.  A
+    per-antenna *atmosphere* -- different pressures, or a turbulent screen --
+    is out of scope (Section 4).
+    """
+    clean = _cube(tmp_path, None)
+    delayed = _cube(tmp_path, _SOLVER_DELAY_ONLY)
+
+    assert float(np.max(np.abs(delayed - clean))) / float(np.max(np.abs(clean))) < 1e-14
+
+
+def test_the_two_mapping_functions_are_different_runs(tmp_path) -> None:
+    """``mapping_function`` is a real choice, not a label."""
+    sloped = _sloped_layout(tmp_path)
+    niell = _cube(tmp_path, _SOLVER_DELAY_ONLY, **sloped)
+    simple = _cube(
+        tmp_path,
+        {"T": {**_SOLVER_DELAY_ONLY["T"], "mapping_function": "simple"}},
+        **sloped,
+    )
+
+    difference = np.max(np.abs(simple - niell)) / np.max(np.abs(niell))
+    assert float(difference) > 1e-10
+
+
+def test_the_opacity_scales_the_visibility_by_exp_minus_tau(tmp_path) -> None:
+    """Invariant I10, end to end, on a real baseline of two identical antennas.
+
+    With no delay configured ``T`` is a pure real attenuation, and the shipped
+    fixture's two antennas are identical -- so every source's contribution is
+    scaled by the product of the two antennas' voltage factors, which is the
+    *power* factor ``exp(-tau_0 / sin el)``.  The sources are not exactly at
+    zenith, so the assertion brackets the ratio between the zenith value
+    ``exp(-tau_0)`` and the value at 30 degrees elevation, ``exp(-2 tau_0)``:
+    the factor of two this term exists to get right is what puts it between
+    them rather than at ``exp(-tau_0 / 2)``.
+    """
+    zenith_opacity = 0.3
+    clean = _cube(tmp_path, None, polarized=False)
+    attenuated = _cube(
+        tmp_path,
+        {
+            "T": {
+                "zenith_delay": {"kind": "explicit"},
+                "mapping_function": "simple",
+                "minimum_elevation_deg": 0.0,
+                "opacity": {"zenith_opacity": zenith_opacity},
+            }
+        },
+        polarized=False,
+    )
+
+    nonzero = np.abs(clean) > 1e-12 * float(np.max(np.abs(clean)))
+    ratios = np.abs(attenuated[nonzero]) / np.abs(clean[nonzero])
+    assert float(np.max(ratios)) <= math.exp(-zenith_opacity) + 1e-12
+    assert float(np.min(ratios)) > math.exp(-2.0 * zenith_opacity)
+    # Half the opacity -- the voltage convention taken as if it were the power
+    # one -- would land the whole cube above this bound.
+    assert float(np.max(ratios)) < math.exp(-0.5 * zenith_opacity)

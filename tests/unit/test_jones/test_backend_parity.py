@@ -502,3 +502,207 @@ def test_healpix_path_parity_with_the_parallactic_term(
         )
 
     assert_backend_parity(build, backend_name=backend_name)
+
+
+# ---------------------------------------------------------------------------
+# The 7G cases: T and Z, the two direction-dependent propagation terms
+# ---------------------------------------------------------------------------
+#
+# Section 28 requires each term alone at a large parameter value.  These two are
+# large in the way that matters for a *propagation* term: 60 TECU is a disturbed
+# daytime ionosphere rather than a quiet night, the rotation measure is an order
+# of magnitude above a typical mid-latitude one, and the tropospheric opacity is
+# a wet millimetre-band value rather than a low-frequency one.  A parity case at
+# quiet values would be a parity test of the noise floor.
+#
+# ``minimum_elevation_deg`` is ``0`` in every case here, deliberately: the
+# HEALPix workload's direction batch is every visible pixel, including pixels a
+# fraction of a degree above the horizon, and R13 would refuse the whole run at
+# any positive floor.  That is the guard working, not a tolerance being widened.
+
+_PARITY_TROPOSPHERE: dict[str, Any] = {
+    "T": {
+        "zenith_delay": {
+            "kind": "saastamoinen",
+            "surface_pressure_hpa": 1013.25,
+            "zenith_wet_delay_m": 0.35,
+        },
+        "mapping_function": "niell",
+        "minimum_elevation_deg": 0.0,
+        "opacity": {"zenith_opacity": 0.4},
+    }
+}
+
+_PARITY_TROPOSPHERE_SIMPLE: dict[str, Any] = {
+    "T": {
+        "zenith_delay": {
+            "kind": "explicit",
+            "zenith_hydrostatic_delay_m": 2.4,
+            "zenith_wet_delay_m": 0.3,
+        },
+        "mapping_function": "simple",
+        "minimum_elevation_deg": 0.0,
+    }
+}
+
+_PARITY_IONOSPHERE: dict[str, Any] = {
+    "Z": {
+        "tec": {"kind": "constant", "vertical_tec_tecu": 60.0},
+        "shell_height_km": 350.0,
+        "minimum_elevation_deg": 0.0,
+        "faraday": {
+            "rotation_measure_rad_m2": 2.5,
+            "per_antenna": [{"antenna": 1, "rotation_measure_rad_m2": -1.5}],
+        },
+    }
+}
+
+_PARITY_IONOSPHERE_GRADIENT: dict[str, Any] = {
+    "Z": {
+        "tec": {
+            "kind": "gradient",
+            "vertical_tec_tecu": 40.0,
+            "gradient_east_tecu_per_km": 0.5,
+            "gradient_north_tecu_per_km": -0.3,
+        },
+        "shell_height_km": 250.0,
+        "minimum_elevation_deg": 0.0,
+    }
+}
+
+_PARITY_EVERY_TERM = {
+    **_PARITY_ALL_TERMS,
+    **_PARITY_PARALLACTIC,
+    **_PARITY_TROPOSPHERE,
+    **_PARITY_IONOSPHERE,
+}
+
+_PARITY_7G_CASES = [
+    ("T", _PARITY_TROPOSPHERE),
+    ("T-simple", _PARITY_TROPOSPHERE_SIMPLE),
+    ("Z", _PARITY_IONOSPHERE),
+    ("Z-gradient", _PARITY_IONOSPHERE_GRADIENT),
+    ("T+Z", {**_PARITY_TROPOSPHERE, **_PARITY_IONOSPHERE}),
+]
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+@pytest.mark.parametrize(("label", "jones"), _PARITY_7G_CASES)
+def test_point_path_parity_with_a_propagation_term(
+    tmp_path,
+    backend_name: str,
+    label: str,
+    jones: dict[str, Any],
+) -> None:
+    """``T`` and ``Z`` alone, both mapping functions, both TEC models."""
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones)
+    )
+    sources = _workload_point_sources(polarized=True, gaussian=False)
+
+    def build(backend):
+        return calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=sources,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=jones_terms,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+@pytest.mark.parametrize(("label", "jones"), _PARITY_7G_CASES)
+def test_healpix_path_parity_with_a_propagation_term(
+    tmp_path,
+    backend_name: str,
+    label: str,
+    jones: dict[str, Any],
+) -> None:
+    """The same terms on the diffuse path, where the batch is every pixel.
+
+    This is the first parity case in which a *scalar* direction-dependent factor
+    multiplies every pixel of the map: ``T``'s delay and opacity vary across the
+    whole visible hemisphere, not only across a primary beam.
+    """
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones)
+    )
+    sky = _workload_healpix_model(polarized=True)
+
+    def build(backend):
+        return calculate_visibility_healpix(
+            sky,
+            instrument=instrument,
+            beam_system=beam_system,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=jones_terms,
+            include_polarization=True,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+def test_point_path_parity_with_every_implemented_term(
+    tmp_path,
+    backend_name: str,
+) -> None:
+    """Every configurable term at once -- the whole nine-term chain.
+
+    Section 28 asks for the all-terms case once, at 7K.  It is run here as well
+    because 7G is the slice at which "every implemented term" first means every
+    per-antenna term in the chain, and a parity failure that only appears when
+    the whole chain composes would otherwise surface a whole tier later.
+    """
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, _PARITY_EVERY_TERM, mount_types="alt-az")
+    )
+    sources = _workload_point_sources(polarized=True, gaussian=False)
+    assert jones_terms.configured_letters == (
+        "G",
+        "B",
+        "Rc",
+        "Kd",
+        "X",
+        "D",
+        "P",
+        "T",
+        "Z",
+    )
+
+    def build(backend):
+        return calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=sources,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=jones_terms,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)

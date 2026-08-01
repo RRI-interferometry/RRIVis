@@ -780,6 +780,164 @@ def test_both_sky_paths_carry_the_direction_dependent_term(tmp_path) -> None:
         assert heterogeneous / plain_scale > 1e-6, label
 
 
+def test_both_sky_paths_carry_the_two_propagation_terms(tmp_path) -> None:
+    """I14 for ``T`` and ``Z``, the other two direction-dependent terms.
+
+    Like ``P``, neither can join the factorized ``V' = M V M^H`` oracle above:
+    ``T``'s delay and opacity and ``Z``'s dispersive phase all vary per
+    direction, so no single ``M`` exists and a test that invented one would have
+    to widen a tolerance until it stopped saying anything (Section 29.1).
+
+    What is asserted instead is the property I14 exists for, in the form each
+    term's physics makes checkable on *both* paths independently:
+
+    1. ``Z``'s Faraday rotation changes a polarized cube and leaves an
+       unpolarized one untouched -- a rotation shared by two antennas is
+       ``F C F^H``, which moves ``(Q, U)`` and nothing else;
+    2. ``Z``'s dispersive phase with a *gradient* screen changes the cube, while
+       the same screen with no gradient leaves it exactly unchanged -- an
+       antenna-common scalar phase cancels source by source, which is why the
+       gradient model exists;
+    3. ``T``'s opacity attenuates both paths by the same power factor.
+
+    Each statement holds separately on the point path and on the HEALPix path,
+    which is what a shared evaluator guarantees and a per-solver copy would be
+    free to get wrong.
+    """
+    import numpy as np
+
+    from radiosim.backends import get_backend
+    from radiosim.core.visibility import calculate_visibility
+    from radiosim.core.visibility_healpix import calculate_visibility_healpix
+    from tests.characterization.test_tier6_current_behavior import (
+        WORKLOAD_LOCATION,
+        WORKLOAD_TIME_GRID,
+        _workload_healpix_model,
+        _workload_point_sources,
+    )
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    backend = get_backend("numpy")
+
+    def cubes(configuration, *, polarized):
+        instrument, beams, receptors, terms, frequencies = solver_components_with_jones(
+            tmp_path, configuration
+        )
+        point = np.asarray(
+            calculate_visibility(
+                instrument=instrument,
+                beam_system=beams,
+                source_arrays=_workload_point_sources(
+                    polarized=polarized, gaussian=False
+                ),
+                location=WORKLOAD_LOCATION,
+                time_grid=WORKLOAD_TIME_GRID,
+                frequencies=frequencies,
+                backend=backend,
+                receptors=receptors,
+                jones_terms=terms,
+            )
+        )
+        diffuse = np.asarray(
+            calculate_visibility_healpix(
+                _workload_healpix_model(polarized=polarized),
+                instrument=instrument,
+                beam_system=beams,
+                location=WORKLOAD_LOCATION,
+                time_grid=WORKLOAD_TIME_GRID,
+                frequencies=frequencies,
+                backend=backend,
+                receptors=receptors,
+                jones_terms=terms,
+                include_polarization=polarized,
+            )
+        )
+        return point, diffuse
+
+    faraday = {
+        "Z": {
+            "tec": {"kind": "constant", "vertical_tec_tecu": 0.0},
+            "minimum_elevation_deg": 0.0,
+            "faraday": {"rotation_measure_rad_m2": 1.5},
+        }
+    }
+    uniform = {
+        "Z": {
+            "tec": {"kind": "constant", "vertical_tec_tecu": 40.0},
+            "minimum_elevation_deg": 0.0,
+        }
+    }
+    gradient = {
+        "Z": {
+            "tec": {
+                "kind": "gradient",
+                "vertical_tec_tecu": 40.0,
+                "gradient_east_tecu_per_km": 0.6,
+            },
+            "minimum_elevation_deg": 0.0,
+        }
+    }
+    opacity = {
+        "T": {
+            "zenith_delay": {"kind": "explicit"},
+            "mapping_function": "simple",
+            "minimum_elevation_deg": 0.0,
+            "opacity": {"zenith_opacity": 0.3},
+        }
+    }
+
+    polarized_absent = cubes(None, polarized=True)
+    polarized_faraday = cubes(faraday, polarized=True)
+    plain_absent = cubes(None, polarized=False)
+    plain_faraday = cubes(faraday, polarized=False)
+    plain_uniform = cubes(uniform, polarized=False)
+    plain_gradient = cubes(gradient, polarized=False)
+    plain_opacity = cubes(opacity, polarized=False)
+
+    for index, label in ((0, "point"), (1, "healpix")):
+        scale = float(np.max(np.abs(polarized_absent[index])))
+        plain_scale = float(np.max(np.abs(plain_absent[index])))
+        assert scale > 0.0 and plain_scale > 0.0, label
+
+        # 1 -- Z's rotation reaches this path, and only through polarization.
+        assert (
+            float(np.max(np.abs(polarized_faraday[index] - polarized_absent[index])))
+            / scale
+            > 1e-10
+        ), label
+        assert (
+            float(np.max(np.abs(plain_faraday[index] - plain_absent[index])))
+            / plain_scale
+            < 1e-14
+        ), label
+
+        # 2 -- Z's dispersive phase reaches it only through a gradient.
+        assert (
+            float(np.max(np.abs(plain_uniform[index] - plain_absent[index])))
+            / plain_scale
+            < 1e-14
+        ), label
+        assert (
+            float(np.max(np.abs(plain_gradient[index] - plain_absent[index])))
+            / plain_scale
+            > 1e-10
+        ), label
+
+        # 3 -- T's opacity attenuates, and by the power factor rather than the
+        # voltage one.
+        ratios = np.abs(plain_opacity[index]) / np.where(
+            np.abs(plain_absent[index]) > 1e-12 * plain_scale,
+            np.abs(plain_absent[index]),
+            np.inf,
+        )
+        finite = ratios[np.isfinite(ratios) & (ratios > 0.0)]
+        assert finite.size > 0, label
+        assert float(np.max(finite)) <= math.exp(-0.3) + 1e-12, label
+        assert float(np.min(finite)) > math.exp(-0.6), label
+
+
 # ---------------------------------------------------------------------------
 # I18 -- observability is inert
 # ---------------------------------------------------------------------------

@@ -799,3 +799,204 @@ def test_the_resolved_screen_is_in_the_terms_own_record() -> None:
     assert config["vertical_tec_tecu"] == 9.0
     assert config["shell_height_m"] == _SHELL_HEIGHT_M
     assert config["rotation_measures_rad_m2"] == [0.5, 0.25]
+
+
+# ---------------------------------------------------------------------------
+# I7 -- through the solver, the configured term changes the visibilities
+# ---------------------------------------------------------------------------
+
+
+def _cube(tmp_path, jones, *, polarized: bool = True) -> np.ndarray:
+    from radiosim.core.visibility import calculate_visibility
+    from tests.characterization.test_tier6_current_behavior import (
+        WORKLOAD_LOCATION,
+        WORKLOAD_TIME_GRID,
+        _workload_point_sources,
+    )
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones)
+    )
+    return np.asarray(
+        calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=_workload_point_sources(polarized=polarized, gaussian=False),
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=_BACKEND,
+            receptors=receptors,
+            jones_terms=jones_terms,
+        )
+    )
+
+
+_SOLVER_IONOSPHERE = {
+    "Z": {
+        "tec": {"kind": "constant", "vertical_tec_tecu": 30.0},
+        "minimum_elevation_deg": 0.0,
+        "faraday": {"rotation_measure_rad_m2": 1.5},
+    }
+}
+
+
+def test_a_configured_ionosphere_changes_the_visibilities(tmp_path) -> None:
+    """I7, for ``Z``: a configured screen is not the same run as no screen."""
+    clean = _cube(tmp_path, None)
+    corrupted = _cube(tmp_path, _SOLVER_IONOSPHERE)
+
+    difference = np.max(np.abs(corrupted - clean)) / np.max(np.abs(clean))
+    assert float(difference) > 1e-10
+
+
+def test_each_half_of_the_ionosphere_changes_the_visibilities_alone(
+    tmp_path,
+) -> None:
+    """Neither half is carried by the other: I7 twice, once per effect.
+
+    The dispersive half needs a *gradient*, and that is physics rather than a
+    test convenience: see
+    :func:`test_a_uniform_dispersive_screen_cancels_on_every_baseline` below.
+    """
+    clean = _cube(tmp_path, None)
+    phase_only = _cube(
+        tmp_path,
+        {
+            "Z": {
+                "tec": {
+                    "kind": "gradient",
+                    "vertical_tec_tecu": 30.0,
+                    "gradient_east_tecu_per_km": 0.5,
+                },
+                "minimum_elevation_deg": 0.0,
+            }
+        },
+    )
+    faraday_only = _cube(
+        tmp_path,
+        {
+            "Z": {
+                "tec": {"kind": "constant", "vertical_tec_tecu": 0.0},
+                "minimum_elevation_deg": 0.0,
+                "faraday": {"rotation_measure_rad_m2": 1.5},
+            }
+        },
+    )
+
+    scale = float(np.max(np.abs(clean)))
+    assert float(np.max(np.abs(phase_only - clean))) / scale > 1e-10
+    assert float(np.max(np.abs(faraday_only - clean))) / scale > 1e-10
+
+
+def test_a_uniform_dispersive_screen_cancels_on_every_baseline(tmp_path) -> None:
+    """A screen every antenna shares changes no visibility at all -- exactly.
+
+    This is the physical content of Section 20.8's "antenna-common,
+    direction-varying" phase, stated as the equation it is: a scalar
+    ``exp(i phi(s))`` that is the *same* for both antennas enters the RIME as
+    ``J_p C_s J_q^H = e^{i phi} C_s e^{-i phi} = C_s``, per source and therefore
+    per baseline.  The cancellation is exact, not small, and it does not depend
+    on the field being narrow.
+
+    That is why the ``gradient`` model exists at all, and why the assertion here
+    is ``< 1e-14`` rather than "some small change": an implementation that had
+    accidentally made the screen antenna-dependent -- by reading the wrong
+    antenna row, say -- would fail this test loudly rather than pass a loose one.
+
+    **Correction to Section 20.8's invariant text.**  That section says a
+    constant ``VTEC`` "shows no visibility change" for a single zenith source
+    "while a wide field does".  The second half does not follow: an
+    antenna-common scalar phase cancels source by source, so the field width is
+    irrelevant.  What produces a closure-visible dispersive effect is the
+    *gradient*, exactly as the same section's own justification for that model
+    says.
+    """
+    clean = _cube(tmp_path, None)
+    uniform = _cube(
+        tmp_path,
+        {
+            "Z": {
+                "tec": {"kind": "constant", "vertical_tec_tecu": 30.0},
+                "minimum_elevation_deg": 0.0,
+            }
+        },
+    )
+
+    scale = float(np.max(np.abs(clean)))
+    assert float(np.max(np.abs(uniform - clean))) / scale < 1e-14
+
+
+def test_a_uniform_faraday_rotation_does_not_cancel(tmp_path) -> None:
+    """The other half is not scalar, so it survives on every baseline.
+
+    ``F C F^H`` is not ``C`` for a polarized coherency however identical the two
+    antennas are, which is the observational difference between a phase and a
+    rotation and the reason ``Z`` carries both rather than one.
+    """
+    clean = _cube(tmp_path, None)
+    rotated = _cube(
+        tmp_path,
+        {
+            "Z": {
+                "tec": {"kind": "constant", "vertical_tec_tecu": 0.0},
+                "minimum_elevation_deg": 0.0,
+                "faraday": {"rotation_measure_rad_m2": 1.5},
+            }
+        },
+    )
+    unpolarized_clean = _cube(tmp_path, None, polarized=False)
+    unpolarized_rotated = _cube(
+        tmp_path,
+        {
+            "Z": {
+                "tec": {"kind": "constant", "vertical_tec_tecu": 0.0},
+                "minimum_elevation_deg": 0.0,
+                "faraday": {"rotation_measure_rad_m2": 1.5},
+            }
+        },
+        polarized=False,
+    )
+
+    assert float(np.max(np.abs(rotated - clean))) / float(np.max(np.abs(clean))) > 1e-10
+    # ... and an unpolarized sky is untouched by a rotation both antennas share,
+    # which is what makes the difference above a polarization effect.
+    assert (
+        float(np.max(np.abs(unpolarized_rotated - unpolarized_clean)))
+        / float(np.max(np.abs(unpolarized_clean)))
+        < 1e-14
+    )
+
+
+def test_the_gradient_screen_is_a_different_run_from_the_uniform_one(
+    tmp_path,
+) -> None:
+    """A gradient is not a constant with extra words: it corrupts differently."""
+    uniform = _cube(
+        tmp_path,
+        {
+            "Z": {
+                "tec": {"kind": "constant", "vertical_tec_tecu": 30.0},
+                "minimum_elevation_deg": 0.0,
+            }
+        },
+    )
+    gradient = _cube(
+        tmp_path,
+        {
+            "Z": {
+                "tec": {
+                    "kind": "gradient",
+                    "vertical_tec_tecu": 30.0,
+                    "gradient_east_tecu_per_km": 0.5,
+                },
+                "minimum_elevation_deg": 0.0,
+            }
+        },
+    )
+
+    difference = np.max(np.abs(gradient - uniform)) / np.max(np.abs(uniform))
+    assert float(difference) > 1e-10
