@@ -926,6 +926,27 @@ quadrant. They are produced once per time step, host-side, alongside the
 existing `_host_preprocess_time_step` work (`visibility.py:502-506`), and are
 therefore free.
 
+**Correction (7B implementation, 2026-08-01)** — two field-level changes:
+
+- The direction-cosine fields are named `dir_l`, `dir_m`, `dir_n`, not `l`, `m`,
+  `n`.  `l` is an ambiguous identifier that the repository's own lint
+  configuration rejects (ruff `E741`, part of the selected `E` rule set), and
+  `n` would collide with `n_dir`.  The chosen names are the ones
+  `visibility_healpix` already used.
+- The equatorial half is the **apparent** description of the same directions,
+  derived from `(alt, az)` with the site latitude and the local apparent
+  sidereal time, rather than the catalogue ICRS position read off the sky model.
+  Three reasons, all discovered by executing the design: pairing an ICRS right
+  ascension with an apparent sidereal time is internally inconsistent at the
+  equinox-of-date level (of order `1e-2` rad in 2025, measured), so a field
+  rotation computed from the mismatched pair would inherit that error; a HEALPix
+  map may be stored in galactic coordinates and has no right ascension to read
+  at all; and the horizontal-to-equatorial inverse is exact and keeps the
+  quadrant, because the hour angle comes from a two-argument arctangent of the
+  same two components the forward transform used.  `ra_rad` is therefore an
+  apparent right ascension of date; a term needing a catalogue position needs
+  the sky model, not the batch.
+
 ```python
 # src/radiosim/core/jones/base.py  (replacing compute_jones / compute_jones_all_sources)
 
@@ -1008,6 +1029,22 @@ def evaluate_antenna_jones(
 ) -> dict[int, Any]:
     """Return {antenna_number: (n_dir, 2, 2)} for one (time, frequency) step."""
 ```
+
+**Correction (7B implementation, 2026-08-01)** — two signature details:
+
+- The returned mapping is keyed by **antenna row**, not antenna number.  The
+  sketch above passes `antenna_rows` and returns `{antenna_number: ...}`, which
+  is not derivable from the arguments; and rows are the better key, because
+  every chain term indexes the instrument by row, so keying the result the same
+  way makes a row/number mix-up structurally impossible instead of something a
+  runtime cross-check has to catch.  Each solver maps its selected pairs through
+  `row_for_number` once, above the time loop.
+- `dtypes: ResolvedJonesDtypes` becomes a single `dtype` until Tier 7D
+  introduces `ResolvedJonesDtypes` (`core/jones_terms.py` is in 7D's writable
+  list, not 7B's).  7B resolves one chain dtype, from the **accumulation**
+  precision as Section 17.1 requires for the seed, and passes it to every term;
+  7D replaces it with the per-term resolution without changing any call site's
+  shape.
 
 - The **point path** replaces its per-antenna cache loop
   (`visibility.py:658-672`) with one call.
@@ -1968,7 +2005,7 @@ evaluate_antenna_jones       # from .evaluate
 # radiosim.core.jones.base -- changed ABC
 JonesTerm.compute_jones                 REMOVED
 JonesTerm.compute_jones_all_sources     REMOVED
-JonesTerm.compute_jones_batch           NEW, abstract, keyword-only
+JonesTerm.compute_jones_batch           NEW, keyword-only   (see correction)
 JonesTerm.term_status                   NEW, property -> "implemented"
 
 # radiosim.core.jones.chain -- changed
@@ -1979,8 +2016,8 @@ JonesChain.compute_antenna_jones_batch          NEW
 JonesChain.add_term                             now rejects JonesBaselineTerm
 
 # radiosim.core.jones.baseline_errors -- changed ABC
-JonesBaselineTerm.compute_baseline_term         REMOVED
-JonesBaselineTerm.compute_baseline_factor       NEW, batched
+JonesBaselineTerm.compute_baseline_term         REMOVED from the ABC
+JonesBaselineTerm.compute_baseline_factor       NEW, batched  (see correction)
 
 # radiosim.core -- new
 ResolvedJonesTerms, ResolvedJonesDtypes, JonesProvenance, resolve_jones_terms
@@ -1998,6 +2035,25 @@ calculate_visibility_healpix(...)                     -> gains jones_terms: Reso
 RIMESimulator.simulate(..., jones_config=...)         -> jones_terms
 VisibilitySimulator.simulate(..., jones_config=...)   -> jones_terms
 ```
+
+**Correction (7B implementation, 2026-08-01)** — three points on the table
+above:
+
+- `compute_jones_batch` and `compute_baseline_factor` are introduced as concrete
+  methods that raise `NotImplementedError` naming the class, not as
+  `@abstractmethod`, and become abstract in the slice that deletes the last
+  subclass that does not implement them (7C for `JonesTerm`, 7H for
+  `JonesBaselineTerm`).  Section 33.2's 7B correction gives the reasoning.
+- `compute_baseline_term` is removed from the `JonesBaselineTerm` ABC at 7B; the
+  `M` and `Q` stub bodies that still define it are Tier 7H's to replace, and are
+  outside 7B's writable list.
+- `GeometricPhaseJones` is removed at **7B**, not 7C, together with the three
+  names 7B adds: `geometric_phase`, `DirectionBatch` and
+  `evaluate_antenna_jones`.  The "removed (26 names)" list above is therefore
+  25 names at 7C plus this one at 7B.  `term_status` is *not* added at 7B: with
+  35 identity stubs still exported, a base-class default of `"implemented"`
+  would be a lie on every one of them, so it lands with 7C's stub deletion,
+  which is also where invariant I20 first asserts it.
 
 ## 24. Exact rejection messages
 
@@ -2353,6 +2409,49 @@ harness. **Bit-identical to 7A's pins** for every shipped configuration — this
 slice adds no physics and its acceptance is exactly that identity plus I2, I3,
 I5, I16, I17.
 
+**Correction (7B implementation, 2026-08-01)** — four bounded departures from
+the sentence above, each forced by a fact the design gate did not have:
+
+1. **`compute_jones_batch` is concrete-and-raising at 7B, not `@abstractmethod`**
+   (and likewise `JonesBaselineTerm.compute_baseline_factor`).  Section 13.2
+   states that the new contract "affects only four real implementations", which
+   is true of the *implementations* but not of the *declaration*: 7B's writable
+   list contains none of the 35 identity-stub modules, so an abstract
+   declaration would make every stub impossible to instantiate.  That would
+   break the 7A pins Tier 7C and Tier 7D-7H own, and would leave the public
+   surface worse than the stub state 7C is about to remove -- a class that
+   cannot be constructed at all.  The method therefore raises
+   `NotImplementedError` naming the class, and becomes `@abstractmethod` in the
+   slice that removes the last non-implementing subclass.
+2. **`GeometricPhaseJones` leaves `__all__` at 7B, so three 7C-owned pins move
+   with it.**  Section 23 groups the K class with the 26 names 7C removes, while
+   Section 33.2 assigns its deletion to 7B.  7B is right -- K is per-baseline and
+   cannot be a chain term -- so the name-count, lazy-binding and real-physics
+   pins are flipped here for that one name, and the remaining 25 removals and
+   the `CrosshandPhaseJones` rename stay with 7C.
+3. **Enabling an optional stub term now raises instead of returning identity.**
+   This is the one behaviour 7B changes.  `jones_config` is hard-coded to `None`
+   at the single production call site (D3), so no shipped configuration, CLI
+   invocation or `Simulator` run can reach it; only a direct solver call can.
+   On that surface, silence became a typed failure, which is the direction
+   `Fix.md` Section 16 asks for.  The absent and empty configurations stay
+   bit-identical, which is what governs every real run.
+4. **Two HEALPix-only numerical consequences of D4, both at the floating-point
+   noise floor and both making the diffuse path agree with the point path.**
+   Measured against `e1ae149` on `osx-arm64`/py311: (a) with a circular receptor
+   reported in a *linear* basis -- the only case where `C` and `H` are both
+   non-identity -- the composition changes from `(H @ C) @ E`, with `H @ C`
+   formed once in host `float64`, to the canonical `H @ (C @ E)` the point path
+   has always used; maximum relative deviation `3.2e-16`, one ULP of
+   `complex128`.  (b) Under a preset whose Jones precision is `float32` but whose
+   accumulation precision is `float64` -- `fast` is the shipped example -- the
+   diffuse path's per-antenna Jones is now `complex128`, as the point path's
+   always was, rather than inheriting the beam's `complex64`; maximum relative
+   deviation `8.8e-8` on the shipped hybrid configuration, one ULP of
+   `complex64`.  Every shipped configuration at the default precision, every
+   point-path workload at every preset, and every 6A/7A environment-keyed pin
+   are bit-identical.
+
 **7C — public-surface truth.**
 Delete the 26 stub classes and their five now-empty modules; rename
 `CrosshandPhaseJones` to `CrosshandJones`; remove the `jones_config` parameter
@@ -2454,7 +2553,38 @@ required.
 - `tests/unit/test_jones/test_receptor.py`
 - `tests/unit/test_jones/test_basis_transform.py`
 - `tests/characterization/test_tier7_current_behavior.py` (pin flips only)
+- `tests/characterization/test_tier5_current_behavior.py` (pin flips only)
+- `tests/characterization/test_tier6_current_behavior.py` (pin flips only)
+- `tests/unit/test_core/test_visibility_backend.py`
 - `Fix.md`
+
+**Correction (7B implementation, 2026-08-01):** the last three entries are added
+by this correction, because 7B could not be executed without them and Section 34
+requires a bounded plan correction rather than a silent overreach.  Each is
+forced by a pin that names the exact mechanism 7B replaces, and in each case the
+*property* the pin was written to protect is preserved or strengthened:
+
+- `test_tier5_current_behavior.py` evaluates `C` and `H` through
+  `compute_jones` and the chain through `compute_antenna_jones`, both of which
+  this slice removes, and pins the HEALPix path as having no chain, which D4
+  exists to change.  The Tier 5 properties -- the exact `S` matrix, the exact
+  identity for the default linear array, `terms[0] @ ... @ terms[-1]`, and
+  exactly one chain implementation -- are all re-asserted through the new
+  contract.
+- `test_tier6_current_behavior.py` anchors Tier 6D's "the constant `H_p @ C_p`
+  is built once, above the time loop" on the literal
+  `receptor_transforms = _receptor_transforms(`.  7B replaces that constant
+  matrix product with the two run-constant chain terms that produce it, hoisted
+  to the same place, so the anchor moves to `_resolved_receptor_terms(` and the
+  property is preserved.  The same test's `for freq_idx, freq in enumerate(...)`
+  assertion cannot survive -- the batched contract passes a frequency index to
+  every term -- and is replaced by the assertion that actually carries Tier 6D's
+  meaning: no per-cell output write survives.
+- `test_visibility_backend.py` exercises the beam adapter's removed
+  `compute_jones_all_sources` and its `antenna_number` cross-check.  That check
+  is not weakened but made unnecessary: the shared evaluator keys everything by
+  instrument row, so a row/number disagreement is no longer expressible.  The
+  test is re-aimed at the invariants that remain checkable.
 
 ### 7C
 - `src/radiosim/core/jones/gain.py`, `bandpass.py`,
