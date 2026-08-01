@@ -434,13 +434,20 @@ def test_every_exported_jones_name_resolves_through_lazy_getattr() -> None:
 def test_claude_md_claims_forty_six_exported_jones_classes() -> None:
     """Pins defect D0: the documented count disagrees with ``__all__``.
 
-    OWNED BY: Tier 7J, which rewrites the ``CLAUDE.md`` Implementation Status
-    and Jones sections around the true surviving name count.  Tier 7C's writable
-    list does not include ``CLAUDE.md``, so the claim is left stale here
-    deliberately and the gap is recorded rather than quietly closed.
+    FLIPPED BY: Tier 7J, which owns ``CLAUDE.md`` and closes D0.  The reference
+    said "46 exported classes" against an ``__all__`` of 19 names, and said that
+    only ``K``, ``E``, ``C`` and ``H`` implement real physics against a package
+    in which every term does.  Both are gone.  The property being pinned is
+    unchanged and is now checked in the direction that matters: the documented
+    count is the *true* count, and it is stated as a number a reader can verify
+    against ``__all__`` rather than as prose.
     """
-    assert "46 exported classes" in _source("CLAUDE.md")
+    text = _source("CLAUDE.md")
+    assert "46 exported classes" not in text
+    assert "Only K, E, C, and H implement real physics" not in text
     assert len(EXPORTED_JONES_NAMES) == 19
+    assert f"exactly **{len(EXPORTED_JONES_NAMES)} names**" in text
+    assert "every exported term implements real physics" in text
 
 
 def test_every_exported_term_is_real_physics_or_a_declared_plan() -> None:
@@ -1759,17 +1766,25 @@ def test_documentation_no_longer_records_a_stub_surface() -> None:
     -- that the guide describes what is there rather than what is coming -- is
     strengthened, so the assertion is inverted rather than deleted.
 
-    OWNED BY: Tier 7J.
+    FLIPPED BY: Tier 7J, which owns the reference rebuild D21 named and closes
+    it.  Two assertions move.  "``compute_jones_batch`` **raises**" was the
+    sentence describing a planned term, and there is no planned term left, so
+    what replaces it is the statement that there is none -- the same property,
+    asserted at its resolution.  The six module names stay, and the grouping
+    they sit under is checked too, because the defect was never that the modules
+    were missing: it was that they were filed under "Planned terms".
     """
     api_docs = " ".join(_source("docs/api/jones.rst").split())
     for stale in (
         "identity scaffolds",
         "A returned identity matrix is not a modeled physical effect.",
         "documented for development and inspection",
+        "Planned terms",
+        "``compute_jones_batch`` **raises**",
     ):
         assert stale not in api_docs, stale
     assert "term_status" in api_docs
-    assert "``compute_jones_batch`` **raises**" in api_docs
+    assert 'There is no ``"planned"`` term left.' in api_docs
     for module_name in (
         "ionosphere",
         "troposphere",

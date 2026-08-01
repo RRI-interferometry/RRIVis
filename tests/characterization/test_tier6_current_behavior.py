@@ -285,6 +285,7 @@ import platform
 import re
 import sys
 import time
+import tomllib
 import warnings
 from pathlib import Path
 from typing import Any
@@ -1496,14 +1497,39 @@ def test_jax_is_a_cpu_only_dependency_of_every_pixi_environment() -> None:
     The ``cpu*`` build constraint is asserted because conda-forge also ships
     CUDA ``jaxlib`` variants on the Linux subdirs, and Tier 6 makes no
     accelerator claim (plan Sections 4, 14.1).
+
+    AMENDED BY: Tier 7J.  ``Tier7JonesSciencePlan.md`` Section 34 authorizes an
+    optional ``crossval`` environment for the Section 29 Tier-2 comparison, so
+    ``default``'s declaration gained a ``solve-group`` and is no longer the bare
+    list form this test spelled out.  The property Tier 6H wrote it to protect
+    is what is asserted instead, and it is now asserted over *every* declared
+    environment rather than over two named strings: each one carries the
+    ``jax-cpu`` feature, so the parity evidence runs wherever the suite runs and
+    a future environment cannot quietly drop it.
     """
     pixi_toml = _source("pixi.toml")
     assert "[feature.jax-cpu.dependencies]" in pixi_toml
     assert 'jax = ">=0.10.2,<0.11"' in pixi_toml
     assert 'build = "cpu*"' in pixi_toml
-    assert 'default = ["py311", "jax-cpu"]' in pixi_toml
-    assert 'py312 = ["py312", "jax-cpu"]' in pixi_toml
     assert 'numpy = ">=1.24,<2.5"' in pixi_toml
+
+    manifest = tomllib.loads(pixi_toml)
+    environments = manifest["environments"]
+    assert set(environments) == {"default", "py312", "crossval"}
+    for name, declaration in environments.items():
+        features = (
+            declaration if isinstance(declaration, list) else declaration["features"]
+        )
+        assert "jax-cpu" in features, name
+    # The optional environment is `default` plus one feature, in `default`'s own
+    # solve group, so it cannot resolve a different stack (Section 29).
+    assert (
+        environments["crossval"]["solve-group"]
+        == (environments["default"]["solve-group"])
+    )
+    assert set(environments["default"]["features"]) < set(
+        environments["crossval"]["features"]
+    )
     assert "[feature.py311.dependencies]" in pixi_toml
     assert "[feature.py312.dependencies]" in pixi_toml
 

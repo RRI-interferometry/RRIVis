@@ -344,23 +344,43 @@ def test_locked_environment_and_platform_matrix_is_unchanged() -> None:
     # Tier 6H added the CPU-only ``jax-cpu`` feature to both declared
     # environments so the mandated NumPy/JAX backend-parity evidence is measured
     # instead of skipped (``Tier6HybridRuntimePlan.md`` Sections 28, 32.8, C18).
-    # The environment *set* and the platform matrix are still what Tier 4 pinned.
+    # Tier 7J added the optional ``crossval`` environment for the Section 29
+    # Tier-2 comparison, which no CI job builds and no gate runs; the two gating
+    # environments and the platform matrix are still what Tier 4 pinned.
     assert manifest["environments"] == {
-        "default": ["py311", "jax-cpu"],
+        "default": {"features": ["py311", "jax-cpu"], "solve-group": "py311"},
         "py312": ["py312", "jax-cpu"],
+        "crossval": {
+            "features": ["py311", "jax-cpu", "crossval"],
+            "solve-group": "py311",
+        },
     }
     assert manifest["dependencies"]["pyuvdata"] == "==3.2.1"
+    # The one package the optional feature adds, pinned rather than floated.
+    assert manifest["feature"]["crossval"]["pypi-dependencies"] == {
+        "pyuvsim": "==1.4.0"
+    }
 
     lock_text = PIXI_LOCK_PATH.read_text(encoding="utf-8")
     for marker in (
         "\n  default:\n",
         "\n  py312:\n",
+        "\n  crossval:\n",
         "\n      linux-64:\n",
         "\n      osx-64:\n",
         "\n      osx-arm64:\n",
     ):
         assert marker in lock_text, marker
     assert "pyuvdata-3.2.1-" in lock_text
+    # ``pyuvsim`` reaches exactly one environment: it is absent from the two
+    # gating ones, so neither gate can silently start depending on it.
+    lock = yaml.safe_load(lock_text)
+    for name, environment in lock["environments"].items():
+        for platform_name, packages in environment["packages"].items():
+            has_pyuvsim = any(
+                "pyuvsim" in str(entry.get("pypi", "")) for entry in packages
+            )
+            assert has_pyuvsim == (name == "crossval"), (name, platform_name)
 
 
 def test_base_import_graph_excludes_optional_result_dependencies() -> None:
