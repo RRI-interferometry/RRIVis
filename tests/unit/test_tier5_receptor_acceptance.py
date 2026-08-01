@@ -130,16 +130,33 @@ def _iter_package_sources() -> list[Path]:
 
 
 def _iter_reference_scan_files() -> list[Path]:
+    # Scope the walk to files git knows about (tracked, plus untracked files
+    # not covered by .gitignore) so gitignored build artifacts -- a stale
+    # ``docs/_build/`` in particular -- cannot pollute the residual scan.
+    listing = subprocess.run(
+        [
+            "git",
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            *(root.name for root in REFERENCE_SCAN_ROOTS),
+        ],
+        cwd=REPOSITORY_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     found: list[Path] = []
-    for root in REFERENCE_SCAN_ROOTS:
-        if not root.exists():
+    for relative in sorted(filter(None, listing.stdout.split("\0"))):
+        path = REPOSITORY_ROOT / relative
+        if not path.is_file() or path.suffix not in REFERENCE_SCAN_SUFFIXES:
             continue
-        for path in sorted(root.rglob("*")):
-            if not path.is_file() or path.suffix not in REFERENCE_SCAN_SUFFIXES:
-                continue
-            if "__pycache__" in path.parts:
-                continue
-            found.append(path)
+        if "__pycache__" in path.parts:
+            continue
+        found.append(path)
     return found
 
 
