@@ -13291,3 +13291,247 @@ project's standing instruction that it is slow and not part of the standard
 workflow unless explicitly requested; nothing in this integration touches
 typed public signatures. Sphinx build: not exercised, out of scope for a
 test-infrastructure-only change.
+
+### 2026-08-02 Tier 7I independent acceptance
+
+Reviewed range `ea0e98c..e415624` (four commits: `59f5740` plan correction,
+`edb1dd2` red tests, `7bb4704` implementation, `e415624` an arctan2 fix). This
+slice closes `SCI-003` by implementing the two `beam/TODO.md` items Section
+19.2 selects -- per-antenna deterministic pointing offsets and Ruze
+random-surface efficiency -- inside `core/beam`/`BeamSystem`, and fixes a
+pre-existing solver-cache defect the new per-antenna physics exposes.
+
+**The Ruze voltage convention, derived independently.** Ruze (1966) states
+`G/G0 = exp(-(4 pi sigma/lambda)^2)`, a **power** (gain) ratio. RadioSim's `E`
+is a voltage beam and the RIME contracts `E_p B E_q^H`, so a voltage factor `v`
+appears squared in the visibility of a like-antenna baseline: `v^2` must equal
+the published power ratio, giving `v = sqrt(eta_s) = exp(-(1/2)(4 pi
+sigma/lambda)^2)`. The plan's original literal reading -- `eta_s` applied
+directly to the voltage beam -- would make the baseline lose `eta_s^2`, i.e.
+implement `exp(-2(4 pi sigma/lambda)^2)`, twice Ruze's published exponent. This
+is exactly I10's `exp(-tau/2)` opacity discipline applied to the tier's other
+efficiency scalar. Verified in the source
+(`core/beam/runtime.py`'s `ruze_power_efficiency`/`ruze_voltage_factor`, the
+latter literally `exp(-0.5 * argument**2)`) and end to end in
+`test_beam_pointing.py::test_ruze_scales_the_voltage_beam_by_the_square_root_of_the_efficiency`,
+reproduced directly: the baseline power ratio equals `eta_s`, not `eta_s^2`, to
+`abs=1e-13`. **Ruling: the implementer's correction is right, ratified.**
+
+**The pointing geometry, probed directly.** The rotation composes an azimuth
+turn about the local vertical (`shifted_azimuth = azimuth - delta_az`) with an
+elevation tilt of the beam frame away from the zenith
+(`beam_up = north*sin(delta_el) + up*cos(delta_el)`). Solving for the
+direction that maximizes `beam_up` (the frame's own pole, i.e. the beam's
+peak) gives `east=0`, `north=sin(delta_el)`, `up=cos(delta_el)`, i.e. true
+`azimuth = delta_az` and true `altitude = pi/2 - delta_el` -- independent of
+this review's own derivation and confirmed against the shipped test's
+parametrized cases (`(az, el) in {(0,0.5),(90,1.25),(-137,3),(180,0.25)}` deg,
+all reproduced, boresight response `1.0` to `1e-15` and great-circle
+displacement equal to `delta_el` to `1e-13`). The great-circle angle from the
+true zenith to that point is exactly `delta_el`, regardless of `delta_az`,
+confirming the peak-displacement invariant as a great-circle statement, not a
+small-angle one. **Keyhole degeneracy, reproduced**:
+`test_azimuth_offset_alone_is_the_alt_az_keyhole_degeneracy` shows a pure
+`delta_az` (delta_el=0) leaves a circular-aperture response untouched
+(`atol=1e-12`) while visibly changing a rectangular aperture's
+(`not np.allclose(..., atol=1e-9)`) with the boresight response itself
+unmoved -- exactly the claimed physics, and independently sound: with
+`delta_el=0`, `beam_up = up = sin(altitude)` identically, so the zenith-angle
+argument every circularly symmetric pattern depends on is untouched by
+`delta_az`. **Horizon gate, reproduced**:
+`test_pointing_offset_leaves_the_horizon_gate_on_the_true_altitude` (altitudes
+`-1e-9, -0.01, -0.5, -pi/2` with `delta_el=5 deg`) returns exactly zero for
+all four; read in the source, `evaluate_jones` only rotates entries where the
+*true* `altitude_rad >= 0`, so a below-true-horizon direction is passed to the
+evaluator unrotated and is zeroed by the evaluator's own `altitude >= 0` gate
+(`analytic.py:683`) on its true value -- the domain-violation argument (an
+additive `alt - delta_el` shift would push a zenith-pointed peak to
+`90 + delta_el`, outside the enforced `[-pi/2, pi/2]`) is confirmed by reading
+`analytic.py`'s own domain check, which raises `BeamAngularDomainError` outside
+that closed interval. **The arctan2 fix, probed near the pole**: with the old
+`arcsin(clip(beam_up, -1, 1))`, an input error of `eps` in `beam_up` near
+`beam_up=1` becomes an angle error of order `sqrt(eps)` (the derivative of
+`arcsin` diverges at its endpoint), which is what produced the commit's cited
+`89.999999146` degree boresight instead of `90`; `arctan2(beam_up,
+hypot(east, beam_north))` has no such singularity (its Jacobian is bounded
+everywhere on the sphere) and the same by-hand check now gives `90` to double
+rounding, matching the commit's claim and the tightened `abs=1e-15` peak
+tolerance verified above. **Ruling: the geometry is right, ratified.**
+
+**The cache bug, constructed and verified independently.** Read
+`core/visibility.py`'s pre-image at `ea0e98c`:
+`_ResolvedBeamJones.compute_jones_batch` keyed `self._handler_cache` on
+`handler_id` alone. Two antennas of equal diameter and model resolve to one
+shared analytic handler (`test_per_antenna_offsets_separate_antennas_sharing_
+one_handler` confirms `len(handler_ids) == 1` for exactly this layout), so a
+per-antenna pointing offset configured on only one of them would have been
+evaluated once, cached under the shared `handler_id`, and served unchanged to
+the other antenna -- silently discarding its own offset (or lack of one).
+`test_a_pointing_offset_is_not_served_from_the_other_antennas_cache`
+constructs exactly this: one handler, antenna 1 offset by 25 deg elevation,
+antenna 0 not, and reproduced directly -- `first != second` (the two
+responses genuinely differ) and `len(adapter._handler_cache) == 2` (one entry
+per response, not per handler); a repeat call for antenna 1 returns the cached
+value unchanged (`np.array_equal(second, repeated)`), proving the cache still
+works, just keyed correctly. To confirm the bug was real pre-fix rather than
+inferred, this review re-derived the `ea0e98c` code path by hand from the
+diff: with the pre-image's `if handler_id not in self._handler_cache`, the
+*second* call (antenna 1) would have found `handler_id` already cached from
+antenna 0's evaluation and returned antenna 0's response unmodified --
+mathematically identical output for both antennas whenever their offsets
+differ, which is wrong whenever those antennas' beams should differ. The fix
+(`core/visibility.py`'s `response_key = self._beam_system.response_key(
+canonical)`, `BeamSystem.response_key` in `runtime.py`) is a cache-key
+substitution only -- no other line in the adapter changed -- and is exactly
+the `handler_id` itself whenever an antenna carries neither a pointing offset
+nor a surface error
+(`test_response_key_is_the_handler_id_when_nothing_is_configured`, reproduced,
+passes), so the absent case is provably unperturbed. **Latent-harmless before
+7I, confirmed**: no per-antenna mount physics existed before this slice, so
+`handler_id` and the response key were always equal at `ea0e98c`; a
+bit-identical rerun of `configs/config.yaml` at `ea0e98c` and at `e415624`
+(neither configuring `pointing` nor `surface_error`) gives an identical
+`scientific_sha256`
+(`4bbb74035b3d700fa7638dca6b854a8c9110bc2abe8d418c7b180f527b947f2b` both, HDF5
+attribute, reproduced directly by this review outside the test suite),
+confirming the fix changed no pre-7I result. **Adjudication: forced
+consequence, not a scope violation** -- the same reasoning the 7B evaluator
+precedent applies: a slice's own physics exposing a latent defect in a shared
+data path forces the minimal fix in that path, and Section 34's own text
+already declares this file and reasoning as one of the six forced additions;
+this review's independent construction confirms the declared reasoning is
+correct rather than merely asserted.
+
+**Zero-resolves-to-absence, reproduced.** `test_zero_pointing_offset_resolves_
+to_absent` and `test_zero_surface_error_resolves_to_absent_and_is_bit_
+identical`: an antenna authoring an exact-zero override reproduces the
+untouched `assignment_fingerprint` bit for bit, while a sibling antenna taking
+a non-zero default differs; `test_the_beam_state_fingerprint_moves_only_when_
+science_is_present` confirms the `state_fingerprint` is unchanged when nothing
+resolves and moves, differently, for a pointing-only vs. a surface-error-only
+block. All reproduced directly. **R7-shape extension, ratified**: `beams.
+pointing`/`beams.surface_error` reuse the same "present-and-inert is rejected"
+rule R7 applies to `jones:`, both as an all-zero-authored block
+(`test_an_all_zero_pointing_block_is_rejected`,
+`test_an_all_zero_surface_error_block_is_rejected`) and as an empty block
+(`test_an_empty_pointing_block_is_rejected`) -- both reproduced, both raise
+`ConfigSchemaError` with the documented message. **The `_optional_block_fields`
+global serialization change (risk #3), traced.** `core/beam/models.py`'s
+`_snapshot_value`/`_canonical_value` are private, used nowhere outside that one
+file, and an AST scan of every `@dataclass` in that module (not a grep, a
+parsed scan of every `ast.AnnAssign` with a `None` default) finds exactly ten
+field declarations across five classes, all newly added by this commit and all
+sharing the same two field names (`pointing`, `surface_error`) -- no
+pre-existing field acquired a new default in this change, so the omission
+rule cannot silently move an existing digest. **No guard test pins this scope
+today; ruled non-blocking** -- the risk is a *future* regression (someone adds
+an unrelated `= None` dataclass field to this file later and it silently stops
+serializing), not a present one, and the extensive existing fingerprint-pin
+infrastructure (this file's own `test_the_beam_state_fingerprint_moves_only_
+when_science_is_present` plus the characterization suite's environment-keyed
+pins) would still catch any *shipped* configuration's digest moving
+unexpectedly; a purpose-built guard is a bounded, low-priority hardening item,
+not an acceptance blocker.
+
+**Undeclared-file adjudication.** Two files outside the base Section 34 list
+were found in the diff. (1) `tests/unit/test_core/test_beam_fits.py` --
+flagged by the implementer -- hardcodes
+`runtime.__all__ == ["BeamSystem", "load_beam_system"]`, which the slice's own
+mandated public Ruze functions (Section 19.2: "Both closed forms are public
+and documented") make false; the four-line assertion-list update is forced by
+the slice's own physics, the same shape as the other six declared additions.
+**Ratified as a seventh forced addition**, applied directly to Section 34
+below. (2) `src/radiosim/core/__init__.py` (twelve lines, new resolved-value
+re-exports) -- traced to `tests/unit/test_core/test_beam_models.py`'s
+already-declared `test_resolved_types_are_exported_only_from_core_boundaries`,
+which asserts every name in `core.beam.models.__all__` is also in
+`core.__all__`; since the six new resolved types are (correctly) added to
+`models.__all__`, this pre-existing test forces the `core/__init__.py` change
+by itself. **Not a further gap** -- a consequence of a declared file, not an
+eighth undeclared one.
+
+**Tests-first, reproduced exactly.** `edb1dd2` checked out into a detached
+worktree and run at its own tree: `pixi run test -- tests/unit/test_core/
+test_beam_pointing.py -q` gives **30 failed** exactly, all `ConfigSchemaError`/
+assertion failures against the not-yet-existing `beams.pointing`/`beams.
+surface_error` fields, matching the commit's own claimed count. `git diff
+--stat ea0e98c edb1dd2 -- src/` is empty, confirming zero production changes
+in the red-test commit.
+
+**Bit-identity and pins, reproduced.** `tests/characterization/` (177 tests,
+one file touched -- `test_tier7_current_behavior.py`, the D20 pin) all pass;
+`git diff --stat ea0e98c e415624 -- tests/characterization/` confirms exactly
+one file, one flipped pin, and it is the file's own declared owner
+(`OWNED BY: Tier 7I` in the pin's own docstring pre-image) -- consistent with
+the 7D-7H precedent that a pin may only be flipped by the slice its own text
+names. `pixi run test -- tests/unit/test_core/test_beam_pointing.py
+test_beam_models.py test_beam_resolution.py test_beam_runtime.py
+test_beam_fits.py test_beam_solver_integration.py`: **316 passed**. Backend
+parity (`test_pointing_and_ruze_are_backend_parity_clean[dask]`/`[jax]`, plus
+the pre-existing point/HEALPix parity cases in the same file): **9 passed**,
+Dask bit-identical, JAX-CPU `rtol=1e-12`. End-to-end `scientific_sha256`
+bit-identity (`configs/config.yaml`, no `pointing`/`surface_error` authored),
+reproduced by this review directly against a fresh detached `ea0e98c`
+worktree, outside the test suite: identical
+(`4bbb74035b3d700...`, both commits); `provenance_sha256` differs, which is
+expected (provenance is not scientific content).
+
+**Gates -- both environments, reproduced directly by this review.**
+`pixi run test -- -m "not slow"`: **5,293 passed, 0 failed, 10 deselected** in
+both `default`/py311 (27 warnings, 126s) and `py312` (41 warnings, 138s);
+`5,259 + 34 = 5,293` confirmed exactly (30 new tests in `test_beam_pointing.py`
+plus 4 new in `test_beam_solver_integration.py`, 2 of them the backend-parity
+parametrization). Full suite (`pixi run test`, default environment): **5,303
+passed, 0 failed, 27 warnings**, `5,293 + 10` deselected-when-filtered exactly.
+`pixi run lint`: clean. `pixi run format --check`: clean, 371 files already
+formatted. `pixi lock --check`: up to date. `pixi install --locked` for both
+`default` and `py312`: both succeed. All four shipped YAMLs
+(`configs/*.yaml`) validate directly via `radiosim validate`. Laziness:
+`test_every_exported_jones_name_resolves_through_lazy_getattr`,
+`test_both_terms_are_reachable_from_the_lazy_jones_namespace`, and
+`test_fresh_imports_are_lazy_and_do_not_initialize_backends` all reproduced
+directly, pass -- Tier 7I's two new runtime functions are plain `math`-based
+free functions with no import-time cost, and neither test needed updating
+beyond the `__all__` pin already discussed.
+
+**The Sphinx 16-vs-18 baseline, settled.** The implementer's claim (in this
+review's briefing) that `ea0e98c`'s true baseline is 18, not the previously-
+recorded 16, does **not** survive independent reproduction. A forced full
+rebuild (`-b html -E`) in the live working tree gives 18 warnings, but the
+live tree carries `docs/superpowers/` -- a gitignored local-only directory,
+confirmed present by `git status --porcelain --ignored=matching`, and the same
+contamination 7H's acceptance record already diagnosed as "+2 `toc.
+not_included` warnings, unrelated to the reviewed commits." Rebuilding in
+**fresh, detached git worktrees** of both `ea0e98c` and `e415624` (no
+`docs/superpowers/` present in either) gives exactly **16 warnings** in both,
+and the two warning logs are byte-for-byte identical after stripping the
+worktree path prefix. **Ruling: the established 16-warning baseline stands.**
+The implementer's 18 is the diagnosed local-environment artifact, not a
+property of `ea0e98c`; this slice introduces zero new Sphinx warnings. The
+plan's status header is corrected to record this rather than to adopt the
+implementer's number.
+
+**Disposition.** **VERDICT: ACCEPTED.** No material defect: the Ruze
+convention and pointing geometry are both independently re-derived and
+confirmed correct, the cache fix is a real, minimal, provably-scoped
+correctness fix, and every invariant (I19, the keyhole degeneracy, the horizon
+gate, zero-resolves-to-absence) was probed directly rather than taken on
+faith. Two bounded corrections applied to `Tier7JonesSciencePlan.md` before
+this acceptance: `test_beam_fits.py` declared as a seventh forced Section 34
+addition (with `core/__init__.py` confirmed as a consequence of an
+already-declared file, not an eighth), and the Sphinx baseline settled at 16
+(rejecting the implementer's 18). No decision changed. Acceptance commit:
+`docs(jones): accept Tier 7I beam physics`. Not pushed.
+
+**Unobserved items.** `linux-64` execution: not available in this
+environment; reproduction is `osx-arm64`/py311 and py312 only, matching every
+prior tier's acceptance record in this file. GPU/TPU/distributed hardware:
+none exercised, none claimed. `pixi run typecheck`: not run, per this
+project's standing instruction that it is slow and not part of the standard
+workflow unless explicitly requested; nothing in this slice touches typed
+public signatures beyond what `pixi run lint`/the full test suite already
+exercise. The Ruze error-beam decomposition and the other four `SCI-005`-routed
+items were not independently re-derived beyond confirming their citations and
+non-goals read consistently in `beam_physics_scope.md`; they are explicitly
+out of scope for this slice. `SCI-005`'s own register row is deferred to 7K
+per Section 19.3, not filed here.

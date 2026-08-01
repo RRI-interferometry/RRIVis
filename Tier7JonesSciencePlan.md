@@ -71,7 +71,21 @@ residual-delay/fringe-rate geometry (`tau_res` measured from the phase
 centre and the ENU fixed-zenith fringe-rate expression), both independently
 re-derived from first principles and confirmed correct; no decision changed;
 see `Fix.md`'s 2026-08-02 "Tier 7H independent acceptance" note for the full
-record). Slice **7I is authorized**.**
+record). Slice **7I is accepted** (2026-08-02, independent review; the
+geometry, Ruze-convention, and accepted-YAML corrections the implementer had
+already applied to Section 19.2, plus the six forced Section 34 additions,
+all ratified after independent re-derivation; one further bounded correction
+applied directly by this review -- a seventh forced Section 34 addition,
+`tests/unit/test_core/test_beam_fits.py`, whose own hardcoded `runtime.__all__`
+pin the slice's mandated public Ruze functions make wrong -- and one implementer
+claim rejected: the assertion that `ea0e98c`'s true Sphinx baseline is 18, not
+16, does not survive a clean detached-worktree rebuild (16 warnings,
+byte-identical text, at both `ea0e98c` and `e415624`); the established 16
+baseline stands, and the 18 the implementer measured is the same
+`docs/superpowers/`-contamination artifact 7H already diagnosed for an
+in-tree build. No decision changed; see `Fix.md`'s 2026-08-02 "Tier 7I
+independent acceptance" note for the full record). Slice **7J is
+authorized**.**
 
 This document is the governing implementation specification for Tier 7 of the
 RadioSim remediation program, defined by [`Fix.md`](Fix.md) Section 16
@@ -3659,11 +3673,13 @@ does not make them stale in a new way.
 - `docs/user_guide/beam_models.rst`, `docs/user_guide/configuration.rst`
 - `Fix.md`
 
-**Correction (7I implementation, 2026-08-02) — six forced additions.** Each is a
-file that *owns* something this slice must change, a pin that names Tier 7I as
-its owner in its own body, or a call site that this slice's physics makes
-incorrect. None widens what the slice does. The same shape, and the same
-reasoning, as 7E's, 7F's, 7G's and 7H's corrections.
+**Correction (7I implementation, 2026-08-02; independent review adds a
+seventh, same day) — seven forced additions.** Each is a file that *owns*
+something this slice must change, a pin that names Tier 7I as its owner in its
+own body, a call site that this slice's physics makes incorrect, or a hardcoded
+assertion this slice's own mandated public surface makes wrong. None widens
+what the slice does. The same shape, and the same reasoning, as 7E's, 7F's,
+7G's and 7H's corrections.
 
 - `src/radiosim/io/beam_config.py` — the list says "`src/radiosim/io/config.py`
   (the `beams` section only)", but no `beams` section lives there. `io/config.py`
@@ -3701,6 +3717,30 @@ reasoning, as 7E's, 7F's, 7G's and 7H's corrections.
   shared-handler/differing-response regression above is provable end to end. A
   slice that changes the adapter's cache and cannot touch its integration test
   would be asserting the fix nowhere.
+- `tests/unit/test_core/test_beam_fits.py` — Section 19.2 requires the two
+  Ruze closed forms to be public
+  (`radiosim.core.beam.runtime.ruze_power_efficiency`,
+  `ruze_voltage_factor`), and this file's own
+  `test_fits_modules_do_not_publish_private_runtime_symbols` hardcodes
+  `runtime.__all__ == ["BeamSystem", "load_beam_system"]`. Left alone, that
+  assertion would fail the moment the mandated public surface exists; the
+  slice cannot both honor Section 19.2's "public and documented" requirement
+  and leave this pin unwritten. Flagged as undeclared during independent
+  review and ratified here for the same reason as the other six: the file
+  owns a pin this slice's own physics makes wrong, and the change is the
+  four-line assertion update the pin requires, nothing wider.
+
+Independent review also traced `src/radiosim/core/__init__.py`'s twelve-line
+diff (six new resolved names re-exported at the package root) and found it
+**not** a further undeclared file: `tests/unit/test_core/test_beam_models.py`
+(already on the base 33.2 list) contains
+`test_resolved_types_are_exported_only_from_core_boundaries`, which iterates
+`core.beam.models.__all__` and asserts every name is also in `core.__all__`.
+Adding the two Tier 7I resolved-value families to `models.__all__` (required,
+since `core/beam/__init__.py`'s own re-export is one of the six original
+forced additions) makes that pre-existing, already-declared test force the
+`core/__init__.py` change; it is a consequence of a declared file, not a
+seventh gap.
 
 `CLAUDE.md` is **not** added: its Implementation Status and beam paragraph are
 Tier 7J's explicit deliverable (D0, D21), and 7I does not make them stale in a
