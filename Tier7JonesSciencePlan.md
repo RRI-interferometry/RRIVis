@@ -32,6 +32,13 @@ implementer had already applied to Sections 33.2 and 34
 `chain_terms`-excludes-`H`/`C`/`E` correction, ratified by this review with
 no further correction and no decision changed; see `Fix.md`'s 2026-08-01
 "Tier 7D independent acceptance" note for the full record). Slice **7E is
+accepted** (2026-08-01, independent review; two bounded factual corrections
+applied to Section 24 (blessing the reduced, feedless R5 message `X` actually
+raises) and Section 34's 7G file list (adding `src/radiosim/core/jones/base.py`,
+omitted despite that file's own docstring committing 7G to edit it), plus
+independent re-derivation of the Section 20.3 IXR correction from first
+principles (confirmed correct); no decision changed; see `Fix.md`'s 2026-08-01
+"Tier 7E independent acceptance" note for the full record). Slice **7F is
 authorized**.**
 
 This document is the governing implementation specification for Tier 7 of the
@@ -2103,7 +2110,7 @@ string. `<...>` denotes an interpolated value.
 | R2 | `jones` present but empty (`jones: {}`) | `InvalidJonesConfigError` | `"jones: is present but configures no term; remove the section or configure at least one term."` |
 | R3 | unknown key under `jones:` | Pydantic strict | standard Tier 1 unknown-field rendering, listing the accepted term letters |
 | R4 | `per_antenna` names an antenna number absent from the resolved instrument | `JonesAssignmentError` | `"jones.<TERM>.per_antenna references antenna number <n>, which is not in the resolved instrument; known numbers are <...>."` |
-| R5 | duplicate `(antenna, feed)` in one term's `per_antenna` | `InvalidJonesConfigError` | `"jones.<TERM>.per_antenna contains a duplicate entry for antenna <n> feed <f>; each (antenna, feed) may appear once."` |
+| R5 | duplicate `(antenna, feed)` in one term's `per_antenna` | `InvalidJonesConfigError` | `"jones.<TERM>.per_antenna contains a duplicate entry for antenna <n> feed <f>; each (antenna, feed) may appear once."` — for a term whose `per_antenna` carries no feed key (Tier 7E: `X`, whose one parameter is the antenna's own relative phase, not a per-feed value), the message is this same sentence with the pair reduced to the key that exists: `"jones.<TERM>.per_antenna contains a duplicate entry for antenna <n>; each antenna may appear once."` Naming a feed the configuration never wrote would be worse than adapting the wording, and no other term in Tier 7 is feedless, so this is a bounded, named exception rather than a general license to reword R5. |
 | R6 | `feed` not in `{0, 1}` | `InvalidJonesConfigError` | `"jones.<TERM>.per_antenna feed=<f> is invalid; feeds are indexed 0 and 1 in the antenna's own receptor basis."` |
 | R7 | a term's resolved parameters make it exactly the identity for every antenna, frequency, time, and direction | `IdentityJonesTermError` | `"jones.<TERM> is configured with parameters that make it exactly the identity; a term that cannot change the visibilities must be removed rather than configured."` |
 | R8 | `Rc.amplitude` outside `(0, 1)` | `InvalidJonesConfigError` | `"jones.Rc.amplitude=<a> must satisfy 0 < |A| < 1; a reflection cannot return more power than it receives."` |
@@ -2980,6 +2987,16 @@ No other file outside the list was touched.
 ### 7G
 - `src/radiosim/core/jones/ionosphere.py`, `troposphere.py`,
   `src/radiosim/core/jones/__init__.py`
+- `src/radiosim/core/jones/base.py` — **correction (Tier 7E independent
+  acceptance, 2026-08-01).** The list previously omitted this file. Its own
+  `compute_jones_batch` docstring states directly that the method "becomes
+  `@abstractmethod` in the slice that implements the last of them -- Tier 7G,
+  once `Z` and `T` land," and its `term_status` docstring enumerates "nine
+  exported terms ... still `\"planned\"\`" by name. 7G is the slice at which
+  that enumeration reaches zero, so 7G is the one slice that can make both
+  statements true again rather than merely less wrong; a slice list that never
+  named the file would leave no writable-file authority for the edit its own
+  governing docstring commits to.
 - `src/radiosim/core/jones_terms.py`, `src/radiosim/io/jones_config.py`
 - `tests/unit/test_jones/test_ionosphere.py` (new),
   `test_troposphere.py` (new), `test_backend_parity.py`,

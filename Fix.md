@@ -12110,3 +12110,255 @@ pre-existing Tier 1 renderer behavior every other section gets, not a 7D
 defect, and not independently confirmed to render a hint for `jones:`
 specifically. Cross-implementation validation (Section 29): out of scope
 for 7D, owned by 7J; not assessed here.
+
+### 2026-08-01 Tier 7E independent acceptance
+
+Independent review of Tier 7E (`356d666..c130568`, eight commits: `9cc3117`
+red tests, `b0c86bc`/`7c4840b`/`9e14e5a`/`dffed12` plan corrections, `3364f7e`
+implementation, `7bee3b4` parity/e2e, `c130568` docs), completing calibration
+workstream A -- `D` (leakage), `X` (cross-hand), `Kd` (delay), `Rc` (cable
+reflection).
+
+**The IXR correction (`b0c86bc`), derived independently.** IXR is the ratio
+of an antenna's co-polar to cross-polar response power. For the code's own
+`D_p = [[1, d_p0], [-d_p1^*, 1]]`, apply it to a unit signal aligned with feed
+0, `e_0 = (1, 0)^T`: the output is `(1, -d_p1^*)^T`, so the co/cross power
+ratio for that alignment is `IXR_lin = 1/|d_p1|^2`, i.e. `|d| = 1/sqrt(IXR_lin)`
+-- exactly the corrected form, and independent of the sign/conjugate
+convention (the same computation on the symmetric form `[[1,d],[d,1]]` used in
+much of the literature gives the identical `|d|`). Limits check: `IXR_dB ->
+infinity` gives `|d| -> 0` (a perfect antenna has no leakage); `IXR_dB = 0`
+gives `|d| = 1` (total depolarization). The old, inverted form
+`(sqrt(IXR_lin)-1)/(sqrt(IXR_lin)+1)` gives `0.94` at 30 dB and `0` at 0 dB --
+backwards on both counts, confirming the correction's own diagnosis. **One
+imprecision noted, not blocking:** the plan's and the module docstring's
+stated route to the same answer -- "for `D=[[1,d],[-d^*,1]]` the singular
+values are `1 +- |d|`" -- does not hold for the code's own convention at
+`d_p0 = d_p1 = d`: direct computation gives `D D^H = (1+|d|^2) I2`, i.e. `D` is
+a **scaled rotation** at that point (degenerate singular values, condition
+number exactly 1), which is what the same docstring says two paragraphs
+earlier ("makes `D` reduce to a rotation for real, equal leakages"). The two
+statements are in tension for the same matrix. The final formula is
+unaffected -- it was independently re-derived above by a different, more
+direct route (co/cross power ratio for a standard-basis input) that does not
+depend on which convention's singular values are used -- so this is a
+narrative imprecision in a source docstring, not a computational error, and
+is not a `Tier7JonesSciencePlan.md` defect (Section 20.3's own text is the
+same one being described): left for a future documentation pass rather than
+corrected here, since fixing prose in `polarization_leakage.py` is a
+production-file edit outside this acceptance gate's scope. **Ruling: the
+correction is right** -- `|d| = 1/sqrt(IXR_lin)` is CORRECT, confirmed
+independently, not merely re-read from the diff. `beam/TODO.md:16` still
+carries the inverted form, confirmed by direct read;
+routing to Tier 7I (which owns that file, deleting it in favour of
+`docs/development/beam_physics_scope.md`) is confirmed in 7I's Section 34
+file list. Correct disposition.
+
+**Oracles, independently scripted (9 run, exceeding the 6 requested):** (1)
+IXR conversion at 0/10/20/30/40 dB matches `1/sqrt(IXR_lin)` to `1e-12`; (2)
+`D`'s exact (not first-order) cross-hand prediction `V_01=(I/2)(d_p0-d_q1)`,
+reproduced by direct `D_p @ B @ D_q^H` for unpolarized `B`, machine precision;
+(3) `det D = 1 + d_p0 d_p1^*`, confirmed; (4) `D D^H` diagonal
+`= 1+|d_0|^2, 1+|d_1|^2`, confirmed; (5) `D` and a feed-asymmetric `G` do not
+commute (`DG != GD`, checked numerically) -- and the suite's own
+`test_leakage_does_not_commute_with_a_feed_asymmetric_gain` and
+`test_leakage_reaches_a_circular_receptor_in_its_own_basis`
+(`tests/unit/test_jones/test_leakage.py:565,624`) independently pin the same
+two properties end to end through a real `setup()`/receptor-resolved run --
+the latter reconstructing the leaked cube via `H D H^H` in the reported basis
+and showing the raw (un-conjugated) `D` does *not* reproduce it, which is the
+sharpest possible confirmation that `D` sits correlator-side of `C` as
+Section 12.3 claims; (6) `X`'s phase is exactly linear in frequency; (7) a
+common (array-wide, same-antenna-pair) `X` leaves both parallel hands
+invariant but rotates each cross-hand visibility by a single one-sided
+`exp(-i*theta)` factor that does **not** cancel -- contrasted directly against
+a common `G` phase on the same feed index, which **does** cancel on the
+parallel hand, because both antennas of the baseline conjugate the *same*
+feed's phase against itself, whereas `X`'s cross-hand correlations each carry
+only one of the two antennas' phasors, with no matching partner to cancel
+against; (8) `Kd`: a delay common to both feeds of every antenna cancels
+exactly (baseline factor is `I2` to `1e-12`), the I4 sign
+`exp(-2*pi*i*nu*tau)` verified directly, and a differential delay produces an
+exactly linear phase slope (`polyfit` slope matches the closed form to
+`1e-6`); (9) `Rc`: `|r|` bounded in `[1-A, 1+A]` (checked numerically),
+approximately periodic with period `1/tau_cable` on a finite grid (residual
+consistent with grid quantization, not a defect), and an `ifft` of the
+frequency response over a 4096-point, 100 MHz grid places the secondary
+delay-domain peak at exactly `tau_cable = 200` ns with peak magnitude `0.300`
+against a configured `A = 0.3` -- the delay-domain signature Section 20.6
+claims, reproduced directly rather than read back from the code.
+
+**Tests-first (`9cc3117`), reproduced in a detached worktree, not taken on
+faith.** `git show --stat` confirms zero `src/` changes in that commit (five
+new test files only). Collection and failure counts reproduced exactly:
+`test_leakage.py` -- 2 collection errors (`ImportError: cannot import name
+'LeakageCoefficient'`); `test_crosshand.py` -- 20 failed; `test_delay.py` --
+19 failed; `test_cable_reflection.py` -- 20 failed;
+`test_jones_resolution.py` -- 34 failed, 22 passed. All five counts match the
+commit message's own claim exactly. Genuinely red, for the right reason
+(missing names / unimplemented resolution paths), not a mislabeled skip.
+
+**Schema and rejections.** R4/R5/R6/R7/R8 read directly in
+`core/jones_terms.py`: all four byte-exact against Section 24, confirmed by
+direct string comparison of the f-string templates, not by running one
+example and eyeballing it. R7 fires last (identity check observed to run
+after structural and physical validation, and before any beam/sky load --
+`test_every_7e_rejection_precedes_the_first_side_effect` and the pre-existing
+`_beam_system is None` witness both pass). R8 fires before the identity check
+(`test_the_reflection_range_check_precedes_the_identity_check` passes) and is
+byte-exact including the physics clause. **X's R5 message is not verbatim**
+(`"...contains a duplicate entry for antenna <n>; each antenna may appear
+once"`, no feed key) because `X`'s `per_antenna` genuinely carries no feed
+index -- verified in `crosshand.py` and `jones_terms.py:
+_validate_antenna_overrides`: `X`'s one parameter is the relative phase
+*between* an antenna's two feeds, so there is structurally nothing for a
+feed key to name. **Ruling: acceptable, and blessed by a bounded correction
+to Section 24** (applied in this review, see below) rather than left as a
+silent deviation, because Section 24 as written has no provision for a
+feedless term and a byte-exact reading of R5 against `X` would otherwise be
+an unsatisfiable requirement, not a defect. **`ixr_db > 0`** is enforced by a
+plain Pydantic `Field(strict=True, allow_inf_nan=False, gt=0.0)`, producing a
+standard `ValidationError` ("Input should be greater than 0"), confirmed by
+direct construction probe -- not a custom `R`-numbered message. **Ruling:
+acceptable, no correction needed**: Section 24 assigns no `R` number to this
+constraint (unlike `Rc.amplitude`, which Section 24 explicitly names as R8),
+and Section 26.1 stage 1 is exactly "Pydantic strict parse ... bad `kind`" --
+a `gt` violation on a scalar field is the same class of failure, not a
+physical range check the plan singles out for a bespoke message.
+
+**I14 reformulation.** Read directly:
+`test_the_two_sky_paths_agree_with_every_implemented_term_enabled`
+(`tests/unit/test_tier7_jones_acceptance.py:530`) replaces the prior
+per-element-ratio comparison with a full matrix check
+`corrupted = M(nu) @ plain @ M(nu)^H` via `np.einsum("ij,tbjk,lk->tbil", ...)`
+at `rtol=1e-11`, with `M` written out independently from Sections 20.1-20.6's
+closed forms (gain, bandpass, reflection, delay collapse to scalars under the
+test's own array-wide, feed-symmetric configuration and are pulled out as a
+scalar product; `X` and `D` are genuinely matrix-valued and composed as
+`crosshand @ leakage`, matching the canonical order). This is strictly
+stronger than a scalar ratio -- well-defined even though `D` is non-diagonal,
+which is exactly why 7E needed to replace it -- and it is an independent
+oracle, not a tautological read-back. Probed once by re-running the test
+directly; passes.
+
+**Bit-identity and pins.** Full non-slow suite green (see Gates) confirms
+the 7A digest and `scientific_sha256` pins in
+`tests/characterization/test_tier7_current_behavior.py` still hold; the
+`git diff 356d666..c130568` on that file touches only `IMPLEMENTED_TERMS`,
+`PLANNED_TERMS`, the discarded-physics table (removes `D`'s row, whose
+constructor no longer silently discards `d_terms`), and the capability-flag
+probe (`DelayJones` -> `IonosphereJones`, since `Kd` is now implemented) --
+read in full, confirmed. `tests/unit/test_core/test_jones_provenance.py` and
+`tests/characterization/test_tier6_current_behavior.py` (the
+environment-keyed and hybrid-additivity pin owners) do not appear in the
+22-file diff at all -- untouched, confirmed by `git diff --stat`. The 7E-owned
+pin flips (four names, `PLANNED_TERMS` 9->5, `IMPLEMENTED_TERMS` 2->6) are
+exact, matching the commit's own count claims.
+
+**Parity.** `tests/unit/test_jones/test_backend_parity.py` run directly:
+passes as part of the full suite. Spot-checked via I14 (`D` enabled, all six
+terms at once) and independently via this review's own `Rc` `ifft` probe
+(oracle 9 above) and `D`'s circular-receptor test (oracle 5); both agree with
+the closed forms.
+
+**The chain-order contradiction.** `CANONICAL_CHAIN_ORDER`
+(`jones_terms.py:114`) reads `H, G, B, Rc, Kd, X, D, P, C, E, T, Z` --
+`P` correlator-side of `C`, contradicting Section 12.2's `... D, C, E, P, T,
+Z` (`P` sky-side of `E`). Confirmed by direct comparison. **Verified inert
+for every 7E-reachable result:** `P` (`core/jones/parallactic.py`) has no
+`jones.P` schema field at all (grepped `io/jones_config.py` and
+`jones_terms.py`: no reference), so `resolve_jones_terms` can never place it
+in `chain_terms`; even constructed directly, `ParallacticAngleJones` inherits
+`compute_jones_batch`'s raise rather than returning an identity. Since
+matrix multiplication with an identity factor is associative and `P`
+literally cannot be evaluated (let alone silently default to `I2`), its
+declared slot position has zero effect on any run reachable today, and `D`'s
+position relative to `C` -- the physically load-bearing part of Section 12.3
+-- is identical in practice under both orderings for every configuration this
+review could construct. **Ruling: acceptable deferral to 7F**, which is
+explicitly the slice both Section 12.4 and invariant I6 (owning slice 7F)
+assign this fix to, and which implements `P` and therefore is the first slice
+for which the ordering becomes observable.
+
+**The stale `base.py` docstring.** `core/jones/base.py:213-215` still reads
+"nine exported terms are still `term_status == \"planned\"` (`G`, `B`, `D`,
+`P`, `Z`, `T`, `Kd`, `Rc`, `X`)" -- six of those nine (`G`, `B`, `D`, `Kd`,
+`Rc`, `X`) are now implemented, confirmed by direct read of each class's
+`term_status`. **A routing note exists**, in the same docstring: "It becomes
+`@abstractmethod` in the slice that implements the last of them -- Tier 7G,
+once `Z` and `T` land." That conclusion is still true (`P`, `Z`, `T` remain
+genuinely planned, so the method must stay concrete-and-raising), so this is
+example-list staleness, not a logical error, and does not misstate any
+`term_status` a caller could observe. **Gap found and corrected**: neither
+7F's nor 7G's Section 34 writable-file list named `core/jones/base.py`,
+despite the file's own docstring committing 7G to edit it (the
+`@abstractmethod` flip is a real code change, not merely prose). **Correction
+applied to Section 34's 7G entry**, adding `src/radiosim/core/jones/base.py`
+with the reasoning above. 7E's own scope is unaffected -- 7E does not flip
+`P`/`Z`/`T`, so it was correctly excluded from needing this file.
+
+**Gates -- both environments, reproduced directly by this review.**
+`pixi run test -- -m "not slow"`: **4,944 passed, 0 failed, 10 deselected**
+in both `default`/py311 (27 warnings, ~470s) and py312 (35 warnings, ~509s);
+`4,801 (7D baseline) + 143 = 4,944` confirmed exactly. Full suite including
+slow, default environment: **4,954 passed, 0 failed, 27 warnings** (476s),
+matching `4,944 + 10` deselected-when-filtered exactly -- reproduced twice,
+the first attempt showing 3 spurious failures
+(`test_removed_names_are_referenced_nowhere_in_the_repository` for
+`visibility_to_correlations`/`mueller_from_jones`/`PolarizationBasisName`)
+traced directly to a stale `docs/_build/html/_sources/migration_guide.md.txt`
+left over from an intervening forced Sphinx rebuild in this review's own
+session -- exactly the `docs/_build`/egg-info repo-grep hazard `CLAUDE.md`
+warns about, confirmed by `grep` finding the three removed names inside that
+generated `.txt` copy of `migration_guide.md` (`.txt` is a scanned suffix);
+removing `docs/_build` and re-running gave the clean 4,954. **The
+py311/py312 warning delta (27 -> 27, 30 -> 35) reconciled**: 7E's
+`tests/integration/test_jones_end_to_end.py` diff adds exactly five new
+parametrized labels (`D`, `X`, `Kd`, `Rc`, `all`) to a test that already
+carries every label through HDF5/summary/MS/UVFITS `save()`; the py312-only
+5-warning increase (30->35) is consistent with one pre-existing casacore
+warning firing once per new MS-exporting case, while py311 is unaffected
+(27->27) -- consistent with the warning being environment-specific
+(a build/dependency difference between the two pixi environments) rather
+than jones-specific; not traced further than this reconciliation.
+`pixi run lint`: clean. `pixi run check-format`: clean, 365 files already
+formatted. `git diff --check`: clean. All four shipped YAMLs
+(`configs/*.yaml`) validate directly via `radiosim validate`, reproduced.
+Sphinx: **18** warnings/errors on a forced full rebuild
+(`sphinx -b html -E`), matching the commit message's claim exactly, after
+the `docs/_build` cleanup above. Laziness: 7E touches zero `core/sky/*`
+files (confirmed by the 22-file diff), so the point-only lazy-`healpy`
+guard (`core/sky/support/healpy.py`, tested by
+`test_sky_core_dep_guard.py`) is untouched by construction; that test is
+part of the passing full suite. `git status`: clean before this review's
+edits. All eight commit messages read in full: zero "Co-Authored-By" or
+similar occurrences. `pixi run typecheck`: correctly **not** run -- Section
+32 restricts it to slices that change a type-bearing public signature
+(7B, 7C, 7D, 7K), and 7E adds concrete term classes behind the existing
+`JonesTerm`/config surface rather than changing a public signature.
+
+**Disposition.** Tier 7E **ACCEPTED**. Two bounded factual corrections
+applied to `Tier7JonesSciencePlan.md`: Section 24 (blessing `X`'s reduced,
+feedless R5 message as a named exception) and Section 34's 7G file list
+(adding `src/radiosim/core/jones/base.py`, per the routing-note gap found
+above). No decision changed; the IXR correction (`b0c86bc`) is independently
+re-derived and confirmed correct, not merely accepted on the implementer's
+word. No register row changes: `SCI-001`, `SCI-002`, `SCI-003` remain
+`ROADMAP` until whole-tier acceptance (7K). The plan's status header is
+updated to record 7E's acceptance and to authorize slice **7F**. Acceptance
+commit: `docs(jones): accept Tier 7E leakage and delays`. Not pushed.
+
+**Unobserved items.** `linux-64` execution: not available in this
+environment; reproduction is `osx-arm64`/py311 and py312 only, matching
+every prior tier's acceptance record in this file. GPU/TPU/distributed
+hardware: none exercised, none claimed. The py312-only warning-count
+reconciliation (30->35) is a plausibility argument from the diff and the
+count arithmetic, not a line-by-line trace of the five new warnings to their
+exact casacore call sites. The full backend-parity suite's cases beyond the
+explicit spot-checks (oracles 5 and 9 above, and I14) were run and confirmed
+passing but not all individually re-derived by hand. `Rc`'s periodicity
+check on a finite FFT grid showed a small (~0.0018) residual from bin
+quantization rather than an exact match; consistent with a discretization
+artifact, not re-derived analytically to rule out a subtler defect.
+Cross-implementation validation (Section 29) and the whole-tier documentation
+pass (Section 37): out of scope for 7E, owned by 7J/7K; not assessed here.
