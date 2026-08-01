@@ -2261,7 +2261,7 @@ its owning slice in Section 30.
 | **I6** | **Circular-receptor `P` placement.** For a circular receptor with non-zero static rotation `chi` and non-zero field rotation `psi`, the composed `C P` equals `M(circular) R(chi + psi)` exactly, and the reversed composition `P C` does **not**. This test fails under the Tier 5 order and passes under the corrected one. | 7F |
 | **I7** | **Effect changes visibility.** For every implemented term, a run with the term enabled at a physically meaningful value differs from a run with it absent by more than `1e-10` relative in at least one correlation of at least one baseline — `Fix.md` §16 rule 5, made mechanical. | each term slice |
 | **I8** | **Faraday composition, no double count.** With source RM only, ionospheric RM only, and both, the polarization angle rotates by `RM_src λ²`, `RM_ion λ²`, and `(RM_src + RM_ion) λ²` respectively, to `1e-12`. | 7G |
-| **I9** | **`P` is wide-field.** Over a direction batch spanning 20 degrees, `psi` varies by a measurable, predicted amount; over a 0.01-degree batch it is constant to `1e-12` and equals the single-direction value. | 7F |
+| **I9** | **`P` is wide-field.** Over a direction batch spanning 20 degrees, `psi` varies by a measurable, predicted amount, and it converges on the single-direction value in the narrow-field limit. **Correction (7F implementation, 2026-08-01):** this row previously read "over a 0.01-degree batch it is constant to `1e-12`". That is unachievable and is not the physics — `dpsi/dtheta` is of order unity away from the poles, so a 0.01-degree batch spans of order `1e-4` rad of direction and therefore of order `1e-5` rad of `psi`. Asserting `1e-12` there would assert that `P` is *not* wide-field, contradicting the row's own first half. The slice asserts something strictly stronger instead: the spread is first order in the field width (halving the width halves it, to one part in a thousand), and it does reach `1e-12` once the batch is small enough for that scaling to take it there. | 7F |
 | **I10** | **Opacity power/voltage factor.** With `T` opacity `tau_0` at zenith on a baseline of two identical antennas, the visibility amplitude is scaled by exactly `exp(-tau_0)`, confirming the `exp(-tau/2)` voltage convention. | 7G |
 | **I11** | **`M` breaks closure; `G` does not.** On a three-antenna triangle, an enabled `G` with arbitrary per-antenna phases leaves the closure phase invariant to `1e-12`; an enabled `M` changes it by the predicted amount. | 7H |
 | **I12** | **`Q` bounds and phase-centre unity.** `0 < Q <= 1` everywhere; `Q = 1` exactly at the phase centre; `Q` changes amplitude only, leaving every visibility phase unchanged to `1e-12`. | 7H |
@@ -3023,7 +3023,7 @@ No other file outside the list was touched.
   `docs/migration_guide.md`
 - `Fix.md`
 
-**Correction (7F implementation, 2026-08-01) — eleven forced additions.** The
+**Correction (7F implementation, 2026-08-01) — ten forced additions.** The
 list above omits every file that states the canonical chain order, and every
 file that pins that statement. 7F's *first* mandate is to move `P` sky-side of
 `C` (D12), and the order is written out in six source docstrings and asserted in
@@ -3062,9 +3062,6 @@ than a boundary the slice should respect. Each addition is bounded and named:
   row only. A new term with no row would report an unknown key inside `jones.P`
   without saying what `jones.P` does accept. 7D's list included this file for
   exactly the same reason; 7E's correction re-added it.
-- `src/radiosim/core/jones_errors.py` — `UnsupportedMountTypeError`, which
-  Section 26's own error taxonomy places in this module and nowhere else. R12
-  and R15 are 7F's rejections and have no type without it.
 - `tests/unit/test_tier1h_documentation.py` — the assertions in
   `test_tier5g_jones_guide_states_the_receptor_science_boundaries` that pin the
   exact wording 7F is *required* to change: the Tier 5 chain-order formula, and
@@ -3081,6 +3078,12 @@ than a boundary the slice should respect. Each addition is bounded and named:
 `CLAUDE.md` is **not** added. Its Implementation Status and chain-order line are
 Tier 7J's explicit deliverable (D0, D21), they were already stale after 7D and
 7E, and 7F does not make them stale in a new way.
+
+Two entries the list *does* carry were not needed and were not touched:
+`tests/unit/test_tier5_receptor_acceptance.py` contains no mount-rejection
+assertion, and `src/radiosim/core/jones_errors.py` already declared
+`UnsupportedMountTypeError` — Tier 7D added the whole taxonomy at once, so R12
+and R15 had their type before this slice began.
 
 ### 7G
 - `src/radiosim/core/jones/ionosphere.py`, `troposphere.py`,
