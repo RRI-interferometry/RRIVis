@@ -28,7 +28,7 @@ from radiosim.backends import get_backend
 from radiosim.core.beam import BeamSystem
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import SolverInstrumentView
-from radiosim.core.jones import JonesChain, JonesTerm
+from radiosim.core.jones import DirectionBatch, JonesChain, JonesTerm
 from radiosim.core.receptor import ResolvedReceptorSet, UnsupportedFeedGeometryError
 from radiosim.core.visibility import _build_jones_chain
 from tests.fixtures.configs import valid_config_mapping
@@ -70,16 +70,50 @@ class _ConstantJones(JonesTerm):
     def is_direction_dependent(self) -> bool:
         return False
 
-    def compute_jones(
+    def compute_jones_batch(
         self,
+        *,
         antenna_idx: int,
-        source_idx: int | None,
+        directions: DirectionBatch,
+        frequency_hz: float,
         freq_idx: int,
+        time_mjd: float,
         time_idx: int,
         backend: Any,
-        **kwargs: Any,
+        dtype: Any,
     ) -> Any:
-        return backend.xp.array(self._matrix, dtype=np.complex128)
+        return backend.xp.array(self._matrix[None, :, :], dtype=dtype)
+
+
+def _directions(n_dir: int) -> DirectionBatch:
+    """A direction batch for a chain whose terms may or may not use it."""
+    values = np.linspace(0.1, 1.0, n_dir)
+    return DirectionBatch(
+        alt_rad=np.full(n_dir, 1.0),
+        az_rad=np.full(n_dir, 0.5),
+        dir_l=values,
+        dir_m=values,
+        dir_n=values,
+        ra_rad=values,
+        dec_rad=values,
+        hour_angle_rad=values,
+        n_dir=n_dir,
+    )
+
+
+def _composed(chain: JonesChain, *, n_dir: int = 2, antenna_idx: int = 0) -> np.ndarray:
+    """Evaluate a chain over a direction batch and return it as a host array."""
+    return np.asarray(
+        chain.compute_antenna_jones_batch(
+            antenna_idx=antenna_idx,
+            directions=_directions(n_dir),
+            frequency_hz=float(FREQUENCIES_HZ[0]),
+            freq_idx=0,
+            time_mjd=TIME_MJD,
+            time_idx=0,
+            dtype=np.complex128,
+        )
+    )
 
 
 def _simulator(tmp_path: Path, receptors: dict[str, object] | None) -> Simulator:
@@ -167,18 +201,76 @@ def test_chain_composes_the_first_added_term_leftmost() -> None:
     reversed_product = SECOND @ FIRST
     assert not np.allclose(forward, reversed_product)
 
-    np.testing.assert_allclose(
-        np.asarray(chain.compute_antenna_jones(0, None, 0, 0)),
-        forward,
-        rtol=0.0,
-        atol=0.0,
-    )
-    np.testing.assert_allclose(
-        np.asarray(chain.compute_antenna_jones_all_sources(0, 3, 0, 0))[2],
-        forward,
-        rtol=0.0,
-        atol=0.0,
-    )
+    # A chain of purely direction-independent terms stays (1, 2, 2) and
+    # broadcasts once, at the end, instead of carrying n_dir identical copies.
+    composed = _composed(chain, n_dir=3)
+    assert composed.shape == (1, 2, 2)
+    np.testing.assert_allclose(composed[0], forward, rtol=0.0, atol=0.0)
+
+
+def test_chain_composes_the_full_twelve_term_canonical_order() -> None:
+    """Invariant I5, over every term the designed chain can carry.
+
+    Twelve deliberately non-commuting synthetic terms, added in the documented
+    order, must compose to exactly ``terms[0] @ ... @ terms[-1]``.  Each factor
+    is a distinct shear or rotation, so any transposition of any adjacent pair
+    changes the product -- the test is about the order and not about the term
+    inventory.
+    """
+    designed_order = ("H", "G", "B", "Rc", "Kd", "X", "D", "P", "C", "E", "T", "Z")
+    matrices = [
+        np.array(
+            [
+                [1.0 + 0.05 * index, 0.3 + 0.1 * index],
+                [0.2j * (index + 1), 1.0 + 0.07j * index],
+            ],
+            dtype=np.complex128,
+        )
+        for index in range(len(designed_order))
+    ]
+
+    backend = get_backend("numpy")
+    chain = JonesChain(backend)
+    for label, matrix in zip(designed_order, matrices, strict=True):
+        chain.add_term(_ConstantJones(label, matrix))
+
+    # Right-to-left, because that is the order the chain applies its factors in
+    # (sky-side first).  Matrix multiplication is associative in exact
+    # arithmetic but not in floating point, so an oracle that bracketed the
+    # product the other way would differ in the last bits and could only be
+    # asserted to a tolerance.
+    expected = matrices[-1]
+    for matrix in reversed(matrices[:-1]):
+        expected = matrix @ expected
+
+    composed = _composed(chain)
+    assert tuple(term.name for term in chain.terms) == designed_order
+    np.testing.assert_allclose(composed[0], expected, rtol=0.0, atol=0.0)
+
+    # Every adjacent transposition really does change the product, so the
+    # assertion above is a statement about order and not about commuting
+    # factors.  The bracketing here is irrelevant at this tolerance.
+    for index in range(len(matrices) - 1):
+        swapped = list(matrices)
+        swapped[index], swapped[index + 1] = swapped[index + 1], swapped[index]
+        product = swapped[0]
+        for matrix in swapped[1:]:
+            product = product @ matrix
+        assert not np.allclose(product, expected)
+
+
+def test_chain_rejects_a_baseline_dependent_term() -> None:
+    """Defect D7: ``add_term`` enforces what its docstring always claimed."""
+    import radiosim.core.jones as jones_package
+
+    chain = JonesChain(get_backend("numpy"))
+    with pytest.raises(TypeError) as excinfo:
+        chain.add_term(jones_package.BaselineMultiplicativeJones())
+    assert "JonesBaselineTerm" in str(excinfo.value)
+    assert chain.terms == []
+
+    with pytest.raises(TypeError):
+        chain.add_term(object())  # type: ignore[arg-type]
 
 
 def test_chain_docstring_states_the_canonical_section_19_1_order() -> None:
@@ -284,12 +376,24 @@ def test_composed_chain_equals_h_times_c_times_e(
     )
 
     composed = np.asarray(
-        chain.compute_antenna_jones_all_sources(
+        chain.compute_antenna_jones_batch(
             antenna_idx=0,
-            n_sources=n_sources,
+            directions=DirectionBatch(
+                alt_rad=altitude,
+                az_rad=azimuth,
+                dir_l=np.cos(altitude) * np.sin(azimuth),
+                dir_m=np.cos(altitude) * np.cos(azimuth),
+                dir_n=np.sin(altitude),
+                ra_rad=np.zeros(n_sources),
+                dec_rad=np.zeros(n_sources),
+                hour_angle_rad=np.zeros(n_sources),
+                n_dir=n_sources,
+            ),
+            frequency_hz=float(FREQUENCIES_HZ[0]),
             freq_idx=0,
+            time_mjd=TIME_MJD,
             time_idx=0,
-            antenna_number=instrument.antenna_numbers[0],
+            dtype=np.complex128,
         )
     )
     expected = transform @ receptor @ beam

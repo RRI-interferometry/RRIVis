@@ -80,6 +80,7 @@ from radiosim.core.receptor import (
 
 if TYPE_CHECKING:
     from radiosim.core.instrument_adapters import SolverInstrumentView
+    from radiosim.core.jones.directions import DirectionBatch
 
 _IDENTITY_2: Final[npt.NDArray[np.complex128]] = np.eye(2, dtype=np.complex128)
 
@@ -322,22 +323,37 @@ class _ReceptorTermBase(JonesTerm):
             ) from exc
         return AntennaId(number, name)
 
-    def compute_jones(
+    def compute_jones_batch(
         self,
+        *,
         antenna_idx: int,
-        source_idx: int | None,
+        directions: DirectionBatch,
+        frequency_hz: float,
         freq_idx: int,
+        time_mjd: float,
         time_idx: int,
         backend: Any,
-        **kwargs: Any,
+        dtype: Any,
     ) -> Any:
-        """Return this antenna's 2x2 matrix on the backend device.
+        """Return this antenna's ``(1, 2, 2)`` matrix on the backend device.
 
-        The term is direction, time, and frequency independent, so
-        ``source_idx``, ``freq_idx``, and ``time_idx`` are accepted and ignored.
+        The term is direction, time, and frequency independent, so ``directions``
+        and the frequency and time arguments are accepted and ignored, and the
+        return is the mandated ``(1, 2, 2)`` direction-independent form: one
+        matrix that broadcasts against the direction batch, never ``n_dir``
+        copies of a constant (invariant I3).
+
+        ``dtype`` comes from the caller.  It used to be a literal
+        ``np.complex128`` here, which silently overrode ``PrecisionConfig`` for
+        the two terms that are always in the chain (defect D9).  Under every
+        preset whose accumulation precision is ``float64`` -- which includes
+        both ``standard`` and ``fast`` -- the resolved dtype *is* ``complex128``,
+        so this is bit-identical for every shipped configuration; a preset that
+        resolves something else is where the fix becomes observable, which is
+        what invariant I17 tests.
         """
         self._antenna_id(antenna_idx)
-        return backend.xp.array(self._matrices[antenna_idx], dtype=np.complex128)
+        return backend.xp.array(self._matrices[antenna_idx][None, :, :], dtype=dtype)
 
 
 class ReceptorConfigJones(_ReceptorTermBase):

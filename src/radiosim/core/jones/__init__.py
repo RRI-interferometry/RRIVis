@@ -16,56 +16,54 @@ where:
 The full Jones matrix for an antenna is the product of individual
 Jones terms representing different propagation effects:
 
-    J = B @ G @ D @ P @ E @ T @ Z @ K
+    J = H @ G @ B @ D @ P @ C @ E @ T @ Z      (K applied separately)
 
 where (from sky to correlator):
-- K: Geometric phase (direction-dependent fringe)
+- K: Geometric phase (direction-dependent fringe).  Not a chain term: it is
+     per-baseline, so the solvers apply ``geometric_phase()`` separately.
 - Z: Ionospheric effects (Faraday rotation, TEC)
 - T: Tropospheric effects (delay, attenuation)
 - E: Primary beam (direction-dependent gain)
+- C: Receptor configuration (basis and static feed rotation)
 - P: Parallactic angle rotation
 - D: Polarization leakage (instrumental polarization)
-- G: Electronic gains (complex gains)
 - B: Bandpass (frequency-dependent gains)
+- G: Electronic gains (complex gains)
+- H: Reporting-basis transform
 
 Classes
 -------
 JonesTerm : Abstract base class for Jones matrix terms
 JonesChain : Manager for combining multiple Jones terms
+DirectionBatch : One immutable batch of sky directions per (time, frequency)
 
-GeometricPhaseJones : K term (geometric/fringe delay)
-GainJones, TimeVariableGainJones : G term (electronic gains)
-BandpassJones, PolynomialBandpassJones : B term (bandpass)
-PolarizationLeakageJones, IXRLeakageJones : D term (pol leakage)
-ParallacticAngleJones, FieldRotationJones : P term (feed rotation)
-IonosphereJones, TurbulentIonosphereJones : Z term (ionosphere)
-TroposphereJones, SaastamoinenTroposphereJones : T term (troposphere)
+Functions
+---------
+geometric_phase : the K term; per-baseline, so a function and not a class
+evaluate_antenna_jones : the one chain-evaluation entry point both solvers use
 
 Examples
 --------
->>> from radiosim.core.jones import JonesChain, GeometricPhaseJones, GainJones
+>>> from radiosim.core.jones import DirectionBatch, JonesChain, evaluate_antenna_jones
 >>> from radiosim.backends import get_backend
 >>>
->>> # Create backend
 >>> backend = get_backend("numpy")
+>>> chain = JonesChain(backend)
+>>> chain.add_term(basis_transform_term)  # H, correlator side first
+>>> chain.add_term(receptor_config_term)  # C
+>>> chain.add_term(beam_term)  # E, sky side last
 >>>
->>> # Create Jones terms
->>> k_jones = GeometricPhaseJones(source_lmn, wavelengths)
->>> g_jones = GainJones(n_antennas, n_times)
->>>
->>> # Create chain
->>> chain = JonesChain([k_jones, g_jones], backend)
->>>
->>> # Compute visibility for a baseline
->>> coherency = np.array([[1, 0], [0, 1]], dtype=complex)  # Unpolarized
->>> vis = chain.compute_baseline_visibility(
-...     antenna_p=0,
-...     antenna_q=1,
-...     source_idx=0,
+>>> # One evaluation per antenna over the whole direction batch
+>>> jones_by_row = evaluate_antenna_jones(
+...     chain=chain,
+...     antenna_rows=(0, 1),
+...     directions=directions,
+...     frequency_hz=1.5e8,
 ...     freq_idx=0,
+...     time_mjd=60000.0,
 ...     time_idx=0,
-...     coherency_matrix=coherency,
-...     baseline_uvw=uvw,
+...     backend=backend,
+...     dtype=backend.get_complex_dtype("accumulation"),
 ... )
 """
 
@@ -78,8 +76,11 @@ __all__ = [
     "JonesTerm",
     "JonesChain",
     "JonesBaselineTerm",
-    # K term
-    "GeometricPhaseJones",
+    # Direction batch and the shared evaluator
+    "DirectionBatch",
+    "evaluate_antenna_jones",
+    # K term (per-baseline, hence a function)
+    "geometric_phase",
     # G term
     "GainJones",
     "TimeVariableGainJones",
@@ -138,7 +139,9 @@ __all__ = [
 _LAZY_EXPORTS = {
     "JonesChain": (".chain", "JonesChain"),
     "JonesBaselineTerm": (".baseline_errors", "JonesBaselineTerm"),
-    "GeometricPhaseJones": (".geometric", "GeometricPhaseJones"),
+    "DirectionBatch": (".directions", "DirectionBatch"),
+    "evaluate_antenna_jones": (".evaluate", "evaluate_antenna_jones"),
+    "geometric_phase": (".geometric", "geometric_phase"),
     "GainJones": (".gain", "GainJones"),
     "TimeVariableGainJones": (".gain", "TimeVariableGainJones"),
     "ElevationGainJones": (".gain", "ElevationGainJones"),

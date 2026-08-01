@@ -14,16 +14,20 @@ Stub implementation: returns identity matrix. TODO: implement properly.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from radiosim.core.jones.directions import DirectionBatch
 
 
 class JonesBaselineTerm(ABC):
     """Abstract base for per-BASELINE (not per-antenna) RIME terms.
 
-    These terms cannot be added to JonesChain (which expects per-antenna terms).
-    They apply to visibilities directly via element-wise multiplication:
+    These terms cannot be added to JonesChain (which expects per-antenna terms,
+    and rejects these by type). They apply to visibilities directly via
+    element-wise multiplication:
 
         V_pq_corrected = M_pq ⊙ V_pq_original
 
@@ -45,33 +49,64 @@ class JonesBaselineTerm(ABC):
         """True if effect varies across the sky (DDE)."""
         pass
 
-    @abstractmethod
-    def compute_baseline_term(
+    def compute_baseline_factor(
         self,
+        *,
+        baseline_idx: int,
         antenna_p: int,
         antenna_q: int,
-        source_idx: int | None,
+        directions: "DirectionBatch",
+        frequency_hz: float,
         freq_idx: int,
+        time_mjd: float,
         time_idx: int,
         backend: Any,
-        **kwargs,
+        dtype: Any,
     ) -> Any:
-        """Compute 2x2 multiplicative correction for baseline V_pq.
+        """Return this term's Hadamard factor for one baseline.
 
-        Args:
-            antenna_p: Index of antenna p
-            antenna_q: Index of antenna q
-            source_idx: Source index (None for DI effects)
-            freq_idx: Frequency channel index
-            time_idx: Time sample index
-            backend: ArrayBackend instance
-            **kwargs: Effect-specific parameters
+        The batched counterpart of :class:`~radiosim.core.jones.base.JonesTerm`'s
+        ``compute_jones_batch`` (``Tier7JonesSciencePlan.md`` Section 13.2), for
+        the same reason: ``Q``'s smearing factor is direction-dependent, and one
+        Python call per direction cannot carry a HEALPix pixel batch.
 
-        Returns:
-            Complex 2x2 array on the backend device
-            Shape: (2, 2) in linear polarization basis [X, Y]
+        Parameters
+        ----------
+        baseline_idx : int
+            Row of this baseline in the resolved baseline selection.
+        antenna_p, antenna_q : int
+            Antenna rows of the pair, in the solver instrument view.
+        directions : DirectionBatch
+            The directions for this ``(time, frequency)`` step.
+        frequency_hz, time_mjd : float
+            Physical frequency and time.
+        freq_idx, time_idx : int
+            The corresponding grid indices.
+        backend : ArrayBackend
+            The backend to compute through.
+        dtype : dtype
+            The resolved complex dtype, passed in and never chosen by the term.
+
+        Returns
+        -------
+        array
+            ``(n_dir, 2, 2)`` for a direction-dependent factor (``Q``) or
+            ``(1, 2, 2)`` for a direction-independent one (``M``), to be applied
+            elementwise -- never composed into the matrix chain.
+
+        Notes
+        -----
+        Concrete-and-raising rather than ``@abstractmethod`` for the same bounded
+        reason as ``JonesTerm.compute_jones_batch``: the ``M`` and ``Q`` identity
+        stubs below are Tier 7H's to replace, and an abstract declaration here
+        would make them impossible to instantiate and silently break the 7A
+        characterization pins that 7H owns.
         """
-        pass
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement compute_baseline_factor; "
+            "every baseline-dependent term must implement the direction-batched "
+            "contract (Tier7JonesSciencePlan.md Section 13.2)."
+        )
 
 
 class BaselineMultiplicativeJones(JonesBaselineTerm):

@@ -1,14 +1,19 @@
 """Jones chain manager for combining multiple Jones terms.
 
-The JonesChain class manages the ordered chain of Jones matrices and provides
-methods to compute the total Jones matrix and baseline visibilities.
+The JonesChain class manages the ordered chain of per-antenna Jones matrices and
+composes them over one direction batch at a time.  It does not contract
+baselines: that is the compiled kernel's job (``core/contraction.py``), and the
+duplicate per-source contraction this module used to carry had no production
+caller (``Tier7JonesSciencePlan.md`` Section 13.3).
 """
 
-from typing import Any
-
-import numpy as np
+from typing import TYPE_CHECKING, Any
 
 from radiosim.core.jones.base import JonesTerm
+from radiosim.core.jones.baseline_errors import JonesBaselineTerm
+
+if TYPE_CHECKING:
+    from radiosim.core.jones.directions import DirectionBatch
 
 
 class JonesChain:
@@ -31,19 +36,30 @@ class JonesChain:
     leakage and gains are defined in the receptor's own basis.  ``K`` is applied
     separately as a scalar phase because it needs baseline coordinates.
 
-    Extended terms are inserted at their physical position, e.g.:
+    The full designed chain, once every term Tier 7 implements is present
+    (``Tier7JonesSciencePlan.md`` Section 20.12), is the same factorization with
+    the three additional diagonal calibration terms at their designed positions:
 
-        J_total = H @ G @ GAINCURVE @ B @ X @ DF @ D @ P @ C @ E @ Ee @ a @ dE
-                  @ F @ T @ Z @ W   (K, Kd, Rc applied separately)
+        J_total = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z
+
+    ``Rc``, ``Kd`` and ``X`` sit among ``G`` and ``B`` because all five are
+    diagonal in the same basis and therefore commute: their *mutual* order is
+    fixed by the plan so that the chain has one shape, one provenance string and
+    one test, and is explicitly a convention rather than a physical claim.  The
+    placements that *are* physical -- ``D`` correlator-side of ``C``, ``E``
+    between ``C`` and the atmosphere, ``T`` and ``Z`` sky-side of everything --
+    are unchanged.  ``K`` is applied separately by the solver because it is
+    per-baseline; ``M`` and ``Q`` are not chain terms at all (they multiply
+    finished visibilities elementwise).
 
     Order matters: ``C`` and ``H`` are the first factors RadioSim composes that
     do not commute with their neighbours.
 
     Notes:
-        Only ``JonesTerm`` subclasses may be added here.  Baseline-dependent
-        terms (``JonesBaselineTerm`` — currently M and Q) operate on
-        visibilities via Hadamard multiplication and must be applied
-        separately *after* ``compute_baseline_visibility``.
+        Only ``JonesTerm`` subclasses may be added here, and ``add_term``
+        enforces it.  Baseline-dependent terms (``JonesBaselineTerm`` --
+        currently M and Q) operate on finished visibilities via Hadamard
+        multiplication and are applied by the solver, not by this chain.
 
     Example:
         >>> from radiosim.backends import get_backend
@@ -52,13 +68,18 @@ class JonesChain:
         >>>
         >>> # Add terms correlator-side first; the last added is applied first
         >>> chain.add_term(basis_transform_term)  # H
-        >>> chain.add_term(GainJones(...))  # G
         >>> chain.add_term(receptor_config_term)  # C
         >>> chain.add_term(primary_beam_term)  # E, supplied by the solver
         >>>
-        >>> # Compute total Jones matrix for antenna 0, source 5
-        >>> J = chain.compute_antenna_jones(
-        ...     antenna_idx=0, source_idx=5, freq_idx=10, time_idx=0
+        >>> # Compute this antenna's Jones over one whole direction batch
+        >>> J = chain.compute_antenna_jones_batch(
+        ...     antenna_idx=0,
+        ...     directions=direction_batch,
+        ...     frequency_hz=1.5e8,
+        ...     freq_idx=0,
+        ...     time_mjd=60000.0,
+        ...     time_idx=0,
+        ...     dtype=complex_dtype,
         ... )
     """
 
@@ -84,11 +105,31 @@ class JonesChain:
                 - "prepend" : Add to beginning / sky side
                 - int       : Insert at specific index
 
+        Raises:
+            TypeError: ``term`` is a ``JonesBaselineTerm`` (M, Q), or is not a
+                ``JonesTerm`` at all.  Before Tier 7B this method performed no
+                check at all, contradicting its own class docstring: a baseline
+                term was accepted and then failed with an ``AttributeError``
+                deep inside evaluation rather than with a typed rejection at the
+                point of the mistake (defect D7).
+
         Example:
             >>> chain.add_term(gain_jones)  # append (correlator side)
-            >>> chain.add_term(geometric_jones, position="prepend")  # sky side
-            >>> chain.add_term(faraday_jones, position=2)  # at index 2
+            >>> chain.add_term(troposphere_jones, position="prepend")  # sky side
+            >>> chain.add_term(leakage_jones, position=2)  # at index 2
         """
+        if isinstance(term, JonesBaselineTerm):
+            raise TypeError(
+                f"{type(term).__name__} is a JonesBaselineTerm and cannot be added "
+                "to a JonesChain: baseline-dependent terms multiply finished "
+                "visibilities elementwise and are applied by the solver, not "
+                "composed into the per-antenna matrix chain."
+            )
+        if not isinstance(term, JonesTerm):
+            raise TypeError(
+                f"{type(term).__name__} is not a JonesTerm; only JonesTerm "
+                "subclasses may be added to a JonesChain."
+            )
         if position == "append":
             self.terms.append(term)
         elif position == "prepend":
@@ -143,173 +184,69 @@ class JonesChain:
         """
         return self.get_term(name) is not None
 
-    def compute_antenna_jones(
+    def compute_antenna_jones_batch(
         self,
+        *,
         antenna_idx: int,
-        source_idx: int | None,
+        directions: "DirectionBatch",
+        frequency_hz: float,
         freq_idx: int,
+        time_mjd: float,
         time_idx: int,
-        **kwargs,
+        dtype: Any,
     ) -> Any:
-        """Compute total Jones matrix for one antenna-source pair.
+        """Compose every term for one antenna over one direction batch.
 
-        This multiplies all Jones terms in order:
-            J_total = J_n @ J_{n-1} @ ... @ J_1
+        Applies the terms in reverse storage order, so the **last** term added
+        is the sky-side factor applied first and the **first** term added is the
+        correlator-side factor applied last::
 
-        Args:
-            antenna_idx: Antenna index
-            source_idx: Source index (None for DI-only chains)
-            freq_idx: Frequency channel index
-            time_idx: Time sample index
-            **kwargs: Additional parameters passed to each term
+            J_total = terms[0] @ terms[1] @ ... @ terms[-1]
 
-        Returns:
-            Complex 2x2 Jones matrix on backend device
+        Parameters
+        ----------
+        antenna_idx : int
+            Antenna row in the solver instrument view.
+        directions : DirectionBatch
+            The directions for this ``(time, frequency)`` step.
+        frequency_hz, time_mjd : float
+            Physical frequency and time.
+        freq_idx, time_idx : int
+            The corresponding grid indices.
+        dtype : dtype
+            The resolved complex dtype.  It seeds the identity and is handed to
+            every term, so the composed product honours ``PrecisionConfig``
+            instead of the two literal ``np.complex128`` seeds this method used
+            to carry (defect D8).
+
+        Returns
+        -------
+        array
+            ``(n_dir, 2, 2)`` when any term is direction-dependent, otherwise
+            ``(1, 2, 2)``.  The seed is ``(1, 2, 2)``, so a chain of purely
+            direction-independent terms stays ``(1, 2, 2)`` all the way through
+            and broadcasts once, at the end, against the direction-dependent
+            factors -- never ``n_dir`` copies of one constant matrix.
         """
-        xp = self.backend.xp
-
-        # Start with identity matrix
-        J_total = xp.eye(2, dtype=np.complex128)
+        J_total = self.backend.batch_eye((1,), 2, dtype=dtype)
 
         if not self.terms:
             return J_total
 
-        # Apply terms in reverse order (rightmost applied first)
-        # This matches the physical order: sky -> correlator
         for term in reversed(self.terms):
-            # Compute Jones matrix for this term
-            if term.is_direction_dependent:
-                if source_idx is None:
-                    raise ValueError(
-                        f"Term '{term.name}' is direction-dependent "
-                        f"but source_idx is None"
-                    )
-                J_term = term.compute_jones(
-                    antenna_idx, source_idx, freq_idx, time_idx, self.backend, **kwargs
-                )
-            else:
-                # Direction-independent: source index not needed
-                J_term = term.compute_jones(
-                    antenna_idx, None, freq_idx, time_idx, self.backend, **kwargs
-                )
-
-            # Multiply: J_total = J_term @ J_total
+            J_term = term.compute_jones_batch(
+                antenna_idx=antenna_idx,
+                directions=directions,
+                frequency_hz=frequency_hz,
+                freq_idx=freq_idx,
+                time_mjd=time_mjd,
+                time_idx=time_idx,
+                backend=self.backend,
+                dtype=dtype,
+            )
             J_total = self.backend.matmul(J_term, J_total)
 
         return J_total
-
-    def compute_antenna_jones_all_sources(
-        self,
-        antenna_idx: int,
-        n_sources: int,
-        freq_idx: int,
-        time_idx: int,
-        **kwargs,
-    ) -> Any:
-        """Compute total Jones matrix for one antenna, all sources.
-
-        Multiplies all terms in the chain for all sources at once:
-            J_total[s] = J_n[s] @ J_{n-1}[s] @ ... @ J_1[s]
-
-        For direction-independent terms, the single (2, 2) matrix is
-        broadcast across all sources.
-
-        Args:
-            antenna_idx: Antenna index
-            n_sources: Number of sources
-            freq_idx: Frequency channel index
-            time_idx: Time sample index
-            **kwargs: Additional parameters passed to each term
-
-        Returns:
-            Complex array of shape (n_sources, 2, 2)
-        """
-        # Start with batch identity: (n_sources, 2, 2)
-        J_total = self.backend.batch_eye((n_sources,), 2, dtype=np.complex128)
-
-        if not self.terms:
-            return J_total
-
-        # Apply terms in reverse order (rightmost applied first)
-        for term in reversed(self.terms):
-            if term.is_direction_dependent:
-                J_term = term.compute_jones_all_sources(
-                    antenna_idx,
-                    n_sources,
-                    freq_idx,
-                    time_idx,
-                    self.backend,
-                    **kwargs,
-                )
-            else:
-                # Direction-independent: compute once and broadcast
-                J_single = term.compute_jones(
-                    antenna_idx,
-                    None,
-                    freq_idx,
-                    time_idx,
-                    self.backend,
-                    **kwargs,
-                )
-                J_term = self.backend.xp.broadcast_to(
-                    J_single[None, ...], (n_sources, 2, 2)
-                )
-
-            # Batched matmul: J_total = J_term @ J_total
-            J_total = self.backend.matmul(J_term, J_total)
-
-        return J_total
-
-    def compute_baseline_visibility(
-        self,
-        antenna_p: int,
-        antenna_q: int,
-        source_idx: int,
-        freq_idx: int,
-        time_idx: int,
-        coherency_matrix: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute visibility contribution from one source for one baseline.
-
-        Implements the per-antenna RIME:
-
-            V_pq = J_p @ C @ J_q^H
-
-        Note:
-            This method only applies ``JonesTerm`` (per-antenna) effects.
-            Baseline-dependent corrections (M, Q from ``JonesBaselineTerm``)
-            must be applied *after* this call via Hadamard multiplication:
-
-                V_pq = M_pq ⊙ Q_spq ⊙ (J_p @ C @ J_q^H)
-
-        Args:
-            antenna_p: First antenna index
-            antenna_q: Second antenna index
-            source_idx: Source index
-            freq_idx: Frequency index
-            time_idx: Time index
-            coherency_matrix: Source coherency matrix (2x2 complex)
-            **kwargs: Additional parameters forwarded to each term's
-                      ``compute_jones`` (e.g., ``baseline_uvw`` for the K term)
-
-        Returns:
-            Complex 2x2 visibility matrix
-        """
-        # Compute Jones matrices for both antennas
-        J_p = self.compute_antenna_jones(
-            antenna_p, source_idx, freq_idx, time_idx, **kwargs
-        )
-
-        J_q = self.compute_antenna_jones(
-            antenna_q, source_idx, freq_idx, time_idx, **kwargs
-        )
-
-        # RIME: V = J_p @ C @ J_q^H
-        temp = self.backend.matmul(J_p, coherency_matrix)
-        V = self.backend.matmul(temp, self.backend.conjugate_transpose(J_q))
-
-        return V
 
     def get_enabled_effects(self) -> dict[str, dict[str, Any]]:
         """Get list of enabled Jones effects with metadata.

@@ -216,6 +216,45 @@ def _resolve_instrument(tmp_path: Path):
     return simulator._instrument_state.instrument
 
 
+#: Tier 7B: the direction-batched contract needs a batch even for terms that
+#: ignore it.  These two helpers keep the Tier 5 pins written in terms of the
+#: 2x2 matrix they are actually about.
+TIME_MJD = 60_676.0
+
+
+def _direction_batch(n_dir: int = 1):
+    from radiosim.core.jones import DirectionBatch
+
+    alt = np.full(n_dir, 1.0)
+    az = np.linspace(0.0, 1.0, n_dir)
+    return DirectionBatch.from_horizontal(
+        alt_rad=alt,
+        az_rad=az,
+        dir_l=np.cos(alt) * np.sin(az),
+        dir_m=np.cos(alt) * np.cos(az),
+        dir_n=np.sin(alt),
+        latitude_rad=-0.536,
+        local_sidereal_time_rad=0.0,
+    )
+
+
+def _evaluate_receptor_term(term, backend, *, antenna_idx: int = 0) -> np.ndarray:
+    matrix = np.asarray(
+        term.compute_jones_batch(
+            antenna_idx=antenna_idx,
+            directions=_direction_batch(2),
+            frequency_hz=float(FREQUENCIES_HZ[0]),
+            freq_idx=0,
+            time_mjd=TIME_MJD,
+            time_idx=0,
+            backend=backend,
+            dtype=np.complex128,
+        )
+    )
+    assert matrix.shape == (1, 2, 2)
+    return matrix[0]
+
+
 class _ConstantJones(JonesTerm):
     """A direction-independent term returning one fixed non-unitary matrix."""
 
@@ -231,16 +270,19 @@ class _ConstantJones(JonesTerm):
     def is_direction_dependent(self) -> bool:
         return False
 
-    def compute_jones(
+    def compute_jones_batch(
         self,
+        *,
         antenna_idx: int,
-        source_idx: int | None,
+        directions: Any,
+        frequency_hz: float,
         freq_idx: int,
+        time_mjd: float,
         time_idx: int,
         backend: Any,
-        **kwargs: Any,
+        dtype: Any,
     ) -> Any:
-        return backend.xp.array(self._matrix, dtype=np.complex128)
+        return backend.xp.array(self._matrix[None, :, :], dtype=dtype)
 
 
 # ---------------------------------------------------------------------------
@@ -394,8 +436,8 @@ def test_receptor_and_basis_transform_terms_carry_real_physics(tmp_path) -> None
         BasisTransformJones(receptors=linear, instrument=instrument),
     ):
         for antenna_idx in range(len(instrument.antenna_numbers)):
-            jones = term.compute_jones(antenna_idx, None, 0, 0, backend)
-            np.testing.assert_array_equal(np.asarray(jones), identity)
+            jones = _evaluate_receptor_term(term, backend, antenna_idx=antenna_idx)
+            np.testing.assert_array_equal(jones, identity)
 
     # Circular array: C is the Section 18.1 basis matrix, H stays I2 because
     # the native basis already is the output basis.
@@ -406,13 +448,13 @@ def test_receptor_and_basis_transform_terms_carry_real_physics(tmp_path) -> None
     receptor_term = ReceptorConfigJones(receptors=circular, instrument=instrument)
     transform_term = BasisTransformJones(receptors=circular, instrument=instrument)
     np.testing.assert_allclose(
-        np.asarray(receptor_term.compute_jones(0, None, 0, 0, backend)),
+        _evaluate_receptor_term(receptor_term, backend),
         PLAN_S_MATRIX,
         rtol=0.0,
         atol=1e-15,
     )
     np.testing.assert_array_equal(
-        np.asarray(transform_term.compute_jones(0, None, 0, 0, backend)),
+        _evaluate_receptor_term(transform_term, backend),
         identity,
     )
 
@@ -436,6 +478,12 @@ def test_jones_chain_composes_the_first_added_term_leftmost() -> None:
 
     Tier 5D preserves this composition rule and changes only the order in which
     the solver adds terms, so this test is a stable anchor for S13.
+
+    ANCHOR UPDATED BY: Tier 7B, which replaced the scalar per-direction
+    evaluation contract with the direction-batched one
+    (``Tier7JonesSciencePlan.md`` Section 13.2).  The composition rule this test
+    pins -- ``terms[0] @ ... @ terms[-1]``, first added leftmost -- is unchanged;
+    only the call that evaluates it is.
     """
     first = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
     second = np.array([[1.0, 2.0], [0.0, 1.0]], dtype=np.complex128)
@@ -446,18 +494,21 @@ def test_jones_chain_composes_the_first_added_term_leftmost() -> None:
     chain.add_term(_ConstantJones("first", first))
     chain.add_term(_ConstantJones("second", second))
 
-    np.testing.assert_allclose(
-        np.asarray(chain.compute_antenna_jones(0, None, 0, 0)),
-        first @ second,
-        rtol=0.0,
-        atol=0.0,
+    composed = np.asarray(
+        chain.compute_antenna_jones_batch(
+            antenna_idx=0,
+            directions=_direction_batch(3),
+            frequency_hz=float(FREQUENCIES_HZ[0]),
+            freq_idx=0,
+            time_mjd=TIME_MJD,
+            time_idx=0,
+            dtype=np.complex128,
+        )
     )
-    np.testing.assert_allclose(
-        np.asarray(chain.compute_antenna_jones_all_sources(0, 3, 0, 0))[1],
-        first @ second,
-        rtol=0.0,
-        atol=0.0,
-    )
+    # Tier 7B: a chain of purely direction-independent terms stays (1, 2, 2) and
+    # broadcasts once at the end, rather than carrying n_dir identical copies.
+    assert composed.shape == (1, 2, 2)
+    np.testing.assert_allclose(composed[0], first @ second, rtol=0.0, atol=0.0)
 
 
 def test_point_solver_adds_chain_terms_in_the_canonical_order(
@@ -539,27 +590,33 @@ def test_point_solver_chain_always_carries_the_receptor_terms(
     assert [term.name for term in chain.terms] == ["H", "C", "E"]
 
 
-def test_healpix_solver_never_constructs_a_jones_chain() -> None:
-    """Pins the HEALPix path as a direct beam evaluation with no chain.
+def test_healpix_solver_uses_the_one_shared_jones_chain() -> None:
+    """Pins how the receptor terms reach the HEALPix path.
 
-    Tier 5D routed the receptor terms into this path by left-multiplying the
-    per-antenna beam Jones by the constant ``H_p @ C_p`` (Section 19.3), which
-    is exact because both terms are direction, time, and frequency independent.
-    No second chain implementation was introduced.
+    Tier 5D routed them in by left-multiplying the per-antenna beam Jones by the
+    constant ``H_p @ C_p`` (Section 19.3), which is exact because both terms are
+    direction, time, and frequency independent, and introduced no second chain
+    implementation.
 
     FLIPPED BY: Tier 5D, in the same commit as the solver integration.
+    RE-AIMED BY: Tier 7B, which closed defect D4 by routing this path through
+    the *same* chain builder and the same evaluator as the point path.  The
+    property Tier 5D cared about -- exactly one chain implementation -- is
+    strengthened, not weakened: there is now exactly one place where any Jones
+    term is composed, for either sky representation.
     """
     source = inspect.getsource(visibility_healpix_module)
-    assert "JonesChain" not in source
-    assert "_build_jones_chain" not in source
-    assert "beam_system.evaluate_jones" in source
-    # The receptor factor reaches this path as a matrix, not as a chain.
-    assert "_receptor_transforms" in source
-    assert "basis_transform_matrix" in source
-    assert "receptor_matrix" in source
+    # Tier 7B: the receptor factor now reaches this path as the same two chain
+    # terms the point path uses, evaluated through the same shared evaluator.
+    assert "_build_jones_chain" in source
+    assert "evaluate_antenna_jones" in source
+    assert "_resolved_receptor_terms" in source
+    assert "_receptor_transforms" not in source
 
-    # The point-source path is the only chain builder today.
-    assert "JonesChain" in inspect.getsource(visibility_module)
+    # There is still exactly one chain *builder*, and it lives in the point
+    # solver module: this path imports it rather than growing a second one.
+    assert "def _build_jones_chain" not in source
+    assert "def _build_jones_chain" in inspect.getsource(visibility_module)
 
 
 def test_beam_jones_response_is_a_scalar_multiple_of_the_identity(

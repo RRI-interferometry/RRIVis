@@ -19,6 +19,7 @@ from radiosim.core.instrument_adapters import (
     SolverInstrumentView,
 )
 from radiosim.core.jones.base import JonesTerm
+from radiosim.core.jones.directions import DirectionBatch
 from radiosim.core.jones.receptor import (
     LINEAR_TO_CIRCULAR,
     ReceptorConfigJones,
@@ -129,9 +130,43 @@ def make_instrument_view(count: int) -> SolverInstrumentView:
     )
 
 
+def direction_batch(n_dir: int = 3) -> DirectionBatch:
+    """A direction batch that ``C`` and ``H`` must ignore entirely."""
+    angles = np.linspace(0.1, 1.0, n_dir)
+    return DirectionBatch(
+        alt_rad=angles,
+        az_rad=angles,
+        dir_l=angles,
+        dir_m=angles,
+        dir_n=angles,
+        ra_rad=angles,
+        dec_rad=angles,
+        hour_angle_rad=angles,
+        n_dir=n_dir,
+    )
+
+
 def compute(term: JonesTerm, antenna_idx: int) -> np.ndarray:
-    """Evaluate one direction-independent term on the numpy backend."""
-    return np.asarray(term.compute_jones(antenna_idx, None, 0, 0, get_backend("numpy")))
+    """Evaluate one direction-independent term on the numpy backend.
+
+    Returns the ``(2, 2)`` matrix.  The direction-batched contract returns the
+    mandated ``(1, 2, 2)`` broadcast form for a direction-independent term
+    (invariant I3), which is asserted here once so that every caller can stay
+    written in terms of the matrix itself.
+    """
+    batch = term.compute_jones_batch(
+        antenna_idx=antenna_idx,
+        directions=direction_batch(),
+        frequency_hz=1.0e8,
+        freq_idx=0,
+        time_mjd=60_000.0,
+        time_idx=0,
+        backend=get_backend("numpy"),
+        dtype=np.complex128,
+    )
+    matrix = np.asarray(batch)
+    assert matrix.shape == (1, 2, 2)
+    return matrix[0]
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +536,7 @@ def test_an_out_of_range_antenna_row_is_rejected() -> None:
     with pytest.raises(InstrumentAdapterInvariantError):
         compute(term, 5)
     with pytest.raises(InstrumentAdapterInvariantError):
-        term.compute_jones(True, None, 0, 0, get_backend("numpy"))  # type: ignore[arg-type]
+        compute(term, True)  # type: ignore[arg-type]
 
 
 def test_an_unsupported_basis_reaching_the_matrix_builder_is_a_typed_failure() -> None:

@@ -5,9 +5,10 @@ Terms combine multiplicatively: J_total = J_n @ J_{n-1} @ ... @ J_1
 """
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
+if TYPE_CHECKING:
+    from radiosim.core.jones.directions import DirectionBatch
 
 
 class JonesTerm(ABC):
@@ -21,7 +22,10 @@ class JonesTerm(ABC):
     The order matters because matrix multiplication is non-commutative.
 
     Core Jones terms (Smirnov 2011), sky → correlator:
-    - K  (GeometricPhaseJones)      : Geometric phase delay (DDE, scalar, unitary)
+    - K  (``geometric_phase()``)    : Geometric phase delay (DDE, scalar, unitary).
+         Not a ``JonesTerm``: the phase is per *baseline*, so the solvers apply
+         it separately from the per-antenna chain
+         (``Tier7JonesSciencePlan.md`` Section 13.3, defect D6).
     - Z  (IonosphereJones, ...)     : Ionospheric Faraday rotation + TEC phase (DDE)
     - T  (TroposphereJones, ...)    : Tropospheric delay / opacity (DDE)
     - E  (canonical beam adapter)   : Primary beam voltage pattern (DDE)
@@ -64,10 +68,9 @@ class JonesTerm(ABC):
         ...     def is_direction_dependent(self) -> bool:
         ...         return False
         ...
-        ...     def compute_jones(
-        ...         self, antenna_idx, source_idx, freq_idx, time_idx, backend, **kwargs
-        ...     ):
-        ...         return backend.xp.eye(2, dtype=complex)
+        ...     def compute_jones_batch(self, *, antenna_idx, dtype, backend, **_):
+        ...         # Direction-independent: one (1, 2, 2) factor that broadcasts.
+        ...         return backend.batch_eye((1,), 2, dtype=dtype)
     """
 
     @property
@@ -129,41 +132,90 @@ class JonesTerm(ABC):
         """
         return True
 
-    @abstractmethod
-    def compute_jones(
+    def compute_jones_batch(
         self,
+        *,
         antenna_idx: int,
-        source_idx: int | None,
+        directions: "DirectionBatch",
+        frequency_hz: float,
         freq_idx: int,
+        time_mjd: float,
         time_idx: int,
         backend: Any,
-        **kwargs,
+        dtype: Any,
     ) -> Any:
-        """Compute 2x2 Jones matrix for this effect.
+        """Return this term's Jones matrices for one antenna over one batch.
 
-        Args:
-            antenna_idx: Antenna index (0 to N_ant-1)
-            source_idx: Source index (0 to N_src-1), None for DI effects
-            freq_idx: Frequency channel index
-            time_idx: Time sample index
-            backend: ArrayBackend instance (for device placement)
-            **kwargs: Effect-specific parameters
+        This is *the* evaluation contract (``Tier7JonesSciencePlan.md``
+        Section 13.2).  It replaced the scalar ``compute_jones(source_idx: int)``
+        contract and its Python-loop ``compute_jones_all_sources`` default, which
+        could not carry a HEALPix-scale direction batch: one Python call per
+        pixel is why the diffuse solver bypassed the chain entirely (defects D4,
+        D5).
 
-        Returns:
-            Complex 2x2 array on the backend device
-            Shape: (2, 2) in linear polarization basis [X, Y]
+        Parameters
+        ----------
+        antenna_idx : int
+            Antenna row in the solver instrument view.
+        directions : DirectionBatch
+            Every sky direction for this ``(time, frequency)`` step, host-side
+            and immutable.
+        frequency_hz, time_mjd : float
+            Physical frequency and time, not only indices, so a term needs no
+            constructor-time copy of the observation grids to know where it is
+            being evaluated.
+        freq_idx, time_idx : int
+            The corresponding grid indices.
+        backend : ArrayBackend
+            The backend to compute through.  A term must use backend primitives
+            and ``backend.xp`` only: no ``float()`` on a traced array, no Python
+            ``if`` on an array value, no ``.item()`` (Section 17.2).
+        dtype : dtype
+            The resolved complex dtype for this term.  It is passed in, never
+            chosen by the term: that is what closes the ``np.complex128``
+            hard-codes of defects D8 and D9.
 
-        Notes:
-            - For direction-independent effects, source_idx may be None
-            - Result must be on the backend device (CPU/GPU)
-            - Use backend.xp for array operations
+        Returns
+        -------
+        array
+            Complex, shape ``(n_dir, 2, 2)`` for a direction-dependent term or
+            ``(1, 2, 2)`` for a direction-independent one, in the backend's own
+            array domain and in ``dtype``.  A ``(1, 2, 2)`` return broadcasts
+            against ``(n_dir, 2, 2)`` and is the **required** form for a DIE
+            term: materialising ``n_dir`` identical copies would multiply the
+            chain's memory by the direction count for no reason.  Invariant I3
+            tests exactly this.
+
+        Notes
+        -----
+        This method is concrete and raises rather than being declared
+        ``@abstractmethod``, for one bounded reason: at 7B the package still
+        exports identity-stub subclasses that Tier 7C deletes and Tier 7D-7H
+        implement, none of which are in 7B's writable file list.  An abstract
+        declaration here would make every one of them impossible to instantiate,
+        which would silently break the 7A characterization pins those slices own
+        and would leave the public surface *worse* than the stub state 7C is
+        about to remove.  The declaration becomes ``@abstractmethod`` in the
+        slice that removes the last non-implementing subclass.
         """
-        pass
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement compute_jones_batch; every "
+            "Jones term must implement the direction-batched evaluation contract "
+            "(Tier7JonesSciencePlan.md Section 13.2)."
+        )
 
     def is_diagonal(self) -> bool:
         """True if Jones matrix is always diagonal (optimization hint).
 
         Diagonal matrices can be combined more efficiently.
+
+        Declaring ``True`` here is a claim about numbers, not a hint that goes
+        unchecked: ``tests/unit/test_jones/test_term_contract.py`` sweeps every
+        term over its parameter space and asserts each declared property
+        numerically, and requires a witness for each declared ``False``
+        (invariant I2, the structural fix for defect D10 -- terms used to claim
+        unitarity and scalarity about a matrix that was the 2x2 identity, which
+        is trivially both).
 
         Diagonal: G, B, T (simple delay), Kd, Rc, ff, X, Kx, GAINCURVE
         Non-diagonal: E, Z, P, D, F, W, Txy, C, H, Ee, a, dE, DF
@@ -195,40 +247,6 @@ class JonesTerm(ABC):
         Default: False
         """
         return False
-
-    def compute_jones_all_sources(
-        self,
-        antenna_idx: int,
-        n_sources: int,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs,
-    ) -> Any:
-        """Compute Jones matrices for all sources at once.
-
-        Default implementation: loops over sources calling compute_jones().
-        Subclasses should override for true vectorization.
-
-        Args:
-            antenna_idx: Antenna index (0 to N_ant-1)
-            n_sources: Number of sources
-            freq_idx: Frequency channel index
-            time_idx: Time sample index
-            backend: ArrayBackend instance
-            **kwargs: Effect-specific parameters
-
-        Returns:
-            Complex array of shape (n_sources, 2, 2)
-        """
-        xp = backend.xp
-        matrices = [
-            self.compute_jones(antenna_idx, s, freq_idx, time_idx, backend, **kwargs)
-            for s in range(n_sources)
-        ]
-        if not matrices:
-            return backend.zeros_complex((0, 2, 2), dtype=np.complex128)
-        return xp.stack(matrices, axis=0)
 
     def get_config(self) -> dict[str, Any]:
         """Get configuration dictionary for this Jones term.

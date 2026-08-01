@@ -240,14 +240,23 @@ def _source(relative_path: str) -> str:
 # Section 5.1 -- the exported Jones surface
 # =========================================================================
 
-#: The exact ``__all__`` of ``radiosim.core.jones`` at this gate, in file order.
-#: Three base names plus 40 concrete term classes.  Section 5.1 counts 43 and
-#: records the ``CLAUDE.md`` "46" claim as defect D0.
+#: The exact ``__all__`` of ``radiosim.core.jones``, in file order.
+#: At the gate this was 43 names: three base names plus 40 concrete term
+#: classes, with the ``CLAUDE.md`` "46" claim recorded as defect D0.
+#:
+#: PARTLY FLIPPED BY: Tier 7B.  ``GeometricPhaseJones`` -- one of the 26 names
+#: Section 23 removes -- is the K term, and K is per-*baseline*, so it cannot be
+#: a chain term at all; Section 33.2 therefore assigns its deletion to 7B rather
+#: than to 7C, together with the ``geometric_phase()`` function that replaces it
+#: and the two new names the batched contract introduces.  The remaining 25
+#: removals and the ``CrosshandPhaseJones`` rename stay with Tier 7C.
 EXPORTED_JONES_NAMES: tuple[str, ...] = (
     "JonesTerm",
     "JonesChain",
     "JonesBaselineTerm",
-    "GeometricPhaseJones",
+    "DirectionBatch",
+    "evaluate_antenna_jones",
+    "geometric_phase",
     "GainJones",
     "TimeVariableGainJones",
     "ElevationGainJones",
@@ -289,13 +298,28 @@ EXPORTED_JONES_NAMES: tuple[str, ...] = (
     "SmearingFactorJones",
 )
 
-#: The three exported classes that implement real physics (Section 5.1 table).
+#: The exported names that carry real physics (Section 5.1 table).
 #: ``E`` is deliberately absent: the solver's beam term is the private
 #: ``_ResolvedBeamJones`` adapter, not an exported class.
+#:
+#: FLIPPED BY: Tier 7B, which turned the K class into ``geometric_phase()`` and
+#: added the two names the batched contract needs.  The count is unchanged in
+#: spirit -- the same physics, one fewer class -- and Tier 7C still owns the
+#: 35-stub deletion.
 REAL_PHYSICS_EXPORTS: tuple[str, ...] = (
-    "GeometricPhaseJones",
+    "geometric_phase",
     "ReceptorConfigJones",
     "BasisTransformJones",
+)
+
+#: The exported names that are not term classes at all: the two base classes,
+#: the baseline base class, and the batched-contract support surface.
+NON_TERM_EXPORTS: tuple[str, ...] = (
+    "JonesTerm",
+    "JonesChain",
+    "JonesBaselineTerm",
+    "DirectionBatch",
+    "evaluate_antenna_jones",
 )
 
 
@@ -400,29 +424,42 @@ STUB_MODULES: tuple[str, ...] = (
 )
 
 
-def test_jones_package_exports_exactly_forty_three_names() -> None:
-    """Pins ``__all__`` at 43 names, in order (Section 5.1).
+def test_jones_package_exports_exactly_the_recorded_names() -> None:
+    """Pins ``__all__``, in order (Section 5.1).
 
-    OWNED BY: Tier 7C, which deletes 26 stub classes and renames
+    OWNED BY: Tier 7C, which deletes the 25 remaining stub classes and renames
     ``CrosshandPhaseJones`` to ``CrosshandJones``, and Tier 7J, which rebuilds
-    the documentation around the surviving 16 names.
+    the documentation around the surviving names.
+
+    PARTLY FLIPPED BY: Tier 7B -- see the note on ``EXPORTED_JONES_NAMES``.  The
+    gate count was 43; 7B removes ``GeometricPhaseJones`` and adds
+    ``geometric_phase``, ``DirectionBatch`` and ``evaluate_antenna_jones``.
     """
     import radiosim.core.jones as jones_package
 
     assert tuple(jones_package.__all__) == EXPORTED_JONES_NAMES
-    assert len(EXPORTED_JONES_NAMES) == 43
-    assert len(set(EXPORTED_JONES_NAMES)) == 43
+    assert len(EXPORTED_JONES_NAMES) == 45
+    assert len(set(EXPORTED_JONES_NAMES)) == 45
 
 
 def test_every_exported_jones_name_resolves_through_lazy_getattr() -> None:
-    """Pins that all 43 names bind lazily and none is eagerly imported.
+    """Pins that every exported name binds lazily and none is eagerly imported.
 
     OWNED BY: Tier 7C.  The lazy table shrinks with the class list.
+
+    PARTLY FLIPPED BY: Tier 7B, after which two exported names are functions
+    rather than classes -- ``geometric_phase`` because K is per-baseline, and
+    ``evaluate_antenna_jones`` because chain evaluation is not a term.
     """
     import radiosim.core.jones as jones_package
 
+    functions = {"geometric_phase", "evaluate_antenna_jones"}
     for name in EXPORTED_JONES_NAMES:
-        assert isinstance(getattr(jones_package, name), type), name
+        resolved = getattr(jones_package, name)
+        if name in functions:
+            assert callable(resolved) and not isinstance(resolved, type), name
+        else:
+            assert isinstance(resolved, type), name
     assert set(EXPORTED_JONES_NAMES).issubset(set(jones_package.__dir__()))
     with pytest.raises(AttributeError, match="has no attribute 'NotAJonesTerm'"):
         jones_package.NotAJonesTerm  # noqa: B018
@@ -435,10 +472,10 @@ def test_claude_md_claims_forty_six_exported_jones_classes() -> None:
     and Jones sections around the true surviving name count.
     """
     assert "46 exported classes" in _source("CLAUDE.md")
-    assert len(EXPORTED_JONES_NAMES) == 43
+    assert len(EXPORTED_JONES_NAMES) == 45
 
 
-def test_only_three_exported_classes_implement_real_physics() -> None:
+def test_only_three_exported_names_implement_real_physics() -> None:
     """Pins Section 5.1's three-real / 37-stub split.
 
     OWNED BY: Tier 7C through Tier 7H, each of which converts stubs it owns
@@ -447,11 +484,9 @@ def test_only_three_exported_classes_implement_real_physics() -> None:
     stub_names = set(JONES_TERM_STUBS) | set(BASELINE_TERM_STUBS)
     assert len(stub_names) == 37
     assert stub_names.isdisjoint(REAL_PHYSICS_EXPORTS)
-    assert stub_names | set(REAL_PHYSICS_EXPORTS) == set(EXPORTED_JONES_NAMES) - {
-        "JonesTerm",
-        "JonesChain",
-        "JonesBaselineTerm",
-    }
+    assert stub_names | set(REAL_PHYSICS_EXPORTS) == set(EXPORTED_JONES_NAMES) - set(
+        NON_TERM_EXPORTS
+    )
 
 
 @pytest.mark.parametrize("class_name", sorted(JONES_TERM_STUBS))
@@ -668,10 +703,15 @@ def test_capability_flags_are_self_reported_and_vacuously_true() -> None:
 
 
 class _CountingIdentityTerm(JonesTerm):
-    """A direction-dependent probe that counts scalar ``compute_jones`` calls."""
+    """A direction-dependent probe that counts batched evaluations.
+
+    FLIPPED BY: Tier 7B.  At the gate this probe counted one ``compute_jones``
+    call *per direction*; it now counts one ``compute_jones_batch`` call for the
+    whole batch, which is the defect-D5 change made visible.
+    """
 
     def __init__(self) -> None:
-        self.calls: list[tuple[int, int | None, int, int]] = []
+        self.calls: list[tuple[int, int, int, int]] = []
 
     @property
     def name(self) -> str:
@@ -681,60 +721,110 @@ class _CountingIdentityTerm(JonesTerm):
     def is_direction_dependent(self) -> bool:
         return True
 
-    def compute_jones(
+    def compute_jones_batch(
         self,
+        *,
         antenna_idx: int,
-        source_idx: int | None,
+        directions: Any,
+        frequency_hz: float,
         freq_idx: int,
+        time_mjd: float,
         time_idx: int,
         backend: Any,
-        **kwargs: Any,
+        dtype: Any,
     ) -> Any:
-        self.calls.append((antenna_idx, source_idx, freq_idx, time_idx))
-        return backend.xp.eye(2, dtype=np.complex64)
+        self.calls.append((antenna_idx, directions.n_dir, freq_idx, time_idx))
+        return backend.batch_eye((directions.n_dir,), 2, dtype=dtype)
 
 
-def test_jones_term_contract_is_scalar_per_direction_with_a_python_loop() -> None:
-    """Pins defect D5: one direction at a time, by integer index.
+def _probe_directions(n_dir: int) -> Any:
+    """A direction batch for the Tier 7B contract pins."""
+    from radiosim.core.jones import DirectionBatch
 
-    ``compute_jones`` takes ``source_idx: int | None`` and the default
-    ``compute_jones_all_sources`` is a Python list comprehension that calls it
-    once per direction.  At HEALPix scale that is one Python call per pixel.
+    alt = np.full(n_dir, 1.0)
+    az = np.linspace(0.0, 1.0, n_dir)
+    return DirectionBatch.from_horizontal(
+        alt_rad=alt,
+        az_rad=az,
+        dir_l=np.cos(alt) * np.sin(az),
+        dir_m=np.cos(alt) * np.cos(az),
+        dir_n=np.sin(alt),
+        latitude_rad=-0.536,
+        local_sidereal_time_rad=0.0,
+    )
 
-    OWNED BY: Tier 7B, which replaces the contract with ``DirectionBatch`` and
-    ``compute_jones_batch``.
+
+def _evaluate_chain(chain: JonesChain, *, n_dir: int = 3, dtype: Any = None) -> Any:
+    return chain.compute_antenna_jones_batch(
+        antenna_idx=0,
+        directions=_probe_directions(n_dir),
+        frequency_hz=1.0e8,
+        freq_idx=0,
+        time_mjd=60_000.0,
+        time_idx=0,
+        dtype=np.complex128 if dtype is None else dtype,
+    )
+
+
+def test_jones_term_contract_is_direction_batched() -> None:
+    """Defect D5, flipped: one call carries the whole direction batch.
+
+    At the gate ``compute_jones`` took ``source_idx: int | None`` and the default
+    ``compute_jones_all_sources`` was a Python list comprehension calling it once
+    per direction -- one Python call per HEALPix pixel, which is why the diffuse
+    solver bypassed the chain entirely.
+
+    OWNED BY: Tier 7B.  FLIPPED BY: Tier 7B, which replaced the contract with
+    ``DirectionBatch`` and ``compute_jones_batch``.
     """
-    signature = inspect.signature(JonesTerm.compute_jones)
+    assert not hasattr(JonesTerm, "compute_jones")
+    assert not hasattr(JonesTerm, "compute_jones_all_sources")
+
+    signature = inspect.signature(JonesTerm.compute_jones_batch)
     assert list(signature.parameters) == [
         "self",
         "antenna_idx",
-        "source_idx",
+        "directions",
+        "frequency_hz",
         "freq_idx",
+        "time_mjd",
         "time_idx",
         "backend",
-        "kwargs",
+        "dtype",
     ]
-    assert not hasattr(JonesTerm, "compute_jones_batch")
+    # Every argument after ``self`` is keyword-only: a mis-ordered call is
+    # impossible rather than merely discouraged.
+    assert all(
+        parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        for name, parameter in signature.parameters.items()
+        if name != "self"
+    )
 
     probe = _CountingIdentityTerm()
-    result = probe.compute_jones_all_sources(3, 7, 1, 2, get_backend("numpy"))
+    result = probe.compute_jones_batch(
+        antenna_idx=3,
+        directions=_probe_directions(7),
+        frequency_hz=1.0e8,
+        freq_idx=1,
+        time_mjd=60_000.0,
+        time_idx=2,
+        backend=get_backend("numpy"),
+        dtype=np.complex128,
+    )
     assert np.asarray(result).shape == (7, 2, 2)
-    assert probe.calls == [(3, source, 1, 2) for source in range(7)]
-
-    source = inspect.getsource(JonesTerm.compute_jones_all_sources)
-    assert "for s in range(n_sources)" in source
+    assert probe.calls == [(3, 7, 1, 2)]
 
 
-def test_jones_chain_add_term_accepts_a_baseline_term() -> None:
-    """Pins defect D7: ``add_term`` contradicts its own docstring.
+def test_jones_chain_add_term_rejects_a_baseline_term() -> None:
+    """Defect D7, flipped: ``add_term`` now enforces its own docstring.
 
-    ``JonesChain``'s class docstring states "Only ``JonesTerm`` subclasses may
-    be added here", but ``add_term`` performs no isinstance check, so a
-    ``JonesBaselineTerm`` -- which is not a ``JonesTerm`` -- is accepted and
-    then blows up inside ``compute_antenna_jones`` with an ``AttributeError``
-    rather than a typed rejection.
+    At the gate the docstring said "Only ``JonesTerm`` subclasses may be added
+    here" while ``add_term`` performed no check at all, so a
+    ``JonesBaselineTerm`` was accepted and then failed with an
+    ``AttributeError`` deep inside evaluation instead of a typed rejection at
+    the point of the mistake.
 
-    OWNED BY: Tier 7B, which adds the isinstance guard.
+    OWNED BY: Tier 7B.  FLIPPED BY: Tier 7B, which added the isinstance guard.
     """
     import radiosim.core.jones as jones_package
 
@@ -744,56 +834,51 @@ def test_jones_chain_add_term_accepts_a_baseline_term() -> None:
 
     chain = JonesChain(get_backend("numpy"))
     baseline_term = jones_package.BaselineMultiplicativeJones()
-    chain.add_term(baseline_term)
-    assert chain.terms == [baseline_term]
-
-    with pytest.raises(AttributeError):
-        chain.compute_antenna_jones(0, None, 0, 0)
+    with pytest.raises(TypeError, match="JonesBaselineTerm"):
+        chain.add_term(baseline_term)
+    assert chain.terms == []
 
 
-def test_jones_chain_hard_codes_complex128_for_both_identity_seeds() -> None:
-    """Pins defect D8: ``PrecisionConfig`` is ignored by the chain seeds.
+def test_jones_chain_seed_dtype_comes_from_the_caller() -> None:
+    """Defect D8, flipped: the identity seeds no longer come from a literal.
 
-    Both seeds are literal ``np.complex128``, so a chain whose every term is
-    ``complex64`` still produces a ``complex128`` product.  ``PrecisionConfig``
-    is not even a constructor argument.
+    At the gate both seeds were a literal ``np.complex128``, so a chain whose
+    every term was ``complex64`` still produced a ``complex128`` product and
+    ``PrecisionConfig`` was not even reachable from here.
 
-    OWNED BY: Tier 7B, which resolves the seed dtype from the precision model.
+    OWNED BY: Tier 7B.  FLIPPED BY: Tier 7B, which passes the resolved dtype
+    into ``compute_antenna_jones_batch`` -- the solver resolves it once from the
+    precision model, so the chain never chooses.  ``precision`` is deliberately
+    still not a constructor argument: a chain rebuilt per ``(time, frequency)``
+    would otherwise carry a second copy of the run's precision policy.
     """
     assert "precision" not in inspect.signature(JonesChain.__init__).parameters
 
     backend = get_backend("numpy")
     empty = JonesChain(backend)
-    assert str(np.asarray(empty.compute_antenna_jones(0, None, 0, 0)).dtype) == (
-        "complex128"
-    )
-    assert (
-        str(np.asarray(empty.compute_antenna_jones_all_sources(0, 3, 0, 0)).dtype)
-        == "complex128"
-    )
+    for dtype in (np.complex64, np.complex128):
+        assert np.asarray(_evaluate_chain(empty, dtype=dtype)).dtype == dtype
 
     loaded = JonesChain(backend)
     loaded.add_term(_CountingIdentityTerm())
-    assert str(np.asarray(loaded.compute_antenna_jones(0, 0, 0, 0)).dtype) == (
-        "complex128"
-    )
+    for dtype in (np.complex64, np.complex128):
+        assert np.asarray(_evaluate_chain(loaded, dtype=dtype)).dtype == dtype
 
     text = _source("src/radiosim/core/jones/chain.py")
-    assert text.count("dtype=np.complex128") == 2
-    assert "PrecisionConfig" not in text
+    assert "dtype=np.complex128" not in text
 
-    # The precision model that is ignored here really does offer other dtypes.
+    # The precision model that used to be ignored really does offer other dtypes.
     assert PrecisionConfig.fast().jones.get_dtype("gain") == np.complex64
 
 
-def test_receptor_config_jones_hard_codes_complex128(tmp_path) -> None:
-    """Pins defect D9: the C term ignores ``PrecisionConfig`` as well.
+def test_receptor_config_jones_returns_the_dtype_it_is_given(tmp_path) -> None:
+    """Defect D9, flipped: the C term honours ``PrecisionConfig`` too.
 
-    OWNED BY: Tier 7B, which makes C and H dtype-correct.
+    OWNED BY: Tier 7B.  FLIPPED BY: Tier 7B, which made C and H dtype-correct.
+    The default preset resolves ``complex128``, which is what the removed
+    literal said, so every shipped configuration is bit-identical; a preset that
+    resolves anything else is where the fix becomes observable.
     """
-    text = _source("src/radiosim/core/jones/receptor.py")
-    assert "dtype=np.complex128" in text
-
     import radiosim.core.jones as jones_package
     from radiosim.core.instrument_adapters import SolverInstrumentView
 
@@ -801,34 +886,55 @@ def test_receptor_config_jones_hard_codes_complex128(tmp_path) -> None:
     assert type(instrument) is SolverInstrumentView
 
     term = jones_package.ReceptorConfigJones(receptors=receptors, instrument=instrument)
-    matrix = term.compute_jones(0, None, 0, 0, get_backend("numpy"))
-    assert str(np.asarray(matrix).dtype) == "complex128"
-    # The default homogeneous-linear, zero-rotation case is exactly the identity.
-    np.testing.assert_array_equal(np.asarray(matrix), IDENTITY)
+    for dtype in (np.complex64, np.complex128):
+        matrix = np.asarray(
+            term.compute_jones_batch(
+                antenna_idx=0,
+                directions=_probe_directions(3),
+                frequency_hz=1.0e8,
+                freq_idx=0,
+                time_mjd=60_000.0,
+                time_idx=0,
+                backend=get_backend("numpy"),
+                dtype=dtype,
+            )
+        )
+        assert matrix.dtype == dtype
+        # A direction-independent term returns one broadcastable matrix.
+        assert matrix.shape == (1, 2, 2)
+        # The default homogeneous-linear, zero-rotation case is exactly I2.
+        np.testing.assert_array_equal(matrix[0], IDENTITY.astype(dtype))
 
 
-def test_jones_chain_docstring_records_two_chain_orders() -> None:
-    """Pins defects D11 and D12: the canonical and the undesigned order.
+def test_jones_chain_docstring_records_the_designed_chain_order() -> None:
+    """Defect D11, flipped; defect D12 still recorded.
 
-    The canonical Tier 5 order places ``P`` correlator-side of ``C`` (D12); the
-    "extended" line places ``W`` sky-side of ``Z`` and declares the diagonal
-    terms ``Kd``/``Rc`` "applied separately" (D11).
+    At the gate the "extended" line was undesigned: it placed ``W`` sky-side of
+    ``Z`` and declared the diagonal terms ``Kd``/``Rc`` "applied separately",
+    neither of which is what Section 20.12 designs.
 
     OWNED BY: Tier 7B (which replaces the extended line) and Tier 7F (which
-    corrects the ``P``/``C`` order).
+    corrects the ``P``/``C`` order).  FLIPPED BY: Tier 7B for the extended line
+    only -- the canonical Tier 5 line, with ``P`` correlator-side of ``C``, is
+    deliberately left alone, because moving ``P`` is a change to an accepted
+    Tier 5 decision and belongs to the slice that makes ``P`` real.
     """
     docstring = JonesChain.__doc__ or ""
+    # Unchanged: the Tier 5 canonical order, D12 included.
     assert "J_total = H @ G @ B @ D @ P @ C @ E @ T @ Z" in docstring
-    assert "@ F @ T @ Z @ W" in docstring
-    assert "``Kd``, ``Rc``" not in docstring
-    assert "(K, Kd, Rc applied separately)" in docstring
-
     canonical = docstring.split("J_total = H @ G @ B @ D @ P @ C @ E @ T @ Z")[1]
     assert "K applied separately" in canonical.split("\n")[0]
 
+    # Replaced: the undesigned extended line is gone, and the Section 20.12
+    # designed order is in its place.
+    assert "@ F @ T @ Z @ W" not in docstring
+    assert "(K, Kd, Rc applied separately)" not in docstring
+    assert "J_total = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z" in docstring
+    assert "commute" in docstring
+
     # The composition really is terms[0] @ ... @ terms[-1], reversed at
     # evaluation time, which is what makes the add order the chain order.
-    chain_source = inspect.getsource(jones_chain.JonesChain.compute_antenna_jones)
+    chain_source = inspect.getsource(jones_chain.JonesChain.compute_antenna_jones_batch)
     assert "for term in reversed(self.terms)" in chain_source
 
 
@@ -847,19 +953,30 @@ ALL_OPTIONAL_JONES_TERMS: dict[str, dict[str, Any]] = {
 }
 
 
-def test_enabling_every_optional_jones_term_changes_no_visibility(tmp_path) -> None:
-    """Pins defects D1 and D3 behaviorally: the whole optional chain is inert.
+def test_enabling_an_optional_jones_term_now_fails_loudly(tmp_path) -> None:
+    """Defects D1 and D3, behaviorally -- and Tier 7B's one behaviour change.
 
-    G, B, D, P, T and Z are the only terms ``_build_jones_chain`` can reach at
-    all, and enabling all six with physically meaningful parameters produces a
-    **bit-identical** cube.  This is the single most direct statement of
-    ``SCI-001``: a user who configures instrumental gains, a bandpass, leakage,
-    parallactic rotation, a troposphere and an ionosphere gets exactly the
-    unmodelled sky back.
+    At the gate, enabling G, B, D, P, T and Z with physically meaningful
+    parameters produced a **bit-identical** cube: the most direct statement of
+    ``SCI-001``, since a user who configured instrumental gains, a bandpass,
+    leakage, parallactic rotation, a troposphere and an ionosphere got exactly
+    the unmodelled sky back, silently.
 
-    OWNED BY: Tier 7D through Tier 7G.  Each slice that implements one of these
-    terms must flip this pin, because from then on that term changes the
-    numbers -- which is invariant I7.
+    OWNED BY: Tier 7D through Tier 7G.  PARTLY FLIPPED BY: Tier 7B, and this is
+    the **only** behaviour 7B changes.  The stub classes are Tier 7C's to delete
+    and 7D-7G's to implement, and none of them is in 7B's writable file list, so
+    none implements the new ``compute_jones_batch`` contract.  Adding one to a
+    chain therefore raises ``NotImplementedError`` instead of multiplying by the
+    identity.
+
+    That is strictly better than what it replaces, and it costs nothing that was
+    reachable: ``jones_config`` is hard-coded to ``None`` at the single
+    production call site (defect D3), so no shipped configuration, CLI
+    invocation or ``Simulator`` run can reach this path at all.  Silence became
+    a typed failure on a surface only tests can touch, which is exactly the
+    direction ``Fix.md`` Section 16 asks for.  The empty and absent
+    configurations remain bit-identical, which is the part that governs every
+    real run.
     """
     instrument, beam_system, receptors = _solver_components(tmp_path)
     kwargs: dict[str, Any] = {
@@ -875,13 +992,14 @@ def test_enabling_every_optional_jones_term_changes_no_visibility(tmp_path) -> N
 
     baseline = np.asarray(calculate_visibility(**kwargs, jones_config=None))
     empty = np.asarray(calculate_visibility(**kwargs, jones_config={}))
-    loaded = np.asarray(
-        calculate_visibility(**kwargs, jones_config=dict(ALL_OPTIONAL_JONES_TERMS))
-    )
 
     assert float(np.max(np.abs(baseline))) > 0.0
     assert _raw_cube_digest(baseline) == _raw_cube_digest(empty)
-    assert _raw_cube_digest(baseline) == _raw_cube_digest(loaded)
+
+    # Every one of the six now fails loudly rather than silently doing nothing.
+    for term_name, term_config in ALL_OPTIONAL_JONES_TERMS.items():
+        with pytest.raises(NotImplementedError, match="compute_jones_batch"):
+            calculate_visibility(**kwargs, jones_config={term_name: term_config})
 
 
 def test_build_jones_chain_adds_terms_in_the_uncorrected_canonical_order(
@@ -1003,12 +1121,21 @@ def test_jones_config_is_an_untyped_dict_with_ad_hoc_rejections(tmp_path) -> Non
     with pytest.raises(TypeError, match="must not contain a beam entry"):
         calculate_visibility(**kwargs, jones_config={"beam": {}})
 
-    # Nonsense inside a term block is accepted without comment.
-    nonsense = np.asarray(
+    # Nonsense inside a term block is still accepted without comment -- there is
+    # still no field validation of any kind below the top level, which is what
+    # Tier 7D's typed schema replaces.  What changed at Tier 7B is only what
+    # happens next: the truthy string enables a term whose class does not
+    # implement the batched contract, so the run fails loudly instead of
+    # silently returning the unmodelled sky.
+    with pytest.raises(NotImplementedError, match="compute_jones_batch"):
         calculate_visibility(**kwargs, jones_config={"G": {"enabled": "yes please"}})
+
+    # A falsy value is still ignored without comment, and is bit-identical.
+    ignored = np.asarray(
+        calculate_visibility(**kwargs, jones_config={"G": {"enabled": ""}})
     )
     plain = np.asarray(calculate_visibility(**kwargs, jones_config=None))
-    assert _raw_cube_digest(nonsense) == _raw_cube_digest(plain)
+    assert _raw_cube_digest(ignored) == _raw_cube_digest(plain)
 
 
 def test_reject_parallactic_rotation_guards_an_unreachable_combination(
@@ -1047,51 +1174,66 @@ def test_reject_parallactic_rotation_guards_an_unreachable_combination(
     )
 
 
-def test_healpix_solver_has_no_jones_config_and_no_chain() -> None:
-    """Pins defect D4: the diffuse path never touches ``JonesChain``.
+def test_healpix_solver_shares_the_one_chain_and_the_one_evaluator() -> None:
+    """Defect D4, closed.
 
-    A term added to the point path would silently not apply to a HEALPix sky.
-    The HEALPix path builds its own constant ``H_p @ C_p`` and left-multiplies
-    it onto the beam batch.
+    At the gate the diffuse path never touched ``JonesChain``: it built its own
+    constant ``H_p @ C_p`` and left-multiplied it onto the beam batch, so a term
+    added to the point path would silently not apply to a HEALPix sky.
 
-    OWNED BY: Tier 7B, which routes both solvers through
-    ``evaluate_antenna_jones``.
+    OWNED BY: Tier 7B.  FLIPPED BY: Tier 7B, which routes both solvers through
+    ``_build_jones_chain`` and ``evaluate_antenna_jones``.  The typed
+    ``jones_terms`` parameter is still Tier 7D's to add -- what 7B guarantees is
+    that when it arrives there is exactly one place for it to reach.
     """
     assert (
         "jones_config" not in inspect.signature(calculate_visibility_healpix).parameters
     )
 
     text = _source("src/radiosim/core/visibility_healpix.py")
-    assert "JonesChain" not in text
-    assert "jones_config" not in text
-    assert "_receptor_transforms" in text
-    assert "_evaluate_beam_batch_by_antenna" in text
+    assert "_build_jones_chain" in text
+    assert "evaluate_antenna_jones" in text
+    assert "_receptor_transforms" not in text
+    assert "_evaluate_beam_batch_by_antenna" not in text
+
+    # Exactly one chain-composition site in the whole package.
+    point = _source("src/radiosim/core/visibility.py")
+    assert point.count("chain.add_term(") == 9
+    assert "chain.add_term(" not in text
 
 
-def test_geometric_phase_is_implemented_three_times() -> None:
-    """Pins defect D6: one unused class and two inline copies.
+def test_geometric_phase_is_implemented_exactly_once() -> None:
+    """Defect D6, closed: one function, no class, no inline copy.
 
-    ``GeometricPhaseJones`` is real physics that no solver constructs, and both
-    solvers compute the same formula inline, including the exact non-coplanar
-    ``w * (n - 1)`` term.
+    At the gate the same formula existed three times: an exported
+    ``GeometricPhaseJones`` class that no solver constructed, and one inline copy
+    in each solver, each carrying the exact non-coplanar ``w * (n - 1)`` term.
 
-    OWNED BY: Tier 7B, which extracts ``geometric_phase()`` and deletes the
-    class.
+    OWNED BY: Tier 7B.  FLIPPED BY: Tier 7B, which extracted
+    ``geometric_phase()`` and deleted the class.  ``K`` is per-baseline, so it is
+    a function the solver applies beside the compiled contraction rather than a
+    chain term.
     """
     import radiosim.core.jones as jones_package
 
-    assert isinstance(jones_package.GeometricPhaseJones, type)
+    with pytest.raises(AttributeError):
+        jones_package.GeometricPhaseJones  # noqa: B018
+    assert callable(jones_package.geometric_phase)
 
     point = _source("src/radiosim/core/visibility.py")
     healpix = _source("src/radiosim/core/visibility_healpix.py")
     for text in (point, healpix):
         assert "GeometricPhaseJones" not in text
-        assert "backend.exp(-2j * np.pi" in text
-    assert "bl_w * (n_dir - 1.0)" in point
-    assert "(dir_n_xp - 1.0)" in healpix
+        # The formula is called, never re-spelled.
+        assert "backend.exp(-2j * np.pi" not in text
+        assert "geometric_phase(" in text
 
-    assert not (SOURCE_ROOT / "core" / "jones" / "evaluate.py").exists()
-    assert not (SOURCE_ROOT / "core" / "jones" / "directions.py").exists()
+    geometric = _source("src/radiosim/core/jones/geometric.py")
+    assert geometric.count("backend.exp(-2j * np.pi") == 1
+    assert "bl_w * (dir_n - 1.0)" in geometric
+
+    assert (SOURCE_ROOT / "core" / "jones" / "evaluate.py").exists()
+    assert (SOURCE_ROOT / "core" / "jones" / "directions.py").exists()
 
 
 def test_the_non_coplanar_w_contribution_is_already_exact(tmp_path) -> None:
@@ -1105,9 +1247,15 @@ def test_the_non_coplanar_w_contribution_is_already_exact(tmp_path) -> None:
     no-op that a later slice could reintroduce harmlessly.
 
     OWNED BY: Tier 7C, which deletes ``wterm.py`` rather than implementing it.
+
+    ANCHOR UPDATED BY: Tier 7B, which extracted the two inline copies into the
+    one ``geometric_phase()`` function (defect D6).  The ``w (n - 1)`` term the
+    pin is about is unchanged; there is now one place to read it rather than
+    two, which makes the double-count hazard easier to see, not harder.
     """
-    assert "bl_w * (n_dir - 1.0)" in _source("src/radiosim/core/visibility.py")
-    assert "(dir_n_xp - 1.0)" in _source("src/radiosim/core/visibility_healpix.py")
+    assert "bl_w * (dir_n - 1.0)" in _source("src/radiosim/core/jones/geometric.py")
+    for solver in ("visibility.py", "visibility_healpix.py"):
+        assert "geometric_phase(" in _source(f"src/radiosim/core/{solver}")
 
     instrument, beam_system, receptors = _solver_components(tmp_path)
     kwargs: dict[str, Any] = {

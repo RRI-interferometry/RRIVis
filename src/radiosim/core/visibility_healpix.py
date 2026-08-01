@@ -33,7 +33,9 @@ from radiosim.core.beam import BeamSystem
 from radiosim.core.contraction import baseline_contraction_for
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
-from radiosim.core.jones.receptor import basis_transform_matrix, receptor_matrix
+from radiosim.core.jones.directions import DirectionBatch
+from radiosim.core.jones.evaluate import evaluate_antenna_jones
+from radiosim.core.jones.geometric import geometric_phase, uvw_in_wavelengths
 from radiosim.core.polarization import stokes_to_coherency
 from radiosim.core.receptor import ResolvedReceptorSet
 from radiosim.core.runtime_config import ResolvedSolverExecutionConfig
@@ -47,6 +49,17 @@ from radiosim.core.solver_partition import (
     SERIAL_SOLVER_EXECUTION,
     execute_time_blocks,
     require_solver_execution,
+)
+
+# The chain builder, the run-constant receptor terms, and the sidereal-time host
+# stage are shared with the point solver rather than reimplemented here.  That
+# sharing is the point: a second private copy of "which terms are in the chain"
+# is exactly the defect (D4) this slice closes, and importing the one builder is
+# what makes it impossible for the two solvers to disagree about the chain.
+from radiosim.core.visibility import (  # noqa: E402
+    _build_jones_chain,
+    _host_local_sidereal_time_rad,
+    _resolved_receptor_terms,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,37 +101,6 @@ def _require_receptors(receptors: object) -> ResolvedReceptorSet:
             "receptors must be an exact ResolvedReceptorSet from resolve_receptors()"
         )
     return receptors
-
-
-def _receptor_transforms(
-    *,
-    receptors: ResolvedReceptorSet,
-    instrument: "SolverInstrumentView",
-    antenna_numbers: tuple[int, ...],
-) -> dict[int, np.ndarray]:
-    """Return the constant ``H_p @ C_p`` for each selected antenna.
-
-    The HEALPix path builds no Jones chain; it evaluates the beam directly.
-    ``C`` and ``H`` are direction, time, and frequency
-    independent, so left-multiplying the per-antenna beam Jones by the single
-    constant product is exactly the canonical chain restricted to the terms
-    this path carries (``Tier5ReceptorFeedPlan.md`` Section 19.3).
-    """
-    transforms: dict[int, np.ndarray] = {}
-    for antenna_number in antenna_numbers:
-        antenna_id = _canonical_antenna_id(instrument, antenna_number)
-        try:
-            receptor = receptors.receptor_by_antenna[antenna_id]
-        except KeyError as exc:
-            raise InstrumentAdapterInvariantError(
-                "the resolved receptor set does not cover solver antenna "
-                f"number={antenna_id.number}, name={antenna_id.name!r}"
-            ) from exc
-        transforms[antenna_number] = basis_transform_matrix(
-            receptor.basis,
-            receptors.output_basis,
-        ) @ receptor_matrix(receptor.basis, receptor.feed_rotation_rad)
-    return transforms
 
 
 def _host_preprocess_time_step(
@@ -225,63 +207,6 @@ def _canonical_antenna_id(
             f"antenna row {row} has no canonical name in the solver instrument view"
         ) from exc
     return AntennaId(antenna_number, name)
-
-
-def _evaluate_beam_batch_by_antenna(
-    *,
-    beam_system: BeamSystem,
-    instrument: "SolverInstrumentView",
-    antenna_numbers: tuple[int, ...],
-    altitude_rad: np.ndarray,
-    azimuth_rad: np.ndarray,
-    frequency_hz: float,
-    time_mjd: float,
-    backend: ArrayBackend,
-    receptor_transforms: dict[int, np.ndarray],
-) -> dict[int, Any]:
-    """Evaluate every selected handler once and share it by canonical ID.
-
-    The shared beam evaluation is deduplicated by handler, but the receptor
-    factor is per antenna, so ``H_p @ C_p`` is applied after the lookup.
-    """
-    handler_by_antenna = dict(beam_system.state.assignment_handler_ids)
-    handler_cache: dict[str, Any] = {}
-    result: dict[int, Any] = {}
-    for antenna_number in antenna_numbers:
-        antenna_id = _canonical_antenna_id(instrument, antenna_number)
-        try:
-            handler_id = handler_by_antenna[antenna_id]
-        except KeyError as exc:
-            raise InstrumentAdapterInvariantError(
-                "BeamSystem assignment state does not cover solver antenna "
-                f"number={antenna_id.number}, name={antenna_id.name!r}"
-            ) from exc
-        if handler_id not in handler_cache:
-            handler_cache[handler_id] = beam_system.evaluate_jones(
-                antenna_id,
-                altitude_rad=np.array(
-                    altitude_rad,
-                    dtype=np.float64,
-                    copy=True,
-                    order="C",
-                ),
-                azimuth_rad=np.array(
-                    azimuth_rad,
-                    dtype=np.float64,
-                    copy=True,
-                    order="C",
-                ),
-                frequency_hz=float(frequency_hz),
-                time_mjd=float(time_mjd),
-                backend=backend,
-            )
-        beam_jones = handler_cache[handler_id]
-        transform = backend.asarray(
-            receptor_transforms[antenna_number],
-            dtype=beam_jones.dtype,
-        )
-        result[antenna_number] = backend.matmul(transform, beam_jones)
-    return result
 
 
 def compute_beam_squared_integral(
@@ -404,6 +329,11 @@ def calculate_visibility_healpix(
     xp = backend.xp
     output_complex_dtype = backend.get_complex_dtype("output")
 
+    # One resolved complex dtype for the whole Jones chain, from the precision
+    # model rather than from a literal, exactly as the point solver resolves it
+    # (``Tier7JonesSciencePlan.md`` Section 17.1, defects D8 and D9).
+    jones_complex_dtype = backend.get_complex_dtype("accumulation")
+
     # Determine if we should use the polarized path
     use_polarization = include_polarization and sky_model.has_polarized_healpix_maps
 
@@ -447,18 +377,25 @@ def calculate_visibility_healpix(
             dtype=output_complex_dtype,
         )
 
-    # ``C`` and ``H`` are direction, time, and frequency independent, so the
-    # constant ``H_p @ C_p`` product is built once for the whole call rather
-    # than rebuilt inside the time loop (defect D12, Section 13.2).
+    # ``C`` and ``H`` are direction, time, and frequency independent, so the two
+    # receptor terms are built once for the whole call rather than rebuilt inside
+    # the time loop (Tier 6D's defect D12 property, preserved through Tier 7B's
+    # restructure: what used to be a constant ``H_p @ C_p`` *matrix product* is
+    # now the pair of run-constant chain terms that produce it, hoisted to the
+    # same place).
     selected_numbers = {number for pair in selected_pairs for number in pair}
     ant_nums = tuple(
         number for number in instrument.antenna_numbers if number in selected_numbers
     )
-    receptor_transforms = _receptor_transforms(
-        receptors=receptors,
+    receptor_terms = _resolved_receptor_terms(
         instrument=instrument,
-        antenna_numbers=ant_nums,
+        receptors=receptors,
     )
+    selected_row_pairs = tuple(
+        (instrument.row_for_number(ant1), instrument.row_for_number(ant2))
+        for ant1, ant2 in selected_pairs
+    )
+    selected_rows = tuple(instrument.row_for_number(number) for number in ant_nums)
 
     # The one compiled kernel, built once per call rather than per step: a fresh
     # closure on every step would defeat the compilation cache entirely
@@ -504,22 +441,60 @@ def calculate_visibility_healpix(
         dir_m_xp = backend.asarray(dir_m, dtype=backend.default_real_dtype)
         dir_n_xp = backend.asarray(dir_n, dtype=backend.default_real_dtype)
 
+        # The one direction batch every Jones term sees at this time step -- the
+        # visible pixels, in both the horizontal and the equatorial frame.
+        directions = DirectionBatch.from_horizontal(
+            alt_rad=alt_vis,
+            az_rad=az_vis,
+            dir_l=dir_l,
+            dir_m=dir_m,
+            dir_n=dir_n,
+            latitude_rad=float(location.lat.rad),
+            local_sidereal_time_rad=_host_local_sidereal_time_rad(
+                current_obstime,
+                location,
+            ),
+        )
+
         # ======================================================================
         # FREQUENCY LOOP
         # ======================================================================
         freq_blocks: list[Any] = []
-        for freq in frequencies:
+        for freq_idx, freq in enumerate(frequencies):
             wavelength_m = float(C_LIGHT) / float(freq)
-            jones_cache = _evaluate_beam_batch_by_antenna(
-                beam_system=beam_system,
-                instrument=instrument,
-                antenna_numbers=ant_nums,
-                altitude_rad=alt_vis,
-                azimuth_rad=az_vis,
-                frequency_hz=float(freq),
+
+            # The same chain the point solver builds, evaluated through the same
+            # shared evaluator: this is what closes defect D4, so a Jones term
+            # can no longer apply to point sources and silently not apply to
+            # diffuse sky.  With no ``jones_config`` reaching this path yet the
+            # chain is exactly ``H``, ``C``, ``E`` -- the terms it already
+            # carried -- but it is now reachable by construction rather than by
+            # a second, private implementation.
+            chain = _build_jones_chain(
+                backend,
+                {},
+                instrument,
+                alt_vis,
+                az_vis,
+                freq,
+                freq_idx,
+                int(n_visible),
+                location,
                 time_mjd=float(current_obstime.mjd),
+                beam_system=beam_system,
+                receptors=receptors,
+                receptor_terms=receptor_terms,
+            )
+            jones_by_row = evaluate_antenna_jones(
+                chain=chain,
+                antenna_rows=selected_rows,
+                directions=directions,
+                frequency_hz=float(freq),
+                freq_idx=freq_idx,
+                time_mjd=float(current_obstime.mjd),
+                time_idx=time_idx,
                 backend=backend,
-                receptor_transforms=receptor_transforms,
+                dtype=jones_complex_dtype,
             )
 
             if use_polarization:
@@ -615,22 +590,32 @@ def calculate_visibility_healpix(
                 )
                 coherency = coherency * (signal / 2.0)[:, None, None]
 
-            # Geometric phase, batched over baselines: (B, n_visible).
-            uvw_wavelengths = baseline_vectors / wavelength_m
-            delay = (
-                uvw_wavelengths[:, 0:1] * dir_l_xp
-                + uvw_wavelengths[:, 1:2] * dir_m_xp
-                + uvw_wavelengths[:, 2:3] * (dir_n_xp - 1.0)
+            # Geometric phase (K), from the one shared implementation, batched
+            # over baselines: (B, n_visible).
+            phase = geometric_phase(
+                uvw_wavelengths=uvw_in_wavelengths(
+                    baseline_vectors_m=baseline_vectors,
+                    wavelength_m=wavelength_m,
+                ),
+                dir_l=dir_l_xp,
+                dir_m=dir_m_xp,
+                dir_n=dir_n_xp,
+                backend=backend,
             )
-            phase = backend.exp(-2j * np.pi * delay)
 
             # Per-baseline antenna Jones batches: (B, n_visible, 2, 2). Routed
             # through the backend's array namespace rather than through
             # ``ArrayBackend.stack``: that method is the solvers' one
             # *accumulation* primitive (Section 13.3), and this is kernel input
             # batching, not output accumulation.
-            J_p = xp.stack([jones_cache[ant1] for ant1, _ in selected_pairs], axis=0)
-            J_q = xp.stack([jones_cache[ant2] for _, ant2 in selected_pairs], axis=0)
+            J_p = xp.stack(
+                [jones_by_row[row_p] for row_p, _ in selected_row_pairs],
+                axis=0,
+            )
+            J_q = xp.stack(
+                [jones_by_row[row_q] for _, row_q in selected_row_pairs],
+                axis=0,
+            )
 
             # The one compiled kernel (Section 13.6): one (B, 2, 2) block for
             # all baselines at this (time, frequency). The HEALPix path always

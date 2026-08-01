@@ -38,6 +38,9 @@ from radiosim.core.jones import (
     PolarizationLeakageJones,
     TroposphereJones,
 )
+from radiosim.core.jones.directions import DirectionBatch
+from radiosim.core.jones.evaluate import evaluate_antenna_jones
+from radiosim.core.jones.geometric import geometric_phase, uvw_in_wavelengths
 from radiosim.core.jones.receptor import BasisTransformJones, ReceptorConfigJones
 
 # Import polarization utilities
@@ -141,6 +144,19 @@ def _host_preprocess_time_step(
     return above_horizon, alt_rad[above_horizon], az_rad[above_horizon]
 
 
+def _host_local_sidereal_time_rad(obstime: Any, location: Any) -> float:
+    """Local apparent sidereal time, in radians, for one time step.
+
+    The third piece of the Section 13.3 host-preprocessing stage, added with the
+    direction-batched contract: the equatorial half of
+    :class:`~radiosim.core.jones.directions.DirectionBatch` needs an hour angle,
+    and an hour angle needs a sidereal time.  One astropy call per time step,
+    beside the ``ICRS -> AltAz`` transform of every direction that already
+    happens there.
+    """
+    return float(obstime.sidereal_time("apparent", longitude=location.lon).rad)
+
+
 def _host_direction_cosines(
     altitude_rad: np.ndarray,
     azimuth_rad: np.ndarray,
@@ -159,7 +175,18 @@ def _host_direction_cosines(
 
 
 class _ResolvedBeamJones(JonesTerm):
-    """Private E-Jones adapter over one canonical :class:`BeamSystem`."""
+    """Private E-Jones adapter over one canonical :class:`BeamSystem`.
+
+    One adapter per ``(time, frequency)`` step, shared by both solvers, holding
+    the per-handler evaluation cache that the HEALPix path used to keep in the
+    solver: a beam handler is evaluated once per direction batch no matter how
+    many antennas are assigned to it, and the per-antenna receptor factors are
+    applied afterwards by the ``C`` and ``H`` chain terms rather than folded in
+    here.  Keeping the cache inside the adapter -- whose lifetime is exactly one
+    ``(time, frequency)`` step -- is also what keeps it thread-safe under
+    ``execution.workers > 1``: solver workers own disjoint time ranges and
+    therefore disjoint adapters.
+    """
 
     def __init__(
         self,
@@ -192,6 +219,8 @@ class _ResolvedBeamJones(JonesTerm):
         self._azimuth_rad = azimuth
         self._frequency_hz = float(frequency_hz)
         self._time_mjd = float(time_mjd)
+        self._handler_by_antenna = dict(beam_system.state.assignment_handler_ids)
+        self._handler_cache: dict[str, Any] = {}
 
     @property
     @override
@@ -216,74 +245,92 @@ class _ResolvedBeamJones(JonesTerm):
         return AntennaId(number, name)
 
     @override
-    def compute_jones(
+    def compute_jones_batch(
         self,
+        *,
         antenna_idx: int,
-        source_idx: int | None,
+        directions: DirectionBatch,
+        frequency_hz: float,
         freq_idx: int,
+        time_mjd: float,
         time_idx: int,
         backend: Any,
-        **kwargs: Any,
+        dtype: Any,
     ) -> Any:
-        if source_idx is None:
-            raise ValueError("source_idx is required for the beam Jones term")
-        if type(source_idx) is not int or not 0 <= source_idx < self._altitude_rad.size:
-            raise IndexError("source_idx is outside the resolved source batch")
-        return self._beam_system.evaluate_jones(
-            self._antenna_id(antenna_idx),
-            altitude_rad=np.array(
-                self._altitude_rad[source_idx : source_idx + 1],
-                dtype=np.float64,
-                copy=True,
-            ),
-            azimuth_rad=np.array(
-                self._azimuth_rad[source_idx : source_idx + 1],
-                dtype=np.float64,
-                copy=True,
-            ),
-            frequency_hz=self._frequency_hz,
-            time_mjd=self._time_mjd,
-            backend=backend,
-        )[0]
+        """Return this antenna's ``(n_dir, 2, 2)`` beam response.
 
-    @override
-    def compute_jones_all_sources(
-        self,
-        antenna_idx: int,
-        n_sources: int,
-        freq_idx: int,
-        time_idx: int,
-        backend: Any,
-        **kwargs: Any,
-    ) -> Any:
-        if type(n_sources) is not int or n_sources != self._altitude_rad.size:
+        The batch, frequency and time are checked against the ones this adapter
+        was resolved for rather than silently preferred one way or the other: the
+        adapter carries the exact host arrays ``BeamSystem`` was going to be
+        asked about, and a caller evaluating it against a different step is a
+        solver bug, not something to paper over.
+        """
+        if type(directions) is not DirectionBatch:
+            raise TypeError("directions must be an exact DirectionBatch")
+        if directions.n_dir != self._altitude_rad.size:
             raise InstrumentAdapterInvariantError(
-                "Jones source count does not match the resolved beam direction batch"
+                "Jones direction count does not match the resolved beam direction batch"
             )
-        antenna_number = kwargs.get("antenna_number")
+        if float(frequency_hz) != self._frequency_hz:
+            raise InstrumentAdapterInvariantError(
+                "Jones frequency does not match the resolved beam frequency"
+            )
+        if float(time_mjd) != self._time_mjd:
+            raise InstrumentAdapterInvariantError(
+                "Jones time does not match the resolved beam time"
+            )
         canonical = self._antenna_id(antenna_idx)
-        if antenna_number is not None and antenna_number != canonical.number:
+        try:
+            handler_id = self._handler_by_antenna[canonical]
+        except KeyError as exc:
             raise InstrumentAdapterInvariantError(
-                "Jones antenna row and canonical antenna number disagree"
+                "BeamSystem assignment state does not cover solver antenna "
+                f"number={canonical.number}, name={canonical.name!r}"
+            ) from exc
+        if handler_id not in self._handler_cache:
+            self._handler_cache[handler_id] = self._beam_system.evaluate_jones(
+                canonical,
+                altitude_rad=np.array(
+                    self._altitude_rad,
+                    dtype=np.float64,
+                    copy=True,
+                    order="C",
+                ),
+                azimuth_rad=np.array(
+                    self._azimuth_rad,
+                    dtype=np.float64,
+                    copy=True,
+                    order="C",
+                ),
+                frequency_hz=self._frequency_hz,
+                time_mjd=self._time_mjd,
+                backend=backend,
             )
-        return self._beam_system.evaluate_jones(
-            canonical,
-            altitude_rad=np.array(
-                self._altitude_rad,
-                dtype=np.float64,
-                copy=True,
-                order="C",
-            ),
-            azimuth_rad=np.array(
-                self._azimuth_rad,
-                dtype=np.float64,
-                copy=True,
-                order="C",
-            ),
-            frequency_hz=self._frequency_hz,
-            time_mjd=self._time_mjd,
-            backend=backend,
-        )
+        return backend.asarray(self._handler_cache[handler_id], dtype=dtype)
+
+
+def _resolved_receptor_terms(
+    *,
+    instrument: "SolverInstrumentView",
+    receptors: ResolvedReceptorSet,
+) -> tuple[BasisTransformJones, ReceptorConfigJones]:
+    """Build the two run-constant receptor terms ``(H, C)`` once per call.
+
+    ``C`` and ``H`` depend on the resolved receptor set and the instrument and on
+    nothing else -- not on direction, time, or frequency -- so their matrices are
+    resolved once above the time loop and the same two term objects are reused by
+    every ``(time, frequency)`` chain.  That preserves the Tier 6D property for
+    the HEALPix path (the constant receptor factor is not rebuilt per time
+    sample) and extends it to the point path, which used to reconstruct both
+    terms inside the frequency loop.
+
+    The terms are immutable after construction and their evaluation is pure, so
+    sharing them across solver worker threads is safe.
+    """
+    return (
+        BasisTransformJones(receptors=receptors, instrument=instrument),
+        ReceptorConfigJones(receptors=receptors, instrument=instrument),
+    )
 
 
 def calculate_visibility(
@@ -385,6 +432,15 @@ def calculate_visibility(
     xp = backend.xp
     output_complex_dtype = backend.get_complex_dtype("output")
 
+    # One resolved complex dtype for the whole Jones chain, from the precision
+    # model rather than from a literal (defects D8 and D9).  The accumulation
+    # precision is the right source: the chain product *is* an accumulation of
+    # matrix factors, and it is what the identity seed and every term must agree
+    # on.  Both shipped presets whose accumulation is ``float64`` -- ``standard``
+    # and ``fast`` -- resolve ``complex128`` here, which is exactly what the
+    # removed literals said.
+    jones_complex_dtype = backend.get_complex_dtype("accumulation")
+
     # Extract arrays from source_arrays dict
     _ra_rad = source_arrays["ra_rad"]
     _dec_rad = source_arrays["dec_rad"]
@@ -402,6 +458,22 @@ def calculate_visibility(
     baseline_vectors = backend.asarray(
         instrument.baseline_vectors_enu_m,
         dtype=backend.default_real_dtype,
+    )
+
+    # Run-constant Jones inputs, resolved once above the time loop: the two
+    # receptor terms and the antenna-row view of the selected baseline pairs.
+    # Rows, not numbers, because that is what every chain term indexes by.
+    receptor_terms = _resolved_receptor_terms(
+        instrument=instrument,
+        receptors=receptors,
+    )
+    selected_row_pairs = tuple(
+        (instrument.row_for_number(ant1), instrument.row_for_number(ant2))
+        for ant1, ant2 in instrument.selected_pairs
+    )
+    _selected_rows = {row for pair in selected_row_pairs for row in pair}
+    selected_rows = tuple(
+        row for row in range(len(instrument.antenna_numbers)) if row in _selected_rows
     )
 
     def _zero_cube() -> Any:
@@ -559,6 +631,22 @@ def calculate_visibility(
 
         # Calculate direction cosines (l, m, n) for this time step
         l_np, m_np, n_np = _host_direction_cosines(alt_rad_t, az_rad_t)
+
+        # The one direction batch every Jones term sees at this time step,
+        # carrying both the horizontal and the equatorial description of the
+        # same directions (Section 13.2).
+        directions = DirectionBatch.from_horizontal(
+            alt_rad=alt_rad_t,
+            az_rad=az_rad_t,
+            dir_l=l_np,
+            dir_m=m_np,
+            dir_n=n_np,
+            latitude_rad=float(location.lat.rad),
+            local_sidereal_time_rad=_host_local_sidereal_time_rad(
+                current_obstime,
+                location,
+            ),
+        )
         l_dir = backend.asarray(l_np, dtype=backend.default_real_dtype)
         m_dir = backend.asarray(m_np, dtype=backend.default_real_dtype)
         n_dir = backend.asarray(n_np, dtype=backend.default_real_dtype)
@@ -652,24 +740,22 @@ def calculate_visibility(
                 time_mjd=float(current_obstime.mjd),
                 beam_system=beam_system,
                 receptors=receptors,
+                receptor_terms=receptor_terms,
             )
 
-            # Per-antenna Jones cache: compute chain once per antenna
-            jones_antenna_cache = {}
-            selected_numbers = {
-                number for pair in instrument.selected_pairs for number in pair
-            }
-            for ant_num in instrument.antenna_numbers:
-                if ant_num not in selected_numbers:
-                    continue
-                ant_idx = instrument.row_for_number(ant_num)
-                jones_antenna_cache[ant_num] = chain.compute_antenna_jones_all_sources(
-                    antenna_idx=ant_idx,
-                    n_sources=n_sources,
-                    freq_idx=0,  # single freq per loop iteration
-                    time_idx=0,
-                    antenna_number=ant_num,
-                )
+            # One chain evaluation per selected antenna, through the one
+            # evaluator both solvers share (Section 14, defect D4).
+            jones_by_row = evaluate_antenna_jones(
+                chain=chain,
+                antenna_rows=selected_rows,
+                directions=directions,
+                frequency_hz=float(freq),
+                freq_idx=freq_idx,
+                time_mjd=float(current_obstime.mjd),
+                time_idx=time_idx,
+                backend=backend,
+                dtype=jones_complex_dtype,
+            )
 
             # Per-baseline antenna Jones batches: (B, n_sources, 2, 2). These
             # go through the backend's array namespace rather than through
@@ -679,22 +765,29 @@ def calculate_visibility(
             # the two apart is what lets the accumulation invariants stay
             # countable.
             J_p = xp.stack(
-                [jones_antenna_cache[ant1] for ant1, _ in instrument.selected_pairs],
+                [jones_by_row[row_p] for row_p, _ in selected_row_pairs],
                 axis=0,
             )
             J_q = xp.stack(
-                [jones_antenna_cache[ant2] for _, ant2 in instrument.selected_pairs],
+                [jones_by_row[row_q] for _, row_q in selected_row_pairs],
                 axis=0,
             )
 
-            # Geometric phase (K), applied separately from the chain and
-            # batched over baselines: (B, n_sources).
-            uvw_wavelengths = baseline_vectors / (float(C_LIGHT) / float(freq))
+            # Geometric phase (K), applied separately from the chain because it
+            # is per-baseline, and batched over baselines: (B, n_sources).
+            uvw_wavelengths = uvw_in_wavelengths(
+                baseline_vectors_m=baseline_vectors,
+                wavelength_m=float(C_LIGHT) / float(freq),
+            )
             bl_u = uvw_wavelengths[:, 0:1]
             bl_v = uvw_wavelengths[:, 1:2]
-            bl_w = uvw_wavelengths[:, 2:3]
-            b_dot_s = bl_u * l_dir + bl_v * m_dir + bl_w * (n_dir - 1.0)
-            phase = backend.exp(-2j * np.pi * b_dot_s)
+            phase = geometric_phase(
+                uvw_wavelengths=uvw_wavelengths,
+                dir_l=l_dir,
+                dir_m=m_dir,
+                dir_n=n_dir,
+                backend=backend,
+            )
 
             # Gaussian envelope: scalar attenuation per (baseline, source)
             if has_gaussians:
@@ -752,6 +845,7 @@ def _build_jones_chain(
     time_mjd: Any,
     beam_system: BeamSystem,
     receptors: ResolvedReceptorSet,
+    receptor_terms: tuple[BasisTransformJones, ReceptorConfigJones] | None = None,
 ) -> JonesChain:
     """Build a JonesChain in the canonical Section 19.1 order (K excluded).
 
@@ -788,6 +882,11 @@ def _build_jones_chain(
         Canonical per-antenna beam evaluator.
     receptors : ResolvedReceptorSet
         Canonical resolved receptor inventory supplying the C and H terms.
+    receptor_terms : tuple, optional
+        The ``(H, C)`` terms already built by :func:`_resolved_receptor_terms`
+        for this call.  They are run-constant, so a solver builds them once above
+        its time loop and passes them here rather than paying for two term
+        constructions per ``(time, frequency)`` step.  ``None`` builds them.
 
     Returns
     -------
@@ -798,12 +897,18 @@ def _build_jones_chain(
     n_antennas = len(instrument.antenna_numbers)
     receptors = _require_receptors(receptors)
     _reject_parallactic_rotation(jones_config, receptors)
+    if receptor_terms is None:
+        receptor_terms = _resolved_receptor_terms(
+            instrument=instrument,
+            receptors=receptors,
+        )
+    basis_transform_term, receptor_config_term = receptor_terms
     chain = JonesChain(backend)
 
     # H term: reporting-basis transform, leftmost because the correlator
     # performs it (always enabled; exactly I2 when every antenna's native
     # basis already is the resolved output basis).
-    chain.add_term(BasisTransformJones(receptors=receptors, instrument=instrument))
+    chain.add_term(basis_transform_term)
 
     # G term: Electronic gains (optional)
     g_config = jones_config.get("G", {})
@@ -849,7 +954,7 @@ def _build_jones_chain(
     # C term: receptor configuration, between the electronics-side DIEs and
     # the sky-side DDEs (always enabled; exactly I2 for a linear receptor with
     # zero rotation).
-    chain.add_term(ReceptorConfigJones(receptors=receptors, instrument=instrument))
+    chain.add_term(receptor_config_term)
 
     # E term: one exact canonical BeamSystem adapter (always enabled).
     e_jones = _ResolvedBeamJones(

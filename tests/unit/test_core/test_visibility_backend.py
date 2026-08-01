@@ -19,6 +19,7 @@ from radiosim.core.instrument_adapters import (
     InstrumentAdapterInvariantError,
     SolverInstrumentView,
 )
+from radiosim.core.jones import DirectionBatch
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky.containers.healpix import HealpixData
 from radiosim.core.sky.containers.model import SkyModel
@@ -507,7 +508,15 @@ def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
     assert healpix_result.shape == (1, 1, 1, 2, 2)
 
 
-def test_point_beam_rejects_inconsistent_solver_antenna_number(tmp_path):
+def test_point_beam_rejects_a_batch_it_was_not_resolved_for(tmp_path):
+    """The E adapter's step invariants under the direction-batched contract.
+
+    Tier 7B replaced the old ``antenna_number`` cross-check with a stronger
+    guarantee: the shared evaluator keys everything by instrument *row*, so a
+    row/number mix-up is no longer expressible.  What remains checkable, and is
+    checked here, is that the adapter is evaluated for the ``(directions,
+    frequency, time)`` step it was resolved for, and for a row that exists.
+    """
     view, beam_system, receptors = _solver_components(tmp_path)
     beam = visibility_module._ResolvedBeamJones(
         beam_system=beam_system,
@@ -518,12 +527,41 @@ def test_point_beam_rejects_inconsistent_solver_antenna_number(tmp_path):
         time_mjd=float(OBSTIME.mjd),
     )
 
-    with pytest.raises(InstrumentAdapterInvariantError, match="disagree"):
-        beam.compute_jones_all_sources(
-            antenna_idx=0,
-            n_sources=1,
-            freq_idx=0,
-            time_idx=0,
-            backend=get_backend("numpy"),
-            antenna_number=7,
+    def _batch(n_dir: int) -> DirectionBatch:
+        alt = np.full(n_dir, 1.0)
+        az = np.zeros(n_dir)
+        return DirectionBatch.from_horizontal(
+            alt_rad=alt,
+            az_rad=az,
+            dir_l=np.cos(alt) * np.sin(az),
+            dir_m=np.cos(alt) * np.cos(az),
+            dir_n=np.sin(alt),
+            latitude_rad=float(LOCATION.lat.rad),
+            local_sidereal_time_rad=0.0,
         )
+
+    def _evaluate(**overrides):
+        keywords = {
+            "antenna_idx": 0,
+            "directions": _batch(1),
+            "frequency_hz": float(FREQS[0]),
+            "freq_idx": 0,
+            "time_mjd": float(OBSTIME.mjd),
+            "time_idx": 0,
+            "backend": get_backend("numpy"),
+            "dtype": np.complex128,
+        }
+        keywords.update(overrides)
+        return beam.compute_jones_batch(**keywords)
+
+    # The resolved step evaluates.
+    assert np.asarray(_evaluate()).shape == (1, 2, 2)
+
+    with pytest.raises(InstrumentAdapterInvariantError, match="direction count"):
+        _evaluate(directions=_batch(3))
+    with pytest.raises(InstrumentAdapterInvariantError, match="frequency"):
+        _evaluate(frequency_hz=float(FREQS[0]) + 1.0)
+    with pytest.raises(InstrumentAdapterInvariantError, match="time"):
+        _evaluate(time_mjd=float(OBSTIME.mjd) + 1.0)
+    with pytest.raises(InstrumentAdapterInvariantError, match="absent"):
+        _evaluate(antenna_idx=7)

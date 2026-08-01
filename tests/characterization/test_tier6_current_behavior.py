@@ -1357,15 +1357,29 @@ def test_healpix_solver_rebuilds_the_constant_receptor_transforms_per_time() -> 
     longer exists.  The property being pinned is unchanged -- the constant
     transform is built once, above everything per-time -- and is now anchored on
     the closure that replaced the statement.
+
+    Anchor updated again by Tier 7B, which closed defect D4 by routing this path
+    through the shared Jones chain.  What used to be a constant ``H_p @ C_p``
+    *matrix product* is now the pair of run-constant chain terms that produce
+    it, and the Tier 6D property is preserved by hoisting those terms to exactly
+    the same place: ``_resolved_receptor_terms`` is called once, above the time
+    loop.  The one assertion that could not survive is the frequency loop's
+    non-enumeration: the direction-batched contract passes a frequency index to
+    every term, so the loop now enumerates.  That was never the property being
+    pinned -- Tier 6D's sentence about it records only that the *old* reason for
+    ``freq_idx`` (indexing a per-cell output write) is gone, and it still is:
+    the index is passed to terms, never used to write into a cube.
     """
     source = _source("src/radiosim/core/visibility_healpix.py")
     time_loop = source.index("def _time_block(time_idx: int")
-    transforms = source.index("receptor_transforms = _receptor_transforms(")
-    frequency_loop = source.index("for freq in frequencies:")
+    transforms = source.index("receptor_terms = _resolved_receptor_terms(")
+    frequency_loop = source.index("for freq_idx, freq in enumerate(frequencies):")
     assert transforms < time_loop < frequency_loop
     assert source.count("def _time_block(") == 1
-    assert source.count("receptor_transforms = _receptor_transforms(") == 1
-    assert "for freq_idx, freq in enumerate(frequencies):" not in source
+    assert source.count("receptor_terms = _resolved_receptor_terms(") == 1
+    assert "_receptor_transforms" not in source
+    # No per-cell output write survives: the index reaches terms, not a cube.
+    assert "set_at" not in source
 
 
 def test_backend_surface_exposes_the_compilation_boundary() -> None:
