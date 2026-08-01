@@ -661,6 +661,119 @@ def test_the_two_sky_paths_agree_with_every_implemented_term_enabled(
             )
 
 
+def test_both_sky_paths_carry_the_direction_dependent_term(tmp_path) -> None:
+    """I14 for ``P``, which the factorized form above cannot express.
+
+    The test above proves the shared evaluator by factoring the corrupted cube
+    as ``V' = M V M^H`` for one direction-independent ``M``.  ``P`` is
+    direction-*dependent*, so no such ``M`` exists: the rotation differs per
+    source and the sum over sources does not factor.  A test that added ``P`` to
+    that oracle would have to widen a tolerance until the assertion stopped
+    saying anything, which is the failure mode Section 29.1 names.
+
+    What is asserted instead is the property I14 exists for -- that a configured
+    term reaches *both* solvers and reaches them identically -- through three
+    statements that hold on each path independently:
+
+    1. enabling ``P`` on an alt-az array changes the cube (so the term reached
+       that path at all);
+    2. with an unpolarized sky and one mount for the whole array it does *not*
+       change the cube (so both antennas received the same rotation, which is
+       what a shared evaluator keyed by instrument row guarantees and what a
+       per-solver copy would be free to get wrong);
+    3. with two different mounts it changes the cube even for an unpolarized
+       sky (so the per-antenna mount really is per antenna on both paths).
+
+    Together those pin the same defect D4 the factorized form does, for the
+    class of term the factorized form cannot reach.
+    """
+    import numpy as np
+
+    from radiosim.backends import get_backend
+    from radiosim.core.visibility import calculate_visibility
+    from radiosim.core.visibility_healpix import calculate_visibility_healpix
+    from tests.characterization.test_tier6_current_behavior import (
+        WORKLOAD_LOCATION,
+        WORKLOAD_TIME_GRID,
+        _workload_healpix_model,
+        _workload_point_sources,
+    )
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    backend = get_backend("numpy")
+
+    def cubes(configuration, mount_types, *, polarized):
+        instrument, beams, receptors, terms, frequencies = solver_components_with_jones(
+            tmp_path, configuration, mount_types=mount_types
+        )
+        point = np.asarray(
+            calculate_visibility(
+                instrument=instrument,
+                beam_system=beams,
+                source_arrays=_workload_point_sources(
+                    polarized=polarized, gaussian=False
+                ),
+                location=WORKLOAD_LOCATION,
+                time_grid=WORKLOAD_TIME_GRID,
+                frequencies=frequencies,
+                backend=backend,
+                receptors=receptors,
+                jones_terms=terms,
+            )
+        )
+        diffuse = np.asarray(
+            calculate_visibility_healpix(
+                _workload_healpix_model(polarized=polarized),
+                instrument=instrument,
+                beam_system=beams,
+                location=WORKLOAD_LOCATION,
+                time_grid=WORKLOAD_TIME_GRID,
+                frequencies=frequencies,
+                backend=backend,
+                receptors=receptors,
+                jones_terms=terms,
+                include_polarization=polarized,
+            )
+        )
+        return point, diffuse
+
+    enabled = {"P": {"enabled": True}}
+
+    polarized_absent = cubes(None, "fixed", polarized=True)
+    polarized_present = cubes(enabled, "alt-az", polarized=True)
+    plain_absent = cubes(None, "fixed", polarized=False)
+    plain_present = cubes(enabled, "alt-az", polarized=False)
+    mixed_present = cubes(enabled, ("alt-az", "fixed"), polarized=False)
+
+    for index, label in ((0, "point"), (1, "healpix")):
+        scale = float(np.max(np.abs(polarized_absent[index])))
+        assert scale > 0.0, label
+
+        # 1 -- the term reached this path.
+        moved = float(
+            np.max(np.abs(polarized_present[index] - polarized_absent[index]))
+        )
+        assert moved / scale > 1e-10, label
+
+        # 2 -- and it is the *same* rotation on both antennas.
+        plain_scale = float(np.max(np.abs(plain_absent[index])))
+        np.testing.assert_allclose(
+            plain_present[index],
+            plain_absent[index],
+            rtol=1e-12,
+            atol=1e-14 * plain_scale,
+            err_msg=label,
+        )
+
+        # 3 -- unless the two antennas carry different mounts.
+        heterogeneous = float(
+            np.max(np.abs(mixed_present[index] - plain_absent[index]))
+        )
+        assert heterogeneous / plain_scale > 1e-6, label
+
+
 # ---------------------------------------------------------------------------
 # I18 -- observability is inert
 # ---------------------------------------------------------------------------

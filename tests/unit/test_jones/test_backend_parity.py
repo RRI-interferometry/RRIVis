@@ -396,3 +396,109 @@ def test_healpix_path_parity_with_a_configured_term(
         )
 
     assert_backend_parity(build, backend_name=backend_name)
+
+
+# ---------------------------------------------------------------------------
+# The 7F case: P, on an array whose feeds actually rotate
+# ---------------------------------------------------------------------------
+#
+# ``P`` is the first parity case that needs something from the *instrument*
+# rather than from the document: on the shipped fixture every mount is
+# unspecified, ``P`` is exactly the identity, and rejection R7 refuses the
+# configuration.  The mount types are restamped onto the resolved instrument by
+# the shared helper, so the parity case runs on an alt-az array -- which is also
+# the only array on which the term has anything to be parity-tested about.
+
+_PARITY_PARALLACTIC: dict[str, Any] = {"P": {"enabled": True}}
+
+_PARITY_ALL_TERMS_WITH_P = {**_PARITY_ALL_TERMS, **_PARITY_PARALLACTIC}
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+@pytest.mark.parametrize(
+    ("label", "jones", "mount_types"),
+    [
+        ("P", _PARITY_PARALLACTIC, "alt-az"),
+        ("P-nasmyth", _PARITY_PARALLACTIC, ("alt-az+nasmyth-l", "alt-az+nasmyth-r")),
+        ("P-mixed", _PARITY_PARALLACTIC, ("alt-az", "fixed")),
+        ("all+P", _PARITY_ALL_TERMS_WITH_P, "alt-az"),
+    ],
+)
+def test_point_path_parity_with_the_parallactic_term(
+    tmp_path,
+    backend_name: str,
+    label: str,
+    jones: dict[str, Any],
+    mount_types: Any,
+) -> None:
+    """``P`` alone, both Nasmyth signs, a heterogeneous array, and everything."""
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones, mount_types=mount_types)
+    )
+    sources = _workload_point_sources(polarized=True, gaussian=False)
+
+    def build(backend):
+        return calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=sources,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=jones_terms,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+@pytest.mark.parametrize(
+    ("label", "jones", "mount_types"),
+    [
+        ("P", _PARITY_PARALLACTIC, "alt-az"),
+        ("all+P", _PARITY_ALL_TERMS_WITH_P, "alt-az"),
+    ],
+)
+def test_healpix_path_parity_with_the_parallactic_term(
+    tmp_path,
+    backend_name: str,
+    label: str,
+    jones: dict[str, Any],
+    mount_types: Any,
+) -> None:
+    """The same term on the diffuse path, where the batch is every pixel.
+
+    ``P`` is the first *direction-dependent* configured term, so this is the
+    first parity case in which the diffuse path's per-pixel factor comes from
+    ``jones:`` rather than from the beam.
+    """
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones, mount_types=mount_types)
+    )
+    sky = _workload_healpix_model(polarized=True)
+
+    def build(backend):
+        return calculate_visibility_healpix(
+            sky,
+            instrument=instrument,
+            beam_system=beam_system,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=jones_terms,
+            include_polarization=True,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)

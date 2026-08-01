@@ -62,6 +62,7 @@ _TERM_CONFIGURATIONS: dict[str, dict[str, Any]] = {
         }
     },
     "Rc": {"Rc": {"amplitude": 0.06, "cable_delay_s": 1.5e-7, "phase_rad": 0.2}},
+    "P": {"P": {"enabled": True}},
     "all": {
         "G": {"amplitude_error": 0.05},
         "B": {"model": {"kind": "polynomial", "coefficients": [1.0, 0.1]}},
@@ -69,19 +70,41 @@ _TERM_CONFIGURATIONS: dict[str, dict[str, Any]] = {
         "Kd": {"delay_s": 2.0e-9},
         "X": {"phase_rad": 0.3},
         "D": {"d_terms": {"kind": "ixr", "ixr_db": 30.0}},
+        "P": {"enabled": True},
     },
 }
 
+#: The mount types each configuration needs on the resolved instrument.  Only
+#: ``P`` needs anything: every other term's physics is in the document, while
+#: ``P``'s is in the instrument, and on the shipped fixture -- whose layout file
+#: carries no mount column -- every mount is unspecified and therefore
+#: non-rotating, which makes ``jones.P`` exactly the identity and rejection R7
+#: refuse it.
+_MOUNT_TYPES: dict[str, str | None] = {"P": "alt-az", "all": "alt-az"}
+
 #: The configurable term letters, in canonical chain order -- the order the
 #: resolved inventory must report regardless of how the document was written.
-_CANONICAL_LETTERS: tuple[str, ...] = ("G", "B", "Rc", "Kd", "X", "D")
+#: ``P`` sits after ``D`` because Tier 7F moved it sky-side of ``C``
+#: (``Tier7JonesSciencePlan.md`` Section 12.2, defect D12).
+_CANONICAL_LETTERS: tuple[str, ...] = ("G", "B", "Rc", "Kd", "X", "D", "P")
 
 
-def _simulator(tmp_path, jones: dict[str, Any] | None) -> Simulator:
+def _simulator(
+    tmp_path,
+    jones: dict[str, Any] | None,
+    *,
+    mount_types: str | None = None,
+) -> Simulator:
+    from tests.unit.test_core.test_jones_resolution import restamp_mount_types
+
     data = valid_config_mapping(tmp_path)
     if jones is not None:
         data["jones"] = jones
-    return Simulator.from_mapping(data, base_dir=tmp_path)
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+    if mount_types is not None:
+        simulator._ensure_instrument_state()
+        restamp_mount_types(simulator, mount_types)
+    return simulator
 
 
 @pytest.mark.parametrize("label", sorted(_TERM_CONFIGURATIONS))
@@ -93,7 +116,7 @@ def test_a_configured_term_survives_setup_run_and_save(tmp_path, label: str) -> 
     the property Section 22 rule 1 asserts.
     """
     jones = _TERM_CONFIGURATIONS[label]
-    simulator = _simulator(tmp_path, jones)
+    simulator = _simulator(tmp_path, jones, mount_types=_MOUNT_TYPES.get(label))
 
     simulator.setup()
 
@@ -141,7 +164,9 @@ def test_the_standard_visibility_formats_carry_the_corrupted_cube(
     if result_format is ResultFormat.MS:
         pytest.importorskip("casacore")
 
-    simulator = _simulator(tmp_path, _TERM_CONFIGURATIONS[label])
+    simulator = _simulator(
+        tmp_path, _TERM_CONFIGURATIONS[label], mount_types=_MOUNT_TYPES.get(label)
+    )
     result = simulator.run(progress=False)
 
     suffix = ".ms" if result_format is ResultFormat.MS else ".uvfits"
