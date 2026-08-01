@@ -38,12 +38,14 @@ Term status
 -----------
 Every exported term declares ``term_status``, which is exactly
 ``"implemented"`` or ``"planned"``.  ``C`` and ``H`` (Tier 5), ``G`` and ``B``
-(Tier 7D), ``D``, ``X``, ``Kd`` and ``Rc`` (Tier 7E), and ``P`` (Tier 7F) are
-implemented; the remaining four -- ``Z``, ``T``, ``M`` and ``Q`` -- are planned,
-which means they have a name, a chain position and a documented physical effect,
-and that ``compute_jones_batch`` **raises** rather than returning an identity.
-No exported term multiplies by the identity in silence
-(``Tier7JonesSciencePlan.md`` invariant I20, ``Fix.md`` Section 16).
+(Tier 7D), ``D``, ``X``, ``Kd`` and ``Rc`` (Tier 7E), ``P`` (Tier 7F), and ``Z``
+and ``T`` (Tier 7G) are implemented -- every per-antenna term in the chain.  The
+remaining two -- ``M`` and ``Q``, both :class:`JonesBaselineTerm` and neither in
+the matrix chain -- are planned, which means they have a name, a chain position
+and a documented physical effect, and that ``compute_baseline_factor``
+**raises** rather than returning an identity.  No exported term multiplies by
+the identity in silence (``Tier7JonesSciencePlan.md`` invariant I20, ``Fix.md``
+Section 16).
 
 Twenty-six classes that were identity scaffolds for effects RadioSim does not
 plan to model were deleted before v1.0 -- turbulent and GPS ionospheres,

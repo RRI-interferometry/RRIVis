@@ -391,12 +391,18 @@ def test_add_term_rejects_something_that_is_not_a_jones_term() -> None:
     assert "not a JonesTerm" in str(excinfo.value)
 
 
-def test_the_base_contract_raises_rather_than_returning_an_identity() -> None:
-    """A term that does not implement the contract fails loudly.
+def test_the_base_contract_cannot_be_left_unimplemented() -> None:
+    """A term that does not implement the contract cannot be constructed at all.
 
-    ``compute_jones_batch`` is concrete-and-raising rather than abstract only
-    because Tier 7C's identity stubs must stay instantiable until 7C deletes
-    them; it must still be impossible to *use* one by accident.
+    FLIPPED BY: Tier 7G.  ``compute_jones_batch`` was concrete-and-raising while
+    terms were still ``term_status: planned``, because an abstract declaration
+    would have made every one of them impossible to instantiate.  ``Z`` and
+    ``T`` were the last two, so the method is now ``@abstractmethod`` and the
+    contract is enforced at construction rather than at first use -- which is
+    strictly earlier and strictly harder to get wrong.
+
+    The body is kept and still raises, for the subclass that declares the method
+    and then defers to it; both halves are asserted here.
     """
 
     class _Unimplemented(JonesTerm):
@@ -408,9 +414,18 @@ def test_the_base_contract_raises_rather_than_returning_an_identity() -> None:
         def is_direction_dependent(self) -> bool:
             return False
 
-    with pytest.raises(NotImplementedError) as excinfo:
-        _evaluate(_Unimplemented())
+    assert "compute_jones_batch" in JonesTerm.__abstractmethods__
+    with pytest.raises(TypeError) as excinfo:
+        _Unimplemented()  # type: ignore[abstract]
     assert "compute_jones_batch" in str(excinfo.value)
+
+    class _Deferring(_Unimplemented):
+        def compute_jones_batch(self, **kwargs: Any) -> Any:
+            return super().compute_jones_batch(**kwargs)
+
+    with pytest.raises(NotImplementedError) as raised:
+        _evaluate(_Deferring())
+    assert "compute_jones_batch" in str(raised.value)
 
 
 def test_the_baseline_contract_raises_rather_than_returning_an_identity() -> None:

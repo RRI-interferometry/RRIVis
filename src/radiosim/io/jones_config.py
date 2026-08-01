@@ -25,12 +25,13 @@ Three properties the section must have, and how each is obtained here
 
 Which terms are here
 --------------------
-``G``, ``B``, ``Rc``, ``Kd``, ``X``, ``D`` and ``P`` -- the seven that carry
-real physics.  A schema field for a term whose ``compute_jones_batch`` raises
-would be a configuration surface that cannot be honoured -- the defect ``D2``
-shape that Tier 7C stripped from the planned terms' constructors -- so ``Z``,
-``T``, ``M`` and ``Q`` are still absent, and Tier 7G-7H each add their own
-term's block to this module together with its physics.
+``G``, ``B``, ``Rc``, ``Kd``, ``X``, ``D``, ``P``, ``T`` and ``Z`` -- every
+per-antenna term in the chain, all of which now carry real physics.  A schema
+field for a term whose ``compute_jones_batch`` raises would be a configuration
+surface that cannot be honoured -- the defect ``D2`` shape that Tier 7C stripped
+from the planned terms' constructors -- so ``M`` and ``Q``, the two
+baseline-dependent Hadamard terms, are still absent, and Tier 7H adds their
+blocks together with their physics.
 
 Units and complex numbers (Section 21.3)
 ----------------------------------------
@@ -63,27 +64,36 @@ __all__ = [
     "CableReflectionOverrideConfig",
     "CableReflectionTermConfig",
     "ComplexInput",
+    "ConstantTecModel",
     "CrosshandOverrideConfig",
     "CrosshandTermConfig",
     "DelayOverrideConfig",
     "DelayTermConfig",
     "ExplicitFeedLeakage",
     "ExplicitLeakageModel",
+    "ExplicitZenithDelay",
     "FrequencyPolynomialFeedLeakage",
     "FrequencyPolynomialLeakageModel",
     "GainOverrideConfig",
     "GainTermConfig",
     "GainTimeModelConfig",
+    "GradientTecModel",
     "IXRFeedLeakage",
     "IXRLeakageModel",
+    "IonosphereTermConfig",
+    "IonosphericFaradayConfig",
+    "IonosphericFaradayOverrideConfig",
     "JONES_TERM_LETTERS",
     "JonesConfig",
     "LeakageOverrideConfig",
     "LeakageTermConfig",
     "LinearDriftTimeModel",
     "ParallacticTermConfig",
+    "SaastamoinenZenithDelay",
     "SinusoidalTimeModel",
     "StaticTimeModel",
+    "TroposphereTermConfig",
+    "TroposphericOpacityConfig",
     "as_complex",
 ]
 
@@ -96,8 +106,9 @@ ComplexInput: TypeAlias = (
 )
 
 #: The term letters this schema accepts, in canonical chain order (Section
-#: 12.2).  Tier 7G-7H extend it as each remaining term becomes real.
-JONES_TERM_LETTERS: tuple[str, ...] = ("G", "B", "Rc", "Kd", "X", "D", "P")
+#: 12.2).  Tier 7H extends it with ``M`` and ``Q``, the two baseline-dependent
+#: terms, which are the only ones left.
+JONES_TERM_LETTERS: tuple[str, ...] = ("G", "B", "Rc", "Kd", "X", "D", "P", "T", "Z")
 
 
 def as_complex(value: ComplexInput) -> complex:
@@ -701,6 +712,253 @@ class ParallacticTermConfig(StrictFrozenModel):
     enabled: bool
 
 
+# --------------------------------------------------------------------------- T
+
+
+class ExplicitZenithDelay(StrictFrozenModel):
+    """Both zenith delays written out in metres.
+
+    Parameters
+    ----------
+    zenith_hydrostatic_delay_m
+        ``ZHD``, the dry excess path at zenith.  About 2.28 m at sea level.
+    zenith_wet_delay_m
+        ``ZWD``, the wet excess path at zenith.  Typically 0.05-0.4 m.  There is
+        no wet *model* on either variant, because every credible one needs
+        humidity and temperature profiles RadioSim does not have (Section 4), and
+        a model field with nothing behind it is the surface this tier removes.
+
+    Both default to zero so a block naming one is legal; a block that resolves to
+    zero everywhere with no opacity is rejected as the identity (R7).
+    """
+
+    kind: Literal["explicit"]
+    zenith_hydrostatic_delay_m: _StrictFiniteFloat = 0.0
+    zenith_wet_delay_m: _StrictFiniteFloat = 0.0
+
+
+class SaastamoinenZenithDelay(StrictFrozenModel):
+    """``ZHD`` from the Saastamoinen (1972) formula, ``ZWD`` written out.
+
+    ``ZHD = 0.0022768 P_0 / (1 - 0.00266 cos(2 lat) - 0.00028 h_km)``: the
+    surface pressure is configured, while the latitude and each antenna's height
+    come from the resolved instrument, which is why they are not fields here.
+
+    Parameters
+    ----------
+    surface_pressure_hpa
+        ``P_0``, the surface pressure in hectopascals.  Positive.
+    zenith_wet_delay_m
+        ``ZWD`` in metres, exactly as on the explicit variant.
+    """
+
+    kind: Literal["saastamoinen"]
+    surface_pressure_hpa: _StrictPositiveFloat = 1013.25
+    zenith_wet_delay_m: _StrictFiniteFloat = 0.0
+
+
+ZenithDelayConfig = Annotated[
+    ExplicitZenithDelay | SaastamoinenZenithDelay,
+    Field(discriminator="kind"),
+]
+
+
+class TroposphericOpacityConfig(StrictFrozenModel):
+    """The optional opacity sub-block of ``jones.T``.
+
+    Parameters
+    ----------
+    zenith_opacity
+        The dimensionless zenith opacity ``tau_0``, defined on **power**.  The
+        voltage attenuation is ``exp(-tau_0 / (2 sin el))``, so a baseline of two
+        identical antennas at zenith is scaled by ``exp(-tau_0)`` in visibility
+        amplitude (invariant I10).  A negative value is rejected at resolution
+        (R10) rather than here, so the message names the physics: a negative
+        opacity would amplify.
+
+        RadioSim applies one number at every channel.  A frequency-dependent
+        ``tau_0(nu)`` would need an atmospheric absorption model, which is the
+        data ingestion Section 4 excludes; the field says what it does.
+    """
+
+    zenith_opacity: _StrictFiniteFloat
+
+
+class TroposphereTermConfig(StrictFrozenModel):
+    """The ``T`` term: tropospheric delay and opacity (Section 20.9).
+
+    ``T_p(s, nu) = exp(-tau_0 / (2 sin el)) exp(-2 pi i nu tau_trop(s)) I2``.
+
+    Parameters
+    ----------
+    zenith_delay
+        The zenith delay pair, either written out or from Saastamoinen.
+    mapping_function
+        ``simple`` is the flat-atmosphere ``1 / sin(el)``; ``niell`` is the
+        Niell (1996) three-term continued fraction with its published
+        latitude-, season- and height-dependent coefficients.
+    minimum_elevation_deg
+        The elevation below which this run declines to evaluate the mapping
+        function, which diverges at the horizon (R13).  Required, and not
+        defaulted: where a model stops being trusted is a scientific decision,
+        and a default would make it RadioSim's rather than the user's.  ``0``
+        accepts every direction the horizon mask passes and is the explicit way
+        to say "I accept the divergence".
+    opacity
+        The optional opacity sub-block.  Absent means a transparent atmosphere,
+        which is the case in which ``T`` is unitary.
+    """
+
+    zenith_delay: ZenithDelayConfig
+    mapping_function: Literal["simple", "niell"] = "niell"
+    minimum_elevation_deg: Annotated[
+        float, Field(strict=True, allow_inf_nan=False, ge=0.0, lt=90.0)
+    ]
+    opacity: TroposphericOpacityConfig | None = None
+
+
+# --------------------------------------------------------------------------- Z
+
+
+class ConstantTecModel(StrictFrozenModel):
+    """One vertical electron column for the whole array.
+
+    Produces an antenna-common but direction-varying phase: a single source at
+    zenith changes no visibility, while a wide field does -- which is the
+    discriminating test Section 20.8 names.
+
+    Parameters
+    ----------
+    vertical_tec_tecu
+        The vertical column in TECU (``1 TECU = 1e16`` electrons m^-2).  A
+        negative column is rejected at resolution (R9).
+    """
+
+    kind: Literal["constant"]
+    vertical_tec_tecu: _StrictFiniteFloat
+
+
+class GradientTecModel(StrictFrozenModel):
+    """A vertical column with a linear gradient across the array's sky.
+
+    The column is evaluated at each antenna's own ionospheric **pierce point**,
+    so two antennas looking at the same direction see different columns.  That is
+    the minimal model with a closure-visible effect, and it is why this variant
+    exists at all rather than being expressible as a constant.
+
+    Parameters
+    ----------
+    vertical_tec_tecu
+        The column at the array reference position, in TECU.
+    gradient_east_tecu_per_km, gradient_north_tecu_per_km
+        The gradient with the pierce point's topocentric East and North offset,
+        in TECU per kilometre.  Signed.  At least one must be non-zero: a
+        gradient model with no gradient is the constant model written the long
+        way, and accepting it would let a document say ``gradient`` while meaning
+        something else.
+    """
+
+    kind: Literal["gradient"]
+    vertical_tec_tecu: _StrictFiniteFloat
+    gradient_east_tecu_per_km: _StrictFiniteFloat = 0.0
+    gradient_north_tecu_per_km: _StrictFiniteFloat = 0.0
+
+    @model_validator(mode="after")
+    def require_a_gradient(self) -> Self:
+        if (
+            self.gradient_east_tecu_per_km == 0.0
+            and self.gradient_north_tecu_per_km == 0.0
+        ):
+            raise ValueError(
+                "must set a non-zero 'gradient_east_tecu_per_km' or "
+                "'gradient_north_tecu_per_km'; use kind: constant for a uniform "
+                "screen"
+            )
+        return self
+
+
+TecModelConfig = Annotated[
+    ConstantTecModel | GradientTecModel,
+    Field(discriminator="kind"),
+]
+
+
+class IonosphericFaradayOverrideConfig(StrictFrozenModel):
+    """One per-antenna ionospheric rotation-measure override.
+
+    Parameters
+    ----------
+    antenna
+        The antenna **number** in the resolved instrument.  There is
+        deliberately **no** ``feed`` field: an ionospheric rotation measure is a
+        property of the line of sight, not of a receptor, and a feed index here
+        would name something the physics does not have.
+    rotation_measure_rad_m2
+        The replacement rotation measure for that antenna, in rad m^-2.
+    """
+
+    antenna: int
+    rotation_measure_rad_m2: _StrictFiniteFloat
+
+
+class IonosphericFaradayConfig(StrictFrozenModel):
+    """The optional Faraday sub-block of ``jones.Z``.
+
+    Parameters
+    ----------
+    rotation_measure_rad_m2
+        The array-wide ionospheric rotation measure ``RM_ion``, in rad m^-2.
+        Configured directly and **not** derived from the electron column and a
+        geomagnetic field model: RadioSim has no magnetic-field model and
+        Section 4 forbids adding the data ingestion for one.  ``RMextract`` is
+        the tool that produces the number to write here.
+    per_antenna
+        Ordered per-antenna overrides, keyed by antenna number alone.
+
+    Notes
+    -----
+    This is *ionospheric* rotation only.  A source's intrinsic rotation measure
+    belongs to the sky model, is applied there, and composes with this one; the
+    two live in different objects, so they cannot be configured twice by accident
+    (Section 11, defect D18, invariant I8).
+    """
+
+    rotation_measure_rad_m2: _StrictFiniteFloat = 0.0
+    per_antenna: tuple[IonosphericFaradayOverrideConfig, ...] = ()
+
+
+class IonosphereTermConfig(StrictFrozenModel):
+    """The ``Z`` term: ionospheric dispersive phase and Faraday rotation.
+
+    ``Z_p(s, nu) = exp(-2 pi i k_TEC sTEC / nu) F(RM_ion lambda^2)``
+    (Section 20.8).
+
+    Parameters
+    ----------
+    tec
+        The vertical-TEC model, ``constant`` or ``gradient``.
+    shell_height_km
+        The thin shell's height above the surface, in kilometres.  350 km is the
+        conventional value and the default.
+    minimum_elevation_deg
+        The elevation below which this run declines to evaluate the thin-shell
+        mapping (R13).  Required for the same reason as on ``T``.  Unlike ``T``'s
+        ``1 / sin(el)``, the slant factor is *bounded* at the horizon -- about
+        3.13 for a 350 km shell -- so what fails at low elevation is the
+        thin-shell approximation rather than the arithmetic.
+    faraday
+        The optional Faraday sub-block.  Absent means dispersive phase only, in
+        which case ``Z`` is a scalar phase and commutes with everything.
+    """
+
+    tec: TecModelConfig
+    shell_height_km: _StrictPositiveFloat = 350.0
+    minimum_elevation_deg: Annotated[
+        float, Field(strict=True, allow_inf_nan=False, ge=0.0, lt=90.0)
+    ]
+    faraday: IonosphericFaradayConfig | None = None
+
+
 # ------------------------------------------------------------------- the section
 
 
@@ -725,6 +983,8 @@ class JonesConfig(StrictFrozenModel):
     X: CrosshandTermConfig | None = None
     D: LeakageTermConfig | None = None
     P: ParallacticTermConfig | None = None
+    T: TroposphereTermConfig | None = None
+    Z: IonosphereTermConfig | None = None
 
     @property
     def configured_terms(self) -> tuple[str, ...]:

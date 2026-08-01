@@ -37,6 +37,7 @@ from radiosim.backends import get_backend
 from radiosim.core.jones.directions import DirectionBatch
 from radiosim.core.jones.ionosphere import (
     EARTH_RADIUS_M,
+    SPEED_OF_LIGHT_M_PER_S,
     TEC_PHASE_CONSTANT_HZ_PER_TECU,
     IonosphereJones,
     ResolvedTecModel,
@@ -193,6 +194,23 @@ def _evaluate(
 # ---------------------------------------------------------------------------
 # The dispersive constant and the slant mapping
 # ---------------------------------------------------------------------------
+
+
+def test_the_jones_packages_speed_of_light_is_the_canonical_one() -> None:
+    """One value, checked, even though it is written in two import graphs.
+
+    The Jones package carries its own ``c`` so that importing a term does not
+    drag the sky package's loader chain -- and a network client library -- into
+    every import (``test_tier3_beam_cleanup.py`` pins that freedom).  ``c`` is
+    defined by the SI rather than measured, so the duplication is safe, and this
+    is what makes "safe" checkable rather than asserted.
+    """
+    from radiosim.core.jones.troposphere import (
+        SPEED_OF_LIGHT_M_PER_S as troposphere_c,
+    )
+
+    assert SPEED_OF_LIGHT_M_PER_S == float(C_LIGHT)
+    assert troposphere_c == float(C_LIGHT)
 
 
 def test_the_tec_phase_constant_is_the_published_one() -> None:
@@ -522,6 +540,16 @@ def test_a_per_antenna_rotation_measure_reaches_only_that_antenna() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _wrapped(angle_rad: float) -> float:
+    """Wrap a polarization-angle difference into ``(-pi/2, pi/2]``.
+
+    The polarization angle is defined modulo ``pi``, so a composition test must
+    compare angles the way the observable is defined rather than as bare
+    floats.
+    """
+    return (float(angle_rad) + 0.5 * math.pi) % math.pi - 0.5 * math.pi
+
+
 def _polarization_angle(coherency: np.ndarray) -> float:
     """Return ``chi = 0.5 atan2(U, Q)`` from a 2x2 coherency matrix."""
     _, stokes_q, stokes_u, _ = coherency_to_stokes(coherency)
@@ -545,8 +573,12 @@ def test_the_sky_and_the_ionosphere_rotate_the_angle_additively() -> None:
     reference_frequency = 1.5e8
     wavelength_squared = (C_LIGHT / frequency) ** 2
     reference_wavelength_squared = (C_LIGHT / reference_frequency) ** 2
-    source_rm = 3.0
-    ionospheric_rm = 1.25
+    # Both rotation measures are small enough that every angle in this test
+    # stays inside one branch of the polarization angle, which is only defined
+    # modulo pi.  A larger pair would still compose -- the assertions below
+    # wrap -- but the failure of a wrapped comparison would be unreadable.
+    source_rm = 0.2
+    ionospheric_rm = 0.1
 
     stokes_q = np.array([0.6])
     stokes_u = np.array([-0.2])
@@ -587,13 +619,17 @@ def test_the_sky_and_the_ionosphere_rotate_the_angle_additively() -> None:
     sky_shift = source_rm * (wavelength_squared - reference_wavelength_squared)
     ionospheric_shift = ionospheric_rm * wavelength_squared
 
-    assert sky_only - base_angle == pytest.approx(sky_shift, abs=1e-12)
-    assert ionosphere_only - base_angle == pytest.approx(ionospheric_shift, abs=1e-12)
-    assert both - base_angle == pytest.approx(sky_shift + ionospheric_shift, abs=1e-12)
-    # And the composition really is a sum and not a double application.
-    assert both - base_angle == pytest.approx(
-        (sky_only - base_angle) + (ionosphere_only - base_angle), abs=1e-12
+    assert _wrapped(sky_only - base_angle - sky_shift) == pytest.approx(0.0, abs=1e-12)
+    assert _wrapped(ionosphere_only - base_angle - ionospheric_shift) == pytest.approx(
+        0.0, abs=1e-12
     )
+    assert _wrapped(both - base_angle - sky_shift - ionospheric_shift) == pytest.approx(
+        0.0, abs=1e-12
+    )
+    # And the composition really is a sum and not a double application.
+    assert _wrapped(
+        both - (sky_only - base_angle) - (ionosphere_only - base_angle) - base_angle
+    ) == pytest.approx(0.0, abs=1e-12)
 
 
 def test_the_faraday_rotation_leaves_stokes_i_and_v_alone() -> None:

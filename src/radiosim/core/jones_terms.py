@@ -23,10 +23,18 @@ each stage before moving to the next:
 
 3. structural validation -- ``per_antenna`` antenna existence (R4), duplicate
    ``(antenna, feed)`` pairs (R5), and feed index range (R6);
-4. physical-range validation (R8 for ``Rc``; R9, R10 and R16 belong to terms
-   later slices add);
-5. cross-object consistency -- bandpass frequency coverage (R11);
+4. physical-range validation -- R8 for ``Rc``, R9 for ``Z``, R10 for ``T``
+   (R16 belongs to ``Q``, which Tier 7H adds);
+5. cross-object consistency -- bandpass frequency coverage (R11) and mount types
+   (R12, R15);
 6. the identity check (R7), **last**, because it needs fully resolved values.
+
+R13, the low-elevation guard on ``T`` and ``Z``, is deliberately *not* here.
+Its condition is "a direction survives the horizon mask below
+``minimum_elevation_deg``", and no direction exists until a solver resolves one
+for a ``(time, frequency)`` step -- so the two terms raise it themselves, from
+``compute_jones_batch``.  What *is* checked here is everything about those two
+blocks that is decidable without a sky.
 
 Stages 1 and 2 -- the strict Pydantic parse and the removed-field guidance --
 have already happened by the time this function is called.
@@ -66,6 +74,7 @@ from radiosim.core.jones.baseline_errors import JonesBaselineTerm
 from radiosim.core.jones.crosshand import CrosshandJones
 from radiosim.core.jones.delay import CableReflectionJones, DelayJones
 from radiosim.core.jones.gain import GainJones, ResolvedGainTimeModel
+from radiosim.core.jones.ionosphere import IonosphereJones, ResolvedTecModel
 from radiosim.core.jones.parallactic import (
     ROTATING_MOUNT_TYPES,
     SUPPORTED_MOUNT_TYPES,
@@ -75,6 +84,10 @@ from radiosim.core.jones.polarization_leakage import (
     LeakageCoefficient,
     PolarizationLeakageJones,
     leakage_from_ixr_db,
+)
+from radiosim.core.jones.troposphere import (
+    TroposphereJones,
+    saastamoinen_zenith_hydrostatic_delay_m,
 )
 from radiosim.core.jones_errors import (
     IdentityJonesTermError,
@@ -93,8 +106,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         CrosshandTermConfig,
         DelayTermConfig,
         GainTermConfig,
+        IonosphereTermConfig,
         JonesConfig,
         LeakageTermConfig,
+        TroposphereTermConfig,
     )
 
 __all__ = [
@@ -900,6 +915,128 @@ def _resolve_leakage_term(
     return PolarizationLeakageJones(d_terms=tuple(resolved))
 
 
+# ------------------------------------------------------------------- T and Z
+
+
+def _reject_negative_opacity(opacity: float) -> None:
+    """Raise R10 for a negative zenith opacity.
+
+    Zero is accepted: a transparent atmosphere with a real excess path is a
+    perfectly good ``T``, and it is the case in which the term is unitary.  What
+    is refused is the value that would *amplify*, and the message says so.
+    """
+    if opacity >= 0.0:
+        return
+    raise InvalidJonesConfigError(
+        f"jones.T.opacity.zenith_opacity={opacity} must be non-negative; a "
+        "negative opacity would amplify."
+    )
+
+
+def _reject_negative_tec(vertical_tec_tecu: float) -> None:
+    """Raise R9 for a negative vertical electron column."""
+    if vertical_tec_tecu >= 0.0:
+        return
+    raise InvalidJonesConfigError(
+        f"jones.Z.tec.vertical_tec_tecu={vertical_tec_tecu} must be non-negative."
+    )
+
+
+def _resolve_troposphere_term(
+    config: TroposphereTermConfig,
+    *,
+    instrument: ResolvedInstrument,
+) -> TroposphereJones:
+    """Build the ``T`` term from a validated ``jones.T`` block (Section 20.9).
+
+    The zenith hydrostatic delay is per antenna even when it comes from one
+    configured pressure, because the Saastamoinen formula reads the antenna's own
+    height above sea level -- the site height plus its Up offset -- and an array
+    on a slope really does have different dry delays.
+    """
+    latitude_deg = float(instrument.location.latitude_deg)
+    heights_m = np.array(
+        [
+            float(instrument.location.height_m) + float(antenna.position_enu_m[2])
+            for antenna in instrument.antennas
+        ],
+        dtype=np.float64,
+    )
+    delay_config = config.zenith_delay
+    if delay_config.kind == "explicit":
+        hydrostatic = np.full(
+            heights_m.shape,
+            float(delay_config.zenith_hydrostatic_delay_m),
+            dtype=np.float64,
+        )
+    else:
+        hydrostatic = np.array(
+            [
+                saastamoinen_zenith_hydrostatic_delay_m(
+                    surface_pressure_hpa=float(delay_config.surface_pressure_hpa),
+                    latitude_deg=latitude_deg,
+                    height_m=float(height),
+                )
+                for height in heights_m
+            ],
+            dtype=np.float64,
+        )
+    wet = np.full(
+        heights_m.shape, float(delay_config.zenith_wet_delay_m), dtype=np.float64
+    )
+    opacity = None if config.opacity is None else float(config.opacity.zenith_opacity)
+    return TroposphereJones(
+        zenith_hydrostatic_delay_m=hydrostatic,
+        zenith_wet_delay_m=wet,
+        mapping_function=config.mapping_function,
+        latitude_deg=latitude_deg,
+        heights_m=heights_m,
+        zenith_opacity=opacity,
+        minimum_elevation_deg=float(config.minimum_elevation_deg),
+    )
+
+
+def _resolve_ionosphere_term(
+    config: IonosphereTermConfig,
+    *,
+    instrument: ResolvedInstrument,
+    antenna_numbers: Sequence[int],
+    overrides: Mapping[int, Any],
+) -> IonosphereJones:
+    """Build the ``Z`` term from a validated ``jones.Z`` block (Section 20.8)."""
+    tec_config = config.tec
+    tec_model = ResolvedTecModel(
+        vertical_tec_tecu=float(tec_config.vertical_tec_tecu),
+        gradient_east_tecu_per_km=float(
+            getattr(tec_config, "gradient_east_tecu_per_km", 0.0)
+        ),
+        gradient_north_tecu_per_km=float(
+            getattr(tec_config, "gradient_north_tecu_per_km", 0.0)
+        ),
+    )
+    default_rotation_measure = (
+        0.0 if config.faraday is None else float(config.faraday.rotation_measure_rad_m2)
+    )
+    rotation_measures = np.empty(len(antenna_numbers), dtype=np.float64)
+    for row, number in enumerate(antenna_numbers):
+        override = overrides.get(number)
+        rotation_measures[row] = (
+            default_rotation_measure
+            if override is None
+            else float(override.rotation_measure_rad_m2)
+        )
+    positions = np.array(
+        [antenna.position_enu_m for antenna in instrument.antennas], dtype=np.float64
+    )
+    return IonosphereJones(
+        tec_model=tec_model,
+        antenna_positions_enu_m=positions,
+        shell_height_m=1000.0 * float(config.shell_height_km),
+        rotation_measures_rad_m2=rotation_measures,
+        minimum_elevation_deg=float(config.minimum_elevation_deg),
+    )
+
+
 # ------------------------------------------------------------------ resolution
 
 
@@ -1018,17 +1155,28 @@ def resolve_jones_terms(
     # its parameter is the relative phase *between* an antenna's two feeds.
     overrides_by_term: dict[str, dict[tuple[int, int], Any]] = {}
     crosshand_overrides: dict[int, Any] = {}
+    ionosphere_overrides: dict[int, Any] = {}
     for letter in configured:
         block = getattr(config, letter)
-        if letter == "P":
-            # ``P`` has no per-antenna block at all: its only per-antenna
-            # quantity is the mount type, which comes from the instrument and is
-            # checked at stage 5 rather than configured here.
+        if letter in ("P", "T"):
+            # Neither has a per-antenna block.  ``P``'s only per-antenna
+            # quantity is the mount type and ``T``'s is the antenna height, and
+            # both come from the resolved instrument rather than from the
+            # document -- which is why neither can be overridden here.
             continue
         if letter == "X":
             crosshand_overrides = _validate_antenna_overrides(
                 letter, block.per_antenna, antenna_numbers
             )
+            continue
+        if letter == "Z":
+            # ``Z``'s only per-antenna quantity is the line-of-sight rotation
+            # measure, which is one number per antenna and carries no feed
+            # index, so its overrides validate through the antenna-keyed path.
+            if block.faraday is not None:
+                ionosphere_overrides = _validate_antenna_overrides(
+                    letter, block.faraday.per_antenna, antenna_numbers
+                )
             continue
         overrides_by_term[letter] = _validate_overrides(
             letter, block.per_antenna, antenna_numbers
@@ -1045,6 +1193,15 @@ def resolve_jones_terms(
         for entry in reflection_config.per_antenna:
             if entry.amplitude is not None:
                 _reject_reflection_amplitude(float(entry.amplitude))
+    if "T" in configured:
+        troposphere_config = config.T
+        assert troposphere_config is not None
+        if troposphere_config.opacity is not None:
+            _reject_negative_opacity(float(troposphere_config.opacity.zenith_opacity))
+    if "Z" in configured:
+        ionosphere_config = config.Z
+        assert ionosphere_config is not None
+        _reject_negative_tec(float(ionosphere_config.tec.vertical_tec_tecu))
 
     # Stage 5 -- cross-object consistency.
     if "B" in configured:
@@ -1121,6 +1278,21 @@ def resolve_jones_terms(
         built["P"] = ParallacticAngleJones(
             latitude_rad=math.radians(instrument.location.latitude_deg),
             mount_types=tuple(mount_types[number] for number in antenna_numbers),
+        )
+    if "T" in configured:
+        troposphere_config = config.T
+        assert troposphere_config is not None
+        built["T"] = _resolve_troposphere_term(
+            troposphere_config, instrument=instrument
+        )
+    if "Z" in configured:
+        ionosphere_config = config.Z
+        assert ionosphere_config is not None
+        built["Z"] = _resolve_ionosphere_term(
+            ionosphere_config,
+            instrument=instrument,
+            antenna_numbers=antenna_numbers,
+            overrides=ionosphere_overrides,
         )
 
     # Stage 6 -- the identity check, last, because it needs resolved values.

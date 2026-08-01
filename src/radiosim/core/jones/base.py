@@ -105,14 +105,20 @@ class JonesTerm(ABC):
         ``Tier7JonesSciencePlan.md`` Section 23 gives ``"implemented"`` as the
         value every exported term reaches by 7K, and Section 37 criterion 2 is
         the assertion that no ``"planned"`` survives the tier.  Defaulting to it
-        *here*, while eleven exported terms still raise from
-        ``compute_jones_batch``, would be a lie on every one of them -- the same
+        *here* would be a lie on every term that does not yet run -- the same
         vacuous-``True`` failure mode invariant I2 exists to prevent, one level
         up.  So the base class declares ``"planned"``, each term overrides it in
         the slice that implements it (Section 31 step 5), and invariant I20
         checks the correspondence both ways: an ``"implemented"`` term must not
         be an identity for all inputs, and a ``"planned"`` term must not be
         evaluable at all.
+
+        After Tier 7G every ``JonesTerm`` in this package is
+        ``"implemented"``: ``Z`` and ``T`` were the last two, which is why
+        ``compute_jones_batch`` below could become ``@abstractmethod`` in the
+        same slice.  The two names still declaring ``"planned"`` are ``M`` and
+        ``Q``, which are :class:`~radiosim.core.jones.baseline_errors.JonesBaselineTerm`
+        and inherit this property's counterpart there; Tier 7H implements them.
 
         A ``"planned"`` term exists as a name, a chain position and a documented
         physical effect.  It is not a silent identity: it inherits the raising
@@ -156,6 +162,7 @@ class JonesTerm(ABC):
         """
         return True
 
+    @abstractmethod
     def compute_jones_batch(
         self,
         *,
@@ -212,19 +219,22 @@ class JonesTerm(ABC):
 
         Notes
         -----
-        This method is concrete and raises rather than being declared
-        ``@abstractmethod``, for one bounded reason: nine exported terms are
-        still ``term_status == "planned"`` (``G``, ``B``, ``D``, ``P``, ``Z``,
-        ``T``, ``Kd``, ``Rc``, ``X``), and an abstract declaration would make
-        every one of them impossible to instantiate.  It becomes
-        ``@abstractmethod`` in the slice that implements the last of them --
-        Tier 7G, once ``Z`` and ``T`` land.  Tier 7C, which deleted the identity
-        stubs, is *not* that slice: it removed the classes RadioSim will never
-        implement, not the ones it has not implemented yet.
+        This method is ``@abstractmethod`` as of Tier 7G, the slice that
+        implemented the last two planned ``JonesTerm`` subclasses (``Z`` and
+        ``T``).  Until then it was concrete-and-raising for one bounded reason:
+        an abstract declaration would have made every still-planned term
+        impossible to instantiate, and a term that cannot be constructed cannot
+        be named in a chain-order test either.  Every exported ``JonesTerm`` now
+        implements this method, so the declaration costs nothing and the
+        contract is enforced by the type system rather than by a runtime raise.
 
-        Raising rather than returning an identity is the whole point.  A term
-        that returns ``I2`` for every input is indistinguishable from no term at
-        all, which is the ``SCI-001`` defect this contract closes.
+        The body is kept, and still raises.  ``@abstractmethod`` stops a
+        *subclass* that forgets the contract from being instantiated; the body
+        is what a caller gets if one reaches this method anyway -- through
+        ``super()``, or through a subclass that declares the method and defers
+        to it.  Raising rather than returning an identity is the whole point: a
+        term that returns ``I2`` for every input is indistinguishable from no
+        term at all, which is the ``SCI-001`` defect this contract closes.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not implement compute_jones_batch; every "
@@ -249,8 +259,9 @@ class JonesTerm(ABC):
         cannot verify a claim about a matrix that cannot be computed, so each
         term slice adds its flags together with its physics.
 
-        Diagonal: G, B, T (simple delay), Kd, Rc, X
-        Non-diagonal: E, Z, P, D, C, H
+        Diagonal: G, B, T (a scalar times ``I2``), Kd, Rc, X
+        Non-diagonal: E, P, D, C, H, and Z whenever its Faraday rotation is
+        non-zero -- a real rotation is diagonal only at angle zero
 
         Default: False
         """
@@ -262,8 +273,9 @@ class JonesTerm(ABC):
         Scalar matrices commute with everything and simplify the chain.
 
         Scalar: K (the geometric phase, which is why it is a function and not a
-        term at all), and C or H whenever their parameters make them exactly
-        ``I2``.
+        term at all), T (delay and opacity are both scalars times ``I2``), Z
+        without Faraday rotation, and C or H whenever their parameters make them
+        exactly ``I2``.
         Non-scalar: all others.
 
         Default: False
@@ -275,9 +287,12 @@ class JonesTerm(ABC):
 
         Unitary matrices preserve power (pure rotation/phase).
 
-        Unitary: K, P, C, H, and Z's Faraday rotation
-        Non-unitary: G (amplitude errors), E (beam attenuation), D, B,
-        T (opacity), Z's dispersive phase alone is unitary but the term is not
+        Unitary: K, P, C, H, and Z -- whose dispersive phase and Faraday
+        rotation are each unitary, so their product is too: the ionosphere
+        delays and rotates the field without absorbing it.
+        Non-unitary: G (amplitude errors), E (beam attenuation), D, B, and T
+        whenever its opacity is enabled, because an absorbing atmosphere really
+        does remove power.
 
         Default: False
         """

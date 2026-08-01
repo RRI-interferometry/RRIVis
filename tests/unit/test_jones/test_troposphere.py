@@ -53,6 +53,7 @@ from radiosim.backends import get_backend
 from radiosim.core.jones.directions import DirectionBatch
 from radiosim.core.jones.troposphere import (
     NIELL_LATITUDES_DEG,
+    SPEED_OF_LIGHT_M_PER_S,
     TroposphereJones,
     day_of_year_from_mjd,
     niell_mapping_function,
@@ -131,6 +132,11 @@ def _evaluate(
 # ---------------------------------------------------------------------------
 # The day of year, against astropy
 # ---------------------------------------------------------------------------
+
+
+def test_the_delay_uses_the_canonical_speed_of_light() -> None:
+    """The Jones package's own ``c`` is the SI value, not a rounded one."""
+    assert SPEED_OF_LIGHT_M_PER_S == float(C_LIGHT)
 
 
 def test_the_day_of_year_matches_astropy_over_nineteen_years() -> None:
@@ -413,7 +419,7 @@ def test_the_delay_is_the_transcribed_closed_form() -> None:
     expected = (
         2.31 * simple_mapping_function(directions.alt_rad)
         + 0.12 * simple_mapping_function(directions.alt_rad)
-    ) / C_LIGHT
+    ) / SPEED_OF_LIGHT_M_PER_S
     np.testing.assert_allclose(delay, expected, rtol=1e-15, atol=0.0)
     # About 7-8 nanoseconds at zenith, tens at low elevation: the scale of a real
     # troposphere rather than an arbitrary number.

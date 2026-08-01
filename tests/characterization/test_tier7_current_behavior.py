@@ -300,8 +300,10 @@ NON_TERM_EXPORTS: tuple[str, ...] = (
 #: ``PLANNED_TERMS`` -- the first two rows of the 11-row planned table to become
 #: numbers.  FLIPPED BY: Tier 7E, which moved the four calibration terms ``D``,
 #: ``X``, ``Kd`` and ``Rc``, completing workstream A.  FLIPPED BY: Tier 7F,
-#: which moved ``P`` and opened workstream B.  Tier 7G-7H move the remaining
-#: four.
+#: which moved ``P`` and opened workstream B.  FLIPPED BY: Tier 7G, which moved
+#: ``Z`` and ``T`` and closed workstream B -- after it every exported
+#: ``JonesTerm`` is here.  Tier 7H moves the remaining two, which are
+#: ``JonesBaselineTerm`` and not chain terms at all.
 IMPLEMENTED_TERMS: dict[str, str] = {
     "GainJones": "7D",
     "BandpassJones": "7D",
@@ -310,15 +312,18 @@ IMPLEMENTED_TERMS: dict[str, str] = {
     "DelayJones": "7E",
     "CableReflectionJones": "7E",
     "ParallacticAngleJones": "7F",
+    "IonosphereJones": "7G",
+    "TroposphereJones": "7G",
 }
 
 #: The exported terms still at ``term_status == "planned"``, with the slice that
 #: implements each.  Every one of them raises when evaluated; none is an
 #: identity.  Section 5.1's 37-stub table became an 11-row one plus the 26
-#: deletions below; Tier 7D left nine rows, Tier 7E five, and Tier 7F four.
+#: deletions below; Tier 7D left nine rows, Tier 7E five, Tier 7F four, and
+#: Tier 7G two -- both of them ``JonesBaselineTerm``, so no ``JonesTerm``
+#: subclass is planned any more and ``compute_jones_batch`` could become
+#: ``@abstractmethod``.
 PLANNED_TERMS: dict[str, str] = {
-    "IonosphereJones": "7G",
-    "TroposphereJones": "7G",
     "BaselineMultiplicativeJones": "7H",
     "SmearingFactorJones": "7H",
 }
@@ -452,12 +457,24 @@ def test_every_exported_term_is_real_physics_or_a_declared_plan() -> None:
     FLIPPED BY: Tier 7F, which implemented ``P`` -- the first direction- and
     time-dependent propagation term, and the one that opens workstream B.
 
-    OWNED BY: Tier 7G and Tier 7H, each of which turns its own planned rows
-    into real physics.
+    FLIPPED BY: Tier 7G, which implemented ``Z`` and ``T`` and closed
+    workstream B.  The planned table is two rows, and both are
+    ``JonesBaselineTerm``: every per-antenna term in the chain now carries
+    physics, which is what let ``compute_jones_batch`` become
+    ``@abstractmethod`` in the same slice.
+
+    OWNED BY: Tier 7H, which turns the last two rows into real physics.
     """
     assert len(REMOVED_JONES_CLASSES) == 28  # 26 deletions + K + the renamed X
-    assert len(IMPLEMENTED_TERMS) == 7
-    assert len(PLANNED_TERMS) == 4
+    assert len(IMPLEMENTED_TERMS) == 9
+    assert len(PLANNED_TERMS) == 2
+    assert all(
+        issubclass(
+            getattr(__import__("radiosim.core.jones", fromlist=[name]), name),
+            JonesBaselineTerm,
+        )
+        for name in PLANNED_TERMS
+    )
     assert set(PLANNED_TERMS).isdisjoint(IMPLEMENTED_TERMS)
     assert set(PLANNED_TERMS).isdisjoint(REAL_PHYSICS_EXPORTS)
     assert set(IMPLEMENTED_TERMS).isdisjoint(REAL_PHYSICS_EXPORTS)
@@ -643,13 +660,22 @@ def test_no_planned_term_accepts_physics_it_would_discard() -> None:
     FLIPPED BY: Tier 7F for ``P``, whose constructor now requires the site
     latitude and one mount type per antenna row and rejects an unmodelled mount.
 
-    OWNED BY: Tier 7G and Tier 7H.
+    FLIPPED BY: Tier 7G for ``Z`` and ``T``.  Both rows leave visibly: a caller
+    could once hand the ionosphere stub a TEC array, or the troposphere stub an
+    array of elevations, and get no error, no warning and no effect.  Both
+    constructors now require resolved values -- a TEC model, antenna positions,
+    a shell height and rotation measures; zenith delays, a mapping function and
+    a site -- and reject everything else.  The table below is what is left:
+    the two baseline terms, probed with the physics keyword each would have
+    swallowed.
+
+    OWNED BY: Tier 7H.
     """
     import radiosim.core.jones as jones_package
 
     discarded = {
-        "IonosphereJones": {"tec": np.array([1.0e17, 2.0e17])},
-        "TroposphereJones": {"elevations": np.array([0.5, 0.9])},
+        "BaselineMultiplicativeJones": {"matrices": np.zeros((1, 2, 2))},
+        "SmearingFactorJones": {"channel_width_hz": 1.0e6},
     }
     for class_name, kwargs in discarded.items():
         term_class = getattr(jones_package, class_name)
@@ -658,6 +684,15 @@ def test_no_planned_term_accepts_physics_it_would_discard() -> None:
         term = term_class()
         assert vars(term) == {}
         assert "__init__" not in vars(term_class)
+
+    # And the two terms this slice implemented now refuse the keywords their
+    # stubs used to swallow, because their constructors take resolved values.
+    for class_name, kwargs in (
+        ("IonosphereJones", {"tec": np.array([1.0e17, 2.0e17])}),
+        ("TroposphereJones", {"elevations": np.array([0.5, 0.9])}),
+    ):
+        with pytest.raises(TypeError):
+            getattr(jones_package, class_name)(**kwargs)
 
 
 def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None:
@@ -687,7 +722,12 @@ def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None
     -- a real rotation is orthogonal -- and computes the other two from its
     resolved mount types.
 
-    OWNED BY: Tier 7G and Tier 7H.
+    FLIPPED BY: Tier 7G for ``Z`` and ``T``.  ``Z`` declares ``is_unitary``
+    unconditionally and computes the other two from whether a rotation measure
+    was configured; ``T`` declares ``is_scalar`` and ``is_diagonal``
+    unconditionally and computes ``is_unitary`` from whether an opacity was.
+
+    OWNED BY: Tier 7H, whose two baseline terms are all that is left.
     """
     import radiosim.core.jones as jones_package
 
@@ -705,12 +745,23 @@ def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None
             )
             assert flag not in vars(term_class)
 
-    # ``get_config`` now reports the status alongside the flags, so a consumer
-    # reading a term's configuration cannot miss that it does not run.  Read
-    # from a still-planned term: Tier 7D gave ``G`` a real constructor and
-    # Tier 7E gave ``Kd`` one, so the probe moved to one of the five that still
-    # take none.
-    assert set(jones_package.IonosphereJones().get_config()) == {
+    # ``get_config`` reports the status alongside the flags, so a consumer
+    # reading a term's configuration cannot miss whether it runs.  The probe was
+    # a *planned* term until this slice; there is no planned ``JonesTerm`` left
+    # to read it from, so it reads the term that used to be the probe and
+    # asserts the flip itself -- same keys, and a status that now says the
+    # physics is there.
+    from radiosim.core.jones.ionosphere import ResolvedTecModel
+
+    ionosphere = jones_package.IonosphereJones(
+        tec_model=ResolvedTecModel(vertical_tec_tecu=10.0),
+        antenna_positions_enu_m=np.zeros((2, 3)),
+        shell_height_m=350_000.0,
+        rotation_measures_rad_m2=np.zeros(2),
+        minimum_elevation_deg=0.0,
+    )
+    config = ionosphere.get_config()
+    assert set(config) >= {
         "name",
         "term_status",
         "is_direction_dependent",
@@ -720,6 +771,7 @@ def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None
         "is_scalar",
         "is_unitary",
     }
+    assert config["term_status"] == "implemented"
 
 
 # =========================================================================
