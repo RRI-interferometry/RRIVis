@@ -20,7 +20,10 @@ check-format = "ruff format --check ."
 typecheck = "python tools/check_pyright_baseline.py"
 typecheck-report = "python -m pyright"
 typecheck-update = "python tools/check_pyright_baseline.py --update"
-test = "python -m pytest tests/"
+# Parallel by default (pytest-xdist); pass `-- -n 0` to force a serial run.
+# No explicit `tests/` here: pyproject's `testpaths` already supplies it, and a
+# hardcoded path would make `pixi run test -- <file>` collect the whole suite.
+test = "python -m pytest -n auto"
 # Reproducible backend benchmarks (Tier6HybridRuntimePlan.md Sections 22, 23).
 # Never part of the gate: the performance tests are marked `performance` and
 # `slow`, so `pixi run test -- -m "not slow"` and CI exclude them. Records land
@@ -62,6 +65,7 @@ click = ">=8.0"
 nbconvert = ">=7.17.0,<8"
 jupyter = ">=1.1.1,<2"
 pytest-cov = ">=7.0.0,<8"
+pytest-xdist = ">=3.6.1,<4"
 ipykernel = ">=7.2.0,<8"
 reproject = ">=0.18.0,<0.20"
 
