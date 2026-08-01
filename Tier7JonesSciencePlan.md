@@ -2560,6 +2560,120 @@ summary JSON; `SimulationResult` block; `Simulator.setup()` wiring replacing
 Invariants: I1, I7, I13, I14, I18, plus every rejection that does not need a
 later term.
 
+**Correction (7D implementation, 2026-08-01)** — eleven bounded departures
+from the sentences above and from the sections they refer to. None changes a
+decision; each makes a decision executable, and the first is the only one that
+changes what a reviewer should expect to find in a named field.
+
+1. **`chain_terms` carries the configured terms only; `H`, `C` and `E` are
+   recorded, not contained.** §22 rule 3 says the three always-on terms "are
+   always present", and §22's sketch annotates `chain_terms` "in canonical
+   order, H first". Both cannot be satisfied by one tuple built at setup: `E`
+   is the solver's `_ResolvedBeamJones` adapter, which closes over the
+   directions, frequency and time of the `(time, frequency)` step it is
+   evaluated at and therefore cannot exist before the time loop, and `H` and
+   `C` come from the resolved *receptor* set rather than from `jones:`.
+   `ResolvedJonesTerms.chain_terms` therefore holds exactly what the `jones:`
+   section configured, in canonical order, and `provenance.enabled_terms` and
+   `provenance.chain_order` hold the **full** composed order including all
+   three — which is what a reader of the record needs, and what §22's own
+   example (`("H","G","C","E","P", ...)`) shows. `_build_jones_chain` walks
+   `CANONICAL_CHAIN_ORDER` once and takes each letter from whichever of the two
+   sources owns it, so there is now exactly **one** `chain.add_term(` statement
+   in the package and it cannot treat a configured term differently from an
+   always-on one.
+
+2. **§34's 7D list names two files that do not exist in that form.** "the HDF5
+   group, schema bump, and reader" live in `src/radiosim/io/hdf5.py`, which is
+   both writer and reader; `src/radiosim/io/writers.py` does not exist, and
+   `src/radiosim/io/readers.py` is a 62-line unrelated debug helper that is no
+   part of the result path. "the summary-JSON writer" is
+   `src/radiosim/io/summary_json.py`. This is the same class of slip as 7C's
+   "five now-empty modules".
+
+3. **Four files outside §34's list are forced by decisions §33.2 already
+   took.** `src/radiosim/core/runtime_config.py`, because a new top-level
+   configuration section has to reach the runtime through
+   `ResolvedSimulationConfig` and `Simulator` holds nothing else;
+   `src/radiosim/io/result_errors.py`, because bumping the HDF5 schema means
+   the superseded-version guidance now names a different version;
+   `docs/api/io.rst` and `docs/migration_guide.md`, because the schema bump is
+   documented there and nowhere else.
+
+4. **Ten test files outside §34's list are forced, all of them pins.** Adding a
+   top-level section moves four exact-shape pins
+   (`tests/unit/test_io/test_config.py`,
+   `tests/unit/test_io/test_instrument_config.py`,
+   `tests/unit/test_io/test_receptor_config.py`,
+   `tests/unit/test_simulator/test_instrument_integration.py`); the schema bump
+   moves five (`tests/unit/test_io/test_hdf5_result.py`,
+   `tests/unit/test_io/test_result_summary.py`,
+   `tests/unit/test_tier4_result_output_acceptance.py`,
+   `tests/unit/test_tier1h_documentation.py`,
+   `tests/integration/test_hybrid_end_to_end.py`); and the one new integration
+   file §30 asks for moves the Tier 6I directory pin in
+   `tests/characterization/test_tier6_current_behavior.py`.
+   `tests/characterization/test_tier7_current_behavior.py` is also outside the
+   list and is where the nine `OWNED BY: Tier 7D` pins are flipped, which is
+   the whole point of their being marked.
+
+5. **The HDF5 `jones/` group is optional, and the schema goes 3.0.0 → 4.0.0.**
+   §25.2 asks for a bump *and* for a reader that accepts a file with no
+   `jones/` group. Those are only consistent if the group is written solely
+   when a term was enabled, which is what 7D does: it is the first optional
+   group in the format, `_inspect_tree` enforces all-or-nothing so a fragment
+   is still an allowlist mismatch, and a run with no `jones:` section produces
+   the file it always produced apart from the version string.
+
+6. **An empty Jones snapshot is hashed as nothing at all, not as an empty
+   object.** §25.1 requires a `jones:`-absent run to keep the digest it had at
+   `ac4fe41`. `_scientific_hash` therefore *skips* the `jones` tag entirely
+   when the snapshot is empty. Hashing an empty placeholder would have been
+   one line simpler and would have invalidated every environment-keyed cube and
+   fingerprint pin in the repository for no scientific reason.
+
+7. **`jones_terms` is a defaulted parameter, not a required one.** §23's
+   signature table shows it replacing `jones_config` positionally. It is
+   declared `jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS` on every
+   solver, simulator and `solve_sky` signature, mirroring the
+   `solver_execution=SERIAL_SOLVER_EXECUTION` precedent beside it, so a direct
+   solver call with no Jones section is exactly the historical forward model
+   and the seventy-odd existing direct solver calls in the suite are unchanged.
+
+8. **§22's `FrozenDict` is `MappingProxyType`.** There is no `FrozenDict` type
+   in this repository; `ResolvedReceptorSet.receptor_by_antenna` uses
+   `MappingProxyType`, and `JonesProvenance` follows it.
+
+9. **`ResolvedJonesDtypes.by_term` is a record, not a dispatch table.** Tier 7B's
+   accepted contract composes the whole chain in the accumulation dtype, so
+   resolving fifteen per-term precisions and then handing every term the same
+   one is what actually happens. Recording the resolution is what makes a later
+   decision to dispatch per term a visible change; claiming the dispatch now
+   would be the vacuous kind of claim I2 exists to prevent. D15 is closed as
+   "no term is without a declared precision", which is the defect as written.
+
+10. **The `G` elevation curve is well defined and degenerate.** §20.1 evaluates
+    it at the elevation of the pointing centre. RadioSim's one phase convention
+    is zenith drift (`PhaseCenter.altitude_rad == pi/2` exactly), so the curve
+    evaluates to a single constant for the whole run: a real, non-identity gain
+    that does not vary. It is implemented as specified rather than deferred,
+    and the degeneracy is stated in the term's own docstring, in
+    `is_time_dependent`, in its test, and in the user guide — because an
+    elevation *curve* that never moves reads as working when it is merely well
+    defined. §21.2's sinusoidal time model is likewise implemented as specified;
+    its unnamed fields are `depth`, `period_hours` and `phase_rad`, keeping the
+    per-hour convention §21.2's own `rate_per_hour` establishes.
+
+11. **§31's step order was not followed.** The invariant and rejection tests
+    (steps 1-2) were written *after* the implementation (step 3), not before
+    it. This is recorded rather than presented otherwise. The tests are
+    nonetheless written against §20's published closed forms with the reference
+    values in the test bodies (§29.1), and one of them found a real defect —
+    `BandpassJones.is_scalar` compared a `(rows, 2, n)` table with a
+    `(1, 1, n)` slice using `np.array_equal`, which does not broadcast, so a
+    genuinely scalar bandpass reported `False`. A reviewer weighing that
+    evidence should weigh the ordering with it.
+
 **7E — `D`, `X`, `Kd`, `Rc` (Workstream A remainder).**
 The four remaining direction-independent calibration terms. Includes the
 mandated rewrite of `docs/user_guide/jones_matrices.rst:137-146` (the basis
