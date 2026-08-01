@@ -11233,3 +11233,330 @@ diverge across `x86_64`/`arm64` (as `config.yaml`'s and
 `receptor_circular_example.yaml`'s already-measured per-architecture values
 imply it plausibly would) was not tested, since adjudication 3 above rules
 that no such table is required.
+
+### 2026-08-01 Tier 7B independent acceptance
+
+Independent adversarial review of `e1ae149..5207cc4` -- two commits,
+`ca02f00` (`docs(jones): correct Tier 7 design`) and `5207cc4`
+(`refactor(jones): batch the Jones evaluation contract and share one
+evaluator`). Reviewed against `Tier7JonesSciencePlan.md`'s Section 33 7B
+contract (as amended by `ca02f00`), Section 34 7B writable list, the
+Section 8-19 decisions 7B implements, Section 23 public API, Section 27
+invariants, and Section 28 parity. Branch `main`, HEAD `5207cc4`. No branch,
+no push.
+
+**THE CENTRAL ADJUDICATION -- the two disclosed HEALPix-only deltas.**
+`ca02f00` amends Section 33.2's "bit-identical to 7A's pins ... this slice
+adds no physics" sentence with four bounded departures, two of them
+numerical: (a) a circular receptor reported in a linear output basis --
+the only configuration where `C` and `H` are simultaneously non-identity --
+moves by a maximum relative deviation the implementer measured at `3.2e-16`
+because the HEALPix path's association order changes from `(H@C)@E` to the
+canonical `H@(C@E)`; (b) under a preset whose Jones/beam dtype is
+`complex64` but whose accumulation dtype is `complex128` (`fast`, the
+shipped example), the HEALPix path's per-antenna Jones moves by a maximum
+relative deviation measured at `8.8e-8` because it now carries the resolved
+accumulation dtype instead of inheriting the beam's `complex64`.
+
+**Ruling: (i) authorized-and-correct**, on independent mechanism analysis and
+reproduction, for both deltas, for materially different but related reasons:
+
+- **Delta (a) is a structural consequence of closing D4, not an accidental
+  discovery.** Read `src/radiosim/core/jones/chain.py:236-247`:
+  `compute_antenna_jones_batch` folds `for term in reversed(self.terms):
+  J_total = matmul(J_term, J_total)` from a `(1,2,2)` identity seed. For the
+  point solver's add-order `[H, C, E]` this *naturally* produces
+  `H @ (C @ E)` -- it is not a chosen convention, it is what the existing,
+  previously-accepted point-path fold has always computed. The pre-7B
+  HEALPix path's `_receptor_transforms()` (read at `e1ae149`,
+  `visibility_healpix.py:93-121`) computed `basis_transform_matrix(...) @
+  receptor_matrix(...)` -- i.e. `H_p @ C_p` -- as one constant product
+  *before* combining with the beam, an ad-hoc order that was never the
+  canonical chain fold. D4's entire mandate (Section 14: "there is now
+  exactly one place where a Jones term is composed") is unachievable while
+  the diffuse path keeps its own private association order; re-associating
+  onto the point path's existing fold is not a new numerical choice
+  introduced by 7B, it is the removal of the private shortcut D4 exists to
+  remove. The `1e-16`-scale movement is single-ULP floating-point
+  non-associativity of a mathematically-equal regrouping, exactly the class
+  Tier 6H's contraction-kernel review already established as "algebraically
+  equivalent, not a correctness defect" -- not the *unqualified,
+  cross-architecture, never-verified* claim that made Tier 6J's whole-tier
+  rejection a violation. The disclosure-and-measurement discipline here
+  (magnitude stated, mechanism named, scope bounded to one non-default
+  receptor/basis combination) is precisely the "record it, do not loosen
+  the assertion silently" standard `Fix.md` established at Tier 6A and
+  applied again at Tier 6's repaired re-run.
+- **Delta (b) was already anticipated by the plan's own Section 17.1, before
+  this correction existed.** Section 17.1 (written at design-gate time,
+  `997aba5`/`c30efbe`-era, unchanged by `ca02f00`) states verbatim:
+  "`ReceptorConfigJones` and `BasisTransformJones` stop hard-coding
+  `np.complex128` (D9). Because the default precision preset is `float64`
+  everywhere, this is bit-identical for every shipped configuration; a
+  non-default preset is where it becomes observable, **and 7B carries a
+  test for exactly that**." The design gate already knew and blessed that
+  fixing D9 would move non-default-preset results; `ca02f00`'s correction
+  is not a new authorization invented post hoc, it reconciles Section 33.2's
+  over-strong summary sentence with what Section 17.1 already specified.
+  Read `src/radiosim/core/jones/receptor.py:356` (`compute_jones_batch`
+  returns `backend.xp.array(self._matrices[antenna_idx][None, :, :],
+  dtype=dtype)`) and the pre-7B `visibility_healpix.py:281`
+  (`transform = backend.asarray(receptor_transforms[antenna_number],
+  dtype=beam_jones.dtype)`) -- the old code forced the receptor factor down
+  to the beam's own dtype; the new one hands the chain's one resolved
+  dtype to every term including the beam adapter, so the whole per-antenna
+  product now runs in the higher-precision accumulation dtype. This is a
+  precision *improvement* (upcasting), at the ULP-of-`complex64` scale, in a
+  narrow non-default-preset corner.
+
+**Empirical verification -- reproduced independently by a delegated
+background reviewer (isolated, `PYTHONPATH`-scoped `git worktree`) and
+cross-checked directly by this review; both agree.**
+
+`git diff e1ae149 5207cc4 -- pixi.toml pixi.lock` is empty: one shared
+environment underlies both sides of every comparison below, so no
+divergence can be attributed to environment drift.
+
+Delta (a), claimed `3.2e-16`: measured `1.647e-16`-`4.077e-16` relative
+deviation (`dev/peak`) across two scenarios -- a raw HEALPix-solver probe
+and an end-to-end hybrid-config run, both circular-receptor-reported-in-
+`linear_xy`-basis -- bracketing the claimed value and consistent with 1 ULP
+of `complex128` (`2.22e-16`). Two controls are *exactly* zero: linear-
+receptor-in-linear-basis (both `C`/`H` identity) and the point-source path
+with the same circular/linear mismatch -- confirming the delta requires
+both `C` and `H` non-identity **and** the HEALPix path specifically, exactly
+as the mechanism analysis above predicts.
+
+Delta (b), claimed `8.8e-8`: measured **`8.830743e-08`** (`dev/peak`) on the
+shipped hybrid sky content under the `fast` preset -- matching the claim to
+two significant figures, 66/1200 elements differing. The same content at
+`standard` (what `hybrid_sky_example.yaml` ships with) and both point-only
+shipped configs under `fast` are exactly zero, 0 elements differing. One
+non-obvious mechanistic detail the background reviewer surfaced and this
+review confirms by reading `core/beam/runtime.py:416`
+(`_convert_backend_result` pins the beam array to `host_result.dtype`): the
+delta requires the **beam system itself** to be constructed at `fast`, not
+merely the array backend -- a probe that varies only backend precision
+shows no delta. `Simulator.setup()` builds both from one `PrecisionConfig`,
+so the real, shipped `fast`-preset path does exhibit it; this sharpens the
+claim's precision without changing its substance.
+
+The single most important check -- `configs/hybrid_sky_example.yaml` run
+end-to-end, as shipped, at its own default (`standard`) precision --
+produced an **identical** `scientific_sha256`
+(`65777deecea484de327d4f524db6ee8fda1751749890bb047f0781ec0ec3808a`) and an
+identical raw-cube digest
+(`bdd866b1936949a18bb1705ae8111a65a7b0e8e86a9eea7b641f8eccd58d281a`) at
+`e1ae149` and `5207cc4`: 0 of 1200 elements differ, shape `(5, 15, 4, 4)`
+complex128. No undisclosed third delta was found in any scenario probed.
+
+**Bit-identity reproduction.** In the same detached, `PYTHONPATH`-isolated
+`git worktree` at `e1ae149`: 14 pinned digest values reproduced --
+`config.yaml` (`scientific_sha256` + raw cube, 2),
+`receptor_circular_example.yaml` (2), the six
+`test_section_13_4_workload_fingerprints` workloads (6), plus the whole
+`test_tier6_current_behavior.py` file (41 tests) and the whole
+`tests/characterization/` directory (185 tests) -- 0 changed, 0 failed,
+exceeding the 12-of-34 target. `git diff e1ae149 5207cc4 -- tests/
+characterization/test_tier6_current_behavior.py tests/characterization/
+test_tier7_current_behavior.py` confirmed independently: every one of the
+65 hash literals in `test_tier6_current_behavior.py` is an identical
+multiset across the two commits, and `test_tier7_current_behavior.py`
+carries no digest literals at all -- the diffs are exclusively prose,
+anchors, and one variable rename in
+`test_jones_config_is_an_untyped_dict_with_ad_hoc_rejections` (`nonsense`/
+`baseline`/`plain` -> `ignored`/`plain`, a rename around the same
+bit-identical assertion, not a value change). `test_backend_parity.py`:
+**12 passed, 0 failed** (Dask bit-identical, JAX-CPU `rtol=1e-12`, point and
+HEALPix, scalar/polarized/circular).
+
+**Contract correctness.** Read `directions.py`, `evaluate.py`, `base.py`,
+`chain.py`, `baseline_errors.py`, `geometric.py`, `receptor.py` in full,
+plus the `visibility.py`/`visibility_healpix.py` diffs. `DirectionBatch` is
+frozen (`@dataclass(frozen=True, eq=False)`), every array copied,
+promoted to `float64`, finiteness-checked, and set read-only in
+`__post_init__`; `n_dir` is cross-checked against every array's length.
+`add_term` raises `TypeError` naming `JonesBaselineTerm` for a baseline
+term and for any non-`JonesTerm`, reproduced directly:
+`chain.add_term(BaselineMultiplicativeJones())` raises
+`TypeError: BaselineMultiplicativeJones is a JonesBaselineTerm and cannot
+be added to a JonesChain: ...`. The evaluator (`evaluate.py`) is used by
+both solvers and by nothing else: `grep -n "evaluate_antenna_jones("
+src/radiosim/core/visibility.py src/radiosim/core/visibility_healpix.py`
+shows exactly one call site per solver, and `_build_jones_chain` is
+defined exactly once, in `visibility.py`, and imported (not
+re-implemented) by the HEALPix module. `evaluate_antenna_jones` type-checks
+`directions` (`type(directions) is not DirectionBatch` raises) and enforces
+`backend is chain.backend`.
+
+**`from_horizontal` inverse transform -- verified mathematically sound by
+independent cross-check, not merely re-derivation.** Ran 20 random trials
+(latitude -89..89 deg, all longitudes, MJD 59000-62000, altitude 5-89 deg,
+full azimuth range) comparing `equatorial_from_horizontal`'s closed-form
+`(hour_angle, dec)` against `astropy.coordinates.HADec` transformed from
+the same `AltAz` -- an independent, unrelated implementation. Maximum
+disagreement: `5.99e-13` rad in hour angle, `2.32e-13` rad in declination,
+across the full parameter range including near-polar latitudes -- floating
+point and precession-model noise, not a formula error. The shipped test
+module (`test_direction_batch.py::
+test_the_equatorial_half_matches_an_independent_astropy_derivation`)
+performs the same class of check via `astropy.coordinates.TETE`, matching
+this review's independent methodology.
+
+**K conversion.** `geometric_phase()` (`geometric.py:54-90`) computes
+`b_dot_s = bl_u*dir_l + bl_v*dir_m + bl_w*(dir_n-1.0); exp(-2j*pi*b_dot_s)`.
+Read both former inline copies at `e1ae149`: `visibility.py:690-696`'s
+point-path inline (`uvw_wavelengths = baseline_vectors /
+(float(C_LIGHT)/float(freq))`, identical `b_dot_s`/`phase` expression) and
+`visibility_healpix.py:619-625`'s HEALPix inline (identical `delay`/`phase`
+expression, same operation order) are op-for-op identical to the extracted
+function; the new call sites (`visibility.py:778-790`,
+`visibility_healpix.py:594-601`) compute `wavelength_m` with the same
+`float(C_LIGHT)/float(freq)` expression. `tests/unit/test_jones/
+test_geometric_phase.py::test_the_extracted_function_equals_both_former_inline_copies`
+transcribes both former inline bodies verbatim and asserts
+`np.testing.assert_array_equal` (not `allclose`) against the extracted
+function on numpy, dask, and jax -- reproduced, passes. `GeometricPhaseJones`
+is gone: not in `__all__`, `AttributeError` on lazy access, and the only
+source hits for the string are a historical-explanation docstring line and
+a gitignored, stale `egg-info/PKG-INFO` build artifact (not tracked, not
+regenerated by this range).
+
+**The `NotImplementedError` behavior change -- confirmed unreachable from
+every production path.** `hybrid.py:292` still hard-codes
+`jones_config=None` verbatim (D3, untouched, 7D's to fix); `io/config.py`
+has no `jones:` term schema, only the pre-existing `JonesPrecisionInput`
+precision fields. The only way to reach a stub's
+`compute_jones_batch`/`compute_baseline_factor` is a direct low-level
+solver call with an explicit `jones_config={"<TERM>": {"enabled": ...}}` --
+unreachable from the CLI, `Simulator`, or any shipped config. Confirmed
+directly: `GainJones(n_antennas=3)` instantiates without error (concrete-
+and-raising, not abstract, exactly as documented) and raises
+`NotImplementedError: GainJones does not implement compute_jones_batch; ...`
+only when `compute_jones_batch` is actually called. The shipped test
+`test_jones_config_is_an_untyped_dict_with_ad_hoc_rejections` proves the
+same end to end: `calculate_visibility(..., jones_config={"G":
+{"enabled": "yes please"}})` raises `NotImplementedError` matching
+`compute_jones_batch`, while a falsy `{"G": {"enabled": ""}}` remains
+bit-identical to `jones_config=None`.
+
+**Deviations, adjudicated.**
+- *Concrete-and-raising vs `@abstractmethod`* -- correct. 7B's writable
+  list contains none of the 37 identity-stub modules (35 `JonesTerm`
+  subclasses + `BaselineMultiplicativeJones`/`SmearingFactorJones`,
+  counted directly from `JONES_TERM_STUBS`/`BASELINE_TERM_STUBS` in
+  `test_tier7_current_behavior.py`, 35+2=37, matching the correction's
+  count exactly); an abstract declaration would make every one
+  uninstantiable and break pins owned by later slices. Becomes abstract at
+  7C (`JonesTerm`) and 7H (`JonesBaselineTerm`) per the correction.
+- *`GeometricPhaseJones` deleted at 7B, not 7C* -- correct; K is
+  per-baseline and cannot be a chain term, so its removal belongs with the
+  slice that extracts `geometric_phase()`. The three pins the correction
+  says move (name-count, lazy-binding, real-physics) were confirmed
+  actually moved in the `test_tier7_current_behavior.py` diff and not
+  duplicated or dropped.
+- *`dir_l`/`dir_m`/`dir_n` naming and apparent-equatorial choice* --
+  correct on both grounds: `l` is rejected by the repository's own `ruff
+  E741` (part of the selected `E` rule set; confirmed by `pixi run lint`
+  passing with these names), and the apparent-vs-ICRS choice is verified
+  sound by the independent astropy round-trip above; a HEALPix map in
+  galactic coordinates genuinely has no right ascension to read, which the
+  apparent-frame construction (derived purely from `alt`/`az`/`lat`/`LST`)
+  sidesteps entirely.
+- *Tier 6D assertion replacement* -- the freq-non-enumeration pin is
+  replaced by a no-per-cell-write pin (`"set_at" not in source`). Verified
+  the replacement carries the protected property: `_resolved_receptor_terms(`
+  is still called exactly once, above `_time_block`, and the frequency
+  loop now legitimately enumerates (the batched contract requires
+  `freq_idx`) without any per-cell output write appearing anywhere in
+  `visibility_healpix.py` -- output is still assembled by
+  `freq_blocks.append(...)` then `backend.stack`, per-time-block, matching
+  `CLAUDE.md`'s architecture description.
+
+**Pin-flip and file-scope audit.** `git diff --stat e1ae149 5207cc4`
+touches exactly the 7B writable list plus the three files `ca02f00`'s
+correction explicitly adds (`test_tier5_current_behavior.py`,
+`test_tier6_current_behavior.py`, `test_visibility_backend.py`) -- no file
+outside Section 34's 7B grant is touched, and the three added files'
+consumption is exactly as justified (Tier 5's `S`-matrix/identity/order
+properties re-asserted through the new contract; Tier 6D's "built once
+above the time loop" anchor moved to `_resolved_receptor_terms(`; the beam
+adapter's row/number cross-check strengthened, not weakened, by row-keying).
+
+**Gates -- both environments (`default`/py311, `py312`), reproduced directly
+by this review after the background verification above.** One caveat
+applies: a stale, gitignored `docs/_build/` directory (left by an earlier
+Sphinx build in this same working tree, from this review's own gate work)
+transiently pollutes `tests/unit/test_tier5_receptor_acceptance.py::
+test_removed_names_are_referenced_nowhere_in_the_repository`'s repo-grep
+with three false failures (it does not respect `.gitignore`); `rm -rf
+docs/_build` restores a fully green suite (**4,555 passed, 0 failed, 26
+warnings**, confirmed directly). This is a pre-existing test fragility,
+unrelated to and untouched by `e1ae149..5207cc4` -- independently
+rediscovered by both this review and its own delegated background
+reviewer, reaching the identical root cause. All counts below are with
+`docs/_build/` absent.
+
+- `pixi run test -- -m "not slow"`, `default`/py311: **4,545 passed, 0
+  failed, 10 deselected, 26 warnings** (413.34s). `py312`: **4,545 passed, 0
+  failed, 10 deselected, 26 warnings** (443.73s). Both exactly match
+  4,395 + 150 = 4,545.
+- Full suite including slow, `default`/py311: **4,555 passed, 0 failed, 26
+  warnings** (422.68s). Exactly 4,545 + 10 deselected = 4,555.
+- `pixi run lint`: all checks passed.
+- `pixi run check-format`: clean, no files rewritten (354 files already
+  formatted).
+- All four shipped YAMLs (`config.yaml`, `hybrid_sky_example.yaml`,
+  `receptor_circular_example.yaml`, `realistic_foreground_example.yaml`)
+  pass `radiosim validate`.
+- Laziness: `test_every_exported_jones_name_resolves_through_lazy_getattr`
+  and the related lazy-binding tests pass.
+- `pixi run typecheck`: **2702 <= 4600** ceiling satisfied (Pyright,
+  strict-baseline checker), a decrease from the prior recorded 2757.
+- Sphinx: **not** "30->30" as this review was asked to check for -- no such
+  baseline exists in this repository's own records (historical counts in
+  `Fix.md` cluster around 40-45 depending on live-tree-vs-clean-copy
+  methodology, a previously-established source of non-blocking noise).
+  Measured directly, same methodology, two fresh detached worktrees:
+  `e1ae149` **43 warnings**, `5207cc4` **34 warnings** -- a net decrease of
+  9, fully explained by a line-by-line warning diff: every removed warning
+  traces to a docstring belonging to a method or class this slice
+  deliberately deletes (`JonesTerm.compute_jones`/
+  `compute_jones_all_sources`, `JonesChain.compute_antenna_jones`/
+  `compute_antenna_jones_all_sources`/`compute_baseline_visibility`,
+  `GeometricPhaseJones` and its methods); one pre-existing docutils
+  "block quote" nit in `JonesTerm`'s own docstring appears at two line
+  numbers instead of one because that docstring grew, not because a new
+  category of warning appeared. No new warning is attributable to source
+  content 7B added. Not a defect; recorded as a documentation-accuracy
+  note, consistent with this file's established precedent for Sphinx-count
+  measurement noise.
+- `git status`: clean before and after this review's own edits.
+- Commit range `e1ae149..5207cc4`: both messages read in full; zero
+  "Co-Authored-By"/"co-authored" occurrences.
+
+**Disposition.** Tier 7B **ACCEPTED**. No plan correction beyond `ca02f00`
+is required: its four bounded departures are, on this review's independent
+mechanism analysis and empirical reproduction, correctly authorized rather
+than requiring further narrowing -- delta (a) is the unavoidable
+consequence of D4's single-evaluator mandate applied to a fold direction
+the point path already used, and delta (b) was already anticipated by
+Section 17.1 before this correction existed. No register row changes:
+`SCI-001`, `SCI-002`, `SCI-003` remain `ROADMAP` until whole-tier
+acceptance (7K). The plan's status header is updated to record 7B's
+acceptance and to authorize slice **7C**. Acceptance commit:
+`docs(jones): accept Tier 7B batched evaluation`. Not pushed.
+
+**Unobserved items.** `linux-64`/`osx-64` execution: not available in this
+environment; this review's reproduction is `osx-arm64`/py311 and py312
+only, consistent with every prior tier's acceptance record in this file.
+GPU/TPU/distributed hardware: none exercised, none claimed. The
+`_ENVIRONMENT_KEY` digest table's other five (platform, python) cells were
+not independently re-harvested here; this review relied on the unchanged
+literal-hash-multiset diff as proof no pinned value moved, rather than
+re-running on architectures unavailable locally. Whether the Sphinx-count
+discrepancy this review found against its own charter's "30->30"
+expectation reflects a stale figure from elsewhere in this program's
+history or a simple miscommunication was not traced further, since the
+actual before/after comparison (43->34, explained line by line) is the
+fact that matters for this slice's acceptance.

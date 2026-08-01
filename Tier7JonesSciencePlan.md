@@ -11,7 +11,14 @@ point-source loader`). Slice **7A is accepted** (2026-08-01, independent
 review; three further bounded factual corrections applied to Sections 5.1,
 5.6, and 33.2, `docs(jones): correct Tier 7 design`, `79d392d`, no decision
 changed; see `Fix.md`'s 2026-08-01 "Tier 7A independent acceptance" note for
-the full record). Slice **7B is authorized**.**
+the full record). Slice **7B is accepted** (2026-08-01, independent review;
+four bounded factual corrections to Sections 13.2, 14.1, 23, and 33.2/34
+already applied by the implementer, `docs(jones): correct Tier 7 design`,
+`ca02f00`, and ratified by this review with no further correction and no
+decision changed -- including the two disclosed HEALPix-only numerical
+deltas from closing D4/D9, ruled authorized-and-correct; see `Fix.md`'s
+2026-08-01 "Tier 7B independent acceptance" note for the full record).
+Slice **7C is authorized**.**
 
 This document is the governing implementation specification for Tier 7 of the
 RadioSim remediation program, defined by [`Fix.md`](Fix.md) Section 16
