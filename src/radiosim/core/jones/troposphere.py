@@ -93,10 +93,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "MAPPING_FUNCTIONS",
-    "SPEED_OF_LIGHT_M_PER_S",
     "NIELL_HEIGHT_CORRECTION",
     "NIELL_LATITUDES_DEG",
     "NIELL_PHASE_DAY_OF_YEAR",
+    "SPEED_OF_LIGHT_M_PER_S",
     "TroposphereJones",
     "day_of_year_from_mjd",
     "niell_mapping_function",
