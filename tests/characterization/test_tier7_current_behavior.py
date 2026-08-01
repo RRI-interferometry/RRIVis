@@ -1637,6 +1637,14 @@ def test_documentation_no_longer_records_a_stub_surface() -> None:
     which are planned, and that a planned one raises.  The full documentation
     rebuild around the surviving names is Tier 7J's.
 
+    FLIPPED BY: Tier 7F for one assertion.  The guide's last "When Tier 7
+    implements ..." promise was the one about ``P``, and this slice discharges
+    it: ``P`` is implemented, the parallactic-angle boundary now states the
+    composition ``C_p P_p = M(basis) R(chi + psi)`` rather than a deferral, and
+    the guide carries no outstanding promise at all.  The property being pinned
+    -- that the guide describes what is there rather than what is coming -- is
+    strengthened, so the assertion is inverted rather than deleted.
+
     OWNED BY: Tier 7J.
     """
     api_docs = " ".join(_source("docs/api/jones.rst").split())
@@ -1661,9 +1669,13 @@ def test_documentation_no_longer_records_a_stub_surface() -> None:
         assert f"radiosim.core.jones.{removed}" not in api_docs
 
     guide = " ".join(_source("docs/user_guide/jones_matrices.rst").split())
-    assert "When Tier 7 implements" in guide
+    assert "When Tier 7 implements" not in guide
     assert "identity scaffolds or later-tier work" not in guide
     assert "A class returning an identity matrix is a scaffold" not in guide
+    # What replaces the promise: the four terms that really are still planned,
+    # named, and the statement that each of them raises.
+    assert "``Z``, ``T``, ``M`` and ``Q`` — are ``term_status: planned``" in guide
+    assert "each **raises** when evaluated" in guide
 
 
 def test_beam_todo_markdown_is_the_sci_003_artifact() -> None:
