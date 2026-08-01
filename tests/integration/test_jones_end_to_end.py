@@ -42,7 +42,39 @@ _TERM_CONFIGURATIONS: dict[str, dict[str, Any]] = {
             }
         },
     },
+    "D": {
+        "D": {
+            "d_terms": {"kind": "explicit", "d0": [0.03, 0.01], "d1": [-0.02, 0.04]},
+            "per_antenna": [
+                {
+                    "antenna": 1,
+                    "feed": 0,
+                    "d_term": {"kind": "ixr", "ixr_db": 25.0, "phase_rad": 0.4},
+                }
+            ],
+        }
+    },
+    "X": {"X": {"phase_rad": 0.42, "delay_s": 5.0e-9}},
+    "Kd": {
+        "Kd": {
+            "delay_s": 3.0e-9,
+            "per_antenna": [{"antenna": 0, "feed": 1, "delay_s": -8.0e-9}],
+        }
+    },
+    "Rc": {"Rc": {"amplitude": 0.06, "cable_delay_s": 1.5e-7, "phase_rad": 0.2}},
+    "all": {
+        "G": {"amplitude_error": 0.05},
+        "B": {"model": {"kind": "polynomial", "coefficients": [1.0, 0.1]}},
+        "Rc": {"amplitude": 0.04, "cable_delay_s": 2.0e-7},
+        "Kd": {"delay_s": 2.0e-9},
+        "X": {"phase_rad": 0.3},
+        "D": {"d_terms": {"kind": "ixr", "ixr_db": 30.0}},
+    },
 }
+
+#: The configurable term letters, in canonical chain order -- the order the
+#: resolved inventory must report regardless of how the document was written.
+_CANONICAL_LETTERS: tuple[str, ...] = ("G", "B", "Rc", "Kd", "X", "D")
 
 
 def _simulator(tmp_path, jones: dict[str, Any] | None) -> Simulator:
@@ -65,9 +97,8 @@ def test_a_configured_term_survives_setup_run_and_save(tmp_path, label: str) -> 
 
     simulator.setup()
 
-    letters = tuple(sorted(jones))
     assert simulator.jones_terms.configured_letters == tuple(
-        letter for letter in ("G", "B") if letter in letters
+        letter for letter in _CANONICAL_LETTERS if letter in jones
     )
 
     result = simulator.run(progress=False)

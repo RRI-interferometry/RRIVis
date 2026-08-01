@@ -219,7 +219,7 @@ def test_healpix_path_parity_with_a_circular_receptor(
 
 
 # ---------------------------------------------------------------------------
-# The 7D cases: one per implemented term, at a large parameter value
+# The 7D and 7E cases: one per implemented term, at a large parameter value
 # ---------------------------------------------------------------------------
 #
 # Section 28 requires each term slice to add a parity case with **that term
@@ -254,6 +254,58 @@ _PARITY_BANDPASS = {
 }
 
 
+# The Tier 7E cases follow the same rule: one case per term, alone, at a large
+# value.  ``D``'s leakages are 20-40 per cent rather than the physical 1-5, and
+# the delays are tens of nanoseconds rather than one, because a parity test that
+# passes because the term barely moved the numbers is a parity test of nothing.
+
+_PARITY_LEAKAGE = {
+    "D": {
+        "d_terms": {"kind": "explicit", "d0": [0.3, 0.15], "d1": [-0.2, 0.25]},
+        "per_antenna": [
+            {
+                "antenna": 1,
+                "feed": 0,
+                "d_term": {"kind": "frequency_polynomial", "coefficients": [0.4, 0.2]},
+            }
+        ],
+    }
+}
+
+_PARITY_CROSSHAND = {
+    "X": {
+        "phase_rad": 1.1,
+        "delay_s": 3.0e-8,
+        "per_antenna": [{"antenna": 1, "phase_rad": -0.7}],
+    }
+}
+
+_PARITY_DELAY = {
+    "Kd": {
+        "delay_s": 2.5e-8,
+        "per_antenna": [{"antenna": 0, "feed": 1, "delay_s": -4.0e-8}],
+    }
+}
+
+_PARITY_REFLECTION = {
+    "Rc": {
+        "amplitude": 0.45,
+        "cable_delay_s": 1.5e-7,
+        "phase_rad": 0.9,
+        "per_antenna": [{"antenna": 1, "feed": 1, "amplitude": -0.3}],
+    }
+}
+
+_PARITY_ALL_TERMS = {
+    **_PARITY_GAIN,
+    **_PARITY_BANDPASS,
+    **_PARITY_REFLECTION,
+    **_PARITY_DELAY,
+    **_PARITY_CROSSHAND,
+    **_PARITY_LEAKAGE,
+}
+
+
 @pytest.mark.parametrize("backend_name", ["dask", "jax"])
 @pytest.mark.parametrize(
     ("label", "jones"),
@@ -261,6 +313,11 @@ _PARITY_BANDPASS = {
         ("G", _PARITY_GAIN),
         ("B", _PARITY_BANDPASS),
         ("G+B", {**_PARITY_GAIN, **_PARITY_BANDPASS}),
+        ("D", _PARITY_LEAKAGE),
+        ("X", _PARITY_CROSSHAND),
+        ("Kd", _PARITY_DELAY),
+        ("Rc", _PARITY_REFLECTION),
+        ("all", _PARITY_ALL_TERMS),
     ],
 )
 def test_point_path_parity_with_a_configured_term(
@@ -298,7 +355,15 @@ def test_point_path_parity_with_a_configured_term(
 @pytest.mark.parametrize("backend_name", ["dask", "jax"])
 @pytest.mark.parametrize(
     ("label", "jones"),
-    [("G", _PARITY_GAIN), ("B", _PARITY_BANDPASS)],
+    [
+        ("G", _PARITY_GAIN),
+        ("B", _PARITY_BANDPASS),
+        ("D", _PARITY_LEAKAGE),
+        ("X", _PARITY_CROSSHAND),
+        ("Kd", _PARITY_DELAY),
+        ("Rc", _PARITY_REFLECTION),
+        ("all", _PARITY_ALL_TERMS),
+    ],
 )
 def test_healpix_path_parity_with_a_configured_term(
     tmp_path,
