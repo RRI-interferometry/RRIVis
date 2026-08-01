@@ -300,16 +300,21 @@ and omitting it produces exactly the visibilities — and exactly the
 ``scientific_sha256`` — that a document without the section produced before it
 existed.
 
-RadioSim implements nine configurable terms today: ``G`` (complex electronic
-gain), ``B`` (bandpass), ``Rc`` (cable reflection), ``Kd`` (instrumental delay),
-``X`` (cross-hand phase and delay), ``D`` (polarization leakage), ``P``
-(parallactic angle), ``T`` (troposphere) and ``Z`` (ionosphere) — every
-per-antenna term in the chain. The first five are diagonal, and so is ``T``;
-``D``, ``P`` and a ``Z`` with Faraday rotation are not. ``Kd``, ``X``, ``P``,
-``Z`` and a ``T`` with no opacity are unitary. ``P``, ``T`` and ``Z`` are
-direction-dependent. A key for either baseline-dependent term letter — ``M`` or
-``Q`` — is rejected at parse time: a configuration surface for a term RadioSim
-cannot honour would accept a value and discard it.
+RadioSim implements eleven configurable terms today, and every letter this
+section accepts names a term that runs. Nine are per-antenna chain terms: ``G``
+(complex electronic gain), ``B`` (bandpass), ``Rc`` (cable reflection), ``Kd``
+(instrumental delay), ``X`` (cross-hand phase and delay), ``D`` (polarization
+leakage), ``P`` (parallactic angle), ``T`` (troposphere) and ``Z``
+(ionosphere). The first five are diagonal, and so is ``T``; ``D``, ``P`` and a
+``Z`` with Faraday rotation are not. ``Kd``, ``X``, ``P``, ``Z`` and a ``T``
+with no opacity are unitary. ``P``, ``T`` and ``Z`` are direction-dependent.
+
+The other two — ``M`` (per-baseline closure error) and ``Q`` (time and bandwidth
+smearing) — are **not** chain terms. They are baseline-dependent and apply by
+Hadamard product to the visibilities rather than as a factor of any antenna's
+Jones matrix, which is why ``M`` is the one term that breaks closure phase and
+why ``Q`` is configured by two switches and nothing else: its channel width and
+its integration time come from the observation, not from the term.
 
 .. code-block:: yaml
 
@@ -343,6 +348,14 @@ cannot honour would accept a value and discard it.
          d1: [0.0, 0.02]
      P:
        enabled: true             # the whole block; P has no free parameter
+     M:
+       per_baseline:             # keyed by the ordered antenna-number pair
+         - antennas: [0, 1]
+           matrix: [[[1.02, 0.03], [0.98, -0.01]],
+                    [[0.97, 0.01], [1.04, 0.02]]]
+     Q:
+       bandwidth_smearing: true  # both switches required; no default
+       time_smearing: true
 
 Terms are applied in the canonical chain order regardless of the order the keys
 appear in the document, so two files that enable the same terms produce the same
@@ -362,6 +375,11 @@ rotating mount (``alt-az`` or either Nasmyth variant) with no ``jones.P`` is
 rejected, an array on which nothing rotates cannot configure ``jones.P``, and a
 mount type outside the five ``P`` models is rejected either way. See
 :doc:`jones_terms` for the three messages.
+
+``jones.M`` is keyed by *baseline* rather than by antenna: an ordered pair the
+resolved baseline selection does not contain is rejected, and so is a repeated
+pair. Its neutral value is ``1`` in every entry rather than the identity matrix,
+because the product is elementwise — see :doc:`jones_terms`.
 
 ``per_antenna`` entries are keyed by antenna **number** and validated against
 the resolved instrument, so an unknown number, a repeated ``(antenna, feed)``

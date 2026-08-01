@@ -12,8 +12,9 @@ through the matrix chain, which is why they descend from
 :class:`~radiosim.core.jones.base.JonesTerm`, and why
 :meth:`~radiosim.core.jones.chain.JonesChain.add_term` rejects them by type.
 
-The two attachment points (``Tier7JonesSciencePlan.md`` Section 15.1)
---------------------------------------------------------------------
+The two attachment points
+-------------------------
+``Tier7JonesSciencePlan.md`` Section 15.1.
 Both already exist in the compiled kernel's signature, which is why this is a
 small slice rather than a kernel redesign (invariant I16):
 
@@ -547,7 +548,7 @@ class SmearingFactorJones(JonesBaselineTerm):
     behaviour of an average and is not clamped away.
 
     ``dnu`` and ``dt`` are not parameters of the term
-    ------------------------------------------------
+    -------------------------------------------------
     They come from the resolved observation configuration -- the per-channel
     ``ResolvedFrequencyConfig.channel_widths_hz`` and the per-sample
     ``ObservationTimeGrid.integration_time_seconds`` -- because a smearing

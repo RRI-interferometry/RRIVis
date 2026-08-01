@@ -263,19 +263,33 @@ What in that order is physical, and what is convention
   ``C E P`` because that is the physically correct one for a future non-scalar
   ``E``.
 
-Planned terms
--------------
+The two terms outside the chain
+-------------------------------
 
-The two baseline-Hadamard terms (``M``, ``Q``) are exported, documented, and
-**not implemented**. Each declares ``term_status: planned`` and raises when
-evaluated, so neither can enter a result. Until each gains its conventions,
-analytic invariants, reference comparisons, backend parity, and a test proving a
-configured effect changes the visibilities, it supports no scientific claim.
+``M`` (per-baseline closure error) and ``Q`` (time and bandwidth smearing) are
+implemented, and neither is in the chain above. They are baseline-dependent, so
+they cannot be written as :math:`J_p C J_q^H` at all, and they apply by
+**Hadamard product** — element by element — rather than by matrix
+multiplication:
 
-No ``JonesTerm`` is planned any more: ionosphere (``Z``) and troposphere (``T``)
-were the last two, and ``JonesTerm.compute_jones_batch`` is now an
-``@abstractmethod`` rather than a concrete method that raises — a term that does
-not implement the evaluation contract can no longer be constructed at all.
+* ``Q`` is a real attenuation per ``(baseline, direction)``, multiplied into the
+  visibility sum beside the Gaussian morphology envelope;
+* ``M`` is a complex 2×2 per baseline, multiplied into the finished correlation
+  matrix.
+
+They descend from ``JonesBaselineTerm`` rather than ``JonesTerm``, and
+``JonesChain.add_term`` rejects them by type: a category error that used to
+surface as an ``AttributeError`` deep inside evaluation is now a ``TypeError``
+at the point of the mistake. See :doc:`jones_terms` for the mathematics of each.
+
+No term is planned any more
+---------------------------
+
+Every exported term declares ``term_status: implemented``. Both evaluation
+contracts — ``JonesTerm.compute_jones_batch`` and
+``JonesBaselineTerm.compute_baseline_factor`` — are ``@abstractmethod``, so a
+term that does not implement the contract cannot be constructed at all, and
+there is no exported class whose physics is a promise.
 
 Every other Jones class that this package once exported has been removed rather
 than kept as a placeholder: turbulent and GPS ionospheres, w-phase and

@@ -77,13 +77,20 @@ What is implemented today
      - Ionospheric phase and Faraday rotation
      - ``jones.Z``
      - implemented
+   * - ``M``
+     - Per-baseline multiplicative closure error
+     - ``jones.M``
+     - implemented, **not** a chain term
+   * - ``Q``
+     - Time and bandwidth smearing
+     - ``jones.Q``
+     - implemented, **not** a chain term
 
-Two further terms — ``M`` and ``Q`` — exist as named classes with documented
-physics and **no implementation**: constructing one is allowed, evaluating one
-raises. Neither is a matrix-chain term at all; both are baseline-dependent and
-apply by Hadamard product to finished visibilities. They have no configuration
-block, deliberately. A schema field for a term that cannot be honoured would
-accept a value and discard it, which is worse than refusing.
+Every term RadioSim exports is on that table, and every one of them runs. The
+last two, ``M`` and ``Q``, are not matrix-chain terms at all: they are
+baseline-dependent and apply by **Hadamard product** — element by element —
+rather than by matrix multiplication, and they cannot be added to a Jones chain
+even programmatically.
 
 
 The ``jones:`` section
@@ -976,6 +983,235 @@ Rejections
    which is a column no ionosphere has. RadioSim reports what was configured
    rather than silently flooring it: a floor would make one document mean
    different things at different field widths.
+
+
+M — baseline closure error
+--------------------------
+
+**Reference.** Smirnov (2011), A&A 527, A106, Sections 1.6 and 7; Thompson,
+Moran & Swenson (2017), 3rd ed., Section 10.3.
+
+A per-baseline complex error applied to the finished correlation matrix:
+
+.. math::
+
+   V_{pq} \;\to\; M_{pq} \odot V_{pq}
+
+where :math:`\odot` is the element-by-element product. Each entry of
+:math:`M_{pq}` multiplies the correlation of the same name, so the four entries
+scale ``XX``, ``XY``, ``YX`` and ``YY`` independently.
+
+Why it is not a Jones term
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Because it cannot be written as :math:`J_p C J_q^H` for any per-antenna
+:math:`J`. That is the whole point of the term, and it has an observable
+consequence: on a closed triangle the **closure phase**
+
+.. math::
+
+   \phi_c = \arg\bigl(V_{01} V_{12} V_{02}^*\bigr)
+
+is exactly invariant under any per-antenna gain — each antenna appears once
+conjugated and once not, so the gains cancel — and an enabled ``M`` moves it by
+
+.. math::
+
+   \Delta\phi_c = \arg M_{01} + \arg M_{12} - \arg M_{02}
+
+Every other term on this page leaves the closure phase alone. ``M`` is the one
+that does not, which is why it is the term that tests the distinction.
+
+Configuration
+~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   jones:
+     M:
+       # optional array-wide default, applied to every selected baseline
+       matrix: [[[1.01, 0.0], [0.99, 0.0]],
+                [[0.99, 0.0], [1.01, 0.0]]]
+       # optional per-baseline overrides, keyed by the ordered antenna pair
+       per_baseline:
+         - antennas: [0, 1]
+           matrix: [[[1.02, 0.03], [0.98, -0.01]],
+                    [[0.97, 0.01], [1.04, 0.02]]]
+
+.. warning::
+
+   The value that changes nothing is **1 in every entry**, not the identity
+   matrix. Under a Hadamard product ``[[1, 0], [0, 1]]`` multiplies both
+   cross-hand correlations by zero and *nulls* them. A baseline that neither
+   the default nor an override names carries ``[[1, 1], [1, 1]]`` and is left
+   exactly alone.
+
+The key is the ordered antenna-number pair as the resolved baseline selection
+carries it, with ``ant1 <= ant2``. Writing ``[1, 0]`` for a selected ``[0, 1]``
+is rejected rather than read as the conjugate baseline: the document has not
+said which it meant, and RadioSim does not guess.
+
+Rejections
+~~~~~~~~~~
+
+* A ``per_baseline`` pair the resolved baseline selection does not contain is
+  rejected — including a pair of antennas that both exist but whose baseline a
+  length or azimuth filter removed. An error configured for a baseline the run
+  never computes is a configured effect with no effect.
+* A repeated ``per_baseline`` pair is rejected.
+* An ``M`` whose every resolved entry is ``1`` — including an ``M`` that
+  configures neither field — is rejected as an identity.
+* A **complex** parallel-hand factor on an *autocorrelation* is rejected:
+  :math:`\langle E_x E_x^* \rangle` is real and has no phase for a
+  multiplicative error to corrupt, and a run that produced a complex
+  autocorrelation would be refused later by the Measurement Set and UVFITS
+  writers. The cross-hand entries of an autocorrelation are unconstrained,
+  because :math:`\langle E_x E_y^* \rangle` of one antenna is genuinely
+  complex.
+
+
+Q — time and bandwidth smearing
+-------------------------------
+
+**Reference.** Bridle & Schwab (1999), in *Synthesis Imaging in Radio Astronomy
+II*, ASP Conf. Ser. 180, 371; Thompson, Moran & Swenson (2017), 3rd ed.,
+Section 6.4.
+
+A real, positive attenuation per baseline **and per direction**, applied
+alongside the Gaussian morphology envelope inside the visibility sum:
+
+.. math::
+
+   Q_{pqs} = \operatorname{sinc}\bigl(\pi \, \Delta\nu \, \tau_{\mathrm{res}}\bigr)
+             \;\operatorname{sinc}\bigl(\pi \, \Delta t \, \nu_f\bigr)
+
+Both factors are the exact average of the visibility phase over a top-hat
+channel and a top-hat integration.
+
+The residual delay
+~~~~~~~~~~~~~~~~~~
+
+.. math::
+
+   \tau_{\mathrm{res}} = \frac{u l + v m + w (n - 1)}{\nu}
+                        = \frac{b_E l + b_N m + b_U (n - 1)}{c}
+
+This is the delay the correlator has **not** removed — the argument of
+RadioSim's own fringe phase, divided by frequency. The ``- 1`` is what makes it
+vanish at the phase centre, so bandwidth smearing does not decorrelate a source
+the array is perfectly phased to.
+
+The fringe rate
+~~~~~~~~~~~~~~~
+
+RadioSim's baselines are constant local ENU vectors and its phase centre is the
+**fixed zenith**, so the entire time dependence of the phase is the sky rotating
+through both. Differentiating at fixed catalogue coordinates gives, in cycles
+per second,
+
+.. math::
+
+   \nu_f = \omega_E \bigl[\, u\,(n \cos\varphi - m \sin\varphi)
+            + l\,(v \sin\varphi - w \cos\varphi) \,\bigr]
+
+with :math:`\omega_E = 7.2921150 \times 10^{-5}` rad/s and :math:`\varphi` the
+site latitude. The first bracket is :math:`\omega_E \cos\delta \cos H`, the
+textbook fringe rate of an East-West baseline; the other two terms are what a
+non-coplanar array adds.
+
+Configuration
+~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   jones:
+     Q:
+       bandwidth_smearing: true
+       time_smearing: true
+
+Both switches are required and neither has a default: which mechanism a run
+models is a scientific decision, and a default would silently make it
+RadioSim's.
+
+There is deliberately **no** ``channel_width_hz`` and **no**
+``integration_time_s``. :math:`\Delta\nu` is the declared width of the channel
+being computed — ``obs_frequency``'s ``channel_width`` on a grid, or the
+matching entry of ``channel_widths_hz`` on an explicit array — and
+:math:`\Delta t` is the declared integration time of the sample being computed.
+Both are the same numbers the result cube and the summary report. A field here
+would be a second, contradictable statement of something the observation
+already fixes, and a run that smeared over a bandwidth different from the one it
+publishes would be describing an instrument that does not exist.
+
+That rule needs no special case for a **nonuniform** frequency grid: an explicit
+frequency array carries a required per-channel width alongside its centres, so
+each channel smears by its own declared width and never by the spacing to its
+neighbour. A single-channel observation is accepted for the same reason.
+
+What to expect
+~~~~~~~~~~~~~~
+
+* :math:`Q \le 1` everywhere, and :math:`Q > 0` while the smearing argument is
+  below the first zero of the sinc. Beyond that the exact top-hat average
+  genuinely changes sign; RadioSim computes the exact value rather than
+  clamping it, because a clamp would report a decorrelation no average produces.
+* The bandwidth factor is exactly ``1`` at the phase centre and on any
+  zero-length baseline, because ``sinc(0)`` is exactly ``1``. Autocorrelations
+  are therefore bit-identical with ``Q`` enabled.
+* The **time** factor is ``1`` at the phase centre only for a baseline with no
+  East-West component. RadioSim's phase centre is the fixed zenith rather than a
+  tracked source, so a source at the zenith still drifts through it during an
+  integration and decorrelates by
+  :math:`\operatorname{sinc}(\pi \Delta t\, \omega_E u \cos\varphi)`. That
+  is what a drift-scan correlator does; unity there would mean the array tracks.
+* Smearing reduces the amplitude of a source's contribution and leaves its phase
+  alone. A visibility summed over *several* sources that decorrelate by
+  different amounts does move in phase, which is the arithmetic of an average
+  rather than a property of ``Q``.
+* Decorrelation grows with baseline length and with distance from the phase
+  centre, monotonically.
+
+Rejections
+~~~~~~~~~~
+
+* A ``Q`` with both switches ``false`` is rejected: an envelope of ones is
+  indistinguishable from no term.
+
+
+Rejections at a glance
+----------------------
+
+Every message below is raised before any beam is loaded, any sky is fetched, or
+any solver work happens, with two named exceptions: the low-elevation guards on
+``T`` and ``Z``, whose condition is about *directions* and therefore cannot be
+decided until a solver has resolved one.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Term
+     - Rejected
+   * - any
+     - A term whose resolved parameters make it exactly the identity.
+   * - any with ``per_antenna``
+     - An unknown antenna number, a repeated ``(antenna, feed)`` pair, or a feed
+       index outside ``{0, 1}``.
+   * - ``Rc``
+     - An amplitude outside ``0 < |A| < 1``.
+   * - ``B``
+     - Tabulated nodes that do not span every observed channel.
+   * - ``P``
+     - A mount type ``P`` does not model; a rotating mount with no ``jones.P``;
+       a ``jones.P`` on an array where nothing rotates.
+   * - ``T``, ``Z``
+     - A negative opacity or a negative electron column; a direction below
+       ``minimum_elevation_deg``.
+   * - ``M``
+     - A baseline outside the resolved selection; a repeated baseline; a complex
+       parallel-hand factor on an autocorrelation.
+   * - ``Q``
+     - Both smearing kinds disabled.
 
 
 Where the record goes
