@@ -1704,6 +1704,29 @@ eq. 13.128), and is a **scalar** phase: it multiplies the identity, so it
 commutes and does not depend on polarization. The Faraday term is the same real
 rotation `R(a)` as `P`.
 
+**Correction (7G implementation, 2026-08-01) — the Faraday factor is `R^T`,
+not `R`.** The sentence above is right that the two are the same *kind* of
+object and wrong about the orientation, and the difference is observable. `R(a)
+= [[cos a, sin a], [-sin a, cos a]]` — the matrix `C` and `P` use — rotates the
+**frame**, and therefore *lowers* the observed polarization angle by `a`:
+`R B R^H` sends `(Q, U)` through a rotation of `-2a`. Faraday rotation rotates
+the **field**, raising the observed angle by `psi_F`, so the matrix that
+produces it is `R(psi_F)^T`. The sign is not free: `core/sky/containers/
+spectral.py` already rotates a source's own `(Q, U)` by `+RM_src (lambda^2 -
+lambda_ref^2)` — an accepted Tier 5C convention — and invariant **I8** requires
+the sky's rotation and `Z`'s to **add**. Written with `R`, the composed angle
+would be `RM_src - RM_ion` times `lambda^2` and I8 would fail on its own
+arithmetic. The implementation therefore writes
+
+```
+Z_p(s, nu) = exp( i * phi_TEC ) * F( psi_F )
+
+F(a) = [[ cos a, -sin a ],
+        [ sin a,  cos a ]]  =  R(a)^T
+```
+
+and says so in its own docstring. Everything else in this section stands.
+
 `STEC` is the **slant** TEC toward the direction, obtained from the configured
 vertical TEC by a thin-shell mapping function at shell height `h`:
 
@@ -1945,6 +1968,7 @@ jones:
       kind: constant                  # constant | gradient
       vertical_tec_tecu: 10.0
     shell_height_km: 350.0
+    minimum_elevation_deg: 5.0        # required; see the 7G correction below
     faraday:                          # optional
       rotation_measure_rad_m2: 0.5
       per_antenna: []
@@ -1952,8 +1976,9 @@ jones:
   T:                                  # troposphere
     zenith_delay:
       kind: saastamoinen              # explicit | saastamoinen
-      surface_pressure_hpa: 1013.25
-      zenith_wet_delay_m: 0.05
+      surface_pressure_hpa: 1013.25   # saastamoinen only
+      zenith_hydrostatic_delay_m: 2.3 # explicit only
+      zenith_wet_delay_m: 0.05        # both variants
     mapping_function: niell           # simple | niell
     opacity:                          # optional
       zenith_opacity: 0.02
@@ -1993,6 +2018,14 @@ jones:
   configuration surface that accepts a value and discards it. The
   `minimum_elevation_deg` field survives on `T` and `Z` (R13), where the mapping
   function genuinely diverges.
+  **Correction (7G implementation, 2026-08-01):** Section 21.2's `Z` block did
+  not carry the field the sentence above says survives on it, and Section 24's
+  R13 names both terms; the field is therefore added to the `Z` block, where the
+  thing it guards is the validity of the thin-shell approximation rather than a
+  divergence (the slant factor is bounded — about 3.13 at the horizon). On both
+  terms it is **required and has no default**: where a model stops being trusted
+  is a scientific decision, a default would silently make it RadioSim's, and
+  `0` is the explicit way to accept every direction the horizon mask passes.
 - `Q` likewise takes only two booleans, because `dnu` and `dt` come from the
   resolved observation configuration (Section 20.11).
 
@@ -2143,6 +2176,31 @@ R15 is the replacement for `core/receptor.py:411-418`'s current blanket
 rejection, and it is a **strictly better** contract: it names the fix rather
 than the tier.
 
+**Correction (7G implementation, 2026-08-01) — R13's stage, and its wording for
+`Z`.** Two changes, both forced, neither touching what is rejected:
+
+1. **R13 is raised at evaluation, not at resolution.** Its trigger is a
+   statement about *directions* — "a direction survives the horizon mask below
+   `minimum_elevation_deg`" — and no direction exists until a solver has
+   resolved one for a `(time, frequency)` step: Section 26.1's stages 3-6 run
+   before any sky is loaded, precisely so that they can. The only thing
+   resolution could compare `minimum_elevation_deg` against is the solvers'
+   horizon mask, which is the constant `alt > 0` and not configurable, so a
+   stage-5 R13 would fire for *every* positive minimum elevation and leave `T`
+   and `Z` with no accepted configuration. The two terms therefore raise it
+   themselves, from `compute_jones_batch`, with the same
+   `InvalidJonesConfigError` type and the same message. Section 26.1's stage 5
+   keeps everything about those blocks that is decidable without a sky.
+2. **R13's final clause is adapted for `Z`.** The message says the mapping
+   function "diverges below `<e>` deg", which is true of `T`'s `1/sin(el)` and
+   false of `Z`'s thin-shell factor, which is bounded at the horizon. `Z`'s
+   message reads "but the thin-shell mapping function is not valid below `<e>`
+   deg" and is otherwise R13 verbatim. This is the same bounded, named exception
+   R5 already carries for a term with no feeds, and for the same reason: a
+   rejection that states something untrue about the term it names is worse than
+   one whose wording is adapted to the physics. It is not a licence to reword a
+   rejection in general.
+
 **Correction (7F implementation, 2026-08-01) — R7, R12 and R15 for `P`.** Read
 literally, the three triggers above are mutually unsatisfiable for two real
 instruments, and one of them regresses a Tier 5 protection. The messages are
@@ -2247,9 +2305,16 @@ fixing a configuration must not be sent around a loop:
 3. `resolve_jones_terms()` structural validation: `per_antenna` antenna
    existence and duplication (R4, R5, R6), baseline existence (R14);
 4. physical-range validation (R8, R9, R10, R16);
-5. cross-object consistency: mount types (R12, R15), bandpass coverage (R11),
-   minimum elevation (R13);
+5. cross-object consistency: mount types (R12, R15), bandpass coverage (R11);
 6. the identity check (R7), **last**, because it needs fully resolved values.
+
+**Correction (7G implementation, 2026-08-01):** stage 5 previously also listed
+"minimum elevation (R13)". It cannot: R13's condition is about directions, and
+no direction exists at resolution time (Section 24's 7G correction gives the
+full argument). R13 is raised by `T` and `Z` from `compute_jones_batch`, which
+is after every stage here and after the first solver step — the one rejection in
+this tier that a "reject before side effects" ordering cannot cover, because the
+thing it inspects is produced by the work it would guard.
 
 All of stages 3-6 run before any beam load, any sky load, any network access,
 and any solver work — the Tier 1 "reject before side effects" property, extended
@@ -3115,6 +3180,51 @@ and R15 had their type before this slice began.
 - `docs/user_guide/jones_terms.rst`, and one sentence in the sky documentation
   distinguishing intrinsic from ionospheric rotation measure
 - `Fix.md`
+
+**Correction (7G implementation, 2026-08-01) — seven forced additions.** Each is
+a file that *states* something this slice makes false, or a pin that names Tier
+7G as its owner in its own body; none widens what the slice does. The same
+shape, and the same reasoning, as 7E's and 7F's corrections.
+
+- `tests/characterization/test_tier7_current_behavior.py` — four pins say
+  "OWNED BY: Tier 7G" in their own docstrings (the planned-term count, the
+  planned-term evaluation refusal, the discarded-physics table, and the
+  capability-flag table), and the D18 rotation-measure pin names 7G as the slice
+  whose `Z` owns ionospheric rotation. A pin that names its owner cannot be
+  flipped from outside the file that names it. 7D, 7E and 7F each flipped their
+  own pins here for the same reason.
+- `tests/unit/test_tier7_jones_acceptance.py` — `IMPLEMENTED_TERM_NAMES`, the
+  counts it drives, and invariant **I14**, whose own wording is "with **every**
+  implemented term enabled". This file is in 7D's, 7H's and 7K's lists and
+  should be in every term slice's; 7E's correction said so and 7F's repeated it.
+- `tests/unit/test_io/test_jones_config.py` — the `_KNOWN_FIELDS_BY_PARENT`
+  coverage assertion, the unit-suffix coverage assertion, and the "an
+  unimplemented term letter is rejected" probe, whose witness is `Z` and must
+  move to `M`. All three are assertions *about the schema*, so a slice that
+  extends the schema and cannot touch them could not be green.
+- `tests/unit/test_jones/test_term_contract.py` — one test constructs a
+  `JonesTerm` subclass that deliberately does not implement
+  `compute_jones_batch`, to assert that the base contract raises. The
+  `@abstractmethod` flip this slice is *required* to make renders that class
+  uninstantiable, so the test must move to the assertion the flip replaces it
+  with: the contract is now enforced at construction, and the body still raises
+  for a subclass that defers to it.
+- `src/radiosim/io/config.py` — the `_KNOWN_FIELDS_BY_PARENT` table's `jones.T`
+  and `jones.Z` rows only. A new term with no row would report an unknown key
+  inside `jones.T` without saying what `jones.T` accepts. 7D's list included
+  this file for exactly this reason, and 7E's and 7F's corrections re-added it.
+- `docs/user_guide/jones_matrices.rst` — its "Planned terms" section names `Z`
+  and `T` as "exported, documented, and **not implemented**", and its opening
+  paragraph counts the implemented terms. Both statements are false after this
+  slice, and leaving them would be the documentation untruth this tier exists to
+  remove. 7F's list carried this file for the same class of reason.
+- `docs/user_guide/configuration.rst` — the `jones` section's sentence
+  "RadioSim implements seven configurable terms today" and its list of the
+  letters rejected at parse time, which names `Z` and `T`. Also 7F's precedent.
+
+`CLAUDE.md` is **not** added: its Implementation Status and chain-order line are
+Tier 7J's explicit deliverable (D0, D21), they have been stale since 7D, and 7G
+does not make them stale in a new way.
 
 ### 7H
 - `src/radiosim/core/jones/baseline_errors.py`,
