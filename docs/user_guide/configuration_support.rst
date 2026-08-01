@@ -65,7 +65,12 @@ Scientific ownership
      - Canonical UTC sample centers and exposures, exact frequency centers,
        and required positive channel widths
    * - ``visibility``
-     - Point-source or HEALPix direct sum
+     - Point-source, HEALPix, or summed ``hybrid`` direct sum
+   * - ``jones``
+     - One optional block per enabled term — ``G``, ``B``, ``Rc``, ``Kd``,
+       ``X``, ``D``, ``P``, ``Z``, ``T``, ``M``, ``Q`` — applied in the
+       canonical chain order regardless of key order; absence reproduces the
+       previous forward model exactly
    * - ``execution``
      - Backend, precision, RIME simulator, and offline policy
    * - ``workflow``
@@ -92,11 +97,17 @@ two-feed receptors: the receptor-configuration term ``C`` and the
 basis-transform term ``H`` are substantive, both bases run end to end, and the
 resolved basis names the correlation labels in memory, in HDF5, in the summary
 JSON, in Measurement Set and UVFITS exports, and in every renderer. Polarization
-leakage (``D``), parallactic rotation (``P``), gains (``G``), bandpass (``B``),
-elliptical or non-orthogonal feed pairs, single-feed and multi-feed antennas,
-and a frequency- or time-dependent receptor basis are not implemented. Arbitrary
-BeamFITS variants, explicit Measurement Set phase centres, spherical-harmonic
-simulation, and worker control are also not implemented.
+leakage (``D``), parallactic rotation (``P``), gains (``G``) and bandpass
+(``B``) are implemented too, together with cable reflection (``Rc``),
+instrumental delay (``Kd``), cross-hand phase and delay (``X``), troposphere
+(``T``), ionosphere (``Z``), and the two baseline-dependent terms ``M`` and
+``Q``; all of them are configured under ``jones`` and documented in
+:doc:`jones_terms`. Elliptical or non-orthogonal feed pairs, single-feed and
+multi-feed antennas, and a frequency- or time-dependent receptor basis are not
+implemented. Arbitrary BeamFITS variants, explicit Measurement Set phase
+centres, and spherical-harmonic simulation are also not implemented; worker
+policy is configurable through ``execution.sky_loading`` and
+``execution.solver``.
 
 Receptor support by mode
 ------------------------
@@ -124,10 +135,15 @@ Receptor support by mode
      - rejected
      - ``AmbiguousOutputBasisError`` naming both antenna counts
 
-A non-zero ``feed_rotation_deg`` is a static topocentric rotation for the whole
-observation, because the parallactic-angle term is not implemented. Combining it
-with an enabled parallactic term is rejected rather than silently dropping the
-time-dependent part.
+A non-zero ``feed_rotation_deg`` is the **static** topocentric part of the
+receptor orientation for the whole observation. The time-dependent part is the
+separate ``jones.P`` term, and the two compose: the static feed rotation and
+the field rotation add, so an antenna at ``feed_rotation_deg`` with ``jones.P``
+enabled is the receptor at :math:`\chi + \psi(s, t)`. Which antennas rotate is
+a property of the instrument's per-antenna ``mount_type``, not of the
+``receptors`` section: an array with a rotating mount and no ``jones.P`` is
+rejected, and an array with no rotating mount that configures ``jones.P`` is
+rejected as an identity.
 
 Beam support by stage
 ---------------------

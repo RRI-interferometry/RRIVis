@@ -26,22 +26,31 @@ The current `Simulator` path supports:
   resolved array-wide output polarization basis;
 - point-source, HEALPix, or `hybrid` (summed point + HEALPix) direct-sum
   simulation;
+- a typed `jones:` section carrying gains (G), bandpass (B), cable reflection
+  (Rc), instrumental delay (Kd), cross-hand phase and delay (X), polarization
+  leakage (D), parallactic rotation (P), troposphere (T), ionosphere (Z), and
+  the two baseline-dependent effects — closure error (M) and time/bandwidth
+  smearing (Q);
 - separately configurable sky-loader and solver worker policies;
 - requested NumPy, JAX, Dask, or `auto` backend selection through one
   resolver; and
 - `Simulator.plot_observability()` as a visualization helper.
 
-The strict schema rejects high-level behavior that is not connected yet,
-including polarization leakage, parallactic rotation, gains, bandpass,
-elliptical or non-orthogonal feed pairs, and spherical-harmonic simulator
-modes. Heterogeneous beams are active in both visibility paths;
-observability requires an explicit canonical reference antenna unless all
-assigned handlers are scientifically equivalent.
+The strict schema still rejects behavior that is not connected: elliptical or
+non-orthogonal feed pairs, single-feed and multi-feed antennas, a
+frequency- or time-dependent receptor basis, arbitrary polarized BeamFITS
+variants, and spherical-harmonic or m-mode simulator modes. Heterogeneous
+beams are active in both visibility paths; observability requires an explicit
+canonical reference antenna unless all assigned handlers are scientifically
+equivalent.
 
-The geometric-phase (K), canonical scalar primary-beam (E), receptor-configuration
-(C), and basis-transform (H) Jones paths provide the current high-level
-forward-model effects. Other exported Jones classes are scaffolding and must
-not be treated as implemented science.
+Every Jones term RadioSim exports implements real physics and declares
+`term_status: "implemented"`. The geometric phase (K), the canonical scalar
+primary beam (E), the receptor configuration (C), and the output basis
+transform (H) are always applied; the nine chain terms above are applied when
+`jones:` configures them, and M and Q apply by Hadamard product outside the
+chain. No exported term multiplies by the identity, and a `jones:` block whose
+parameters would make its term the identity is rejected rather than accepted.
 
 ## Install
 

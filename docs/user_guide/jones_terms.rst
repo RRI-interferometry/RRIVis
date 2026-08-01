@@ -1231,3 +1231,50 @@ An enabled Jones term is recorded everywhere the run is recorded:
 * Measurement Set and UVFITS output is **unchanged**. A corrupted visibility is
   still a visibility; RadioSim does not write calibration tables.
 * Observability plots are unchanged. They evaluate beams, not chains.
+
+
+How these terms are validated
+-----------------------------
+
+Every term on this page carries three kinds of evidence, and it is worth
+knowing which claim rests on which.
+
+**Analytic invariants, in the gate.** Each term has at least one test that
+computes the reference value from the published closed form *written out in the
+test body*, not by calling the production function — a test that calls the code
+it is testing is a tautology. ``Z``'s dispersive phase is checked against
+``40.308 TEC / nu^2`` metres (TMS eq. 13.128) and ``k_TEC = 1.3445e9 Hz
+TECU^-1``; ``T``'s zenith hydrostatic delay and mapping function against
+Saastamoinen (1972) and Niell (1996); ``Q``'s decorrelation against Bridle &
+Schwab (1999); ``P``'s angle against an independent astropy derivation from
+``AltAz``, ``EarthLocation`` and sidereal time over a dense
+``(H, dec, latitude)`` grid, to ``1e-10`` rad; ``M`` against closure-phase
+algebra; and ``D``, ``G``, ``B``, ``X``, ``Kd`` and ``Rc`` elementwise against
+the closed forms on this page.
+
+**Backend parity and effect, in the gate.** Every term has a case proving the
+Dask backend is bit-identical to NumPy and JAX-CPU agrees within ``rtol=1e-12``,
+and a case proving that enabling the term actually changes the visibilities.
+Every declared capability flag (``is_diagonal``, ``is_scalar``, ``is_unitary``)
+is verified numerically over a parameter sweep, with a negative case proving the
+flag is not vacuous.
+
+**A comparison against another simulator, recorded and never gating.** The
+forward model as a whole is compared against ``pyuvsim 1.4.0`` in an optional
+``crossval`` pixi environment that no continuous-integration job builds:
+
+.. code-block:: bash
+
+   pixi install --locked -e crossval
+   pixi run --environment crossval -- \
+       python -m pytest tests/crossvalidation/ -m crossval
+
+On one shared sky file and one shared unit-response beam file, an unpolarized
+point-source cube agrees to ``2.8e-14`` relative — double-precision round-off —
+once the two codes' fringe-sign convention is reconciled, and a full-Stokes
+cube on an ``alt-az`` array with ``jones.P`` agrees in total intensity and
+circular polarization to ``2e-10`` and ``4e-11`` relative. The measured record,
+the convention mappings it rests on, and the two questions it opened rather than
+closed live in ``output/crossvalidation/``. Nothing here licenses the
+unqualified sentence "validated against pyuvsim": a validation claim names the
+quantity and the tolerance or it is not a claim.

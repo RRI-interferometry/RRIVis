@@ -125,8 +125,10 @@ fallback.
 Rejecting circular feeds in a BeamFITS file does not restrict the receptor
 model. ``receptors`` supplies the receptor basis and any static feed rotation
 independently of the beam, and the scalar E-Jones response multiplies both bases
-identically. Polarization leakage and a beam that genuinely differs between the
-two feeds remain Tier 7 work.
+identically. Polarization leakage is now the ``D`` term, configured under
+``jones`` and documented in :doc:`jones_terms`; a beam that genuinely differs
+between the two feeds is a *non-scalar* E-Jones, which remains out of scope and
+is dispositioned in ``docs/development/beam_physics_scope.md``.
 
 .. code-block:: yaml
 

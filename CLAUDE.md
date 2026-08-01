@@ -10,11 +10,12 @@ NOTE: Never think about backward compatibility in the code when doing edits, or 
 
 ## Implementation Status (read this first)
 
-RadioSim is mid-build; several advertised capabilities are scaffolded but not yet wired into the compute path. When working here, assume:
+RadioSim is mid-build, but the Jones surface is no longer part of what is missing. When working here, assume:
 
-- **Jones terms**: **K** (`GeometricPhaseJones`, geometric phase), **E** (the beam classes), **C** (`ReceptorConfigJones`, receptor basis and static feed rotation), and **H** (`BasisTransformJones`, output-basis change) implement real physics. Every other term — Z, T, P, D, G, B, F, W, Ee/a/dE, Kd/Rc/ff, X/Kx/DF, and baseline M/Q — is a stub whose `compute_jones()` returns the 2×2 identity (`TODO: implement properly`). They can be added to a chain but multiply by identity, so the forward model currently reflects only K (fringe) + E (beam) + C/H (receptor and reporting basis). C and H are always added to the chain and are exactly the identity for the default homogeneous-linear, zero-rotation, `linear_xy` case.
+- **Jones terms**: every exported term implements real physics and declares `term_status: "implemented"`. There are no identity stubs left — Tier 7 deleted twenty-six classes that returned the 2×2 identity for every input rather than keeping them as scaffolding, and both evaluation contracts (`JonesTerm.compute_jones_batch`, `JonesBaselineTerm.compute_baseline_factor`) are `@abstractmethod`, so a class without physics cannot be constructed. The forward model reflects **K** (geometric phase, a per-baseline *function* `geometric_phase()`, not a class), **E** (the canonical `BeamSystem`, reached through a private solver-owned adapter), **C**/**H** (`ReceptorConfigJones` / `BasisTransformJones`, always in the chain and exactly the identity for the default homogeneous-linear, zero-rotation, `linear_xy` case), plus the nine terms a `jones:` config section enables — **G**, **B**, **Rc**, **Kd**, **X**, **D**, **P**, **T**, **Z** — and the two baseline-dependent Hadamard terms **M** and **Q**. `jones:` absent reproduces the pre-Tier-7 forward model bit for bit. A `jones:` block whose resolved parameters would make its term exactly the identity is *rejected*, not silently accepted.
+- **Cross-validation**: Tier-1 evidence (published closed forms evaluated independently in the test body; astropy and pyuvdata 3.2.1 as independent references) is in the standard gate. Tier-2 evidence — a comparison against the `pyuvsim 1.4.0` simulator — lives in the optional `crossval` pixi environment, never gates, and is recorded in `output/crossvalidation/`. Never write a validation claim without naming the quantity and the tolerance, and never write "validated against pyuvsim" without citing that record.
 - **Backends**: `ArrayBackend` (NumPy/JAX/Dask), `get_backend()`, and `list_backends()` are complete, and **both** solvers — `core/visibility.py` and `core/visibility_healpix.py` — route their Jones chain, geometric phase, coherency construction, contraction, and accumulation through the backend. Accumulation is per-time block assembly (`backend.stack`), not per-cell `set_at`. Exactly one kernel is compiled: `core/contraction.py`'s baseline-batched per-`(time, frequency)` contraction, via `ArrayBackend.compile` (`jax.jit` on the JAX backend), and that module is the only `backend.compile` call site in `src/`. **GPU acceleration is still unrealized and unmeasured**: the time and frequency axes are host-side Python loops, astropy coordinate transforms / horizon masking / Planck conversion / pyuvdata beam interpolation are host-side by design, the locked JAX is CPU-only, and measured JAX-CPU is *slower* than NumPy on every benchmarked workload (records: `output/benchmarks/reference/`, methodology: `docs/user_guide/backends.rst`). Backend *correctness* parity is complete (Dask bit-identical to NumPy, JAX-CPU within `rtol=1e-12`); backend *performance* is a roadmap item. Never write a speed or GPU claim without citing a record file.
-- **`visibility.calculation_type`**: only `direct_sum` works; `spherical_harmonic` is rejected during config validation (`io/config.py:2092-2097`, "spherical-harmonic calculation is not implemented until Tier 7"), so it never reaches the runtime.
+- **`visibility.calculation_type`**: removed before v1.0. It validated `direct_sum` and `spherical_harmonic` and nothing read either value; `spherical_harmonic` was rejected during config validation and never reached the runtime. The solver strategy is selected by `execution.simulator`, whose accepted values are exactly the keys of the simulator registry (currently only `rime`). A document that still sets the removed key is rejected with guidance naming the replacement. A spherical-harmonic or m-mode solver is a future simulator registration, not a value on a removed field.
 
 ## Development Commands
 
@@ -118,30 +119,39 @@ Key API: `load_diffuse_sky()` requires `frequencies=np.ndarray` or `obs_frequenc
 
 ### Jones Matrix Framework (`core/jones/`)
 
-46 exported classes (see `core/jones/__init__.py`), across the term files plus the `beam/` subpackage. **Only K, E, C, and H implement real physics; every other term currently returns the 2×2 identity** (see Implementation Status).
+`core/jones/__init__.py` exports exactly **19 names**: three base classes (`JonesTerm`, `JonesChain`, `JonesBaselineTerm`), thirteen concrete terms, and three non-class exports (`DirectionBatch`, `evaluate_antenna_jones`, `geometric_phase`). **Every exported term implements real physics** (see Implementation Status); `term_status` is `"implemented"` for all of them and there is no `"planned"` value in use.
 
-**Standard 8 terms** (composed in chain order K → Z → T → E → P → D → G → B; the chain applies them in reverse, sky-side first):
+Evaluation is direction-batched: a term implements `compute_jones_batch()` returning `(n_dir, 2, 2)` for a direction-dependent effect or `(1, 2, 2)` for a direction-independent one, and both solvers call the one shared `evaluate_antenna_jones()` in `evaluate.py` over a `DirectionBatch` (`directions.py`).
 
-| Term | File | Class | Type |
-|------|------|-------|------|
-| K (Geometric Phase) | `geometric.py` | `GeometricPhaseJones` | DDE |
+**The chain terms** (canonical order `J_p = H_p G_p B_p Rc_p Kd_p X_p D_p C_p E_p P_p T_p Z_p`, leftmost nearest the correlator; K is applied separately by the solver because it is per-baseline):
+
+| Term | File | Class or function | Type |
+|------|------|-------------------|------|
+| K (Geometric Phase) | `geometric.py` | `geometric_phase()` — a function, not a chain term | per-baseline |
 | Z (Ionosphere) | `ionosphere.py` | `IonosphereJones` | DDE |
-| T (Troposphere) | `troposphere.py` | `TroposphereJones`, `TroposphericOpacityJones` | DDE |
-| E (Primary Beam) | `beam/` | `BeamJones`, `AnalyticBeamJones`, `FITSBeamJones` | DDE |
-| P (Parallactic Angle) | `parallactic.py` | `ParallacticAngleJones` | DIE |
+| T (Troposphere) | `troposphere.py` | `TroposphereJones` | DDE |
+| P (Parallactic Angle) | `parallactic.py` | `ParallacticAngleJones` | DDE |
+| E (Primary Beam) | `beam/` | canonical `BeamSystem` via a private solver-owned adapter | DDE |
+| C (Receptor Config) | `receptor.py` | `ReceptorConfigJones` | DIE |
 | D (Pol. Leakage) | `polarization_leakage.py` | `PolarizationLeakageJones` | DIE |
-| G (Gains) | `gain.py` | `GainJones`, `ElevationGainJones` | DIE |
+| X (Cross-hand) | `crosshand.py` | `CrosshandJones` | DIE |
+| Kd (Instrumental Delay) | `delay.py` | `DelayJones` | DIE |
+| Rc (Cable Reflection) | `delay.py` | `CableReflectionJones` | DIE |
 | B (Bandpass) | `bandpass.py` | `BandpassJones` | DIE |
+| G (Gains) | `gain.py` | `GainJones` | DIE |
+| H (Basis Transform) | `receptor.py` | `BasisTransformJones` | DIE |
 
-Beam internals (the E term — the most developed subsystem): `beam/analytic/` is a package implementing a composable analytic beam — aperture shapes (`circular`/Airy, `rectangular`/sinc, `elliptical`), illumination tapers (`uniform`, `gaussian`, `parabolic`, `parabolic_squared`, `cosine`), aperture illumination patterns (`illumination.py`: corrugated horn, open waveguide, dipole over ground plane), and reflector geometries; `compute_hpbw_numerical()` (in `beam/analytic/numerical_hpbw.py`) is a diagnostic-only HPBW finder. `beam/fits/` holds `BeamFITSHandler` (pyuvdata UVBeam, peak normalization) and `BeamManager` (shared/per-antenna FITS beams). `AnalyticBeamJones` supports `diameter_per_antenna` for heterogeneous arrays. The old `AntennaType` class and named beam types (`airy`, `cosine`, `exponential`, `short_dipole`) have been removed.
+**The two terms outside the chain**: `baseline_errors.py` holds `BaselineMultiplicativeJones` (M, per-baseline closure error) and `SmearingFactorJones` (Q, time and bandwidth smearing). Both descend from `JonesBaselineTerm`, apply by **Hadamard product** to finished visibilities, and are rejected by `JonesChain.add_term` with a `TypeError`.
 
-**Extended terms**: `faraday.py` (F), `wterm.py` (W), `receptor.py` (C/H — implemented; `ReceptorConfigJones` and `BasisTransformJones` are built from a `ResolvedReceptorSet` plus a solver instrument view and are always added to the chain), `element_beam.py` (Ee/a/dE), `delay.py` (Kd/Rc/ff), `crosshand.py` (X/Kx/DF), `baseline_errors.py` (M/Q).
+Beam internals (the E term): `core/beam/` owns the canonical runtime — `runtime.py` (`BeamSystem`, `load_beam_system()`, plus `ruze_power_efficiency()` / `ruze_voltage_factor()`), `fits.py` (pyuvdata UVBeam, peak normalization, shared/per-antenna assignment), `models.py`, `resolution.py`. `core/jones/beam/analytic/` is a package of composable analytic beam *formulae* — aperture shapes (`circular`/Airy, `rectangular`/sinc, `elliptical`), illumination tapers (`uniform`, `gaussian`, `parabolic`, `parabolic_squared`, `cosine`), aperture illumination patterns (`illumination.py`: corrugated horn, open waveguide, dipole over ground plane), and reflector geometries; `compute_hpbw_numerical()` (in `numerical_hpbw.py`) is a diagnostic-only HPBW finder. Tier 7I added per-antenna deterministic pointing offsets and the Ruze surface-efficiency factor to `BeamSystem`. The accepted E-Jones stays **scalar** (`E = e · I2`); `docs/development/beam_physics_scope.md` gives every remaining beam-physics item a disposition, a citation, and an owning register row. The old `AntennaType` class and named beam types (`airy`, `cosine`, `exponential`, `short_dipole`) have been removed.
 
-**Terminology (do not mix)**: aperture **illumination** belongs to `core/beam/` and uses `illumination` / `taper` / `edge_angle`; the receiving **receptor** belongs to `core/receptor.py` and uses `receptor` / `feed` / `basis` / `feed_rotation`. Do not introduce `feed`-named identifiers into the beam subsystem or `illumination`-named identifiers into the receptor subsystem.
+**Terminology (do not mix)**: aperture **illumination** belongs to the beam subsystem and uses `illumination` / `taper` / `edge_angle`; the receiving **receptor** belongs to `core/receptor.py` and uses `receptor` / `feed` / `basis` / `feed_rotation`. Do not introduce `feed`-named identifiers into the beam subsystem or `illumination`-named identifiers into the receptor subsystem.
 
 **Architecture note**: `JonesBaselineTerm` in `baseline_errors.py` is a separate ABC for baseline-dependent effects (M, Q) that apply via Hadamard multiplication, NOT the matrix chain. They cannot be added to `JonesChain`.
 
-To add a new Jones term: extend `JonesTerm` (or `JonesBaselineTerm`), implement `name`, `is_direction_dependent`, `compute_jones()`, export in `__init__.py`, add tests in `tests/unit/test_jones/`.
+**Removed modules**: `faraday.py` (F), `wterm.py` (W), and `element_beam.py` (Ee/a/dE) no longer exist. Ionospheric Faraday rotation is owned by `Z`; intrinsic source RM is applied by the sky model; the direct-sum RIME already carries `w(n-1)` exactly, so a W term would double-count. `docs/migration_guide.md` names the replacement for every removed class.
+
+To add a new Jones term: extend `JonesTerm` (or `JonesBaselineTerm`), implement `name`, `is_direction_dependent`, `compute_jones_batch()` (or `compute_baseline_factor()`), export in `__init__.py`, add the typed config block, and add tests in `tests/unit/test_jones/` — a Fix.md §16 term needs an analytic invariant test, a backend-parity case, and an effect-changes-visibility case.
 
 ### Simulator Layer (`simulator/`)
 
@@ -181,7 +191,7 @@ To add a new Jones term: extend `JonesTerm` (or `JonesBaselineTerm`), implement 
 
 `V_pq(ν, t) = Σ_s J_p(s, ν, t) · C_s(ν) · J_q^H(s, ν, t)`
 
-**Critical**: The coherency matrix uses a 1/2 factor (`B = (1/2) × [[I+Q, U+iV], [U-iV, I-Q]]`, IAU Stokes V) ensuring `V_XX + V_YY = I` and `V_RR + V_LL = I` (not 2I). The Jones chain order is `J_p = H_p G_p B_p D_p P_p C_p E_p T_p Z_p` with K applied separately, leftmost nearest the correlator; `JonesChain` composes `terms[0] @ ... @ terms[-1]`, so terms are added in that same order. Precision is fully controlled by PrecisionConfig — respect the user's chosen dtype everywhere, including coordinate conversions and phase calculations.
+**Critical**: The coherency matrix uses a 1/2 factor (`B = (1/2) × [[I+Q, U+iV], [U-iV, I-Q]]`, IAU Stokes V) ensuring `V_XX + V_YY = I` and `V_RR + V_LL = I` (not 2I). The canonical Jones chain order is `J_p = H_p G_p B_p Rc_p Kd_p X_p D_p C_p E_p P_p T_p Z_p` with K applied separately, leftmost nearest the correlator; `JonesChain` composes `terms[0] @ ... @ terms[-1]`, so terms are added in that same order. `P` sits **sky-side** of `C` (Tier 7F corrected the Tier 5 factorization, which is wrong for a circular receptor), and `M`/`Q` are outside this product entirely. Precision is fully controlled by PrecisionConfig — respect the user's chosen dtype everywhere, including coordinate conversions and phase calculations.
 
 ## Code Style
 
@@ -201,6 +211,6 @@ approval.
 
 ## Configuration
 
-YAML config is validated by the strict Pydantic `RadioSimConfig` model and resolved by `load_config()`. Its top-level sections are `instrument`, `beams`, `receptors`, `baseline_selection`, `sky_model`, `obs_time`, `obs_frequency`, `visibility`, `execution`, and `workflow`. The `instrument` section selects exactly one typed source and owns location and diameter precedence; `baseline_selection` owns the canonical correlation, length, and axial-azimuth filters; `receptors` owns the per-antenna receptor basis, the static `feed_rotation_deg`, and the single array-wide `output_basis` that names the reported correlation labels. See `configs/` for complete examples.
+YAML config is validated by the strict Pydantic `RadioSimConfig` model and resolved by `load_config()`. Its top-level sections are `instrument`, `beams`, `receptors`, `baseline_selection`, `sky_model`, `obs_time`, `obs_frequency`, `visibility`, `jones`, `execution`, and `workflow`. The `instrument` section selects exactly one typed source and owns location and diameter precedence; `baseline_selection` owns the canonical correlation, length, and axial-azimuth filters; `receptors` owns the per-antenna receptor basis, the static `feed_rotation_deg`, and the single array-wide `output_basis` that names the reported correlation labels. The optional `jones` section carries one block per enabled term (`G`, `B`, `Rc`, `Kd`, `X`, `D`, `P`, `Z`, `T`, `M`, `Q`); there is no `enabled: false` — delete the block instead — and a block resolving to the identity is rejected. See `configs/` for complete examples.
 
 TODO: Add an explicit contributor note that pre-`v1.0` API/config refactors should not preserve backward compatibility by default; prefer moving directly to the cleaner replacement unless a deprecation path is explicitly requested.

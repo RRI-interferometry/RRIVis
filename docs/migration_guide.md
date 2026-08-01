@@ -460,6 +460,38 @@ to the documented scalar subset and never fall back to analytic evaluation.
 Unknown fields remain errors. Configuration resolution never reads BeamFITS
 content; canonical loading occurs during setup.
 
+### New: `beams.pointing` and `beams.surface_error`
+
+Two optional per-antenna blocks were added. Both are additive: omit them and
+the cube, every beam fingerprint, and `scientific_sha256` are exactly what they
+were.
+
+```yaml
+beams:
+  mode: analytic
+  model: {kind: circular_aperture}
+  pointing:
+    default: {azimuth_offset_deg: 0.0, elevation_offset_deg: 0.1}
+  surface_error:
+    default: {rms_surface_error_m: 0.002}
+```
+
+`pointing` is a deterministic mount mispointing, composed as the two encoder
+errors of an alt-az mount; `surface_error` is the Ruze (1966) random-surface
+RMS in metres, applied to the voltage beam as the square root of the power
+efficiency. Both closed forms are public as
+`radiosim.core.beam.runtime.ruze_power_efficiency` and `ruze_voltage_factor`.
+See the beam guide for the exact geometry and the alt-az keyhole degeneracy.
+
+### Moved: `beam/TODO.md` became a scope document
+
+`src/radiosim/core/jones/beam/TODO.md` no longer exists. It was an in-source
+wish list shipped inside the installed package with no dispositions and no
+owner. It is now `docs/development/beam_physics_scope.md`, a disposition table
+in which every item carries its physics, its citation, whether RadioSim
+implements it, and — where it does not — the register row that owns it. Nothing
+in it is a promise.
+
 ## Removed low-level beam APIs
 
 The former `BeamManager`, `BeamFITSHandler`, `BeamJones`,
@@ -725,13 +757,36 @@ the owning term.
 | `FrequencyDependentLeakageJones` | `PolarizationLeakageJones`, which is frequency-capable by construction |
 
 The nineteen names that remain are exported by `radiosim.core.jones`. Each term
-declares `term_status`, which is `"implemented"` or `"planned"`; a planned term
-raises from `compute_jones_batch` rather than returning an identity, takes no
-parameters, and declares no capability flag. `radiosim.core.jones.faraday`,
-`radiosim.core.jones.wterm` and `radiosim.core.jones.element_beam` no longer
-exist as modules.
+declares `term_status`, and every one of them now reads `"implemented"`: the
+`"planned"` state existed only while Tier 7 was mid-flight, and no exported
+class is in it. `radiosim.core.jones.faraday`, `radiosim.core.jones.wterm` and
+`radiosim.core.jones.element_beam` no longer exist as modules.
+
+Twenty-six exported Jones classes were removed in total, and the table above
+names the replacement for each.
 
 The solver and simulator `jones_config=` parameter was removed with them. It was
 an untyped dictionary, hard-coded to `None` at the only production call site, and
 every term it could enable was one of the identity stubs above. A typed `jones:`
 configuration section replaces it.
+
+### The Jones evaluation contract is batched
+
+A term used to be asked for one direction at a time, or for all sources through
+a second method with a different signature. Both are gone; there is one
+keyword-only batched method per contract.
+
+| Removed | Replacement |
+| --- | --- |
+| `JonesTerm.compute_jones(...)` | `JonesTerm.compute_jones_batch(...)`, keyword-only, returning `(n_dir, 2, 2)` for a direction-dependent term and `(1, 2, 2)` for a direction-independent one |
+| `JonesTerm.compute_jones_all_sources(...)` | the same `compute_jones_batch`; the batch *is* all directions |
+| `JonesChain.compute_antenna_jones(...)` | `JonesChain.compute_antenna_jones_batch(...)`, or the shared `evaluate_antenna_jones(...)` both solvers call |
+| `JonesChain.compute_antenna_jones_all_sources(...)` | as above |
+| `JonesChain.compute_baseline_visibility(...)` | no replacement; the solvers own baseline assembly |
+| `JonesBaselineTerm.compute_baseline_term(...)` | `JonesBaselineTerm.compute_baseline_factor(...)`, batched |
+
+Directions arrive as a `DirectionBatch` (`radiosim.core.jones.directions`),
+which carries the horizontal and equatorial descriptions of one `(time,
+frequency)` step. A subclass that implemented the old methods will fail to
+instantiate rather than silently do nothing: both batched methods are
+`@abstractmethod`.

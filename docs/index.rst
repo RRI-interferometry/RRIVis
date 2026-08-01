@@ -54,15 +54,19 @@ Current high-level support
 - analytic beams with heterogeneous positive antenna diameters;
 - linear or circular two-feed receptors with a static feed rotation and one
   resolved array-wide output polarization basis;
+- a typed ``jones:`` section carrying gains, bandpass, cable reflection,
+  instrumental delay, cross-hand phase and delay, polarization leakage,
+  parallactic rotation, troposphere, ionosphere, baseline closure error, and
+  time and bandwidth smearing;
 - exact grid or explicit-Hz frequency input;
 - backend and precision selection through resolved configuration; and
 - observability plotting as a ``Simulator`` helper.
 
 FITS/mixed/per-antenna beams, HDF5, summary JSON, Measurement Set, and UVFITS
 output are supported within their documented contracts, and each records the
-resolved polarization basis. Polarization leakage, parallactic rotation, gains,
-bandpass, elliptical or non-orthogonal feed pairs, and later simulator modes
-remain separate work.
+resolved polarization basis. Elliptical or non-orthogonal feed pairs,
+single-feed and multi-feed antennas, a frequency- or time-dependent receptor
+basis, a non-scalar E-Jones, and later simulator modes remain separate work.
 
 Quick example
 -------------

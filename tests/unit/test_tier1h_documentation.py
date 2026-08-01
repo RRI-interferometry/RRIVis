@@ -875,11 +875,20 @@ def test_tier5g_claude_status_lists_the_implemented_jones_terms():
 
     assert "Only **K** (`GeometricPhaseJones`, geometric phase) and **E**" not in text
     assert "Only K and E implement real physics" not in text
-    assert "Only K, E, C, and H implement real physics" in text
+    # FLIPPED BY: Tier 7J.  Tier 5G pinned "Only K, E, C, and H implement real
+    # physics" and the Tier 5 chain order, which were true when written and
+    # stopped being true one term slice at a time through 7D-7H.  Section 34
+    # gives `CLAUDE.md` to this slice precisely so the flip happens once, here.
+    # The property being pinned is unchanged: the status section names exactly
+    # which terms carry physics, and the RIME section names the exact chain
+    # order the code composes.
+    assert "Only K, E, C, and H implement real physics" not in text
+    assert "every exported term implements real physics" in text
     assert "`B = (1/2) × [[I+Q, U+iV], [U-iV, I-Q]]`" in text
     assert "[[I+Q, U-iV], [U+iV, I-Q]]" not in text
     assert "`receptors`" in text
-    assert "J_p = H_p G_p B_p D_p P_p C_p E_p T_p Z_p" in text
+    assert "J_p = H_p G_p B_p D_p P_p C_p E_p T_p Z_p" not in text
+    assert "J_p = H_p G_p B_p Rc_p Kd_p X_p D_p C_p E_p P_p T_p Z_p" in text
 
 
 def test_tier5g_shipped_receptor_sample_declares_a_circular_array():
@@ -1135,3 +1144,236 @@ def test_tier6i_migration_guide_maps_every_tier6_breaking_change():
         "CPU-only JAX is a declared dependency",  # C18
     ):
         assert entry in text, entry
+
+
+# ---------------------------------------------------------------------------
+# Tier 7J: documentation truth for the post-Tier-7 Jones surface.
+#
+# `Tier7JonesSciencePlan.md` Section 26 defects D0 and D21 are documentation
+# drift, not code defects: `CLAUDE.md` claimed a class count and a term
+# disposition that the implementation slices falsified, and `docs/api/jones.rst`
+# grouped now-implemented terms under "Planned terms".  Section 37 criterion 17
+# is the acceptance form of the same thing.  These tests are the residual scan
+# that keeps the fix from silently regressing; each fails on the text that was
+# there before this slice.
+# ---------------------------------------------------------------------------
+
+TIER7J_JONES_SURFACES = (
+    REPOSITORY_ROOT / "README.md",
+    REPOSITORY_ROOT / "CLAUDE.md",
+    REPOSITORY_ROOT / "docs" / "index.rst",
+    REPOSITORY_ROOT / "docs" / "changelog.rst",
+    REPOSITORY_ROOT / "docs" / "migration_guide.md",
+    REPOSITORY_ROOT / "docs" / "api" / "jones.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "beam_models.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "configuration_support.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "jones_matrices.rst",
+    REPOSITORY_ROOT / "docs" / "user_guide" / "jones_terms.rst",
+)
+
+# Each entry is a sentence a reader could take as "RadioSim does not model
+# this", about a term RadioSim now models.  They are matched against
+# whitespace-collapsed text so a reflow cannot hide one.
+TIER7J_FALSIFIED_CLAIMS = (
+    "Other exported Jones classes are scaffolding",
+    "Polarization leakage, parallactic rotation, gains, bandpass",
+    "including polarization leakage, parallactic rotation, gains, bandpass",
+    "Polarization leakage (``D``), parallactic rotation (``P``), gains "
+    "(``G``), bandpass (``B``), elliptical",
+    "because the parallactic-angle term is not implemented",
+    "Polarization leakage and a beam that genuinely differs between the two "
+    "feeds remain Tier 7 work",
+    "Only K, E, C, and H implement real physics",
+    '``"planned"`` for the rest',
+    'which is `"implemented"` or `"planned"`',
+    "Planned terms",
+)
+
+
+@pytest.mark.parametrize("path", TIER7J_JONES_SURFACES, ids=lambda path: path.name)
+def test_tier7j_no_truth_surface_still_denies_an_implemented_term(path):
+    text = " ".join(path.read_text(encoding="utf-8").split())
+
+    for stale in TIER7J_FALSIFIED_CLAIMS:
+        assert " ".join(stale.split()) not in text, (path.name, stale)
+
+
+@pytest.mark.parametrize("path", TIER7J_JONES_SURFACES, ids=lambda path: path.name)
+def test_tier7j_no_truth_surface_claims_an_unmeasured_validation(path):
+    """Section 29.2: a validation claim names its quantity and tolerance."""
+    text = " ".join(path.read_text(encoding="utf-8").split())
+
+    for forbidden in (
+        "validated against CASA",
+        "cross-checked against RASCIL",
+        "matches CASA",
+        "validated against matvis",
+    ):
+        assert forbidden not in text, (path.name, forbidden)
+    if "pyuvsim" in text:
+        # Wherever a page names pyuvsim it must also name the version, because
+        # Section 41's Q1 answer is specific to 1.4.0 and "latest" is a moving
+        # claim.
+        assert "1.4.0" in text, path.name
+
+
+def test_tier7j_api_reference_documents_every_implemented_term_module():
+    """Section 37 criterion 17, for ``docs/api/jones.rst``."""
+    text = (REPOSITORY_ROOT / "docs" / "api" / "jones.rst").read_text(encoding="utf-8")
+
+    for module in (
+        "radiosim.core.jones.base",
+        "radiosim.core.jones.chain",
+        "radiosim.core.jones.directions",
+        "radiosim.core.jones.evaluate",
+        "radiosim.core.jones.geometric",
+        "radiosim.core.jones.receptor",
+        "radiosim.core.jones.parallactic",
+        "radiosim.core.jones.ionosphere",
+        "radiosim.core.jones.troposphere",
+        "radiosim.core.jones.polarization_leakage",
+        "radiosim.core.jones.crosshand",
+        "radiosim.core.jones.delay",
+        "radiosim.core.jones.bandpass",
+        "radiosim.core.jones.gain",
+        "radiosim.core.jones.baseline_errors",
+    ):
+        assert f".. automodule:: {module}\n" in text, module
+
+    # Every module the package actually ships is documented, so a future term
+    # cannot be added without a reference entry.
+    package = REPOSITORY_ROOT / "src" / "radiosim" / "core" / "jones"
+    shipped = {path.stem for path in package.glob("*.py") if path.stem != "__init__"}
+    documented = {
+        name.rsplit(".", 1)[-1]
+        for name in re.findall(
+            r"^\.\. automodule:: (radiosim\.core\.jones\.\w+)$", text, re.MULTILINE
+        )
+    }
+    assert shipped == documented, shipped ^ documented
+
+    assert "nineteen names" in text
+    assert 'There is no ``"planned"`` term left.' in text
+
+
+def test_tier7j_claude_md_describes_the_post_tier7_jones_surface():
+    """Section 26 defect D0: the class count and the term disposition."""
+    text = (REPOSITORY_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+    assert "46 exported classes" not in text
+    assert "exports exactly **19 names**" in text
+    assert '`term_status` is `"implemented"` for all of them' in text
+    assert "TODO: implement properly" not in text
+    # The removed modules must be named as removed, not listed as extended
+    # terms, because a reader following the old list would import three modules
+    # that no longer exist.
+    assert "**Extended terms**: `faraday.py` (F), `wterm.py` (W)" not in text
+    assert "**Removed modules**" in text
+    # And the two baseline terms must be described as outside the chain.
+    assert "Hadamard product" in text
+    assert "output/crossvalidation/" in text
+
+
+def test_tier7j_readme_states_the_implemented_jones_capability():
+    text = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "a typed `jones:` section" in text
+    assert 'term_status: "implemented"' in text
+    assert "No exported term multiplies by the identity" in text
+
+
+def test_tier7j_configuration_guide_shows_every_configurable_term():
+    """Section 37 criterion 17, for ``docs/user_guide/configuration.rst``.
+
+    The guide's ``jones:`` example is the first thing a reader copies, so a
+    term missing from it reads as a term that cannot be configured.
+    """
+    text = (REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst").read_text(
+        encoding="utf-8"
+    )
+    block = text.split("   jones:\n", 1)
+    assert len(block) == 2, "the configuration guide has no jones: example"
+    example = block[1].split("\nTerms are applied", 1)[0]
+
+    for term in ("G", "B", "Rc", "Kd", "X", "D", "P", "T", "Z", "M", "Q"):
+        assert f"\n     {term}:\n" in example, term
+    assert "There is no ``enabled: false``" in text
+
+
+def test_tier7j_changelog_and_migration_guide_carry_every_tier7_ledger_row():
+    """Section 36 rows B1-B16 each need a migration line and a changelog line."""
+    changelog = (REPOSITORY_ROOT / "docs" / "changelog.rst").read_text(encoding="utf-8")
+    migration = (REPOSITORY_ROOT / "docs" / "migration_guide.md").read_text(
+        encoding="utf-8"
+    )
+
+    for entry in (
+        "compute_jones_batch",  # B1, B3
+        "evaluate_antenna_jones",  # B2
+        "geometric_phase()",  # B4
+        "Twenty-six exported Jones classes were removed",  # B5
+        "renamed `CrosshandJones`",  # B6
+        "`jones_config=` parameter was removed",  # B7
+        "visibility.calculation_type",  # B8
+        "jones",  # B9
+        "HDF5 schema `4.0.0`",  # B11
+        "`P` moved sky-side of `C`",  # B13
+        "UnsupportedMountTypeError",  # B14
+        "`beams.pointing` and `beams.surface_error`",  # B15
+        "beam_physics_scope.md",  # B16
+    ):
+        assert entry in migration, entry
+
+    for entry in (
+        "Every Jones term now implements real physics",
+        "typed** ``jones:`` **configuration section",
+        "Direction-batched Jones evaluation",
+        "Beam pointing offsets and Ruze surface efficiency",
+        "The canonical Jones chain order",
+        "``pyuvsim 1.4.0``",
+        "output/crossvalidation/",
+    ):
+        assert entry in changelog, entry
+
+
+def test_tier7j_crossvalidation_evidence_is_committed_and_bounded():
+    """Section 29 and Section 37 criterion 19."""
+    directory = REPOSITORY_ROOT / "output" / "crossvalidation"
+    records = sorted(directory.glob("*.json"))
+    assert records, directory
+    assert (directory / "README.md").is_file()
+
+    for path in records:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        assert record["gating"] is False
+        assert record["reference"]["version"] == "1.4.0"
+        # A recorded comparison without a measured number is not evidence.
+        for case in record["cases"]:
+            assert case["test"]
+            assert case["mapping_applied"]
+            assert any(key.startswith("measured") for key in case)
+        # And what it does not license has to be written down, so a later
+        # reader cannot promote it into an unqualified claim.
+        assert record["claims_not_licensed_by_this_record"]
+        assert all(item["routed_to"] for item in record["unresolved"])
+
+
+def test_tier7j_the_crossvalidation_module_is_excluded_from_the_default_gate():
+    """The Tier-2 comparison must never gate (Section 29.1)."""
+    source = (
+        REPOSITORY_ROOT / "tests" / "crossvalidation" / "test_pyuvsim_comparison.py"
+    ).read_text(encoding="utf-8")
+
+    assert "pytestmark = [pytest.mark.crossval, pytest.mark.slow]" in source
+    assert "pytest.importorskip(" in source
+    assert '"pyuvsim",' in source
+
+    # The marker is registered, so it is a selector rather than an unknown-mark
+    # warning, and no CI job builds the environment that carries pyuvsim.
+    pyproject = (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "crossval: marks cross-implementation comparisons" in pyproject
+    workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "crossval" not in workflow

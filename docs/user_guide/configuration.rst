@@ -393,6 +393,23 @@ its integration time come from the observation, not from the term.
          d1: [0.0, 0.02]
      P:
        enabled: true             # the whole block; P has no free parameter
+     T:
+       zenith_delay:
+         kind: saastamoinen      # explicit | saastamoinen
+         surface_pressure_hpa: 1013.25
+         zenith_wet_delay_m: 0.05
+       mapping_function: niell   # simple | niell
+       minimum_elevation_deg: 5.0
+       opacity:                  # optional; absent means transparent
+         zenith_opacity: 0.02
+     Z:
+       tec:
+         kind: constant          # constant | gradient
+         vertical_tec_tecu: 10.0
+       shell_height_km: 350.0
+       minimum_elevation_deg: 5.0
+       faraday:                  # optional; absent means phase only
+         rotation_measure_rad_m2: 0.5
      M:
        per_baseline:             # keyed by the ordered antenna-number pair
          - antennas: [0, 1]
