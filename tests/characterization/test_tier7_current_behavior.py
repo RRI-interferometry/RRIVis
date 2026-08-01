@@ -974,8 +974,14 @@ def test_no_solver_or_simulator_accepts_a_jones_config(tmp_path) -> None:
     keyword whose every accepted value fails.  Tier 7D introduces the typed
     ``jones:`` section that replaces it, wired through ``ResolvedJonesTerms``.
 
-    OWNED BY: Tier 7D, which restores a term-enabling surface that works.
+    DISCHARGED BY: Tier 7D, which added the typed replacement.  The pin itself
+    stands unchanged -- no signature accepts the untyped dictionary, and that is
+    still true -- and the discharge is the assertion below that every one of
+    those four signatures now takes a ``ResolvedJonesTerms`` instead.
+
+    OWNED BY: Tier 7D.
     """
+    from radiosim.core.jones_terms import EMPTY_JONES_TERMS, ResolvedJonesTerms
     from radiosim.simulator.base import VisibilitySimulator
     from radiosim.simulator.rime import RIMESimulator
 
@@ -998,6 +1004,24 @@ def test_no_solver_or_simulator_accepts_a_jones_config(tmp_path) -> None:
     assert "_reject_parallactic_rotation" in point
     assert "jones_config.get(" in point
     assert point.count("jones_config") == 4
+
+    # The discharge: a typed, defaulted ``jones_terms`` on all four signatures.
+    for function in (
+        calculate_visibility,
+        calculate_visibility_healpix,
+        VisibilitySimulator.calculate_visibilities,
+        RIMESimulator.calculate_visibilities,
+    ):
+        parameter = inspect.signature(function).parameters["jones_terms"]
+        assert parameter.default is EMPTY_JONES_TERMS
+        assert type(parameter.default) is ResolvedJonesTerms
+        # The annotation is compared as text: two of the four modules declare it
+        # under ``TYPE_CHECKING``, so resolving it would need every solver-only
+        # name they import to be resolvable here too.
+        annotation = parameter.annotation
+        if not isinstance(annotation, str):
+            annotation = getattr(annotation, "__name__", str(annotation))
+        assert "ResolvedJonesTerms" in annotation
 
     # And the cube is unchanged, because nothing removed was ever reachable.
     instrument, beam_system, receptors = _solver_components(tmp_path)
@@ -1115,9 +1139,23 @@ def test_the_ad_hoc_jones_validation_surface_is_gone(tmp_path) -> None:
     ignored.  Tier 7B made a truthy value fail loudly; Tier 7C removed the
     parameter and, with it, all three checks.
 
-    OWNED BY: Tier 7D, which introduces the typed ``jones:`` schema whose
-    rejections R2-R16 replace them with verbatim, tested messages.
+    DISCHARGED BY: Tier 7D, whose typed ``jones:`` schema replaced the three
+    with strict parsing plus the verbatim rejections R2, R4-R7 and R11, each
+    asserted by exact string in ``tests/unit/test_core/test_jones_resolution.py``
+    and ``tests/unit/test_io/test_jones_config.py``.  The pin stands: the ad-hoc
+    checks are still gone, and none came back.
+
+    OWNED BY: Tier 7D.
     """
+    from radiosim.core.jones_errors import (
+        IdentityJonesTermError,
+        InvalidJonesConfigError,
+        JonesAssignmentError,
+    )
+
+    assert issubclass(IdentityJonesTermError, InvalidJonesConfigError)
+    assert issubclass(JonesAssignmentError, Exception)
+
     point = _source("src/radiosim/core/visibility.py")
     assert "jones_config must be a dict or None" not in point
     assert "must not contain a beam entry" not in point
