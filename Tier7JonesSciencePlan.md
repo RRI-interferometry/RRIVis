@@ -25,7 +25,14 @@ the six bounded corrections the implementer had already applied to Sections
 `term_status` base default of `"planned"` rather than Section 23's literal
 `"implemented"`, ruled correct on independent analysis; no decision changed;
 see `Fix.md`'s 2026-08-01 "Tier 7C independent acceptance" note for the full
-record). Slice **7D is authorized**.**
+record). Slice **7D is accepted** (2026-08-01, independent review; no
+factual correction needed beyond the eleven bounded 7D corrections the
+implementer had already applied to Sections 33.2 and 34
+(`docs(jones): correct Tier 7 design`, `76929e8`), including the
+`chain_terms`-excludes-`H`/`C`/`E` correction, ratified by this review with
+no further correction and no decision changed; see `Fix.md`'s 2026-08-01
+"Tier 7D independent acceptance" note for the full record). Slice **7E is
+authorized**.**
 
 This document is the governing implementation specification for Tier 7 of the
 RadioSim remediation program, defined by [`Fix.md`](Fix.md) Section 16

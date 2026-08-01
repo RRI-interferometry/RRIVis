@@ -11833,3 +11833,280 @@ predates this range, is not a 7C defect, and does not affect any test or
 invariant's truth value -- left for whichever slice next touches those
 sections to fold in as a drive-by fix. Cross-implementation validation
 (Section 29): out of scope for 7C, owned by 7J; not assessed here.
+
+### 2026-08-01 Tier 7D independent acceptance
+
+Independent adversarial review of `0549fa3..6651fde` (six commits: `ca8a7d2`
+schema/resolution/terms, `eab53ce` provenance/serialization, `84fb3ef` tests,
+`1c3401d` docs, `76929e8` plan correction, `6651fde` pin discharge) against
+`Tier7JonesSciencePlan.md` Sections 20.1-20.2, 21, 22, 24, 25, 26, 27, 28, 31,
+33.2/34, run at HEAD `6651fde`, `osx-arm64`, both `default`/py311 and py312.
+
+**Independent math probes (own oracles, not the shipped tests').** All run
+end to end through `Simulator` on a fresh two- and three-antenna array, not
+through the unit-test helpers. A uniform `(1+a)` amplitude gain (`a=0.05`) on
+both antennas of every baseline scaled every visibility by exactly
+`(1+a)^2 = 1.1025` (ratio measured `1.1024999999999998`-`1.1025000000000003`,
+float-precision exact). A pure per-feed phase error `phi=0.37` rad on one
+antenna left `|V|` bit-identical everywhere and added exactly `+phi` to the
+cross-baseline phase on both parallel hands and exactly `0` on both
+autocorrelations, reproduced with `numpy.angle` differencing. A three-antenna
+closure phase (bispectrum `V_01 V_12 V_02^*`) with three different per-antenna
+phase errors (0.31, -0.52, 1.1 rad) was invariant under `G` to `2.3e-17` rad
+(floating-point noise). `PolynomialBandpassResponse`'s Horner form was
+compared directly against a naive `sum c_k x^k` evaluation at the band edges
+(`x=-1,1`) and interior points for a four-term complex-coefficient polynomial:
+max abs difference `2.22e-16`. A flat real bandpass (`coefficients=[1+a]`) and
+a `G` amplitude error of the same `a` produced **bit-identical** cubes
+(`max abs diff = 0.0`); enabling both together scaled by exactly
+`(1+a)^2 * (1+a)^2` as predicted for two independent scalar diagonal factors.
+Non-commutativity of a non-scalar diagonal `G` with an off-diagonal
+circular-receptor basis-change matrix was confirmed abstractly
+(`G@S != S@G` for `diag(1.10,0.95)` and the standard linear->circular `S`,
+`G@S` and `S@G` differing in the off-diagonal terms; a scalar `G` commutes),
+and confirmed in the running code: with `receptors.default.basis=circular`
+and a `G` amplitude error of `0.1` on antenna 0's **feed 0 only** (R, per
+`correlations=('RR','RL','LR','LL')`), `RR` scaled by exactly `1.1` and `LL`
+was untouched (ratio `1.0` to `1e-17`) on the cross baseline -- confirming `G`
+is applied in the antenna's own receptor basis, correctly downstream of `C`,
+and that feed index 0/1 correctly tracks R/L under a circular basis. The
+single `chain.add_term(` call site (`core/visibility.py:981`, inside
+`_build_jones_chain`) walks `CANONICAL_CHAIN_ORDER` once and both solvers
+(`visibility.py`, `visibility_healpix.py`) share it, confirmed by direct grep
+and read; `JonesChain.compute_antenna_jones_batch` composes
+`J_total = backend.matmul(J_term, J_total)` in reverse storage order, so the
+first-added term (`H`) is correlator-side/leftmost and the last-added
+(`Z`) is sky-side, matching the documented
+`J = H@G@B@Rc@Kd@X@D@P@C@E@T@Z` exactly.
+
+**Flags.** `is_diagonal()` is unconditionally `True` for both terms by
+construction (verified in code, not merely by test). `is_unitary()` is
+conservative and correctly `False` for any amplitude error, non-constant time
+model, or non-unit elevation gain, `True` only for a pure-phase, constant,
+unit-elevation `G` -- probed directly at the corner (amplitude 0, phase
+nonzero) via the shipped `test_gain.py` invariant sweep (all pass). The
+self-caught `is_scalar` defect (`BandpassJones.is_scalar` compared
+`(rows,2,n)` against `(1,1,n)` with `np.array_equal`, which does not
+broadcast and unconditionally returns `False` for mismatched shapes) is
+fixed: `np.all(self._table == self._table[0:1, 0:1, :])` broadcasts correctly
+under `==`; confirmed genuinely scalar bandpasses now report `True` via the
+shipped test and by reading the diff in `84fb3ef`.
+
+**Schema discipline.** `StrictFrozenModel` (`io/model_base.py`) sets
+`extra="forbid", frozen=True` at the shared base, inherited by every
+`jones:` model. Probed independently (not via the test suite): `jones`
+absent from the document resolves and runs (`jones_terms.is_empty is True`);
+`jones: {}` raises `InvalidJonesConfigError` with the byte-exact R2 message;
+an unknown key under `jones:` (`NotATerm`) raises `ConfigSchemaError:
+jones.NotATerm: unknown or removed field` before `Simulator.from_mapping`
+returns. `GainTimeModelConfig` and `BandpassModelConfig` are both
+`Annotated[... , Field(discriminator="kind")]` unions, confirmed by direct
+read of `io/jones_config.py`. `per_antenna` keying: R4 (antenna number not in
+resolved instrument), R5 (duplicate `(antenna, feed)`), R6 (feed outside
+`{0,1}`) all reproduced byte-exact via direct calls to
+`resolve_jones_terms`/`Simulator.setup()`, matching Section 24's table
+character for character. R7 (identity) reproduced with the array-wide
+all-default `G` and confirmed **rejected before any beam load**: a spy
+monkeypatched onto `radiosim.core.beam.load_beam_system` recorded **zero**
+calls when `setup()` raised `IdentityJonesTermError` for an identity `G`,
+independently confirming Section 26.1's ordering claim (own script, not the
+shipped `test_every_jones_rejection_precedes_the_first_side_effect`, which
+uses a weaker but consistent witness -- `simulator._beam_system is None`).
+R11 (tabulated bandpass short of the observed band) reproduced byte-exact.
+
+**Fingerprint/serialization (the key claim).** Read `core/result.py`
+directly: `if jones_snapshot: _hash_json(digest, "jones", jones_snapshot)` --
+an empty snapshot contributes not even an empty tag. Reproduced the
+bit-identity claim independently via a detached `git worktree` at `0549fa3`
+(pre-7D): ran the three hermetic configs (`configs/config.yaml`,
+`configs/receptor_circular_example.yaml`, `configs/hybrid_sky_example.yaml`)
+at both `0549fa3` and HEAD `6651fde` with `jones:` absent in all six runs.
+Both `scientific_sha256` **and** the raw visibility-cube SHA-256 were
+byte-identical at both commits for all three configs (`config.yaml`:
+cube `cce1bfe8...`, scientific `4bbb7403...`; `receptor_circular_example`:
+cube `95890bc6...`, scientific `be1e86fb...`; `hybrid_sky_example`: cube
+`bdd866b1...`, scientific `65777dee...` -- also matching the values already
+on record in this file's 7C entry for the first two configs). Two runs
+differing only in `G.amplitude_error` (0.0 baseline, 0.01, 0.02) produced
+three pairwise-distinct `scientific_sha256` values, confirmed directly.
+HDF5: `SCHEMA_VERSION = "4.0.0"`; loading a file with `schema_version` rewritten
+in place to `"3.0.0"` raised `UnsupportedSchemaVersionError` naming all of
+1.0.0/2.0.0/3.0.0 rejected and "no upgrade path by design, so re-run the
+simulation to write a 4.0.0 file" -- byte-exact guidance text confirmed by
+direct read. The `jones/` group round-trips (`write_result_hdf5` then
+`load_result_hdf5` on a `G`-enabled run reproduced `enabled_terms ==
+('H','G','C','E')`). **Three hostile files crafted and tested directly**
+against a real written HDF5 result (G enabled, in-place byte-for-byte-length
+edits to preserve the fixed-length UTF-8 encoding the writer uses, so the
+forgery exercises the intended validation path rather than an unrelated
+dtype-mismatch path): (1) `jones/mount_types_json` dataset deleted (group
+present but incomplete) -> rejected, `UnsafeResultInputError: HDF5 object
+allowlist mismatch`; (2) `jones/term_snapshots_json` edited in place
+(`"0.03"` -> `"0.99"`, same byte length, digest and root
+`scientific_sha256` left stale) -> rejected, `UnsafeResultInputError: HDF5
+result failed canonical model or fingerprint validation`; (3) root
+`schema_version` attribute rewritten in place to `"3.0.0"` -> rejected,
+`UnsupportedSchemaVersionError` with the guidance above. All three rejected
+before the result object is returned to a caller. `io/summary_json.py`'s
+`_jones_summary` is schema `1.2.0`, bounded (`enabled_terms`, `chain_order`,
+`jones_sha256`, per-term `terms`), and reports `{[], [], None, {}}` rather
+than omitting the block when no term is configured, confirmed by direct
+read.
+
+**End-to-end nonzero effect.** Confirmed via the same probes above: `G`/`B`
+enabled differs from disabled in every probe; disabled is bit-identical to
+absent (`EMPTY_JONES_TERMS` default on every solver/simulator signature,
+confirmed by direct signature inspection matching the two just-discharged
+characterization pins).
+
+**Parity.** `tests/unit/test_jones/test_backend_parity.py` (22 tests) and the
+pre-existing `tests/unit/test_backends/test_backend_parity.py` (16 tests)
+both pass in isolation (`pixi run python -m pytest`, bypassing the `pixi run
+test` task's always-on `tests/` prefix, confirmed by inspecting `pixi.toml`'s
+task definition after the first invocation silently ran the full 4,811-test
+suite instead of the requested file). Independent spot-check workload (not
+from the shipped suite): a `G`+`B` configuration (amplitude 0.07, phase 0.4
+rad, sinusoidal time model, quadratic bandpass) run on `numpy`, `jax`, and
+`dask` backends -- Dask **bit-identical** to NumPy (`np.array_equal` `True`);
+JAX-CPU max relative difference `7.8e-17`, comfortably inside `rtol=1e-12`.
+
+**Perturbation probes (tests-first ruling).** Two adversarial code
+perturbations, applied directly to the source, tested, and reverted
+(`git status` clean before, during exercise, and after; confirmed by `git
+diff --stat` and `git status --porcelain` both empty post-revert). (1) Sign
+flip in `PolynomialBandpassResponse.evaluate`'s Horner recurrence
+(`value * normalized + coefficient` -> `value * normalized - coefficient`):
+**7 tests failed loudly** in `test_bandpass.py`, including the closed-form
+and channel-multiplication invariants. (2) Dropped the `q`-antenna
+conjugate-transpose in the one compiled contraction kernel
+(`core/contraction.py`'s `jones_q_hermitian = backend.conjugate_transpose(
+jones_q)` replaced with the identity): **6 tests failed loudly**, including
+exactly `test_a_common_phase_error_leaves_every_correlation_amplitude_
+unchanged` and `test_a_gain_leaves_the_closure_phase_invariant` (the two
+oracles this review had already independently reproduced by hand), plus four
+UVFITS/MS representability failures downstream (a non-Hermitian
+autocorrelation is no longer representable), confirming the corruption
+propagates realistically rather than being locally absorbed. Both
+perturbations were caught; the tests-first violation disclosed in `76929e8`
+correction 11 is a **process** defect, not a **substance** one, per this
+program's own precedent (Section 29.1: tests-first is evidence discipline,
+the acceptance criterion is whether the shipped tests would catch a
+regression) -- ruling: **disclosed and immaterial**, ratified without
+correction.
+
+**Adjudications.**
+
+1. **`chain_terms` excludes `H`/`C`/`E`; `provenance.chain_order` carries all
+   three -- confirmed correct and self-corrected.** Read `jones_terms.py` in
+   full: `ResolvedJonesTerms.__post_init__` enforces
+   `chain_terms` names are exactly `CANONICAL_CHAIN_ORDER` filtered to the
+   configured set, never `H`/`C`/`E`; `resolve_jones_terms` builds
+   `chain_order` as `CANONICAL_CHAIN_ORDER` filtered to `built or
+   SOLVER_OWNED_TERMS`, unconditionally including `H`, `C`, `E` whenever any
+   term is configured. `76929e8` correction 1 discloses and resolves the
+   §22-sketch-vs-rule-3 tension exactly as implemented. Correct, ratified.
+2. **§34's `io/writers.py`/`io/readers.py` naming slip and the 14 forced
+   files -- spot-checked 6 of 14, all genuinely forced, none scope creep.**
+   `core/runtime_config.py` (`ResolvedSimulationConfig.jones: JonesConfig |
+   None` field, forced by the new top-level section needing a carrier);
+   `io/result_errors.py` (`UnsupportedSchemaVersionError.GUIDANCE` rewritten
+   for 3.0.0/4.0.0, forced by the schema bump); `docs/api/io.rst` and
+   `docs/migration_guide.md` (schema-version prose and a new "HDF5 schema
+   4.0.0" subsection, forced by the same bump); `tests/unit/test_io/
+   test_config.py` (`"jones"` inserted into the exact top-level key-order
+   pin, forced by the new section); `tests/unit/test_io/test_hdf5_result.py`
+   (two `"3.0.0"` -> `"4.0.0"` literal-pin edits, forced by the schema bump).
+   All six confirmed by direct `git show` of the diff hunks.
+3. **Tests-first violation -- see perturbation probes above.** Ruling:
+   disclosed plainly, substance intact, immaterial to acceptance.
+4. **Degenerate elevation curve -- honestly disclosed in all four claimed
+   places.** Confirmed by direct read: `gain.py` module docstring, `GainJones.
+   is_time_dependent`'s docstring, the shipped test, and `docs/user_guide/
+   jones_terms.rst` lines 174-176 all state the zenith-drift degeneracy in
+   the same terms. Correct, ratified.
+5. **HDF5 4.0.0 blast radius -- no shipped artifact breaks.** All four
+   shipped YAMLs (`config.yaml`, `hybrid_sky_example.yaml`,
+   `realistic_foreground_example.yaml`, `receptor_circular_example.yaml`)
+   pass `radiosim validate` directly; the full suite (4,801/4,811) passes in
+   both environments; the three-hermetic-config bit-identity probe above
+   shows the only change for a `jones:`-absent run is the version string.
+6. **D15 is a record, not a dispatch table -- confirmed, correctly scoped.**
+   `ResolvedJonesDtypes.by_term` resolves and stores a `(complex, real)` pair
+   for every letter in `CANONICAL_CHAIN_ORDER` plus `K`, `M`, `Q` (14 + K/M/Q,
+   confirmed against `PRECISION_FIELD_BY_TERM`'s keys), but
+   `accumulation_complex` (the accepted Tier 7B contract) is what every
+   term's `compute_jones_batch` actually receives as `dtype`; D15 as written
+   ("no term is without a declared precision") is closed, and no dispatch
+   claim is made. Correct, ratified.
+
+**Pins.** The two just-discharged 7D-owned characterization pins
+(`test_no_solver_or_simulator_accepts_a_jones_config`,
+`test_the_ad_hoc_jones_validation_surface_is_gone`) read in full via `git
+show 6651fde`: both add a genuine discharge assertion (four solver/simulator
+signatures carry a defaulted, exact-type `ResolvedJonesTerms`;
+`IdentityJonesTermError` is a subclass of `InvalidJonesConfigError`) rather
+than merely re-asserting the unchanged half of the pin. `tests/
+characterization/test_tier7_current_behavior.py`: **85 passed** in isolation.
+`tests/unit/test_tier7_jones_acceptance.py` (I14, I18 plus the retargeted
+pins): **109 passed** in isolation, including
+`test_enabling_a_jones_term_leaves_observability_bit_identical` (I18,
+Section 25.3), read in full: a recursive field-by-field comparison of the
+whole `ObservabilityPlan` dataclass tree between a `jones:`-absent and a
+`G`+`B`-enabled run, arrays via `assert_array_equal` and everything else via
+`==` -- not a shallow snapshot-equality check.
+
+**Gates -- both environments, reproduced directly by this review (no
+delegation).** `pixi run test -- -m "not slow"`: **4,801 passed, 0 failed,
+10 deselected** in both `default`/py311 (27 warnings, 510s) and py312 (30
+warnings, 550s) -- the environment-dependent warning-count spread is the
+same class of non-blocking measurement noise this file's prior tiers
+recorded for Sphinx; arithmetic `4,658 (7C baseline) - 8 + 151 = 4,801`
+confirmed exactly by the observed count. Full suite including slow, default
+environment: **4,811 passed, 0 failed, 27 warnings** (523s), matching
+`4,801 + 10` deselected-when-filtered exactly. `pixi run lint`: clean.
+`pixi run check-format`: clean, 361 files already formatted, `git status`
+unchanged before and after. `pixi run typecheck`: **2,520 <= 4,600** ceiling
+satisfied (the checked-in ceiling, not lowered; the increase from 7C's
+recorded 2,491 is expected new-code debt from the Jones package and does not
+breach the gate). Sphinx: **18 warnings** on a forced full rebuild
+(`sphinx -b html -E`, built to a scratch directory outside the repository);
+noted for the record that a plain incremental rebuild without `-E` silently
+reported only 10 warnings from a stale cached doctree environment on this
+machine -- a build-methodology hazard distinct from, but adjacent to, the
+`docs/_build/` repo-grep hazard `CLAUDE.md` already documents, and worth a
+standing note for future gate runs. `git diff --check`: clean. All four
+shipped YAMLs validate directly via `radiosim validate`. Laziness: `scipy.
+interpolate.CubicSpline` is imported inside
+`TabulatedBandpassResponse.__post_init__`, not at module scope; neither
+`io/jones_config.py` nor `core/jones_terms.py` import anything heavier than
+`pydantic`/`numpy`/stdlib at module scope, confirmed by direct read.
+`git status`: clean before and after this review's edits and its perturbation
+probes. All six commit messages read in full: zero "Co-Authored-By"
+occurrences.
+
+**Disposition.** Tier 7D **ACCEPTED**. No factual correction to
+`Tier7JonesSciencePlan.md` beyond ratifying the eleven bounded corrections
+`76929e8` had already applied to Sections 33.2 and 34, including the
+`chain_terms`-excludes-`H`/`C`/`E` correction (adjudication 1 above). No
+decision changed. No register row changes: `SCI-001`, `SCI-002`, `SCI-003`
+remain `ROADMAP` until whole-tier acceptance (7K). The plan's status header
+is updated to record 7D's acceptance and to authorize slice **7E**.
+Acceptance commit: `docs(jones): accept Tier 7D gain and bandpass`. Not
+pushed.
+
+**Unobserved items.** `linux-64` execution: not available in this
+environment; reproduction is `osx-arm64`/py311 and py312 only, matching every
+prior tier's acceptance record in this file. GPU/TPU/distributed hardware:
+none exercised, none claimed. The full backend-parity suite's remaining
+cases beyond the G/B spot-check were not individually re-derived by hand,
+only run and confirmed passing (22 + 16 tests, both files). R3's "listing
+the accepted term letters" (Section 24) was confirmed structurally
+(`_KNOWN_FIELDS_BY_PARENT["jones"] = ("G", "B")` wired into the shared
+difflib-based hint renderer in `io/config.py`) but not observed to fire on
+an unknown-key probe: two short-string probes (`"NotATerm"`, `"g"`) both fell
+below the shared `cutoff=0.72` fuzzy-match threshold and produced the bare
+"unknown or removed field" message with no hint -- this is the same
+pre-existing Tier 1 renderer behavior every other section gets, not a 7D
+defect, and not independently confirmed to render a hint for `jones:`
+specifically. Cross-implementation validation (Section 29): out of scope
+for 7D, owned by 7J; not assessed here.
