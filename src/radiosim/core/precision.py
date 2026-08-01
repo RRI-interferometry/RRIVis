@@ -297,6 +297,38 @@ class JonesPrecision(_StrictFrozenPrecisionModel):
         B term - bandpass response
     polarization_leakage : str
         D term - polarization leakage
+    receptor_config : str
+        C term - receptor basis and static feed rotation
+    basis_transform : str
+        H term - reporting-basis change
+    crosshand : str
+        X term - cross-hand phase and delay
+    delay : str
+        Kd term - instrumental delay offset
+    cable_reflection : str
+        Rc term - RF cable reflection ripple
+    baseline_multiplicative : str
+        M term - per-baseline closure error (a JonesBaselineTerm)
+    smearing : str
+        Q term - time and bandwidth smearing (a JonesBaselineTerm)
+
+    Notes
+    -----
+    The last seven fields are Tier 7D's, and they close defect ``D15``: this
+    class used to declare a precision for eight terms only, so ``C`` and ``H``
+    -- which are in *every* chain -- and every extended term had no precision of
+    their own and silently inherited whatever the caller happened to pass.  A
+    term with no declared precision is a term whose dtype is decided somewhere
+    else, which is how the ``np.complex128`` hard-codes of ``D8``/``D9`` stayed
+    invisible for so long.
+
+    Declaring a precision is not the same as dispatching on it.  Tier 7B's
+    accepted contract composes the whole chain in the *accumulation* dtype,
+    because a product of factors carrying different precisions has to choose one
+    at every matrix multiply anyway.  These fields are resolved into
+    :class:`~radiosim.core.jones_terms.ResolvedJonesDtypes` and recorded, so that
+    a later decision to dispatch per term is a visible change rather than a
+    silent one.
     """
 
     geometric_phase: PrecisionLevel = Field(
@@ -319,6 +351,27 @@ class JonesPrecision(_StrictFrozenPrecisionModel):
     bandpass: PrecisionLevel = Field(default="float64", description="B term (bandpass)")
     polarization_leakage: PrecisionLevel = Field(
         default="float64", description="D term (polarization leakage)"
+    )
+    receptor_config: PrecisionLevel = Field(
+        default="float64", description="C term (receptor configuration)"
+    )
+    basis_transform: PrecisionLevel = Field(
+        default="float64", description="H term (reporting-basis transform)"
+    )
+    crosshand: PrecisionLevel = Field(
+        default="float64", description="X term (cross-hand phase and delay)"
+    )
+    delay: PrecisionLevel = Field(
+        default="float64", description="Kd term (instrumental delay)"
+    )
+    cable_reflection: PrecisionLevel = Field(
+        default="float64", description="Rc term (cable reflection)"
+    )
+    baseline_multiplicative: PrecisionLevel = Field(
+        default="float64", description="M term (baseline closure error)"
+    )
+    smearing: PrecisionLevel = Field(
+        default="float64", description="Q term (time and bandwidth smearing)"
     )
 
     @field_validator("*", mode="before")

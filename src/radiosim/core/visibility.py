@@ -36,6 +36,11 @@ from radiosim.core.jones.directions import DirectionBatch
 from radiosim.core.jones.evaluate import evaluate_antenna_jones
 from radiosim.core.jones.geometric import geometric_phase, uvw_in_wavelengths
 from radiosim.core.jones.receptor import BasisTransformJones, ReceptorConfigJones
+from radiosim.core.jones_terms import (
+    CANONICAL_CHAIN_ORDER,
+    EMPTY_JONES_TERMS,
+    ResolvedJonesTerms,
+)
 
 # Import polarization utilities
 from radiosim.core.polarization import (
@@ -68,6 +73,22 @@ def _require_receptors(receptors: object) -> ResolvedReceptorSet:
             "receptors must be an exact ResolvedReceptorSet from resolve_receptors()"
         )
     return receptors
+
+
+def _require_jones_terms(jones_terms: object) -> ResolvedJonesTerms:
+    """Accept only the exact resolved inventory, never raw configuration.
+
+    The type check is the structural half of defect ``D3``'s fix: the parameter
+    this replaced was an untyped ``dict`` that any caller could shape any way,
+    and a solver that accepted one had no way to know whether a term had been
+    validated.  A ``ResolvedJonesTerms`` can only come from
+    :func:`~radiosim.core.jones_terms.resolve_jones_terms`.
+    """
+    if type(jones_terms) is not ResolvedJonesTerms:
+        raise TypeError(
+            "jones_terms must be an exact ResolvedJonesTerms from resolve_jones_terms()"
+        )
+    return jones_terms
 
 
 def _reject_parallactic_rotation(
@@ -353,6 +374,7 @@ def calculate_visibility(
     frequencies: Any,
     backend: ArrayBackend,
     receptors: ResolvedReceptorSet,
+    jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS,
     solver_execution: ResolvedSolverExecutionConfig = SERIAL_SOLVER_EXECUTION,
 ) -> Any:
     """
@@ -389,6 +411,13 @@ def calculate_visibility(
         Supplies the per-antenna receptor term ``C`` and basis transform ``H``.
         The default configuration (linear feeds, zero rotation, ``auto``) makes
         both terms exactly the identity.
+    jones_terms : ResolvedJonesTerms, optional
+        The run's resolved Jones-term inventory
+        (``Tier7JonesSciencePlan.md`` Section 22), resolved once in
+        ``Simulator.setup()`` and spliced into the chain at each term's
+        canonical position.  The default is the empty inventory, which composes
+        exactly ``H @ C @ E`` -- the chain as it stood before the ``jones:``
+        section existed.
     solver_execution : ResolvedSolverExecutionConfig, optional
         Resolved solver worker policy. ``workers=1`` (the default) is the exact
         serial path; ``workers=N`` distributes contiguous time blocks over a
@@ -422,6 +451,7 @@ def calculate_visibility(
     backend = _require_backend(backend)
     frequencies = _require_frequencies(frequencies)
     receptors = _require_receptors(receptors)
+    jones_terms = _require_jones_terms(jones_terms)
     solver_execution = require_solver_execution(solver_execution)
 
     # Get array namespace from backend
@@ -736,6 +766,7 @@ def calculate_visibility(
                 beam_system=beam_system,
                 receptors=receptors,
                 receptor_terms=receptor_terms,
+                jones_terms=jones_terms,
             )
 
             # One chain evaluation per selected antenna, through the one
@@ -840,21 +871,35 @@ def _build_jones_chain(
     beam_system: BeamSystem,
     receptors: ResolvedReceptorSet,
     receptor_terms: tuple[BasisTransformJones, ReceptorConfigJones] | None = None,
+    jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS,
 ) -> JonesChain:
     """Build a JonesChain in the canonical Section 19.1 order (K excluded).
 
     Terms are added correlator-side first, because ``JonesChain`` composes
-    ``terms[0] @ ... @ terms[-1]``::
+    ``terms[0] @ ... @ terms[-1]``.  The Tier 5 factorization::
 
         J = H @ G @ B @ D @ P @ C @ E @ T @ Z
 
-    ``H``, ``C``, and ``E`` are the three terms that exist: they are always
-    present, and the chain carries nothing else.  Every other letter in that
-    product is a planned term (``Tier7JonesSciencePlan.md`` Section 9.1), and
-    Tier 7C removed the ``jones_config`` dictionary that used to add a planned
-    term to this chain -- it could only ever reach one through a direct solver
-    call, and what it added multiplied by the identity.  Tier 7D introduces the
-    typed ``ResolvedJonesTerms`` that puts real terms back here.
+    and the full designed order once every Tier 7 term is present
+    (``Tier7JonesSciencePlan.md`` Section 20.12), which is the same
+    factorization with the three additional diagonal calibration terms at their
+    designed positions::
+
+        J = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z
+
+    ``H``, ``C`` and ``E`` are the three terms the solver always owns: ``H`` and
+    ``C`` because they come from the resolved receptor set rather than from
+    ``jones:``, and ``E`` because the beam adapter closes over the direction,
+    frequency and time of the step it is evaluated at and therefore cannot be
+    built once at setup.  Every other letter comes from ``jones_terms``, and the
+    chain is assembled by walking
+    :data:`~radiosim.core.jones_terms.CANONICAL_CHAIN_ORDER` once, so the chain's
+    shape is a function of *which* terms are enabled and never of the order the
+    user wrote the YAML keys in (Section 22 rule 4).
+
+    This is what replaced the ``jones_config`` dictionary Tier 7C removed
+    (defect D3): that parameter was untyped, was hard-coded to ``None`` at the
+    only production call site, and what it added multiplied by the identity.
 
     K is excluded because it requires baseline coordinates and is applied
     separately as a scalar phase multiplication for efficiency.
@@ -886,12 +931,15 @@ def _build_jones_chain(
         for this call.  They are run-constant, so a solver builds them once above
         its time loop and passes them here rather than paying for two term
         constructions per ``(time, frequency)`` step.  ``None`` builds them.
+    jones_terms : ResolvedJonesTerms, optional
+        The resolved inventory whose terms are spliced into their canonical
+        positions.  The default is empty, giving exactly ``H @ C @ E``.
 
     Returns
     -------
     JonesChain
-        Chain with exactly the H, C, and E terms, added in the canonical
-        Section 19.1 order.
+        The H, C and E terms plus every configured term, added in the canonical
+        Section 12.2 order.
     """
     receptors = _require_receptors(receptors)
     if receptor_terms is None:
@@ -900,23 +948,11 @@ def _build_jones_chain(
             receptors=receptors,
         )
     basis_transform_term, receptor_config_term = receptor_terms
-    chain = JonesChain(backend)
 
-    # H term: reporting-basis transform, leftmost because the correlator
-    # performs it (always enabled; exactly I2 when every antenna's native
-    # basis already is the resolved output basis).
-    chain.add_term(basis_transform_term)
-
-    # G, B, D and P would compose here, correlator-side of C, in that order.
-    # None of them exists yet (Section 9.1), and Tier 7D onward adds each one
-    # together with its configuration surface and its invariant tests.
-
-    # C term: receptor configuration, between the electronics-side DIEs and
-    # the sky-side DDEs (always enabled; exactly I2 for a linear receptor with
-    # zero rotation).
-    chain.add_term(receptor_config_term)
-
-    # E term: one exact canonical BeamSystem adapter (always enabled).
+    # E term: one exact canonical BeamSystem adapter (always enabled).  Built
+    # here, not at setup: it closes over this step's directions, frequency and
+    # time, which is why it is the one always-on term that cannot live in
+    # ``ResolvedJonesTerms``.
     e_jones = _ResolvedBeamJones(
         beam_system=beam_system,
         instrument=instrument,
@@ -925,8 +961,23 @@ def _build_jones_chain(
         frequency_hz=float(freq),
         time_mjd=float(time_mjd),
     )
-    chain.add_term(e_jones)
 
-    # T and Z would compose here, sky-side of E, in that order.  Tier 7G.
+    # H is leftmost because the reporting-basis change happens at the
+    # correlator; C sits between the electronics-side direction-independent
+    # terms and the sky-side direction-dependent ones, because leakage and gains
+    # are defined in the receptor's own basis; E is sky-side of C.  Configured
+    # terms take their canonical slots around those three.
+    solver_owned: dict[str, JonesTerm] = {
+        "H": basis_transform_term,
+        "C": receptor_config_term,
+        "E": e_jones,
+    }
+    configured = {term.name: term for term in jones_terms.chain_terms}
+
+    chain = JonesChain(backend)
+    for letter in CANONICAL_CHAIN_ORDER:
+        term = solver_owned.get(letter) or configured.get(letter)
+        if term is not None:
+            chain.add_term(term)
 
     return chain

@@ -123,9 +123,15 @@ def test_omitted_section_is_exactly_the_explicit_default(tmp_path):
     assert omitted.receptors.output_basis == "auto"
 
 
-def test_receptors_is_the_tenth_top_level_section():
+def test_receptors_is_a_top_level_section_beside_jones():
+    """Tier 7D added ``jones:`` as the eleventh top-level section.
+
+    The count is asserted together with both names rather than alone, so that a
+    future section is a deliberate edit here and not a silent increment.
+    """
     assert "receptors" in RadioSimConfig.model_fields
-    assert len(RadioSimConfig.model_fields) == 10
+    assert "jones" in RadioSimConfig.model_fields
+    assert len(RadioSimConfig.model_fields) == 11
 
 
 def test_receptor_models_are_strict_and_frozen():

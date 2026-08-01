@@ -15,11 +15,14 @@ if TYPE_CHECKING:
     from radiosim.backends.base import ArrayBackend
     from radiosim.core.beam import BeamSystem
     from radiosim.core.instrument_adapters import SolverInstrumentView
+    from radiosim.core.jones_terms import ResolvedJonesTerms
     from radiosim.core.receptor import ResolvedReceptorSet
     from radiosim.core.sky.containers.model import SourceArrays
     from radiosim.core.time_grid import ObservationTimeGrid
 
 import numpy as np
+
+from radiosim.core.jones_terms import EMPTY_JONES_TERMS
 
 
 class VisibilitySimulator(ABC):
@@ -132,6 +135,7 @@ class VisibilitySimulator(ABC):
         location: Any,
         time_grid: "ObservationTimeGrid",
         receptors: "ResolvedReceptorSet",
+        jones_terms: "ResolvedJonesTerms" = EMPTY_JONES_TERMS,
     ) -> Any:
         """
         Calculate visibilities for all baselines.
@@ -168,6 +172,15 @@ class VisibilitySimulator(ABC):
         receptors : ResolvedReceptorSet
             Canonical resolved receptor inventory supplying the per-antenna
             receptor term C and reporting-basis transform H.
+
+        jones_terms : ResolvedJonesTerms
+            The one canonical Jones-term inventory for the run, resolved once in
+            ``Simulator.setup()`` (``Tier7JonesSciencePlan.md`` Section 22).  It
+            replaces the untyped dictionary parameter that no caller could ever
+            populate (defect D3): a solver receives resolved terms and never
+            parses configuration.  The default is the empty inventory, so a
+            direct solver call with no Jones section is exactly the forward
+            model as it stood before the section existed.
 
         Returns
         -------

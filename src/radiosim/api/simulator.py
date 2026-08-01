@@ -47,6 +47,7 @@ if TYPE_CHECKING:
         ResolvedBaseline,
         ResolvedInstrument,
     )
+    from radiosim.core.jones_terms import ResolvedJonesTerms
     from radiosim.core.observability import ObservabilityPlan
     from radiosim.core.precision import PrecisionConfig
     from radiosim.core.receptor import ResolvedReceptorSet
@@ -168,6 +169,7 @@ class Simulator:
         # Canonical state is assigned atomically before later setup work.
         self._instrument_state = None
         self._receptor_set: ResolvedReceptorSet | None = None
+        self._jones_terms: ResolvedJonesTerms | None = None
         self._beam_system: BeamSystem | None = None
         self._beam_system_lock = threading.RLock()
         self._source_arrays: SourceArrays | None = None
@@ -371,6 +373,17 @@ class Simulator:
         return self._receptor_set
 
     @property
+    def jones_terms(self) -> ResolvedJonesTerms:
+        """Return the exact canonical resolved Jones-term inventory.
+
+        Empty when the configuration has no ``jones:`` section, which is the
+        forward model as it stood before Tier 7D.
+        """
+        if self._jones_terms is None:
+            raise RuntimeError("Jones resolution has not completed")
+        return self._jones_terms
+
+    @property
     def beam_system(self) -> BeamSystem:
         """Return the exact successfully loaded canonical BeamSystem."""
         if self._beam_system is None:
@@ -464,6 +477,30 @@ class Simulator:
         self._receptor_set = resolve_receptors(
             self._resolved.receptors,
             self._instrument_state.instrument,
+        )
+
+    def _ensure_jones_terms(self) -> None:
+        """Resolve and atomically retain the canonical Jones-term inventory.
+
+        Runs after instrument and receptor resolution and **before** any beam
+        load, sky load, network access, or solver work
+        (``Tier7JonesSciencePlan.md`` Section 26.1): every ``jones:`` rejection
+        is therefore raised before the first side effect, which is the Tier 1
+        "reject before side effects" property extended to the new section.
+        """
+        if self._jones_terms is not None:
+            return
+        if self._instrument_state is None:
+            raise RuntimeError("Instrument resolution has not completed")
+
+        from radiosim.core.jones_terms import resolve_jones_terms
+
+        self._jones_terms = resolve_jones_terms(
+            self._resolved.jones,
+            self._instrument_state.instrument,
+            frequencies_hz=self._resolved.frequency.channel_frequencies_hz,
+            time_grid=self._resolved.observation.time_grid,
+            precision=self._precision,
         )
 
     def _ensure_beam_system(self) -> None:
@@ -580,6 +617,7 @@ class Simulator:
 
         try:
             self._ensure_receptor_set()
+            self._ensure_jones_terms()
             self._ensure_beam_system()
             self._clear_later_runtime_state()
             return self._setup_after_instrument_state()
@@ -1035,6 +1073,7 @@ class Simulator:
             time_grid=self._resolved.observation.time_grid,
             frequencies=frequencies,
             receptors=self.receptors,
+            jones_terms=self.jones_terms,
             solver_execution=solver_execution,
         )
         receptor_visibilities = outcome.receptor_visibilities

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from radiosim.backends.base import ArrayBackend
     from radiosim.core.beam import BeamSystem
     from radiosim.core.instrument_adapters import SolverInstrumentView
+    from radiosim.core.jones_terms import ResolvedJonesTerms
     from radiosim.core.receptor import ResolvedReceptorSet
     from radiosim.core.runtime_config import ResolvedSolverExecutionConfig
     from radiosim.core.sky.containers.model import SourceArrays
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 
+from radiosim.core.jones_terms import EMPTY_JONES_TERMS
 from radiosim.core.solver_partition import SERIAL_SOLVER_EXECUTION
 from radiosim.simulator.base import VisibilitySimulator
 
@@ -171,6 +173,7 @@ class RIMESimulator(VisibilitySimulator):
         location: Any,
         time_grid: "ObservationTimeGrid",
         receptors: "ResolvedReceptorSet",
+        jones_terms: "ResolvedJonesTerms" = EMPTY_JONES_TERMS,
         solver_execution: "ResolvedSolverExecutionConfig" = SERIAL_SOLVER_EXECUTION,
     ) -> Any:
         """
@@ -205,6 +208,10 @@ class RIMESimulator(VisibilitySimulator):
 
         receptors : ResolvedReceptorSet
             Canonical resolved receptor inventory supplying the C and H terms.
+
+        jones_terms : ResolvedJonesTerms
+            The run's resolved Jones-term inventory (Section 22).  Defaults to
+            the empty inventory, which is the historical forward model.
 
         solver_execution : ResolvedSolverExecutionConfig, optional
             Resolved solver worker policy (``Tier6HybridRuntimePlan.md``
@@ -242,6 +249,7 @@ class RIMESimulator(VisibilitySimulator):
             frequencies=frequencies,
             backend=backend,
             receptors=receptors,
+            jones_terms=jones_terms,
             solver_execution=solver_execution,
         )
 

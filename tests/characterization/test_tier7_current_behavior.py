@@ -295,13 +295,20 @@ NON_TERM_EXPORTS: tuple[str, ...] = (
     "evaluate_antenna_jones",
 )
 
-#: The exported terms Tier 7C leaves as ``term_status == "planned"``, with the
-#: slice that implements each.  Every one of them raises when evaluated; none is
-#: an identity.  Section 5.1's 37-stub table became this 11-row one plus the 26
-#: deletions below.
-PLANNED_TERMS: dict[str, str] = {
+#: The exported terms that carry real physics, with the slice that implemented
+#: each.  FLIPPED BY: Tier 7D, which moved ``G`` and ``B`` out of
+#: ``PLANNED_TERMS`` -- the first two rows of the 11-row planned table to become
+#: numbers.  Tier 7E-7H move the remaining nine.
+IMPLEMENTED_TERMS: dict[str, str] = {
     "GainJones": "7D",
     "BandpassJones": "7D",
+}
+
+#: The exported terms still at ``term_status == "planned"``, with the slice that
+#: implements each.  Every one of them raises when evaluated; none is an
+#: identity.  Section 5.1's 37-stub table became an 11-row one plus the 26
+#: deletions below, and Tier 7D leaves nine rows.
+PLANNED_TERMS: dict[str, str] = {
     "PolarizationLeakageJones": "7E",
     "CrosshandJones": "7E",
     "DelayJones": "7E",
@@ -383,8 +390,12 @@ def test_jones_package_exports_exactly_the_recorded_names() -> None:
     assert tuple(jones_package.__all__) == EXPORTED_JONES_NAMES
     assert len(EXPORTED_JONES_NAMES) == 19
     assert len(set(EXPORTED_JONES_NAMES)) == 19
-    assert (
-        len(EXPORTED_JONES_NAMES) == len(NON_TERM_EXPORTS) + 1 + len(PLANNED_TERMS) + 2
+    assert len(EXPORTED_JONES_NAMES) == (
+        len(NON_TERM_EXPORTS)
+        + 1  # geometric_phase
+        + len(PLANNED_TERMS)
+        + len(IMPLEMENTED_TERMS)
+        + 2  # ReceptorConfigJones and BasisTransformJones
     )
 
 
@@ -429,15 +440,21 @@ def test_every_exported_term_is_real_physics_or_a_declared_plan() -> None:
     FLIPPED BY: Tier 7C.  The 37 identity stubs became 26 deletions and 11
     planned terms.  A planned term is not a stub: it returns nothing at all.
 
-    OWNED BY: Tier 7D through Tier 7H, each of which turns its own planned rows
+    FLIPPED BY: Tier 7D, which implemented ``G`` and ``B``: the planned table
+    is nine rows, and two names moved into ``IMPLEMENTED_TERMS``.
+
+    OWNED BY: Tier 7E through Tier 7H, each of which turns its own planned rows
     into real physics.
     """
     assert len(REMOVED_JONES_CLASSES) == 28  # 26 deletions + K + the renamed X
-    assert len(PLANNED_TERMS) == 11
+    assert len(IMPLEMENTED_TERMS) == 2
+    assert len(PLANNED_TERMS) == 9
+    assert set(PLANNED_TERMS).isdisjoint(IMPLEMENTED_TERMS)
     assert set(PLANNED_TERMS).isdisjoint(REAL_PHYSICS_EXPORTS)
-    assert set(PLANNED_TERMS) | set(REAL_PHYSICS_EXPORTS) == set(
-        EXPORTED_JONES_NAMES
-    ) - set(NON_TERM_EXPORTS)
+    assert set(IMPLEMENTED_TERMS).isdisjoint(REAL_PHYSICS_EXPORTS)
+    assert set(PLANNED_TERMS) | set(IMPLEMENTED_TERMS) | set(
+        REAL_PHYSICS_EXPORTS
+    ) == set(EXPORTED_JONES_NAMES) - set(NON_TERM_EXPORTS)
 
 
 @pytest.mark.parametrize("class_name", sorted(PLANNED_TERMS))
@@ -605,15 +622,17 @@ def test_no_planned_term_accepts_physics_it_would_discard() -> None:
     every one of those calls is now a ``TypeError``.  Each term slice introduces
     its real constructor together with the resolution that validates it.
 
-    OWNED BY: Tier 7D through Tier 7H.
+    FLIPPED BY: Tier 7D for ``G`` and ``B``, which now have real constructors
+    that accept resolved values and reject everything else -- so their former
+    silently-discarded keywords are gone from this table, not from the contract.
+
+    OWNED BY: Tier 7E through Tier 7H.
     """
     import radiosim.core.jones as jones_package
 
     discarded = {
         "IonosphereJones": {"tec": np.array([1.0e17, 2.0e17])},
         "TroposphereJones": {"elevations": np.array([0.5, 0.9])},
-        "GainJones": {"n_antennas": 2, "gain_sigma": 0.35, "seed": 7},
-        "BandpassJones": {"bandpass_gains": np.array([0.5, 2.0])},
         "PolarizationLeakageJones": {"d_terms": np.array([0.1 + 0.2j, 0.3])},
         "ParallacticAngleJones": {"feed_angle_offset": np.array([0.7])},
     }
@@ -641,7 +660,11 @@ def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None
     about a matrix that cannot be computed, so a planned term declares none.
     Each term slice adds its flags with its physics and its own I2 case.
 
-    OWNED BY: Tier 7D through Tier 7H.
+    FLIPPED BY: Tier 7D for ``G`` and ``B``, which declare ``is_diagonal``,
+    ``is_scalar`` and ``is_unitary`` computed from their own resolved numbers,
+    and are swept by invariant I2 in ``test_gain.py`` and ``test_bandpass.py``.
+
+    OWNED BY: Tier 7E through Tier 7H.
     """
     import radiosim.core.jones as jones_package
 
@@ -657,11 +680,13 @@ def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None
                 class_name,
                 flag,
             )
-        assert flag not in vars(term_class)
+            assert flag not in vars(term_class)
 
     # ``get_config`` now reports the status alongside the flags, so a consumer
-    # reading a term's configuration cannot miss that it does not run.
-    assert set(jones_package.GainJones().get_config()) == {
+    # reading a term's configuration cannot miss that it does not run.  Read
+    # from a still-planned term: Tier 7D gave ``G`` a real constructor, so the
+    # probe moved to one of the nine that still take none.
+    assert set(jones_package.DelayJones().get_config()) == {
         "name",
         "term_status",
         "is_direction_dependent",
@@ -1051,14 +1076,18 @@ def test_production_supplies_no_jones_parameter_at_all(tmp_path) -> None:
     enable a term.  Tier 7C removed the parameter, so there is no hard-coded
     ``None`` left to find.
 
-    OWNED BY: Tier 7D, which replaces it with the resolved ``jones`` model at
-    exactly this call site.
+    FLIPPED BY: Tier 7D, which put the typed ``jones_terms`` at exactly this
+    call site.  What survives from the pin is the property that mattered: there
+    is no hard-coded ``None``, and what the production path passes is a resolved
+    inventory rather than raw configuration.
     """
     from radiosim.simulator.rime import RIMESimulator
 
     hybrid = _source("src/radiosim/core/hybrid.py")
+    assert "jones_config" not in hybrid
     assert "jones_config=None" not in hybrid
-    assert "jones" not in hybrid
+    assert "jones_terms=jones_terms" in hybrid
+    assert "jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS" in hybrid
 
     # The hybrid path still reaches the point solver, and still gets a cube.
     instrument, beam_system, receptors = _solver_components(tmp_path)
@@ -1173,9 +1202,13 @@ def test_healpix_solver_shares_the_one_chain_and_the_one_evaluator() -> None:
 
     # Exactly one chain-composition site in the whole package.  The gate count
     # was nine ``add_term`` calls; Tier 7C deleted the six that added an
-    # identity stub, leaving the three terms that exist.
+    # identity stub, leaving three; Tier 7D replaced those three with a single
+    # call inside one walk of the canonical order, which is a stronger form of
+    # the same property -- there is now one statement in the package that puts a
+    # term into a chain, and it cannot treat a configured term differently from
+    # an always-on one.
     point = _source("src/radiosim/core/visibility.py")
-    assert point.count("chain.add_term(") == 3
+    assert point.count("chain.add_term(") == 1
     assert "chain.add_term(" not in text
 
 
@@ -1300,15 +1333,22 @@ def test_rotation_measure_is_already_applied_by_the_point_solver(tmp_path) -> No
 # =========================================================================
 
 
-def test_no_jones_section_exists_in_the_configuration_schema() -> None:
-    """Pins the absence of any Jones configuration surface.
+def test_the_jones_section_is_the_eleventh_configuration_section() -> None:
+    """Pins the Jones configuration surface at its arrival.
 
-    OWNED BY: Tier 7D, which adds the ``jones:`` section.
+    FLIPPED BY: Tier 7D, which added the ``jones:`` section.  At the gate there
+    was none at all, so no supported entry point could enable a term; the
+    surface is now typed, strict, and defaults to ``None`` rather than to an
+    empty model, because an absent section and an empty one are different
+    statements (R2).
+
+    OWNED BY: Tier 7D.
     """
     assert set(RadioSimConfig.model_fields) == {
         "instrument",
         "beams",
         "receptors",
+        "jones",
         "baseline_selection",
         "sky_model",
         "obs_time",
@@ -1317,10 +1357,10 @@ def test_no_jones_section_exists_in_the_configuration_schema() -> None:
         "execution",
         "workflow",
     }
-    assert "jones" not in RadioSimConfig.model_fields
-    assert not (SOURCE_ROOT / "io" / "jones_config.py").exists()
-    assert not (SOURCE_ROOT / "core" / "jones_terms.py").exists()
-    assert not (SOURCE_ROOT / "core" / "jones_errors.py").exists()
+    assert RadioSimConfig.model_fields["jones"].default is None
+    assert (SOURCE_ROOT / "io" / "jones_config.py").exists()
+    assert (SOURCE_ROOT / "core" / "jones_terms.py").exists()
+    assert (SOURCE_ROOT / "core" / "jones_errors.py").exists()
 
 
 def test_calculation_type_reaches_no_consumer_because_it_no_longer_exists() -> None:
@@ -1427,11 +1467,19 @@ def test_no_shipped_config_sets_calculation_type(
     assert RadioSimConfig.model_validate(data).execution.simulator == "rime"
 
 
-def test_jones_precision_declares_exactly_eight_terms() -> None:
-    """Pins defect D15: no precision field for C, H, or any extended term.
+def test_jones_precision_declares_every_term() -> None:
+    """Pins defect D15 at its resolution.
 
-    OWNED BY: Tier 7D, which extends the precision model.
+    At the gate ``JonesPrecision`` declared eight fields, so ``C`` and ``H`` --
+    which are in *every* chain -- and every extended term had no precision of
+    their own and silently inherited whatever the caller passed.
+
+    FLIPPED BY: Tier 7D, which added the seven missing fields and resolves all
+    fifteen into ``ResolvedJonesDtypes``.
+
+    OWNED BY: Tier 7D.
     """
+    from radiosim.core.jones_terms import PRECISION_FIELD_BY_TERM
     from radiosim.io.config import JonesPrecisionInput
 
     expected = {
@@ -1443,13 +1491,25 @@ def test_jones_precision_declares_exactly_eight_terms() -> None:
         "gain",
         "bandpass",
         "polarization_leakage",
+        "receptor_config",
+        "basis_transform",
+        "crosshand",
+        "delay",
+        "cable_reflection",
+        "baseline_multiplicative",
+        "smearing",
     }
     assert set(JonesPrecision.model_fields) == expected
     assert set(JonesPrecisionInput.model_fields) == expected
+    # Every declared field belongs to exactly one term letter, and every term
+    # letter has one: the mapping is what makes "no term without a precision" a
+    # checkable claim rather than a count.
+    assert set(PRECISION_FIELD_BY_TERM.values()) == expected
 
     precision = PrecisionConfig.standard()
     assert precision.jones.get_dtype("gain") == np.complex128
-    # ``get_dtype`` is a bare ``getattr``, so an unmodelled term is an
+    assert precision.jones.get_dtype("receptor_config") == np.complex128
+    # ``get_dtype`` is a bare ``getattr``, so a name that is not a term is an
     # ``AttributeError`` rather than a typed rejection.
     with pytest.raises(AttributeError):
         precision.jones.get_dtype("receptor")

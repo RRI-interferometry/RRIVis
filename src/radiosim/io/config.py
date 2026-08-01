@@ -1398,6 +1398,13 @@ class CoordinatePrecisionInput(StrictFrozenModel):
 
 
 class JonesPrecisionInput(StrictFrozenModel):
+    """Per-Jones-term precision input.
+
+    One field per term letter, including the three Tier 7D added -- ``C``, ``H``
+    and the extended calibration terms -- so that no term in the canonical chain
+    is without a declared precision (defect D15).
+    """
+
     geometric_phase: PrecisionLevel = "float64"
     beam: PrecisionLevel = "float64"
     ionosphere: PrecisionLevel = "float64"
@@ -1406,6 +1413,13 @@ class JonesPrecisionInput(StrictFrozenModel):
     gain: PrecisionLevel = "float64"
     bandpass: PrecisionLevel = "float64"
     polarization_leakage: PrecisionLevel = "float64"
+    receptor_config: PrecisionLevel = "float64"
+    basis_transform: PrecisionLevel = "float64"
+    crosshand: PrecisionLevel = "float64"
+    delay: PrecisionLevel = "float64"
+    cable_reflection: PrecisionLevel = "float64"
+    baseline_multiplicative: PrecisionLevel = "float64"
+    smearing: PrecisionLevel = "float64"
 
 
 class SkyModelPrecisionInput(StrictFrozenModel):
@@ -1680,6 +1694,11 @@ from radiosim.io.instrument_config import (  # noqa: E402
     KnownTelescopeSourceConfig,
     LayoutFileSourceConfig,
 )
+from radiosim.io.jones_config import (  # noqa: E402
+    BandpassTermConfig,
+    GainTermConfig,
+    JonesConfig,
+)
 from radiosim.io.receptor_config import (  # noqa: E402
     ReceptorDefinitionConfig,
     ReceptorsConfig,
@@ -1809,6 +1828,12 @@ class RadioSimConfig(StrictFrozenModel):
         default_factory=BaselineSelectionConfig
     )
     receptors: ReceptorsConfig = Field(default_factory=ReceptorsConfig)
+    #: The Tier 7 Jones-term section.  ``None`` -- not an empty model -- is the
+    #: default, because an absent section and a present-but-empty one are
+    #: different statements: the first configures nothing and is the historical
+    #: forward model bit for bit, and the second is rejected as R2.  A
+    #: ``default_factory`` would collapse the two.
+    jones: JonesConfig | None = None
     sky_model: SkyModelConfig
     obs_time: ObsTimeConfig
     obs_frequency: ObsFrequencyConfig
@@ -2237,6 +2262,9 @@ _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
     "baseline_selection": tuple(BaselineSelectionConfig.model_fields),
     "receptors": tuple(ReceptorsConfig.model_fields),
     "receptors.default": tuple(ReceptorDefinitionConfig.model_fields),
+    "jones": tuple(JonesConfig.model_fields),
+    "jones.G": tuple(GainTermConfig.model_fields),
+    "jones.B": tuple(BandpassTermConfig.model_fields),
     "sky_model": tuple(SkyModelConfig.model_fields),
     "obs_time": tuple(ObsTimeConfig.model_fields),
     "workflow": tuple(CliWorkflowConfig.model_fields),

@@ -189,6 +189,7 @@ def test_valid_input_builder_uses_final_top_level_shape(tmp_path):
         "beams",
         "baseline_selection",
         "receptors",
+        "jones",
         "sky_model",
         "obs_time",
         "obs_frequency",

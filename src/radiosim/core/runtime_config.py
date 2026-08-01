@@ -37,6 +37,7 @@ if TYPE_CHECKING:
         BaselineSelectionConfig,
         InstrumentConfig,
     )
+    from radiosim.io.jones_config import JonesConfig
     from radiosim.io.receptor_config import ReceptorsConfig
 
 JsonScalar = str | int | float | bool | None
@@ -461,12 +462,18 @@ class ResolvedSimulationConfig:
     visibility: FrozenMapping
     execution: ResolvedExecutionConfig
     receptors: ReceptorsConfig = field(default_factory=_default_receptors_config)
+    #: The Tier 7 ``jones:`` section, carried through resolution untouched.
+    #: ``None`` means the document had no section, which is the historical
+    #: forward model bit for bit; an empty section never reaches here because
+    #: :func:`~radiosim.core.jones_terms.resolve_jones_terms` rejects it (R2).
+    jones: JonesConfig | None = None
 
     def __post_init__(self) -> None:
         from radiosim.io.instrument_config import (
             BaselineSelectionConfig,
             InstrumentConfig,
         )
+        from radiosim.io.jones_config import JonesConfig
         from radiosim.io.receptor_config import ReceptorsConfig
 
         if type(self.instrument) is not InstrumentConfig:
@@ -475,6 +482,8 @@ class ResolvedSimulationConfig:
             raise TypeError("baseline_selection must be a BaselineSelectionConfig")
         if type(self.receptors) is not ReceptorsConfig:
             raise TypeError("receptors must be a ReceptorsConfig")
+        if self.jones is not None and type(self.jones) is not JonesConfig:
+            raise TypeError("jones must be a JonesConfig or None")
         if type(self.beams) not in (
             ResolvedAnalyticBeamsInput,
             ResolvedSharedFITSBeamsInput,

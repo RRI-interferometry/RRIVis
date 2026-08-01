@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from radiosim.backends.base import ArrayBackend
+    from radiosim.core.jones_terms import ResolvedJonesTerms
     from radiosim.core.receptor import ResolvedReceptorSet
     from radiosim.core.runtime_config import ResolvedSolverExecutionConfig
     from radiosim.core.sky.containers.model import SkyModel, SourceArrays
@@ -51,6 +52,8 @@ __all__ = [
     "component_names_for_representation",
     "solve_sky",
 ]
+
+from radiosim.core.jones_terms import EMPTY_JONES_TERMS
 
 POINT_COMPONENT: Final = "point"
 HEALPIX_COMPONENT: Final = "healpix"
@@ -232,6 +235,7 @@ def solve_sky(
     time_grid: ObservationTimeGrid,
     frequencies: Any,
     receptors: ResolvedReceptorSet,
+    jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS,
     solver_execution: ResolvedSolverExecutionConfig,
 ) -> HybridSolveOutcome:
     """Solve every component of a run and return one summed cube.
@@ -257,6 +261,11 @@ def solve_sky(
         time_grid: The one ``ObservationTimeGrid``.
         frequencies: The one channel-frequency array.
         receptors: The one ``ResolvedReceptorSet``.
+        jones_terms: The one ``ResolvedJonesTerms``, resolved once in
+            ``Simulator.setup()``.  Both components receive the identical
+            object, for the same reason every other resolved input is shared:
+            a hybrid run whose point and diffuse halves applied different gains
+            would be wrong in a way no output would show.
         solver_execution: The centrally resolved solver worker policy.
 
     Returns:
@@ -289,6 +298,7 @@ def solve_sky(
                 location=location,
                 time_grid=time_grid,
                 receptors=receptors,
+                jones_terms=jones_terms,
                 solver_execution=solver_execution,
             )
             element_count = len(source_arrays["ra_rad"])
@@ -307,6 +317,7 @@ def solve_sky(
                 include_polarization=include_polarization,
                 backend=backend,
                 receptors=receptors,
+                jones_terms=jones_terms,
                 solver_execution=solver_execution,
             )
             element_count = sky_model.n_healpix_pixels

@@ -1,0 +1,794 @@
+"""The one canonical, frozen Jones-term inventory for a run.
+
+``Tier7JonesSciencePlan.md`` Section 22.  :func:`resolve_jones_terms` runs
+**once**, in ``Simulator.setup()``, before any beam load, any sky load, any
+network access, and any solver work, and it is the only place a configured
+:class:`~radiosim.core.jones.base.JonesTerm` is constructed.  Solvers receive
+:class:`ResolvedJonesTerms` and never see raw configuration, which is what makes
+"where did this gain come from?" a question with exactly one answer
+(``Fix.md`` Section 4.3).
+
+Precedence
+----------
+Within a term, an explicit ``per_antenna`` entry beats the array-wide default.
+There is no third source: no environment variable, no CLI flag, and no
+per-antenna file override for a Jones parameter (Section 22 rule 5).
+
+Failure ordering
+----------------
+The order failures are raised in is part of the contract, because a user fixing
+a configuration must not be sent around a loop (Section 26.1).  This module
+implements stages 3-6 of that order, in this sequence and across *all* terms at
+each stage before moving to the next:
+
+3. structural validation -- ``per_antenna`` antenna existence (R4), duplicate
+   ``(antenna, feed)`` pairs (R5), and feed index range (R6);
+4. physical-range validation (R8-R10, R16 -- none of which belongs to ``G`` or
+   ``B``);
+5. cross-object consistency -- bandpass frequency coverage (R11);
+6. the identity check (R7), **last**, because it needs fully resolved values.
+
+Stages 1 and 2 -- the strict Pydantic parse and the removed-field guidance --
+have already happened by the time this function is called.
+
+What is here and what is not
+----------------------------
+``chain_terms`` carries the terms this run's ``jones:`` section configured, in
+canonical chain order.  It does **not** carry ``H``, ``C`` and ``E``: those
+three are always present and are built by the solver, ``E`` necessarily so,
+because the beam adapter closes over the direction, frequency and time of the
+step it is evaluated at and cannot exist before the time loop.  The full
+composed order, including all three, is recorded in
+``provenance.chain_order``, which is what a reader of the record needs; the
+solver splices ``chain_terms`` into their canonical slots around them.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+
+from radiosim.core.jones.bandpass import (
+    BandpassJones,
+    BandpassResponse,
+    PolynomialBandpassResponse,
+    TabulatedBandpassResponse,
+)
+from radiosim.core.jones.base import JonesTerm
+from radiosim.core.jones.baseline_errors import JonesBaselineTerm
+from radiosim.core.jones.gain import GainJones, ResolvedGainTimeModel
+from radiosim.core.jones_errors import (
+    IdentityJonesTermError,
+    InvalidJonesConfigError,
+    JonesAssignmentError,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from radiosim.core.instrument import ResolvedInstrument
+    from radiosim.core.precision import PrecisionConfig
+    from radiosim.core.time_grid import ObservationTimeGrid
+    from radiosim.io.jones_config import (
+        BandpassTermConfig,
+        GainTermConfig,
+        JonesConfig,
+    )
+
+__all__ = [
+    "CANONICAL_CHAIN_ORDER",
+    "EMPTY_JONES_TERMS",
+    "JONES_SCHEMA_VERSION",
+    "JonesProvenance",
+    "ResolvedJonesDtypes",
+    "ResolvedJonesTerms",
+    "SOLVER_OWNED_TERMS",
+    "resolve_jones_terms",
+]
+
+JONES_SCHEMA_VERSION = "1.0.0"
+
+#: The canonical chain order, correlator-side first (Section 12.2, 20.12)::
+#:
+#:     J = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z
+#:
+#: The full designed order is written out here even though Tier 7D implements
+#: only two of the letters, so that the ordering lives in exactly one place and
+#: each later slice adds physics rather than re-deciding where its term goes.
+CANONICAL_CHAIN_ORDER: tuple[str, ...] = (
+    "H",
+    "G",
+    "B",
+    "Rc",
+    "Kd",
+    "X",
+    "D",
+    "P",
+    "C",
+    "E",
+    "T",
+    "Z",
+)
+
+#: The three terms the solver always builds itself and this module never
+#: constructs: the reporting-basis transform, the receptor configuration, and
+#: the beam adapter.
+SOLVER_OWNED_TERMS: tuple[str, ...] = ("H", "C", "E")
+
+#: Term letter -> the ``JonesPrecision`` field that declares its precision.
+#: Extended by Tier 7D so that every term in ``CANONICAL_CHAIN_ORDER`` and both
+#: baseline terms have one, closing defect D15's "eight terms only".
+PRECISION_FIELD_BY_TERM: Mapping[str, str] = MappingProxyType(
+    {
+        "K": "geometric_phase",
+        "E": "beam",
+        "Z": "ionosphere",
+        "T": "troposphere",
+        "P": "parallactic",
+        "G": "gain",
+        "B": "bandpass",
+        "D": "polarization_leakage",
+        "C": "receptor_config",
+        "H": "basis_transform",
+        "X": "crosshand",
+        "Kd": "delay",
+        "Rc": "cable_reflection",
+        "M": "baseline_multiplicative",
+        "Q": "smearing",
+    }
+)
+
+
+# --------------------------------------------------------------- resolved model
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedJonesDtypes:
+    """The resolved per-term and accumulation precisions for one run.
+
+    Parameters
+    ----------
+    by_term
+        Term letter to ``(complex dtype, real dtype)``, resolved from
+        ``PrecisionConfig.jones``.  Every letter in
+        :data:`CANONICAL_CHAIN_ORDER` plus ``K``, ``M`` and ``Q`` has an entry:
+        before Tier 7D only eight terms had a precision field at all, so ``C``,
+        ``H`` and every extended term silently inherited someone else's
+        (defect D15).
+    accumulation_complex
+        The dtype the chain product is actually composed in, and the one handed
+        to every term's ``compute_jones_batch``.
+
+    Notes
+    -----
+    ``by_term`` is a *record*, not yet a dispatch table.  Tier 7B's accepted
+    contract composes the whole chain in one dtype -- the accumulation dtype --
+    because a chain whose factors carried different precisions would have to
+    pick one at every matrix product anyway, and picking it once is the honest
+    version.  Recording the per-term resolution is what makes a later change to
+    that decision a visible one rather than a silent one.
+    """
+
+    by_term: Mapping[str, tuple[Any, Any]]
+    accumulation_complex: Any
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.by_term, Mapping):
+            raise TypeError("by_term must be a mapping")
+        object.__setattr__(self, "by_term", MappingProxyType(dict(self.by_term)))
+
+
+@dataclass(frozen=True, slots=True)
+class JonesProvenance:
+    """Versioned explanation and fingerprint of one resolved Jones inventory.
+
+    Parameters
+    ----------
+    enabled_terms
+        Every term in the composed chain, in canonical order, including the
+        three the solver always adds (``H``, ``C``, ``E``).  This is the answer
+        to "what was actually applied", so leaving the always-on terms out would
+        make the record read as though a run with no ``jones:`` section applied
+        nothing at all.
+    chain_order
+        The same tuple; kept as a separate field because Section 22 names both,
+        and because a later tier that lets a term appear twice would make them
+        differ.
+    term_snapshots
+        Term letter to its frozen, JSON-safe configuration snapshot.  Pure
+        configuration: nothing filesystem-path-derived enters it, which is the
+        ``RUN-005``/``RUN-006`` lesson applied to a new section.
+    mount_types
+        Antenna number to resolved mount type, recorded because ``P``'s validity
+        depends on it and because a record that explains a field rotation must
+        say what the feeds were mounted on.
+    jones_sha256
+        SHA-256 over the canonical payload of the three fields above.
+    """
+
+    schema_version: str
+    enabled_terms: tuple[str, ...]
+    chain_order: tuple[str, ...]
+    term_snapshots: Mapping[str, Any]
+    mount_types: Mapping[int, str | None]
+    jones_sha256: str
+
+    def __post_init__(self) -> None:
+        if self.schema_version != JONES_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {JONES_SCHEMA_VERSION!r}")
+        if not isinstance(self.jones_sha256, str) or len(self.jones_sha256) != 64:
+            raise ValueError("jones_sha256 must be a 64-character hexadecimal SHA-256")
+        object.__setattr__(
+            self, "term_snapshots", MappingProxyType(dict(self.term_snapshots))
+        )
+        object.__setattr__(
+            self, "mount_types", MappingProxyType(dict(self.mount_types))
+        )
+        expected = _compute_jones_sha256(
+            enabled_terms=self.enabled_terms,
+            chain_order=self.chain_order,
+            term_snapshots=self.term_snapshots,
+            mount_types=self.mount_types,
+        )
+        if self.jones_sha256 != expected:
+            raise ValueError(
+                "jones_sha256 does not match canonical Jones configuration content"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedJonesTerms:
+    """The one canonical, frozen Jones-term inventory for a run.
+
+    Parameters
+    ----------
+    chain_terms
+        The configured per-antenna terms, in canonical chain order.  The three
+        solver-owned terms (``H``, ``C``, ``E``) are deliberately not here; see
+        the module docstring.
+    baseline_terms
+        The configured baseline-dependent Hadamard terms (``M``, ``Q``).  Empty
+        until Tier 7H.
+    dtypes
+        The resolved precisions.
+    provenance
+        The record and the fingerprint.
+    """
+
+    chain_terms: tuple[JonesTerm, ...] = ()
+    baseline_terms: tuple[JonesBaselineTerm, ...] = ()
+    dtypes: ResolvedJonesDtypes = field(
+        default_factory=lambda: ResolvedJonesDtypes(
+            by_term={}, accumulation_complex=np.complex128
+        )
+    )
+    provenance: JonesProvenance = field(
+        default_factory=lambda: _empty_jones_provenance()
+    )
+
+    def __post_init__(self) -> None:
+        chain = tuple(self.chain_terms)
+        if any(not isinstance(term, JonesTerm) for term in chain):
+            raise TypeError("chain_terms must contain only JonesTerm values")
+        if any(isinstance(term, JonesBaselineTerm) for term in chain):
+            raise TypeError(
+                "a JonesBaselineTerm cannot be a chain term; baseline-dependent "
+                "effects multiply finished visibilities elementwise"
+            )
+        names = [term.name for term in chain]
+        if len(set(names)) != len(names):
+            raise ValueError("chain_terms must not repeat a term letter")
+        expected = [letter for letter in CANONICAL_CHAIN_ORDER if letter in set(names)]
+        if names != expected:
+            raise ValueError(
+                f"chain_terms must be in canonical order {tuple(expected)}, got "
+                f"{tuple(names)}"
+            )
+        if type(self.dtypes) is not ResolvedJonesDtypes:
+            raise TypeError("dtypes must be a ResolvedJonesDtypes")
+        if type(self.provenance) is not JonesProvenance:
+            raise TypeError("provenance must be a JonesProvenance")
+        object.__setattr__(self, "chain_terms", chain)
+        object.__setattr__(self, "baseline_terms", tuple(self.baseline_terms))
+
+    @property
+    def is_empty(self) -> bool:
+        """``True`` when this run configured no Jones term at all."""
+        return not self.chain_terms and not self.baseline_terms
+
+    @property
+    def configured_letters(self) -> tuple[str, ...]:
+        """Return the configured term letters, in canonical chain order."""
+        return tuple(term.name for term in self.chain_terms)
+
+    def term(self, letter: str) -> JonesTerm | None:
+        """Return the configured term with this letter, or ``None``."""
+        for candidate in self.chain_terms:
+            if candidate.name == letter:
+                return candidate
+        return None
+
+    def to_snapshot(self) -> dict[str, Any]:
+        """Return a fresh deterministic JSON-safe snapshot, or ``{}`` if empty.
+
+        The empty return is load-bearing.  A run with no ``jones:`` section
+        contributes **nothing** to ``scientific_sha256`` -- not an empty object,
+        not a null, nothing -- so its digest is bit-identical to the same
+        configuration before this section existed (invariant I1).  A section
+        that is present but configures no term never reaches here: it is
+        rejected as R2.
+        """
+        if not self.provenance.enabled_terms:
+            return {}
+        return {
+            "schema_version": self.provenance.schema_version,
+            "enabled_terms": list(self.provenance.enabled_terms),
+            "chain_order": list(self.provenance.chain_order),
+            "term_snapshots": json.loads(
+                json.dumps(dict(self.provenance.term_snapshots))
+            ),
+            "mount_types": {
+                str(number): value
+                for number, value in sorted(self.provenance.mount_types.items())
+            },
+            "jones_sha256": self.provenance.jones_sha256,
+        }
+
+
+# ----------------------------------------------------------------- fingerprint
+
+
+def _canonical_jones_fingerprint_payload(
+    *,
+    enabled_terms: Sequence[str],
+    chain_order: Sequence[str],
+    term_snapshots: Mapping[str, Any],
+    mount_types: Mapping[int, str | None],
+) -> dict[str, Any]:
+    """Return the exact canonical Jones hash payload."""
+    return {
+        "schema_version": JONES_SCHEMA_VERSION,
+        "enabled_terms": list(enabled_terms),
+        "chain_order": list(chain_order),
+        "term_snapshots": dict(term_snapshots),
+        "mount_types": {
+            str(number): value for number, value in sorted(mount_types.items())
+        },
+    }
+
+
+def _compute_jones_sha256(
+    *,
+    enabled_terms: Sequence[str],
+    chain_order: Sequence[str],
+    term_snapshots: Mapping[str, Any],
+    mount_types: Mapping[int, str | None],
+) -> str:
+    """Compute SHA-256 over the canonical UTF-8 JSON Jones payload.
+
+    The same canonical-JSON convention Tier 5 uses for ``receptor_sha256``:
+    sorted keys, no whitespace, no NaN, UTF-8.  Two runs differing only in a
+    Jones parameter produce different digests; two runs with ``jones:`` absent
+    never reach a digest at all, because the snapshot is empty and nothing is
+    hashed.
+    """
+    encoded = json.dumps(
+        _canonical_jones_fingerprint_payload(
+            enabled_terms=enabled_terms,
+            chain_order=chain_order,
+            term_snapshots=term_snapshots,
+            mount_types=mount_types,
+        ),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _empty_jones_provenance() -> JonesProvenance:
+    """Return the provenance of a run that configured no Jones term."""
+    return JonesProvenance(
+        schema_version=JONES_SCHEMA_VERSION,
+        enabled_terms=(),
+        chain_order=(),
+        term_snapshots={},
+        mount_types={},
+        jones_sha256=_compute_jones_sha256(
+            enabled_terms=(),
+            chain_order=(),
+            term_snapshots={},
+            mount_types={},
+        ),
+    )
+
+
+#: The inventory of a run with no ``jones:`` section.  Solvers default to it, so
+#: a direct solver call is exactly the pre-Tier-7D forward model.
+EMPTY_JONES_TERMS: ResolvedJonesTerms = ResolvedJonesTerms()
+
+
+# ---------------------------------------------------------- structural checking
+
+
+def _validate_overrides(
+    letter: str,
+    entries: Sequence[Any],
+    known_numbers: Sequence[int],
+) -> dict[tuple[int, int], Any]:
+    """Return the ``(antenna, feed)`` override map after stage-3 validation.
+
+    Implements R4, R5 and R6 in that order for one term, so that a user with
+    three mistakes in one block is told about the first one in reading order
+    rather than in whatever order a dictionary happened to iterate.
+    """
+    known = set(known_numbers)
+    shown = ", ".join(str(number) for number in sorted(known))
+    resolved: dict[tuple[int, int], Any] = {}
+    for entry in entries:
+        number = int(entry.antenna)
+        if number not in known:
+            raise JonesAssignmentError(
+                f"jones.{letter}.per_antenna references antenna number {number}, "
+                f"which is not in the resolved instrument; known numbers are "
+                f"{shown}."
+            )
+        feed = int(entry.feed)
+        if feed not in (0, 1):
+            raise InvalidJonesConfigError(
+                f"jones.{letter}.per_antenna feed={feed} is invalid; feeds are "
+                "indexed 0 and 1 in the antenna's own receptor basis."
+            )
+        if (number, feed) in resolved:
+            raise InvalidJonesConfigError(
+                f"jones.{letter}.per_antenna contains a duplicate entry for "
+                f"antenna {number} feed {feed}; each (antenna, feed) may appear "
+                "once."
+            )
+        resolved[(number, feed)] = entry
+    return resolved
+
+
+def _reject_identity(letter: str) -> None:
+    """Raise R7 for a term whose resolved parameters make it exactly ``I2``."""
+    raise IdentityJonesTermError(
+        f"jones.{letter} is configured with parameters that make it exactly the "
+        "identity; a term that cannot change the visibilities must be removed "
+        "rather than configured."
+    )
+
+
+# --------------------------------------------------------------------- G and B
+
+
+def _resolve_gain_time_model(config: Any) -> ResolvedGainTimeModel:
+    """Return the resolved ``s(t)`` for one ``jones.G`` block."""
+    kind = config.kind
+    if kind == "constant":
+        return ResolvedGainTimeModel(kind="constant")
+    if kind == "linear_drift":
+        return ResolvedGainTimeModel(
+            kind="linear_drift", rate_per_hour=float(config.rate_per_hour)
+        )
+    return ResolvedGainTimeModel(
+        kind="sinusoidal",
+        depth=float(config.depth),
+        period_hours=float(config.period_hours),
+        phase_rad=float(config.phase_rad),
+    )
+
+
+def _resolve_gain_term(
+    config: GainTermConfig,
+    *,
+    antenna_numbers: Sequence[int],
+    overrides: Mapping[tuple[int, int], Any],
+    reference_time_mjd: float,
+    pointing_elevation_deg: float,
+) -> GainJones:
+    """Build the ``G`` term from a validated ``jones.G`` block (Section 20.1)."""
+    base = np.empty((len(antenna_numbers), 2), dtype=np.complex128)
+    for row, number in enumerate(antenna_numbers):
+        for feed in (0, 1):
+            override = overrides.get((number, feed))
+            amplitude = config.amplitude_error
+            phase = config.phase_error_rad
+            if override is not None:
+                if override.amplitude_error is not None:
+                    amplitude = override.amplitude_error
+                if override.phase_error_rad is not None:
+                    phase = override.phase_error_rad
+            base[row, feed] = (1.0 + float(amplitude)) * np.exp(1j * float(phase))
+
+    elevation_gain = 1.0
+    if config.elevation_curve is not None:
+        elevation_gain = 0.0
+        for order, coefficient in enumerate(config.elevation_curve):
+            elevation_gain += float(coefficient) * pointing_elevation_deg**order
+        if not math.isfinite(elevation_gain):
+            raise InvalidJonesConfigError(
+                "jones.G.elevation_curve evaluates to a non-finite gain at the "
+                f"pointing elevation {pointing_elevation_deg} deg; reduce the "
+                "polynomial order or rescale the coefficients."
+            )
+
+    return GainJones(
+        base_gains=base,
+        time_model=_resolve_gain_time_model(config.time_model),
+        reference_time_mjd=reference_time_mjd,
+        elevation_gain=elevation_gain,
+    )
+
+
+def _resolve_bandpass_response(
+    model: Any,
+    *,
+    frequencies_hz: np.ndarray,
+) -> BandpassResponse:
+    """Return one resolved feed response, applying the derived defaults."""
+    from radiosim.io.jones_config import as_complex
+
+    if model.kind == "polynomial":
+        low = float(frequencies_hz[0])
+        high = float(frequencies_hz[-1])
+        reference = model.reference_frequency_hz
+        if reference is None:
+            reference = 0.5 * (low + high)
+        scale = model.scale_frequency_hz
+        if scale is None:
+            scale = 0.5 * (high - low)
+            if scale <= 0.0:
+                raise InvalidJonesConfigError(
+                    "jones.B polynomial scale_frequency_hz defaults to the "
+                    "half-bandwidth, which is zero for a single-channel "
+                    "observation; set jones.B.model.scale_frequency_hz "
+                    "explicitly."
+                )
+        return PolynomialBandpassResponse(
+            coefficients=tuple(as_complex(value) for value in model.coefficients),
+            reference_frequency_hz=float(reference),
+            scale_frequency_hz=float(scale),
+        )
+    return TabulatedBandpassResponse(
+        node_frequencies_hz=tuple(float(node) for node in model.node_frequencies_hz),
+        gains=tuple(as_complex(value) for value in model.gains),
+    )
+
+
+def _reject_uncovered_bandpass(model: Any, frequencies_hz: np.ndarray) -> None:
+    """Raise R11 when a tabulated model does not span every observed channel."""
+    if model.kind != "tabulated":
+        return
+    low = float(model.node_frequencies_hz[0])
+    high = float(model.node_frequencies_hz[-1])
+    observed_low = float(frequencies_hz[0])
+    observed_high = float(frequencies_hz[-1])
+    if low <= observed_low and observed_high <= high:
+        return
+    raise InvalidJonesConfigError(
+        f"jones.B tabulated nodes span {low}-{high} Hz but the observation "
+        f"covers {observed_low}-{observed_high} Hz; RadioSim does not "
+        "extrapolate a bandpass."
+    )
+
+
+def _resolve_bandpass_term(
+    config: BandpassTermConfig,
+    *,
+    antenna_numbers: Sequence[int],
+    overrides: Mapping[tuple[int, int], Any],
+    frequencies_hz: np.ndarray,
+) -> BandpassJones:
+    """Build the ``B`` term from a validated ``jones.B`` block (Section 20.2)."""
+    default_response = _resolve_bandpass_response(
+        config.model, frequencies_hz=frequencies_hz
+    )
+    responses: list[tuple[BandpassResponse, BandpassResponse]] = []
+    for number in antenna_numbers:
+        pair: list[BandpassResponse] = []
+        for feed in (0, 1):
+            override = overrides.get((number, feed))
+            if override is None:
+                pair.append(default_response)
+            else:
+                pair.append(
+                    _resolve_bandpass_response(
+                        override.model, frequencies_hz=frequencies_hz
+                    )
+                )
+        responses.append((pair[0], pair[1]))
+    return BandpassJones(responses=tuple(responses), frequencies_hz=frequencies_hz)
+
+
+# ------------------------------------------------------------------ resolution
+
+
+def _resolved_dtypes(precision: PrecisionConfig | None) -> ResolvedJonesDtypes:
+    """Return the per-term and accumulation dtypes for one run."""
+    from radiosim.core.precision import PrecisionConfig as _PrecisionConfig
+    from radiosim.core.precision import get_complex_dtype, get_real_dtype
+
+    resolved = precision if precision is not None else _PrecisionConfig.standard()
+    by_term: dict[str, tuple[Any, Any]] = {}
+    for letter, field_name in PRECISION_FIELD_BY_TERM.items():
+        level = getattr(resolved.jones, field_name)
+        by_term[letter] = (get_complex_dtype(level), get_real_dtype(level))
+    return ResolvedJonesDtypes(
+        by_term=by_term,
+        accumulation_complex=get_complex_dtype(resolved.accumulation),
+    )
+
+
+def resolve_jones_terms(
+    config: JonesConfig | None,
+    instrument: ResolvedInstrument,
+    *,
+    frequencies_hz: Any,
+    time_grid: ObservationTimeGrid,
+    precision: PrecisionConfig | None = None,
+    pointing_elevation_deg: float | None = None,
+) -> ResolvedJonesTerms:
+    """Resolve one canonical Jones inventory from configuration and a run.
+
+    Parameters
+    ----------
+    config
+        The strict ``jones:`` input section, or ``None`` when the document has
+        none.  ``None`` returns :data:`EMPTY_JONES_TERMS` without touching
+        anything else, so a configuration that does not mention ``jones:``
+        cannot be perturbed by this function's existence (invariant I1).
+    instrument
+        The already-resolved canonical instrument.  Supplies the antenna numbers
+        every ``per_antenna`` entry is validated against, the antenna *order*
+        every term is indexed in, and the mount types the record carries.
+    frequencies_hz
+        The observation channel centres, strictly increasing.  Used for the
+        bandpass's derived reference and scale frequencies and for R11.
+    time_grid
+        The resolved observation time grid.  Its first sample is ``t0`` for
+        every gain time model.
+    precision
+        The run's precision configuration; ``None`` resolves the standard
+        preset.
+    pointing_elevation_deg
+        The elevation of the pointing centre, in degrees.  ``None`` reads it
+        from :class:`~radiosim.core.phase_center.PhaseCenter`, which under
+        RadioSim's zenith-drift convention is exactly 90.
+
+    Returns
+    -------
+    ResolvedJonesTerms
+        The complete inventory, its resolved precisions, and its fingerprint.
+
+    Raises
+    ------
+    InvalidJonesConfigError
+        R2, R5, R6, R11, or a derived default that cannot be computed.
+    JonesAssignmentError
+        R4: a ``per_antenna`` entry names an antenna the instrument does not
+        have.
+    IdentityJonesTermError
+        R7: a configured term resolves to exactly the identity.
+    """
+    from radiosim.core.instrument import ResolvedInstrument as _ResolvedInstrument
+    from radiosim.core.time_grid import ObservationTimeGrid as _ObservationTimeGrid
+    from radiosim.io.jones_config import JonesConfig as _JonesConfig
+
+    if config is None:
+        return EMPTY_JONES_TERMS
+    if type(config) is not _JonesConfig:
+        raise TypeError("config must be a JonesConfig or None")
+    if type(instrument) is not _ResolvedInstrument:
+        raise TypeError("instrument must be a ResolvedInstrument")
+    if type(time_grid) is not _ObservationTimeGrid:
+        raise TypeError("time_grid must be an ObservationTimeGrid")
+
+    frequencies = np.asarray(frequencies_hz, dtype=np.float64)
+    if frequencies.ndim != 1 or frequencies.size == 0:
+        raise ValueError("frequencies_hz must be a nonempty one-dimensional array")
+
+    configured = config.configured_terms
+    if not configured:
+        # R2.  An empty section is a statement of intent the file does not carry
+        # out; accepting it silently would hide a deleted term or a mis-indented
+        # key, which is exactly the class of quiet nothing this tier removes.
+        raise InvalidJonesConfigError(
+            "jones: is present but configures no term; remove the section or "
+            "configure at least one term."
+        )
+
+    antenna_numbers = tuple(antenna.id.number for antenna in instrument.antennas)
+    mount_types = {
+        antenna.id.number: antenna.mount_type for antenna in instrument.antennas
+    }
+
+    # Stage 3 -- structural validation, every term before any physical check.
+    overrides_by_term: dict[str, dict[tuple[int, int], Any]] = {}
+    for letter in configured:
+        block = getattr(config, letter)
+        overrides_by_term[letter] = _validate_overrides(
+            letter, block.per_antenna, antenna_numbers
+        )
+
+    # Stage 4 -- physical-range validation.  No range rejection belongs to G or
+    # B: their parameters are unbounded by physics (a gain may be any complex
+    # number), which is why R8-R10 name Rc, Z and T instead.
+
+    # Stage 5 -- cross-object consistency.
+    if "B" in configured:
+        bandpass_config = config.B
+        assert bandpass_config is not None
+        _reject_uncovered_bandpass(bandpass_config.model, frequencies)
+        for entry in bandpass_config.per_antenna:
+            _reject_uncovered_bandpass(entry.model, frequencies)
+
+    if pointing_elevation_deg is None:
+        from radiosim.core.phase_center import PhaseCenter
+
+        pointing_elevation_deg = math.degrees(PhaseCenter().altitude_rad)
+    reference_time_mjd = float(np.asarray(time_grid.as_astropy().mjd).reshape(-1)[0])
+
+    built: dict[str, JonesTerm] = {}
+    if "G" in configured:
+        gain_config = config.G
+        assert gain_config is not None
+        built["G"] = _resolve_gain_term(
+            gain_config,
+            antenna_numbers=antenna_numbers,
+            overrides=overrides_by_term["G"],
+            reference_time_mjd=reference_time_mjd,
+            pointing_elevation_deg=float(pointing_elevation_deg),
+        )
+    if "B" in configured:
+        bandpass_config = config.B
+        assert bandpass_config is not None
+        built["B"] = _resolve_bandpass_term(
+            bandpass_config,
+            antenna_numbers=antenna_numbers,
+            overrides=overrides_by_term["B"],
+            frequencies_hz=frequencies,
+        )
+
+    # Stage 6 -- the identity check, last, because it needs resolved values.
+    for letter in configured:
+        term = built[letter]
+        is_identity = getattr(term, "is_identity", None)
+        if is_identity is not None and is_identity():
+            _reject_identity(letter)
+
+    chain_terms = tuple(
+        built[letter] for letter in CANONICAL_CHAIN_ORDER if letter in built
+    )
+    chain_order = tuple(
+        letter
+        for letter in CANONICAL_CHAIN_ORDER
+        if letter in built or letter in SOLVER_OWNED_TERMS
+    )
+    term_snapshots = {
+        letter: getattr(config, letter).model_dump(mode="json") for letter in configured
+    }
+    provenance = JonesProvenance(
+        schema_version=JONES_SCHEMA_VERSION,
+        enabled_terms=chain_order,
+        chain_order=chain_order,
+        term_snapshots=term_snapshots,
+        mount_types=mount_types,
+        jones_sha256=_compute_jones_sha256(
+            enabled_terms=chain_order,
+            chain_order=chain_order,
+            term_snapshots=term_snapshots,
+            mount_types=mount_types,
+        ),
+    )
+    return ResolvedJonesTerms(
+        chain_terms=chain_terms,
+        baseline_terms=(),
+        dtypes=_resolved_dtypes(precision),
+        provenance=provenance,
+    )

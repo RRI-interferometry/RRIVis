@@ -108,9 +108,19 @@ REMOVED_JONES_MODULES = ("faraday.py", "wterm.py", "element_beam.py")
 #: acceptance correction to Section 5.1.
 NON_JONES_TODO_CARRIERS = frozenset({"cli/main.py", "core/sky/registry/catalogs.py"})
 
-#: Terms whose physics exists today (Tier 5's receptor pair).  Everything else
-#: exported is ``"planned"`` until its own slice implements it.
-IMPLEMENTED_TERM_NAMES = frozenset({"ReceptorConfigJones", "BasisTransformJones"})
+#: Terms whose physics exists today: Tier 5's receptor pair, plus the two
+#: Tier 7D implemented.  Everything else exported is ``"planned"`` until its own
+#: slice implements it, and this set grows by exactly the terms a slice made
+#: real -- which is what makes I20's eventual "every term is implemented" a
+#: sequence of visible steps rather than one flip at the end.
+IMPLEMENTED_TERM_NAMES = frozenset(
+    {
+        "ReceptorConfigJones",
+        "BasisTransformJones",
+        "GainJones",
+        "BandpassJones",
+    }
+)
 
 
 def _source(relative: str) -> str:
@@ -171,7 +181,8 @@ def test_the_jones_package_exports_exactly_the_surviving_names() -> None:
     assert len(SURVIVING_JONES_NAMES) == 19
     term_names = {name for name, _ in _exported_term_classes()}
     assert len(term_names) == 13
-    assert len(_planned_term_classes()) == 11
+    assert len(IMPLEMENTED_TERM_NAMES) == 4
+    assert len(_planned_term_classes()) == 9
     assert IMPLEMENTED_TERM_NAMES < term_names
     assert term_names | {
         "JonesTerm",

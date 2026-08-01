@@ -36,6 +36,7 @@ from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
 from radiosim.core.jones.directions import DirectionBatch
 from radiosim.core.jones.evaluate import evaluate_antenna_jones
 from radiosim.core.jones.geometric import geometric_phase, uvw_in_wavelengths
+from radiosim.core.jones_terms import EMPTY_JONES_TERMS, ResolvedJonesTerms
 from radiosim.core.polarization import stokes_to_coherency
 from radiosim.core.receptor import ResolvedReceptorSet
 from radiosim.core.runtime_config import ResolvedSolverExecutionConfig
@@ -59,6 +60,7 @@ from radiosim.core.solver_partition import (
 from radiosim.core.visibility import (  # noqa: E402
     _build_jones_chain,
     _host_local_sidereal_time_rad,
+    _require_jones_terms,
     _resolved_receptor_terms,
 )
 
@@ -242,6 +244,7 @@ def calculate_visibility_healpix(
     frequencies: Any,
     backend: ArrayBackend,
     receptors: ResolvedReceptorSet,
+    jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS,
     output_units: str = "Jy",
     include_polarization: bool = False,
     solver_execution: ResolvedSolverExecutionConfig = SERIAL_SOLVER_EXECUTION,
@@ -282,6 +285,12 @@ def calculate_visibility_healpix(
         Every antenna's beam Jones is left-multiplied by the constant
         ``H_p @ C_p``, in both the polarized and the scalar path, so cross-hand
         outputs are zero in the reported basis rather than by assumption.
+    jones_terms : ResolvedJonesTerms, optional
+        The run's resolved Jones-term inventory (``Tier7JonesSciencePlan.md``
+        Section 22).  It reaches the chain through the *same*
+        ``_build_jones_chain`` the point solver uses, which is what makes a
+        configured term unable to apply to point sources without also applying
+        to the diffuse sky (defect D4).  The default is the empty inventory.
     output_units : str, default="Jy"
         Output units: "Jy" (convert to Jansky) or "K.sr" (keep temperature ×
         solid angle). In polarized mode, always "Jy".
@@ -319,6 +328,7 @@ def calculate_visibility_healpix(
         field_name="include_polarization",
     )
     receptors = _require_receptors(receptors)
+    jones_terms = _require_jones_terms(jones_terms)
     solver_execution = require_solver_execution(solver_execution)
     if sky_model.healpix is None:
         raise ValueError(
@@ -482,6 +492,7 @@ def calculate_visibility_healpix(
                 beam_system=beam_system,
                 receptors=receptors,
                 receptor_terms=receptor_terms,
+                jones_terms=jones_terms,
             )
             jones_by_row = evaluate_antenna_jones(
                 chain=chain,

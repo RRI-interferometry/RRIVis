@@ -1008,6 +1008,7 @@ def test_active_top_level_schema_uses_typed_instrument_and_selection(tmp_path):
         "beams",
         "baseline_selection",
         "receptors",
+        "jones",
         "sky_model",
         "obs_time",
         "obs_frequency",

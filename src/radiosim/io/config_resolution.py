@@ -1490,6 +1490,7 @@ def resolve_config(
             beams=beam_config,
             baseline_selection=candidate.baseline_selection,
             receptors=candidate.receptors,
+            jones=candidate.jones,
             sky_model=ResolvedSkyModelConfig(
                 sources=sources,
                 flux_unit=candidate.sky_model.flux_unit,
