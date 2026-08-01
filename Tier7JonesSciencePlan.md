@@ -3759,6 +3759,86 @@ new way — the beam subsystem was already described as the most developed one.
 - `output/crossvalidation/` (evidence artifact)
 - `Fix.md`
 
+**Correction (7J implementation, 2026-08-02) — seven forced additions.** Two
+are the mechanical consequence of the `crossval` feature Section 34 already
+authorizes, two are Section 37 criterion 17 surfaces the list omits, and three
+are pins whose bodies this slice's own changes falsify. None widens what the
+slice does. The same shape, and the same reasoning, as 7E's through 7I's
+corrections.
+
+- `pyproject.toml` — the marker registry. Section 29 asks for "a
+  `performance`-style marked test", and `performance` is registered in
+  `[tool.pytest.ini_options].markers`. An unregistered `crossval` mark would
+  emit a `PytestUnknownMarkWarning` on every collection in both gate
+  environments, which changes the warning count the gate compares. Registering
+  it is one line and is the only way the mark can be a selector rather than a
+  warning.
+- `.gitignore` — `output/*` is ignored, with one deliberate exception for
+  `output/benchmarks/reference/*.json`. Section 34's own 7J list names
+  `output/crossvalidation/` as the evidence artifact, and an artifact that
+  cannot be committed is not evidence. The addition is the same two-line
+  shape as the benchmark exception and un-ignores nothing else.
+- `docs/user_guide/configuration_support.rst` — its "Feature boundaries"
+  section said, verbatim, that polarization leakage `D`, parallactic rotation
+  `P`, gains `G` and bandpass `B` "are not implemented", and its receptor
+  section said a static `feed_rotation_deg` is static "because the
+  parallactic-angle term is not implemented". Both are false since 7D-7F.
+  Criterion 17 is a property of the documentation, not of a file list.
+- `docs/user_guide/beam_models.rst` — same species: "Polarization leakage and
+  a beam that genuinely differs between the two feeds remain Tier 7 work" is
+  half false since 7E. (7I already had this file on its list for the pointing
+  and Ruze sections; the stale sentence is in a different section and was not
+  7I's to fix.)
+- `tests/characterization/test_tier7_current_behavior.py` — it holds the two
+  pins whose docstrings say "OWNED BY: Tier 7J"
+  (`test_claude_md_claims_forty_six_exported_jones_classes`,
+  `test_documentation_no_longer_records_a_stub_surface`). A pin that names its
+  owner cannot be flipped from outside the file that names it; 7D through 7I
+  each flipped their own pins here.
+- `tests/characterization/test_tier6_current_behavior.py` — its jax-cpu pin
+  asserts the literal string `default = ["py311", "jax-cpu"]`, which the
+  `solve-group` form the `crossval` environment requires (see the Section 29
+  correction below) no longer produces. The property Tier 6H wrote it for is
+  preserved and strengthened: every declared environment carries `jax-cpu`,
+  asserted over the parsed manifest rather than over two spelled-out strings.
+- `tests/unit/test_tier4_result_output_acceptance.py` — its
+  `test_locked_environment_and_platform_matrix_is_unchanged` asserts the exact
+  `[environments]` mapping, which a third environment changes by construction.
+  It gains the third entry, the `pyuvsim ==1.4.0` pin, and a stronger
+  assertion than it had: `pyuvsim` is in the `crossval` environment's resolved
+  package list and in neither gating environment's, on every platform.
+
+`docs/user_guide/jones_matrices.rst` is on the list and was **not** changed:
+7C through 7H had already rewritten it around implemented physics, and this
+slice found nothing in it to correct.
+
+**Correction (7J implementation, 2026-08-02) — two facts Section 29's Tier-2
+branch did not anticipate.** Neither changes a decision; both are recorded
+because a reviewer re-deriving the comparison will hit them immediately.
+
+1. **The optional environment must share `default`'s solve group.** Section 41's
+   Q1 record establishes that the `crossval` feature is "additive to the byte",
+   which it is — but only when both environments are solved together. Declaring
+   `crossval` as an independent environment in *this* repository's lock makes
+   pixi solve it from scratch, and it drifts 285 packages away from the gating
+   stack (astropy 8.0.1 against `default`'s 7.1.0, numpy 2.4.6 against 2.3.2,
+   pandas 3.0.5 against 2.3.2, and so on) while leaving `pyuvdata` at the pinned
+   `3.2.1`. A comparison run in that environment would be evidence about a
+   different build of RadioSim. With `default` and `crossval` in one
+   `solve-group`, the measured difference between the two resolved package sets
+   is exactly one entry — `pyuvsim-1.4.0-py3-none-any.whl` — on all three
+   platforms, and `default` and `py312` are byte-identical to their pre-slice
+   package lists. That is what Q1's "additive to the byte" finding requires in
+   practice, so the solve group is not optional.
+2. **`pyuvsim`'s driver needs `mpi4py`; its engine does not.**
+   `pyuvsim.run_uvdata_uvsim` raises `ImportError` without `mpi4py`, which is
+   an extra (`pyuvsim[sim]`) that pulls an MPI implementation and would perturb
+   the shared solve. The comparison therefore drives `pyuvsim.UVEngine` over
+   `pyuvsim.uvsim.UVTask` directly — the class in which every `pyuvsim`
+   visibility is actually computed, and a documented export; the driver only
+   distributes tasks to it. No `pyuvsim` code is reimplemented, and Section
+   29.2's claim boundary is unaffected.
+
 ### 7K
 - `tests/unit/test_tier7_jones_acceptance.py`
 - `Fix.md` (register rows `SCI-001`, `SCI-002`, `SCI-003`; new rows `SCI-004`,
