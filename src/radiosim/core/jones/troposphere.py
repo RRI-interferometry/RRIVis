@@ -366,8 +366,10 @@ def saastamoinen_zenith_hydrostatic_delay_m(
     """Return the Saastamoinen (1972) zenith hydrostatic delay, in metres.
 
     ``ZHD = 0.0022768 P_0 / (1 - 0.00266 cos(2 lat) - 0.00028 h_km)``.  About
-    2.28 m for standard sea-level pressure at mid latitude, which is the number
-    to compare any implementation of this formula against.
+    2.3070 m for standard sea-level pressure at mid latitude (45 degrees, where
+    the ``cos(2 lat)`` correction vanishes exactly), which is the number to
+    compare any implementation of this formula against --
+    ``tests/unit/test_jones/test_troposphere.py`` asserts exactly this value.
     """
     gravity_correction = (
         1.0

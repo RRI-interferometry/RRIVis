@@ -721,7 +721,8 @@ class ExplicitZenithDelay(StrictFrozenModel):
     Parameters
     ----------
     zenith_hydrostatic_delay_m
-        ``ZHD``, the dry excess path at zenith.  About 2.28 m at sea level.
+        ``ZHD``, the dry excess path at zenith.  About 2.31 m at sea level,
+        mid latitude.
     zenith_wet_delay_m
         ``ZWD``, the wet excess path at zenith.  Typically 0.05-0.4 m.  There is
         no wet *model* on either variant, because every credible one needs
