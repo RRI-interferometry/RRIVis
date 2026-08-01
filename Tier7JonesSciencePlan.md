@@ -1413,6 +1413,117 @@ verifiable, and neither breaks the scalar-`E` constraint of Section 4:
 Both live inside `core/beam/` and `BeamSystem`, not in a Jones module, so the
 Tier 3 single-beam-runtime property is preserved.
 
+**Correction (7I implementation, 2026-08-02) — the pointing geometry, stated
+exactly.** The bullet above says only that `(delta_az, delta_el)` "shifts the
+direction at which that antenna's beam is evaluated", which is not a convention:
+the obvious reading — evaluate at `(alt - delta_el, az - delta_az)` — is
+*unimplementable* for RadioSim, whose beams are zenith-pointed. The nominal
+boresight is `alt = 90 deg`, so an additive elevation shift sends the peak to
+`alt = 90 deg + delta_el`, outside the closed `[-pi/2, pi/2]` domain every beam
+evaluator enforces. The slice therefore adopts a genuine rotation, which is what
+makes the bullet's own second invariant ("an offset of `delta` moves the beam's
+evaluated peak by exactly `delta`") true as a great-circle statement rather than
+a small-angle one:
+
+- The offset is a fixed rotation `R(delta_az, delta_el)` of the antenna's beam
+  frame relative to the topocentric horizontal frame, composed as the two
+  encoder errors of an alt-az mount: first a rotation about the local vertical
+  that increases azimuth by `delta_az` (North through East, Section 20.0), then
+  a tilt of `delta_el` about the beam frame's horizontal axis, carrying the
+  boresight from the zenith toward azimuth zero.
+- Composed, the boresight lands at topocentric azimuth `delta_az` and zenith
+  angle `delta_el`. The beam is evaluated at the direction expressed in that
+  rotated frame, `n_beam = R^T n`.
+- Two consequences are exact, and both are asserted: the beam's peak moves by a
+  great-circle angle of exactly `|delta_el|`, in the direction of azimuth
+  `delta_az`; and `delta_az` alone, with `delta_el = 0`, rotates the pattern
+  about the boresight without moving it. The second is the alt-az keyhole
+  degeneracy — real physics at a zenith-pointed mount, not an approximation —
+  and it is why a pure azimuth offset is inert for a circularly symmetric beam
+  and is not inert for the rectangular and elliptical apertures.
+- The horizon gate is unchanged and is applied to the **true** topocentric
+  altitude, never to the rotated one. A rotation of the beam frame does not move
+  the ground: a direction below the true horizon stays zero-response whatever
+  the rotation does to it, and a visible direction whose rotated altitude falls
+  below zero is zeroed by the evaluator's own forward-hemisphere domain. The
+  affected band is `|delta_el|` wide at the horizon, where the response is
+  already negligible.
+
+**Correction (7I implementation, 2026-08-02) — the Ruze voltage convention.**
+The bullet above says `eta_s = exp(-(4 pi sigma / lambda)^2)` "is a single real
+scalar multiplying the beam **voltage** amplitude". Those two clauses cannot
+both hold. Ruze (1966) is a **gain** equation: `G = G_0 exp(-(4 pi sigma /
+lambda)^2)`, and gain is power. RadioSim's `E` is a voltage beam — every
+analytic form in `core/beam/analytic.py` is a voltage pattern, and the RIME
+contracts `E_p B E_q^H`, so a factor `f` on the voltage appears as `f^2` in the
+visibility of a baseline of two like antennas. Multiplying the voltage by
+`eta_s` would therefore reduce the measured power by `eta_s^2`, i.e. would state
+Ruze's equation and implement twice its exponent. The slice implements:
+
+- `eta_s(lambda) = exp(-(4 pi sigma / lambda)^2)` — the **power** efficiency,
+  the published Ruze quantity, resolved and reported under that name;
+- the voltage factor applied to `E` is `sqrt(eta_s) = exp(-(1/2)(4 pi sigma /
+  lambda)^2)`, so that the visibility amplitude on a baseline of two antennas
+  with the same `sigma` is scaled by exactly `eta_s`.
+
+This is the identical discipline Section 27's **I10** already fixed for the
+tropospheric opacity — "the visibility amplitude is scaled by exactly
+`exp(-tau_0)`, confirming the `exp(-tau/2)` voltage convention" — applied to the
+one other efficiency-like scalar in the tier. **I19** is read accordingly: the
+resolved Ruze factor `eta_s` equals `exp(-(4 pi sigma/lambda)^2)` at three
+wavelengths, and the baseline amplitude it produces equals `eta_s`.
+
+**Correction (7I implementation, 2026-08-02) — the accepted `beams` YAML.**
+Section 36's ledger row B15 says "`beams` config gains pointing-offset and
+surface-error fields" and Section 21 writes out only the `jones:` section, so
+the accepted shape for these two is recorded here. Both blocks are optional, both
+are available in all four `beams.mode` values (a pointing offset is a property of
+the mount, not of whether the beam is analytic or tabulated), and both follow
+Section 21.3's field-level rules — every angle carries `_deg`, every length `_m`,
+`per_antenna` is keyed by the Tier 2 tagged antenna reference and rejects an
+unknown or duplicated antenna:
+
+```yaml
+beams:
+  mode: analytic
+  model:
+    kind: circular_aperture
+
+  pointing:                              # optional; absent = no offset anywhere
+    default:                             # optional array-wide default
+      azimuth_offset_deg: 0.0
+      elevation_offset_deg: 0.0
+    per_antenna:                         # optional; overrides the default
+      - antenna: {kind: number, number: 1}
+        azimuth_offset_deg: 90.0
+        elevation_offset_deg: 0.25
+
+  surface_error:                         # optional; absent = no Ruze factor
+    default:
+      rms_surface_error_m: 0.001
+    per_antenna:
+      - antenna: {kind: name, name: ANT0}
+        rms_surface_error_m: 0.004
+```
+
+Two rules follow the tier's own discipline rather than inventing a new one:
+
+- **The R7 shape, applied to these blocks.** A `pointing` or `surface_error`
+  block every one of whose authored numbers is zero is **rejected**, for the
+  reason R7 rejects an identity Jones term: a block that is present and has no
+  effect is the configuration surface that accepts a value and discards it. The
+  check is purely syntactic — it needs no instrument — so it runs at parse time.
+  A zero *entry* alongside a non-zero sibling is accepted and is the honest way
+  to say "this antenna is perfectly pointed", and it is the path **I19**'s
+  zero-offset clause is exercised through from configuration.
+- **An inert resolved value is no value.** An offset of exactly `(0, 0)` and a
+  surface error of exactly `0.0` resolve to *absent*, not to a stored zero. That
+  is what makes **I19**'s "bit-identical to no offset" hold in its strongest
+  form: not merely the same cube, but the same `assignment_fingerprint`, the
+  same `state_fingerprint`, and the same `scientific_sha256`. Recording "no
+  offset" for a zero offset is exact, not lossy — the two configurations are the
+  same science.
+
 ### 19.3 What Tier 7 scopes but does not implement
 
 `TODO.md` is rewritten from a wish list into an explicit **disposition table**:
@@ -3547,6 +3658,53 @@ does not make them stale in a new way.
   `tests/unit/test_core/test_beam_runtime.py`
 - `docs/user_guide/beam_models.rst`, `docs/user_guide/configuration.rst`
 - `Fix.md`
+
+**Correction (7I implementation, 2026-08-02) — six forced additions.** Each is a
+file that *owns* something this slice must change, a pin that names Tier 7I as
+its owner in its own body, or a call site that this slice's physics makes
+incorrect. None widens what the slice does. The same shape, and the same
+reasoning, as 7E's, 7F's, 7G's and 7H's corrections.
+
+- `src/radiosim/io/beam_config.py` — the list says "`src/radiosim/io/config.py`
+  (the `beams` section only)", but no `beams` section lives there. `io/config.py`
+  imports `BeamsConfig` from `io/beam_config.py`, which has owned every
+  user-authored beam input model since Tier 3B; `io/config.py` holds only the
+  field, the removed-field guidance table, and the `_KNOWN_FIELDS_BY_PARENT`
+  rows. The named file is the one this slice cannot avoid, so it is the one the
+  list must name.
+- `src/radiosim/io/config_resolution.py` — `_resolve_beam_input` is the single
+  function that turns a `BeamsConfig` into a `ResolvedBeamsInput`. A new authored
+  block that the resolver cannot see would parse and then vanish, which is
+  defect D2's shape exactly.
+- `src/radiosim/core/beam/__init__.py` — the beam package's public re-export
+  surface. New resolved types that `core/beam/models.py` exports and
+  `core/beam/__init__.py` does not are reachable only by submodule path, which
+  the package has not done for any other resolved beam value.
+- `src/radiosim/core/visibility.py` — `_ResolvedBeamJones`'s per-step cache
+  **only**. The adapter caches one evaluated `(n_dir, 2, 2)` block per
+  `handler_id`, which is correct exactly as long as two antennas sharing a
+  handler have identical responses. Per-antenna pointing offsets and per-antenna
+  surface errors are the first thing in the tier's history that breaks that: two
+  antennas of the same diameter and model share one analytic handler and must
+  now differ. Left alone, the first antenna's response would be silently served
+  to every other antenna on its handler — a wrong answer, not a missing feature.
+  The slice replaces the cache key with the response key `BeamSystem` publishes,
+  which is the `handler_id` itself whenever no offset and no surface error is
+  configured, so the absent case is unchanged by construction.
+- `tests/characterization/test_tier7_current_behavior.py` — one pin,
+  `test_beam_todo_markdown_is_the_sci_003_artifact`, says "OWNED BY: Tier 7I" in
+  its own docstring and asserts that `docs/development/beam_physics_scope.md`
+  does **not** exist. A pin that names its owner cannot be flipped from outside
+  the file that names it; 7D, 7E, 7F, 7G and 7H each flipped their own pins here.
+- `tests/unit/test_core/test_beam_solver_integration.py` — it is the file that
+  exercises `_ResolvedBeamJones` against a real `BeamSystem`, so it is where the
+  shared-handler/differing-response regression above is provable end to end. A
+  slice that changes the adapter's cache and cannot touch its integration test
+  would be asserting the fix nowhere.
+
+`CLAUDE.md` is **not** added: its Implementation Status and beam paragraph are
+Tier 7J's explicit deliverable (D0, D21), and 7I does not make them stale in a
+new way — the beam subsystem was already described as the most developed one.
 
 ### 7J
 - `docs/api/jones.rst`, `docs/user_guide/jones_matrices.rst`,
