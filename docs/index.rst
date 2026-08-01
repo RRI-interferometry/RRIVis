@@ -24,6 +24,7 @@ acceleration.
    user_guide/configuration_support
    user_guide/backends
    user_guide/jones_matrices
+   user_guide/jones_terms
    user_guide/sky_models
    user_guide/beam_models
 

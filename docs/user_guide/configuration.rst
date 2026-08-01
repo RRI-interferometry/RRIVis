@@ -46,6 +46,10 @@ Local formats also require explicit identity and geodetic location:
      overrides: []
      output_basis: auto
 
+   jones:
+     G:
+       amplitude_error: 0.02
+
    obs_time:
      start_time: "2025-01-01T00:00:00"
      duration_seconds: 60.0
@@ -286,6 +290,56 @@ evaluation.
 
 An ``allow_network`` known-telescope source conflicts with global offline mode.
 Validation and offline tests never enumerate the live registry.
+
+Jones-term declarations
+-----------------------
+
+``jones`` selects which instrumental Jones terms corrupt the simulated
+visibilities. The whole section is optional, every term inside it is optional,
+and omitting it produces exactly the visibilities — and exactly the
+``scientific_sha256`` — that a document without the section produced before it
+existed.
+
+RadioSim implements two configurable terms today, ``G`` (complex electronic
+gain) and ``B`` (bandpass). Both are diagonal and neither is unitary. A key for
+any other term letter is rejected at parse time: a configuration surface for a
+term RadioSim cannot honour would accept a value and discard it.
+
+.. code-block:: yaml
+
+   jones:
+     G:
+       amplitude_error: 0.02
+       phase_error_rad: 0.1
+       per_antenna:
+         - antenna: 12
+           feed: 0
+           amplitude_error: 0.05
+       time_model:
+         kind: linear_drift
+         rate_per_hour: 0.01
+     B:
+       model:
+         kind: polynomial
+         coefficients: [1.0, 0.0, -0.05]
+
+There is no ``enabled: false``. To disable a term, delete its block — and a
+block whose resolved parameters make the term exactly the identity is
+*rejected*, because a term that cannot change the visibilities is
+indistinguishable from no term at all. A ``jones:`` key present with nothing
+under it is rejected for the same reason.
+
+``per_antenna`` entries are keyed by antenna **number** and validated against
+the resolved instrument, so an unknown number, a repeated ``(antenna, feed)``
+pair, or a feed index outside ``{0, 1}`` each fail with a message naming the
+term. Every ``jones`` rejection is raised before any beam is loaded, any sky
+model is fetched, or any network access happens.
+
+Write floats in scientific notation with a signed exponent — ``1.0e+8``, not
+``1.0e8`` — because YAML 1.1 parses the unsigned form as a string.
+
+See :doc:`jones_terms` for each term's mathematics, units, citation, and full
+field list, and for where the enabled terms are recorded in the outputs.
 
 Receptor declarations
 ---------------------
