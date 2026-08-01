@@ -745,7 +745,13 @@ def test_tier5g_configuration_guide_documents_every_receptor_mode():
         "RR, RL, LR, LL",
         "result.polarization_basis",
         "parallel hands",
-        "mount type other than ``fixed``",
+        # FLIPPED BY: Tier 7F.  The guide said "A mount type other than ``fixed``
+        # is rejected ... because the parallactic term is not implemented yet",
+        # which stopped being true when ``P`` landed.  What replaces it is the
+        # statement the reader now needs: the static rotation and the field
+        # rotation compose, and the mount pairing belongs to ``jones.P``.
+        "``feed_rotation_deg`` is the **static** part of the orientation",
+        "Receptor resolution does not\nlook at ``mount_type`` at all",
     ):
         assert required in text, required
     assert "illumination" in text
@@ -780,16 +786,27 @@ def test_tier5g_jones_guide_states_the_receptor_science_boundaries():
     assert "any non-zero leakage" in collapsed
     assert "set ``receptors.output_basis`` to the antennas' own basis" in collapsed
     assert "When Tier 7 implements ``D``" not in collapsed
+    # FLIPPED BY: Tier 7F.  Until this slice the guide said ``P`` was "planned
+    # rather than implemented", that only ``mount_type: fixed`` was accepted,
+    # and that ``feed_rotation_deg`` was therefore *the* rotation.  ``P`` is
+    # real, so the promise is discharged and the assertion moves to the sentence
+    # that replaces it: the static rotation is one half of a composition whose
+    # other half is a term, and the two add.  The property being pinned -- that
+    # the guide states the boundary rather than implying there is none -- is
+    # unchanged.
     assert (
-        "``feed_rotation_deg`` is a **static** rotation in the topocentric frame"
-        in collapsed
+        "``feed_rotation_deg`` is the **static** part of the receptor "
+        "orientation" in collapsed
     )
+    assert "is planned rather than implemented" not in collapsed
+    assert "the static feed rotation and the field rotation **add**" in collapsed
     # The canonical order gained ``Rc``, ``Kd`` and ``X`` when Tier 7E made them
-    # real; ``P``'s placement is still Tier 5's and moves at Tier 7F.
+    # real, and Tier 7F moved ``P`` sky-side of ``C`` (defect D12).
     assert (
-        "J_p = H_p\\, G_p\\, B_p\\, Rc_p\\, Kd_p\\, X_p\\, D_p\\, P_p\\, C_p\\, "
-        "E_p\\, T_p\\, Z_p" in text
+        "J_p = H_p\\, G_p\\, B_p\\, Rc_p\\, Kd_p\\, X_p\\, D_p\\, C_p\\, E_p\\, "
+        "P_p\\, T_p\\, Z_p" in text
     )
+    assert "D_p\\, P_p\\, C_p" not in text
     assert "V_{RR} &= (I + V)/2" in text
     assert "U + iV" in text
 
@@ -832,7 +849,12 @@ def test_tier5g_migration_guide_maps_the_receptor_and_illumination_changes():
         "receptors.default.n_feeds",
         "receptors.default.feed_angle_deg",
         "AmbiguousOutputBasisError",
-        "UnsupportedFeedGeometryError",
+        # FLIPPED BY: Tier 7F.  ``UnsupportedFeedGeometryError`` was the type of
+        # the blanket mount rejection this slice removed; the guide now names
+        # its replacement, and both new messages verbatim.
+        "UnsupportedMountTypeError",
+        "whose feeds rotate with the sky; enable",
+        "Parallactic angle and mount types",
         "UnsupportedSchemaVersionError",
         "ReceptorConfigJones(feed_type=...)",
         "BasisTransformJones(from_basis=..., to_basis=...)",

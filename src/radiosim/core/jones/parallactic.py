@@ -41,15 +41,15 @@ Mounts
 ``eta_p`` is the mount factor, resolved from each antenna's ``mount_type``
 (``core/instrument.py``), and it is what makes a heterogeneous array correct:
 
-===================  =====  ==================================================
-``mount_type``       eta    Meaning
-===================  =====  ==================================================
-``alt-az``           ``+1`` full parallactic rotation
-``equatorial``       ``0``  the feeds track the sky; no relative rotation
-``fixed``            ``0``  the Tier 5 case; the static ``chi`` in ``C`` is all
-``alt-az+nasmyth-r`` ``+1`` Nasmyth right: ``psi + el``
-``alt-az+nasmyth-l`` ``+1`` Nasmyth left: ``psi - el``
-===================  =====  ==================================================
+====================  ======  =============================================
+``mount_type``        eta     Meaning
+====================  ======  =============================================
+``alt-az``            ``+1``  full parallactic rotation
+``equatorial``        ``0``   the feeds track the sky; no relative rotation
+``fixed``             ``0``   the feeds are fixed to the ground
+``alt-az+nasmyth-r``  ``+1``  Nasmyth right: ``psi + el``
+``alt-az+nasmyth-l``  ``+1``  Nasmyth left: ``psi - el``
+====================  ======  =============================================
 
 An **unspecified** mount (``None``) is the ``fixed`` case.  Every instrument
 source RadioSim reads except a pyuvdata dataset produces ``None`` -- a layout

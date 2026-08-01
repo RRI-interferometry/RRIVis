@@ -300,13 +300,14 @@ and omitting it produces exactly the visibilities — and exactly the
 ``scientific_sha256`` — that a document without the section produced before it
 existed.
 
-RadioSim implements six configurable terms today: ``G`` (complex electronic
+RadioSim implements seven configurable terms today: ``G`` (complex electronic
 gain), ``B`` (bandpass), ``Rc`` (cable reflection), ``Kd`` (instrumental delay),
-``X`` (cross-hand phase and delay) and ``D`` (polarization leakage). The first
-five are diagonal; ``D`` is not. Only ``Kd`` and ``X`` are unitary. A key for
-any other term letter — ``P``, ``Z``, ``T``, ``M``, ``Q`` — is rejected at parse
-time: a configuration surface for a term RadioSim cannot honour would accept a
-value and discard it.
+``X`` (cross-hand phase and delay), ``D`` (polarization leakage) and ``P``
+(parallactic angle). The first five are diagonal; ``D`` and ``P`` are not. Only
+``Kd``, ``X`` and ``P`` are unitary, and ``P`` is the only one that is
+direction-dependent. A key for any other term letter — ``Z``, ``T``, ``M``,
+``Q`` — is rejected at parse time: a configuration surface for a term RadioSim
+cannot honour would accept a value and discard it.
 
 .. code-block:: yaml
 
@@ -338,6 +339,8 @@ value and discard it.
          kind: explicit          # explicit | ixr | frequency_polynomial
          d0: [0.02, 0.0]
          d1: [0.0, 0.02]
+     P:
+       enabled: true             # the whole block; P has no free parameter
 
 Terms are applied in the canonical chain order regardless of the order the keys
 appear in the document, so two files that enable the same terms produce the same
@@ -347,7 +350,16 @@ There is no ``enabled: false``. To disable a term, delete its block — and a
 block whose resolved parameters make the term exactly the identity is
 *rejected*, because a term that cannot change the visibilities is
 indistinguishable from no term at all. A ``jones:`` key present with nothing
-under it is rejected for the same reason.
+under it is rejected for the same reason. ``P`` is the one block with an
+``enabled`` key at all, because the parallactic angle has no other parameter,
+and writing ``false`` there reaches the same rejection.
+
+``jones.P`` is also the one term paired with the *instrument*: which antennas'
+feeds rotate is decided by each antenna's ``mount_type``. An antenna on a
+rotating mount (``alt-az`` or either Nasmyth variant) with no ``jones.P`` is
+rejected, an array on which nothing rotates cannot configure ``jones.P``, and a
+mount type outside the five ``P`` models is rejected either way. See
+:doc:`jones_terms` for the three messages.
 
 ``per_antenna`` entries are keyed by antenna **number** and validated against
 the resolved instrument, so an unknown number, a repeated ``(antenna, feed)``
@@ -460,9 +472,10 @@ Boundaries. ``output_basis: auto`` cannot resolve a mixed array and is rejected
 with a count of linear and circular antennas; name the basis instead. A
 ``basis`` value other than ``linear`` or ``circular``, a single-feed or
 multi-feed antenna, elliptical or non-orthogonal feed pairs, independent
-per-feed angles, and a frequency- or time-dependent basis are all rejected. A
-mount type other than ``fixed`` is rejected, and a non-zero
-``feed_rotation_deg`` combined with an enabled parallactic-angle term is
-rejected, because the parallactic term is not implemented yet. The removed
-top-level ``feeds`` key is rejected with a pointer at this section; see
+per-feed angles, and a frequency- or time-dependent basis are all rejected.
+``feed_rotation_deg`` is the **static** part of the orientation; the
+time-dependent part is ``jones.P``, and the two compose into a rotation by
+:math:`\chi + \psi(t)` rather than conflicting. Receptor resolution does not
+look at ``mount_type`` at all — that is ``jones.P``'s pairing, above. The
+removed top-level ``feeds`` key is rejected with a pointer at this section; see
 :doc:`../migration_guide`.

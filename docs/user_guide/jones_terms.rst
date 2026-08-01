@@ -65,12 +65,16 @@ What is implemented today
      - Polarization leakage
      - ``jones.D``
      - implemented
+   * - ``P``
+     - Parallactic angle / field rotation
+     - ``jones.P``
+     - implemented
 
-Five further terms — ``P``, ``Z``, ``T``, ``M`` and ``Q`` — exist as named
-classes with documented physics and **no implementation**: constructing one is
-allowed, evaluating one raises. They have no configuration block, deliberately.
-A schema field for a term that cannot be honoured would accept a value and
-discard it, which is worse than refusing.
+Four further terms — ``Z``, ``T``, ``M`` and ``Q`` — exist as named classes with
+documented physics and **no implementation**: constructing one is allowed,
+evaluating one raises. They have no configuration block, deliberately. A schema
+field for a term that cannot be honoured would accept a value and discard it,
+which is worse than refusing.
 
 
 The ``jones:`` section
@@ -83,7 +87,9 @@ produced before the section existed — the same numbers and the same
 
 Two rules follow from that, and both are enforced:
 
-* There is no ``enabled: false``. To disable a term, remove its block.
+* There is no ``enabled: false``. To disable a term, remove its block. ``P``
+  is the one block with an ``enabled`` key at all — it has no other parameter —
+  and writing ``false`` there is rejected with the same "remove it" message.
 * A block whose resolved parameters make the term exactly the identity is
   **rejected**. A term that cannot change the visibilities is indistinguishable
   from no term, and accepting one would reintroduce the silent-no-op behaviour
@@ -568,6 +574,132 @@ What ``D`` does and does not do
 * ``D`` is direction-independent by construction. A leakage that varied across
   the beam is *beam squint*, which belongs to the beam subsystem; modelling it
   here would create a second beam pathway.
+
+
+P — parallactic angle and field rotation
+----------------------------------------
+
+An alt-azimuth antenna's feeds rotate relative to the sky as a source is
+tracked. The rotation angle is the **parallactic angle**: the position angle of
+the zenith seen from the direction, measured North through East. For a direction
+with hour angle :math:`H` and declination :math:`\delta`, observed from geodetic
+latitude :math:`\phi`,
+
+.. math::
+
+   \psi(H, \delta, \phi) = \operatorname{atan2}\bigl(
+       \sin H \cos\phi,\;
+       \sin\phi \cos\delta - \cos\phi \sin\delta \cos H \bigr),
+
+and the Jones factor is the real rotation
+
+.. math::
+
+   P_p(s, t) = R\bigl(\eta_p\, \psi_p(s, t) + \nu_p\, \mathrm{el}(s)\bigr),
+   \qquad
+   R(a) = \begin{bmatrix} \cos a & \sin a \\ -\sin a & \cos a \end{bmatrix},
+
+which is the same :math:`R` the receptor term uses, so that
+:math:`C_p P_p = M(\mathrm{basis}) R(\chi + \psi)`.
+
+The two-argument arctangent is not decoration. An :math:`\arcsin` form folds two
+quadrants onto two others and is wrong for a source below the pole while passing
+every narrow-field test.
+
+``P`` is evaluated **per direction**, not once per field. Over a degree-scale
+field :math:`\psi` varies measurably across the primary beam; in the
+narrow-field limit it converges on the single-direction value at first order in
+the field width. That is what makes ``P`` a direction-dependent effect rather
+than a per-antenna scalar rotation.
+
+References: Thompson, Moran & Swenson (2017) §4.5 and Appendix 4.1; Hamaker,
+Bregman & Sault (1996) §5; Perley & Butler (2013), ApJS **206**, 16.
+
+Mounts
+~~~~~~
+
+:math:`\eta_p` and :math:`\nu_p` come from each antenna's ``mount_type`` in the
+resolved instrument, which is what makes a heterogeneous array correct:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 15 55
+
+   * - ``mount_type``
+     - :math:`(\eta, \nu)`
+     - Meaning
+   * - ``alt-az``
+     - ``(1, 0)``
+     - full parallactic rotation
+   * - ``equatorial``
+     - ``(0, 0)``
+     - the feeds track the sky; no relative rotation
+   * - ``fixed``
+     - ``(0, 0)``
+     - the feeds are fixed to the ground; the static ``chi`` is the whole of it
+   * - ``alt-az+nasmyth-r``
+     - ``(1, +1)``
+     - Nasmyth right: :math:`\psi + \mathrm{el}`
+   * - ``alt-az+nasmyth-l``
+     - ``(1, -1)``
+     - Nasmyth left: :math:`\psi - \mathrm{el}`
+
+An **unspecified** mount is the ``fixed`` case. Only a pyuvdata dataset source
+carries mount metadata at all — a layout file has no column for one — so this is
+what keeps an array with no mount metadata producing exactly the visibilities it
+produced before this term existed.
+
+Configuration
+~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   jones:
+     P:
+       enabled: true
+
+That is the whole block. The parallactic angle has no free parameter: it is
+fully determined by the resolved instrument's latitude and mount types, the time
+grid, and the directions. Inventing a parameter to make ``P`` look like the
+other terms would be dishonest.
+
+Rejections
+~~~~~~~~~~
+
+The mount types and ``jones.P`` are a partition, not two independent switches:
+
+* An antenna whose ``mount_type`` is outside the five above is rejected, with or
+  without ``jones.P``: *"antenna 3 has mount_type=phased, which the
+  parallactic-angle term does not model; supported mounts are alt-az,
+  equatorial, fixed, alt-az+nasmyth-l, alt-az+nasmyth-r."*
+* An antenna whose feeds rotate — ``alt-az`` or either Nasmyth — with no
+  ``jones.P`` is rejected: *"antenna 3 has mount_type=alt-az, whose feeds rotate
+  with the sky; enable 'jones.P' or the simulation would silently treat it as a
+  fixed mount."* Treating a rotating mount as fixed is a silent scientific
+  error, not a default.
+* ``jones.P`` on an array where **no** antenna's feeds rotate is rejected as an
+  identity, like every other term that cannot change the visibilities.
+
+What ``P`` does and does not change
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``P`` is real and orthogonal, so :math:`P P^{T} = I_2` exactly. It moves no
+  power.
+* On a homogeneous array, an **unpolarized** sky is untouched: the same rotation
+  on both antennas leaves :math:`R\, I_2\, R^{T} = I_2`. Stokes ``I`` and ``V``
+  are invariant in general.
+* In the linear basis it rotates :math:`(Q, U)` by :math:`2\psi`. In the
+  circular basis it multiplies :math:`V_{RL}` by :math:`e^{-2i\psi}` and
+  :math:`V_{LR}` by :math:`e^{+2i\psi}`, leaving :math:`RR` and :math:`LL`
+  alone.
+* On a **heterogeneous** array — two mounts, or a Nasmyth pair of opposite hand
+  — even an unpolarized sky is affected, because the two antennas no longer
+  receive the same rotation.
+* ``P`` is achromatic. The rotation is geometric; nothing in it depends on
+  frequency.
+* ``psi`` is evaluated at the array's own geodetic latitude, the same one the
+  direction batch inverted the horizontal transform with, so the two halves of
+  the geometry cannot disagree.
 
 
 Where the record goes

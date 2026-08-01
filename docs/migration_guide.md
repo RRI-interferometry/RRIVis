@@ -540,9 +540,10 @@ A `basis` other than `linear` or `circular`, and an `output_basis` other than
 `auto`, `linear`, or `circular`, are rejected at schema validation. Naming
 `output_basis: auto` for an array with mixed native bases is rejected at
 resolution with `AmbiguousOutputBasisError`, which reports both antenna counts;
-name the basis explicitly instead. A `mount_type` other than `fixed`, and a
-non-zero `feed_rotation_deg` combined with an enabled parallactic-angle term, are
-rejected with `UnsupportedFeedGeometryError`.
+name the basis explicitly instead. Receptor resolution no longer looks at
+`mount_type` at all, and a non-zero `feed_rotation_deg` combined with an enabled
+parallactic-angle term is no longer rejected — see **Parallactic angle and
+mount types** under *Jones terms and the visibility strategy selector*.
 
 The stub constructors are removed, not deprecated:
 `ReceptorConfigJones(feed_type=...)` and
@@ -626,6 +627,64 @@ equality is asserted by a standing test so a second, unread selector cannot
 reappear. A spherical-harmonic or m-mode solver is a future simulator
 registration, not a value on a removed field.
 
+### Parallactic angle and mount types
+
+`jones.P` is implemented. Two earlier rejections are gone, and two new ones
+replace them.
+
+Gone: receptor resolution rejected **every** antenna whose `mount_type` was not
+`fixed`, with a message that named a tier rather than a fix, so an ordinary
+alt-azimuth array could not be simulated at all. It also rejected a non-zero
+`feed_rotation_deg` combined with an enabled parallactic-angle term. Both are
+removed. The static feed rotation and the field rotation now compose:
+`C_p P_p = M(basis) R(chi + psi)`.
+
+New, and both raised by `UnsupportedMountTypeError` during Jones resolution,
+before any beam or sky is loaded:
+
+```text
+antenna 3 has mount_type=phased, which the parallactic-angle term does not
+model; supported mounts are alt-az, equatorial, fixed, alt-az+nasmyth-l,
+alt-az+nasmyth-r.
+```
+
+```text
+antenna 3 has mount_type=alt-az, whose feeds rotate with the sky; enable
+'jones.P' or the simulation would silently treat it as a fixed mount.
+```
+
+The second is the replacement for the removed blanket rejection, and it names
+the fix rather than a tier. Conversely, `jones.P` on an array where no antenna's
+feeds rotate — every `fixed`, every `equatorial`, or an instrument source that
+carried no mount metadata — is rejected as an identity, like every other term
+that cannot change the visibilities.
+
+Only a pyuvdata dataset source carries mount metadata; a layout file has no
+column for one, and an unspecified mount is the `fixed` case. **A configuration
+built from a layout file is therefore unaffected**: its visibilities and its
+`scientific_sha256` are what they were.
+
+### The canonical chain order changed: `P` moved sky-side of `C`
+
+The canonical factorization is now
+
+```text
+J_p = H_p G_p B_p Rc_p Kd_p X_p D_p C_p E_p P_p T_p Z_p     (K applied separately)
+```
+
+Earlier releases placed `P` between `D` and `C`, following Tier 5's
+factorization. That is wrong for a circular receptor: a field rotation acts on
+the incoming field in the linear topocentric frame, so the physical composite is
+`M(basis) R(chi + psi) = C R(psi)` and `R(psi)` belongs sky-side of `C`. Under
+the old order the `(R, L)` pair would be mixed by a real 2x2 rotation, when
+`S R(psi) S^H = diag(e^-i psi, e^+i psi)` says the correct effect is a pair of
+opposite phases.
+
+This affects only runs with `jones.P` enabled, which could not exist before it
+was implemented, so no stored result changes. It supersedes
+`Tier5ReceptorFeedPlan.md` §19.1 for `P` and for `P` only; every other term
+keeps its position.
+
 ### Removed Jones classes
 
 Twenty-six exported Jones classes were removed before v1.0. Every one of them
@@ -645,8 +704,8 @@ the owning term.
 | `IXRLeakageJones` | `PolarizationLeakageJones` with `d_terms.kind: ixr` |
 | `MuellerLeakageJones` | `PolarizationLeakageJones`; a Mueller matrix is a derived 4x4 view of the same 2x2 Jones |
 | `BeamSquintLeakageJones` | the beam subsystem; squint is a beam property, not a D-term |
-| `FieldRotationJones` | `ParallacticAngleJones`, which is direction-dependent and subsumes it exactly |
-| `VLBIFeedRotationJones` | the per-antenna `mount_type` already carried by the resolved instrument |
+| `FieldRotationJones` | `ParallacticAngleJones`, which is direction-dependent and subsumes it exactly; enable it with `jones.P` |
+| `VLBIFeedRotationJones` | the per-antenna `mount_type` carried by the resolved instrument, which `ParallacticAngleJones` reads (`alt-az+nasmyth-l` and `alt-az+nasmyth-r` included) |
 | `TurbulentIonosphereJones` | no replacement; stochastic screens are out of scope |
 | `GPSIonosphereJones` | no replacement; RadioSim has no IONEX reader |
 | `SaastamoinenTroposphereJones` | `TroposphereJones` with `zenith_delay.kind: saastamoinen` |

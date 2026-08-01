@@ -5,17 +5,18 @@ RadioSim exposes a Jones-term framework in which public class availability is
 not the same as implemented high-level science, and every term says which it
 is. The current high-level ``Simulator`` always applies geometric phase (K), the
 canonical scalar E-Jones primary beam, the receptor configuration (C), and the
-output basis transform (H). Six further terms — gain (G), bandpass (B), cable
-reflection (Rc), instrumental delay (Kd), cross-hand phase and delay (X), and
-polarization leakage (D) — carry real physics and are applied when the
-``jones:`` section configures them; see :doc:`jones_terms` for each one's
-mathematics, units, citation, and configuration. All ten are
+output basis transform (H). Seven further terms — gain (G), bandpass (B), cable
+reflection (Rc), instrumental delay (Kd), cross-hand phase and delay (X),
+polarization leakage (D), and parallactic angle (P) — carry real physics and are
+applied when the ``jones:`` section configures them; see :doc:`jones_terms` for
+each one's mathematics, units, citation, and configuration. All eleven are
 ``term_status: implemented``.
 
-The remaining exported terms — ``P``, ``Z``, ``T``, ``M`` and ``Q`` — are
+The remaining exported terms — ``Z``, ``T``, ``M`` and ``Q`` — are
 ``term_status: planned``: each has a documented physical effect and a position
 in the chain below, and each **raises** when evaluated. None of them multiplies
-by the identity, so a term cannot silently do nothing.
+by the identity, so a term cannot silently do nothing. Tier 7 of the remediation
+programme is what turns each of them into physics, one slice at a time.
 
 RIME context
 ------------
@@ -180,14 +181,32 @@ reporting basis.
 Parallactic-angle boundary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``ParallacticAngleJones`` (``P``) is planned rather than implemented, and only
-``mount_type: fixed`` is accepted, so ``feed_rotation_deg`` is a **static**
-rotation in the topocentric frame for the whole observation. ``C`` is therefore
-time-independent, and no run can carry a time-dependent feed orientation: the
-mount-type rejection is what enforces that. When Tier 7 implements
-``P``, the composition :math:`P_p(t)\,C_p` becomes the full time-dependent
-receptor orientation, ``P`` moves sky-side of ``C`` in the factorization below,
-and the blanket mount-type rejection is replaced by one that names the fix.
+``feed_rotation_deg`` is the **static** part of the receptor orientation, in the
+topocentric frame, for the whole observation. ``C`` is therefore
+time-independent, and the time-dependent part is a separate term: ``P``
+(``ParallacticAngleJones``), which is implemented and documented in
+:doc:`jones_terms`.
+
+The two compose, and this is the composition the ordering below exists for:
+
+.. math::
+
+   C_p\, P_p = M(\mathrm{basis}_p)\, R(\chi_p)\, R(\psi_p(s, t))
+             = M(\mathrm{basis}_p)\, R(\chi_p + \psi_p(s, t)),
+
+so the static feed rotation and the field rotation **add**. There is no
+double-rotation and no dropped one: enabling ``jones.P`` on an array with a
+non-zero ``feed_rotation_deg`` is legal, and the composite is the receptor at
+:math:`\chi + \psi`. Earlier releases rejected that combination outright; see
+:doc:`../migration_guide`.
+
+Which antennas rotate is a property of the **instrument**, not of the
+``receptors`` section: each antenna's ``mount_type`` decides it. ``alt-az`` and
+the two Nasmyth variants rotate; ``equatorial``, ``fixed`` and an unspecified
+mount do not. An array with a rotating mount and no ``jones.P`` is rejected, and
+an array with no rotating mount that configures ``jones.P`` is rejected as well,
+because the term would be exactly :math:`I_2`. See :doc:`jones_terms` for both
+messages.
 
 Chain order
 -----------
@@ -196,16 +215,16 @@ The canonical factorization, leftmost factor nearest the correlator, is
 
 .. math::
 
-   J_p = H_p\, G_p\, B_p\, Rc_p\, Kd_p\, X_p\, D_p\, P_p\, C_p\, E_p\, T_p\, Z_p,
+   J_p = H_p\, G_p\, B_p\, Rc_p\, Kd_p\, X_p\, D_p\, C_p\, E_p\, P_p\, T_p\, Z_p,
 
 with the geometric phase K applied separately by the solver. ``H`` is leftmost
 because it is a reporting-basis change performed at the correlator, and ``C``
-sits between the sky-side direction-dependent terms (``E``, ``T``, ``Z``) and
-the electronics-side direction-independent terms (``D``, ``X``, ``Kd``, ``Rc``,
-``B``, ``G``), because leakage, delays and gains are defined in the receptor's
-own basis. ``JonesChain`` composes ``terms[0] @ terms[1] @ ... @ terms[-1]``, so
-terms are added in that same left-to-right order and the leftmost factor is
-applied last.
+sits between the sky-side direction-dependent terms (``E``, ``P``, ``T``, ``Z``)
+and the electronics-side direction-independent terms (``D``, ``X``, ``Kd``,
+``Rc``, ``B``, ``G``), because leakage, delays and gains are defined in the
+receptor's own basis. ``JonesChain`` composes
+``terms[0] @ terms[1] @ ... @ terms[-1]``, so terms are added in that same
+left-to-right order and the leftmost factor is applied last.
 
 What in that order is physical, and what is convention
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -221,25 +240,41 @@ What in that order is physical, and what is convention
   it is **not** a physical claim. ``D`` is *not* in that set — it is
   off-diagonal, and it does not commute with a feed-asymmetric ``G``, ``B``,
   ``Kd`` or ``Rc``, nor with ``X``.
-* **Not yet observable.** The placement of ``P`` shown above is Tier 5's, and it
-  is unobservable while ``P`` is planned. Implementing ``P`` moves it sky-side of
-  ``C``; see the parallactic-angle boundary above.
+* **Physical, and tested.** ``P`` sits **sky-side** of ``C`` and ``E``. A field
+  rotation acts on the incoming field in the linear topocentric frame, before
+  the receptor sees it, so :math:`C_p P_p = M(\mathrm{basis}) R(\chi + \psi)`
+  is a single rotation of the receptor pair. Earlier releases placed ``P``
+  correlator-side of ``C``, following Tier 5's factorization; that is wrong for
+  a circular receptor, where it would apply a real 2x2 rotation to the
+  :math:`(R, L)` pair. Since :math:`S R(\psi) = \mathrm{diag}(e^{-i\psi},
+  e^{+i\psi}) S`, the correct effect on circular polarizations is a pair of
+  opposite phases, which multiplies :math:`V_{RL}` by :math:`e^{-2i\psi}` and
+  :math:`V_{LR}` by :math:`e^{+2i\psi}`. The two orders agree exactly for a
+  linear receptor, where :math:`M = I_2` and rotations commute, which is why the
+  error was unobservable while ``P`` did not exist. See
+  :doc:`../migration_guide`.
+* **Not yet observable.** The relative order of ``E`` and ``P``. ``E`` is a
+  scalar complex voltage on the diagonal, so it commutes with everything and
+  ``C E P`` and ``C P E`` are numerically identical. The order is fixed at
+  ``C E P`` because that is the physically correct one for a future non-scalar
+  ``E``.
 
 Planned terms
 -------------
 
-Ionosphere (``Z``), troposphere (``T``), parallactic rotation (``P``), and the
-two baseline-Hadamard terms (``M``, ``Q``) are exported, documented, and
-**not implemented**. Each declares ``term_status: planned`` and raises when
-evaluated, so none of them can enter a result. Until each gains its conventions,
+Ionosphere (``Z``), troposphere (``T``), and the two baseline-Hadamard terms
+(``M``, ``Q``) are exported, documented, and **not implemented**. Each declares
+``term_status: planned`` and raises when evaluated, so none of them can enter a
+result. Until each gains its conventions,
 analytic invariants, reference comparisons, backend parity, and a test proving a
 configured effect changes the visibilities, it supports no scientific claim.
 
 Every other Jones class that this package once exported has been removed rather
 than kept as a placeholder: turbulent and GPS ionospheres, w-phase and
 w-projection, element beams and array factors, fringe fitting, and the leakage,
-bandpass, gain and parallactic variants that were parameterizations of a term
-rather than terms of their own. See :doc:`../migration_guide` for the
+bandpass, gain and field-rotation variants that were parameterizations of a term
+rather than terms of their own -- a per-direction ``P`` subsumes the last of
+those exactly. See :doc:`../migration_guide` for the
 replacement for each name.
 
 Low-level framework use
