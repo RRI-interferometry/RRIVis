@@ -653,3 +653,137 @@ def test_a_nonuniform_frequency_grid_keeps_its_declared_widths(tmp_path) -> None
     np.testing.assert_allclose(
         term.channel_frequencies_hz, np.array([1.0e8, 1.05e8, 1.3e8])
     )
+
+
+# ---------------------------------------------------------------------------
+# I7 and I12 through the solver
+# ---------------------------------------------------------------------------
+
+
+def _single_source() -> dict[str, Any]:
+    """One point source, so a visibility is one direction's and not a sum.
+
+    The amplitude-only property of ``Q`` is a statement about a *direction*: two
+    sources that decorrelate by different amounts sum to a visibility whose
+    phase has moved, and that is decorrelation rather than an error.  A
+    single-source workload is what lets the phase clause be asserted at all.
+    """
+    from tests.characterization.test_tier6_current_behavior import (
+        _workload_point_sources,
+    )
+
+    sources = _workload_point_sources(polarized=True, gaussian=False)
+    return {
+        key: (value[:1] if isinstance(value, np.ndarray) else value)
+        for key, value in sources.items()
+    }
+
+
+def _cube(
+    tmp_path,
+    jones: dict[str, Any] | None,
+    *,
+    single_source: bool = False,
+) -> np.ndarray:
+    """Return one point-path cube for the shipped fixture workload."""
+    from radiosim.core.visibility import calculate_visibility
+    from tests.characterization.test_tier6_current_behavior import (
+        WORKLOAD_LOCATION,
+        WORKLOAD_TIME_GRID,
+        _workload_point_sources,
+    )
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones)
+    )
+    sources = (
+        _single_source()
+        if single_source
+        else _workload_point_sources(polarized=True, gaussian=False)
+    )
+    return np.asarray(
+        calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=sources,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=_BACKEND,
+            receptors=receptors,
+            jones_terms=jones_terms,
+        )
+    )
+
+
+#: The shipped fixture is a single 14 m East-West baseline observing near
+#: zenith with 1 MHz channels on a 1-second cadence, so both envelopes are of
+#: order ``1e-7`` below one.  Small, and *correct*: it is what that instrument
+#: really loses, and inflating it would mean simulating a different array.
+_SMEARING = {"Q": {"bandwidth_smearing": True, "time_smearing": True}}
+
+
+def test_a_configured_smearing_changes_the_visibilities(tmp_path) -> None:
+    """I7, made mechanical: ``Fix.md`` Section 16 rule 5."""
+    clean = _cube(tmp_path, None)
+    smeared = _cube(tmp_path, _SMEARING)
+
+    scale = float(np.max(np.abs(clean)))
+    assert float(np.max(np.abs(smeared - clean))) / scale > 1e-10
+    assert np.all(np.isfinite(smeared))
+
+
+def test_smearing_reduces_amplitude_and_leaves_every_phase_alone(tmp_path) -> None:
+    """I12 at the solver: the envelope is real, positive here, and ``<= 1``.
+
+    Asserted on the cube rather than on the factor, because the property that
+    matters to a user is about the visibility: a smeared visibility is the clean
+    one scaled down, with its phase untouched to ``1e-12``.
+
+    One source, deliberately.  With two sources decorrelating by different
+    amounts the *sum* does move in phase, by about ``3e-7`` radians on this
+    workload -- which is the physics of an average and not a defect in ``Q``, and
+    is why the clause is a statement about a direction.
+    """
+    clean = _cube(tmp_path, None, single_source=True)
+    smeared = _cube(tmp_path, _SMEARING, single_source=True)
+
+    nonzero = np.abs(clean) > 0.0
+    ratio = np.abs(smeared[nonzero]) / np.abs(clean[nonzero])
+    assert float(np.max(ratio)) <= 1.0
+    assert float(np.min(ratio)) > 0.0
+
+    phase_shift = np.angle(smeared[nonzero] / clean[nonzero])
+    np.testing.assert_allclose(phase_shift, 0.0, rtol=0.0, atol=1e-12)
+
+
+def test_the_autocorrelation_baseline_is_left_bit_identical(tmp_path) -> None:
+    """A zero-length baseline has no delay and no fringe, so ``Q`` is one.
+
+    Bit-identical and not merely close: ``numpy.sinc(0)`` is exactly ``1``, and
+    multiplying by it must not perturb the accumulated block at all.  The
+    shipped ``correlations: all`` selection puts the two autocorrelations first
+    and third, which is what makes this assertable on a real run.
+    """
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument = solver_components_with_jones(tmp_path, _SMEARING)[0]
+    pairs = list(instrument.selected_pairs)
+    autos = [index for index, (p, q) in enumerate(pairs) if p == q]
+    assert autos, pairs
+
+    clean = _cube(tmp_path, None)
+    smeared = _cube(tmp_path, _SMEARING)
+
+    for index in autos:
+        np.testing.assert_array_equal(smeared[:, index], clean[:, index])
+    # ... while the cross baseline in the same run really did move.
+    cross = [index for index, (p, q) in enumerate(pairs) if p != q]
+    assert any(
+        not np.array_equal(smeared[:, index], clean[:, index]) for index in cross
+    )

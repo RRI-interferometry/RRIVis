@@ -570,12 +570,43 @@ _PARITY_IONOSPHERE_GRADIENT: dict[str, Any] = {
     }
 }
 
+#: Tier 7H's two baseline-dependent terms.  ``M`` carries a full 2x2 -- every
+#: entry different, and the cross-hand entries not zero -- so a parity failure
+#: in the Hadamard multiply cannot hide in a diagonal; ``Q`` has no parameter to
+#: enlarge, because both its scales come from the observation.
+#: The array-wide entries reach the two autocorrelations the shipped selection
+#: carries, so its *parallel-hand* values are real (R17) while its cross-hands
+#: are not; the per-baseline override on the one cross baseline is complex
+#: throughout, which is where a Hadamard transposition would show.
+_PARITY_CLOSURE_ERROR: dict[str, Any] = {
+    "M": {
+        "matrix": [[[1.3, 0.0], [0.9, -0.1]], [[1.1, 0.25], [0.7, 0.0]]],
+        "per_baseline": [
+            {
+                "antennas": [0, 1],
+                "matrix": [[[0.4, -0.6], [1.2, 0.3]], [[0.8, 0.15], [1.5, -0.2]]],
+            }
+        ],
+    }
+}
+_PARITY_SMEARING: dict[str, Any] = {
+    "Q": {"bandwidth_smearing": True, "time_smearing": True}
+}
+
 _PARITY_EVERY_TERM = {
     **_PARITY_ALL_TERMS,
     **_PARITY_PARALLACTIC,
     **_PARITY_TROPOSPHERE,
     **_PARITY_IONOSPHERE,
+    **_PARITY_CLOSURE_ERROR,
+    **_PARITY_SMEARING,
 }
+
+_PARITY_7H_CASES = [
+    ("M", _PARITY_CLOSURE_ERROR),
+    ("Q", _PARITY_SMEARING),
+    ("M+Q", {**_PARITY_CLOSURE_ERROR, **_PARITY_SMEARING}),
+]
 
 _PARITY_7G_CASES = [
     ("T", _PARITY_TROPOSPHERE),
@@ -680,6 +711,7 @@ def test_point_path_parity_with_every_implemented_term(
         solver_components_with_jones(tmp_path, _PARITY_EVERY_TERM, mount_types="alt-az")
     )
     sources = _workload_point_sources(polarized=True, gaussian=False)
+    assert jones_terms.baseline_letters == ("M", "Q")
     assert jones_terms.configured_letters == (
         "G",
         "B",
@@ -703,6 +735,94 @@ def test_point_path_parity_with_every_implemented_term(
             backend=backend,
             receptors=receptors,
             jones_terms=jones_terms,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)
+
+
+# ---------------------------------------------------------------------------
+# The 7H cases: the baseline-dependent Hadamard path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+@pytest.mark.parametrize(("label", "jones"), _PARITY_7H_CASES)
+def test_point_path_parity_with_a_baseline_term(
+    tmp_path,
+    backend_name: str,
+    label: str,
+    jones: dict[str, Any],
+) -> None:
+    """``M`` and ``Q``, the two factors that are not in the chain at all.
+
+    These are the first parity cases for arithmetic that happens *outside*
+    ``evaluate_antenna_jones``: one elementwise complex multiply on the kernel's
+    output and one real envelope multiplied into the kernel's input.  A backend
+    whose ``sinc`` or whose broadcasting differed would show up here and nowhere
+    else.
+    """
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones)
+    )
+    sources = _workload_point_sources(polarized=True, gaussian=False)
+
+    def build(backend):
+        return calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=sources,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=jones_terms,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+@pytest.mark.parametrize(("label", "jones"), _PARITY_7H_CASES)
+def test_healpix_path_parity_with_a_baseline_term(
+    tmp_path,
+    backend_name: str,
+    label: str,
+    jones: dict[str, Any],
+) -> None:
+    """The same two on the diffuse path, where ``Q`` varies over every pixel.
+
+    The point workload's sources sit within a degree of zenith, so its residual
+    delays are tiny; a HEALPix map spans the whole visible hemisphere, and the
+    smearing envelope there runs from exactly one at the phase centre down to a
+    real decorrelation at the horizon.  That is the case worth checking across
+    backends.
+    """
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    instrument, beam_system, receptors, jones_terms, frequencies = (
+        solver_components_with_jones(tmp_path, jones)
+    )
+    sky = _workload_healpix_model(polarized=True)
+
+    def build(backend):
+        return calculate_visibility_healpix(
+            sky,
+            instrument=instrument,
+            beam_system=beam_system,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=jones_terms,
+            include_polarization=True,
         )
 
     assert_backend_parity(build, backend_name=backend_name)

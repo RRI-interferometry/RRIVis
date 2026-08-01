@@ -532,3 +532,82 @@ def test_a_closure_error_is_not_expressible_as_any_pair_of_antenna_gains(
     # "baseline-dependent" means and what an antenna-based term cannot do.
     for pair in ((1, 2), (0, 2)):
         np.testing.assert_array_equal(corrupted[:, index[pair]], clean[:, index[pair]])
+
+
+def test_a_configured_closure_error_changes_the_visibilities(tmp_path) -> None:
+    """I7, made mechanical: ``Fix.md`` Section 16 rule 5.
+
+    The elementwise identity above is a far stronger statement, but I7 is the
+    one the tier asserts for every term in the same form, so it is asserted in
+    that form here too.
+    """
+    baseline = _cube(tmp_path, None)
+    perturbed = _cube(
+        tmp_path,
+        {
+            "M": {
+                "matrix": _complex_matrix(
+                    np.array([[1.02 + 0.0j, 1.0 + 0.01j], [1.0 - 0.01j, 0.98 + 0.0j]])
+                )
+            }
+        },
+    )
+
+    scale = float(np.max(np.abs(baseline)))
+    assert float(np.max(np.abs(perturbed - baseline))) / scale > 1e-10
+    assert np.all(np.isfinite(perturbed))
+
+
+def test_a_complex_autocorrelation_factor_is_rejected_with_the_r17_message(
+    tmp_path,
+) -> None:
+    """R17, verbatim: an autocorrelation's parallel hands have no phase.
+
+    ``<E_x E_x^*>`` is real and non-negative, so a complex multiplicative error
+    on it describes no instrument -- and RadioSim's own Measurement Set and
+    UVFITS writers refuse the resulting cube.  Rejecting the configuration is
+    the difference between a message before the run and a failure after it.
+    """
+    with pytest.raises(InvalidJonesConfigError) as caught:
+        resolve_for(
+            tmp_path,
+            {"M": {"matrix": _complex_matrix(np.full((2, 2), 1.05 + 0.02j))}},
+        )
+
+    assert str(caught.value) == (
+        "jones.M assigns a parallel-hand factor with a non-zero imaginary part "
+        "to autocorrelation baseline (0, 0); an autocorrelation's parallel "
+        "hands are real by construction."
+    )
+
+
+def test_an_autocorrelations_cross_hand_factor_may_be_complex(tmp_path) -> None:
+    """The complement, and the reason R17 names the parallel hands only.
+
+    ``<E_x E_y^*>`` of a single antenna is genuinely complex, so a complex
+    factor there is a description of a real effect and is accepted.
+    """
+    matrix = np.array([[1.05 + 0.0j, 0.9 - 0.2j], [1.1 + 0.3j, 0.98 + 0.0j]])
+    resolved = resolve_for(tmp_path, {"M": {"matrix": _complex_matrix(matrix)}})
+
+    (term,) = resolved.baseline_terms
+    np.testing.assert_allclose(term.matrices[0], matrix, rtol=0.0, atol=0.0)
+
+
+def test_a_complex_error_on_a_cross_baseline_is_accepted(tmp_path) -> None:
+    """R17 constrains autocorrelations and nothing else."""
+    matrix = np.full((2, 2), 0.9 + 0.4j)
+    resolved = resolve_for(
+        tmp_path,
+        {
+            "M": {
+                "per_baseline": [
+                    {"antennas": [0, 1], "matrix": _complex_matrix(matrix)}
+                ]
+            }
+        },
+    )
+
+    (term,) = resolved.baseline_terms
+    index = term.baseline_pairs.index((0, 1))
+    np.testing.assert_allclose(term.matrices[index], matrix, rtol=0.0, atol=0.0)

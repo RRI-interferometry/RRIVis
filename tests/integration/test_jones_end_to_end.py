@@ -96,6 +96,33 @@ _TERM_CONFIGURATIONS: dict[str, dict[str, Any]] = {
             },
         }
     },
+    # Tier 7H.  ``M`` carries a full 2x2 with different entries and non-zero
+    # cross-hands, because a Hadamard factor whose off-diagonals were zero would
+    # null the cross-hand correlations and hide a transposition.  Its
+    # *parallel-hand* entries are real, because the shipped selection includes
+    # autocorrelations and an autocorrelation's parallel hands have no phase
+    # (R17); the cross-hand entries are complex, where the physics allows it.
+    # ``Q`` has no parameter at all, so the run's own 1 MHz channels and
+    # 1-second cadence are what it smears over.
+    "M": {
+        "M": {
+            "matrix": [[[1.05, 0.0], [0.97, -0.01]], [[1.02, 0.0], [0.94, 0.0]]],
+            "per_baseline": [
+                {
+                    "antennas": [0, 1],
+                    "matrix": [
+                        [[0.9, -0.1], [1.1, 0.05]],
+                        [[1.2, 0.15], [0.8, -0.2]],
+                    ],
+                }
+            ],
+        }
+    },
+    "Q": {"Q": {"bandwidth_smearing": True, "time_smearing": True}},
+    "M+Q": {
+        "M": {"matrix": [[[1.04, 0.0], [1.0, 0.0]], [[1.0, 0.0], [0.96, 0.0]]]},
+        "Q": {"bandwidth_smearing": True, "time_smearing": False},
+    },
     "all": {
         "G": {"amplitude_error": 0.05},
         "B": {"model": {"kind": "polynomial", "coefficients": [1.0, 0.1]}},
@@ -114,6 +141,8 @@ _TERM_CONFIGURATIONS: dict[str, dict[str, Any]] = {
             "minimum_elevation_deg": 1.0,
             "faraday": {"rotation_measure_rad_m2": 0.8},
         },
+        "M": {"matrix": [[[1.03, 0.0], [0.99, 0.0]], [[1.01, 0.0], [0.95, 0.0]]]},
+        "Q": {"bandwidth_smearing": True, "time_smearing": True},
     },
 }
 
@@ -129,8 +158,8 @@ _MOUNT_TYPES: dict[str, str | None] = {"P": "alt-az", "all": "alt-az"}
 #: resolved inventory must report regardless of how the document was written.
 #: ``P`` sits after ``D`` because Tier 7F moved it sky-side of ``C``
 #: (``Tier7JonesSciencePlan.md`` Section 12.2, defect D12).
-#: After Tier 7G this is *every* configurable term: the only two letters left
-#: out are ``M`` and ``Q``, which are baseline-dependent and not chain terms.
+#: After Tier 7G this is every configurable *chain* term; ``M`` and ``Q`` are
+#: baseline-dependent and are reported separately, by ``baseline_letters``.
 _CANONICAL_LETTERS: tuple[str, ...] = (
     "G",
     "B",
@@ -142,6 +171,9 @@ _CANONICAL_LETTERS: tuple[str, ...] = (
     "T",
     "Z",
 )
+
+#: The two Hadamard letters, in the order the inventory reports them.
+_BASELINE_LETTERS: tuple[str, ...] = ("M", "Q")
 
 
 def _simulator(
@@ -177,6 +209,9 @@ def test_a_configured_term_survives_setup_run_and_save(tmp_path, label: str) -> 
 
     assert simulator.jones_terms.configured_letters == tuple(
         letter for letter in _CANONICAL_LETTERS if letter in jones
+    )
+    assert simulator.jones_terms.baseline_letters == tuple(
+        letter for letter in _BASELINE_LETTERS if letter in jones
     )
 
     result = simulator.run(progress=False)

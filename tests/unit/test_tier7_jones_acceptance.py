@@ -962,3 +962,243 @@ def test_enabling_a_jones_term_leaves_observability_bit_identical(
     assert names
     for name in names:
         identical(getattr(without, name), getattr(with_terms, name), name)
+
+
+# ---------------------------------------------------------------------------
+# Tier 7H -- the baseline-dependent Hadamard path
+# ---------------------------------------------------------------------------
+
+
+def _baseline_path_cubes(tmp_path, configuration):
+    """Return the point and HEALPix cubes for one ``jones:`` configuration."""
+    import numpy as np
+
+    from radiosim.backends import get_backend
+    from radiosim.core.visibility import calculate_visibility
+    from radiosim.core.visibility_healpix import calculate_visibility_healpix
+    from tests.characterization.test_tier6_current_behavior import (
+        WORKLOAD_LOCATION,
+        WORKLOAD_TIME_GRID,
+        _workload_healpix_model,
+        _workload_point_sources,
+    )
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    backend = get_backend("numpy")
+    instrument, beams, receptors, terms, frequencies = solver_components_with_jones(
+        tmp_path, configuration
+    )
+    point = np.asarray(
+        calculate_visibility(
+            instrument=instrument,
+            beam_system=beams,
+            source_arrays=_workload_point_sources(polarized=True, gaussian=False),
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=terms,
+        )
+    )
+    diffuse = np.asarray(
+        calculate_visibility_healpix(
+            _workload_healpix_model(polarized=True),
+            instrument=instrument,
+            beam_system=beams,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=frequencies,
+            backend=backend,
+            receptors=receptors,
+            jones_terms=terms,
+            include_polarization=True,
+        )
+    )
+    return point, diffuse, list(instrument.selected_pairs)
+
+
+def test_both_sky_paths_carry_the_closure_error(tmp_path) -> None:
+    """I14 for ``M``, in the exact form its direction independence allows.
+
+    ``M`` multiplies the finished ``(B, 2, 2)`` block, so the oracle is an
+    equality rather than a bound: on *both* paths the corrupted cube is the
+    clean cube times the configured matrix, element by element, for every time
+    and every channel.  A term that reached one solver and not the other would
+    fail on the path it missed, which is exactly what defect D4 was.
+    """
+    import numpy as np
+
+    matrix = np.array([[1.4 + 0.0j, 0.6 - 0.3j], [1.2 + 0.5j, 0.7 + 0.0j]])
+    jones = {
+        "M": {
+            "matrix": [
+                [
+                    [float(matrix[row, col].real), float(matrix[row, col].imag)]
+                    for col in (0, 1)
+                ]
+                for row in (0, 1)
+            ]
+        }
+    }
+
+    clean_point, clean_diffuse, _ = _baseline_path_cubes(tmp_path, None)
+    dirty_point, dirty_diffuse, _ = _baseline_path_cubes(tmp_path, jones)
+
+    for clean, dirty, label in (
+        (clean_point, dirty_point, "point"),
+        (clean_diffuse, dirty_diffuse, "healpix"),
+    ):
+        scale = float(np.max(np.abs(clean)))
+        assert scale > 0.0, label
+        np.testing.assert_array_equal(dirty, clean * matrix[None, None, None, :, :])
+        assert float(np.max(np.abs(dirty - clean))) / scale > 1e-10, label
+
+
+def test_both_sky_paths_carry_the_smearing_envelope(tmp_path) -> None:
+    """I14 for ``Q``, whose factor is per baseline **and** per direction.
+
+    No single factorized oracle exists for it -- that is what
+    direction-dependent means -- so what is asserted is the property I14 exists
+    for, in the form ``Q``'s physics makes checkable on both paths:
+
+    1. it moves each path, by more than the noise floor;
+    2. it leaves each path's **autocorrelations** bit-identical, because a
+       zero-length baseline has neither a residual delay nor a fringe rate and
+       ``numpy.sinc(0)`` is exactly one;
+    3. the diffuse path, whose directions span the visible hemisphere, loses far
+       more amplitude than the point path, whose two sources sit within a degree
+       of the phase centre -- which is the direction dependence itself.
+    """
+    import numpy as np
+
+    jones = {"Q": {"bandwidth_smearing": True, "time_smearing": True}}
+    clean_point, clean_diffuse, pairs = _baseline_path_cubes(tmp_path, None)
+    dirty_point, dirty_diffuse, _ = _baseline_path_cubes(tmp_path, jones)
+
+    autos = [index for index, (p, q) in enumerate(pairs) if p == q]
+    cross = [index for index, (p, q) in enumerate(pairs) if p != q]
+    assert autos and cross, pairs
+
+    losses = []
+    for clean, dirty, label in (
+        (clean_point, dirty_point, "point"),
+        (clean_diffuse, dirty_diffuse, "healpix"),
+    ):
+        scale = float(np.max(np.abs(clean)))
+        assert scale > 0.0, label
+        assert float(np.max(np.abs(dirty - clean))) / scale > 1e-10, label
+        for index in autos:
+            np.testing.assert_array_equal(dirty[:, index], clean[:, index])
+        losses.append(
+            float(np.max(np.abs(dirty[:, cross] - clean[:, cross])))
+            / float(np.max(np.abs(clean[:, cross])))
+        )
+
+    assert losses[1] > 100.0 * losses[0]
+
+
+def test_the_compiled_kernel_is_untouched_by_the_hadamard_path() -> None:
+    """Invariant **I16**, re-asserted at the slice Section 27 names.
+
+    The whole structural claim of Section 15 is that ``M`` and ``Q`` attach to a
+    signature that already existed: ``Q`` to the ``envelope`` argument and ``M``
+    to the ``(B, 2, 2)`` return.  So the kernel must be *byte for byte* the same
+    boundary it was at ``ac4fe41``: one ``backend.compile`` call site in ``src/``,
+    the same six positional parameters in the same order, and no ``vmap``.
+    """
+    import inspect as _inspect
+
+    from radiosim.core.contraction import baseline_contraction, baseline_contraction_for
+
+    compile_sites = [
+        path.relative_to(SOURCE_ROOT).as_posix()
+        for path in _python_sources()
+        if "backend.compile(" in path.read_text(encoding="utf-8")
+    ]
+    assert compile_sites == ["core/contraction.py"]
+
+    signature = _inspect.signature(baseline_contraction)
+    assert list(signature.parameters) == [
+        "jones_p",
+        "jones_q",
+        "coherency",
+        "phase",
+        "envelope",
+        "stokes_i",
+        "backend",
+    ]
+    inner = _inspect.signature(baseline_contraction_for)
+    assert list(inner.parameters) == ["backend"]
+
+    for path in _python_sources():
+        if path.name == "jax_backend.py":
+            continue
+        assert ".vmap(" not in path.read_text(encoding="utf-8"), path
+
+
+def test_the_closure_error_does_not_move_the_accumulation(tmp_path) -> None:
+    """Section 41's **Q5**, answered structurally as well as numerically.
+
+    ``M`` multiplies the kernel's output *before* the cast to the output dtype,
+    so closure errors participate at accumulation precision (Section 15.2).  The
+    question Q5 asks is whether that disturbs the Tier 6 per-time assembly: it
+    does not, and the evidence is that the two ``backend.stack`` accumulation
+    sites per solver are still exactly two and still bracket the same lists, and
+    that the multiply appears strictly between the kernel call and the cast.
+    """
+    for name in ("visibility.py", "visibility_healpix.py"):
+        source = _source(f"src/radiosim/core/{name}")
+        assert source.count("backend.stack(") == 2, name
+
+        multiply = source.index("block = block * baseline_factors.correlation")
+        kernel = source.index("block = contraction(")
+        cast = source.index("freq_blocks.append(backend.asarray(block")
+        assert kernel < multiply < cast, name
+
+    # And numerically: with ``M`` enabled the cube is still assembled once per
+    # time step and once per run, so a worker split changes nothing (Tier 6's
+    # own invariant, re-run with a baseline term in the chain).
+    import numpy as np
+
+    from radiosim.backends import get_backend
+    from radiosim.core.runtime_config import ResolvedSolverExecutionConfig
+    from radiosim.core.visibility import calculate_visibility
+    from tests.characterization.test_tier6_current_behavior import (
+        WORKLOAD_LOCATION,
+        WORKLOAD_TIME_GRID,
+        _workload_point_sources,
+    )
+    from tests.unit.test_core.test_jones_resolution import (
+        solver_components_with_jones,
+    )
+
+    jones = {
+        "M": {"matrix": [[[1.2, 0.0], [0.8, 0.1]], [[0.9, -0.2], [1.1, 0.0]]]},
+        "Q": {"bandwidth_smearing": True, "time_smearing": True},
+    }
+    instrument, beams, receptors, terms, frequencies = solver_components_with_jones(
+        tmp_path, jones
+    )
+
+    def cube(workers: int):
+        return np.asarray(
+            calculate_visibility(
+                instrument=instrument,
+                beam_system=beams,
+                source_arrays=_workload_point_sources(polarized=True, gaussian=False),
+                location=WORKLOAD_LOCATION,
+                time_grid=WORKLOAD_TIME_GRID,
+                frequencies=frequencies,
+                backend=get_backend("numpy"),
+                receptors=receptors,
+                jones_terms=terms,
+                solver_execution=ResolvedSolverExecutionConfig(
+                    workers=workers, executor="thread"
+                ),
+            )
+        )
+
+    np.testing.assert_array_equal(cube(2), cube(1))

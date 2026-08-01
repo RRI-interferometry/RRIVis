@@ -26,7 +26,7 @@ each stage before moving to the next:
    ``per_baseline`` existence (R14) and duplication (R5, in its baseline-keyed
    form);
 4. physical-range validation -- R8 for ``Rc``, R9 for ``Z``, R10 for ``T``,
-   R16 for ``Q``;
+   R16 for ``Q``, R17 for ``M``;
 5. cross-object consistency -- bandpass frequency coverage (R11) and mount types
    (R12, R15);
 6. the identity check (R7), **last**, because it needs fully resolved values.
@@ -1121,6 +1121,81 @@ def _validate_baseline_overrides(
     return resolved
 
 
+def _reject_complex_autocorrelation_error(
+    pair: tuple[int, int],
+    matrix: np.ndarray,
+) -> None:
+    """Raise R17 for a complex parallel-hand factor on an autocorrelation.
+
+    An autocorrelation's parallel hands are ``|E|^2``: real, non-negative, and
+    with no phase for a baseline-dependent error to corrupt.  A complex factor
+    there describes no instrument, and RadioSim's own Measurement Set and UVFITS
+    writers reject the resulting cube as unrepresentable -- which would make this
+    a failure at *save* time, after the whole simulation had run, rather than
+    before the first side effect (Section 26.1).  The cross-hand entries of an
+    autocorrelation are unconstrained, because ``<E_x E_y^*>`` of one antenna is
+    genuinely complex.
+    """
+    if pair[0] != pair[1]:
+        return
+    for feed in (0, 1):
+        if matrix[feed, feed].imag != 0.0:
+            raise InvalidJonesConfigError(
+                f"jones.M assigns a parallel-hand factor with a non-zero "
+                f"imaginary part to autocorrelation baseline {pair}; an "
+                "autocorrelation's parallel hands are real by construction."
+            )
+
+
+def _closure_matrix(value: Any) -> np.ndarray:
+    """Return one configured ``2x2`` as a complex array."""
+    from radiosim.io.jones_config import as_complex
+
+    return np.array(
+        [[as_complex(entry) for entry in row] for row in value],
+        dtype=np.complex128,
+    )
+
+
+def _resolved_closure_matrices(
+    config: BaselineErrorTermConfig,
+    *,
+    selected_pairs: Sequence[tuple[int, int]],
+    overrides: Mapping[tuple[int, int], Any],
+) -> tuple[tuple[tuple[int, int], ...], np.ndarray]:
+    """Return the selected pairs and their resolved ``(B, 2, 2)`` errors."""
+    # Ones, not ``I2``: the neutral element of a Hadamard product is the
+    # all-ones matrix, and a baseline this block does not mention must come
+    # through untouched rather than have its cross-hands nulled.
+    default = (
+        np.ones((2, 2), dtype=np.complex128)
+        if config.matrix is None
+        else _closure_matrix(config.matrix)
+    )
+    pairs = tuple((int(first), int(second)) for first, second in selected_pairs)
+    matrices = np.empty((len(pairs), 2, 2), dtype=np.complex128)
+    for row, pair in enumerate(pairs):
+        override = overrides.get(pair)
+        matrices[row] = (
+            default if override is None else _closure_matrix(override.matrix)
+        )
+    return pairs, matrices
+
+
+def _reject_closure_error_values(
+    config: BaselineErrorTermConfig,
+    *,
+    selected_pairs: Sequence[tuple[int, int]],
+    overrides: Mapping[tuple[int, int], Any],
+) -> None:
+    """Stage-4 physical validation of ``M``: R17, per selected baseline."""
+    pairs, matrices = _resolved_closure_matrices(
+        config, selected_pairs=selected_pairs, overrides=overrides
+    )
+    for pair, matrix in zip(pairs, matrices, strict=True):
+        _reject_complex_autocorrelation_error(pair, matrix)
+
+
 def _resolve_closure_error_term(
     config: BaselineErrorTermConfig,
     *,
@@ -1128,27 +1203,9 @@ def _resolve_closure_error_term(
     overrides: Mapping[tuple[int, int], Any],
 ) -> BaselineMultiplicativeJones:
     """Resolve ``M`` into one ``(B, 2, 2)`` array in selected-baseline order."""
-    from radiosim.io.jones_config import as_complex
-
-    def _matrix(value: Any) -> np.ndarray:
-        return np.array(
-            [[as_complex(entry) for entry in row] for row in value],
-            dtype=np.complex128,
-        )
-
-    # Ones, not ``I2``: the neutral element of a Hadamard product is the
-    # all-ones matrix, and a baseline this block does not mention must come
-    # through untouched rather than have its cross-hands nulled.
-    default = (
-        np.ones((2, 2), dtype=np.complex128)
-        if config.matrix is None
-        else _matrix(config.matrix)
+    pairs, matrices = _resolved_closure_matrices(
+        config, selected_pairs=selected_pairs, overrides=overrides
     )
-    pairs = tuple((int(first), int(second)) for first, second in selected_pairs)
-    matrices = np.empty((len(pairs), 2, 2), dtype=np.complex128)
-    for row, pair in enumerate(pairs):
-        override = overrides.get(pair)
-        matrices[row] = default if override is None else _matrix(override.matrix)
     return BaselineMultiplicativeJones(baseline_pairs=pairs, matrices=matrices)
 
 
@@ -1268,8 +1325,8 @@ def resolve_jones_terms(
     Raises
     ------
     InvalidJonesConfigError
-        R2, R5, R6, R8, R9, R10, R11, R16, or a derived default that cannot be
-        computed.  **Not** R13: its condition is about directions, so ``T`` and
+        R2, R5, R6, R8, R9, R10, R11, R16, R17, or a derived default that cannot
+        be computed.  **Not** R13: its condition is about directions, so ``T`` and
         ``Z`` raise it themselves at evaluation (Section 24's 7G correction).
     JonesAssignmentError
         R4: a ``per_antenna`` entry names an antenna the instrument does not
@@ -1404,6 +1461,14 @@ def resolve_jones_terms(
         smearing_config = config.Q
         assert smearing_config is not None
         _reject_inert_smearing(smearing_config)
+    if "M" in configured:
+        closure_config = config.M
+        assert closure_config is not None
+        _reject_closure_error_values(
+            closure_config,
+            selected_pairs=selected_pairs,
+            overrides=baseline_overrides,
+        )
 
     # Stage 5 -- cross-object consistency.
     if "B" in configured:
