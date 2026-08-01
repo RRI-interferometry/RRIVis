@@ -12865,3 +12865,289 @@ fresh transcription from the original 1996 paper. Tier-2 cross-implementation
 validation (Section 29, `pyuvsim`/`matvis`/RASCIL) and the whole-tier
 Section 37 documentation pass: out of scope for 7G, owned by 7J/7K; not
 assessed here.
+
+### 2026-08-02 Tier 7H independent acceptance
+
+Reviewed range `d4d1019..de0e313` (eight commits: two design corrections
+`e6f6b15`/`cb8c87f`, red tests `ac3363e`, the implementation `be9414d`, parity
+and end-to-end and I14 cases `dc89bfb`, docs `7d2d35d`, the documentation-surface
+pin flip `8af886a`, and an attribution-note keep `de0e313`). This slice
+implements `M` (per-baseline multiplicative closure error) and `Q` (time and
+bandwidth smearing) -- the two `JonesBaselineTerm` subclasses and the last two
+term implementations of Tier 7, closing workstream D and making
+`JonesBaselineTerm.compute_baseline_factor` (and `hadamard_target`)
+`@abstractmethod`.
+
+**The Hadamard neutral element, ruled on directly.** Under element-wise
+(Hadamard) multiplication on a 2x2 correlation matrix, the identity element of
+that operation is the all-ones matrix `[[1,1],[1,1]]`, not `I2`: `I2 (*) V =
+[[V00,0],[0,V11]]`, which zeroes both cross-hand correlations rather than
+leaving `V` alone. The plan's original Section 21.2 example, `M: [[1.02, 0],
+[0, 0.98]]`, is exactly this trap -- it reads as "a two-percent gain
+perturbation" and is in fact "null every `XY`/`YX` visibility in the run,
+silently." The correction (embedded in `cb8c87f`) is mathematically right, and
+independently confirmed by hand: `np.ones((2,2)) * V == V` for arbitrary `V`,
+while `np.eye(2) * V` zeroes the off-diagonal. Verified in the source
+(`core/jones/baseline_errors.py`'s `BaselineMultiplicativeJones.is_identity`,
+`core/jones_terms.py`'s `_resolved_closure_matrices` default-to-ones, and the
+corrected Section 21.2/21.3 YAML) and in `test_closure_error.py`'s
+`test_an_all_ones_configuration_is_rejected_with_the_r7_message` /
+`test_a_baseline_named_by_nothing_is_left_exactly_alone`, both reproduced
+directly and green.
+
+**Ruling: `M: I2` (or any matrix nulling a cross-hand) stays legal-but-
+consequential; no separate guard beyond R7's exact-all-ones rejection and the
+corrected documentation is required.** Reasoning: (1) nulling both cross-hands
+is a real, physically expressible RIME operation -- an instrument that
+genuinely destroys its cross-hand correlations is a legitimate (if drastic)
+thing to model, and R7 already refuses the one configuration that has *no*
+effect at all (all-ones), which is the only principled bright line under a
+Hadamard product; (2) singling out `I2` for an extra guard would not even cover
+the general risk -- `M: [[1,1],[1,0.001]]` is "nearly" the same silent-almost-
+nulling trap and is not literally `I2`, so a guard keyed on exact identity
+would be simultaneously narrow (misses near-identity) and arbitrary (no
+principled epsilon exists elsewhere in this tier: `jones.G` with
+`amplitude_error=1e-10` is legal and consequential-but-tiny by the same
+argument, with no warning); (3) the actual, identified vector of harm -- a user
+copying the plan's own stale example -- is fixed at the source: Section 21.2's
+example is replaced (not merely annotated) with a full non-block-diagonal
+matrix, and Section 21.3/`jones_terms.rst`'s warning states the neutral-element
+fact in the one place a reader would consult it. A generic "this looks
+surprising" guard has no precedent anywhere else in Tier 7 and would be
+inconsistent special-casing for a configuration that is, mathematically,
+exactly as legal as every other non-identity `M`. Ruled: documentation plus
+R7's exact-identity rejection is sufficient; no additional guard is a bounded
+repair this review requires.
+
+**The fringe-rate and residual-delay derivations, both re-derived from first
+principles and confirmed correct.** `core/visibility.py`'s
+`_host_direction_cosines` gives `l=cos(alt)sin(az)`, `m=cos(alt)cos(az)`,
+`n=sin(alt)` (East, North, Up), and `calculate_visibility` builds
+`baseline_uvw_wavelengths` directly from `instrument.baseline_vectors_enu_m`
+with no hour-angle rotation -- confirming RadioSim's `(u,v,w)` is literally
+`(East, North, Up)/lambda`, because the phase centre is the fixed zenith and
+needs no tracking rotation. Given the kernel phase
+`exp(-2 pi i (u l + v m + w(n-1)))` (`core/jones/geometric.py`), the *residual*
+delay the correlator has not removed is `tau_res = (u l + v m + w(n-1))/nu`,
+which is the kernel's own phase argument divided by frequency and vanishes
+identically at `l=m=0, n=1` (the phase centre) for every baseline, including
+one with a large vertical arm. The plan's original prose form, `b.s/c`
+(without the `-1`), is confirmed wrong by direct substitution: at zenith, `b.s`
+is the baseline's own vertical component in metres, which is nonzero for any
+baseline with a vertical arm, so that form would smear the phase centre itself
+-- exactly the defect the 7H correction identifies. For the fringe rate: with
+`p = (0, cos(lat), sin(lat))` (the NCP direction in ENU -- correct, since at
+latitude `lat` the pole sits at elevation `lat` due north), `p x s` was
+expanded by hand: `p x s = (cos(lat)n - sin(lat)m, sin(lat)l, -cos(lat)l)`, so
+`ds/dt = -omega_E(p x s)` gives exactly `dl/dt = -omega_E(n cos(lat) - m
+sin(lat))`, `dm/dt = -omega_E l sin(lat)`, `dn/dt = +omega_E l cos(lat)` --
+matching `SmearingFactorJones.compute_baseline_factor` and the Section 20.11
+correction verbatim. Two independent checks on this identity: (a) it
+automatically preserves `|s|=1` for any scalar multiple of a cross product
+(`l dl/dt + m dm/dt + n dn/dt` collapses to zero termwise), which is necessary
+but not sufficient; (b) a physical special case, checked by hand -- an
+equatorial-latitude (`lat=0`) observer with a source transiting the zenith
+(`H=0, dec=0`) must drift **westward** (negative `l`-rate) immediately after
+transit, since Earth's prograde rotation makes the sky appear to move east to
+west; the formula gives `dl/dt = -omega_E` at that point, matching. This fixes
+the sign, which (a) alone cannot do. The resulting fringe rate, `nu_f =
+omega_E[u(n cos(lat) - m sin(lat)) + l(v sin(lat) - w cos(lat))]`, was then
+verified to reduce to the textbook East-West-baseline fringe rate `omega_E
+cos(dec) cos(H)` under the standard zenith-referenced direction-cosine
+identities (`l=cos(dec)sin(H)`, `m=cos(dec_0)sin(dec)-...`, TMS-style), via the
+algebraic identity `n cos(lat) - m sin(lat) = cos(dec) cos(H)` (confirmed by
+direct expansion). **Cross-check reproduced**: `test_smearing.py`'s rotated-sky
+oracle (`test_the_time_envelope_matches_a_numerically_rotated_sky`), which
+advances the hour angle at the sidereal rate, rebuilds direction cosines from
+scratch at each step, and averages the *solver's own* phase with no
+differentiation at all, run directly -- passes, tolerance `1e-6`, with the
+docstring's own accounting of the residual (integration-time curvature) making
+sense dimensionally. Both derivations are confirmed correct: neither the sign
+nor the algebraic form needed correction.
+
+**I11 (closure), verified.** `BaselineMultiplicativeJones` is direction-
+independent and applied by Hadamard product to the finished `(B,2,2)` block, so
+it cannot be written as `g_p C g_q^H` for any antenna gains `g` -- the closure
+phase of a triangle, `arg(V01 V12 V02*)`, is invariant under any per-antenna
+term (`test_gain.py::test_a_gain_leaves_the_closure_phase_invariant`, its
+`G` control) but moves by exactly `arg(M01) + arg(M12) - arg(M02)` under a
+configured `M`
+(`test_closure_error.py::test_a_closure_error_changes_the_closure_phase_by_the_predicted_amount`),
+with the two baselines the block does not name left bit-identical
+(`test_a_closure_error_is_not_expressible_as_any_pair_of_antenna_gains`). Both
+reproduced directly; the discriminating probe (all-terms-enabled invariance vs.
+`M`-enabled violation) is not vacuous -- it constructs the predicted delta from
+the configured phases alone and checks it against the solver's own closure
+measurement to `atol=1e-12`.
+
+**R17, the writer-failure motivation, reproduced by a scratch probe.** With
+`core.jones_terms._reject_complex_autocorrelation_error` monkeypatched to a
+no-op (i.e. R17 disabled) and a shipped-fixture config carrying
+`jones.M.matrix` with a complex parallel-hand entry (`1.05+0.02j` on the
+diagonal) on the `correlations: all` selection (which includes
+autocorrelations), `Simulator.setup().run()` completes and produces a finite
+`complex128` cube, but `Simulator.save(..., format=ResultFormat.MS)` raises
+`radiosim.io.standard_visibility.FormatRepresentationError: parallel-hand
+autocorrelation imaginary component exceeds the representable tolerance` --
+exactly the "failure after the whole simulation has run" R17 is designed to
+turn into a same-second configuration rejection. Confirmed by direct
+`normalize_autocorrelations` inspection (`io/standard_visibility.py:842-882`):
+it forces parallel-hand autocorrelations onto the reals within a tight
+tolerance and raises `FormatRepresentationError` otherwise. R17's stage
+(stage 4, physical-range, before R7) and its scope (parallel hands only, cross
+hands of an autocorrelation are unconstrained and accepted) are both
+implemented and tested exactly as specified
+(`test_a_complex_autocorrelation_factor_is_rejected_with_the_r17_message`,
+`test_an_autocorrelations_cross_hand_factor_may_be_complex`,
+`test_a_complex_error_on_a_cross_baseline_is_accepted`, all reproduced
+directly).
+
+**Attachment discipline, verified.** `git diff --stat d4d1019..de0e313 --
+src/radiosim/core/contraction.py` is empty: the compiled kernel's file is
+untouched. `grep -rn "backend.compile(" src/radiosim/core/*.py` finds exactly
+one call site (`contraction.py:143`). Direct read of `visibility.py`'s diff:
+`M`'s Hadamard multiply (`block = block * baseline_factors.correlation`) sits
+on the line immediately before `freq_blocks.append(backend.asarray(block,
+dtype=output_complex_dtype))` -- strictly between the kernel call and the
+output cast, as Section 15.2 requires; `Q` rides the existing `envelope`
+argument the kernel already accepted. `visibility_healpix.py`'s diff is the
+same shape, symmetric, sharing the one `evaluate_baseline_factors` evaluator.
+**Q5, reproduced**:
+`test_tier7_jones_acceptance.py::test_the_closure_error_does_not_move_the_accumulation`
+run directly -- passes; it asserts exactly two `backend.stack(` sites per
+solver file, `kernel-call < multiply < output-cast` by source-index
+comparison, and numerically that a 2-worker threaded run with both `M` and `Q`
+enabled is `np.array_equal` to a 1-worker run.
+
+**Q6, verified against Tier 1G's own contract.** `io/config.py`'s
+`ExplicitFrequencyConfig.channel_widths_hz` (line 1281) is a required
+`tuple[float, ...]` field with no default, validated non-empty, one-
+dimensional, and length-matched to `channel_frequencies_hz` -- confirming the
+question's premise (a nonuniform explicit frequency array has no per-channel
+width) is false, exactly as the 7H correction argues. `Q` reads
+`channel_widths_hz[freq_idx]` and invents nothing; the rejected
+candidate rule (derive a width from neighbour spacing) is correctly abandoned.
+`test_smearing.py::test_each_channel_smears_by_its_own_declared_width` (a
+deliberately nonuniform three-channel grid) reproduced directly, passes.
+
+**Tests-first, reproduced exactly.** `ac3363e` checked out into a detached
+worktree and run at its own tree:
+`pixi run python -m pytest tests/ -q -m "not slow" --continue-on-collection-errors`
+gives **28 failed, 5104 passed, 10 deselected, 4 collection errors** exactly
+(`test_io/test_jones_config.py` and `test_jones/test_smearing.py`, each
+counted twice by pytest's per-error reporting), matching the commit's own
+claimed red state verbatim. `git show --stat ac3363e` confirms zero `src/`
+changes (4 files, all under `tests/`).
+
+**Bit-identity and pins, reproduced.** The three Tier 7A/7B hermetic
+fingerprint tests run directly against `d4d1019`'s recorded digests:
+`test_shipped_default_config_fingerprint_is_unchanged`,
+`test_shipped_circular_receptor_config_fingerprint_is_unchanged` (both exact
+`scientific_sha256` and raw-cube `sha256` matches against the environment-keyed
+Tier 6 tables), and `test_shipped_hybrid_config_is_exactly_the_sum_of_its_
+components` (the additivity invariant, no absolute digest) -- all three pass.
+`PLANNED_TERMS == {}` confirmed directly
+(`tests/characterization/test_tier7_current_behavior.py:330`), and
+`test_io/test_jones_config.py::test_no_term_letter_is_accepted_ahead_of_its_
+physics` sweeps every one of the 11 accepted letters' term classes and asserts
+`term_status == "implemented"` via `inspect.getattr_static`, reproduced
+directly. `__all__` in `core/jones/__init__.py` has exactly 19 entries
+(confirmed by AST parse, matching Section 37 criterion 1).
+
+**Gates -- both environments, reproduced directly by this review.**
+`pixi run test -- -m "not slow"`: **5,259 passed, 0 failed, 10 deselected** in
+both `default`/py311 (27 warnings, 498s) and `py312` (41 warnings, 553s);
+`5,167 + 92 = 5,259` confirmed exactly, and the py312 warning delta (27 -> 41)
+is consistent with the same environment-specific-artifact pattern this file's
+prior entries establish (not traced call-site by call-site here, since the
+full-suite gate below is unaffected either way -- 0 failures in both
+environments). Full suite (`pixi run test`, default environment): **5,269
+passed, 0 failed, 27 warnings**. `pixi run fix`: clean ("All checks passed!").
+`pixi run format --check` (`ruff format . --check`): clean, 370 files already
+formatted. All four shipped YAMLs (`configs/*.yaml`) validate directly via
+`radiosim validate`. Laziness: `test_every_exported_jones_name_resolves_
+through_lazy_getattr`, `test_both_terms_are_reachable_from_the_lazy_jones_
+namespace`, and `test_fresh_imports_are_lazy_and_do_not_initialize_backends`
+all reproduced directly, pass. Sphinx, forced full rebuild (`-b html -E`): the
+main working tree reports 18 warnings, but this is contaminated by two stray,
+git-ignored local files under `docs/superpowers/` (`docs/superpowers/` is
+listed in `.gitignore` as "local only" working files, unrelated to this
+review) that trigger two extra `toc.not_included` warnings; rebuilding in
+**fresh, detached git worktrees** of both `d4d1019` and `de0e313` gives
+exactly **16 warnings** in both, byte-identical warning text apart from the
+worktree path prefix -- confirming the stated 16-warning baseline holds
+unchanged through this slice, with the +2 an artifact of this local
+environment and not of the reviewed commits. `git status`: clean before and
+after this review's edits (Fix.md and the plan's status header only). All
+eight commit messages read in full: zero "Co-Authored-By" or similar
+occurrences.
+
+**Section 34 file list.** `git diff --stat d4d1019..de0e313` lists 23 files
+(`Fix.md` untouched by the implementer, correctly -- the slice's acceptance
+record is written by this review, per the established 7B-7G pattern); every
+one matches the corrected 7H list exactly: the 13 base-list files actually
+touched (baseline_errors.py, jones/__init__.py, jones_terms.py, config.py,
+visibility.py, visibility_healpix.py, jones_config.py, test_closure_error.py,
+test_smearing.py, test_backend_parity.py, test_jones_resolution.py,
+test_jones_end_to_end.py, test_tier7_jones_acceptance.py, jones_terms.rst --
+14 named, 13 actually diff), the 9 forced-addition files (test_tier7_current_
+behavior.py, test_io/test_jones_config.py, test_term_contract.py,
+test_chain_order.py, test_bandpass.py, api/simulator.py, io/config.py,
+jones_matrices.rst, configuration.rst), and `Tier7JonesSciencePlan.md` itself
+for the design corrections. No file outside the corrected 7H writable list was
+touched.
+
+**Adjudications.**
+- I12's negative-excursion clause (the exact top-hat average genuinely changes
+  sign beyond the first sinc zero, and is not clamped) verified by an
+  independent scratch probe -- `SmearingFactorJones.compute_baseline_factor`
+  called directly with a long baseline (50,000 wavelengths East-West) and a
+  direction well off the phase centre (`l=0.9`) at a 2 MHz channel width
+  returns a factor of `-5.4e-17` (order-of-magnitude consistent with the
+  argument being several sinc periods past the first zero) -- genuinely
+  negative, not zero and not clamped, confirming the plan's ruling is
+  physically real and not a fabricated exemption.
+- The per-direction amplitude-only clause of I12: reproduced directly
+  (`test_smearing_reduces_amplitude_and_leaves_every_phase_alone`, single-
+  source cube, phase shift `atol=1e-12`), with the docstring's own honest
+  accounting of the multi-source ~3e-7 rad phase drift as "the physics of an
+  average, not a defect."
+- The `__all__`-stays-19 choice: confirmed (AST count above); no term
+  symmetry work is claimed at 7H, correctly deferred to 7J/7K.
+- The per-step `isfinite` omission for baseline factors (shape-only checking,
+  full finiteness deferred to construction-time validation): the device-sync
+  rationale is written directly into `_require_envelope_factor`'s docstring in
+  `core/jones/baseline_errors.py` and is architecturally consistent with how
+  `JonesTerm` blocks (built once, on the host) differ from baseline factors
+  (computed per-step, through the backend) -- both terms' constructors validate
+  finiteness once, on the host, at construction (`_read_only_array`), which is
+  the property that makes the per-step shape-only check sufficient.
+- `Q`'s grid-mismatch loud failure:
+  `test_a_grid_index_the_term_was_not_resolved_against_is_refused` reproduced
+  directly, confirming `JonesEvaluationError` on a frequency/time index whose
+  physical value disagrees with the grid entry the term was resolved with.
+
+**Disposition.** Tier 7H **ACCEPTED**. No bounded correction was required from
+this review: the two embedded 7H design corrections (the Hadamard neutral
+element and the residual-delay/fringe-rate geometry, both in `cb8c87f`) were
+independently re-derived from first principles rather than merely read, and
+both are ruled mathematically correct with no further change. `SCI-001`,
+`SCI-002`, `SCI-003` remain `ROADMAP` until whole-tier acceptance (7K); no
+register row is flipped by this slice. The plan's status header is updated to
+record 7H's acceptance and to authorize slice **7I**. Acceptance commit:
+`docs(jones): accept Tier 7H baseline terms`. Not pushed.
+
+**Unobserved items.** `linux-64` execution: not available in this environment;
+reproduction is `osx-arm64`/py311 and py312 only, matching every prior tier's
+acceptance record in this file. GPU/TPU/distributed hardware: none exercised,
+none claimed. The py312 warning delta (27 -> 41) was confirmed as a non-
+gating, zero-failure observation in both environments but was not traced
+call-site by call-site into numpy internals, consistent with this file's 7G
+entry's treatment of the same class of environment-specific warning drift.
+Tier-2 cross-implementation validation (Section 29,
+`pyuvsim`/`matvis`/RASCIL) and the whole-tier Section 37/38 documentation and
+evidence pass: out of scope for 7H, owned by 7J/7K; not assessed here.
+`pixi run typecheck`: not run, correctly -- Section 32 restricts it to 7B, 7C,
+7D and 7K, and 7H adds concrete term classes and two resolver keyword
+parameters behind the existing `JonesBaselineTerm`/config surface rather than
+changing a public solver signature.

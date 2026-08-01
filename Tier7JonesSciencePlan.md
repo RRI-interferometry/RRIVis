@@ -61,7 +61,17 @@ Saastamoinen docstring values corrected to the tested 2.3070 m,
 `docs(jones): correct the Saastamoinen ZHD docstring value`, `36823ae`); no
 science, chain-order, or refinement decision changed; see `Fix.md`'s
 2026-08-01 "Tier 7G independent acceptance" note for the full record). Slice
-**7H is authorized**.**
+**7H is accepted** (2026-08-02, independent review; no bounded correction
+required beyond ratifying the two corrections the implementer had already
+applied to Sections 15.1, 20.10 and 20.11 (`docs(jones): correct Tier 7
+design`, `cb8c87f`) -- the Hadamard-neutral-element ruling (the all-ones
+matrix, not `I2`, with `I2` left legal-but-consequential and no additional
+guard required beyond R7 and the corrected documentation) and the
+residual-delay/fringe-rate geometry (`tau_res` measured from the phase
+centre and the ENU fixed-zenith fringe-rate expression), both independently
+re-derived from first principles and confirmed correct; no decision changed;
+see `Fix.md`'s 2026-08-02 "Tier 7H independent acceptance" note for the full
+record). Slice **7I is authorized**.**
 
 This document is the governing implementation specification for Tier 7 of the
 RadioSim remediation program, defined by [`Fix.md`](Fix.md) Section 16
