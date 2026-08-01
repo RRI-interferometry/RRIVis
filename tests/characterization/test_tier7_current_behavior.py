@@ -1786,16 +1786,21 @@ def test_documentation_no_longer_records_a_stub_surface() -> None:
     assert "When Tier 7 implements" not in guide
     assert "identity scaffolds or later-tier work" not in guide
     assert "A class returning an identity matrix is a scaffold" not in guide
-    # What replaces the promise: the terms that really are still planned, named,
-    # and the statement that each of them raises.
+    # What replaces the promise: for as long as a term was planned, the guide
+    # had to name it and say that it raises.
     #
-    # FLIPPED BY: Tier 7G, which implemented ``Z`` and ``T``.  The guide names
-    # the two that remain -- both ``JonesBaselineTerm`` -- and says so, and it
-    # also records that no ``JonesTerm`` is planned any more, which is the
-    # statement the ``@abstractmethod`` flip rests on.
-    assert "``M`` and ``Q`` — are ``term_status: planned``" in guide
-    assert "each **raises** when evaluated" in guide
-    assert "No ``JonesTerm`` is planned any more" in guide
+    # FLIPPED BY: Tier 7G, which implemented ``Z`` and ``T`` and left the guide
+    # naming the two ``JonesBaselineTerm`` that remained.
+    #
+    # FLIPPED BY: Tier 7H, which implemented those two.  The guide can no longer
+    # name a planned term because there is none, so what it must now say -- and
+    # what is pinned here -- is the terminal statement itself, in both of the
+    # places a reader could look: the opening paragraph and the section that
+    # replaced "Planned terms".
+    assert "All fifteen declare ``term_status: implemented``" in guide
+    assert "No term is planned any more" in guide
+    assert "term_status: planned" not in guide
+    assert "``M`` and ``Q``" not in guide.split("No term is planned any more")[1]
 
 
 def test_beam_todo_markdown_is_the_sci_003_artifact() -> None:

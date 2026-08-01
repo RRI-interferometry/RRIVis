@@ -1870,8 +1870,11 @@ def test_the_two_new_terms_are_snapshotted_into_the_fingerprint(tmp_path) -> Non
 
 
 #: One non-identity ``M``, and one ``Q`` with both envelopes active.
+#: The parallel-hand entries are real because the shipped selection carries
+#: autocorrelations and R17 refuses a complex factor on one; the cross-hand
+#: entries are complex, where the physics allows it.
 NONTRIVIAL_CLOSURE: dict[str, Any] = {
-    "matrix": [[[1.04, 0.02], [0.0, 0.0]], [[0.0, 0.0], [0.96, -0.03]]]
+    "matrix": [[[1.04, 0.0], [0.98, 0.02]], [[1.01, -0.03], [0.96, 0.0]]]
 }
 NONTRIVIAL_SMEARING: dict[str, Any] = {
     "bandwidth_smearing": True,
@@ -2040,7 +2043,9 @@ def test_the_baseline_terms_enter_the_fingerprint(tmp_path) -> None:
     changed_matrix = resolve_for(
         tmp_path,
         {
-            "M": {"matrix": [[[1.05, 0.02], [0.0, 0.0]], [[0.0, 0.0], [0.96, -0.03]]]},
+            "M": {
+                "matrix": [[[1.05, 0.0], [0.98, 0.02]], [[1.01, -0.03], [0.96, 0.0]]]
+            },
             "Q": NONTRIVIAL_SMEARING,
         },
     )

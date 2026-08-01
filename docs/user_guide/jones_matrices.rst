@@ -1,26 +1,23 @@
 Jones Matrix Framework
 ======================
 
-RadioSim exposes a Jones-term framework in which public class availability is
-not the same as implemented high-level science, and every term says which it
-is. The current high-level ``Simulator`` always applies geometric phase (K), the
-canonical scalar E-Jones primary beam, the receptor configuration (C), and the
-output basis transform (H). Nine further terms — gain (G), bandpass (B), cable
-reflection (Rc), instrumental delay (Kd), cross-hand phase and delay (X),
-polarization leakage (D), parallactic angle (P), troposphere (T), and
-ionosphere (Z) — carry real physics and are applied when the ``jones:`` section
+RadioSim exposes a Jones-term framework in which every exported term carries
+real physics and says so. The high-level ``Simulator`` always applies geometric
+phase (K), the canonical scalar E-Jones primary beam, the receptor
+configuration (C), and the output basis transform (H). Nine further terms —
+gain (G), bandpass (B), cable reflection (Rc), instrumental delay (Kd),
+cross-hand phase and delay (X), polarization leakage (D), parallactic angle (P),
+troposphere (T), and ionosphere (Z) — are applied when the ``jones:`` section
 configures them; see :doc:`jones_terms` for each one's mathematics, units,
-citation, and configuration. All thirteen are ``term_status: implemented``, and
-they are every per-antenna term in the chain.
+citation, and configuration. Those thirteen are every per-antenna term in the
+chain.
 
-The two remaining exported terms — ``M`` and ``Q`` — are
-``term_status: planned``: each has a documented physical effect and a position
-in the chain below, and each **raises** when evaluated. Neither is a
-``JonesTerm`` at all: both are ``JonesBaselineTerm``, applied by Hadamard
-product to finished visibilities rather than by matrix multiplication. None of
-them multiplies by the identity, so a term cannot silently do nothing. Tier 7 of
-the remediation programme is what turns each of them into physics, one slice at
-a time.
+Two further exported terms — ``M`` (per-baseline closure error) and ``Q`` (time
+and bandwidth smearing) — are **not** ``JonesTerm`` at all: both are
+``JonesBaselineTerm``, applied by Hadamard product to finished visibilities
+rather than by matrix multiplication. They are implemented too. All fifteen
+declare ``term_status: implemented``; none multiplies by the identity, and none
+can be configured into doing nothing.
 
 RIME context
 ------------
