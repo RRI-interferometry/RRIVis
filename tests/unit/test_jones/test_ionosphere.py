@@ -1000,3 +1000,36 @@ def test_the_gradient_screen_is_a_different_run_from_the_uniform_one(
 
     difference = np.max(np.abs(gradient - uniform)) / np.max(np.abs(uniform))
     assert float(difference) > 1e-10
+
+
+# ---------------------------------------------------------------------------
+# Section 29.1 Tier-1 evidence: the published expression, evaluated here
+# ---------------------------------------------------------------------------
+
+
+def test_the_dispersive_phase_matches_the_published_expression(tmp_path) -> None:
+    """Section 29.1's ``Z`` row: three frequencies, to ``1e-12`` relative.
+
+    The reference is computed in this test body from the published physics and
+    not by calling the production function: the ionospheric excess path is
+    ``40.308 TEC / nu^2`` metres with ``TEC`` in electrons per square metre
+    (Thompson, Moran & Swenson 2017, eq. 13.128), a path ``L`` is a phase
+    ``-2 pi nu L / c`` under this tier's sign convention, and one TECU is
+    ``1e16`` electrons per square metre.  Nothing of the term's own arithmetic
+    is reused except the slant column it is being checked at.
+    """
+    term = _term(vertical_tec_tecu=22.5)
+    directions = _directions(np.array([18.0, 52.0, 87.0]))
+    slant_tecu = term.slant_tec_tecu(0, directions)
+
+    for frequency in (7.5e7, 1.5e8, 3.0e8):
+        electrons_per_m2 = slant_tecu * 1.0e16
+        excess_path_m = 40.308 * electrons_per_m2 / frequency**2
+        reference = -2.0 * np.pi * frequency * excess_path_m / float(C_LIGHT)
+
+        np.testing.assert_allclose(
+            term.dispersive_phase_rad(0, directions, frequency),
+            reference,
+            rtol=1e-12,
+            atol=0.0,
+        )

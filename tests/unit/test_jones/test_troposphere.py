@@ -859,3 +859,84 @@ def test_the_opacity_scales_the_visibility_by_exp_minus_tau(tmp_path) -> None:
     # Half the opacity -- the voltage convention taken as if it were the power
     # one -- would land the whole cube above this bound.
     assert float(np.max(ratios)) < math.exp(-0.5 * zenith_opacity)
+
+
+# ---------------------------------------------------------------------------
+# Section 29.1 Tier-1 evidence: the published coefficients, evaluated here
+# ---------------------------------------------------------------------------
+
+
+def test_the_niell_functions_match_the_published_coefficients_at_five_elevations() -> (
+    None
+):
+    """Section 29.1's ``T`` row: ``m(el)`` at five elevations, from Table 3 and 4.
+
+    The reference is built in this test body from Niell (1996) Tables 3 and 4,
+    transcribed here a second time, and from his eq. (4) and eq. (6)-(7) written
+    out: the seasonal sinusoid, the linear interpolation in latitude, the
+    three-term continued fraction, and the height correction.  Nothing of the
+    production module's arithmetic is reused, which is what makes this evidence
+    rather than a restatement.
+    """
+    latitudes = (15.0, 30.0, 45.0, 60.0, 75.0)
+    hydrostatic_average = (
+        (1.2769934e-3, 1.2683230e-3, 1.2465397e-3, 1.2196049e-3, 1.2045996e-3),
+        (2.9153695e-3, 2.9152299e-3, 2.9288445e-3, 2.9022565e-3, 2.9024912e-3),
+        (62.610505e-3, 62.837393e-3, 63.721774e-3, 63.824265e-3, 64.258455e-3),
+    )
+    hydrostatic_amplitude = (
+        (0.0, 1.2709626e-5, 2.6523662e-5, 3.4000452e-5, 4.1202191e-5),
+        (0.0, 2.1414979e-5, 3.0160779e-5, 7.2562722e-5, 11.723375e-5),
+        (0.0, 9.0128400e-5, 4.3497037e-5, 84.795348e-5, 170.37206e-5),
+    )
+    wet = (
+        (5.8021897e-4, 5.6794847e-4, 5.8118019e-4, 5.9727542e-4, 6.1641693e-4),
+        (1.4275268e-3, 1.5138625e-3, 1.4572752e-3, 1.5007428e-3, 1.7599082e-3),
+        (4.3472961e-2, 4.6729510e-2, 4.3908931e-2, 4.4626982e-2, 5.4736038e-2),
+    )
+    height_correction = (2.53e-5, 5.49e-3, 1.14e-3)
+
+    def fraction(sine, a, b, c):
+        return (1.0 + a / (1.0 + b / (1.0 + c))) / (sine + a / (sine + b / (sine + c)))
+
+    def interpolate(table, latitude_deg):
+        return float(np.interp(abs(latitude_deg), latitudes, table))
+
+    def reference(elevation_deg, latitude_deg, day, height_m, component):
+        sine = math.sin(math.radians(elevation_deg))
+        if component == "wet":
+            return fraction(sine, *(interpolate(row, latitude_deg) for row in wet))
+        phase = 28.0 + (365.25 / 2.0 if latitude_deg < 0.0 else 0.0)
+        seasonal = math.cos(2.0 * math.pi * (day - phase) / 365.25)
+        coefficients = [
+            interpolate(average, latitude_deg)
+            + seasonal * interpolate(amplitude, latitude_deg)
+            for average, amplitude in zip(
+                hydrostatic_average, hydrostatic_amplitude, strict=True
+            )
+        ]
+        value = fraction(sine, *coefficients)
+        return value + (1.0 / sine - fraction(sine, *height_correction)) * (
+            height_m / 1000.0
+        )
+
+    for latitude_deg, day, height_m in (
+        (45.0, 28.0, 0.0),
+        (-30.72152, 200.0, 1073.0),
+        (12.0, 90.0, 2400.0),
+    ):
+        for elevation_deg in (5.0, 10.0, 20.0, 45.0, 90.0):
+            for component in ("hydrostatic", "wet"):
+                computed = float(
+                    niell_mapping_function(
+                        math.radians(elevation_deg),
+                        component=component,
+                        latitude_deg=latitude_deg,
+                        height_m=height_m,
+                        day_of_year=day,
+                    )
+                )
+                assert computed == pytest.approx(
+                    reference(elevation_deg, latitude_deg, day, height_m, component),
+                    rel=1e-13,
+                ), (latitude_deg, elevation_deg, component)
