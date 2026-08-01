@@ -273,11 +273,14 @@ class TestHealpixUnitsLoadBearing:
 
 
 class TestRngSeedProvenance:
+    # Keep S_min at 0.2 Jy: a 0.01 Jy floor over this cone draws ~335k sources
+    # through ~0.07%-acceptance rejection sampling (~50s per call), and the
+    # seed-provenance assertions need only a non-trivial draw.
     def test_poisson_confusion_records_seed(self):
         from radiosim.core.sky.loaders.synthetic import load_poisson_confusion
 
         sky = load_poisson_confusion(
-            flux_range_jy=(0.01, 1.0),
+            flux_range_jy=(0.2, 1.0),
             region=SkyRegion.cone(ra_deg=0.0, dec_deg=0.0, radius_deg=3.0),
             reference_frequency=154e6,
             seed=12345,
@@ -289,7 +292,7 @@ class TestRngSeedProvenance:
         from radiosim.core.sky.loaders.synthetic import load_poisson_confusion
 
         sky = load_poisson_confusion(
-            flux_range_jy=(0.01, 1.0),
+            flux_range_jy=(0.2, 1.0),
             region=SkyRegion.cone(ra_deg=0.0, dec_deg=0.0, radius_deg=3.0),
             reference_frequency=154e6,
             seed=None,
