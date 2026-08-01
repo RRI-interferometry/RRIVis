@@ -10,6 +10,7 @@ splitting the tests the same way is what keeps that honest.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import pytest
@@ -21,6 +22,8 @@ from radiosim.io.jones_config import (
     BandpassPolynomialModel,
     BandpassTabulatedModel,
     BandpassTermConfig,
+    BaselineErrorOverrideConfig,
+    BaselineErrorTermConfig,
     CableReflectionTermConfig,
     ConstantTecModel,
     CrosshandTermConfig,
@@ -38,6 +41,7 @@ from radiosim.io.jones_config import (
     ParallacticTermConfig,
     SaastamoinenZenithDelay,
     SinusoidalTimeModel,
+    SmearingTermConfig,
     StaticTimeModel,
     TroposphereTermConfig,
     as_complex,
@@ -90,11 +94,41 @@ jones:
       coefficients: [1.0, 0.0, -0.05]
 """
 
+_CLOSURE_ERROR = """
+jones:
+  M:
+    per_baseline:
+      - antennas: [0, 1]
+        matrix: [[[1.02, 0.0], [0.0, 0.0]],
+                 [[0.0, 0.0], [0.98, 0.0]]]
+"""
+
+_CLOSURE_ERROR_ARRAY_WIDE = """
+jones:
+  M:
+    matrix: [[[1.01, 0.0], [0.0, 0.0]],
+             [[0.0, 0.0], [0.99, 0.0]]]
+    per_baseline:
+      - antennas: [0, 1]
+        matrix: [[[1.02, 0.0], [0.0, 0.0]],
+                 [[0.0, 0.0], [0.98, 0.0]]]
+"""
+
+_SMEARING = """
+jones:
+  Q:
+    bandwidth_smearing: true
+    time_smearing: true
+"""
+
 _ACCEPTED_YAML = (
     _GAIN_WITH_EVERYTHING,
     _BANDPASS_POLYNOMIAL,
     _BANDPASS_TABULATED,
     _BOTH_TERMS,
+    _CLOSURE_ERROR,
+    _CLOSURE_ERROR_ARRAY_WIDE,
+    _SMEARING,
 )
 
 
@@ -171,31 +205,49 @@ def test_jones_models_are_strict_and_frozen() -> None:
         config.amplitude_error = 0.5  # type: ignore[misc]
 
 
-def test_an_unimplemented_term_letter_is_rejected(tmp_path) -> None:
-    """R3: a term no slice has implemented yet is not silently accepted.
+def test_no_term_letter_is_accepted_ahead_of_its_physics(tmp_path) -> None:
+    """R3's companion property, at the slice where it stops needing a witness.
 
-    ``M`` is a real Jones term with a real Section 20.10 definition, and it is
-    still rejected here, because RadioSim cannot yet honour it.  A schema field
-    for a term whose evaluation raises would be a configuration surface that
-    accepts a value and discards it -- defect D2, one level up.
+    The property this pins has always been "the schema surface never runs ahead
+    of the physics": while a planned term existed, it was pinned by writing that
+    term's letter into a document and watching the parse fail.
 
-    FLIPPED BY: Tier 7E.  ``D`` was the probe until this slice implemented it.
+    FLIPPED BY: Tier 7E (``D`` was the witness), Tier 7F (``P``), and Tier 7G,
+    which moved the witness to ``M``.
 
-    FLIPPED BY: Tier 7F, which implemented ``P``; the probe moved to ``Z``
-    rather than being deleted, because the property being pinned is "the schema
-    surface never runs ahead of the physics", and that property needs a witness
-    for as long as any term is still planned.
-
-    FLIPPED BY: Tier 7G, which implemented ``Z`` and ``T`` -- the last two
-    ``JonesTerm`` subclasses.  The witness moves to ``M``, one of the two
-    baseline-dependent terms Tier 7H owns, and after that slice there is no
-    witness left to move it to, because there will be no planned term at all.
+    FLIPPED BY: Tier 7H, which implements ``M`` and ``Q`` -- the last two terms
+    of any kind.  There is no letter left to write, so the property is asserted
+    directly instead: every letter the schema accepts resolves to a term whose
+    ``term_status`` is ``"implemented"``, and an *unknown* letter is still
+    rejected.  That is strictly stronger than the witness form, which only ever
+    checked one letter at a time.
     """
-    data = _document(tmp_path, "jones:\n  M:\n    per_baseline: []\n")
+    import radiosim.core.jones as jones_package
+    from radiosim.io.jones_config import JONES_TERM_LETTERS
 
+    assert set(JonesConfig.model_fields) == set(JONES_TERM_LETTERS)
+
+    status_by_letter = {
+        "G": jones_package.GainJones,
+        "B": jones_package.BandpassJones,
+        "Rc": jones_package.CableReflectionJones,
+        "Kd": jones_package.DelayJones,
+        "X": jones_package.CrosshandJones,
+        "D": jones_package.PolarizationLeakageJones,
+        "P": jones_package.ParallacticAngleJones,
+        "T": jones_package.TroposphereJones,
+        "Z": jones_package.IonosphereJones,
+        "M": jones_package.BaselineMultiplicativeJones,
+        "Q": jones_package.SmearingFactorJones,
+    }
+    assert set(status_by_letter) == set(JONES_TERM_LETTERS)
+    for letter, term_class in status_by_letter.items():
+        descriptor = inspect.getattr_static(term_class, "term_status")
+        assert descriptor.fget(None) == "implemented", letter
+
+    data = _document(tmp_path, "jones:\n  W:\n    enabled: true\n")
     with pytest.raises(ValidationError) as caught:
         RadioSimConfig.model_validate(data)
-
     assert "jones" in str(caught.value)
 
 
@@ -221,8 +273,14 @@ def test_the_known_field_table_covers_the_new_section(tmp_path) -> None:
         "P",
         "T",
         "Z",
+        "M",
+        "Q",
     }
     assert set(_KNOWN_FIELDS_BY_PARENT["jones.P"]) == {"enabled"}
+    assert set(_KNOWN_FIELDS_BY_PARENT["jones.Q"]) == {
+        "bandwidth_smearing",
+        "time_smearing",
+    }
     for letter, model in (
         ("G", GainTermConfig),
         ("B", BandpassTermConfig),
@@ -232,6 +290,8 @@ def test_the_known_field_table_covers_the_new_section(tmp_path) -> None:
         ("D", LeakageTermConfig),
         ("T", TroposphereTermConfig),
         ("Z", IonosphereTermConfig),
+        ("M", BaselineErrorTermConfig),
+        ("Q", SmearingTermConfig),
     ):
         assert set(_KNOWN_FIELDS_BY_PARENT[f"jones.{letter}"]) == set(
             model.model_fields
@@ -416,6 +476,20 @@ def test_every_unit_bearing_field_carries_its_unit_in_its_name() -> None:
         "zenith_opacity",
         "T",
         "Z",
+        # Tier 7H.  ``matrix``, ``antennas`` and ``per_baseline`` carry no
+        # physical unit: a closure error is a dimensionless multiplicative
+        # factor keyed by an antenna-number pair.  ``bandwidth_smearing`` and
+        # ``time_smearing`` are switches, and the two quantities they *would*
+        # carry a unit for -- the channel width and the integration time -- are
+        # deliberately not fields at all, because they come from the resolved
+        # observation configuration (Section 20.11).
+        "matrix",
+        "antennas",
+        "per_baseline",
+        "bandwidth_smearing",
+        "time_smearing",
+        "M",
+        "Q",
     }
     # ``_tecu`` (electron column), ``_m2`` (rotation measure, rad m^-2) and
     # ``_hpa`` (surface pressure) join the table with Tier 7G's two terms.  The
@@ -445,6 +519,9 @@ def test_every_unit_bearing_field_carries_its_unit_in_its_name() -> None:
         IonosphereTermConfig,
         ConstantTecModel,
         GradientTecModel,
+        BaselineErrorTermConfig,
+        BaselineErrorOverrideConfig,
+        SmearingTermConfig,
     ):
         for name in model.model_fields:
             assert name in dimensionless or name.endswith(suffixes), (
@@ -879,3 +956,91 @@ def test_an_unknown_key_inside_the_new_blocks_is_rejected(tmp_path) -> None:
                 "    minimum_elevation_deg: 5.0\n",
             )
         )
+
+
+# ---------------------------------------------------------------------------
+# Tier 7H: the two baseline-dependent blocks
+# ---------------------------------------------------------------------------
+
+
+def test_the_closure_matrix_is_a_two_by_two_of_complex_values(tmp_path) -> None:
+    """``M``'s one value is a 2x2 of ``[re, im]`` pairs (Section 21.3)."""
+    config = RadioSimConfig.model_validate(
+        _document(tmp_path, _CLOSURE_ERROR_ARRAY_WIDE)
+    )
+
+    assert config.jones is not None
+    block = config.jones.M
+    assert block is not None
+    assert as_complex(block.matrix[0][0]) == complex(1.01, 0.0)
+    assert as_complex(block.matrix[1][1]) == complex(0.99, 0.0)
+    entry = block.per_baseline[0]
+    assert entry.antennas == (0, 1)
+    assert as_complex(entry.matrix[0][0]) == complex(1.02, 0.0)
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        # Not square, and not 2x2.
+        "jones:\n  M:\n    matrix: [[[1.0, 0.0], [0.0, 0.0]]]\n",
+        "jones:\n  M:\n    matrix: [[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]]\n",
+        # A baseline key that is not a pair.
+        "jones:\n  M:\n    per_baseline:\n      - antennas: [0]\n"
+        "        matrix: [[[1.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [1.0, 0.0]]]\n",
+        "jones:\n  M:\n    per_baseline:\n      - antennas: [0, 1, 2]\n"
+        "        matrix: [[[1.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [1.0, 0.0]]]\n",
+        # A negative antenna number is not an antenna number.
+        "jones:\n  M:\n    per_baseline:\n      - antennas: [-1, 1]\n"
+        "        matrix: [[[1.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [1.0, 0.0]]]\n",
+        # An override with no matrix says nothing.
+        "jones:\n  M:\n    per_baseline:\n      - antennas: [0, 1]\n",
+    ],
+)
+def test_a_malformed_closure_block_is_rejected(tmp_path, block: str) -> None:
+    """Everything the schema can decide about ``M`` without an instrument."""
+    with pytest.raises(ValidationError):
+        RadioSimConfig.model_validate(_document(tmp_path, block))
+
+
+def test_both_smearing_switches_are_required(tmp_path) -> None:
+    """Section 21.3's correction: neither boolean has a default.
+
+    Which of the two mechanisms a run models is a scientific decision, and a
+    default would silently make it RadioSim's.
+    """
+    for block in (
+        "jones:\n  Q: {}\n",
+        "jones:\n  Q:\n    bandwidth_smearing: true\n",
+        "jones:\n  Q:\n    time_smearing: true\n",
+    ):
+        with pytest.raises(ValidationError):
+            RadioSimConfig.model_validate(_document(tmp_path, block))
+
+
+def test_the_smearing_block_takes_no_width_or_integration_time(tmp_path) -> None:
+    """Section 20.11: ``dnu`` and ``dt`` are not free parameters of the term.
+
+    A ``channel_width_hz`` here would be a second, contradictable statement of
+    something the observation configuration already resolves, and the run would
+    then have two answers to "how wide is a channel".
+    """
+    for field in ("channel_width_hz", "integration_time_s"):
+        assert field not in SmearingTermConfig.model_fields
+        with pytest.raises(ValidationError):
+            RadioSimConfig.model_validate(
+                _document(
+                    tmp_path,
+                    "jones:\n  Q:\n    bandwidth_smearing: true\n"
+                    f"    time_smearing: false\n    {field}: 1.0e+6\n",
+                )
+            )
+
+
+@pytest.mark.parametrize(
+    "model",
+    [BaselineErrorTermConfig, BaselineErrorOverrideConfig, SmearingTermConfig],
+)
+def test_the_baseline_blocks_are_frozen_and_strict(model: type) -> None:
+    assert model.model_config["extra"] == "forbid"
+    assert model.model_config["frozen"] is True

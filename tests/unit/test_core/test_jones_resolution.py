@@ -1840,3 +1840,219 @@ def test_the_two_new_terms_are_snapshotted_into_the_fingerprint(tmp_path) -> Non
         )
         == 3
     )
+
+
+# ---------------------------------------------------------------------------
+# Tier 7H: M and Q, the two baseline-dependent terms
+# ---------------------------------------------------------------------------
+#
+# Neither is a chain term, so what resolution owes them is different from what
+# it owes the nine per-antenna letters: ``M`` is validated against the resolved
+# *baseline selection* rather than against the antenna list (R14), and ``Q``
+# takes no physical parameter at all -- its two grids come from the resolved
+# observation configuration, because a smearing integration time that disagreed
+# with the time grid the solver iterates would be a fabrication (Section 20.11).
+
+
+#: One non-identity ``M``, and one ``Q`` with both envelopes active.
+NONTRIVIAL_CLOSURE: dict[str, Any] = {
+    "matrix": [[[1.04, 0.02], [0.0, 0.0]], [[0.0, 0.0], [0.96, -0.03]]]
+}
+NONTRIVIAL_SMEARING: dict[str, Any] = {
+    "bandwidth_smearing": True,
+    "time_smearing": True,
+}
+
+
+def test_a_baseline_term_is_resolved_outside_the_chain(tmp_path) -> None:
+    """The inventory keeps the two paths apart, by construction."""
+    from radiosim.core.jones.baseline_errors import (
+        BaselineMultiplicativeJones,
+        SmearingFactorJones,
+    )
+
+    resolved = resolve_for(
+        tmp_path, {"M": NONTRIVIAL_CLOSURE, "Q": NONTRIVIAL_SMEARING}
+    )
+
+    assert resolved.chain_terms == ()
+    assert resolved.configured_letters == ()
+    assert resolved.baseline_letters == ("M", "Q")
+    assert [type(term) for term in resolved.baseline_terms] == [
+        BaselineMultiplicativeJones,
+        SmearingFactorJones,
+    ]
+    assert resolved.provenance.chain_order == ("H", "C", "E")
+    assert resolved.provenance.enabled_terms == ("H", "C", "E", "M", "Q")
+    assert set(resolved.provenance.term_snapshots) == {"M", "Q"}
+
+
+def test_baseline_terms_are_ordered_canonically_not_as_written(tmp_path) -> None:
+    """``M`` before ``Q``, whichever order the document used."""
+    resolved = resolve_for(
+        tmp_path, {"Q": NONTRIVIAL_SMEARING, "M": NONTRIVIAL_CLOSURE}
+    )
+
+    assert [term.name for term in resolved.baseline_terms] == ["M", "Q"]
+
+
+def test_a_baseline_term_composes_with_the_chain_terms(tmp_path) -> None:
+    """A run may configure both kinds, and neither displaces the other."""
+    resolved = resolve_for(
+        tmp_path,
+        {
+            "G": {"amplitude_error": 0.03},
+            "M": NONTRIVIAL_CLOSURE,
+            "Q": NONTRIVIAL_SMEARING,
+        },
+    )
+
+    assert resolved.configured_letters == ("G",)
+    assert resolved.baseline_letters == ("M", "Q")
+    assert resolved.provenance.enabled_terms == ("H", "G", "C", "E", "M", "Q")
+
+
+def test_an_unknown_baseline_pair_is_rejected_with_the_r14_message(tmp_path) -> None:
+    """R14, verbatim, from the file that owns Section 24's message table."""
+    with pytest.raises(JonesAssignmentError) as caught:
+        resolve_for(
+            tmp_path,
+            {
+                "M": {
+                    "per_baseline": [
+                        {
+                            "antennas": [0, 4],
+                            "matrix": [
+                                [[1.5, 0.0], [0.0, 0.0]],
+                                [[0.0, 0.0], [1.0, 0.0]],
+                            ],
+                        }
+                    ]
+                }
+            },
+        )
+
+    assert str(caught.value) == (
+        "jones.M.per_baseline references baseline (0, 4), which is not in the "
+        "resolved baseline selection."
+    )
+
+
+def test_a_duplicate_baseline_is_rejected_with_the_adapted_r5_message(
+    tmp_path,
+) -> None:
+    """R5's bounded form for the one term keyed by a baseline (Section 20.10)."""
+    entry = {
+        "antennas": [0, 1],
+        "matrix": [[[1.5, 0.0], [0.0, 0.0]], [[0.0, 0.0], [1.0, 0.0]]],
+    }
+    with pytest.raises(InvalidJonesConfigError) as caught:
+        resolve_for(tmp_path, {"M": {"per_baseline": [entry, dict(entry)]}})
+
+    assert str(caught.value) == (
+        "jones.M.per_baseline contains a duplicate entry for baseline (0, 1); "
+        "each baseline may appear once."
+    )
+
+
+def test_a_smearing_block_with_nothing_enabled_is_rejected_with_r16(tmp_path) -> None:
+    """R16, verbatim."""
+    with pytest.raises(InvalidJonesConfigError) as caught:
+        resolve_for(
+            tmp_path, {"Q": {"bandwidth_smearing": False, "time_smearing": False}}
+        )
+
+    assert str(caught.value) == (
+        "jones.Q is enabled with both smearing kinds disabled; remove the "
+        "section instead."
+    )
+
+
+def test_an_identity_closure_error_is_rejected_with_r7(tmp_path) -> None:
+    """R7 reaches the baseline path too: an ``M`` of identities is no term."""
+    with pytest.raises(IdentityJonesTermError) as caught:
+        resolve_for(
+            tmp_path,
+            {"M": {"matrix": [[[1.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [1.0, 0.0]]]}},
+        )
+
+    assert str(caught.value) == (
+        "jones.M is configured with parameters that make it exactly the "
+        "identity; a term that cannot change the visibilities must be removed "
+        "rather than configured."
+    )
+
+
+def test_the_baseline_rejections_keep_the_mandatory_failure_order(tmp_path) -> None:
+    """Section 26.1: structural (R14) before physical (R16) before identity (R7).
+
+    A document with all three mistakes is told about the baseline it named that
+    does not exist, because that is the one the reader can act on without first
+    understanding the other two.
+    """
+    with pytest.raises(JonesAssignmentError):
+        resolve_for(
+            tmp_path,
+            {
+                "M": {
+                    "matrix": [
+                        [[1.0, 0.0], [0.0, 0.0]],
+                        [[0.0, 0.0], [1.0, 0.0]],
+                    ],
+                    "per_baseline": [
+                        {
+                            "antennas": [0, 9],
+                            "matrix": [
+                                [[1.0, 0.0], [0.0, 0.0]],
+                                [[0.0, 0.0], [1.0, 0.0]],
+                            ],
+                        }
+                    ],
+                },
+                "Q": {"bandwidth_smearing": False, "time_smearing": False},
+            },
+        )
+
+
+def test_the_baseline_terms_enter_the_fingerprint(tmp_path) -> None:
+    """Section 25.1, for the two letters that are not in the chain."""
+    base = resolve_for(tmp_path, {"M": NONTRIVIAL_CLOSURE, "Q": NONTRIVIAL_SMEARING})
+    changed_matrix = resolve_for(
+        tmp_path,
+        {
+            "M": {"matrix": [[[1.05, 0.02], [0.0, 0.0]], [[0.0, 0.0], [0.96, -0.03]]]},
+            "Q": NONTRIVIAL_SMEARING,
+        },
+    )
+    changed_smearing = resolve_for(
+        tmp_path,
+        {
+            "M": NONTRIVIAL_CLOSURE,
+            "Q": {"bandwidth_smearing": True, "time_smearing": False},
+        },
+    )
+
+    assert base.provenance.term_snapshots["Q"] == {
+        "bandwidth_smearing": True,
+        "time_smearing": True,
+    }
+    assert (
+        len(
+            {
+                base.provenance.jones_sha256,
+                changed_matrix.provenance.jones_sha256,
+                changed_smearing.provenance.jones_sha256,
+            }
+        )
+        == 3
+    )
+
+
+def test_the_resolved_smearing_term_reads_the_runs_grids(tmp_path) -> None:
+    """``dnu`` and ``dt`` are the run's own, and the term says which run."""
+    resolved = resolve_for(tmp_path, {"Q": NONTRIVIAL_SMEARING})
+
+    (term,) = resolved.baseline_terms
+    np.testing.assert_allclose(term.channel_frequencies_hz, [1.0e8, 1.01e8, 1.02e8])
+    np.testing.assert_allclose(term.channel_widths_hz, [1.0e6, 1.0e6, 1.0e6])
+    np.testing.assert_allclose(term.integration_time_s, [1.0, 1.0])
