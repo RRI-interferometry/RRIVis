@@ -227,6 +227,16 @@ incomplete. Each entry is an open row in the project's defect register.
   discriminator. Source regression, package drift, thread counts and test
   ordering are ruled out with evidence. No "CI is green" claim is made while
   it is open.
+- ``API-001`` (open, low-priority): ``stokes_to_coherency`` does not
+  broadcast its scalar ``Q``/``U``/``V`` keyword defaults against a
+  non-scalar ``I`` argument, so the single most basic array-input call
+  raises instead of broadcasting. No shipped solver path is affected: both
+  production call sites always pass four already-matched-shape arrays.
+- ``API-002`` (open, low-priority): ``print_warning`` and its siblings in
+  ``utils/logging.py`` leave Rich markup enabled on an interpolated
+  message, so a caller-built string containing a ``[...]``-bracketed
+  substring (for example a model name list) is silently dropped from the
+  rendered output rather than escaped or shown literally.
 
 [0.2.0] - 2025-12-15
 --------------------

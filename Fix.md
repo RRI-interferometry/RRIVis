@@ -15164,3 +15164,213 @@ executed by the implementer at `73714d0`, ratified above). `CI-001` remains
 `OPEN` (nothing to measure pre-push). `API-001` remains `OPEN`. `API-002` is
 newly filed `OPEN` (§5, above). **Slice 8D is ACCEPTED. Slice 8E is
 authorized.**
+
+### 2026-08-02 Tier 8E independent acceptance
+
+**Scope.** Eight commits, `3c74753..c1b0464`: two plan corrections
+(`82a55e4`, `f540ca6`), the agent-facing/repository surface reconciliation
+(`385e8cf`), the accelerator-extras removal (`110bd9b`), the ABC docstring
+correction (`d9a5183`), the version bump (`a9d33d4`), an autodoc fix
+(`1b538d0`), and pin bookkeeping (`c1b0464`). Reviewed against
+`Tier8ReleasePlan.md` §17's 8E contract (as amended by the two corrections),
+§11 scans 2/3/7/8, §15 (the disposal decisions), §16 (the version bump), and
+`Fix.md` through 8D (`API-002` `OPEN`, `CI-001` `OPEN`). Read every commit
+diff in full; nothing was taken from the commit messages alone.
+
+**The version bump and fingerprint reproduction.** All five metadata sites
+(`pyproject.toml:7`, `pixi.toml:3`, `src/radiosim/__about__.py:3`,
+`docs/conf.py:15-16`, plus `CLAUDE.md:9`'s prose, a sixth site the design did
+not enumerate but which is now consistent) read `0.3.0`; `pixi run radiosim
+--version` prints `radiosim, version 0.3.0`; `test_release_metadata_matches_
+canonical_project_version` and the two new `test_release_metadata.py` tests
+(`test_no_accelerator_named_extra_is_published`, `test_the_changelog_has_a_
+section_for_the_canonical_version`) pass. **Fingerprint reproduced
+directly**, not taken from the commit message: `configs/config.yaml` was run
+through `Simulator.setup()`/`.run()` at HEAD and again at `d9a5183` (the
+commit immediately before the bump) in a disposable `git worktree`.
+`scientific_sha256` was byte-identical across the bump
+(`4bbb74035b3d700fa7638dca6b854a8c9110bc2abe8d418c7b180f527b947f2b` both
+times, matching the value recorded in `c1b0464`'s commit message exactly);
+`provenance_sha256` differed (`b4921f5f...` before, `90731b1f...` after), the
+intended asymmetry per `core/result.py:789-857`. `pixi lock --check` reports
+the lock file up to date; the `pixi.lock` diff in `110bd9b` touches exactly
+one package block (nine changed lines: five accelerator-extra dependency
+lines removed, two `jax`-extra lines added, one `all`-extra line rewritten) —
+no package version, hash, or URL moved.
+
+**The extras removal.** `gpu`, `gpu-cuda`, `gpu-rocm`, `tpu` and the `gpu`
+keyword are gone from `pyproject.toml`; the library is installable as
+`radiosim[jax]`. All five call sites the design's correction enumerated are
+fixed and read: `README.md:70-75`, `docs/installation.rst:21-27`,
+`docs/user_guide/backends.rst:249-258`,
+`src/radiosim/backends/__init__.py:243-274` and
+`src/radiosim/backends/jax_backend.py:112-120` — none tells a reader to
+install a name that no longer resolves. `test_no_accelerator_named_extra_is_
+published` is a genuine negative test (parses `pyproject.toml`, asserts no
+`gpu|tpu|cuda|rocm|metal|accelerat`-matching extra or keyword, asserts `jax`
+is present).
+
+**The sweeps.** `AGENTS.md`'s six defects (Numba, the three-of-seven test
+list, the Hugging Face sentence, the inert-doctest sentence, `RRIVis`, the
+discharged TODO) are each corrected, and the `simulators/` submodule fact is
+added and verified: `git submodule status | wc -l` and `git config --file
+.gitmodules --get-regexp path | wc -l` both report `41`. `CLAUDE.md`'s three
+(MyPy→Pyright, the `io/` module list, the discharged TODO) are corrected; the
+Pyright command, ceiling file and "MyPy is not used anywhere" claim were
+checked against `pixi.toml`/`pyproject.toml` and are accurate.
+`README.md` states "Four shipped YAML samples" and names all four; `ls
+configs/*.yaml` independently confirms four, matching every named file. The
+new "Repository layout" table's every path (`tests/support`, `tests/fixtures`,
+`output/benchmarks/reference/`, `output/crossvalidation/`, `simulators/`,
+etc.) was checked to exist. The FITS `COMMENT` card in
+`antenna_layout_examples/1101503312_metafits.fits` was read with `astropy`:
+the card is exactly 80 bytes (`'COMMENT Example MWA metafits file for
+RadioSim testing                          '`), the file is 17280 bytes
+(unchanged; the `pixi.lock`-style LFS pointer's `oid` changed but `size` did
+not), `hdul.verify('exception')` raises nothing, and the file's `sha256`
+matches the new LFS `oid` in `385e8cf`'s diff exactly. The `.gitignore:125`
+explanatory comment for `project.md` matches Section 15.1's prescribed
+disposition (not restored, not deleted, the ignore entry explains why).
+
+**The changelog.** The `[Unreleased]` → `[0.3.0] - 2026-08-02` transition,
+the widened Added/Changed/Removed sections covering Tiers 1-8, and the
+`network_service` → `network_services` breaking-change entry plus its
+`docs/migration_guide.md` "Sky-loader network declarations (2026-08-02)"
+section were all read in full and are accurate against the `Fix.md` records
+they summarize (`SKY-001`, `RUN-004`, the Stokes-`V` sign, the FITS-beam
+fingerprint move, the `numba`→`dask` rename). **One completeness gap found
+and corrected**: the "Known limitations" section, as implemented, named
+exactly the six rows `Tier8ReleasePlan.md` Section 16 enumerated
+(`PERF-001`, `SCI-004`, `SCI-005`, `SCI-006`, `SCI-007`, `CI-001`) — which was
+literally what the design specified, but the design predates `API-001`
+(filed at 8B) and `API-002` (filed at 8D), and by 8E's own implementation
+time both were `OPEN` rows in the register the section's own preamble
+promises to enumerate ("Read the 'Known limitations' section... it names,
+with register identifiers, everything this release does *not* do"). Left as
+shipped, a reader of the changelog alone would not learn that two disclosed,
+low-priority API defects exist. **Corrected**: two one-sentence entries were
+added to `docs/changelog.rst`, in the same style as the existing six, citing
+`API-001` (the `stokes_to_coherency` broadcast gap, no solver path affected)
+and `API-002` (the `print_warning` markup-swallowing defect). This is a
+disclosure completeness fix, not a decision reversal: nothing Sections
+11-17 ruled is changed, and both rows were already `OPEN` in the register
+before this review began. The Sphinx build was re-run after the edit
+(`make -C docs html` under `-W --keep-going`: "build succeeded", zero
+warnings) and `tests/unit/test_release_metadata.py` /
+`test_tier8_release_acceptance.py` were re-run (35 passed) to confirm the
+addition breaks no scan.
+
+**Scan-scoping rulings.**
+- **Scan 7's capability-claim regex versus a literal `gpu|tpu` token
+  match, ratified as narrowed.** Reproduced the false-positive argument
+  directly: `grep -ci 'gpu\|tpu' src/radiosim/utils/device.py` alone returns
+  106 (field names `gpus`, `has_gpu`, vendor-probe code — not claims), and
+  `src/radiosim/backends/*.py` returns 52 more (`device_kind`,
+  `jax.devices("gpu")`, `backends["jax_gpu"]` — execution facts about the
+  host). Running the actual `ACCELERATOR_CLAIM` regex from
+  `test_tier8_release_acceptance.py` against `utils/device.py` and all of
+  `backends/*.py` finds zero matches. Running the same regex against the
+  four pre-fix lines cited in the design (`simulator/__init__.py`'s "GPU
+  acceleration via JAX backend" and "10-100x faster" bullet,
+  `simulator/base.py`'s "supports GPU acceleration" and "can use GPU
+  backends... Default is True") finds a match on all four, confirming the
+  scan fails before the fix and passes after it without also failing on
+  host-fact code. **Ratified**: the narrowed capability-claim form, not the
+  literal token, is correct — a literal-token scan would be uninstallable on
+  this codebase's own hardware-detection modules.
+- **The paragraph-level denial exemption, probed for the smuggling hazard
+  and ratified.** In principle a claim smuggled into a paragraph that also
+  contains a denial phrase (`"publishes no"`, `"does not establish"`, etc.)
+  would be exempted from the citation requirement. Enumerated every
+  paragraph in the current tracked, non-historical prose that matches the
+  claim regex **and** contains a denial phrase (three: `README.md:377`,
+  `docs/user_guide/backends.rst:205`, `docs/user_guide/sky_models.rst:361`)
+  and read each in full: all three are genuine denials ("publishes no
+  unverified speedup multiplier and no GPU performance number", "publishes
+  no GPU, TPU, or distributed performance number, because none has been
+  measured", "does not establish end-to-end GPU acceleration") with no
+  smuggled positive claim in any of them. **Ruled**: accept the
+  paragraph-level grain as implemented. No live instance is unsafe, the scan
+  is a regression gate rather than a one-time attestation, and demanding
+  line-level citation would require re-editing pages 8C already rebuilt
+  clean under `-W` for a hypothetical future risk rather than a present one.
+- **Scan 8's option-value parser and the `CLAUDE.md` escape.** `CLAUDE.md:24`
+  ("`pixi run pytest` does NOT work...") is the only tracked "`pixi run
+  pytest`" instance in the repository; it contains the literal marker "does
+  NOT work" from `NEGATED_COMMAND_MARKERS`, so the scan skips the line
+  entirely regardless of whether `pytest` resolves as a task. Noted but not
+  a defect: `pytest` is also independently listed in `ENVIRONMENT_COMMANDS`
+  (treated as an executable name a reader could run directly), which is a
+  latent inconsistency with the same line's own claim that `pixi run pytest`
+  does not work — but no other tracked document currently states `pixi run
+  pytest` as a working command, so this inconsistency has no live effect and
+  is not corrected here.
+- **Fail-before evidence, reproduced.** `git show 3c74753:AGENTS.md | grep -i
+  rrivis` returns line 34's "Until RRIVis reaches a major stable release" —
+  the pre-fix byte-scan instance for scan 2. `git show d9a5183^:src/radiosim/
+  simulator/__init__.py` and `.../base.py` were read at the four cited lines
+  and confirmed unfixed at that revision; running scan 7's live regex
+  against each of the four lines directly (not against the whole file)
+  returns a match on all four.
+
+**The `supports_gpu` ruling.** Read §17 item 7's exact wording: 8E "rewords
+or removes" the docstring "exactly as it does the `:12` bullet" — a
+docstring grant, not a behavior grant. `d9a5183`'s diff confirms the
+`return True` on `VisibilitySimulator.supports_gpu` (`simulator/base.py`) is
+untouched; only the docstring changed, now explaining that the inherited
+`True` predates the finding and that a subclass "must... override it to
+`False`... [flipping] is a behaviour change, deliberately not made in a
+documentation slice; it is tracked with `PERF-001`." `grep -rn
+supports_gpu` confirms `RIMESimulator` (`simulator/rime.py:163`) is the only
+subclass and already overrides to `False` (unchanged, pinned by
+`test_backends.py:67` and `test_tier6_current_behavior.py:1554-1561`).
+**Ruled**: the docstring-only reading was correct. Item 7 licensed no logic
+change, and none was made. A reviewer weighing "flip the ABC default to
+`False` since it would be safe" was considered and rejected: `PERF-001`
+already tracks the base-class default as a known, disclosed gap, the
+docstring is now honest about it, and a behavior change to an abstract
+base's default return value is exactly the kind of edit a documentation
+slice should not make silently — 8F or a future tier is the right place for
+it if wanted, not this review.
+
+**Gates, both environments, reproduced fresh.** `pixi run test -- -m "not
+slow"`: **5376 passed, 1 skipped, 10 deselected**, matching the claimed
+5,368+8 exactly, with **27** warnings under `default` (py311) and **41**
+under `py312` — both exactly as claimed. Collect-only diff against a
+disposable worktree at `3c74753` confirms the baseline was **5368/5378 (10
+deselected)** and the +8 is exactly 4 new scans/tests
+(`test_no_tracked_file_carries_the_pre_rename_project_name`,
+`test_no_accelerator_claim_in_tracked_prose_lacks_a_citation`,
+`test_no_accelerator_claim_in_the_package_lacks_a_citation`,
+`test_every_documented_pixi_task_exists`) + 2 net parametrize additions (the
+`README.md` config-count instance and the document-inventory scan's split
+into per-document parametrization) + 2 new `test_release_metadata.py` tests,
+by direct collect-only diff, not arithmetic alone. `pixi run lint`: clean.
+`pixi run check-format`: clean, 378 files. `pixi run typecheck`: strict
+Pyright ceiling satisfied, 2583 <= 4600 (unchanged this slice; not touched by
+any of the eight commits). `pixi run doctest`: 41 passed. `make -C docs html`
+under `-W --keep-going`: "build succeeded", zero warnings, both before and
+after the Known-limitations correction. All four `configs/*.yaml` validated
+cleanly via `radiosim validate`. The `core.sky` laziness guard passed within
+the full run. `examples/scripts/simple_simulation.py` run directly:
+completes, prints both fingerprints. `git status --porcelain` was clean
+before, during (worktrees only, cleaned up with `git worktree remove`), and
+after this review. No `Co-Authored-By` line in any of the eight commits,
+confirmed by grepping every commit body in the range.
+
+**Unobserved.** No live GitHub Actions run exists at any Tier 8 SHA: `git
+status` shows `main` ahead of `origin/main` with none of the eight 8E
+commits (nor the prior unpushed 8A-8D commits) pushed, so the `CI-001`
+divergence, the CI-shape claims, and "CI is green" remain unverified by a
+real workflow execution at this SHA — this is explicitly **8F's** to
+resolve (poll CI to completion on the acceptance SHA and report all eight
+jobs by run ID, per Section 17's 8F slice). This review did not attempt to
+name `CI-001`'s discriminator (out of Tier 8's scope throughout) and did not
+exercise GPU/TPU hardware (none exists in this environment).
+
+**Register.** No register row's status changes at 8E: `PERF-001`, `SCI-004`,
+`SCI-005` remain `ROADMAP`; `SCI-006`, `SCI-007`, `CI-001`, `API-001`,
+`API-002` remain `OPEN` — `API-001` and `API-002` are now additionally named
+in the `[0.3.0]` changelog's Known limitations section, closing the
+disclosure gap this review found. **Slice 8E is ACCEPTED. Slice 8F is
+authorized.**

@@ -27,18 +27,27 @@ gains an explicit changelog/migration-guide obligation — and one new register
 row, `API-002`, filed for a `print_warning` markup-swallowing defect found
 while reproducing the `SKY-002` offline pre-flight, out of both 8D's and 8E's
 writable grants; see `Fix.md`'s "Tier 8D independent acceptance" note) **and
-8E is authorized to begin.** Tier 7 is
+8E is authorized to begin.** **8E is ACCEPTED** (2026-08-02 independent
+acceptance, with one bounded correction applied directly to
+`docs/changelog.rst` — the `[0.3.0]` "Known limitations" section, as
+implemented, named `PERF-001`, `SCI-004`, `SCI-005`, `SCI-006`, `SCI-007` and
+`CI-001` per Section 16's literal text but omitted `API-001` and `API-002`,
+both `OPEN` in the register at 8E's own time; two one-sentence entries were
+added, matching the section's existing style, with no other change — and no
+decision recorded by Sections 11-17 changed; see `Fix.md`'s "Tier 8E
+independent acceptance" note) **and 8F is authorized to begin.** Tier 7 is
 accepted as a whole (Tier 7K, 2026-08-02); `SCI-001`, `SCI-002`, `SCI-003` are
 `DONE`; `SCI-004`, `SCI-005` are filed `ROADMAP`; `SCI-006`, `SCI-007` stay
 `OPEN`; `PERF-001` stays `ROADMAP`; `SKY-002` is `DONE`, closed at 8D
-(Section 13); `CI-001` is `OPEN`, filed at 8A, still open at 8D because the
-CI-side instrumentation has not yet run on a pushed 8D SHA — there is nothing
-to measure yet, so no digest is appended and the row is unchanged; `API-001`
-is `OPEN`, filed at 8B independent acceptance (a `stokes_to_coherency`
-broadcast ergonomics gap found while verifying 8B's docstring correction — no
-solver path reachable, not a Tier 8 blocker); `API-002` is `OPEN`, filed at 8D
-independent acceptance (see above). Tier 8 is the final tier of the
-remediation program defined by `Fix.md`.**
+(Section 13); `CI-001` is `OPEN`, filed at 8A, still open at 8E because no CI
+run exists yet at any pushed Tier 8 SHA — there is nothing to measure, so no
+digest is appended and the row is unchanged, a disposition 8F inherits;
+`API-001` is `OPEN`, filed at 8B independent acceptance (a
+`stokes_to_coherency` broadcast ergonomics gap found while verifying 8B's
+docstring correction — no solver path reachable, not a Tier 8 blocker);
+`API-002` is `OPEN`, filed at 8D independent acceptance (see above); both are
+now also named in the `[0.3.0]` changelog's Known limitations section. Tier 8
+is the final tier of the remediation program defined by `Fix.md`.**
 
 This document is the governing implementation specification for Tier 8,
 defined by [`Fix.md`](Fix.md) Section 17 ("Tier 8 — Documentation and release
