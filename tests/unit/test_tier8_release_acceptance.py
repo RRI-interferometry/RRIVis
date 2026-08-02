@@ -33,6 +33,7 @@ import importlib
 import re
 import subprocess
 import sys
+import tomllib
 from contextlib import suppress
 from pathlib import Path
 
@@ -206,6 +207,87 @@ RETIREMENT_MARKERS = (
     "there is no",
     "has no",
 )
+
+#: A capability claim about an accelerator: a device name tied to a verb of
+#: support, provision or achievement, or a speed multiplier. Deliberately
+#: *not* the bare ``gpu``/``tpu`` token, per the ruling recorded at the Tier 8C
+#: independent re-acceptance and quoted in ``Tier8ReleasePlan.md`` Section 17
+#: item 7: ``radiosim.backends : Backend abstraction for CPU/GPU`` is a
+#: cross-reference naming another module's scope, and ``jax.devices("gpu")``,
+#: ``device_kind == "gpu"`` and the whole of ``utils/device.py`` are execution
+#: facts about the machine. None of them claims this package achieved
+#: anything. "GPU acceleration via JAX backend" does.
+ACCELERATOR_CLAIM = re.compile(
+    # "GPU acceleration", "TPU-accelerated"
+    r"\b(?:gpu|tpu)s?\b[^.\n]{0,30}?\baccelerat\w+"
+    # "acceleration via JAX", "accelerated on a GPU"
+    r"|\baccelerat\w+[^.\n]{0,30}?\b(?:via|on|with)\b[^.\n]{0,25}?"
+    r"\b(?:gpu|tpu|jax|cuda|rocm|metal)\b"
+    # "supports GPU", "GPU support"
+    r"|\bsupports?\b[^.\n]{0,25}?\b(?:gpu|tpu)\b"
+    r"|\b(?:gpu|tpu)\b[^.\n]{0,15}?\bsupport(?:ed|s)?\b"
+    # "can use GPU backends", "will run on a GPU"
+    r"|\b(?:can|will|does)\b[^.\n]{0,25}?\b(?:use|run on|execute on)\b"
+    r"[^.\n]{0,20}?\b(?:gpu|tpu)s?\b"
+    # "10-100x faster", "3× faster"
+    r"|\d\s*(?:[-–]\s*\d+\s*)?(?:x|×)\s*(?:times\s+)?faster",
+    re.IGNORECASE,
+)
+
+#: The prose surface additionally forbids an uncited bare speed claim. Source
+#: docstrings do not: "purely a wall-clock speedup" describing why one code
+#: path exists is an implementation note, while the same words on a
+#: documentation page are a promise to a reader.
+PROSE_SPEED_CLAIM = re.compile(
+    ACCELERATOR_CLAIM.pattern + r"|\bspeedups?\b|\bfaster\s+than\b",
+    re.IGNORECASE,
+)
+
+#: A paragraph carrying an accelerator claim must cite the committed records or
+#: name the open register row. This is the enforceable form of ``CLAUDE.md``'s
+#: standing rule: never write a speed or GPU claim without citing a record.
+CLAIM_CITATIONS = ("output/benchmarks/reference", "PERF-001")
+
+#: Phrases that make a paragraph a *denial* rather than a claim. The rule is
+#: "no claim without evidence"; "RadioSim publishes no GPU performance number,
+#: because none has been measured" is the evidence position stated in words,
+#: and demanding a citation beside it would be demanding a citation for the
+#: absence of a claim. Matched per paragraph, not per line, because the denial
+#: and the device name it denies are routinely on different lines of the same
+#: sentence.
+CLAIM_DENIALS = (
+    "no accelerator",
+    "publishes no",
+    "does not establish",
+    "does not promise",
+    "does not claim",
+    "requires a real accelerator run",
+    "unmeasured",
+    "measured no accelerator",
+    "never been measured",
+    "has measured none",
+)
+
+#: Roots whose Python sources are scanned for accelerator claims.
+#: ``tests/`` is excluded: a test that asserts an error message contains the
+#: word "GPU" is quoting the package, not claiming anything.
+CLAIM_SOURCE_ROOTS = ("src/radiosim",)
+
+#: ``pixi run <token>`` strings whose token is an executable in the environment
+#: rather than a declared task. ``pixi run`` accepts both, so the scan must too.
+ENVIRONMENT_COMMANDS = frozenset({"python", "radiosim", "jupyter", "pytest"})
+
+#: Options that consume the argument after them, so the scan does not mistake
+#: an environment name for a task name.
+PIXI_OPTIONS_WITH_VALUE = frozenset({"--environment", "-e", "--manifest-path"})
+
+#: Phrases that mark a documented command as one that deliberately does *not*
+#: work -- ``CLAUDE.md`` warns that ``pixi run pytest`` is not on the task list,
+#: which is guidance, not a broken instruction.
+NEGATED_COMMAND_MARKERS = ("does not work", "does NOT work", "not directly on")
+
+_PIXI_RUN = re.compile(r"pixi run\s+(.*)")
+_TASK_TOKEN = re.compile(r"[a-z][\w-]*\Z")
 
 _DOTTED_RADIOSIM = re.compile(r"\bradiosim(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
 _PY_ROLE = re.compile(r":(?:class|func|meth|mod|attr|data|exc|obj):`~?([^`<>]+?)`")
@@ -648,6 +730,157 @@ def test_every_documented_radiosim_symbol_is_importable() -> None:
         + "\n  ".join(sorted(unresolved))
         + "\nUpdate the document to the current public name, or move the "
         "example into the migration guide where historical names belong."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section 11 item 7 -- no accelerator claim without a citation (DOC-005)
+# ---------------------------------------------------------------------------
+
+
+def _paragraphs(text: str) -> list[tuple[int, str]]:
+    """Split text into blank-line-separated blocks, with 1-based start lines."""
+    blocks: list[tuple[int, str]] = []
+    line_number = 1
+    for block in re.split(r"\n[ \t]*\n", text):
+        blocks.append((line_number, block))
+        line_number += block.count("\n") + 2
+    return blocks
+
+
+def _uncited_accelerator_claims(path: Path, pattern: re.Pattern[str]) -> list[str]:
+    """Return one message per paragraph that claims acceleration without proof."""
+    relative = _relative(path)
+    offences: list[str] = []
+    for start, block in _paragraphs(path.read_text(encoding="utf-8")):
+        if not pattern.search(block):
+            continue
+        if any(citation in block for citation in CLAIM_CITATIONS):
+            continue
+        lowered = block.lower()
+        if any(denial in lowered for denial in CLAIM_DENIALS):
+            continue
+        for offset, line in enumerate(block.splitlines()):
+            if pattern.search(line):
+                offences.append(f"{relative}:{start + offset}: {line.strip()}")
+    return offences
+
+
+def test_no_accelerator_claim_in_tracked_prose_lacks_a_citation() -> None:
+    """Every GPU or speed claim in the documentation must cite its evidence.
+
+    ``CLAUDE.md`` states the rule -- never write a speed or GPU claim without
+    citing a record file -- and this is its enforceable form: the enclosing
+    paragraph has to name ``output/benchmarks/reference/`` or the open
+    ``PERF-001`` register row. The historical documents are exempt because the
+    retracted ``[0.2.0]`` changelog entry is preserved verbatim on purpose,
+    under a corrective note that does the citing.
+    """
+    offences: list[str] = []
+    for path in _tracked_prose_files():
+        if _relative(path) in HISTORICAL_DOCUMENTS:
+            continue
+        offences.extend(_uncited_accelerator_claims(path, PROSE_SPEED_CLAIM))
+    assert not offences, (
+        "Accelerator or speed claims with no evidence in their paragraph:\n  "
+        + "\n  ".join(offences)
+        + "\nCite output/benchmarks/reference/ or name PERF-001 in the same "
+        "paragraph, or delete the claim. No accelerator run of RadioSim has "
+        "ever been measured."
+    )
+
+
+def test_no_accelerator_claim_in_the_package_lacks_a_citation() -> None:
+    """The same rule, applied to the package's own docstrings and messages.
+
+    Routed here at the 8B and 8C independent acceptances, which found three
+    instances no prose scan could reach: ``simulator/__init__.py``'s module
+    docstring advertised "GPU acceleration via JAX backend" as a current
+    capability of ``rime`` (a line dating to the original project rename, older
+    than every register row), and ``simulator/base.py``'s ``supports_gpu``
+    docstring said "True if simulator can use GPU backends ... Default is
+    True". Both are fixed; this test is why they cannot come back.
+
+    Scoped to capability-claim language rather than to the bare ``gpu`` token,
+    for the reason the 8C re-review gave: ``radiosim.backends : Backend
+    abstraction for CPU/GPU`` names another module's scope, and
+    ``jax.devices("gpu")`` in ``backends/`` or the vendor probes in
+    ``utils/device.py`` are facts about the host, not claims about RadioSim.
+    """
+    offences: list[str] = []
+    for root in CLAIM_SOURCE_ROOTS:
+        for path in iter_tracked_files(REPO_ROOT / root, suffixes=frozenset({".py"})):
+            offences.extend(_uncited_accelerator_claims(path, ACCELERATOR_CLAIM))
+    assert not offences, (
+        "Accelerator claims in package source with no evidence in their "
+        "paragraph:\n  "
+        + "\n  ".join(offences)
+        + "\nA docstring is documentation. Cite output/benchmarks/reference/ "
+        "or name PERF-001 beside the claim, or state the measured truth: "
+        "RIMESimulator.supports_gpu is False and no accelerator run exists."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section 11 item 8 -- every documented command exists
+# ---------------------------------------------------------------------------
+
+
+def _documented_pixi_targets(line: str) -> list[str]:
+    """Return the first non-option token of every ``pixi run`` in a line.
+
+    ``pixi run`` takes options before the target, and ``--environment <name>``
+    takes a value, so a naive "first word after ``pixi run``" reading turns
+    ``pixi run --environment crossval test`` into a claim that a ``crossval``
+    task exists. Everything after a bare ``--`` is the command pixi executes,
+    which is checked the same way: it is either a task or an executable.
+    """
+    targets: list[str] = []
+    for rest in _PIXI_RUN.findall(line):
+        tokens = rest.replace("`", " ").split()
+        skip_next = False
+        for token in tokens:
+            if skip_next:
+                skip_next = False
+                continue
+            if token in PIXI_OPTIONS_WITH_VALUE:
+                skip_next = True
+                continue
+            if token.startswith("-"):
+                continue
+            if _TASK_TOKEN.match(token):
+                targets.append(token)
+            break
+    return targets
+
+
+def test_every_documented_pixi_task_exists() -> None:
+    """A ``pixi run <task>`` a document prints must be a task a reader can run.
+
+    Tasks come and go across a refactor -- ``doctest`` and ``bench`` were both
+    added during this programme -- and a document naming one that was renamed
+    sends a contributor to a "task not found" error. Direct executables
+    (``pixi run python ...``, ``pixi run radiosim ...``) are accepted because
+    ``pixi run`` accepts them, and a line that says a command deliberately does
+    *not* work is left alone.
+    """
+    tasks = set(tomllib.loads(_read("pixi.toml"))["tasks"])
+    unknown: list[str] = []
+    for path in _tracked_prose_files():
+        relative = _relative(path)
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if any(marker in line for marker in NEGATED_COMMAND_MARKERS):
+                continue
+            for token in _documented_pixi_targets(line):
+                if token in tasks or token in ENVIRONMENT_COMMANDS:
+                    continue
+                unknown.append(f"{relative}:{number} runs `pixi run {token}`")
+    assert not unknown, (
+        "Documented pixi tasks that do not exist:\n  "
+        + "\n  ".join(sorted(unknown))
+        + f"\npixi.toml defines: {', '.join(sorted(tasks))}."
     )
 
 

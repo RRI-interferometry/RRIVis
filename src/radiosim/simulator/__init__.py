@@ -9,12 +9,18 @@ Current Implementations
 - **rime**: Direct RIME summation (accurate reference implementation)
     - O(N_src × N_bl × N_freq) complexity
     - Full polarization support
-    - GPU acceleration via JAX backend
+    - Array work routed through the selected NumPy/JAX/Dask backend, one
+      compiled kernel under JAX, and no measured accelerator run:
+      ``RIMESimulator.supports_gpu`` is ``False`` and every measured JAX run is
+      slower than NumPy (records: ``output/benchmarks/reference/``,
+      register row ``PERF-001``)
 
-Future Implementations (v0.3.0+)
---------------------------------
-- **fft**: FFT-based NUFFT simulator (10-100× faster for large source counts)
-- **matvis**: Matrix-based GPU simulator (HERA standard)
+Registry
+--------
+``rime`` is the only registered simulator. An FFT/NUFFT solver and a
+matrix-based solver are candidates for a future registration, not shipped code
+and not a promise attached to a version number; nothing here measures or claims
+what they would cost.
 
 Quick Start
 -----------
@@ -91,14 +97,13 @@ def get_simulator(name: str = "rime") -> VisibilitySimulator:
     Parameters
     ----------
     name : str, optional
-        Simulator name. Available options:
+        Simulator name. The accepted values are exactly the keys of the
+        registry, which currently holds one:
             - "rime": Direct RIME summation (accurate, default)
 
-        Future options (v0.3.0+):
-            - "fft": FFT-based NUFFT (fast for many sources)
-            - "matvis": Matrix-based GPU (HERA standard)
-
-        Default is "rime".
+        Default is "rime". Any other name raises ``ValueError`` naming the
+        registered set, so this docstring cannot drift into advertising a
+        solver that is not registered.
 
     Returns
     -------

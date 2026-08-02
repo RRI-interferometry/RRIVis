@@ -36,9 +36,10 @@ class VisibilitySimulator(ABC):
     Current Implementations:
         - RIMESimulator: Direct RIME summation, O(N_src × N_bl × N_freq), accurate
 
-    Future Implementations (v0.3.0+):
-        - FFTSimulator: FFT-based NUFFT, O(N log N), fast for many sources
-        - MatVisSimulator: Matrix-based GPU-optimized, HERA standard
+    It is the only registered one. Other solver families -- an FFT/NUFFT
+    solver, a matrix-based solver -- would be future registrations against this
+    same interface; no release promises them and nothing here measures what
+    they would cost.
 
     Examples
     --------
@@ -119,13 +120,28 @@ class VisibilitySimulator(ABC):
     @property
     def supports_gpu(self) -> bool:
         """
-        Whether the simulator supports GPU acceleration.
+        Whether an end-to-end accelerator run of this simulator has been
+        measured.
+
+        This is a claim about evidence, not about whether an accelerator
+        library can be imported. RadioSim has measured none: the shipped
+        ``RIMESimulator`` overrides this property to return ``False``, the JAX
+        declared by every pixi environment is CPU-only, and every measured JAX
+        run is slower than NumPy (records: ``output/benchmarks/reference/``,
+        register row ``PERF-001``).
+
+        The inherited value here is ``True`` only because it predates that
+        finding; it is not a statement that a subclass is accelerated, and no
+        shipped simulator relies on it. A subclass may leave it inherited only
+        once a measured accelerator record exists for it, and must otherwise
+        override it to ``False`` as ``RIMESimulator`` does. Flipping this
+        default is a behaviour change, deliberately not made in a
+        documentation slice; it is tracked with ``PERF-001``.
 
         Returns
         -------
         bool
-            True if simulator can use GPU backends (JAX, etc.).
-            Default is True.
+            Whether a measured accelerator run backs this simulator.
         """
         return True
 
