@@ -365,7 +365,7 @@ def jones_matrix_power(jones):
     """
     Calculate power beam from E-field Jones matrix.
 
-    Power response: P = |E|² (square-law detector)
+    Power response: ``P = |E|²`` (square-law detector)
 
     Parameters
     ----------
@@ -376,9 +376,9 @@ def jones_matrix_power(jones):
     Returns
     -------
     power_x : float or array
-        Power for X polarization: |J_Xθ|² + |J_Xφ|²
+        Power for X polarization: ``|J_Xθ|² + |J_Xφ|²``
     power_y : float or array
-        Power for Y polarization: |J_Yθ|² + |J_Yφ|²
+        Power for Y polarization: ``|J_Yθ|² + |J_Yφ|²``
 
     Notes
     -----

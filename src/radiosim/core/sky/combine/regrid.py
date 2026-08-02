@@ -133,6 +133,7 @@ def regrid_healpix_model(
     """Explicitly regrid a HEALPix SkyModel.
 
     First pass policy:
+
     - ``nside`` changes are supported via ``healpy.ud_grade``.
     - frequency changes are exact-only; requested frequencies must match the
       existing HEALPix axis exactly.

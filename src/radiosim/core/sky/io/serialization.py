@@ -325,7 +325,7 @@ def save_skyh5(
     sky : SkyModel
         The model to save.
     filename : str
-        Output file path (typically *.skyh5).
+        Output file path (typically ``*.skyh5``).
     representation : SkyFormat or str, optional
         Required when both point-source and HEALPix payloads are present.
     clobber : bool, default False

@@ -124,6 +124,7 @@ def get_backend(
     ----------
     name : str
         Backend name:
+
         - "auto": JAX when the installed runtime exposes a non-CPU device,
           otherwise NumPy. The Dask backend is never auto-selected, because it
           delegates to NumPy and exists for explicit opt-in only.
@@ -138,11 +139,13 @@ def get_backend(
         end-to-end Simulator device execution.
     precision : PrecisionConfig, str, or None
         Precision configuration. Can be:
+
         - None: Use standard float64 precision
         - str: Preset name ("standard", "fast", "precise", "ultra")
         - PrecisionConfig: Full configuration object
     **kwargs
         Backend-specific options:
+
         - For dask: mode, n_workers, scheduler_address
         - For jax: device
 

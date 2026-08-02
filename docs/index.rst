@@ -33,10 +33,16 @@ acceleration.
    :caption: API Reference
 
    api/simulator
+   api/result
+   api/algorithms
    api/core
+   api/sky
+   api/jones
    api/backends
    api/io
-   api/jones
+   api/observability
+   api/visualization
+   api/utils
 
 .. toctree::
    :maxdepth: 1
@@ -44,6 +50,7 @@ acceleration.
 
    contributing
    changelog
+   HERA_VSIM_ANALYSIS
 
 Current high-level support
 --------------------------

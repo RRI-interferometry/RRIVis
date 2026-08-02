@@ -240,7 +240,7 @@ Filtered vs Full comparison:
    - More efficient for horizon extrapolation
 
 **Beam Map CSV Format:**
-```csv
+```text
 antenna_number,beam_file
 0,NF_HERA_Vivaldi_efield_beam_extrap_0.fits
 1,NF_HERA_Vivaldi_efield_beam_extrap_1.fits
@@ -349,7 +349,7 @@ data/
 ### Sky Model Files
 
 **Recommended: `data/fch0227.skyh5`**
-```python
+```text
 Format: HDF5 (.skyh5, pyradiosky)
 Sources: 707,111 point sources
 Frequency: 74.6307373046875 MHz (channel 227)
@@ -361,7 +361,7 @@ Purpose: Eliminates high |V| artifacts from ultra-bright sources
 ```
 
 **Not Recommended: `data/fch0227_full.skyh5`**
-```python
+```text
 Format: HDF5 (.skyh5, pyradiosky)
 Sources: 785,679 point sources
 Frequency: 74.6307373046875 MHz (channel 227)
@@ -374,7 +374,7 @@ Use case: Only for testing extreme scenarios
 ### Beam Files
 
 **Primary: `data/NF_HERA_Vivaldi_efield_beam_extrap_0.fits`**
-```python
+```text
 Format: UVBeam FITS (pyuvdata)
 Size: 821 MB
 Antenna: HERA Vivaldi dual-pol
@@ -387,7 +387,7 @@ Use: Shared beam mode (all antennas) or per-antenna beam 0
 ```
 
 **Alternative: `data/NF_HERA_Vivaldi_efield_beam_healpix.fits`**
-```python
+```text
 Format: UVBeam FITS (pyuvdata) with HEALPix
 Size: 605 MB
 Pixelization: HEALPix (better for all-sky)

@@ -255,13 +255,13 @@ class NumPyBackend(ArrayBackend):
     # =========================================================================
 
     def einsum(self, subscripts: str, *operands: Any) -> np.ndarray:
-        """Einstein summation convention.
+        r"""Einstein summation convention.
 
         Useful for complex tensor operations in RIME calculations.
 
         Args:
             subscripts: Specifies the subscripts for summation
-            *operands: Input arrays
+            \*operands: Input arrays
 
         Returns:
             Result of einsum operation
@@ -269,10 +269,10 @@ class NumPyBackend(ArrayBackend):
         return np.einsum(subscripts, *operands)
 
     def broadcast_arrays(self, *args: Any) -> tuple[np.ndarray, ...]:
-        """Broadcast arrays to common shape.
+        r"""Broadcast arrays to common shape.
 
         Args:
-            *args: Arrays to broadcast
+            \*args: Arrays to broadcast
 
         Returns:
             Tuple of broadcasted arrays

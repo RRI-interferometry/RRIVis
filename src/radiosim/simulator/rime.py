@@ -38,31 +38,34 @@ class RIMESimulator(VisibilitySimulator):
     Direct Radio Interferometer Measurement Equation (RIME) simulator.
 
     This simulator computes visibilities using direct summation over sources
-    and baselines, implementing the full polarized RIME with Jones matrices.
-    It serves as the reference implementation for accuracy validation.
+    and baselines, implementing the full polarized RIME [1]_ with Jones
+    matrices in the Hamaker-Bregman-Sault formalism [2]_.  It serves as the
+    reference implementation for accuracy validation.
 
     Algorithm
     ---------
     For each baseline (p, q) and frequency ν:
+
         V_pq(ν) = Σ_s J_p(s, ν) @ C_s(ν) @ J_q(s, ν)^H
 
     Where the canonical Jones chain is
     J = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z
     (``Tier7JonesSciencePlan.md`` Section 12.2), leftmost nearest the
     correlator, with K applied separately as a scalar phase:
-        - H: Reporting-basis transform (always present)
-        - G: Electronic gains (time-variable)
-        - B: Bandpass (frequency-dependent)
-        - Rc: Cable reflection ripple
-        - Kd: Instrumental delay
-        - X: Cross-hand phase and delay
-        - D: Polarization leakage
-        - C: Receptor configuration and static feed rotation (always present)
-        - E: Primary beam response (direction-dependent, always present)
-        - P: Parallactic angle / field rotation (direction-dependent)
-        - T: Tropospheric effects
-        - Z: Ionospheric effects (Faraday rotation, TEC)
-        - K: Geometric phase delay (fringe rotation), applied separately
+
+    - H: Reporting-basis transform (always present)
+    - G: Electronic gains (time-variable)
+    - B: Bandpass (frequency-dependent)
+    - Rc: Cable reflection ripple
+    - Kd: Instrumental delay
+    - X: Cross-hand phase and delay
+    - D: Polarization leakage
+    - C: Receptor configuration and static feed rotation (always present)
+    - E: Primary beam response (direction-dependent, always present)
+    - P: Parallactic angle / field rotation (direction-dependent)
+    - T: Tropospheric effects
+    - Z: Ionospheric effects (Faraday rotation, TEC)
+    - K: Geometric phase delay (fringe rotation), applied separately
 
     Complexity
     ----------

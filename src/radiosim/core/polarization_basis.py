@@ -12,14 +12,14 @@ named by a ``PolarizationBasis`` token:
 The in-memory correlation axis is always the row-major flattening of the 2x2
 visibility matrix, so it is basis independent:
 
-===========  ===============  ============  ==============
-Flat index   Matrix element   ``linear_xy``  ``circular_rl``
-===========  ===============  ============  ==============
-0            ``[0, 0]``       ``XX``         ``RR``
-1            ``[0, 1]``       ``XY``         ``RL``
-2            ``[1, 0]``       ``YX``         ``LR``
-3            ``[1, 1]``       ``YY``         ``LL``
-===========  ===============  ============  ==============
+==========  ==============  =============  ===============
+Flat index  Matrix element  ``linear_xy``  ``circular_rl``
+==========  ==============  =============  ===============
+0           ``[0, 0]``      ``XX``         ``RR``
+1           ``[0, 1]``      ``XY``         ``RL``
+2           ``[1, 0]``      ``YX``         ``LR``
+3           ``[1, 1]``      ``YY``         ``LL``
+==========  ==============  =============  ===============
 
 Indices ``0`` and ``3`` are therefore the parallel hands and ``1`` and ``2`` the
 cross hands in **both** bases.  Consumers must derive those indices through

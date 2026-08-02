@@ -513,7 +513,7 @@ class ArrayBackend(ABC):
             x: Input array
 
         Returns:
-            Element-wise |x|
+            Element-wise ``|x|``
         """
         return self.xp.abs(x)
 

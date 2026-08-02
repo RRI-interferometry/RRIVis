@@ -148,7 +148,8 @@ def get_progress(**kwargs):
     """
     Get a rich Progress instance for tracking long operations.
 
-    Usage:
+    Usage::
+
         with get_progress() as progress:
             task = progress.add_task("Processing...", total=100)
             for i in range(100):

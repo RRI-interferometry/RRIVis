@@ -121,6 +121,59 @@ built-in example's ``(1, 15, 2, 4)`` for every run, so ``--config`` against any
 shipped document raised ``AssertionError``.  The assertion is now scoped to the
 built-in path.  No flag was added or removed -- the pin below still holds --
 and the default run's scientific fingerprint is unchanged.
+
+Tier 8C addendum -- how the sixteen went to zero, and what it cost
+=================================================================
+
+**The measurement.** The 8A baseline reproduced exactly: a forced-``-E`` build
+of a clean detached worktree at ``ac35159`` reported **16 warnings**.  After
+8C the same build reports **0**, and ``make -C docs clean html`` -- now
+``-W --keep-going`` by default -- exits 0.
+
+**The in-tree/clean-tree difference is gone rather than tolerated.** 8A
+recorded 18-in-tree versus 16-clean as an artifact of the gitignored
+``docs/superpowers/`` and asked no later slice to re-litigate it.  Turning
+warnings into errors changed the stakes: the artifact would have turned a
+stray untracked directory into a *failed* docs build for any contributor who
+has one.  8C therefore added ``"superpowers"`` to ``exclude_patterns`` in
+``docs/conf.py``.  That is not a suppression -- ``suppress_warnings`` is still
+unset, and the two warnings concerned files that are not tracked, not shipped,
+and not documentation.  The tracked documentation set now builds identically in
+both trees, which is what makes the gate safe to turn on.
+
+**Two conf.py settings did more work than any docstring edit.**
+``napoleon_use_ivar = True`` removed nineteen ``duplicate object description``
+warnings that appeared the moment the new pages rendered dataclasses carrying
+both a numpydoc ``Attributes`` section and annotated fields.
+``napoleon_google_docstring = True`` removed seven more: the package mixes
+numpydoc and Google style, only numpydoc was enabled, and every ``Args:`` block
+in a Google-style docstring was rendering as a block quote -- wrong output, not
+merely a warning.  Both changes were measured against the pre-existing page set
+first and introduced no warning there.
+
+**The one thing a future reader should know about the gate.**
+``sphinx.ext.intersphinx`` emits an unsuppressable ``WARNING`` when it cannot
+reach *any* configured inventory, so a fully offline ``make -C docs html`` now
+fails on that warning rather than merely reporting it.  ``docs/Makefile``
+documents the ``SPHINXOPTS=`` override for inspecting such a build.  This was
+observed once during 8C on a transient network failure and did not reproduce;
+it is recorded here rather than worked around, because ``nitpicky`` was
+rejected in ``Tier8ReleasePlan.md`` Section 8 for exactly this
+network-sensitivity reason and the reader deserves to know the residue.
+
+**The writable-list extension 8C took, and why.** Section 17's 8C grant names
+four source files for docstring fixes.  Adding the six new API pages surfaced
+warnings in seven more -- ``core/hybrid.py``, ``core/polarization_basis.py``,
+``core/precision.py``, ``core/sky/combine/regrid.py``,
+``core/sky/io/serialization.py``, ``simulator/base.py``,
+``simulator/rime.py``, ``utils/logging.py`` -- which is precisely the outcome
+``Tier8ReleasePlan.md`` Section 20 risk 1 anticipates ("its page lands with the
+debt fixed or the page is deferred").  Deferring the pages would have failed
+whole-tier criterion 4, so the debt was paid.  Every edit is prose inside a
+docstring: a blank line before a bullet list, a table's column rules widened to
+fit its own header, ``*`` escaped, ``|...|`` made literal, and two footnotes
+cited so they stop being unreferenced.  No signature, default, branch or
+constant moved, and the ``pixi run doctest`` item count is unchanged.
 """
 
 from __future__ import annotations
@@ -135,15 +188,21 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: The clean-detached-worktree Sphinx warning count at 8A.  Recorded rather than
+#: The clean-detached-worktree Sphinx warning count.  Recorded rather than
 #: rebuilt: a Sphinx build is far too slow and too environment-sensitive to sit
 #: in the standard gate, and ``Tier8ReleasePlan.md`` Section 17 asks 8A for the
-#: number, not for the build.  8C drives it to zero and flips this constant.
-SPHINX_WARNING_BASELINE = 16
+#: number, not for the build.  It was 16 at 8A; 8C fixed every one of the
+#: sixteen at its source and drove it to zero.
+SPHINX_WARNING_BASELINE = 0
 
 #: The same build in a working tree that contains the gitignored
-#: ``docs/superpowers/``.  The difference is an artifact, never a regression.
-SPHINX_WARNING_BASELINE_WITH_UNTRACKED_SUPERPOWERS = 18
+#: ``docs/superpowers/``.  It was 18 at 8A -- the two extra ``toc.not_included``
+#: warnings were an artifact of the untracked directory, never a regression.
+#: 8C made the two builds identical by excluding that directory in
+#: ``docs/conf.py`` rather than by suppressing its warnings, because ``-W`` is
+#: now the ``docs/Makefile`` default and a stray untracked directory must not
+#: turn a contributor's docs build into a failure.
+SPHINX_WARNING_BASELINE_WITH_UNTRACKED_SUPERPOWERS = 0
 
 
 def _read(relative_path: str) -> str:
@@ -278,68 +337,90 @@ def test_readme_asserts_three_shipped_yaml_samples_against_four_files() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_sphinx_is_not_warning_free_and_is_not_gated_on_warnings() -> None:
-    """Pins the recorded 16-warning baseline and the ungated build.
+def test_sphinx_is_warning_free_and_the_build_is_gated_on_warnings() -> None:
+    """FLIPPED AT 8C.  Was ``..._is_not_warning_free_and_is_not_gated_...``.
 
-    The number is recorded, not rebuilt -- see this module's docstring for the
-    clean-worktree measurement, the 18-warning in-tree artifact, and the 7H/7I
-    ruling that the clean number governs.
+    Before 8C the build carried sixteen warnings in a clean detached worktree
+    and eighteen in a working tree holding the gitignored ``docs/superpowers/``,
+    and nothing failed on either.  8C fixed all sixteen at their sources,
+    excluded the untracked directory in ``docs/conf.py`` so the two builds are
+    now the same build, and made ``-W --keep-going`` the ``docs/Makefile``
+    default so ``ci.yml``'s unchanged ``make -C docs html`` inherits the gate.
 
-    FLIPPED BY: Tier 8C (fix all 16 at source, then set
-    ``SPHINXOPTS ?= -W --keep-going`` so ``ci.yml``'s ``make -C docs html``
-    inherits the gate; both constants become 0).
+    The numbers stay recorded rather than rebuilt: a Sphinx build is far too
+    slow to sit in the standard suite.  The real proof is the gate itself --
+    ``make -C docs clean html`` now exits non-zero on the first warning -- and
+    this test pins the wiring that makes that true.
+
+    ``ci.yml`` is deliberately still asserted to pass no ``-W`` of its own.
+    That is the whole point of putting the flag in the Makefile default: the
+    workflow file is 8D's, and 8C changes no line of it.
     """
-    assert SPHINX_WARNING_BASELINE == 16
-    assert SPHINX_WARNING_BASELINE_WITH_UNTRACKED_SUPERPOWERS == 18
-    assert re.search(r"^SPHINXOPTS\s*\?=\s*$", _read("docs/Makefile"), re.MULTILINE)
-    assert "make -C docs html" in _read(".github/workflows/ci.yml")
-    assert "-W" not in _read(".github/workflows/ci.yml")
+    assert SPHINX_WARNING_BASELINE == 0
+    assert SPHINX_WARNING_BASELINE_WITH_UNTRACKED_SUPERPOWERS == 0
+
+    makefile = _read("docs/Makefile")
+    assert re.search(
+        r"^SPHINXOPTS\s*\?=\s*-W\s+--keep-going\s*$", makefile, re.MULTILINE
+    ), "docs/Makefile no longer defaults to warnings-as-errors"
+
+    workflow = _read(".github/workflows/ci.yml")
+    assert "make -C docs html" in workflow
+    assert "-W" not in workflow, "the gate lives in the Makefile default, not here"
 
 
-def test_the_sixteen_sphinx_warning_sources_are_all_still_present() -> None:
-    """Pins each defect site behind the 16, so 8C's fix is checkable per site.
+def test_the_sixteen_sphinx_warning_sources_are_all_fixed() -> None:
+    """FLIPPED AT 8C.  Was ``..._are_all_still_present``.
 
-    FLIPPED BY: Tier 8C (every assertion here inverts as its source is fixed).
+    Every assertion here is the inverse of the 8A pin, site by site, so the
+    sixteen are checkable individually without running a build.  Grouped as
+    ``Tier8ReleasePlan.md`` Section 5.3 groups them: ten docutils docstring
+    parse errors, one ``toc.not_included``, one unsupported theme option, three
+    ``misc.highlighting_failure``, one ``myst.xref_missing``.
+
+    Preserved from here on, not flipped.
     """
     conf = _read("docs/conf.py")
-    assert '"display_version": True' in conf, "unsupported theme option"
-    assert "myst_heading_anchors" not in conf, "no MyST anchors are generated"
+    assert '"display_version": True' not in conf, "unsupported theme option"
+    assert "myst_heading_anchors = 3" in conf, "MyST anchors are generated"
     assert "suppress_warnings" not in conf, "nothing is pre-suppressed"
+    assert '"superpowers"' in conf, "the gitignored scratch directory is excluded"
 
     hera = _read("docs/HERA_VSIM_ANALYSIS.md")
-    assert ":orphan:" not in hera, "tracked, in no toctree, and not an orphan"
-    assert "HERA_VSIM_ANALYSIS" not in _read("docs/index.rst")
-    assert hera.count("```csv") == 1, "unknown csv lexer"
-    assert "```python\nFormat: HDF5" in hera, "data dump annotated python"
-    assert "```python\nFormat: UVBeam FITS" in hera, "data dump annotated python"
+    assert ":orphan:" not in hera, "reachable from a toctree, so not an orphan"
+    assert "HERA_VSIM_ANALYSIS" in _read("docs/index.rst")
+    assert "```csv" not in hera, "no unknown lexer name"
+    assert "```python\nFormat: " not in hera, "no data dump annotated python"
 
     assert "#hybrid-results-and-serialization" in _read("docs/migration_guide.md")
 
     numpy_backend = _read("src/radiosim/backends/numpy_backend.py")
-    assert "*operands" in numpy_backend, "bare star read as emphasis"
-    assert "|x|" in _read("src/radiosim/backends/base.py"), "unknown substitution"
+    assert "\\*operands" in numpy_backend, "the bare star is escaped"
+    assert "\\*args" in numpy_backend, "the bare star is escaped"
+    assert "``|x|``" in _read("src/radiosim/backends/base.py"), "literal, not a sub"
     polarization = _read("src/radiosim/core/polarization.py")
     power_docstring = polarization.split("def jones_matrix_power(")[1]
-    for token in ("|E|", "|J_Xθ|", "|J_Xφ|", "|J_Yθ|", "|J_Yφ|"):
-        assert token in power_docstring, f"{token} is read as a substitution"
+    for token in ("``P = |E|²``", "``|J_Xθ|² + |J_Xφ|²``", "``|J_Yθ|² + |J_Yφ|²``"):
+        assert token in power_docstring, f"{token} is not a literal"
+
+    backends_init = _read("src/radiosim/backends/__init__.py")
+    assert "Backend name:\n\n        - " in backends_init, "bullet list needs a break"
 
 
-def test_docs_api_covers_no_page_for_six_subpackages_and_nine_core_modules() -> None:
-    """Pins the API-reference gap.
+def test_docs_api_covers_the_six_subpackages_and_the_nine_core_modules() -> None:
+    """FLIPPED AT 8C.  Was ``..._covers_no_page_for_...``.
 
-    ``docs/api/`` documents backends, benchmarks, part of ``core/``, ``io/``,
-    the Jones modules and ``Simulator``, and nothing else -- so
-    ``SimulationResult``'s own members, the whole ``core.sky`` subpackage, and
-    the solver Strategy classes render nowhere.
+    Before 8C, ``SimulationResult``'s own members, the whole ``core.sky``
+    subpackage, the solver Strategy classes, ``utils``, ``visualization`` and
+    ``core.observability`` rendered nowhere.  Each now has a page, each page is
+    reachable from ``docs/index.rst``'s toctree, and the whole set builds clean
+    under ``-W``.
 
-    FLIPPED BY: Tier 8C (add the pages, each reachable from ``docs/index.rst``'s
-    toctree, each building clean under ``-W``).
+    Preserved from here on, not flipped.
     """
-    documented = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted((REPO_ROOT / "docs" / "api").glob("*.rst"))
-    )
-    uncovered_subpackages = (
+    api_pages = sorted((REPO_ROOT / "docs" / "api").glob("*.rst"))
+    documented = "\n".join(path.read_text(encoding="utf-8") for path in api_pages)
+    covered_subpackages = (
         "radiosim.core.sky",
         "radiosim.simulator",
         "radiosim.core.result",
@@ -347,10 +428,10 @@ def test_docs_api_covers_no_page_for_six_subpackages_and_nine_core_modules() -> 
         "radiosim.visualization",
         "radiosim.core.observability",
     )
-    for name in uncovered_subpackages:
-        assert f".. automodule:: {name}" not in documented, name
+    for name in covered_subpackages:
+        assert f".. automodule:: {name}" in documented, name
 
-    uncovered_core_modules = (
+    covered_core_modules = (
         "contraction",
         "hybrid",
         "phase_center",
@@ -361,9 +442,13 @@ def test_docs_api_covers_no_page_for_six_subpackages_and_nine_core_modules() -> 
         "time_grid",
         "visibility_healpix",
     )
-    for module in uncovered_core_modules:
+    for module in covered_core_modules:
         assert (REPO_ROOT / "src" / "radiosim" / "core" / f"{module}.py").is_file()
-        assert f".. automodule:: radiosim.core.{module}" not in documented, module
+        assert f".. automodule:: radiosim.core.{module}" in documented, module
+
+    index = _read("docs/index.rst")
+    for page in api_pages:
+        assert f"api/{page.stem}" in index, f"docs/api/{page.name} is in no toctree"
 
 
 def test_doctests_are_a_real_scoped_invocation_and_not_a_dead_flag() -> None:

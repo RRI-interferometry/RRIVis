@@ -888,9 +888,10 @@ def resolve_precision(precision: str | PrecisionConfig | None) -> PrecisionConfi
     ----------
     precision : str, PrecisionConfig, or None
         Precision specification:
+
         - None: Use standard (float64)
         - str: Preset name ("standard", "fast", "precise", "ultra")
-               or precision level ("float32", "float64", "float128")
+          or precision level ("float32", "float64", "float128")
         - PrecisionConfig: Use directly
 
     Returns

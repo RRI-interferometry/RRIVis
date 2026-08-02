@@ -28,7 +28,7 @@ extensions = [
 ]
 
 # Napoleon settings for NumPy-style docstrings
-napoleon_google_docstring = False
+napoleon_google_docstring = True
 napoleon_numpy_docstring = True
 napoleon_include_init_with_doc = True
 napoleon_include_private_with_doc = False
@@ -36,7 +36,7 @@ napoleon_include_special_with_doc = True
 napoleon_use_admonition_for_examples = True
 napoleon_use_admonition_for_notes = True
 napoleon_use_admonition_for_references = True
-napoleon_use_ivar = False
+napoleon_use_ivar = True
 napoleon_use_param = True
 napoleon_use_rtype = True
 napoleon_type_aliases = None
@@ -71,11 +71,29 @@ source_suffix = {
     ".md": "markdown",
 }
 
+# Generate MyST heading anchors down to three levels so intra-document links
+# such as ``docs/migration_guide.md``'s ``#hybrid-results-and-serialization``
+# resolve. MyST generates no anchors at all when this is unset, which is the
+# ``myst.xref_missing`` warning the ``-W`` gate rejects.
+myst_heading_anchors = 3
+
 # Templates
 templates_path = ["_templates"]
 
-# Patterns to exclude
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+# Patterns to exclude.
+#
+# ``superpowers`` is a gitignored (``.gitignore:211``) local scratch directory
+# of brainstorming notes; it is not tracked, not shipped, and not part of the
+# documentation. Before it was excluded, a working tree that happened to
+# contain it built with two extra ``toc.not_included`` warnings -- the 16-vs-18
+# artifact Tier 7H diagnosed and Tier 7I ratified. With ``-W --keep-going`` now
+# the ``docs/Makefile`` default, that artifact would turn a stray untracked
+# directory into a build failure, so the directory is excluded rather than the
+# warning suppressed: the tracked documentation set builds identically in a
+# clean detached worktree and in a contaminated working tree.
+# ``tests/unit/test_tier8_release_acceptance.py`` asserts the directory is
+# gitignored, so this exclusion can never hide a tracked page.
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "superpowers"]
 
 # -- Options for HTML output -------------------------------------------------
 
@@ -85,7 +103,9 @@ html_static_path = ["_static"]
 # Theme options
 html_theme_options = {
     "logo_only": False,
-    "display_version": True,
+    # ``display_version`` was removed by sphinx_rtd_theme; the version is
+    # rendered from ``release`` above. Keeping the key emitted an unsupported
+    # theme option warning, which the ``-W`` docs gate now rejects.
     "prev_next_buttons_location": "bottom",
     "style_external_links": True,
     "style_nav_header_background": "#2980B9",
