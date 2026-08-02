@@ -6,13 +6,17 @@ solver layers share: coordinate conversion, cosmology, device inspection,
 HEALPix helpers, logging configuration, the network-service policy, and the
 pre-flight validator that collects every configuration error at once.
 
+The package facade re-exports the public surface of the submodules below, so
+``from radiosim.utils import setup_logging`` and
+``from radiosim.utils.logging import setup_logging`` name the same object.
+Each symbol is documented once, under the submodule that defines it.
+
 Package surface
 ---------------
 
 .. automodule:: radiosim.utils
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   :no-members:
+   :no-special-members:
 
 Configuration validation
 ------------------------
