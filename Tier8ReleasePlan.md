@@ -1197,18 +1197,60 @@ warnings in a clean detached worktree; `pixi run test`; `pixi run lint`;
 4. The CI re-run on 8D's SHA and the measured decision on the digest class.
    (Section 14's items 2 and 3, the instrumentation itself, moved to 8A —
    see that slice's item 4 — so that 8B's and 8C's CI runs are already
-   producing the evidence this decision reads.)
+   producing the evidence this decision reads.) **Plus, by the correction
+   below, the CI-side half of Section 14 item 2**: the fingerprint record and
+   the reference cubes are written under gitignored `output/`, which a GitHub
+   Actions runner discards when the job ends, so on CI they are recoverable
+   only if the workflow surfaces them. 8D prints the fingerprint into the job
+   log and uploads `output/characterization/` as a build artifact, and
+   restores the previous successful run's artifact for the same matrix cell
+   before the tests run, so a divergent cell has an accepted-digest cube to
+   subtract from and item 3's numeric delta appears in the failing log rather
+   than only in a local reproduction.
 
 **Writable.** `tests/support/__init__.py`, `tests/support/repo_scan.py` (new);
-the 10 converted test files; `tests/integration/test_cli_end_to_end.py` (new);
+the 11 converted test files of Section 12's table;
+`tests/integration/test_cli_end_to_end.py` (new);
 `tests/characterization/test_tier6_current_behavior.py` (instrumentation and
 numeric-delta reporting; digest tables only if Section 14's conditional is met);
+`tests/characterization/test_tier8_current_behavior.py` (the 8D-owned pin
+flips); `tests/unit/test_tier8_release_acceptance.py` (its prose lister becomes
+a call into the shared helper);
 `src/radiosim/core/sky/registry/{core,facade,catalogs}.py`,
 `src/radiosim/core/sky/recipes/realistic_foreground.py`, every other loader
 registration touched by the keyword rename, `src/radiosim/utils/network.py`,
 `src/radiosim/core/sky/diagnostics/discovery.py`; `.github/workflows/ci.yml`;
 new/updated tests under `tests/unit/test_utils/` and `tests/unit/test_core/`;
 `Fix.md`; `Tier8ReleasePlan.md`.
+
+**Writable-list correction, applied at 8D.** Four entries above are additions,
+each forced and each bounded:
+
+1. **"the 10 converted test files" → "the 11 converted test files"**: an
+   arithmetic slip against this plan's own Section 12 table, which names
+   **eleven** files holding the twenty call sites (the count of *sites*, 20, is
+   correct and unchanged). The table is the authority; no file is added to or
+   removed from the conversion set by this correction.
+2. **`tests/characterization/test_tier8_current_behavior.py`**: 8D changes
+   behavior that three 8A pins hold — the two `SKY-002` pins and the `ci.yml`
+   clause of the doctest pin, each of which carries an explicit
+   `FLIPPED BY: Tier 8D` line — and that module's own contract requires the
+   owning slice to update a pin *in the same commit that changes the behavior*.
+   The 8A, 8B and 8C writable lists all carry this file for the same reason;
+   its omission from 8D's is an oversight, not a decision.
+3. **`tests/unit/test_tier8_release_acceptance.py`**: that module did not exist
+   when Section 12 was written; its 8B-authored docstring already states that
+   "8D creates the shared `tests/support/repo_scan.py` helper and this module's
+   lister becomes a call into it". The grant is exactly that substitution — the
+   root and suffix selection stay, no scan is added, changed, or removed.
+4. **The regression proof's home is `tests/unit/test_utils/test_repo_scan.py`**,
+   inside the granted `tests/unit/test_utils/` directory. Section 12 specifies
+   the proof but names no file; it lives with the helper's own contract tests
+   rather than inside one of the converted modules, so a reader looking for
+   "does the hardening work?" finds one module rather than a test lodged in an
+   unrelated tier's acceptance file.
+
+No decision recorded by Sections 11 to 14 is changed by any of the four.
 
 **Gate.** `pixi run test`; `pixi run lint`; `pixi run check-format`;
 `pixi run typecheck`; the checkpoint regression proof; a named CI run ID at the
