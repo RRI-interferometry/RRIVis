@@ -13,13 +13,17 @@ corrections were applied at 8A (`docs(release): correct Tier 8 design`,
 `41fabbb`): Section 14 items 2 and 3 (the instrumentation) moved from 8D to
 8A, 8D item 4 narrowed to the CI re-run and measured decision, and Section
 5.4's AGENTS.md defect count corrected to six. **8A is ACCEPTED** (2026-08-02
-independent acceptance; see `Fix.md`'s "Tier 8A independent acceptance" note)
-and **8B is authorized to begin.** Tier 7 is accepted as a whole (Tier 7K,
-2026-08-02); `SCI-001`, `SCI-002`, `SCI-003` are `DONE`; `SCI-004`,
-`SCI-005` are filed `ROADMAP`; `SCI-006`, `SCI-007` stay `OPEN`; `PERF-001`
-stays `ROADMAP`; `SKY-002` is `OPEN` and is **absorbed by this tier**
-(Section 13); `CI-001` is `OPEN`, filed at 8A. Tier 8 is the final tier of
-the remediation program defined by `Fix.md`.**
+independent acceptance; see `Fix.md`'s "Tier 8A independent acceptance" note).
+**8B is ACCEPTED** (2026-08-02 independent acceptance; see `Fix.md`'s "Tier 8B
+independent acceptance" note) **and 8C is authorized to begin.** Tier 7 is
+accepted as a whole (Tier 7K, 2026-08-02); `SCI-001`, `SCI-002`, `SCI-003` are
+`DONE`; `SCI-004`, `SCI-005` are filed `ROADMAP`; `SCI-006`, `SCI-007` stay
+`OPEN`; `PERF-001` stays `ROADMAP`; `SKY-002` is `OPEN` and is **absorbed by
+this tier** (Section 13); `CI-001` is `OPEN`, filed at 8A; `API-001` is
+`OPEN`, filed at 8B independent acceptance (a `stokes_to_coherency` broadcast
+ergonomics gap found while verifying 8B's docstring correction — no solver
+path reachable, not a Tier 8 blocker). Tier 8 is the final tier of the
+remediation program defined by `Fix.md`.**
 
 This document is the governing implementation specification for Tier 8,
 defined by [`Fix.md`](Fix.md) Section 17 ("Tier 8 — Documentation and release
@@ -1152,13 +1156,32 @@ slice SHA with its per-job result stated honestly.
 6. The version bump and the `[0.3.0]` changelog section including "Known
    limitations" (Section 16), gated on Q1.
 7. Section 11 scans 2, 7 and 8 (naming, GPU-claim citation, `pixi run` task
-   existence) added to the acceptance module.
+   existence) added to the acceptance module. **A specific pre-existing
+   instance for scan 7 to catch, found and routed here at the 8B independent
+   acceptance review**: `src/radiosim/simulator/__init__.py:12`'s module
+   docstring states "GPU acceleration via JAX backend" as a bullet under
+   `rime`'s current capabilities — an unsupported claim under `CLAUDE.md`'s
+   standing rule (no accelerator has ever been measured; the locked JAX build
+   is CPU-only and every measured JAX-CPU run is slower than NumPy,
+   `output/benchmarks/reference/`). `git log -S` dates the line to the
+   original RRIVis→RadioSim rename (`be231d2`), predating every prior tier's
+   register rows, so it is not `DOC-005`'s previously enumerated instance
+   (README.md/examples/README.md/the packaging extras) but the same defect
+   class, missed by Section 5's inventory. It is out of 8B's writable grant
+   (not a doctest failure, so 8B's docstring-fix clause does not reach it) and
+   is deliberately left unedited here. 8E either rewords the line to name
+   `PERF-001` in its enclosing paragraph or deletes the claim outright, and
+   confirms scan 7's file set (built on the Section 12 git-scoped lister)
+   actually reaches `src/**/*.py` docstrings and not only `docs/**`/`README*`,
+   so this instance fails the scan before it is fixed rather than being
+   silently out of scope.
 
 **Writable.** `AGENTS.md`; `CLAUDE.md`; `README.md`; `.gitignore`;
 `antenna_layout_examples/1101503312_metafits.fits`; `pyproject.toml`;
 `pixi.toml`; `src/radiosim/__about__.py`; `docs/conf.py`;
 `docs/changelog.rst`; `docs/contributing.rst` (test-directory description
-only); `tests/unit/test_release_metadata.py`;
+only); `src/radiosim/simulator/__init__.py` (the `:12` GPU-claim sentence
+above, only — no logic edit); `tests/unit/test_release_metadata.py`;
 `tests/unit/test_tier8_release_acceptance.py`;
 `tests/characterization/test_tier8_current_behavior.py`; `Fix.md`;
 `Tier8ReleasePlan.md`.

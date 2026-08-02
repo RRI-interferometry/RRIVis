@@ -225,6 +225,7 @@ Status values used below:
 | DOC-007 | DOCS | `AGENTS.md` describes an absent Hugging Face app | 8 |
 | DOC-008 | DOCS | No tracked CI and no real integration/performance suites | 8 |
 | CI-001 | OPEN | A **second byte-stable digest class on `linux-64-py311`** makes `main` red on one of eight CI jobs with an **unidentified discriminator**. Run `30726145633` at `95a937e` fails five characterization pins (`test_tier6_current_behavior.py::test_shipped_default_config_scientific_fingerprint`, `::test_shipped_circular_receptor_config_scientific_fingerprint`, `::test_section_13_4_workload_fingerprints[heterogeneous_receptor_bases]`, and the two `test_tier7_current_behavior.py` fingerprint pins that import the Tier 6 tables — three distinct measurements) while run `30725507865` at `47df8fc` is green on all eight with a **byte-identical `src/`/`tests/` tree** (`git diff 47df8fc..95a937e -- src/ tests/` is empty). The raw cube digest moves too, not only `scientific_sha256`, so this is a numbers change and not metadata. The class is **reproducible, not a race**: the measured `config.yaml` `scientific_sha256` (`89f38f62...`) is byte-identical across runs `30726145633`, `30719161877` and `30705549269` on three CPU models from two vendors (AMD EPYC 9V74, Intel Xeon 6973P-C, Intel Xeon Platinum 8573C), and every within-process reproducibility test passes in the failing job. **The module's own stated discriminator is falsified**: `test_tier6_current_behavior.py:226-246` attributes the axis to NumPy's dispatched vector feature set, but the AMD run's feature list omits `AVX512FP16`/`AVX512_SPR` that both Intel runs report and all three produce the identical digest, and the originally recorded value was itself measured on an AMD EPYC 9V74. Ruled out with evidence: source regression; xdist presence, worker count and ordering; numpy/astropy/OpenBLAS drift (`locked: true`, with identical `libblas`, `libopenblas` and `astropy-iers-data` in the red and green jobs' installed-package logs); astropy IERS auto-download; `PYTHONHASHSEED`; thread counts; uninitialized memory. It appears in 3 of the 8 runs on that cell since it first appeared (~38%), and 11 of the last 25 CI runs failed — all 11 in this one pin family. **Filed 2026-08-02 at Tier 8A** per `Tier8ReleasePlan.md` Section 14, which ratifies three acts and refuses a fourth: (1) this row; (2) `_machine_fingerprint()` now emits **unconditionally** — written to gitignored `output/characterization/` on pass as well as fail, and widened to carry the thread environment and BLAS build — because the structural evidence gap is that the helper was reachable only from the `pytest.fail` branch and was added after the green `linux-64-py311` baseline was harvested, so **nothing has ever been recorded about a passing runner on that cell**; (3) pin failures now report a **numeric delta** (`max\|dV\|`, max relative delta, differing-element count, first differing index) against every captured reference cube and name the nearest recorded observation, because a digest gate cannot distinguish 1 ULP from 100% and no failing log in the last 25 runs contains a single number. **Refused: a fifth reflex append.** Four prior commits (`e3f1987`, `1c90d81`, `e5b20d1`, `0ce72e4`) appended a newly observed digest on disagreement; appending again under a rationale now known to be false would violate the module's own rule that "a set never grows to make a failure go away" (`test_tier6_current_behavior.py:271-273`) and §4.2. Whether the observed class may be appended once the numeric probe runs, on an honest justification naming the discriminator as unidentified and recording the measured delta, is Tier 8 gated question Q3 and is decided by measurement at 8D. **Root cause is explicitly not Tier 8's**: naming the discriminator needs runner access or instrumented dumps of intermediate quantities from both classes, and the hypothesis space still includes hypervisor CPU-feature masking and `libm`/OpenBLAS runtime dispatch, neither of which current instrumentation captures. **Successor decision, named and deferred**: whether a bitwise digest is the right cross-platform gate at all — versus pinning a reference cube and asserting the `rtol=1e-12` tolerance the project already uses for backend parity, with the digest kept advisory — is a real design question that changes what the gate *means*, and Tier 8 does not make it, because weakening a reproducibility gate on evidence that cannot yet distinguish harmless last-bit dispatch from a real numerical difference is exactly the trade this program exists to stop. Blocks any "CI is green" claim while open | 8A filing and instrumentation; discriminator and successor gate design post-Tier-8 |
+| API-001 | OPEN | `stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np)` (`src/radiosim/core/polarization.py:73`) does not broadcast a scalar keyword default against a non-scalar positional argument: the rows are assembled with `xp.stack`, which requires every stacked array to share one shape, so `stokes_to_coherency(np.ones(5))` — the single most basic array-input call, using every default — raises `ValueError: all input arrays must have the same shape` instead of broadcasting `Q=U=V=0` to `(5,)`. Reproduced directly, 2026-08-02. **No solver path is affected**: both production call sites (`core/visibility.py:754`, `core/visibility_healpix.py:574`) always pass four already-matched-shape arrays explicitly, confirmed by direct read. Tier 8B's docstring correction (`a3ef72d`) already documents this precisely and is the *closure* of the truthfulness defect (state 1-3 per §4.2's discipline, applied by `Tier8ReleasePlan.md` §7); this row tracks the *underlying ergonomics gap* the corrected prose newly discloses, which the prose fix does not and should not silently absorb. Filed at Tier 8B independent acceptance review, 2026-08-02, as a disclosed, non-blocking, low-priority API-polish item (broadcast the three scalar defaults against `stokes_I`'s shape, or `xp.broadcast_arrays` all four, before `stack`) — not a Tier 8 blocker, since the truthfulness defect it was found investigating is already closed | post-Tier-8, low-priority, bounded |
 
 ## 6. Question-by-question findings and target behavior
 
@@ -14564,3 +14565,188 @@ and the two instrumentation acts are exactly what Section 14 specifies —
 gitignored, capped, disableable, and load-bearing for the next divergence's
 adjudication rather than incidental. **Slice 8A is ACCEPTED. Slice 8B is
 authorized.**
+
+### 2026-08-02 Tier 8B independent acceptance
+
+Independent adversarial review of `514ba9c` (`docs(release): correct Tier 8
+design`) and `127bb2b` (`fix(examples): reconcile the example surface with the
+public API`) against `main` at `127bb2b`. **Verdict: ACCEPTED, with one new
+register row filed (`API-001`) and one bounded plan correction applied
+(routing a previously-unlisted `DOC-005`-class instance to 8E), neither
+changing any 8B decision. Plan status header updated. Slice 8C is
+authorized.**
+
+**`514ba9c` re-verified.** Its claim is exactly its diff: `main()` asserted
+the built-in example's `(1, 15, 2, 4)` unconditionally
+(`examples/scripts/simple_simulation.py:125` pre-8B), so `--config` against
+any shipped document raised `AssertionError`. **Reproduced directly** in a
+detached worktree at `27a8d87`: `--config configs/config.yaml` prints through
+setup and the visibility calculation, then dies with `AssertionError` at
+line 125, exit trapped by `raise SystemExit(main())`. The grant `514ba9c`
+adds — `examples/scripts/simple_simulation.py` for exactly this one scoping —
+is honored exactly: the diff is `if args.config is None:` around the existing
+assertion, nothing else; the file still defines exactly three flags
+(`--config`, `--backend`, `--progress`), confirmed via a live `--help` read;
+running `--config configs/config.yaml` at HEAD now exits 0 and prints
+`(60, 15, 101, 4)`, the dimensions Section 5.1/10 name. The default (no
+`--config`) path's `scientific_sha256` is byte-identical before and after
+(`ca3b3a2edfac761a268204974c85d34a9c3acc3b36dcc702bee2567b92438a85`, both
+`27a8d87` and HEAD, compared across two detached worktrees) — the fix touched
+no solver logic, as claimed.
+
+**Q4 ruling: RATIFIED, option (a).** The first real `pytest --doctest-modules
+src/radiosim` run was reproduced independently at `27a8d87` (script copied to
+this environment's interpreter): **54 collected, 34 failed, 20 passed** —
+matching the module's own addendum exactly, including the specific failure
+diagnosing `NameError: instrument_view` at `rime.py`. At HEAD, `pixi run
+doctest` collects **41 items, all passing**, in both `default`/py311 and
+`py312`. Diffing the collected-item sets between the two commits (not just
+the counts): **exactly 13 items present at `27a8d87` and absent at HEAD, zero
+items added** — `radiosim.api.simulator` (module, class, and three methods:
+`get_memory_estimate`, `run`, `setup`), `radiosim.core.jones` (module),
+`radiosim.core.jones.chain.JonesChain` (class and `add_term`),
+`radiosim.core.sky.loaders.diffuse.create_gsm_observer`,
+`radiosim.core.sky.loaders.vizier.inspect.get_catalog_columns` and
+`get_racs_columns`, `radiosim.core.visibility.calculate_visibility`, and
+`radiosim.simulator.base.VisibilitySimulator.validate_inputs`. Every one of
+the 13 was read directly, not sampled: five need a configuration document on
+disk (`Simulator.from_yaml("config.yaml")`, absent at doctest working
+directory); three need solver-assembled inputs no caller outside `Simulator`
+holds (`JonesChain` terms, `calculate_visibility`'s `instrument_view`,
+`validate_inputs`'s resolved instrument view); three make a real network call
+— confirmed by reading the function bodies, not asserted: `get_catalog_columns`
+calls `Vizier().get_catalogs(...)`, `get_racs_columns` calls
+`TapPlus(url=CASDA_TAP_URL)`, both behind `require_service(...)`, and
+`create_gsm_observer` imports `pygdsm` and downloads its basemap. The two
+"wrong docstring" corrections were verified against current source, not
+taken on the commit message's word: `beam/analytic/numerical_hpbw.py` and
+`beam/analytic/taper.py` imported `radiosim.core.jones.beam.taper` and
+`radiosim.core.jones.beam.numerical_hpbw`, both nonexistent since the
+analytic package split (confirmed: only `radiosim.core.jones.beam.analytic.*`
+exists on disk); `stokes_to_coherency`'s docstring claimed "All inputs
+broadcast to common shape", and `stokes_to_coherency(np.ones(5))` — every
+default, one array argument — reproducibly raises
+`ValueError: all input arrays must have the same shape` (see `API-001`
+below). Zero `DoctestItem`s collect under the standard gate
+(`pixi run test -- --collect-only` shows one hit for the string "doctest",
+which is the *name* of the pin function asserting exactly this, not a
+collected doctest). **Ruling on (a) vs. (b)**: ratified. The measured count
+(34) sits inside the fuzz of the design's own "roughly thirty" threshold, and
+the concrete artifact Section 9 item 3 commits to — the `doctest` pixi task
+string — is unqualified over all of `src/radiosim`, so option (b) would have
+required inventing an unwritten module boundary and filing a debt row for a
+remainder the plan never scoped. Fixing all is also the cheaper-to-verify
+outcome for a reviewer: a partial-fix module list is one more surface that
+can drift.
+
+**The network-doctest demotion, ruled correct.** All 13 demotions are
+`.. code-block:: python` (no `>>>`), not `# doctest: +SKIP` markers or a
+pytest network marker. This is the right mechanism, not merely an acceptable
+one: it removes the items from the *collected* count honestly (54→41, not
+54-with-13-skipped, which would still imply a coverage claim pytest's own
+summary line would then have to caveat), and it is the same treatment
+Section 9 item 4 already prescribes for the 25 `.rst`/11 `.md` prose blocks —
+one convention for "illustrative, not executed" across both surfaces rather
+than two. A `+SKIP` doctest would have kept a `>>>` prompt promising
+execution it does not deliver, which is exactly the state-4-dressed-as-
+state-1 problem Section 7 forbids.
+
+**Dispositions.**
+
+1. **`stokes_to_coherency` API-vs-doc divergence: prose-fix suffices for the
+   truthfulness defect; the underlying ergonomics gap gets a new row,
+   `API-001` (`OPEN`, filed above in `Fix.md` §5).** The corrected docstring
+   now states the true behavior exactly (verified: mixing an array `stokes_I`
+   with the scalar keyword defaults raises `ValueError` from `xp.stack`,
+   reproduced directly). Whether the *function* should instead broadcast is a
+   separate, non-blocking question: both production call sites
+   (`core/visibility.py:754`, `core/visibility_healpix.py:574` — read
+   directly, both pass four already-matched-shape arrays) never reach the
+   failing path, so no solver output is at risk. `API-001` is filed
+   post-Tier-8, low-priority, bounded — disclosed rather than silently
+   absorbed, per §4.2, without inflating 8B's scope to include a behavior
+   change no doctest failure required.
+2. **The network-doctest demotion reading**: ratified above.
+3. **`src/radiosim/simulator/__init__.py:12`'s "GPU acceleration via JAX
+   backend"**: a real, previously undisclosed `DOC-005`-class defect, found
+   during this review while checking 8B's docstring edits for scope
+   creep (the file was touched at 8B, but only its `Quick Start` example
+   block — line 12 is untouched, confirmed by the commit diff, so 8B did not
+   introduce or worsen it). No routing note existed for this specific
+   instance before this review. `git log -S` dates the line to `be231d2`,
+   the original RRIVis→RadioSim rename — it predates every Tier register row
+   and was missed by the design gate's Section 5 inventory (which covered
+   `README.md`, `examples/README.md`, and the `pyproject.toml` extras, not
+   this docstring). It is out of 8B's writable grant (not a doctest failure,
+   so 8B's docstring-fix clause does not reach it) and was correctly left
+   unedited. **Bounded correction applied**: routed to 8E (not 8C — 8C's
+   Section 17 work is Sphinx strictness and API-page completeness; the
+   GPU-claim citation scan is Section 11 item 7, explicitly an 8E work item),
+   with the specific line named, the writable-grant widened by exactly that
+   one line, and a note requiring 8E to confirm scan 7's file set actually
+   reaches `src/**/*.py` docstrings rather than only prose documents.
+
+**Gates, both environments (`default`=py311, `py312`).** `pixi run test -- -m
+"not slow"`: **5346 passed, 1 skipped, 10 deselected** in both, with **27**
+warnings under py311 and **41** under py312 — matching the claimed
+5338+8/1/10 and 27/41 exactly (`--collect-only` independently confirms
+5346/5356 collected, 10 deselected). `pixi run doctest`: **41 passed** in
+both environments. `pixi run test -- --collect-only` (the standard gate)
+shows zero `DoctestItem`s. `pixi run lint`: clean. `pixi run check-format`:
+clean (374 files already formatted). All four `configs/*.yaml` validated
+cleanly via `radiosim validate`. The `core.sky` laziness guard
+(`test_sky_core_dep_guard.py`) passed within the full-suite run and directly
+under `-k lazy` (20 passed, 1 skipped). A Sphinx `-b html -E` build in a fresh
+detached worktree at `127bb2b` with no `docs/superpowers/` present reported
+"build succeeded, 16 warnings" verbatim — unchanged from the 8A baseline, as
+expected since 8B's writable grant excludes `docs/**` and `git diff
+27a8d87..127bb2b -- docs/` is empty (no RST touched, so there is nothing for
+an RST-list fix to have introduced; zero new warnings). `git diff
+27a8d87..127bb2b -- tests/characterization/test_tier6_current_behavior.py`
+is empty (zero-byte, confirmed by `git diff --exit-code`) — the Tier 6
+fingerprint module is untouched, as its exclusion from 8B's writable list
+requires. The four 8B-owned characterization flips
+(`test_examples_readme_documents_exactly_the_flags_the_script_defines`,
+`test_examples_readme_names_the_live_backend_set_and_not_numba`,
+`test_examples_readme_lists_all_four_shipped_configurations`,
+`test_doctests_are_a_real_scoped_invocation_and_not_a_dead_flag`) are exact
+inversions of their pre-8B pins, read directly. The new
+`tests/unit/test_tier8_release_acceptance.py` is 8 tests exactly (3 flag-parity
++ 1 count + 2 named-config (parametrized) + 1 completeness + 1
+network-flagged), confirmed by `--collect-only`; a live probe — adding an
+undocumented `--probe-only-flag` to a scratch copy of the script and reverting
+immediately — reproduced a failure naming exactly that flag, then a clean
+pass after reverting, so the parity test is a real, non-tautological check,
+not a test that would pass regardless. Fail-before evidence reproduced
+directly: swapping the pre-8B `examples/README.md` (`git show 27a8d87:
+examples/README.md`) into the working tree and reverting immediately, the new
+acceptance module fails **exactly 4** of its 8 scans
+(`test_examples_readme_documents_no_flag_the_script_does_not_define`,
+`test_examples_readme_documents_every_flag_the_script_defines`,
+`test_every_command_examples_readme_prints_uses_only_real_flags`,
+`test_examples_readme_describes_every_shipped_configuration`), plus 3 of the
+characterization module's pins (the fourth, the doctest pin, does not depend
+on `README.md` and correctly does not move). `git status` was clean before,
+during (each probe reverted with `git checkout --`), and after every
+reproduction. No `Co-Authored-By` line in either `514ba9c` or `127bb2b`.
+
+**Unobserved.** This review did not execute the two demoted network doctests
+against a live VizieR/CASDA connection (by design — that is the point of the
+demotion, and doing so was not necessary to confirm the code path reaches the
+network client); did not run the actual CI workflow remotely, relying on
+local reproduction of both gating environments; and did not verify the
+notebook's execution inside the `quality` CI job, since that wiring is
+correctly 8D's work — only that `jupyter nbconvert --to notebook --execute
+--stdout examples/notebooks/01_basic_usage.ipynb` runs clean offline today
+(exit 0, five cells, no artifact written, `git status` clean after).
+
+Tier 8B is a clean, narrowly-scoped examples-and-doctests slice: the
+`--config` bug is real, reproduced, and fixed with exactly the granted
+one-line scope change; the doctest debt was measured before the scope
+decision was made, and the decision matches the plan's own stated appetite;
+every demotion is independently verified non-executable for one of three
+named reasons, not asserted; the new acceptance module is proven
+non-tautological by live probe; and the one adjacent defect this review found
+outside 8B's own diff (`API-001`, the `simulator/__init__.py:12` GPU claim) is
+disclosed and routed rather than either silently fixed out-of-grant or
+silently ignored. **Slice 8B is ACCEPTED. Slice 8C is authorized.**
