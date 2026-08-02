@@ -1403,7 +1403,19 @@ that 0.3.0 ships an `fft` and a `matvis` simulator that do not exist. Both are
 `Fix.md` §4.2 defects of exactly the class item 7 exists to remove. The grant
 is therefore the **module docstring's capability, speed, and roadmap-version
 claims**, still with no logic edit; the two `See Also` cross-references the 8C
-re-review confirmed as non-instances stay unedited.
+re-review confirmed as non-instances stay unedited. The same `(v0.3.0+)`
+roadmap heading appears twice more — `simulator/__init__.py`'s
+`get_simulator` parameter docstring ("Future options (v0.3.0+)") and
+`simulator/base.py:39`'s class docstring ("Future Implementations
+(v0.3.0+)") — and the bump falsifies all three identically, so `base.py`'s
+grant is likewise the `supports_gpu` docstring **and that heading**,
+docstrings only. Section 11 scan 7's package-source half is scoped to
+capability-claim language (a device name bound to a verb of support or
+achievement, or a speed multiplier) rather than to the bare `gpu`/`tpu`
+token, exactly as the 8C re-review ruled: `utils/device.py`'s vendor probes,
+`backends/`'s `jax.devices("gpu")` calls and `device_kind` values are facts
+about the host machine, not claims about RadioSim, and a scan that failed on
+them would be uninstallable rather than strict.
 
 **Gate.** the full `Fix.md:1636-1645` verification gate, plus
 `pixi run radiosim --version` reporting the bumped version.
