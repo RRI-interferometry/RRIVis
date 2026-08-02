@@ -1368,6 +1368,43 @@ sentence above, only — no logic edit); `src/radiosim/simulator/base.py` (the
 `tests/characterization/test_tier8_current_behavior.py`; `Fix.md`;
 `Tier8ReleasePlan.md`.
 
+**Correction, forced at 8E implementation — the extras removal has five call
+sites the design did not enumerate.** Section 15.3's blast-radius paragraph
+says the extras removal is "a metadata-only edit" because `pixi` environments
+do not read `[project.optional-dependencies]`. That is true of environments and
+false of *documents and error messages*: `pip install radiosim[gpu]`,
+`[gpu-cuda]`, `[gpu-rocm]` and `[tpu]` are named at `README.md:74-75`,
+`docs/installation.rst:24-25`, `docs/user_guide/backends.rst:252-253`,
+`src/radiosim/backends/__init__.py:246-248,270` and
+`src/radiosim/backends/jax_backend.py:115-118`, and `pyproject.toml:113`'s
+`all` extra composes `radiosim[gpu,...]`. Deleting the extras without those
+five sites would leave the package telling a user, from inside a raised
+`BackendNotAvailableError`, to install an extra that does not exist — a new
+falsehood created by the slice whose purpose is to remove one, and one no
+Section 11 scan would catch because none of them is a capability claim. The
+writable list therefore gains `docs/installation.rst` and
+`docs/user_guide/backends.rst` (**the extras-naming lines only** — no other
+edit to either page, both of which 8C rebuilt clean under `-W`) and
+`src/radiosim/backends/__init__.py` and
+`src/radiosim/backends/jax_backend.py` (**the install-hint message strings
+only** — no logic, no signature, no control flow). The honest replacement name
+is the single `jax` extra Section 15.3 already prescribes.
+
+**Correction, forced at 8E implementation — the `simulator/__init__.py` grant
+is widened from one sentence to the module docstring's claim lines.** The
+`:12` bullet does not stand alone: the same docstring carries
+`Future Implementations (v0.3.0+)` with `- **fft**: ... (10-100× faster for
+large source counts)` three lines below it. Item 7's grant of the `:12`
+sentence, read strictly, would have 8E delete one unmeasured accelerator claim
+and leave an unmeasured **speed multiplier** for an unwritten simulator
+directly beneath it, and would have the version bump this same slice performs
+turn `(v0.3.0+)` — a heading that means "not in this release" — into a promise
+that 0.3.0 ships an `fft` and a `matvis` simulator that do not exist. Both are
+`Fix.md` §4.2 defects of exactly the class item 7 exists to remove. The grant
+is therefore the **module docstring's capability, speed, and roadmap-version
+claims**, still with no logic edit; the two `See Also` cross-references the 8C
+re-review confirmed as non-instances stay unedited.
+
 **Gate.** the full `Fix.md:1636-1645` verification gate, plus
 `pixi run radiosim --version` reporting the bumped version.
 
