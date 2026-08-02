@@ -268,7 +268,9 @@ benchmark honesty rules. Three defects:
   ("Pre-v1 API Evolution Policy"), added in Tier 0. The TODO is discharged and
   stale.
 
-**`AGENTS.md` (39 lines, tracked) has five live defects**:
+**`AGENTS.md` (39 lines, tracked) has six live defects** (corrected from "five"
+at 8A: the enumeration below has always listed six, and
+`tests/characterization/test_tier8_current_behavior.py` pins all six):
 
 - `AGENTS.md:4` — "`backends/` for NumPy/JAX/**Numba** execution". Removed in
   Tier 6H.
@@ -982,15 +984,29 @@ effect is measurable, and file the CI row.
    `docs/superpowers/` inflation (18) as an explicit note in the module
    docstring, citing the 7I ruling, so no later slice re-litigates it.
 3. File `CI-001` in `Fix.md` §5 per Section 14, with the §5.6 evidence.
-4. Record the 5332-test collection baseline and the exact `pixi run test`
+4. Land Section 14's items 2 and 3 — the unconditional machine-fingerprint
+   emission and the numeric delta on the pin-failure path — in
+   `tests/characterization/test_tier6_current_behavior.py`. **Moved here from
+   8D** (correction applied at 8A): the emission's whole value is that a green
+   run leaves a record of the runner that produced an *accepted* digest, so
+   every CI run from this slice onward becomes evidence; deferring it to 8D
+   discards 8B's and 8C's runs, which on a ~38% recurrence rate are the most
+   likely places the next observation appears. Both changes are evidence-path
+   only: no digest table grows, no assertion changes, and a check that supplies
+   no cube behaves exactly as before, so `test_tier7_current_behavior.py`'s call
+   sites need no edit and stay outside this slice.
+5. Record the 5332-test collection baseline and the exact `pixi run test`
    result on this host.
 
 **Writable.** `tests/characterization/test_tier8_current_behavior.py` (new);
-`Fix.md` (register row + slice acceptance note); `Tier8ReleasePlan.md` (status
-header).
+`tests/characterization/test_tier6_current_behavior.py` (the Section 14 items 2
+and 3 instrumentation and its module-docstring note — **evidence and message
+path only**; digest tables untouched); `Fix.md` (register row + slice acceptance
+note); `Tier8ReleasePlan.md` (status header).
 
 **Gate.** `pixi run test -- tests/characterization/`, `pixi run lint`,
-`pixi run check-format`.
+`pixi run check-format`, plus a bit-identity check that the three hermetic
+shipped-config fingerprints are byte-identical to their values at `397c0e1`.
 
 ### 8B — Examples, doctests, and executed documentation
 
@@ -1064,8 +1080,10 @@ warnings in a clean detached worktree; `pixi run test`; `pixi run lint`;
    subprocess, producing an on-disk run directory whose manifest, HDF5, and
    summary JSON are then read back — which is `Fix.md:1604` item 9's actual
    ask and the one thing `tests/integration/` does not currently do.
-4. Fingerprint instrumentation (Section 14 items 2 and 3), then a CI re-run and
-   the measured decision on the digest class.
+4. The CI re-run on 8D's SHA and the measured decision on the digest class.
+   (Section 14's items 2 and 3, the instrumentation itself, moved to 8A —
+   see that slice's item 4 — so that 8B's and 8C's CI runs are already
+   producing the evidence this decision reads.)
 
 **Writable.** `tests/support/__init__.py`, `tests/support/repo_scan.py` (new);
 the 10 converted test files; `tests/integration/test_cli_end_to_end.py` (new);
@@ -1085,7 +1103,7 @@ slice SHA with its per-job result stated honestly.
 ### 8E — Final sweep, agent-facing truth, changelog, and release metadata
 
 **Work.**
-1. `AGENTS.md`: all five defects (Section 5.4) — Numba, the test-directory
+1. `AGENTS.md`: all six defects (Section 5.4) — Numba, the test-directory
    list, the Hugging Face sentence (`DOC-007`), the doctest/marker sentence,
    the RRIVis naming, the discharged TODO — plus a sentence describing the 41
    `simulators/` submodules and the fact that a plain `git clone` does not
